@@ -1,6 +1,5 @@
 .venv/
 .pytest_cache/
-.playwright-mcp/
 __pycache__/
 *.py[cod]
 *.egg-info/

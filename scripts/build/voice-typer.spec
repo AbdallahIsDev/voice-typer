@@ -166,7 +166,7 @@ elif sys.platform == "darwin":
     _hiddenimports += ["CoreAudio"]
 
 a = Analysis(
-    [str(_PROJECT_ROOT / "voice_typer" / "__main__.py")],
+    [str(_PROJECT_ROOT / "voice_typer" / "server" / "ipc_server.py")],
     pathex=[str(_PROJECT_ROOT)],
     binaries=_native_binaries,
     datas=[

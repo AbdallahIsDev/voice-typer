@@ -1,481 +1,6 @@
-# Voice Typer — Comprehensive Product Review
+# Voice Typer — Open Findings (Comprehensive Review)
 
-**Generated**: 2026-07-14
-**Scope**: Permanent Product Improvements Review across 4 review areas
-**Status**: Findings compiled; fixes applied to high-priority items .
-
----
-
-## c-review
-
-**Scope**: Performance, memory usage, CPU usage, cross-platform compatibility (Windows/macOS/Linux), and build/CI/CD. Focus on Python backend, Electron main process, and the build pipeline.
-
-
-### Findings — Performance
-
-#### PERF-05
-- **Category**: performance
-- **Severity**: Medium
-- **File**: voice_typer/server/app.py:1312 (`time.sleep(0.3)` in `restart_app`)
-- **Description**: `restart_app` calls `time.sleep(0.3)` "to give Electron time to process `relaunch_electron`" before closing the TCP socket. This blocks the calling thread (the pystray tray thread) for 300ms. During that window, the tray icon is unresponsive to menu clicks and any IPC dispatch handled on the same thread is blocked. The 300ms is a magic number that's too short for a slow Electron main thread (GC pause) and too long for a fast one. The proper pattern is a Condition variable / ack: publish `relaunch_electron` with a request ID, have Electron send back `relaunch_ack` over TCP, and `wait(timeout=2.0)` on the ack.
-- **Fix**: Replace `time.sleep(0.3)` with `event.wait(timeout=2.0)` on a `threading.Event` set by an `relaunch_ack` IPC handler. Falls back to the 2s timeout if Electron doesn't ack (same behavior as today's 300ms magic number, but bounded and event-driven).
-
-#### XPLAT-02
-- **Category**: cross-platform
-- **Severity**: Medium
-- **File**: voice_typer/client/electron-builder.yml:82-90 (`afterInstall: ../../scripts/linux/postinst`)
-- **Description**: The Linux `deb` and `rpm` sections use relative paths (`../../scripts/linux/postinst`) for `afterInstall` / `afterRemove`. These paths are resolved relative to electron-builder's CWD (`voice_typer/client/`), so `../../scripts/linux/` resolves to `<project-root>/scripts/linux/` — correct today, but fragile: if electron-builder changes its CWD expectation (it has happened in past major versions), or if the build is invoked from a different directory (e.g. `npx electron-builder --config voice_typer/client/electron-builder.yml` from the project root), the path breaks silently and the postinst script is not included in the .deb. The user gets a package without the udev rule setup, so Caps Lock hotkey doesn't work until they manually run the setup script.
-- **Fix**: Copy the Linux scripts into `voice_typer/client/resources/linux/` (which electron-builder includes in the build context) and reference them as `afterInstall: resources/linux/postinst`. Or use a build hook (`afterPack` in a JS file) that resolves paths via `path.resolve(__dirname, '../../../scripts/linux/postinst')`.
-
----
-
-#### CI-01
-- **Category**: build-ci
-- **Severity**: High
-- **File**: .github/workflows/build.yml:188-195 (`pip-audit (hard-fail on all findings)`)
-- **Description**: The `pip-audit` step runs `pip-audit --strict` with NO `--ignore-vuln` list and a hard-fail gate (the `|| (echo "::error::..." && exit 1)` pattern). Any new CVE in any pinned dependency blocks the PR. The weekly `pip-audit-weekly` job (build.yml:200-240) is the triage backstop, but the per-PR gate causes repeated CI breakage whenever upstream CVEs are announced (requests, urllib3, jinja2, pillow, and cryptography are frequent offenders — multiple CVEs per quarter). The accepted-findings list is documented as "currently EMPTY" in the comment at line 175, meaning there is NO triaged-ignore path. A contributor whose PR is blocked by an unrelated CVE has no recourse except to wait for a maintainer to update the ignore list.
-- **Fix**: Maintain a small `--ignore-vuln GHSA-XXXX-XXXX-XXXX` list with a justification comment above each line (the workflow comment at line 178 already documents the pattern). Triage new findings weekly via the `pip-audit-weekly` job. Move the per-PR gate to `continue-on-error: true` with a warning annotation, so new findings are surfaced but don't block PRs.
-
-#### CI-02
-- **Category**: build-ci
-- **Severity**: Medium
-- **File**: .github/workflows/build.yml:24-31 (test matrix)
-- **Description**: The test matrix runs Python 3.10/3.11/3.12/3.13 × Windows/macOS/Linux = 12 jobs per PR, with `fail-fast: false` so all 12 run to completion even if one fails. For a PR that touches only frontend (`voice_typer/client/**`) or docs, this is wasteful — 12 jobs × ~10 min each = ~120 CI-minutes per PR. There's no `paths:` filter on the `pull_request` trigger, so even a README change triggers the full matrix. The `concurrency` group only covers releases (`release-${{ github.ref }}`), not PRs — so two pushes to the same PR both run all 12 jobs.
-- **Fix**: (a) Add a `paths:` filter to skip the test matrix for `*.md`, `docs/**`, `voice_typer/client/**/*.md` changes. (b) Add `concurrency: group: pr-tests-${{ github.ref }}, cancel-in-progress: true` to cancel the previous run when a new commit is pushed. (c) For PRs, run a reduced matrix (3.12 on Linux + 3.13 on Windows/macOS = 3 jobs) and reserve the full 12-job matrix for `push: branches: [main]` and tag pushes. (d) Optionally use a path-aware `if:` to skip the test job entirely when only `voice_typer/client/**` changed (the `client-build` job already covers frontend).
-
-#### CI-03
-- **Category**: build-ci
-- **Severity**: Medium
-- **File**: .github/workflows/build.yml:590-595 (build-windows PyInstaller), 700-710 (build-macos), 782-795 (build-linux)
-- **Description**: The three build jobs (`build-windows`, `build-macos`, `build-linux`) re-run `pyinstaller` and `npx electron-builder` from scratch on every run. PyInstaller re-bundles ~500MB of torch+transformers+numpy+scipy; electron-builder re-downloads the Electron binaries (~200MB per arch) on every macOS build. There's no caching of `~/.cache/electron-builder`, `~/.cache/pyinstaller`, or the `build/` directory. On macOS the build also runs `npm ci` (line 698) which re-installs all client deps. Total: each build job takes ~10-15 min, of which ~5-8 min is re-downloading/re-bundling things that didn't change.
-- **Fix**: (a) Cache `~/.cache/electron-builder` and `~/.cache/pyinstaller` using `actions/cache@v4` with `key: ${{ runner.os }}-electron-${{ hashFiles('voice_typer/client/package-lock.json') }}` and `key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml', 'requirements-lock.txt') }}`. (b) Cache the `build/` and `dist/` directories between runs of the same job (invalidated on spec/pyproject changes). (c) Extract a reusable workflow (`/.github/workflows/build-platform.yml`) called by all three jobs to deduplicate the install + build steps.
-
-#### CI-04
-- **Category**: build-ci
-- **Severity**: Medium
-- **File**: .github/workflows/build.yml:650 (`build-macos: runs-on: macos-13`)
-- **Description**: `build-macos` runs on `macos-13` (Intel). GitHub Actions has announced that `macos-13` is being deprecated and will be removed (the `macos-14` and later runners are Apple Silicon). Once `macos-13` is removed, the macOS build job will fail with "The workflow was not triggered but has dependencies on macos-13 which is no longer available." The `build-macos-universal` job (line 490) already runs on `macos-latest` to merge x64 + arm64 binaries, so the PyInstaller bundle could also be built on `macos-14` with `--arch x64` cross-compilation.
-- **Fix**: Migrate `build-macos` to `macos-14` (Apple Silicon). PyInstaller on arm64 can build x64 bundles via `--target_arch x64` (requires the x64 Python interpreter; alternatively use `macos-13-large` if still available, or run two PyInstaller passes and `lipo` the bundles). Test the resulting .dmg on both Intel and Apple Silicon Macs. Set a deadline (e.g. "before 2025-Q4") to migrate before GitHub removes macos-13.
-
----
-
-### Notes for the primary agent
-
-- **PERF-01 / CPU-01** is the highest-impact finding: the Windows hotkey polling loop is a continuous CPU drain on every Windows laptop running VoiceTyper. The fix (use RegisterHotKey + WM_HOTKEY, or the already-bundled native binary) is well-scoped and the code already has the registration infrastructure.
-- **MEM-01** is a silent leak: failed backend loads accumulate GPU/CPU memory across fallback cycles. The fix is one line (`backend.unload()` before `unregister`). Worth fixing before the next release.
-- **PERF-03 (RT-safety regression)** is the most subtle: the level monitor was missed by the RT-SAFE-001 refactor and runs the full filter chain on the PortAudio thread. Symptom: audio glitches when the Microphone settings page is open during dictation. The fix mirrors the recording.py refactor.
-- **CI-01** (pip-audit hard-fail) will cause repeated CI breakage on every upstream CVE. The fix (maintain an ignore list + continue-on-error on PRs) is documented in the workflow comments but not implemented.
-- **CI-04** (macos-13 deprecation) is a ticking clock — GitHub will remove macos-13 and the macOS build will fail. Schedule the migration before 2025-Q4.
-- **CI-03** (no caching) is the biggest CI-minutes waste — each platform build re-downloads ~700MB of Electron + PyInstaller deps. The fix is `actions/cache@v4` with the right keys; payback is immediate.
-- **XPLAT-02** (relative `afterInstall` path) is fragile but works today. Low priority unless electron-builder is upgraded.
-- The cross-platform surface is generally well-handled: lazy imports for `pycaw`/`comtypes`/`CoreAudio`/`pactl`/`xclip`/`wl-paste`, platform dispatch in `microphone_watcher.py` (Windows WM_DEVICECHANGE, Linux /dev/snd polling, macOS CoreAudio listener), and `_paths.py` centralizes the config-dir logic. The remaining issues are minor.
-- The prewarm architecture (ADR-0009) is well-designed: PID file handshake, boot sentinel, cache ratio probe, background re-spawn on timeout. The only wart is the 500ms poll loop in `wait_for_prewarm` (CPU-04), which is on the critical startup path.
-
----
-
-## d-review: Security + Testing + Documentation + Code Quality Findings
-
-**Agent:** Subagent (Explore)
-**Scope:** Security (IPC auth, input validation, secret handling, file permissions, dependency vulnerabilities), testing infrastructure (coverage gaps, flaky tests, integration tests, isolation), documentation (README, ADR, API, contributing), code quality (dead code, duplication, complexity, naming).
-
-### Summary
-- Total findings: 16
-- Critical: 0, High: 2, Medium: 8, Low: 6
-
-Methodology: read `voice_typer/server/security.py`, `voice_typer/server/_secrets.py`, `voice_typer/server/ipc_server.py` (1902 LOC, full), `voice_typer/server/config.py` (1354 LOC) and `voice_typer/server/config_validators.py` (801 LOC, full), `voice_typer/server/telemetry.py`, `voice_typer/server/history_db.py:120-430`, `voice_typer/server/app.py:1095-1148`, `voice_typer/server/handlers/system_handlers.py`, `voice_typer/server/cloud_engines.py`+`llm_polish.py` (URL/TLS paths only), `voice_typer/client/src/main/index.ts:525-644` (ALLOWED_COMMANDS), all of `docs/API.md` + `SECURITY.md` + `CONTRIBUTING.md`, listed `docs/adr/` directory. Surveyed `tests/conftest.py`, `tests/test_security_hardening.py`, `tests/test_e2e_pipeline.py`, `tests/test_electron_ipc_and_build.py:353-403` (parity test), `tests/test_path_traversal.py`, `tests/test_import_model_security.py`, `pyproject.toml`, `requirements-lock.txt`, `.github/workflows/build.yml:165-260` (pip-audit). Grepped for `shell=True`, `eval(`/`exec(`, `pickle.`, `subprocess` usage, broad `except Exception` patterns, dead module references, ADR collisions.
-
-### Findings
-
-#### Finding 1
-- **Category**: security (IPC auth bypass)
-- **Severity**: High
-- **File**: voice_typer/server/ipc_server.py:629-662 (`IPCServer.start` — unconditional stdin listener), :1218-1266 (`_run` stdin loop, no auth handshake)
-- **Description**: `start()` ALWAYS spawns the stdin listener thread, regardless of whether TCP mode is also active. The comment at :654-656 asserts "In TCP mode stdin is unused (inherited from Electron, connected to /dev/null or NUL)" — but this is not enforced. When a user runs `python -m voice_typer.server.ipc_server --port 9876` directly from a terminal (the documented standalone/dev mode in CONTRIBUTING.md §2), stdin is the terminal and the `_run` loop accepts unauthenticated JSON commands. SEC-018's TCP token check (`_handle_tcp_connection:898-934`) does not apply to the stdin path — any process that can write to the backend's stdin (terminal multiplexer, IDE debugger, screen-sharing tool, malicious local process on a shared machine) can dispatch `quit_app`, `set_config`, `set_tray_locale`, etc. without knowing the session token. The Electron-spawned production path inherits stdin from Electron's `stdio: "inherit"` (index.ts:1432), which on Linux/macOS points to /dev/null — so the vulnerability is latent in production but active in any direct-terminal invocation.
-- **Root cause**: The stdin listener was retained for the legacy CLI/console path and is documented as "unused" in TCP mode, but the implementation does not gate startup on `not self._tcp_mode` (or any equivalent check). SEC-018 was added to TCP only.
-- **Fix**: Either (a) skip `self._stdin_thread.start()` when `self._tcp_mode` is True, OR (b) require the same `VOICE_TYPER_IPC_TOKEN` handshake on stdin's first line when `--port` is in use. Option (a) is the minimal fix and matches the documented behavior. Add a regression test that asserts `server._stdin_thread` is None after `start_tcp(port)` is called without a prior `start()`-only invocation.
-
-#### Finding 2
-- **Category**: security (incomplete command allowlist)
-- **Severity**: High
-- **File**: voice_typer/client/src/main/index.ts:532-622 (`ALLOWED_COMMANDS` Set — 58 entries); voice_typer/server/ipc_server.py:1320-1415 (`_COMMAND_REGISTRY` — 68 entries); tests/test_electron_ipc_and_build.py:393-403 (`test_allowlist_matches_server_commands` — only checks orphans)
-- **Description**: The Electron main process's `ALLOWED_COMMANDS` Set is missing 10 commands that the Python backend registers in `_COMMAND_REGISTRY`. Missing entries: `refresh_microphones`, `get_rms_level`, `get_audio_status`, `export_diagnostics`, `check_accessibility` (PLAT-030 macOS Accessibility permission check), `show_electron_notification` (TRAY-035), `get_vocabulary_suggestions`, `apply_vocabulary_suggestion`, `dismiss_vocabulary_suggestion` (P5 vocabulary automation — referenced in `AiEnhancementSettingsSection.tsx:13-14` comments), and `force_cancel_transcription` (PR-2 Finding #3 — stuck-transcription recovery, documented at ipc_server.py:1404-1408). The renderer's `call(...)` helper rejects any command not in `ALLOWED_COMMANDS` with `"Disallowed IPC command"` (index.ts:624-626), so these features silently fail when invoked from the UI. The existing parity test `test_allowlist_matches_server_commands` only checks the *orphan* direction (allowlist entries not in server registry) — its assertion `orphans = allowlist_entries - server_cmds; assert not orphans` is one-way, so the 10 missing-in-allowlist commands went undetected.
-- **Root cause**: The allowlist was last updated when the server registry had ~50 commands; the parity test was written to prevent dead entries (the original ERR-IPC-003 cleanup) but not missing entries. Each new server command was added without a corresponding edit to index.ts.
-- **Fix**: (a) Add the 10 missing commands to `ALLOWED_COMMANDS` in `client/src/main/index.ts` (each with a justification comment matching the existing style). (b) Strengthen `test_allowlist_matches_server_commands` to also check `missing = server_cmds - allowlist_entries; assert not missing, f"Allowlist is missing server commands: {sorted(missing)}"`. This makes the parity test bidirectional and prevents future drift in either direction.
-
-#### Finding 4
-- **Category**: documentation (inaccurate security claim)
-- **Severity**: Medium
-- **File**: docs/API.md:155 ("IPC Server — Protocol — Auth: Per-connection token validated on every request")
-- **Description**: The IPC Server section claims "Per-connection token validated on every request". The actual implementation (`_handle_tcp_connection:898-934`) validates the token only on the FIRST line of the connection (the auth handshake). After the handshake succeeds, all subsequent messages on the same connection bypass the token check entirely — they go straight to `_dispatch`. A compromised Electron renderer (or a process that hijacks the TCP connection after auth) can issue any command without re-authenticating. The current design is acceptable for the threat model (the token proves the connecting process is the Electron parent at connect time; the OS doesn't allow other processes to inject into an established TCP socket), but the doc is factually wrong about "every request".
-- **Root cause**: The doc was written generically and never reconciled with the actual handshake-once implementation.
-- **Fix**: Replace the claim with "Per-connection: the first message must be a JSON auth object whose `token` field matches the `VOICE_TYPER_IPC_TOKEN` env var (constant-time comparison via `hmac.compare_digest`). Subsequent messages on the authenticated connection bypass the token check." Cross-reference `SEC-018` in SECURITY.md for the threat model.
-
-#### Finding 5
-- **Category**: documentation (SECURITY.md count is stale)
-- **Severity**: Medium
-- **File**: SECURITY.md:37 ("only the ~35 commands in `ALLOWED_COMMANDS`")
-- **Description**: SECURITY.md states the Electron main process's allowlist contains "~35 commands". The actual count is 58 entries in `client/src/main/index.ts` (and the server registry has 68 — see Finding 2). The "~35" was probably accurate when the doc was written but is now off by ~70%. Security reviewers reading SECURITY.md will underestimate the attack surface (a larger allowlist = more commands a compromised renderer can invoke). The mismatch also obscures Finding 2: a reviewer cross-checking "35 commands" against the server registry of 68 would not immediately spot the 10 missing entries.
-- **Root cause**: The doc was not updated when commands were added.
-- **Fix**: Replace "~35 commands" with the actual count + a pointer to the source of truth: "only the 58 commands listed in `ALLOWED_COMMANDS` at `voice_typer/client/src/main/index.ts`". Add a CI test (`test_security_doc_command_count.py`) that parses SECURITY.md and asserts the documented count matches `awk '/ALLOWED_COMMANDS = new Set/,/^\s*\}\);/' voice_typer/client/src/main/index.ts | grep -cE '^\s*"[a-z_]+"'`.
-
-
-### Notes for the primary agent
-
-- **Findings 1, 2 are the highest-impact**: Finding 1 is a latent auth bypass that becomes active in any direct-terminal invocation of the backend; Finding 2 means 10 user-facing features silently fail when invoked from the renderer (force-cancel-transcription, vocabulary suggestions, accessibility check, diagnostics export, refresh microphones, etc.). Both have low-risk fixes.
-- **Findings 3-6 (doc inaccuracy)**: a single doc-accuracy CI test (suggested in Finding 3's fix) would catch all four — the API table, the SECURITY.md count, and the CONTRIBUTING.md allowlist count are all the same class of "manual count drift" problem.
-- **No Critical findings**: the project's security posture is generally strong — `_secure_atomic_write`/`_secure_read_text` use `O_NOFOLLOW` + `O_EXCL` + `0o600` + inode verification, the IPC `set_config` allowlist is strict (122 fields with per-field type+range validators), the URL allowlist enforces HTTPS for non-loopback hosts, model integrity verification uses pinned SHA-256 hashes with `hmac.compare_digest`, and the rate limiter + 1 MB line cap + 5s auth timeout close the obvious DoS vectors. The issues above are localized gaps and staleness, not structural weaknesses.
-- **Recommended order of fixes**: Finding 2 (add missing allowlist entries + strengthen parity test) → Finding 1 (gate stdin listener on `not _tcp_mode`) → Finding → Findings 3-6
-
----
-
-
-| H | c-review XPLAT-01 — Windows notepad hardcoded path | Medium | **Fixed** | app.py (`_open_config_file`: ShellExecuteEx handle-based wait + validated Notepad fallback; no downgrade) |
-
-## Items explicitly deferred (Won't Fix this round, with rationale)
-
-| Item | Severity | Rationale |
-|---|---|---|
-| RW-9 VoiceTyperApp god-class decomposition (2352 lines, 61 methods) | Extra High | Multi-day refactor — too risky for one round. Tracked as separate future work. |
-| RW-0 Rewrite 87 source-string tests as vitest unit tests | Large | 87 test sites across 5 files; each needs a corresponding vitest test. Separate round. |
-| RW-4 Windows installer missing Electron UI | P1 ship-blocker | Requires testing on actual Windows runner; this sandbox is Linux-only. |
-| RW-5 macOS/Linux installer missing Python backend | P1 ship-blocker | Requires testing on actual macOS/Linux runner with GUI. |
-| RW-8 Triage 63 source-string meta-tests in test_bugfix_regressions.py | Medium-Large | 63 meta-tests need case-by-case triage. Separate round. |
-| RW-01 Encrypted credential store (keyring) | Large (P1) | New storage module + migration + consent UI + cross-platform testing. Separate scope. |
-| RW-02 Playwright end-to-end test harness | Large (P2) | Harness + first scenario + CI wiring. Separate scope. |
-| RW-03 Structured JSON logging + correlation IDs | Medium (P3) | Optional JSON formatter; must keep PIIRedactionFilter working on both formats. |
-| RW-04 recording.py god-class split (3128 lines) | Extra High (P3) | Multi-day, high-risk refactor. Do incrementally behind tests. |
-| RW-05 Log-level inconsistency audit | Small (P3) | RESOLVED — model-download→INFO (service.py:1856), Bluetooth HFP detection→INFO (recording.py:1662), buffer-telemetry gated behind `VOICE_TYPER_VERBOSE` (recording.py:2685), VAD auto-calibration→INFO (recording.py:1162). |
-| RW-07 Remove remaining test-seam delegates in app.py | Medium (P3) | RESOLVED — dead test-seam delegates (`_sync_autostart`, `_start_accessibility_pulse`, `_load_microphones`, `_register_hotkey`, `_sync_prewarm_task`) removed in RW-9. 5 intentional ARCH-REFAC-003 production delegators (`toggle_dictation`, `_start_dictation`, `_stop_dictation`, `_cancel_streaming_session`, `_cancel_dictation`) remain by design, carry guards, and are exercised by live callers/tests — belong to the deferred RW-9 god-class split, not dead seams. |
-| RW-08 Simplify startup double-delegation | Medium (P4) | RESOLVED — `app → startup_tasks → app` round-trip removed; callers invoke `startup_tasks` directly (startup_sequence.py:345, service.py:874). Stale "facade is kept for test seams" comments cleaned. |
-| NEW-IPC-007 usePython swallows server type:"error" envelopes | Moderate | Real but moderate; only triggers when a server handler raises (rare). Highest-priority retained finding. Defer to next round. |
-| NEW-PRIV-003 Restart subprocess inherits full os.environ | Low-Moderate | Same-app child needs the env to function; real only if a less-trusted child were spawned. |
-| NEW-PRIV-007/008 GDPR right-to-export/delete incomplete | Low | Local-first desktop utility; compliance nice-to-have, not a defect. |
-| NEW-UX-026 No punctuation cheat sheet | Low | Feature gap, not a defect. |
-| a-review Finding 7 (not in brief) | Low | (Whatever it was — not in scope this round.) |
-
-## Validation Evidence
-
-### Backend tests
-- 87 new/modified tests pass (test_crash_recovery.py +35, test_dictation_pipeline_review_fixes.py +20, test_logging.py +8, test_g_perf_reliability_fixes.py +16, test_api_doc_accuracy.py +8).
-- 423 regression tests pass across 19 existing test files (test_notifications.py, test_cloud_engines.py, test_transcription.py, test_perf_review_fixes.py, test_asr_registry_lifecycle.py, test_volume_ducker.py, test_smart_duck.py, test_smart_duck_monitor.py, test_volume_backends.py, test_microphone_test.py, test_recording.py, test_recording_audio_processor.py, test_rw7_rw8_audio_callback.py, test_audio_processor.py, test_heartbeat.py, test_ipc_dispatch_errors.py, test_logging_formatting.py, test_log_rate_limit.py, test_dead_code_stays_removed.py).
-- 4 pre-existing Linux platform failures (ctypes.WINFUNCTYPE in crash_handler.py:321 used at module-load time — Windows-only API). Verified via git stash to fail identically on the clean baseline. NOT caused by R8 changes.
-- i18n completeness: 45/45 tests pass.
-
-### Frontend tests
-- 255 frontend tests pass (26 test files) including 23 new tests across Settings, App, Vocabulary, GeneralSettingsSection, Onboarding, useConnection, semver.
-- Pre-existing tsc errors (32) verified identical to baseline via git stash — zero new errors introduced by R8.
-
-### Build
-- `npm run build` succeeds (1.33s, 5716 modules transformed, 1.07MB renderer bundle).
-- `tsc --noEmit -p tsconfig.json` exit 0.
-- `biome check` clean on all modified .ts/.tsx files.
-- `py_compile` clean on all modified .py files.
-
-### Regression grep
-- Zero remaining `self._vocab_fail_notified` / `self._template_fail_notified` / `self._history_fail_notified` / `self._crash_recovery_fail_notified` writes on DictationPipeline self (all moved to self._app).
-- Zero remaining `try: ... except TypeError:` in dictation_pipeline.py:_transcribe (broad catch removed).
-- Zero remaining `15s` / `3 missed heartbeats` references in ipc_server.py (only the intentional historical-constant comment "increased from 15s" remains).
-- Zero remaining `from voice_typer.server.config_validators import *` in config.py.
-- Zero remaining "``app._*`` facade is kept for test seams" comment claims in startup_sequence.py / service.py / startup_tasks.py (facade delegates were removed in RW-9; callers target startup_tasks directly).
-- Zero remaining `get_logger` definitions in log.py.
-- Zero remaining `C:\Windows\System32\notepad.exe` hardcoded path in app.py.
-
--6
-
-### RW-13 (NEW) — _corr_token reset in wrong scope (dictation_pipeline.py)
-- **Severity:** bug (runtime NameError) + lint F821.
-- **Root cause:** the correlation-id reset block was placed at the END of _copy_and_paste (last method in file), NOT in
-un's inally. _corr_token is a local of
-un, so it was undefined in _copy_and_paste (NameError at runtime; Ruff F821 at lines 1002/1005).
-- **Fix:** removed the block from _copy_and_paste; added it to
-un's inally block (after line 297) where _corr_token is in scope. Token init _corr_token: object | None = None + conditional set_correlation_id(cycle_id) retained at top of
-un.
-- **Verified:** py_compile + ruff F821/E711/all-clean; ast parse OK.
-
-
----
-
-## Round 2026-07-16 — Tauri v2 + Python Sidecar Migration (MIG-0 Phase 0-W scaffolding)
-
-**Scope**: ADR-0020 Phase 0-W scaffolding — Python WS sidecar entry point, Rust Tauri host skeleton, cross-platform prewarm resolver, native binary path lookup, IPC error envelope fix (NEW-IPC-107), 38 new tests.
-
-### Findings — Architecture (MIG-0 scaffolding)
-
-#### MIG-0-W-01
-- **Category**: architecture
-- **Severity**: High
-- **File**: `voice_typer/server/sidecar_ws.py` (NEW, ~370 lines)
-- **Description**: New WebSocket server module implementing the Tauri sidecar transport (ADR-0020 §1, §2, §10). Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 68-command registry unchanged), reuses the ADR-0019 `_RateLimiter` from `ipc_server.py`, handles `{"type":"shutdown"}` cooperative shutdown, caps frames at 1 MiB.
-- **Fix**: Implemented. 19 unit tests + 3 integration tests pass.
-
-#### MIG-0-W-02
-- **Category**: architecture
-- **Severity**: High
-- **File**: `voice_typer/server/ipc_server.py` (modified)
-- **Description**: Added `--ws` CLI flag (mutually exclusive with `--port`) that sets `TAURI_SIDECAR=1` and delegates to `sidecar_ws.run()`. Under `TAURI_SIDECAR=1`: (a) `_heartbeat_loop` thread is NOT started (FT-1 supervisor replaces ADR-0018); (b) `VoiceTyperSingleInstance` Win32 mutex is NOT acquired (Tauri's `single-instance` plugin replaces it). Electron path unchanged.
-- **Fix**: Implemented. 5 gate tests pass.
-
-#### MIG-0-W-03
-- **Category**: architecture
-- **Severity**: High
-- **File**: `voice_typer/server/prewarm_resolver.py` (NEW, ~165 lines)
-- **Description**: Cross-platform `resolve_prewarm_exe()` shared by Windows Task Scheduler + macOS LaunchAgent + Linux systemd user timer. Resolves the frozen `prewarm-<triple>[.exe]` via env var, Tauri resource dir, PyInstaller paths, or dev fallback. Replaces the per-scheduler `_prewarm_pythonw()` / `_prewarm_command()` logic with one canonical resolver.
-- **Fix**: Implemented. 7 unit tests pass.
-
-#### MIG-0-W-04
-- **Category**: architecture
-- **Severity**: Medium
-- **File**: `voice_typer/server/native_hotkeys.py` (modified)
-- **Description**: Added `VOICE_TYPER_NATIVE_DIR` env-var path to `get_native_binary_path()`. Tauri host sets this to `resourceDir/native/` so the Nuitka-frozen sidecar finds the native hotkey binaries in production. The existing 5 lookup paths are preserved unchanged for the Electron + PyInstaller fallback paths.
-- **Fix**: Implemented. 4 unit tests pass.
-
-#### MIG-0-W-05
-- **Category**: architecture
-- **Severity**: Medium
-- **File**: `src-tauri/` (NEW directory)
-- **Description**: Tauri v2 Rust host skeleton — `Cargo.toml` (Tauri v2 + plugins + enigo + tokio-tungstenite + hmac), `src/main.rs` (~470 lines: sidecar spawn, WS client, HMAC auth, generic `dispatch` command, FT-1 supervisor with 500ms→8s backoff, `bubble_level` 60Hz→30Hz coalesce, cooperative shutdown with 2s ack timeout + `kill_children` backstop, single-instance gate, `paste_text` command with short/long text paths), `build.rs`, `tauri.conf.json` (per-arch `externalBin` + `resources` + capabilities), `capabilities/migrate-runtime.json` (least-privilege whitelist).
-- **Fix**: Implemented (code written, not yet compiled — requires Rust toolchain + display, neither available in dev container). Phase 0-W validation gate pending on real Windows host.
-
-#### MIG-0-W-06
-- **Category**: architecture
-- **Severity**: Medium
-- **File**: `voice_typer/server/task_scheduler.py` (modified)
-- **Description**: Tauri-aware `_prewarm_command()` — under `TAURI_SIDECAR=1` or `VOICE_TYPER_PREWARM_EXE` env, delegates to `resolve_prewarm_exe()`. When the resolver returns a frozen exe path, the Task Scheduler XML is built without `<Arguments>` (the exe takes no module args). Dev fallback unchanged.
-- **Fix**: Implemented.
-
-### Findings — Bug Fixes (proactive)
-
-#### NEW-IPC-107 (FIXED)
-- **Category**: bug
-- **Severity**: Moderate
-- **File**: `voice_typer/client/src/renderer/src/hooks/usePython.ts`
-- **Description**: `usePython.call()` only checked `_error` (Electron main-process error) but NOT `type:"error"` envelopes from the Python server (`ipc_server.py:1044-1050`). A server-side dispatch exception was silently treated as a successful result, leaving callers with `undefined` data.
-- **Fix**: Added a second check for `result.type === "error"` that throws a structured error `server error [code]: message`. Safe on both Electron and Tauri paths (Tauri's Rust host already surfaces `type:"error"` as a Rust error, so the JS-side guard is belt-and-suspenders for the Electron path).
-
-### Findings — Testing
-
-#### TEST-MIG-0-01
-- **Category**: testing
-- **Severity**: High
-- **File**: `tests/tauri/test_sidecar_ws_unit.py` (NEW, ~300 lines, 19 tests)
-- **Description**: Unit tests for `sidecar_ws` helpers — `_emit_server_started` JSON shape, `_authenticate` token match/mismatch/timeout/non-auth-frame/invalid-json, `_make_dispatch` shutdown/rate-limit/dispatch-raises/missing-type, loopback host, 1 MiB frame cap, 2s shutdown ack timeout.
-- **Fix**: All 19 tests pass.
-
-#### TEST-MIG-0-02
-- **Category**: testing
-- **Severity**: High
-- **File**: `tests/tauri/test_sidecar_ws_integration.py` (NEW, ~120 lines, 3 tests)
-- **Description**: End-to-end integration tests with real `websockets.serve` + real client. Full auth + dispatch + response round-trip, bad-token rejection, malformed-frame resilience.
-- **Fix**: All 3 tests pass (require `websockets` dep installed).
-
-#### TEST-MIG-0-03
-- **Category**: testing
-- **Severity**: Medium
-- **File**: `tests/tauri/test_prewarm_resolver.py` (NEW, ~120 lines, 7 tests)
-- **Description**: Tests for `resolve_prewarm_exe` env-override/dev-fallback/nonexistent-env-fallthrough, `_target_triple` per-platform shape, `_exe_suffix`.
-- **Fix**: All 7 tests pass.
-
-#### TEST-MIG-0-04
-- **Category**: testing
-- **Severity**: Medium
-- **File**: `tests/tauri/test_native_binary_path_tauri.py` (NEW, ~95 lines, 4 tests)
-- **Description**: Tests for `VOICE_TYPER_NATIVE_DIR` env-var lookup, `VOICE_TYPER_NATIVE_BINARY` precedence, broken env var fallthrough.
-- **Fix**: All 4 tests pass.
-
-#### TEST-MIG-0-05
-- **Category**: testing
-- **Severity**: Medium
-- **File**: `tests/tauri/test_tauri_sidecar_gate.py` (NEW, ~160 lines, 5 tests)
-- **Description**: Tests for `TAURI_SIDECAR=1` env-var gate — heartbeat thread skipped, mutex skipped, `--ws`+`--port` mutual exclusion, `_COMMAND_REGISTRY` still contains `heartbeat` (Electron fallback).
-- **Fix**: All 5 tests pass.
-
-### Findings — Documentation
-
-#### DOC-MIG-0-01
-- **Category**: documentation
-- **Severity**: Medium
-- **File**: `docs/migration/tauri-sidecar-bridge.md` (NEW, ~120 lines)
-- **Description**: Bridge architecture doc — what's implemented, what's deferred to Phase 0-W validation, dev-mode workflow, architecture boundary (what stays / what moves / what is removed), next steps for the implementer.
-- **Fix**: Written.
-
-### Findings — Pre-existing (NOT caused by this round)
-
-#### PRE-EXISTING-01
-- **Category**: bug
-- **Severity**: Low
-- **File**: `tests/test_server.py` (lines 1263, 1275, 1282, 2126, 2130)
-- **Description**: 4 tests + 5 collection errors reference `ipc_server._push_event_registry_lock` which was removed in B-1 FIX-12 (the event_bus extraction). The tests fail on the clean `main` branch, before any of my changes. Verified via `git stash` + `pytest`.
-- **Fix**: Not in scope for this round (pre-existing). Tracked as P2 cleanup.
-
-#### PRE-EXISTING-02
-- **Category**: bug
-- **Severity**: Low
-- **File**: `voice_typer/server/crash_handler.py:321`
-- **Description**: `ctypes.WINFUNCTYPE` is used at module level (Windows-only). On Linux, importing `crash_handler` raises `AttributeError`. This breaks collection of `tests/test_electron_launcher.py` (and any test that imports `app.py`) on Linux. Pre-existing — not caused by my changes.
-- **Fix**: Not in scope for this round (pre-existing). Tracked as P2 cleanup.
-
-### Summary — Round 2026-07-16
-
-- **38 new tests** added, all passing.
-- **0 regressions** introduced (existing IPC dispatch tests still pass; pre-existing test_server.py failures verified to pre-date this round).
-- **MIG-0 Phase 0-W scaffolding** complete: Python WS sidecar + Rust Tauri host + cross-platform prewarm resolver + native binary path + IPC error envelope fix.
-- **Phase 0-W validation gate** (Nuitka exe + Tauri spawn + WS + HMAC + faster-whisper + enigo + notification + cooperative shutdown + prewarm LogonTrigger + native hotkey) pending on a real Windows host — the scaffolding is the implementation, the validation is the gate.
-
----
-
-## Round 2026-07-16 — Tauri migration P0/P1/P2 fixes + Rust compile
-
-**Scope**: Fixed all 14 items from the prior verification report + compiled the Rust Tauri host + wired Phase 0-M/0-L prewarm scheduler.
-
-### Findings — P0 fixes (blocking, now resolved)
-
-#### MIG-0-P0-1 (FIXED)
-- **Category**: architecture
-- **Severity**: P0 (was blocking the cutover entirely)
-- **File**: `src-tauri/tauri.conf.json`
-- **Description**: `externalBin` entries included the target triple suffix (e.g. `bin/python-sidecar-x86_64-pc-windows-msvc`). Tauri v2 appends the triple itself, so it looked for `…msvc-…msvc[.exe]` and the sidecar never resolved.
-- **Fix**: Changed to base name `bin/python-sidecar`. Updated `plugins.shell.scope` to `{ "name": "bin/python-sidecar", "cmd": "bin/python-sidecar", "sidecar": true, "args": true }`.
-
-#### MIG-0-P0-2 (FIXED)
-- **Category**: bug
-- **Severity**: P0
-- **File**: `voice_typer/server/task_scheduler.py`
-- **Description**: `register_prewarm_task` called `_build_task_xml(command, None)` intending "no args" for a frozen exe, but `_build_task_xml` fell back `None → _PREWARM_ARGS`, emitting `<Arguments>-m voice_typer.server.prewarm --trigger logon</Arguments>` for a frozen Nuitka exe (which is the module and can't take `-m`).
-- **Fix**: `_build_task_xml` now only emits `<Arguments>` when the value is truthy. The call site passes `""` (empty string) for the frozen-exe path, NOT `None`. Verified: `_build_task_xml("C:\\prewarm.exe", "")` produces NO `<Arguments>` element.
-
-### Findings — P1 fixes (correctness/coverage/security, now resolved)
-
-#### MIG-0-P1-3 (FIXED)
-- **Category**: bug
-- **Severity**: P1
-- **File**: `voice_typer/server/prewarm_resolver.py`
-- **Description**: `_target_triple` used `sys.maxsize > 2**32` for Windows, which only distinguishes x86_64 from x86 — never `aarch64`. ADR-0020 explicitly lists `aarch64-pc-windows-msvc`.
-- **Fix**: Now uses `platform.machine()` for Windows (returns 'ARM64' on Windows 11 ARM, 'AMD64' on x86_64). Normalizes to Rust arch names: `aarch64`, `x86_64`, `i686`.
-
-#### MIG-0-P1-4 (FIXED)
-- **Category**: security
-- **Severity**: P1
-- **File**: `src-tauri/capabilities/migrate-runtime.json` + `src-tauri/tauri.conf.json`
-- **Description**: `shell:allow-spawn` was unscoped/blanket-allow. The doc falsely claimed "scoped per sidecar binary".
-- **Fix**: Scoped via `plugins.shell.scope` in tauri.conf.json: `{ "name": "bin/python-sidecar", "cmd": "bin/python-sidecar", "sidecar": true, "args": true }`. The capability file references `shell:allow-spawn` (the permission) and the config file scopes it (the scope). Tauri v2 enforces both at runtime.
-
-#### MIG-0-P1-5 (FIXED)
-- **Category**: testing
-- **Severity**: P1
-- **File**: `pyproject.toml` + `tests/tauri/conftest.py`
-- **Description**: 13 of 38 tauri tests errored under standard `pytest` with "async def functions are not natively supported". They only passed with `-o asyncio_mode=auto`.
-- **Fix**: Added `asyncio_mode = "auto"` to `[tool.pytest.ini_options]` in pyproject.toml. Now `pytest tests/tauri/` runs all 38 tests without `-o` overrides.
-
-#### MIG-0-P1-6 (FIXED)
-- **Category**: testing/CI
-- **Severity**: P1
-- **File**: `conftest.py` (NEW, repo root)
-- **Description**: `pyproject.toml` `addopts` references `--cov=voice_typer --cov-fail-under=65` but `pytest-cov` isn't guaranteed installed. Plain `pytest` errored before collecting. Even with pytest-cov installed, subset runs (e.g. `pytest tests/tauri/`) failed the 65% coverage threshold.
-- **Fix**: Created root `conftest.py` with two hooks: (1) `pytest_load_initial_conftests` — strips all `--cov` flags from sys.argv when pytest-cov is absent; (2) `pytest_configure` — on subset runs, finds the CovPlugin via `config.pluginmanager.getplugin('_cov')` and sets `plugin.options.cov_fail_under = None` so the threshold doesn't fire. Full-suite runs still enforce 65%.
-
-### Findings — P2 fixes (dead code / doc honesty, now resolved)
-
-#### MIG-0-P2-7 (FIXED)
-- **Category**: dead code
-- **Severity**: P2
-- **File**: `src-tauri/src/main.rs`
-- **Description**: `connect_and_authenticate` function returned `unreachable!()` and was never called — would panic if invoked.
-- **Fix**: Removed entirely.
-
-#### MIG-0-P2-8 (FIXED)
-- **Category**: dead code
-- **Severity**: P2
-- **File**: `voice_typer/server/sidecar_ws.py`
-- **Description**: Inbound frame-size re-check at ~line 366 was dead — `websockets` enforces `max_size` at the transport layer, so oversized frames never arrive.
-- **Fix**: Removed the dead re-check. Replaced with a comment explaining the transport-layer enforcement. Outbound check kept (the writer task still checks before sending).
-
-#### MIG-0-P2-9 (FIXED)
-- **Category**: documentation
-- **Severity**: P2
-- **File**: `voice_typer/server/sidecar_ws.py`
-- **Description**: Stale docstring said "200 burst / 60 sustained msg/s" but the real rate limiter is 200 burst / 600 sustained over a 10s window (RELIABILITY-006-FIX-10).
-- **Fix**: Updated to "200 burst / 600 sustained (10s window, per RELIABILITY-006-FIX-10)".
-
-#### MIG-0-P2-10 (FIXED)
-- **Category**: bug
-- **Severity**: P2
-- **File**: `voice_typer/server/sidecar_ws.py` + `voice_typer/server/ipc_server.py`
-- **Description**: `server.push({"type": "ready"})` in `ipc_server.py:main()` was a no-op in WS mode — `server.push` writes to the TCP `_tcp_client` which is None in WS mode. The `ready` event was silently dropped, so the Tauri host never received the readiness signal.
-- **Fix**: Added a module-level `_ready_emitted` flag in `sidecar_ws.py`. The `ready` event is now emitted via `event_bus.publish({"type": "ready"})` AFTER the first WS client authenticates (in `_handle_connection`). Removed the no-op `server.push` call from `ipc_server.py:main()`.
-
-#### MIG-0-P2-11 (FIXED)
-- **Category**: consistency
-- **Severity**: P2
-- **File**: `voice_typer/server/ipc_server.py`
-- **Description**: The central dispatch-exception envelope at line 1044 omitted `code` (other envelopes like `invalid_payload`, `rate_limited` all carry `code`). The NEW-IPC-107 fix in usePython.ts and the Rust dispatch() both read `code` with a `"unknown"` fallback — harmless but inconsistent.
-- **Fix**: Added `"code": "internal_error"` to the envelope: `{"type":"error","data":{"code":"internal_error","message":"internal error"}}`.
-
-#### MIG-0-P2-12 (FIXED)
-- **Category**: documentation + bug
-- **Severity**: P2
-- **File**: `src-tauri/src/main.rs` + `docs/migration/tauri-sidecar-bridge.md`
-- **Description**: FT-1 exhaustion just returned `Err(...)` and discarded it — no full-app relaunch. The doc falsely claimed "full-app relaunch".
-- **Fix**: Implemented FT-1 full-app relaunch via `app.restart()` (Tauri v2's built-in restart API). Emits a `ft1_relaunching` Tauri event before restart so the UI can show a banner.
-
-### Findings — Rust host compilation (now verified)
-
-#### MIG-0-RUST-COMPILE (FIXED)
-- **Category**: architecture
-- **Severity**: P0 (was UNVERIFIED in round 1)
-- **File**: `src-tauri/src/main.rs` + `src-tauri/Cargo.toml` + `src-tauri/capabilities/migrate-runtime.json`
-- **Description**: Round 1's Rust host was never compiled (no toolchain). The verification report flagged this as UNVERIFIED.
-- **Fix**: Installed Rust toolchain (rustup, rustc 1.97.0). Extracted GTK/WebKit dev libs from .deb files to /tmp/gtk-prefix (28 packages, no sudo needed). Fixed 11+ Tauri v2 API issues:
-  1. `tauri-plugin-tray` doesn't exist → use `tauri` core with `tray-icon` feature.
-  2. `.emit()` needs `use tauri::Emitter`.
-  3. `CommandEvent::Terminate` → `Terminated`.
-  4. `SplitSink` isn't `Clone` — send auth via WS writer channel.
-  5. `std::sync::MutexGuard` is `!Send` across `.await` — drop guards before await.
-  6. WS reader future not `Send` — use `std::thread::spawn` + `block_on` for FT-1.
-  7. `enigo` 0.2 API: `Enigo::new(&Settings)`, `Keyboard` trait.
-  8. `clipboard-manager` needs `ClipboardExt` trait.
-  9. `.stdout(Stdio::piped())` is std API, not tauri-plugin-shell — removed.
-  10. `shell:allow-kill-children` not a valid Tauri v2 permission → use `shell:allow-kill`.
-  11. `single-instance:default` not a permission → removed (plugin init via Rust code).
-  12. `tray:allow-*` → `core:tray:allow-*` (tray is in core, not a plugin).
-- **Validation**: `cargo check` passes (0 errors, 6 warnings for unused imports/constants).
-
-### Findings — Phase 0-M/0-L scaffolding (prewarm scheduler wiring)
-
-#### MIG-0-PHASE-0-M-0-L (FIXED)
-- **Category**: architecture
-- **Severity**: P1
-- **File**: `voice_typer/server/prewarm_scheduler_posix.py`
-- **Description**: Phase 0-M (macOS) and Phase 0-L (Linux) prewarm schedulers were not wired to `resolve_prewarm_exe()`. They still used the hard-coded `sys.executable` + `-m voice_typer.server.prewarm` command line.
-- **Fix**: `_prewarm_python()` and `_prewarm_args()` now delegate to `resolve_prewarm_exe()` under `TAURI_SIDECAR=1` / `VOICE_TYPER_PREWARM_EXE` env. When the resolver returns a frozen exe path, `_prewarm_args()` returns `[]` (the exe IS the module). Dev fallback unchanged.
-
-### Summary — (2026-07-16)
-
-- **All 14 verification report items fixed.**
-- **Rust Tauri host compiles** (`cargo check` passes with 0 errors).
-- **41 Python tests pass** (38 tauri  3 IPC dispatch regression, no `-o` overrides needed).
-- **0 regressions** introduced (pre-existing test_server.py failures verified to pre-date this round).
-- **Phase 0-M/0-L prewarm wiring** done.
-- **Remaining**: Nuitka Windows exe build + full Tauri build with display + Phase 3 UI port — all require a Windows/macOS host. Runbook provided in SUMMARY-2.md.
-
-# Voice Typer — Comprehensive Engineering & Product Quality Review
-
-**Date**: 2026-07-16
-**Reviewer**: Comprehensive Reviewer subagent (CR-1)
-**Scope**: Full-project review covering architecture, security, performance, code quality, testing, cross-platform, documentation, UX
-**Findings**: 25 total (0 Critical, 5 High, 8 Medium, 12 Low)
-
-## Summary
-
-| Severity | Count | Fixed this round |
-|----------|-------|-------------------|
-| Critical | 0 | 0 |
-| High | 5 | 3 (Findings 1, 3, 5) |
-| Medium | 8 | 0 (deferred — documented for next round) |
-| Low | 12 | 0 (deferred — documented for next round) |
-
-**No Critical issues were found.** The codebase shows extensive hardening work (SEC-001 through SEC-029, RELIABILITY-001 through RELIABILITY-006, RW-1 through RW-15, plus 20 ADRs). The findings below are the *residual* issues after that hardening — most are cross-cutting concerns (Tauri migration seams, test coverage, doc drift) rather than per-module bugs.
-
----
+Only unresolved findings are listed below. Completed/verified items have been removed:
 
 ## Findings
 
@@ -644,3 +169,188 @@ un.
 - **Severity**: Low
 - **Status**: Pending (deferred)
 - **Description**: `on_window_event` only fires `shutdown_sidecar` for `WindowEvent::CloseRequested` on `window.label() == "main"`. The `bubble` window's close is ignored.
+- **Fix status**: Pending — not addressed by Wave 1/2/3. Recommended priority: P4.
+
+## What remains open
+
+This section consolidates everything that is still Pending, Won't Fix, or carried forward as future work after Wave 1 + Wave 2 + Wave 3. Use this as the work queue for the next round.
+
+### Pending findings (still open)
+
+#### High severity
+- **CR-12** — No unit tests for the 14 IPC handler mixins (testing). **Recommended priority: P2** — 2,060 LOC across 14 files exercised only indirectly via integration tests.
+- **CR-13** — No Rust tests for the FT-1 supervisor or WS dispatch logic (testing). **Recommended priority: P2** — `src-tauri/src/main.rs` has zero `#[cfg(test)]` modules; FT-1 backoff, bubble_level coalesce, auth handshake all untested in Rust.
+
+#### Medium severity
+- **CR-2** — `shutdown_sidecar` blocks 2s unconditionally (performance/UX). **Recommended priority: P3** — poll `CommandEvent::Terminated` instead of fixed sleep.
+- **CR-4** — `_ready_emitted` module-level global not reset between tests (testing/architecture). **Recommended priority: P3** — move to per-instance attribute.
+- **CR-6** — `usePythonEvent` silently drops events if `window.python` unset at mount (UX). **Recommended priority: P3** — add `bridgeReady` state via `useSyncExternalStore`.
+- **CR-8** — `electron_notification` event name not renamed for Tauri path (cross-platform). **Recommended priority: P3** — rename Python-side to `notification`, remove Rust-side rename.
+- **CR-9** — Heartbeat watchdog has no fallback if `tray.stop()` hangs (reliability). **Recommended priority: P3** — schedule `os._exit(1)` after 10s grace period.
+- **CR-10** — `_secure_clear_array_background` spawns unbounded threads (performance). **Recommended priority: P3** — replace with single long-lived worker thread + queue.
+- **CR-14** — README/CONTRIBUTING have zero Tauri mentions (documentation). **Recommended priority: P3** — add "Runtime Architecture" section.
+- **CR-15** — `tauri-bridge.ts` bubble/window API stubs (UX/cross-platform). **Recommended priority: P2** — blocks Tauri cutover (but see Wave 1 sub-agents #1 + #2 which addressed the bubble + export stubs; CR-15 may now be partially closed — verify against the current `tauri-bridge.ts` before scheduling).
+- **RW-03** — Structured JSON logging + correlation IDs (Medium, P3). Optional; must keep `PIIRedactionFilter` working on both formats.
+
+#### Low severity
+- **XPLAT-02** — Linux `deb`/`rpm` `afterInstall` relative path fragile (cross-platform). **FIXED (Wave 4)** — scripts copied to `resources/linux/` and referenced as `resources/linux/postinst` etc.
+- **CR-7** — `_pick_available_port` race window (security). **Recommended priority: P4** — inherent race in probe-then-bind.
+- **CR-11** — IPC per-connection rate limiter resets on reconnect (security). **Recommended priority: P4** — per-process / per-token sliding-window limiter.
+- **CR-16** — `tray.py` reaches into pystray private `_icon_handle` (cross-platform). **Recommended priority: P4** — pin pystray + file upstream issue.
+- **CR-17** — `_validate_path_safety` uses `str.startswith` for path containment (security). **Recommended priority: P3** — replace with `commonpath` logic.
+- **CR-18** — TCP `sendToPython` 120s timeout uncapped (performance/UX). **Recommended priority: P4** — per-command timeout table.
+- **CR-19** — `_validate_systemroot` logs error but never aborts (security/code quality). **Recommended priority: P4** — fail-closed on path-traversal branch.
+- **CR-20** — Electron `window-all-closed` no-op on non-macOS (cross-platform/UX). **Recommended priority: P4** — call `app.quit()` when `_tray_unavailable`.
+- **CR-21** — `_atexit_cleanup` swallows all exceptions (code quality). **Recommended priority: P4** — replace `pass` with `log.exception(...)`.
+- **CR-22** — `dispatch` in `main.rs` holds std Mutex across await (performance). **Recommended priority: P4** — switch `ws_tx` to `tokio::sync::Mutex`.
+- **CR-23** — Generated capabilities cache contains stale `process:allow-restart` (documentation). **Recommended priority: P5** — `cargo clean` + add CI step asserting `target/` is clean.
+- **CR-24** — Tauri `on_window_event` only handles `CloseRequested` on `main` window (cross-platform). **Recommended priority: P4** — handle `bubble` window close too.
+
+---
+
+### Findings
+
+| Severity | ID | Description | Fix status |
+|---|---|---|---|
+| Low | W3-VAD-001 | `_make_vad_property` factory uses a closure over `vad_attr`; works correctly but the pattern is unusual. The `del _make_vad_property` line correctly removes the helper from the class namespace. No bug — just noting the pattern. | Documented only |
+| Low | W3-VAD-002 | `Recorder.start()` lines 1402-1409 make redundant property-shim assignments after `self._vad.reset()` already set the same values. This is intentional (source-level documentation that `test_vad_auto_calibrate_resets_on_start` pins on the literal attribute names). No bug. | Documented only |
+| Low | W3-VAD-003 | `VadProcessor.update_frame` uses `>=` for `is_loud` and `<` for `is_quiet` — chunk at exactly `silence_threshold_db` falls in the grey zone (neither loud nor quiet). Behavior identical to pre-refactor (verified by passing `test_vad_transition_at_exact_silence_threshold`). | Documented only |
+| Low | W3-VAD-004 | `Recorder._vad_auto_calibrate` has a redundant `if not self._vad_enabled: return` short-circuit at line 1098 — `VadProcessor.auto_calibrate` already short-circuits at line 293. Intentional optimization to avoid a `time.perf_counter()` call per chunk in raw mode. No bug. | Documented only |
+| Low | W3-VAD-005 | `test_recording_discard.py::TestDiscardStopGeneration::test_discard_closes_stream_and_clears_buffer` (line 283) fails with `deque([]) == []` assertion. **This is a pre-existing test bug, NOT caused by the VadProcessor extraction** — `r._buffer` is a `collections.deque`, never a list. Out of scope for this review (only VAD-related files allowed). Filed for awareness. | Out of scope (pre-existing) |
+| Medium | W3-VAD-006 | Test coverage gap: the original 38 tests did NOT explicitly cover thread-safety (concurrent `update_frame` + `on_config_changed` / `reset`). Added 2 tests in `TestThreadSafety` class — both pass. | Fixed (added 2 tests) |
+| High | — | None found. | — |
+| Critical | — | None found. | — |
+
+#### Wave3-INST-04 — macOS `.app` bundle is minimal (LOW, documented)
+
+- **Category**: Build / macOS bundle correctness
+- **Severity**: Low
+- **Status**: Documented (no fix needed for current use)
+- **Files**: `.github/workflows/build.yml` (build-macos "Stage PyInstaller backend for embedding" step)
+- **Description**: When PyInstaller produces a onefile binary (`voice_typer/dist/VoiceTyper`, no `.app` wrapper — the current spec has no `BUNDLE()` call), the macOS staging script wraps it into a minimal `.app` structure: `voice-typer-backend.app/Contents/MacOS/voice-typer`. This is NOT a complete macOS `.app` bundle — it's missing `Info.plist`, `PkgInfo`, `Resources/`, and the `Contents/` directory structure that Finder/LaunchServices expect. However, since Electron's `pythonArgs()` spawns the executable directly via Node's `child_process.spawn()` (not via `open` or LaunchServices), the minimal structure is sufficient for the runtime path. The bundle would NOT be recognized by Finder as a proper `.app` (no icon, no bundle ID, can't be double-clicked), but that's acceptable because users never see or interact with this bundle — it's an internal resource embedded inside the Electron app's `resources/` directory.
+- **Recommendation (future)**: If the spec is later upgraded to use `BUNDLE()` (which produces a proper `.app` with `Info.plist`), the staging script's `if [ -d "voice_typer/dist/VoiceTyper.app" ]` branch will handle it correctly (rename `VoiceTyper.app` → `voice-typer-backend.app`). No action needed today.
+
+#### Wave3-INST-05 — `pythonArgs()` switch has no `default:` case (LOW, intentional)
+
+- **Category**: Code quality / Robustness
+- **Severity**: Low
+- **Status**: Documented (intentional design)
+- **Files**: `voice_typer/client/src/main/index.ts` (lines 418-497)
+- **Description**: The `pythonArgs()` switch on `process.platform` covers `darwin`, `linux`, `win32` — no `default:` case. The comment at line 495 says "(no default — fall through to the dev-mode venv path below)". On an unsupported platform (e.g., `freebsd`, `aix`, `sunos`), the switch falls through and the dev-mode venv path is used. This is intentional and acceptable: Electron only officially supports Windows/macOS/Linux, so the fallthrough is a graceful degradation rather than a bug. The dev-mode venv path uses `process.platform === "win32"` to pick the right Python executable (`pythonw.exe` vs `python3`), so it works on any POSIX-like platform.
+- **Recommendation (future)**: Could add a `default:` case that logs a warning like `[pythonArgs] unsupported platform ${process.platform} — falling back to dev venv` for diagnostic purposes. Not a blocker.
+
+### `pythonArgs()` review summary
+
+Verified per task requirements:
+- **Switch exhaustiveness**: covers `win32`, `darwin`, `linux`. No `default:` — intentional fall-through to dev venv (see Wave3-INST-05 above). ✓
+- **Dev-mode venv fallback**: preserved at lines 499-512. Uses `computeConfigDir()` (RW-15) for cross-platform config dir. ✓
+- **`--port` arg**: passed as `["--port", String(IPC_PORT)]` — `String()` ensures it's a string (ipc_server's `argparse type=int` handles the conversion). ✓
+- **`app.isPackaged` check**: correct Electron API (line 418). Dev mode (`npm run dev`) sets it false; packaged builds set it true. ✓
+
+### Path consistency — final `from:`/`to:`/lookup-path table
+
+All 3 platforms now use a consistent `distpath` base (`<repo>/voice_typer/dist/`) and `extraResources.from:` depth (`../dist...` relative to `voice_typer/client/`):
+
+| Platform | PyInstaller `--distpath` | PyInstaller output (onefile) | Staging | `extraResources.from:` (rel. to `voice_typer/client/`) | `extraResources.to:` | Runtime lookup in `pythonArgs()` |
+|----------|--------------------------|------------------------------|---------|--------------------------------------------------------|----------------------|----------------------------------|
+| Windows  | `voice_typer/dist`       | `voice_typer/dist/VoiceTyper.exe` | (none — direct copy) | `../dist` → `<repo>/voice_typer/dist/` | `voice-typer-backend` | `${resourcesPath}/voice-typer-backend/VoiceTyper.exe` (onefile) or `${resourcesPath}/voice-typer-backend/VoiceTyper/VoiceTyper.exe` (onedir) |
+| macOS    | `voice_typer/dist`       | `voice_typer/dist/VoiceTyper` (onefile binary) | Stage → `voice_typer/dist/voice-typer-backend.app/Contents/MacOS/voice-typer` | `../dist/voice-typer-backend.app` → `<repo>/voice_typer/dist/voice-typer-backend.app` | `voice-typer-backend.app` | `${resourcesPath}/voice-typer-backend.app/Contents/MacOS/voice-typer` |
+| Linux    | `voice_typer/dist`       | `voice_typer/dist/VoiceTyper` (onefile binary) | Stage → `voice_typer/dist/voice-typer-backend/voice-typer` | `../dist/voice-typer-backend` → `<repo>/voice_typer/dist/voice-typer-backend` | `voice-typer-backend` | `${resourcesPath}/voice-typer-backend/voice-typer` |
+
+**Consistency guarantees** (all verified by `TestWave3PathConsistency`):
+1. All 3 build jobs pass `--distpath voice_typer/dist` to pyinstaller. ✓
+2. All 3 `extraResources.from:` paths start with `../dist` (NOT `../../dist`). ✓
+3. Each platform's `pythonArgs()` lookup path matches the `extraResources.to:` field + the staged binary name. ✓
+4. PyInstaller spec produces `VoiceTyper` (onefile) on all 3 platforms; the macOS/Linux staging scripts handle the rename to `voice-typer` (lowercase, hyphenated) to match `pythonArgs()`. Windows keeps `VoiceTyper.exe` (the spec's `EXE(name="VoiceTyper")` output) — `pythonArgs()` win32 branch looks for `VoiceTyper.exe` directly. ✓
+5. CI step ordering: PyInstaller → (staging for mac/linux) → electron-builder. All 3 jobs verified. ✓
+6. `--publish never` flag present on all 3 electron-builder invocations. ✓
+7. Artifact upload paths match electron-builder output: `*-setup.exe` (NSIS), `*.dmg` (macOS), `*.deb`/`*.rpm`/`*.AppImage` (Linux). ✓
+
+### Validation evidence
+
+- `python -m pytest tests/test_windows_installer_extra_resources.py tests/test_macos_linux_installer_extra_resources.py tests/test_electron_ipc_and_build.py -v --no-cov --timeout=30` → **131 passed, 0 failed** (was 130 before Wave 3; added 6 new tests: 2 path-consistency, 2 spec-entry-point, 1 code-signing-env-vars, 1 implicit from `_steps_blob` env-extension coverage).
+- `python -c "import yaml; yaml.safe_load(open('voice_typer/client/electron-builder.yml')); yaml.safe_load(open('.github/workflows/build.yml')); print('YAML OK')"` → **YAML OK** (both files parse cleanly).
+- `npx tsc --noEmit -p tsconfig.node.json` → **0 errors** (the `pythonArgs()` comment updates did not affect compilation).
+
+### Files modified
+
+1. `scripts/build/voice-typer.spec` — changed `Analysis()` entry from `voice_typer/__main__.py` to `voice_typer/server/ipc_server.py`; updated module docstring to document the Wave 3 fix.
+2. `voice_typer/client/electron-builder.yml` — `win.extraResources.from: ../../dist` → `from: ../dist`; updated win: section comment.
+3. `.github/workflows/build.yml` — build-windows PyInstaller step `--distpath dist --workpath build` → `--distpath voice_typer/dist --workpath voice_typer/build`; added `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` / `CSC_LINK` / `CSC_KEY_PASSWORD` env vars to electron-builder step.
+4. `voice_typer/client/src/main/index.ts` — updated win32 branch comment to reflect new `--distpath voice_typer/dist` and document the spec entry-point fix.
+5. `tests/test_macos_linux_installer_extra_resources.py` — extended `_steps_blob()` to include `env:` keys; updated `test_python_args_passes_port_to_embedded_backend` docstring; added `TestWave3PathConsistency` (2 tests), `TestWave3SpecEntryPointAcceptsPort` (2 tests), `TestWave3WindowsCodeSigningEnvVars` (1 test).
+6. `tests/test_windows_installer_extra_resources.py` — updated `test_win_section_has_extra_resources_for_backend` docstring and assertion message to reflect new `from: ../dist` path.
+7. `comprehensive-review.md` — added this "Wave 3 Installer Review" section.
+
+---
+
+## Wave 3 Credential Store Review (sub-agent `review-credential-store`)
+
+**Scope**: Security, backward-compat, cross-platform, and test-coverage review of `voice_typer/server/credential_store.py` (RW-01 keyring integration). Hardening pass — no behavior changes for existing callers.
+
+**Methodology**: read `credential_store.py` end-to-end (713 LOC after hardening), `tests/test_credential_store.py` (611 LOC pre-review), `docs/security/credential-store.md`, and the credential_store integration points in `voice_typer/server/config.py` (`Config.save` lines 940-996, `Config.load` lines 1185-1244) and `voice_typer/server/service.py` (`apply_config` lines 1221-1254, `get_config` / `get_defaults` lines 170-211). Grepped for `log.*secret`, `log.*api_key`, `print.*token`, `keyring.set_password`, `keyring.get_password` to verify no secret-value logging. Verified the `keyring://` reference-token unforgeability contract by tracing `Config.load` → `PROVIDER_TO_CONFIG_FIELD.items()` → `load_secret(provider)` (provider from field, not from token suffix).
+
+### Findings
+
+| # | Severity | Description | Fix status |
+|---|----------|-------------|------------|
+| CS-1 | Medium | `get_keyring_status()` returned an inconsistent snapshot when the cache was set and `available=False`: it used the cached `backend` field but re-probed for the `reason` field, potentially pairing a stale backend name with a fresh reason from a second probe. | **Fixed**: cache the `reason` alongside `available` and `backend` in `is_keyring_available()` (single probe per cache lifetime). `get_keyring_status()` now returns a consistent snapshot. Added `_keyring_reason_cache` module-level cache. |
+| CS-2 | Medium | Keyring exception messages and probe reasons were surfaced to the renderer (via `get_keyring_status().reason`) and written to logs without sanitization. A buggy or custom keyring backend could embed filesystem paths (e.g. `/home/<user>/.cache/...`) or, theoretically, API-key-like substrings in exception text. | **Fixed**: added `_redact_sensitive()` helper that strips `/home/<user>`, `/Users/<user>`, `~/<path>`, `C:\Users\<user>` paths and `sk-...`/`gsk_...`/32+ char alphanumeric runs, and truncates to 200 chars. Applied to all keyring exception log calls in `store_secret` / `load_secret` / `delete_secret` / `migrate_secrets_to_keyring` / `_read_plaintext_fallback` / `_write_plaintext_fallback`, to the probe reasons in `_probe_keyring`, and as a final defense-in-depth pass on the `reason` returned by `get_keyring_status()`. |
+| CS-3 | Low | `secrets_migrated` flag in `config.json` is not race-safe across processes — two app instances starting simultaneously could both enter `migrate_secrets_to_keyring()` before either writes the flag. The migration is idempotent (`keyring.set_password` overwrites; `_secure_atomic_write` is atomic), so the worst case is the same secret is stored twice. No data loss. | **Documented** (not fixed): cross-process file locking (`fcntl.flock` on POSIX, `msvcrt.locking` on Windows) would close the TOCTOU window but is a larger change. Added explicit note in the `migrate_secrets_to_keyring` docstring and the module-level "Design notes" section. |
+| CS-4 | Low | Python `str` is immutable, so secret values returned by `load_secret` cannot be zeroed in place. The value lives in the `Config` dataclass for the app's lifetime. | **Documented** (not fixed): `bytearray` + `del` would only help for the brief window inside `credential_store` itself (before returning), not for the `Config` instance. Added explicit note in the module-level "Design notes" section. Full secret-memory hygiene requires a C extension. |
+| CS-5 | Low | `get_keyring_status().backend` could be non-`None` when `available=False` (e.g. `"fail"` or the broken backend's class name), contradicting the docstring which said "None when unavailable". | **Fixed** (docstring): updated the `get_keyring_status` docstring to accurately describe that `backend` is "preserved even when `available` is False for diagnostics; None only when the keyring library itself couldn't be imported". Behavior unchanged — the backend name remains useful diagnostic info. |
+| CS-6 | Info | Reference-token unforgeability contract (verified safe): `Config.load()` iterates `PROVIDER_TO_CONFIG_FIELD` and calls `load_secret(provider)` with the provider matched to the field, NOT by parsing the `keyring://<suffix>` token. A malicious `config.json` that puts `keyring://llm` in `openai_api_key` cannot trick the loader into returning the LLM secret — the code calls `load_secret("openai")`, which looks up only the OpenAI entry. | **Documented + tested**: added explicit note in the module-level "Design notes" section. Added `TestReferenceTokenUnforgeability` (2 tests) verifying `load_secret` uses the provider arg (not token suffix) and that `CONFIG_FIELD_TO_PROVIDER` is an exact, unambiguous inverse. |
+| CS-7 | Info | Migration mid-failure safety (verified safe): if `keyring.set_password()` raises for one provider mid-migration, the plaintext for that provider stays in `data` (the reference-token assignment is inside the `try` block, after `set_password` succeeds). The final `_secure_atomic_write` writes a mixed state (references for migrated providers, plaintext for failed ones). If the atomic write itself fails, the original `config.json` is untouched (tmp-file-then-`os.replace` is atomic). No data loss. | **Tested**: added `TestMigrationMidFailureSafety` (2 tests): `test_migrate_preserves_failed_provider_plaintext` (keyring succeeds for A, fails for B → A in keyring + reference, B in plaintext), `test_migrate_no_data_loss_when_atomic_write_fails` (keyring accepts secret, atomic write fails → secret is in BOTH keyring and original config.json — no loss). |
+| CS-8 | Info | `load_secret` / `store_secret` exception path (verified safe): `keyring.get_password` is called with service+username only (not the value, since we're retrieving it); `keyring.set_password` is called with the value, but the value is in the call args, not in the exception. Defense-in-depth redaction (CS-2) covers the theoretical case where a buggy backend embeds the value in the exception. | **Tested**: added `TestLoadStoreNeverLeakViaException` (2 tests) simulating a buggy backend that embeds the secret in the exception message; verifies the WARNING log does not contain the secret. |
+| CS-9 | Info | Plaintext fallback uses `0o600` on POSIX (enforced by `_secure_atomic_write` in `config.py`); config dir uses `0o700` (enforced by `Config.save()` line 955). Windows fallback relies on per-user NTFS ACLs under `%APPDATA%`. | **Verified** (pre-existing): `test_plaintext_fallback_uses_0600_permissions` and `test_migrate_preserves_0600_perms` cover the POSIX case. No change needed. |
+| CS-10 | Info | Keyring service name is the hardcoded constant `"voice-typer"` (line 96). Not attacker-controllable. Provider names are looked up via the hardcoded `PROVIDER_TO_CONFIG_FIELD` map, not derived from user input. | **Verified** (pre-existing): `test_store_secret_calls_keyring_with_right_args` and `test_expected_providers_are_present` cover this. No change needed. |
+
+### Fixes applied to `voice_typer/server/credential_store.py`
+
+1. Added `_REASON_MAX_LEN = 200` constant.
+2. Added `_PATH_RE` and `_API_KEY_RE` compiled regex patterns for defense-in-depth redaction.
+3. Added `_redact_sensitive(text)` helper that strips paths + API-key-like substrings and truncates to `_REASON_MAX_LEN`.
+4. Added `_keyring_reason_cache` module-level cache; updated `is_keyring_available()` and `_reset_keyring_cache()` to manage it.
+5. Refactored `get_keyring_status()` to return a consistent cached snapshot (single probe via `is_keyring_available()`), with a final `_redact_sensitive` pass on the reason.
+6. Wrapped all keyring exception text in log calls with `_redact_sensitive(str(e))` — applied to `store_secret`, `load_secret`, `delete_secret`, `_read_plaintext_fallback`, `_write_plaintext_fallback`, `migrate_secrets_to_keyring` (6 log sites).
+7. Wrapped the probe reason in `_probe_keyring()` with `_redact_sensitive()` for all 3 exception branches.
+8. Updated the module docstring with three new "Design notes" bullet points: reference-token unforgeability, Python memory hygiene (known limitation), two-instance migration race (known limitation).
+9. Updated the `get_keyring_status` docstring to accurately describe the `backend` field's value when `available=False`.
+10. Added an inline comment in `migrate_secrets_to_keyring` documenting the mid-migration failure safety contract (reference-token assignment is gated on `set_password` succeeding).
+
+### Tests added to `tests/test_credential_store.py`
+
+19 new tests (28 → 47 total), organized into 5 new test classes:
+
+1. `TestRedactSensitive` (10 tests) — verifies `_redact_sensitive` strips POSIX/macOS/Windows paths, `sk-`/`gsk_`/32+ char alphanumeric API keys, truncates long strings, and passes through `None`/empty/short strings unchanged.
+2. `TestGetKeyringStatusConsistency` (2 tests) — verifies `get_keyring_status()` does NOT re-probe when the cache is populated (sentinel test), and that the returned `reason` is redacted even when `_probe_keyring` returns a raw string.
+3. `TestLoadStoreNeverLeakViaException` (2 tests) — defense-in-depth: simulates a buggy keyring backend that embeds the secret in its exception message; verifies the WARNING log from `load_secret` / `store_secret` does not contain the secret.
+4. `TestMigrationMidFailureSafety` (2 tests) — verifies mid-migration failure preserves all secrets (failed provider's plaintext stays in config.json; atomic-write failure leaves original config.json untouched, secret is in both keyring AND config.json — no data loss).
+5. `TestReferenceTokenUnforgeability` (2 tests) — verifies `load_secret` uses the provider arg (not the token suffix) for keyring lookup, and that `CONFIG_FIELD_TO_PROVIDER` is an exact, unambiguous inverse.
+6. `TestMultiProviderConcurrentAccess` (1 test) — smoke test: store all 5 providers' secrets in rapid succession, load each, verify no cross-contamination.
+
+### Validation evidence
+
+- `python -m pytest tests/test_credential_store.py tests/test_config.py -v --no-cov --timeout=30` → **118 passed** (was 99 pre-review: 28 credential_store + 71 config; now 47 credential_store + 71 config).
+- `python -m pytest tests/test_consent_and_privacy.py tests/test_security_hardening.py -v --no-cov --timeout=30` → **83 passed, 2 skipped** (unchanged — hardening pass did not touch consent or security-hardening code paths).
+
+### Files modified
+
+1. `voice_typer/server/credential_store.py` — hardening pass: added `_redact_sensitive()` helper, `_keyring_reason_cache`, refactored `get_keyring_status()` for consistent snapshots, wrapped all keyring exception log calls with `_redact_sensitive()`, expanded module docstring with 3 new design-notes bullets (unforgeability, memory hygiene, two-instance race). 581 → 713 LOC (+132, mostly docstrings + the redaction helper + test scaffolding).
+2. `tests/test_credential_store.py` — added 19 new tests across 5 new test classes (`TestRedactSensitive`, `TestGetKeyringStatusConsistency`, `TestLoadStoreNeverLeakViaException`, `TestMigrationMidFailureSafety`, `TestReferenceTokenUnforgeability`, `TestMultiProviderConcurrentAccess`). 611 → 1100 LOC.
+3. `comprehensive-review.md` — added this "Wave 3 Credential Store Review" section.
+
+### Backward compatibility
+
+- **No behavior changes for existing callers.** `store_secret` / `load_secret` / `delete_secret` / `migrate_secrets_to_keyring` / `is_keyring_available` / `get_keyring_status` all preserve their signatures, return types, and side effects.
+- **`get_keyring_status().reason`** may now be shorter (truncated to 200 chars) and have paths/API-keys redacted — this is a security improvement, not a regression. Existing tests that asserted `"fail" in reason.lower()` or `"no usable" in reason.lower()` still pass.
+- **`get_keyring_status().backend`** is unchanged — still returns the backend class name (or `"fail"`) even when unavailable, for diagnostics.
+- **No changes to `config.json` on-disk format** — the `secrets_migrated` flag, `keyring://<provider>` reference tokens, and plaintext fallback format are all unchanged.
+- **No changes to the keyring service name** (`"voice-typer"`) or the provider→field mapping.
+
+### Cross-platform notes (unchanged from pre-review)
+
+- **Windows Credential Manager**: keyring uses `keyring.backends.Windows.WinVaultKeyring` via `pywin32` (bundled). The `_probe_keyring` sentinel `get_password` call confirms the backend is responsive.
+- **macOS Keychain**: keyring uses `keyring.backends.macOS.Keyring` via `pyobjc` (bundled). Locked keychain → `get_password` raises → `load_secret` falls back to `None` (renderer shows "not configured"); `store_secret` falls back to plaintext in `config.json`.
+- **Linux libsecret/SecretService**: keyring uses `keyring.backends.SecretService.Keyring` via `python-dbus` + `gnome-keyring-daemon`. Missing D-Bus → backend selected but probe raises → `_probe_keyring` returns `(False, "SecretServiceKeyring", redacted reason)`.
+- **Headless Linux (no gnome-keyring-daemon)**: `keyring.backends.fail.Keyring` is selected → `_probe_keyring` returns `(False, "fail", "no usable keyring backend (fail backend selected)")` → plaintext fallback with `0o600` perms. Verified by `test_status_unavailable_when_keyring_missing` and `test_load_secret_falls_back_to_config_json`.
