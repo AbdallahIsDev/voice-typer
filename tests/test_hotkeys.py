@@ -6,10 +6,9 @@ import inspect
 import re
 from pathlib import Path
 
-RENDERER_SRC = (
-    Path(__file__).resolve().parent.parent
-    / "voice_typer" / "client" / "src" / "renderer" / "src"
-)
+import pytest
+
+RENDERER_SRC = Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "renderer" / "src"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -20,6 +19,14 @@ def _read(rel: str) -> str:
 class TestHotkeyUtilsFormatLabel:
     """formatHotkeyLabel converts pynput syntax to human-readable."""
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "hotkey-utils-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_formats_single_key(self):
         utils = _read("components/hotkey/hotkey-utils.ts")
         assert "function formatHotkeyLabel" in utils
@@ -27,6 +34,14 @@ class TestHotkeyUtilsFormatLabel:
         assert '"Caps Lock"' in utils or "'Caps Lock'" in utils
         assert '"Space"' in utils or "'Space'" in utils
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "hotkey-utils-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_formats_combo(self):
         utils = _read("components/hotkey/hotkey-utils.ts")
         assert '.split("+")' in utils or ".split('+')" in utils
@@ -40,14 +55,38 @@ class TestHotkeyUtilsValidate:
         utils = _read("components/hotkey/hotkey-utils.ts")
         assert "function validateHotkey" in utils
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "hotkey-utils-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_validate_rejects_empty(self):
         utils = _read("components/hotkey/hotkey-utils.ts")
         assert "Hotkey is empty" in utils
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "hotkey-utils-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_validate_rejects_modifiers_only_in_combo(self):
         utils = _read("components/hotkey/hotkey-utils.ts")
         assert "must end with a non-modifier key" in utils
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "hotkey-utils-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_validate_rejects_multi_key_in_single_mode(self):
         utils = _read("components/hotkey/hotkey-utils.ts")
         assert "must be a single key" in utils
@@ -56,11 +95,27 @@ class TestHotkeyUtilsValidate:
 class TestRepasteKeySettingUsesHotkeyPicker:
     """The Re-Paste Key setting uses HotkeyPicker instead of free-text Input."""
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "RecordingSettings-hotkey-picker.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_settings_imports_hotkey_picker(self):
         recording = _read("components/settings/RecordingSettingsSection.tsx")
         assert "import { HotkeyPicker }" in recording
         assert "@/components/hotkey/HotkeyPicker" in recording
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "RecordingSettings-hotkey-picker.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_repaste_key_uses_hotkey_picker_combo_mode(self):
         recording = _read("components/settings/RecordingSettingsSection.tsx")
         assert "<HotkeyPicker" in recording
@@ -70,7 +125,7 @@ class TestRepasteKeySettingUsesHotkeyPicker:
     def test_no_free_text_input_for_repaste(self):
         recording = _read("components/settings/RecordingSettingsSection.tsx")
         assert not re.search(
-            r'<Input[^>]*value=\{config\.repaste_hotkey',
+            r"<Input[^>]*value=\{config\.repaste_hotkey",
             recording,
             re.DOTALL,
         )
@@ -84,6 +139,14 @@ class TestDictationKeySupportsExpandedPresets:
         assert 'mode="combo"' in recording
         assert "DICTATION_KEY_PRESETS" in recording
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "hotkey-utils-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_single_key_presets_include_beyond_f12(self):
         utils = _read("components/hotkey/hotkey-utils.ts")
         assert "caps_lock" in utils
@@ -118,6 +181,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
 
     def test_fallback_tracks_modifiers(self):
         from voice_typer.server.hotkeys import PynputHotkey
+
         source = inspect.getsource(PynputHotkey._start_fallback)
         assert "modifier_keys" in source
         assert "held_modifiers" in source
@@ -142,11 +206,12 @@ class TestAutouseFixturePatchesBothHotkeyNamespaces:
         import inspect
 
         import tests.test_app as test_app_mod
+
         fixture_src = None
         for _name, obj in vars(test_app_mod).items():
-            if callable(obj) and hasattr(obj, '__wrapped__'):
+            if callable(obj) and hasattr(obj, "__wrapped__"):
                 src = inspect.getsource(obj)
-                if 'create_hotkey_backend' in src and 'PynputHotkey' in src:
+                if "create_hotkey_backend" in src and "PynputHotkey" in src:
                     fixture_src = src
                     break
         if fixture_src is None:
@@ -166,6 +231,7 @@ class TestVKMapInitLockGuarded:
             hotkeys._VK_MAP.clear()
 
         import threading
+
         errors: list[Exception] = []
 
         def init_many():
@@ -193,6 +259,7 @@ class TestExtendedVKMap:
 
     def test_media_keys_present(self):
         from voice_typer.server.hotkeys import _VK_MAP, _VK_MAP_LOCK, _init_vk_map
+
         with _VK_MAP_LOCK:
             _VK_MAP.clear()
         _init_vk_map()
@@ -204,6 +271,7 @@ class TestExtendedVKMap:
 
     def test_numpad_keys_present(self):
         from voice_typer.server.hotkeys import _VK_MAP, _init_vk_map
+
         _init_vk_map()
         assert "num_0" in _VK_MAP
         assert "numpad_5" in _VK_MAP

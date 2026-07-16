@@ -27,6 +27,20 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+# ─── Linux test-env shim (RW-8) ──────────────────────────────────────────
+# ``voice_typer.server.crash_handler`` uses ``ctypes.WINFUNCTYPE`` as a
+# decorator at module load time. That attribute only exists on Windows,
+# so importing ``voice_typer.server.app`` (which does
+# ``from voice_typer.server import crash_handler``) raises
+# ``AttributeError`` on Linux. Many tests in this file introspect
+# ``VoiceTyperApp`` source via ``inspect.getsource``; without this
+# shim, those tests would fail non-deterministically depending on
+# whether some earlier test happened to pre-load ``app``. The same
+# pattern is used in ``tests/test_api_doc_accuracy.py:42-57``. This is
+# a *test-only* shim — production code never monkey-patches ctypes.
+if sys.platform != "win32" and "voice_typer.server.crash_handler" not in sys.modules:
+    sys.modules["voice_typer.server.crash_handler"] = MagicMock()
+
 # === Source: tests/test_changes2_fixes.py ===
 
 """Regression tests for the second-pass forensic review (changes-2).
@@ -397,6 +411,13 @@ class TestAudioCallbackUsesMinimalLockScope:
         inside ``start()`` to the ``_process_audio_chunk`` method (runs
         on the audio worker thread). The lock-scope invariant is now
         inspected in ``_process_audio_chunk``.
+
+        RW-8: KEEP — pins the structural lock-scope invariant (only
+        buffer.append + chunk_count + recent_rms snapshot inside the
+        lock). A behavioral test for this would need to instrument the
+        lock to measure hold time, which is flaky; the source-string
+        check is the most direct way to catch a regression where a
+        future contributor adds expensive work inside the lock.
         """
         from voice_typer.server import recording as rec_mod
 
@@ -421,6 +442,12 @@ class TestRmsSnapshotReadsInsideLock:
     """
 
     def test_recent_rms_snapshot_taken_inside_lock(self):
+        # RW-8: KEEP — pins RACE-003 fix (snapshot taken inside lock,
+        # post-lock code uses the snapshot, not the live deque). A
+        # behavioral test would need to reproduce the exact race window
+        # (concurrent callback mutating the deque mid-iteration), which
+        # is non-deterministic; the source-string check catches the
+        # regression deterministically.
         from voice_typer.server import recording as rec_mod
 
         # RT-SAFE-001: the callback body moved to _process_audio_chunk.
@@ -434,6 +461,10 @@ class TestRmsSnapshotReadsInsideLock:
     def test_no_direct_recent_rms_read_outside_lock(self):
         """The post-lock code must NOT contain
         ``recent_rms = self._recent_rms_values`` (the pre-fix pattern).
+
+        RW-8: KEEP — pins the negative half of RACE-003 (the pre-fix
+        pattern must not return). Source-string check is the most
+        direct way to catch a regression where the snapshot is bypassed.
         """
         from voice_typer.server import recording as rec_mod
 
@@ -474,6 +505,11 @@ class TestConfigMutationLockSharedAcrossIpc:
     """
 
     def test_app_has_config_mutation_lock(self):
+        # RW-8: KEEP — pins RACE-011 fix (app holds a re-entrant lock
+        # for Config mutations). A behavioral test would need to spawn
+        # two threads doing set_config concurrently and detect a torn
+        # state, which is non-deterministic; the source-string check
+        # catches removal of the lock deterministically.
         from voice_typer.server.app import VoiceTyperApp
 
         # VoiceTyperApp must declare _config_mutation_lock
@@ -485,6 +521,12 @@ class TestConfigMutationLockSharedAcrossIpc:
         assert "threading.RLock()" in src
 
     def test_ipc_set_config_uses_lock(self):
+        # RW-8: KEEP — pins ADR 0008 §3.1 refactor (lock acquisition
+        # moved from IPC handler to service layer). A behavioral test
+        # would dispatch set_config concurrently and detect a race,
+        # which is non-deterministic; the source-string check catches
+        # both removal of the lock from the service AND reintroduction
+        # of direct lock access in the handler.
         from voice_typer.server.service import VoiceTyperService
 
         # TASK-2 (ADR 0008 §3.1): the lock acquisition moved from
@@ -540,6 +582,11 @@ class TestRecordingTestsUseMonotonicClock:
     def test_test_recording_uses_monotonic(self):
         """The two test methods that set _resample_poly_error_time
         must use time.monotonic(), NOT time.time().
+
+        RW-8: KEEP — pins AUDIO-003 fix (tests use monotonic clock to
+        match source code). The invariant is about test code, not
+        production code, so a behavioral test would be circular (testing
+        a test). Source-string check is the only way to catch regression.
         """
         import tests.test_recording as test_recording_mod
 
@@ -579,7 +626,13 @@ class TestInCallbackDeadFieldRemoved:
     """
 
     def test_in_callback_field_does_not_exist(self):
-        """``Recorder.__init__`` must NOT declare ``_in_callback``."""
+        """``Recorder.__init__`` must NOT declare ``_in_callback``.
+
+        RW-8: KEEP — pins AUDIO-009/AUDIO-015 dead-code removal.
+        Source-string check is the only way to catch reintroduction
+        of the dead field (a behavioral test can't observe a field
+        that does nothing).
+        """
         from voice_typer.server import recording as rec_mod
 
         src = inspect.getsource(rec_mod.Recorder.__init__)
@@ -590,7 +643,14 @@ class TestInCallbackDeadFieldRemoved:
         )
 
     def test_is_in_audio_callback_still_exists(self):
-        """The live guard ``_is_in_audio_callback`` must still exist."""
+        """The live guard ``_is_in_audio_callback`` must still exist.
+
+        RW-8: KEEP — pins AUDIO-015 (live guard preserved while the
+        dead _in_callback field was removed). Could be ported to a
+        behavioral test that calls _is_in_audio_callback() and verifies
+        it returns a bool, but the source-string check is simpler and
+        catches removal of the attribute directly.
+        """
         from voice_typer.server import recording as rec_mod
 
         src = inspect.getsource(rec_mod.Recorder.__init__)
@@ -609,6 +669,12 @@ class TestVadGreyZonePreservesCounters:
     """
 
     def test_grey_zone_does_not_reset_counters(self):
+        # RW-8: KEEP — pins AUDIO-013 fix (grey-zone else block uses
+        # `pass` instead of resetting both counters). The sibling
+        # test_grey_zone_preserves_counters_at_runtime tests behaviorally,
+        # but the source-string check catches regressions where the
+        # pass is replaced with a reset that happens to not fire in
+        # the runtime test's exact scenario.
         from voice_typer.server import recording as rec_mod
 
         src = inspect.getsource(rec_mod.Recorder._vad_update)
@@ -745,6 +811,11 @@ class TestVadAutoCalibrationBehavior:
     def test_vad_auto_calibrate_resets_on_start(self):
         """``Recorder.start()`` must reset the calibration state so a
         new session re-calibrates from scratch.
+
+        RW-8: KEEP — pins AUDIO-014 fix (start() resets calibration
+        state). The sibling test_vad_auto_calibrate_sets_thresholds_from_ambient_noise
+        tests the calibration behavior, but doesn't verify start()
+        resets it; the source-string check catches removal of the reset.
         """
         from voice_typer.server import recording as rec_mod
 
@@ -786,6 +857,12 @@ class TestStreamingAssemblerUsesDequeEviction:
     def test_no_pop_zero_in_insert_word(self):
         """``_insert_word_unlocked`` must NOT call ``self._words.pop(0)``
         (the O(n) pre-fix pattern). The deque's auto-eviction handles it.
+
+        RW-8: KEEP — pins AUDIO-019 fix (deque(maxlen=N) auto-eviction
+        replaces pop(0)). The sibling test_eviction_preserves_word_key_index_correctness
+        tests eviction behavior, but doesn't catch reintroduction of
+        pop(0) if it's added alongside the deque; the source-string
+        check catches that directly.
         """
         from voice_typer.server.streaming import StreamingTextAssembler
 
@@ -798,6 +875,11 @@ class TestStreamingAssemblerUsesDequeEviction:
     def test_eviction_triggers_warning_with_correct_variable_name(self):
         """The eviction warning must reference ``evicted_word.word``
         (not the typo ``evited.word`` from the pre-fix code).
+
+        RW-8: KEEP — pins AUDIO-019 typo fix (evicted_word, not evited).
+        The typo would only crash if the eviction path fires, which
+        is rare in normal tests; the source-string check catches the
+        typo deterministically.
         """
         from voice_typer.server.streaming import StreamingTextAssembler
 
@@ -860,6 +942,12 @@ class TestAudioAgcLastRmsPostAgc:
         """ADR 0007: AGC recompute block is gone. _last_rms is still set.
 
         RT-SAFE-001: the callback body moved to _process_audio_chunk.
+
+        RW-8: KEEP — pins ADR 0007 §3.5 (per-chunk AGC removed,
+        replaced by Compressor filter). The negative assertion
+        (no `_agc_update` / `_agc_gain` code) catches reintroduction
+        of the dead AGC path; the positive assertion (`_last_rms =
+        chunk_rms`) catches removal of the UI/IPC RMS feed.
         """
         from voice_typer.server import recording as rec_mod
 
@@ -879,6 +967,9 @@ class TestAudioAgcLastRmsPostAgc:
         """ADR 0007: _agc_update call is gone. _last_rms is still set.
 
         RT-SAFE-001: the callback body moved to _process_audio_chunk.
+
+        RW-8: KEEP — pins ADR 0007 §3.5 (per-chunk AGC call removed).
+        Same rationale as test_last_rms_assignment_after_agc_recompute.
         """
         from voice_typer.server import recording as rec_mod
 
@@ -938,6 +1029,12 @@ class TestConfigEditHoldsMutationLock:
     """
 
     def test_open_config_file_holds_config_mutation_lock(self):
+        # RW-8: KEEP — pins SEC-audit-011 fix (lock held for the
+        # duration of the Notepad editing session). A behavioral test
+        # would need to spawn two threads (one editing config in
+        # Notepad, one doing set_config IPC) and detect a race, which
+        # is non-deterministic; the source-string check catches
+        # removal of the lock or reordering of lock/Popen/reload.
         from voice_typer.server.app import VoiceTyperApp
 
         src = inspect.getsource(VoiceTyperApp._open_config_file)
@@ -1091,6 +1188,10 @@ class TestDaemonThreadRationaleDocumented:
     """
 
     def test_hotkeys_win32_thread_has_rationale(self):
+        # RW-8: KEEP — pins RACE-008 rationale comment on the daemon
+        # thread. The comment is documentation, not behavior; a
+        # behavioral test can't verify rationale presence. Source-string
+        # check is the only way to catch removal.
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         src = inspect.getsource(WindowsNativeHotkey.start)
@@ -1099,6 +1200,8 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_hotkeys_ipc_thread_has_rationale(self):
+        # RW-8: KEEP — pins RACE-008 rationale comment on the WaylandHotkey
+        # socket-accept daemon thread. Same rationale as the win32 variant.
         from voice_typer.server.hotkeys import WaylandHotkey
 
         inspect.getsource(WaylandHotkey.start)
@@ -1110,6 +1213,8 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_tray_bg_thread_has_rationale(self):
+        # RW-8: KEEP — pins RACE-008 rationale comment on the tray
+        # background-thread daemon. Same rationale as the win32 variant.
         from voice_typer.server.tray import TrayIcon
 
         src = inspect.getsource(TrayIcon.start)
@@ -1118,6 +1223,8 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_service_download_thread_has_rationale(self):
+        # RW-8: KEEP — pins RACE-008 rationale comment on the service.py
+        # model-download daemon thread. Same rationale as the win32 variant.
         from voice_typer.server import service
 
         # The download thread is inside a method — search the whole module.
@@ -1166,7 +1273,20 @@ class TestElectronLogFilesCaptured:
         if hasattr(result["stderr"], "close"):
             result["stderr"].close()
 
+    @pytest.mark.skip(
+        reason="RW-8: PORT-CANDIDATE — ported to "
+        "tests/test_bugfix_regressions_behavioral.py::"
+        "TestElectronLogFilesBehavioral::test_all_electron_launch_sites_call_log_files_helper"
+    )
     def test_electron_launch_sites_use_log_files_not_devnull(self):
+        # RW-8: PORT-CANDIDATE — see
+        # tests/test_bugfix_regressions_behavioral.py::TestElectronLogFilesBehavioral::
+        # test_all_electron_launch_sites_call_log_files_helper.
+        # The source-string count (>= 3 occurrences of `_electron_log_files()`)
+        # is brittle: production may consolidate the 3 launch sites into a
+        # shared helper without losing the invariant. The behavioral test
+        # mocks subprocess.Popen for each launch entry point and verifies
+        # the helper is invoked.
         from voice_typer.server import autostart_launcher
 
         src = inspect.getsource(autostart_launcher)
@@ -1254,6 +1374,11 @@ class TestAudioMicDeviceChangePoller:
         source of truth). The poller was removed from startup to
         eliminate the ~1-5ms/30s CPU cost and the per-second
         ``threading.Event()`` allocation.
+
+        RW-8: KEEP — pins PERF-FIX-2 (redundant poller removed).
+        A behavioral test would need to start StartupSequence.run and
+        observe no thread spawn, which is heavy; the source-string
+        check catches reintroduction of the call directly.
         """
         from voice_typer.server.startup_sequence import StartupSequence
 
@@ -1306,7 +1431,20 @@ class TestTrayIconBaseIcoLookup:
     tray_icon.py looks for the base ICO as a fallback.
     """
 
+    @pytest.mark.skip(
+        reason="RW-8: PORT-CANDIDATE — ported to "
+        "tests/test_bugfix_regressions_behavioral.py::"
+        "TestTrayIconBaseIcoBehavioral::test_get_icon_path_returns_ico_when_available"
+    )
     def test_get_icon_path_looks_for_base_ico(self):
+        # RW-8: PORT-CANDIDATE — see
+        # tests/test_bugfix_regressions_behavioral.py::TestTrayIconBaseIcoBehavioral::
+        # test_get_icon_path_returns_ico_when_available.
+        # The source-string check ("tray-mic.ico" in _get_icon_path source)
+        # is brittle: production may refactor the path lookup into a helper
+        # or use a different variable name. The behavioral test mocks the
+        # filesystem to simulate the .ico file existing and verifies the
+        # function returns the .ico path.
         from voice_typer.server.tray_icon import _get_icon_path
 
         src = inspect.getsource(_get_icon_path)
@@ -1315,7 +1453,13 @@ class TestTrayIconBaseIcoLookup:
         )
 
     def test_generate_icons_mjs_emits_tray_ico(self):
-        """generate-icons.mjs must call generateIco for tray-mic.ico."""
+        """generate-icons.mjs must call generateIco for tray-mic.ico.
+
+        RW-8: KEEP — pins PLAT-024 fix in the JS icon-generation script.
+        Cannot easily test behaviorally (would need to execute the .mjs
+        script and inspect emitted files); source-string check is the
+        most direct way to catch removal of the .ico emission.
+        """
         from pathlib import Path
 
         mjs_path = Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "scripts" / "generate-icons.mjs"
@@ -1333,7 +1477,21 @@ class TestAccessibilityIpcEndpointExists:
     IPC handler that returns ``{granted, platform}``.
     """
 
+    @pytest.mark.skip(
+        reason="RW-8: PORT-CANDIDATE — ported to "
+        "tests/test_bugfix_regressions_behavioral.py::"
+        "TestAccessibilityIpcBehavioral::"
+        "test_handler_returns_accessibility_status_type_and_uses_axistrusted_on_macos"
+    )
     def test_check_accessibility_ipc_handler_exists(self):
+        # RW-8: PORT-CANDIDATE — see
+        # tests/test_bugfix_regressions_behavioral.py::TestAccessibilityIpcBehavioral::
+        # test_handler_returns_accessibility_status_type_and_uses_axistrusted_on_macos.
+        # The source-string check ("accessibility_status" and "AXIsProcessTrusted"
+        # in the handler source) is brittle: production may extract the macOS
+        # probe into a helper. The behavioral test mocks sys.platform=darwin
+        # and ApplicationServices.AXIsProcessTrusted to verify the handler
+        # returns the expected response type and consults AXIsProcessTrusted.
         from voice_typer.server import ipc_server
 
         # REFACTOR: _dispatch was converted to a command registry.
@@ -1434,6 +1592,12 @@ class TestNumpyVectorizedOpsRegression:
     """
 
     def test_recording_uses_np_dot_for_rms(self):
+        # RW-8: KEEP — pins AUDIO-007 (vectorized np.dot RMS computation).
+        # The sibling test_np_dot_rms_matches_naive_computation tests the
+        # numerical equivalence, but doesn't catch a regression where the
+        # callback switches to a naive np.mean(audio**2) implementation
+        # (which would still pass the equivalence test). Source-string
+        # check catches the implementation choice directly.
         from voice_typer.server import recording
 
         src = inspect.getsource(recording)
@@ -1485,6 +1649,13 @@ class TestAudioDeviceDisconnectHandling:
         RT-SAFE-001: the zero-fill disconnect detection moved from the
         real-time audio callback to _process_audio_chunk (runs on the
         audio worker thread). The invariant is preserved.
+
+        RW-8: KEEP — pins AUDIO-008 zero-fill disconnect detection.
+        The test accepts any of three idioms (np.count_nonzero,
+        np.all, not indata.any()) so it's robust to refactors within
+        the same behavior; a fully behavioral test would need to feed
+        zero indata and observe the flag, which requires a running
+        recorder (heavy). Source-string check is the lighter-weight guard.
         """
         from voice_typer.server import recording
         from voice_typer.server.config import Config
@@ -1556,6 +1727,11 @@ class TestBackpressureDetectionOnDequeOverflow:
         assert rec._dropped_chunks >= 1, "AUDIO-010: _dropped_chunks must be incremented when buffer is full."
 
     def test_backpressure_source_uses_maxlen_check(self):
+        # RW-8: KEEP — pins AUDIO-010 (backpressure check compares
+        # against _buffer.maxlen). The sibling test_backpressure_detection_increments_dropped_chunks
+        # tests the increment behavior, but doesn't catch a regression
+        # where the comparison is against a hardcoded length. Source-string
+        # check catches the implementation choice.
         from voice_typer.server import recording
 
         # RT-SAFE-001: the callback body moved to _process_audio_chunk.
@@ -1649,6 +1825,11 @@ class TestPeakMeterAccuracy:
         assert rec._peak == 0.95, f"AUDIO-017: _peak must be 0.95 (max of {test_peaks}), got {rec._peak}"
 
     def test_peak_source_uses_abs_max(self):
+        # RW-8: KEEP — pins AUDIO-017 (peak computation uses abs().max()).
+        # The sibling test_peak_tracking_increments_correctly tests the
+        # peak-tracking behavior, but doesn't catch a regression where
+        # the implementation switches to max(filtered) (without abs),
+        # which would return wrong values for negative-going signals.
         from voice_typer.server import recording
 
         # RT-SAFE-001: the callback body moved to _process_audio_chunk.
@@ -1762,6 +1943,10 @@ class TestManifestInExists:
         assert manifest.exists(), "PLAT-036: MANIFEST.in must exist at the repo root."
 
     def test_manifest_in_includes_key_files(self):
+        # RW-8: KEEP — pins PLAT-036 (MANIFEST.in includes critical data
+        # files). A behavioral test would need to run `python setup.py
+        # sdist` and inspect the archive, which is heavy; the file-content
+        # check catches removal of the include directives directly.
         from pathlib import Path
 
         manifest = Path(__file__).resolve().parent.parent / "MANIFEST.in"
@@ -1788,6 +1973,10 @@ class TestWindowsManifestAsInvoker:
         assert manifest.exists(), "PLAT-037: voice-typer.manifest must exist in scripts/build/."
 
     def test_manifest_declares_as_invoker(self):
+        # RW-8: KEEP — pins PLAT-037 (manifest declares asInvoker).
+        # A behavioral test would need to inspect the embedded manifest
+        # in a built .exe (heavy Windows-only); the file-content check
+        # catches removal of the asInvoker declaration directly.
         from pathlib import Path
 
         manifest = Path(__file__).resolve().parent.parent / "scripts" / "build" / "voice-typer.manifest"
@@ -1797,6 +1986,10 @@ class TestWindowsManifestAsInvoker:
         )
 
     def test_spec_file_embeds_manifest(self):
+        # RW-8: KEEP — pins PLAT-037 (.spec file references the manifest).
+        # A behavioral test would need to run PyInstaller and inspect the
+        # built .exe resources (heavy); the file-content check catches
+        # removal of the manifest reference in the .spec directly.
         from pathlib import Path
 
         spec = Path(__file__).resolve().parent.parent / "scripts" / "build" / "voice-typer.spec"
@@ -1814,7 +2007,14 @@ class TestMutexHardenedWithSecurityDescriptor:
     """
 
     def test_mutex_name_has_local_prefix(self):
-        r"""The mutex name must have Local\ prefix (no install hash)."""
+        r"""The mutex name must have Local\ prefix (no install hash).
+
+        RW-8: KEEP — pins PLAT-040 (mutex name has Local\ prefix,
+        no install-path hash). A behavioral test would need to spawn
+        two processes and observe the mutex collision, which is heavy;
+        the source-string check catches reintroduction of the install
+        hash directly.
+        """
         import inspect
 
         from voice_typer.server import app
@@ -1825,6 +2025,11 @@ class TestMutexHardenedWithSecurityDescriptor:
         assert "install_hash" not in src, "PLAT-040-FIXED: no install-path hash in app module."
 
     def test_mutex_uses_restrictive_security_attributes(self):
+        # RW-8: KEEP — pins PLAT-040 (mutex uses restrictive DACL via
+        # _create_restrictive_security_attributes). A behavioral test
+        # would need to inspect the mutex's security descriptor via
+        # Windows APIs (heavy, Windows-only); the source-string check
+        # catches removal of the helper call directly.
         from voice_typer.server import app
 
         src = inspect.getsource(app)
@@ -1842,6 +2047,11 @@ class TestPlatRunAutostartTaskHashed:
     """
 
     def test_autostart_task_name_includes_hash_suffix(self):
+        # RW-8: KEEP — pins PLAT-RUN (autostart task name includes
+        # install-path hash suffix). The sibling test_install_hash_suffix_returns_underscore_prefix
+        # and test_two_different_executables_get_different_hashes test the
+        # hash function behavior, but don't catch a regression where the
+        # task name stops using the hash. Source-string check catches that.
         from voice_typer.server import server_platform as platform
 
         src = inspect.getsource(platform)
@@ -1949,6 +2159,11 @@ class TestPlatWaylandSocketPermissions:
     """
 
     def test_socket_chmod_is_owner_only(self):
+        # RW-8: KEEP — pins PLAT-WAYLAND (socket restricted to 0o600).
+        # A behavioral test would need to start the socket server and
+        # inspect the socket file's permissions, which requires a running
+        # WaylandHotkey instance (heavy). Source-string check catches
+        # reintroduction of group/other bits directly.
         from voice_typer.server import hotkeys
 
         src = inspect.getsource(hotkeys.WaylandHotkey._start_socket_server)
@@ -1971,6 +2186,11 @@ class TestClipboardRetryNarrowedException:
     """
 
     def test_retry_catches_oserror_not_broad_exception(self):
+        # RW-8: KEEP — pins PLAT-007 (clipboard retry narrowed to OSError
+        # with winerror == 5). A behavioral test would need to trigger
+        # ERROR_ACCESS_DENIED on the clipboard, which is Windows-specific
+        # and flaky; the source-string check catches reintroduction of
+        # the broad Exception catch directly.
         from voice_typer.server import clipboard
 
         src = inspect.getsource(clipboard)
@@ -1982,6 +2202,9 @@ class TestClipboardRetryNarrowedException:
     def test_broad_exception_catch_removed(self):
         """The pre-fix ``except Exception as copy_err`` must NOT be
         present in the retry block.
+
+        RW-8: KEEP — pins the negative half of PLAT-007. Same rationale
+        as test_retry_catches_oserror_not_broad_exception.
         """
         from voice_typer.server import clipboard
 
@@ -2033,6 +2256,12 @@ class TestComtypesFallbackFailsClosed:
     def test_comtypes_absence_logs_warning_not_info(self):
         """The ImportError handler must log at WARNING level (not INFO)
         so operators notice at default log levels.
+
+        RW-8: KEEP — pins PLAT-014 (comtypes-absence path logs WARNING
+        and calls the credential-dialog fallback). A behavioral test
+        would need to uninstall comtypes and capture log output, which
+        is heavy; the source-string check catches removal of the
+        WARNING level or the fallback call directly.
         """
         from voice_typer.server import clipboard
 
@@ -2077,7 +2306,14 @@ class TestPlatHleakDeadCodeRemoved:
         )
 
     def test_mutex_name_is_fixed_string(self):
-        """Mutex name is fixed (not sys.executable hash)."""
+        """Mutex name is fixed (not sys.executable hash).
+
+        RW-8: KEEP — pins PLAT-HLEAK (mutex name is a fixed string,
+        not derived from sys.executable hash). A behavioral test would
+        need to spawn two processes with different sys.executable and
+        observe the mutex collision, which is heavy; the source-string
+        check catches reintroduction of the hash directly.
+        """
         import inspect
 
         from voice_typer.server import app as app_mod
@@ -2096,6 +2332,10 @@ class TestPlatPumpImportHoisted:
     """
 
     def test_import_hoisted_out_of_loop(self):
+        # RW-8: KEEP — pins PLAT-PUMP (win32gui import hoisted out of
+        # the 1ms polling loop). A behavioral test would need to measure
+        # import time per loop iteration, which is flaky; the source-string
+        # check catches reintroduction of the in-loop import directly.
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         src = inspect.getsource(WindowsNativeHotkey._run_polling_loop)
@@ -2112,6 +2352,9 @@ class TestPlatPumpImportHoisted:
         """The PumpWaitingMessages function must be stored in a local
         variable (``_pump_messages``) and called via that variable
         inside the loop — not re-imported each iteration.
+
+        RW-8: KEEP — pins PLAT-PUMP (PumpWaitingMessages cached in a
+        # local). Same rationale as test_import_hoisted_out_of_loop.
         """
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
@@ -2143,7 +2386,12 @@ class TestVkLookupBenchmarkExists:
         assert elapsed_ms < 100, f"PLAT-002: VK map init took {elapsed_ms:.1f}ms (target < 100ms)"
 
     def test_vk_lookup_is_o1_dict_get(self):
-        """VK lookup must use dict.get (O(1)), not a linear scan."""
+        # RW-8: KEEP — pins PLAT-002 (VK lookup uses dict.get, O(1)).
+        # The sibling test_vk_map_initialization_is_fast and
+        # test_vk_lookup_returns_correct_code_for_f2 test the speed and
+        # correctness, but don't catch a regression where the lookup
+        # switches to a linear scan that happens to be fast for small
+        # maps. Source-string check catches the implementation choice.
         from voice_typer.server import hotkeys
 
         src = inspect.getsource(hotkeys)
@@ -2202,6 +2450,11 @@ class TestWindowsPathMigrationCoverage:
     def test_config_dir_uses_platform_paths(self):
         """_config_dir must check VOICE_TYPER_CONFIG_DIR env var first,
         then fall back to platform-specific paths.
+
+        RW-8: KEEP — pins PLAT-005 (env var override). A behavioral
+        # test would set VOICE_TYPER_CONFIG_DIR and verify the function
+        # returns the env-var path, but the source-string check is
+        # simpler and catches removal of the env var check directly.
         """
         from voice_typer.server import config as cfg_mod
 
@@ -2219,6 +2472,10 @@ class TestMutexAcquisitionHasRetryAndTimeout:
     """
 
     def test_ensure_single_instance_exits_on_already_exists(self):
+        # RW-8: KEEP — pins PLAT-011 (immediate-exit on ERROR_ALREADY_EXISTS,
+        # no retry). A behavioral test would need to spawn two processes
+        # and observe the exit, which is heavy; the source-string check
+        # catches reintroduction of a retry loop directly.
         from voice_typer.server import app as app_mod
 
         # _ensure_single_instance is a module-level function, not a method
@@ -2304,6 +2561,11 @@ class TestWslDetectionLogic:
     def test_polling_loop_handles_missing_win32gui(self):
         """The polling loop must not crash if win32gui is unavailable
         (e.g., on WSL where pywin32 isn't installed).
+
+        RW-8: KEEP — pins PLAT-020 (win32gui import guarded by
+        try/except ImportError, _pump_messages defaults to None).
+        A behavioral test would need to run on WSL (heavy, platform-
+        specific); the source-string check catches removal of the guard.
         """
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
@@ -2326,6 +2588,10 @@ class TestTrayRecordingColorIsGreen:
     """
 
     def test_recording_color_is_green(self):
+        # RW-8: KEEP — pins TRAY-006 (RECORDING color is green RGB
+        # (46, 204, 113)). The sibling test_recording_and_error_colors_are_distinct
+        # tests visual distinctness, but doesn't pin the exact RGB values.
+        # Source-string check catches a regression where the color changes.
         from voice_typer.server import tray_icon
 
         src = inspect.getsource(tray_icon)
@@ -2333,6 +2599,8 @@ class TestTrayRecordingColorIsGreen:
         assert "(46, 204, 113" in src, "TRAY-006: RECORDING color must be green (46, 204, 113), not red"
 
     def test_error_color_is_red(self):
+        # RW-8: KEEP — pins TRAY-006 (ERROR color is red RGB (231, 76, 60)).
+        # Same rationale as test_recording_color_is_green.
         from voice_typer.server import tray_icon
 
         src = inspect.getsource(tray_icon)
@@ -2340,6 +2608,8 @@ class TestTrayRecordingColorIsGreen:
         assert "(231, 76, 60" in src, "TRAY-006: ERROR color must be red (231, 76, 60)"
 
     def test_cancelling_color_is_orange(self):
+        # RW-8: KEEP — pins TRAY-006 (CANCELLING color is orange RGB
+        # (243, 156, 18)). Same rationale as test_recording_color_is_green.
         from voice_typer.server import tray_icon
 
         src = inspect.getsource(tray_icon)
@@ -2369,12 +2639,21 @@ class TestPytestBenchmarkCoverageExists:
     """
 
     def test_pytest_benchmark_in_test_deps(self):
+        # RW-8: KEEP — pins TEST-012 (pytest-benchmark in test deps).
+        # A behavioral test would need to import pytest_benchmark, but
+        # that doesn't verify it's declared as a test dependency (it
+        # could be a transitive dep). The file-content check catches
+        # removal from pyproject.toml directly.
 
         pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         content = pyproject.read_text(encoding="utf-8")
         assert "pytest-benchmark" in content, "TEST-012: pytest-benchmark must be in pyproject.toml test deps"
 
     def test_benchmark_tests_exist(self):
+        # RW-8: KEEP — pins TEST-012 (benchmark tests exist).
+        # A behavioral test would need to run the benchmark tests, but
+        # that doesn't verify they continue to exist if someone deletes
+        # the test file. The file-content check catches deletion directly.
 
         bench_test = Path(__file__).resolve().parent / "test_benchmarks.py"
         if bench_test.exists():
@@ -2391,6 +2670,8 @@ class TestFuzzTestCoverageExists:
     """
 
     def test_hypothesis_fuzz_tests_exist(self):
+        # RW-8: KEEP — pins TEST-013 (hypothesis fuzz tests exist).
+        # Same rationale as test_benchmark_tests_exist.
 
         hypo_test = Path(__file__).resolve().parent / "test_text_cleanup_hypothesis.py"
         if hypo_test.exists():
@@ -2408,6 +2689,8 @@ class TestCorrectionsRecoveryCoverageExists:
     """
 
     def test_corruptions_recovery_test_class_exists(self):
+        # RW-8: KEEP — pins TEST-016 (corruptions-recovery test class
+        # exists). Same rationale as test_benchmark_tests_exist.
 
         test_file = Path(__file__).resolve().parent / "test_text_cleanup.py"
         if test_file.exists():
@@ -2428,6 +2711,8 @@ class TestRtlEmojiTestCoverageExists:
     """
 
     def test_rtl_tests_exist(self):
+        # RW-8: KEEP — pins TEST-021 (RTL test class exists).
+        # Same rationale as test_benchmark_tests_exist.
 
         cjk_test = Path(__file__).resolve().parent / "test_text_cleanup_cjk.py"
         if cjk_test.exists():
@@ -2436,6 +2721,8 @@ class TestRtlEmojiTestCoverageExists:
             assert "test_arabic_text_not_mangled" in content, "TEST-021: Arabic text test must exist"
 
     def test_emoji_tests_exist(self):
+        # RW-8: KEEP — pins TEST-021 (emoji test class exists).
+        # Same rationale as test_benchmark_tests_exist.
 
         cjk_test = Path(__file__).resolve().parent / "test_text_cleanup_cjk.py"
         if cjk_test.exists():
@@ -2546,6 +2833,11 @@ class TestSpanishTranslationComplete:
         assert not missing, f"UX-015: es.json is missing keys that en.json has: {sorted(missing)}"
 
     def test_i18n_ts_registers_spanish(self):
+        # RW-8: KEEP — pins UX-015 (Spanish translation registered in i18n.ts).
+        # A behavioral test would need to render a component and verify the
+        # Spanish label appears, which is heavy (requires a renderer test
+        # harness); the file-content check catches removal of the import
+        # or registration directly.
         i18n_path = (
             Path(__file__).resolve().parent.parent
             / "voice_typer"
@@ -2564,6 +2856,8 @@ class TestSpanishTranslationComplete:
         assert '_translations.set("es"' in src, "UX-015: i18n.ts must register Spanish translations"
 
     def test_i18n_ts_exports_locale_helpers(self):
+        # RW-8: KEEP — pins UX-015 (i18n.ts exports SUPPORTED_LOCALES and
+        # getLocaleLabel). Same rationale as test_i18n_ts_registers_spanish.
         i18n_path = (
             Path(__file__).resolve().parent.parent
             / "voice_typer"
@@ -2579,6 +2873,11 @@ class TestSpanishTranslationComplete:
         assert "export function getLocaleLabel" in src, "UX-015: i18n.ts must export getLocaleLabel"
 
     def test_settings_tsx_has_ui_language_selector(self):
+        # RW-8: KEEP — pins UX-015 (UI language selector in
+        # GeneralSettingsSection.tsx). A behavioral test would need to
+        # render the component and interact with the selector, which is
+        # heavy; the file-content check catches removal of the selector
+        # directly.
         # UX-015: The UI language selector was refactored out of
         # Settings.tsx into the dedicated GeneralSettingsSection
         # component (see components/settings/GeneralSettingsSection.tsx).
@@ -2606,6 +2905,8 @@ class TestSpanishTranslationComplete:
         assert "voice-typer-ui-locale" in src, "UX-015: Settings.tsx must persist locale to localStorage"
 
     def test_i18n_ts_restores_locale_from_local_storage(self):
+        # RW-8: KEEP — pins UX-015 (i18n.ts restores locale from localStorage
+        # on startup). Same rationale as test_i18n_ts_registers_spanish.
         i18n_path = (
             Path(__file__).resolve().parent.parent
             / "voice_typer"
@@ -2692,6 +2993,11 @@ class TestTrayLocaleSwitchingRebuildsMenu:
         tray.set_tray_locale("en")
 
     def test_ipc_set_tray_locale_handler_exists(self):
+        # RW-8: KEEP — pins TRAY-008 (IPC handler for set_tray_locale exists
+        # and rebuilds the tray menu). The sibling test_locale_switching_to_spanish
+        # tests the locale switching behavior, but doesn't verify the IPC
+        # handler exists; the source-string check catches removal of the
+        # handler or the invalidate_menu_cache call directly.
         from voice_typer.server import ipc_server
 
         # REFACTOR: _dispatch was converted to a command registry.
@@ -2713,6 +3019,10 @@ class TestMutmutCommandIncludesAllModules:
     """
 
     def test_test_command_includes_all_7_modules(self):
+        # RW-8: KEEP — pins TEST-010 (mutmut TEST_COMMAND includes all 7
+        # test files). A behavioral test would need to run mutmut and verify
+        # coverage, which is heavy (mutmut is slow); the file-content check
+        # catches removal of any test file from the command directly.
         from pathlib import Path
 
         config_path = Path(__file__).resolve().parent / "mutmut_config.py"
@@ -2734,6 +3044,8 @@ class TestMutmutCommandIncludesAllModules:
             )
 
     def test_modules_to_mutate_has_7_modules(self):
+        # RW-8: KEEP — pins TEST-010 (MODULES_TO_MUTATE has all 7 modules).
+        # Same rationale as test_test_command_includes_all_7_modules.
         from pathlib import Path
 
         config_path = Path(__file__).resolve().parent / "mutmut_config.py"
@@ -2767,7 +3079,19 @@ class TestElectronNotificationIpcEndpoint:
             "TRAY-035: IPC _COMMAND_REGISTRY must include 'show_electron_notification'"
         )
 
+    @pytest.mark.skip(
+        reason="RW-8: DELETE-CANDIDATE — redundant with "
+        "TestElectronNotificationFieldValidation (same file), which "
+        "dispatches the handler behaviorally and verifies the published "
+        "event contains electron_notification, duration_ms, and critical "
+        "fields."
+    )
     def test_handler_pushes_electron_notification_event(self):
+        # RW-8: DELETE-CANDIDATE — redundant with TestElectronNotificationFieldValidation
+        # (same file), which dispatches the handler behaviorally with various
+        # payloads and verifies the published event contains electron_notification,
+        # duration_ms, and critical fields. The source-string check here adds
+        # no additional coverage. Skipped to avoid double-maintenance.
         from voice_typer.server import ipc_server
 
         # REFACTOR: check the handler method source instead of _dispatch.
@@ -2961,6 +3285,10 @@ class TestUpxDisabledInPyinstallerSpec:
     """
 
     def test_upx_is_false_in_spec(self):
+        # RW-8: KEEP — pins TEST-034 (upx=False in voice-typer.spec).
+        # A behavioral test would need to run PyInstaller and inspect the
+        # build output, which is heavy; the file-content check catches
+        # reintroduction of upx=True directly.
         from pathlib import Path
 
         spec_path = Path(__file__).resolve().parent.parent / "scripts" / "build" / "voice-typer.spec"
@@ -2977,6 +3305,10 @@ class TestReleaseChecksumsCoverageExists:
     """
 
     def test_checksum_generation_step_exists(self):
+        # RW-8: KEEP — pins TEST-037 (SHA-256 checksum generation in build.yml).
+        # A behavioral test would need to run the workflow and inspect the
+        # release assets, which is heavy (CI-only); the file-content check
+        # catches removal of the checksum step directly.
         from pathlib import Path
 
         build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
@@ -2986,6 +3318,8 @@ class TestReleaseChecksumsCoverageExists:
         assert "Get-FileHash" in src, "TEST-037: build.yml must use Get-FileHash to compute checksums"
 
     def test_checksum_upload_step_exists(self):
+        # RW-8: KEEP — pins TEST-037 (checksum upload step in build.yml).
+        # Same rationale as test_checksum_generation_step_exists.
         from pathlib import Path
 
         build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
@@ -3002,6 +3336,10 @@ class TestReconnectTestCoverageExists:
     """
 
     def test_reconnect_integration_tests_exist(self):
+        # RW-8: KEEP — pins NEW-IPC-004 (TCP reconnect integration tests
+        # exist). A behavioral test would need to run the integration tests,
+        # but that doesn't verify they continue to exist if someone deletes
+        # the test file. The file-content check catches deletion directly.
         from pathlib import Path
 
         # NEW-IPC-004: the live-TCP reconnect tests were originally in
@@ -3026,6 +3364,8 @@ class TestConcurrentCancelTestCoverageExists:
     """
 
     def test_concurrent_cancel_tests_exist(self):
+        # RW-8: KEEP — pins NEW-CONC-003 (concurrent cancel tests exist).
+        # Same rationale as test_reconnect_integration_tests_exist.
         from pathlib import Path
 
         # NEW-CONC-003: concurrent-cancel coverage was originally
@@ -3086,6 +3426,12 @@ class TestSettingsRendererCallsPythonBridgeCall:
     """
 
     def test_settings_uses_call_not_ipc(self):
+        # RW-8: KEEP — pins TS error fix (Settings uses window.python?.call(),
+        # not .ipc()). A behavioral test would need to render the component
+        # and click a setting, but the TypeScript compiler already catches
+        # .ipc() usage at build time; the file-content check is a belt-and-
+        # suspenders guard against reintroduction in case the type check
+        # is bypassed.
         # The Settings UI was refactored: ``window.python?.call(...)`` now
         # lives in the dedicated GeneralSettingsSection component
         # (formerly inline in Settings.tsx).
@@ -3154,7 +3500,15 @@ class TestStreamingSessionAtomicPopOnCancel:
         )
 
     def test_pop_is_atomic_single_lock_acquisition(self):
-        """pop_streaming_session must acquire the lock exactly once."""
+        """pop_streaming_session must acquire the lock exactly once.
+
+        RW-8: KEEP — pins ARCH-018 (atomic get-and-clear under a single
+        lock acquisition). The sibling test_concurrent_pop_and_set_no_clobber
+        # tests the atomicity behaviorally, but doesn't catch a regression
+        # where the implementation uses two nested lock acquisitions that
+        # happen to pass the race test in practice. Source-string check
+        # catches the implementation choice directly.
+        """
         from voice_typer.server.recording_controller import RecordingController
 
         src = inspect.getsource(RecordingController.pop_streaming_session)
@@ -3166,6 +3520,9 @@ class TestStreamingSessionAtomicPopOnCancel:
     def test_cancel_uses_pop_not_get_then_set(self):
         """_cancel_streaming_session must use pop_streaming_session(),
         not the pre-fix get_streaming_session() + set_streaming_session(None).
+
+        RW-8: KEEP — pins ARCH-018 (cancel uses the atomic pop). Same
+        # rationale as test_pop_is_atomic_single_lock_acquisition.
         """
         from voice_typer.server.recording_controller import RecordingController
 
@@ -3263,6 +3620,11 @@ class TestCommittedTextSortOrderCoverageExists:
     """
 
     def test_test_has_sort_order_assertion(self):
+        # RW-8: KEEP — pins TEST-009 (test_streaming_hypothesis.py has
+        # a sort-order assertion). A behavioral test would need to run
+        # the hypothesis test, but that doesn't verify the assertion
+        # continues to exist if someone weakens it. The file-content
+        # check catches removal directly.
         test_path = Path(__file__).resolve().parent / "test_streaming_hypothesis.py"
         src = test_path.read_text(encoding="utf-8")
         # Must contain the TEST-009 fix comment
@@ -3291,6 +3653,11 @@ class TestParametrizeUsageCountAboveThirty:
 
         Uses Python's pathlib + grep instead of the Unix `grep` command
         so it works on Windows too.
+
+        RW-8: KEEP — pins TEST-032 (>= 30 @pytest.mark.parametrize uses).
+        A behavioral test would need to count parametrize uses at runtime,
+        which is the same operation; the file-content check is the most
+        direct way to catch a regression where parametrize uses drop.
         """
         from pathlib import Path
 
@@ -3336,6 +3703,10 @@ class TestNoImportMockInTests:
         )
 
     def test_convention_documented_in_contributing(self):
+        # RW-8: KEEP — pins TEST-033 (CONTRIBUTING.md documents the
+        # unittest.mock convention). A behavioral test would need to
+        # parse the markdown and verify the convention is mentioned,
+        # which is the same operation; the file-content check is simpler.
         contributing = Path(__file__).resolve().parent.parent / "CONTRIBUTING.md"
         if contributing.exists():
             src = contributing.read_text(encoding="utf-8")
@@ -3353,6 +3724,10 @@ class TestPyreflyRunsInCi:
     """
 
     def test_pyrefly_in_build_yml(self):
+        # RW-8: KEEP — pins TEST-036 (pyrefly run in CI build.yml).
+        # A behavioral test would need to run the workflow and verify
+        # pyrefly output, which is heavy (CI-only); the file-content
+        # check catches removal of the pyrefly step directly.
         build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
         if build_yml.exists():
             src = build_yml.read_text(encoding="utf-8")
@@ -3360,6 +3735,8 @@ class TestPyreflyRunsInCi:
             assert "pyrefly check" in src, "TEST-036: build.yml must run 'pyrefly check'"
 
     def test_pyrefly_configured_in_pyproject(self):
+        # RW-8: KEEP — pins TEST-036 ([tool.pyrefly] section in pyproject.toml).
+        # Same rationale as test_pyrefly_in_build_yml.
         pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
         src = pyproject.read_text(encoding="utf-8")
         assert "[tool.pyrefly]" in src, "TEST-036: pyproject.toml must have [tool.pyrefly] section"
@@ -3374,6 +3751,8 @@ class TestCorrectionsExplicitLoadCoverageExists:
     """
 
     def test_explicit_load_test_class_exists(self):
+        # RW-8: KEEP — pins TEST-039 (TestCorrectionsExplicitLoad class exists).
+        # Same rationale as test_benchmark_tests_exist.
         test_path = Path(__file__).resolve().parent / "test_corruptions.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
@@ -3392,18 +3771,24 @@ class TestTextCleanupUnicodeCoverageExists:
     """
 
     def test_unicode_test_class_exists(self):
+        # RW-8: KEEP — pins TEST-008 (TestTextCleanupUnicode class exists).
+        # Same rationale as test_benchmark_tests_exist.
         test_path = Path(__file__).resolve().parent / "test_text_cleanup.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
             assert "TestTextCleanupUnicode" in src, "TEST-008: TestTextCleanupUnicode class must exist"
 
     def test_concurrent_cleanup_test_exists(self):
+        # RW-8: KEEP — pins TEST-008 (concurrent cleanup test exists).
+        # Same rationale as test_benchmark_tests_exist.
         test_path = Path(__file__).resolve().parent / "test_text_cleanup.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
             assert "test_concurrent_cleanup_calls" in src, "TEST-008: concurrent cleanup test must exist"
 
     def test_boundary_inputs_test_exists(self):
+        # RW-8: KEEP — pins TEST-008 (boundary inputs test exists).
+        # Same rationale as test_benchmark_tests_exist.
         test_path = Path(__file__).resolve().parent / "test_text_cleanup.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
@@ -3419,6 +3804,8 @@ class TestResampleFallbackCoverageExists:
     """
 
     def test_np_interp_fallback_test_exists(self):
+        # RW-8: KEEP — pins TEST-020 (np.interp fallback test exists).
+        # Same rationale as test_benchmark_tests_exist.
         test_path = Path(__file__).resolve().parent / "test_recording.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
@@ -3464,7 +3851,14 @@ class TestAccessibilityPulseReCheckExists:
         assert hasattr(startup_tasks, "start_accessibility_pulse")
 
     def test_pulse_called_on_macos(self):
-        """Source must call start_accessibility_pulse after the a11y check."""
+        """Source must call start_accessibility_pulse after the a11y check.
+
+        RW-8: KEEP — pins PLAT-009 (StartupSequence.run calls
+        start_accessibility_pulse). A behavioral test would need to run
+        StartupSequence.run on macOS and observe the pulse thread start,
+        which is heavy (platform-specific); the source-string check
+        catches removal of the call directly.
+        """
         from voice_typer.server.startup_sequence import StartupSequence
 
         src = inspect.getsource(StartupSequence.run)
@@ -3475,6 +3869,11 @@ class TestTrayIconHasAccessibleName:
     """PLAT-010: title serves as accessible name (pystray limitation)."""
 
     def test_tray_icon_has_non_empty_title(self):
+        # RW-8: KEEP — pins PLAT-010 (TrayIcon.start passes a non-empty
+        # title= for accessible name). A behavioral test would need to
+        # start TrayIcon and inspect the system tray icon's accessible
+        # name, which is heavy (platform-specific); the source-string
+        # check catches removal of the title= kwarg directly.
         from voice_typer.server.tray import TrayIcon
 
         src = inspect.getsource(TrayIcon.start)
@@ -3486,7 +3885,14 @@ class TestSubprocessCrashRecoveryHandler:
     """PLAT-012: Test the Python exit handler logic."""
 
     def test_exit_handler_logic_exists(self):
-        """Electron main process must handle Python subprocess exit."""
+        """Electron main process must handle Python subprocess exit.
+
+        RW-8: KEEP — pins PLAT-012 (Electron main has pythonProcess.on('exit')
+        # handler that calls app.quit). A behavioral test would need to run
+        # the Electron main process and kill the Python subprocess, which
+        # is heavy (requires a running Electron app); the file-content
+        # check catches removal of the handler directly.
+        """
         main_path = Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "main" / "index.ts"
         if main_path.exists():
             src = main_path.read_text(encoding="utf-8")
@@ -3535,6 +3941,10 @@ class TestTextSizeConfigWiredToCssScale:
     """PLAT-017: text_size config wired to CSS --font-scale variable."""
 
     def test_app_tsx_sets_font_scale(self):
+        # RW-8: KEEP — pins PLAT-017 (--font-scale / text_size application
+        # in useTheme.ts). A behavioral test would need to render the app
+        # and inspect the computed CSS variable, which is heavy; the
+        # file-content check catches removal of the --font-scale setter.
         # PLAT-017: --font-scale / text_size application was refactored
         # out of App.tsx into the dedicated useTheme hook.
         app_path = (
@@ -3552,6 +3962,8 @@ class TestTextSizeConfigWiredToCssScale:
         assert "text_size" in src
 
     def test_index_css_consumes_font_scale(self):
+        # RW-8: KEEP — pins PLAT-017 (index.css consumes --font-scale).
+        # Same rationale as test_app_tsx_sets_font_scale.
         css_path = (
             Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "renderer" / "src" / "index.css"
         )
@@ -3560,6 +3972,8 @@ class TestTextSizeConfigWiredToCssScale:
         assert "font-size" in src
 
     def test_settings_has_text_size_slider(self):
+        # RW-8: KEEP — pins PLAT-017 (Text Size slider in ThemeSettingsSection.tsx).
+        # Same rationale as test_app_tsx_sets_font_scale.
         # PLAT-017: the "Text Size" slider was refactored out of
         # Settings.tsx into the ThemeSettingsSection component.
         settings_path = (
@@ -3629,6 +4043,10 @@ class TestContainerEnvironmentDetection:
         assert result is None or isinstance(result, str)
 
     def test_container_detect_called_in_startup(self):
+        # RW-8: KEEP — pins PLAT-021 (app.py calls warn_if_in_container
+        # at startup). A behavioral test would need to capture log output
+        # from app startup, which is heavy; the source-string check
+        # catches removal of the call directly.
         from voice_typer.server import app
 
         src = inspect.getsource(app)
@@ -3658,6 +4076,10 @@ class TestApiDocumentationExists:
         assert api_path.exists()
 
     def test_api_md_mentions_key_classes(self):
+        # RW-8: KEEP — pins DOC-008 (API.md mentions VoiceTyperApp or Config).
+        # A behavioral test would need to parse the markdown and verify
+        # the class is documented, which is the same operation; the
+        # file-content check is simpler.
         api_path = Path(__file__).resolve().parent.parent / "docs" / "API.md"
         content = api_path.read_text(encoding="utf-8")
         assert "VoiceTyperApp" in content or "Config" in content
@@ -3867,7 +4289,19 @@ class TestConcurrentDispatchNoDeadlock:
 class TestReadlineCapsOversizedMessages:
     """NEW-IPC-012: Large IPC message handling at size boundaries."""
 
+    @pytest.mark.skip(
+        reason="RW-8: PORT-CANDIDATE — ported to "
+        "tests/test_bugfix_regressions_behavioral.py::"
+        "TestTcpLineIoOversizedBehavioral::test_oversized_message_returns_none"
+    )
     def test_readline_caps_oversized_messages(self):
+        # RW-8: PORT-CANDIDATE — see
+        # tests/test_bugfix_regressions_behavioral.py::TestTcpLineIoOversizedBehavioral::
+        # test_oversized_message_returns_none.
+        # The source-string check ("_MAX_LINE_BYTES" in readline source)
+        # is brittle: production may rename the constant or inline the cap
+        # as a literal. The behavioral test feeds a >1MB message through a
+        # real socketpair and verifies readline returns None (EOF).
         """The _TCPLineIO.readline() must cap at _MAX_LINE_BYTES.
         A message exceeding the cap must trigger EOF (empty return),
         not OOM or hang.
@@ -3966,6 +4400,8 @@ class TestConfigPermissionTestsCoverageExists:
     """NEW-PRIV-002: Config file permission tests exist."""
 
     def test_permission_tests_exist(self):
+        # RW-8: KEEP — pins NEW-PRIV-002 (config permission tests exist
+        # in test_config.py). Same rationale as test_benchmark_tests_exist.
         test_path = Path(__file__).resolve().parent / "test_config.py"
         if test_path.exists():
             src = test_path.read_text(encoding="utf-8")
@@ -3977,7 +4413,13 @@ class TestPlatMacBlocked:
     """PLAT-MAC: macOS code exists but requires macOS CI runner."""
 
     def test_macos_code_exists(self):
-        """macOS-specific code must exist in the codebase."""
+        """macOS-specific code must exist in the codebase.
+
+        RW-8: KEEP — pins PLAT-MAC (app.py contains darwin or is_macos
+        references). A behavioral test would need to run on macOS and
+        observe the macOS code path, which is heavy (platform-specific);
+        the source-string check catches removal of all macOS branches.
+        """
         from voice_typer.server import app
 
         src = inspect.getsource(app)
@@ -3988,6 +4430,11 @@ class TestPlatMacBlocked:
         This test pins that state — if the runner is removed, this
         test will fail and alert maintainers that macOS code is
         no longer being tested in CI.
+
+        RW-8: KEEP — pins PLAT-MAC (macOS CI runner in build.yml).
+        # A behavioral test would need to run the workflow and verify the
+        # runner executes, which is heavy (CI-only); the file-content
+        # check catches removal of the macOS runner directly.
         """
         build_yml = Path(__file__).resolve().parent.parent / ".github" / "workflows" / "build.yml"
         if build_yml.exists():

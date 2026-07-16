@@ -6,6 +6,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_SRC = REPO_ROOT / "voice_typer" / "client" / "src"
 RENDERER_SRC = CLIENT_SRC / "renderer" / "src"
@@ -124,6 +126,14 @@ class TestAppHasHelpOverlayForShortcuts:
         assert "showHelpOverlay" in app
         assert "setShowHelpOverlay" in app
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "App-help-overlay.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_app_has_question_mark_keydown_handler(self):
         app = _read("App.tsx")
         assert 'e.key === "?"' in app
@@ -136,14 +146,22 @@ class TestAppHasHelpOverlayForShortcuts:
         # rather than the rendered strings, and verify the keys exist in
         # en.json so the overlay actually renders something.
         assert 't("help.keys.navigate")' in app  # "Tab / Shift+Tab"
-        assert 't("help.keys.toggle")' in app    # "Space"
-        assert 't("help.keys.cancel")' in app    # "Esc"
+        assert 't("help.keys.toggle")' in app  # "Space"
+        assert 't("help.keys.cancel")' in app  # "Esc"
         assert 't("help.keys.openHelp")' in app  # "?"
         assert 't("help.openHelp")' in app
         en = _read("i18n/translations/en.json")
         assert "Keyboard Shortcuts" in en
         assert "Open this help overlay" in en
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "App-help-overlay.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_help_overlay_closes_on_escape(self):
         app = _read("App.tsx")
         assert "Escape" in app
@@ -164,10 +182,26 @@ class TestBubbleSupportsKeyboardArrowMove:
         assert "ArrowUp" in bubble
         assert "ArrowDown" in bubble
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "Bubble-keyboard-move.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_bubble_calls_move_by(self):
         bubble = _read("Bubble.tsx")
         assert "moveBy" in bubble
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "Bubble-keyboard-move.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_bubble_respects_draggable_gate(self):
         bubble = _read("Bubble.tsx")
         assert "if (!draggable) return" in bubble
@@ -241,8 +275,14 @@ class TestVocabularyDialogHasCategoryPicker:
     def test_vocabulary_has_category_labels(self):
         vocab = _read("pages/Vocabulary.tsx")
         assert "CATEGORY_LABELS" in vocab
-        for cat in ["misspellings", "phrase_corrections", "extra_word_patterns",
-                     "technical_terms", "names", "products"]:
+        for cat in [
+            "misspellings",
+            "phrase_corrections",
+            "extra_word_patterns",
+            "technical_terms",
+            "names",
+            "products",
+        ]:
             assert cat in vocab
 
     def test_vocabulary_dialog_has_category_select(self):
@@ -269,7 +309,7 @@ class TestSettingsShowsSubtleAutoSaveIndicator:
 
     def test_settings_saving_indicator_still_present(self):
         settings = _read("pages/Settings.tsx")
-        assert "Saving..." in settings or 'setSaving(' in settings
+        assert "Saving..." in settings or "setSaving(" in settings
 
     def test_settings_has_visual_saving_state(self):
         settings = _read("pages/Settings.tsx")
@@ -330,10 +370,12 @@ class TestDeleteModelRouteRemovesFiles:
 
     def test_service_has_delete_model(self):
         from voice_typer.server.service import VoiceTyperService
+
         assert hasattr(VoiceTyperService, "delete_model")
 
     def test_ipc_has_delete_model_route(self):
         from voice_typer.server.ipc_server import IPCServer
+
         assert "delete_model" in IPCServer._COMMAND_REGISTRY
         assert hasattr(IPCServer, "_handle_delete_model")
 
@@ -365,6 +407,14 @@ class TestCssHandlesPrefersReducedMotion:
 class TestSidebarHasAriaCurrentPage:
     """Sidebar has aria-current=page."""
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "Sidebar-aria-current.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_sidebar_has_aria_current(self):
         src = _read("components/layout/Sidebar.tsx")
         assert "aria-current" in src
@@ -373,6 +423,14 @@ class TestSidebarHasAriaCurrentPage:
 class TestAppHasSkipToMainContentLink:
     """Skip-to-main-content link exists."""
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "App-a11y.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_app_has_skip_link(self):
         src = _read("App.tsx")
         # The cue is rendered via i18n key `a11y.skipToMain` (not a hardcoded
@@ -404,6 +462,14 @@ class TestIndexHtmlHasLangAttribute:
 class TestAppAnnouncesRecordingStartStopWithAriaLive:
     """Recording start/stop announced via aria-live."""
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "App-a11y.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_app_has_aria_live(self):
         src = _read("App.tsx")
         assert "aria-live" in src
@@ -414,6 +480,14 @@ class TestAppAnnouncesRecordingStartStopWithAriaLive:
 class TestHistorySearchHasClearButton:
     """Search field has a clear button."""
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "SearchField-clear-button.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_history_has_clear_button(self):
         src = _read("pages/History.tsx")
         assert "SearchField" in src

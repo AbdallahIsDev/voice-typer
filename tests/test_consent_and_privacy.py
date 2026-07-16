@@ -15,12 +15,14 @@ class TestConfigDeclaresConsentFlags:
 
     def test_huggingface_consent_field_exists(self):
         from voice_typer.server.config import Config
+
         cfg = Config()
         assert hasattr(cfg, "huggingface_consent")
         assert cfg.huggingface_consent is False  # default: not given
 
     def test_cloud_per_provider_consent_fields_exist(self):
         from voice_typer.server.config import Config
+
         cfg = Config()
         assert hasattr(cfg, "cloud_openai_consent")
         assert hasattr(cfg, "cloud_groq_consent")
@@ -31,16 +33,16 @@ class TestConfigDeclaresConsentFlags:
 
     def test_voice_biometric_consent_field_exists(self):
         from voice_typer.server.config import Config
+
         cfg = Config()
         assert hasattr(cfg, "voice_biometric_consent")
         assert cfg.voice_biometric_consent is False
 
     def test_consent_fields_round_trip_via_save_load(self, tmp_path, monkeypatch):
         """Consent flags must survive save → load round trip."""
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         from voice_typer.server.config import Config
+
         cfg = Config()
         cfg.huggingface_consent = True
         cfg.cloud_openai_consent = True
@@ -56,13 +58,16 @@ class TestConfigDeclaresConsentFlags:
     def test_consent_fields_settable_via_ipc_allowlist(self):
         """validate_config_update accepts the consent fields so the renderer can set them."""
         from voice_typer.server.config import validate_config_update
-        validated, errors = validate_config_update({
-            "huggingface_consent": True,
-            "cloud_openai_consent": True,
-            "cloud_groq_consent": False,
-            "cloud_deepgram_consent": True,
-            "voice_biometric_consent": True,
-        })
+
+        validated, errors = validate_config_update(
+            {
+                "huggingface_consent": True,
+                "cloud_openai_consent": True,
+                "cloud_groq_consent": False,
+                "cloud_deepgram_consent": True,
+                "voice_biometric_consent": True,
+            }
+        )
         assert errors == []
         assert validated["huggingface_consent"] is True
         assert validated["cloud_openai_consent"] is True
@@ -72,9 +77,12 @@ class TestConfigDeclaresConsentFlags:
     def test_consent_fields_reject_non_bool(self):
         """Consent fields must be bool — non-bool values are rejected."""
         from voice_typer.server.config import validate_config_update
-        validated, errors = validate_config_update({
-            "huggingface_consent": "yes",
-        })
+
+        validated, errors = validate_config_update(
+            {
+                "huggingface_consent": "yes",
+            }
+        )
         assert errors, "Non-bool consent value should be rejected"
         assert "huggingface_consent" not in validated
 
@@ -84,10 +92,12 @@ class TestCloudEngineRefusesWithoutConsent:
 
     def test_consent_required_error_is_runtime_error(self):
         from voice_typer.server.cloud_engines import ConsentRequiredError
+
         assert issubclass(ConsentRequiredError, RuntimeError)
 
     def test_cloud_engine_not_loaded_without_consent(self):
         from voice_typer.server.cloud_engines import CloudEngine
+
         eng = CloudEngine(
             provider="openai",
             api_key="sk-test-key",
@@ -97,6 +107,7 @@ class TestCloudEngineRefusesWithoutConsent:
 
     def test_cloud_engine_loaded_with_consent(self):
         from voice_typer.server.cloud_engines import CloudEngine
+
         eng = CloudEngine(
             provider="openai",
             api_key="sk-test-key",
@@ -148,11 +159,13 @@ class TestWhisperPreDownloadRespectsHuggingFaceConsent:
             return "/fake/path"
 
         import sys
+
         fake_module = type(sys)("huggingface_hub")
         fake_module.snapshot_download = fake_snapshot_download
         monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
 
         from voice_typer.server.transcription import TranscriptionEngine
+
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
         engine.model_size = "small.en"
         engine.config = type("FakeConfig", (), {"huggingface_consent": False})()
@@ -172,11 +185,13 @@ class TestWhisperPreDownloadRespectsHuggingFaceConsent:
             return "/fake/path"
 
         import sys
+
         fake_module = type(sys)("huggingface_hub")
         fake_module.snapshot_download = fake_snapshot_download
         monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
 
         from voice_typer.server.transcription import TranscriptionEngine
+
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
         engine.model_size = "small.en"
         engine.config = type("FakeConfig", (), {"huggingface_consent": False})()
@@ -196,6 +211,14 @@ class TestAboutPageHasPrivacyDisclosure:
         en = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations" / "en.json"
         return en.read_text(encoding="utf-8")
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "About-privacy.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_about_page_has_privacy_section(self):
         about = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "About.tsx"
         src = about.read_text(encoding="utf-8")
@@ -270,8 +293,15 @@ class TestAboutAndSettingsShowVoiceBiometricConsent:
 
     def test_settings_has_privacy_consent_section(self):
         settings = (
-            REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src"
-            / "components" / "settings" / "PrivacySettingsSection.tsx"
+            REPO_ROOT
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "components"
+            / "settings"
+            / "PrivacySettingsSection.tsx"
         )
         src = settings.read_text(encoding="utf-8")
         assert 't("settings.privacy.privacyTitle")' in src
@@ -279,18 +309,40 @@ class TestAboutAndSettingsShowVoiceBiometricConsent:
 
     def test_settings_has_voice_biometric_consent_toggle(self):
         settings = (
-            REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src"
-            / "components" / "settings" / "PrivacySettingsSection.tsx"
+            REPO_ROOT
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "components"
+            / "settings"
+            / "PrivacySettingsSection.tsx"
         )
         src = settings.read_text(encoding="utf-8")
         assert "voice_biometric_consent" in src
         assert 't("settings.privacy.voiceBiometricProcessingInfo")' in src
         assert 't("settings.privacy.voiceBiometricLabel")' in src
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "PrivacySettings-consent.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_settings_has_all_consent_toggles_consolidated(self):
         settings = (
-            REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src"
-            / "components" / "settings" / "PrivacySettingsSection.tsx"
+            REPO_ROOT
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "components"
+            / "settings"
+            / "PrivacySettingsSection.tsx"
         )
         src = settings.read_text(encoding="utf-8")
         assert "huggingface_consent" in src
@@ -393,6 +445,7 @@ class TestEngineAcceptsConfigInRealConstructionPath:
 
     def test_pre_download_does_not_crash_without_config(self, tmp_path, monkeypatch):
         import sys
+
         fake_module = type(sys)("huggingface_hub")
 
         def fake_snapshot_download(**kwargs):
@@ -404,6 +457,7 @@ class TestEngineAcceptsConfigInRealConstructionPath:
         monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
 
         from voice_typer.server.transcription import TranscriptionEngine
+
         engine = TranscriptionEngine(model_size="small.en")
         progress_messages: list[str] = []
         engine._pre_download_model("small.en", progress_callback=progress_messages.append)
@@ -474,8 +528,12 @@ class TestModelManagerWiresConfigIntoWhisper:
 
         class FakeTray:
             state = AppState.IDLE
-            def set_state(self, *args, **kwargs): pass
-            def notify(self, *args, **kwargs): pass
+
+            def set_state(self, *args, **kwargs):
+                pass
+
+            def notify(self, *args, **kwargs):
+                pass
 
         class FakeApp:
             def __init__(self):

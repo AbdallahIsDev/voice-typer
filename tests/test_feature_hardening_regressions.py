@@ -1256,6 +1256,14 @@ class TestPagesUseSharedSnackbarHook:
 class TestHomeRegistersSingleTranscriptionFinalListener:
     """NEW-TS-006: Home.tsx must register only ONE transcription_final listener."""
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "Home-transcription-final.test.tsx — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_only_one_transcription_final_listener(self):
         """Count occurrences of usePythonEvent('transcription_final', ...).
         Must be exactly 1 (previously was 2).
@@ -1377,6 +1385,14 @@ class TestRecordingStateEnumHasSixBackendStates:
     """NEW-IPC-010: RecordingState enum must have only the 6 values
     that the Python backend actually emits."""
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "RecordingState-types.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_only_six_states(self):
         """The RecordingState union must have exactly 6 values:
         idle, recording, transcribing, loading, cancelling, error.
@@ -1417,6 +1433,14 @@ class TestRecordingStateEnumHasSixBackendStates:
             "error",
         }, f"RecordingState has unexpected values: {states}"
 
+    @pytest.mark.skip(
+        reason=(
+            "rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/"
+            "RecordingState-types.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_dead_states_removed(self):
         """The 7 dead values must NOT be in the RecordingState union."""
         src = _read("types/ipc.ts")

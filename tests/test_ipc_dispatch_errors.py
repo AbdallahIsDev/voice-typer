@@ -85,13 +85,9 @@ def _read_response_line(sock: socket.socket, timeout: float = 2.0) -> dict:
         try:
             chunk = sock.recv(4096)
         except TimeoutError as exc:
-            raise TimeoutError(
-                f"Timed out waiting for response. Got partial: {buf!r}"
-            ) from exc
+            raise TimeoutError(f"Timed out waiting for response. Got partial: {buf!r}") from exc
         if not chunk:
-            raise ConnectionError(
-                f"Server closed connection. Got partial: {buf!r}"
-            )
+            raise ConnectionError(f"Server closed connection. Got partial: {buf!r}")
         buf += chunk
     line, _ = buf.split(b"\n", 1)
     return json.loads(line.decode("utf-8"))
@@ -262,9 +258,7 @@ class TestTcpDispatchExceptionHandling:
     escape its own ``try/except``.
     """
 
-    def test_handler_exception_returns_error_response(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
         """A handler raising ``RuntimeError`` must yield a structured
         error response, not a torn-down connection.
 
@@ -289,22 +283,16 @@ class TestTcpDispatchExceptionHandling:
         _send_line(client, {"id": 1, "type": "get_status"})
         resp = _read_response_line(client, timeout=2.0)
 
-        assert resp["type"] == "error", (
-            f"Expected error response for raising handler, got: {resp}"
-        )
+        assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
         assert resp.get("id") == 1, f"Response id mismatch: {resp}"
         # The dispatch safety net sends a fixed, generic message — it
         # intentionally does NOT forward str(exception) to the client
         # (that would leak server internals / stack details over IPC).
         # We assert the contract here so a future refactor that
         # accidentally widens the message is caught.
-        assert resp["data"]["message"] == "internal error", (
-            f"Expected generic 'internal error' message, got: {resp}"
-        )
+        assert resp["data"]["message"] == "internal error", f"Expected generic 'internal error' message, got: {resp}"
 
-    def test_connection_survives_handler_exception(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_connection_survives_handler_exception(self, authenticated_client, monkeypatch):
         """After an exception-induced error response, the SAME socket
         must accept and respond to a subsequent request.
 
@@ -331,9 +319,7 @@ class TestTcpDispatchExceptionHandling:
         # First request — handler raises, dispatch loop catches.
         _send_line(client, {"id": 10, "type": "get_status"})
         resp1 = _read_response_line(client, timeout=2.0)
-        assert resp1["type"] == "error", (
-            f"First response should be error (handler raised): {resp1}"
-        )
+        assert resp1["type"] == "error", f"First response should be error (handler raised): {resp1}"
         assert resp1.get("id") == 10
 
         # Second request on the SAME socket — connection must survive
@@ -346,13 +332,9 @@ class TestTcpDispatchExceptionHandling:
         )
         assert resp2.get("id") == 11
         # Sanity-check the payload shape so we don't pass on a stub.
-        assert "status" in resp2.get("data", {}), (
-            f"Status response missing data.status: {resp2}"
-        )
+        assert "status" in resp2.get("data", {}), f"Status response missing data.status: {resp2}"
 
-    def test_repeated_exceptions_keep_connection_alive(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_repeated_exceptions_keep_connection_alive(self, authenticated_client, monkeypatch):
         """Multiple consecutive handler exceptions must each produce
         an error response without disconnecting the client.
 
@@ -371,9 +353,7 @@ class TestTcpDispatchExceptionHandling:
         for i in range(3):
             _send_line(client, {"id": 100 + i, "type": "get_status"})
             resp = _read_response_line(client, timeout=2.0)
-            assert resp["type"] == "error", (
-                f"Iteration {i}: expected error, got {resp}"
-            )
+            assert resp["type"] == "error", f"Iteration {i}: expected error, got {resp}"
             assert resp.get("id") == 100 + i
 
         # Connection must still be alive — send a different command
@@ -383,6 +363,49 @@ class TestTcpDispatchExceptionHandling:
         resp_final = _read_response_line(client, timeout=2.0)
         assert resp_final.get("id") == 999
         assert resp_final["type"] in ("config", "error"), (
-            f"Expected config or error response on surviving connection, "
-            f"got: {resp_final}"
+            f"Expected config or error response on surviving connection, got: {resp_final}"
         )
+
+
+class TestStdinListenerGatedInTcpMode:
+    """d-review Finding 1 regression: the unauthenticated stdin
+    listener must NOT be spawned when the server runs in TCP/WS mode.
+
+    A direct-terminal invocation of
+    ``python -m voice_typer.server.ipc_server --port N`` would
+    otherwise accept unauthenticated JSON commands on stdin while the
+    TCP socket enforces the VOICE_TYPER_IPC_TOKEN handshake — an auth
+    bypass.  The CLI sets ``_tcp_mode = True`` *before* ``start()``;
+    this test mirrors that ordering.
+    """
+
+    def test_stdin_thread_not_started_when_tcp_mode_set_before_start(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
+        app = _MockApp(tmp_path=tmp_path)
+        server = IPCServer(app)
+        app._ipc_server = server
+        # Mirrors CLI: mark TCP mode BEFORE start() so the stdin
+        # listener (unauthenticated command path) is suppressed.
+        server._tcp_mode = True
+        server.start()
+        try:
+            assert server._stdin_thread is None, (
+                "stdin listener must not be spawned in TCP mode (d-review Finding 1 auth bypass)"
+            )
+        finally:
+            server.stop()
+
+    def test_stdin_thread_started_in_legacy_stdin_mode(self, tmp_path, monkeypatch):
+        """Legacy stdin/stdout IPC mode (no TCP) must still spawn the
+        stdin listener so the documented ``voice-typer`` CLI keeps
+        working.
+        """
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
+        app = _MockApp(tmp_path=tmp_path)
+        server = IPCServer(app)
+        app._ipc_server = server
+        server.start()
+        try:
+            assert server._stdin_thread is not None, "stdin listener must be spawned in legacy stdin mode"
+        finally:
+            server.stop()

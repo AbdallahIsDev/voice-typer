@@ -388,6 +388,10 @@ class TestAllowlistCorrectness:
         server_cmds = old_cmds | new_cmds
         orphans = allowlist_entries - server_cmds
         assert not orphans, f"Allowlist has orphan entries: {sorted(orphans)}"
+        missing = server_cmds - allowlist_entries
+        assert not missing, (
+            f"Allowlist is missing server commands (renderer calls would be silently rejected): {sorted(missing)}"
+        )
 
 
 class TestRestartRequestRemoved:

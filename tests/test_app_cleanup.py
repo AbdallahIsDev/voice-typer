@@ -52,6 +52,7 @@ def app(tmp_config_dir, monkeypatch):
     monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
     from voice_typer.server.app import VoiceTyperApp
+
     instance = VoiceTyperApp()
     instance.config.esc_cancel_enabled = False
     instance.config.voice_biometric_consent = True
@@ -147,8 +148,7 @@ class TestRestartAppSharedCleanup:
         # Either path closes the PortAudio stream — assert at least one
         # was invoked.
         assert app.recorder.stop.called or app.recorder.discard.called, (
-            "restart_app must call recorder.stop() or recorder.discard() "
-            "to close the PortAudio stream before exiting"
+            "restart_app must call recorder.stop() or recorder.discard() to close the PortAudio stream before exiting"
         )
 
     def test_restart_app_clears_backend_pid_file(self, app, monkeypatch):
@@ -410,9 +410,7 @@ class TestAtexitCleanupSafetyNet:
         tracebacks in the user's log."""
         _stub_restart_environment(app, monkeypatch)
         # Force _do_cleanup to raise.
-        monkeypatch.setattr(
-            app, "_do_cleanup", lambda: (_ for _ in ()).throw(RuntimeError("boom"))
-        )
+        monkeypatch.setattr(app, "_do_cleanup", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
 
         # Must not raise.
         app._atexit_cleanup()
@@ -480,6 +478,83 @@ class TestQuitAppUsesSharedCleanup:
         with contextlib.suppress(SystemExit):
             app.quit()
 
-        assert do_cleanup_calls == [True], (
-            "quit() must call _do_cleanup() exactly once"
+        assert do_cleanup_calls == [True], "quit() must call _do_cleanup() exactly once"
+
+
+# ── PERF-005: event-driven relaunch ack (no fixed 300ms tray block) ────
+
+
+class TestRelaunchAckEventDriven:
+    """PERF-005: restart_app must wait on the ``relaunch_ack`` event from
+    Electron (bounded by a 2s timeout) instead of a fixed ``time.sleep(0.3)``
+    that always blocks the tray thread for 300ms.
+    """
+
+    def test_handle_relaunch_ack_sets_event(self):
+        """The ``relaunch_ack`` IPC handler must set the server's
+        ``_relaunch_ack_event`` so restart_app's wait returns early.
+        """
+        from voice_typer.server.ipc_server import IPCServer
+
+        # Minimal stand-in for the app attribute the handler doesn't use.
+        class _FakeApp:
+            pass
+
+        server = IPCServer(_FakeApp())
+        assert server._relaunch_ack_event is not None
+        server._relaunch_ack_event.clear()
+        assert not server._relaunch_ack_event.is_set()
+        # Handler returns None (no response body).
+        assert server._handle_relaunch_ack({}, {}) is None
+        assert server._relaunch_ack_event.is_set(), "relaunch_ack handler must set the ack event"
+
+    def test_restart_app_waits_on_ack_event_not_fixed_sleep(self, app, monkeypatch):
+        """When Electron acks (event already set), restart_app must NOT call
+        the fixed 300ms sleep — it should return as soon as the event is
+        observed, unblocking the tray thread.
+        """
+        _stub_restart_environment(app, monkeypatch)
+
+        # Attach a fake IPC server exposing a real ack event, already set.
+        import threading
+
+        class _FakeServer:
+            def __init__(self):
+                self._relaunch_ack_event = threading.Event()
+
+        fake = _FakeServer()
+        fake._relaunch_ack_event.set()  # Electron already acked
+        app._ipc_server = fake
+
+        sleep_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.app.time.sleep",
+            lambda s: sleep_calls.append(s),
+        )
+
+        with contextlib.suppress(SystemExit):
+            app.restart_app()
+
+        assert sleep_calls == [], (
+            "restart_app must not call the fixed 300ms sleep when the relaunch_ack event is already set (PERF-005)"
+        )
+
+    def test_restart_app_falls_back_to_sleep_without_server(self, app, monkeypatch):
+        """When there is no IPC server (event unavailable), restart_app must
+        preserve the original 300ms pause so behaviour is unchanged.
+        """
+        _stub_restart_environment(app, monkeypatch)
+        app._ipc_server = None
+
+        sleep_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.app.time.sleep",
+            lambda s: sleep_calls.append(s),
+        )
+
+        with contextlib.suppress(SystemExit):
+            app.restart_app()
+
+        assert sleep_calls == [0.3], (
+            f"restart_app must fall back to the 300ms sleep when no IPC server is available; got {sleep_calls}"
         )
