@@ -93,3 +93,12 @@ archive/deleted_files.txt
 DONE.md
 instructions.md
 comprehensive-review.md
+# Verification-only stubs (cargo check on GNU target without MSVC) — do NOT commit
+src-tauri/bin/
+src-tauri/resources/native/
+src-tauri/resources/prewarm-*
+src-tauri/icons/icon.ico
+src-tauri/.cargo/
+cargo-check-log.txt
+src-tauri/gen/
+src-tauri/icons/
