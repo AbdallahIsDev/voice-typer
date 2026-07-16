@@ -404,6 +404,103 @@ function ts(): string {
  */
 
 function pythonArgs(): [string, string[]] {
+	// RW-5 + RW-4: in packaged builds, launch the embedded PyInstaller
+	// backend from process.resourcesPath instead of the dev venv. Without
+	// this, the macOS/Linux/Windows installers ship Electron only with
+	// no Python backend, and the app silently fails to start (the venv
+	// doesn't exist on a fresh user install — ship-blocker).
+	//
+	// Each platform has its own `case` branch in the switch below —
+	// they are independent so we don't accidentally clobber the others.
+	// The dev-mode venv path at the bottom of this function is the
+	// fallback for any platform that doesn't match (or whose bundled
+	// backend is missing on disk).
+	if (app.isPackaged) {
+		switch (process.platform) {
+			case "darwin": {
+				// macOS: PyInstaller .app bundle. The executable lives at
+				// Contents/MacOS/voice-typer inside the .app. electron-builder's
+				// mac.extraResources copies the bundle to
+				// ${resourcesPath}/voice-typer-backend.app at packaging time.
+				const macBackend = path.join(
+					process.resourcesPath,
+					"voice-typer-backend.app",
+					"Contents",
+					"MacOS",
+					"voice-typer",
+				);
+				if (fs.existsSync(macBackend)) {
+					return [macBackend, ["--port", String(IPC_PORT)]];
+				}
+				break;
+			}
+			case "linux": {
+				// Linux: PyInstaller onedir. The executable lives at
+				// voice-typer inside the bundle directory. electron-builder's
+				// linux.extraResources copies the directory to
+				// ${resourcesPath}/voice-typer-backend at packaging time.
+				const linuxBackend = path.join(
+					process.resourcesPath,
+					"voice-typer-backend",
+					"voice-typer",
+				);
+				if (fs.existsSync(linuxBackend)) {
+					return [linuxBackend, ["--port", String(IPC_PORT)]];
+				}
+				break;
+			}
+			case "win32": {
+				// RW-4 / Wave 3: Windows packaged backend lookup. CI's
+				// build-windows job runs `pyinstaller
+				// scripts/build/voice-typer.spec --distpath
+				// voice_typer/dist` from the repo root, producing
+				// voice_typer/dist/VoiceTyper.exe (onefile — current
+				// spec has no COLLECT() call).
+				// electron-builder's `win.extraResources` (see
+				// electron-builder.yml) copies ../dist/ to
+				// ${resourcesPath}/voice-typer-backend/ at packaging
+				// time.
+				//
+				// Lookup order:
+				//   1. ${resourcesPath}/voice-typer-backend/VoiceTyper.exe
+				//      (PyInstaller onefile — current voice-typer.spec output)
+				//   2. ${resourcesPath}/voice-typer-backend/VoiceTyper/VoiceTyper.exe
+				//      (PyInstaller onedir — future-proof if spec adds COLLECT())
+				//   3. Fall through to the dev-mode venv path below.
+				//
+				// The frozen exe is the IPC server entry point (spec entry
+				// is voice_typer/server/ipc_server.py, whose main() uses
+				// parse_known_args to accept --port) — we spawn it directly
+				// with `--port <N>` (no `-m` flag, since the bundled exe
+				// already imports voice_typer.server.ipc_server via its
+				// entry script).
+				const winBackendDir = path.join(
+					process.resourcesPath,
+					"voice-typer-backend",
+				);
+				const winOnefileExe = path.join(winBackendDir, "VoiceTyper.exe");
+				const winOnedirExe = path.join(
+					winBackendDir,
+					"VoiceTyper",
+					"VoiceTyper.exe",
+				);
+				try {
+					if (fs.existsSync(winOnefileExe)) {
+						return [winOnefileExe, ["--port", String(IPC_PORT)]];
+					}
+					if (fs.existsSync(winOnedirExe)) {
+						return [winOnedirExe, ["--port", String(IPC_PORT)]];
+					}
+				} catch {
+					// fs.existsSync can throw on broken symlinks /
+					// permission errors — fall through to the dev venv.
+				}
+				break;
+			}
+			// (no default — fall through to the dev-mode venv path below)
+		}
+	}
+
 	// RW-15: use computeConfigDir() so the venv path always matches the
 	// Python backend's _config_dir()-based venv_pythonw() (_paths.py).
 	// Previously hardcoded ~/.voice-typer/venv, which diverged on
@@ -483,6 +580,12 @@ function handleMessage(msg: Record<string, unknown>) {
 			console.warn(
 				`[RESTART] received relaunch_electron from Python (${_relaunchDbg})`,
 			);
+			// PERF-005: ack receipt BEFORE relaunchApp() tears down the
+			// renderer/socket, so restart_app() can drop its fixed 300ms
+			// sleep in favour of an event-driven wait.  Best-effort: if the
+			// socket is already down or sendToPython rejects, the server
+			// simply falls back to its 2s timeout — no behaviour change.
+			sendToPython({ type: "relaunch_ack" }).catch(() => {});
 			relaunchApp();
 		}
 		// SEC-029: tag each python-event with a per-session nonce so the
@@ -619,6 +722,20 @@ function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 			// thread calls app.quit() if 3 consecutive
 			// heartbeats are missed.
 			"heartbeat",
+			// PERF-005: ack that Electron received+is processing relaunch_electron
+			"relaunch_ack",
+			// d-review Finding 2: 10 server commands previously missing
+			// from the allowlist — renderer calls silently rejected.
+			"refresh_microphones",
+			"get_rms_level",
+			"get_audio_status",
+			"export_diagnostics",
+			"check_accessibility",
+			"show_electron_notification",
+			"get_vocabulary_suggestions",
+			"apply_vocabulary_suggestion",
+			"dismiss_vocabulary_suggestion",
+			"force_cancel_transcription",
 		]);
 		const cmd = String(msg?.type ?? "").trim();
 		if (!ALLOWED_COMMANDS.has(cmd)) {

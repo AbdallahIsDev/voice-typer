@@ -29,8 +29,29 @@ win:
   target:
     - nsis
   signAndEditExecutable: true
+  # RW-4 / Wave 3: embed the PyInstaller backend (VoiceTyper.exe) inside the
+  # Windows installer. CI's build-windows job runs
+  # `pyinstaller --distpath voice_typer/dist` from the repo root, so the
+  # PyInstaller output lands at <repo>/voice_typer/dist/. electron-builder
+  # runs from voice_typer/client/, so the `from:` path is `../dist`
+  # (resolves to <repo>/voice_typer/dist/) — CONSISTENT with the mac: and
+  # linux: sections below (Wave 3 path-consistency fix; previously this
+  # used `../../dist` which resolved to <repo>/dist/, diverging from the
+  # macOS/Linux staging path of <repo>/voice_typer/dist/).
+  # The bundle is copied to <resourcesPath>/voice-typer-backend/ at install
+  # time. At runtime, index.ts's pythonArgs() checks
+  # process.resourcesPath/voice-typer-backend/VoiceTyper.exe first
+  # (packaged mode), then falls back to the dev-mode venv at
+  # <config_dir>/venv/Scripts/pythonw.exe.
+  extraResources:
+    - from: ../dist
+      to: voice-typer-backend
+      filter: ["**/*"]
   # Code signing uses standard electron-builder env vars:
-  # WIN_CSC_LINK / CSC_LINK, WIN_CSC_KEY_PASSWORD / CSC_KEY_PASSWORD
+  # WIN_CSC_LINK / CSC_LINK, WIN_CSC_KEY_PASSWORD / CSC_KEY_PASSWORD.
+  # These are passed through from GitHub Actions secrets in the
+  # build-windows job (see .github/workflows/build.yml). When the secrets
+  # are empty (e.g. PR builds), electron-builder skips signing.
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
@@ -49,6 +70,18 @@ mac:
   gatekeeperAssess: false
   identity: ${env.MAC_SIGNING_IDENTITY}
   notarize: true
+  # RW-5: embed the PyInstaller-built Python backend into the .dmg so the
+  # macOS installer ships a complete app (Electron UI + Python backend).
+  # Without this, the .dmg contains only Electron and the app silently
+  # fails to start (no venv exists on a fresh user install).
+  # The backend is built by CI (build-macos job) and staged at
+  # voice_typer/dist/voice-typer-backend.app by the rename step.
+  # pythonArgs() in src/main/index.ts launches the executable at
+  # Contents/MacOS/voice-typer inside this .app bundle.
+  extraResources:
+    - from: ../dist/voice-typer-backend.app
+      to: voice-typer-backend.app
+      filter: ["**/*"]
 dmg:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   contents:
@@ -70,6 +103,18 @@ linux:
     - AppImage
     - deb
     - rpm
+  # RW-5: embed the PyInstaller-built Python backend into .deb/.rpm/AppImage
+  # so the Linux installers ship a complete app (Electron UI + Python
+  # backend). Without this, the installers contain only Electron and the
+  # app silently fails to start (no venv exists on a fresh user install).
+  # The backend is built by CI (build-linux job) and staged at
+  # voice_typer/dist/voice-typer-backend/ by the rename step.
+  # pythonArgs() in src/main/index.ts launches the executable at
+  # voice-typer inside this directory.
+  extraResources:
+    - from: ../dist/voice-typer-backend
+      to: voice-typer-backend
+      filter: ["**/*"]
 # GAP-3: Linux zero-command setup. The postinst/prerm scripts install
 # the udev rule, add the user to the input group, and configure Caps Lock
 # neutralization. The user only types their sudo password once (prompted
@@ -79,12 +124,12 @@ deb:
     - libnotify4
     - libxtst6
     - python3
-  afterInstall: ../../scripts/linux/postinst
-  afterRemove: ../../scripts/linux/prerm
+  afterInstall: resources/linux/postinst
+  afterRemove: resources/linux/prerm
 rpm:
   depends:
     - libnotify
     - libXtst
     - python3
-  afterInstall: ../../scripts/linux/postinst.rpm
-  afterRemove: ../../scripts/linux/prerm.rpm
+  afterInstall: resources/linux/postinst.rpm
+  afterRemove: resources/linux/prerm.rpm
