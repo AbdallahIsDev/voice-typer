@@ -31,10 +31,22 @@
 
 | File | Purpose |
 |---|---|
-| `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` (NEW, 357 lines) | Tauri ↔ React bridge. Auto-installs `window.python`, `window.bubble`, `window.window_` using Tauri's global `__TAURI__` API when Tauri is detected. In Electron mode it's a no-op (the Electron preload already installed the namespaces). The renderer code (`usePython.ts`, pages, components) is unchanged. **Contract parity is partial, not identical** — see "Bridge contract parity" below. `window.python.call`/`onEvent` + FT-1 events are at full parity. `window.bubble` (6 mutator methods) and `window.window_.exportHistory/exportVocabulary` are stubbed on the Tauri path (known gaps, see "What's NOT implemented this round" #5/#6). The NEW-IPC-107 guard: on Electron it inspects the resolved envelope; on Tauri, Rust rejects the `invoke` promise on `type:"error"` so the guard's resolved-envelope branches are effectively dead but errors still surface via rejection. |
+| `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` (NEW, 357 lines) | Tauri ↔ React bridge. Auto-installs `window.python`, `window.bubble`, `window.window_` using Tauri's global `__TAURI__` API when Tauri is detected. In Electron mode it's a no-op (the Electron preload already installed the namespaces). The renderer code (`usePython.ts`, pages, components) is unchanged. **Contract parity is partial, not identical** — see "Bridge contract parity" below. `window.python.call`/`onEvent` + FT-1 events are at full parity. `window.bubble` (6 mutator methods) and `window.window_.exportHistory/exportVocabulary` are stubbed on the Tauri path (known gaps, see "What's NOT implemented this round" #5/#6). |
 | `voice_typer/client/src/renderer/src/main.tsx` (modified) | Imports `./lib/tauri-bridge` before the React app mounts. |
 | `voice_typer/client/src/renderer/src/bubble-main.tsx` (modified) | Imports `./lib/tauri-bridge` before the bubble app mounts. |
 | `voice_typer/client/src/renderer/src/globals.d.ts` (NEW) | Ambient `declare module "*.css"` etc. — fixes pre-existing TS2882 errors on side-effect CSS imports. (Note: the `window.python`/`window.bubble`/`window.window_` ambient types come from the pre-existing `declare global` block in `types/ipc.ts`, NOT from this file.) |
+
+#### NEW-IPC-107 guard — error-envelope parity (d-review NEW-IPC-007)
+
+`usePython.ts` inspects the resolved value of `window.python.call(...)` and throws a real `Error` when it sees either of the two error-envelope shapes the backend can produce. **The previous framing ("works on both paths") was false — corrected here:**
+
+- **Electron path** — the `python-call` IPC handler (`client/src/main/index.ts:1904-1918`) resolves the pending request with the raw object, which can be EITHER shape:
+  1. `{_error: "..."}` (string) — Electron main-process synthetic errors: backend-not-connected (`index.ts:1908/1911`) and `sendToPython` exceptions (`index.ts:1916`).
+  2. `{type:"error", data:{code, message}}` — Python server unhandled-dispatch exceptions (`server/ipc_server.py:1044-1050`), passed through verbatim (the main process does NOT translate them into `{_error:...}`).
+
+  Both in-code checks in `usePython.ts` are **live and necessary** on Electron — without the `type:"error"` branch, server-side errors were silently treated as successful results and callers downstream read `undefined` from data fields. The fix throws `new Error(result._error || result.data?.message || "unknown error")` so `try { await python.call(...) } catch (e) {}` callers see real failures on both shapes.
+
+- **Tauri path** — the Rust `dispatch` command (`src-tauri/src/main.rs:954-965`) rejects the `invoke` promise on `type:"error"` (translating it to `Err("server error [code]: message")`) and never produces `{_error:...}`. As a result `await api.call(...)` throws **before** the resolved value is ever inspected, so **BOTH in-code checks (`_error` AND `type:"error"`) are unreachable dead code on Tauri.** Errors still surface correctly — via promise rejection, propagated as-is by `usePython` (no double-wrapping). The checks remain in the source because the same `usePython.ts` bundle runs under both hosts; they are harmless no-ops on Tauri.
 
 ### FT-1 relaunch behavior (corrected)
 

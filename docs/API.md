@@ -163,7 +163,7 @@ Python backend.
 
 - **Transport:** TCP on localhost (auto-assigned port)
 - **Framing:** Newline-delimited JSON
-- **Auth:** Per-connection token validated on every request
+- **Auth:** Per-connection token. The **first** message on a connection must be a JSON `auth` object whose `token` field matches the `VOICE_TYPER_IPC_TOKEN` env var (constant-time comparison via `hmac.compare_digest`). Once the handshake succeeds, subsequent messages on that authenticated connection bypass the token check and go straight to dispatch. See `SEC-018` in `SECURITY.md` for the threat model.
 
 ### Key Endpoints
 
