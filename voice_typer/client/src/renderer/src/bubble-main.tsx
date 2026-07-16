@@ -4,6 +4,13 @@ import { Bubble } from "./Bubble";
 import { ErrorBoundary } from "./components/feedback/ErrorBoundary";
 import "./index.css";
 
+// ADR-0020 §6.3 (Phase 3 UI port): install the Tauri bridge BEFORE the
+// bubble React app mounts so `window.bubble` is available. In Electron
+// mode the bubble preload (`src/preload/bubble.ts`) already installed
+// it; this is a no-op. Must come before the `window.bubble?.signalReady`
+// call below.
+import "./lib/tauri-bridge";
+
 // console.warn('[bubble renderer] mounting')
 
 // Signal the main process that we're mounted and ready to receive
