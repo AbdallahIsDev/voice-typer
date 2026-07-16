@@ -112,6 +112,15 @@ dependencies = [
     # install everywhere. Lazy-imported in sidecar_ws.py so the
     # Electron-only path doesn't pay the import cost.
     "websockets>=12.0,<14.0",
+    # RW-01: keyring is used by credential_store.py to store API keys
+    # (OpenAI / Groq / Deepgram / LLM) in the OS-native credential
+    # backend (Windows Credential Manager, macOS Keychain, libsecret on
+    # Linux) instead of plaintext in config.json. Cross-platform — the
+    # library auto-selects the right backend at runtime. When no backend
+    # is available (e.g. headless Linux without gnome-keyring-daemon),
+    # credential_store falls back to the existing plaintext-in-config.json
+    # behavior with 0o600 perms on POSIX.
+    "keyring>=25.0,<26.0",
 ]
 
 [project.urls]

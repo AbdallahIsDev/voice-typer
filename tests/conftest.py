@@ -37,11 +37,28 @@ consistent and maintainable:
 """
 
 import contextlib
+import ctypes
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+
+# RW-9 test-infrastructure fix: ``voice_typer.server.crash_handler`` decorates
+# its VEH callback with ``@ctypes.WINFUNCTYPE(...)`` at module-load time
+# (line 321). ``WINFUNCTYPE`` only exists on Windows — on Linux/macOS the
+# attribute is missing, so importing ``crash_handler`` (transitively imported
+# by ``voice_typer.server.app``) raises ``AttributeError`` and breaks every
+# test that touches ``app``.
+#
+# The VEH callback is Windows-only by design (SEH exceptions don't exist on
+# POSIX). Aliasing ``WINFUNCTYPE`` to ``CFUNCTYPE`` on non-Windows lets the
+# module import successfully; the callback is never invoked because
+# ``install_crash_handler()`` short-circuits on ``sys.platform != "win32"``
+# (crash_handler.py:622, :651). This is a pure test-infrastructure shim —
+# production behaviour on Windows is unchanged.
+if not hasattr(ctypes, "WINFUNCTYPE"):
+    ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE  # type: ignore[attr-defined]
 
 
 def pytest_configure(config):
@@ -165,6 +182,7 @@ def mock_heavy_imports(monkeypatch, request):
                 del sys.modules[_key]
         try:
             import importlib as _importlib
+
             _real_pil = _importlib.import_module("PIL")
             _real_pil_image = _importlib.import_module("PIL.Image")
             _real_pil_imagedraw = _importlib.import_module("PIL.ImageDraw")
@@ -187,9 +205,7 @@ def mock_heavy_imports(monkeypatch, request):
 @pytest.fixture
 def tmp_config_dir(tmp_path, monkeypatch):
     """Temporary config directory with _config_dir monkeypatched."""
-    monkeypatch.setattr(
-        "voice_typer.server.config._config_dir", lambda: tmp_path
-    )
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     return tmp_path
 
 
@@ -197,9 +213,8 @@ def tmp_config_dir(tmp_path, monkeypatch):
 def history_db(tmp_path, monkeypatch):
     """Temporary HistoryDB backed by a SQLite file in tmp_path."""
     from voice_typer.server.history_db import HistoryDB
-    monkeypatch.setattr(
-        "voice_typer.server.config._config_dir", lambda: tmp_path
-    )
+
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     db = HistoryDB(db_path=tmp_path / "history.db")
     yield db
     db.close()
@@ -208,7 +223,5 @@ def history_db(tmp_path, monkeypatch):
 @pytest.fixture
 def templates_dir(tmp_path, monkeypatch):
     """Temporary templates directory with _config_dir monkeypatched."""
-    monkeypatch.setattr(
-        "voice_typer.server.config._config_dir", lambda: tmp_path
-    )
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     return tmp_path
