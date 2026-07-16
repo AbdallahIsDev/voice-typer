@@ -2,13 +2,15 @@
 //!
 //! This is the Rust shell that replaces the Electron main process. It:
 //!
-//! 1. Generates an HMAC token (`secrets.token_bytes(32)` equivalent) and
-//!    spawns the Python sidecar via Tauri's `externalBin` mechanism,
-//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.
+//! 1. Generates a 256-bit bearer token (`secrets.token_bytes(32)`
+//!    equivalent — see `Cargo.toml` note: despite the ADR's "HMAC"
+//!    wording, the host uses bearer-token auth, not HMAC) and spawns
+//!    the Python sidecar via Tauri's `externalBin` mechanism, passing
+//!    `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.
 //! 2. Reads the sidecar's stdout until it sees the
 //!    `{"event":"server_started","port":N}` JSON line, then opens a
 //!    WebSocket client to `ws://127.0.0.1:N`.
-//! 3. Performs the HMAC auth handshake (`{"type":"auth","token":...}`).
+//! 3. Performs the bearer-token auth handshake (`{"type":"auth","token":...}`).
 //! 4. Exposes ONE generic `dispatch` command to the webview:
 //!    `invoke('dispatch', {cmd, data})` → Rust forwards it as a WS
 //!    frame, awaits the per-id response, returns it.
@@ -55,8 +57,9 @@ use tokio_tungstenite::{connect_async_with_config, tungstenite::Message};
 
 // ─── Constants (ADR-0020) ─────────────────────────────────────────────
 
-/// ADR-0020 §3: 256-bit HMAC token. Regenerated per launch + per
-/// FT-1 respawn; never logged.
+/// ADR-0020 §3: 256-bit bearer token (despite the ADR's "HMAC" wording,
+/// the host uses bearer-token auth — see `Cargo.toml` note). Regenerated
+/// per launch + per FT-1 respawn; never logged.
 const TOKEN_BYTES: usize = 32;
 
 /// ADR-0020 §10: FT-1 supervisor backoff schedule (ms). Cap 5 retries
@@ -84,6 +87,26 @@ const BUBBLE_LEVEL_COALESCE_HZ: u64 = 30;
 /// attacks from a compromised sidecar.
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
+/// ADR-0020 §7: per-dispatch response timeout. The sidecar must respond
+/// within this window or the host returns a timeout error to the webview
+/// (so the UI can show a retry banner instead of hanging indefinitely).
+const DISPATCH_TIMEOUT_SECS: u64 = 120;
+
+/// ADR-0020 §10: brief delay between emitting `ft1_relaunching` and
+/// calling `app.restart()`, so the webview has time to render the
+/// "restarting…" banner before the process exits.
+const PRE_RESTART_DELAY_MS: u64 = 500;
+
+/// Polling interval for the cooperative-shutdown waiter in
+/// `shutdown_sidecar`. We sleep in increments of this duration until
+/// `SHUTDOWN_ACK_TIMEOUT_MS` elapses, then force-kill the child.
+const SHUTDOWN_POLL_INTERVAL_MS: u64 = 100;
+
+/// ADR-0020 §6.2: paste-text short/long threshold (characters). Short
+/// text is injected via `enigo.text()` (IME-safe); long text is copied
+/// to the clipboard then Ctrl/Cmd+V is pressed.
+const PASTE_SHORT_THRESHOLD: usize = 300;
+
 // ─── Shared state ─────────────────────────────────────────────────────
 
 /// Pending dispatch requests keyed by id. Each entry has a oneshot
@@ -110,6 +133,13 @@ struct SidecarState {
     /// Shutdown signal — set when the app is quitting so FT-1 doesn't
     /// respawn the sidecar during shutdown.
     shutting_down: AtomicBool,
+    /// FT-1 respawn serialization flag. Set when a respawn is in flight
+    /// so concurrent WS-reader exits (e.g., a flapping sidecar that dies
+    /// immediately after reconnect) don't launch multiple parallel
+    /// `ft1_respawn` supervisors that would corrupt `child`/`token`/`ws_tx`.
+    /// Acquired with `compare_exchange(false → true)` on entry; cleared on
+    /// exit (both Ok and restart paths).
+    respawn_in_progress: AtomicBool,
 }
 
 // ─── Token generation (ADR-0020 §3) ───────────────────────────────────
@@ -277,6 +307,29 @@ async fn ft1_respawn(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
+    // Serialize: only one ft1_respawn may run at a time. If a previous
+    // respawn is still in flight (e.g., the sidecar died again mid-
+    // reconnect), bail out — the in-flight supervisor owns the recovery.
+    if state
+        .respawn_in_progress
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        log::info!("[FT-1] respawn already in progress — skipping");
+        return Ok(());
+    }
+    // Scope the respawn body so we can clear the flag on every exit path
+    // (including the `app.restart()` paths, which are `-> !` so the
+    // clear is unreachable but harmless; the Ok() paths need it).
+    let result = ft1_respawn_inner(app, state).await;
+    state.respawn_in_progress.store(false, Ordering::SeqCst);
+    result
+}
+
+async fn ft1_respawn_inner(
+    app: &tauri::AppHandle,
+    state: &Arc<SidecarState>,
+) -> Result<(), String> {
     for (attempt, delay_ms) in FT1_BACKOFF_MS.iter().enumerate() {
         if attempt as u32 >= FT1_MAX_RETRIES {
             log::error!(
@@ -289,7 +342,7 @@ async fn ft1_respawn(
             // relaunches a fresh one.
             let _ = app.emit("ft1_relaunching", json!({"reason": "exhausted_retries"}));
             // Small delay so the UI event can render before restart.
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(PRE_RESTART_DELAY_MS)).await;
             // ADR-0020 §10: `app.restart()` is defined on the core
             // `tauri::AppHandle` directly (tauri-2.11.5/src/app.rs:588).
             // It exits with RESTART_EXIT_CODE so the Tauri launcher
@@ -343,7 +396,7 @@ async fn ft1_respawn(
     // is shorter than FT1_MAX_RETRIES. Treat as exhaustion.
     log::error!("[FT-1] backoff schedule exhausted — full-app relaunch");
     let _ = app.emit("ft1_relaunching", json!({"reason": "backoff_exhausted"}));
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(PRE_RESTART_DELAY_MS)).await;
     app.restart();
 }
 
@@ -495,6 +548,15 @@ async fn reconnect_ws(
             }
         }
         if !state_for_reader.shutting_down.load(Ordering::SeqCst) {
+            // CR-5 (ADR-0020 §10): emit `ft1_relaunching` IMMEDIATELY
+            // at disconnect start so the UI can show a "reconnecting…"
+            // banner before the backoff schedule runs. The eventual
+            // `ft1_reconnected` (on success) or second `ft1_relaunching`
+            // (on exhaustion) supersedes this event.
+            let _ = app_for_reader.emit(
+                "ft1_relaunching",
+                json!({"reason": "disconnected"}),
+            );
             log::warn!("[WS-READER] unexpected close — triggering FT-1");
             // Spawn FT-1 on a separate thread via std::thread::spawn +
             // a block_on, so the non-Send WS stream half doesn't
@@ -547,7 +609,7 @@ async fn dispatch(
         .map_err(|e| format!("WS send failed: {e}"))?;
 
     // Await the response with a timeout.
-    match tokio::time::timeout(Duration::from_secs(120), rx).await {
+    match tokio::time::timeout(Duration::from_secs(DISPATCH_TIMEOUT_SECS), rx).await {
         Ok(Ok(response)) => {
             // ADR-0020 §2: if the response is a `type:"error"` envelope,
             // surface it as a Rust error so the webview's `invoke()`
@@ -573,7 +635,7 @@ async fn dispatch(
             // Timeout — remove the pending entry.
             let mut pending = state.pending.lock().await;
             pending.remove(&id);
-            Err("dispatch timeout (120s)".into())
+            Err(format!("dispatch timeout ({}s)", DISPATCH_TIMEOUT_SECS))
         }
     }
 }
@@ -605,8 +667,7 @@ async fn paste_text(
     }
 
     use enigo::{Enigo, Key, Keyboard, Settings};
-    let short_threshold = 300;
-    if text.chars().count() < short_threshold {
+    if text.chars().count() < PASTE_SHORT_THRESHOLD {
         // Short text — inject via enigo.text() (IME-safe).
         let mut enigo = Enigo::new(&Settings::default())
             .map_err(|e| format!("enigo init failed: {e}"))?;
@@ -659,7 +720,7 @@ async fn shutdown_sidecar(
         // The child handle's `kill_children` is the backstop — we
         // can't easily poll for exit from here, so we just wait
         // briefly then force-kill.
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(SHUTDOWN_POLL_INTERVAL_MS)).await;
     }
     if let Some(child) = state.child.lock().unwrap().take() {
         let _ = child.kill();
@@ -694,6 +755,7 @@ fn main() {
             pending: Arc::new(AsyncMutex::new(HashMap::new())),
             next_id: AtomicU64::new(1),
             shutting_down: AtomicBool::new(false),
+            respawn_in_progress: AtomicBool::new(false),
         }))
         .invoke_handler(tauri::generate_handler![dispatch, paste_text, shutdown_sidecar])
         .setup(|app| {
