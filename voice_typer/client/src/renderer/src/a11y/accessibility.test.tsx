@@ -7,7 +7,8 @@
  *
  * This module uses source-inspection + DOM structural verification
  * to check ARIA roles, labels, and live regions. For full runtime
- * a11y scanning, integrate @axe-core/playwright in E2E tests.
+ * a11y scanning, see the @axe-core integration used by the renderer
+ * test setup.
  */
 
 import fs from "node:fs";
