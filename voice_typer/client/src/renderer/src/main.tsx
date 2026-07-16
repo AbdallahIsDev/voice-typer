@@ -17,7 +17,7 @@ import "./lib/tauri-bridge";
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element #root not found in index.html");
 
-// ERR-ERR-006 (Round 0): wrap <App /> in <ErrorBoundary> so a render-time
+// ERR-ERR-006: wrap <App /> in <ErrorBoundary> so a render-time
 // crash in any component (Settings, Models, History, etc.) shows a
 // graceful fallback UI with "Try Again" / "Reload App" buttons instead of
 // white-screening the entire renderer. The ErrorBoundary component already

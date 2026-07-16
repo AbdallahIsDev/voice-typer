@@ -35,14 +35,28 @@
 //     controls. On Tauri these use the core window API. On Electron
 //     these route through `ipcRenderer.invoke`.
 //
-// The NEW-IPC-107 guard in `usePython.ts` (lines 36-68) works on both
-// paths because:
+// The NEW-IPC-107 guard in `usePython.ts` (d-review NEW-IPC-007) is
+// Electron-path-only in practice:
 //   - The `_error` field check catches Electron's not-connected /
-//     send-exception envelopes (`{_error: "..."}`).
-//   - The `type:"error"` check is a no-op on Tauri (Rust already
-//     rejected the promise) but harmless.
-//   - Both paths return `data` directly (not the full envelope), so
-//     `result as T` has the same shape on both paths.
+//     send-exception envelopes (`{_error: "..."}` from index.ts:1908/
+//     1911/1916). The Tauri Rust host never produces `{_error:...}`.
+//   - The `type:"error"` check catches the Python server's unhandled-
+//     dispatch envelope (`{type:"error", data:{code, message}}` from
+//     ipc_server.py:1044-1050), which the Electron main process passes
+//     through verbatim. On Tauri the Rust `dispatch` command
+//     (main.rs:954-965) rejects the `invoke` promise on `type:"error"`
+//     BEFORE the resolved value reaches JS, so this branch is dead
+//     code on Tauri (errors surface via promise rejection instead).
+//   - Both paths return `data` directly on success (Tauri unwraps
+//     `response.data` in Rust; Electron resolves with the full envelope
+//     but `usePython` returns `result as T` after the error checks pass),
+//     so the success shape is consistent across runtimes.
+//
+// The previous "works on both paths" framing was false: on Tauri BOTH
+// in-code checks are unreachable (the `await api.call(...)` throws
+// first). They remain in the source because the same `usePython.ts`
+// bundle ships under both hosts — they're harmless no-ops on Tauri and
+// load-bearing on Electron.
 
 import type {
 	MainRendererBubble,

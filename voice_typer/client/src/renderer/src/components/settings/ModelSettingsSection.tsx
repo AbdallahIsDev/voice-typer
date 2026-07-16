@@ -9,6 +9,7 @@
 // (no search-filter hide-when-empty wrapper, matching the original).
 
 import { memo, useState } from "react";
+import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
@@ -245,6 +246,13 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 								info={t("settings.apiKeyInfo")}
 							>
 								<div className="relative">
+									{/* RW-01: keyring status indicator next to the LLM API
+									 * key input. Shows a green lock icon when the secret
+									 * is stored in the OS keychain, or an amber warning
+									 * when only the plaintext fallback is available. */}
+									<div className="mb-1.5">
+										<KeyringStatusBadge status={config.keyring_status} />
+									</div>
 									<Input
 										type={llmKeyVisible ? "text" : "password"}
 										/* SEC-003: backend redacts the key to '<redacted>' in

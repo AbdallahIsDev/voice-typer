@@ -13,7 +13,7 @@ type BubbleMode = "recording" | "transcribing" | "idle" | "fading";
 
 const DOT_COUNT = 7;
 const MIN_HEIGHT = 5; // px — resting bar height (was 4, bumped so bars are always subtly visible)
-// BUBBLE-FIX-5.1 (Round 0): reduced from 32 → 22 to fit inside the new h-6
+// BUBBLE-FIX-5.1: reduced from 32 → 22 to fit inside the new h-6
 // (24px) wrapper with 2px vertical headroom. Previously MAX_HEIGHT matched
 // h-8 (32px) exactly; after the h-8 → h-6 change (BUBBLE-FIX-5.1) the peak
 // bars would overflow the 24px wrapper and clip against the pill's py-2.5

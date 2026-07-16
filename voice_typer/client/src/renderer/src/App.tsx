@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+// NEW-UX-006: toast subscription for paste_failed events published
+// by dictation_pipeline._copy_and_paste when the clipboard is
+// unavailable. The existing tray.notify still fires for redundancy
+// (tray icon tooltip is visible when the user is on another app;
+// the toast is visible when the renderer has focus).
+import { toast } from "sonner";
 import { Modal } from "@/components/common/Modal";
 // NEW-UX-015: ErrorBoundary catches render errors so a single bad
 // config or component crash doesn't white-screen the entire app.
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
 import { Spinner } from "@/components/feedback/Spinner";
+// NEW-UX-026: Punctuation cheat sheet — embedded in the help overlay.
+import { PunctuationCheatSheet } from "@/components/help/PunctuationCheatSheet";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
 import { Button } from "@/components/ui/button";
@@ -277,6 +285,68 @@ export default function App() {
 		}
 	});
 
+	// NEW-UX-006: subscribe to ``paste_failed`` events published by
+	// ``dictation_pipeline._copy_and_paste`` when clipboard.copy()
+	// raises ``ClipboardCopyError``. Previously the failure was only
+	// surfaced via the tray icon tooltip (tray.notify) — invisible
+	// when the renderer had focus. This handler raises a sonner
+	// warning toast with the message + a "Copy path" action button
+	// (so the user can paste the recovery file's path into a file
+	// manager to retrieve their transcription). When
+	// ``recovery_path`` is null (crash recovery disabled), the
+	// action button is omitted.
+	//
+	// i18n: the toast message itself comes from the server (which
+	// is the single source of truth for the failure wording — also
+	// used by tray.notify). Only the action button label ("Copy
+	// path") is rendered here; we keep it inline English to avoid
+	// adding new keys to all 8 locale files for a one-off error
+	// notification. If a future round adds i18n for this label,
+	// swap to ``t("pasteFailed.copyPath")`` and backfill locales.
+	usePythonEvent("paste_failed", (data) => {
+		const payload = (data ?? {}) as {
+			message?: string;
+			recovery_path?: string | null;
+		};
+		const message =
+			payload.message ??
+			"Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.";
+		const recoveryPath =
+			typeof payload.recovery_path === "string" ? payload.recovery_path : null;
+		// Long duration (8s) so the user has time to read the
+		// path + click the action button before the toast auto-
+		// dismisses. The first line of the message is the title;
+		// subsequent lines become the description.
+		const lines = message.split("\n");
+		const title = lines[0] ?? message;
+		const description = lines.slice(1).join("\n") || undefined;
+		if (recoveryPath) {
+			toast.warning(title, {
+				description,
+				duration: 8000,
+				action: {
+					label: "Copy path",
+					onClick: () => {
+						// Best-effort: copy the recovery file path to
+						// the clipboard so the user can paste it into
+						// a file manager. navigator.clipboard is
+						// available in the Electron renderer (and in
+						// Tauri's webview). Silently swallow errors
+						// — the toast still conveyed the path in its
+						// description text.
+						try {
+							navigator.clipboard?.writeText(recoveryPath).catch(() => {});
+						} catch {
+							// clipboard API may be unavailable — non-fatal.
+						}
+					},
+				},
+			});
+		} else {
+			toast.warning(title, { description, duration: 8000 });
+		}
+	});
+
 	// ── Sidebar toggle handler ──────────────────────────────────────
 	const handleToggleSidebar = () => setSidebarCollapsed((c) => !c);
 
@@ -508,6 +578,10 @@ export default function App() {
 							</div>
 						))}
 					</div>
+					{/* NEW-UX-026: Punctuation cheat sheet —
+                                            say these words during dictation to
+                                            insert the matching punctuation. */}
+					<PunctuationCheatSheet />
 					<p className="text-xs text-(--text-muted)">
 						{t("help.closeHint", { key: "Esc" })}
 					</p>

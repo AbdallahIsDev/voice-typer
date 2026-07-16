@@ -28,43 +28,54 @@ export function usePython() {
 				string,
 				unknown
 			>;
-			// NEW-IPC-107: the Electron main process returns
-			// `{ _error: "..." }` when (a) the backend isn't
-			// connected (index.ts:1911) or (b) any sendToPython
-			// exception fires (index.ts:1916). Surface those as
-			// JS errors so callers see real failures.
-			if (result && typeof result === "object" && "_error" in result) {
-				throw new Error(result._error as string);
-			}
-			// NEW-IPC-107 (the actual fix): the Python server
-			// returns structured error envelopes
-			// `{type:"error", data:{code, message}}` on unhandled
-			// dispatch exceptions (ipc_server.py:1044-1050). The
-			// Electron main process resolves the pending request
-			// with that object verbatim, so `result.type ===
-			// "error"` was silently treated as a successful
-			// result and callers downstream got `undefined` when
-			// they tried to access real data fields.
+			// NEW-IPC-107 (d-review NEW-IPC-007): handle BOTH error
+			// envelope shapes that can flow back over the Electron
+			// path, surfacing each as a real JS Error so callers
+			// using `try { await python.call(...) } catch (e) {}`
+			// see failures instead of silently treating the error
+			// envelope as a successful result (which previously left
+			// callers reading `undefined` from data fields).
 			//
-			// Under Tauri, the Rust host's `dispatch` command
-			// already surfaces `type:"error"` as a Rust error
-			// (which rejects the invoke() promise on the JS
-			// side), so this guard is primarily for the Electron
-			// path. It's safe to apply on both paths because the
-			// success envelope is `type:"result"` — `type:"error"`
-			// is unambiguously a failure.
+			//   1. `{_error: "..."}` — Electron main-process synthetic
+			//      errors (index.ts:1908/1911/1916): backend-not-
+			//      connected and sendToPython exceptions. `_error` is
+			//      a STRING in the actual Electron code; we also
+			//      accept `{message: "..."}` defensively.
+			//   2. `{type:"error", data:{code, message}}` — Python
+			//      server unhandled-dispatch exceptions
+			//      (ipc_server.py:1044-1050). The Electron main
+			//      process resolves the pending request with this
+			//      object verbatim (it does NOT translate it into
+			//      `{_error: ...}`).
+			//
+			// On Tauri, NEITHER in-code check is reachable: the Rust
+			// `dispatch` command (main.rs:954-965) rejects the
+			// `invoke` promise on `type:"error"` (and never produces
+			// `{_error:...}`), so `await api.call(...)` throws before
+			// we ever inspect the resolved value. The checks below
+			// are therefore Electron-path-only — DEAD CODE on Tauri,
+			// but harmless (and the unified error shape keeps
+			// caller-facing behavior consistent across both runtimes).
+			// Errors on Tauri propagate as-is from the Rust rejection
+			// (no double-wrapping) — the `await` throws and we never
+			// reach the envelope inspection.
+			if (result && typeof result === "object" && "_error" in result) {
+				const e = (result as { _error?: unknown })._error;
+				const msg =
+					typeof e === "string"
+						? e
+						: ((e as { message?: string } | null)?.message ?? "unknown error");
+				throw new Error(msg);
+			}
 			if (
 				result &&
 				typeof result === "object" &&
-				"type" in result &&
-				(result as { type: unknown }).type === "error"
+				(result as { type?: unknown }).type === "error"
 			) {
-				const errData = (
-					result as { data?: { code?: string; message?: string } }
-				).data;
-				const code = errData?.code ?? "unknown";
-				const message = errData?.message ?? "server error";
-				throw new Error(`server error [${code}]: ${message}`);
+				throw new Error(
+					(result as { data?: { message?: string } }).data?.message ??
+						"unknown error",
+				);
 			}
 			return result as T;
 		},

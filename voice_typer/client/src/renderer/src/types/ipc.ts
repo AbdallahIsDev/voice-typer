@@ -90,11 +90,16 @@ export interface RecordingStoppedEvent {
 	duration_ms?: number;
 }
 
-export interface ModelLoadedEvent {
-	type: "model_loaded";
-	model: string;
-	device: string;
-}
+// NEW-IPC-002 (d-review): the dead `ModelLoadedEvent` type was REMOVED.
+// The server never published `model_loaded` via `event_bus.publish(...)`
+// (the only `model_loaded` symbol in the Python tree is a LOCAL log variable
+// in `recording_controller.py:145`), and ZERO renderer code subscribed to
+// `"model_loaded"` (no `usePythonEvent("model_loaded", ...)` call sites).
+// Keeping the type gave a false impression of an IPC contract that didn't
+// exist. Do NOT re-add it without also wiring up BOTH a publisher
+// (`event_bus.publish({"type":"model_loaded",...})`) AND a subscriber
+// (`usePythonEvent("model_loaded", ...)`). The compile-time guard in
+// `types/__tests__/ipc-types.test.ts` will fail tsc if this is re-added.
 
 /** Pushed after every successful set_config so the renderer can
  * update UI-local state (font-scale, theme, etc.) immediately
@@ -131,7 +136,6 @@ export type PythonPushEvent =
 	| TranscriptionFinalEvent
 	| RecordingStartedEvent
 	| RecordingStoppedEvent
-	| ModelLoadedEvent
 	| ConfigChangedEvent
 	| HotkeyCaptureCancelEvent
 	| HistoryChangedEvent;

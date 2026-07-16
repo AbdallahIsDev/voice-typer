@@ -13,6 +13,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
+import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { Spinner } from "@/components/feedback/Spinner";
@@ -755,6 +756,14 @@ export default function ModelsPage() {
 		setDeleteModelTarget(model);
 	};
 
+	// NEW-UX-004 (rationale): model delete is intentionally confirm-only —
+	// no undo toast. Model files are 1.5–3 GB (HuggingFace hub cache entries);
+	// soft-delete to trash for a 6s undo window would hold gigabytes on disk
+	// (defeating the user's intent to FREE space), and re-download-as-undo
+	// would take 10+ minutes on a 20 Mbit/s connection — the toast would
+	// dismiss long before the download finished. The confirm dialog already
+	// catches accidental clicks; re-download is one click from the model card.
+	// See docs/ux/model-delete-rationale.md for the full decision writeup.
 	const confirmDeleteModel = async () => {
 		if (!deleteModelTarget) return;
 		// NEW-UX-005: actually call the backend to delete the model files
@@ -1155,8 +1164,8 @@ export default function ModelsPage() {
 				</PageHeading>
 
 				{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-				    refresh button. The module-level `_cachedConfig` survives
-				    page navigations, so we surface staleness here. */}
+                                    refresh button. The module-level `_cachedConfig` survives
+                                    page navigations, so we surface staleness here. */}
 				<div className="flex justify-end pb-2">
 					<LastUpdatedIndicator
 						agoLabel={agoLabel}
@@ -1204,10 +1213,10 @@ export default function ModelsPage() {
 
 							{/* Model Cards — grouped by family using shadcn Accordion */}
 							{/* MODELS-COLLAPSE: only the family containing the active model is
-							    open by default. All other families start collapsed, reducing
-							    vertical noise when many model variants are installed.
-							    The Accordion's internal state persists during the page visit
-							    (collapsing/expanding via clicks), but resets on page re-mount. */}
+                                                            open by default. All other families start collapsed, reducing
+                                                            vertical noise when many model variants are installed.
+                                                            The Accordion's internal state persists during the page visit
+                                                            (collapsing/expanding via clicks), but resets on page re-mount. */}
 							<Accordion
 								type="multiple"
 								value={accordionValue}
@@ -1506,12 +1515,22 @@ export default function ModelsPage() {
 													</h3>
 												</div>
 												<div className="mb-4">
-													<label
-														htmlFor="api-key-input"
-														className="text-sm font-medium text-(--text-primary) mb-1.5 block"
-													>
-														{t("models.cloud.apiKey")}
-													</label>
+													<div className="mb-1.5 flex items-center gap-2">
+														<label
+															htmlFor="api-key-input"
+															className="text-sm font-medium text-(--text-primary)"
+														>
+															{t("models.cloud.apiKey")}
+														</label>
+														{/* RW-01: keyring status indicator. Shows a green lock icon
+														 * when secrets are stored in the OS keychain, or an amber
+														 * warning badge when only the plaintext fallback (config.json
+														 * with 0o600 perms) is available. */}
+														<KeyringStatusBadge
+															status={config?.keyring_status}
+															compact
+														/>
+													</div>
 													<Input
 														id="api-key-input"
 														type="password"

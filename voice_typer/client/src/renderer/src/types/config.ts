@@ -236,6 +236,43 @@ export interface VoiceTyperConfig {
 	vocabulary_automation_enabled: boolean;
 	vocabulary_auto_confidence_threshold: number;
 	vocabulary_auto_apply_threshold: number;
+
+	// RW-01: marks that plaintext API keys have been migrated to
+	// the OS keychain.  Set to true by Config.load() after the
+	// first migration run.  The renderer doesn't display this
+	// directly — it consults ``keyring_status`` for the user-facing
+	// indicator.
+	secrets_migrated?: boolean;
+
+	// RW-01: OS keychain backend status.  Attached to the
+	// ``get_config`` / ``get_defaults`` IPC responses by the
+	// service layer (NOT stored in the Config dataclass — it's
+	// runtime-probed state).  Optional because legacy responses
+	// (pre-RW-01) don't include it; the renderer treats absence
+	// as "keyring unavailable, plaintext fallback".
+	keyring_status?: KeyringStatus;
+}
+
+/**
+ * RW-01: OS keychain backend status, attached to get_config responses.
+ *
+ * The renderer uses this to show a "Stored securely in your OS keychain"
+ * lock icon next to API key inputs (when ``available`` is true), or a
+ * warning that secrets fall back to plaintext in config.json (when
+ * ``available`` is false).
+ */
+export interface KeyringStatus {
+	/** True when a real keyring backend (not the fail backend) is in use. */
+	available: boolean;
+	/**
+	 * Backend class name (e.g. "SecretServiceKeyring", "macOSKeyring",
+	 * "WindowsCredentialVaultKeyring") when available, else null.
+	 */
+	backend: string | null;
+	/** True when secrets will be stored in plaintext in config.json. */
+	fallback: boolean;
+	/** Short reason string when available is false (tooltip-friendly). */
+	reason?: string | null;
 }
 
 export interface MicrophoneDevice {

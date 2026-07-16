@@ -98,7 +98,7 @@ export function detectPlatform(): string {
 export function isReserved(hotkey: string, platform: string): boolean {
 	if (!hotkey) return false;
 	const reserved = RESERVED_SHORTCUTS[platform] || [];
-	// HOTKEY-FIX-001 (Round 0): normalize both sides via normalizeHotkey()
+	// HOTKEY-FIX-001: normalize both sides via normalizeHotkey()
 	// (which strips angle brackets and lowercases) before comparing. The
 	// RESERVED_SHORTCUTS table stores entries with brackets on both parts
 	// (e.g. ``"<win>+<e>"``), but callers pass hotkeys using the pynput
