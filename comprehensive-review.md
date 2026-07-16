@@ -456,3 +456,191 @@ un.
 - **0 regressions** introduced (pre-existing test_server.py failures verified to pre-date this round).
 - **Phase 0-M/0-L prewarm wiring** done.
 - **Remaining**: Nuitka Windows exe build + full Tauri build with display + Phase 3 UI port — all require a Windows/macOS host. Runbook provided in SUMMARY-2.md.
+
+# Voice Typer — Comprehensive Engineering & Product Quality Review
+
+**Date**: 2026-07-16
+**Reviewer**: Comprehensive Reviewer subagent (CR-1)
+**Scope**: Full-project review covering architecture, security, performance, code quality, testing, cross-platform, documentation, UX
+**Findings**: 25 total (0 Critical, 5 High, 8 Medium, 12 Low)
+
+## Summary
+
+| Severity | Count | Fixed this round |
+|----------|-------|-------------------|
+| Critical | 0 | 0 |
+| High | 5 | 3 (Findings 1, 3, 5) |
+| Medium | 8 | 0 (deferred — documented for next round) |
+| Low | 12 | 0 (deferred — documented for next round) |
+
+**No Critical issues were found.** The codebase shows extensive hardening work (SEC-001 through SEC-029, RELIABILITY-001 through RELIABILITY-006, RW-1 through RW-15, plus 20 ADRs). The findings below are the *residual* issues after that hardening — most are cross-cutting concerns (Tauri migration seams, test coverage, doc drift) rather than per-module bugs.
+
+---
+
+## Findings
+
+### CR-2 — `shutdown_sidecar` blocks 2s unconditionally regardless of sidecar exit
+- **Category**: Performance / UX
+- **Severity**: Medium
+- **Status**: Pending (deferred to next round)
+- **Description**: The `shutdown_sidecar` Tauri command sleeps in a `while Instant::now() < deadline` loop with 100ms `tokio::time::sleep` calls but never polls whether the child has actually exited. Even when the sidecar acks and exits in ~50ms, the host waits the full 2000ms before calling `child.kill()`.
+- **Recommended fix**: Store the `Receiver<CommandEvent>` from the original spawn on `SidecarState`, and in `shutdown_sidecar` use `tokio::time::timeout(deadline, rx.recv())` to poll for `CommandEvent::Terminated`. Exit the wait loop as soon as termination is received.
+- **Files**: `src-tauri/src/main.rs` (lines 174-246, 617-643)
+
+### CR-4 — `_ready_emitted` module-level global in sidecar_ws.py is never reset
+- **Category**: Testing / Architecture
+- **Severity**: Medium
+- **Status**: Pending (deferred to next round)
+- **Description**: `sidecar_ws._ready_emitted` is a module-level boolean that prevents re-emitting the `ready` event on reconnect. This is correct for production, but it's never reset between test runs that import the module once and call `run()` multiple times.
+- **Recommended fix**: Move `_ready_emitted` to a per-`IPCServer` instance attribute, or expose a `_reset_ready_emitted()` test-only helper.
+- **Files**: `voice_typer/server/sidecar_ws.py` (lines 98, 326-332)
+
+### CR-6 — `usePythonEvent` hook silently drops events if `window.python` is unset at mount
+- **Category**: Code Quality / UX
+- **Severity**: Medium
+- **Status**: Pending (deferred to next round)
+- **Description**: `usePythonEvent` returns early from its `useEffect` if `window.python` is undefined. The effect's only dependency is `[type]`, so if `window.python` is set up later, the subscription is never re-attempted.
+- **Recommended fix**: Add a `bridgeReady` state from a small `useSyncExternalStore` that polls/subscribes to `window.python` presence, and include it in the effect's dependency array.
+- **Files**: `voice_typer/client/src/renderer/src/hooks/usePython.ts`, `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
+
+### CR-7 — `_pick_available_port` race window: bind-release between check and real bind
+- **Category**: Security / Cross-platform
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: The probe-then-bind pattern is inherently racy. Between the probe close and the real bind, another local process can grab the port.
+- **Recommended fix**: Either pass the bound probe socket through to `start_tcp`, or catch the bind failure and surface a clear error with retry logic.
+- **Files**: `voice_typer/server/ipc_server.py` (lines 128-151, 1950-1955)
+
+### CR-8 — `_handle_show_electron_notification` event name not renamed for Tauri path
+- **Category**: Cross-platform / Code Quality
+- **Severity**: Medium
+- **Status**: Pending (deferred)
+- **Description**: Python emits `electron_notification`; Tauri Rust renames to `notification`, but the rename is a single `match` arm with no fallback. The Python event name still carries the `electron_` prefix even though it's now platform-agnostic.
+- **Recommended fix**: Rename the Python-side event from `electron_notification` to `notification`. Remove the Rust-side rename once the source event is renamed.
+- **Files**: `voice_typer/server/handlers/system_handlers.py`, `voice_typer/server/startup_sequence.py`, `src-tauri/src/main.rs`
+
+### CR-9 — Heartbeat watchdog has no fallback if `tray.stop()` hangs
+- **Category**: Reliability / Cross-platform
+- **Severity**: Medium
+- **Status**: Pending (deferred)
+- **Description**: The heartbeat watchdog calls `self.app.quit()` when Electron hasn't pinged in 120s. From a daemon thread, `quit()` relies on `tray.stop()` breaking the pystray loop — but pystray on certain Linux backends and on Windows Server has been observed to hang.
+- **Recommended fix**: After calling `self.app.quit()` from the heartbeat watchdog, schedule a daemon thread that calls `os._exit(1)` after a 10-second grace period.
+- **Files**: `voice_typer/server/ipc_server.py` (lines 1145-1192), `voice_typer/server/app.py` (lines 1646-1707)
+
+### CR-10 — `_secure_clear_array_background` spawns unbounded threads on rapid stop/discard
+- **Category**: Performance
+- **Severity**: Medium
+- **Status**: Pending (deferred)
+- **Description**: Each `stop()`/`discard()` spawns a new daemon thread for buffer zeroing. Under rapid hotkey toggling, this can spawn several threads per second.
+- **Recommended fix**: Replace with a single long-lived "buffer-clear" worker thread + `queue.Queue` of buffers to zero.
+- **Files**: `voice_typer/server/recording.py` (lines 142-166, 2786-2791, 3149+)
+
+### CR-11 — IPC per-connection rate limiter resets on every reconnect
+- **Category**: Security
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: `_RateLimiter` is instantiated fresh per TCP/WS connection. A local attacker can burst 200 messages, disconnect, reconnect, and burst another 200 — bypassing the sustained cap.
+- **Recommended fix**: Maintain a per-process (or per-token) rate limiter keyed by the auth token, decayed over a 10-minute sliding window.
+- **Files**: `voice_typer/server/ipc_server.py` (lines 215-278, 977-998), `voice_typer/server/sidecar_ws.py` (lines 228-280)
+
+### CR-12 — No unit tests for the 14 IPC handler mixins
+- **Category**: Testing
+- **Severity**: High
+- **Status**: Pending (deferred — documented as future work)
+- **Description**: `voice_typer/server/handlers/*.py` (2,060 LOC across 14 files) has no dedicated unit tests. The handler mixins are only exercised indirectly via integration tests.
+- **Recommended fix**: Add `tests/handlers/test_<name>_handlers.py` per mixin, using the existing `make_fake_service` fixture to inject a mock service and assert on the handler's response shape for each validation path.
+- **Files**: `voice_typer/server/handlers/*.py`, `tests/`
+
+### CR-13 — No Rust tests for the FT-1 supervisor or WS dispatch logic
+- **Category**: Testing
+- **Severity**: High
+- **Status**: Pending (deferred — documented as future work)
+- **Description**: `src-tauri/src/main.rs` (713 LOC) has zero `#[cfg(test)]` modules. The FT-1 backoff schedule, the per-id pending-dispatch map, the bubble_level coalescing logic, and the auth handshake are all untested in Rust.
+- **Recommended fix**: Add a `#[cfg(test)] mod tests` module with unit tests for: (a) `generate_token` produces 64-char hex strings, (b) the bubble_level coalesce logic respects the 30 Hz cap, (c) `current_target_triple` returns the expected string for each `(arch, os)` combo, (d) the pending-dispatch map correctly fulfills requests by id. For FT-1, add a Rust integration test that spawns a mock WS server, kills it, and asserts the respawn schedule.
+- **Files**: `src-tauri/src/main.rs`
+
+### CR-14 — README and CONTRIBUTING have zero mentions of the Tauri migration
+- **Category**: Documentation
+- **Severity**: Medium
+- **Status**: Pending (deferred)
+- **Description**: `grep -rn 'Tauri|tauri' README.md CONTRIBUTING.md docs/ARCHITECTURE.md` returns nothing. A new contributor would have no idea that `src-tauri/` exists or that there are two parallel UI shells.
+- **Recommended fix**: Add a "Runtime Architecture" section to README.md explaining the dual-stack, link to ADR-0020, and document the `TAURI_SIDECAR=1` env var in CONTRIBUTING.md.
+- **Files**: `README.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`
+
+### CR-15 — `tauri-bridge.ts` stubs 6 bubble APIs and 2 window APIs as no-ops
+- **Category**: UX / Cross-platform
+- **Severity**: Medium
+- **Status**: Pending (deferred — documented in tauri-sidecar-bridge.md)
+- **Description**: `tauri-bridge.ts` stubs `bubble.show`, `bubble.signalReady`, `bubble.setPosition`, `bubble.setDraggable`, `bubble.moveBy`, `bubble.hideComplete`, `window_.exportHistory`, and `window_.exportVocabulary` as no-ops or rejection-returning stubs. In Tauri mode, the user cannot reposition the bubble, drag it, or export history/vocabulary.
+- **Recommended fix**: Either implement the missing Rust commands before the Tauri cutover, OR add a runtime capability flag so the renderer can show "not available in Tauri mode" UI.
+- **Files**: `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
+
+### CR-16 — `tray.py` reaches into pystray private `_icon_handle` attribute
+- **Category**: Cross-platform / Code Quality
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: `TrayIcon._apply_state` catches `OSError` from `self._icon.icon = _make_icon(state)` and, on failure, sets `self._icon._icon_handle = None` to force pystray to re-create the icon handle. `_icon_handle` is a private attribute.
+- **Recommended fix**: Pin pystray to a known-good minor version and file an upstream issue to expose a public `reset_icon_handle()` method.
+- **Files**: `voice_typer/server/tray.py` (lines 475-487), `pyproject.toml`
+
+### CR-17 — `_validate_path_safety` uses `str.startswith` for path containment
+- **Category**: Security
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: `_validate_path_safety` resolves both `path` and `parent`, then checks `str(resolved).startswith(str(parent_resolved))`. This is the classic prefix-match bug: `/home/userX/secret` would be considered "within" `/home/user`.
+- **Recommended fix**: Replace the body of `_validate_path_safety` with a call to `_is_path_within(path, parent)`, or inline the `commonpath` logic.
+- **Files**: `voice_typer/server/config.py` (lines 228-239, 420, 440, 454)
+
+### CR-18 — TCP `sendToPython` 120s timeout is uncapped for long-running commands
+- **Category**: Performance / UX
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: A blanket 120s `setTimeout` is applied to every IPC call. A `get_status` call that hangs takes 120s to surface an error; the 120s timer is created even for trivial commands.
+- **Recommended fix**: Add a per-command timeout table (e.g., `get_status: 5s`, `download_model: 600s`, default: 30s).
+- **Files**: `voice_typer/client/src/main/index.ts` (lines 507-644), `src-tauri/src/main.rs` (lines 522-552)
+
+### CR-19 — `_validate_systemroot` logs at `error` but never aborts startup
+- **Category**: Security / Code Quality
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: `_validate_systemroot` detects path traversal, unusual characters, missing directory, and missing `notepad.exe`, but every branch ends in `return` (not `sys.exit`) after logging at `error` level.
+- **Recommended fix**: For the path-traversal and unusual-character branches, either `sys.exit(1)` (fail-closed) or unconditionally reset to `C:\Windows` and continue.
+- **Files**: `voice_typer/server/config.py` (lines 324-399)
+
+### CR-20 — Electron `app.on("window-all-closed")` is a no-op on non-macOS
+- **Category**: Cross-platform / UX
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: Closing the last window on Linux/Windows does nothing; the user must use tray Quit. On Wayland-without-SNI there's no tray icon, leaving the user with no UI affordance to quit.
+- **Recommended fix**: When `_tray_unavailable` is true (Wayland-without-SNI), change `window-all-closed` to call `app.quit()`.
+- **Files**: `voice_typer/client/src/main/index.ts` (lines 2164-2170), `voice_typer/server/tray.py` (lines 357-380)
+
+### CR-21 — `_atexit_cleanup` swallows all exceptions including `KeyboardInterrupt`
+- **Category**: Code Quality
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: `_atexit_cleanup` catches `Exception` with a `pass` body — no log, no diagnostic. If `_do_cleanup` raises, the user has no way to know why their history wasn't saved.
+- **Recommended fix**: Replace `pass` with `log.exception("[ATEXIT] _do_cleanup() raised — emergency cleanup incomplete")`.
+- **Files**: `voice_typer/server/app.py` (lines 1717-1756)
+
+### CR-22 — `dispatch` in main.rs holds `state.ws_tx.lock()` (std::sync::Mutex) across an await boundary indirectly
+- **Category**: Performance
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: The use of `std::sync::Mutex` for `ws_tx` while using `tokio::sync::Mutex` for `pending` is inconsistent. On a heavily contended UI, the std Mutex can block the tokio worker thread briefly.
+- **Recommended fix**: Either switch `ws_tx` to `tokio::sync::Mutex` for consistency, or wrap the `ws_tx` clone in a small `Arc`-based read lock.
+- **Files**: `src-tauri/src/main.rs` (lines 99-113, 517-520)
+
+### CR-23 — Generated capabilities cache contains stale `process:allow-restart` permission
+- **Category**: Documentation / Code Quality
+- **Severity**: Low
+- **Status**: Pending (stale build artifact — `cargo clean` recommended)
+- **Description**: The source `src-tauri/capabilities/migrate-runtime.json` does NOT include `process:allow-restart`. But the cached `target/debug/build/.../capabilities.json` (an older build artifact) DOES include it.
+- **Recommended fix**: Run `cargo clean` and rebuild. Add a CI step that asserts `target/` is clean.
+- **Files**: `src-tauri/capabilities/migrate-runtime.json`, `src-tauri/target/debug/build/`
+
+### CR-24 — Tauri `on_window_event` only handles `CloseRequested` on the `main` window
+- **Category**: Cross-platform
+- **Severity**: Low
+- **Status**: Pending (deferred)
+- **Description**: `on_window_event` only fires `shutdown_sidecar` for `WindowEvent::CloseRequested` on `window.label() == "main"`. The `bubble` window's close is ignored.
