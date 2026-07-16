@@ -45,6 +45,7 @@ from voice_typer.server._electron_build import (
     _build_electron,
     _electron_binary,
     _electron_log_files,
+    _log_sensitive_env_keys,
     _main_entry_built,
     _npm_command,
     _spawn_flags,
@@ -100,6 +101,15 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     -------
     The child PID on success, or None on failure.
     """
+    # NEW-PRIV-003: intentional — same-app restart needs the same env.
+    # The child here is the Voice Typer Electron frontend itself (not a
+    # less-trusted process). It needs API keys (e.g. OPENAI_API_KEY for
+    # cloud polish, HF_TOKEN for model downloads) and PATH to resolve
+    # native modules. Stripping the env would break the app's own
+    # functionality. The risk model would only change if we ever spawn a
+    # DIFFERENT, less-trusted binary here — at which point we'd need an
+    # explicit env allowlist. See docs/privacy/gdpr-export.md for the
+    # data-flow inventory.
     env = dict(os.environ)
     env["VT_PYTHON_PORT"] = str(port)
     env["VT_IPC_TOKEN"] = token
@@ -107,6 +117,10 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     # (which reads this env var) sees the same value we told Electron
     # to send.
     env["VOICE_TYPER_IPC_TOKEN"] = token
+    # NEW-PRIV-003: surface (without values) any sensitive env keys the
+    # child will inherit, so a future leak in a downstream log is
+    # auditable. Only KEY NAMES are logged — values are never printed.
+    _log_sensitive_env_keys(env, context="electron_launcher.launch_electron_frontend")
 
     spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
     spawn_kwargs.update(_electron_log_files())
@@ -119,9 +133,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
             log.warning("[LAUNCHER] Build failed; will try npm run dev")
             exe = None
         elif not _main_entry_built():
-            log.warning(
-                "[LAUNCHER] Build succeeded but out/main/index.js still missing"
-            )
+            log.warning("[LAUNCHER] Build succeeded but out/main/index.js still missing")
             exe = None
 
     if exe:
@@ -130,7 +142,8 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
             pid = getattr(child, "pid", None)
             log.info(
                 "[LAUNCHER] spawned electron . (pid=%s) on port=%d",
-                pid, port,
+                pid,
+                port,
             )
             return pid
         except Exception:
@@ -142,15 +155,15 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
         if cmd is None:
             # S-7: npm truly not resolvable — log and bail (no shell=True).
             log.error(
-                "[LAUNCHER] npm not found on PATH; cannot launch dev mode. "
-                "Install Node.js / npm or add it to PATH."
+                "[LAUNCHER] npm not found on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH."
             )
             return None
         child = subprocess.Popen(cmd, env=env, **spawn_kwargs)
         pid = getattr(child, "pid", None)
         log.info(
             "[LAUNCHER] spawned npm run dev (pid=%s) on port=%d",
-            pid, port,
+            pid,
+            port,
         )
         return pid
     except FileNotFoundError as exc:

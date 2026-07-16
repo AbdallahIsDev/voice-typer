@@ -302,6 +302,18 @@ class VoiceTyperApp:
             config=self.config,
         )
 
+        # RW-9 Phase 6: settings side-effects (autostart, notifications,
+        # microphone selection) extracted to SettingsController. The app
+        # keeps thin delegate methods (``_toggle_autostart``,
+        # ``_set_autostart``, ``_set_notifications``, ``_select_microphone``)
+        # so tray menu callbacks and tests calling ``app._select_microphone``
+        # keep working unchanged. ``_open_config_file`` stays on
+        # VoiceTyperApp because source-level structure tests
+        # (test_b4_config_editor_lock.py) pin its body via inspect.getsource.
+        from voice_typer.server.settings_controller import SettingsController
+
+        self.settings: SettingsController = SettingsController(self)
+
         # #2 Hotkey registration extracted to HotkeyDispatcher.
         # Owns the 3 hotkey backends (dictation / ESC / repaste) and the
         # register/restart logic. (ARCH-REFAC-003: the @property
@@ -1033,52 +1045,33 @@ class VoiceTyperApp:
         self.recording.cancel()
 
     def _toggle_autostart(self):
-        """Toggle autostart on/off from the tray menu. Delegates to _set_autostart (P2 dedup)."""
-        self._set_autostart(not is_autostart_enabled())
+        """Toggle autostart on/off from the tray menu. Delegates to SettingsController."""
+        self.settings.toggle_autostart()
 
     def _set_autostart(self, enabled: bool):
-        """Set autostart from the advanced settings window or tray toggle."""
-        try:
-            if enabled:
-                enable_autostart()
-            else:
-                disable_autostart()
-            self.config.autostart = enabled
-            if not self.config.save():
-                log.warning("[CONFIG] Failed to save autostart setting to disk")
-            self.tray.set_autostart_enabled(enabled)
-            log.info("[CONFIG] Autostart set to %s", enabled)
-        except Exception as e:
-            log.exception("[CONFIG] Failed to set autostart")
-            self.tray.notify(APP_NAME, f"Could not change autostart setting.\n{e}")
+        """Set autostart from the advanced settings window or tray toggle.
+
+        RW-9 Phase 6: body extracted to
+        :meth:`voice_typer.server.settings_controller.SettingsController.set_autostart`.
+        Behaviour preserved verbatim — only the class boundary moved.
+        """
+        self.settings.set_autostart(enabled)
 
     def _set_notifications(self, enabled: bool):
-        """Set notification behavior from the settings window."""
-        self.config.show_notifications = enabled
-        if not self.config.save():
-            log.warning("[CONFIG] Failed to save notifications setting to disk")
-        self.tray.set_notifications_enabled(enabled)
-        log.info("[CONFIG] Notifications set to %s", enabled)
+        """Set notification behavior from the settings window.
+
+        RW-9 Phase 6: body extracted to
+        :meth:`voice_typer.server.settings_controller.SettingsController.set_notifications`.
+        """
+        self.settings.set_notifications(enabled)
 
     def _select_microphone(self, mic_name: str | None):
-        """Handle microphone selection from tray menu."""
-        self.config.microphone = mic_name
-        if not self.config.save():
-            log.warning("[CONFIG] Failed to save microphone selection to disk")
-            self.tray.notify(
-                APP_NAME,
-                "Failed to save microphone selection. Check disk space or permissions.",
-            )
-        label = mic_name if mic_name else "System Default"
+        """Handle microphone selection from tray menu.
 
-        if self.recorder.recording:
-            log.info("[CONFIG] Microphone changed to %s; applying after active recording", label)
-            self.tray.notify(APP_NAME, f"Microphone next recording: {label}")
-            return
-
-        self.recorder = Recorder(self.config, audio_processor=self._audio_processor)  # re-create with new mic
-        log.info("[CONFIG] Microphone changed to: %s", label)
-        self.tray.notify(APP_NAME, f"Microphone: {label}")
+        RW-9 Phase 6: body extracted to
+        :meth:`voice_typer.server.settings_controller.SettingsController.select_microphone`.
+        """
+        self.settings.select_microphone(mic_name)
 
     def _open_config_file(self):
         """Open the config file in the user's default editor.
@@ -1331,16 +1324,30 @@ class VoiceTyperApp:
         except Exception as e:
             log.warning("[RESTART] failed to push relaunch_electron: %s", e)
 
-        # 2. NOW mark as shutting down, restore volume, and give Electron
-        #    time to process the relaunch event before we close the socket.
+        # 2. NOW mark as shutting down, restore volume, and wait (event-driven)
+        #    for Electron to process the relaunch event before we close the
+        #    socket.  PERF-005: replaced the fixed time.sleep(0.3) with a
+        #    bounded wait on the ``relaunch_ack`` event that Electron sets when
+        #    it receives ``relaunch_electron``.  This unblocks the (tray)
+        #    calling thread as soon as Electron acks, instead of always
+        #    blocking 300ms; if no ack arrives (e.g. Electron already gone),
+        #    we fall back to the original 300ms pause so behaviour is unchanged.
         self._shutting_down = True
         # RACE-020: also set the Event version so executor tasks can
         # check it (matches quit()'s shutdown signaling — important now
         # that restart_app() shares the same _do_cleanup() body).
         self._shutting_down_event.set()
         self._restore_volume(fade_ms=0)
-        log.info("[RESTART] Pausing 300ms for Electron to process relaunch_electron")
-        time.sleep(0.3)
+        _relaunch_ack_event = (
+            getattr(self._ipc_server, "_relaunch_ack_event", None) if self._ipc_server is not None else None
+        )
+        if _relaunch_ack_event is not None:
+            _relaunch_ack_event.clear()
+            log.info("[RESTART] Waiting for relaunch_ack from Electron (timeout 2.0s)")
+            _relaunch_ack_event.wait(timeout=2.0)
+        else:
+            log.info("[RESTART] No IPC server available; pausing 300ms for Electron")
+            time.sleep(0.3)
 
         # 3. RW-3: run the SAME audited cleanup as quit() — flushes
         #    history_db and _crash_recovery (so no pending writes are

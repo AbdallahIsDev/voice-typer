@@ -250,10 +250,7 @@ def _build_electron() -> bool:
         cmd = _npm_command("build")
         if cmd is None:
             # S-7: npm truly not resolvable — log and bail (no shell=True).
-            log.error(
-                "[ELECTRON_BUILD] npm not found on PATH; cannot build. "
-                "Install Node.js / npm or add it to PATH."
-            )
+            log.error("[ELECTRON_BUILD] npm not found on PATH; cannot build. Install Node.js / npm or add it to PATH.")
             return False
         result = subprocess.run(
             cmd,
@@ -276,3 +273,49 @@ def _build_electron() -> bool:
     except Exception as exc:
         log.warning("[ELECTRON_BUILD] npm run build raised: %s", exc)
         return False
+
+
+# NEW-PRIV-003: substring markers for "sensitive" env var names. When a
+# child process inherits the parent's env (intentional — same-app
+# restart), we log ONLY the key names matching one of these markers so
+# a future leak in a downstream log is auditable. Values are NEVER
+# printed. The list is intentionally conservative — it catches the
+# common SaaS API-key conventions (OPENAI_API_KEY, ANTHROPIC_API_KEY,
+# HF_TOKEN, GEMINI_API_KEY, AZURE_SPEECH_KEY, etc.) and OS-level
+# secrets (AWS_SECRET_ACCESS_KEY, *_PASSWORD) without flagging benign
+# vars (PATH, HOME, LANG, VT_PYTHON_PORT, etc.).
+_SENSITIVE_ENV_MARKERS = (
+    "_API_KEY",
+    "_SECRET",
+    "_TOKEN",
+    "_PASSWORD",
+    "_CREDENTIAL",
+    "AWS_SECRET_ACCESS_KEY",
+)
+
+
+def _redact_sensitive_env_keys(env: dict[str, str]) -> list[str]:
+    """Return the NAMES of env keys that look sensitive.
+
+    NEW-PRIV-003: helper used by the Electron / autostart launchers
+    right after ``env = dict(os.environ)`` to surface (without values)
+    which sensitive-looking env vars the child will inherit. The list
+    is intended for an audit log line — it is NOT a security control.
+    """
+    return sorted(key for key in env if any(marker in key.upper() for marker in _SENSITIVE_ENV_MARKERS))
+
+
+def _log_sensitive_env_keys(env: dict[str, str], *, context: str) -> None:
+    """Log (at INFO) the names of sensitive env keys present in ``env``.
+
+    NEW-PRIV-003: only the KEY NAMES are logged — values are never
+    printed. If no sensitive keys are present, nothing is logged
+    (avoids log noise on the common case).
+    """
+    sensitive = _redact_sensitive_env_keys(env)
+    if sensitive:
+        log.info(
+            "[PRIV-003] %s: child inherits sensitive env keys (names only, values redacted): %s",
+            context,
+            ", ".join(sensitive),
+        )

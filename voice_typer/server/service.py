@@ -157,17 +157,58 @@ class VoiceTyperService:
     # ── Config ──────────────────────────────────────────────────
 
     def get_config(self) -> dict:
-        """Return the sanitized config (API keys redacted)."""
+        """Return the sanitized config (API keys redacted).
+
+        RW-01: also includes a ``keyring_status`` field describing the
+        OS keychain backend state, so the renderer can show
+        "Stored securely in your OS keychain" indicators next to API
+        key inputs (or a warning when only the plaintext fallback is
+        available).
+        """
         from voice_typer.server.ipc_server import _sanitize_config_for_ipc
 
-        return _sanitize_config_for_ipc(self._app.config)
+        sanitized = _sanitize_config_for_ipc(self._app.config)
+        # RW-01: attach keyring status. Wrapped in try/except so a
+        # broken keyring library never breaks the get_config IPC path
+        # (which would lock the renderer out of all settings).
+        try:
+            from voice_typer.server import credential_store
+
+            sanitized["keyring_status"] = credential_store.get_keyring_status()
+        except Exception as exc:
+            log.debug("[SERVICE] keyring_status probe failed: %s", exc)
+            sanitized["keyring_status"] = {
+                "available": False,
+                "backend": None,
+                "fallback": True,
+                "reason": f"credential_store probe failed: {exc}",
+            }
+        return sanitized
 
     def get_defaults(self) -> dict:
-        """Return default config values (sanitized)."""
+        """Return default config values (sanitized).
+
+        RW-01: includes the same ``keyring_status`` field as
+        :meth:`get_config` so the renderer's "Reset to Defaults" flow
+        can show the same keychain indicators.
+        """
         from voice_typer.server.config import Config
         from voice_typer.server.ipc_server import _sanitize_config_for_ipc
 
-        return _sanitize_config_for_ipc(Config())
+        sanitized = _sanitize_config_for_ipc(Config())
+        try:
+            from voice_typer.server import credential_store
+
+            sanitized["keyring_status"] = credential_store.get_keyring_status()
+        except Exception as exc:
+            log.debug("[SERVICE] keyring_status probe failed (defaults): %s", exc)
+            sanitized["keyring_status"] = {
+                "available": False,
+                "backend": None,
+                "fallback": True,
+                "reason": f"credential_store probe failed: {exc}",
+            }
+        return sanitized
 
     def set_config(self, updates: dict) -> tuple[dict, list]:
         """Validate and apply config updates. Returns (validated, errors)."""
@@ -1159,6 +1200,17 @@ class VoiceTyperService:
         the next menu build picks up the new config values (model
         size, hotkey, etc.).
 
+        RW-01: API key fields (``openai_api_key`` / ``groq_api_key`` /
+        ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
+        are routed through ``credential_store.store_secret()`` BEFORE
+        ``setattr(app.config, ...)`` so the secret lands in the OS
+        keychain (with plaintext fallback). The in-memory Config
+        attribute is then set to the real value so cloud_engines /
+        llm_polish can use it. The subsequent ``app.config.save()``
+        writes only a ``keyring://<provider>`` reference token to
+        config.json (when keyring is available) — see
+        ``Config.save()`` for the on-disk format.
+
         Parameters
         ----------
         updates :
@@ -1168,6 +1220,32 @@ class VoiceTyperService:
         """
         app = self._app
         with app._config_mutation_lock:
+            # RW-01: pre-route api_key fields through credential_store.
+            # We do this BEFORE setattr so that even if save() is
+            # never called (e.g. apply_config_side_effects raises),
+            # the secret is already persisted to the keychain. The
+            # in-memory attribute is then set to the real value.
+            try:
+                from voice_typer.server import credential_store
+
+                for k, v in list(updates.items()):
+                    provider = credential_store.CONFIG_FIELD_TO_PROVIDER.get(k)
+                    if provider is None:
+                        continue
+                    # store_secret never raises — it falls back to
+                    # plaintext in config.json on keyring failure.
+                    credential_store.store_secret(provider, v)
+                    # The in-memory attribute carries the real value
+                    # (NOT the keyring:// reference) so cloud_engines /
+                    # llm_polish / dictation_pipeline can use it. The
+                    # subsequent save() will replace the on-disk value
+                    # with a reference token (when keyring is available).
+            except Exception as exc:
+                log.warning(
+                    "[SERVICE] RW-01: credential_store pre-route failed: %s — "
+                    "falling back to plain setattr (secret will be in config.json)",
+                    exc,
+                )
             for k, v in updates.items():
                 setattr(app.config, k, v)
             # Apply side effects inside the lock so Config mutations

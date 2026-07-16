@@ -65,6 +65,7 @@ from voice_typer.server._electron_build import (
     _build_electron,
     _electron_binary,
     _electron_log_files,
+    _log_sensitive_env_keys,
     _main_entry_built,
     _npm_command,
     _spawn_flags,
@@ -88,6 +89,7 @@ def _close_log_files(sk: dict) -> None:
             with contextlib.suppress(Exception):
                 fd.close()
 
+
 # Directory layout (mirrors ``_electron_build.CLIENT_DIR``):
 #   <root>/
 #     voice_typer/
@@ -99,6 +101,7 @@ def _close_log_files(sk: dict) -> None:
 
 IPC_HOST = "127.0.0.1"
 IPC_PORT = 9876
+
 
 # Where to write the PID file (under the app's data dir).
 # RW-7: delegates to voice_typer.server._paths so the path respects the
@@ -136,6 +139,7 @@ def _setup_logging() -> None:
     # canonical resolution chain, the fallback is no longer needed.
     log_dir = _config_dir()
     from voice_typer.server.log import setup_logging as _setup_logging_shared
+
     _setup_logging_shared(log_dir)
 
 
@@ -169,18 +173,27 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     sk = dict(cwd=str(CLIENT_DIR))
     sk.update(_electron_log_files())
     sk.update(_spawn_flags(hidden=hidden))
-    # NEW-PRIV-003: Electron needs the full env for native module loading,
-    # PATH resolution, and platform-specific init.  Unlike the Python IPC
-    # server restart path, Electron does NOT expose env vars via IPC, so
-    # the risk of key exfiltration is lower.  We keep the full env here.
+    # NEW-PRIV-003: intentional — same-app restart needs the same env.
+    # The child here is the Voice Typer Electron frontend itself (not a
+    # less-trusted process). It needs the full env for native module
+    # loading, PATH resolution, and platform-specific init. Unlike the
+    # Python IPC server restart path, Electron does NOT expose env vars
+    # via IPC, so the risk of key exfiltration is lower. Stripping the
+    # env would break the app's own functionality. The risk model would
+    # only change if we ever spawn a DIFFERENT, less-trusted binary here.
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"
+    # NEW-PRIV-003: surface (without values) any sensitive env keys the
+    # child will inherit, so a future leak in a downstream log is
+    # auditable. Only KEY NAMES are logged — values are never printed.
+    _log_sensitive_env_keys(env, context="autostart_launcher._spawn_electron")
     try:
         child = subprocess.Popen([exe, "."], env=env, **sk)
         log.info(
             "[AUTOSTART] spawned electron . (child pid=%s, hidden=%s)",
-            getattr(child, "pid", "?"), hidden,
+            getattr(child, "pid", "?"),
+            hidden,
         )
         # Close parent copies of log file handles — the child has
         # inherited them, so they remain open for the child's lifetime.
@@ -202,6 +215,7 @@ def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
     try:
         _config_dir().mkdir(parents=True, exist_ok=True)
         from voice_typer.server.config import _secure_atomic_write
+
         _secure_atomic_write(
             _pid_file(),
             f"launcher={launcher_pid}\nchild={child_pid or ''}\n",
@@ -276,8 +290,12 @@ def _focus_running_app() -> bool:
         # ``electron .`` runs the app pointed at by package.json "main",
         # i.e. ./out/main/index.js.  VT_FOCUS_ONLY is a marker env var the
         # duplicate reads to know it should not attempt any heavy init.
+        # NEW-PRIV-003: same-app restart — full env intentionally inherited
+        # (see _spawn_electron above for rationale). Only sensitive KEY
+        # NAMES are logged for audit; values are never printed.
         env = dict(os.environ)
         env["VT_FOCUS_ONLY"] = "1"
+        _log_sensitive_env_keys(env, context="autostart_launcher._focus_running_app")
         child = subprocess.Popen([exe, "."], env=env, **spawn_kwargs)
         log.info(
             "[AUTOSTART] spawned lean electron to focus running instance (pid=%s)",
@@ -300,9 +318,13 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     # RACE-009: redirect Electron stdout/stderr to log files.
     spawn_kwargs.update(_electron_log_files())
     spawn_kwargs.update(_spawn_flags(hidden=hidden))
+    # NEW-PRIV-003: same-app restart — full env intentionally inherited
+    # (see _spawn_electron above for rationale). Only sensitive KEY
+    # NAMES are logged for audit; values are never printed.
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"
+    _log_sensitive_env_keys(env, context="autostart_launcher._spawn_npm_run_dev")
 
     try:
         # NEW-CQ-033/NEW-SEC-009/S-7: prefer list form over shell=True.
@@ -310,20 +332,23 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
         if cmd is None:
             # S-7: npm truly not resolvable — log and bail (no shell=True).
             log.error(
-                "[AUTOSTART] npm not found on PATH; cannot launch dev mode. "
-                "Install Node.js / npm or add it to PATH."
+                "[AUTOSTART] npm not found on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH."
             )
             _close_log_files(spawn_kwargs)
             return None
         child = subprocess.Popen(
-            cmd, env=env, **spawn_kwargs,
+            cmd,
+            env=env,
+            **spawn_kwargs,
         )
         # Close parent copies of log file handles — the child has
         # inherited them, so they remain open for the child's lifetime.
         _close_log_files(spawn_kwargs)
         log.info(
             "[AUTOSTART] spawned 'npm run dev' in %s (child pid=%s, hidden=%s)",
-            CLIENT_DIR, getattr(child, "pid", "?"), hidden,
+            CLIENT_DIR,
+            getattr(child, "pid", "?"),
+            hidden,
         )
         return child
     except FileNotFoundError as exc:
@@ -386,7 +411,10 @@ def launch() -> int:
 
     log.info(
         "[AUTOSTART] launcher starting (pid=%d, force_dev=%s, hidden=%s, delay=%.1fs)",
-        os.getpid(), force_dev, hidden, delay_seconds,
+        os.getpid(),
+        force_dev,
+        hidden,
+        delay_seconds,
     )
 
     # STARTUP-2: sleep before doing anything so prewarm (which fires at
@@ -407,6 +435,7 @@ def launch() -> int:
     # Previously only checked port 9876, which is unreliable because the
     # actual IPC port may be different (auto-incremented if 9876 was busy).
     from voice_typer.server.app import _backend_pid_file, _is_pid_alive
+
     pid_file = _backend_pid_file()
     backend_running = False
     if pid_file.exists():
