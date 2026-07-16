@@ -471,7 +471,12 @@ class DictationPipeline:
         log.debug("[RESOURCE] Pre-flight health check complete")
 
     def _transcribe(self) -> str:
-        """Step 1: Get transcription via streaming finalize or direct."""
+        """Step 1: Get transcription via streaming finalize or direct.
+
+        Returns the transcript from the active streaming session (if one
+        is open) or the active ASR backend (Whisper / Parakeet / Qwen /
+        Cloud) via ``transcribe_with_fallback``.
+        """
         session = self._app.recording.get_streaming_session()
         if session is not None:
             log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", self._cycle_id)
@@ -945,6 +950,34 @@ class DictationPipeline:
                 if recovery_path:
                     notice += f"\nRecovery file: {recovery_path}"
                 self._app.tray.notify(APP_NAME, notice)
+                # NEW-UX-006: surface the paste failure as a renderer
+                # toast in ADDITION to the tray notification (keep both
+                # for redundancy — the tray icon tooltip is visible when
+                # the user is on another app; the toast is visible when
+                # the renderer has focus). The renderer subscribes to
+                # the ``paste_failed`` event via usePythonEvent and shows
+                # a sonner toast with an "Open recovery file" action
+                # button when ``recovery_path`` is present. Wrapped in
+                # try/except so a broken event bus never aborts the
+                # clipboard-failure recovery path (existing tray notify
+                # + crash-recovery write must still complete).
+                try:
+                    from voice_typer.server import event_bus
+
+                    event_bus.publish(
+                        {
+                            "type": "paste_failed",
+                            "data": {
+                                "message": notice,
+                                "recovery_path": recovery_path,
+                            },
+                        }
+                    )
+                except Exception:
+                    log.debug(
+                        "[PIPELINE] could not publish paste_failed event",
+                        exc_info=True,
+                    )
                 self._app._busy_event.set()
                 self._app._schedule_timer(
                     3.0,

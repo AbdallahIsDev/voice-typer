@@ -602,6 +602,13 @@ class IPCServer(
         self._last_heartbeat_at: float | None = None
         self._heartbeat_thread: threading.Thread | None = None
         self._heartbeat_stop_event = threading.Event()
+        # PERF-005: Electron sets this event when it receives the
+        # ``relaunch_electron`` request and is about to relaunch.  restart_app
+        # waits on it (bounded by a 2s timeout) instead of a fixed time.sleep,
+        # so the tray thread is unblocked as soon as Electron acks (or after
+        # the timeout).  Cleared before each wait so a stale ack from a prior
+        # restart can't satisfy a fresh one.
+        self._relaunch_ack_event = threading.Event()
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -628,15 +635,23 @@ class IPCServer(
         self._push_fn = self.push
         event_bus.subscribe(self._push_fn)
         self._hook_tray_set_state()
-        # Always start the stdin listener (legacy mode).  In TCP mode
-        # stdin is unused (inherited from Electron, connected to /dev/null
-        # or NUL).
-        self._stdin_thread = threading.Thread(
-            target=self._run,
-            name="ipc-server",
-            daemon=True,
-        )
-        self._stdin_thread.start()
+        # NEW-PRIV-0xx / d-review Finding 1: do NOT start the stdin
+        # listener in TCP/WS mode. A direct-terminal invocation
+        # (``python -m voice_typer.server.ipc_server --port N``) would
+        # otherwise accept unauthenticated JSON commands on stdin while
+        # the TCP socket enforces the VOICE_TYPER_IPC_TOKEN handshake.
+        # The stdin listener is only for the legacy stdin/stdout IPC mode
+        # (``_tcp_mode`` is False). In TCP mode stdin is unused (inherited
+        # from Electron, connected to /dev/null or NUL).
+        if not self._tcp_mode:
+            self._stdin_thread = threading.Thread(
+                target=self._run,
+                name="ipc-server",
+                daemon=True,
+            )
+            self._stdin_thread.start()
+        else:
+            self._stdin_thread = None
         # RW-10: start the Electron-alive heartbeat watchdog.  Daemon
         # thread so it doesn't block shutdown.  The thread refuses to
         # fire ``app.quit()`` until the first heartbeat lands, so a
@@ -689,12 +704,13 @@ class IPCServer(
                     stop_event=self._heartbeat_stop_event,
                     join_timeout=2.0,
                 )
-            registry.register(
-                name="ipc-server",
-                thread=self._stdin_thread,
-                stop_event=None,
-                join_timeout=0.5,
-            )
+            if self._stdin_thread is not None:
+                registry.register(
+                    name="ipc-server",
+                    thread=self._stdin_thread,
+                    stop_event=None,
+                    join_timeout=0.5,
+                )
         log.info("[IPC] server started; push hook registered")
 
     def stop(self) -> None:
@@ -1210,6 +1226,20 @@ class IPCServer(
         resp["type"] = "heartbeat_ack"
         return resp
 
+    def _handle_relaunch_ack(self, data, resp) -> None:
+        """PERF-005: Electron ack that it has received and is processing the
+        ``relaunch_electron`` request.
+
+        ``restart_app`` waits on ``self._relaunch_ack_event`` (bounded by a
+        2s timeout) instead of a fixed ``time.sleep(0.3)``, so the tray
+        thread is unblocked as soon as Electron acks — rather than always
+        blocking 300ms.  The handler returns ``None`` (no response body):
+        restart_app owns the socket teardown, and any response write races
+        the imminent shutdown, so there is nothing meaningful to return.
+        """
+        self._relaunch_ack_event.set()
+        return None
+
     # ── Tray state hook ─────────────────────────────────────────────────
 
     def _hook_tray_set_state(self) -> None:
@@ -1463,6 +1493,10 @@ class IPCServer(
         # are missed (120s timeout) so a crashed/force-killed Electron
         # doesn't strand the backend with the mic open + mutex held.
         "heartbeat": "_handle_heartbeat",
+        # PERF-005: Electron acks receipt/processing of ``relaunch_electron``
+        # so restart_app can drop its fixed 300ms sleep in favour of an
+        # event-driven wait (bounded by a 2s timeout).
+        "relaunch_ack": "_handle_relaunch_ack",
     }
 
     def _handle_unknown_command(self, cmd, data, resp) -> dict | None:
@@ -1902,6 +1936,12 @@ def main() -> None:
     from voice_typer.server.providers import build_ipc_server
 
     server = build_ipc_server(app)
+    # d-review Finding 1: in explicit TCP (--port) or Tauri WS (--ws) mode
+    # the backend is driven by Electron/Tauri over the network, not by
+    # legacy stdin/stdout IPC. Mark TCP mode BEFORE start() so the stdin
+    # listener (an unauthenticated command path) is not spawned.
+    if port is not None or ws_mode:
+        server._tcp_mode = True
     server.start()
     # ADR-0020 §2: --ws mode starts the WebSocket sidecar server instead
     # of the TCP server. The WS server binds 127.0.0.1:0, prints the
