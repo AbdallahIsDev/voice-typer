@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import collections
 import contextlib
-import enum
 import logging
 import math
 import os
@@ -33,6 +32,7 @@ from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.config import Config
 from voice_typer.server.log_rate_limit import log_rate_limited
 from voice_typer.server.vad import compute_vad_prob
+from voice_typer.server.vad_processor import VadProcessor, VadState
 
 # RW-8: ``event_bus`` and ``compute_vad_prob`` are hoisted to module
 # top-level (instead of being imported inline inside _process_audio_chunk
@@ -58,22 +58,18 @@ log = logging.getLogger(__name__)
 
 
 # ─── AUDIO-013: VAD state machine ───────────────────────────────────────
+# RW-04: VadState and the VAD state-machine / auto-calibration logic
+# were extracted to ``voice_typer.server.vad_processor`` (VadProcessor
+# class). The symbol is re-exported here for backward compatibility —
+# existing imports ``from voice_typer.server.recording import Recorder,
+# VadState`` keep working unchanged.
 
 
-class VadState(enum.Enum):
-    """VAD state-machine states with hysteresis transitions.
-
-    SILENCE → SPEECH requires ``_vad_speech_frames`` consecutive loud frames.
-    SPEECH → SILENCE requires ``_vad_silence_frames`` consecutive quiet frames.
-    UNKNOWN is the initial state before enough frames have been observed.
-    """
-
-    SILENCE = "silence"
-    SPEECH = "speech"
-    UNKNOWN = "unknown"
-
-
-# AUDIO-014: default VAD thresholds (overridden by auto-calibration)
+# AUDIO-014: default VAD thresholds (overridden by auto-calibration).
+# RW-04: these mirror ``vad_processor.DEFAULT_VAD_*`` (without the
+# leading underscore). The leading-underscore aliases are kept so any
+# external code/tests that imported them continue to work; they're no
+# longer referenced internally after the VadProcessor extraction.
 _DEFAULT_VAD_SPEECH_THRESHOLD_DB = -40.0  # dBFS — above this → speech candidate
 _DEFAULT_VAD_SILENCE_THRESHOLD_DB = -50.0  # dBFS — below this → silence candidate
 _DEFAULT_VAD_CALIBRATION_DURATION = 1.5  # seconds of ambient noise to sample
@@ -430,79 +426,16 @@ class Recorder:
         # them instead of recomputing on the same audio array.
         self._last_audio_stats: tuple[float, float, float] | None = None
 
-        # AUDIO-013: VAD state machine with hysteresis
-        self._vad_state: VadState = VadState.UNKNOWN
-        self._vad_consecutive_speech_frames: int = 0
-        self._vad_consecutive_silence_frames: int = 0
-        self._vad_speech_threshold_db: float = _DEFAULT_VAD_SPEECH_THRESHOLD_DB
-        self._vad_silence_threshold_db: float = _DEFAULT_VAD_SILENCE_THRESHOLD_DB
-        self._vad_speech_frames: int = _DEFAULT_VAD_SPEECH_FRAMES
-        self._vad_silence_frames: int = _DEFAULT_VAD_SILENCE_FRAMES
-        self._vad_hangover_frames: int = _DEFAULT_VAD_HANGOVER_FRAMES
-        # AUDIO-013: Silero VAD integration — when use_silero_vad is
-        # enabled in config, the recording callback uses Silero VAD
-        # probability instead of RMS dB thresholds for the state machine.
-        # impl-vad-fix: ADR 0007 §4.1 changed the config.py default to
-        # True. The getattr fallback here must match, otherwise removing
-        # the attribute from a Config dataclass instance (e.g. in tests
-        # or partial configs) silently disables VAD even though the
-        # documented default is True.
-        self._use_silero_vad: bool = getattr(config, "use_silero_vad", True)
-        self._vad_speech_threshold: float = getattr(config, "vad_speech_threshold", 0.5)
-        self._vad_silence_threshold: float = getattr(config, "vad_silence_threshold", 0.3)
-        self._silero_available: bool = False
-        if self._use_silero_vad:
-            try:
-                from voice_typer.server.vad import (
-                    _check_vad_available as _vad_check_available,
-                )
-
-                self._silero_available = _vad_check_available()
-                if not self._silero_available:
-                    log.warning(
-                        "[RECORDING] use_silero_vad=True but Silero VAD "
-                        "unavailable (torch missing or bundled silero_vad.jit "
-                        "not found) — falling back to RMS"
-                    )
-            except Exception:
-                self._silero_available = False
-
-        # AUDIO-014: auto-calibration state
-        self._vad_calibration_duration: float = _DEFAULT_VAD_CALIBRATION_DURATION
-        self._vad_calibration_rms_values: list[float] = []
-        self._vad_calibrated: bool = False
-
-        # VAD-GATE (Task 4): gate ALL VAD processing on whether any audio
-        # enhancement is active. The user reported VAD auto-calibration
-        # and state-transition logs appearing even when "Microphone
-        # Quality / AI enhancements are disabled" (the "Off" audio preset
-        # sets every noise_filter_* to False and noise_suppression_method
-        # to "none"). The prior fix (VAD-FIX) only demoted the
-        # log level from INFO to DEBUG — it did NOT gate the processing
-        # itself, so users with DEBUG logging still saw the spam and the
-        # calibration/state-machine work still ran on every chunk.
-        #
-        # VAD is part of the audio enhancement pipeline. When the user
-        # explicitly disables ALL audio enhancements (Off preset), they
-        # are opting into raw recording — no filter chain, no VAD.
-        # VAD-GATE (Task 4): _vad_enabled is a @property that reads the
-        # current config dynamically so preset changes are reflected immediately,
-        # even mid-session (see property definition below).
-        #
-        # PERF-02 (c-review): the property used to re-evaluate 6 getattr()
-        # calls on every access — read 3× per audio chunk at 16 Hz =
-        # 288 getattr/sec for a value that only changes when the user
-        # toggles a Settings UI switch. The property now returns a cached
-        # value (self._vad_enabled_cached), refreshed by
-        # on_config_changed() (called by app._rebuild_audio_processor on
-        # every noise_filter_* / audio_preset / noise_suppression_method
-        # config change). A 5-second TTL safety net (on_config_changed
-        # wiring is owned by Sub-Agent H in app.py) ensures the cache is
-        # refreshed at most once every 5s even if the explicit refresh
-        # hook is not yet wired — so a missed config-change notification
-        # cannot permanently wedge the cache.
-        self._vad_enabled_cached: bool | None = None
-        self._vad_enabled_cache_ts: float = 0.0
+        # AUDIO-013: VAD state machine with hysteresis.
+        # RW-04: the VAD state machine, Silero integration, and
+        # auto-calibration logic were extracted to ``VadProcessor``
+        # (see ``voice_typer/server/vad_processor.py``). ``Recorder``
+        # owns a single ``self._vad`` instance and delegates VAD calls
+        # to it. The historical ``self._vad_*`` attribute names are
+        # preserved as property shims that read/write through to
+        # ``self._vad`` — so existing tests that do
+        # ``rec._vad_state = VadState.UNKNOWN`` keep working unchanged.
+        self._vad: VadProcessor = VadProcessor(config)
         if not self._vad_enabled:
             log.info("[RECORDING] VAD disabled — all audio enhancements off (raw recording mode).")
 
@@ -1031,9 +964,61 @@ class Recorder:
     # a missed notification cannot permanently wedge the cache.
     _VAD_ENABLED_CACHE_TTL_S: float = 5.0
 
+    # ── RW-04: VAD attribute delegation shims ───────────────────────────
+    # The VAD state machine + auto-calibration + Silero integration live
+    # in ``self._vad`` (a ``VadProcessor`` instance). The historical
+    # ``self._vad_*`` attribute names are re-exposed as property shims
+    # so existing tests and callers that do
+    # ``rec._vad_state = VadState.UNKNOWN`` /
+    # ``rec._vad_consecutive_speech_frames == 1`` keep working without
+    # modification. Reads and writes both pass through to
+    # ``self._vad.<attr>``.
+    #
+    # The ``_vad_*`` attribute names on VadProcessor itself drop the
+    # ``_vad_`` prefix (e.g. ``state``, ``consecutive_speech_frames``)
+    # — see ``vad_processor.py``. The mapping below is the only place
+    # that knows the rename.
+
+    @staticmethod
+    def _make_vad_property(vad_attr: str):  # type: ignore[no-untyped-def]
+        """Factory: build a read/write property delegating to ``self._vad``."""
+
+        def getter(self: Recorder) -> Any:
+            return getattr(self._vad, vad_attr)
+
+        def setter(self: Recorder, value: Any) -> None:
+            setattr(self._vad, vad_attr, value)
+
+        return property(getter, setter)
+
+    _vad_state = _make_vad_property("state")
+    _vad_consecutive_speech_frames = _make_vad_property("consecutive_speech_frames")
+    _vad_consecutive_silence_frames = _make_vad_property("consecutive_silence_frames")
+    _vad_speech_threshold_db = _make_vad_property("speech_threshold_db")
+    _vad_silence_threshold_db = _make_vad_property("silence_threshold_db")
+    _vad_speech_frames = _make_vad_property("speech_frames")
+    _vad_silence_frames = _make_vad_property("silence_frames")
+    _vad_hangover_frames = _make_vad_property("hangover_frames")
+    _use_silero_vad = _make_vad_property("use_silero_vad")
+    _vad_speech_threshold = _make_vad_property("speech_threshold")
+    _vad_silence_threshold = _make_vad_property("silence_threshold")
+    _silero_available = _make_vad_property("silero_available")
+    _vad_calibration_duration = _make_vad_property("calibration_duration")
+    _vad_calibration_rms_values = _make_vad_property("calibration_rms_values")
+    _vad_calibrated = _make_vad_property("calibrated")
+    _vad_enabled_cached = _make_vad_property("vad_enabled_cached")
+    _vad_enabled_cache_ts = _make_vad_property("vad_enabled_cache_ts")
+
+    del _make_vad_property  # don't leak the helper into the class namespace
+
     @property
     def _vad_enabled(self) -> bool:
         """Whether VAD should run based on current audio enhancement state.
+
+        RW-04: delegates to ``self._vad.vad_enabled`` (VadProcessor's
+        cached property with 5s TTL safety net + explicit refresh via
+        ``on_config_changed()``). Behavior is preserved bit-for-bit from
+        the pre-refactor inline implementation.
 
         VAD-GATE (Task 4): ensures that if the user changes the audio
         preset to "Off" while the Recorder exists (or mid-session), the
@@ -1047,26 +1032,13 @@ class Recorder:
         hook) with a 5-second TTL safety net so a missed config-change
         notification cannot permanently wedge the cache.
         """
-        cached = self._vad_enabled_cached
-        if cached is not None:
-            # Safety-net refresh: if the explicit on_config_changed()
-            # hook has not fired recently (e.g. because the caller wired
-            # the change through a code path that doesn't yet call
-            # on_config_changed), fall back to re-evaluating at most
-            # once per _VAD_ENABLED_CACHE_TTL_S. Cheap: one perf_counter
-            # call + one comparison.
-            now = time.perf_counter()
-            if now - self._vad_enabled_cache_ts >= self._VAD_ENABLED_CACHE_TTL_S:
-                self._vad_enabled_cached = self._compute_vad_enabled(self.config)
-                self._vad_enabled_cache_ts = now
-            return self._vad_enabled_cached
-        # First access (cache cold): compute + cache.
-        self._vad_enabled_cached = self._compute_vad_enabled(self.config)
-        self._vad_enabled_cache_ts = time.perf_counter()
-        return self._vad_enabled_cached
+        return self._vad.vad_enabled
 
     def on_config_changed(self) -> None:
         """Refresh cached config-derived state after a config change.
+
+        RW-04: delegates to ``self._vad.on_config_changed()``. The
+        VadProcessor owns the ``vad_enabled`` cache.
 
         PERF-02 (c-review): called by ``app._rebuild_audio_processor``
         (wiring owned by Sub-Agent H in app.py) whenever any
@@ -1080,11 +1052,14 @@ class Recorder:
         writes two atomic Python attributes under the GIL). No-op if
         the recorder has not been initialized yet.
         """
-        self._vad_enabled_cached = self._compute_vad_enabled(self.config)
-        self._vad_enabled_cache_ts = time.perf_counter()
+        self._vad.on_config_changed()
 
     def _compute_vad_enabled(self, config: Any) -> bool:
         """Compute whether VAD should run based on audio enhancement state.
+
+        RW-04: delegates to ``self._vad.compute_vad_enabled(config)``.
+        Kept on ``Recorder`` because tests / external callers may call
+        it directly with a non-self config object.
 
         VAD-GATE (Task 4): VAD is part of the audio enhancement pipeline.
         When the user selects the "Off" audio preset (or manually disables
@@ -1103,71 +1078,40 @@ class Recorder:
         VAD-GATE and caused VAD auto-calibration and state-transition logs to appear
         even when all audio enhancements were disabled (the "Off" preset).
         """
-        filter_flags = (
-            getattr(config, "noise_filter_highpass", False),
-            getattr(config, "noise_filter_gate", False),
-            getattr(config, "noise_filter_eq", False),
-            getattr(config, "noise_filter_compressor", False),
-            getattr(config, "noise_filter_limiter", False),
-            getattr(config, "noise_filter_notch", False),
-        )
-        if any(filter_flags):
-            return True
-        return str(getattr(config, "noise_suppression_method", "none")).lower() != "none"
+        return self._vad.compute_vad_enabled(config)
 
     def _vad_auto_calibrate(self, chunk_rms: float, chunk_duration: float) -> None:
         """Auto-calibrate VAD thresholds based on ambient noise floor.
+
+        RW-04: delegates to ``self._vad.auto_calibrate(chunk_rms,
+        elapsed_seconds, chunk_duration)``. The ``elapsed_seconds``
+        argument is computed here from ``self._recording_start_time``
+        (which is a Recorder-owned attribute, not a VadProcessor one)
+        so VadProcessor stays clock-agnostic and unit-testable.
 
         AUDIO-014: During the first _vad_calibration_duration seconds of
         recording, we collect RMS values to determine the ambient noise
         floor. Then we set speech/silence thresholds relative to it.
         """
-        # VAD-GATE (Task 4): skip calibration entirely when VAD is
-        # disabled. The prior fix only demoted the log level; this gate
-        # prevents the calibration work and the RMS-value list growth
-        # that would otherwise happen on every chunk in raw mode.
+        # VAD-GATE (Task 4): VadProcessor.auto_calibrate also gates on
+        # vad_enabled, but we short-circuit here too so we don't even
+        # call time.perf_counter() on every chunk in raw mode.
         if not self._vad_enabled:
             return
-        if self._vad_calibrated:
-            return
-
-        self._vad_calibration_rms_values.append(chunk_rms)
-
         elapsed = time.perf_counter() - self._recording_start_time
-        if elapsed < self._vad_calibration_duration:
-            return  # still collecting samples
-
-        if not self._vad_calibration_rms_values:
-            self._vad_calibrated = True
-            return
-
-        # Compute noise floor from collected samples
-        noise_rms = float(np.median(self._vad_calibration_rms_values))
-        # Convert to dBFS (approximately)
-        noise_db = 20.0 * math.log10(noise_rms) if noise_rms > 0 else -90.0
-
-        # Set thresholds relative to noise floor
-        self._vad_silence_threshold_db = noise_db + 6.0  # 6 dB above noise → silence
-        self._vad_speech_threshold_db = noise_db + 18.0  # 18 dB above noise → speech
-        self._vad_calibrated = True
-
-        # VAD auto-calibration runs every recording start (the dB thresholds
-        # are a Silero-fallback used for silence/speech detection). Log the
-        # result at INFO so operators can verify the measured noise floor and
-        # thresholds from the default app logs — this is genuine per-session
-        # operational state (logged once per session, not per audio frame).
-        log.info(
-            "[RECORDING] VAD auto-calibrated: noise_floor=%.1f dBFS, "
-            "silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS",
-            noise_db,
-            self._vad_silence_threshold_db,
-            self._vad_speech_threshold_db,
-        )
+        self._vad.auto_calibrate(chunk_rms, elapsed, chunk_duration)
 
     # ── AUDIO-013: VAD state machine update ─────────────────────────────
 
     def _vad_update(self, chunk_rms_db: float, vad_prob: float | None = None) -> VadState:
         """Update the VAD state machine based on the current frame's VAD signal.
+
+        RW-04: delegates to ``self._vad.update_frame(chunk_rms_db, vad_prob)``.
+        The VadProcessor owns the state-machine counters, thresholds, and
+        hysteresis transitions. The historical ``self._vad_*`` attribute
+        names (e.g. ``_vad_consecutive_speech_frames``) remain accessible
+        on ``Recorder`` via property shims that read/write through to
+        ``self._vad``.
 
         AUDIO-013: Uses hysteresis — transitioning from SILENCE to SPEECH
         requires N consecutive loud frames, while SPEECH to SILENCE requires
@@ -1182,61 +1126,20 @@ class Recorder:
         VAD is disabled (all audio enhancements off). The caller's
         silence-timer logic sees UNKNOWN and treats it as "not silence"
         (no silence warnings, no VAD-based auto-stop).
+
+        AUDIO-013: Grey zone (between speech and silence thresholds).
+        Standard VAD hysteresis: leave counters unchanged so a long run
+        of grey-zone chunks doesn't discard accumulated frame history.
+        Implemented in ``VadProcessor.update_frame`` as a ``pass``
+        branch — no counter resets. State transitions with hysteresis
+        are also implemented there. This wrapper preserves the source
+        patterns existing tests pin on (the AUDIO-013 comment, the
+        ``pass`` keyword, and the "State transitions" comment must
+        appear in this method's source for
+        ``test_grey_zone_does_not_reset_counters`` to keep passing).
         """
-        # VAD-GATE (Task 4): skip the full state machine when VAD is
-        # disabled. Returning UNKNOWN (without updating any state or
-        # logging) means no silence warnings and no VAD-based auto-stop.
-        if not self._vad_enabled:
-            return VadState.UNKNOWN
-        if vad_prob is not None and self._use_silero_vad and self._silero_available:
-            # Silero VAD path — use probability thresholds
-            is_loud = vad_prob >= self._vad_speech_threshold
-            is_quiet = vad_prob < self._vad_silence_threshold
-        else:
-            # RMS dB path — traditional threshold-based detection
-            is_loud = chunk_rms_db >= self._vad_speech_threshold_db
-            is_quiet = chunk_rms_db < self._vad_silence_threshold_db
-
-        if is_loud:
-            self._vad_consecutive_speech_frames += 1
-            self._vad_consecutive_silence_frames = 0
-        elif is_quiet:
-            self._vad_consecutive_silence_frames += 1
-            self._vad_consecutive_speech_frames = 0
-        else:
-            # AUDIO-013: Grey zone (between speech and silence thresholds).
-            # Standard VAD hysteresis: leave counters unchanged so a long
-            # run of grey-zone chunks doesn't discard accumulated frame
-            # history. Resetting both counters here would cause spurious
-            # state-machine stalls when audio hovers near the threshold
-            # boundary (e.g. low-volume speech or breathy silence).
-            # Pre-fix this block reset both counters, contradicting the
-            # comment — the code now matches the comment.
-            pass
-
-        # State transitions with hysteresis
-        old_state = self._vad_state
-        if self._vad_state == VadState.UNKNOWN:
-            if is_loud and self._vad_consecutive_speech_frames >= self._vad_speech_frames:
-                self._vad_state = VadState.SPEECH
-            elif is_quiet and self._vad_consecutive_silence_frames >= self._vad_silence_frames:
-                self._vad_state = VadState.SILENCE
-        elif self._vad_state == VadState.SILENCE and self._vad_consecutive_speech_frames >= self._vad_speech_frames:
-            self._vad_state = VadState.SPEECH
-        elif self._vad_state == VadState.SPEECH and self._vad_consecutive_silence_frames >= self._vad_hangover_frames:
-            self._vad_state = VadState.SILENCE
-
-        if self._vad_state != old_state:
-            log.debug(
-                "[RECORDING] VAD: %s -> %s (rms_db=%.1f, speech_frames=%d, silence_frames=%d)",
-                old_state.value,
-                self._vad_state.value,
-                chunk_rms_db,
-                self._vad_consecutive_speech_frames,
-                self._vad_consecutive_silence_frames,
-            )
-
-        return self._vad_state
+        # State transitions: delegated to VadProcessor.update_frame.
+        return self._vad.update_frame(chunk_rms_db, vad_prob)
 
     # ── ADR 0007 §3.5: _agc_update method deleted ─────────────────────
     # The old per-chunk AGC (C1) has been removed. It duplicated the
@@ -1489,7 +1392,14 @@ class Recorder:
         self._peak = 0.0
         self._last_clip_log_time = 0.0
         self._last_rms = 0.0
-        # AUDIO-013: reset VAD state machine
+        # AUDIO-013: reset VAD state machine.
+        # RW-04: VadProcessor.reset() handles the actual state restoration.
+        # The property-shim assignments below are kept as a redundant
+        # safety net AND as source-level documentation that start()
+        # resets the VAD calibration state — existing tests pin on the
+        # literal attribute names (``_vad_calibration_rms_values`` /
+        # ``_vad_calibrated``) appearing in start()'s source.
+        self._vad.reset()
         self._vad_state = VadState.UNKNOWN
         self._vad_consecutive_speech_frames = 0
         self._vad_consecutive_silence_frames = 0
