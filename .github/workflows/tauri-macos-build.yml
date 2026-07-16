@@ -1,0 +1,290 @@
+name: Tauri macOS Build (Phase 0-M)
+
+# ADR-0020 Phase 0-M: macOS x86_64 + aarch64-apple-darwin Tauri build.
+# Builds BOTH arches of the Nuitka sidecar + prewarm + native key-listener,
+# then calls `cargo tauri build --target universal-apple-darwin` to produce
+# a universal .app + .dmg.
+#
+# Marked `if: false` initially — this workflow is a STUB that must be
+# validated on a real macOS host (see docs/migration/macos-validation-runbook.md)
+# before being enabled in CI. Phase 0-M is NOT yet started.
+#
+# To enable: change `if: false` to `if: true` (or remove the line) once the
+# Phase 0-M validation gate has passed manually on a developer Mac.
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: "Rust target triple (empty = host triple)"
+        required: false
+        default: ""
+        type: string
+      sign:
+        description: "Code-sign + notarize the bundle (requires secrets)"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*-macos"
+    branches:
+      - main
+    paths:
+      - "src-tauri/**"
+      - "voice_typer/server/**"
+      - "voice_typer/client/**"
+      - "scripts/build/build_*macos*.sh"
+      - "scripts/build/compile_native.sh"
+      - ".github/workflows/tauri-macos-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src-tauri/**"
+      - "voice_typer/server/**"
+      - "voice_typer/client/**"
+      - "scripts/build/build_*macos*.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: tauri-macos-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # ─── Job 1: Apple Silicon (aarch64-apple-darwin) ────────────────────────────
+  # Runs natively on a macos-14 runner (Apple Silicon).
+  build-aarch64:
+    if: false  # Phase 0-M NOT YET STARTED — enable after manual validation
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust + targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Xcode command-line tools
+        run: |
+          xcode-select --install || true
+          swiftc --version
+
+      - name: Install Rosetta 2 (for cross-arch x86_64 build)
+        run: softwareupdate --install-rosetta --agree-to-license || true
+
+      - name: Install Python deps
+        run: |
+          uv venv
+          uv pip install -e ".[dev,test]"
+          uv pip install nuitka zstandard
+
+      - name: Build sidecar (aarch64)
+        run: |
+          scripts/build/build_sidecar_macos.sh aarch64
+          file src-tauri/bin/python-sidecar-aarch64-apple-darwin
+
+      - name: Build prewarm (aarch64)
+        run: |
+          scripts/build/build_prewarm_macos.sh aarch64
+          file src-tauri/resources/prewarm-aarch64-apple-darwin
+
+      - name: Build native listener (aarch64)
+        run: |
+          scripts/build/build_native_listener_macos.sh
+          file src-tauri/resources/native/macos-key-listener
+
+      - name: Upload aarch64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-aarch64-binaries
+          path: |
+            src-tauri/bin/python-sidecar-aarch64-apple-darwin
+            src-tauri/resources/prewarm-aarch64-apple-darwin
+            src-tauri/resources/native/macos-key-listener
+          if-no-files-found: error
+          retention-days: 14
+
+  # ─── Job 2: Intel (x86_64-apple-darwin) ─────────────────────────────────────
+  # Built on the SAME macos-14 runner via Rosetta 2 (Apple Silicon host
+  # cross-building Intel). This is the only way to get an Intel macOS binary
+  # from GitHub Actions today (macos-13 Intel runners are being phased out).
+  #
+  # Alternative: run this on a separate macos-13 runner if available.
+  build-x86_64:
+    if: false  # Phase 0-M NOT YET STARTED — enable after manual validation
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust + targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Xcode command-line tools + Rosetta 2
+        run: |
+          xcode-select --install || true
+          softwareupdate --install-rosetta --agree-to-license || true
+          swiftc --version
+
+      - name: Install Python deps
+        run: |
+          uv venv
+          uv pip install -e ".[dev,test]"
+          uv pip install nuitka zstandard
+
+      - name: Build sidecar (x86_64 via Rosetta 2)
+        run: |
+          scripts/build/build_sidecar_macos.sh x86_64
+          file src-tauri/bin/python-sidecar-x86_64-apple-darwin
+
+      - name: Build prewarm (x86_64 via Rosetta 2)
+        run: |
+          scripts/build/build_prewarm_macos.sh x86_64
+          file src-tauri/resources/prewarm-x86_64-apple-darwin
+
+      - name: Upload x86_64 artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-x86_64-binaries
+          path: |
+            src-tauri/bin/python-sidecar-x86_64-apple-darwin
+            src-tauri/resources/prewarm-x86_64-apple-darwin
+          if-no-files-found: error
+          retention-days: 14
+
+  # ─── Job 3: Universal .app + .dmg via cargo tauri build ─────────────────────
+  # Depends on both arch jobs having produced their binaries.
+  build-tauri-universal:
+    if: false  # Phase 0-M NOT YET STARTED — enable after manual validation
+    needs: [build-aarch64, build-x86_64]
+    runs-on: macos-14
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust + universal targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Node deps + build renderer
+        run: |
+          cd voice_typer/client
+          npm ci
+          npm run build:renderer
+          cd ../..
+
+      - name: Download aarch64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-aarch64-binaries
+          path: .
+
+      - name: Download x86_64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-x86_64-binaries
+          path: .
+
+      - name: Place artifacts in src-tauri/
+        run: |
+          mkdir -p src-tauri/bin src-tauri/resources/native
+          mv python-sidecar-aarch64-apple-darwin src-tauri/bin/
+          mv python-sidecar-x86_64-apple-darwin src-tauri/bin/
+          mv prewarm-aarch64-apple-darwin src-tauri/resources/
+          mv prewarm-x86_64-apple-darwin src-tauri/resources/
+          # The macos-key-listener from build-aarch64 is single-arch; for a
+          # universal build, re-build it natively here (the runner is arm64).
+          scripts/build/build_native_listener_macos.sh
+          ls -la src-tauri/bin src-tauri/resources src-tauri/resources/native
+
+      - name: Build Tauri universal .app + .dmg
+        env:
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cd src-tauri
+          cargo install tauri-cli --version "^2.0"
+          cargo tauri build --target universal-apple-darwin
+          cd ..
+
+      - name: Notarize + staple (if secrets present)
+        if: ${{ env.MAC_SIGNING_IDENTITY != '' }}
+        env:
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
+          DMG_PATH="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
+          # Notarize .app
+          ditto -c -k --keepParent "$APP_PATH" /tmp/VoiceTyper.zip
+          xcrun notarytool submit /tmp/VoiceTyper.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$APP_PATH"
+          xcrun stapler validate "$APP_PATH"
+          # Sign + notarize + staple .dmg
+          codesign --force --sign "$MAC_SIGNING_IDENTITY" "$DMG_PATH"
+          xcrun notarytool submit "$DMG_PATH" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" --wait
+          xcrun stapler staple "$DMG_PATH"
+          xcrun stapler validate "$DMG_PATH"
+
+      - name: Upload .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-dmg
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
+          if-no-files-found: warn
+          retention-days: 30

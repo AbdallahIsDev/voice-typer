@@ -1,0 +1,165 @@
+# =============================================================================
+# Voice Typer — Tauri build (top-level orchestrator workflow)
+#
+# ADR-0020 Phases 1-5: this is the CROSS-CUTTING top-level workflow that
+# fans out to the three per-platform Tauri build workflows owned by
+# sub-agents #5 (Windows), #6 (macOS), #7 (Linux). Each per-platform
+# workflow is responsible for: Nuitka sidecar build, prewarm build,
+# native hotkey compile, `cargo tauri build`, code signing, and artifact
+# upload. This workflow just calls them via `workflow_call` and aggregates
+# the artifacts.
+#
+# Per ADR-0020 §15: NO auto-update. This workflow is triggered MANUALLY
+# only (`workflow_dispatch`) — it is NOT triggered on push or tag, and it
+# does NOT emit a `latest.json` updater manifest. Releases are
+# manual-download only, matching today's Electron release model. The
+# per-platform workflows themselves carry `if: false` guards until a
+# platform's Phase 0 spike passes; this orchestrator respects those
+# guards (calling a workflow that is disabled is a no-op).
+#
+# Reusable per-platform workflows (must exist in .github/workflows/):
+#   - tauri-windows-build.yml  (owned by sub-agent #5)
+#   - tauri-macos-build.yml    (owned by sub-agent #6)
+#   - tauri-linux-build.yml    (owned by sub-agent #7)
+#
+# Each per-platform workflow MUST:
+#   - accept `workflow_call` trigger
+#   - accept input `target` (string, optional — defaults to host triple)
+#   - accept input `sign`   (boolean, optional — default false)
+#   - upload its installer(s) as a workflow artifact named
+#     `tauri-<platform>-installer` for aggregation below
+# =============================================================================
+name: Tauri Build (all platforms)
+
+on:
+  workflow_dispatch:
+    inputs:
+      # Optional: restrict to a single platform. Defaults to all three.
+      platform:
+        description: "Platform to build (windows | macos | linux | all)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+          - linux
+      # Optional: Rust target triple passed through to the per-platform
+      # workflows. Leave empty for host-triple build; set to e.g.
+      # `aarch64-pc-windows-msvc` for Windows-on-ARM, etc.
+      target:
+        description: "Rust target triple (empty = host triple)"
+        required: false
+        default: ""
+        type: string
+      # Whether to code-sign + notarize. Requires the platform's signing
+      # secrets to be present in the repo. See docs/migration/signing-guide.md.
+      sign:
+        description: "Code-sign + notarize the bundle (requires secrets)"
+        required: false
+        default: false
+        type: boolean
+
+# A single release build should never be cancelled mid-flight — but two
+# manual dispatches for the same platform SHOULD cancel the older one so
+# we don't waste macOS-notarization minutes (the slowest job, ~10 min/arch).
+concurrency:
+  group: tauri-build-${{ github.event.inputs.platform || 'all' }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read   # only the per-platform workflows (on tag dispatch) upload to releases
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Build matrix: dispatch to per-platform workflows.
+  # The `if:` on each per-platform call respects both the user's
+  # `platform` input AND the per-platform workflow's own `if: false`
+  # Phase-0-gate guard (so a not-yet-enabled platform is skipped cleanly).
+  # ──────────────────────────────────────────────────────────────────────────
+
+  build-windows:
+    name: Windows (call tauri-windows-build)
+    if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows'
+    uses: ./.github/workflows/tauri-windows-build.yml
+    with:
+      target: ${{ github.event.inputs.target }}
+      sign: ${{ fromJSON(github.event.inputs.sign) }}
+    # Per-platform workflow must NOT be triggered on push (per ADR-0020 §15).
+    # If the per-platform workflow file is missing or has `if: false` at the
+    # top level, this call is a no-op (GitHub Actions will skip it).
+
+  build-macos:
+    name: macOS (call tauri-macos-build)
+    if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos'
+    uses: ./.github/workflows/tauri-macos-build.yml
+    with:
+      target: ${{ github.event.inputs.target }}
+      sign: ${{ fromJSON(github.event.inputs.sign) }}
+
+  build-linux:
+    name: Linux (call tauri-linux-build)
+    if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux'
+    uses: ./.github/workflows/tauri-linux-build.yml
+    with:
+      target: ${{ github.event.inputs.target }}
+      sign: ${{ fromJSON(github.event.inputs.sign) }}
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Aggregate: download every platform's installer artifact into a single
+  # `tauri-all-installers` artifact for easy manual download. This job
+  # runs even if one platform fails (so partial releases can be inspected).
+  # ──────────────────────────────────────────────────────────────────────────
+
+  aggregate:
+    name: Aggregate installers
+    needs: [build-windows, build-macos, build-linux]
+    if: always()
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Download Windows installer
+        if: needs.build-windows.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: tauri-windows-installer
+          path: aggregated/windows
+
+      - name: Download macOS installer
+        if: needs.build-macos.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: tauri-macos-installer
+          path: aggregated/macos
+
+      - name: Download Linux installer
+        if: needs.build-linux.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: tauri-linux-installer
+          path: aggregated/linux
+
+      - name: List aggregated installers
+        run: |
+          echo "::group::Aggregated Tauri installers"
+          find aggregated -type f -print0 | sort -z | xargs -0 -I{} sh -c 'printf "  %8s  %s\n" "$(du -h "{}" | cut -f1)" "{}"'
+          echo "::endgroup::"
+
+          # Sanity: warn if no installers were found at all (every platform failed).
+          count=$(find aggregated -type f | wc -l)
+          if [ "$count" -eq 0 ]; then
+            echo "::warning::No per-platform installer artifacts were found. Either all per-platform workflows are still gated behind Phase 0 (their top-level \`if: false\`), or all failed. See docs/migration/cutover-playbook.md for the per-platform readiness gate."
+          fi
+
+      - name: Upload aggregated artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-all-installers
+          path: aggregated/
+          retention-days: 30
+
+      - name: Cutover reminder
+        run: |
+          echo "::notice::Tauri build run complete. Per ADR-0020 §15, no auto-update manifest was generated. Per ADR-0020 Phase 5, do NOT flip the default shipping app from Electron to Tauri on any platform until that platform's cutover gate is met (see docs/migration/cutover-playbook.md)."

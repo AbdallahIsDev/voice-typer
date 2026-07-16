@@ -1,0 +1,347 @@
+# Tauri Windows Build (ADR-0020 Phase 0-W / Phase 1-W packaging).
+#
+# This workflow is a STUB — it is intentionally disabled with `if: false`
+# on every job so it does NOT run on push or PR. The primary agent /
+# release engineer should flip `if: false` to `if: true` (or remove the
+# `if:` key entirely and use a manual `workflow_dispatch` trigger) once
+# the Phase 0-W host validation gate (see
+# docs/migration/windows-validation-runbook.md) has actually passed on
+# a real Windows host.
+#
+# What this workflow does (when enabled):
+#   1. Installs Rust + Node + Python 3.12 + MSVC + Nuitka on a
+#      windows-2022 runner.
+#   2. Downloads python-build-standalone cpython-3.12.x (matches the
+#      version pinned in docs/migration/windows-validation-runbook.md §0.7).
+#   3. Builds the sidecar with Nuitka (--standalone --onefile).
+#   4. Builds the prewarm binary with Nuitka (same flags).
+#   5. Compiles the native windows-key-listener.exe (PowerShell script).
+#   6. Runs `cargo tauri build --target x86_64-pc-windows-msvc` to
+#      produce the NSIS + MSI installers.
+#   7. (Optional, if WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD secrets are set)
+#      Authenticode-signs the sidecar + prewarm + installer via signtool.
+#   8. Uploads the installers + binaries as GitHub Actions artifacts.
+#
+# Authoritative spec:
+#   - docs/adr/0020-desktop-runtime-migration-analysis.md §4 (Nuitka),
+#     §5 (prewarm), §6.4 (native listener), §7 (Tauri config),
+#     §13.1 (Windows Authenticode).
+#   - docs/migration/windows-validation-runbook.md (host validation
+#     procedure — what to run AFTER this workflow produces the binaries).
+
+name: Tauri Windows Build (Phase 0-W / Phase 1-W)
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: "Rust target triple (empty = host triple)"
+        required: false
+        default: ""
+        type: string
+      sign:
+        description: "Code-sign + notarize the bundle (requires secrets)"
+        required: false
+        default: false
+        type: boolean
+  workflow_dispatch:
+    inputs:
+      pybs_date:
+        description: "python-build-standalone release date (YYYYMMDD)"
+        required: false
+        default: "20241219"
+      pybs_version:
+        description: "CPython version (e.g. 3.12.8)"
+        required: false
+        default: "3.12.8"
+  # Do NOT enable push/PR triggers until Phase 0-W passes on a real host.
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
+
+# Cancel in-flight runs of the same workflow on the same ref when a new
+# push lands. Saves CI minutes; does not affect release builds.
+concurrency:
+  group: tauri-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin to match the runbook. Override via workflow_dispatch inputs.
+  PYBS_DATE: ${{ github.event.inputs.pybs_date || '20241219' }}
+  PYBS_VERSION: ${{ github.event.inputs.pybs_version || '3.12.8' }}
+  PYBS_TRIPLE: x86_64-pc-windows-msvc
+  RUST_TARGET: x86_64-pc-windows-msvc
+
+jobs:
+  tauri-windows-build:
+    # STUB: disabled until Phase 0-W host validation passes.
+    # Flip to `if: true` (or remove) to enable.
+    if: false
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write   # required for actions/attest-build-provenance
+      attestations: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 (dev env)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Install Rust toolchain (${{ env.RUST_TARGET }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.RUST_TARGET }}
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: tauri-windows-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            tauri-windows-${{ runner.os }}-
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: voice_typer/client/package-lock.json
+
+      - name: Install Python dev deps (uv)
+        shell: pwsh
+        run: |
+          uv pip install --system ".[dev,test]"
+          uv pip install --system nuitka==2.5.4 zstandard ordered-set
+          pip list
+
+      - name: Download + verify python-build-standalone
+        shell: pwsh
+        run: |
+          $date = $env:PYBS_DATE
+          $pyver = $env:PYBS_VERSION
+          $triple = $env:PYBS_TRIPLE
+          $archive = "cpython-$pyver+$date-$triple-install_only.tar.gz"
+          $url = "https://github.com/astral-sh/python-build-standalone/releases/download/$date/$archive"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile $archive
+          # Verify SHA-256 against the release's SHA256SUMS.txt
+          $sumsUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$date/SHA256SUMS.txt"
+          Invoke-WebRequest -Uri $sumsUrl -OutFile SHA256SUMS.txt
+          $expected = (Select-String -Path SHA256SUMS.txt -Pattern $archive).Line.Split(' ')[0]
+          $actual = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLower()
+          if ($expected -ne $actual) {
+            Write-Error "SHA-256 mismatch for $archive`nexpected=$expected`nactual=$actual"
+            exit 1
+          }
+          Write-Host "SHA-256 OK: $actual"
+          # Extract to C:\tools\pybs\python (matches runbook §0.7)
+          New-Item -ItemType Directory -Force -Path C:\tools\pybs | Out-Null
+          tar -xzf $archive -C C:\tools\pybs
+          Write-Host "PYBS python:"
+          C:\tools\pybs\python\python.exe --version
+          # Add PYBS to GITHUB_ENV so subsequent steps can use it.
+          echo "PYBS=C:\tools\pybs\python" >> $env:GITHUB_ENV
+          # Install the project + Nuitka into the PYBS env (the env that
+          # actually gets frozen).
+          C:\tools\pybs\python\python.exe -m pip install --upgrade pip
+          C:\tools\pybs\python\python.exe -m pip install nuitka==2.5.4 zstandard ordered-set
+          C:\tools\pybs\python\python.exe -m pip install -e ".[dev,test]"
+          C:\tools\pybs\python\python.exe -c "import faster_whisper, ctranslate2; print('ctranslate2', ctranslate2.__version__)"
+
+      - name: Build the sidecar with Nuitka (ADR-0020 §4.2)
+        shell: pwsh
+        run: |
+          $PYBS = $env:PYBS
+          $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[0])"
+          Write-Host "PYBS=$PYBS  SITE=$SITE"
+          & $PYBS\python.exe -m nuitka `
+              --standalone --onefile `
+              --assume-yes-for-downloads `
+              --enable-plugin=numpy `
+              --include-package=faster_whisper `
+              --include-package=ctranslate2 `
+              --include-package=voice_typer `
+              --include-package=websockets `
+              --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
+              --include-dll="$SITE\ctranslate2\lib\ctranslate2.dll" `
+              --windows-disable-console `
+              --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\onefile-tmp" `
+              --output-filename=python-sidecar-x86_64-pc-windows-msvc.exe `
+              --output-dir=src-tauri\bin `
+              voice_typer\server\ipc_server.py
+          # Verify the binary exists + emits server_started
+          if (-not (Test-Path "src-tauri\bin\python-sidecar-x86_64-pc-windows-msvc.exe")) {
+            Write-Error "Sidecar binary not built"; exit 1
+          }
+          $size = (Get-Item "src-tauri\bin\python-sidecar-x86_64-pc-windows-msvc.exe").Length / 1MB
+          Write-Host "Sidecar binary size: $([math]::Round($size,1)) MB"
+
+      - name: Build the prewarm binary with Nuitka (ADR-0020 §5)
+        shell: pwsh
+        run: |
+          $PYBS = $env:PYBS
+          $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[0])"
+          & $PYBS\python.exe -m nuitka `
+              --standalone --onefile `
+              --assume-yes-for-downloads `
+              --enable-plugin=numpy `
+              --include-package=faster_whisper `
+              --include-package=ctranslate2 `
+              --include-package=voice_typer `
+              --include-package=websockets `
+              --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
+              --include-dll="$SITE\ctranslate2\lib\ctranslate2.dll" `
+              --windows-disable-console `
+              --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\prewarm-onefile-tmp" `
+              --output-filename=prewarm-x86_64-pc-windows-msvc.exe `
+              --output-dir=src-tauri\resources `
+              voice_typer\server\prewarm.py
+          if (-not (Test-Path "src-tauri\resources\prewarm-x86_64-pc-windows-msvc.exe")) {
+            Write-Error "Prewarm binary not built"; exit 1
+          }
+
+      - name: Build the native windows-key-listener (ADR-0020 §6.4)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File scripts\build\compile_native.ps1
+          New-Item -ItemType Directory -Force -Path src-tauri\resources\native | Out-Null
+          Copy-Item voice_typer\server\native\windows-key-listener.exe `
+                    src-tauri\resources\native\windows-key-listener.exe -Force
+          if (-not (Test-Path "src-tauri\resources\native\windows-key-listener.exe")) {
+            Write-Error "Native listener binary not built"; exit 1
+          }
+
+      - name: Sign sidecar + prewarm (optional — ADR-0020 §13.1)
+        if: ${{ env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          # Write the PFX (base64-encoded in the secret) to a temp file
+          # and sign both binaries with signtool + an RFC-3161 timestamp.
+          $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
+          Write-Host "Using signtool: $signtool"
+          foreach ($exe in @(
+                "src-tauri\bin\python-sidecar-x86_64-pc-windows-msvc.exe",
+                "src-tauri\resources\prewarm-x86_64-pc-windows-msvc.exe"
+          )) {
+            & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
+                /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $exe
+            if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $exe"; exit 1 }
+            & $signtool verify /pa /v $exe
+          }
+          Remove-Item $pfxPath -Force
+
+      - name: Build the Tauri app (ADR-0020 §7)
+        shell: pwsh
+        run: |
+          cd src-tauri
+          cargo tauri build --target x86_64-pc-windows-msvc
+
+      - name: Locate + verify installer artifacts
+        id: artifacts
+        shell: pwsh
+        run: |
+          $nsis = Get-ChildItem "src-tauri\target\release\bundle\nsis\*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $msi  = Get-ChildItem "src-tauri\target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $standalone = "src-tauri\target\release\voice-typer-tauri.exe"
+          if (-not $nsis) { Write-Error "NSIS installer not found"; exit 1 }
+          Write-Host "NSIS: $($nsis.FullName)"
+          Write-Host "MSI: $($msi.FullName)"
+          Write-Host "Standalone: $standalone"
+          echo "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
+          echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Sign the final NSIS installer (optional — ADR-0020 §13.1)
+        if: ${{ env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
+          & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              "${{ steps.artifacts.outputs.nsis_path }}"
+          & $signtool verify /pa /v "${{ steps.artifacts.outputs.nsis_path }}"
+          Remove-Item $pfxPath -Force
+
+      - name: Upload NSIS installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTyper-Tauri-NSIS-Setup
+          path: ${{ steps.artifacts.outputs.nsis_path }}
+          if-no-files-found: error
+
+      - name: Upload MSI installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTyper-Tauri-MSI
+          path: ${{ steps.artifacts.outputs.msi_path }}
+          if-no-files-found: warn
+
+      - name: Upload sidecar + prewarm + native listener
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTyper-Tauri-Sidecar-Binaries
+          path: |
+            src-tauri/bin/python-sidecar-x86_64-pc-windows-msvc.exe
+            src-tauri/resources/prewarm-x86_64-pc-windows-msvc.exe
+            src-tauri/resources/native/windows-key-listener.exe
+          if-no-files-found: error
+
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          $checksums = @()
+          foreach ($p in @(
+                "${{ steps.artifacts.outputs.nsis_path }}",
+                "${{ steps.artifacts.outputs.msi_path }}",
+                "src-tauri/bin/python-sidecar-x86_64-pc-windows-msvc.exe",
+                "src-tauri/resources/prewarm-x86_64-pc-windows-msvc.exe",
+                "src-tauri/resources/native/windows-key-listener.exe"
+          )) {
+            if (Test-Path $p) {
+              $hash = (Get-FileHash -Path $p -Algorithm SHA256).Hash.ToLower()
+              $name = Split-Path -Leaf $p
+              $checksums += "$hash  $name"
+            }
+          }
+          $checksums | Out-File -FilePath SHA256SUMS.txt -Encoding utf8
+          Get-Content SHA256SUMS.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTyper-Tauri-SHA256SUMS
+          path: SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Attest build provenance (SLSA)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: |
+            ${{ steps.artifacts.outputs.nsis_path }}
+            ${{ steps.artifacts.outputs.msi_path }}

@@ -8,6 +8,12 @@ on:
   # NEW-CI-001: also run on PRs so lint/coverage/audit gates are enforced.
   pull_request:
     branches: [main, master]
+    # CI-02: skip the entire workflow for docs-only / markdown-only PRs
+    # (no code to build or test). Frontend code (.ts/.tsx) still triggers
+    # because client-build covers it.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
   # S-2: weekly schedule for the pip-audit-weekly job (runs full audit
   # without the accepted-findings ignore list, opens an issue if new
   # findings appear).
@@ -28,12 +34,11 @@ jobs:
   test:
     runs-on: ${{ matrix.os }}
     strategy:
+      # CI-02: PRs run a reduced matrix (one Python per OS) to save CI
+      # minutes; the full 4×3 matrix runs on push (branches/tags) where we
+      # want maximum coverage before release.
       matrix:
-        # CI-10: pin to specific versions matching the build pipeline so
-        # tests run on the same OS/SDK/glibc that release binaries are built on.
-        os: [windows-2022, ubuntu-22.04, macos-13]
-        # NEW-DOC-012: test on all supported Python versions, not just 3.12.
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        ${{ github.event_name == 'pull_request' && fromJson('{"include":[{"os":"ubuntu-22.04","python-version":"3.12"},{"os":"windows-2022","python-version":"3.13"},{"os":"macos-13","python-version":"3.13"}]}') || fromJson('{"os":["windows-2022","ubuntu-22.04","macos-13"],"python-version":["3.10","3.11","3.12","3.13"]}') }}
       fail-fast: false
 
     steps:
@@ -191,13 +196,24 @@ jobs:
       #   - "ignore everything" (the old continue-on-error: true)
       #   - "block everything" (removing continue-on-error without a
       #     triaged ignore list would break CI on every upstream CVE)
-      - name: pip-audit (hard-fail on all findings)
+      #
+      # CI-01: the per-PR gate no longer hard-fails. New vulnerabilities are
+      # surfaced as a warning annotation (and triaged weekly by
+      # pip-audit-weekly), so an unrelated upstream CVE does not block a PR.
+      # Accepted findings are listed below with a justification comment; add
+      # a new `--ignore-vuln <GHSA>` line here once a CVE is reviewed and
+      # deliberately accepted.
+      - name: pip-audit (warn on findings; full block handled weekly)
+        continue-on-error: true
         run: |
+          # Accepted findings: add `--ignore-vuln <GHSA>` lines here with a
+          # justification comment above each. Example:
+          #   # requests: low-severity redirect issue, no fix available yet (tracked in #NNN)
+          #   --ignore-vuln GHSA-xxxx-xxxx-xxxx
           pip-audit --strict \
             || (
-              echo "::error::pip-audit found vulnerabilities." && \
-              echo "::error::If this is a new finding, triage it. If accepted, add the GHSA ID to the --ignore-vuln list with a justification comment above the ignore line." && \
-              exit 1
+              echo "::warning::pip-audit found vulnerabilities." && \
+              echo "::warning::If this is a new finding, triage it in the weekly pip-audit-weekly job. If accepted, add a --ignore-vuln line above with a justification comment."
             )
 
   # S-2: weekly pip-audit sweep — runs the FULL audit (no ignore list)
@@ -381,8 +397,10 @@ jobs:
     strategy:
       matrix:
         include:
-          # RW-12: macOS x64 build (macos-13 = Intel).
-          - os: macos-13
+          # RW-12: macOS x64 build (macos-14 = Apple Silicon runner running
+          # the x64 compile under Rosetta). CI-04: migrated from the
+          # deprecated macos-13 Intel runner.
+          - os: macos-14
             platform: macos-x64
             script: bash scripts/build/compile_native.sh
             binary: voice_typer/server/native/macos-key-listener
@@ -507,7 +525,7 @@ jobs:
   # convention for native helper tools.
   build-macos-universal:
     needs: [build-native]
-    runs-on: macos-13
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
 
@@ -560,6 +578,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # CI-03: cache electron-builder download cache (~200MB of Electron
+      # binaries) so it isn't re-fetched on every run.
+      - name: Cache electron-builder cache (Windows)
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\electron-builder\Cache
+          key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-builder-
+
+      # CI-03: cache PyInstaller bundle cache.
+      - name: Cache PyInstaller cache (Windows)
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pyinstaller
+          key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
+
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -609,8 +644,66 @@ jobs:
         run: python scripts/build/generate_icon.py scripts/build/voice-typer.ico
 
       - name: Build with PyInstaller
+        # Wave 3: --distpath voice_typer/dist (CONSISTENT with build-macos
+        # and build-linux) so the win.extraResources `from: ../dist` in
+        # voice_typer/client/electron-builder.yml resolves to
+        # <repo>/voice_typer/dist/. Previously this used `--distpath dist`
+        # which produced <repo>/dist/, diverging from the macOS/Linux
+        # staging path and breaking cross-platform path consistency.
         run: |
-          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
+          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
+
+      # RW-4: build the Electron UI installer (NSIS) via electron-builder.
+      # The PyInstaller backend produced above
+      # (voice_typer/dist/VoiceTyper.exe) is embedded into the installer
+      # via the `win.extraResources` section of
+      # voice_typer/client/electron-builder.yml, which copies ../dist/
+      # to <resourcesPath>/voice-typer-backend/ at packaging time. At
+      # runtime, index.ts's pythonArgs() looks for the bundled exe first
+      # (packaged mode), falling back to the dev-mode venv.
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: voice_typer/client/package-lock.json
+
+      # CI-05: download the platform-independent renderer built by
+      # client-build and only rebuild the platform-specific main + preload.
+      - name: Download renderer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: voice-typer-renderer-dist
+          path: voice_typer/client/out/renderer/
+
+      - name: Build main + preload only
+        working-directory: voice_typer/client
+        run: npm run build:main
+
+      - name: Build Windows .exe installer with electron-builder
+        working-directory: voice_typer/client
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # RW-4 / Wave 3: code-signing env vars (passed through from
+          # GitHub Actions secrets). When the secrets are empty (PR builds,
+          # forks without secrets configured), electron-builder skips
+          # signing — the installer is still produced, just unsigned.
+          # Release builds MUST have these secrets set in the repo to
+          # produce a signed, SmartScreen-trusted installer.
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          # CSC_LINK / CSC_KEY_PASSWORD are electron-builder's generic
+          # fallback names (used if WIN_CSC_LINK is unset).
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: npx electron-builder --win --config electron-builder.yml --publish never
+
+      - name: Upload Windows Electron installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoiceTyper-Windows-Electron
+          path: voice_typer/client/dist/*-setup.exe
+          if-no-files-found: error
 
       - name: Install Inno Setup (pinned)
         run: choco install innosetup --version=6.2.0 --no-progress -y
@@ -673,12 +766,13 @@ jobs:
   # GAP-1: build-macos. Downloads the macOS native binary, runs
   # PyInstaller + electron-builder for .dmg.
   # RW-12: depends on build-macos-universal (which merges x64 + arm64
-  # into a universal binary). runs on macos-13 (Intel) so the PyInstaller
-  # bundle is built and tested on the older arch; the universal native
-  # binary inside the bundle works on both architectures.
+  # into a universal binary). CI-04: migrated from the deprecated
+  # macos-13 Intel runner to macos-14 (Apple Silicon). The PyInstaller
+  # x64 bundle is produced by an x64 Python interpreter installed below
+  # (runs under Rosetta), so the .dmg still supports Intel Macs.
   build-macos:
     needs: [test, client-build, version-check, build-macos-universal]
-    runs-on: macos-13
+    runs-on: macos-14
     permissions:
       contents: write
       id-token: write
@@ -687,10 +781,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
+      # CI-03: cache electron-builder download cache.
+      - name: Cache electron-builder cache (macOS)
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/electron-builder
+          key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-builder-
+
+      # CI-03: cache PyInstaller bundle cache.
+      - name: Cache PyInstaller cache (macOS)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyinstaller
+          key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
+
+      - name: Set up Python 3.12 (x64, for x64 PyInstaller bundle)
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          architecture: x64
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -746,8 +857,40 @@ jobs:
         run: npm run build:main
 
       - name: Build with PyInstaller
+        # RW-5: output to voice_typer/dist so the mac.extraResources
+        # entry in electron-builder.yml (from: ../dist/voice-typer-backend.app)
+        # resolves correctly relative to voice_typer/client/.
         run: |
-          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
+          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
+
+      - name: Stage PyInstaller backend for embedding (macOS)
+        # RW-5: PyInstaller spec produces "VoiceTyper" as the output name.
+        # electron-builder.yml's mac.extraResources expects the path
+        # voice-typer-backend.app/Contents/MacOS/voice-typer. Stage the
+        # rename here so the embedded-backend lookup in pythonArgs()
+        # (src/main/index.ts) finds the executable at the expected path.
+        run: |
+          set -euo pipefail
+          mkdir -p voice_typer/dist/voice-typer-backend.app/Contents/MacOS
+          if [ -d "voice_typer/dist/VoiceTyper.app" ]; then
+            # PyInstaller BUNDLE output — replace the placeholder .app
+            # directory with the real bundle.
+            rm -rf voice_typer/dist/voice-typer-backend.app
+            mv voice_typer/dist/VoiceTyper.app voice_typer/dist/voice-typer-backend.app
+            echo "Renamed VoiceTyper.app -> voice-typer-backend.app"
+          elif [ -f "voice_typer/dist/VoiceTyper" ]; then
+            # PyInstaller onefile output (no .app wrapper) — wrap the
+            # binary into the .app structure pythonArgs() expects.
+            mv voice_typer/dist/VoiceTyper voice_typer/dist/voice-typer-backend.app/Contents/MacOS/voice-typer
+            echo "Wrapped onefile VoiceTyper -> voice-typer-backend.app/Contents/MacOS/voice-typer"
+          else
+            echo "ERROR: PyInstaller macOS output not found at voice_typer/dist/"
+            ls -la voice_typer/dist/
+            exit 1
+          fi
+          chmod +x voice_typer/dist/voice-typer-backend.app/Contents/MacOS/voice-typer
+          echo "Staged macOS backend:"
+          find voice_typer/dist/voice-typer-backend.app -maxdepth 4 -type f -o -type d | head -20
 
       - name: Build macOS .dmg with electron-builder
         working-directory: voice_typer/client
@@ -755,7 +898,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npx electron-builder --mac --publish never
+        # RW-5: --config electron-builder.yml explicit (the file is picked
+        # up by default, but being explicit documents the dependency on
+        # the mac.extraResources entry that embeds the PyInstaller backend).
+        run: npx electron-builder --mac --config electron-builder.yml --publish never
 
       - name: Upload macOS installer artifact
         uses: actions/upload-artifact@v4
@@ -794,6 +940,22 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v4
+
+      # CI-03: cache electron-builder download cache.
+      - name: Cache electron-builder cache (Linux)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-electron-builder-
+
+      # CI-03: cache PyInstaller bundle cache.
+      - name: Cache PyInstaller cache (Linux)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pyinstaller
+          key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -854,8 +1016,43 @@ jobs:
         run: npm run build:main
 
       - name: Build with PyInstaller
+        # RW-5: output to voice_typer/dist so the linux.extraResources
+        # entry in electron-builder.yml (from: ../dist/voice-typer-backend)
+        # resolves correctly relative to voice_typer/client/.
         run: |
-          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath dist --workpath build
+          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
+
+      - name: Stage PyInstaller backend for embedding (Linux)
+        # RW-5: PyInstaller spec produces "VoiceTyper" as the output name.
+        # electron-builder.yml's linux.extraResources expects the path
+        # voice-typer-backend/voice-typer. Stage the rename here so the
+        # embedded-backend lookup in pythonArgs() (src/main/index.ts)
+        # finds the executable at the expected path.
+        run: |
+          set -euo pipefail
+          mkdir -p voice_typer/dist/voice-typer-backend
+          if [ -d "voice_typer/dist/VoiceTyper" ]; then
+            # PyInstaller onedir output — move directory contents.
+            mv voice_typer/dist/VoiceTyper/* voice_typer/dist/voice-typer-backend/
+            rmdir voice_typer/dist/VoiceTyper
+            # Rename the executable inside the directory if it's still
+            # named "VoiceTyper" to match pythonArgs()'s expectation.
+            if [ -f "voice_typer/dist/voice-typer-backend/VoiceTyper" ] && [ ! -f "voice_typer/dist/voice-typer-backend/voice-typer" ]; then
+              mv voice_typer/dist/voice-typer-backend/VoiceTyper voice_typer/dist/voice-typer-backend/voice-typer
+            fi
+            echo "Moved onedir VoiceTyper/ -> voice-typer-backend/"
+          elif [ -f "voice_typer/dist/VoiceTyper" ]; then
+            # PyInstaller onefile output — move binary into directory.
+            mv voice_typer/dist/VoiceTyper voice_typer/dist/voice-typer-backend/voice-typer
+            echo "Moved onefile VoiceTyper -> voice-typer-backend/voice-typer"
+          else
+            echo "ERROR: PyInstaller Linux output not found at voice_typer/dist/"
+            ls -la voice_typer/dist/
+            exit 1
+          fi
+          chmod +x voice_typer/dist/voice-typer-backend/voice-typer
+          echo "Staged Linux backend:"
+          ls -la voice_typer/dist/voice-typer-backend/ | head -20
 
       - name: Install Linux build deps (fpm for electron-builder)
         run: |
@@ -866,7 +1063,10 @@ jobs:
         working-directory: voice_typer/client
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx electron-builder --linux --publish never
+        # RW-5: --config electron-builder.yml explicit (the file is picked
+        # up by default, but being explicit documents the dependency on
+        # the linux.extraResources entry that embeds the PyInstaller backend).
+        run: npx electron-builder --linux --config electron-builder.yml --publish never
 
       - name: Upload Linux installer artifacts
         uses: actions/upload-artifact@v4

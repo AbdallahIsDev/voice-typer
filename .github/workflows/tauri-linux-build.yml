@@ -1,0 +1,242 @@
+name: Tauri Linux build (Phase 0-L)
+
+# ADR-0020 Phase 0-L: Linux Nuitka sidecar + prewarm + native listener + Tauri bundle.
+# Marked `if: false` initially — the build takes 30-60 min and the smoke tests
+# need a display server (not available in CI). Enable manually for release builds
+# once the local validation runbook (docs/migration/linux-validation-runbook.md)
+# has passed on a real Linux display host.
+#
+# To enable: change `if: false` to `if: true` (or trigger via workflow_dispatch).
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: "Rust target triple (empty = host triple)"
+        required: false
+        default: ""
+        type: string
+      sign:
+        description: "Code-sign + notarize the bundle (requires secrets)"
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - "v*-linux"
+    branches:
+      - main
+    paths:
+      - "src-tauri/**"
+      - "voice_typer/server/**"
+      - "scripts/build/build_sidecar_linux.sh"
+      - "scripts/build/build_prewarm_linux.sh"
+      - "scripts/build/build_native_listener_linux.sh"
+      - ".github/workflows/tauri-linux-build.yml"
+  pull_request:
+    paths:
+      - "src-tauri/**"
+      - "voice_typer/server/**"
+      - "scripts/build/build_*linux*.sh"
+      - ".github/workflows/tauri-linux-build.yml"
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: "Target arch (x86_64 or aarch64; default: x86_64)"
+        required: false
+        default: "x86_64"
+
+# CI-08-style concurrency: cancel in-flight PR builds, keep release builds running.
+concurrency:
+  group: tauri-linux-${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || format('release-{0}', github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    # Disabled by default — enable manually via workflow_dispatch or by flipping `if: false`.
+    if: false
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    env:
+      # Pin to 3.12 — ADR-0020 §4.4 mandates 3.12.x (CTranslate2 / faster-whisper wheel tags).
+      PYTHON_VERSION: "3.12"
+      # The arch being built. For aarch64, the script will use qemu-user-static.
+      BUILD_ARCH: ${{ github.event.inputs.arch || 'x86_64' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ env.BUILD_ARCH == 'aarch64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: voice_typer/client/package-lock.json
+
+      - name: Install system deps (apt)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            webkit2gtk-4.1-0 libnotify4 libxtst6 wl-clipboard xclip \
+            build-essential pkg-config libssl-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev \
+            qemu-user-static binfmt-support file patchelf
+
+      - name: Enable qemu binfmt (aarch64 cross-build only)
+        if: env.BUILD_ARCH == 'aarch64'
+        run: |
+          # Register qemu-aarch64-static as the binfmt_misc handler for aarch64 ELF.
+          # This lets Nuitka execute the aarch64 python-build-standalone interpreter
+          # during compilation on the x86_64 CI runner.
+          sudo update-binfmts --enable qemu-aarch64 || true
+          # Verify the handler is registered.
+          cat /proc/sys/fs/binfmt_misc/qemu-aarch64 || true
+
+      - name: Install Python deps (uv)
+        run: |
+          uv venv
+          uv pip install -e ".[dev,test]"
+          uv pip install nuitka zstandard
+
+      - name: Download + extract python-build-standalone cpython-3.12.x+${{ env.BUILD_ARCH }}-unknown-linux-gnu
+        run: |
+          set -euo pipefail
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          PYBS_DIR="$PWD/.python-build-standalone"
+          mkdir -p "$PYBS_DIR"
+          # Fetch the latest cpython-3.12.x release for the target triple.
+          # The astral-sh/python-build-standalone releases tag is "20240415" etc.
+          # We use the GitHub API to find the latest release that has a matching asset.
+          API_URL="https://api.github.com/repos/indygreg/python-build-standalone/releases/latest"
+          ASSET_PATTERN="cpython-3.12.*+${TRIPLE}-install_only.tar.gz"
+          echo "Querying $API_URL for asset matching $ASSET_PATTERN"
+          ASSET_URL=$(curl -fsSL "$API_URL" \
+            | python -c "
+          import json, sys, re
+          data = json.load(sys.stdin)
+          triple = '${TRIPLE}'
+          pattern = re.compile(r'cpython-3\\.12\\.\\d+\\+' + re.escape(triple) + r'-install_only\\.tar\\.gz\\$')
+          for asset in data.get('assets', []):
+              if pattern.match(asset['name']):
+                  print(asset['browser_download_url'])
+                  break
+          ")
+          if [[ -z "$ASSET_URL" ]]; then
+            echo "ERROR: no python-build-standalone asset found for $TRIPLE"
+            exit 1
+          fi
+          echo "Downloading: $ASSET_URL"
+          curl -fsSL "$ASSET_URL" -o /tmp/pybs.tar.gz
+          tar -xzf /tmp/pybs.tar.gz -C "$PYBS_DIR"
+          # The archive extracts to $PYBS_DIR/python/bin/python3 — normalize.
+          ls -la "$PYBS_DIR"
+          "$PYBS_DIR/python/bin/python3" --version
+
+      - name: Build native key-listener (Linux)
+        run: bash scripts/build/build_native_listener_linux.sh
+
+      - name: Build Nuitka sidecar (${{ env.BUILD_ARCH }})
+        run: bash scripts/build/build_sidecar_linux.sh "$BUILD_ARCH"
+        env:
+          VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
+
+      - name: Build Nuitka prewarm (${{ env.BUILD_ARCH }})
+        run: bash scripts/build/build_prewarm_linux.sh "$BUILD_ARCH"
+        env:
+          VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
+
+      - name: Verify sidecar binary
+        run: |
+          set -euo pipefail
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          BIN="src-tauri/bin/python-sidecar-${TRIPLE}"
+          PREWARM="src-tauri/resources/prewarm-${TRIPLE}"
+          LISTENER="src-tauri/resources/native/linux-key-listener"
+          test -x "$BIN"      || { echo "MISSING: $BIN";      exit 1; }
+          test -x "$PREWARM"  || { echo "MISSING: $PREWARM";  exit 1; }
+          test -x "$LISTENER" || { echo "MISSING: $LISTENER"; exit 1; }
+          echo "=== ldd $BIN ==="
+          ldd "$BIN" | head -20
+          echo "=== ldd $PREWARM ==="
+          ldd "$PREWARM" | head -20
+          echo "=== ldd $LISTENER ==="
+          ldd "$LISTENER" | head -20
+          # Verify glibc baseline (≤ 2.35 for Ubuntu 22.04 compat).
+          for f in "$BIN" "$PREWARM" "$LISTENER"; do
+            MAX_GLIBC=$(ldd "$f" 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -V | tail -1 || true)
+            echo "$f → $MAX_GLIBC"
+            if [[ -n "$MAX_GLIBC" ]]; then
+              NUM="${MAX_GLIBC/GLIBC_/}"
+              MAJ="${NUM%.*}"; MIN="${NUM#*.}"
+              if [[ "$MAJ" -gt 2 || ( "$MAJ" -eq 2 && "$MIN" -gt 35 ) ]]; then
+                echo "ERROR: $f requires $MAX_GLIBC but baseline is GLIBC_2.35"
+                exit 1
+              fi
+            fi
+          done
+
+      - name: Install renderer deps + build
+        run: |
+          cd voice_typer/client
+          npm ci
+          npm run build:renderer
+
+      - name: Build Tauri app (${{ env.BUILD_ARCH }})
+        # ADR-0020 Phase 0-L gate: cargo tauri build needs webkit2gtk-4.1 +
+        # libgtk-3, which we installed above. The build runs headless because
+        # the Tauri host doesn't open a window during `cargo tauri build`.
+        # Smoke tests that need a display are documented in the runbook
+        # (docs/migration/linux-validation-runbook.md) and run manually.
+        run: |
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          cd src-tauri
+          cargo tauri build --target "$TRIPLE"
+
+      - name: List bundle artifacts
+        run: |
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          find "src-tauri/target/$TRIPLE/release/bundle" -type f 2>/dev/null | sort
+          find "src-tauri/target/release/bundle" -type f 2>/dev/null | sort
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-typer-${{ env.BUILD_ARCH }}.deb
+          path: |
+            src-tauri/target/*/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: warn
+
+      - name: Upload .AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-typer-${{ env.BUILD_ARCH }}.AppImage
+          path: |
+            src-tauri/target/*/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload build logs (Nuitka + cargo)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-typer-${{ env.BUILD_ARCH }}-build-logs
+          path: |
+            src-tauri/bin/.build-sidecar-*.log
+            src-tauri/resources/.build-prewarm-*.log
+            src-tauri/target/*/release/.frozen/Cargo.lock
+          if-no-files-found: warn
