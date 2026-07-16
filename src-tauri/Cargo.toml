@@ -22,7 +22,7 @@ tauri-build = { version = "2", features = [] }
 # Tauri v2 core — tray support is built into the core crate in v2
 # (NOT a separate tauri-plugin-tray crate). The "tray-icon" feature
 # enables the tray API.
-tauri = { version = "2", features = ["devtools", "tray-icon"] }
+tauri = { version = "2", features = ["devtools"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -37,9 +37,12 @@ tokio = { version = "1", features = ["full"] }
 tokio-tungstenite = { version = "0.24", features = ["connect"] }
 futures-util = "0.3"
 
-# ADR-0020 §3: HMAC token generation + comparison
-hmac = "0.12"
-sha2 = "0.10"
+# ADR-0020 §3: per-launch bearer token (32 random bytes hex-encoded).
+# The token is generated via `rand::thread_rng().fill_bytes()` and
+# passed to the sidecar via `VOICE_TYPER_IPC_TOKEN`. Despite the ADR's
+# "HMAC" wording, the Rust host treats it as a bearer token (the
+# sidecar's `ipc_server.py` validates the literal string match). The
+# `hmac`+`sha2` crates are therefore NOT needed in the host.
 rand = "0.8"
 
 # Serialization

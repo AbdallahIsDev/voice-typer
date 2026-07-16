@@ -39,24 +39,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::HashMap;
-use std::env;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use futures_util::{SinkExt, StreamExt};
-use hmac::{Hmac, Mac};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::Sha256;
 use tauri::{Emitter, Manager, WindowEvent};
 use tauri_plugin_shell::process::{CommandEvent, CommandChild};
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
-
-type HmacSha256 = Hmac<Sha256>;
+use tokio_tungstenite::{connect_async_with_config, tungstenite::Message};
 
 // ─── Constants (ADR-0020) ─────────────────────────────────────────────
 
@@ -83,7 +78,10 @@ const SERVER_STARTED_TIMEOUT_MS: u64 = 30_000;
 /// ≤30 Hz.
 const BUBBLE_LEVEL_COALESCE_HZ: u64 = 30;
 
-/// ADR-0020 §10: 1 MiB WS frame cap.
+/// ADR-0020 §10: 1 MiB WS frame cap. Enforced at WS-connect time via
+/// `connect_async_with_config(WebSocketConfig { max_message_size:
+/// Some(MAX_FRAME_BYTES), .. })`. Guards against memory-exhaustion
+/// attacks from a compromised sidecar.
 const MAX_FRAME_BYTES: usize = 1024 * 1024;
 
 // ─── Shared state ─────────────────────────────────────────────────────
@@ -288,17 +286,16 @@ async fn ft1_respawn(
             // ADR-0020 §10: full-app relaunch. Emit a Tauri event so
             // the UI can show a "restarting…" banner, then call
             // app.restart() which exits the current process and
-            // relaunches a fresh one (Tauri's built-in restart).
+            // relaunches a fresh one.
             let _ = app.emit("ft1_relaunching", json!({"reason": "exhausted_retries"}));
             // Small delay so the UI event can render before restart.
             tokio::time::sleep(Duration::from_millis(500)).await;
-            // app.restart() is the Tauri v2 API for full-app relaunch.
-            // It exits the current process with a special code that
-            // the Tauri launcher recognizes as "relaunch" — the
-            // launcher spawns a fresh instance before the old one
-            // fully exits.
+            // ADR-0020 §10: `app.restart()` is defined on the core
+            // `tauri::AppHandle` directly (tauri-2.11.5/src/app.rs:588).
+            // It exits with RESTART_EXIT_CODE so the Tauri launcher
+            // spawns a fresh instance before the old one fully exits.
+            // Returns `!` (never type) so following code is unreachable.
             app.restart();
-            return Err("FT-1 exhausted retries — full-app relaunch initiated".into());
         }
         if state.shutting_down.load(Ordering::SeqCst) {
             log::info!("[FT-1] shutting down — skipping respawn");
@@ -348,7 +345,6 @@ async fn ft1_respawn(
     let _ = app.emit("ft1_relaunching", json!({"reason": "backoff_exhausted"}));
     tokio::time::sleep(Duration::from_millis(500)).await;
     app.restart();
-    Err("FT-1 backoff exhausted — full-app relaunch initiated".into())
 }
 
 async fn reconnect_ws(
@@ -358,7 +354,13 @@ async fn reconnect_ws(
     token: &str,
 ) -> Result<(), String> {
     let url = format!("ws://127.0.0.1:{}", port);
-    let (ws, _) = connect_async(&url)
+    // ADR-0020 §10: enforce 1 MiB WS frame cap.
+    let ws_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
+        max_message_size: Some(MAX_FRAME_BYTES),
+        max_frame_size: Some(MAX_FRAME_BYTES),
+        ..Default::default()
+    };
+    let (ws, _) = connect_async_with_config(&url, Some(ws_config), false)
         .await
         .map_err(|e| format!("WS reconnect failed: {e}"))?;
     let (write, mut read) = ws.split();
@@ -394,6 +396,7 @@ async fn reconnect_ws(
     let state_for_reader = state_clone.clone();
     tokio::spawn(async move {
         let mut last_bubble_level: Option<Instant> = None;
+        #[allow(unused_assignments)]
         let mut last_bubble_payload: Option<Value> = None;
         while let Some(msg) = read.next().await {
             match msg {
@@ -427,7 +430,14 @@ async fn reconnect_ws(
                         let min_interval = Duration::from_millis(1000 / BUBBLE_LEVEL_COALESCE_HZ);
                         if last_bubble_level.map_or(true, |t| now.duration_since(t) >= min_interval) {
                             last_bubble_level = Some(now);
-                            let _ = app_for_reader.emit("bubble_level", last_bubble_payload.take().unwrap());
+                            let p = last_bubble_payload.take().unwrap();
+                            // ADR-0020 §6.3: emit BOTH the specific event
+                            // (for direct listeners like the bubble window)
+                            // AND the generic `python-event` (for the
+                            // usePython hook's onEvent catch-all, matching
+                            // the Electron path's ipcRenderer.on("python-event")).
+                            let _ = app_for_reader.emit("bubble_level", p.clone());
+                            let _ = app_for_reader.emit("python-event", json!({"type": "bubble_level", "data": p}));
                         }
                         continue;
                     }
@@ -439,7 +449,11 @@ async fn reconnect_ws(
                         "relaunch_electron" => "relaunch_app",
                         other => other,
                     };
-                    let _ = app_for_reader.emit(emit_name, payload);
+                    // ADR-0020 §6.3: emit BOTH the specific event (for
+                    // direct listeners) AND the generic `python-event`
+                    // (for the usePython hook's onEvent catch-all).
+                    let _ = app_for_reader.emit(emit_name, payload.clone());
+                    let _ = app_for_reader.emit("python-event", json!({"type": emit_name, "data": payload}));
                 }
                 Ok(Message::Close(_)) => {
                     log::info!("[WS-READER] sidecar closed the WS");
@@ -452,7 +466,34 @@ async fn reconnect_ws(
                 }
             }
         }
-        // WS reader exited — trigger FT-1 respawn (unless we're shutting down).
+        // WS reader exited — drain pending dispatch requests + clear
+        // ws_tx so new dispatch calls fail fast instead of queueing
+        // onto a dead channel (CR-Finding 1 + 3). Then trigger FT-1
+        // respawn (unless we're shutting down).
+        {
+            // Clear ws_tx first so new dispatch calls return
+            // "sidecar not connected" immediately.
+            let mut ws_tx_guard = state_for_reader.ws_tx.lock().unwrap();
+            *ws_tx_guard = None;
+        }
+        {
+            // Drain pending requests — reject each with an error so
+            // callers don't wait the full 120s timeout.
+            let mut pending = state_for_reader.pending.lock().await;
+            let count = pending.len();
+            for (_id, tx) in pending.drain() {
+                let _ = tx.send(json!({
+                    "type": "error",
+                    "data": {
+                        "code": "sidecar_disconnected",
+                        "message": "sidecar WS disconnected (FT-1 respawn in progress)"
+                    }
+                }));
+            }
+            if count > 0 {
+                log::warn!("[WS-READER] drained {} pending dispatch requests", count);
+            }
+        }
         if !state_for_reader.shutting_down.load(Ordering::SeqCst) {
             log::warn!("[WS-READER] unexpected close — triggering FT-1");
             // Spawn FT-1 on a separate thread via std::thread::spawn +

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2/capability",
   "identifier": "migrate-runtime",
-  "description": "ADR-0020: least-privilege capability for the Tauri + Python Sidecar migration. Every permission is explicit (Tauri v2 ships zero permissions by default). The shell:allow-spawn permission is scoped to ONLY the python-sidecar binary via the plugins.shell.scope in tauri.conf.json — Tauri v2 enforces both the capability permission AND the config scope at runtime.",
+  "description": "ADR-0020: least-privilege capability for the Tauri + Python Sidecar migration. Every permission is explicit (Tauri v2 ships zero permissions by default). The shell:allow-spawn permission is scoped to ONLY the python-sidecar binary via the plugins.shell.scope in tauri.conf.json — Tauri v2 enforces both the capability permission AND the config scope at runtime. Tray: the Python sidecar owns the tray via pystray (no Tauri-mode branch needed; the sidecar inherits the desktop session from externalBin spawn), so no core:tray:* permissions are granted to the Rust host. FT-1 full-app relaunch uses AppHandle::restart() (core tauri crate, no plugin required), so no process:allow-restart capability is needed.",
   "windows": ["main", "bubble"],
   "permissions": [
     "core:default",
@@ -23,16 +23,6 @@
 
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-clear",
-
-    "core:tray:default",
-    "core:tray:allow-new",
-    "core:tray:allow-set-icon",
-    "core:tray:allow-set-menu",
-    "core:tray:allow-set-tooltip",
-    "core:tray:allow-set-title",
-    "core:tray:allow-set-visible",
-    "core:tray:allow-get-by-id",
-    "core:tray:allow-remove-by-id"
+    "clipboard-manager:allow-clear"
   ]
 }
