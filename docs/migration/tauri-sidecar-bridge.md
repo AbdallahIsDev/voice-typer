@@ -1,10 +1,10 @@
 # Tauri + Python Sidecar Migration — Bridge Architecture
 
-**Status**: Phase 0-W scaffolding implemented (2026-07-16). Phase 0-W validation gate (Nuitka exe + Tauri spawn + WS + HMAC + faster-whisper + enigo + notification + cooperative shutdown + prewarm LogonTrigger + native hotkey) pending on a real Windows host.
+**Status**: Phase 0-W scaffolding + Rust host compilation + Phase 3 UI port implemented (2026-07-16). Phase 0-W validation gate (Nuitka exe + Tauri spawn + WS + HMAC + faster-whisper + enigo + notification + cooperative shutdown + prewarm LogonTrigger + native hotkey) pending on a real Windows host.
 
-**Reference ADR**: [`docs/adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md) (cross-platform rewrite, 1099 lines).
+**Reference ADR**: [`docs/adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md) (cross-platform rewrite).
 
-## What's implemented (this round)
+## What's implemented
 
 ### Python side
 
@@ -21,11 +21,38 @@
 
 | File | Purpose |
 |---|---|
-| `src-tauri/Cargo.toml` | Tauri v2 + plugins (shell, notification, clipboard-manager, single-instance, tray) + `enigo` (keystroke injection) + `tokio-tungstenite` (WS client) + `hmac`/`sha2`/`rand` (token gen) + Windows-specific `windows` crate for `AttachThreadInput` + `SetForegroundWindow`. |
-| `src-tauri/src/main.rs` (~470 lines) | The Rust host. Spawns sidecar via `externalBin`, reads `server_started` JSON from stdout, opens WS client, performs HMAC auth, exposes ONE generic `dispatch` command to the webview, subscribes to server-initiated events, coalesces `bubble_level` 60Hz→30Hz, runs FT-1 supervisor with 500ms→1s→2s→4s→8s backoff (cap 5 → full-app relaunch), cooperative shutdown with 2s ack timeout + `kill_children` backstop. |
+| `src-tauri/Cargo.toml` | Tauri v2 + plugins (shell, notification, clipboard-manager, single-instance) + `enigo` (keystroke injection) + `tokio-tungstenite` (WS client) + `rand` (token gen) + Windows-specific `windows` crate for `AttachThreadInput` + `SetForegroundWindow`. **No `tauri-plugin-process`** — `AppHandle::restart()` is in core tauri (see below). **No `hmac`/`sha2`** — the token is a bearer token (32 random bytes hex-encoded), not an HMAC key. **No `tray-icon` feature** — the Python sidecar owns the tray via pystray. |
+| `src-tauri/src/main.rs` (739 lines) | The Rust host. Spawns sidecar via `externalBin`, reads `server_started` JSON from stdout, opens WS client with 1 MiB frame cap (`connect_async_with_config`), performs bearer-token auth, exposes ONE generic `dispatch` command to the webview, subscribes to server-initiated events (emits BOTH the specific event name AND a generic `python-event` envelope for catch-all listeners), coalesces `bubble_level` 60Hz→30Hz, runs FT-1 supervisor with 500ms→1s→2s→4s→8s backoff (cap 5 → full-app relaunch via `AppHandle::restart()`), drains pending dispatch requests + clears `ws_tx` on WS disconnect (so callers don't wait 120s), cooperative shutdown with 2s ack timeout + `kill_children` backstop. |
 | `src-tauri/build.rs` | `tauri_build::build()` — reads `tauri.conf.json` + capabilities. |
-| `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. CSP carries over from the Electron `csp-plugin.ts`. |
-| `src-tauri/capabilities/migrate-runtime.json` | Least-privilege capability: scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `tray`. |
+| `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` so `window.__TAURI__` is available to the renderer bridge. CSP carries over from the Electron `csp-plugin.ts`. |
+| `src-tauri/capabilities/migrate-runtime.json` | Least-privilege capability: scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`. **No `core:tray:*`** (sidecar owns tray via pystray). **No `process:allow-restart`** (`AppHandle::restart()` is core tauri, no plugin needed). |
+
+### Phase 3 UI port (React bridge — `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`)
+
+| File | Purpose |
+|---|---|
+| `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` (NEW, 357 lines) | Tauri ↔ React bridge. Auto-installs `window.python`, `window.bubble`, `window.window_` using Tauri's global `__TAURI__` API when Tauri is detected. In Electron mode it's a no-op (the Electron preload already installed the namespaces). The renderer code (`usePython.ts`, pages, components) is unchanged. **Contract parity is partial, not identical** — see "Bridge contract parity" below. `window.python.call`/`onEvent` + FT-1 events are at full parity. `window.bubble` (6 mutator methods) and `window.window_.exportHistory/exportVocabulary` are stubbed on the Tauri path (known gaps, see "What's NOT implemented this round" #5/#6). The NEW-IPC-107 guard: on Electron it inspects the resolved envelope; on Tauri, Rust rejects the `invoke` promise on `type:"error"` so the guard's resolved-envelope branches are effectively dead but errors still surface via rejection. |
+| `voice_typer/client/src/renderer/src/main.tsx` (modified) | Imports `./lib/tauri-bridge` before the React app mounts. |
+| `voice_typer/client/src/renderer/src/bubble-main.tsx` (modified) | Imports `./lib/tauri-bridge` before the bubble app mounts. |
+| `voice_typer/client/src/renderer/src/globals.d.ts` (NEW) | Ambient `declare module "*.css"` etc. — fixes pre-existing TS2882 errors on side-effect CSS imports. (Note: the `window.python`/`window.bubble`/`window.window_` ambient types come from the pre-existing `declare global` block in `types/ipc.ts`, NOT from this file.) |
+
+### FT-1 relaunch behavior (corrected)
+
+The FT-1 supervisor (`ft1_respawn` in `main.rs`) uses `AppHandle::restart()` (tauri-2.11.5/src/app.rs:588) for full-app relaunch when all 5 backoff retries are exhausted. This is a **core tauri v2 API** — it does NOT require `tauri-plugin-process` (the directive's original claim was incorrect; `tauri-plugin-process` only exposes `restart` as a Tauri command for webview invocation, not as a Rust-side trait).
+
+`app.restart()` returns `!` (the never type), so it satisfies the `Result<(), String>` return signature of `ft1_respawn` directly. The relaunch is NOT a silent `Err` discard — it:
+1. Emits a `ft1_relaunching` Tauri event with `{"reason": "exhausted_retries"}` (or `"backoff_exhausted"`)
+2. Waits 500ms for the UI to render the event
+3. Calls `app.restart()` which exits with `RESTART_EXIT_CODE` so the Tauri launcher spawns a fresh instance
+
+The renderer's `tauri-bridge.ts` listens for `ft1_relaunching` and `ft1_reconnected` events and synthesizes `python-event` frames (with `type: "reconnecting"` / `"reconnected"`) so the `useConnection` hook updates the UI during FT-1 cycles.
+
+### WS disconnect handling (CR-Finding 1 + 3 fix)
+
+When the WS reader task exits (sidecar crash or network drop), the host:
+1. **Clears `state.ws_tx`** to `None` — so new `dispatch` calls return `"sidecar not connected"` immediately instead of queueing onto a dead channel
+2. **Drains `state.pending`** — rejects every in-flight dispatch request with `{"type":"error","data":{"code":"sidecar_disconnected","message":"sidecar WS disconnected (FT-1 respawn in progress)"}}` so callers don't wait the full 120s timeout
+3. **Spawns FT-1 respawn** on a background thread (unless `shutting_down` is set)
 
 ### Tests (all cross-platform, run on Linux/macOS/Windows CI)
 
@@ -37,17 +64,26 @@
 | `tests/tauri/test_native_binary_path_tauri.py` (~95 lines) | `VOICE_TYPER_NATIVE_DIR` env-var lookup finds the binary, `VOICE_TYPER_NATIVE_BINARY` (single-file) takes precedence, broken env vars fall through cleanly. |
 | `tests/tauri/test_tauri_sidecar_gate.py` (~160 lines) | `TAURI_SIDECAR=1` disables heartbeat thread, `TAURI_SIDECAR=1` is set by `--ws` flag, `--ws` + `--port` are mutually exclusive, `_COMMAND_REGISTRY` still contains `heartbeat` (Electron fallback). |
 
-## What's NOT implemented this round (deferred to Phase 0-W validation)
+**Validation evidence (this round):**
+- `cargo check` → 0 errors, 0 warnings (Linux, with webkit2gtk/GTK system libs)
+- `npm run typecheck` → 0 errors (tsc --noEmit + tsconfig.web + tsconfig.node)
+- `npm run lint` → 0 errors (biome check)
+- `npm run build:renderer` → succeeded (5717 modules transformed)
+- `python -m pytest tests/tauri/ tests/test_ipc_dispatch_errors.py tests/test_tray*.py` → 127 passed
+- `python -m pytest tests/test_electron_ipc_and_build.py tests/test_dead_code_stays_removed.py tests/test_api_doc_accuracy.py` → 123 passed
 
-These require a real Windows host or a Tauri Rust toolchain + display, neither of which is available in the dev container:
+## What's NOT implemented this round (requires host validation)
 
-1. **Nuitka build of the sidecar exe** — the `python-build-standalone` + Nuitka command in ADR-0020 §4.2 must run on a Windows host with MSVC build tools. The Rust host code is written to consume the exe via `externalBin`; the build script is documented in ADR-0020 but not yet wired into CI.
-2. **Tauri build compilation** — `cargo tauri dev` / `cargo tauri build` requires a Rust toolchain + a display server (for the WebView). The Rust code compiles on paper (Cargo.toml + main.rs + build.rs + tauri.conf.json + capabilities are all syntactically valid), but is not compiled in this round. CI wiring is the next step.
-3. **Phase 0-W validation gate** — the 9-point checklist at the end of ADR-0020 (Nuitka exe builds, externalBin spawns, WS+HMAC connect, `faster-whisper` transcribes inside Nuitka, `enigo` paste, notification toast, cooperative shutdown, prewarm LogonTrigger, native `windows-key-listener` toggles dictation) must run on a Windows 10 + Windows 11 test machine. The scaffolding here is the implementation; the validation is the gate.
+These require a real Windows/macOS host or a display server, neither of which is available in the Linux dev container:
+
+1. **Nuitka build of the sidecar exe** — the `python-build-standalone` + Nuitka command in ADR-0020 §4.2 must run on a Windows host with MSVC build tools. The Rust host code is written to consume the exe via `externalBin`; the build script is documented in the Windows Validation Runbook (see `docs/migration/windows-validation-runbook.md`).
+2. **Tauri build with display** — `cargo tauri dev` / `cargo tauri build` requires a display server for the WebView (absent in the headless dev container). `cargo check` passes on Linux (proving the code compiles); the full build requires a display. See the Tauri Build Runbook (see `docs/migration/tauri-build-runbook.md`).
+3. **Phase 0-W validation gate** — the 9-point checklist at the end of ADR-0020 must run on a Windows 10 + Windows 11 test machine. See the Windows Validation Runbook.
 4. **Phase 0-M (macOS)** and **Phase 0-L (Linux X11 + Wayland)** — same shape as Phase 0-W but per-platform. Documented in ADR-0020; not started this round.
-5. **UI port to Tauri WebView** — the React UI still runs under Electron. The Phase 3 port (replace `ipcMain`/`contextBridge` with Tauri `invoke`, port the tray, audit for webkit2gtk quirks) is the largest single chunk of work in the migration and is not started.
+5. **Bubble window Tauri commands** — the Tauri bridge stubs 6 bubble APIs (`show`, `signalReady`, `setPosition`, `setDraggable`, `moveBy`, `hideComplete`) as no-ops. These require Rust-side window-management commands that are out of scope for the Phase 3 MVP port. The core bubble function (`onLevel` + state events) works.
+6. **Export/dialog APIs** — `window.window_.exportHistory` / `exportVocabulary` are stubbed with rejections in Tauri mode. They require Rust-side dialog commands (Tauri's `dialog` plugin).
 
-## Dev-mode workflow (for the next implementer)
+## Dev-mode workflow
 
 Run the Python sidecar in WS mode without Tauri or Nuitka:
 
@@ -65,28 +101,28 @@ websocat ws://127.0.0.1:<N>
 < {"type": "result", "data": {"status": "idle"}, "id": 1}
 ```
 
-For `cargo tauri dev` (once the Rust toolchain is installed):
+For `cargo tauri dev` (once the Rust toolchain + display are installed):
 
 ```bash
 cd src-tauri
 VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev
 ```
 
-The Rust host checks `VOICE_TYPER_SIDECAR_DEV=1` and spawns `python -m voice_typer.server.ipc_server --ws` instead of the `externalBin` binary — so UI/transport iteration happens in seconds, not the ~10 minutes a Nuitka rebuild takes. (The dev-mode branch is not yet implemented in `main.rs` — it's a small addition once the Rust compiles.)
+The Rust host checks `VOICE_TYPER_SIDECAR_DEV=1` and spawns `python -m voice_typer.server.ipc_server --ws` instead of the `externalBin` binary — so UI/transport iteration happens in seconds, not the ~10 minutes a Nuitka rebuild takes. (The dev-mode branch is documented in ADR-0020 §14 but not yet implemented in `main.rs` — it's a small addition for the next round.)
 
 ## Architecture boundary (what stays / what moves / what is removed)
 
 See ADR-0020 "What stays / what moves / what is removed" for the full scope boundary. Summary:
 
-- **Python sidecar**: 100% of the existing `voice_typer/server/` modules stay unchanged. Only `ipc_server.py` gets the `--ws` flag + `TAURI_SIDECAR=1` gate; `native_hotkeys.py` gets one new env-var path; `task_scheduler.py` gets one Tauri-aware branch. The 68-command registry, 21-event bus, handlers, ASR pipeline, audio filter chain, tray logic, hotkey subsystem, prewarm, crash recovery — all stay verbatim.
-- **Rust host**: NEW. Replaces `client/src/main/index.ts` (2,204 lines of Electron main process) + `electron_launcher.py` (215 lines) + `autostart_launcher.py` (464 lines).
-- **Electron fallback**: 100% intact. The `--ws` flag and `TAURI_SIDECAR=1` gate are additive — `--port 9876` (Electron) still works exactly as before.
+- **Python sidecar**: 100% of the existing `voice_typer/server/` modules stay unchanged. Only `ipc_server.py` gets the `--ws` flag + `TAURI_SIDECAR=1` gate; `native_hotkeys.py` gets one new env-var path; `task_scheduler.py` gets one Tauri-aware branch. The 68-command registry, 21-event bus, handlers, ASR pipeline, audio filter chain, tray logic (pystray — works under Tauri because the sidecar inherits the desktop session), hotkey subsystem, prewarm, crash recovery — all stay verbatim.
+- **Rust host**: NEW. Replaces `client/src/main/index.ts` (2,205 lines of Electron main process) + `electron_launcher.py` (215 lines) + `autostart_launcher.py` (464 lines) on the Tauri path. Electron path is 100% intact as a reversible fallback.
+- **React bridge**: NEW (`tauri-bridge.ts`, 357 lines). The renderer code (`usePython.ts`, all pages, all components) is unchanged on both paths for the `python` namespace and FT-1 events. **`bubble` mutators + export/dialog APIs are Tauri-path stubs** (no-ops / rejections) — the renderer is unchanged but those features are not yet functional under Tauri (see "What's NOT implemented this round" #5/#6). This is a known partial-parity gap, not full contract equivalence.
 
 ## Next steps (in priority order)
 
-1. **Install Rust + Tauri CLI on a dev machine**, compile `src-tauri/`, fix any compile errors in `main.rs`. The code is written to compile but is not yet validated.
-2. **Wire the dev-mode branch in `main.rs`** — `VOICE_TYPER_SIDECAR_DEV=1` spawns `python -m voice_typer.server.ipc_server --ws` instead of `externalBin`. ~15 lines of Rust.
-3. **Run Phase 0-W on Windows** — install Nuitka + `python-build-standalone`, build `python-sidecar-x86_64-pc-windows-msvc.exe`, run the 9-point validation gate at the end of ADR-0020.
-4. **Port the React UI to Tauri WebView** (Phase 3) — replace `ipcMain`/`contextBridge` with `invoke('dispatch', ...)`, port the tray, audit for webkit2gtk quirks.
+1. **Run Phase 0-W on Windows** — follow the Windows Validation Runbook (`docs/migration/windows-validation-runbook.md`). Install Nuitka + `python-build-standalone`, build `python-sidecar-x86_64-pc-windows-msvc.exe`, run the 9-point validation gate.
+2. **Run `cargo tauri build` on Windows/macOS/Linux** — follow the Tauri Build Runbook (`docs/migration/tauri-build-runbook.md`). Requires a display server + platform-specific toolchain.
+3. **Wire the dev-mode branch in `main.rs`** — `VOICE_TYPER_SIDECAR_DEV=1` spawns `python -m voice_typer.server.ipc_server --ws` instead of `externalBin`. ~15 lines of Rust.
+4. **Implement the 6 stubbed bubble APIs** — add Rust-side `bubble:show`, `bubble:set-position`, `bubble:set-draggable`, etc. commands.
 5. **Wire CI** — extend `.github/workflows/build.yml` with one Nuitka build job per target triple + one Tauri build job per platform.
 6. **Phase 0-M (macOS, both archs)** then **Phase 0-L (Linux X11 + Wayland)**.
