@@ -122,6 +122,25 @@ if [[ ! -f "$SRC_TAURI/Cargo.toml" ]]; then
     exit 1
 fi
 
+# ─── Phase 0: ensure Tauri icons + binary stubs are present ──────────────────
+# BUILD-4: src-tauri/tauri.conf.json references 4 PNG icons + 6 sidecar binaries
+# (externalBin) + 3 native + 6 prewarm resources. On a clean checkout NONE of
+# these exist, so `cargo tauri build` (Phase 1c) fails immediately with
+# "failed to open icon 'icons/32x32.png'" / "resource path ... doesn't exist".
+# gen_tauri_icons_stub.py --check verifies all stubs are present (exit 0) or
+# reports which are missing (exit 1). If --check fails, generate the stubs
+# automatically so a developer doesn't have to run the generator manually first
+# (see docs/migration/tauri-build-runbook.md "Common failures"). Stubs are NOT
+# real binaries — they print "STUB: not a real sidecar" + exit 1 if executed;
+# Phase 1a below overwrites them with real Nuitka/compiled artifacts.
+echo "::group::Phase 0 — ensure Tauri icons + binary stubs"
+ICON_STUB="$PROJECT_ROOT/scripts/gen_tauri_icons_stub.py"
+if ! python "$ICON_STUB" --check; then
+    echo "[build_tauri_all] some stubs missing — generating..."
+    python "$ICON_STUB" || { echo "ERROR: gen_tauri_icons_stub.py failed" >&2; exit 1; }
+fi
+echo "::endgroup::"
+
 # ─── Phase 1a: build the Nuitka sidecar + prewarm + native listener ──────────
 if [[ "$SKIP_SIDECAR" -eq 0 ]]; then
     echo "::group::Phase 1a — per-platform sidecar + prewarm + native"
@@ -179,9 +198,51 @@ if [[ $BUILD_RC -ne 0 ]]; then
     exit 3
 fi
 
-# ─── Phase 1d: optional signing ──────────────────────────────────────────────
+# ─── Phase 1d: verify build artifacts ─────────────────────────────────────────
+# BUILD-5: cargo tauri build can silently produce an empty / missing bundle on
+# toolchain misconfigurations (missing webkit2gtk, MSVC mismatch, stale
+# externalBin, etc.). This phase verifies the artifact set so a silent failure
+# doesn't slip through to signing / release. Checks:
+#   (a) at least one bundle file exists in target/$TARGET_TRIPLE/release/bundle/,
+#   (b) each bundle file is non-empty and > 1 MB (catches truncated/corrupt
+#       bundles — a real installer is tens of MB),
+#   (c) the sidecar binary was placed in src-tauri/bin/ (Tauri externalBin
+#       target — if missing, the installed app fails to launch the backend).
+echo "::group::Phase 1d — verify build artifacts"
+BUNDLE_DIR="$SRC_TAURI/target/$TARGET_TRIPLE/release/bundle"
+if [[ ! -d "$BUNDLE_DIR" ]]; then
+    echo "ERROR: bundle dir not found: $BUNDLE_DIR" >&2
+    echo "  cargo tauri build did not produce a bundle directory." >&2
+    exit 4
+fi
+# (a) at least one bundle file exists.
+BUNDLE_FILE_COUNT=$(find "$BUNDLE_DIR" -type f 2>/dev/null | wc -l)
+if [[ "$BUNDLE_FILE_COUNT" -eq 0 ]]; then
+    echo "ERROR: no bundle files found in $BUNDLE_DIR" >&2
+    exit 4
+fi
+# (b) each bundle file is non-empty and > 1 MB.
+MIN_BUNDLE_BYTES=1048576  # 1 MB
+while IFS= read -r -d '' _bf; do
+    _size=$(stat -c %s "$_bf" 2>/dev/null || stat -f %z "$_bf" 2>/dev/null || echo 0)
+    if [[ "$_size" -lt "$MIN_BUNDLE_BYTES" ]]; then
+        echo "ERROR: bundle file too small (< 1 MB): $_bf ($_size bytes)" >&2
+        exit 4
+    fi
+done < <(find "$BUNDLE_DIR" -type f -print0)
+# (c) the sidecar binary was placed in src-tauri/bin/.
+SIDECAR_BIN="$SRC_TAURI/bin/python-sidecar-$TARGET_TRIPLE"
+if [[ ! -f "$SIDECAR_BIN" ]]; then
+    echo "ERROR: sidecar binary not found: $SIDECAR_BIN" >&2
+    echo "  Phase 1a should have placed python-sidecar-$TARGET_TRIPLE in src-tauri/bin/." >&2
+    exit 4
+fi
+echo "[build_tauri_all] OK: $BUNDLE_FILE_COUNT bundle file(s) + sidecar binary verified"
+echo "::endgroup::"
+
+# ─── Phase 1e: optional signing ──────────────────────────────────────────────
 if [[ "$DO_SIGN" -eq 1 ]]; then
-    echo "::group::Phase 1d — code-sign + notarize (ADR-0020 §13)"
+    echo "::group::Phase 1e — code-sign + notarize (ADR-0020 §13)"
     echo "[build_tauri_all] Signing is platform-specific — see docs/migration/signing-guide.md"
     case "$HOST_PLATFORM" in
         windows)

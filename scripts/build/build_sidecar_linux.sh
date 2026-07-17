@@ -17,6 +17,7 @@
 #                                                       # (requires aarch64 host)
 #                                                       # OR cross-build on x86_64
 #                                                       # via qemu-user-static
+#   bash scripts/build/build_sidecar_linux.sh --check   # verify toolchain (BUILD-1)
 #
 # Required env (override defaults with these):
 #   VOICE_TYPER_PYBS_DIR  Directory containing the extracted python-build-standalone
@@ -43,6 +44,39 @@ set -euo pipefail
 
 # ─── Parse args ─────────────────────────────────────────────────────────────
 ARCH="${1:-}"
+if [[ "$ARCH" == "--check" ]]; then
+    # BUILD-1: --check mode (mirrors build_sidecar_windows.sh lines 48-55).
+    # Pre-flight toolchain verification without invoking a full Nuitka build.
+    # Uses $PYBS_PYTHON (the python-build-standalone interpreter) instead of
+    # the Windows sibling's `python` from PATH, since the Linux script's
+    # toolchain is pybs-scoped (see ADR-0020 §4.4).
+    echo "[build_sidecar_linux] --check: verifying toolchain"
+    _ck_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    _ck_project_root="$(cd "$_ck_script_dir/../.." && pwd)"
+    _ck_pybs_dir="${VOICE_TYPER_PYBS_DIR:-$_ck_project_root/.python-build-standalone}"
+    PYBS_PYTHON=""
+    for _ck_triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+        for _ck_candidate in \
+            "$_ck_pybs_dir/python/bin/python3" \
+            "$_ck_pybs_dir"/cpython-3.12.*+"$_ck_triple"/python/bin/python3 \
+            "$_ck_pybs_dir"/cpython-3.12.*+"$_ck_triple"/bin/python3; do
+            if [[ -x "$_ck_candidate" ]]; then
+                PYBS_PYTHON="$_ck_candidate"
+                break 2
+            fi
+        done
+    done
+    if [[ -z "$PYBS_PYTHON" ]]; then
+        echo "MISSING: python-build-standalone interpreter (set VOICE_TYPER_PYBS_DIR)" >&2
+        exit 1
+    fi
+    "$PYBS_PYTHON" -c "import nuitka" 2>/dev/null \
+        || { echo "MISSING: nuitka (pip install nuitka)" >&2; exit 1; }
+    "$PYBS_PYTHON" -c "import faster_whisper, ctranslate2" 2>/dev/null \
+        || { echo "MISSING: faster_whisper/ctranslate2" >&2; exit 1; }
+    echo "[build_sidecar_linux] OK: toolchain ready"
+    exit 0
+fi
 if [[ "$ARCH" != "x86_64" && "$ARCH" != "aarch64" ]]; then
     echo "Usage: $0 {x86_64|aarch64}" >&2
     echo "  x86_64  — native build on x86_64 host" >&2
@@ -199,28 +233,40 @@ NUITKA_ENV=(
 #   --enable-plugin=numpy
 #   --include-package=faster_whisper --include-package=ctranslate2
 #   --include-package=voice_typer   --include-package=websockets
-#   --include-data-dir=$SITE/ctranslate2/lib=$SITE/ctranslate2/lib
-#   --include-data-dir=$SITE/ctranslate2/libs=$SITE/ctranslate2/libs
+#   --include-data-dir=$SITE/ctranslate2/lib=$SITE/ctranslate2/lib   (always present)
+#   --include-data-dir=$SITE/ctranslate2/libs=$SITE/ctranslate2/libs (optional — guarded)
 #   --onefile-tempdir-spec=$XDG_CACHE_HOME/voice-typer/onefile-tmp
 #   --output-filename=python-sidecar-<triple>
 #   voice_typer/server/ipc_server.py
+#
+# XPLAT-3: ctranslate2/libs is OPTIONAL — CPU-only wheels (e.g. aarch64)
+# ship libctranslate2.so + libiomp5.so under ctranslate2/lib/ only, with no
+# ctranslate2/libs/ directory. Nuitka's --include-data-dir fails hard if the
+# source path is missing, so guard it (mirrors build_sidecar_macos.sh and
+# build_prewarm_linux.sh — see ADR-0020 §4.4 + XPLAT-3).
+CT2_LIBS_DIR="$SITE/ctranslate2/libs"
+NUITKA_ARGS=(
+    --standalone --onefile
+    --assume-yes-for-downloads
+    --enable-plugin=numpy
+    --include-package=faster_whisper
+    --include-package=ctranslate2
+    --include-package=voice_typer
+    --include-package=websockets
+    --include-package=numpy
+    --include-data-dir="$SITE/ctranslate2/lib=$SITE/ctranslate2/lib"
+    --onefile-tempdir-spec="$ONEFILE_TEMPDIR"
+    --output-dir="$OUTPUT_DIR"
+    --output-filename="python-sidecar-$TRIPLE"
+    voice_typer/server/ipc_server.py
+)
+if [[ -d "$CT2_LIBS_DIR" ]]; then
+    NUITKA_ARGS+=(--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR")
+else
+    echo "[build_sidecar_linux] NOTE: ctranslate2/libs not found at $CT2_LIBS_DIR — skipping (optional on CPU-only wheels)"
+fi
 set +e
-"${NUITKA_ENV[@]}" "$PYBS_PYTHON" -m nuitka \
-    --standalone --onefile \
-    --assume-yes-for-downloads \
-    --enable-plugin=numpy \
-    --include-package=faster_whisper \
-    --include-package=ctranslate2 \
-    --include-package=voice_typer \
-    --include-package=websockets \
-    --include-package=numpy \
-    --include-data-dir="$SITE/ctranslate2/lib=$SITE/ctranslate2/lib" \
-    --include-data-dir="$SITE/ctranslate2/libs=$SITE/ctranslate2/libs" \
-    --onefile-tempdir-spec="$ONEFILE_TEMPDIR" \
-    --output-dir="$OUTPUT_DIR" \
-    --output-filename="python-sidecar-$TRIPLE" \
-    voice_typer/server/ipc_server.py \
-    2>&1 | tee "$BUILD_LOG"
+"${NUITKA_ENV[@]}" "$PYBS_PYTHON" -m nuitka "${NUITKA_ARGS[@]}" 2>&1 | tee "$BUILD_LOG"
 NUITKA_RC=${PIPESTATUS[0]}
 set -e
 

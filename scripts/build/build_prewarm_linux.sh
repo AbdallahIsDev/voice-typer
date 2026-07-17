@@ -69,6 +69,14 @@ SITE="$("$PY" -c 'import site; print(site.getsitepackages()[0])')"
     || { echo "ERROR: build env missing deps" >&2; exit 1; }
 
 CT2_LIB_DIR="$SITE/ctranslate2/lib"
+# XPLAT-18: validate CT2_LIB_DIR existence (matches build_sidecar_linux.sh
+# pattern). ctranslate2/lib is mandatory on Linux (libctranslate2.so +
+# libiomp5.so / libgomp.so live here); without this guard Nuitka builds a
+# prewarm binary that crashes on `import ctranslate2`.
+if [[ ! -d "$CT2_LIB_DIR" ]]; then
+    echo "ERROR: $CT2_LIB_DIR not found" >&2
+    exit 1
+fi
 CT2_LIBS_DIR="$SITE/ctranslate2/libs"
 
 # ─── Prepare output dir ──────────────────────────────────────────────────────

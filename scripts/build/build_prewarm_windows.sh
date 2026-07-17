@@ -70,6 +70,20 @@ SITE="$("$PY" -c 'import site; print(site.getsitepackages()[0])')"
 
 CT2_LIB_DIR="$SITE/ctranslate2/lib"
 CT2_DLL="$CT2_LIB_DIR/ctranslate2.dll"
+# XPLAT-9: validate CT2_LIB_DIR / CT2_DLL existence (matches
+# build_sidecar_windows.sh lines 101-113). Without these guards, Nuitka builds
+# a prewarm .exe that crashes on `import ctranslate2` because the OpenMP /
+# CTranslate2 native DLLs are missing from the bundle.
+if [[ ! -d "$CT2_LIB_DIR" ]]; then
+    echo "ERROR: $CT2_LIB_DIR not found — ctranslate2 install is incomplete." >&2
+    exit 1
+fi
+if [[ ! -f "$CT2_DLL" ]]; then
+    echo "ERROR: $CT2_DLL not found — ctranslate2 install is incomplete." >&2
+    exit 1
+fi
+echo "[build_prewarm_windows] CT2_LIB_DIR=$CT2_LIB_DIR"
+echo "[build_prewarm_windows] CT2_DLL=$CT2_DLL"
 
 # ─── Prepare output dir ──────────────────────────────────────────────────────
 mkdir -p "$RESOURCES_DIR"

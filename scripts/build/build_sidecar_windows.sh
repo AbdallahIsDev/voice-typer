@@ -118,22 +118,37 @@ mkdir -p "$SIDECAR_DIR"
 # ─── Run Nuitka (ADR-0020 §4.2) ──────────────────────────────────────────────
 # NOTE: --onefile-tempdir-spec uses Windows env var %LOCALAPPDATA%; Nuitka
 # expands it at runtime. The build runs on Windows so the var exists.
-echo "[build_sidecar_windows] Running Nuitka..."
-"$PY" -m nuitka \
-    --standalone --onefile \
-    --assume-yes-for-downloads \
-    --enable-plugin=numpy \
-    --include-package=faster_whisper \
-    --include-package=ctranslate2 \
-    --include-package=voice_typer \
-    --include-package=websockets \
-    --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR" \
-    --include-dll="$CT2_DLL" \
-    --windows-disable-console \
-    --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\onefile-tmp" \
-    --output-filename="$OUTPUT_NAME" \
-    --output-dir="$SIDECAR_DIR" \
+#
+# BUILD-2 / XPLAT-3 parity: ctranslate2/libs (plural) is OPTIONAL on Windows
+# — most Windows wheels ship everything under ctranslate2/lib (singular), but
+# GPU-enabled wheels may also have a libs/ dir with CUDA DLLs. Guard it to
+# avoid a hard Nuitka failure if the dir is absent (mirrors the Linux + macOS
+# sibling scripts — see ADR-0020 §4.2 + XPLAT-3).
+CT2_LIBS_DIR="$SITE/ctranslate2/libs"
+NUITKA_ARGS=(
+    --standalone --onefile
+    --assume-yes-for-downloads
+    --enable-plugin=numpy
+    --include-package=faster_whisper
+    --include-package=ctranslate2
+    --include-package=voice_typer
+    --include-package=websockets
+    --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR"
+    --include-dll="$CT2_DLL"
+    --windows-disable-console
+    --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\onefile-tmp"
+    --output-filename="$OUTPUT_NAME"
+    --output-dir="$SIDECAR_DIR"
     "$PROJECT_ROOT/voice_typer/server/ipc_server.py"
+)
+if [[ -d "$CT2_LIBS_DIR" ]]; then
+    NUITKA_ARGS+=(--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR")
+    echo "[build_sidecar_windows] CT2_LIBS_DIR=$CT2_LIBS_DIR (including extra DLLs)"
+else
+    echo "[build_sidecar_windows] NOTE: ctranslate2/libs not found at $CT2_LIBS_DIR — skipping (optional on CPU-only wheels)"
+fi
+echo "[build_sidecar_windows] Running Nuitka..."
+"$PY" -m nuitka "${NUITKA_ARGS[@]}"
 
 # ─── Verify ──────────────────────────────────────────────────────────────────
 if [[ ! -f "$OUTPUT_PATH" ]]; then
