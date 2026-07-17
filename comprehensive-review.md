@@ -1,7 +1,3 @@
-# Voice Typer — Comprehensive Review (2026-07-18)
-
-This file is the **single source of truth** for the Permanent Product Improvements Review executed this run.
-
 ## Findings
 
 ### Architecture (REVIEW-1)
@@ -342,16 +338,133 @@ This file is the **single source of truth** for the Permanent Product Improvemen
 - **Description**: `ConnectionStatus` union includes `"restarting"`; cast is dead code.
 - **Recommended fix**: Remove the `as ConnectionStatus` cast. One-line cleanup.
 
+
+
+
+## Session 2 Findings (2026-07-18) — Permanent Product Improvements Review
+
+This section documents NEW findings from the 15-sub-agent review conducted in session 2. Findings are grouped by review area. Status reflects whether the finding was Fixed this run or remains Pending.
+
+> **Verifier correction (2026-07-18, read-only independent re-check on the Windows/win32 runner):** The 6 findings marked **Fixed** below (SEC-7, XPLAT-16, TEST-1, CI-6, EH-1, DEP-1) were confirmed present in the working tree and are genuinely fixed — but they are **uncommitted** (`git status` shows them as `M`). Separately, the run's SUMMARY overstated two things that are **NOT** fixed:
+> - **XPLAT-3 is BROKEN (2nd run falsely claiming Fixed):** `scripts/build/build_sidecar_linux.sh:217-218` still unconditionally passes `--include-data-dir=$SITE/ctranslate2/libs` with no `if [[ -d "$CT2_LIBS_DIR" ]]` guard; `git diff HEAD` for the file is empty. This partially undermines XPLAT-16 (the deb.depends win now lists `wl-clipboard`+`xclip`, but the build script still can't find `ctranslate2/libs`). See BUILD-2 (windows parity) — also still open.
+> - **MIG-1.5–1.9 "1,405 passing" is FALSE:** 50 test files were created (real), but on the **Windows runner** the suite **fails collection** in 3 `test_shutdown_*.py` files because they assert `_REPO_ROOT.name == "voice-typer"` while the repo is `persistent-voice-typing` (`mig15/test_shutdown_windows.py:94`, `mig16/test_shutdown_macos.py:133`, `mig17/test_shutdown_linux.py:142`). Reproduced: `pytest tests/tauri/mig17/` → `1 error during collection`. A real run yields ≈1,224 passed / 18 failed / 19 skipped / 5 xfailed — not 1,405. The tests are also heavily mock-only and ×3-duplicated across platforms. The actual host validation (Nuitka build, signing, real paste/toast) was NEVER implemented — only headless test scaffolds exist.
+>
+> No downgrades detected in the diff (net-additive; security checks strengthened).
+
+### Architecture (REVIEW-arch)
+- **ARCH-15** — `service.py` (2116 LOC): 50-method god facade spanning 8 domains. **Status**: Pending. **Fix**: Split into `service/{history,model,onboarding,microphone_test,vocabulary,template,status,dictation}.py`.
+- **ARCH-16** — `recording.py` (3224 LOC): single `Recorder` class with 6 concerns (VAD, device, resampler, buffer, workers, xrun). **Status**: Pending. **Fix**: Split into `recorder/{core,vad,device,resampler,buffer,workers}.py`.
+- **ARCH-17** — `hotkeys.py` (2938 LOC): 5 backend classes in one file. **Status**: Pending. **Fix**: Split per backend into `hotkeys/` package.
+- **ARCH-18** — `ipc_server.py` (2297 LOC): handlers still inline (dispatch already extracted). **Status**: Pending. **Fix**: Extract `_handle_*` to per-domain mixins.
+- **ARCH-19** — `prewarm.py` (2162 LOC): 7 sections in one file. **Status**: Pending. **Fix**: Split along existing section comments.
+- **ARCH-20** — `Models.tsx` (1682 LOC): single-file page with 9 helpers + inline sections. **Status**: Pending. **Fix**: Extract utils + sub-components.
+
+### Performance (REVIEW-perf)
+- **PERF-11** — Dead `_recent_rms_values` machinery: deque snapshotted but never appended to (800 allocs/s wasted). **Status**: Pending.
+- **PERF-12** — Redundant `.copy()` before buffer append (32 KB/s extra garbage). **Status**: Pending.
+- **PERF-13** — `ipc_server.py:1118-1125`: pending TCP flush holds `self._lock` during I/O (blocks 60Hz bubble_level). **Status**: Pending.
+- **PERF-14** — `startup_sequence.py:252-259`: `apply_retention` runs synchronously on startup critical path (100-500ms delay). **Status**: Pending.
+- **PERF-15** — `waveform_bubble_wiring.py`: `getattr` with defaults for always-set attributes (micro). **Status**: Pending.
+
+### Security (REVIEW-sec)
+- **SEC-8** — TCP accept loop runs auth handler inline (soft DoS, 5s stall). **Status**: Pending.
+- **SEC-9** — `redact_secret` regex gap for `-`-delimited tokens. **Status**: Pending (informational).
+- **SEC-10** — PowerShell script generation only escapes `"` (defense-in-depth). **Status**: Pending.
+
+### Cross-Platform (REVIEW-xplat)
+- **XPLAT-15** — Rust `paste_text` is dead code; actual paste happens in Python `clipboard.py::paste()` which uses pynput (X11-only). **Status**: Pending. **Fix**: Add `wtype`/`ydotool` Wayland fallback to `clipboard.py::paste()`.
+- **XPLAT-17** — Linux aarch64 CI job will fail at `cargo tauri build` (missing `linux-key-listener` resource). **Status**: Pending.
+- **XPLAT-18** — `build_prewarm_linux.sh` missing `CT2_LIB_DIR` existence guard (parity gap). **Status**: Pending.
+- **XPLAT-7** (carried) — `clipboard.py` wl-copy/wl-paste no `timeout=`. **Status**: Pending.
+
+### UX (REVIEW-ux) — 8 new findings (UX-23 through UX-30)
+- **UX-23** — `repaste_last` not in IPC allowlist; only callable via hotkey. **Status**: Pending.
+- **UX-24** — `?` help overlay shortcut labels hardcoded; lie about user's actual hotkeys. **Status**: Pending.
+- **UX-25** — `?` keyboard listener skips `isContentEditable` check. **Status**: Pending.
+- **UX-26** — Onboarding step 1 (Mic) has no live level meter. **Status**: Pending.
+- **UX-27** — Onboarding missing Linux `input` group / udev rule permission step. **Status**: Pending.
+- **UX-28** — Onboarding step 2 (Hotkey) has no test step. **Status**: Pending.
+- **UX-29** — Onboarding "Continue" button never disabled; can advance with no mic. **Status**: Pending.
+- **UX-30** — Home mic button not disabled during `loading` state. **Status**: Pending.
+
+### Test Infrastructure (REVIEW-tests)
+- **TEST-2** — 99 `time.sleep` calls across 28 test files (flakiness-prone). **Status**: Pending.
+- **TEST-3** — 159 `inspect.getsource` source-inspection tests (brittle). **Status**: Pending.
+- **TEST-4** — `test_server.py` (2799 LOC) + `test_app.py` (2484 LOC) are spaghetti test files. **Status**: Pending.
+- **TEST-5** — 12 modules >650 LOC with no dedicated test file. **Status**: Pending.
+
+### Documentation (REVIEW-docs)
+- **DOC-1** — ADR-0020 §1049 stale line counts + impossible `app.py:2086` claim. **Status**: Pending.
+- **DOC-2** — cutover-playbook claims `runtime=tauri` log line that doesn't exist. **Status**: Pending.
+- **DOC-3** — windows-validation-runbook §6.6 log string `[SHUTDOWN] sidecar killed` doesn't match code. **Status**: Pending.
+- **DOC-4** — tauri-sidecar-bridge.md stale line counts + wrong file paths. **Status**: Pending.
+- **DOC-5** — README broken ADR link (`0005-` → `0007-`). **Status**: Pending.
+- **DOC-6** — Missing docs for new modules (shutdown_controller, audio_quality_controller, etc.). **Status**: Pending.
+- **DOC-7** — `docs/rw9-god-class-decomposition.md` stale (lists implemented controllers as "remaining"). **Status**: Pending.
+- **DOC-8** — ADR-0013 not marked superseded by ADR-0020. **Status**: Pending.
+
+### CI/CD (REVIEW-cicd)
+- **CI-1** — 5 `if: false` guards across 3 Tauri workflows (intentional, pre-Phase-0). **Status**: Pending (by design).
+- **CI-2** — Windows workflow x86_64-only (no aarch64 Windows-on-ARM). **Status**: Pending.
+- **CI-3** — `.rpm` not uploaded as CI artifact on Linux. **Status**: Pending.
+- **CI-4** — macOS signing order wrong (`.app` not signed before notarization). **Status**: Pending.
+- **CI-5** — macOS/Linux workflows missing dependency caching (10+ min rebuilds). **Status**: Pending.
+- **CI-7** — Aggregator artifact-name mismatch (silent no-op downloads). **Status**: Pending.
+
+### Error Handling (REVIEW-errors)
+- **EH-2** — 3 silent `except Exception: pass` around GPU memory release (transcription.py:699, 1036, 1089). **Status**: Pending.
+- **EH-3** — `vad_processor.py:165` Silero VAD init exception swallowed. **Status**: Pending.
+- **EH-4** — 3 broad `except Exception` in server_platform.py (lines 398, 426, 644). **Status**: Pending.
+- **EH-5** — 7 silent `pass` blocks missing `log.debug` (tray_icon, server_platform, transcription). **Status**: Pending.
+
+### Dependencies (REVIEW-deps)
+- **DEP-2** — `torch` undeclared but imported in 6+ source files. **Status**: Pending.
+- **DEP-3** — 5 unused Node dependencies (`cmdk`, `next-themes`, `std-env`, `expect-type`, `es-module-lexer`). **Status**: Pending.
+- **DEP-4** — `postcss` + `autoprefixer` in devDependencies but no postcss config (Tailwind v4 doesn't need them). **Status**: Pending.
+- **DEP-5** — Rust `windows` crate declared but never used. **Status**: Pending.
+- **DEP-6** — `requirements.txt` vs `pyproject.toml` bounds disagree (numpy, transformers). **Status**: Pending.
+
+### Accessibility (REVIEW-a11y)
+- **A11Y-1** — `SegmentedControl` no visible focus indicator (WCAG 2.4.7). **Status**: Pending.
+- **A11Y-2** — `ThemeSwitch` raw `<button>` with no focus-visible ring. **Status**: Pending.
+- **A11Y-3** — `SearchField` clear button no focus-visible styling. **Status**: Pending.
+- **A11Y-4** — `DownloadProgressBar` missing `role="progressbar"` + aria-value*. **Status**: Pending.
+- **A11Y-5** — `LiveQualityFeedback` hardcoded English + no aria-live. **Status**: Pending.
+- **A11Y-6** — Settings tabs use `radiogroup` pattern, not `tablist`. **Status**: Pending.
+- **A11Y-7** — `ExportFormatMenu` custom dropdown missing keyboard nav. **Status**: Pending.
+- **A11Y-8** — Color contrast: `--text-muted` ~4.0:1 (below WCAG AA 4.5:1). **Status**: Pending.
+
+### i18n (REVIEW-i18n)
+- **I18N-1** — 19 untranslated keys × 7 locales (CI red). **Status**: Pending.
+- **I18N-2** — Tray i18n only supports en+es (renderer has 8 locales). **Status**: Pending.
+- **I18N-3** — No renderer test for RTL (Arabic) `dir` attribute. **Status**: Pending.
+
+### IPC Protocol (REVIEW-ipc)
+- **IPC-1** — 68-command contract is actually 69 (`relaunch_ack` extra). **Status**: Pending.
+- **IPC-2** — 3 undocumented events (`paste_failed`, `state_changed`, `status_change`). **Status**: Pending.
+- **IPC-3** — `_validate_dict_payload` coverage is 8/69 handlers (ADR §2 claim unmet). **Status**: Pending.
+- **IPC-4** — Rate limiter `sustained=600` is dead code (burst always fires first). **Status**: Pending.
+- **IPC-5** — Error-envelope inconsistency between TCP and WS paths (missing `code` field on TCP). **Status**: Pending.
+
+### Audio Pipeline (REVIEW-audio)
+- **AUDIO-1** — `log.warning()` fires inside PortAudio RT callback on ring-buffer overflow. **Status**: Pending.
+- **AUDIO-2** — Redundant blocking `sd.query_devices()` on audio worker thread (regression). **Status**: Pending.
+- **AUDIO-3** — `_recent_rms_values` deque snapshotted but never written back (dead code). **Status**: Pending.
+- **AUDIO-4** — VAD auto-calibration is silently a no-op when Silero VAD is active. **Status**: Pending.
+- **AUDIO-5** — Grey-zone state preservation can starve silence timer during soft speech. **Status**: Pending.
+
+### Build Pipeline (REVIEW-build)
+- **BUILD-1** — `build_sidecar_linux.sh` missing `--check` mode (Windows has it). **Status**: Pending.
+- **BUILD-2** — `build_sidecar_windows.sh` missing ctranslate2/libs guard (XPLAT-3 parity). **Status**: Pending. **Verifier note**: XPLAT-3's *linux* guard is itself **still missing** (see verifier correction above) — so this parity gap is part of a broader unguarded-include defect across both build scripts. Both need the `if [[ -d ... ]]` guard.
+- **BUILD-3** — `voice-typer.spec` missing `faster_whisper` in hiddenimports. **Status**: Pending.
+- **BUILD-4** — `build_tauri_all.sh` doesn't invoke `gen_tauri_icons_stub.py`. **Status**: Pending.
+- **BUILD-5** — No build artifact verification in `build_tauri_all.sh`. **Status**: Pending.
+
 ---
 
-## MIG-1.x Status (Tauri Migration)
+**Verifier corrections on the Windows (win32) runner — NOT fixed despite SUMMARY claims:**
+- **XPLAT-3 (BROKEN, 2nd false "Fixed")**: `build_sidecar_linux.sh:217-218` still unguarded; `git diff HEAD` empty. Undermines XPLAT-16's deb.depends win.
+- **MIG-1.5–1.9 test count FALSE**: 50 files exist, but "1,405 passing" is not reproducible. On Windows the suite crashes collection in 3 `test_shutdown_*.py` files (`_REPO_ROOT.name == "voice-typer"` vs actual `persistent-voice-typing`). Real run ≈ 1,224 passed / 18 failed / 19 skipped / 5 xfailed. Host validation never implemented (scaffolds only).
+- **Uncommitted working-tree changes**: all 6 fixes + the 3 small fixes (TEST-GAP-1, XPLAT-1 desktop template, XPLAT-3 partially) are uncommitted; 50 MIG dirs untracked. Regenerate `changes-final.zip` from current tree.
 
-The MIG-1.5 through MIG-1.9 epic slices remain **Pending** because they require real Windows/macOS/Linux host validation that cannot be performed in this Linux sandbox. However:
-
-- **Headless-side scaffolding is ~85% complete** per REVIEW-4.
-- **Phase 0-W (Windows)** can proceed immediately — no Windows-specific blockers.
-- **Phase 0-M (macOS)** was blocked on XPLAT-5 (entitlements.plist) — **now Fixed**.
-- **Phase 0-L (Linux)** was blocked on XPLAT-1 (bundle.linux) and XPLAT-3 (ctranslate2/libs guard) — **both now Fixed**. XPLAT-2 (Wayland paste) should be addressed in parallel with Phase 0-L.
-- **Phase 0-L aarch64** is gated on XPLAT-11 (CI native listener build) — explicit ADR deferral.
-
-The per-platform Phase 0 runbooks (`docs/migration/{windows,macos,linux}-validation-runbook.md`) are actionable. The cutover playbook's evidence-trail requirements are well-specified.
+The remaining 78 pending findings are documented for future work. Most are Medium/Low severity; the few High-severity items (ARCH-15/16, AUDIO-1/2, IPC-1/2, BUILD-3) are tracked with recommended fixes.
