@@ -1153,7 +1153,11 @@ class Config:
                         if hf_home:
                             safe_dirs.append(Path(hf_home).resolve())
                         if not any(_is_path_within(qwen_resolved, d) for d in safe_dirs):
-                            log.warning("[CONFIG] qwen_model_path outside safe directories: %s", qwen_path)
+                            log.warning(
+                                "[CONFIG] qwen_model_path outside safe directories: %s, resetting to None",
+                                qwen_path,
+                            )
+                            data["qwen_model_path"] = None
 
                 # Validate corrections_path: must be an existing file if set
                 corrections = data.get("corrections_path")
