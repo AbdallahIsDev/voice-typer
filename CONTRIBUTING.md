@@ -164,6 +164,74 @@ pre-commit install --hook-type commit-msg   # if you wire commit-msg checks
 pre-commit run --all-files   # run the whole suite manually
 ```
 
+### Tauri Development (migration in progress)
+
+> **Note:** The Tauri stack is **NOT the default shipping app yet** — Electron is still the default. Cutover is per-platform per [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md). The Tauri stack is additive: the Electron code is untouched and remains a reversible fallback. See [README § Runtime Architecture](README.md#runtime-architecture) and [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md) for the migration contract.
+
+The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks** — the same bundle runs under Electron (via `voice_typer/client/src/preload/index.ts`'s `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
+
+#### Prerequisites (in addition to the common prereqs in §1)
+
+- **Rust toolchain** — install via [rustup](https://rustup.rs/). The `src-tauri/rust-toolchain.toml` file pins the channel; `rustup` reads it automatically when you `cd src-tauri`.
+- **Tauri v2 system deps** (per-OS):
+  - **Linux (X11 or Wayland)**: `webkit2gtk-4.1`, `gtk-3`, `librsvg`, `libssl-dev`, `libayatana-appindicator3-dev` (Debian/Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`). Set `PKG_CONFIG_PATH` if `cargo check` can't find `webkit2gtk-4.1`.
+  - **macOS 11+**: Xcode Command Line Tools (already required above).
+  - **Windows 10/11**: WebView2 runtime (preinstalled on Windows 11; Windows 10 may need the Evergreen Bootstrapper from <https://developer.microsoft.com/microsoft-edge/webview2/>) + MSVC build tools (already required above).
+- **Nuitka** (only needed for `cargo tauri build`, not for `cargo tauri dev`): see [`docs/migration/tauri-build-runbook.md`](docs/migration/tauri-build-runbook.md) for the freeze workflow.
+
+#### Environment variables
+
+| Variable | Purpose | When to set it |
+|---|---|---|
+| `TAURI_SIDECAR=1` | Tells the Python backend it is running under the Tauri host. Disables the Python-side heartbeat watchdog (ADR-0018) and the Win32 single-instance mutex — the Tauri host provides both via `tauri-plugin-single-instance` and the FT-1 supervisor. | Set automatically when the sidecar is launched with `--ws` (i.e. `python -m voice_typer.server.ipc_server --ws`). Set manually only when debugging the WS server in isolation. |
+| `VOICE_TYPER_SIDECAR_DEV=1` | Tells the Tauri Rust host to spawn `python -m voice_typer.server.ipc_server --ws` as a subprocess instead of the Nuitka-frozen `externalBin` binary. Lets you iterate on UI/transport changes in seconds — no ~10-minute Nuitka rebuild required. | Set when running `cargo tauri dev` (see below). Do NOT set for `cargo tauri build` — production builds must use the frozen sidecar. |
+
+#### Common commands
+
+```bash
+cd src-tauri
+
+# Type-check + lint the Rust host (no display server required — runs in CI)
+cargo check
+cargo clippy --all-targets -- -D warnings
+
+# Dev mode — runs the Rust host against a live Python subprocess.
+# Requires a display server for the WebView (WebView2 on Windows,
+# WKWebView on macOS, webkit2gtk on Linux). On a headless box,
+# `cargo check` is the most you can do.
+VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev
+
+# Production build — bundles the Nuitka-frozen sidecar + native hotkey
+# binaries + prewarm binaries per target triple. Requires the sidecar
+# binary to exist in src-tauri/bin/ — see the build runbook.
+cargo tauri build
+```
+
+> **Headless dev containers:** `cargo tauri dev` and `cargo tauri build` both require a display server for the WebView. `cargo check` and `cargo clippy` do not — they are the recommended validation commands in CI and on headless dev machines. See [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md) § "What's NOT implemented this round" for the current host-validation status.
+
+#### What's where
+
+| Path | Purpose |
+|---|---|
+| `src-tauri/src/main.rs` | The Rust host (1,866 lines): spawns sidecar via `externalBin`, opens WS client, performs bearer-token auth, exposes a generic `dispatch` Tauri command, bridges server-initiated events to Tauri events, coalesces `bubble_level` 60Hz→30Hz, runs FT-1 supervisor with 500ms→1s→2s→4s→8s backoff (cap 5 → full-app relaunch via `AppHandle::restart()`). |
+| `src-tauri/Cargo.toml` | Tauri v2 + plugins (`shell`, `notification`, `clipboard-manager`, `single-instance`, `dialog`) + `enigo` (keystroke injection) + `tokio-tungstenite` (WS client). |
+| `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
+| `src-tauri/capabilities/migrate-runtime.json` | Least-privilege capability: scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`. **No `core:tray:*`** (the sidecar owns the tray via pystray). |
+| `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 68-command registry unchanged), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
+
+#### Cutover status
+
+The Tauri stack is gated on a per-platform Phase 0 validation spike before it can become the default. See:
+
+- [`docs/migration/windows-validation-runbook.md`](docs/migration/windows-validation-runbook.md) — Phase 0-W (Windows, in progress).
+- [`docs/migration/macos-validation-runbook.md`](docs/migration/macos-validation-runbook.md) — Phase 0-M (macOS, not started).
+- [`docs/migration/linux-validation-runbook.md`](docs/migration/linux-validation-runbook.md) — Phase 0-L (Linux X11 + Wayland, not started).
+- [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md) — per-platform cutover gates.
+- [`docs/migration/tauri-build-runbook.md`](docs/migration/tauri-build-runbook.md) — full Nuitka + Tauri build instructions.
+- [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md) — bridge architecture + current implementation status.
+
 ---
 
 ## 3. Project Structure

@@ -1,5 +1,89 @@
 # Voice Typer — Architecture
 
+## Dual Runtime Stacks: Electron + Tauri (migration in progress)
+
+Voice Typer is migrating from Electron to **Tauri v2 + Python sidecar** per [ADR-0020](adr/0020-desktop-runtime-migration-analysis.md). Both stacks ship from the same source tree; the **Electron stack is the current default**, and the **Tauri stack is additive** (the Electron code is untouched and remains a reversible fallback). Cutover is per-platform (Windows first → macOS → Linux) per the [cutover playbook](migration/cutover-playbook.md). The renderer code (`usePython.ts`, pages, components) is **byte-identical on both paths** — the runtime difference is absorbed entirely by the bridge.
+
+The diagram in the next section ("High-level overview") shows the **Electron** stack (the default shipping app). The Tauri stack is described below it.
+
+### Backend (shared by both stacks)
+
+The Python backend lives in `voice_typer/server/` and is unchanged between the two stacks:
+
+| Module | Purpose |
+|---|---|
+| `voice_typer/server/ipc_server.py` | JSON-lines IPC server (TCP `127.0.0.1:9876` on Electron; localhost WebSocket on Tauri). SEC-018 session-token auth, RELIABILITY-006 rate limiter, 68-command `_COMMAND_REGISTRY`, 21-event bus. Under `TAURI_SIDECAR=1`: heartbeat watchdog (ADR-0018) is NOT started; Win32 single-instance mutex is NOT acquired. |
+| `voice_typer/server/app.py` | `VoiceTyperApp` orchestrator — startup, state machine, thread safety. |
+| `voice_typer/server/recording.py` + `recording_controller.py` | PortAudio capture, silence detection, session lifecycle, streaming. |
+| `voice_typer/server/transcription.py` + `asr_registry.py` + `qwen_engine.py` + `parakeet_engine.py` | ASR pipeline (Whisper / Qwen3-ASR / Parakeet, with GPU→CPU fallback). |
+| `voice_typer/server/text_cleanup.py` + `vocabulary.py` + `templates.py` + `llm_polish.py` | Post-transcription cleanup, user corrections, snippets, optional LLM polish (PRIVACY-001 consent gate). |
+| `voice_typer/server/clipboard.py` | Clipboard copy + safe auto-paste (Win32 focus detection). |
+| `voice_typer/server/hotkeys.py` + `hotkey_dispatcher.py` + `native_hotkeys.py` | 3 hotkey backends (dictation / ESC / repaste) + native binary lookup (`VOICE_TYPER_NATIVE_DIR` env var for Tauri resource path). |
+| `voice_typer/server/tray.py` + `tray_menu.py` | pystray tray icon (works under Tauri because the sidecar inherits the desktop session). |
+| `voice_typer/server/prewarm_scheduler_posix.py` + `prewarm_resolver.py` + `task_scheduler.py` | Prewarm scheduling (Windows Task Scheduler / macOS LaunchAgent / Linux systemd user timer). `resolve_prewarm_exe()` finds the frozen `prewarm-<triple>[.exe]` for the Tauri path. |
+| `voice_typer/server/crash_recovery.py` | Crash-recovery buffer (RELIABILITY-005 async flush). |
+| `voice_typer/server/history_db.py` | SQLite WAL history DB (SEC-007 `0o600` perms). |
+| `voice_typer/server/sidecar_ws.py` (NEW for Tauri) | WebSocket server side of the Tauri bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth, dispatches WS frames via `IPCServer._dispatch` (reuses the 68-command registry unchanged). |
+
+### Frontend (shared by both stacks)
+
+The React renderer lives in `voice_typer/client/src/renderer/` and is **the same bundle on both paths**:
+
+| Module | Purpose |
+|---|---|
+| `voice_typer/client/src/renderer/src/App.tsx` + `main.tsx` + `bubble-main.tsx` | React root, routing, bubble window root. `main.tsx` and `bubble-main.tsx` both `import "./lib/tauri-bridge"` BEFORE the React app mounts so the `window.python`/`window.bubble`/`window.window_` namespaces are ready when `usePython` and other hooks initialize. |
+| `voice_typer/client/src/renderer/src/hooks/usePython.ts` | Shared IPC hook — reconnects, request/response correlation, event subscription, NEW-IPC-107 error-envelope parity. |
+| `voice_typer/client/src/renderer/src/pages/` + `components/` | Home, Settings, History, Models, Vocabulary, Templates, Microphone, Dashboard, Onboarding, About + shadcn/ui components. |
+
+### Electron host (default shipping app)
+
+| Component | Source | Purpose |
+|---|---|---|
+| Electron main process | `voice_typer/client/src/main/index.ts` (2,205 lines) | Generates 32-byte `IPC_TOKEN`, spawns Python backend as a child process, bridges `ipcMain`/`ipcRenderer` ↔ TCP `127.0.0.1:9876`, manages main + bubble windows, owns ALLOWED_COMMANDS allowlist (SEC-002 lateral boundary). |
+| Preload bridges | `voice_typer/client/src/preload/index.ts`, `voice_typer/client/src/preload/bubble.ts` | `contextBridge.exposeInMainWorld` installs `window.python`, `window.bubble`, `window.window_`. SEC-014 `contextIsolation: true` + `sandbox: true`; SEC-016 `assertFromBubble(event)` on bubble-scoped handlers. |
+| Electron launcher | `voice_typer/server/electron_launcher.py` (215 lines) | Inverse path (Python-as-parent) — also exists for the standalone Python install. |
+
+### Tauri host (in migration, not yet the default)
+
+| Component | Source | Purpose |
+|---|---|---|
+| Rust host | `src-tauri/src/main.rs` (1,866 lines) | Spawns the Python sidecar via Tauri's `externalBin` (one binary per target triple), reads `{"event":"server_started","port":N}` JSON from stdout, opens a localhost WebSocket client with 1 MiB frame cap, performs bearer-token auth, exposes ONE generic `dispatch` Tauri command to the webview, subscribes to server-initiated events (emits BOTH the specific event name AND a generic `python-event` envelope), coalesces `bubble_level` 60Hz→30Hz, runs FT-1 supervisor with 500ms→1s→2s→4s→8s backoff (cap 5 → full-app relaunch via `AppHandle::restart()`), drains pending dispatch requests + clears `ws_tx` on WS disconnect, cooperative shutdown with 2s ack timeout + `kill_children` backstop. |
+| Tauri config | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` so `window.__TAURI__` is available to the renderer bridge. CSP carries over from the Electron `csp-plugin.ts`. |
+| Capabilities | `src-tauri/capabilities/migrate-runtime.json` | Least-privilege: scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`. **No `core:tray:*`** (sidecar owns tray via pystray). |
+| Cargo manifest | `src-tauri/Cargo.toml` | Tauri v2 + plugins (`shell`, `notification`, `clipboard-manager`, `single-instance`, `dialog`) + `enigo` (keystroke injection) + `tokio-tungstenite` (WS client) + `rand` (token gen) + Windows `windows` crate for `AttachThreadInput`/`SetForegroundWindow`. |
+
+### Bridge: `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
+
+The Phase 3 UI port is the architectural keystone of the migration: the **renderer code is identical on both paths**. The runtime difference is absorbed entirely by the bridge, which auto-detects the host at startup and installs the right namespace:
+
+- **Electron path** — `client/src/preload/index.ts` runs in the preload world and uses `contextBridge.exposeInMainWorld` to install `window.python`, `window.bubble`, `window.window_`. The bridge module's `installTauriBridge()` detects the absence of `window.__TAURI__` and **early-returns** — it does NOT touch the preload-installed namespaces (referential identity preserved, verified by `tauri-bridge-commands.test.ts`).
+- **Tauri path** — `tauri.conf.json` sets `withGlobalTauri: true`, so the Tauri runtime injects `window.__TAURI__` (with `core.invoke`, `event.listen`, `window.getCurrentWindow`) before the renderer JS executes. The bridge module's auto-install side effect (last line of `tauri-bridge.ts`) calls `installTauriBridge()`, which sees `__TAURI__` and installs `window.python`/`window.bubble`/`window.window_` using Tauri's global API.
+
+Both `main.tsx` (main window) and `bubble-main.tsx` (bubble window) import `./lib/tauri-bridge` BEFORE the React app mounts, so the namespaces are ready when `usePython` and other hooks initialize.
+
+### IPC contract
+
+The IPC surface is **frozen for v1** at **68 commands / 21 events** (see ADR-0020 §16). The same `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py` dispatches both the Electron TCP path and the Tauri WebSocket path. The Electron main-process `ALLOWED_COMMANDS` allowlist (`client/src/main/index.ts`) is the lateral security boundary on the Electron path; the Tauri `dispatch` command's `externalBin`-scoped capability (`src-tauri/capabilities/migrate-runtime.json`) is the lateral boundary on the Tauri path.
+
+### Dev mode
+
+`VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev` (in `src-tauri/`) runs the Rust host against a `python -m voice_typer.server.ipc_server --ws` subprocess for fast iteration — no Nuitka rebuild needed. See [CONTRIBUTING.md § Tauri Development](../CONTRIBUTING.md#tauri-development-migration-in-progress) and the [bridge architecture doc](migration/tauri-sidecar-bridge.md).
+
+### Migration status
+
+| Platform | Status | Runbook |
+|---|---|---|
+| Windows | Phase 0-W pending real-host validation (Nuitka exe + Tauri spawn + WS + HMAC + faster-whisper + enigo + notification + cooperative shutdown + prewarm LogonTrigger + native hotkey). | [`migration/windows-validation-runbook.md`](migration/windows-validation-runbook.md) |
+| macOS | Phase 0-M not started. | [`migration/macos-validation-runbook.md`](migration/macos-validation-runbook.md) |
+| Linux (X11 + Wayland) | Phase 0-L not started. | [`migration/linux-validation-runbook.md`](migration/linux-validation-runbook.md) |
+| Cutover | Per-platform; Electron remains the default until each platform's Tauri build is proven. | [`migration/cutover-playbook.md`](migration/cutover-playbook.md) |
+| Build | Nuitka freeze + Tauri bundle per target triple. | [`migration/tauri-build-runbook.md`](migration/tauri-build-runbook.md) |
+| Bridge | Phase 3 UI port complete (renderer shared between both stacks). | [`migration/tauri-sidecar-bridge.md`](migration/tauri-sidecar-bridge.md) |
+
+For the full migration contract (architecture boundaries, what stays / what moves / what is removed, per-platform Nuitka + signing + paste + autostart + prewarm + path resolution), see [ADR-0020](adr/0020-desktop-runtime-migration-analysis.md).
+
+---
+
 ## High-level overview
 
 ```

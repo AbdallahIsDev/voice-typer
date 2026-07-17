@@ -15,6 +15,32 @@ Premium offline background voice-to-text utility. Runs in your system tray. Pres
 
 No cloud. No API keys. No rate limits. Fully offline after first model download.
 
+## Runtime Architecture
+
+Voice Typer runs on **two parallel runtime stacks** during the migration from Electron to Tauri v2:
+
+1. **Electron (current default shipping app)** — `voice_typer/client/src/main/index.ts` (Electron main process) spawns the Python backend as a child process and bridges IPC over a local TCP socket on `127.0.0.1:9876`. This is the app users install today from the [Releases page](https://github.com/AbdallahIsDev/voice-typer/releases).
+
+2. **Tauri v2 + Python sidecar (in migration, not yet the default)** — `src-tauri/src/main.rs` is a Rust host that spawns the Python backend as a Nuitka-frozen sidecar via Tauri's `externalBin` mechanism and bridges IPC over a localhost WebSocket. This stack is being developed per [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md).
+
+The Electron stack remains fully shippable as a **reversible fallback** until each platform's Tauri build is proven and cut over (Windows first → macOS → Linux, per [docs/migration/cutover-playbook.md](docs/migration/cutover-playbook.md)). The Tauri stack is **additive** — the Electron code is untouched and remains buildable, runnable, and shippable at every phase. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks** — the same bundle runs under Electron (via the preload `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host at startup and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
+
+### Developer environment variables
+
+| Variable | Purpose | When to set it |
+|---|---|---|
+| `TAURI_SIDECAR=1` | Tells the Python backend it is running under the Tauri host. Disables the Python-side heartbeat watchdog (ADR-0018) and the Win32 single-instance mutex — the Tauri host provides both. | Set automatically when the sidecar is launched with `--ws` (i.e. `python -m voice_typer.server.ipc_server --ws`). Set manually only when running the WS server standalone for debugging. |
+| `VOICE_TYPER_SIDECAR_DEV=1` | Tells the Tauri Rust host to spawn `python -m voice_typer.server.ipc_server --ws` as a subprocess instead of the Nuitka-frozen `externalBin` binary. Lets you iterate on UI/transport changes in seconds — no ~10-minute Nuitka rebuild required. | Set when running `cargo tauri dev` (see [CONTRIBUTING.md § Tauri Development](CONTRIBUTING.md#tauri-development-migration-in-progress)). Do NOT set for `cargo tauri build` (production builds must use the frozen sidecar). |
+
+### Dev mode
+
+```bash
+cd src-tauri
+VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev
+```
+
+This runs the Rust host against a `python -m voice_typer.server.ipc_server --ws` subprocess for fast iteration — no Nuitka rebuild needed. See [`docs/migration/`](docs/migration/) for the full set of validation runbooks (Windows / macOS / Linux) and the cutover playbook.
+
 ## Quick Install (Windows — Easiest)
 
 1. Go to **[Releases](https://github.com/AbdallahIsDev/voice-typer/releases)**
