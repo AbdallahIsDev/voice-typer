@@ -1,16 +1,97 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec for Voice Typer — background voice-to-text tray app.
 
-Build:
-    pyinstaller scripts\build\voice-typer.spec --noconfirm
+This is the **PyInstaller fallback** for ADR-0020 §4.5 — used when Nuitka
+is unavailable or the Nuitka build fails on a given platform. The primary
+build path is Nuitka (see `scripts/build/nuitka_freeze.sh` + the per-platform
+`build_sidecar_<platform>.sh` scripts), which produces a smaller, faster
+single-file binary. This spec exists so a packaging failure on Nuitka does
+NOT block a release — PyInstaller is the safety net.
 
-Output: dist/VoiceTyper/VoiceTyper.exe (windowed, no console)
+Two output modes are selected via the `VOICE_TYPER_TAURI_SIDECAR` env var:
+
+1. **Legacy Electron path** (default, `VOICE_TYPER_TAURI_SIDECAR` unset):
+   Build:
+       pyinstaller scripts\build\voice-typer.spec --noconfirm
+   Output: dist/VoiceTyper/VoiceTyper.exe (windowed, no console)
+   This is the standalone Electron-replacement exe used by electron-builder's
+   `extraResources` to ship a pre-built Python backend alongside the
+   Electron shell. NOT used on the Tauri path.
+
+2. **Tauri sidecar path** (`VOICE_TYPER_TAURI_SIDECAR=1`):
+   Build (Windows):
+       set VOICE_TYPER_TAURI_SIDECAR=1
+       pyinstaller scripts\build\voice-typer.spec --noconfirm
+   Build (macOS/Linux):
+       VOICE_TYPER_TAURI_SIDECAR=1 pyinstaller scripts/build/voice-typer.spec --noconfirm
+   Output: dist/python-sidecar-<triple>[.exe]
+   Where <triple> matches the Rust target triple Tauri's `externalBin`
+   mechanism expects (see `src-tauri/src/sidecar/spawn.rs::target_triple_for`):
+     - Windows x86_64: python-sidecar-x86_64-pc-windows-msvc.exe
+     - Windows aarch64: python-sidecar-aarch64-pc-windows-msvc.exe
+     - macOS x86_64:    python-sidecar-x86_64-apple-darwin
+     - macOS aarch64:   python-sidecar-aarch64-apple-darwin
+     - Linux x86_64:    python-sidecar-x86_64-unknown-linux-gnu
+     - Linux aarch64:   python-sidecar-aarch64-unknown-linux-gnu
+   The output binary MUST be copied to `src-tauri/bin/python-sidecar-<triple>[.exe]`
+   (which is where Tauri's `externalBin` looks for it) before running
+   `cargo tauri build`. The `scripts/build/nuitka_freeze.sh` wrapper does
+   this automatically for the Nuitka path; for the PyInstaller fallback,
+   copy the file manually:
+       cp dist/python-sidecar-<triple> src-tauri/bin/python-sidecar-<triple>
+
+ADR-0020 §4.5 notes: the PyInstaller fallback produces a larger binary
+(~150-200 MB vs ~80-120 MB for Nuitka) and has slower cold-start (PyInstaller's
+bootloader is slower than Nuitka's compiled init). It is acceptable for an
+emergency release but should not be the default.
+
+The Tauri sidecar path uses `console=True` because the Rust host reads the
+`server_started` JSON from the sidecar's stdout pipe (see
+`src-tauri/src/sidecar/spawn.rs::spawn_sidecar_release`). The legacy Electron
+path uses `console=False` because Electron spawns the exe with its own
+stdio handling.
 """
 
+import os
 import sys
 from pathlib import Path
 
 block_cipher = None
+
+# ─── Mode selection: Tauri sidecar vs legacy Electron exe (ADR-0020 §4.5) ────
+# When VOICE_TYPER_TAURI_SIDECAR=1 is set, this spec produces a Tauri-compatible
+# `python-sidecar-<triple>` binary (console on, onefile, triple-suffixed name).
+# Otherwise it produces the legacy `VoiceTyper` windowed exe for Electron.
+_TAURI_SIDECAR = os.environ.get("VOICE_TYPER_TAURI_SIDECAR", "") == "1"
+
+# Compute the Rust target triple for the current platform, mirroring
+# `target_triple_for` in src-tauri/src/sidecar/spawn.rs. This is the suffix
+# Tauri's externalBin expects on the binary name.
+_ARCH = {
+    "win32": os.environ.get("PLATFORM", "x86_64"),  # default x86_64; override for aarch64 cross-build
+    "darwin": "x86_64" if sys.maxsize > 2**32 and os.uname().machine in ("x86_64", "amd64") else "aarch64",
+    "linux": os.uname().machine.replace("amd64", "x86_64").replace("arm64", "aarch64"),
+}.get(sys.platform, "x86_64")
+# On macOS, uname().machine is the host arch; for cross-arch builds the caller
+# sets VOICE_TYPER_TARGET_ARCH to override.
+_ARCH = os.environ.get("VOICE_TYPER_TARGET_ARCH", _ARCH)
+_TRIPLE = {
+    "win32": f"{_ARCH}-pc-windows-msvc",
+    "darwin": f"{_ARCH}-apple-darwin",
+    "linux": f"{_ARCH}-unknown-linux-gnu",
+}.get(sys.platform, f"{_ARCH}-unknown-{sys.platform}")
+
+if _TAURI_SIDECAR:
+    # Tauri sidecar: console on (Rust reads stdout for server_started JSON),
+    # name includes the triple suffix, onefile mode.
+    _EXE_NAME = f"python-sidecar-{_TRIPLE}"
+    _CONSOLE = True
+    _TARGET_ARCH = None  # let PyInstaller pick the host arch
+else:
+    # Legacy Electron path: windowed, no console, no triple suffix.
+    _EXE_NAME = "VoiceTyper"
+    _CONSOLE = False
+    _TARGET_ARCH = None
 
 # The spec file lives at <project>/scripts/build/voice-typer.spec
 _spec_script = next(a for a in sys.argv if a.endswith(".spec"))
@@ -263,7 +344,10 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="VoiceTyper",
+    # ADR-0020 §4.5: when VOICE_TYPER_TAURI_SIDECAR=1, emit `python-sidecar-<triple>`
+    # (console on, so Rust can read server_started JSON from stdout). Otherwise
+    # emit the legacy `VoiceTyper` windowed exe for the Electron fallback path.
+    name=_EXE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -273,14 +357,18 @@ exe = EXE(
                 # is not worth the support burden of AV false positives.
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,
+    console=_CONSOLE,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    target_arch=_TARGET_ARCH,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(_icon_path) if _icon_path.exists() else None,
+    # ADR-0020 §4.5: the Tauri sidecar path uses no icon (it's a background
+    # process; Tauri's host exe carries the app icon). The legacy Electron
+    # path keeps the icon for the standalone exe.
+    icon=str(_icon_path) if _icon_path.exists() and not _TAURI_SIDECAR else None,
     # PLAT-037: embed the Windows application manifest with
-    # requestedExecutionLevel=asInvoker to prevent UAC prompts
-    manifest=_manifest_file.name,
+    # requestedExecutionLevel=asInvoker to prevent UAC prompts.
+    # (Applied to both modes — the manifest is harmless on the sidecar.)
+    manifest=_manifest_file.name if sys.platform == "win32" else None,
 )

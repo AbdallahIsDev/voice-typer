@@ -70,7 +70,16 @@ dependencies = [
     "numpy>=1.26,<2.0",
     "scipy>=1.10,<2.0",
     "pyperclip>=1.8,<2.0",
-    "pystray>=0.19,<1.0",
+    # CR-16: pin pystray to the 0.19 minor series. tray.py:_apply_state
+    # reaches into pystray's private `_icon_handle` attribute to work
+    # around a Win32 DestroyIcon bug (WinError 1402) on rapid icon
+    # updates. The private attribute has been stable across 0.19.x but
+    # is NOT part of the public API — a 0.20+ release could rename or
+    # remove it, silently breaking the workaround. The tight pin
+    # `>=0.19,<0.20` ensures the workaround stays effective until an
+    # upstream `reset_icon_handle()` API lands (TODO CR-16: file upstream
+    # issue for public reset_icon_handle() API).
+    "pystray>=0.19,<0.20",
     "Pillow>=9.0,<13.0",
     "pynput>=1.7,<2.0",
     # BUILD-N04: pin transformers to <5.0. The 4.x -> 5.x boundary
