@@ -43,10 +43,21 @@ def _force_linux(monkeypatch) -> None:
 
 
 def _set_existing_paths(monkeypatch, existing: set[str]) -> None:
-    """Make ``Path.exists()`` return True only for paths in ``existing``."""
+    """Make ``Path.exists()`` return True only for paths in ``existing``.
+
+    The ``existing`` paths are passed through ``str(Path(p))`` so that
+    they are stored in the *runner's* native path representation. The
+    module under test constructs ``Path`` instances on the same runner,
+    so ``str(self)`` in ``_exists`` yields the same representation and
+    the membership test succeeds regardless of platform (e.g. on win32
+    ``str(Path("/.dockerenv"))`` is ``"\\\\.dockerenv"`` rather than
+    ``"/.dockerenv"``, so a raw comparison against the POSIX literal
+    would silently miss every patched path).
+    """
+    existing_normalized = {str(Path(p)) for p in existing}
 
     def _exists(self: Path) -> bool:
-        return str(self) in existing
+        return str(self) in existing_normalized
 
     monkeypatch.setattr(Path, "exists", _exists)
 
@@ -61,7 +72,13 @@ def _set_cgroup(monkeypatch, content: str | None) -> None:
     """
 
     def _read_text(self: Path, *args, **kwargs) -> str:
-        if str(self) == "/proc/1/cgroup":
+        # Compare against ``str(Path("/proc/1/cgroup"))`` rather than the
+        # POSIX literal so the match succeeds on every runner: on win32
+        # ``str(Path("/proc/1/cgroup"))`` is ``"\\proc\\1\\cgroup"``,
+        # which is exactly what ``str(self)`` yields for the SUT's
+        # ``Path("/proc/1/cgroup")`` call. (``FileNotFoundError(str(self))``
+        # below is just a diagnostic message and needs no normalization.)
+        if str(self) == str(Path("/proc/1/cgroup")):
             if content is None:
                 raise OSError("cannot read /proc/1/cgroup")
             return content
