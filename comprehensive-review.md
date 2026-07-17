@@ -350,14 +350,6 @@
 
 ---
 
-## Open Defects from Session-3 Verification (must fix before merge)
-
-> **DOWNGRADE #2 (MEDIUM, STILL OPEN):** `voice_typer/server/sidecar_ws.py:293` still calls `rate_limiter.reject()`, but the SEC-6 refactor made `reject()` a **no-op** (counting moved into `allow()`). WS-path rejections are no longer counted in `rejected_count` (TCP path counts them) — metric diverges between transports. Rate-limiting still functions. **Fix**: remove the `.reject()` call on the WS path (or re-point it). Low impact (observability only). **Platform**: cross-platform (Python); not OS-gated.
-
-> **Pre-existing test failure (unrelated to Session-3, but must fix):** `tests/test_recording_discard.py::test_discard_closes_stream_and_clears_buffer` — **Windows (win32) result: 1 FAILED**. Asserts `r._buffer == []`; `discard()` assigns a `collections.deque`, and `deque([]) == []` is `False` in Python. Confirmed failing identically on the base commit (diff stashed) → pre-existing, NOT a Session-3 regression. **Fix**: assert `list(r._buffer) == []` or `len(r._buffer) == 0`.
-
----
-
 ## MIG-1.5–1.9 — Real Host Validation NOT IMPLEMENTED (Partial)
 
 - **Status**: PARTIAL. Test scaffolds exist (50 files). **Windows (win32) collection: 1,410 collected, 0 errors** (collection crash fixed). But the actual host validation — real Nuitka freeze, code-sign, real paste/toast, native key-listener on Windows/macOS/Linux — is **NOT implemented**. The MIG runtime tests are mostly `MagicMock`/`AsyncMock` (one module `sidecar_ws.py` has no platform branch yet is tested ×3 per platform) and many are doc/Rust-source text-presence checks.
