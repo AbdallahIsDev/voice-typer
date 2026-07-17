@@ -2,6 +2,8 @@
 
 ## Status
 
+**Superseded by [ADR-0020](0020-desktop-runtime-migration-analysis.md).** The migration analysis below is preserved for historical context; the current authoritative migration ADR is ADR-0020 (cross-platform rewrite).
+
 Accepted — migration in progress. Electron is retained intact as a reversible fallback until Tauri + Sidecar is proven and cut over.
 
 ## Date

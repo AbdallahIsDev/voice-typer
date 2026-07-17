@@ -157,8 +157,8 @@ These require a real Windows/macOS host or a display server, neither of which is
 2. **Tauri build with display** — `cargo tauri dev` / `cargo tauri build` requires a display server for the WebView (absent in the headless dev container). `cargo check` passes on Linux (proving the code compiles); the full build requires a display. See the Tauri Build Runbook (see `docs/migration/tauri-build-runbook.md`).
 3. **Phase 0-W validation gate** — the 9-point checklist at the end of ADR-0020 must run on a Windows 10 + Windows 11 test machine. See the Windows Validation Runbook.
 4. **Phase 0-M (macOS)** and **Phase 0-L (Linux X11 + Wayland)** — same shape as Phase 0-W but per-platform. Documented in ADR-0020; not started this round.
-5. **Bubble window Tauri commands** — the Tauri bridge stubs 6 bubble APIs (`show`, `signalReady`, `setPosition`, `setDraggable`, `moveBy`, `hideComplete`) as no-ops. These require Rust-side window-management commands that are out of scope for the Phase 3 MVP port. The core bubble function (`onLevel` + state events) works.
-6. **Export/dialog APIs** — `window.window_.exportHistory` / `exportVocabulary` are stubbed with rejections in Tauri mode. They require Rust-side dialog commands (Tauri's `dialog` plugin).
+5. **Bubble window Tauri commands** — the 6 bubble APIs (`show`, `signalReady`, `setPosition`, `setDraggable`, `moveBy`, `hideComplete`) are **now implemented** in `src-tauri/src/commands/bubble.rs` (Tauri v2 `WebviewWindow` show/hide + `set_position` + `bubble:ready`/`bubble:draggable`/`bubble:hide_complete` emits). The TS bridge in `tauri-bridge.ts` is wired to them (see MIG-1.2 wiring table above). What still requires host validation is the end-to-end bubble UX (cursor-follow positioning, drag throttling) on a real display.
+6. **Export/dialog APIs** — `window.window_.exportHistory` / `exportVocabulary` are **now implemented** in `src-tauri/src/commands/export.rs` via `tauri-plugin-dialog`'s save-file dialog (with JSON + CSV encoding). The bridge return-shape mapping (`{success, path}` / `{success: false}` cancel / `{success: false, error}` throw) is verified by `tauri-bridge-commands.test.ts`. What still requires host validation is the native save dialog rendering on each platform.
 
 ## Dev-mode workflow
 
@@ -185,7 +185,7 @@ cd src-tauri
 VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev
 ```
 
-The Rust host checks `VOICE_TYPER_SIDECAR_DEV=1` and spawns `python -m voice_typer.server.ipc_server --ws` instead of the `externalBin` binary — so UI/transport iteration happens in seconds, not the ~10 minutes a Nuitka rebuild takes. (The dev-mode branch is documented in ADR-0020 §14 but not yet implemented in `main.rs` — it's a small addition for the next round.)
+The Rust host checks `VOICE_TYPER_SIDECAR_DEV=1` and spawns `python -m voice_typer.server.ipc_server --ws` instead of the `externalBin` binary — so UI/transport iteration happens in seconds, not the ~10 minutes a Nuitka rebuild takes. (The dev-mode branch is implemented in `src-tauri/src/sidecar/spawn.rs` per ADR-0020 §14 — see `is_dev_mode()` + `spawn_sidecar_dev_mode()`.)
 
 ## Architecture boundary (what stays / what moves / what is removed)
 
@@ -193,13 +193,12 @@ See ADR-0020 "What stays / what moves / what is removed" for the full scope boun
 
 - **Python sidecar**: 100% of the existing `voice_typer/server/` modules stay unchanged. Only `ipc_server.py` gets the `--ws` flag + `TAURI_SIDECAR=1` gate; `native_hotkeys.py` gets one new env-var path; `task_scheduler.py` gets one Tauri-aware branch. The 68-command registry, 21-event bus, handlers, ASR pipeline, audio filter chain, tray logic (pystray — works under Tauri because the sidecar inherits the desktop session), hotkey subsystem, prewarm, crash recovery — all stay verbatim.
 - **Rust host**: NEW. Replaces `client/src/main/index.ts` (2,205 lines of Electron main process) + `electron_launcher.py` (215 lines) + `autostart_launcher.py` (464 lines) on the Tauri path. Electron path is 100% intact as a reversible fallback.
-- **React bridge**: NEW (`tauri-bridge.ts`, 357 lines). The renderer code (`usePython.ts`, all pages, all components) is unchanged on both paths for the `python` namespace and FT-1 events. **`bubble` mutators + export/dialog APIs are Tauri-path stubs** (no-ops / rejections) — the renderer is unchanged but those features are not yet functional under Tauri (see "What's NOT implemented this round" #5/#6). This is a known partial-parity gap, not full contract equivalence.
+- **React bridge**: NEW (`tauri-bridge.ts`, 357 lines). The renderer code (`usePython.ts`, all pages, all components) is unchanged on both paths for the `python` namespace and FT-1 events. **`bubble` mutators + export/dialog APIs are implemented** in `src-tauri/src/commands/bubble.rs` + `export.rs` (see MIG-1.1 + MIG-1.2 wiring tables above) — the renderer is unchanged and those features are functional under Tauri subject to host-validation of the native window/dialog rendering.
 
 ## Next steps (in priority order)
 
 1. **Run Phase 0-W on Windows** — follow the Windows Validation Runbook (`docs/migration/windows-validation-runbook.md`). Install Nuitka + `python-build-standalone`, build `python-sidecar-x86_64-pc-windows-msvc.exe`, run the 9-point validation gate.
 2. **Run `cargo tauri build` on Windows/macOS/Linux** — follow the Tauri Build Runbook (`docs/migration/tauri-build-runbook.md`). Requires a display server + platform-specific toolchain.
-3. **Wire the dev-mode branch in `main.rs`** — `VOICE_TYPER_SIDECAR_DEV=1` spawns `python -m voice_typer.server.ipc_server --ws` instead of `externalBin`. ~15 lines of Rust.
-4. **Implement the 6 stubbed bubble APIs** — add Rust-side `bubble:show`, `bubble:set-position`, `bubble:set-draggable`, etc. commands.
-5. **Wire CI** — extend `.github/workflows/build.yml` with one Nuitka build job per target triple + one Tauri build job per platform.
-6. **Phase 0-M (macOS, both archs)** then **Phase 0-L (Linux X11 + Wayland)**.
+3. **Validate the dev-mode + bubble + export implementations on a real host** — `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn (`src-tauri/src/sidecar/spawn.rs`), the 6 bubble commands (`src-tauri/src/commands/bubble.rs`), and the 2 export commands (`src-tauri/src/commands/export.rs`) are implemented in Rust but require a display server to verify end-to-end (window show/hide positioning, native save-dialog rendering).
+4. **Wire CI** — extend `.github/workflows/build.yml` with one Nuitka build job per target triple + one Tauri build job per platform.
+5. **Phase 0-M (macOS, both archs)** then **Phase 0-L (Linux X11 + Wayland)**.

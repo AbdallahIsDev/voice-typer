@@ -263,7 +263,7 @@ cd voice-typer/src-tauri
 VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev
 ```
 
-**Note**: The `VOICE_TYPER_SIDECAR_DEV=1` branch is documented in ADR-0020 §14 but not yet implemented in `main.rs`. It's a ~15-line addition for the next round. Until then, dev mode requires the Nuitka-built sidecar.
+**Note**: The `VOICE_TYPER_SIDECAR_DEV=1` branch is implemented in `src-tauri/src/sidecar/spawn.rs` per ADR-0020 §14 — see `is_dev_mode()` + `spawn_sidecar_dev_mode()`. When the env var is set, the Rust host spawns `python -m voice_typer.server.ipc_server --ws` via `tokio::process::Command` instead of the `externalBin` binary, so dev iteration does NOT require a Nuitka rebuild.
 
 ---
 

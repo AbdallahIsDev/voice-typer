@@ -1046,24 +1046,24 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - systemd user units (`www.freedesktop.org/software/systemd/man/systemd.unit.html`).
 - macOS LaunchAgent plist reference (`developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html`).
 
-### Voice Typer source files (verified against `main` on 2026-07-16)
+### Voice Typer source files (line counts last re-verified against `main`)
 
-- `voice_typer/server/ipc_server.py` (1,952 lines) — `_COMMAND_REGISTRY` at line 1347 (68 commands), `_validate_dict_payload` at line 62, `_push_event_now` at line 389, `push` at line 1462, `ready` emit at line 1899, `_handle_heartbeat` at line 1441.
+- `voice_typer/server/ipc_server.py` (2,297 lines) — `_COMMAND_REGISTRY` at line 1615 (68 commands), `_validate_dict_payload` at line 62, `_push_event_now` at line 465, `push` at line 1734, `ready` emit at line 2245, `_handle_heartbeat` at line 1424.
 - `voice_typer/server/event_bus.py` (141 lines) — the publish/subscribe singleton.
-- `voice_typer/server/electron_launcher.py` (215 lines) — `launch_electron_frontend` (REMOVED on Tauri path).
-- `voice_typer/server/autostart_launcher.py` (464 lines) — `launch` (REMOVED on Tauri path).
+- `voice_typer/server/electron_launcher.py` (228 lines) — `launch_electron_frontend` (REMOVED on Tauri path).
+- `voice_typer/server/autostart_launcher.py` (492 lines) — `launch` (REMOVED on Tauri path).
 - `voice_typer/server/prewarm.py` (2,162 lines) — `run`, `_already_warmed`, `_mark_warmed`. (The previous ADR's `prewarm.py:17` reference was wrong — line 17 is part of the module docstring; the entrypoint is the `run` function.)
-- `voice_typer/server/task_scheduler.py` (708 lines) — Windows Task Scheduler registration (`_prewarm_command` at line 90, `_build_task_xml`, `_register_prewarm_registry`).
-- `voice_typer/server/prewarm_scheduler_posix.py` (389 lines) — macOS LaunchAgent + Linux systemd user timer registration. **The previous ADR's claim that prewarm is Windows-only was wrong — this module already exists.**
-- `voice_typer/server/server_platform.py` (~1,170 lines) — `enable_autostart`/`disable_autostart`/`is_autostart_enabled` cross-platform autostart (Win Task Scheduler + HKCU Run, macOS LaunchAgent, Linux `.desktop`).
-- `voice_typer/server/_paths.py` (130 lines) — `config_dir`, `pid_file`, `prewarm_sentinel`, `prewarm_log`, `prewarm_launchagent_log`, `autostart_log`, `venv_pythonw`. **Single source of truth for platform-aware paths.**
-- `voice_typer/server/platform_utils.py` (124 lines) — `is_windows`, `is_macos`, `is_linux`, `platform_name`, `_set_windows_process_metadata`.
-- `voice_typer/server/clipboard.py` (1,223 lines) — `ClipboardManager`, Win32 `SendInput` paste path, terminal-detection (`_TERMINAL_PROCESS_NAMES`), UIPI handling.
+- `voice_typer/server/task_scheduler.py` (793 lines) — Windows Task Scheduler registration (`_prewarm_command` at line 90, `_build_task_xml`, `_register_prewarm_registry`).
+- `voice_typer/server/prewarm_scheduler_posix.py` (431 lines) — macOS LaunchAgent + Linux systemd user timer registration. **The previous ADR's claim that prewarm is Windows-only was wrong — this module already exists.**
+- `voice_typer/server/server_platform.py` (~1,174 lines) — `enable_autostart`/`disable_autostart`/`is_autostart_enabled` cross-platform autostart (Win Task Scheduler + HKCU Run, macOS LaunchAgent, Linux `.desktop`).
+- `voice_typer/server/_paths.py` (129 lines) — `config_dir`, `pid_file`, `prewarm_sentinel`, `prewarm_log`, `prewarm_launchagent_log`, `autostart_log`, `venv_pythonw`. **Single source of truth for platform-aware paths.**
+- `voice_typer/server/platform_utils.py` (123 lines) — `is_windows`, `is_macos`, `is_linux`, `platform_name`, `_set_windows_process_metadata`.
+- `voice_typer/server/clipboard.py` (1,368 lines) — `ClipboardManager`, Win32 `SendInput` paste path, terminal-detection (`_TERMINAL_PROCESS_NAMES`), UIPI handling.
 - `voice_typer/server/hotkeys.py` (2,938 lines) — `create_hotkey_backend` factory, native + fallback backends.
-- `voice_typer/server/native_hotkeys.py` (1,174 lines) — `get_native_binary_path`, native binary subprocess management.
+- `voice_typer/server/native_hotkeys.py` (1,188 lines) — `get_native_binary_path`, native binary subprocess management.
 - `voice_typer/server/native/{windows-key-listener.c, macos-key-listener.swift, linux-key-listener.c}` — the three native hotkey binaries (preserved by this ADR).
-- `voice_typer/server/app.py` — `VoiceTyperApp`, `VoiceTyperSingleInstance` mutex at line 2086 (disabled via `TAURI_SIDECAR=1`).
-- `voice_typer/client/src/main/index.ts` (2,204 lines) — Electron main process (REMOVED on Tauri path).
+- `voice_typer/server/app.py` (1,152 lines) — `VoiceTyperApp`. The `VoiceTyperSingleInstance` Win32 mutex (`"Local\\VoiceTyperSingleInstance"`) is referenced in comments around line 1100–1104 and is disabled via `TAURI_SIDECAR=1` (single-instance enforcement is handled by Tauri's `tauri-plugin-single-instance` on the Tauri path). **Note: an earlier version of this ADR claimed `app.py:2086` for `VoiceTyperSingleInstance` — that was wrong, `app.py` is only 1,152 lines; the mutex reference lives near line 1100.**
+- `voice_typer/client/src/main/index.ts` (294 lines, plus sibling modules under `voice_typer/client/src/main/{windows,python,ipc}/`) — Electron main process, refactored from the historical monolithic 2,200-line `index.ts` into multiple submodules (REMOVED on Tauri path).
 - `voice_typer/client/electron-builder.yml` — Electron builder config (Windows NSIS + macOS DMG x64/arm64 + Linux AppImage/deb/rpm with notarization). **Source of signing-config reuse for the Tauri build.**
 - `scripts/build/voice-typer.spec` (287 lines) — PyInstaller spec (fallback for Nuitka).
 - `scripts/build/compile_native.sh` (150 lines) + `scripts/build/compile_native.ps1` — native hotkey binary build.

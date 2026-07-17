@@ -374,7 +374,7 @@ This design gives us crash isolation (a hotkey listener crash can't take down th
 
 If the native binary is missing or fails to start, `create_hotkey_backend()` transparently falls back to the legacy in-process backends (`PynputHotkey`, `WindowsNativeHotkey`, `WaylandHotkey`) so the app still works without a rebuild.
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/adr/0005-native-hotkey-architecture.md`](docs/adr/0005-native-hotkey-architecture.md) for the full design and rationale.
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/adr/0007-native-hotkey-architecture.md`](docs/adr/0007-native-hotkey-architecture.md) for the full design and rationale.
 
 ## Platform Notes
 

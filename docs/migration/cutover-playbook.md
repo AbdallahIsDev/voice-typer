@@ -242,8 +242,15 @@ for the same platform. This is expected and supported. Both builds read
 
 ### How to tell which build a user is on
 
-The first line of the user's `voice-typer.log` (in their OS-specific log
-dir) records the runtime:
+> **Note (DOC-2):** the `runtime=tauri` / `runtime=electron` first-log-line
+> marker is a **planned future feature** — it is referenced by
+> `tests/tauri/mig19/test_linux_cutover.py` as the intended cutover
+> verification mechanism, but no code in `src-tauri/src/` or
+> `voice_typer/server/` currently writes that line yet. Until it is
+> implemented, identify the runtime via the process-name heuristics
+> below (Windows Task Manager / macOS Activity Monitor / Linux `ps`).
+
+**Planned log marker** (not yet emitted by either runtime):
 
 ```
 runtime=tauri version=1.2.0 target=x86_64-pc-windows-msvc rustc=1.77.x
@@ -255,8 +262,9 @@ or
 runtime=electron version=1.2.0 electron=28.x.x node=20.x.x
 ```
 
-Support tickets MUST include this line. If the user cannot find it,
-the build can be identified by:
+When implemented, support tickets MUST include this line. If the user
+cannot find it (or until the marker is implemented), the build can be
+identified by:
 - **Windows**: Task Manager shows `voice-typer-tauri.exe` (Tauri) vs
   `Voice Typer.exe` (Electron). Tauri also spawns `python-sidecar-*.exe`;
   Electron spawns `python.exe`.
@@ -268,8 +276,9 @@ the build can be identified by:
 
 ### Support ticket triage
 
-1. Identify the user's runtime (`runtime=tauri` vs `runtime=electron`)
-   from the log first line.
+1. Identify the user's runtime (`runtime=tauri` vs `runtime=electron`
+   from the log first line once the marker is implemented; otherwise
+   via the process-name heuristics above).
 2. If the user is on Electron: handle as a normal Electron support
    ticket. Do NOT suggest they switch to Tauri unless their issue is
    "the app is too heavy" or "Chromium is conflicting with X".

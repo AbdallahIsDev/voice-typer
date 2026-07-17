@@ -153,90 +153,29 @@ Pins the `SettingsController` extraction contract:
 
 ---
 
-## 5. What Remains (Follow-Up Rounds)
+## 5. Completed and Remaining Extractions
 
-The remaining methods on `VoiceTyperApp` (~35 methods, ~2300 lines) break
-down into these candidate extraction clusters, listed by descending
-impact / cohesion:
+The clusters originally identified as follow-up candidates (now
+summarised in §5.1) were **all extracted in subsequent RW-9 rounds**.
+The 5 implemented controllers now live in their own modules and are
+wired into `VoiceTyperApp` as delegates. Only `_open_config_file`
+(§5.2) remains un-extracted, blocked by source-inspection tests.
 
-### 5.1 ShutdownController (~480 lines, 7 methods) — HIGHEST IMPACT
+### 5.1 Completed in Subsequent RW-9 Rounds
 
-Methods:
-- `_do_cleanup` (~265 lines) — the shared cleanup body used by
-  `quit()`, `restart_app()`, and `_atexit_cleanup()`. Idempotent via
-  `_cleanup_done` flag. 30+ try/except blocks for subsystem shutdown.
-- `quit` (~60 lines) — sets `_shutting_down`, calls
-  `thread_registry.shutdown_all()`, calls `_do_cleanup()`, then
-  `sys.exit(0)`.
-- `_atexit_log`, `_atexit_cleanup` (~50 lines combined) — atexit
-  safety net for daemon-thread cleanup.
-- `_install_signal_handlers`, `_install_win32_console_handler`,
-  `_win32_console_handler` (~100 lines combined) — POSIX signal
-  handlers + Windows console control handler.
+The following 5 controllers were extracted after Phase 6. Each is a
+new module in `voice_typer/server/` with a back-reference to
+`VoiceTyperApp`, mirroring the `SettingsController` pattern.
 
-**Risk**: HIGH — threading, signal handlers, Windows API calls,
-process-exit semantics. Requires careful regression testing of the
-quit/restart/atexit paths (`tests/test_app_cleanup.py` already covers
-these — would need to keep passing unchanged).
+| Controller | Module | Approx. size | Notes |
+| ---------- | ------ | ------------ | ----- |
+| `ShutdownController` | `voice_typer/server/shutdown_controller.py` | ~480 lines, 7 methods | HIGH risk (threading, signal handlers, Win32 console handler, process-exit semantics). `_do_cleanup`, `quit`, `_atexit_*`, `_install_signal_handlers`, `_win32_console_handler` extracted. Back-references `self.recording`/`self.hotkeys`/`self.models`/`self.recorder`/`self.tray`/`self.history_db`/`self._crash_recovery`/`self._thread_registry`/`self._bubble_level_worker_*`/`self._electron_pid`. `tests/test_app_cleanup.py` continues to pass unchanged. |
+| `AudioQualityController` | `voice_typer/server/audio_quality_controller.py` | ~80 lines, 3 methods | LOW risk. `_on_audio_quality_chunk` (non-blocking PortAudio callback thread), `_rebuild_audio_processor` (config-change rebuild), `_finalize_audio_quality_report` extracted. Touches only `self._audio_quality`/`self._audio_processor`/`self.tray`/`self.recorder`/`self.config`. |
+| `VolumeController` | `voice_typer/server/volume_controller.py` | ~80 lines, 3 methods | LOW risk. `_on_volume_crash_restore`, `_duck_volume`, `_restore_volume` extracted. Depends only on `self._volume_ducker`/`self.config`/`self.tray`. |
+| `TimerCoordinator` | `voice_typer/server/timer_coordinator.py` | ~50 lines, 2 methods | LOW risk. `_schedule_timer` (with generation guard) + `_cancel_pending_timers` (ARCH-022: list guarded by `_pending_timers_lock`) extracted. Depends only on `self._pending_timers`/`self._pending_timers_lock`/`self._timer_generation`. |
+| `WaveformBubbleWiring` | `voice_typer/server/waveform_bubble_wiring.py` | ~125 lines, 1 method | MEDIUM risk. `_wire_waveform_bubble` (4 callbacks + bubble-level-pusher daemon worker) extracted. Worker's lifecycle (bounded queue + daemon thread + sentinel shutdown) is intertwined with `ShutdownController._do_cleanup`, which now stops the worker via the controller's back-reference. |
 
-**Special concern**: `_do_cleanup` references `self.recording`,
-`self.hotkeys`, `self.models`, `self.recorder`, `self.tray`,
-`self.history_db`, `self._crash_recovery`, `self._thread_registry`,
-`self._bubble_level_worker_*`, `self._electron_pid`, etc. — a
-`ShutdownController` would need a back-reference to the app for ALL of
-these. The extraction is conceptually clean but mechanically large.
-
-### 5.2 AudioQualityController (~80 lines, 3 methods)
-
-Methods:
-- `_on_audio_quality_chunk` — per-chunk quality callback (runs in
-  PortAudio audio callback thread; MUST be non-blocking).
-- `_rebuild_audio_processor` — rebuilds the audio filter chain on
-  config change (called by `service.apply_config_side_effects`).
-- `_finalize_audio_quality_report` — runs final analysis after
-  `recorder.stop()` and (optionally) surfaces warnings.
-
-**Risk**: LOW — these methods are cohesive (all about audio quality)
-and don't touch external state beyond `self._audio_quality` /
-`self._audio_processor` / `self.tray` / `self.recorder` /
-`self.config`.
-
-### 5.3 VolumeController (~80 lines, 3 methods)
-
-Methods:
-- `_on_volume_crash_restore` — callback for stale duck crash-recovery
-  file.
-- `_duck_volume` — duck system volume at start of dictation.
-- `_restore_volume` — restore system volume at end of dictation.
-
-**Risk**: LOW — cohesive, isolated, depends only on
-`self._volume_ducker`, `self.config`, `self.tray`.
-
-### 5.4 TimerCoordinator (~50 lines, 2 methods)
-
-Methods:
-- `_schedule_timer` — create/track/start a timer (with generation
-  guard to prevent stale callbacks).
-- `_cancel_pending_timers` — cancel and clear all pending timers
-  (ARCH-022: list guarded by `_pending_timers_lock`).
-
-**Risk**: LOW — small, cohesive, depends only on
-`self._pending_timers`, `self._pending_timers_lock`,
-`self._timer_generation`.
-
-### 5.5 WaveformBubbleWiring (~125 lines, 1 method)
-
-Methods:
-- `_wire_waveform_bubble` — forwards waveform bubble events to the
-  IPC server. Wires 4 callbacks (`on_show`, `on_hide`, `on_level`,
-  `on_set_state`). Includes the bubble-level-pusher background worker.
-
-**Risk**: MEDIUM — the bubble level worker has threading concerns
-(bounded queue + daemon thread + sentinel shutdown). Extraction is
-conceptually clean but the worker's lifecycle is intertwined with
-`_do_cleanup` (which stops the worker on shutdown).
-
-### 5.6 `_open_config_file` (~100 lines, 1 method)
+### 5.2 Still Remaining — `_open_config_file` (~100 lines, 1 method)
 
 Methods:
 - `_open_config_file` — opens the config file in the user's default
@@ -414,19 +353,13 @@ Windows is unchanged (where `WINFUNCTYPE` exists natively).
 
 ## 10. Next Round — Recommended Priority
 
-1. **AudioQualityController** (LOW risk, ~80 lines, 3 methods) —
-   quickest win, validates the extraction pattern further.
-2. **VolumeController** (LOW risk, ~80 lines, 3 methods) — same.
-3. **TimerCoordinator** (LOW risk, ~50 lines, 2 methods) — same.
-4. **WaveformBubbleWiring** (MEDIUM risk, ~125 lines, 1 method) —
-   careful with the bubble level worker's threading.
-5. **`_open_config_file`** (LOW risk, ~100 lines, 1 method) — requires
+Items 1–4 and 6 below (AudioQualityController, VolumeController,
+TimerCoordinator, WaveformBubbleWiring, ShutdownController) have since
+been **extracted in subsequent RW-9 rounds** — see §5.1 for the
+completed modules. The only remaining follow-up is:
+
+1. **`_open_config_file`** (LOW risk, ~100 lines, 1 method) — requires
    rewriting `tests/test_b4_config_editor_lock.py` and
    `tests/test_bugfix_regressions.py:943` to inspect
    `SettingsController._open_config_file` instead of
    `VoiceTyperApp._open_config_file`.
-6. **ShutdownController** (HIGH risk, ~480 lines, 7 methods) —
-   largest single extraction, highest impact, but the highest risk due
-   to threading, signal handlers, and Windows API calls. Should be
-   done last, after the smaller extractions have validated the
-   extraction pattern further.

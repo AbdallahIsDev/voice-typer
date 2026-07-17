@@ -918,8 +918,22 @@ the process tree via `kill_children`.
 
 Expected (in `voice-typer.log`):
 ```
-[SHUTDOWN] sidecar killed
+[SHUTDOWN] sidecar exited gracefully (code=Some(0), signal=None)
 ```
+
+(on graceful shutdown — see `src-tauri/src/commands/sidecar_cmds.rs` line ~164)
+
+or, if Rust had to force-kill after the 2 s ack timeout:
+```
+[SHUTDOWN] sidecar kill completed (graceful=false)
+```
+
+(on force-kill path — see `src-tauri/src/commands/sidecar_cmds.rs` line ~206)
+
+The `graceful=true` variant appears when the sidecar exited on its own
+within the ack timeout (the `exited gracefully (code=..., signal=...)`
+log line is emitted first); `graceful=false` appears when Rust had to
+fall back to `kill_children`.
 
 Expected (in `sidecar.log`):
 ```
@@ -929,7 +943,9 @@ Expected (in `sidecar.log`):
 **Pass criteria**:
 - All three processes (`voice-typer`, `python-sidecar`,
   `windows-key-listener`) exit within 2 s of window close.
-- `[SHUTDOWN] sidecar killed` appears in `voice-typer.log`.
+- One of `[SHUTDOWN] sidecar exited gracefully (code=..., signal=...)`
+  (graceful) OR `[SHUTDOWN] sidecar kill completed (graceful=...)`
+  (after-force-kill) appears in `voice-typer.log`.
 - `[SIDECAR-WS] shutdown received` appears in `sidecar.log`.
 
 **Fail scenarios**:
@@ -1297,7 +1313,7 @@ tracking issue.
 | §6.3 | faster-whisper transcribe | ☐ Pass ☐ Fail | transcribed "____" in __s | model + device name from History |
 | §6.4 | enigo paste (short + long) | ☐ Pass ☐ Fail | short=__ long=__ | `[PASTE] injected N chars via enigo` |
 | §6.5 | Toast notification | ☐ Pass ☐ Fail | toast appeared at T+__s | screenshot of Action Center |
-| §6.6 | Cooperative shutdown | ☐ Pass ☐ Fail | sidecar exited in __ms | `[SHUTDOWN] sidecar killed` |
+| §6.6 | Cooperative shutdown | ☐ Pass ☐ Fail | sidecar exited in __ms | `[SHUTDOWN] sidecar exited gracefully (code=..., signal=...)` OR `[SHUTDOWN] sidecar kill completed (graceful=...)` |
 | §6.7 | Prewarm LogonTrigger | ☐ Pass ☐ Fail | Last Run Time=____ Last Result=____ | `schtasks /query /v` output |
 | §6.8 | Native windows-key-listener | ☐ Pass ☐ Fail | hotkey ____ toggles dictation | `tasklist` shows windows-key-listener.exe |
 | §6.9 | Single-instance | ☐ Pass ☐ Fail | second launch focused existing | `tasklist` shows 1+1 processes |
