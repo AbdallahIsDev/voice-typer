@@ -157,18 +157,28 @@ def _linux_wayland_copy(text: str) -> None:
     Raises ``RuntimeError`` if `wl-copy` is missing or exits non-zero.
     The text is piped to wl-copy's stdin so it works for arbitrary
     Unicode (no shell escaping concerns).
+
+    XPLAT-7: ``timeout=5`` bounds the call so a hung Wayland compositor
+    (or a wedged wl-copy fork) can't block the transcription thread
+    indefinitely. ``subprocess.TimeoutExpired`` is converted to a
+    ``RuntimeError`` so the caller's ``except Exception`` fallback to
+    pyperclip kicks in.
     """
     if not text:
         # `wl-copy` with no args clears the clipboard; that matches our
         # "empty text → no-op" semantics in ClipboardManager.copy().
         return
-    proc = subprocess.run(
-        ["wl-copy", "--", text],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            ["wl-copy", "--", text],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"wl-copy timed out after 5s: {exc}") from exc
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
         raise RuntimeError(f"wl-copy exited with {proc.returncode}: {stderr.strip()}")
@@ -179,18 +189,98 @@ def _linux_wayland_paste() -> str:
 
     Returns the clipboard text (may be empty). Raises ``RuntimeError``
     if `wl-paste` is missing or exits non-zero.
+
+    XPLAT-7: ``timeout=5`` bounds the call (see :func:`_linux_wayland_copy`).
     """
-    proc = subprocess.run(
-        ["wl-paste", "--no-newline"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            ["wl-paste", "--no-newline"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"wl-paste timed out after 5s: {exc}") from exc
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
         raise RuntimeError(f"wl-paste exited with {proc.returncode}: {stderr.strip()}")
     return proc.stdout.decode("utf-8", errors="replace")
+
+
+# ─── XPLAT-15: Wayland paste fallback (wtype) ──────────────────────────
+#
+# pynput.keyboard.Controller is X11-only — on a native Wayland session it
+# either silently no-ops or raises (depending on whether XWayland is
+# reachable). ADR-0020 §6.6 / XPLAT-15 mandate a `wtype` shell-out as the
+# canonical Wayland text-injection path. `ydotool` is a fallback for
+# compositors that don't ship wtype (rare; wtype is in most distros).
+#
+# Detection uses BOTH `WAYLAND_DISPLAY` and `XDG_SESSION_TYPE=wayland`
+# because some compositors (e.g. sway launched from a TTY) set the latter
+# but not the former in the spawned process's env. The existing
+# :func:`_is_wayland_session` helper checks only `WAYLAND_DISPLAY` (its
+# tests pin that contract), so we use a separate helper here for the
+# broader detection.
+
+_WTYPE_SHORT_TEXT_THRESHOLD = 300  # chars; matches XPLAT-2 recommendation
+
+
+def _is_wayland_paste_session() -> bool:
+    """Return True if running on a Linux Wayland session (paste routing).
+
+    XPLAT-15: broader than :func:`_is_wayland_session` — also accepts
+    ``XDG_SESSION_TYPE=wayland`` for compositors that don't set
+    ``WAYLAND_DISPLAY`` in the spawned process's env.
+    """
+    if not is_linux():
+        return False
+    if os.environ.get("WAYLAND_DISPLAY"):
+        return True
+    return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+
+
+def _have_wtype() -> bool:
+    """Return True if `wtype` (Wayland text-injection tool) is on PATH."""
+    return bool(shutil.which("wtype"))
+
+
+def _linux_paste_via_wtype(text: str | None) -> None:
+    """Paste on Wayland via `wtype`.
+
+    XPLAT-15: pynput is X11-only and silently no-ops on Wayland. `wtype`
+    is the canonical Wayland text-injection tool. For short text we type
+    it directly (avoids clipboard round-trip + the 50ms/keystroke delay
+    is acceptable for ≤300 chars); for long text (or when no text is
+    available) we send Ctrl+V — the clipboard was already populated by
+    :meth:`ClipboardManager.copy` so this pastes the right content.
+
+    Raises ``RuntimeError`` if `wtype` is missing or exits non-zero, or
+    ``subprocess.TimeoutExpired``-derived ``RuntimeError`` on hang (5s
+    cap — matches the wl-clipboard timeout per XPLAT-7).
+    """
+    if text and len(text) <= _WTYPE_SHORT_TEXT_THRESHOLD:
+        # Short text: type directly with 50ms delay between keystrokes
+        # (matches the comprehensive-review.md XPLAT-2 recommendation).
+        cmd = ["wtype", "-d", "50", "--", text]
+    else:
+        # Long text (or no text available): paste from clipboard via Ctrl+V.
+        cmd = ["wtype", "-k", "ctrl+v"]
+    try:
+        proc = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=5,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"wtype timed out after 5s: {exc}") from exc
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        raise RuntimeError(f"wtype exited with {proc.returncode}: {stderr.strip()}")
 
 
 def _linux_copy(text: str) -> None:
@@ -1072,9 +1162,16 @@ class ClipboardManager:
         # uses SendInput directly without pynput), there's no way to
         # synthesize a paste keystroke. Bail out early rather than
         # AttributeError on _Key.cmd / _Key.ctrl below.
+        #
+        # XPLAT-15: on Linux Wayland, we route through `wtype` (no pynput
+        # needed), so don't bail out even if pynput is missing — let the
+        # Wayland branch below handle it.
         if _Controller is None and not is_windows():
-            log.warning("[CLIPBOARD] pynput unavailable — cannot paste")
-            return False
+            if is_linux() and _is_wayland_paste_session() and _have_wtype():
+                log.debug("[CLIPBOARD] pynput unavailable — will use wtype on Wayland")
+            else:
+                log.warning("[CLIPBOARD] pynput unavailable — cannot paste")
+                return False
 
         # PLAT-CLIPRACE (revised): verify clipboard wasn't modified between
         # copy and paste. The previous code only LOGGED a warning when the
@@ -1159,15 +1256,26 @@ class ClipboardManager:
                     process_name,
                 )
 
+            # XPLAT-15: on Linux Wayland, pynput silently no-ops (it's
+            # X11-only). Route through `wtype` instead — short text is
+            # typed directly (50ms/keystroke); long text uses Ctrl+V
+            # (the clipboard was already populated by copy()). Falls
+            # through to the pynput path on X11, when wtype isn't
+            # installed, or on non-Linux platforms.
+            use_wayland_wtype = is_linux() and _is_wayland_paste_session() and _have_wtype()
             if is_terminal:
                 if is_macos():
                     self._safe_key_press(_Key.cmd, "v")
+                elif use_wayland_wtype:
+                    _linux_paste_via_wtype(self._last_copied_text)
                 else:
                     self._safe_key_press(_Key.shift, _Key.insert)
             elif is_macos():
                 self._safe_key_press(_Key.cmd, "v")
             elif is_windows():
                 self._send_ctrl_v_win32()
+            elif use_wayland_wtype:
+                _linux_paste_via_wtype(self._last_copied_text)
             else:
                 self._safe_key_press(_Key.ctrl, "v")
 
