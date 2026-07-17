@@ -68,13 +68,13 @@
     ],
     "linux": {
       "deb": {
-        "depends": ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3"],
+        "depends": ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3", "wl-clipboard", "xclip"],
         "desktopTemplate": "voice-typer.desktop.template",
         "postInstall": "../../scripts/linux/postinst",
         "preRemove": "../../scripts/linux/prerm"
       },
       "rpm": {
-        "depends": ["libnotify", "libXtst", "webkit2gtk3", "python3"],
+        "depends": ["libnotify", "libXtst", "webkit2gtk3", "python3", "wl-clipboard", "xclip"],
         "postInstall": "../../scripts/linux/postinst.rpm",
         "preRemove": "../../scripts/linux/prerm.rpm"
       }
