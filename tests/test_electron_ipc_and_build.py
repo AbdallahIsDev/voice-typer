@@ -23,16 +23,34 @@ def _read(rel: str) -> str:
 
 
 class TestElectronExposesDataExportHandlers:
-    """Electron exposes export handlers for templates + config."""
+    """Electron exposes export handlers for templates + config.
 
+    RW-1 status: the renderer-side type/UX tests below are ported to
+    vitest (see ``electron-ipc-build-behavior.test.tsx`` Sections 1–2).
+    The 5 main/preload-source tests stay in Python — they assert on
+    ``src/main/index.ts`` and ``src/preload/index.ts`` source strings,
+    which cannot be loaded in the jsdom vitest environment (both files
+    import ``electron`` and ``node:*`` built-ins).  A behavioral port
+    would require ``@vitest/electron`` or Playwright Electron to spawn
+    a real main process and invoke ``ipcMain.handle("templates:export",
+    ...)`` end-to-end — see worklog for the documented dep.
+    """
+
+    # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source which
+    # imports `electron` + `node:*`; behavioral version needs a real Electron
+    # main process (would use @vitest/electron or Playwright Electron).
     def test_main_has_templates_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         assert 'ipcMain.handle("templates:export"' in main_ts or '"templates:export"' in main_ts
 
+    # REQUIRES-ELECTRON-RUNNER: same as above — src/main/index.ts source check.
     def test_main_has_config_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         assert 'ipcMain.handle("config:export"' in main_ts or '"config:export"' in main_ts
 
+    # REQUIRES-ELECTRON-RUNNER: asserts on src/preload/index.ts source which
+    # imports `electron` + `node:*`; behavioral version needs a real Electron
+    # preload context.
     def test_preload_exposes_export_templates(self):
         preload = (CLIENT_SRC / "preload" / "index.ts").read_text(encoding="utf-8")
         assert "exportTemplates" in preload
@@ -55,15 +73,20 @@ class TestElectronExposesDataExportHandlers:
         assert 't("settings.privacy.exportConfig")' in settings
         assert 't("settings.privacy.exportAllDataLabel")' in settings
 
+    # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
     def test_history_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         assert 'ipcMain.handle("history:export"' in main_ts or '"history:export"' in main_ts
 
+    # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
     def test_vocabulary_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
         assert 'ipcMain.handle("vocabulary:export"' in main_ts or '"vocabulary:export"' in main_ts
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 5)"
+)
 class TestTypeScriptWebConfigClean:
     """The web tsconfig must type-check cleanly."""
 
@@ -78,6 +101,9 @@ class TestTypeScriptWebConfigClean:
         assert "typecheck:web" in pkg.get("scripts", {})
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 11)"
+)
 class TestStandardProjectFilesExist:
     """Standard project files exist."""
 
@@ -101,6 +127,9 @@ class TestStandardProjectFilesExist:
         assert (REPO_ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md").exists()
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 9)"
+)
 class TestPyprojectHasStandardMetadataFields:
     """pyproject.toml has standard fields."""
 
@@ -121,6 +150,9 @@ class TestPyprojectHasStandardMetadataFields:
         assert "readme = " in pyproject
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 5)"
+)
 class TestPackageJsonDeclaresKeywords:
     """package.json has keywords and engines."""
 
@@ -138,6 +170,8 @@ class TestPackageJsonDeclaresKeywords:
 class TestVersionReadsFromPackageMetadata:
     """__version__ reads from package metadata."""
 
+    # REQUIRES-PYTHON-RUNNER: imports the `voice_typer` Python package to
+    # read `__version__`; out of scope for a TS-string vitest rewrite.
     def test_version_uses_importlib_metadata(self):
         from voice_typer import __version__
 
@@ -145,16 +179,25 @@ class TestVersionReadsFromPackageMetadata:
         assert isinstance(__version__, str)
         assert len(__version__) > 0
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 12)"
+    )
     def test_init_py_uses_importlib(self):
         init_src = (REPO_ROOT / "voice_typer" / "__init__.py").read_text()
         assert "importlib.metadata" in init_src
         assert "_pkg_version" in init_src or "version(" in init_src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 12)"
+    )
     def test_sync_versions_script_exists(self):
         script = REPO_ROOT / "scripts" / "build" / "sync_versions.py"
         assert script.exists()
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 12)"
+)
 class TestChangelogHasCurrentTestCount:
     """CHANGELOG test count updated."""
 
@@ -163,6 +206,9 @@ class TestChangelogHasCurrentTestCount:
         assert "1127 tests passing" not in changelog
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 9)"
+)
 class TestNoBlanketResourceWarningFilter:
     """ResourceWarning is no longer blanket-ignored."""
 
@@ -175,6 +221,9 @@ class TestNoBlanketResourceWarningFilter:
                 pytest.fail(f"Blanket 'ignore::ResourceWarning' filter found: {stripped}")
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 10)"
+)
 class TestCiRunsRuffCoverageAndPipAudit:
     """CI runs ruff, coverage, pip-audit, and multiple Python versions."""
 
@@ -196,6 +245,9 @@ class TestCiRunsRuffCoverageAndPipAudit:
         assert "3.11" in ci
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 10)"
+)
 class TestCiVerifiesVersionSync:
     """CI verifies version sync across installers and tags."""
 
@@ -208,6 +260,9 @@ class TestCiVerifiesVersionSync:
         assert "MyAppVersion" in ci
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 8)"
+)
 class TestPyinstallerSpecHasAsrHiddenImports:
     """PyInstaller spec has ASR engine hiddenimports."""
 
@@ -232,6 +287,9 @@ class TestPyinstallerSpecHasAsrHiddenImports:
         assert "huggingface_hub" in spec
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 8)"
+)
 class TestPyinstallerSpecExcludesTkinter:
     """tkinter is in PyInstaller excludes."""
 
@@ -240,6 +298,9 @@ class TestPyinstallerSpecExcludesTkinter:
         assert '"tkinter"' in spec
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 7)"
+)
 class TestElectronBuilderConfigHasSigningAndPublish:
     """electron-builder.yml has code signing + auto-update."""
 
@@ -254,6 +315,9 @@ class TestElectronBuilderConfigHasSigningAndPublish:
         assert "notarize" in yml
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.config` +
+# `voice_typer.server.ipc_server.IPCServer` and invokes `_dispatch`;
+# out of scope for a TS-string vitest rewrite.
 class TestSetConfigRejectsSensitiveAttrs:
     """set_config rejects trusted-path fields from the renderer."""
 
@@ -299,6 +363,8 @@ class TestSetConfigRejectsSensitiveAttrs:
         assert cfg.beam_size == 7
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.ipc_server.IPCServer`
+# and invokes `_dispatch`; out of scope for a TS-string vitest rewrite.
 class TestUnknownIPCCommandCode:
     """Unknown-command error includes code: unknown_command."""
 
@@ -322,23 +388,32 @@ class TestUnknownIPCCommandCode:
 class TestEntryPointImportable:
     """The main entry point must be importable."""
 
+    # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.ipc_server.main`;
+    # out of scope for a TS-string vitest rewrite.
     def test_ipc_server_main_importable(self):
         from voice_typer.server.ipc_server import main
 
         assert callable(main)
 
+    # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app`;
+    # out of scope for a TS-string vitest rewrite.
     def test_app_main_re_export_exists(self):
         import voice_typer.server.app as app_mod
 
         assert hasattr(app_mod, "main")
         assert callable(app_mod.main)
 
+    # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.__main__`;
+    # out of scope for a TS-string vitest rewrite.
     def test_dunder_main_imports_from_ipc_server(self):
         import voice_typer.server.__main__ as main_mod
 
         assert hasattr(main_mod, "main")
         assert callable(main_mod.main)
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 9)"
+    )
     def test_pyproject_entry_point_points_to_ipc_server(self):
         pyproject = REPO_ROOT / "pyproject.toml"
         content = pyproject.read_text(encoding="utf-8")
@@ -360,30 +435,57 @@ class TestAllowlistCorrectness:
         entries = re.findall(r'"([a-z_]+)"', block)
         return set(entries)
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
+    )
     def test_quit_app_in_allowlist(self, allowlist_entries):
         assert "quit_app" in allowlist_entries
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
+    )
     def test_restart_app_in_allowlist(self, allowlist_entries):
         assert "restart_app" in allowlist_entries
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
+    )
     def test_dead_quit_not_in_allowlist(self, allowlist_entries):
         assert "quit" not in allowlist_entries
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
+    )
     def test_dead_restart_not_in_allowlist(self, allowlist_entries):
         assert "restart" not in allowlist_entries
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
+    )
     def test_dead_save_config_not_in_allowlist(self, allowlist_entries):
         assert "save_config" not in allowlist_entries
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
+    )
     def test_dead_save_vocabulary_with_diff_not_in_allowlist(self, allowlist_entries):
         assert "save_vocabulary_with_diff" not in allowlist_entries
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
+    )
     def test_dead_repaste_last_not_in_allowlist(self, allowlist_entries):
         assert "repaste_last" not in allowlist_entries
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
+    )
     def test_dead_complete_onboarding_not_in_allowlist(self, allowlist_entries):
         assert "complete_onboarding" not in allowlist_entries
 
+    # REQUIRES-PYTHON-RUNNER: cross-validates the main allowlist against
+    # `voice_typer/server/ipc_server.py` Python source; out of scope for
+    # a TS-string vitest rewrite.
     def test_allowlist_matches_server_commands(self, allowlist_entries):
         import re
 
@@ -413,6 +515,9 @@ class TestRestartRequestRemoved:
         assert "| RestartRequest" not in src
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.vocabulary` +
+# `voice_typer.server.service` + `voice_typer.server.ipc_server`;
+# out of scope for a TS-string vitest rewrite.
 class TestGetVocabularyHandler:
     """get_vocabulary handler uses get_all(), not list_entries()."""
 
@@ -457,6 +562,9 @@ class TestGetVocabularyHandler:
         assert "misspellings" in result["data"]
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app` +
+# `voice_typer.server.ipc_server`; introspects Python module source via
+# `inspect.getsource`; out of scope for a TS-string vitest rewrite.
 class TestVoiceTyperAppSingleton:
     """VoiceTyperApp uses _ensure_single_instance for singleton enforcement."""
 
@@ -477,6 +585,8 @@ class TestVoiceTyperAppSingleton:
         assert hasattr(app_module, "_ensure_single_instance") or hasattr(app_module, "main")
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.ipc_server.IPCServer`
+# and invokes `_dispatch`; out of scope for a TS-string vitest rewrite.
 class TestIPCDispatchInvalidData:
     """_dispatch must not crash when data is not a dict."""
 
@@ -540,6 +650,8 @@ class TestIPCDispatchInvalidData:
         assert result["type"] in ("ack", "error")
 
 
+# REQUIRES-PYTHON-RUNNER: reads `voice_typer/server/ipc_server.py` Python
+# source; out of scope for a TS-string vitest rewrite.
 class TestExceptExceptionNotBaseException:
     """ipc_server.main() catches Exception, not BaseException."""
 
@@ -550,6 +662,10 @@ class TestExceptExceptionNotBaseException:
         assert "except Exception:" in src
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.audio_processor` +
+# `voice_typer.server.volume_ducker` + `voice_typer.server.volume_backends`
+# and introspects Python source via `inspect.getsource`; out of scope for
+# a TS-string vitest rewrite.
 class TestTypeIgnoreBugsFixed:
     """type:ignore real bugs are fixed."""
 
@@ -623,6 +739,9 @@ class TestTypeScriptNonNullAssertions:
         assert "if (!bubbleRootEl)" in src
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.vad` and
+# introspects Python source via `inspect.getsource`; out of scope for
+# a TS-string vitest rewrite.
 class TestVadStderrRedirect:
     """vad.py redirects both stdout and stderr."""
 
@@ -633,6 +752,9 @@ class TestVadStderrRedirect:
         assert "redirect_stderr" in src
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.startup_sequence`
+# and introspects Python source via `inspect.getsource`; out of scope for
+# a TS-string vitest rewrite.
 class TestMacOSAccessibilityCheck:
     """macOS accessibility permission check exists in the startup path.
 
@@ -656,6 +778,8 @@ class TestMacOSAccessibilityCheck:
         assert "tray.notify" in src
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app.VoiceTyperApp`
+# and instantiates it; out of scope for a TS-string vitest rewrite.
 class TestRestartAppStopsBackends:
     """restart_app stops all hotkey backends."""
 
@@ -702,6 +826,9 @@ class TestRestartAppStopsBackends:
             assert stops_called >= 1
 
 
+# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app.VoiceTyperApp`
+# and introspects Python source via `inspect.getsource`; out of scope
+# for a TS-string vitest rewrite.
 class TestRestartFiltersEnvVarsWithAllowlist:
     """restart_app does not leak env vars via os.environ.copy()."""
 
@@ -716,6 +843,9 @@ class TestRestartFiltersEnvVarsWithAllowlist:
         pytest.fail("Could not find restart method on VoiceTyperApp")
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 6)"
+)
 class TestIconsScriptPutsProjectVenvFirst:
     """generate-icons.mjs uses project venv as first candidate."""
 
@@ -736,6 +866,9 @@ class TestIconsScriptPutsProjectVenvFirst:
         assert ".voice-typer" not in first_text
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 5)"
+)
 class TestPackageJsonDropsUndeclaredBiome:
     """package.json no longer references undeclared biome."""
 
@@ -755,6 +888,9 @@ class TestPackageJsonDropsUndeclaredBiome:
         json.loads(pkg_path.read_text(encoding="utf-8"))
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 6)"
+)
 class TestIconScriptFallsBackAcrossPythonPaths:
     """generate-icons.mjs tries multiple Python paths."""
 
@@ -766,6 +902,9 @@ class TestIconScriptFallsBackAcrossPythonPaths:
         assert "python" in src
 
 
+@pytest.mark.skip(
+    reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 6)"
+)
 class TestIconScriptRenamesRootToClientDir:
     """root renamed to clientDir in generate-icons.mjs."""
 
