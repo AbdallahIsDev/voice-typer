@@ -697,7 +697,7 @@ class TranscriptionEngine:
                     # so the next backend (or CPU reload) can use them.
                     release_gpu_memory()
                 except Exception:
-                    pass
+                    log.debug("[MODEL] GPU memory release failed", exc_info=True)
                 self._model = None
                 self._device = "cpu"
                 self._compute_type = "int8"
@@ -807,7 +807,7 @@ class TranscriptionEngine:
                 log.info("[MODEL] Model '%s' already cached", model_size)
                 return
             except Exception:
-                pass
+                log.debug("[MODEL] HF cache probe failed — will attempt download", exc_info=True)
 
             # NEW-PRIV-005: require explicit consent before downloading
             # from HuggingFace.  The cache check above is local-only
@@ -1034,7 +1034,7 @@ class TranscriptionEngine:
                 gc.collect()
                 release_gpu_memory()
             except Exception:
-                pass
+                log.debug("[MODEL] GPU memory release failed", exc_info=True)
         return result
 
     def _transcribe_with_fallback_unlocked(
@@ -1087,7 +1087,7 @@ class TranscriptionEngine:
                 gc.collect()
                 release_gpu_memory()
             except Exception:
-                pass
+                log.debug("[MODEL] GPU memory release failed", exc_info=True)
         return result
 
     def _transcribe_words_with_fallback_unlocked(

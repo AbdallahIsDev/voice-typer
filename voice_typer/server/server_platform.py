@@ -57,7 +57,7 @@ def is_remote_session() -> bool:
                 log.info("[PLATFORM] RDP/remote session detected (SM_REMOTESESSION=%d)", result)
                 return True
         except Exception:
-            pass
+            log.debug("[PLATFORM] SM_REMOTESESSION probe failed", exc_info=True)
         return False
     else:
         # Linux/macOS: check for SSH session
@@ -171,7 +171,7 @@ def list_microphones() -> list[dict]:
                 if hapi is not None:
                     host_api_names[hai] = hapi.get("name", "")
         except Exception:
-            pass
+            log.debug("[PLATFORM] host API enumeration failed", exc_info=True)
         devices = []
         for i, dev_raw in enumerate(sd.query_devices()):
             dev = _sd_dev_as_dict(dev_raw)
@@ -388,6 +388,11 @@ def disable_autostart() -> bool:
 
 
 def is_autostart_enabled() -> bool:
+    # RW-6 (pyrefly): import subprocess BEFORE the try block so the
+    # ``except subprocess.CalledProcessError`` clause has a guaranteed-bound
+    # name (matches the pattern at line ~826).
+    import subprocess
+
     try:
         if SYSTEM == "win32":
             return _is_autostart_windows()
@@ -395,7 +400,8 @@ def is_autostart_enabled() -> bool:
             return _is_autostart_macos()
         else:
             return _is_autostart_linux()
-    except Exception:
+    except (OSError, ImportError, FileNotFoundError, subprocess.CalledProcessError):
+        log.debug("[PLATFORM] is_autostart_enabled failed", exc_info=True)
         return False
 
 
@@ -423,7 +429,8 @@ def _install_hash_suffix() -> str:
         import sys
 
         return "_" + hashlib.sha256(sys.executable.encode()).hexdigest()[:8]
-    except Exception:
+    except (OSError, ValueError):
+        log.debug("[PLATFORM] _install_hash_suffix failed", exc_info=True)
         return ""
 
 
@@ -634,6 +641,11 @@ def _is_app_autostart_task_registered() -> bool:
 
     Bug fix: removed redundant sys.platform != 'win32' check.
     """
+    # RW-6 (pyrefly): import subprocess BEFORE the try block so the
+    # ``except subprocess.CalledProcessError`` clause has a guaranteed-bound
+    # name (matches the pattern at line ~826).
+    import subprocess
+
     try:
         from voice_typer.server import task_scheduler
 
@@ -641,7 +653,8 @@ def _is_app_autostart_task_registered() -> bool:
             return False
         rc, _ = task_scheduler._schtasks(["/Query", "/TN", _APP_AUTOSTART_TASK_NAME, "/XML"])
         return rc == 0
-    except Exception:
+    except (OSError, subprocess.CalledProcessError, FileNotFoundError):
+        log.debug("[PLATFORM] _is_app_autostart_task_registered failed", exc_info=True)
         return False
 
 
@@ -885,7 +898,7 @@ def _os_uid() -> int:
         try:
             return int(_getuid())
         except OSError:
-            pass
+            log.debug("[PLATFORM] os.getuid failed — falling back to 501", exc_info=True)
     return 501  # default first user on macOS
 
 

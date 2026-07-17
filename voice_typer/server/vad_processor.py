@@ -163,6 +163,7 @@ class VadProcessor:
                         "not found) — falling back to RMS"
                     )
             except Exception:
+                log.debug("[VAD] Silero init failed — falling back to RMS", exc_info=True)
                 self._silero_available = False
 
         # AUDIO-014: auto-calibration state

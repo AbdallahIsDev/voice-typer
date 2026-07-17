@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+
 def _get_pil_image():
     """Lazy import of PIL.Image to avoid importing heavy dependencies at module load.
 
@@ -24,6 +25,7 @@ def _get_pil_image():
     module first, breaking real_pil tests.
     """
     from PIL import Image
+
     return Image
 
 
@@ -37,10 +39,12 @@ def _pil_lanczos() -> int:
     sidesteps the type-stub difference between Pillow 9 and 10).
     """
     from PIL import Image
+
     resampling = getattr(Image, "Resampling", None)
     if resampling is not None:
         return int(getattr(resampling, "LANCZOS", 1))
     return int(getattr(Image, "LANCZOS", 1))
+
 
 # NEW-MEM-003 / NEW-PERF-005: _icon_cache is intentionally process-global.
 # It caches rendered PIL Images keyed by (AppState, size).  With 6
@@ -76,6 +80,7 @@ def _get_dpi_aware_icon_size() -> int:
     if is_windows():
         try:
             import ctypes
+
             hdc = ctypes.windll.user32.GetDC(0)
             if hdc:
                 dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
@@ -84,7 +89,7 @@ def _get_dpi_aware_icon_size() -> int:
                     scale = dpi / 96.0
                     detected = int(base_size * scale)
         except Exception:
-            pass
+            log.debug("[TRAY] DPI scaling probe failed", exc_info=True)
     _dpi_aware_size_cache = detected
     return detected
 
@@ -171,6 +176,7 @@ def _draw_shape(shape: str, size: int, color: tuple):
         The rendered shape icon.
     """
     from PIL import ImageDraw
+
     image = _get_pil_image()
     img = image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -216,6 +222,7 @@ def _draw_shape_indicator(img, shape: str, color: tuple):
         The icon with a small shape indicator overlay.
     """
     from PIL import ImageDraw
+
     img = img.copy()
     draw = ImageDraw.Draw(img)
     img_size = img.size
@@ -269,11 +276,11 @@ def _make_icon(state: AppState, size: int = 0):
     # CANCELLING: orange — distinct from both green and red.
     colors = {
         AppState.IDLE: (120, 120, 120, 255),
-        AppState.RECORDING: (46, 204, 113, 255),   # Bright green
+        AppState.RECORDING: (46, 204, 113, 255),  # Bright green
         AppState.TRANSCRIBING: (52, 152, 219, 255),
         AppState.LOADING: (243, 156, 18, 255),
-        AppState.ERROR: (231, 76, 60, 255),         # Red
-        AppState.CANCELLING: (243, 156, 18, 255),   # Orange
+        AppState.ERROR: (231, 76, 60, 255),  # Red
+        AppState.CANCELLING: (243, 156, 18, 255),  # Orange
     }
     color = colors.get(state, (120, 120, 120, 255))
     shape = _ICON_SHAPES.get(state, "circle")
@@ -299,7 +306,7 @@ def _make_icon(state: AppState, size: int = 0):
         mic_img = pil_img.open(str(asset_dir / f"tray-mic-{best}.png")).convert("RGBA")
         colored = pil_img.new("RGBA", mic_img.size, color)
         # NEW-MEM-004: use getchannel('A') instead of split()[3].
-        colored.putalpha(mic_img.getchannel('A'))
+        colored.putalpha(mic_img.getchannel("A"))
         if colored.size != (size, size):
             # TASK-14: PIL 9.1+ moved ``LANCZOS`` to
             # ``Image.Resampling.LANCZOS``; the module-level alias is
@@ -310,7 +317,7 @@ def _make_icon(state: AppState, size: int = 0):
             colored = colored.resize((size, size), _pil_lanczos())
         png_loaded = True
     except Exception:
-        pass
+        log.debug("[TRAY] PNG icon load failed — using shape fallback", exc_info=True)
 
     if not png_loaded:
         # TRAY-032: No PNG icon available — use shape-only fallback
@@ -331,12 +338,13 @@ def _make_icon(state: AppState, size: int = 0):
         # Windows 11 with per-monitor DPI scaling.
         try:
             import io
+
             ico_buf = io.BytesIO()
-            colored.save(ico_buf, format='ICO', sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+            colored.save(ico_buf, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
             ico_buf.seek(0)
             colored = pil_img.open(ico_buf)
         except Exception:
-            pass
+            log.debug("[TRAY] PIL ICO conversion failed — using PNG", exc_info=True)
 
     # TASK-14: ``colored`` is guaranteed non-None at this point —
     # either the try block produced a PIL image (and we asserted that
