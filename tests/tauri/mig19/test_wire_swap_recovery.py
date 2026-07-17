@@ -903,8 +903,15 @@ def test_sidecar_ws_calls_rate_limiter_allow_per_frame(sidecar_ws_source: str) -
     assert "rate_limiter.allow()" in sidecar_ws_source, (
         "sidecar_ws.py must call rate_limiter.allow() per frame — the WS accept path rate-limiter is the ADR-0019 port"
     )
-    assert "rate_limiter.reject()" in sidecar_ws_source, (
-        "sidecar_ws.py must call rate_limiter.reject() to increment the rejected counter when allow() returns False"
+    # SEC-6 / DOWNGRADE #2 fix: allow() now increments _rejected atomically
+    # when it returns False. The separate .reject() call was removed from
+    # the WS path to keep rejected_count consistent with the TCP path
+    # (both count via allow()). Assert the no-op .reject() is NOT called.
+    assert "rate_limiter.reject()" not in sidecar_ws_source, (
+        "sidecar_ws.py must NOT call rate_limiter.reject() — SEC-6 moved "
+        "the counter increment into allow() atomically. The .reject() call "
+        "was removed (DOWNGRADE #2 fix) to keep WS-path rejected_count "
+        "consistent with the TCP path."
     )
 
 

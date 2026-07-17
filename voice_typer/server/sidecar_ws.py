@@ -290,7 +290,12 @@ def _make_dispatch(server: IPCServer):
         # via FT-1 backoff on repeated rate-limit hits.
         rate_limiter = _get_rate_limiter(server)
         if not rate_limiter.allow():
-            rate_limiter.reject()
+            # SEC-6: allow() already increments _rejected atomically when
+            # it returns False — the separate .reject() call was removed
+            # to eliminate the benign race where two threads could both
+            # observe the same deque state, both decide to reject, and
+            # double-count the rejection. This keeps WS-path rejected_count
+            # consistent with the TCP path (both count via allow()).
             return {
                 "type": "error",
                 "data": {
