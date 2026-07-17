@@ -40,6 +40,7 @@ def test_heartbeat_skipped_under_tauri_sidecar(monkeypatch):
     # __new__ and set only the attributes start() touches.
     server = ipc_server.IPCServer.__new__(ipc_server.IPCServer)
     server._running = False
+    server._tcp_mode = False  # set by __init__; tests bypass it via __new__
     server._heartbeat_stop_event = __import__("threading").Event()
     server._heartbeat_thread = None
     server._stdin_thread = None
@@ -85,6 +86,7 @@ def test_heartbeat_started_without_tauri_sidecar(monkeypatch):
 
     server = ipc_server.IPCServer.__new__(ipc_server.IPCServer)
     server._running = False
+    server._tcp_mode = False  # set by __init__; tests bypass it via __new__
     server._heartbeat_stop_event = __import__("threading").Event()
     server._heartbeat_thread = None
     server._stdin_thread = None
