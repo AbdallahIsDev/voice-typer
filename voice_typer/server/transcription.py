@@ -190,7 +190,7 @@ def _download_with_retry(
     """
     import time as _time
 
-    last_exc = None
+    last_exc: BaseException = RuntimeError("no transcription attempts made")
     for attempt in range(max_attempts):
         try:
             return download_fn(**kwargs)
@@ -212,7 +212,7 @@ def _download_with_retry(
                     max_attempts,
                     exc,
                 )
-    raise last_exc  # type: ignore[misc]
+    raise last_exc
 
 
 def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
