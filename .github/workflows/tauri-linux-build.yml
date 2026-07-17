@@ -1,49 +1,55 @@
 name: Tauri Linux build (Phase 0-L)
 
 # ADR-0020 Phase 0-L: Linux Nuitka sidecar + prewarm + native listener + Tauri bundle.
-# Marked `if: false` initially — the build takes 30-60 min and the smoke tests
-# need a display server (not available in CI). Enable manually for release builds
-# once the local validation runbook (docs/migration/linux-validation-runbook.md)
-# has passed on a real Linux display host.
+# Marked `if: false` initially — the build takes 30-60 min per arch and the smoke
+# tests need a display server (not available in CI). Enable manually for release
+# builds once the local validation runbook
+# (docs/migration/linux-validation-runbook.md) has passed on a real Linux display
+# host.
+#
+# Matrix: builds BOTH x86_64-unknown-linux-gnu AND aarch64-unknown-linux-gnu in
+# parallel. The aarch64 job cross-compiles via qemu-user-static on the x86_64
+# runner (binfmt_misc registers qemu-aarch64-static as the ELF handler for
+# aarch64 binaries so Nuitka can execute the aarch64 python-build-standalone
+# interpreter during compilation). ADR-0020 §4.4 mandates a separate Nuitka
+# build per target triple (Nuitka does NOT cross-compile natively).
 #
 # To enable: change `if: false` to `if: true` (or trigger via workflow_dispatch).
 on:
   workflow_call:
     inputs:
       target:
-        description: "Rust target triple (empty = host triple)"
+        description: "Rust target triple (empty = both archs in matrix)"
         required: false
         default: ""
         type: string
       sign:
-        description: "Code-sign + notarize the bundle (requires secrets)"
+        description: "Code-sign + notarize the bundle (requires secrets — Linux is unsigned by default per ADR-0020 §13.3)"
         required: false
         default: false
         type: boolean
-  push:
-    tags:
-      - "v*-linux"
-    branches:
-      - main
-    paths:
-      - "src-tauri/**"
-      - "voice_typer/server/**"
-      - "scripts/build/build_sidecar_linux.sh"
-      - "scripts/build/build_prewarm_linux.sh"
-      - "scripts/build/build_native_listener_linux.sh"
-      - ".github/workflows/tauri-linux-build.yml"
-  pull_request:
-    paths:
-      - "src-tauri/**"
-      - "voice_typer/server/**"
-      - "scripts/build/build_*linux*.sh"
-      - ".github/workflows/tauri-linux-build.yml"
   workflow_dispatch:
     inputs:
       arch:
-        description: "Target arch (x86_64 or aarch64; default: x86_64)"
+        description: "Target arch (x86_64, aarch64, or both; default: both)"
         required: false
-        default: "x86_64"
+        default: "both"
+        type: choice
+        options:
+          - x86_64
+          - aarch64
+          - both
+  # ADR-0020 §15 + Phase 0-L gate: do NOT enable push/PR triggers until the
+  # Linux host validation runbook has passed on a real Linux display host
+  # (X11 + Wayland). The workflow is invoked manually via workflow_dispatch
+  # (or via the tauri-build.yml orchestrator's workflow_call). The per-job
+  # `if: false` guard below is the second layer of protection.
+  # push:
+  #   tags:
+  #     - "v*-linux"
+  #   branches:
+  #     - main
+  # pull_request:
 
 # CI-08-style concurrency: cancel in-flight PR builds, keep release builds running.
 concurrency:
@@ -56,12 +62,21 @@ jobs:
     if: false
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    strategy:
+      # Fail fast = false so an aarch64 build failure doesn't hide an x86_64
+      # success (and vice versa). ADR-0020 §"Reversibility": each platform's
+      # cutover is independent.
+      fail-fast: false
+      matrix:
+        arch:
+          - x86_64
+          - aarch64
 
     env:
       # Pin to 3.12 — ADR-0020 §4.4 mandates 3.12.x (CTranslate2 / faster-whisper wheel tags).
       PYTHON_VERSION: "3.12"
-      # The arch being built. For aarch64, the script will use qemu-user-static.
-      BUILD_ARCH: ${{ github.event.inputs.arch || 'x86_64' }}
+      # The arch being built. For aarch64, the script uses qemu-user-static.
+      BUILD_ARCH: ${{ matrix.arch }}
 
     steps:
       - name: Checkout
@@ -88,10 +103,23 @@ jobs:
           cache-dependency-path: voice_typer/client/package-lock.json
 
       - name: Install system deps (apt)
+        # ADR-0020 §4.4 + §13.3 system deps:
+        #   - libwebkit2gtk-4.1-dev: build-time headers for cargo tauri build
+        #     (the runtime webkit2gtk-4.1-0 is pulled in transitively).
+        #   - libnotify4: runtime toast notification (libnotify).
+        #   - libxtst6: XTest extension for pynput/enigo X11 keystroke injection.
+        #   - wl-clipboard: provides wl-copy/wl-paste for ADR-0020 §6.6 Wayland
+        #     clipboard fallback (voice_typer/server/clipboard.py::_linux_copy).
+        #   - xclip: X11 clipboard fallback (pyperclip backend).
+        #   - libgtk-3-dev / libayatana-appindicator3-dev / librsvg2-dev: Tauri
+        #     tray + appindicator + icon rendering.
+        #   - patchelf: required by Nuitka --standalone on Linux.
+        #   - qemu-user-static + binfmt-support: cross-arch aarch64 builds.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            webkit2gtk-4.1-0 libnotify4 libxtst6 wl-clipboard xclip \
+            libwebkit2gtk-4.1-dev webkit2gtk-4.1-0 \
+            libnotify4 libxtst6 wl-clipboard xclip \
             build-essential pkg-config libssl-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev \
             qemu-user-static binfmt-support file patchelf
@@ -146,7 +174,24 @@ jobs:
           ls -la "$PYBS_DIR"
           "$PYBS_DIR/python/bin/python3" --version
 
+      - name: Install faster-whisper + ctranslate2 + websockets into pybs env
+        # ADR-0020 §4.4: Nuitka needs faster_whisper + ctranslate2 + websockets
+        # installed in the python-build-standalone env so --include-package picks
+        # them up. numpy is pulled in transitively by faster-whisper.
+        run: |
+          set -euo pipefail
+          PYBS_PY="$PWD/.python-build-standalone/python/bin/python3"
+          "$PYBS_PY" -m pip install --quiet \
+            faster-whisper ctranslate2 websockets numpy
+          "$PYBS_PY" -c "import faster_whisper, ctranslate2, websockets; print('OK')"
+
       - name: Build native key-listener (Linux)
+        # NOTE: only the x86_64 job builds the native listener. The aarch64
+        # native listener must be built on an aarch64 host (or under
+        # qemu-system-aarch64) — `compile_native.sh` doesn't cross-compile.
+        # The aarch64 job's `Verify` step below tolerates a missing
+        # linux-key-listener for that arch.
+        if: env.BUILD_ARCH == 'x86_64'
         run: bash scripts/build/build_native_listener_linux.sh
 
       - name: Build Nuitka sidecar (${{ env.BUILD_ARCH }})
@@ -159,7 +204,7 @@ jobs:
         env:
           VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
 
-      - name: Verify sidecar binary
+      - name: Verify sidecar + prewarm binaries
         run: |
           set -euo pipefail
           TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
@@ -168,16 +213,28 @@ jobs:
           LISTENER="src-tauri/resources/native/linux-key-listener"
           test -x "$BIN"      || { echo "MISSING: $BIN";      exit 1; }
           test -x "$PREWARM"  || { echo "MISSING: $PREWARM";  exit 1; }
-          test -x "$LISTENER" || { echo "MISSING: $LISTENER"; exit 1; }
-          echo "=== ldd $BIN ==="
-          ldd "$BIN" | head -20
-          echo "=== ldd $PREWARM ==="
-          ldd "$PREWARM" | head -20
-          echo "=== ldd $LISTENER ==="
-          ldd "$LISTENER" | head -20
+          # Native listener is x86_64-only (see build step above). Tolerate
+          # missing for aarch64 — the runbook's Step 3 covers building it on
+          # an aarch64 host.
+          if [[ "$BUILD_ARCH" == "x86_64" ]]; then
+            test -x "$LISTENER" || { echo "MISSING: $LISTENER"; exit 1; }
+          else
+            echo "INFO: native linux-key-listener skipped for aarch64 (cross-compile not supported by compile_native.sh)"
+          fi
+          # Use objdump -p for cross binaries (ldd can't run aarch64 ELF on
+          # x86_64 without qemu running in the right mode); ldd for native.
+          if [[ "$BUILD_ARCH" == "aarch64" ]]; then
+            LDD="objdump -p"
+          else
+            LDD="ldd"
+          fi
+          echo "=== $LDD $BIN ==="
+          $LDD "$BIN" | head -20
+          echo "=== $LDD $PREWARM ==="
+          $LDD "$PREWARM" | head -20
           # Verify glibc baseline (≤ 2.35 for Ubuntu 22.04 compat).
-          for f in "$BIN" "$PREWARM" "$LISTENER"; do
-            MAX_GLIBC=$(ldd "$f" 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -V | tail -1 || true)
+          for f in "$BIN" "$PREWARM"; do
+            MAX_GLIBC=$($LDD "$f" 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sort -V | tail -1 || true)
             echo "$f → $MAX_GLIBC"
             if [[ -n "$MAX_GLIBC" ]]; then
               NUM="${MAX_GLIBC/GLIBC_/}"
@@ -196,8 +253,8 @@ jobs:
           npm run build:renderer
 
       - name: Build Tauri app (${{ env.BUILD_ARCH }})
-        # ADR-0020 Phase 0-L gate: cargo tauri build needs webkit2gtk-4.1 +
-        # libgtk-3, which we installed above. The build runs headless because
+        # ADR-0020 Phase 0-L gate: cargo tauri build needs webkit2gtk-4.1-dev +
+        # libgtk-3-dev, which we installed above. The build runs headless because
         # the Tauri host doesn't open a window during `cargo tauri build`.
         # Smoke tests that need a display are documented in the runbook
         # (docs/migration/linux-validation-runbook.md) and run manually.

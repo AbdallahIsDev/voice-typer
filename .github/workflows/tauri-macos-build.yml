@@ -25,26 +25,19 @@ on:
         required: false
         default: false
         type: boolean
-  push:
-    tags:
-      - "v*-macos"
-    branches:
-      - main
-    paths:
-      - "src-tauri/**"
-      - "voice_typer/server/**"
-      - "voice_typer/client/**"
-      - "scripts/build/build_*macos*.sh"
-      - "scripts/build/compile_native.sh"
-      - ".github/workflows/tauri-macos-build.yml"
-  pull_request:
-    branches: [main]
-    paths:
-      - "src-tauri/**"
-      - "voice_typer/server/**"
-      - "voice_typer/client/**"
-      - "scripts/build/build_*macos*.sh"
   workflow_dispatch:
+  # ADR-0020 §15 + Phase 0-M gate: do NOT enable push/PR triggers until the
+  # macOS host validation runbook has passed on a real macOS host. The
+  # workflow is invoked manually via workflow_dispatch (or via the
+  # tauri-build.yml orchestrator's workflow_call). The per-job `if: false`
+  # guards below are the second layer of protection.
+  # push:
+  #   tags:
+  #     - "v*-macos"
+  #   branches:
+  #     - main
+  # pull_request:
+  #   branches: [main]
 
 concurrency:
   group: tauri-macos-${{ github.ref }}
