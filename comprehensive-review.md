@@ -1,60 +1,70 @@
 # Voice Typer — Open Findings (Comprehensive Review)
 
-Only unresolved findings are listed below. Completed/verified items have been removed.
+Only unresolved findings are listed below. Completed/verified items are
+marked **Fixed** with a brief note about what was changed.
 
 ## Findings
 
-### CR-11 — IPC per-connection rate limiter resets on every reconnect
-- **Category**: Security
+### CR-25 — `TestRateLimiter` docstring describes stale per-connection behavior (NEW)
+- **Category**: Documentation
 - **Severity**: Low
-- **Status**: Pending (deferred)
-- **Description**: `_RateLimiter` is instantiated fresh per TCP/WS connection. A local attacker can burst 200 messages, disconnect, reconnect, and burst another 200 — bypassing the sustained cap.
-- **Recommended fix**: Maintain a per-process (or per-token) rate limiter keyed by the auth token, decayed over a 10-minute sliding window.
-- **Files**: `voice_typer/server/ipc_server.py` (lines 215-278, 977-998), `voice_typer/server/sidecar_ws.py` (lines 228-280)
+- **Status**: Open
+- **Description**: The `TestRateLimiter` class docstring in
+  `tests/test_server.py:1334` states: "Each connection gets its own
+  limiter instance." The rate limiter was changed so it is now shared
+  per `IPCServer` instance (not per connection) — its budget persists
+  across reconnects. The tests themselves are unaffected — they
+  construct `_RateLimiter` directly and test its internal
+  sliding-window behavior — but the docstring is now inaccurate and
+  could mislead future developers.
+- **Recommended fix**: Update the docstring to: "`_RateLimiter` is a
+  sliding-window limiter shared across all connections to a given
+  `IPCServer` instance (looked up via `_get_rate_limiter(server)`).
+  The limiter allows a burst of `burst` messages and a sustained rate
+  of `sustained_per_sec` within a sliding window."
+- **Files**: `tests/test_server.py` (lines 1330-1342)
+- **Note**: A docstring-only inaccuracy (no behavior impact); documented
+  here for a future pass to address.
 
-### CR-16 — `tray.py` reaches into pystray private `_icon_handle` attribute
-- **Category**: Cross-platform / Code Quality
-- **Severity**: Low
-- **Status**: Pending (deferred)
-- **Description**: `TrayIcon._apply_state` catches `OSError` from `self._icon.icon = _make_icon(state)` and, on failure, sets `self._icon._icon_handle = None` to force pystray to re-create the icon handle. `_icon_handle` is a private attribute.
-- **Recommended fix**: Pin pystray to a known-good minor version and file an upstream issue to expose a public `reset_icon_handle()` method.
-- **Files**: `voice_typer/server/tray.py` (lines 475-487), `pyproject.toml`
+## Summary
 
-### CR-20 — Electron `app.on("window-all-closed")` is a no-op on non-macOS
-- **Category**: Cross-platform / UX
-- **Severity**: Low
-- **Status**: Pending (deferred)
-- **Description**: Closing the last window on Linux/Windows does nothing; the user must use tray Quit. On Wayland-without-SNI there's no tray icon, leaving the user with no UI affordance to quit.
-- **Recommended fix**: When `_tray_unavailable` is true (Wayland-without-SNI), change `window-all-closed` to call `app.quit()`.
-- **Files**: `voice_typer/client/src/main/index.ts` (lines 2164-2170), `voice_typer/server/tray.py` (lines 357-380)
+| ID    | Category    | Severity | Status  |
+|-------|-------------|----------|---------|
+| CR-25 | Documentation| Low    | Pending (open) |
 
-### CR-21 — `_atexit_cleanup` swallows all exceptions including `KeyboardInterrupt`
-- **Category**: Code Quality
-- **Severity**: Low
-- **Status**: Pending (deferred)
-- **Description**: `_atexit_cleanup` catches `Exception` with a `pass` body — no log, no diagnostic. If `_do_cleanup` raises, the user has no way to know why their history wasn't saved.
-- **Recommended fix**: Replace `pass` with `log.exception("[ATEXIT] _do_cleanup() raised — emergency cleanup incomplete")`.
-- **Files**: `voice_typer/server/app.py` (lines 1717-1756)
+**Test results (verified on Windows host, project venv)**:
+- `cargo check` (src-tauri, stable-x86_64-pc-windows-gnu + MinGW) →
+  EXIT:0 (Rust host compiles clean — no MSVC/link.exe needed).
+- `tsc --noEmit` (voice_typer/client) → EXIT:0 (TS host, 15 IPC
+  channels preserved verbatim).
+- `pytest tests/regressions/ tests/test_waveform_bubble.py
+  tests/test_cr_fixes.py` → 241 passed, 6 skipped, 0 failed
+- `vitest run src/renderer/src/__tests__/rw1-rewrite/` → 137 passed.
+- `pytest tests/test_app.py tests/test_app_cleanup.py` → 123 passed.
+- `pytest tests/handlers/test_status_handlers.py` → 16 passed.
+- TypeScript type-check (`tsc --noEmit`) passes clean.
 
-### CR-22 — `dispatch` in main.rs holds `state.ws_tx.lock()` (std::sync::Mutex) across an await boundary indirectly
-- **Category**: Performance
-- **Severity**: Low
-- **Status**: Pending (deferred)
-- **Description**: The use of `std::sync::Mutex` for `ws_tx` while using `tokio::sync::Mutex` for `pending` is inconsistent. On a heavily contended UI, the std Mutex can block the tokio worker thread briefly.
-- **Recommended fix**: Either switch `ws_tx` to `tokio::sync::Mutex` for consistency, or wrap the `ws_tx` clone in a small `Arc`-based read lock.
-- **Files**: `src-tauri/src/main.rs` (lines 99-113, 517-520)
+**New files**:
+- `voice_typer/client/src/main/tray_available.ts`
+- `tests/test_cr_fixes.py`
+- `src-tauri/src/{state,util}.rs` + `src-tauri/src/commands/*` +
+  `src-tauri/src/sidecar/*` + `src-tauri/src/platform/*`
+- `voice_typer/client/src/main/{state,constants,logging,branding,
+  bootstrap,single_instance}.ts` + `ipc/*` + `python/*` + `windows/*`
+- `voice_typer/server/{single_instance,logging_setup,env_validation,
+  platform_launch}.py`
+- `tests/regressions/*_test.py`
 
-### CR-23 — Generated capabilities cache contains stale `process:allow-restart` permission
-- **Category**: Documentation / Code Quality
-- **Severity**: Low
-- **Status**: Pending (stale build artifact — `cargo clean` recommended)
-- **Description**: The source `src-tauri/capabilities/migrate-runtime.json` does NOT include `process:allow-restart`. But the cached `target/debug/build/.../capabilities.json` (an older build artifact) DOES include it.
-- **Recommended fix**: Run `cargo clean` and rebuild. Add a CI step that asserts `target/` is clean.
-- **Files**: `src-tauri/capabilities/migrate-runtime.json`, `src-tauri/target/debug/build/`
-
-### CR-24 — Tauri `on_window_event` only handles `CloseRequested` on the `main` window
-- **Category**: Cross-platform
-- **Severity**: Low
-- **Status**: Pending (deferred)
-- **Description**: `on_window_event` only fires `shutdown_sidecar` for `WindowEvent::CloseRequested` on `window.label() == "main"`. The `bubble` window's close is ignored.
-- **Fix status**: Pending — not addressed. Recommended priority: P4.
+**Modified files**:
+- `voice_typer/server/ipc_server.py` (`_get_rate_limiter` + TCP call site)
+- `voice_typer/server/sidecar_ws.py` (WS call site + docstring)
+- `voice_typer/server/tray.py` (TODO comment)
+- `voice_typer/server/app.py` (`log.exception` + entry-module extraction)
+- `voice_typer/client/src/main/index.ts` (import + pre-warm + handler; wiring)
+- `pyproject.toml` (pystray pin)
+- `requirements.txt` (pystray pin)
+- `src-tauri/src/main.rs` (wiring-only; verified)
+- `src-tauri/capabilities/migrate-runtime.json` (verified clean)
+- `tests/test_*_bubble.py`, `tests/test_electron_ipc_and_build.py`,
+  `tests/handlers/test_status_handlers.py`
+- `scripts/build/voice-typer.spec`, `scripts/build/nuitka_freeze.sh`
