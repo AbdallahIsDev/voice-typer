@@ -280,7 +280,7 @@ class TestDiscardStopGeneration:
 
         assert close_called["n"] == 1, f"Expected stream.close() called once, got {close_called['n']}"
         assert r._stream is None
-        assert r._buffer == [], "discard() must clear the audio buffer"
+        assert list(r._buffer) == [], "discard() must clear the audio buffer"
 
 
 if __name__ == "__main__":
