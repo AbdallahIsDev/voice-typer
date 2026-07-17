@@ -86,6 +86,10 @@ class VoiceTyperService:
         self._app = app
         # NEW-PRIV-011: cancellation event for in-progress model downloads.
         self._download_cancel_event: Any = None
+        # PERF-FIX-1: short-TTL cache (5s) for refresh_microphones so
+        # rapid refresh clicks don't re-query PortAudio each time.
+        self._microphones_cache: list = []
+        self._microphones_cache_ts: float = 0.0
 
     # ── Status ──────────────────────────────────────────────────
 
@@ -301,12 +305,28 @@ class VoiceTyperService:
         Called when the user clicks "Refresh Microphones" in the UI
         after plugging in a new USB/BT device. Updates the cached list
         and the tray menu.
+
+        PERF-FIX-1: a 5s short-TTL cache avoids re-querying PortAudio
+        on rapid refresh clicks. The first call after the TTL elapses
+        re-queries and refreshes the cache; subsequent calls within
+        the window return the cached list. Errors fall back to the
+        previously-known list (or the cache if available).
         """
+        import time
+
         from voice_typer.server.server_platform import list_microphones
+
+        now = time.monotonic()
+        # PERF-FIX-1: serve from cache if fresher than 5s.
+        if self._microphones_cache and (now - self._microphones_cache_ts) < 5.0:
+            return self._microphones_cache
 
         try:
             mics = list_microphones()
             self._app._microphones = mics
+            # PERF-FIX-1: update the short-TTL cache.
+            self._microphones_cache = mics
+            self._microphones_cache_ts = now
             with contextlib.suppress(Exception):
                 self._app.tray.set_microphones(mics)
             return mics
@@ -743,7 +763,7 @@ class VoiceTyperService:
 
                 invalidate_model_availability_cache()
             except Exception:
-                pass
+                log.debug("[SERVICE] invalidate_model_availability_cache failed", exc_info=True)
             return {
                 "success": True,
                 "message": f"Deleted model '{model_name}' ({repo_id}).",

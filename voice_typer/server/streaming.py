@@ -55,10 +55,7 @@ class AudioWindow:
         # PERF-EQ: compare scalar fields first (O(1)); only compare
         # array identity (is), not contents. Full array comparison
         # should be done explicitly in tests with np.array_equal().
-        if (
-            self.start_seconds != other.start_seconds
-            or self.end_seconds != other.end_seconds
-        ):
+        if self.start_seconds != other.start_seconds or self.end_seconds != other.end_seconds:
             return False
         # Same object or same underlying buffer → equal
         if self.audio is other.audio:
@@ -91,9 +88,7 @@ class AudioWindowPlanner:
             requested_start_seconds = 0.0
             requested_end_seconds = min(duration_seconds, self.config.chunk_seconds)
         else:
-            requested_end_seconds = (
-                self._last_window_end_seconds + self.config.step_seconds
-            )
+            requested_end_seconds = self._last_window_end_seconds + self.config.step_seconds
             if duration_seconds < requested_end_seconds:
                 return None
             requested_end_seconds = min(duration_seconds, requested_end_seconds)
@@ -356,7 +351,8 @@ class StreamingTextAssembler:
             evicted_absolute_idx = self._base_offset  # current offset → 0 in deque
             log.warning(
                 "[STREAMING] Word list exceeded %d entries; evicted oldest: %r",
-                self._MAX_WORDS, evicted_word.word,
+                self._MAX_WORDS,
+                evicted_word.word,
             )
             # Bump base offset so all future absolute-index → deque-index
             # conversions account for the eviction.
@@ -503,7 +499,13 @@ class StreamingTranscriptionSession:
                 name="StreamingTranscription",
                 thread=self._thread,
                 stop_event=self._cancel_event,
-                join_timeout=10.0,
+                # PERF-FIX-6: reduced from 10.0s to 5.0s. The thread
+                # is a daemon (set above) and dies on process exit
+                # anyway; the join is only for clean in-process drain
+                # during ``cancel(blocking=True)`` / ``finalize()``.
+                # 5s is ample for ctranslate2 inference to wrap up a
+                # final chunk and exit the worker loop.
+                join_timeout=5.0,
             )
 
     def cancel(self, *, blocking: bool = False, timeout: float = 10.0):
@@ -602,9 +604,9 @@ class StreamingTranscriptionSession:
         try:
             if snapshot_last_committed_time >= full_audio_duration - 1.5:
                 log.info(
-                    "[STREAMING] Skipping tail re-transcribe: last committed "
-                    "word at %.2fs, audio ends at %.2fs",
-                    snapshot_last_committed_time, full_audio_duration,
+                    "[STREAMING] Skipping tail re-transcribe: last committed word at %.2fs, audio ends at %.2fs",
+                    snapshot_last_committed_time,
+                    full_audio_duration,
                 )
                 return snapshot_committed_text
         except Exception:
@@ -613,8 +615,7 @@ class StreamingTranscriptionSession:
         try:
             tail_start_seconds = max(
                 0.0,
-                snapshot_last_committed_time
-                - self.config.left_overlap_seconds,
+                snapshot_last_committed_time - self.config.left_overlap_seconds,
             )
             start_sample = min(
                 len(full_audio),
@@ -627,10 +628,7 @@ class StreamingTranscriptionSession:
             )
             self._validate_words(words)
             merge_boundary = snapshot_last_committed_time
-            new_tail_words = [
-                word for word in words
-                if word.end_seconds > merge_boundary
-            ]
+            new_tail_words = [word for word in words if word.end_seconds > merge_boundary]
             self.assembler.add_words(new_tail_words, commit_horizon_seconds=math.inf)
             return self.assembler.committed_text
         except Exception as exc:
@@ -651,10 +649,7 @@ class StreamingTranscriptionSession:
                 raise TypeError("word text must be a string")
             if word.start_seconds is None or word.end_seconds is None:
                 raise TypeError("word timestamps are required")
-            if not (
-                math.isfinite(word.start_seconds)
-                and math.isfinite(word.end_seconds)
-            ):
+            if not (math.isfinite(word.start_seconds) and math.isfinite(word.end_seconds)):
                 raise ValueError("word timestamps must be finite")
             if word.end_seconds < word.start_seconds:
                 raise ValueError("word end must be >= start")

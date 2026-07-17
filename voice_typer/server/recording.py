@@ -576,11 +576,13 @@ class Recorder:
         # subscriber cannot stall the audio pipeline and cause
         # ring-buffer overflows / dropped audio.
         #
-        # Unbounded (no ``maxsize``) — events are tiny dicts (~100 B)
-        # and throttled at source (1 Hz for ``audio_clip``); a bounded
-        # queue would introduce a blocking put on the audio worker,
-        # which we explicitly want to avoid.
-        self._event_queue: queue.Queue[dict] = queue.Queue()
+        # PERF-FIX-4: bounded at ``maxsize=1000`` so a stalled worker
+        # can't cause unbounded memory growth. The producer uses
+        # ``put_nowait`` + ``queue.Full`` suppression (see the
+        # ``audio_clip`` callsite below), which means events are
+        # silently dropped when the worker falls behind — the
+        # audio-thread producer never blocks.
+        self._event_queue: queue.Queue[dict] = queue.Queue(maxsize=1000)
         self._event_worker_thread: threading.Thread | None = None
         self._event_stop_event: threading.Event = threading.Event()
 
@@ -2540,8 +2542,11 @@ class Recorder:
             # creating the intermediate abs_filtered**2 array.
             flat = filtered.reshape(-1)
             chunk_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-            abs_filtered = np.abs(filtered)
-            chunk_peak = float(abs_filtered.max())
+            # PERF-FIX-2: allocation-free peak — reuse the existing
+            # ``flat`` view instead of materializing np.abs(filtered).
+            # max(|x|) == max(max(x), -min(x)) — two reductions on the
+            # same contiguous view, no intermediate array allocated.
+            chunk_peak = max(float(flat.max()), -float(flat.min()))
         else:
             chunk_peak = 0.0
             chunk_rms = 0.0
@@ -2582,8 +2587,12 @@ class Recorder:
                 # Electron renderer) can no longer stall the worker
                 # and cause ring-buffer overflows / dropped audio.
                 # ``event_bus`` is now imported at module top.
-                with contextlib.suppress(Exception):
-                    self._event_queue.put(
+                # PERF-FIX-4: ``put_nowait`` + ``queue.Full`` suppression
+                # so a backed-up event worker can never block the audio
+                # thread. The events are best-effort telemetry (clipping
+                # counters throttled to 1 Hz) — dropping a few is fine.
+                try:
+                    self._event_queue.put_nowait(
                         {
                             "type": "audio_clip",
                             "data": {
@@ -2592,6 +2601,8 @@ class Recorder:
                             },
                         }
                     )
+                except queue.Full:
+                    pass  # worker fell behind — drop this telemetry event
 
         recent_rms.append(chunk_rms)
 

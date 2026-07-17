@@ -205,53 +205,6 @@ def load_microphones(app: Any, shutdown_event: Any | None = None) -> None:
         log.warning("[RECORDING] Could not enumerate microphones: %s", e)
 
 
-def start_device_change_poller(app: Any) -> None:
-    """AUDIO-MIC: Start a background thread that periodically polls
-    for audio device changes (every 30 seconds).
-
-    Cross-platform fallback for the lack of WM_DEVICECHANGE (Windows),
-    CoreAudio notifications (macOS), and PipeWire signals (Linux).
-    When a device set change is detected, ``_load_microphones`` is
-    called, which pushes a ``microphones_changed`` IPC event so the
-    Electron UI can refresh its microphone dropdown.
-
-    The poller is a daemon thread that exits when ``_shutting_down``
-    is set. The 30-second interval is a trade-off between
-    responsiveness (user plugs in a USB mic and waits for it to
-    appear) and CPU cost (one ``sd.query_devices()`` call per
-    poll, ~1-5 ms).
-    """
-
-    def _poll_loop() -> None:
-        while not app._shutting_down:
-            # Sleep in 1-second increments so we can exit quickly
-            # when _shutting_down is set.
-            for _ in range(30):
-                if app._shutting_down:
-                    return
-                threading.Event().wait(1.0)
-            if app._shutting_down:
-                return
-            try:
-                # Re-enumerate; load_microphones will detect
-                # changes and push the IPC event.
-                #
-                # RW-9 Phase 1: was ``app._load_microphones()`` (a
-                # test-seam delegate on VoiceTyperApp). The delegate
-                # has been removed; the device-change poller (this
-                # function) is the only intra-module caller of
-                # ``load_microphones`` and now invokes it directly.
-                load_microphones(app, None)
-            except Exception:
-                log.debug("[AUDIO-MIC] Device-change poll failed", exc_info=True)
-
-    t = threading.Thread(target=_poll_loop, daemon=True, name="AudioDevicePoller")
-    # RACE-008: daemon=True is acceptable because the poller only
-    # reads device state — no critical cleanup. On shutdown,
-    # _shutting_down is set and the thread exits within 1 second.
-    t.start()
-
-
 def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
     """PLAT-009: Periodically re-check macOS Accessibility permission.
 

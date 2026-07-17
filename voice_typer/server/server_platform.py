@@ -160,6 +160,18 @@ def list_microphones() -> list[dict]:
         default_input_raw = sd.query_devices(kind="input")
         default_input = _sd_dev_as_dict(default_input_raw)
         default_index = default_input["index"] if default_input else -1
+        # PERF-FIX-3: batch the host-API name lookups. Pre-fix, each
+        # input device triggered a separate ``sd.query_hostapis(idx)``
+        # syscall. Querying all host APIs once and building an
+        # ``idx → name`` dict turns N syscalls into one.
+        host_api_names: dict[int, str] = {}
+        try:
+            for hai, hapi_raw in enumerate(sd.query_hostapis()):
+                hapi = _sd_dev_as_dict(hapi_raw)
+                if hapi is not None:
+                    host_api_names[hai] = hapi.get("name", "")
+        except Exception:
+            pass
         devices = []
         for i, dev_raw in enumerate(sd.query_devices()):
             dev = _sd_dev_as_dict(dev_raw)
@@ -169,14 +181,7 @@ def list_microphones() -> list[dict]:
                 continue
             if _is_non_mic_device(dev["name"]):
                 continue
-            host_api = ""
-            try:
-                host_api_idx = dev.get("hostapi", 0)
-                host_api_raw = _sd_dev_as_dict(sd.query_hostapis(host_api_idx))
-                if host_api_raw is not None:
-                    host_api = host_api_raw.get("name", "")
-            except Exception:
-                pass
+            host_api = host_api_names.get(dev.get("hostapi", 0), "")
             # AUDIO-BT: detect Bluetooth devices by name or sample rate.
             # Bluetooth HFP (Hands-Free Profile) devices typically have
             # "Bluetooth", "HFP", or "Hands-Free" in the device name,
@@ -700,7 +705,7 @@ def _register_app_autostart_runkey() -> bool:
                     break
             winreg.CloseKey(run_key)
         except Exception:
-            pass
+            log.debug("[AUTOSTART] registry Run-key cleanup failed", exc_info=True)
 
         return True
     except OSError as e:

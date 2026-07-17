@@ -43,7 +43,11 @@ the caller decide whether to warn.
 
 from __future__ import annotations
 
+import logging
+
 from voice_typer.server.platform_utils import is_windows
+
+log = logging.getLogger(__name__)
 
 
 def _create_restrictive_security_attributes():
@@ -138,8 +142,13 @@ def _create_restrictive_security_attributes():
 
             # Set the DACL
             new_acl = wintypes.LPVOID()
-            if not advapi32.SetEntriesInAclW(1, ctypes.byref(ea), None, ctypes.byref(new_acl)):
+            if advapi32.SetEntriesInAclW(1, ctypes.byref(ea), None, ctypes.byref(new_acl)) != 0:
                 # Fallback: use a simpler approach with NULL DACL
+                log.debug(
+                    "[SECURITY] SetEntriesInAclW failed; falling back to NULL DACL "
+                    "(no cross-user protection for single-instance mutex)",
+                    exc_info=True,
+                )
                 if not advapi32.SetSecurityDescriptorDacl(sd, True, None, False):
                     return None
             else:

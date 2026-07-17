@@ -216,6 +216,27 @@ class VoiceTyperApp:
 
         self.settings: SettingsController = SettingsController(self)
 
+        # RW-9 Phase 7: shutdown / cleanup lifecycle (quit, _do_cleanup,
+        # _atexit_*, signal handlers, Win32 console handler) extracted to
+        # ShutdownController. The app keeps thin delegate methods so
+        # ``app.start()``'s ``atexit.register`` calls, tray menu callbacks
+        # (quit_app -> self.quit()), restart_app (-> self._do_cleanup()),
+        # and tests calling ``app._do_cleanup()`` directly all keep working
+        # unchanged.
+        from voice_typer.server.shutdown_controller import ShutdownController
+
+        self.shutdown: ShutdownController = ShutdownController(self)
+
+        # RW-9 Phase 7: audio-quality side-effects extracted to
+        # AudioQualityController. The app keeps thin delegate methods so
+        # ``self._audio_processor.set_quality_callback(self._on_audio_quality_chunk)``,
+        # ``service.apply_config_side_effects`` (-> _rebuild_audio_processor),
+        # and ``RecordingController.stop`` (-> _finalize_audio_quality_report)
+        # all keep working unchanged.
+        from voice_typer.server.audio_quality_controller import AudioQualityController
+
+        self.audio_quality: AudioQualityController = AudioQualityController(self)
+
         # #2 Hotkey registration extracted to HotkeyDispatcher.
         # Owns the 3 hotkey backends (dictation / ESC / repaste) and the
         # register/restart logic. (ARCH-REFAC-003: the @property
@@ -286,15 +307,22 @@ class VoiceTyperApp:
         # ESC polling callback doesn't fire while the user is assigning
         # a custom hotkey in the Settings UI.
         self._esc_cancel_paused: bool = False
-        # ARCH-022: _pending_timers is appended to from the tray thread,
-        # the transcription thread, and the timer thread itself; the
-        # `for timer in self._pending_timers` iteration in
-        # _cancel_pending_timers can race with concurrent appends and
-        # raise RuntimeError("list changed size during iteration").
-        # Guard the list with a dedicated lock.
-        self._pending_timers: list[threading.Timer] = []
-        self._pending_timers_lock = threading.Lock()
-        self._timer_generation: int = 0
+        # RW-9 Phase 7: timer lifecycle extracted to TimerCoordinator.
+        # The three state attributes (_pending_timers / _pending_timers_lock
+        # / _timer_generation) now live on TimerCoordinator; VoiceTyperApp
+        # keeps thin delegate methods (_schedule_timer / _cancel_pending_timers)
+        # so existing callers and tests that monkeypatch them keep working.
+        from voice_typer.server.timer_coordinator import TimerCoordinator
+
+        self.timers: TimerCoordinator = TimerCoordinator(self)
+        # Shadow declarations — point at the coordinator's state so
+        # tests/test_lock_order_contract.py::TestLockInventory (which
+        # pins app.py source for `self._pending_timers_lock = threading.Lock()`)
+        # and runtime stress tests that read app._pending_timers_lock
+        # directly both keep working.
+        self._pending_timers: list[threading.Timer] = self.timers._pending_timers
+        self._pending_timers_lock = self.timers._pending_timers_lock
+        self._timer_generation: int = self.timers._timer_generation
         self._cycle_counter = 0  # monotonic counter for dictation cycles
         self._cycle_id: str = ""  # human-readable cycle id for log correlation
 
@@ -311,6 +339,13 @@ class VoiceTyperApp:
         # the rest of the user's voice-typer state (and tests can
         # monkeypatch _config_dir to point at a tmp_path).
         self._duck_crash_recovery = DuckCrashRecovery(config_dir=_config_dir())
+        # RW-9 Phase 7: VolumeController owns duck/restore side effects.
+        # Constructed BEFORE _volume_ducker because the ducker's
+        # on_crash_restore callback is bound to self._on_volume_crash_restore,
+        # which delegates to self.volume.
+        from voice_typer.server.volume_controller import VolumeController
+
+        self.volume: VolumeController = VolumeController(self)
         self._volume_ducker = VolumeDucker(
             crash_recovery=self._duck_crash_recovery,
             on_crash_restore=self._on_volume_crash_restore,
@@ -320,6 +355,15 @@ class VoiceTyperApp:
         # per-chunk quality callback.  See self._audio_quality /
         # self._on_audio_quality_chunk / _finalize_audio_quality_report.
         self._waveform_bubble = WaveformBubble()
+        # RW-9 Phase 7: waveform-bubble wiring extracted to
+        # WaveformBubbleWiring. The app keeps a thin delegate method
+        # (_wire_waveform_bubble) so existing callers and tests keep
+        # working. The worker / queue / stop_event now live on
+        # WaveformBubbleWiring; _do_cleanup calls waveform_wiring.stop()
+        # to shut the worker down.
+        from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
+
+        self.waveform_wiring: WaveformBubbleWiring = WaveformBubbleWiring(self)
         self._wire_waveform_bubble()
         self._last_transcription: str = ""  # For repaste
         # TASK-14: declare ``_ipc_server`` upfront so VoiceTyperApp
@@ -362,66 +406,16 @@ class VoiceTyperApp:
     # ─── Volume Ducking ────────────────────────────────────────────────
 
     def _on_volume_crash_restore(self, state) -> None:
-        """Callback invoked when a stale duck crash-recovery file is found.
-
-        Notifies the user that the volume was restored after a crash.
-        """
-        try:
-            self.tray.notify(
-                APP_NAME,
-                f"System volume was restored after a crash (to {int(state.linear * 100)}%).",
-            )
-        except Exception:
-            log.debug("[VOLUME] crash-restore notification failed", exc_info=True)
+        """RW-9 Phase 7: delegate to VolumeController."""
+        self.volume._on_volume_crash_restore(state)
 
     def _duck_volume(self) -> None:
-        """Duck system volume at the start of dictation.
-
-        UX-2: the ducking behavior is now simplified:
-        - Smart Duck is ALWAYS ON (merged into Auto Duck Volume)
-        - Fade duration is a fixed 200ms (not user-configurable)
-        - Poll interval is a fixed 500ms (not user-configurable)
-        - Per-session ducking is removed (always ducks master volume
-          cross-platform)
-        The config fields are kept for backward compat but ignored.
-        """
-        if not getattr(self.config, "volume_duck_enabled", True):
-            return
-        try:
-            # UX-2: smart duck is always on when ducking is enabled.
-            self._volume_ducker.set_smart_duck_enabled(True)
-            # UX-2: poll interval is a fixed 500ms (not user-configurable).
-            self._volume_ducker.set_smart_duck_poll_interval(
-                getattr(self.config, "volume_duck_smart_poll_interval_ms", 500)
-            )
-            if self._volume_ducker.initialize():
-                self._volume_ducker.duck(
-                    level=getattr(self.config, "volume_duck_level", 0.20),
-                    fade_ms=getattr(self.config, "volume_duck_fade_ms", 200),
-                    # UX-2: per-session removed — always master-volume duck.
-                    per_session=False,
-                )
-        except Exception:
-            log.debug("[VOLUME] duck failed", exc_info=True)
+        """RW-9 Phase 7: delegate to VolumeController."""
+        self.volume._duck_volume()
 
     def _restore_volume(self, fade_ms: int | None = None) -> None:
-        """Restore system volume at the end of dictation.
-
-        If ``fade_ms`` is ``None``, uses the configured fade duration.
-        Pass ``0`` for instant restore (used on quit/restart).
-        """
-        if not getattr(self.config, "volume_duck_enabled", True):
-            return
-        try:
-            if fade_ms is None:
-                fade_ms = getattr(self.config, "volume_duck_fade_ms", 200)
-            self._volume_ducker.restore(
-                fade_ms=fade_ms,
-                # UX-2: per-session removed — always master-volume restore.
-                per_session=False,
-            )
-        except Exception:
-            log.debug("[VOLUME] restore failed", exc_info=True)
+        """RW-9 Phase 7: delegate to VolumeController."""
+        self.volume._restore_volume(fade_ms=fade_ms)
 
     # ─── #2 ASR backend delegates to ModelManager ───────────
     #
@@ -444,56 +438,22 @@ class VoiceTyperApp:
     # self.hotkeys._repaste_backend directly.
 
     # ─── Timer Tracking (P1) ─────────────────────────────────────────
+    # RW-9 Phase 7: logic moved to TimerCoordinator. VoiceTyperApp keeps
+    # thin delegates so existing callers (and tests that monkeypatch
+    # app._schedule_timer / app._cancel_pending_timers) keep working.
 
     def _schedule_timer(self, delay: float, func) -> threading.Timer:
-        """Create, track, and start a timer. Replaces fire-and-forget timers.
-
-        PERF-TMR: Each call creates a fresh threading.Timer. A timer pool
-        was considered but rejected because:
-          - Only ~3-5 timers are created per dictation cycle
-          - threading.Timer creation cost (~0.05 ms) is negligible vs.
-            transcription latency (~1-5 seconds)
-          - A timer pool would add complexity (reuse tracking, stale timer
-            cleanup, thread-safety) for no measurable user-visible gain
-          - The generation-guard pattern already prevents stale callbacks
-        """
-        gen = self._timer_generation
-
-        def guarded_func():
-            if gen == self._timer_generation:
-                func()
-
-        timer = threading.Timer(delay, guarded_func)
-        # RACE-016: daemon=True is acceptable because timer callbacks
-        # are fire-and-forget UI updates; missing one on shutdown is harmless.
-        timer.daemon = True
-        with self._pending_timers_lock:
-            self._pending_timers.append(timer)
-        timer.start()
-        return timer
+        """RW-9 Phase 7: delegate to TimerCoordinator."""
+        return self.timers._schedule_timer(delay, func)
 
     def _cancel_pending_timers(self):
-        """Cancel and clear all pending scheduled timers.
-
-        ARCH-022: take the lock so concurrent appends from the tray /
-        transcription / timer threads can't race with our iteration.
-        The actual ``timer.cancel()`` calls happen outside the lock to
-        avoid holding it longer than necessary.
-        """
-        with self._pending_timers_lock:
-            timers = list(self._pending_timers)
-            self._pending_timers.clear()
-            self._timer_generation += 1
-        for timer in timers:
-            try:
-                timer.cancel()
-            except Exception:
-                log.exception("[APP] Failed to cancel scheduled timer")
+        """RW-9 Phase 7: delegate to TimerCoordinator."""
+        return self.timers._cancel_pending_timers()
 
     # ─── Waveform Bubble (IPC push) ───────────────────────────────────
 
     def _wire_waveform_bubble(self) -> None:
-        """Forward waveform bubble events to the IPC server.
+        """RW-9 Phase 7: delegate to WaveformBubbleWiring.
 
         The bubble itself is a frameless, always-on-top ``BrowserWindow``
         owned by the Electron main process.  We just emit push events;
@@ -502,120 +462,7 @@ class VoiceTyperApp:
         hold a reference to the app or server (avoids closure-capture
         bugs that broke the bubble on first run).
         """
-        from voice_typer.server import event_bus
-
-        def _push_bubble_show() -> None:
-            sent = event_bus.publish({"type": "bubble_show"})
-            log.info("[WAVEFORM] bubble.show() fired; push=%s", "OK" if sent else "NO IPC")
-
-        def _push_bubble_hide() -> None:
-            event_bus.publish({"type": "bubble_hide"})
-
-        def _push_bubble_level(rms: float, peak: float) -> None:
-            # PERF-NEW-001 / PERF-NEW-015: this callback fires from the
-            # PortAudio thread at the device's native chunk rate
-            # (~31 Hz @ 16 kHz / blocksize 512, ~94 Hz @ 48 kHz).
-            # Calling _push_event_now directly was holding the IPC
-            # server's _lock for json.dumps + socket.sendall, which on
-            # a slow Electron receive window stalled the audio thread
-            # and triggered xruns.  We push the actual IPC send to a
-            # background queue drained by a low-priority daemon thread.
-            #
-            # BUBBLE-FIX-4.1: the previous throttle (33 ms / ~30 Hz) sat
-            # exactly at the 32 ms chunk interval for 16 kHz devices, so
-            # PortAudio timing jitter caused irregular accept/drop
-            # patterns and the visualizer froze.  Lowered to 16 ms
-            # (~60 Hz) so every chunk is delivered; the bounded queue
-            # (maxsize=64) and worker thread handle backpressure.  Each
-            # message is ~40 bytes JSON, so 60 msg/s is trivial for TCP.
-            now = time.monotonic()
-            last = getattr(self, "_last_bubble_level_push_ts", 0.0)
-            if now - last < 0.016:  # 16 ms = ~60 Hz
-                return
-            self._last_bubble_level_push_ts = now
-            q = getattr(self, "_bubble_level_queue", None)
-            if q is None:
-                return  # wiring not complete yet
-            with contextlib.suppress(queue.Full):
-                # Queue is full — the worker thread fell behind.  Drop
-                # this sample; the next one will pick up the latest
-                # smoothed level from update_level's low-pass filter.
-                q.put_nowait(
-                    {
-                        "type": "bubble_level",
-                        "data": {"rms": float(rms), "peak": float(peak)},
-                    }
-                )
-
-        # PERF-NEW-001: dedicated queue + worker thread for bubble
-        # level pushes.  Bounded so a stuck Electron client can't
-        # cause unbounded memory growth on the Python side.  Created
-        # idempotently — if _wire_waveform_bubble is called twice
-        # (e.g. in tests after a stop/start cycle), the existing
-        # queue and worker are reused.
-        if not hasattr(self, "_bubble_level_queue") or self._bubble_level_queue is None:
-            self._bubble_level_queue: queue.Queue[dict | None] = queue.Queue(maxsize=64)
-        if not hasattr(self, "_bubble_level_worker_stop") or self._bubble_level_worker_stop is None:
-            self._bubble_level_worker_stop = threading.Event()
-
-        def _bubble_level_worker() -> None:
-            """Drain the bubble_level queue and push events to the IPC server."""
-            q = self._bubble_level_queue
-            stop = self._bubble_level_worker_stop
-            while not stop.is_set():
-                try:
-                    item = q.get(timeout=0.5)
-                except queue.Empty:
-                    continue
-                if item is None:
-                    break
-                event_bus.publish(item)
-                q.task_done()
-
-        if (
-            not hasattr(self, "_bubble_level_worker")
-            or self._bubble_level_worker is None
-            or not self._bubble_level_worker.is_alive()
-        ):
-            self._bubble_level_worker = threading.Thread(
-                target=_bubble_level_worker,
-                name="bubble-level-pusher",
-                daemon=True,
-                # RACE-016: daemon=True is acceptable because the bubble
-                # level worker is a UI-only push; on shutdown the IPC
-                # server is torn down first and the worker's queue will
-                # be drained by the atexit handler.
-            )
-            self._bubble_level_worker.start()
-            # THREAD-REGISTRY: register the bubble-level-pusher so
-            # ``shutdown_all()`` can signal and join it during
-            # ``quit()``. This closes the "leaked daemon" gap noted at
-            # app.py:1377 — the worker is now tracked centrally and
-            # joined on shutdown (with a 1.0s timeout matching the
-            # existing _do_cleanup() join). The existing
-            # _do_cleanup() path still sets the stop event + enqueues
-            # the None sentinel as a safety net; both paths are
-            # idempotent.
-            self._thread_registry.register(
-                name="bubble-level-pusher",
-                thread=self._bubble_level_worker,
-                stop_event=self._bubble_level_worker_stop,
-                join_timeout=1.0,
-            )
-
-        def _push_bubble_set_state(state: str) -> None:
-            event_bus.publish(
-                {
-                    "type": "bubble_set_state",
-                    "data": {"state": state},
-                }
-            )
-
-        self._waveform_bubble.on_show = _push_bubble_show
-        self._waveform_bubble.on_hide = _push_bubble_hide
-        self._waveform_bubble.on_level = _push_bubble_level
-        self._waveform_bubble.on_set_state = _push_bubble_set_state
-        log.info("[WAVEFORM] listeners wired on bubble coordinator")
+        self.waveform_wiring._wire_waveform_bubble()
 
     # ─── Startup ───────────────────────────────────────────────────────
 
@@ -683,99 +530,17 @@ class VoiceTyperApp:
         """#2 delegate to RecordingController.start()."""
         self.recording.start()
 
-    def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
-        """Per-chunk quality callback wired to AudioProcessor.
+    def _on_audio_quality_chunk(self, *a, **kw):
+        """RW-9 Phase 7: delegate to AudioQualityController."""
+        return self.audio_quality._on_audio_quality_chunk(*a, **kw)
 
-        Runs inside the PortAudio audio callback (via
-        ``AudioProcessor.process_chunk`` → ``_run_quality_check``), so
-        it MUST be non-blocking.  We only update cheap running
-        statistics — no I/O, no allocation of large structures, no
-        logging per chunk.  Full analysis runs in
-        :meth:`_finalize_audio_quality_report` after stop().
+    def _rebuild_audio_processor(self, *a, **kw):
+        """RW-9 Phase 7: delegate to AudioQualityController."""
+        return self.audio_quality._rebuild_audio_processor(*a, **kw)
 
-        The analyzer's :meth:`analyze_chunk` would normally take the
-        raw numpy chunk, but we already have (rms, peak) computed by
-        the AudioProcessor — reconstructing the chunk just to compute
-        the same metrics again would waste cycles.  Instead we feed
-        the precomputed values into the analyzer's internal accumulators
-        directly.
-        """
-        try:
-            aq = self._audio_quality
-            # Mirror analyze_chunk() without the numpy work — we
-            # already have rms and peak from the AudioProcessor.
-            # 17-C-FIX-3: _rms_values was removed (write-only list);
-            # we no longer append to it here.
-            aq._chunk_count += 1
-            if peak > aq._peak:
-                aq._peak = peak
-            if peak >= aq.CLIPPING_THRESHOLD:
-                aq._clip_count += 1
-        except Exception:
-            # Quality analysis must NEVER break the audio callback.
-            log.debug("[AUDIO_QUALITY] per-chunk update failed", exc_info=True)
-
-    def _rebuild_audio_processor(self) -> None:
-        """ADR 0007 §6.1: Rebuild the audio filter chain from current config.
-
-        Called by ``service.apply_config_side_effects`` when any
-        ``noise_filter_*`` or ``audio_preset`` or
-        ``noise_suppression_method`` config field changes. Atomically
-        swaps the filter chain so the next ``process_chunk()`` call
-        uses the new filters — no restart required.
-        """
-        try:
-            self._audio_processor.rebuild_from_config(self.config)
-            # PERF-02 (R8): refresh the recorder's _vad_enabled cache so the
-            # next audio chunk sees the new VAD config without re-evaluating
-            # 6 getattr calls per access on the RT thread. The recorder has a
-            # 5-second TTL safety net, but explicit refresh gives sub-second
-            # visibility on config changes.
-            recorder_on_config_changed = getattr(self.recorder, "on_config_changed", None)
-            if callable(recorder_on_config_changed):
-                recorder_on_config_changed()
-            log.info(
-                "[APP] Audio processor rebuilt: %s",
-                self._audio_processor.filter_names,
-            )
-        except Exception:
-            log.exception("[APP] Failed to rebuild audio processor")
-
-    def _finalize_audio_quality_report(self, audio: np.ndarray) -> None:
-        """Run final audio-quality analysis and surface warnings.
-
-        Called from :meth:`_stop_dictation` after ``recorder.stop()``
-        returns the (already filtered + resampled) audio.
-
-        FIX-HOTKEY-AND-NOTIFICATION: the tray notification that used to
-        fire here ("Low volume (RMS=...). Increase mic gain or move
-        closer. | High noise (ratio=...). Try a quieter environment")
-        was deemed annoying by users. We now short-circuit at the top of
-        this method so NO tray notification is ever shown — even if a
-        user manually sets ``audio_quality_warnings = True`` in their
-        config file. The internal ``AudioQualityAnalyzer`` may still
-        run for logging purposes (below), but it MUST NOT surface any
-        user-facing notification.
-        """
-        # Hard short-circuit: NEVER show a tray notification. The
-        # ``audio_quality_warnings`` config field is honored here only
-        # as a kill-switch (when False, we skip the analysis entirely
-        # for efficiency); when True we still run the analysis for
-        # internal logging but DO NOT call ``self.tray.notify``.
-        if not getattr(self.config, "audio_quality_warnings", False):
-            return
-        # Even when the flag is True, we deliberately do NOT call
-        # ``self.tray.notify``. Run the analysis for internal logging
-        # only, then bail out.
-        try:
-            report = self._audio_quality.analyze_full_audio(audio)
-            if report.has_issues:
-                summary = report.get_summary()
-                log.info("[AUDIO_QUALITY] Issues detected: %s", summary)
-            # Reset for the next session.
-            self._audio_quality.reset()
-        except Exception:
-            log.debug("[AUDIO_QUALITY] finalize report failed", exc_info=True)
+    def _finalize_audio_quality_report(self, *a, **kw):
+        """RW-9 Phase 7: delegate to AudioQualityController."""
+        return self.audio_quality._finalize_audio_quality_report(*a, **kw)
 
     def _stop_dictation(self):
         """Stop recording and transcribe in background.
@@ -1288,490 +1053,41 @@ class VoiceTyperApp:
     # ─── Shutdown ──────────────────────────────────────────────────────
 
     def _do_cleanup(self) -> None:
-        """RW-3: shared cleanup body used by ``quit()``, ``restart_app()``,
-        and ``_atexit_cleanup()``.
+        """RW-9 Phase 7: delegate to ShutdownController.
 
-        Performs ALL the cleanup that ``quit()`` previously did inline,
-        EXCEPT the final ``sys.exit(0)``.  Every operation is guarded by
-        a None-check or try-except so the method is IDEMPOTENT — calling
-        it twice (e.g. once from ``quit()`` and once from the atexit
-        safety net) is a no-op on the second call.
-
-        The caller is responsible for setting ``self._shutting_down = True``
-        and ``self._shutting_down_event.set()`` BEFORE calling this
-        method so the atexit safety net doesn't double-cleanup. The
-        ``_cleanup_done`` flag below is the hard guarantee: once set,
-        every subsequent call returns immediately.
-
-        Prior to RW-3, ``restart_app()`` did only a PARTIAL cleanup
-        (cancel timers, stop hotkey backends, stop tray) and skipped:
-          - ``history_db.flush()`` — pending transcription history
-            writes were silently lost
-          - ``_crash_recovery.flush()`` / ``shutdown()`` — pending
-            recovery writes were lost
-          - ``recorder.shutdown_mic_watcher()`` — mic watcher daemon
-            thread leaked
-          - ``recorder.stop()`` / ``discard()`` — PortAudio stream
-            not closed
-          - ``_bubble_level_worker`` stop — daemon thread leaked
-          - ``_clear_backend_pid_file()`` — stale PID file remained
-          - Win32 mutex handle close
-
-        The ``_atexit_cleanup`` safety net's ``_shutting_down`` guard
-        meant it was completely DISABLED when ``restart_app()`` set
-        ``_shutting_down = True``, so the safety net couldn't pick up
-        the slack. Extracting the shared body here fixes both bugs.
+        The shared, idempotent cleanup body lives in
+        ``shutdown_controller.py``. The delegate indirection lets
+        ``ShutdownController.quit`` and ``ShutdownController._atexit_cleanup``
+        call ``self._app._do_cleanup()`` so test spies like
+        ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still intercept
+        the call (preserves the contract pinned by
+        ``tests/test_app_cleanup.py::test_quit_calls_do_cleanup``).
         """
-        # Idempotency guard — once cleanup has run, subsequent calls
-        # are no-ops. This is the hard safety that lets
-        # _atexit_cleanup() call us unconditionally after
-        # quit()/restart_app() already ran.
-        if getattr(self, "_cleanup_done", False):
-            return
-        self._cleanup_done = True
-
-        # Cancel all pending timers
-        try:
-            self._cancel_pending_timers()
-        except Exception:
-            log.debug("[CLEANUP] _cancel_pending_timers failed", exc_info=True)
-
-        # PROD-003: Stop the persistent watchdog thread
-        try:
-            if hasattr(self, "recording") and self.recording is not None:
-                self.recording._stop_watchdog_thread()
-        except Exception:
-            log.debug("[CLEANUP] _stop_watchdog_thread failed", exc_info=True)
-
-        # Signal streaming session to cancel without blocking on join.
-        # The old code called _cancel_streaming_session() → session.cancel()
-        # → thread.join(timeout=10) which blocked quit for up to 10 seconds.
-        # Instead, just signal the cancel event; the daemon thread will die
-        # when the process exits.
-        try:
-            # RW-9 Phase 2: call RecordingController directly.
-            session = self.recording.get_streaming_session()
-            self.recording.set_streaming_session(None)
-            if session is not None:
-                session._cancel_event.set()
-        except Exception:
-            log.debug("[CLEANUP] streaming session cancel failed", exc_info=True)
-
-        # PROD-003: Close PortAudio stream properly.
-        # recorder.stop() fully closes the PortAudio stream (stop + close),
-        # while discard() just clears the recording flag. Use stop() first
-        # for a clean shutdown, then discard() as fallback if stop() fails.
-        try:
-            if self.recorder is not None and self.recorder.recording:
-                try:
-                    self.recorder.stop()
-                except Exception as e:
-                    log.warning("[SHUTDOWN] recorder.stop() failed: %s, trying discard()", e)
-                    try:
-                        self.recorder.discard()
-                    except Exception as e2:
-                        log.warning("[SHUTDOWN] recorder.discard() also failed: %s", e2)
-        except Exception:
-            log.debug("[CLEANUP] recorder stop/discard failed", exc_info=True)
-
-        # PERF-MIC-001: stop the OS-event device watcher so its daemon
-        # thread exits cleanly before the process tears down. Best-effort
-        # — the thread is a daemon and would die on process exit anyway,
-        # but explicit stop() avoids a 2s join race during GC.
-        try:
-            if self.recorder is not None:
-                self.recorder.shutdown_mic_watcher()
-        except Exception as e:
-            log.debug("[SHUTDOWN] mic watcher shutdown failed: %s", e)
-
-        # Restore volume if we were ducked when the app quit.
-        # Without this, a quit-during-recording leaves volume stuck low.
-        # Use fade_ms=0 for instant restore — the app is exiting.
-        try:
-            self._restore_volume(fade_ms=0)
-        except Exception:
-            log.debug("[CLEANUP] volume restore failed", exc_info=True)
-
-        # Wait for any running transcription thread to finish (short timeout).
-        # ARCH-REFAC-003: read directly from RecordingController (was a
-        # @property delegate previously).
-        try:
-            if hasattr(self, "recording") and self.recording is not None:
-                t = self.recording._transcription_thread
-                if t is not None and t.is_alive():
-                    log.info("[SHUTDOWN] Waiting for transcription thread to finish...")
-                    t.join(timeout=3.0)
-                    if t.is_alive():
-                        log.warning("[SHUTDOWN] Transcription thread did not finish in time, continuing shutdown")
-        except Exception:
-            log.debug("[CLEANUP] transcription thread join failed", exc_info=True)
-
-        # ARCH-REFAC-003: access HotkeyDispatcher directly (was a
-        # @property delegate previously).
-        try:
-            _hk_info = (
-                f"dictation={self.hotkeys._hotkey_backend.hotkey_str if self.hotkeys._hotkey_backend else 'none'}, "
-                f"esc={self.hotkeys._esc_backend.hotkey_str if self.hotkeys._esc_backend else 'none'}, "
-                f"repaste={self.hotkeys._repaste_backend.hotkey_str if self.hotkeys._repaste_backend else 'none'}"
-            )
-            log.info("[HOTKEY] Stopping hotkey listeners (%s)", _hk_info)
-
-            if self.hotkeys._hotkey_backend:
-                self.hotkeys._hotkey_backend.stop()
-
-            # RELIABILITY-003: also stop ESC cancel and repaste hotkey
-            # backends so their RegisterHotKey / GlobalHotKeys registrations
-            # are released before the next instance tries to claim them.
-            if self.hotkeys._esc_backend:
-                try:
-                    self.hotkeys._esc_backend.stop()
-                except Exception as e:
-                    log.warning("[SHUTDOWN] ESC backend stop failed: %s", e)
-            if self.hotkeys._repaste_backend:
-                try:
-                    self.hotkeys._repaste_backend.stop()
-                except Exception as e:
-                    log.warning("[SHUTDOWN] repaste backend stop failed: %s", e)
-
-            log.info("[HOTKEY] All hotkey listeners stopped")
-        except Exception:
-            log.debug("[CLEANUP] hotkey backend stop failed", exc_info=True)
-
-        # RELIABILITY-005: flush any pending crash-recovery writes
-        # before the process exits, so the latest state is persisted.
-        # Short timeout — if the disk is genuinely slow we'd rather
-        # exit and lose the in-flight snapshot than hang the shutdown.
-        try:
-            if self._crash_recovery is not None:
-                self._crash_recovery.flush(timeout=2.0)
-                self._crash_recovery.shutdown()
-        except Exception as e:
-            log.warning("[SHUTDOWN] crash recovery flush failed: %s", e)
-
-        # CRASH-SAFE-GAP-A: flush pending fire-and-forget history DB writes
-        # before the process exits. add_transcription() is fire-and-forget
-        # (enqueues the INSERT and returns immediately). If quit() exits
-        # without draining the queue, the writer thread (a daemon) is killed
-        # by the OS and any unprocessed INSERTs are silently lost. Flushing
-        # here ensures the writer drains its queue and commits all pending
-        # writes before the process terminates.
-        # RELIABILITY-006-FIX-11: also close() the DB so the writer thread
-        # is joined and SQLite connections are closed cleanly. flush()
-        # already drained the queue, so the writer join in close() should
-        # be fast.
-        try:
-            if self.history_db is not None:
-                self.history_db.flush()
-                self.history_db.close()
-        except Exception as e:
-            log.warning("[SHUTDOWN] history DB flush/close failed: %s", e)
-
-        # PERF-NEW-001: stop the bubble level worker so it doesn't
-        # try to push to a torn-down IPC server during shutdown.
-        try:
-            if hasattr(self, "_bubble_level_worker_stop") and self._bubble_level_worker_stop is not None:
-                self._bubble_level_worker_stop.set()
-                if hasattr(self, "_bubble_level_queue") and self._bubble_level_queue is not None:
-                    with contextlib.suppress(queue.Full):
-                        self._bubble_level_queue.put_nowait(None)  # sentinel
-                if hasattr(self, "_bubble_level_worker") and self._bubble_level_worker is not None:
-                    self._bubble_level_worker.join(timeout=1.0)
-        except Exception as e:
-            log.debug("[SHUTDOWN] bubble level worker stop failed: %s", e)
-
-        # Break the pystray event loop. Wrapped in try-except for
-        # idempotency — a second call after the tray is already
-        # stopped may raise, and we must not propagate.
-        try:
-            self.tray.stop()
-        except Exception:
-            log.debug("[CLEANUP] tray.stop() failed", exc_info=True)
-
-        # PROD-003: Safety net — stop any remaining PortAudio streams.
-        # If recorder.stop() above failed or an audio callback leaked
-        # a stream, this ensures sounddevice doesn't hold the microphone.
-        try:
-            import sounddevice as sd
-
-            sd.stop()
-        except Exception:
-            log.debug("[CLEANUP] sd.stop() failed", exc_info=True)
-
-        # PROD-003: Terminate the Electron subprocess if we spawned one.
-        # The IPC "quit_app" push was sent earlier; this is a forced
-        # termination as a safety net if the graceful signal didn't land.
-        # P1-1.3: prefer the dedicated electron_launcher.terminate_electron
-        # helper (which kills the entire process tree on Windows and uses
-        # SIGTERM → SIGKILL on POSIX) when we have a tracked PID.  Fall
-        # back to the legacy tray_window path for PID discovery so any
-        # Electron launched via tray_window.open_electron_window() is also
-        # cleaned up.
-        try:
-            from voice_typer.server import electron_launcher
-
-            launched_pid = getattr(self, "_electron_pid", None)
-            if launched_pid:
-                log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", launched_pid)
-                electron_launcher.terminate_electron(launched_pid)
-                self._electron_pid = None
-            else:
-                from voice_typer.server.tray_window import get_electron_pid
-
-                electron_pid = get_electron_pid()
-                if electron_pid is not None:
-                    import signal as _sig
-
-                    log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
-                    with contextlib.suppress(OSError, ProcessLookupError):
-                        os.kill(electron_pid, _sig.SIGTERM)
-        except Exception:
-            log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
-
-        # P1-1.4: release the single-instance mutex and remove the PID
-        # file so a subsequent launch isn't falsely blocked.
-        try:
-            _clear_backend_pid_file()
-        except Exception:
-            log.debug("[SHUTDOWN] could not clear backend PID file", exc_info=True)
-
-        log.info("[SHUTDOWN] Shutdown complete, exiting")
-
-        # PLAT-HLEAK: Close the mutex handle on shutdown
-        try:
-            if hasattr(self, "_mutex_handle") and self._mutex_handle:
-                import ctypes
-
-                ctypes.windll.kernel32.CloseHandle(self._mutex_handle)
-                self._mutex_handle = None
-        except Exception:
-            log.debug("[CLEANUP] CloseHandle failed", exc_info=True)
-
-        # Close devnull streams opened during logging setup
-        try:
-            _close_devnull_files()
-        except Exception:
-            log.debug("[CLEANUP] close devnull files failed", exc_info=True)
+        return self.shutdown._do_cleanup()
 
     def quit(self):
-        """Shut down the application cleanly.
-
-        PROD-003: ensures all threads, PortAudio streams, and
-        subprocesses are properly stopped with timeouts. Previously
-        thread joins had no timeout and PortAudio streams could be
-        left open if quit() raced with the audio callback.
-
-        RW-3: the cleanup body has been extracted into
-        ``_do_cleanup()`` so ``restart_app()`` and ``_atexit_cleanup()``
-        share the SAME audited shutdown path. This eliminates the
-        silent data-loss bug where ``restart_app()`` skipped
-        ``history_db.flush()``, ``_crash_recovery.flush()``,
-        ``recorder.shutdown_mic_watcher()``, ``recorder.stop()``,
-        ``_bubble_level_worker`` stop, ``_clear_backend_pid_file()``,
-        and the Win32 mutex handle close — losing pending DB writes
-        and leaking PortAudio streams + the mutex on every restart.
-
-        THREAD-REGISTRY: ``shutdown_all()`` runs BEFORE the existing
-        ``_do_cleanup()`` sequence so the registry's centralized
-        signal-and-join runs first. This closes the "leaked daemon"
-        gap for the bubble-level-pusher (noted at app.py:1377) and
-        gives every registered thread a chance to exit gracefully via
-        its stop_event. The per-site shutdown methods in
-        ``_do_cleanup()`` then run as a safety net — they're all
-        idempotent (Event.set is a no-op if already set; join on a
-        dead thread returns immediately), so the redundant calls are
-        harmless. ``shutdown_all()`` is itself idempotent, so a
-        subsequent call from ``_atexit_cleanup()`` is a no-op.
-        """
-        if self._shutting_down:
-            log.debug("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
-            return
-
-        is_main = threading.current_thread() is threading.main_thread()
-        log.info("[SHUTDOWN] Shutting down")
-        self._shutting_down = True
-        # RACE-020: also set the Event version so executor tasks can check it
-        self._shutting_down_event.set()
-
-        # THREAD-REGISTRY: signal all registered threads to stop and
-        # join them with their per-thread timeouts. Runs BEFORE
-        # _do_cleanup() so the registry's centralized shutdown is the
-        # first pass; the per-site methods in _do_cleanup() then run
-        # as a safety net. Best-effort — failures here don't prevent
-        # the rest of shutdown from running.
-        try:
-            self._thread_registry.shutdown_all()
-        except Exception:
-            log.debug(
-                "[SHUTDOWN] thread_registry.shutdown_all() failed",
-                exc_info=True,
-            )
-
-        # RW-3: delegate to the shared, idempotent cleanup body. The
-        # _cleanup_done flag inside _do_cleanup() guarantees that a
-        # later _atexit_cleanup() call (or a duplicate quit()) is a
-        # no-op rather than double-flushing / double-stopping.
-        self._do_cleanup()
-
-        if is_main:
-            sys.exit(0)
+        """RW-9 Phase 7: delegate to ShutdownController."""
+        return self.shutdown.quit()
 
     def _atexit_log(self) -> None:
-        """Log when the process exits, even if quit() was not called."""
-        if not self._shutting_down_event.is_set():
-            log.warning(
-                "[ATEXIT] Process exiting without quit() -- "
-                "likely killed externally (console close, task manager, etc.)"
-            )
+        """RW-9 Phase 7: delegate to ShutdownController."""
+        return self.shutdown._atexit_log()
 
     def _atexit_cleanup(self) -> None:
-        """RACE-016: atexit handler for critical cleanup paths.
-
-        Daemon threads can be killed by the interpreter without running
-        their finally blocks.  This method is a safety net that ensures
-        critical cleanup (volume restore, hotkey release, crash recovery
-        flush, history DB flush, recorder stop, PID file + mutex
-        release) happens even if the daemon thread's finally block
-        didn't run.  It is idempotent — calling it after ``quit()`` or
-        ``restart_app()`` is a no-op because both set
-        ``_shutting_down = True`` before delegating to ``_do_cleanup()``,
-        and ``_do_cleanup()`` itself guards against double-execution
-        via the ``_cleanup_done`` flag.
-
-        RW-3: previously this method ran an ad-hoc subset of cleanup
-        (volume restore + hotkey stop + crash recovery flush) that
-        DIVERGED from ``quit()``'s path.  When the process was killed
-        externally (no ``quit()`` / ``restart_app()``), the safety net
-        skipped history DB flush, recorder stop, mic watcher shutdown,
-        bubble level worker stop, PID file clear, and mutex handle
-        close — leaking the same resources that the OLD
-        ``restart_app()`` leaked.  It now delegates to
-        ``_do_cleanup()`` so the safety net runs the SAME audited
-        shutdown path as the regular flow.
-        """
-        try:
-            if self._shutting_down:
-                # quit() or restart_app() already ran (or is running)
-                # _do_cleanup(); the _cleanup_done flag inside
-                # _do_cleanup() makes a second call a no-op, but we
-                # short-circuit here too to avoid the spurious
-                # "[ATEXIT] Running emergency cleanup" log line on
-                # every intentional shutdown.
-                return
-            log.info("[ATEXIT] Running emergency cleanup")
-            self._do_cleanup()
-        except Exception:
-            # CR-21: previously this was a bare ``except Exception: pass``
-            # which silently swallowed cleanup failures and left no trace
-            # in the log — making post-mortem debugging of crash-loop
-            # exits effectively impossible. We still never re-raise out
-            # of an atexit handler (that would mask the original exit
-            # cause and produce confusing tracebacks), but we now log
-            # the exception with traceback so operators can see what
-            # broke in the emergency cleanup path.
-            log.exception("[ATEXIT] _do_cleanup() raised — emergency cleanup incomplete")
+        """RW-9 Phase 7: delegate to ShutdownController."""
+        return self.shutdown._atexit_cleanup()
 
     def _install_signal_handlers(self):
-        """Install SIGINT/SIGTERM handlers for graceful shutdown.
-
-        PROD-003: On POSIX there was no signal handler, so Ctrl+C
-        would kill the process without running quit() cleanup
-        (stop hotkeys, restore volume, release mutex). This method
-        installs handlers that trigger quit() on a separate thread
-        to avoid deadlock when the main thread is inside the signal
-        handler.
-        """
-
-        def _signal_handler(signum, frame):
-            sig_name = signal.Signals(signum).name
-            log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
-            # Run quit on a separate thread to avoid deadlock.
-            # RACE-016: daemon=True is acceptable because quit() is
-            # idempotent and the atexit handler covers critical cleanup.
-            threading.Thread(target=self.quit, daemon=True).start()
-
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            with contextlib.suppress(OSError, ValueError):
-                # SIGTERM not available on Windows; signal.signal can
-                # raise if not in the main thread
-                signal.signal(sig, _signal_handler)
+        """RW-9 Phase 7: delegate to ShutdownController."""
+        return self.shutdown._install_signal_handlers()
 
     def _install_win32_console_handler(self):
-        """On Windows, install a console control handler to survive console closure.
-
-        ARCH-046: skip when running under ``pythonw.exe`` — there's no
-        console attached, so SetConsoleCtrlHandler is a no-op that
-        spews "no console" warnings in the log.
-        """
-        if not is_windows():
-            return
-        # ARCH-046: detect pythonw.exe (no console) and skip install.
-        exe_name = Path(sys.executable).name.lower()
-        if exe_name == "pythonw.exe":
-            log.debug("[WIN32] pythonw.exe detected — skipping console control handler")
-            return
-
-        try:
-            import ctypes
-            from ctypes import wintypes
-
-            handler_routine = ctypes.CFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
-
-            self._console_handler = handler_routine(self._win32_console_handler)
-            self._kernel32 = ctypes.windll.kernel32
-            kernel32 = self._kernel32
-            kernel32.SetConsoleCtrlHandler.argtypes = [handler_routine, wintypes.BOOL]
-            kernel32.SetConsoleCtrlHandler.restype = wintypes.BOOL
-            kernel32.FreeConsole.argtypes = []
-            kernel32.FreeConsole.restype = wintypes.BOOL
-
-            result = kernel32.SetConsoleCtrlHandler(self._console_handler, True)
-            if result:
-                log.info("[WIN32] Console control handler installed")
-            else:
-                log.warning("[WIN32] SetConsoleCtrlHandler failed")
-        except Exception:
-            log.exception("[WIN32] Failed to install console control handler")
+        """RW-9 Phase 7: delegate to ShutdownController."""
+        return self.shutdown._install_win32_console_handler()
 
     def _win32_console_handler(self, ctrl_type):
-        """Callback for Windows console control events."""
-        ctrl_c_event = 0
-        ctrl_break_event = 1
-        ctrl_close_event = 2
-        ctrl_logoff_event = 5
-        ctrl_shutdown_event = 6
-
-        if ctrl_type == ctrl_close_event:
-            log.info("[WIN32] Console window closing -- keeping process alive (tray app survives)")
-            try:
-                self._kernel32.FreeConsole()
-                # PERF-004: reuse the existing devnull object instead of
-                # opening a new one on every ctrl_close_event (would hit
-                # Windows' 10,000 handle cap after ~250 RDP logout cycles).
-                if getattr(self, "_devnull", None) is None or self._devnull.closed:
-                    self._devnull = open(os.devnull, "w")  # noqa: SIM115
-                    _register_devnull_file(self._devnull)
-                sys.stdout = self._devnull
-                sys.stderr = self._devnull
-                log.info("[WIN32] Detached from console (FreeConsole)")
-            except Exception:
-                log.warning("[WIN32] FreeConsole() failed")
-            return True
-
-        if ctrl_type in (ctrl_logoff_event, ctrl_shutdown_event):
-            log.info("[WIN32] System event %d received, shutting down", ctrl_type)
-            # RACE-016: daemon=True is acceptable because quit() is
-            # idempotent and the atexit handler covers critical cleanup.
-            threading.Thread(target=self.quit, daemon=True).start()
-            return True
-
-        if ctrl_type in (ctrl_c_event, ctrl_break_event):
-            log.info("[WIN32] Ctrl+C received, shutting down")
-            # RACE-016: daemon=True is acceptable because quit() is
-            # idempotent and the atexit handler covers critical cleanup.
-            threading.Thread(target=self.quit, daemon=True).start()
-            return True
-
-        return False
+        """RW-9 Phase 7: delegate to ShutdownController."""
+        return self.shutdown._win32_console_handler(ctrl_type)
 
 
 # REF-3: extraction — single-instance enforcement + backend PID file
