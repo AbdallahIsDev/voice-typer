@@ -11,6 +11,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
+    "core:window:allow-set-position",
     "core:webview:allow-internal-toggle-devtools",
 
     "shell:allow-spawn",
@@ -23,6 +24,9 @@
 
     "clipboard-manager:allow-read-text",
     "clipboard-manager:allow-write-text",
-    "clipboard-manager:allow-clear"
+    "clipboard-manager:allow-clear",
+
+    "dialog:allow-save",
+    "dialog:allow-open"
   ]
 }

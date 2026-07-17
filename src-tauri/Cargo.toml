@@ -27,6 +27,10 @@ tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-single-instance = "2"
+# ADR-0020 §6 + MIG-1.1: tauri-plugin-dialog for the save-file dialog
+# used by `export_history` / `export_vocabulary` Rust commands. The TS
+# bridge invokes these commands (no JS-side dialog API call).
+tauri-plugin-dialog = "2"
 
 # ADR-0020 §6.2: enigo for cross-platform keystroke injection
 # (short-text paste path). Used by the paste_text event handler.

@@ -71,6 +71,7 @@
     "notification": {},
     "clipboard-manager": {},
     "single-instance": {},
+    "dialog": {},
     "shell": {
       "sidecar": true,
       "scope": [
