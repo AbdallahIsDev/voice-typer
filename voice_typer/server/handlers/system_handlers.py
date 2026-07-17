@@ -49,8 +49,6 @@ class SystemHandlersMixin:
             # The ack was already sent; can't recover from here.
         return None
 
-
-
     def _handle_quit_app(self, data, resp) -> dict | None:
         """Handle the ``quit_app`` IPC command."""
         resp["type"] = "ack"
@@ -86,10 +84,12 @@ class SystemHandlersMixin:
         # wizard's "Grant Accessibility" step.
         try:
             import sys as _sys
+
             granted = True
             if is_macos():
                 try:
                     import ctypes
+
                     # AXIsProcessTrusted() is the official API.
                     # Returns True iff the process has Accessibility.
                     app_services = ctypes.cdll.LoadLibrary(
@@ -99,11 +99,13 @@ class SystemHandlersMixin:
                 except Exception:
                     # Fallback: osascript check
                     import subprocess as _sp
+
                     try:
                         result = _sp.run(
-                            ["osascript", "-e",
-                             'tell application "System Events" to UI elements enabled'],
-                            capture_output=True, text=True, timeout=3,
+                            ["osascript", "-e", 'tell application "System Events" to UI elements enabled'],
+                            capture_output=True,
+                            text=True,
+                            timeout=3,
                         )
                         granted = result.returncode == 0 and "true" in result.stdout.lower()
                     except Exception:
@@ -127,9 +129,13 @@ class SystemHandlersMixin:
         # new labels take effect.
         try:
             from voice_typer.server.tray import get_tray_locale, set_tray_locale
-            validated, error = _validate_dict_payload(data, {
-                "locale": {"type": str, "required": False, "default": "en"},
-            })
+
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "locale": {"type": str, "required": False, "default": "en"},
+                },
+            )
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above
@@ -279,15 +285,26 @@ class SystemHandlersMixin:
                 }
                 return resp
 
-            event_bus.publish({
-                "type": "electron_notification",
-                "data": {
-                    "title": title,
-                    "message": message,
-                    "duration_ms": duration_ms,
-                    "critical": critical,
-                },
-            })
+            event_bus.publish(
+                {
+                    # CR-8: renamed from "electron_notification" to the
+                    # platform-agnostic "notification" — the Tauri Rust
+                    # host no longer renames the event (it passes through
+                    # unchanged), and a Rust-side backward-compat alias
+                    # (see src-tauri/src/main.rs) handles old Python
+                    # sidecars that still emit the legacy name during
+                    # rolling upgrades. The renderer subscribes to
+                    # "notification" via the generic `python-event`
+                    # envelope, not by name.
+                    "type": "notification",
+                    "data": {
+                        "title": title,
+                        "message": message,
+                        "duration_ms": duration_ms,
+                        "critical": critical,
+                    },
+                }
+            )
             resp["type"] = "ack"
         except Exception as e:
             log.error("[IPC] show_electron_notification failed: %s", e)

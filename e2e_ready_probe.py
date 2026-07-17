@@ -17,6 +17,9 @@ class FakeServer:
         self.app = FakeApp()
         self.calls = []
         self.ready_events = []
+        # CR-4: sidecar_ws._handle_connection now reads/writes this on
+        # the server instance (per-instance, was module-level global).
+        self._ready_emitted = False
 
     def _dispatch(self, msg):
         self.calls.append(msg)
@@ -58,7 +61,8 @@ async def main():
         sys.stdout.flush()
 
     sidecar_ws._emit_server_started = fake_emit
-    sidecar_ws._ready_emitted = False
+    # CR-4: reset per-instance flag on the FakeServer before run().
+    server._ready_emitted = False
     task = asyncio.create_task(asyncio.to_thread(sidecar_ws.run, server))
     for _ in range(100):
         if "port" in got:

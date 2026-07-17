@@ -87,15 +87,23 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
-# ADR-0020 round-2 fix: module-level flag so `ready` is emitted only
-# once per process, on the first authenticated WS connection. Previously
-# ipc_server.py:main() called `server.push({"type": "ready"})` BEFORE
-# sidecar_ws.run() started the WS server — so the event was dropped (no
-# subscriber yet). Now we emit `ready` via event_bus.publish AFTER the
-# first client authenticates, so the Tauri host receives it over the WS
-# and can hydrate the UI. The flag is module-level (not per-connection)
-# so a reconnect after a transient WS drop does NOT re-emit `ready`.
-_ready_emitted: bool = False
+# ADR-0020 round-2 fix: the `ready` event is emitted only once per
+# IPCServer instance, on the first authenticated WS connection.
+# Previously ipc_server.py:main() called `server.push({"type": "ready"})`
+# BEFORE sidecar_ws.run() started the WS server — so the event was
+# dropped (no subscriber yet). Now we emit `ready` via event_bus.publish
+# AFTER the first client authenticates, so the Tauri host receives it
+# over the WS and can hydrate the UI.
+#
+# CR-4: this flag USED to be a module-level global (`_ready_emitted`).
+# That was correct for production (one ready event per process), but
+# never reset between test runs that import the module once and call
+# `run()` multiple times with different IPCServer instances — so the
+# second `run()` would not emit `ready` even with a fresh server. The
+# flag is now a per-instance attribute on the IPCServer
+# (`server._ready_emitted`, initialized to False in
+# `IPCServer.__init__`); see `_handle_connection` for the read/write
+# site and `IPCServer._reset_ready_emitted()` for the test-only helper.
 
 # Hard loopback-only bind (ADR-0020 §1). Binding 0.0.0.0 / :: would
 # (a) pop a Windows Defender Firewall prompt, (b) trigger an macOS
@@ -323,13 +331,21 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     # ipc_server.py:1899). Using event_bus.publish (not server.push)
     # because the WS writer task subscribes to event_bus — server.push
     # would go to the TCP path's _tcp_client which is None in WS mode.
-    global _ready_emitted
-    if not _ready_emitted:
+    #
+    # CR-4: the flag is per-instance (``server._ready_emitted``), not
+    # module-level, so each fresh ``IPCServer`` starts with the flag
+    # False and emits `ready` on its first connection. This was
+    # previously a module-level global which leaked state between test
+    # runs that reused the same module. The flag is set under
+    # ``server._lock``-free atomic read-then-write — single WS server
+    # task, so the race is theoretical, but the worst case is a
+    # duplicate `ready` event which the host tolerates.
+    if not getattr(server, "_ready_emitted", False):
         from voice_typer.server import event_bus
 
         log.info("[SIDECAR-WS] first authenticated connection — emitting `ready` event")
         event_bus.publish({"type": "ready"})
-        _ready_emitted = True
+        server._ready_emitted = True
 
     # Subscribe server.push (which forwards event_bus.publish) to
     # this WS so server-initiated events flow back to the host.

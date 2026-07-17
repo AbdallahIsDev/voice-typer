@@ -101,12 +101,18 @@ class StartupSequence:
                 # Also publish an event to the in-process event bus so
                 # the Electron frontend can show an in-app notification
                 # (toast / snackbar) if the UI window is open.
+                # CR-8: event name was renamed from "electron_notification"
+                # to the platform-agnostic "notification" — the Tauri
+                # Rust host passes the event through unchanged (the old
+                # rename match arm was removed). A Rust-side backward-
+                # compat alias handles old Python sidecars still emitting
+                # the legacy name during rolling upgrades.
                 try:
                     from voice_typer.server import event_bus
 
                     event_bus.publish(
                         {
-                            "type": "electron_notification",
+                            "type": "notification",
                             "data": {
                                 "title": f"{APP_NAME} — Previous Session Crashed",
                                 "message": crash_summary,

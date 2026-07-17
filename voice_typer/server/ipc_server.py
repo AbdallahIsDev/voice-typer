@@ -125,30 +125,57 @@ def _validate_dict_payload(data, schema):
     return validated, None
 
 
-def _pick_available_port(start: int = 9876, max_tries: int = 100) -> int:
-    """Return the first TCP port >= ``start`` that is free on 127.0.0.1.
+def _pick_available_port(start: int = 9876, max_tries: int = 100) -> tuple[int, socket.socket]:
+    """Return ``(port, bound_socket)`` for the first TCP port >= ``start`` free on 127.0.0.1.
 
     P1-1.2: used by standalone mode to auto-pick a port for the backend's
     TCP server.  Starts at the default IPC port (9876) and increments
     until a free port is found (capped at ``max_tries`` attempts).  Falls
     back to an OS-assigned ephemeral port (port=0) if every port in the
     range is busy — this guarantees the function never fails.
-    """
-    import socket as _socket
 
+    CR-7 fix: the BOUND socket is returned alongside the port number so
+    the caller can pass it through to :meth:`IPCServer.start_tcp` (which
+    accepts either an ``int`` for backward compatibility or a
+    ``(port, sock)`` tuple for the no-race-window gold-standard path).
+    The previous probe-then-bind pattern closed the probe socket before
+    the real ``bind()`` in ``_accept_tcp``, opening a (small but real)
+    race window where another local process could grab the port.  By
+    handing the already-bound socket to ``start_tcp``, the kernel
+    guarantees no other process can claim that port between probe and
+    listen.
+
+    The returned socket has ``SO_REUSEADDR`` set and is bound to
+    ``127.0.0.1:port`` but NOT yet listening — the caller is expected to
+    call ``.listen()`` on it (or pass it to ``start_tcp`` which does so).
+    Callers that only want the port number (and accept the race window)
+    can close the socket themselves::
+
+        port, sock = _pick_available_port(...)
+        sock.close()  # releases the port; race window re-opens
+    """
     for offset in range(max_tries):
         candidate = start + offset
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
-                s.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-                s.bind(("127.0.0.1", candidate))
-                return candidate
+            s.bind(("127.0.0.1", candidate))
         except OSError:
+            # Port busy — close the probe socket and try the next one.
+            with contextlib.suppress(OSError):
+                s.close()
             continue
+        # CR-7: return the ACTUAL bound port (s.getsockname()[1]), not
+        # ``candidate``.  When ``candidate == 0`` (ephemeral-port
+        # request), the OS assigns a real port number which we must
+        # surface to the caller.  The bound socket is returned so the
+        # caller can pass it through to start_tcp (no race window).
+        return s.getsockname()[1], s
     # All ports in range are busy — let the OS assign an ephemeral one.
-    with _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    s.bind(("127.0.0.1", 0))
+    return s.getsockname()[1], s
 
 
 # ── RELIABILITY-006: per-connection rate limiter ─────────────────────────
@@ -210,6 +237,14 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 # start (10+ seconds for the torch import + window creation).
 _HEARTBEAT_INTERVAL_SECONDS = 5.0
 _HEARTBEAT_TIMEOUT_SECONDS = 120.0  # 24 missed heartbeats — increased from 15s
+# CR-9: grace period (seconds) the heartbeat watchdog's force-exit
+# daemon thread waits before calling ``os._exit(1)``. 10s is longer
+# than the slowest legitimate ``app.quit()`` path (PortAudio stream
+# teardown + history DB flush + mutex release ≈ 2-3s in the worst
+# observed case), giving graceful shutdown room to complete while
+# still bounding the worst-case hang to 10s. Extracted as a constant
+# so tests can patch it down to ~50ms to avoid waiting real seconds.
+_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS = 10.0
 
 
 class _RateLimiter:
@@ -610,7 +645,44 @@ class IPCServer(
         # restart can't satisfy a fresh one.
         self._relaunch_ack_event = threading.Event()
 
+        # CR-4: per-instance flag (was module-level in sidecar_ws.py).
+        # ``sidecar_ws._handle_connection`` reads/writes this attribute on the
+        # ``IPCServer`` instance passed to ``sidecar_ws.run()`` so the ``ready``
+        # event is emitted only on the first authenticated WS connection.
+        # Previously this was a module-level global in ``sidecar_ws.py`` —
+        # correct for production, but never reset between test runs that import
+        # the module once and call ``run()`` multiple times with different
+        # ``IPCServer`` instances. Per-instance state makes each server own its
+        # own flag, so a fresh ``IPCServer`` starts with ``_ready_emitted =
+        # False`` automatically. See ``_reset_ready_emitted()`` for the
+        # test-only helper that resets this between runs of the same server.
+        self._ready_emitted: bool = False
+
     # ── Lifecycle ───────────────────────────────────────────────────────
+
+    def _reset_ready_emitted(self) -> None:
+        """Test-only: reset the per-instance ``_ready_emitted`` flag.
+
+        CR-4: in production, ``_ready_emitted`` is set to ``True`` on the
+        first authenticated WS connection and never reset — this is the
+        intended behavior so a transient WS reconnect after a drop does
+        NOT re-emit the ``ready`` event. However, tests that construct a
+        single ``IPCServer`` and call ``sidecar_ws.run(server)`` multiple
+        times in the same process need to reset the flag between runs to
+        verify the "first connection emits ready" path.
+
+        The cleaner alternative — constructing a fresh ``IPCServer`` per
+        test — is what we recommend, and is what the per-instance move
+        enables (a fresh instance starts with ``_ready_emitted = False``
+        automatically). This helper exists for the small number of tests
+        that, for fixture-sharing reasons, must reuse the same instance.
+
+        Marked "test-only" by convention (leading underscore + docstring)
+        rather than by a runtime guard — the cost of an accidental
+        production call is just a duplicate ``ready`` event, which the
+        host already tolerates (it's idempotent on the UI side).
+        """
+        self._ready_emitted = False
 
     def start(self) -> None:
         """Start the IPC server in a daemon thread.
@@ -786,8 +858,22 @@ class IPCServer(
 
     # ── TCP listener ───────────────────────────────────────────────
 
-    def start_tcp(self, port: int) -> None:
-        """Start a TCP server that accepts one Electron connection."""
+    def start_tcp(self, port) -> None:
+        """Start a TCP server that accepts one Electron connection.
+
+        CR-7 fix: ``port`` may be either:
+
+        - an ``int`` (legacy / backward-compatible) — this method will
+          create and bind its own socket to ``127.0.0.1:port``.  There
+          is an inherent race window between this call and the bind
+          (another local process could grab the port).
+        - a ``(port_int, bound_socket)`` tuple (gold-standard — no race
+          window).  The caller has already bound the socket (typically
+          via :func:`_pick_available_port`); this method simply calls
+          ``listen()`` on it and starts accepting connections.  The
+          kernel guarantees no other process can claim the port between
+          the probe and the listen.
+        """
         self._tcp_mode = True
         t = threading.Thread(
             target=self._accept_tcp,
@@ -796,7 +882,7 @@ class IPCServer(
         )
         t.start()
 
-    def _accept_tcp(self, port: int) -> None:
+    def _accept_tcp(self, port) -> None:
         """Accept one connection, then run the TCP IPC loop.
 
         SEC-018: the first line from the client must be a JSON object
@@ -812,6 +898,10 @@ class IPCServer(
         Python subprocess via the ``VOICE_TYPER_IPC_TOKEN`` env var.
         Both sides see the same random per-launch value; no other
         process can know it.
+
+        CR-7: ``port`` may be either an ``int`` (legacy) or a
+        ``(port_int, bound_socket)`` tuple (gold-standard — eliminates
+        the probe-then-bind race window).  See :meth:`start_tcp`.
         """
         # Read the expected token from the env var set by Electron.
         expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
@@ -823,18 +913,40 @@ class IPCServer(
             # is accepting unauthenticated connections.
             log.warning("[TCP] VOICE_TYPER_IPC_TOKEN not set — accepting UNAUTHENTICATED connections")
 
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            server.bind(("127.0.0.1", port))
-            server.listen(1)
-            log.info("[TCP] listening on 127.0.0.1:%d", port)
-        except Exception:
-            log.exception("[TCP] failed to bind on port %d", port)
-            # Make sure we don't leak the socket on bind failure.
-            with contextlib.suppress(OSError):
-                server.close()
-            return
+        # CR-7: unpack the (port, bound_socket) tuple if provided — the
+        # socket is already bound, so we skip the bind() call entirely
+        # and go straight to listen().  This eliminates the race window
+        # where another local process could grab the port between the
+        # probe close() and the real bind().
+        if isinstance(port, tuple):
+            port_num, bound_sock = port
+            server = bound_sock
+            try:
+                server.listen(1)
+                log.info(
+                    "[TCP] listening on 127.0.0.1:%d (pre-bound socket — no race window)",
+                    port_num,
+                )
+            except Exception:
+                log.exception("[TCP] failed to listen on pre-bound socket port %d", port_num)
+                # Make sure we don't leak the socket on listen failure.
+                with contextlib.suppress(OSError):
+                    server.close()
+                return
+        else:
+            port_num = port
+            server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                server.bind(("127.0.0.1", port_num))
+                server.listen(1)
+                log.info("[TCP] listening on 127.0.0.1:%d", port_num)
+            except Exception:
+                log.exception("[TCP] failed to bind on port %d", port_num)
+                # Make sure we don't leak the socket on bind failure.
+                with contextlib.suppress(OSError):
+                    server.close()
+                return
 
         # NEW-IPC-001: store the listening socket on the instance so
         # stop() can close it to unblock the accept() call below.
@@ -1184,6 +1296,11 @@ class IPCServer(
         (quit() only calls ``sys.exit()`` from the main thread; from
         a daemon thread it relies on tray.stop() to unwind the main
         loop).
+
+        CR-9: if ``tray.stop()`` hangs (observed on certain Linux
+        backends + Windows Server), the daemon thread scheduled here
+        force-exits the process via ``os._exit(1)`` after a 10-second
+        grace period. See the inline comment in the ``True`` branch.
         """
         last = self._last_heartbeat_at
         if last is None:
@@ -1205,6 +1322,57 @@ class IPCServer(
             self.app.quit()
         except Exception:
             log.exception("[HEARTBEAT] app.quit() raised during heartbeat timeout")
+
+        # CR-9: force-exit fallback if ``tray.stop()`` hangs.
+        #
+        # ``app.quit()`` from a daemon thread relies on
+        # ``tray.stop()`` breaking the pystray loop so ``app.start()``
+        # returns and the process exits naturally (``quit()`` only
+        # calls ``sys.exit(0)`` from the main thread). pystray on
+        # certain Linux backends (AppIndicator with stale dbus) and on
+        # Windows Server (with RDP session disconnects) has been
+        # observed to hang inside ``stop()`` — leaving the process
+        # stuck with the mic open and the single-instance mutex held.
+        #
+        # Mitigation: schedule a daemon thread that sleeps 10 seconds
+        # (grace period for ``quit()`` to unwind naturally), then calls
+        # ``os._exit(1)``. If ``quit()`` succeeded, the process is
+        # already gone before the grace period expires — the daemon
+        # thread is reaped by the OS. If ``quit()`` hung, the daemon
+        # thread force-exits the process after 10s.
+        #
+        # ``os._exit`` (not ``sys.exit``) bypasses Python's normal
+        # shutdown sequence (no atexit handlers, no finally blocks) —
+        # appropriate here because the graceful ``_do_cleanup()`` path
+        # already ran inside ``app.quit()`` above. We use ``os._exit(1)``
+        # (non-zero) so the host's FT-1 supervisor treats this as a
+        # crash and respawns with backoff, rather than silently exiting
+        # and looking like a clean shutdown.
+        try:
+            import threading as _threading
+
+            def _force_exit_after_grace() -> None:
+                # 10-second grace period (default; constant is patchable
+                # for tests). Must be longer than the slowest legitimate
+                # quit() path — PortAudio stream teardown + history DB
+                # flush + mutex release ≈ 2-3s in the worst observed case.
+                time.sleep(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS)
+                log.error(
+                    "[HEARTBEAT] app.quit() did not exit within %ds — "
+                    "force-exiting via os._exit(1) (tray.stop() likely hung)",
+                    int(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS),
+                )
+                os._exit(1)
+
+            _threading.Thread(
+                target=_force_exit_after_grace,
+                name="heartbeat-force-exit",
+                daemon=True,
+            ).start()
+        except Exception:
+            log.exception(
+                "[HEARTBEAT] failed to schedule force-exit watchdog — process may hang if tray.stop() is stuck"
+            )
         return True
 
     def _handle_heartbeat(self, data, resp) -> dict:
@@ -1976,7 +2144,7 @@ def main() -> None:
         # spawning its own Python backend.
         from voice_typer.server import electron_launcher
 
-        standalone_port = _pick_available_port(9876)
+        standalone_port, standalone_sock = _pick_available_port(9876)
 
         # Generate the session token and set it as an env var BEFORE
         # starting the TCP listener.  The _accept_tcp daemon thread reads
@@ -1987,7 +2155,11 @@ def main() -> None:
         ipc_token = electron_launcher.generate_session_token()
         os.environ["VOICE_TYPER_IPC_TOKEN"] = ipc_token
 
-        server.start_tcp(standalone_port)
+        # CR-7: pass the BOUND socket through to start_tcp so there's
+        # no race window between _pick_available_port's probe and the
+        # real bind() in _accept_tcp.  The kernel guarantees no other
+        # local process can claim the port between probe and listen.
+        server.start_tcp((standalone_port, standalone_sock))
         log.info(
             "[IPC] standalone TCP mode on port %d — Electron will connect here",
             standalone_port,
