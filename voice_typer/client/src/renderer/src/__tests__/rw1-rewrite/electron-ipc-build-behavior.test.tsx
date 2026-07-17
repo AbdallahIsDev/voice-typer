@@ -3,15 +3,26 @@
  * that were previously covered by string-pattern Python tests in
  * `tests/test_electron_ipc_and_build.py`.
  *
- * The Python file is the LARGEST of the 5 RW-1 files (90 tests). Most
- * of its tests assert on Python source, `package.json`,
- * `electron-builder.yml`, `.github/workflows/build.yml`, or
- * `voice-typer.spec` — those are KEEP (build infrastructure, not
- * renderer behavior). The tests below cover the PORT candidates that
- * read renderer TS/TSX source files and asserted on string patterns.
+ * The Python file is the LARGEST of the 5 RW-1 files (90 tests).
+ * Sections 1–4 below cover the original PORT candidates that read
+ * renderer TS/TSX source files and asserted on string patterns.
  *
- * PORT candidates covered here (renderer TS source — behaviorally
- * testable in vitest/jsdom):
+ * Sections 5–13 extend the rewrite to cover the remaining
+ * string-pattern tests in the same Python file: build-config /
+ * project-metadata invariants read via Node.js `fs` (package.json,
+ * electron-builder.yml, voice-typer.spec, pyproject.toml,
+ * .github/workflows/build.yml, CHANGELOG.md, standard project files,
+ * generate-icons.mjs, voice_typer/__init__.py, and the
+ * `ALLOWED_COMMANDS` set inside src/main/index.ts).  These are not
+ * React-component behavior tests — they are project-metadata
+ * invariants — but they CAN run in vitest (Node.js `fs` is available
+ * even under the jsdom environment), so porting them keeps all RW-1
+ * coverage in one runner and removes the Python↔Node split for
+ * config-string invariants.
+ *
+ * PORT candidates covered here (full list):
+ *
+ * Renderer TS source (Sections 1–4):
  *   - TestElectronExposesDataExportHandlers::test_window_bridge_type_includes_export_methods
  *   - TestElectronExposesDataExportHandlers::test_settings_has_export_buttons
  *   - TestRestartRequestRemoved::test_restart_request_not_in_types
@@ -20,21 +31,113 @@
  *   - TestTypeScriptNonNullAssertions::test_main_tsx_no_non_null_assertion
  *   - TestTypeScriptNonNullAssertions::test_bubble_main_tsx_no_non_null_assertion
  *
- * KEEP in Python (Electron main/preload — can't run in jsdom vitest;
- * the vitest config only includes `src/renderer/src/**`):
+ * package.json metadata (Section 5):
+ *   - TestTypeScriptWebConfigClean::test_package_json_typecheck_includes_web_config
+ *   - TestTypeScriptWebConfigClean::test_typecheck_web_script_exists
+ *   - TestPackageJsonDeclaresKeywords::test_has_keywords
+ *   - TestPackageJsonDeclaresKeywords::test_has_engines
+ *   - TestPackageJsonDropsUndeclaredBiome::test_no_biome_scripts
+ *   - TestPackageJsonDropsUndeclaredBiome::test_python_dev_script_cross_platform
+ *   - TestPackageJsonDropsUndeclaredBiome::test_package_json_is_valid_json
+ *
+ * generate-icons.mjs (Section 6):
+ *   - TestIconsScriptPutsProjectVenvFirst::test_project_venv_is_first_candidate
+ *   - TestIconsScriptPutsProjectVenvFirst::test_legacy_venv_path_is_last_resort
+ *   - TestIconScriptFallsBackAcrossPythonPaths::test_script_has_fallback_chain
+ *   - TestIconScriptRenamesRootToClientDir::test_no_confusing_root_variable
+ *
+ * electron-builder.yml (Section 7):
+ *   - TestElectronBuilderConfigHasSigningAndPublish::test_has_publish_config
+ *   - TestElectronBuilderConfigHasSigningAndPublish::test_has_code_signing_config
+ *
+ * voice-typer.spec (Section 8):
+ *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_parakeet_engine
+ *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_qwen_engine
+ *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_transformers
+ *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_ctranslate2
+ *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_huggingface_hub
+ *   - TestPyinstallerSpecExcludesTkinter::test_tkinter_in_excludes
+ *
+ * pyproject.toml (Section 9):
+ *   - TestPyprojectHasStandardMetadataFields::test_has_license
+ *   - TestPyprojectHasStandardMetadataFields::test_has_classifiers
+ *   - TestPyprojectHasStandardMetadataFields::test_has_project_urls
+ *   - TestPyprojectHasStandardMetadataFields::test_has_readme
+ *   - TestNoBlanketResourceWarningFilter::test_no_blanket_resource_warning_filter
+ *   - TestEntryPointImportable::test_pyproject_entry_point_points_to_ipc_server
+ *
+ * .github/workflows/build.yml (Section 10):
+ *   - TestCiRunsRuffCoverageAndPipAudit::test_ci_has_ruff
+ *   - TestCiRunsRuffCoverageAndPipAudit::test_ci_has_coverage
+ *   - TestCiRunsRuffCoverageAndPipAudit::test_ci_has_pip_audit
+ *   - TestCiRunsRuffCoverageAndPipAudit::test_ci_tests_multiple_python_versions
+ *   - TestCiVerifiesVersionSync::test_ci_has_version_check_job
+ *   - TestCiVerifiesVersionSync::test_ci_verifies_tag_matches_installer
+ *
+ * Standard project files (Section 11):
+ *   - TestStandardProjectFilesExist::test_license_exists
+ *   - TestStandardProjectFilesExist::test_contributing_exists
+ *   - TestStandardProjectFilesExist::test_security_exists
+ *   - TestStandardProjectFilesExist::test_editorconfig_exists
+ *   - TestStandardProjectFilesExist::test_issue_templates_exist
+ *   - TestStandardProjectFilesExist::test_pr_template_exists
+ *
+ * Version metadata + changelog (Section 12):
+ *   - TestVersionReadsFromPackageMetadata::test_init_py_uses_importlib
+ *   - TestVersionReadsFromPackageMetadata::test_sync_versions_script_exists
+ *   - TestChangelogHasCurrentTestCount::test_changelog_has_current_count
+ *
+ * ALLOWED_COMMANDS in src/main/index.ts (Section 13):
+ *   - TestAllowlistCorrectness::test_quit_app_in_allowlist
+ *   - TestAllowlistCorrectness::test_restart_app_in_allowlist
+ *   - TestAllowlistCorrectness::test_dead_quit_not_in_allowlist
+ *   - TestAllowlistCorrectness::test_dead_restart_not_in_allowlist
+ *   - TestAllowlistCorrectness::test_dead_save_config_not_in_allowlist
+ *   - TestAllowlistCorrectness::test_dead_save_vocabulary_with_diff_not_in_allowlist
+ *   - TestAllowlistCorrectness::test_dead_repaste_last_not_in_allowlist
+ *   - TestAllowlistCorrectness::test_dead_complete_onboarding_not_in_allowlist
+ *
+ * KEEP in Python — REQUIRES-ELECTRON-RUNNER (behavioral version needs
+ * real Electron main process; jsdom cannot load `src/main/index.ts` or
+ * `src/preload/index.ts` because they import `electron` and `node:*`):
  *   - TestElectronExposesDataExportHandlers::test_main_has_templates_export_handler
  *   - TestElectronExposesDataExportHandlers::test_main_has_config_export_handler
  *   - TestElectronExposesDataExportHandlers::test_preload_exposes_export_templates
  *   - TestElectronExposesDataExportHandlers::test_history_export_still_present
  *   - TestElectronExposesDataExportHandlers::test_vocabulary_export_still_present
- *   - TestAllowlistCorrectness (all 9 tests — they read `src/main/index.ts`
- *     and/or `voice_typer/server/ipc_server.py`; the former can't run in
- *     jsdom and the latter is Python source).
+ *
+ * KEEP in Python — REQUIRES-PYTHON-RUNNER (tests import Python modules
+ * or introspect Python source via `inspect.getsource`; out of scope
+ * for a TS-string rewrite):
+ *   - TestAllowlistCorrectness::test_allowlist_matches_server_commands
+ *     (cross-validates main allowlist against `voice_typer/server/ipc_server.py`)
+ *   - TestSetConfigRejectsSensitiveAttrs::test_rejects_combined_sensitive_payload
+ *   - TestUnknownIPCCommandCode::test_unknown_command_payload_has_code_field
+ *   - TestEntryPointImportable::{test_ipc_server_main_importable,
+ *     test_app_main_re_export_exists, test_dunder_main_imports_from_ipc_server}
+ *   - TestGetVocabularyHandler (all 4 tests)
+ *   - TestVoiceTyperAppSingleton (all 3 tests)
+ *   - TestIPCDispatchInvalidData (all 5 tests)
+ *   - TestExceptExceptionNotBaseException::test_main_catches_exception_not_baseexception
+ *   - TestTypeIgnoreBugsFixed (all 5 tests)
+ *   - TestVadStderrRedirect::test_vad_redirects_both_streams
+ *   - TestMacOSAccessibilityCheck (both tests)
+ *   - TestRestartAppStopsBackends::test_restart_calls_stop_on_all_three_backends
+ *   - TestRestartFiltersEnvVarsWithAllowlist::test_app_uses_env_allowlist
+ *   - TestVersionReadsFromPackageMetadata::test_version_uses_importlib_metadata
  *
  * The corresponding Python tests are skipped via `@pytest.mark.skip`
  * with a pointer back to this file. They are NOT deleted — they remain
  * as a fallback until CI verifies the vitest versions pass on all
  * platforms.
+ *
+ * Documented (NOT installed) deps for future agents who want to port
+ * the REQUIRES-ELECTRON-RUNNER tests behaviorally:
+ *   - `@vitest/electron` (or `playwright` + `@playwright/test`) —
+ *     would let vitest spawn a real Electron main process so
+ *     `ipcMain.handle("templates:export", ...)` can be invoked end-to-end.
+ *     Today neither dep is in `voice_typer/client/package.json`; adding
+ *     it is a follow-up.
  */
 
 import {
@@ -698,5 +801,481 @@ describe("RW-1: bubble-main.tsx null-check (rewrite of test_bubble_main_tsx_no_n
 
 		spy.mockRestore();
 		bubbleRoot.remove();
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 5: package.json metadata
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports:
+//   - TestTypeScriptWebConfigClean (2 tests)
+//   - TestPackageJsonDeclaresKeywords (2 tests)
+//   - TestPackageJsonDropsUndeclaredBiome (3 tests)
+//
+// These read `voice_typer/client/package.json` and assert on the
+// parsed JSON shape.  Vitest can read+parse JSON natively; no jsdom
+// or mocked IPC required.
+
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+const REPO_ROOT = resolve(process.cwd(), "../..");
+const CLIENT_DIR = resolve(process.cwd(), ".");
+const PKG_JSON_PATH = resolve(CLIENT_DIR, "package.json");
+
+function readPkgJson(): Record<string, unknown> {
+	return JSON.parse(readFileSync(PKG_JSON_PATH, "utf-8")) as Record<
+		string,
+		unknown
+	>;
+}
+
+describe("RW-1: package.json typecheck scripts (rewrite of TestTypeScriptWebConfigClean)", () => {
+	it("typecheck script includes both tsconfig.web.json and tsconfig.node.json", () => {
+		const pkg = readPkgJson();
+		const typecheck = String(
+			(pkg.scripts as Record<string, string> | undefined)?.typecheck ?? "",
+		);
+		expect(typecheck).toContain("tsconfig.web.json");
+		expect(typecheck).toContain("tsconfig.node.json");
+	});
+
+	it("declares a typecheck:web script", () => {
+		const pkg = readPkgJson();
+		const scripts = (pkg.scripts as Record<string, unknown> | undefined) ?? {};
+		expect(scripts).toHaveProperty("typecheck:web");
+	});
+});
+
+describe("RW-1: package.json declares keywords + engines (rewrite of TestPackageJsonDeclaresKeywords)", () => {
+	it("declares a non-empty keywords array", () => {
+		const pkg = readPkgJson();
+		const keywords = pkg.keywords;
+		expect(Array.isArray(keywords)).toBe(true);
+		expect((keywords as unknown[]).length).toBeGreaterThan(0);
+	});
+
+	it("declares an engines.node constraint", () => {
+		const pkg = readPkgJson();
+		const engines = pkg.engines as Record<string, unknown> | undefined;
+		expect(engines).toBeDefined();
+		expect(engines).toHaveProperty("node");
+	});
+});
+
+describe("RW-1: package.json drops undeclared biome + cross-platform python:dev (rewrite of TestPackageJsonDropsUndeclaredBiome)", () => {
+	it("does NOT declare biome:check or biome:write scripts", () => {
+		const pkg = readPkgJson();
+		const scripts = (pkg.scripts as Record<string, unknown> | undefined) ?? {};
+		expect(scripts).not.toHaveProperty("biome:check");
+		expect(scripts).not.toHaveProperty("biome:write");
+	});
+
+	it("python:dev script invokes python3 (cross-platform fallback)", () => {
+		const pkg = readPkgJson();
+		const pythonDev = String(
+			(pkg.scripts as Record<string, string> | undefined)?.["python:dev"] ?? "",
+		);
+		expect(pythonDev).toContain("python3");
+	});
+
+	it("package.json is valid JSON (round-trip parse)", () => {
+		// readPkgJson already throws on invalid JSON; this test
+		// makes that contract explicit.
+		expect(() => readPkgJson()).not.toThrow();
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 6: generate-icons.mjs
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports:
+//   - TestIconsScriptPutsProjectVenvFirst (2 tests)
+//   - TestIconScriptFallsBackAcrossPythonPaths (1 test)
+//   - TestIconScriptRenamesRootToClientDir (1 test)
+//
+// These read `voice_typer/client/scripts/generate-icons.mjs` and
+// assert on substring presence + the candidates-array structure.
+
+const ICONS_SCRIPT_PATH = resolve(CLIENT_DIR, "scripts", "generate-icons.mjs");
+
+function readIconsScript(): string {
+	return readFileSync(ICONS_SCRIPT_PATH, "utf-8");
+}
+
+describe("RW-1: generate-icons.mjs puts project venv first (rewrite of TestIconsScriptPutsProjectVenvFirst)", () => {
+	it("references projectVenvPython and .venv", () => {
+		const src = readIconsScript();
+		expect(src).toContain("projectVenvPython");
+		expect(src).toContain(".venv");
+	});
+
+	it("legacy .voice-typer venv is NOT in the first two candidates", () => {
+		const src = readIconsScript();
+		const m = /const candidates = \[([\s\S]+?)\]/.exec(src);
+		expect(m).not.toBeNull();
+		const body = m?.[1] ?? "";
+		const firstTwo = body.split(",").slice(0, 2).join(",");
+		expect(firstTwo).not.toContain(".voice-typer");
+	});
+});
+
+describe("RW-1: generate-icons.mjs falls back across Python paths (rewrite of TestIconScriptFallsBackAcrossPythonPaths)", () => {
+	it("declares a candidates array that tries python3 and python", () => {
+		const src = readIconsScript();
+		expect(src).toContain("candidates");
+		expect(src).toContain("python3");
+		expect(src).toContain("python");
+	});
+});
+
+describe("RW-1: generate-icons.mjs renames root → clientDir (rewrite of TestIconScriptRenamesRootToClientDir)", () => {
+	it("declares `const clientDir` and does NOT declare `const root =`", () => {
+		const src = readIconsScript();
+		expect(src).toContain("const clientDir");
+		expect(src).not.toContain("const root =");
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 7: electron-builder.yml
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports:
+//   - TestElectronBuilderConfigHasSigningAndPublish (2 tests)
+//
+// We read the YAML as plain text and assert on substring presence
+// (same as the Python test; no YAML parser is installed — see
+// worklog for the documented `js-yaml` follow-up).
+
+const ELECTRON_BUILDER_PATH = resolve(CLIENT_DIR, "electron-builder.yml");
+
+function readElectronBuilderYml(): string {
+	return readFileSync(ELECTRON_BUILDER_PATH, "utf-8");
+}
+
+describe("RW-1: electron-builder.yml has signing + publish (rewrite of TestElectronBuilderConfigHasSigningAndPublish)", () => {
+	it("declares a GitHub publish provider", () => {
+		const yml = readElectronBuilderYml();
+		expect(yml).toContain("publish:");
+		expect(yml).toContain("provider: github");
+	});
+
+	it("declares signAndEditExecutable + notarize", () => {
+		const yml = readElectronBuilderYml();
+		expect(yml).toContain("signAndEditExecutable");
+		expect(yml).toContain("notarize");
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 8: voice-typer.spec (PyInstaller)
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports:
+//   - TestPyinstallerSpecHasAsrHiddenImports (5 tests)
+//   - TestPyinstallerSpecExcludesTkinter (1 test)
+//
+// Reads `scripts/build/voice-typer.spec` (PyInstaller spec) as plain
+// text and asserts on substring presence.
+
+const SPEC_PATH = resolve(REPO_ROOT, "scripts", "build", "voice-typer.spec");
+
+function readPyinstallerSpec(): string {
+	return readFileSync(SPEC_PATH, "utf-8");
+}
+
+describe("RW-1: voice-typer.spec declares ASR hiddenimports (rewrite of TestPyinstallerSpecHasAsrHiddenImports)", () => {
+	it("includes parakeet_engine", () => {
+		expect(readPyinstallerSpec()).toContain("parakeet_engine");
+	});
+
+	it("includes qwen_engine", () => {
+		expect(readPyinstallerSpec()).toContain("qwen_engine");
+	});
+
+	it("includes transformers", () => {
+		expect(readPyinstallerSpec()).toContain("transformers");
+	});
+
+	it("includes ctranslate2", () => {
+		expect(readPyinstallerSpec()).toContain("ctranslate2");
+	});
+
+	it("includes huggingface_hub", () => {
+		expect(readPyinstallerSpec()).toContain("huggingface_hub");
+	});
+});
+
+describe("RW-1: voice-typer.spec excludes tkinter (rewrite of TestPyinstallerSpecExcludesTkinter)", () => {
+	it('lists "tkinter" in the excludes array', () => {
+		expect(readPyinstallerSpec()).toContain('"tkinter"');
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 9: pyproject.toml
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports:
+//   - TestPyprojectHasStandardMetadataFields (4 tests)
+//   - TestNoBlanketResourceWarningFilter (1 test)
+//   - TestEntryPointImportable::test_pyproject_entry_point_points_to_ipc_server
+
+const PYPROJECT_PATH = resolve(REPO_ROOT, "pyproject.toml");
+
+function readPyproject(): string {
+	return readFileSync(PYPROJECT_PATH, "utf-8");
+}
+
+describe("RW-1: pyproject.toml declares standard metadata (rewrite of TestPyprojectHasStandardMetadataFields)", () => {
+	it("declares a license field", () => {
+		expect(readPyproject()).toContain("license = ");
+	});
+
+	it("declares classifiers", () => {
+		expect(readPyproject()).toContain("classifiers");
+	});
+
+	it("declares a [project.urls] table", () => {
+		expect(readPyproject()).toContain("[project.urls]");
+	});
+
+	it("declares a readme field", () => {
+		expect(readPyproject()).toContain("readme = ");
+	});
+});
+
+describe("RW-1: pyproject.toml does not blanket-ignore ResourceWarning (rewrite of TestNoBlanketResourceWarningFilter)", () => {
+	it('no line starts with "ignore::ResourceWarning" filter', () => {
+		const lines = readPyproject().split(/\r?\n/);
+		for (const line of lines) {
+			const stripped = line.trim();
+			if (stripped.startsWith('"ignore::ResourceWarning"')) {
+				throw new Error(
+					`Blanket 'ignore::ResourceWarning' filter found: ${stripped}`,
+				);
+			}
+		}
+	});
+});
+
+describe("RW-1: pyproject.toml entry-point points to ipc_server:main (rewrite of test_pyproject_entry_point_points_to_ipc_server)", () => {
+	it('declares voice-typer = "voice_typer.server.ipc_server:main"', () => {
+		expect(readPyproject()).toContain(
+			'voice-typer = "voice_typer.server.ipc_server:main"',
+		);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 10: .github/workflows/build.yml
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports:
+//   - TestCiRunsRuffCoverageAndPipAudit (4 tests)
+//   - TestCiVerifiesVersionSync (2 tests)
+
+const CI_WORKFLOW_PATH = resolve(
+	REPO_ROOT,
+	".github",
+	"workflows",
+	"build.yml",
+);
+
+function readCiWorkflow(): string {
+	return readFileSync(CI_WORKFLOW_PATH, "utf-8");
+}
+
+describe("RW-1: CI runs ruff + coverage + pip-audit across Python versions (rewrite of TestCiRunsRuffCoverageAndPipAudit)", () => {
+	it("runs ruff", () => {
+		expect(readCiWorkflow()).toContain("ruff");
+	});
+
+	it("runs coverage", () => {
+		const ci = readCiWorkflow();
+		expect(ci.includes("cov") || ci.includes("coverage")).toBe(true);
+	});
+
+	it("runs pip-audit", () => {
+		expect(readCiWorkflow()).toContain("pip-audit");
+	});
+
+	it("tests Python 3.10 and 3.11", () => {
+		const ci = readCiWorkflow();
+		expect(ci).toContain("3.10");
+		expect(ci).toContain("3.11");
+	});
+});
+
+describe("RW-1: CI verifies version sync (rewrite of TestCiVerifiesVersionSync)", () => {
+	it("has a version-check job", () => {
+		expect(readCiWorkflow()).toContain("version-check");
+	});
+
+	it("verifies tag matches installer via MyAppVersion", () => {
+		expect(readCiWorkflow()).toContain("MyAppVersion");
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 11: Standard project files
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports:
+//   - TestStandardProjectFilesExist (6 tests)
+//
+// Pure file-existence checks; vitest uses Node.js `fs.existsSync`.
+
+describe("RW-1: standard project files exist (rewrite of TestStandardProjectFilesExist)", () => {
+	it("LICENSE exists at repo root", () => {
+		expect(existsSync(resolve(REPO_ROOT, "LICENSE"))).toBe(true);
+	});
+
+	it("CONTRIBUTING.md exists at repo root", () => {
+		expect(existsSync(resolve(REPO_ROOT, "CONTRIBUTING.md"))).toBe(true);
+	});
+
+	it("SECURITY.md exists at repo root", () => {
+		expect(existsSync(resolve(REPO_ROOT, "SECURITY.md"))).toBe(true);
+	});
+
+	it(".editorconfig exists at repo root", () => {
+		expect(existsSync(resolve(REPO_ROOT, ".editorconfig"))).toBe(true);
+	});
+
+	it("bug_report.md and feature_request.md issue templates exist", () => {
+		expect(
+			existsSync(
+				resolve(REPO_ROOT, ".github", "ISSUE_TEMPLATE", "bug_report.md"),
+			),
+		).toBe(true);
+		expect(
+			existsSync(
+				resolve(REPO_ROOT, ".github", "ISSUE_TEMPLATE", "feature_request.md"),
+			),
+		).toBe(true);
+	});
+
+	it("PULL_REQUEST_TEMPLATE.md exists", () => {
+		expect(
+			existsSync(resolve(REPO_ROOT, ".github", "PULL_REQUEST_TEMPLATE.md")),
+		).toBe(true);
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 12: Version metadata + changelog
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports:
+//   - TestVersionReadsFromPackageMetadata::test_init_py_uses_importlib
+//   - TestVersionReadsFromPackageMetadata::test_sync_versions_script_exists
+//   - TestChangelogHasCurrentTestCount::test_changelog_has_current_count
+
+const INIT_PY_PATH = resolve(REPO_ROOT, "voice_typer", "__init__.py");
+const SYNC_VERSIONS_PATH = resolve(
+	REPO_ROOT,
+	"scripts",
+	"build",
+	"sync_versions.py",
+);
+const CHANGELOG_PATH = resolve(REPO_ROOT, "CHANGELOG.md");
+
+describe("RW-1: __version__ reads from package metadata (rewrite of test_init_py_uses_importlib)", () => {
+	it("voice_typer/__init__.py imports importlib.metadata and uses _pkg_version or version()", () => {
+		const src = readFileSync(INIT_PY_PATH, "utf-8");
+		expect(src).toContain("importlib.metadata");
+		expect(src.includes("_pkg_version") || src.includes("version(")).toBe(true);
+	});
+});
+
+describe("RW-1: sync_versions.py exists (rewrite of test_sync_versions_script_exists)", () => {
+	it("scripts/build/sync_versions.py exists", () => {
+		expect(existsSync(SYNC_VERSIONS_PATH)).toBe(true);
+	});
+});
+
+describe("RW-1: CHANGELOG test count is current (rewrite of test_changelog_has_current_count)", () => {
+	it("CHANGELOG.md does NOT contain the stale '1127 tests passing' line", () => {
+		const src = readFileSync(CHANGELOG_PATH, "utf-8");
+		expect(src).not.toContain("1127 tests passing");
+	});
+});
+
+// ────────────────────────────────────────────────────────────────────
+// Section 13: ALLOWED_COMMANDS in src/main/index.ts
+// ────────────────────────────────────────────────────────────────────
+//
+// Ports (8 of 9 TestAllowlistCorrectness tests):
+//   - test_quit_app_in_allowlist
+//   - test_restart_app_in_allowlist
+//   - test_dead_quit_not_in_allowlist
+//   - test_dead_restart_not_in_allowlist
+//   - test_dead_save_config_not_in_allowlist
+//   - test_dead_save_vocabulary_with_diff_not_in_allowlist
+//   - test_dead_repaste_last_not_in_allowlist
+//   - test_dead_complete_onboarding_not_in_allowlist
+//
+// The 9th test (`test_allowlist_matches_server_commands`) cross-validates
+// the main allowlist against `voice_typer/server/ipc_server.py` — that
+// requires reading Python source AND matching it against the TS source,
+// which is out of scope for a TS-string rewrite.  It stays in Python
+// with a REQUIRES-PYTHON-RUNNER comment.
+//
+// We extract the ALLOWED_COMMANDS set by slicing the source between
+// `ALLOWED_COMMANDS = new Set([` and the closing `]);` — same logic
+// as the Python test — then regex-match the quoted entries.
+
+const MAIN_INDEX_PATH = resolve(CLIENT_DIR, "src", "main", "index.ts");
+
+function readAllowlistEntries(): Set<string> {
+	const src = readFileSync(MAIN_INDEX_PATH, "utf-8");
+	const start = src.indexOf("ALLOWED_COMMANDS = new Set([");
+	expect(start).not.toBe(-1);
+	const end = src.indexOf("]);", start);
+	expect(end).not.toBe(-1);
+	const block = src.slice(start, end);
+	const matches = block.matchAll(/"([a-z_]+)"/g);
+	const entries = new Set<string>();
+	for (const m of matches) {
+		entries.add(m[1]);
+	}
+	return entries;
+}
+
+describe("RW-1: ALLOWED_COMMANDS in src/main/index.ts (rewrite of TestAllowlistCorrectness — 8 of 9 tests)", () => {
+	it("includes quit_app (rewrite of test_quit_app_in_allowlist)", () => {
+		expect(readAllowlistEntries().has("quit_app")).toBe(true);
+	});
+
+	it("includes restart_app (rewrite of test_restart_app_in_allowlist)", () => {
+		expect(readAllowlistEntries().has("restart_app")).toBe(true);
+	});
+
+	it("does NOT include the dead `quit` alias (rewrite of test_dead_quit_not_in_allowlist)", () => {
+		expect(readAllowlistEntries().has("quit")).toBe(false);
+	});
+
+	it("does NOT include the dead `restart` alias (rewrite of test_dead_restart_not_in_allowlist)", () => {
+		expect(readAllowlistEntries().has("restart")).toBe(false);
+	});
+
+	it("does NOT include the dead `save_config` alias (rewrite of test_dead_save_config_not_in_allowlist)", () => {
+		expect(readAllowlistEntries().has("save_config")).toBe(false);
+	});
+
+	it("does NOT include the dead `save_vocabulary_with_diff` alias (rewrite of test_dead_save_vocabulary_with_diff_not_in_allowlist)", () => {
+		expect(readAllowlistEntries().has("save_vocabulary_with_diff")).toBe(false);
+	});
+
+	it("does NOT include the dead `repaste_last` alias (rewrite of test_dead_repaste_last_not_in_allowlist)", () => {
+		expect(readAllowlistEntries().has("repaste_last")).toBe(false);
+	});
+
+	it("does NOT include the dead `complete_onboarding` alias (rewrite of test_dead_complete_onboarding_not_in_allowlist)", () => {
+		expect(readAllowlistEntries().has("complete_onboarding")).toBe(false);
 	});
 });
