@@ -65,7 +65,20 @@
       "resources/prewarm-aarch64-apple-darwin",
       "resources/prewarm-x86_64-unknown-linux-gnu",
       "resources/prewarm-aarch64-unknown-linux-gnu"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3"],
+        "desktopTemplate": "voice-typer.desktop.template",
+        "postInstall": "../../scripts/linux/postinst",
+        "preRemove": "../../scripts/linux/prerm"
+      },
+      "rpm": {
+        "depends": ["libnotify", "libXtst", "webkit2gtk3", "python3"],
+        "postInstall": "../../scripts/linux/postinst.rpm",
+        "preRemove": "../../scripts/linux/prerm.rpm"
+      }
+    }
   },
   "plugins": {
     "notification": {},

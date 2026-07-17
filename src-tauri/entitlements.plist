@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Voice Typer — macOS hardened-runtime entitlements
+  (ADR-0020 §13.2 + docs/migration/signing-guide.md "Hardened runtime entitlements")
+
+  Consumed by the codesign invocation with the entitlements flag pointing
+  at this file, for:
+    - the Nuitka sidecar binaries (python-sidecar-x86_64-apple-darwin,
+      python-sidecar-aarch64-apple-darwin)
+    - the prewarm binaries (prewarm-x86_64-apple-darwin,
+      prewarm-aarch64-apple-darwin)
+    - the .app bundle (codesign deep-sign invocation with entitlements flag)
+
+  These three entitlements are the minimum set required for notarization:
+    - allow-jit                      CTranslate2 may use JIT.
+    - disable-library-validation     Nuitka onefile extracts unsigned dylibs at runtime.
+    - device.audio-input             Mic access (sounddevice).
+-->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+</dict>
+</plist>
