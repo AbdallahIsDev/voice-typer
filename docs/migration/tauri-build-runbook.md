@@ -310,3 +310,146 @@ Or generate real icons from the SVG:
 cd voice_typer/client
 node scripts/generate-icons.mjs
 ```
+
+---
+
+## Phase 1 Packaging Status (ADR-0020 §4 + §5 + §6.4 + §7 + §13 + §15)
+
+**Last updated**: 2026-07-16 by sub-agent F (`mig1-8-packaging-signing`).
+
+This section tracks what's implemented vs pending for Phase 1 (sidecar
+packaging + per-arch externalBin + signing scaffolding). It is the
+single source of truth for "is the Tauri packaging pipeline ready to
+run on a real host?" — answer: **scaffolded, NOT yet validated**. The
+scripts + CI workflows + signing guide exist; the actual Nuitka freeze
+runs require per-platform host validation (Phase 0) first.
+
+### Implemented (scaffolding in place)
+
+| Component | Path | Status |
+|---|---|---|
+| Build orchestrator | `scripts/build/build_tauri_all.sh` | ✅ Local dev wrapper around the per-platform build scripts + `cargo tauri build`. Bash-syntax-verified. |
+| Sidecar build (Windows x86_64+aarch64) | `scripts/build/build_sidecar_windows.sh` | ✅ Nuitka `--standalone --onefile` against `python-build-standalone` cpython-3.12.x+x86_64-pc-windows-msvc. Includes ctranslate2/lib + ctranslate2.dll. `--windows-disable-console`. |
+| Sidecar build (macOS x86_64+aarch64) | `scripts/build/build_sidecar_macos.sh` | ✅ Nuitka with `--macos-create-bundle --macos-app-mode=background` (LSUIElement=true). Rosetta 2 fallback for x86_64 on Apple Silicon host. |
+| Sidecar build (Linux x86_64+aarch64) | `scripts/build/build_sidecar_linux.sh` | ✅ Nuitka with `--onefile-tempdir-spec=$XDG_CACHE_HOME/voice-typer/onefile-tmp`. qemu-user-static cross-build for aarch64 on x86_64 host. glibc ≤ 2.35 baseline check. |
+| Prewarm build (Windows) | `scripts/build/build_prewarm_windows.sh` | ✅ Nuitka freeze of `voice_typer/server/prewarm.py` into `resources/prewarm-<triple>.exe`. Separate `--onefile-tempdir-spec` from sidecar (no collision). |
+| Prewarm build (macOS) | `scripts/build/build_prewarm_macos.sh` | ✅ Same Nuitka pattern as macOS sidecar; `--macos-app-name=VoiceTyperPrewarm`. |
+| Prewarm build (Linux) | `scripts/build/build_prewarm_linux.sh` | ✅ Same Nuitka pattern as Linux sidecar. |
+| Native listener build (Windows) | `scripts/build/build_native_listener_windows.sh` | ✅ Wraps `scripts/build/compile_native.ps1` (PowerShell). Copies the compiled `windows-key-listener.exe` into `src-tauri/resources/native/`. |
+| Native listener build (macOS) | `scripts/build/build_native_listener_macos.sh` | ✅ Wraps `scripts/build/compile_native.sh` (Swift). Copies + ad-hoc codesigns `macos-key-listener` into `src-tauri/resources/native/`. |
+| Native listener build (Linux) | `scripts/build/build_native_listener_linux.sh` | ✅ Wraps `scripts/build/compile_native.sh` (gcc). Copies `linux-key-listener` into `src-tauri/resources/native/`. glibc baseline check. |
+| CI aggregator workflow | `.github/workflows/tauri-build.yml` | ✅ `workflow_dispatch` only; fans out to the 3 per-platform workflows via `workflow_call`. NO `latest.json` updater manifest (ADR-0020 §15). |
+| CI Windows workflow | `.github/workflows/tauri-windows-build.yml` | ✅ `workflow_call` + `workflow_dispatch`. Job-level `if: false` guard until Phase 0-W passes. Nuitka build + signtool + MSI/NSIS upload. |
+| CI macOS workflow | `.github/workflows/tauri-macos-build.yml` | ✅ `workflow_call` + `workflow_dispatch` only (push/PR triggers commented out — ADR-0020 §15 manual-trigger-only). Three jobs (aarch64, x86_64-via-Rosetta, universal). `if: false` per-job guards. |
+| CI Linux workflow | `.github/workflows/tauri-linux-build.yml` | ✅ `workflow_call` + `workflow_dispatch` only (push/PR triggers commented out). x86_64 + aarch64 (qemu). `if: false` job guard. glibc baseline check. |
+| Tauri config | `src-tauri/tauri.conf.json` | ✅ `bundle.externalBin` uses single base name `bin/python-sidecar` (Tauri v2 appends host triple — NOT per-arch entries). `bundle.resources` lists 3 native + 6 prewarm binaries. `plugins.updater` is ABSENT (ADR-0020 §15). |
+| Tauri capabilities | `src-tauri/capabilities/migrate-runtime.json` | ✅ Least-privilege permissions. NO `updater:*` perms. `shell:allow-spawn` scoped to `bin/python-sidecar` via `plugins.shell.scope`. |
+| Cargo deps | `src-tauri/Cargo.toml` | ✅ NO `tauri-plugin-updater` dependency. |
+| Signing guide | `docs/migration/signing-guide.md` | ✅ Windows Authenticode (signtool + RFC-3161 timestamp + OV/EV cert tradeoff). macOS Developer ID + notarytool + stapler (Info.plist keys + entitlements). Linux unsigned by default. Updater audit results documented. |
+| Cutover playbook | `docs/migration/cutover-playbook.md` | ✅ Per-platform cutover criteria (9-point Phase 0 gate + FT-1 + side-by-side smoke + signing verification + user sign-off). Per-platform rollback procedure. Mixed-mode period support. |
+| PyInstaller fallback | `scripts/build/voice-typer.spec` | ✅ Entry point is `voice_typer/server/ipc_server.py` (the same entry point the Nuitka builds use). Bundles native hotkey binaries + Linux permission scripts + Silero VAD JIT model. Used when Nuitka proves impractical on a target (ADR-0020 §4.5). |
+| Stub generator | `scripts/gen_tauri_icons_stub.py` | ✅ Generates RGBA PNGs (color_type=6) — required by Tauri v2 `generate_context!()`. Generates stub sidecar + prewarm + native binaries so `cargo tauri build` dry-runs succeed without real Nuitka artifacts. `--check` mode for CI gates; `--clean` mode preserves real artifacts. |
+
+### Pending (requires per-platform host validation — Phase 0 first)
+
+| Item | Why pending | Gate |
+|---|---|---|
+| Actual Nuitka freeze run on Windows x86_64 | Need a real Windows host with VS Build Tools + WebView2 + python-build-standalone. Cannot run in headless Linux container. | Phase 0-W validation runbook (`windows-validation-runbook.md`) — all 9 points must pass on a real Windows host. |
+| Actual Nuitka freeze run on Windows aarch64 | Windows-on-ARM runner (`windows-11-arm`) is not yet generally available in GitHub Actions. | Either wait for `windows-11-arm` runner, or build on a real Windows-on-ARM device + upload the binary as a release asset. |
+| Actual Nuitka freeze run on macOS aarch64 + x86_64 | Need a real macOS host (Apple Silicon + Intel). Nuitka cannot cross-compile between arches. | Phase 0-M validation runbook (`macos-validation-runbook.md`) — both arches on both macOS 13 + macOS 14. |
+| Actual Nuitka freeze run on Linux x86_64 | Headless Linux container cannot run `cargo tauri build` (no display server). | Phase 0-L validation runbook (`linux-validation-runbook.md`) — X11 + Wayland. |
+| Actual Nuitka freeze run on Linux aarch64 | `ubuntu-22.04-arm` runner not generally available; qemu-user-static path untested. | Either wait for `ubuntu-22.04-arm`, or build on a real Linux-ARM device, or validate the qemu path on a real Linux host. |
+| CTranslate2 DLL/dylib/.so set per platform | ADR-0020 §4.2-4.4 mandate enumerating the exact runtime DLL set at build time on each host (libiomp5md.dll, mkl_*.dll, libgomp.so, libiomp5.dylib). | Run `import ctranslate2` in the build env on each platform + enumerate loaded companion DLLs (`listdlls`/`otool -L`/`ldd`). |
+| Code-signing end-to-end | Needs real certs + secrets in CI: `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` (Windows), `MAC_SIGNING_IDENTITY`/`APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` (macOS). | Provision secrets in GitHub Actions per `signing-guide.md` §"Reused signing identities". |
+| Per-platform cutover | Each platform must pass its Phase 0 gate + FT-1 + side-by-side smoke + signing verification + user acceptance. | `cutover-playbook.md` §"Cutover criteria per platform". |
+
+### PyInstaller fallback path (ADR-0020 §4.5)
+
+If Nuitka proves impractical on a target triple (e.g., macOS Apple
+Silicon ABI issues, Linux aarch64 missing wheels), the existing
+PyInstaller spec at `scripts/build/voice-typer.spec` is the fallback.
+The spec's entry point is **`voice_typer/server/ipc_server.py`** — the
+same module the Nuitka builds use — so the wire contract is identical;
+only the freeze tool changes.
+
+Caveats:
+- PyInstaller `--onedir` produces a folder, not a single file. Tauri
+  `externalBin` cannot point at a folder, so the folder must be wrapped:
+  - **Windows**: a thin launcher `.exe` that `CreateProcess`es the real
+    entrypoint inside the folder.
+  - **macOS/Linux**: a shell-script launcher with the executable bit set.
+  - The launcher MUST be named with the target-triple suffix
+    (`python-sidecar-<triple>[.exe]`).
+- The PyInstaller spec already bundles: native hotkey binaries, Linux
+  permission scripts, Silero VAD JIT model, corrections/hotkey/model
+  JSON, the Windows application manifest (asInvoker), and
+  platform-specific hiddenimports (pycaw/comtypes on Win, CoreAudio on
+  macOS).
+- Build: `pyinstaller scripts/build/voice-typer.spec --noconfirm`
+  → `dist/VoiceTyper/VoiceTyper.exe` (windowed, no console).
+
+### Validation commands (re-runnable)
+
+These can be run from the headless dev container to verify the
+scaffolding is intact:
+
+```bash
+# 1. All build scripts parse.
+for f in scripts/build/build_*.sh; do bash -n "$f" || exit 1; done
+
+# 2. All CI workflows are valid YAML.
+python -c "
+import yaml
+for f in ['tauri-build.yml','tauri-windows-build.yml','tauri-macos-build.yml','tauri-linux-build.yml']:
+    yaml.safe_load(open(f'.github/workflows/{f}'))
+print('YAML OK')
+"
+
+# 3. No `updater` references in src-tauri/ (ADR-0020 §15).
+grep -rn "updater" src-tauri/   # expected: empty (or only comments)
+
+# 4. Icon stub generator produces RGBA PNGs (color_type=6).
+python scripts/gen_tauri_icons_stub.py --check   # exit 0 after generate
+
+# 5. tauri.conf.json externalBin is single base name (NOT per-arch entries).
+python -c "
+import json
+c = json.load(open('src-tauri/tauri.conf.json'))
+assert c['bundle']['externalBin'] == ['bin/python-sidecar'], c['bundle']['externalBin']
+print('externalBin OK:', c['bundle']['externalBin'])
+print('resources count:', len(c['bundle']['resources']))
+"
+
+# 6. PyInstaller spec entry point is ipc_server.py (NOT __main__.py).
+grep -n 'ipc_server.py' scripts/build/voice-typer.spec
+```
+
+### Next actions (for the next round, post-Phase-0 validation)
+
+1. **Run Phase 0 on each platform** — see
+   `windows-validation-runbook.md`, `macos-validation-runbook.md`,
+   `linux-validation-runbook.md`. File the evidence trail per
+   `cutover-playbook.md` §"Evidence trail".
+2. **Once Phase 0 passes on a platform**, flip the per-platform CI
+   workflow's `if: false` → `if: true` and remove the `if:` guard. Run
+   the top-level `tauri-build.yml` orchestrator with `platform:
+   <platform>` to produce a signed installer.
+3. **Per-platform cutover** — see `cutover-playbook.md` §"Cutover
+   procedure". One platform per release; reversible per-platform.
+4. **Auto-update (out of scope for v1)** — `tauri-plugin-updater` is
+   intentionally NOT wired (ADR-0020 §15). Track as a follow-up ADR
+   after the Tauri cutover stabilizes.
+
+### See also
+
+- [`signing-guide.md`](./signing-guide.md) — per-platform signing +
+  notarization + the no-auto-update audit.
+- [`cutover-playbook.md`](./cutover-playbook.md) — per-platform cutover
+  criteria + rollback procedure.
+- [`windows-validation-runbook.md`](./windows-validation-runbook.md) /
+  [`macos-validation-runbook.md`](./macos-validation-runbook.md) /
+  [`linux-validation-runbook.md`](./linux-validation-runbook.md) —
+  per-platform Phase 0 validation gates.
+- [`../adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md)
+  — §4 (Nuitka), §5 (prewarm), §6.4 (native listener), §7 (Tauri config),
+  §13 (signing), §15 (no auto-update).

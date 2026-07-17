@@ -29,12 +29,46 @@
 
 ### Phase 3 UI port (React bridge — `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`)
 
+The Phase 3 UI port is the architectural keystone of the migration: the **renderer code is identical on both paths** (Electron + Tauri). There is one React bundle, one `usePython.ts`, one set of pages and components. The runtime difference is absorbed entirely by the bridge, which auto-detects the host at startup and installs the right namespace:
+
+- **Electron path** — `client/src/preload/index.ts` runs in the preload world and uses `contextBridge.exposeInMainWorld` to install `window.python`, `window.bubble`, `window.window_`. The bridge module's `installTauriBridge()` detects the absence of `window.__TAURI__` and **early-returns** — it does NOT touch the preload-installed namespaces (referential identity preserved, verified by `tauri-bridge-commands.test.ts`).
+- **Tauri path** — `tauri.conf.json` sets `withGlobalTauri: true`, so the Tauri runtime injects `window.__TAURI__` (with `core.invoke`, `event.listen`, `window.getCurrentWindow`) before the renderer JS executes. The bridge module's auto-install side effect (last line of `tauri-bridge.ts`) calls `installTauriBridge()`, which sees `__TAURI__` and installs `window.python`/`window.bubble`/`window.window_` using Tauri's global API.
+
+Both `main.tsx` (main window) and `bubble-main.tsx` (bubble window) import `./lib/tauri-bridge` BEFORE the React app mounts, so the namespaces are ready when `usePython` and other hooks initialize. The order matters: `usePython.ts` reads `window.python` at first render, and the bubble's first render calls `window.bubble?.signalReady?.()`.
+
 | File | Purpose |
 |---|---|
-| `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` (NEW, 357 lines) | Tauri ↔ React bridge. Auto-installs `window.python`, `window.bubble`, `window.window_` using Tauri's global `__TAURI__` API when Tauri is detected. In Electron mode it's a no-op (the Electron preload already installed the namespaces). The renderer code (`usePython.ts`, pages, components) is unchanged. **Contract parity is partial, not identical** — see "Bridge contract parity" below. `window.python.call`/`onEvent` + FT-1 events are at full parity. `window.bubble` (6 mutator methods) and `window.window_.exportHistory/exportVocabulary` are stubbed on the Tauri path (known gaps, see "What's NOT implemented this round" #5/#6). |
+| `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | Tauri ↔ React bridge. Auto-installs `window.python`, `window.bubble`, `window.window_` using Tauri's global `__TAURI__` API when Tauri is detected. In Electron mode it's a no-op (the Electron preload already installed the namespaces). The renderer code (`usePython.ts`, pages, components) is unchanged. **Contract parity is identical across both paths for all 8 MIG-1.1 + MIG-1.2 commands** — see "MIG-1.1 + MIG-1.2 wiring" below. `window.python.call`/`onEvent` + FT-1 events at full parity (round 1). `window.bubble` (6 mutator methods) + `window.window_.exportHistory/exportVocabulary` wired in round 2 (this round). |
 | `voice_typer/client/src/renderer/src/main.tsx` (modified) | Imports `./lib/tauri-bridge` before the React app mounts. |
 | `voice_typer/client/src/renderer/src/bubble-main.tsx` (modified) | Imports `./lib/tauri-bridge` before the bubble app mounts. |
-| `voice_typer/client/src/renderer/src/globals.d.ts` (NEW) | Ambient `declare module "*.css"` etc. — fixes pre-existing TS2882 errors on side-effect CSS imports. (Note: the `window.python`/`window.bubble`/`window.window_` ambient types come from the pre-existing `declare global` block in `types/ipc.ts`, NOT from this file.) |
+| `voice_typer/client/src/renderer/src/vite-env.d.ts` (NEW) | `/// <reference types="vite/client" />` — pulls in Vite's ambient `*.css` / `*.svg` / `*.png` module declarations so TypeScript doesn't emit TS2882 on side-effect CSS imports (`import "./index.css"` in `main.tsx` + `bubble-main.tsx`). Works identically under `electron-vite` (Electron path) and `vite` (Tauri path) because both use the same Vite pipeline. (Note: the `window.python`/`window.bubble`/`window.window_` ambient types come from the pre-existing `declare global` block in `types/ipc.ts`, NOT from this file.) |
+| `voice_typer/client/src/renderer/src/lib/__tests__/tauri-bridge-commands.test.ts` (NEW, ~270 lines) | Vitest coverage for the 8 MIG-1.1 + MIG-1.2 commands. Mocks `window.__TAURI__.core.invoke` (the bridge deliberately avoids importing `@tauri-apps/api/core` as a dep — `withGlobalTauri: true` exposes the same API on `window.__TAURI__`). Asserts each bridge method invokes the correct Rust command name + argument envelope. Also asserts the Electron-mode no-op invariant (referential identity of `window.python`/`bubble`/`window_` preserved when `__TAURI__` is absent). |
+
+#### MIG-1.1 + MIG-1.2 wiring (this round — TS bridge side)
+
+The 8 Rust host commands added by Sub-agent A (`export_history`, `export_vocabulary`, `bubble_show`, `bubble_signal_ready`, `bubble_set_position`, `bubble_set_draggable`, `bubble_move_by`, `bubble_hide_complete`) are wired to their TS bridge counterparts. The return shapes match the Electron preload **exactly** so the renderer code (History.tsx, Vocabulary.tsx, useConnection.ts, Bubble.tsx, GeneralSettingsSection.tsx) is byte-identical on both paths:
+
+| Bridge method | Tauri invoke | Electron preload equivalent | Return shape (both paths) |
+|---|---|---|---|
+| `window.window_.exportHistory(data, format)` | `invoke('export_history', { data, format })` | `ipcRenderer.invoke('history:export', { data, format })` | `{success: true, path: string}` \| `{success: false}` (cancel) \| `{success: false, error: string}` |
+| `window.window_.exportVocabulary(data, format)` | `invoke('export_vocabulary', { data, format })` | `ipcRenderer.invoke('vocabulary:export', { data, format })` | same as above |
+| `window.bubble.show()` | `invoke('bubble_show')` | `ipcRenderer.send('bubble:show-from-renderer')` | `void` |
+| `window.bubble.signalReady()` | `invoke('bubble_signal_ready')` | `ipcRenderer.send('bubble:ready')` | `void` |
+| `window.bubble.setPosition(x, y)` | `invoke('bubble_set_position', { x, y })` | `ipcRenderer.send('set_bubble_position', pos)` | `void` |
+| `window.bubble.setDraggable(draggable)` | `invoke('bubble_set_draggable', { draggable })` | `ipcRenderer.send('bubble:draggable', draggable)` | `void` |
+| `window.bubble.moveBy(dx, dy)` | `invoke('bubble_move_by', { dx, dy })` | `ipcRenderer.send('bubble:move-by', { deltaX, deltaY })` | `void` |
+| `window.bubble.hideComplete()` | `invoke('bubble_hide_complete')` | `ipcRenderer.send('bubble:hidden')` | `void` |
+
+**`setPosition` arg-shape note:** the Rust `bubble_set_position` command takes `{x, y}` numeric screen coordinates (per ADR-0020 §6 + the MIG-1.2 task spec), while the Electron preload's `set_bubble_position` IPC channel takes a `"top" | "bottom"` string enum. The bridge's `setPosition` signature is `(x: number | string, y?: number) => void` — widening `x` to `number | string` satisfies the `MainRendererBubble` type (`(pos: string) => void`) via parameter contravariance under `strictFunctionTypes` (a function accepting `number | string` is assignable to one accepting `string` because `string ⊆ number | string`), AND accepts the numeric `(x, y)` shape used by the Rust command. The renderer's existing call sites (`useConnection.ts:117`, `GeneralSettingsSection.tsx:151`) pass a `"top" | "bottom"` string — these continue to work on the Electron path (unchanged) and pass through to `invoke('bubble_set_position', { x: "top", y: 0 })` on the Tauri path. A future renderer-side migration to pass numeric `(x, y)` coordinates on both paths would make the Tauri path functional; until then, the Tauri path's `setPosition` is wired but the renderer doesn't yet send the numeric shape.
+
+**`moveBy` arg-name rename:** the renderer calls `moveBy(deltaX, deltaY)` (per `MainRendererBubble`), but the Rust command takes `{dx, dy}` (snake_case convention). The bridge renames in the invoke envelope: `{ dx: deltaX, dy: deltaY }`. The renderer is unchanged.
+
+**`exportHistory`/`exportVocabulary` return-shape mapping:** the Rust commands return `{success: bool, path: string}` on success, `{canceled: true}` on user-dismissed save dialog, or throw on error. The bridge maps:
+- `{success: true, path}` → `{success: true, path}` (pass-through)
+- `{canceled: true}` → `{success: false}` (no path, no error — matches Electron's cancel shape)
+- throw → `{success: false, error: <message>}` (matches Electron's catch shape)
+
+This mapping is verified by `tauri-bridge-commands.test.ts` — the renderer's `result.success` / `result.path` / `result.error` reads work identically on both paths.
 
 #### NEW-IPC-107 guard — error-envelope parity (d-review NEW-IPC-007)
 
@@ -65,6 +99,37 @@ When the WS reader task exits (sidecar crash or network drop), the host:
 1. **Clears `state.ws_tx`** to `None` — so new `dispatch` calls return `"sidecar not connected"` immediately instead of queueing onto a dead channel
 2. **Drains `state.pending`** — rejects every in-flight dispatch request with `{"type":"error","data":{"code":"sidecar_disconnected","message":"sidecar WS disconnected (FT-1 respawn in progress)"}}` so callers don't wait the full 120s timeout
 3. **Spawns FT-1 respawn** on a background thread (unless `shutting_down` is set)
+
+### Event rename: `electron_notification` → `notification` (CR-8)
+
+**Status**: Implemented (CR-8 fixed). The Python-side event name is now platform-agnostic.
+
+**Before**: The Python sidecar published the event as `electron_notification` (a leftover from the Electron-only era). The Tauri Rust host renamed it to `notification` via a single `match` arm with no fallback — so the canonical UI-facing name was `notification`, but the wire name still carried the `electron_` prefix.
+
+**After (CR-8 fix)**:
+- **Python side** (`voice_typer/server/handlers/system_handlers.py` + `voice_typer/server/startup_sequence.py`) now publishes the event directly as `notification` — the `electron_` prefix is gone from the wire protocol.
+- **Rust side** (`src-tauri/src/main.rs`) — the `electron_notification` → `notification` rename `match` arm was REMOVED. The event now passes through unchanged via the `other => other` arm. The `relaunch_electron` → `relaunch_app` rename is preserved (it remains a Tauri-specific translation, not a Python event name).
+- **Renderer** — no subscription changes needed: the renderer consumes notifications via the generic `python-event` envelope (the `usePythonEvent` catch-all in `usePython.ts`), not by direct event-name subscription. (No `usePythonEvent("electron_notification", ...)` or `usePythonEvent("notification", ...)` call sites exist in the renderer.)
+
+**Backward-compat shim (Rust side, rolling upgrade safety)**:
+
+To support a rolling upgrade where an **old Python sidecar** (still emitting `electron_notification`) is paired with a **new Tauri host** (expecting `notification`), the Rust host keeps a small alias in the WS reader task (`main.rs`, immediately after the generic `emit` calls):
+
+```rust
+// CR-8 backward-compat alias: if an older Python sidecar still emits
+// the legacy `electron_notification` event name (rolling upgrade),
+// also emit it under the new canonical `notification` name so new UI
+// code subscribing to `notification` keeps working.
+if event_type == "electron_notification" {
+    let _ = app_for_reader.emit("notification", payload.clone());
+}
+```
+
+When the WS reader sees the legacy name, it emits **BOTH** `electron_notification` (via the `other => other` pass-through — keeps any old direct listeners working) AND `notification` (via the alias above — keeps new UI code working). New Python sidecars emit only `notification`, which passes through unchanged (no double-emit).
+
+**Lifecycle**: This alias is intended to live for **one release cycle** after the Python-side rename ships. Once all deployed sidecars are upgraded to emit `notification` directly, drop the alias (the `if event_type == "electron_notification"` block in `main.rs`) and remove the legacy `electron_notification` mentions from the ADR-0020 event table.
+
+**Tests**: `tests/test_notification_event_name.py` (new) asserts the Python handler publishes under `notification` (not `electron_notification`) and that the legacy name is absent from the published event payload.
 
 ### Tests (all cross-platform, run on Linux/macOS/Windows CI)
 

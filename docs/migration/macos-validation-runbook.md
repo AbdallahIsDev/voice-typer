@@ -4,15 +4,16 @@
 
 **Prerequisites**:
 - macOS 13.0+ (Ventura or newer; matches `PLATFORM_STATUS.md` minimum + ADR-0020 §13.2 `LSMinimumSystemVersion: 13.0`)
-- Xcode 15+ command-line tools (`xcode-select --install`) — provides `swiftc` + `clang`
+- Xcode 15+ command-line tools (`xcode-select --install`) — provides `swiftc` + `clang` + `lipo` + `codesign` + `xcrun`
 - Python 3.12.x (for running Nuitka + the dev sidecar)
-- Rust toolchain (`rustup init` → `stable` + `aarch64-apple-darwin` + `x86_64-apple-darwin` targets)
+- Nuitka (installed via `uv pip install nuitka zstandard` in the venv — see §0 below)
+- Rust toolchain (`rustup init` → `stable` + `aarch64-apple-darwin` + `x86_64-apple-darwin` targets — both required for `cargo tauri build --target universal-apple-darwin`)
 - Node.js 20+ (for the React renderer build)
 - Git
 - `uv` (Python package installer — faster + more reliable than `pip` for the qwen-asr / ctranslate2 wheels)
-- Apple Developer ID Application certificate (for distribution signing — see §10)
-- Apple notarization credentials: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` (for `xcrun notarytool`)
 - Rosetta 2 (only required if you build the x86_64 binary on an Apple Silicon host)
+- Apple Developer ID Application certificate (for distribution signing — see §7)
+- Apple notarization credentials: `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID` (for `xcrun notarytool`)
 
 **Time estimate**: 3-5 hours per arch (first run; subsequent runs ~30-45 min with cached deps).
 
@@ -54,6 +55,8 @@ cd voice-typer
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev,test]"
+# Nuitka + zstandard are required for the sidecar / prewarm freeze (§1, §2).
+uv pip install nuitka zstandard
 
 # Node deps
 cd voice_typer/client
@@ -61,14 +64,15 @@ npm install
 cd ../..
 
 # Verify the toolchain
-which swiftc cargo node python3 uv
+which swiftc cargo node python3 uv nuitka
 swiftc --version
 cargo --version
+nuitka --version
 ```
 
-**Expected output**: All `which` commands resolve; `swiftc --version` prints "swift-driver version: 1.x Apple Swift version 5.x"; `cargo --version` prints "cargo 1.x".
+**Expected output**: All `which` commands resolve; `swiftc --version` prints "swift-driver version: 1.x Apple Swift version 5.x"; `cargo --version` prints "cargo 1.x"; `nuitka --version` prints "Nuitka 2.x".
 
-**Pass criteria**: `swiftc`, `cargo`, `node`, `python3`, `uv` all on PATH. `lipo -archs /usr/lib/libSystem.B.dylib` should print the host arch.
+**Pass criteria**: `swiftc`, `cargo`, `node`, `python3`, `uv`, `nuitka` all on PATH. `lipo -archs /usr/lib/libSystem.B.dylib` should print the host arch.
 
 ---
 
@@ -133,22 +137,163 @@ kill $SIDECAR_PID
 
 ---
 
-## Step 2 — `externalBin` sidecar spawns via Tauri (BOTH arches)
+## Step 2 — Nuitka prewarm binary builds from `python-build-standalone` (BOTH arches)
+
+**VALIDATE ON MACOS HOST**
+
+Per ADR-0020 §5, the prewarm helper (`voice_typer/server/prewarm.py`) is frozen the same Nuitka way as the sidecar, into `prewarm-<triple>` — but it is a `bundle.resource` (NOT `externalBin`) because it is launched by the macOS LaunchAgent, NOT spawned by Tauri as a managed child.
+
+```bash
+# Apple Silicon prewarm build — run on a macos-14 (Apple Silicon) host.
+scripts/build/build_prewarm_macos.sh aarch64
+# Expected output:
+#   [build_prewarm_macos] SUCCESS
+#     Path: src-tauri/resources/prewarm-aarch64-apple-darwin
+#     Size: ~40-60 MB
+#     Arch: aarch64 (triple aarch64-apple-darwin)
+#     File: .../prewarm-aarch64-apple-darwin: Mach-O 64-bit executable arm64
+
+# Intel prewarm build — run EITHER on a macos-13 (Intel) host, OR on an
+# Apple Silicon host with Rosetta 2 installed.
+scripts/build/build_prewarm_macos.sh x86_64
+# Expected output:
+#   [build_prewarm_macos] SUCCESS
+#     Path: src-tauri/resources/prewarm-x86_64-apple-darwin
+#     Size: ~40-60 MB
+#     Arch: x86_64 (triple x86_64-apple-darwin)
+#     File: .../prewarm-x86_64-apple-darwin: Mach-O 64-bit executable x86_64
+```
+
+**Verify the binary runs**:
+
+```bash
+# Apple Silicon
+file src-tauri/resources/prewarm-aarch64-apple-darwin
+# Expect: Mach-O 64-bit executable arm64
+
+# Intel
+file src-tauri/resources/prewarm-x86_64-apple-darwin
+# Expect: Mach-O 64-bit executable x86_64
+
+# Smoke-test the prewarm binary (it should write a [PREWARM] log line
+# to stdout and exit 0 within ~30s — long enough to warm torch +
+# transformers + ctranslate2 weights).
+VOICE_TYPER_PREWARM_SMOKE=1 \
+  ./src-tauri/resources/prewarm-aarch64-apple-darwin
+# Expected: [PREWARM] starting ...
+#           [PREWARM] complete in Ns
+#           (exit 0)
+```
+
+**Pass criteria**: Both binaries exist with the correct `file` output (arm64 vs x86_64). The smoke test prints `[PREWARM] starting` + `[PREWARM] complete` to stdout and exits 0. The LaunchAgent integration test in §6.7 below exercises the full LaunchAgent path.
+
+**Common failures**:
+- `error: Rosetta 2 is not installed` (Apple Silicon building x86_64) → same fix as Step 1.
+- `prewarm binary segfaults on launch` → likely a missing ctranslate2 dylib. The script includes `--include-data-dir=$SITE/ctranslate2/lib` — verify the path exists in the build env.
+- `ImportError: No module named 'voice_typer.server.prewarm'` → run from the project root (the script cds there), or set `PYTHONPATH=$PWD` before invoking Nuitka.
+
+---
+
+## Step 3 — Native `macos-key-listener` (Swift) build (BOTH archs OR universal)
+
+**VALIDATE ON MACOS HOST**
+
+Per ADR-0020 §6.4, the native `macos-key-listener` binary is built by `scripts/build/compile_native.sh` (which calls `swiftc -O` with Cocoa + CoreGraphics) and copied to `src-tauri/resources/native/macos-key-listener` by `scripts/build/build_native_listener_macos.sh`. The wrapper script supports host-arch, single-arch, and universal (`lipo`-merged) output.
+
+```bash
+# Build for the host arch only (faster, sufficient for per-arch validation):
+scripts/build/build_native_listener_macos.sh
+# Expected output:
+#   [build_native_listener_macos] SUCCESS
+#     Path: src-tauri/resources/native/macos-key-listener
+#     Size: ~XX KB
+#     Archs: arm64            # OR x86_64
+
+# Build a universal binary (both archs, merged with lipo):
+scripts/build/build_native_listener_macos.sh --universal
+# Expected output:
+#   [build_native_listener_macos] SUCCESS
+#     Path: src-tauri/resources/native/macos-key-listener
+#     Size: ~XX KB
+#     Archs: arm64 x86_64
+```
+
+**Verify the binary**:
+
+```bash
+file src-tauri/resources/native/macos-key-listener
+# Expected (host-arch): Mach-O 64-bit executable arm64
+# Expected (universal): Mach-O universal binary with 2 architectures:
+#                       [x86_64:Mach-O 64-bit executable x86_64] [arm64:Mach-O 64-bit executable arm64]
+
+lipo -archs src-tauri/resources/native/macos-key-listener
+# Expected (host-arch on Apple Silicon): arm64
+# Expected (universal): arm64 x86_64
+
+# Verify the binary is signed (ad-hoc OK for dev, Developer ID for distribution)
+codesign -dv src-tauri/resources/native/macos-key-listener
+# Expected:
+#   Identifier=macos-key-listener
+#   TeamIdentifier=not set   (ad-hoc)
+#   ... or ...
+#   TeamIdentifier=<TEAM_ID> (Developer ID)
+```
+
+**Pass criteria**: `file` reports the expected Mach-O arch(s). `codesign -dv` shows a valid signature (ad-hoc or Developer ID). The binary launches and emits `READY` on stdout within 1 second when invoked directly (the full integration test is in §6.8 below):
+
+```bash
+# Smoke-test the native listener in isolation (requires Accessibility
+# permission for the terminal that spawns it — see ADR-0008 Gap 2).
+./src-tauri/resources/native/macos-key-listener &
+LISTENER_PID=$!
+sleep 1
+kill $LISTENER_PID
+# Expected: the binary prints `READY` on stdout within 1s.
+```
+
+**Common failures**:
+- `error: Rosetta 2 is not installed` (Apple Silicon host building `--universal`) → install Rosetta 2 as in Step 0.
+- `swiftc: error: unknown target triple: aarch64-apple-macos13.0` → older Xcode (pre-13) does not know the aarch64-apple-macos target. Upgrade to Xcode 15+.
+- `lld: warning: ignoring -target arm64-apple-macos13.0` → similar; upgrade Xcode.
+- `codesign failed: no identity` → set `MAC_SIGNING_IDENTITY` env var for distribution signing, or accept ad-hoc signing for dev.
+
+---
+
+## Step 4 — Build Tauri host `.app` + `.dmg` (`cargo tauri build --target universal-apple-darwin`)
 
 **VALIDATE ON MACOS HOST**
 
 Tauri v2 selects the right `externalBin` binary by matching the Rust target triple at runtime via `std::env::consts::ARCH` + `std::env::consts::OS`. The host's `main.rs` calls `tauri::api::process::Command::new_sidecar("python-sidecar")` which appends `-<target-triple>` to the binary name automatically.
 
 ```bash
-# Verify tauri.conf.json lists BOTH macOS arches
+# Verify tauri.conf.json uses the single base name (Tauri v2 appends the host
+# triple at runtime via std::env::consts::ARCH + std::env::consts::OS).
 python3 -c "
 import json
 c = json.load(open('src-tauri/tauri.conf.json'))
 eb = c['bundle']['externalBin']
-assert 'bin/python-sidecar-aarch64-apple-darwin' in eb, 'missing aarch64-apple-darwin entry'
-assert 'bin/python-sidecar-x86_64-apple-darwin' in eb, 'missing x86_64-apple-darwin entry'
-print('OK: both macOS externalBin entries present')
+# Per ADR-0020 §7 + the implementation decision in the worklog: list the
+# single base name 'bin/python-sidecar' — Tauri v2 resolves the per-arch
+# suffix at runtime. Per-arch entries are NOT listed in externalBin.
+assert 'bin/python-sidecar' in eb, 'missing base name bin/python-sidecar'
+print('OK: externalBin base name present (Tauri v2 appends the host triple)')
+
+# Verify resources list BOTH macOS arch prewarm binaries + the native listener
+res = c['bundle']['resources']
+assert 'resources/prewarm-aarch64-apple-darwin' in res, 'missing prewarm-aarch64-apple-darwin'
+assert 'resources/prewarm-x86_64-apple-darwin' in res, 'missing prewarm-x86_64-apple-darwin'
+assert 'resources/native/macos-key-listener' in res, 'missing native/macos-key-listener'
+print('OK: both macOS prewarm arches + native listener present in bundle.resources')
 "
+
+# Verify BOTH per-arch sidecar binaries exist on disk (the build step from §1
+# must have produced them — Tauri's externalBin resolver will fail at runtime
+# if the host-arch binary is missing).
+test -f src-tauri/bin/python-sidecar-aarch64-apple-darwin || {
+    echo "ERROR: missing src-tauri/bin/python-sidecar-aarch64-apple-darwin — run §1 aarch64 build first"; exit 1; }
+test -f src-tauri/bin/python-sidecar-x86_64-apple-darwin || {
+    echo "ERROR: missing src-tauri/bin/python-sidecar-x86_64-apple-darwin — run §1 x86_64 build first"; exit 1; }
+echo "OK: both per-arch sidecar binaries present on disk"
 
 # Build the Tauri host for the current arch (universal-apple-darwin if both
 # targets are installed)
@@ -169,16 +314,64 @@ ls -la target/universal-apple-darwin/release/bundle/macos/
 
 ---
 
-## Step 3 — WS + HMAC handshake (BOTH arches)
+## Step 5 — Install the `.app` + smoke test (gate point 1: sidecar spawn via externalBin)
+
+**VALIDATE ON MACOS HOST**
+
+This is the first of the 9-point Phase 0-M validation gate. Install the built `.app` to `/Applications`, launch it, and verify the Tauri host successfully spawns the sidecar binary via the `externalBin` mechanism.
+
+```bash
+# Install: mount the DMG and drag the .app to /Applications.
+open "target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
+# In Finder: drag "Voice Typer.app" to /Applications.
+# OR script it:
+#   hdiutil attach "target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
+#   cp -R "/Volumes/Voice Typer 1.0.0-universal/Voice Typer.app" /Applications/
+#   hdiutil detach "/Volumes/Voice Typer 1.0.0-universal"
+
+# First launch: macOS will prompt for Accessibility + Microphone permission
+# (TCC). Grant both — see Apple Silicon specific notes below for details.
+open "/Applications/Voice Typer.app"
+
+# Verify the sidecar binary spawned via externalBin (gate point 1).
+pgrep -lf python-sidecar
+# Expected: a line with "python-sidecar-<arch>-apple-darwin" matching the host arch.
+
+# Tail the Tauri log to verify the sidecar emitted server_started.
+tail -f "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log"
+# Expected lines within 5 seconds of launch:
+#   [SIDECAR] spawning externalBin: python-sidecar-aarch64-apple-darwin
+#   [SIDECAR] server_started port=NNNN
+#   [WS] connected to ws://127.0.0.1:NNNN
+#   [AUTH] token accepted
+```
+
+**Pass criteria (gate point 1)**: `pgrep -lf python-sidecar` finds the sidecar process matching the host arch (`python-sidecar-aarch64-apple-darwin` on Apple Silicon, `python-sidecar-x86_64-apple-darwin` on Intel). The Tauri log shows `[SIDECAR] spawning externalBin: python-sidecar-<arch>-apple-darwin` followed by `[SIDECAR] server_started port=N` within 5 seconds of launch.
+
+**Common failures**:
+- `error: sidecar binary not found` → the host-arch `python-sidecar-<arch>-apple-darwin` is missing from `src-tauri/bin/`. Run §1 for the missing arch.
+- `error: permission denied` → the .app was quarantined by Gatekeeper. Run `xattr -dr com.apple.quarantine "/Applications/Voice Typer.app"` for local dev (or sign + notarize per §7).
+- `error: macOS blocked the app from opening` → the app is unsigned; right-click → Open → confirm, OR sign + notarize per §7.
+- `macOS prompt: "Voice Typer" would like to control this computer using accessibility features` → grant Accessibility permission in System Settings → Privacy & Security → Accessibility. Required for `enigo` + `macos-key-listener` (see §6.4, §6.8 below).
+
+---
+
+## Step 6 — 9-point Phase 0-M validation gate (BOTH arches)
+
+**VALIDATE ON MACOS HOST**
+
+The 9-point gate below is the heart of Phase 0-M. **All 9 must pass on BOTH Apple Silicon AND Intel.** Cutover is per-arch — Apple Silicon can ship Tauri while Intel still ships Electron (ADR-0020 §Reversibility).
+
+Gate point 1 (Sidecar spawn via externalBin) was verified in Step 5 above. The remaining 8 points (2-9) follow as Steps 6.1 through 6.8 below; Step 6.9 is the single-instance gate point.
+
+---
+
+### Step 6.1 — WS + HMAC handshake (gate point 2, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
 ```bash
-# Install the built .app (drag to /Applications from the DMG)
-open "target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
-# Drag "Voice Typer.app" to /Applications
-
-# Launch the app
+# The .app was installed in Step 5. If not already running, launch it:
 open "/Applications/Voice Typer.app"
 
 # Tail the Tauri log
@@ -190,7 +383,7 @@ tail -f "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log"
 # [AUTH] token accepted
 ```
 
-**Pass criteria**: The log contains `[SIDECAR] server_started port=N`. The Tauri host's WS client connects to `ws://127.0.0.1:N` and sends the auth frame `{"type":"auth","token":"<64-char-hex>"}`. The sidecar accepts the token and the WS connection stays open (no `[AUTH] token rejected` log line).
+**Pass criteria (gate point 2)**: The log contains `[SIDECAR] server_started port=N`. The Tauri host's WS client connects to `ws://127.0.0.1:N` and sends the auth frame `{"type":"auth","token":"<64-char-hex>"}`. The sidecar accepts the token and the WS connection stays open (no `[AUTH] token rejected` log line).
 
 To verify HMAC rejection (negative test):
 
@@ -211,7 +404,7 @@ asyncio.run(t())
 
 ---
 
-## Step 4 — `faster-whisper` transcribes inside the Nuitka bundle (BOTH arches)
+### Step 6.2 — `faster-whisper` transcribes inside the Nuitka bundle (gate point 3, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
@@ -238,7 +431,7 @@ asyncio.run(t())
 
 ---
 
-## Step 5 — `enigo` paste (BOTH arches)
+### Step 6.3 — `enigo` paste (gate point 4, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
@@ -266,7 +459,7 @@ asyncio.run(t())
 
 ---
 
-## Step 6 — `tauri-plugin-notification` posts a notification (BOTH arches)
+### Step 6.4 — `tauri-plugin-notification` posts a notification (gate point 5, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
@@ -300,7 +493,7 @@ If the keys are missing, the sidecar `Info.plist` (set via `--macos-signed-app-n
 
 ---
 
-## Step 7 — Cooperative shutdown (BOTH arches)
+### Step 6.5 — Cooperative shutdown (gate point 6, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
@@ -339,7 +532,7 @@ pgrep -lf python-sidecar
 
 ---
 
-## Step 8 — Prewarm LaunchAgent (BOTH arches)
+### Step 6.6 — Prewarm LaunchAgent (gate point 7, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
@@ -387,11 +580,11 @@ print(_target_triple())
 
 ---
 
-## Step 9 — Native `macos-key-listener` (Swift) toggles dictation (BOTH arches)
+### Step 6.7 — Native `macos-key-listener` (Swift) toggles dictation (gate point 8, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
-The native `macos-key-listener` binary is built by `scripts/build/compile_native.sh` (which calls `swiftc -O` with Cocoa + CoreGraphics) and copied to `src-tauri/resources/native/macos-key-listener` by `scripts/build/build_native_listener_macos.sh`.
+The native `macos-key-listener` binary is built by `scripts/build/compile_native.sh` (which calls `swiftc -O` with Cocoa + CoreGraphics) and copied to `src-tauri/resources/native/macos-key-listener` by `scripts/build/build_native_listener_macos.sh` (see §3 above for the build instructions).
 
 ```bash
 # Build the native listener (run on each arch separately, or merge with lipo)
@@ -436,13 +629,132 @@ codesign -dv src-tauri/resources/native/macos-key-listener
 
 ---
 
-## Step 10 — Code signing + notarization + stapling (ADR-0020 §13.2)
+### Step 6.8 — Single-instance enforcement (gate point 9, BOTH arches)
 
 **VALIDATE ON MACOS HOST**
 
-This step is REQUIRED for distribution (a `.dmg` with an unsigned `.app` will be rejected by Gatekeeper on user machines). For local dev, ad-hoc signing (Steps 1 + 9) is sufficient to run the app, but Phase 0-M distribution validation requires full Developer ID + notarization + stapling.
+Per ADR-0020 §12, the Tauri host uses `tauri-plugin-single-instance` to enforce that only one Voice Typer process is running at a time. A second launch must NOT spawn a second sidecar — instead, the second instance forwards its argv to the first (typically focusing the existing main window) and exits immediately.
 
-### 10.1 Prerequisites
+```bash
+# 1. Launch the app for the first time:
+open "/Applications/Voice Typer.app"
+sleep 3
+
+# 2. Verify exactly ONE main process + ONE sidecar process are running:
+pgrep -lf "Voice Typer.app/Contents/MacOS/Voice Typer" | wc -l
+# Expected: 1
+
+pgrep -lf python-sidecar | wc -l
+# Expected: 1
+
+# 3. Launch the app a second time:
+open "/Applications/Voice Typer.app"
+sleep 2
+
+# 4. Verify still ONE process + ONE sidecar (NOT two):
+pgrep -lf "Voice Typer.app/Contents/MacOS/Voice Typer" | wc -l
+# Expected: 1   (the second launch forwarded to the first instance and exited)
+
+pgrep -lf python-sidecar | wc -l
+# Expected: 1
+
+# 5. Verify the second launch was logged as a single-instance rejection:
+tail -20 "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log" | grep -i "single.instance\|already.running\|second.instance"
+# Expected: a line like "[SINGLE_INSTANCE] second instance rejected, focusing main window"
+```
+
+**Pass criteria (gate point 9)**: After the second `open` invocation, the process counts remain at 1+1 (not 2+2). The Tauri log shows the single-instance plugin intercepted the second launch. The first instance's main window comes to the foreground.
+
+**Common failures**:
+- `pgrep shows 2 main processes` → the `tauri-plugin-single-instance` plugin is not initialized in `main.rs`. Verify `app.handle().plugin(tauri_plugin_single_instance::init(...))` is called before `app.run(...)`.
+- `pgrep shows 2 sidecar processes` → the second Tauri instance started a sidecar before the single-instance plugin killed it. The plugin MUST be initialized BEFORE `spawn_sidecar_and_get_port`. Verify the order in `main.rs` (gate at entry, per ADR-0020 §12).
+- `Second launch does nothing (no focus, no log line)` → the single-instance plugin forwarded the event but the main window handler didn't call `window.show() + window.set_focus()`. Verify the `init` closure handles the argv + focuses the main window.
+
+---
+
+### Step 6.9 — New Rust commands validation (export_history, export_vocabulary, bubble_*)
+
+**VALIDATE ON MACOS HOST**
+
+The MIG-1.1+1.2 wave adds new Rust commands (`export_history`, `export_vocabulary`, `bubble_show`, `bubble_signal_ready`, `bubble_set_position`, `bubble_set_draggable`, `bubble_move_by`, `bubble_hide_complete`) to the Tauri host's `generate_handler!` macro. These commands are dispatched over the same WS bridge as the existing 68 sidecar commands. Validate each one works end-to-end on macOS.
+
+#### export_history
+
+```bash
+# In the running app:
+# 1. Ensure at least one transcription exists in History (run §6.2 first).
+# 2. Open Settings → History → click "Export…"
+# 3. The tauri-plugin-dialog save dialog appears.
+# 4. Choose a path (e.g., ~/Desktop/voice-typer-history.json).
+# 5. Click "Save".
+
+# Verify the file exists + is valid JSON:
+test -f ~/Desktop/voice-typer-history.json
+python3 -c "import json; data=json.load(open('$HOME/Desktop/voice-typer-history.json')); print(f'OK: {len(data)} entries')"
+```
+
+**Pass criteria**: The save dialog appears, the file is written, the file is valid JSON containing the history entries. If the user cancels the save dialog, no file is written and no error is logged.
+
+#### export_vocabulary
+
+```bash
+# In the running app:
+# 1. Add a custom word to the vocabulary (Settings → Vocabulary → Add).
+# 2. Click "Export…"
+# 3. Choose a path (e.g., ~/Desktop/voice-typer-vocab.json).
+# 4. Click "Save".
+
+test -f ~/Desktop/voice-typer-vocab.json
+python3 -c "import json; data=json.load(open('$HOME/Desktop/voice-typer-vocab.json')); print(f'OK: {len(data)} words')"
+```
+
+**Pass criteria**: Same as `export_history` — save dialog → file written → valid JSON.
+
+#### bubble_show / bubble_signal_ready / bubble_set_position / bubble_set_draggable / bubble_move_by / bubble_hide_complete
+
+The bubble window is declared in `tauri.conf.json` (label `"bubble"`, 240×80, `alwaysOnTop: true`, `transparent: true`, `decorations: false`, `visible: false`). The 6 `bubble_*` commands orchestrate showing/hiding the dictation bubble.
+
+```bash
+# 1. Start dictation (press the hotkey — default F8 or Fn).
+# 2. The bubble window appears near the cursor.
+# 3. Verify the bubble window is visible + alwaysOnTop:
+osascript -e 'tell application "System Events" to count (windows of (every process whose name contains "Voice Typer"))'
+# Expected: at least 2 (main + bubble) while dictating
+
+# 4. Drag the bubble — verify bubble_set_draggable + bubble_move_by work:
+#    - The bubble should follow the cursor while dragging.
+#    - The bubble should snap to the new position after release.
+
+# 5. Stop dictation (press the hotkey again).
+# 6. The bubble hides (bubble_hide_complete).
+
+# 7. Verify in the Tauri log:
+tail -20 "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log" | grep -i bubble
+# Expected lines:
+#   [BUBBLE] show (pos=NNN,NNN)
+#   [BUBBLE] signal_ready
+#   [BUBBLE] set_position (x=NNN, y=NNN)
+#   [BUBBLE] set_draggable (true)
+#   [BUBBLE] move_by (dx=NN, dy=NN)
+#   [BUBBLE] hide_complete
+```
+
+**Pass criteria**: All 6 `bubble_*` commands log their invocation. The bubble window appears + disappears at the right times. The bubble follows the cursor while dragging. Per ADR-0020 §9, `bubble_level` events are throttled (coalesced to ≤30Hz) so the log should NOT show more than 30 `bubble_*` events per second.
+
+**Common failures**:
+- `invoke('bubble_show') returns "window not found"` → the bubble window label is missing from `tauri.conf.json`'s `app.windows` array. Verify the label `"bubble"` exists.
+- `Bubble appears but doesn't follow cursor` → `bubble_set_draggable(true)` was not called before `bubble_move_by`. Verify the bubble command sequence in `main.rs`.
+- `Bubble stays on screen after dictation stops` → `bubble_hide_complete` was not invoked, or `window.hide()` failed. Check the Tauri log for `window.hide()` errors.
+
+---
+
+## Step 7 — Code signing + notarization + stapling (ADR-0020 §13.2)
+
+**VALIDATE ON MACOS HOST**
+
+This step is REQUIRED for distribution (a `.dmg` with an unsigned `.app` will be rejected by Gatekeeper on user machines). For local dev, ad-hoc signing (Steps 1 + 3) is sufficient to run the app, but Phase 0-M distribution validation requires full Developer ID + notarization + stapling.
+
+### 7.1 Prerequisites
 
 - Apple Developer Program membership ($99/year)
 - "Developer ID Application" certificate in Keychain Access (under "My Certificates")
@@ -455,7 +767,7 @@ This step is REQUIRED for distribution (a `.dmg` with an unsigned `.app` will be
   export APPLE_TEAM_ID="TEAM_ID"
   ```
 
-### 10.2 Sign the sidecar + prewarm + native listener
+### 7.2 Sign the sidecar + prewarm + native listener
 
 The build scripts (`build_sidecar_macos.sh`, `build_prewarm_macos.sh`, `build_native_listener_macos.sh`) automatically sign with Developer ID when `MAC_SIGNING_IDENTITY` is set. Verify:
 
@@ -471,7 +783,7 @@ codesign -dv --verbose=4 src-tauri/resources/prewarm-aarch64-apple-darwin
 codesign -dv --verbose=4 src-tauri/resources/native/macos-key-listener
 ```
 
-### 10.3 Build + sign the .app bundle
+### 7.3 Build + sign the .app bundle
 
 ```bash
 # cargo tauri build with universal target + Developer ID signing
@@ -489,7 +801,7 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 # Expected: "Voice Typer.app: valid on disk"
 ```
 
-### 10.4 Notarize the .app
+### 7.4 Notarize the .app
 
 ```bash
 # Submit to Apple's notarization service. This typically takes 2-10 minutes.
@@ -506,7 +818,7 @@ xcrun notarytool submit "$ZIP_PATH" \
 #   status: Accepted
 ```
 
-### 10.5 Staple the notarization ticket
+### 7.5 Staple the notarization ticket
 
 ```bash
 xcrun stapler staple "$APP_PATH"
@@ -517,7 +829,7 @@ xcrun stapler validate "$APP_PATH"
 # Expected: "The validate action worked!"
 ```
 
-### 10.6 Build + sign + notarize + staple the .dmg
+### 7.6 Build + sign + notarize + staple the .dmg
 
 ```bash
 # Tauri's bundler produces the .dmg from the stapled .app
@@ -540,7 +852,7 @@ xcrun stapler validate "$DMG_PATH"
 
 **Pass criteria**: Both the `.app` and the `.dmg` pass `xcrun stapler validate`. On a clean Mac (no Developer ID cert in Keychain), double-clicking the `.dmg` and dragging the `.app` to /Applications produces no Gatekeeper warning — the app launches directly.
 
-### 10.7 Hardened runtime + entitlements
+### 7.7 Hardened runtime + entitlements
 
 The `.app`'s `Info.plist` must declare:
 - `CFBundleIdentifier`: `com.voicetyper.app` (matches `tauri.conf.json` identifier)
@@ -557,7 +869,7 @@ The Tauri `bundle.macOS.entitlements` config in `tauri.conf.json` should point a
 
 ---
 
-## Step 11 — Rollback
+## Step 8 — Rollback to Electron
 
 **VALIDATE ON MACOS HOST**
 
@@ -584,11 +896,11 @@ ls -la "$HOME/Library/Application Support/voice-typer/"
 
 ---
 
-## Step 12 — Capture results
+## Step 9 — Capture results
 
 **VALIDATE ON MACOS HOST**
 
-After all 9 (or 11, including signing + rollback) checks pass, capture the results:
+After all 9 gate points (Step 6.1-6.9) + signing (Step 7) + rollback (Step 8) pass, capture the results:
 
 ```bash
 # Capture system info
@@ -644,42 +956,49 @@ echo "Wrote $REPORT"
 
 ## Summary checklist
 
-| # | Check | Pass criteria |
+| Step | Check | Pass criteria |
 |---|---|---|
-| 1 | Nuitka macOS sidecar builds (BOTH arches) | `python-sidecar-{aarch64,x86_64}-apple-darwin` exist with correct Mach-O arch (~80-120 MB each) |
-| 2 | `externalBin` spawns via Tauri (BOTH arches) | Tauri app launches, `.app` + `.dmg` produced, sidecar binary in `Contents/Resources/` |
-| 3 | WS + HMAC handshake (BOTH arches) | `[SIDECAR] server_started port=N` in log; wrong token rejected |
-| 4 | `faster-whisper` transcribes (BOTH arches) | Transcription appears in TextEdit within 5s; `libctranslate2.dylib` + `libiomp5.dylib` resolve |
-| 5 | `enigo` paste (BOTH arches) | Short text via `enigo.text()`; long text via clipboard + `Cmd+V`; Accessibility permission granted |
-| 6 | `tauri-plugin-notification` (BOTH arches) | macOS notification banner appears; `Info.plist` has `NSUserNotificationsUsageDescription` + `NSMicrophoneUsageDescription` |
-| 7 | Cooperative shutdown (BOTH arches) | Sidecar exits within 2s of window close; `kill_children` backstop verified on hung sidecar |
-| 8 | Prewarm LaunchAgent (BOTH arches) | `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` registered with `RunAtLoad=true`; `resolve_prewarm_exe()` returns frozen binary path |
-| 9 | Native `macos-key-listener` toggle (BOTH arches) | F8 starts/stops dictation; Accessibility permission granted; binary signed |
-| 10 | Codesign + notarize + staple (BOTH arches) | `.app` + `.dmg` pass `xcrun stapler validate`; Gatekeeper accepts on clean Mac |
-| 11 | Rollback | Uninstall + Electron reinstall preserves user data |
+| §1 | Nuitka macOS sidecar builds (BOTH arches) | `python-sidecar-{aarch64,x86_64}-apple-darwin` exist with correct Mach-O arch (~80-120 MB each) |
+| §2 | Nuitka macOS prewarm builds (BOTH arches) | `prewarm-{aarch64,x86_64}-apple-darwin` exist with correct Mach-O arch (~40-60 MB each) |
+| §3 | Native `macos-key-listener` (Swift) build | `macos-key-listener` exists with correct Mach-O arch (host-arch OR universal) |
+| §4 | Tauri `.app` + `.dmg` build (`--target universal-apple-darwin`) | `cargo tauri build` produces both `.app` + `.dmg` with both prewarm arches + native listener in `Contents/Resources/` |
+| §5 | Install + smoke test (gate point 1: sidecar spawn) | `pgrep -lf python-sidecar` finds the host-arch sidecar within 5s of launch |
+| §6.1 | WS + HMAC handshake (gate point 2) | `[SIDECAR] server_started port=N` in log; wrong token rejected |
+| §6.2 | `faster-whisper` transcribes (gate point 3) | Transcription appears in TextEdit within 5s; `libctranslate2.dylib` + `libiomp5.dylib` resolve |
+| §6.3 | `enigo` paste (gate point 4) | Short text via `enigo.text()`; long text via clipboard + `Cmd+V`; Accessibility permission granted |
+| §6.4 | `tauri-plugin-notification` (gate point 5) | macOS notification banner appears; `Info.plist` has `NSUserNotificationsUsageDescription` + `NSMicrophoneUsageDescription` |
+| §6.5 | Cooperative shutdown (gate point 6) | Sidecar exits within 2s of window close; `kill_children` backstop verified on hung sidecar |
+| §6.6 | Prewarm LaunchAgent (gate point 7) | `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` registered with `RunAtLoad=true`; `resolve_prewarm_exe()` returns frozen binary path |
+| §6.7 | Native `macos-key-listener` toggle (gate point 8) | F8 starts/stops dictation; Accessibility permission granted; binary signed |
+| §6.8 | Single-instance (gate point 9) | Second launch forwards to first; only 1 main + 1 sidecar process |
+| §6.9 | New Rust commands (export_history, export_vocabulary, bubble_*) | All 8 new commands dispatch + log correctly; bubble appears + hides; exports write valid JSON |
+| §7 | Codesign + notarize + staple (BOTH arches) | `.app` + `.dmg` pass `xcrun stapler validate`; Gatekeeper accepts on clean Mac |
+| §8 | Rollback | Uninstall + Electron reinstall preserves user data |
 
-**All 11 must pass before the macOS Tauri cutover.** Electron remains the fallback until all 11 pass. Cutover is per-arch — Apple Silicon can ship Tauri while Intel still ships Electron.
+**All 9 gate points (§6.1-§6.9) must pass on BOTH Apple Silicon AND Intel before the macOS Tauri cutover.** §7 (signing/notarization) is required for distribution but optional for local validation. §8 (rollback) verifies the safety net. Electron remains the fallback until all gate points pass. Cutover is per-arch — Apple Silicon can ship Tauri while Intel still ships Electron.
 
 ---
 
 ## Apple Silicon specific notes
 
-- **Rosetta 2 for x86_64 builds**: An Apple Silicon host can build x86_64 binaries via Rosetta 2 (`arch -x86_64` prefix). The `build_sidecar_macos.sh` script auto-detects this and prepends the prefix + passes `--target-arch x86_64` to Nuitka. Install Rosetta 2 with `softwareupdate --install-rosetta --agree-to-license`.
-- **Intel hosts cannot build aarch64 via Nuitka**: Nuitka has no `--target-arch arm64` flag on Intel macOS. To produce an aarch64 binary, run `build_sidecar_macos.sh aarch64` on a separate Apple Silicon host (macos-14 CI runner).
-- **Universal binary via `lipo`**: After building both arches separately, merge into a single universal binary:
+- **Rosetta 2 for x86_64 builds**: An Apple Silicon host can build x86_64 binaries via Rosetta 2 (`arch -x86_64` prefix). The `build_sidecar_macos.sh`, `build_prewarm_macos.sh`, and `build_native_listener_macos.sh` scripts auto-detect this and prepend the prefix when the host is `arm64` and the target arch is `x86_64`. Install Rosetta 2 with `softwareupdate --install-rosetta --agree-to-license`.
+- **Intel hosts cannot build aarch64 via Nuitka**: Nuitka has no `--target-arch arm64` flag on Intel macOS. To produce an aarch64 binary, run `build_sidecar_macos.sh aarch64` (or `build_prewarm_macos.sh aarch64`) on a separate Apple Silicon host (macos-14 CI runner).
+- **Universal binary via `lipo`**: After building both arches separately, merge into a single universal binary. The `build_native_listener_macos.sh --universal` flag does this for the Swift listener. For the sidecar + prewarm, Nuitka cannot produce a universal binary directly — but Tauri's `externalBin` mechanism selects the right per-arch binary at runtime via `std::env::consts::ARCH`, so a universal binary is NOT required. Example for the native listener:
   ```bash
   lipo -create \
-    src-tauri/bin/python-sidecar-aarch64-apple-darwin \
-    src-tauri/bin/python-sidecar-x86_64-apple-darwin \
-    -output src-tauri/bin/python-sidecar-universal
-  file src-tauri/bin/python-sidecar-universal
+    src-tauri/resources/native/macos-key-listener.aarch64 \
+    src-tauri/resources/native/macos-key-listener.x86_64 \
+    -output src-tauri/resources/native/macos-key-listener
+  file src-tauri/resources/native/macos-key-listener
   # Expected: Mach-O universal binary with 2 architectures: [x86_64:Mach-O 64-bit executable x86_64] [arm64:Mach-O 64-bit executable arm64]
   ```
-  Note: Tauri's `externalBin` mechanism selects the right per-arch binary at runtime via `std::env::consts::ARCH`, so a universal binary is NOT required — list both per-arch entries in `bundle.externalBin` instead.
-- **`cargo tauri build --target universal-apple-darwin`** builds a universal `.app` bundle that runs natively on both arches. The Rust host is universal, but the Python sidecar binary inside is selected per-arch by Tauri at runtime from the `bundle.externalBin` list.
+  Note: `build_native_listener_macos.sh --universal` does this in one step (no manual lipo needed).
+- **`cargo tauri build --target universal-apple-darwin`** builds a universal `.app` bundle that runs natively on both arches. The Rust host is universal, but the Python sidecar binary inside is selected per-arch by Tauri at runtime from the `bundle.externalBin` list (Tauri appends the host triple to the base name `bin/python-sidecar`).
 - **CTranslate2 aarch64 wheels are CPU-only** (no CUDA on macOS). Verify with `otool -L $SITE/ctranslate2/lib/libctranslate2.dylib` that every `@rpath` dependency resolves. Apple Silicon wheels ship `libctranslate2.dylib` + `libiomp5.dylib` (OpenMP) — no CUDA, no cuBLAS.
-- **`pyobjc` framework bridges**: Nuitka's `--include-package=pyobjc` does not always pick up the framework sub-packages (`pyobjc-framework-Cocoa`, `pyobjc-framework-CoreAudio`, etc.). If the sidecar crashes on launch with `ImportError: pyobjc-...`, add explicit `--include-package=pyobjc-framework-Cocoa` flags to the Nuitka command in `build_sidecar_macos.sh`.
-- **Accessibility permission (TCC)**: `enigo` + the native `macos-key-listener` both require Accessibility permission. The app should prompt on first launch via `AXIsProcessTrustedWithOptions`; if it doesn't, manually add `/Applications/Voice Typer.app` in System Settings → Privacy & Security → Accessibility. ADR-0008 Gap 2 covers the onboarding flow for this.
+- **`pyobjc` framework bridges**: Nuitka's `--include-package=pyobjc` does not always pick up the framework sub-packages (`pyobjc-framework-Cocoa`, `pyobjc-framework-CoreAudio`, etc.). If the sidecar crashes on launch with `ImportError: pyobjc-...`, add explicit `--include-package=pyobjc-framework-Cocoa` flags to the Nuitka command in `build_sidecar_macos.sh`. The build scripts already include `pyobjc-framework-Cocoa` + `pyobjc-framework-CoreAudio` defensively.
+- **Accessibility permission (TCC)**: `enigo` + the native `macos-key-listener` both require Accessibility permission. The app should prompt on first launch via `AXIsProcessTrustedWithOptions`; if it doesn't, manually add `/Applications/Voice Typer.app` in System Settings → Privacy & Security → Accessibility. ADR-0008 Gap 2 covers the onboarding flow for this. **Important: in dev mode (`cargo tauri dev`), the terminal that spawned the binary (Terminal.app / iTerm / VS Code) ALSO needs Accessibility permission — the permission does NOT transfer to the binary alone.**
 - **Microphone permission (TCC)**: `sounddevice` requires microphone permission. The `Info.plist` must declare `NSMicrophoneUsageDescription`; on first mic open the system prompts the user. Denied mic → sidecar logs `[AUDIO] microphone permission denied` and the WS connection stays open (no crash), but dictation silently fails.
+- **Notification permission (TCC, macOS 11+)**: `tauri-plugin-notification` requires `UNUserNotificationCenter.requestAuthorization(...)` to be called on first launch. Without it, notifications silently no-op. The Tauri host should call this once on startup (or on first `notification:allow-notify` invoke). The `Info.plist` must declare `NSUserNotificationsUsageDescription`. Verified in §6.4.
 - **`--onefile` temp-dir on macOS**: Nuitka `--onefile` extracts to `$TMPDIR/onefile_*` on every launch. The build script pins it to `$HOME/Library/Application Support/voice-typer/onefile-tmp` via `--onefile-tempdir-spec` so stale extracts don't accumulate in `$TMPDIR`. The LaunchAgent's prewarm binary uses a separate `prewarm-tmp` dir to avoid contention.
 - **`LSUIElement=true` for the sidecar**: The Nuitka `--macos-app-mode=background` flag sets `LSUIElement=true` in the sidecar's bundle `Info.plist` — the sidecar runs with no Dock icon, no menu bar item. This is the macOS equivalent of Windows `--windows-disable-console`. The main `.app` (the Tauri host) keeps `LSUIElement=false` so it shows in the Dock normally.
+- **`_target_triple()` returns `aarch64-apple-darwin` (NOT `arm64-apple-darwin`)**: ADR-0020 §4.1 explicitly lists `aarch64-apple-darwin` as the macOS Apple Silicon target triple. The Rust toolchain + Tauri's externalBin mechanism use `aarch64-`, not `arm64-`. The `prewarm_resolver._target_triple()` function in `voice_typer/server/prewarm_resolver.py` correctly returns `aarch64-apple-darwin` on Apple Silicon (line 90: `arch = "aarch64" if machine == "arm64" else "x86_64"`). The original ADR §5 code snippet had a bug returning `arm64-apple-darwin` — the implementation is correct, the ADR snippet is not. The `tests/tauri/test_prewarm_resolver.py::test_target_triple_apple_silicon_returns_aarch64` test guards against regression.

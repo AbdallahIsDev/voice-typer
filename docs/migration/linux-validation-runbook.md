@@ -20,8 +20,37 @@
 - **System libs (dnf, Fedora 38+)**: `webkit2gtk4.1 libnotify libXtst wl-clipboard xclip @development-tools pkgconf-pkg-config openssl-devel gtk3-devel libayatana-appindicator-gtk3-devel librsvg2-devel patchelf`.
 - **qemu-user-static** (CROSS builds only): `sudo apt-get install qemu-user-static binfmt-support` on the x86_64 build host. Enables Nuitka to execute the aarch64 python-build-standalone interpreter during compilation. The script `scripts/build/build_sidecar_linux.sh aarch64` refuses to cross-build without it.
 - **input group membership**: the native `linux-key-listener` binary reads `/dev/input/event*`. After install, log out + log back in for the `input` group change to take effect (Linux kernel limitation; handled by `scripts/linux/postinst`).
+- **Xvfb** (`xvfb-run`): optional, for headless CI smoke tests of the Tauri WebView (cargo tauri build + the renderer). `sudo apt-get install xvfb`. Xvfb does NOT replace a real display for the user-facing smoke tests in Steps 5–15 — it only allows `cargo tauri build` and basic WebView load tests to run in CI. The 9-point validation gate (Steps 5–14) MUST run on a real X11 or Wayland session.
 
 **Time estimate**: 3-5 hours first run (Nuitka takes 10-15 min per binary × 2 arches × 2 binaries = up to 60 min just for Nuitka); ~30 min subsequent runs with cached deps + Nuitka artifacts.
+
+---
+
+## Section map (spec §0–§10 ↔ operational Steps 0–15)
+
+| Spec § | Operational Step(s) | Section heading |
+|---|---|---|
+| §0 Prerequisites | Prerequisites + Step 0 | "Prerequisites" + "Step 0 — Environment setup" |
+| §1 Build sidecar (both archs) | Step 1 | "Step 1 — Nuitka Linux sidecar builds from `python-build-standalone` (glibc 2.35 baseline)" |
+| §2 Build prewarm | Step 2 | "Step 2 — Nuitka prewarm builds" |
+| §3 Build native linux-key-listener | Step 3 | "Step 3 — Native `linux-key-listener` binary build + copy to resources" |
+| §4 Build Tauri app | Step 4 | "Step 4 — Build the Tauri app" |
+| §5 Install + smoke test on X11 | Step 5 | "Step 5 — Install + smoke test on X11" |
+| §6 Install + smoke test on Wayland | Step 6 | "Step 6 — Install + smoke test on Wayland" |
+| §7 9-point validation gate | Steps 5–14 (each gate point maps to a Step) + "9-Point Validation Gate Summary" | see summary table at end |
+| §8 Linux unsigned packaging (.deb + .AppImage, reuse scripts/linux/postinst/prerm) | Step 13 + "Linux unsigned packaging" section | "Step 13 — `.deb` and `.AppImage` build with the existing `postinst`/`prerm` scripts" + "Linux unsigned packaging (ADR-0020 §13.3)" |
+| §9 Rollback to Electron | "Rollback" section | "Rollback" |
+| §10 Capturing results | "Capture results" section | "Capture results" |
+
+Bonus operational steps not in the spec §0–§10 list (but referenced by the spec's "Validation steps for new Rust commands" requirement):
+- Step 7 — `faster-whisper` transcribes inside the Nuitka bundle (gate point 3).
+- Step 8 — Paste keystroke works on X11 AND Wayland (gate point 4).
+- Step 9 — libnotify toast appears on X11 AND Wayland (gate point 5).
+- Step 10 — Cooperative shutdown + `kill_children` backstop (gate point 6).
+- Step 11 — Prewarm systemd user timer (gate point 7).
+- Step 12 — Native `linux-key-listener` toggles dictation on X11 AND Wayland (gate point 8).
+- Step 14 — Single-instance behavior (gate point 9).
+- Step 15 — New Rust commands (`export_history`, `export_vocabulary`, `bubble_*`).
 
 ---
 
@@ -417,6 +446,8 @@ ps aux | grep linux-key-listener | grep -v grep
 
 **Runs on: any Linux host (no display required for the build, but install + smoke needs a display).**
 
+> **VALIDATE ON LINUX DISPLAY HOST** for the install + uninstall sub-steps below (lines marked `[DISPLAY]`); the build + `dpkg-deb -e` inspection runs headless.
+
 ```bash
 # Verify the .deb has the postinst + prerm scripts:
 dpkg-deb -e src-tauri/target/release/bundle/deb/voice-typer_1.0.0_amd64.deb /tmp/control
@@ -451,28 +482,194 @@ ls /etc/udev/rules.d/99-voice-typer.rules 2>&1  # should be 'No such file'
 
 ---
 
+## Step 14 — Single-instance behavior (ADR-0020 §12)
+
+**VALIDATE ON LINUX DISPLAY HOST (run on BOTH X11 and Wayland sessions).**
+
+ADR-0020 §12 mandates that the `single-instance` Tauri plugin runs at the **absolute entry point of `main.rs` — before any sidecar initialization** (token gen, `stdout` port handshake, `shell:spawn`). If a second launch reaches the spawn code before the duplicate is detected, you get a **zombie sidecar** (and a competing mic holder) on every double-click of the desktop shortcut.
+
+The Linux single-instance mechanism is a lockfile at `<config_dir>/.single-instance.lock` (Tauri plugin default).
+
+```bash
+# 1. Launch Voice Typer (first instance):
+voice-typer &
+FIRST_PID=$!
+sleep 3   # let it fully start (sidecar + WS + tray)
+
+# 2. Launch a SECOND instance:
+voice-typer &
+SECOND_PID=$!
+sleep 2
+
+# 3. Verify the second instance exited (no zombie):
+if kill -0 $SECOND_PID 2>/dev/null; then
+    echo "FAIL: second instance is still running (PID $SECOND_PID)"
+    kill $SECOND_PID  # clean up
+else
+    echo "OK: second instance exited cleanly"
+fi
+
+# 4. Verify the first instance is still alive:
+kill -0 $FIRST_PID && echo "OK: first instance still alive" || echo "FAIL: first instance died"
+
+# 5. Verify the first instance's window was focused (not minimized):
+#    On X11, use wmctrl:
+wmctrl -a "Voice Typer" 2>/dev/null && echo "OK: window focused" || echo "(wmctrl not installed — skip)"
+#    On Wayland, the compositor's focus-stealing prevention may suppress this.
+#    Visually verify the window came to the foreground.
+
+# 6. Verify no duplicate sidecar process spawned:
+ps aux | grep python-sidecar | grep -v grep | wc -l
+#    Should print '1' (only the first instance's sidecar).
+
+# 7. Verify no duplicate linux-key-listener process spawned:
+ps aux | grep linux-key-listener | grep -v grep | wc -l
+#    Should print '1'.
+
+# Clean up:
+kill $FIRST_PID 2>/dev/null || true
+```
+
+**Pass criteria**:
+1. The second instance exits within 2 seconds of launch (does NOT spawn its own sidecar or listener).
+2. The first instance remains alive and responsive.
+3. `ps aux | grep python-sidecar | grep -v grep | wc -l` returns `1` after the second launch.
+4. `ps aux | grep linux-key-listener | grep -v grep | wc -l` returns `1`.
+5. The first instance's window is focused (brought to the foreground) — on X11 this is verifiable via `wmctrl -a`; on Wayland, visually verify.
+6. The sidecar log shows no second `[SIDECAR] server_started` line after the second launch.
+
+**Common failures**:
+- Second instance spawns its own sidecar → The `single-instance` plugin is initialized AFTER `spawn_sidecar_and_get_port` in `main.rs`. Per ADR-0020 §12, the duplicate check MUST run at the absolute entry point, before any sidecar initialization. Check `src-tauri/src/main.rs` for the plugin init order.
+- Second instance hangs (doesn't exit) → The plugin's `second-instance` event handler is blocking. It should focus the existing window and exit immediately.
+- Lockfile not released after first instance exits → `<config_dir>/.single-instance.lock` is stale. Delete it: `rm ~/.local/share/voice-typer/.single-instance.lock` (or wherever `_paths.config_dir()` resolves to).
+- `cannot acquire lock` on every launch → The lockfile is owned by a different user (e.g. after `sudo voice-typer`). `sudo chown $USER ~/.local/share/voice-typer/.single-instance.lock`.
+
+---
+
+## Step 15 — New Rust commands (export_history, export_vocabulary, bubble_*)
+
+**VALIDATE ON LINUX DISPLAY HOST (run on BOTH X11 and Wayland sessions).**
+
+ADR-0020 §16 + MIG-1.1/1.2 added these new Tauri commands that did NOT exist in the Electron IPC layer. Each must be smoke-tested on Linux because the Tauri host's `tauri-plugin-dialog` save dialog and the bubble window's `tauri::WebviewWindow` API behave differently from their Electron equivalents.
+
+### 15.1 `export_history` (MIG-1.1)
+
+```bash
+# In the running app (installed via Step 5 or Step 6):
+# 1. Open the History page (Side Panel → History, or press Ctrl+H)
+# 2. Verify at least one transcription entry exists (dictate a test phrase first if empty)
+# 3. Click the "Export…" button at the top of the History page
+# 4. In the native save dialog (GTK FileChooserDialog on Linux), navigate to ~/Documents
+# 5. Enter a filename (e.g., "voice-typer-history.json")
+# 6. Click "Save"
+
+# Verify the file was written:
+ls -l ~/Documents/voice-typer-history.json
+cat ~/Documents/voice-typer-history.json | python -m json.tool | head -20
+# Should be valid JSON with an array of {timestamp, text, model, device} objects.
+```
+
+**Pass criteria**: The native save dialog opens (GTK FileChooserDialog on both X11 and Wayland). The file is written to the chosen path. The JSON is valid and contains the expected history entries.
+
+**Common failures**:
+- `dialog:allow-save not in capabilities` → Add `dialog:allow-save` to `src-tauri/capabilities/migrate-runtime.json`.
+- Save dialog doesn't open on Wayland → The portal interface (`xdg-desktop-portal`) may not be running. Install `xdg-desktop-portal` + `xdg-desktop-portal-gtk` and verify `dbus-run-session` is in the environment.
+- File written to wrong path → The Rust host returns the absolute path; the sidecar must NOT prepend a default dir. Verify `export_history` in `main.rs` writes to the user-chosen path verbatim.
+
+### 15.2 `export_vocabulary` (MIG-1.1)
+
+```bash
+# In the running app:
+# 1. Open Settings → Vocabulary (or Side Panel → Vocabulary)
+# 2. Add at least one custom vocabulary entry if empty (e.g., "Voice Typer" → "Voice Typer")
+# 3. Click the "Export…" button
+# 4. Save as "voice-typer-vocabulary.json"
+
+# Verify the file:
+ls -l ~/Documents/voice-typer-vocabulary.json
+cat ~/Documents/voice-typer-vocabulary.json | python -m json.tool | head -10
+# Should be valid JSON with the vocabulary entries.
+```
+
+**Pass criteria**: Same as 15.1 — native save dialog opens on both X11 and Wayland, file is written, JSON is valid.
+
+### 15.3 `bubble_show` / `bubble_signal_ready` / `bubble_set_position` / `bubble_set_draggable` / `bubble_move_by` / `bubble_hide_complete` (MIG-1.2)
+
+The dictation bubble is a separate Tauri `WebviewWindow` (declared in `tauri.conf.json` as window `bubble`: 240×80, `alwaysOnTop`, `transparent`, `decorations: false`, `visible: false`). The 6 Rust commands coordinate the bubble lifecycle with the sidecar's recording state.
+
+```bash
+# In the running app:
+# 1. Press the dictation hotkey (default: Caps Lock or Ctrl+Alt+V)
+# 2. The bubble should appear near the cursor with "Listening…" text + an audio level bar
+# 3. Drag the bubble to a new position (mouse-down on the bubble, drag, mouse-up)
+# 4. Speak a test phrase ("hello bubble")
+# 5. Release the hotkey
+# 6. The bubble should disappear within 200ms of the paste keystroke
+
+# Verify in the sidecar log:
+tail -50 ~/.local/share/voice-typer/logs/sidecar.log | grep -E 'bubble|recording'
+# Should show: bubble_show → bubble_signal_ready → (bubble_move_by events from drag)
+#               → bubble_hide_complete → recording_stopped
+```
+
+**Pass criteria** (on BOTH X11 and Wayland):
+1. The bubble appears within 200ms of pressing the dictation hotkey.
+2. The bubble's audio level bar animates smoothly (~30 Hz, per ADR-0020 §9 coalescing).
+3. The bubble is draggable — mouse-down + drag + mouse-up moves it to a new position.
+4. The bubble disappears within 200ms of releasing the hotkey.
+5. The sidecar log shows all 6 bubble commands firing in the expected order.
+6. On Wayland: the bubble's `alwaysOnTop` works (some Wayland compositors ignore this — Sway, for example, may not honor `alwaysOnTop` for security reasons. Document as a known Wayland limitation if the bubble appears behind other windows).
+
+**Common failures**:
+- Bubble doesn't appear → The `bubble` window's `visible: false` is set in `tauri.conf.json`; the Rust host must call `bubble.show()` via `bubble_show`. Verify the command is wired in `main.rs`'s `generate_handler!` macro.
+- Bubble appears but is invisible (transparent) → The renderer's CSS may be loading async. Check the bubble window's devtools console (`RUST_LOG=debug` + `WEBKIT_DISABLE_COMPOSITING_MODE=1` env var on Wayland).
+- Bubble not draggable on Wayland → Wayland's client-side decorations (CSD) may interfere with `tauri::WebviewWindow::start_dragging()`. Verify the bubble's HTML element has `data-tauri-drag-region` set.
+- Bubble lingers after release → `bubble_hide_complete` is not called by the sidecar after the paste. Check the sidecar's `on_recording_stopped` handler.
+
+---
+
 ## 9-Point Validation Gate Summary
 
-The 9 mandatory checks (per ADR-0020 §"Phase 0 validation gate" — Phase 0-L):
+The 9 mandatory checks (per ADR-0020 §"Phase 0 validation gate" — Phase 0-L). **All 9 must pass on BOTH X11 AND Wayland, on BOTH x86_64 and aarch64, before the Linux Tauri cutover.** Each check has a corresponding operational step above for reproducibility.
 
-| # | Check | Pass criteria |
-|---|---|---|
-| 1 | Nuitka Linux sidecar builds (x86_64 + aarch64) | `python-sidecar-<triple>` exists; `ldd` shows GLIBC ≤ 2.35; `--help` works |
-| 2 | `externalBin` sidecar spawns via Tauri on X11 + Wayland | Tauri app launches; `.deb` + `.AppImage` produced |
-| 3 | HMAC handshake works on X11 + Wayland | Log shows `auth ok` |
-| 4 | `faster-whisper` transcribes inside Nuitka exe | Transcription appears in text field + History |
-| 5 | `enigo` types on X11; clipboard + Ctrl+V fallback works on Wayland | Text appears in editor on BOTH session types |
-| 6 | `tauri-plugin-notification` posts via libnotify on X11 + Wayland | Notification appears in DE notification list |
-| 7 | Cooperative `{"type":"shutdown"}` exits; `kill_children` cleans | No zombie processes within 2s of window close |
-| 8 | Prewarm exe registered as systemd user timer | `systemctl --user list-timers` shows the timer; runs at boot |
-| 9 | Native `linux-key-listener` (evdev) toggles dictation on X11 + Wayland | F8 starts/stops recording on BOTH session types |
+| # | Check | Step | Pass criteria |
+|---|---|---|---|
+| 1 | `externalBin` sidecar spawns via Tauri on X11 + Wayland | Step 5 / Step 6 | Tauri app launches; `~/.local/share/voice-typer/logs/sidecar.log` contains `[SIDECAR] server_started port=N`; `ps aux \| grep python-sidecar` shows one process |
+| 2 | WS + HMAC handshake works on X11 + Wayland | Step 5 (criterion 4) | Log shows `WS connected` + `auth ok`; wrong-token rejection logged as `auth rejected` |
+| 3 | `faster-whisper` transcribes inside the Nuitka exe | Step 7 | Transcription appears in focused text field within 5s of releasing hotkey; log shows `model_loaded` |
+| 4 | `enigo` types on X11; clipboard + Ctrl+V fallback (via `wl-copy` + Ctrl+V) works on Wayland | Step 8 | Text appears in editor on BOTH session types; Wayland uses `_linux_copy` → `wl-copy` path in `clipboard.py` (ADR-0020 §6.6) |
+| 5 | `tauri-plugin-notification` posts via libnotify on X11 + Wayland | Step 9 | Notification appears in DE notification list on BOTH session types |
+| 6 | Cooperative `{"type":"shutdown"}` exits; `kill_children` cleans | Step 10 | `ps aux \| grep python-sidecar` returns nothing within 2s of window close; log shows `[SHUTDOWN] sidecar exited cleanly` or `kill_children` |
+| 7 | Prewarm exe registered as systemd user timer | Step 11 | `systemctl --user list-timers voice-typer-prewarm.timer` shows the timer with `OnBootSec=10s`; `~/.config/systemd/user/voice-typer-prewarm.service` `ExecStart=` points at the frozen prewarm binary (NOT `python3 -m ...`) |
+| 8 | Native `linux-key-listener` toggles dictation on X11 (XRecord) + Wayland (libinput/evdev) | Step 12 | F8 starts/stops recording on BOTH session types; `ps aux \| grep linux-key-listener` shows the process |
+| 9 | Single-instance (lockfile at `<config_dir>/.single-instance.lock`) — second launch focuses first, no zombie sidecar | Step 14 | Second instance exits within 2s; `ps aux \| grep python-sidecar \| wc -l` returns `1` after second launch |
 
 **All 9 must pass on BOTH X11 AND Wayland before the Linux Tauri cutover.** Electron remains the fallback until all 9 pass on both session types.
 
-Bonus checks (recommended but not blocking for Phase 0-L):
+**Bonus checks** (recommended but not blocking for Phase 0-L):
 - `.deb` + `.rpm` build with `postinst`/`prerm` scripts (Step 13).
 - AppImage runs on Wayland (Fedora 40 default — Step 6 AppImage subtest).
-- aarch64 build + smoke test (run on a real aarch64 host or under qemu-system-aarch64 with a Wayland display).
+- aarch64 build + smoke test (run on a real aarch64 host or under qemu-system-aarch64 with a Wayland display — see Cross-arch validation below).
+- New Rust commands smoke test (Step 15 — `export_history`, `export_vocabulary`, `bubble_*`).
+
+### Cross-arch validation (x86_64 + aarch64)
+
+ADR-0020 §4.1 mandates both `x86_64-unknown-linux-gnu` AND `aarch64-unknown-linux-gnu` target triples. The two arches are validated INDEPENDENTLY — an x86_64 success does NOT imply an aarch64 success (CTranslate2 wheel tags, glibc baseline, native listener C compile, and qemu-binfmt all differ).
+
+**x86_64 validation** (default):
+1. Run Steps 0–15 on an x86_64 Linux host with both X11 and Wayland sessions.
+2. Capture all artifacts listed in §"Capture results" with `_x86_64` suffix.
+
+**aarch64 validation** (one of):
+- **Native aarch64 host** (preferred): Raspberry Pi 4/5 (Ubuntu 22.04+), Ampere Altra, AWS Graviton EC2 instance, or Apple Silicon Linux VM (UTM/Podman). Run Steps 0–15 directly. The native `linux-key-listener` is built by `scripts/build/compile_native.sh` on the aarch64 host (no cross-compile).
+- **qemu-system-aarch64 with a Wayland display**: boot an aarch64 Ubuntu 22.04 VM under qemu-system-aarch64 with `-device virtio-gpu` + a virtual display, run a Wayland compositor (weston or GNOME), and run Steps 0–15 inside the VM. Slower than native but reproducible in CI.
+- **qemu-user-static for cross-build + native aarch64 smoke**: build the sidecar + prewarm on an x86_64 host using `bash scripts/build/build_sidecar_linux.sh aarch64` (qemu executes the aarch64 python-build-standalone interpreter during Nuitka compilation). Copy the resulting `python-sidecar-aarch64-unknown-linux-gnu` + `prewarm-aarch64-unknown-linux-gnu` to an aarch64 host and run Steps 5–15 there. The native `linux-key-listener` must be built on the aarch64 host (qemu-user-static cannot run gcc to produce a working aarch64 binary that links against the aarch64 glibc).
+
+**aarch64-specific gotchas**:
+- CTranslate2 wheels for `aarch64-unknown-linux-gnu` are CPU-only (no CUDA). Verify `ldd $SITE/ctranslate2/lib/libctranslate2.so` resolves all `NEEDED` deps in the aarch64 python-build-standalone env.
+- `numpy` aarch64 wheels may require an explicit `pip install numpy==1.26.x` (newer numpy versions sometimes lag aarch64 wheel publication).
+- The native `linux-key-listener.c` compiles cleanly on aarch64 with `gcc -O2 -std=c99` (no arch-specific code), but verify the binary is `ELF 64-bit LSB executable, ARM aarch64` with `file voice_typer/server/native/linux-key-listener`.
+- Some aarch64 SBCs (Raspberry Pi 3, older Pinebook) have kernel-level input device permission quirks — verify `/dev/input/event*` is readable by the `input` group after the postinst runs.
 
 ---
 
