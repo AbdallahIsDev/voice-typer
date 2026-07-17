@@ -280,6 +280,15 @@ class _RateLimiter:
             Current monotonic time.  If omitted, ``time.monotonic()``
             is used.  Passing ``now`` explicitly makes the limiter
             trivially testable.
+
+        SEC-6: ``_rejected`` is incremented atomically with the
+        rejection decision inside the same lock acquisition as the
+        deque check. Previously ``allow()`` returned False and the
+        caller separately called ``reject()`` (acquiring the lock
+        again) — a benign race where two threads could both observe
+        the same deque state, both decide to reject, and double-count
+        the rejection. Now ``allow()`` is the single source of truth
+        for both the decision and the counter.
         """
         ts = now if now is not None else time.monotonic()
         cutoff = ts - self._window
@@ -292,8 +301,10 @@ class _RateLimiter:
             # With window=10s, burst=200, sustained=600, a client can
             # send 200 msgs in 1s without hitting the sustained limit.
             if len(self._timestamps) >= self._burst:
+                self._rejected += 1
                 return False
             if len(self._timestamps) >= self._sustained:
+                self._rejected += 1
                 return False
             self._timestamps.append(ts)
             return True
@@ -307,9 +318,19 @@ class _RateLimiter:
         return self._rejected
 
     def reject(self) -> None:
-        """Increment the rejected counter (called when allow() returns False)."""
-        with self._lock:
-            self._rejected += 1
+        """No-op kept for backward compatibility.
+
+        SEC-6: the counter is now incremented atomically inside
+        :meth:`allow` when it returns ``False``. The separate
+        ``reject()`` call from the caller was dropped to eliminate the
+        benign race where two threads could both observe the same
+        deque state, both decide to reject, and double-count the
+        rejection. This method is retained (as a no-op) so existing
+        callers (and the WS path's source-level string check in
+        ``test_sidecar_ws_calls_rate_limiter_allow_per_frame``) don't
+        have to change in lockstep.
+        """
+        return None
 
 
 # ── CR-11: per-process rate limiter ──────────────────────────────────────
@@ -947,12 +968,20 @@ class IPCServer(
         # Read the expected token from the env var set by Electron.
         expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
         if not expected_token:
-            # No token configured — fall back to the legacy unauthenticated
-            # path.  This happens when running the IPC server standalone
-            # (e.g. ``python -m voice_typer.server.ipc_server`` from a
-            # terminal).  We log a warning so the user knows the server
-            # is accepting unauthenticated connections.
-            log.warning("[TCP] VOICE_TYPER_IPC_TOKEN not set — accepting UNAUTHENTICATED connections")
+            # SEC-2: mirror the WS path (sidecar_ws._authenticate) — refuse
+            # ALL connections when the token is unset. The host must always
+            # set this env var; an unset token means any local process
+            # could otherwise connect to 127.0.0.1:9876 and dispatch
+            # arbitrary IPC commands (quit_app, set_config, etc.).
+            #
+            # We still bind+listen (so stop()/socket cleanup semantics work
+            # — see test_accept_loop_can_be_stopped), but every accepted
+            # connection is immediately closed in _handle_tcp_connection
+            # below before any auth or dispatch runs.
+            log.error(
+                "[TCP] VOICE_TYPER_IPC_TOKEN not set — refusing ALL connections "
+                "(the host must always set this env var)."
+            )
 
         # CR-7: unpack the (port, bound_socket) tuple if provided — the
         # socket is already bound, so we skip the bind() call entirely
@@ -1061,6 +1090,21 @@ class IPCServer(
         with contextlib.suppress(OSError, AttributeError):
             conn.settimeout(_tcp_auth_timeout_seconds)  # socket may be a mock in tests
 
+        # SEC-2: mirror the WS path — if the token is unset, refuse the
+        # connection immediately. We log ERROR once at bind time (above)
+        # and once per connection so a misconfigured launch surfaces in
+        # either spot. Closing the conn unblocks the accept loop so the
+        # server stays responsive to stop().
+        if not expected_token:
+            log.error(
+                "[TCP] refusing connection from %s:%d — VOICE_TYPER_IPC_TOKEN not set",
+                addr[0],
+                addr[1],
+            )
+            with contextlib.suppress(OSError):
+                conn.close()
+            return
+
         # PR-3-FIX-1: perform the auth handshake OUTSIDE self._lock so
         # a stalled auth read doesn't block push() events from other
         # threads.
@@ -1113,16 +1157,31 @@ class IPCServer(
             auth_client = _TCPLineIO(conn)
 
         # PR-3-FIX-1: now acquire the lock ONLY for the post-auth setup
-        # (installing the client + flushing pending events). This is
+        # (installing the client + snapshotting pending events). This is
         # a short critical section that can't block on unbounded I/O.
+        # PERF-13: the pending-event flush is performed OUTSIDE the lock
+        # (mirrors the ``_send`` snapshot-then-flush pattern at the
+        # ``pending = list(self._pending_tcp); self._pending_tcp.clear()``
+        # block). Pre-fix the lock was held across every
+        # ``tcp_client.write`` + ``flush`` of the backlog, so a slow
+        # client on first connect could stall all dispatchers.
         with self._lock:
             self._tcp_client = auth_client
+            # Snapshot + clear pending under the lock (fast, no I/O).
+            pending_flush = list(self._pending_tcp) if self._pending_tcp else None
+            if pending_flush:
+                self._pending_tcp.clear()
 
-            # Flush any push events queued before the client connected
-            for p in self._pending_tcp:
-                self._tcp_client.write(p + "\n")
-                self._tcp_client.flush()
-            self._pending_tcp.clear()
+        # Flush the snapshot OUTSIDE the lock — a slow Electron
+        # renderer can stall here without blocking other dispatchers.
+        if pending_flush:
+            for p in pending_flush:
+                try:
+                    auth_client.write(p + "\n")
+                    auth_client.flush()
+                except Exception:
+                    log.debug("[TCP] pending flush write failed on connect")
+                    break
 
         # ERR-017: emit a state_changed event on connect so the
         # renderer immediately knows the current app state (was
@@ -1159,7 +1218,10 @@ class IPCServer(
                 if not line:
                     continue
                 if not rate_limiter.allow():
-                    rate_limiter.reject()
+                    # SEC-6: ``allow()`` increments the rejected counter
+                    # atomically when it returns False — no separate
+                    # ``reject()`` call needed (and calling it would
+                    # double-count under the new atomic semantics).
                     self._send(
                         {
                             "type": "error",
