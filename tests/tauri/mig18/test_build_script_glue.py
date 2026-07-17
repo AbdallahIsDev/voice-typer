@@ -356,60 +356,25 @@ def test_orchestrator_references_compile_native_script(
     )
 
 
-# ─── 5. Orchestrator runs gen_tauri_icons_stub.py OR documents it ────────────
-def test_known_gap_orchestrator_neither_runs_nor_documents_icon_generation(
-    orchestrator_text: str,
-):
-    """GAP-1 (documented): the orchestrator NEITHER invokes
-    ``gen_tauri_icons_stub.py`` NOR documents that icons must be generated
-    first.
+# ─── 5. Orchestrator runs gen_tauri_icons_stub.py (BUILD-4 fix) ──────────────
+def test_orchestrator_invokes_gen_tauri_icons_stub(orchestrator_text: str):
+    """BUILD-4 fix: the orchestrator now invokes ``gen_tauri_icons_stub.py``.
 
     ``src-tauri/tauri.conf.json`` references 4 PNG icons + 6 sidecar
     binaries + 3 native + 6 prewarm resources. On a clean checkout NONE
-    exist, so ``cargo tauri build`` fails immediately. The orchestrator
-    should EITHER invoke the icon stub generator OR carry a clear
-    documentation note pointing to it — currently it does NEITHER.
-
-    This test ASSERTS the gap is present. DO NOT fix this gap as part
-    of MIG-1.8 glue validation — report it to the primary agent. The
-    fix would be a 3-line addition (``python "$PROJECT_ROOT/scripts/"
-    "gen_tauri_icons_stub.py"`` between Phase 1a and Phase 1c, plus a
-    comment pointing to the runbook), but that's a production change,
-    out of scope for this test file.
-
-    The runbook (``docs/migration/tauri-build-runbook.md`` "Common
-    failures" section) documents this manually; the orchestrator itself
-    does not. A clean checkout will fail at ``cargo tauri build`` unless
-    the operator manually runs ``python scripts/gen_tauri_icons_stub.py``
-    first.
+    exist, so ``cargo tauri build`` fails immediately. BUILD-4 added a
+    Phase 0 that runs ``gen_tauri_icons_stub.py --check`` (generates stubs
+    only if missing) before Phase 1a. This test ASSERTS the invocation
+    IS present.
     """
-    # The orchestrator must NOT (yet) invoke the generator. (If it did,
-    # this gap would be closed and this test would fail — alerting us
-    # to remove the gap documentation.)
     invokes_directly = (
         "gen_tauri_icons_stub.py" in orchestrator_text
         and "python" in orchestrator_text
         and "gen_tauri_icons_stub" in orchestrator_text
     )
-    # The orchestrator must NOT (yet) document the requirement either.
-    documents = (
-        "gen_tauri_icons_stub" in orchestrator_text
-        or "tauri-build-runbook" in orchestrator_text
-        # An "icons" reference in the header or comments would count
-        # as documentation; the current orchestrator has neither.
-        or "icons/" in orchestrator_text
-    )
-    assert not invokes_directly, (
-        "GAP-1 (invocation half) appears to be CLOSED: build_tauri_all.sh "
-        "now invokes gen_tauri_icons_stub.py directly. Remove the gap "
-        "documentation from this test file's module docstring + flip this "
-        "test to assert the invocation is present."
-    )
-    assert not documents, (
-        "GAP-1 (documentation half) appears to be CLOSED: build_tauri_all.sh "
-        "now documents the icon-generation requirement. Remove the gap "
-        "documentation from this test file's module docstring + flip this "
-        "test to assert the documentation is present."
+    assert invokes_directly, (
+        "build_tauri_all.sh should invoke gen_tauri_icons_stub.py (BUILD-4 fix). "
+        "The orchestrator must generate icon + binary stubs before cargo tauri build."
     )
 
 

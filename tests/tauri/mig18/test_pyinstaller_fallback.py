@@ -197,19 +197,6 @@ def test_spec_includes_ctranslate2_hidden_import(spec_text: str):
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GAP-1 (documented): 'faster_whisper' is NOT in the spec's "
-        "_hiddenimports list. ADR-0020 §4.5 Phase 0 gate names "
-        "faster_whisper as a required verify-load target; the Nuitka "
-        "siblings all use --include-package=faster_whisper explicitly. "
-        "PyInstaller's static analysis usually discovers it via "
-        "ipc_server.py imports, but listing it defensively is the safe "
-        "choice. When this test XPASSes (gap closed), strict=True will "
-        "fail the suite — delete the xfail marker at that point."
-    ),
-)
 def test_spec_includes_faster_whisper_hidden_import(spec_text: str):
     """The spec must list ``faster_whisper`` as a hidden import.
 
@@ -217,12 +204,13 @@ def test_spec_includes_faster_whisper_hidden_import(spec_text: str):
     verify-load target. The Nuitka sibling scripts all use
     ``--include-package=faster_whisper`` explicitly. The PyInstaller
     spec should do the same defensively (even though static analysis
-    often discovers it). Currently xfail because of GAP-1.
+    often discovers it). BUILD-3 fix added faster_whisper + faster_whisper.transcribe
+    to _hiddenimports.
     """
     assert '"faster_whisper"' in spec_text or "'faster_whisper'" in spec_text, (
         "voice-typer.spec _hiddenimports must include 'faster_whisper' "
         "(ADR-0020 §4.5 Phase 0 verify-load target; Nuitka siblings use "
-        "--include-package=faster_whisper explicitly). See GAP-1."
+        "--include-package=faster_whisper explicitly). BUILD-3 fix should have added it."
     )
 
 

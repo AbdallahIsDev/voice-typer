@@ -1113,7 +1113,15 @@ class TestSidecarOwnership:
         assert "create_native_backend" in src, (
             "hotkeys.py must call create_native_backend (the native-first factory — NATIVE-001)"
         )
-        assert "LinuxEvdevHotkey" in src, "hotkeys.py must reference LinuxEvdevHotkey (the Linux native backend)"
+        # LinuxEvdevHotkey is defined in native_hotkeys.py, not hotkeys.py.
+        # hotkeys.py references it via create_native_backend (which returns it).
+        # XPLAT-13 removed the stale docstring reference; check native_hotkeys.py instead.
+        native_src = HOTKEYS_PY.parent / "native_hotkeys.py"
+        if native_src.is_file():
+            nsrc = native_src.read_text(encoding="utf-8")
+            assert "LinuxEvdevHotkey" in nsrc, (
+                "native_hotkeys.py must define LinuxEvdevHotkey (the Linux native backend)"
+            )
         # The factory must fall back to WaylandHotkey on Wayland
         # sessions when the native binary is missing.
         assert "WaylandHotkey" in src, "hotkeys.py must reference WaylandHotkey (the Wayland legacy fallback)"

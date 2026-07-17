@@ -767,68 +767,43 @@ def test_macos_sibling_has_xplat3_ctranslate2_libs_guard():
 
 
 def test_windows_sibling_known_gap_no_xplat3_ctranslate2_libs_guard():
-    """Sanity check + KNOWN GAP: the Windows sibling does NOT have the XPLAT-3 guard.
+    """BUILD-2 fix: the Windows sibling now HAS the XPLAT-3 guard.
 
-    This is MIG-1.5 GAP-1 (carried forward): the Windows sibling
-    ``build_sidecar_windows.sh`` was the ORIGINAL gap source — it only
-    includes ``--include-data-dir=$SITE/ctranslate2/lib`` (singular)
-    and never guarded the optional ``libs/`` (plural) include because
-    it never had the ``libs/`` include at all. The XPLAT-3 fix was
-    applied to the Linux + macOS siblings after MIG-1.5 GAP-1 was
-    filed; the Windows sibling has NOT been back-filled (Windows
-    CTranslate2 wheels DO ship a ``libs/`` dir with extra CUDA DLLs on
-    GPU-enabled installs, so the gap is real for Windows too).
-
-    This test ASSERTS the Windows sibling still lacks the guard so a
-    future back-fill flips it to a passing assertion. DO NOT back-fill
-    the Windows sibling as part of MIG-1.7 gate check 1 — that is a
-    separate task. Report to the primary agent.
+    Previously a KNOWN GAP (MIG-1.5 GAP-1) — the Windows sibling
+    ``build_sidecar_windows.sh`` only included the singular ``lib/``
+    with no guard for the optional ``libs/`` dir. BUILD-2 back-filled
+    the guard (mirroring the Linux + macOS XPLAT-3 pattern). This test
+    now ASSERTS the guard IS present in the Windows sibling.
     """
     if not WINDOWS_SIDECAR_SCRIPT.is_file():
         pytest.skip(
             f"build_sidecar_windows.sh missing ({WINDOWS_SIDECAR_SCRIPT}) — cannot verify Windows sibling parity."
         )
     windows_text = WINDOWS_SIDECAR_SCRIPT.read_text(encoding="utf-8")
-    # The Windows sibling has CT2_LIB_DIR (singular) but NOT CT2_LIBS_DIR
-    # (plural) — the XPLAT-3 guard variable is missing.
+    # The Windows sibling has both CT2_LIB_DIR (singular, required) and
+    # CT2_LIBS_DIR (plural, optional — BUILD-2 guard).
     assert "CT2_LIB_DIR=" in windows_text, (
         "build_sidecar_windows.sh must define CT2_LIB_DIR (singular — the required ctranslate2/lib dir)."
     )
-    assert "CT2_LIBS_DIR" not in windows_text, (
-        "build_sidecar_windows.sh now has the CT2_LIBS_DIR (plural) guard — "
-        "MIG-1.5 GAP-1 has been back-filled. Update this test to assert "
-        "PRESENCE instead of absence and remove this known-gap note."
+    assert "CT2_LIBS_DIR" in windows_text, (
+        "build_sidecar_windows.sh should define CT2_LIBS_DIR (plural — BUILD-2 guard)."
     )
-    assert 'if [[ -d "$CT2_LIBS_DIR" ]]' not in windows_text, (
-        "build_sidecar_windows.sh now has the XPLAT-3 ctranslate2/libs "
-        "guard — update this test to assert PRESENCE instead of absence."
+    assert 'if [[ -d "$CT2_LIBS_DIR" ]]' in windows_text, (
+        "build_sidecar_windows.sh should guard the libs include with if [[ -d (BUILD-2 fix)."
     )
 
 
-# ─── 10. KNOWN GAPS (report, do NOT fix — out of scope for this gate check) ─
-def test_known_gap_no_check_mode(sidecar_text: str):
-    """KNOWN GAP (GAP-1): ``build_sidecar_linux.sh`` does NOT support ``--check``.
+# ─── 10. BUILD-1 fix: --check mode now supported ─────────────────────────────
+def test_build_sidecar_linux_supports_check_mode(sidecar_text: str):
+    """BUILD-1 fix: ``build_sidecar_linux.sh`` now supports ``--check``.
 
     Both the macOS sibling (``build_sidecar_macos.sh --check``) and the
     Windows sibling (``build_sidecar_windows.sh --check``) accept a
-    ``--check`` arg that imports ``nuitka`` + ``faster_whisper`` +
-    ``ctranslate2`` and verifies the host toolchain in <2 s. The Linux
-    script does NOT — its first positional arg is parsed as ARCH and
-    anything else (including ``--check``) hits the ``Usage`` error path
-    with ``exit 1``. CI cannot pre-flight the toolchain without
-    invoking a full Nuitka build (~10-15 min).
-
-    This test ASSERTS the gap is present (so a future fix will flip it
-    to a passing assertion). DO NOT fix this gap as part of MIG-1.7
-    gate check 1 — report it to the primary agent.
+    ``--check`` arg. BUILD-1 added the same to the Linux script. This
+    test ASSERTS the --check mode IS present.
     """
-    # The Linux script's first positional arg is parsed as ARCH; the
-    # only valid values are `x86_64` and `aarch64`. A `--check` arg
-    # hits the usage-error branch with exit 1.
-    assert 'if [[ "$ARCH" == "--check" ]]' not in sidecar_text, (
-        "build_sidecar_linux.sh now supports --check — update this test "
-        "to assert PRESENCE instead of absence, and remove GAP-1 from "
-        "the module docstring."
+    assert 'if [[ "$ARCH" == "--check" ]]' in sidecar_text, (
+        "build_sidecar_linux.sh should support --check mode (BUILD-1 fix)."
     )
 
 

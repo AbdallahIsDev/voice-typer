@@ -453,29 +453,17 @@ def test_linux_has_xplat3_ctranslate2_libs_guard(linux_text: str):
 
 
 def test_windows_known_gap_no_ctranslate2_libs_guard(windows_text: str):
-    """KNOWN GAP (XPLAT-3 pattern parity): the Windows script does NOT have a
-    ``ctranslate2/libs`` (plural) existence guard like the Linux + macOS
-    siblings.
+    """BUILD-2 fix: the Windows script now HAS the ctranslate2/libs guard.
 
-    The Linux + macOS scripts include an optional
-    ``--include-data-dir=$SITE/ctranslate2/libs=...`` flag guarded by
-    ``if [[ -d "$CT2_LIBS_DIR" ]]`` because some wheel variants ship
-    extra native libs under ``libs/`` (plural).
-
-    The Windows script ONLY includes the singular ``lib/`` (which is
-    correct for the Windows wheel layout — DLLs all live under
-    ``ctranslate2/lib``), but for XPLAT-3 pattern parity it could grow
-    a defensive ``if [[ -d "$CT2_LIBS_DIR" ]]; then ...`` block.
-
-    This test ASSERTS the gap is present (so a future fix will flip it
-    to a passing assertion). DO NOT fix this gap as part of MIG-1.8 —
-    report it to the primary agent.
+    Previously a KNOWN GAP — the Windows script only included the singular
+    ``lib/`` with no guard for the optional ``libs/`` dir. BUILD-2 added
+    the guard (mirroring the Linux + macOS XPLAT-3 pattern). This test
+    now ASSERTS the guard IS present.
 
     See:
       - build_sidecar_linux.sh lines ~213 + ~229 (the XPLAT-3 guard)
       - build_sidecar_macos.sh lines ~106 + ~137 (the same guard)
-      - tests/tauri/mig15/test_nuitka_windows_build.py
-        ::test_known_gap_no_ctranslate2_libs_guard (sibling gap test)
+      - build_sidecar_windows.sh lines ~127 + ~144 (BUILD-2 guard)
     """
     # The Linux + macOS siblings MUST have the libs guard (sanity check
     # that our reference pattern is correct).
@@ -488,17 +476,13 @@ def test_windows_known_gap_no_ctranslate2_libs_guard(windows_text: str):
         "Reference pattern broken: build_sidecar_macos.sh should have CT2_LIBS_DIR guard."
     )
 
-    # The Windows script does NOT have the libs guard — assert this
-    # gap is present. If a future PR adds the guard, this assertion
-    # will fail and the test should be updated to assert presence.
-    assert "CT2_LIBS_DIR" not in windows_text, (
-        "build_sidecar_windows.sh now has a CT2_LIBS_DIR guard — "
-        "update this test to assert PRESENCE instead of absence, and "
-        "remove the GAP-OpenMP-W1 note from the module docstring."
+    # BUILD-2 fix: the Windows script now HAS the libs guard.
+    assert "CT2_LIBS_DIR" in windows_text, "build_sidecar_windows.sh should have CT2_LIBS_DIR guard (BUILD-2 fix)."
+    assert "ctranslate2/libs" in windows_text, (
+        "build_sidecar_windows.sh should reference ctranslate2/libs (BUILD-2 fix)."
     )
-    assert "ctranslate2/libs" not in windows_text, (
-        "build_sidecar_windows.sh now references ctranslate2/libs — "
-        "update this test to assert PRESENCE instead of absence."
+    assert 'if [[ -d "$CT2_LIBS_DIR" ]]' in windows_text, (
+        "build_sidecar_windows.sh should guard the libs include with if [[ -d (BUILD-2 fix)."
     )
 
 

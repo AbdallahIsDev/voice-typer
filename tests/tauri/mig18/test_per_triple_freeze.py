@@ -639,33 +639,22 @@ def test_macos_script_has_xplat3_ctranslate2_libs_guard(script_texts: dict[str, 
 
 
 def test_windows_script_known_gap_no_ctranslate2_libs_guard(script_texts: dict[str, str]):
-    """KNOWN GAP (XPLAT-3 pattern parity): the Windows script does NOT have a
-    ``ctranslate2/libs`` (plural) existence guard.
+    """BUILD-2 fix: the Windows script now HAS the ctranslate2/libs guard.
 
-    The Windows ctranslate2 wheel layout puts ALL DLLs under
-    ``ctranslate2/lib`` (singular) — there is no ``ctranslate2/libs``
-    folder on Windows. The Windows script therefore correctly omits the
-    XPLAT-3 guard, but for pattern parity it could grow a defensive
-    ``if [[ -d "$CT2_LIBS_DIR" ]]; then ...`` block.
-
-    This test ASSERTS the gap is present (so a future fix will flip it
-    to a passing assertion). DO NOT fix this gap as part of MIG-1.8 —
-    report it to the primary agent.
+    Previously a KNOWN GAP — the Windows script only included the singular
+    ``lib/`` with no guard for the optional ``libs/`` dir. BUILD-2 added
+    the guard (mirroring the Linux + macOS XPLAT-3 pattern). This test
+    now ASSERTS the guard IS present.
 
     See: ``tests/tauri/mig15/test_nuitka_windows_build.py``
     ::test_known_gap_no_ctranslate2_libs_guard for the canonical Windows
-    gap test.
+    guard test (also updated).
     """
     text = script_texts["windows"]
-    assert "CT2_LIBS_DIR" not in text, (
-        "build_sidecar_windows.sh now has a CT2_LIBS_DIR guard — update "
-        "this test (and the mig15 sibling) to assert PRESENCE instead of "
-        "absence, and remove the GAP-1 note."
-    )
-    assert "ctranslate2/libs" not in text, (
-        "build_sidecar_windows.sh now references ctranslate2/libs — update "
-        "this test (and the mig15 sibling) to assert PRESENCE instead of "
-        "absence."
+    assert "CT2_LIBS_DIR" in text, "build_sidecar_windows.sh should have CT2_LIBS_DIR guard (BUILD-2 fix)."
+    assert "ctranslate2/libs" in text, "build_sidecar_windows.sh should reference ctranslate2/libs (BUILD-2 fix)."
+    assert 'if [[ -d "$CT2_LIBS_DIR" ]]' in text, (
+        "build_sidecar_windows.sh should guard the libs include with if [[ -d (BUILD-2 fix)."
     )
 
 

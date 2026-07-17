@@ -130,7 +130,16 @@ import pytest
 # __file__ = <repo>/tests/tauri/mig16/test_shutdown_macos.py
 # parents[0]=mig16, [1]=tauri, [2]=tests, [3]=voice-typer (repo root)
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-assert _REPO_ROOT.name == "voice-typer", f"unexpected repo root: {_REPO_ROOT}"
+# Don't assert the literal repo-dir name — the repo may be cloned under any
+# name (e.g. "voice-typer", "persistent-voice-typing", a fork name). Instead
+# verify _REPO_ROOT actually points at the project root by checking for a
+# known file. This makes the test portable across CI runners + forks.
+assert (_REPO_ROOT / "pyproject.toml").is_file(), (
+    f"_REPO_ROOT does not look like the voice-typer project root (no pyproject.toml found): {_REPO_ROOT}"
+)
+assert (_REPO_ROOT / "src-tauri" / "Cargo.toml").is_file(), (
+    f"_REPO_ROOT does not look like the voice-typer project root (no src-tauri/Cargo.toml found): {_REPO_ROOT}"
+)
 
 _SIDECAR_CMDS_RS = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 _FT1_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ft1.rs"
