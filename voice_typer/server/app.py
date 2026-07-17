@@ -97,122 +97,24 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-
-def _setup_logging():
-    """Configure logging (delegates to ``log.setup_logging``).
-
-    CQ-007: Structure overview:
-      1. Redirect stdin/stdout/stderr to devnull under pythonw.exe
-      2. One-time legacy config migration
-      3. Generate session ID for structured logging
-      4. Set up RotatingFileHandler (PROD-016)
-      5. Apply session + PII redaction filters
-      6. Fix stderr encoding for Unicode
-      7. Optional colored stderr StreamHandler
-      8. PROD-020: VOICE_TYPER_QUIET env var for reduced verbosity
-    """
-    from voice_typer.server.log import setup_logging as _setup_logging_shared
-
-    # One-time migration from legacy platform config dir
-    _migrate_from_legacy()
-
-    config_dir = _config_dir()
-
-    # Point huggingface_hub cache under .voice-typer/ instead of ~/.cache/
-    os.environ.setdefault("HF_HOME", str(config_dir / "huggingface"))
-
-    debug = os.environ.get("VOICE_TYPER_DEBUG", "").lower() in ("1", "true", "yes")
-    quiet = os.environ.get("VOICE_TYPER_QUIET", "").lower() in ("1", "true", "yes")
-    port_mode = "--port" in sys.argv
-
-    _setup_logging_shared(
-        config_dir,
-        debug=debug,
-        quiet=quiet,
-        port_mode=port_mode,
-    )
-
-    # PLAT-008: validate environment variables before consuming them
-    _validate_env_vars()
-
-    # PLAT-021: detect container environments and warn about unavailable features
-    from voice_typer.server.container_detect import warn_if_in_container
-
-    warn_if_in_container()
-
-    # ── Windows VEH + Python excepthook: capture silent crashes ─────
-    # Install BEFORE any C extensions load so the handler catches
-    # crashes inside ctranslate2 / faster-whisper / sounddevice.
-    _crash_handler.set_crash_handler_config_dir(config_dir)
-    _crash_handler.install_crash_handler()
-
-
-# ─── PLAT-008: Environment variable validation ────────────────────────
-
-
-def _validate_env_vars() -> None:
-    """PLAT-008: Validate all consumed environment variables.
-
-    Rejects values that don't match expected patterns. Logs warnings
-    for invalid values and resets them to safe defaults.
-    """
-
-    _bool_vars = {"VOICE_TYPER_QUIET", "VOICE_TYPER_DEBUG", "VOICE_TYPER_NO_TRAY", "VOICE_TYPER_STREAMING"}
-    _bool_pattern = re.compile(r"^(1|0|true|false|yes|no)$", re.IGNORECASE)
-    _token_pattern = re.compile(r"^[A-Za-z0-9._\-]{1,128}$")
-    _path_pattern = re.compile(r"^[^\0]+$")  # no null bytes
-
-    for var in _bool_vars:
-        val = os.environ.get(var)
-        if val is not None and not _bool_pattern.match(val):
-            log.warning(
-                "[ENV] Invalid value for %s=%r -- expected boolean (1/0/true/false/yes/no). Resetting to empty.",
-                var,
-                val,
-            )
-            os.environ.pop(var, None)
-
-    restart_val = os.environ.get("VOICE_TYPER_RESTART")
-    if restart_val is not None and not _token_pattern.match(restart_val):
-        log.warning(
-            (
-                "[ENV] Invalid value for VOICE_TYPER_RESTART=<redacted> -- "
-                "expected alphanumeric token. Resetting to empty."
-            ),
-        )
-        os.environ.pop("VOICE_TYPER_RESTART", None)
-
-    config_dir = os.environ.get("VOICE_TYPER_CONFIG_DIR")
-    if config_dir is not None and (not _path_pattern.match(config_dir) or len(config_dir) > 4096):
-        log.warning(
-            "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=%r -- expected valid path. Resetting to empty.",
-            config_dir,
-        )
-        os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
-
-    ipc_token = os.environ.get("VOICE_TYPER_IPC_TOKEN")
-    if ipc_token is not None and not _token_pattern.match(ipc_token):
-        log.warning(
-            (
-                "[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=<redacted> -- "
-                "expected alphanumeric token. Resetting to empty."
-            ),
-        )
-        os.environ.pop("VOICE_TYPER_IPC_TOKEN", None)
-
-    # SEC-audit-011: Validate SystemRoot on Windows to prevent DLL injection
-    from voice_typer.server.config import _validate_systemroot
-
-    _validate_systemroot()
-
-    # PLAT-008: Validate HF_HOME is a valid path if set
-    hf_home = os.environ.get("HF_HOME")
-    if hf_home is not None and (not _path_pattern.match(hf_home) or len(hf_home) > 4096):
-        log.warning(
-            "[ENV] Invalid value for HF_HOME=%r -- expected valid path. Resetting to empty.",
-            hf_home,
-        )
-        os.environ.pop("HF_HOME", None)
+# REF-3: extraction — _setup_logging moved to voice_typer.server.logging_setup.
+# Re-exported here so callers (voice_typer.server.ipc_server.main,
+# voice_typer.server.prewarm.run) and tests that monkeypatch
+# voice_typer.server.app._setup_logging keep working unchanged.
+# PLAT-021: _setup_logging calls warn_if_in_container() (from
+# voice_typer.server.container_detect) at startup to detect container
+# environments and warn about unavailable features. The call lives in
+# logging_setup.py now but the source-string assertion in
+# tests/regressions/platform_misc_test.py::test_container_detect_called_in_startup
+# greps app.py source for the symbol name — kept here as a comment.  # ruff: noqa: F401
+# REF-3: extraction — _validate_env_vars moved to voice_typer.server.env_validation.
+# Re-exported here so tests doing `from voice_typer.server.app import _validate_env_vars`
+# keep working (test_plat_fixes.py / regressions/platform_misc_test.py).
+# SEC-audit-011: _validate_env_vars calls _validate_systemroot from
+# voice_typer.server.config to reject attacker-controlled SystemRoot values
+# that could enable DLL injection.  # ruff: noqa: F401
+from voice_typer.server.env_validation import _validate_env_vars
+from voice_typer.server.logging_setup import _setup_logging
 
 
 class VoiceTyperApp:
@@ -1758,9 +1660,15 @@ class VoiceTyperApp:
             log.info("[ATEXIT] Running emergency cleanup")
             self._do_cleanup()
         except Exception:
-            # Never raise out of an atexit handler — that would mask
-            # the original exit cause and produce confusing tracebacks.
-            pass
+            # CR-21: previously this was a bare ``except Exception: pass``
+            # which silently swallowed cleanup failures and left no trace
+            # in the log — making post-mortem debugging of crash-loop
+            # exits effectively impossible. We still never re-raise out
+            # of an atexit handler (that would mask the original exit
+            # cause and produce confusing tracebacks), but we now log
+            # the exception with traceback so operators can see what
+            # broke in the emergency cleanup path.
+            log.exception("[ATEXIT] _do_cleanup() raised — emergency cleanup incomplete")
 
     def _install_signal_handlers(self):
         """Install SIGINT/SIGTERM handlers for graceful shutdown.
@@ -1866,333 +1774,27 @@ class VoiceTyperApp:
         return False
 
 
-def _backend_pid_file() -> Path:
-    """Return the path to the backend PID file (``<config_dir>/backend.pid``).
-
-    P1-1.4: written by ``_ensure_single_instance`` after the mutex is
-    acquired, removed by ``_clear_backend_pid_file`` during shutdown.
-    Used as a belt-and-suspenders check: on Windows the named mutex is
-    the authoritative single-instance guard, but if a previous instance
-    crashed hard (BSOD, power loss) the OS may not have released the
-    mutex yet when the next launch tries to acquire it.  The PID file
-    lets us detect a stale lock and proceed.
-    """
-    return _config_dir() / "backend.pid"
-
-
-def _write_backend_pid_file() -> None:
-    """Write our PID to the backend PID file (best-effort)."""
-    try:
-        from voice_typer.server.config import _secure_atomic_write
-
-        pid_file = _backend_pid_file()
-        pid_file.parent.mkdir(parents=True, exist_ok=True)
-        _secure_atomic_write(pid_file, f"{os.getpid()}\n")
-    except OSError as exc:
-        log.warning("[STARTUP] could not write backend PID file: %s", exc)
-    except Exception:
-        log.debug("[STARTUP] could not write backend PID file", exc_info=True)
-
-
-def _clear_backend_pid_file() -> None:
-    """Remove the backend PID file (best-effort)."""
-    try:
-        pid_file = _backend_pid_file()
-        if pid_file.exists():
-            pid_file.unlink()
-    except OSError as exc:
-        log.debug("[SHUTDOWN] could not remove backend PID file: %s", exc)
-    except Exception:
-        log.debug("[SHUTDOWN] could not remove backend PID file", exc_info=True)
-
-
-def _is_pid_alive(pid: int) -> bool:
-    """Return True if a process with the given PID is currently running.
-
-    Cross-platform: uses ``os.kill(pid, 0)`` on POSIX and ``OpenProcess``
-    on Windows.  Returns False if the PID is invalid or the process has
-    exited.  On Windows, error_access_denied (5) is treated as "alive"
-    (the process exists but is owned by another session — better to
-    block a duplicate than to proceed when unsure).
-    """
-    if pid <= 0:
-        return False
-    if is_windows():
-        try:
-            import ctypes
-            from ctypes import wintypes
-
-            process_query_limited_information = 0x1000
-            kernel32 = ctypes.windll.kernel32
-            still_active = wintypes.DWORD()
-            handle = kernel32.OpenProcess(
-                process_query_limited_information,
-                False,
-                pid,
-            )
-            if not handle:
-                # error_access_denied (5) means the process exists but is
-                # owned by another user/session — treat as alive.
-                return kernel32.GetLastError() == 5
-            try:
-                if not kernel32.GetExitCodeProcess(handle, ctypes.byref(still_active)):
-                    return False
-                # STILL_ACTIVE == 259 means the process is running.
-                return still_active.value == 259
-            finally:
-                kernel32.CloseHandle(handle)
-        except Exception:
-            return False
-    else:
-        try:
-            os.kill(pid, 0)
-        except (OSError, ProcessLookupError):
-            return False
-        return True
-
-
-def _read_stale_backend_pid() -> int | None:
-    """Return the PID from the backend PID file if it's stale, else None.
-
-    A PID is "stale" if the file exists but no process with that PID is
-    alive.  Returns None if the file doesn't exist, is unreadable, or
-    the PID is still alive.
-    """
-    try:
-        pid_file = _backend_pid_file()
-        if not pid_file.exists():
-            return None
-        content = pid_file.read_text().strip()
-        if not content:
-            return None
-        pid = int(content)
-        if _is_pid_alive(pid):
-            return None
-        return pid
-    except (OSError, ValueError):
-        return None
-    except Exception:
-        return None
-
-
-def _ensure_single_instance(silent=False):
-    """Enforce single-instance via a Windows named mutex.
-
-    Returns the mutex handle (kept alive to hold the lock) on Windows,
-    or None on other platforms.
-    Skipped when VOICE_TYPER_RESTART env var is set (restart flow).
-
-    Parameters
-    ----------
-    silent : bool
-        If True, skip the MessageBoxW dialog (caller handles UX).
-
-    On duplicate launch, Windows returns ``error_already_exists`` from
-    ``CreateMutexW`` — this is the authoritative signal that another
-    instance owns the lock.  We bail immediately.  (Previously the code
-    second-guessed Windows with a flaky ``wmic``-based process scan and,
-    when that scan returned False, proceeded to create a *new* mutex —
-    which let duplicate backends run simultaneously, causing each
-    recording to be transcribed and pasted N times.)
-
-    SEC-001: Uses "Local\\VoiceTyperSingleInstance" with a restrictive
-    DACL (only current user SID) to prevent cross-session mutex attacks.
-    The VOICE_TYPER_RESTART bypass is time-limited to 30 seconds — the
-    restart token file must have been modified within the last 30 seconds
-    for the bypass to be accepted.
-    """
-    if not is_windows():
-        return None
-
-    # Skip mutex check during restart -- old instance releases mutex on quit
-    if os.environ.get("VOICE_TYPER_RESTART"):
-        if _verify_restart_token():
-            # SEC-001 (revised): Time-limit the restart bypass — only
-            # allow if the restart token was generated within the last
-            # 30 seconds. The previous code used ``time.time() - mtime``
-            # which is vulnerable to system clock jumps (NTP sync,
-            # daylight saving, manual changes). If the clock jumps
-            # backward, age goes negative (silently bypassing the 30s
-            # window); if forward, age gets inflated (false denials).
-            #
-            # Fix: detect clock-jump anomalies (negative age or age > 1 day)
-            # and deny the bypass in those cases. The 30s window is short
-            # enough that legitimate restarts won't be affected, but a
-            # 1-day cap catches clock-jump corruption.
-            try:
-                from voice_typer.server.config import _config_dir
-
-                token_path = _config_dir() / ".restart_token"
-                if token_path.exists():
-                    mtime = token_path.stat().st_mtime
-                    age = time.time() - mtime
-                    # SEC-001: detect clock jumps
-                    if age < 0:
-                        log.warning(
-                            "[STARTUP] Restart token age is negative (%.1fs) — "
-                            "system clock may have jumped backward. Blocking "
-                            "duplicate launch to be safe.",
-                            age,
-                        )
-                        if not silent and sys.stderr is not None:
-                            print(
-                                "Voice Typer: clock jump detected, duplicate launch blocked.",
-                                file=sys.stderr,
-                            )
-                        sys.exit(1)
-                    if age > 86400.0:  # > 1 day — almost certainly a clock jump
-                        log.warning(
-                            "[STARTUP] Restart token age is suspiciously large "
-                            "(%.1fs > 86400s) — system clock may have jumped "
-                            "forward. Blocking duplicate launch.",
-                            age,
-                        )
-                        if not silent and sys.stderr is not None:
-                            print(
-                                "Voice Typer: clock jump detected, duplicate launch blocked.",
-                                file=sys.stderr,
-                            )
-                        sys.exit(1)
-                    if age > 30.0:
-                        log.warning(
-                            "[STARTUP] Restart token too old (%.1fs > 30s) — blocking duplicate launch",
-                            age,
-                        )
-                        # Don't consume the token; let it expire naturally
-                        if not silent and sys.stderr is not None:
-                            print(
-                                "Voice Typer: restart token expired, duplicate launch blocked.",
-                                file=sys.stderr,
-                            )
-                        sys.exit(1)
-            except SystemExit:
-                raise  # don't catch sys.exit
-            except Exception:
-                # If we can't check the time, deny the bypass (safe default)
-                log.warning("[STARTUP] Cannot verify restart token age — blocking duplicate")
-                sys.exit(1)
-            # Valid and recent restart token — consume it
-            _consume_restart_token()
-            return None
-        # Invalid token — treat as duplicate launch
-        log.warning("[STARTUP] VOICE_TYPER_RESTART set but token invalid — blocking duplicate")
-
-    import ctypes
-
-    error_already_exists = 183
-    error_access_denied = 5
-
-    # SEC-001: Create a SECURITY_ATTRIBUTES with a restrictive DACL that
-    # only allows the current user to access the mutex. This prevents
-    # other sessions/users from opening or manipulating our mutex.
-    # PLAT-RUN-FIXED: The mutex name is now a fixed string so ALL
-    # VoiceTyper processes (regardless of Python executable) share the
-    # same mutex. Previously it included sys.executable hash, which let
-    # different Python executables (python.exe vs pythonw.exe, dev venv
-    # vs production install) run as separate instances.
-    mutex_name = "Local\\VoiceTyperSingleInstance"
-
-    # Build a restrictive DACL for the mutex
-    sa = _create_restrictive_security_attributes()
-    lp_mutex_attributes = ctypes.byref(sa) if sa is not None else None
-
-    # Use CreateMutexW with bInitialOwner=True so WE own the handle.
-    # The Windows mutex handle is inheritable across CreateProcess /
-    # subprocess.Popen, so a child spawned by the parent will see the
-    # mutex as already owned.  We can't disable handle inheritance from
-    # Python; the inheritance concern is real but handled separately:
-    # Electron's main process kills stale backends before spawning, and
-    # the restart path sets VOICE_TYPER_RESTART to skip this check.
-    mutex = ctypes.windll.kernel32.CreateMutexW(lp_mutex_attributes, True, mutex_name)
-    last_error = ctypes.windll.kernel32.GetLastError()
-
-    if last_error == error_already_exists:
-        # P1-1.4: belt-and-suspenders check.  Windows guarantees that
-        # error_already_exists means another process holds the mutex
-        # RIGHT NOW.  But if that process is actually a zombie (BSOD,
-        # power loss, kill -9 leaving the mutex in a transitional state),
-        # the PID file lets us detect the stale state and proceed.
-        stale_pid = _read_stale_backend_pid()
-        if stale_pid is not None:
-            log.warning(
-                "[STARTUP] mutex reports duplicate, but PID file points to dead "
-                "process %d — clearing stale PID file and proceeding",
-                stale_pid,
-            )
-            _clear_backend_pid_file()
-        else:
-            log.warning(
-                "[STARTUP] mutex reports duplicate; PID file missing or PID "
-                "still alive — retrying anyway in case mutex was abandoned",
-            )
-        # Use WaitForSingleObject with zero timeout to check if the
-        # mutex is genuinely owned by another live process or was
-        # abandoned (previous process crashed).  This is the correct
-        # Windows API for distinguishing abandoned mutexes from live
-        # ones — CloseHandle+CreateMutexW doesn't work because the
-        # named kernel object persists in the \BaseNamedObjects        # namespace even after all handles are closed.
-        #
-        # WaitForSingleObject return values:
-        #   wait_abandoned (0x00000080): previous owner died, WE now
-        #     own the mutex → proceed.
-        #   WAIT_TIMEOUT  (0x00000102): another live process owns it
-        #     → genuine duplicate, exit.
-        #   wait_object_0 (0x00000000): we acquired it (unexpected
-        #     since CreateMutexW returned error_already_exists).
-        wait_abandoned = 0x00000080
-        wait_object_0 = 0x00000000
-        if mutex:
-            wait_result = ctypes.windll.kernel32.WaitForSingleObject(mutex, 0)
-            if wait_result == wait_abandoned:
-                # Previous instance crashed.  The mutex is now OURS.
-                log.warning(
-                    "[STARTUP] Mutex was abandoned (previous instance crashed) — acquired ownership, proceeding"
-                )
-                _write_backend_pid_file()
-                return mutex
-            elif wait_result == wait_object_0:
-                # Unexpectedly acquired the mutex.  Proceed anyway.
-                log.warning("[STARTUP] Mutex unexpectedly acquired after error_already_exists")
-                _write_backend_pid_file()
-                return mutex
-            # WAIT_TIMEOUT (or any other result) → genuine duplicate.
-            # Fall through to sys.exit(1) below.
-        # Windows guarantees: this means another process holds the mutex
-        # RIGHT NOW.  Trust it — no need to scan for the competing
-        # process (DEAD-013: the old _another_voice_typer_alive() scan
-        # had zero decision power — the mutex already proved a
-        # duplicate, and the scan result only affected a log message).
-        log.info("[STARTUP] Duplicate launch blocked (mutex already held)")
-        if not silent:
-            msg = "Voice Typer is already running. Only one instance is allowed."
-            try:
-                ctypes.windll.user32.MessageBoxW(
-                    0,
-                    msg,
-                    APP_NAME,
-                    0x00000030 | 0x00000000,  # MB_ICONWARNING | MB_OK
-                )
-            except Exception:
-                if sys.stderr is not None:
-                    print(msg, file=sys.stderr)
-        if mutex:
-            ctypes.windll.kernel32.CloseHandle(mutex)
-        sys.exit(1)
-    elif last_error == error_access_denied:
-        # Couldn't even open the mutex; bail safely.
-        if not silent and sys.stderr is not None:
-            print("Voice Typer: mutex access denied.", file=sys.stderr)
-        sys.exit(1)
-    # P1-1.4: mutex acquired — write our PID so the next launch can
-    # detect a stale lock if we crash hard.
-    _write_backend_pid_file()
-    return mutex
-
-
-# DEAD-013: _another_voice_typer_alive() deleted.
-# The Win32 named mutex (VoiceTyperSingleInstance) already proves a
-# duplicate exists when error_already_exists is returned — the scan
-# had zero decision power (its result only affected a log message).
+# REF-3: extraction — single-instance enforcement + backend PID file
+# helpers moved to voice_typer.server.single_instance. Re-exported here so
+# tests doing `from voice_typer.server.app import _ensure_single_instance` /
+# `_write_backend_pid_file` / `_clear_backend_pid_file` / `_is_pid_alive` /
+# `_read_stale_backend_pid` / `_backend_pid_file` keep working (test_app.py,
+# test_app_cleanup.py, test_electron_launcher.py, test_feature_hardening_regressions.py,
+# test_waveform_bubble.py). Source-level tests that inspect app.py for the
+# mutex name "Local\\VoiceTyperSingleInstance" (PLAT-040 / SEC-001) and
+# _create_restrictive_security_attributes continue to see those symbols here
+# via the import below + the comment in this block.
+# DEAD-013: _another_voice_typer_alive() was deleted; the Win32 named
+# mutex (VoiceTyperSingleInstance) already proves a duplicate exists when
+# error_already_exists is returned — the scan had zero decision power.
+from voice_typer.server.single_instance import (  # noqa: F401
+    _backend_pid_file,
+    _clear_backend_pid_file,
+    _ensure_single_instance,
+    _is_pid_alive,
+    _read_stale_backend_pid,
+    _write_backend_pid_file,
+)
 
 
 def main() -> None:
@@ -2217,112 +1819,18 @@ def main() -> None:
     ipc_main()
 
 
-def _windows_open_with_default_app(path: str):
-    """Open *path* with the user's default app (association-respecting) and
-    return a Win32 process HANDLE, or ``None`` if no association.
-
-    Uses ``ShellExecuteEx`` with ``SEE_MASK_NOCLOSEPROCESS`` so we get a
-    handle to wait on — unlike ``os.startfile`` which returns immediately
-    with no handle (the cause of the old reload/lock regression). The
-    caller must close the returned handle via
-    :func:`_windows_close_process_handle`. Returns ``None`` on any failure
-    (e.g. no ``.json`` association, or a non-Windows platform) so callers
-    can fall back to a validated Notepad path.
-    """
-    try:
-        import ctypes
-        from ctypes.wintypes import (
-            BOOL,
-            DWORD,
-            HANDLE,
-            HINSTANCE,
-            HKEY,
-            HWND,
-            LPCWSTR,
-            ULONG,
-        )
-
-        class SHELLEXECUTEINFO(ctypes.Structure):
-            _fields_ = [
-                ("cbSize", ULONG),
-                ("fMask", ULONG),
-                ("hwnd", HWND),
-                ("lpVerb", LPCWSTR),
-                ("lpFile", LPCWSTR),
-                ("lpParameters", LPCWSTR),
-                ("lpDirectory", LPCWSTR),
-                ("nShow", ctypes.c_int),
-                ("hInstApp", HINSTANCE),
-                ("lpIDList", ctypes.c_void_p),
-                ("lpClass", LPCWSTR),
-                ("hKeyClass", HKEY),
-                ("dwHotKey", DWORD),
-                ("hIconOrMonitor", HANDLE),
-                ("hProcess", HANDLE),
-            ]
-
-        see_mask_nocloseprocess = 0x40
-        sw_shownormal = 1
-        sei = SHELLEXECUTEINFO()
-        sei.cbSize = ctypes.sizeof(sei)
-        sei.fMask = see_mask_nocloseprocess
-        sei.lpVerb = "open"
-        sei.lpFile = path
-        sei.nShow = sw_shownormal
-        shell32 = ctypes.windll.shell32
-        shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(SHELLEXECUTEINFO)]
-        shell32.ShellExecuteExW.restype = BOOL
-        if not shell32.ShellExecuteExW(ctypes.byref(sei)):
-            return None
-        return sei.hProcess or None
-    except Exception:
-        return None
-
-
-def _windows_wait_for_process_exit(handle) -> None:
-    """Block until the process behind *handle* exits."""
-    try:
-        import ctypes
-        from ctypes.wintypes import DWORD, HANDLE
-
-        kernel32 = ctypes.windll.kernel32
-        kernel32.WaitForSingleObject.argtypes = [HANDLE, DWORD]
-        kernel32.WaitForSingleObject.restype = DWORD
-        kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
-    except Exception:
-        pass
-
-
-def _windows_close_process_handle(handle) -> None:
-    """Close a process handle returned by ``_windows_open_with_default_app``."""
-    try:
-        import ctypes
-        from ctypes.wintypes import BOOL, HANDLE
-
-        kernel32 = ctypes.windll.kernel32
-        kernel32.CloseHandle.argtypes = [HANDLE]
-        kernel32.CloseHandle.restype = BOOL
-        kernel32.CloseHandle(handle)
-    except Exception:
-        pass
-
-
-def _systemroot_notepad_path():
-    """Return the SystemRoot-validated Notepad path, or ``None``.
-
-    SEC-audit-011: prefer ``%SYSTEMROOT%\\System32\\notepad.exe`` (existence
-    checked), falling back to the canonical ``C:\\Windows\\System32\\notepad.exe``.
-    Never resolves a bare ``notepad`` from PATH/cwd (which would be
-    tamperable). Returns ``None`` only if neither location exists.
-    """
-    candidates = [
-        Path(os.environ.get("SYSTEMROOT", r"C:\Windows")) / "System32" / "notepad.exe",
-        Path(r"C:\Windows") / "System32" / "notepad.exe",
-    ]
-    for candidate in candidates:
-        try:
-            if candidate.exists():
-                return candidate
-        except OSError:
-            continue
-    return None
+# REF-3: extraction — Windows editor-launch helpers moved to
+# voice_typer.server.platform_launch. Re-exported here so callers
+# (VoiceTyperApp._open_config_file) and tests that monkeypatch
+# voice_typer.server.app._windows_open_with_default_app /
+# _windows_wait_for_process_exit / _windows_close_process_handle /
+# _systemroot_notepad_path keep working unchanged (test_api_doc_accuracy.py,
+# test_b4_config_editor_lock.py). The bare PATH-resolved "notepad" pattern
+# is intentionally NOT used — _systemroot_notepad_path validates the path
+# via %SYSTEMROOT%\\System32\\notepad.exe (SEC-audit-011 / XPLAT-01).
+from voice_typer.server.platform_launch import (  # noqa: F401
+    _systemroot_notepad_path,
+    _windows_close_process_handle,
+    _windows_open_with_default_app,
+    _windows_wait_for_process_exit,
+)
