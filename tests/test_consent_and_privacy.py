@@ -230,6 +230,13 @@ class TestAboutPageHasPrivacyDisclosure:
         assert "Voice biometrics" in src or "Voice biometrics" in en
         assert "BIPA" in src or "BIPA" in en
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_about_page_has_updates_section(self):
         about = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "About.tsx"
         src = about.read_text(encoding="utf-8")
@@ -238,12 +245,26 @@ class TestAboutPageHasPrivacyDisclosure:
         assert "LATEST_RELEASE_API" in src
         assert "api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest" in src
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_about_page_has_help_links(self):
         about = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "About.tsx"
         src = about.read_text(encoding="utf-8")
         assert "README_URL" in src or "README.md" in src
         assert "CHANGELOG_URL" in src or "CHANGELOG.md" in src
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_about_page_has_feedback_links(self):
         about = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "About.tsx"
         src = about.read_text(encoding="utf-8")
@@ -263,6 +284,13 @@ class TestSettingsTroubleshootHasDiagnosticActions:
         en = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations" / "en.json"
         return en.read_text(encoding="utf-8")
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_settings_has_diagnostics_button(self):
         settings = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx"
         src = settings.read_text(encoding="utf-8")
@@ -272,6 +300,13 @@ class TestSettingsTroubleshootHasDiagnosticActions:
         assert "Report a Bug" in src or "Report a Bug" in en
         assert "Open Log Folder" in src or "Open Log Folder" in en
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_settings_has_on_navigate_prop(self):
         settings = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx"
         src = settings.read_text(encoding="utf-8")
@@ -285,12 +320,26 @@ class TestAboutAndSettingsShowVoiceBiometricConsent:
         en = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations" / "en.json"
         return en.read_text(encoding="utf-8")
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_about_cites_gdpr_article_9(self):
         about = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "About.tsx"
         src = about.read_text(encoding="utf-8")
         assert 't("about.voiceBiometricsDesc")' in src
         assert 't("about.voiceBiometricsTitle")' in src
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_settings_has_privacy_consent_section(self):
         settings = (
             REPO_ROOT
@@ -307,6 +356,13 @@ class TestAboutAndSettingsShowVoiceBiometricConsent:
         assert 't("settings.privacy.privacyTitle")' in src
         assert 't("settings.privacy.privacyDescription")' in src
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_settings_has_voice_biometric_consent_toggle(self):
         settings = (
             REPO_ROOT
@@ -361,24 +417,59 @@ class TestVoiceTyperConfigTypeIncludesAllFields:
         renderer = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src"
         return (renderer / rel).read_text(encoding="utf-8")
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_sound_feedback_enabled_in_type(self):
         config_ts = self._read("types/config.ts")
         assert "sound_feedback_enabled" in config_ts
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_huggingface_consent_in_type(self):
         config_ts = self._read("types/config.ts")
         assert "huggingface_consent" in config_ts
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_cloud_consent_fields_in_type(self):
         config_ts = self._read("types/config.ts")
         assert "cloud_openai_consent" in config_ts
         assert "cloud_groq_consent" in config_ts
         assert "cloud_deepgram_consent" in config_ts
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_voice_biometric_consent_in_type(self):
         config_ts = self._read("types/config.ts")
         assert "voice_biometric_consent" in config_ts
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_llm_polish_consent_in_type(self):
         config_ts = self._read("types/config.ts")
         assert "llm_polish_consent" in config_ts
@@ -392,10 +483,24 @@ class TestModelsPageExposesCloudConsentToggles:
         renderer = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src"
         return (renderer / rel).read_text(encoding="utf-8")
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_models_imports_switch(self):
         models = self._read("pages/Models.tsx")
         assert "import { Switch }" in models
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_models_has_set_cloud_consent_handler(self):
         models = self._read("pages/Models.tsx")
         assert "setCloudConsent" in models
@@ -403,21 +508,49 @@ class TestModelsPageExposesCloudConsentToggles:
         assert "cloud_groq_consent" in models
         assert "cloud_deepgram_consent" in models
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_models_has_consent_key_helper(self):
         models = self._read("pages/Models.tsx")
         assert "consentKeyFor" in models
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_models_has_consent_disclosure_text(self):
         models = self._read("pages/Models.tsx")
         assert 't("models.cloud.consentTitle")' in models
         assert '"models.cloud.consentDescription"' in models
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_models_has_hugging_face_consent_banner(self):
         models = self._read("pages/Models.tsx")
         assert 't("models.hfConsent.title")' in models
         assert 't("models.hfConsent.grant")' in models
         assert "setHuggingFaceConsent" in models
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "consent-privacy-behavior.test.tsx"
+        )
+    )
     def test_models_consent_section_only_shown_when_key_present(self):
         models = self._read("pages/Models.tsx")
         assert "apiKeys[provider.key]" in models

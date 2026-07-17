@@ -51,6 +51,14 @@ class TestHotkeyUtilsFormatLabel:
 class TestHotkeyUtilsValidate:
     """validateHotkey returns null for valid, error string for invalid."""
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "hotkeys-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_validate_function_exists(self):
         utils = _read("components/hotkey/hotkey-utils.ts")
         assert "function validateHotkey" in utils
@@ -122,6 +130,14 @@ class TestRepasteKeySettingUsesHotkeyPicker:
         assert 'mode="combo"' in recording
         assert "repaste_hotkey" in recording
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "hotkeys-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_no_free_text_input_for_repaste(self):
         recording = _read("components/settings/RecordingSettingsSection.tsx")
         assert not re.search(
@@ -134,6 +150,14 @@ class TestRepasteKeySettingUsesHotkeyPicker:
 class TestDictationKeySupportsExpandedPresets:
     """The Dictation Key selector supports more than just F2-F12."""
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "hotkeys-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_dictation_key_uses_hotkey_picker_combo_mode(self):
         recording = _read("components/settings/RecordingSettingsSection.tsx")
         assert 'mode="combo"' in recording
@@ -158,6 +182,14 @@ class TestDictationKeySupportsExpandedPresets:
         assert "page_up" in utils
         assert "page_down" in utils
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "hotkeys-behavior.test.ts — remove this Python test "
+            "once the vitest is verified on CI"
+        )
+    )
     def test_old_f2_f12_dropdown_removed(self):
         settings = _read("pages/Settings.tsx")
         assert "'f2', 'f3', 'f4', 'f5', 'f6'" not in settings

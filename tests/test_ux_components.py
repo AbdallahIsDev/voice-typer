@@ -20,6 +20,9 @@ def _read(rel: str) -> str:
 class TestSettingsShowsSuccessToastOnUpdateConfig:
     """Settings calls showSnack on successful set_config."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_update_config_calls_show_snack_on_success(self):
         settings = _read("pages/Settings.tsx")
         assert (
@@ -47,6 +50,9 @@ class TestSettingsShowsSuccessToastOnUpdateConfig:
                 break
         assert success_toast_found
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_update_config_still_has_error_toast(self):
         settings = _read("pages/Settings.tsx")
         # The error toast is rendered via i18n key `settings.saveFailedToast`
@@ -60,6 +66,9 @@ class TestSettingsShowsSuccessToastOnUpdateConfig:
 class TestOnNavigateTypedAsPageLiteralUnion:
     """onNavigate prop typed as Page (not string)."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_settings_imports_page_type(self):
         settings = _read("pages/Settings.tsx")
         assert (
@@ -67,10 +76,16 @@ class TestOnNavigateTypedAsPageLiteralUnion:
             or 'import type { Page } from "@/types/ipc"' in settings
         )
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_settings_onnavigate_typed_as_page(self):
         settings = _read("pages/Settings.tsx")
         assert "onNavigate?: (page: Page) => void" in settings
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_app_passes_navigate_without_type_error(self):
         app = _read("App.tsx")
         assert "onNavigate={navigate}" in app
@@ -80,6 +95,9 @@ class TestOnNavigateTypedAsPageLiteralUnion:
 class TestNumberInputOmitsOnInvalidFromProps:
     """NumberInputProps omits onInvalid from inherited HTML attributes."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_omit_includes_oninvalid(self):
         number_input = _read("components/ui/number-input-stepper.tsx")
         assert re.search(
@@ -89,6 +107,9 @@ class TestNumberInputOmitsOnInvalidFromProps:
             re.DOTALL,
         )
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_custom_oninvalid_still_declared(self):
         number_input = _read("components/ui/number-input-stepper.tsx")
         assert 'onInvalid?: (reason: "parse" | "range" | null) => void' in number_input
@@ -97,21 +118,33 @@ class TestNumberInputOmitsOnInvalidFromProps:
 class TestAppPreservesNavStateToLocalStorage:
     """App persists nav state to localStorage."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_app_has_nav_state_persistence(self):
         nav = _read("hooks/useNavigation.ts")
         assert "STORAGE_KEY_NAV" in nav
         assert "saveNavState" in nav
         assert "loadNavState" in nav
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_navigate_saves_state(self):
         nav = _read("hooks/useNavigation.ts")
         assert "saveNavState(page, navHistory.current, navIndex.current)" in nav
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_goBack_saves_state(self):  # noqa: N802
         nav = _read("hooks/useNavigation.ts")
         count = nav.count("saveNavState(page, navHistory.current, navIndex.current)")
         assert count >= 3
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_initial_state_loaded_from_localStorage(self):  # noqa: N802
         nav = _read("hooks/useNavigation.ts")
         assert "loadNavState()" in nav
@@ -121,6 +154,9 @@ class TestAppPreservesNavStateToLocalStorage:
 class TestAppHasHelpOverlayForShortcuts:
     """App has a ? keyboard shortcut help overlay."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_app_has_help_overlay_state(self):
         app = _read("App.tsx")
         assert "showHelpOverlay" in app
@@ -138,6 +174,9 @@ class TestAppHasHelpOverlayForShortcuts:
         app = _read("App.tsx")
         assert 'e.key === "?"' in app
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_help_overlay_lists_shortcuts(self):
         app = _read("App.tsx")
         assert 't("help.title")' in app
@@ -167,6 +206,9 @@ class TestAppHasHelpOverlayForShortcuts:
         assert "Escape" in app
         assert "setShowHelpOverlay(false)" in app
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_help_overlay_does_not_trigger_in_inputs(self):
         app = _read("App.tsx")
         assert "input" in app and "textarea" in app and "select" in app
@@ -175,6 +217,9 @@ class TestAppHasHelpOverlayForShortcuts:
 class TestBubbleSupportsKeyboardArrowMove:
     """Bubble supports keyboard-based repositioning via arrow keys."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw0-rewrite/Bubble-keyboard-move.test.tsx"
+    )
     def test_bubble_has_arrow_key_handler(self):
         bubble = _read("Bubble.tsx")
         assert "ArrowLeft" in bubble
@@ -224,6 +269,9 @@ class TestBubbleSupportsKeyboardArrowMove:
 class TestLoadingScreenShowsSizeEstimate:
     """Loading screen shows a friendly message with model download estimate."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_app_loading_has_friendly_message(self):
         app = _read("App.tsx")
         assert "466 MB" in app or "small.en" in app
@@ -237,11 +285,17 @@ class TestGetStatusExposesLoadedVia:
         service_py = (REPO_ROOT / "voice_typer" / "server" / "service.py").read_text(encoding="utf-8")
         assert "loaded_via" in service_py
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_about_page_shows_loaded_via(self):
         about = _read("pages/About.tsx")
         assert 't("about.loadedVia")' in about
         assert "loadedVia" in about
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_about_page_reads_loaded_via_from_status(self):
         about = _read("pages/About.tsx")
         assert "loaded_via" in about
@@ -250,11 +304,17 @@ class TestGetStatusExposesLoadedVia:
 class TestVocabularyAndTemplatesHaveHelpText:
     """Vocabulary and Templates dialogs have help text."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_vocabulary_dialog_has_help_text(self):
         vocab = _read("pages/Vocabulary.tsx")
         assert 't("vocabulary.triggerHelp")' in vocab
         assert 't("vocabulary.replacementHelp")' in vocab
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_templates_dialog_has_help_text(self):
         templates = _read("pages/Templates.tsx")
         assert 't("templates.triggerHelp")' in templates
@@ -268,10 +328,16 @@ class TestVocabularyAndTemplatesHaveHelpText:
 class TestVocabularyDialogHasCategoryPicker:
     """The Add Vocabulary dialog has a category picker."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_vocabulary_has_category_state(self):
         vocab = _read("pages/Vocabulary.tsx")
         assert "const [category, setCategory]" in vocab
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_vocabulary_has_category_labels(self):
         vocab = _read("pages/Vocabulary.tsx")
         assert "CATEGORY_LABELS" in vocab
@@ -285,12 +351,18 @@ class TestVocabularyDialogHasCategoryPicker:
         ]:
             assert cat in vocab
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_vocabulary_dialog_has_category_select(self):
         vocab = _read("pages/Vocabulary.tsx")
         assert "Category" in vocab
         assert 'value="auto"' in vocab
         assert "resolvedCategory" in vocab
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_vocabulary_category_has_human_readable_labels(self):
         vocab = _read("pages/Vocabulary.tsx")
         assert 't("vocabulary.category.misspellings")' in vocab
@@ -303,14 +375,23 @@ class TestVocabularyDialogHasCategoryPicker:
 class TestSettingsShowsSubtleAutoSaveIndicator:
     """Settings shows a subtle auto-save indicator."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_settings_has_auto_save_notice(self):
         settings = _read("pages/Settings.tsx")
         assert "Auto-save" in settings
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_settings_saving_indicator_still_present(self):
         settings = _read("pages/Settings.tsx")
         assert "Saving..." in settings or "setSaving(" in settings
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_settings_has_visual_saving_state(self):
         settings = _read("pages/Settings.tsx")
         assert "bg-amber-400" in settings or "bg-amber-500" in settings
@@ -320,14 +401,23 @@ class TestSettingsShowsSubtleAutoSaveIndicator:
 class TestTitleBarReceivesIsMaximizedProp:
     """TitleBar accepts isMaximized prop from App."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_titlebar_accepts_isMaximized_prop(self):  # noqa: N802
         src = _read("components/layout/TitleBar.tsx")
         assert "isMaximized?" in src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_app_passes_isMaximized_to_titlebar(self):  # noqa: N802
         src = _read("App.tsx")
         assert "isMaximized={isMaximized}" in src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_titlebar_skips_subscription_when_prop_provided(self):
         src = _read("components/layout/TitleBar.tsx")
         assert "isMaximizedProp !== undefined" in src
@@ -336,10 +426,16 @@ class TestTitleBarReceivesIsMaximizedProp:
 class TestTemplatesShowVariableNamesInTooltip:
     """Templates shows variable names in tooltip."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_template_row_has_used_variables(self):
         src = _read("pages/Templates.tsx")
         assert "used_variables" in src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_tooltip_shows_variable_names(self):
         src = _read("pages/Templates.tsx")
         assert '"templates.variablesTooltip"' in src
@@ -351,14 +447,23 @@ class TestAboutDiagnosticsPageExists:
     def test_about_page_exists(self):
         assert (RENDERER_SRC / "pages" / "About.tsx").exists()
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_about_page_exported(self):
         src = _read("pages/About.tsx")
         assert "export default" in src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_sidebar_has_about_nav(self):
         src = _read("components/layout/Sidebar.tsx")
         assert "'about'" in src or '"about"' in src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_app_routes_to_about(self):
         src = _read("App.tsx")
         assert "case 'about'" in src or 'case "about"' in src
@@ -390,6 +495,9 @@ class TestErrorBoundaryComponentExists:
     def test_error_boundary_file_exists(self):
         assert (RENDERER_SRC / "components" / "feedback" / "ErrorBoundary.tsx").exists()
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/ux-components-behavior.test.tsx"
+    )
     def test_app_wraps_in_error_boundary(self):
         src = _read("App.tsx")
         assert "ErrorBoundary" in src

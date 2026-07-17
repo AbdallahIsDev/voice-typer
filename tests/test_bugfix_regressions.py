@@ -3242,7 +3242,9 @@ class TestElectronNotificationFieldValidation:
                 }
             )
         assert resp["type"] == "ack"
-        assert captured["type"] == "electron_notification"
+        # CR-8: event renamed from `electron_notification` → `notification`
+        # (platform-agnostic — the Tauri Rust host no longer renames it).
+        assert captured["type"] == "notification"
         assert captured["data"] == {
             "title": "Hello",
             "message": "World",

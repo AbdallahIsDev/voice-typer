@@ -38,11 +38,17 @@ class TestElectronExposesDataExportHandlers:
         assert "exportTemplates" in preload
         assert "exportConfig" in preload
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx"
+    )
     def test_window_bridge_type_includes_export_methods(self):
         ipc_ts = _read("types/ipc.ts")
         assert "exportTemplates" in ipc_ts
         assert "exportConfig" in ipc_ts
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx"
+    )
     def test_settings_has_export_buttons(self):
         settings = _read("components/settings/PrivacySettingsSection.tsx")
         assert 't("settings.privacy.exportTemplates")' in settings
@@ -397,6 +403,9 @@ class TestAllowlistCorrectness:
 class TestRestartRequestRemoved:
     """The dead RestartRequest type is removed."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx"
+    )
     def test_restart_request_not_in_types(self):
         types_path = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "types" / "ipc.ts"
         src = types_path.read_text(encoding="utf-8")
@@ -579,22 +588,34 @@ class TestTypeIgnoreBugsFixed:
 class TestTypeScriptNonNullAssertions:
     """Non-null assertions are fixed across TypeScript files."""
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx"
+    )
     def test_history_no_non_null_assertion_on_path(self):
         path = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "History.tsx"
         src = path.read_text(encoding="utf-8")
         assert "result.path!" not in src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx"
+    )
     def test_vocabulary_no_non_null_assertion_on_path(self):
         path = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "Vocabulary.tsx"
         src = path.read_text(encoding="utf-8")
         assert "result.path!" not in src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx"
+    )
     def test_main_tsx_no_non_null_assertion(self):
         path = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "main.tsx"
         src = path.read_text(encoding="utf-8")
         assert "getElementById('root')!" not in src
         assert "if (!rootEl)" in src
 
+    @pytest.mark.skip(
+        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx"
+    )
     def test_bubble_main_tsx_no_non_null_assertion(self):
         path = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "bubble-main.tsx"
         src = path.read_text(encoding="utf-8")

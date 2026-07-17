@@ -1219,6 +1219,14 @@ return`` guard dead code.  Removed the misleading flag.
 class TestPagesUseSharedSnackbarHook:
     """NEW-TS-004: pages must use the shared useSnackbar hook."""
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "feature-hardening-behavior.test.tsx — remove this Python "
+            "test once the vitest is verified on CI"
+        )
+    )
     def test_settings_uses_shared_hook(self):
         """Settings.tsx must import and use useSnackbar, not inline state."""
         src = _read("pages/Settings.tsx")
@@ -1237,6 +1245,14 @@ class TestPagesUseSharedSnackbarHook:
             "Settings.tsx still has inline snackbar useState"
         )
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "feature-hardening-behavior.test.tsx — remove this Python "
+            "test once the vitest is verified on CI"
+        )
+    )
     def test_microphone_uses_shared_snackbar_hook(self):
         """Microphone.tsx must use the shared useSnackbar hook (no <Snackbar />)."""
         src = _read("pages/Microphone.tsx")
@@ -1280,6 +1296,14 @@ class TestHomeRegistersSingleTranscriptionFinalListener:
 class TestAppValidatesRecordingStateBeforeCast:
     """NEW-TS-012: App.tsx must not cast to RecordingState without validation."""
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "feature-hardening-behavior.test.tsx — remove this Python "
+            "test once the vitest is verified on CI"
+        )
+    )
     def test_no_unvalidated_as_recording_state_cast(self):
         """The ``as RecordingState`` cast must only appear inside a
         runtime validator (after ``RECORDING_STATES.has(value)`` has
@@ -1320,6 +1344,14 @@ class TestAppValidatesRecordingStateBeforeCast:
             "pattern.  Unvalidated casts are forbidden (NEW-TS-012)."
         )
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "feature-hardening-behavior.test.tsx — remove this Python "
+            "test once the vitest is verified on CI"
+        )
+    )
     def test_runtime_validator_exists(self):
         """App.tsx must not use unsafe `as RecordingState` casts.
 
@@ -1342,6 +1374,14 @@ class TestAppValidatesRecordingStateBeforeCast:
 class TestUsePythonOmitsMisleadingIsReadyFlag:
     """NEW-TS-015: usePython() must not return a misleading isReady flag."""
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "feature-hardening-behavior.test.tsx — remove this Python "
+            "test once the vitest is verified on CI"
+        )
+    )
     def test_use_python_does_not_return_is_ready(self):
         """The hook must not return ``isReady`` (it was always true)."""
         src = _read("hooks/usePython.ts")
@@ -1364,6 +1404,14 @@ class TestUsePythonOmitsMisleadingIsReadyFlag:
             "dead code"
         )
 
+    @pytest.mark.skip(
+        reason=(
+            "RW-1: rewritten as vitest in "
+            "voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/"
+            "feature-hardening-behavior.test.tsx — remove this Python "
+            "test once the vitest is verified on CI"
+        )
+    )
     def test_app_does_not_use_is_ready(self):
         """App.tsx must not destructure isReady from usePython()."""
         src = _read("App.tsx")

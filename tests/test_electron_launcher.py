@@ -62,10 +62,14 @@ class TestLaunchElectronFrontend:
         # Pretend the binary exists and the build output is present so we
         # don't trigger an npm run build.
         monkeypatch.setattr(
-            electron_launcher, "_electron_binary", lambda: "/fake/electron",
+            electron_launcher,
+            "_electron_binary",
+            lambda: "/fake/electron",
         )
         monkeypatch.setattr(
-            electron_launcher, "_main_entry_built", lambda: True,
+            electron_launcher,
+            "_main_entry_built",
+            lambda: True,
         )
         # Avoid touching the real filesystem for log files.
         monkeypatch.setattr(
@@ -103,10 +107,14 @@ class TestLaunchElectronFrontend:
     def test_launch_electron_returns_none_on_failure(self, monkeypatch):
         """When Popen raises and npm fallback also fails, return None."""
         monkeypatch.setattr(
-            electron_launcher, "_electron_binary", lambda: "/fake/electron",
+            electron_launcher,
+            "_electron_binary",
+            lambda: "/fake/electron",
         )
         monkeypatch.setattr(
-            electron_launcher, "_main_entry_built", lambda: True,
+            electron_launcher,
+            "_main_entry_built",
+            lambda: True,
         )
         monkeypatch.setattr(
             electron_launcher,
@@ -132,7 +140,9 @@ class TestLaunchElectronFrontend:
         """When the Electron binary is missing, fall back to ``npm run dev``."""
         # No electron binary → triggers fallback.
         monkeypatch.setattr(
-            electron_launcher, "_electron_binary", lambda: None,
+            electron_launcher,
+            "_electron_binary",
+            lambda: None,
         )
         monkeypatch.setattr(
             electron_launcher,
@@ -356,7 +366,13 @@ class TestBackendPidFile:
 
 
 class TestPickAvailablePort:
-    """``_pick_available_port`` returns a free port starting from ``start``."""
+    """``_pick_available_port`` returns a free port starting from ``start``.
+
+    CR-7 fix: the function now returns a ``(port, bound_socket)`` tuple
+    so callers can pass the pre-bound socket through to ``start_tcp``
+    (eliminating the probe-then-bind race window).  Tests updated to
+    unpack the tuple and close the returned socket.
+    """
 
     def test_returns_start_when_free(self):
         """If the start port is free, it should be returned."""
@@ -373,8 +389,13 @@ class TestPickAvailablePort:
         # The port we just released should be picked.
         # (There's a small race window, but in practice this is reliable.)
         result = _pick_available_port(free_port, max_tries=1)
-        assert isinstance(result, int)
-        assert result >= free_port
+        # CR-7: result is now a (port, sock) tuple.
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        port, sock = result
+        assert isinstance(port, int)
+        assert port >= free_port
+        sock.close()
 
     def test_increments_past_busy_port(self):
         """If start port can't be bound, should try the next one.
@@ -394,17 +415,17 @@ class TestPickAvailablePort:
         some_port = s.getsockname()[1]
         s.close()
 
-        result = _pick_available_port(some_port, max_tries=10)
-        # Result should be a valid port >= the start port.
-        assert isinstance(result, int)
-        assert result >= some_port
-        # Verify the returned port is actually bindable.
-        verify = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        port, sock = _pick_available_port(some_port, max_tries=10)
         try:
-            verify.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-            verify.bind(("127.0.0.1", result))
+            # Result should be a valid port >= the start port.
+            assert isinstance(port, int)
+            assert port >= some_port
+            # CR-7: the returned socket is already bound — verify by
+            # checking its getsockname() matches the returned port.
+            bound_port = sock.getsockname()[1]
+            assert bound_port == port
         finally:
-            verify.close()
+            sock.close()
 
     def test_falls_back_to_ephemeral_when_all_busy(self):
         """If every port in the range is busy, OS assigns an ephemeral one."""
@@ -419,9 +440,15 @@ class TestPickAvailablePort:
         s.bind(("127.0.0.1", 0))
         busy_port = s.getsockname()[1]
         try:
-            result = _pick_available_port(busy_port, max_tries=1)
-            # Result should be a valid port (ephemeral, not the busy one).
-            assert isinstance(result, int)
-            assert 1 <= result <= 65535
+            port, sock = _pick_available_port(busy_port, max_tries=1)
+            try:
+                # Result should be a valid port (ephemeral, not the busy one).
+                assert isinstance(port, int)
+                assert 1 <= port <= 65535
+                # CR-7: verify the returned socket is actually bound to
+                # the returned port (gold-standard contract).
+                assert sock.getsockname()[1] == port
+            finally:
+                sock.close()
         finally:
             s.close()

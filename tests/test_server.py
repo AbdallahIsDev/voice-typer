@@ -30,7 +30,10 @@ _mock_pystray.MenuItem = MagicMock
 _mock_pystray.Icon = MagicMock
 sys.modules.setdefault("pystray", _mock_pystray)
 
-from voice_typer.server import ipc_server  # noqa: E402
+from voice_typer.server import (
+    event_bus,  # noqa: E402 -- B-1 FIX-12: tests use event_bus._subscribers/_lock directly
+    ipc_server,  # noqa: E402
+)
 from voice_typer.server.ipc_server import (  # noqa: E402
     _TCP_WRITE_TIMEOUT_SECONDS,
     IPCServer,
@@ -1272,15 +1275,15 @@ class TestPushEventNow:
 
         # Snapshot and clear the registry so the test sees an empty
         # state; restore it on the way out so other tests aren't affected.
-        with ipc_mod._push_event_registry_lock:
-            original = set(ipc_mod._push_event_registry)
-            ipc_mod._push_event_registry.clear()
+        with event_bus._lock:
+            original = set(event_bus._subscribers)
+            event_bus._subscribers.clear()
         try:
             result = ipc_mod._push_event_now({"type": "show_window"})
             assert result is False
         finally:
-            with ipc_mod._push_event_registry_lock:
-                ipc_mod._push_event_registry.update(original)
+            with event_bus._lock:
+                event_bus._subscribers.update(original)
 
     def test_returns_true_when_server_active(self, server, monkeypatch):
         """With an active server, _push_event_now should succeed."""
@@ -1316,12 +1319,12 @@ class TestPushEventNow:
         def broken_fn(msg):
             raise RuntimeError("broken")
 
-        ipc_mod._set_push_event(broken_fn)
+        event_bus.subscribe(broken_fn)
         try:
             result = ipc_mod._push_event_now({"type": "show_window"})
             assert result is False
         finally:
-            ipc_mod._clear_push_event(broken_fn)
+            event_bus.unsubscribe(broken_fn)
 
 
 # ── RELIABILITY-006: per-connection rate limiter ─────────────────────────
@@ -2123,13 +2126,13 @@ def server_with_mock_app():
 @pytest.fixture
 def clean_registry():
     """Snapshot and clear the push-event registry for the test, restore after."""
-    with ipc_server._push_event_registry_lock:
-        original = set(ipc_server._push_event_registry)
-        ipc_server._push_event_registry.clear()
+    with event_bus._lock:
+        original = set(event_bus._subscribers)
+        event_bus._subscribers.clear()
     yield
-    with ipc_server._push_event_registry_lock:
-        ipc_server._push_event_registry.clear()
-        ipc_server._push_event_registry.update(original)
+    with event_bus._lock:
+        event_bus._subscribers.clear()
+        event_bus._subscribers.update(original)
 
 
 # === NEW-IPC-001: TCP accept loop must be unblockable by stop() ===
@@ -2319,12 +2322,12 @@ class TestPushEventRegistryMultiInstance:
         """Both servers' push callables must coexist in the registry."""
         calls_a: list = []
         calls_b: list = []
-        ipc_server._set_push_event(calls_a.append)
-        ipc_server._set_push_event(calls_b.append)
+        event_bus.subscribe(calls_a.append)
+        event_bus.subscribe(calls_b.append)
 
         # Both should be registered.
-        with ipc_server._push_event_registry_lock:
-            assert len(ipc_server._push_event_registry) == 2
+        with event_bus._lock:
+            assert len(event_bus._subscribers) == 2
 
         # _push_event_now fans out to both.
         result = ipc_server._push_event_now({"type": "test"})
@@ -2340,16 +2343,16 @@ class TestPushEventRegistryMultiInstance:
         """
         calls_a: list = []
         calls_b: list = []
-        ipc_server._set_push_event(calls_a.append)
-        ipc_server._set_push_event(calls_b.append)
+        event_bus.subscribe(calls_a.append)
+        event_bus.subscribe(calls_b.append)
 
         # Server A stops — unregister just its callable.
-        ipc_server._clear_push_event(calls_a.append)
+        event_bus.unsubscribe(calls_a.append)
 
         # Server B must still be registered.
-        with ipc_server._push_event_registry_lock:
-            assert len(ipc_server._push_event_registry) == 1
-            assert calls_b.append in ipc_server._push_event_registry
+        with event_bus._lock:
+            assert len(event_bus._subscribers) == 1
+            assert calls_b.append in event_bus._subscribers
 
         # _push_event_now must still reach server B.
         result = ipc_server._push_event_now({"type": "after_a_stop"})
@@ -2366,23 +2369,23 @@ class TestPushEventRegistryMultiInstance:
         unregister a specific callable.
         """
         calls_a: list = []
-        ipc_server._set_push_event(calls_a.append)
-        assert len(ipc_server._push_event_registry) == 1
+        event_bus.subscribe(calls_a.append)
+        assert len(event_bus._subscribers) == 1
 
         # _set_push_event(None) must be a no-op (not a clear).
-        ipc_server._set_push_event(None)
-        assert len(ipc_server._push_event_registry) == 1
+        event_bus.subscribe(None)
+        assert len(event_bus._subscribers) == 1
 
     def test_clear_push_event_idempotent(self, clean_registry):
         """Clearing an unregistered callable must be a no-op (no error)."""
         fn = lambda msg: None  # noqa: E731
         # Not yet registered — clear must not raise.
-        ipc_server._clear_push_event(fn)
+        event_bus.unsubscribe(fn)
         # Register and clear.
-        ipc_server._set_push_event(fn)
-        ipc_server._clear_push_event(fn)
-        ipc_server._clear_push_event(fn)  # Second clear is also safe.
-        assert len(ipc_server._push_event_registry) == 0
+        event_bus.subscribe(fn)
+        event_bus.unsubscribe(fn)
+        event_bus.unsubscribe(fn)  # Second clear is also safe.
+        assert len(event_bus._subscribers) == 0
 
     def test_push_event_now_thread_safe(self, clean_registry):
         """Concurrent _push_event_now calls must all succeed without
@@ -2396,7 +2399,7 @@ class TestPushEventRegistryMultiInstance:
             with lock:
                 received.append(msg)
 
-        ipc_server._set_push_event(listener)
+        event_bus.subscribe(listener)
 
         def worker():
             for i in range(50):
@@ -2524,8 +2527,8 @@ class TestGetInstancePushFnTracking:
         srv.start()
         try:
             assert srv._push_fn is not None
-            with ipc_server._push_event_registry_lock:
-                assert srv._push_fn in ipc_server._push_event_registry
+            with event_bus._lock:
+                assert srv._push_fn in event_bus._subscribers
         finally:
             srv.stop()
 
@@ -2538,8 +2541,8 @@ class TestGetInstancePushFnTracking:
         srv.start()
         srv.stop()
         assert srv._push_fn is None
-        with ipc_server._push_event_registry_lock:
-            assert len(ipc_server._push_event_registry) == 0
+        with event_bus._lock:
+            assert len(event_bus._subscribers) == 0
 
 
 # === NEW-IPC-014, NEW-CONC-001, NEW-CONC-003 ===
