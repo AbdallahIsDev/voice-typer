@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Voice Typer
+Comment=Premium offline tray-based voice-to-text desktop application
+Exec=voice-typer-tauri
+Icon=voice-typer
+Terminal=false
+Categories=AudioVideo;Audio;Utility;Accessibility;
+StartupWMClass=Voice Typer
+Keywords=voice;speech;dictation;typing;accessibility;asr;whisper;
