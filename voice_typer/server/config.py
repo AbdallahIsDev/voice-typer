@@ -214,12 +214,23 @@ def _validate_path_safety(path: Path, parent: Path) -> Path:
     SEC-005: prevents path traversal attacks when user-supplied env vars
     (VOICE_TYPER_CONFIG_DIR, XDG_DATA_HOME, etc.) contain ``..`` sequences
     that could escape the expected parent directory.
+
+    CR-17 fix: previously used ``str(resolved).startswith(str(parent_resolved))``
+    which is the classic prefix-match bug — ``/home/userX/secret`` would
+    be considered "within" ``/home/user`` because the string
+    ``"/home/userX/secret"`` does start with ``"/home/user"``.  Now
+    delegates to :func:`_is_path_within`, which uses
+    :func:`os.path.commonpath` to respect directory boundaries and
+    handles cross-drive Windows paths (returns ``False`` instead of
+    raising ``ValueError``).
     """
-    resolved = path.resolve()
-    parent_resolved = parent.resolve()
-    if not str(resolved).startswith(str(parent_resolved)):
+    # CR-17: use the robust commonpath-based containment check rather
+    # than a naive str.startswith.  _is_path_within resolve()s both
+    # sides, lower-cases on Windows/macOS (case-insensitive FS), and
+    # returns False (not raise) for cross-drive paths.
+    if not _is_path_within(path, parent):
         raise ValueError(f"Path traversal detected: {path} escapes {parent}")
-    return resolved
+    return path.resolve()
 
 
 def _is_path_within(path: Path, root: Path) -> bool:
@@ -316,6 +327,19 @@ def _validate_systemroot() -> None:
     characters.
 
     On non-Windows platforms, this is a no-op.
+
+    CR-19 fix — fail-closed vs reset-to-default decisions:
+      - Path traversal (``..``)             → ``sys.exit(1)`` (security issue)
+      - Unusual characters (``<>|"&'\\n\\r\\t``) → ``sys.exit(1)`` (security issue)
+      - Missing directory                   → reset to ``C:\\Windows`` + continue (usability)
+      - Missing ``System32\\notepad.exe``   → log warning + continue (not a hard blocker)
+
+    Rationale: a malicious ``SystemRoot`` is a DLL-hijacking vector that
+    could lead to arbitrary code execution with the user's privileges —
+    better to refuse to start than to silently reset and continue.  A
+    missing directory, on the other hand, is typically a misconfigured
+    environment (e.g. a stripped-down Windows image) where the user can
+    still benefit from the app starting with the default ``SystemRoot``.
     """
     if not is_windows():
         return
@@ -327,58 +351,67 @@ def _validate_systemroot() -> None:
         log.warning("[CONFIG] SystemRoot environment variable is not set")
         return
 
-    # Check for path traversal
+    # CR-19: Check for path traversal — fail-closed (security issue).
+    # A malicious SystemRoot pointing at an attacker-controlled directory
+    # with ``..`` segments is a classic DLL-injection vector.  Refusing
+    # to start is safer than silently resetting (the user would have no
+    # indication that their SystemRoot was being tampered with).
     if ".." in systemroot:
         log.error(
             "[CONFIG] SystemRoot contains path traversal ('..'): %s — "
-            "possible DLL injection attack. Resetting to default.",
+            "possible DLL injection attack. ABORTING STARTUP (fail-closed).",
             systemroot,
         )
-        # Try to use the standard default
-        default = r"C:\Windows"
-        if Path(default).is_dir():
-            os.environ["SYSTEMROOT"] = default
-        return
+        sys.exit(1)
 
-    # Check for unusual characters that could indicate tampering
+    # CR-19: Check for unusual characters that could indicate tampering —
+    # fail-closed (same rationale as the path-traversal branch above).
     import re
 
     if re.search(r'[<>|"&\'\n\r\t]', systemroot):
         log.error(
-            "[CONFIG] SystemRoot contains unusual characters: %r — possible injection attack. Resetting to default.",
+            "[CONFIG] SystemRoot contains unusual characters: %r — possible "
+            "injection attack. ABORTING STARTUP (fail-closed).",
             systemroot,
         )
-        default = r"C:\Windows"
-        if Path(default).is_dir():
-            os.environ["SYSTEMROOT"] = default
-        return
+        sys.exit(1)
 
-    # Verify the directory exists
+    # CR-19: Verify the directory exists — reset to default + continue
+    # (usability issue, not a direct security issue).  A user's
+    # SystemRoot may be set to a path that no longer exists (e.g. they
+    # moved their Windows installation) — refusing to start would lock
+    # them out of the app entirely.  Resetting to the canonical default
+    # lets the app start with a valid SystemRoot.
     if not Path(systemroot).is_dir():
-        log.error(
+        log.warning(
             "[CONFIG] SystemRoot does not point to an existing directory: %s — "
-            "possible tampering. Resetting to default.",
+            "resetting to default C:\\Windows (usability fallback).",
             systemroot,
         )
         default = r"C:\Windows"
         if Path(default).is_dir():
             os.environ["SYSTEMROOT"] = default
+        # If even C:\Windows doesn't exist, there's nothing more we can
+        # do — leave SystemRoot as-is and let downstream Win32 APIs fail
+        # with their own diagnostics.
         return
 
     # SEC-audit-011: Verify SystemRoot contains System32\notepad.exe.
     # This is the canonical sanity check — every valid Windows
     # installation has notepad.exe in System32.  If it's missing, the
     # SystemRoot value is almost certainly invalid or tampered.
+    #
+    # CR-19: Not a hard blocker — log warning + continue.  The caller is
+    # expected to use a hardcoded fallback path for notepad specifically
+    # (see ``system_handlers.py``).  Do NOT reset SystemRoot itself —
+    # other system DLLs may still be valid even if notepad is missing.
     notepad_path = Path(systemroot) / "System32" / "notepad.exe"
     if not notepad_path.exists():
-        log.error(
+        log.warning(
             "[CONFIG] SystemRoot does not contain System32\\notepad.exe: %s — "
-            "possible tampering. Falling back to hardcoded notepad path.",
+            "caller should use hardcoded fallback for notepad.",
             systemroot,
         )
-        # Do NOT reset SystemRoot itself (other system DLLs may still be
-        # valid), but the caller should use the hardcoded fallback for
-        # notepad specifically.
 
 
 def _config_dir() -> Path:

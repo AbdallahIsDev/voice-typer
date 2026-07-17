@@ -1,0 +1,263 @@
+"""CR-19 regression tests: ``_validate_systemroot`` fail-closed vs reset.
+
+The previous implementation logged at ``error`` level for every
+anomalous SystemRoot but always ``return``-ed, so startup continued
+even when a malicious ``SystemRoot`` could be a DLL-injection vector.
+
+The CR-19 fix introduces explicit fail-closed vs reset-to-default
+decisions:
+
+- Path traversal (``..``)             → ``sys.exit(1)`` (security)
+- Unusual characters (``<>|"&'\\n\\r\\t``) → ``sys.exit(1)`` (security)
+- Missing directory                   → reset to ``C:\\Windows`` + continue (usability)
+- Missing ``System32\\notepad.exe``   → log warning + continue (not a hard blocker)
+
+These tests mock ``is_windows()`` to True so the Windows-only code path
+is exercised on the Linux CI runner, and set ``SYSTEMROOT`` (all-caps,
+matching the env var name the function reads on Linux).
+
+See:
+- ``voice_typer/server/config.py:_validate_systemroot``
+- ``comprehensive-review.md`` finding CR-19
+"""
+
+import os
+
+import pytest
+
+
+@pytest.fixture
+def windows_env(monkeypatch):
+    """Mock ``is_windows()`` to True so the SystemRoot validation runs.
+
+    Yields the monkeypatch so individual tests can set additional env
+    vars / patches.  Uses ``SYSTEMROOT`` (all-caps) which is what the
+    function reads via ``os.environ.get("SYSTEMROOT", "")``.  On
+    Windows env var names are case-insensitive (``SystemRoot`` and
+    ``SYSTEMROOT`` are the same), but on the Linux CI runner they're
+    distinct — we must use the all-caps form to actually exercise the
+    validation code path.
+    """
+    from voice_typer.server import config
+
+    monkeypatch.setattr(config, "is_windows", lambda: True)
+    # Save and clear SYSTEMROOT so each test starts from a known state.
+    monkeypatch.delenv("SYSTEMROOT", raising=False)
+    return monkeypatch
+
+
+class TestSystemRootPathTraversalFailClosed:
+    """CR-19: path-traversal in SystemRoot → ``sys.exit(1)`` (fail-closed)."""
+
+    def test_traversal_in_systemroot_exits(self, windows_env):
+        """A SystemRoot containing ``..`` must abort startup (fail-closed)."""
+        from voice_typer.server.config import _validate_systemroot
+
+        windows_env.setenv("SYSTEMROOT", r"C:\Windows\..\..\attacker")
+        with pytest.raises(SystemExit) as exc_info:
+            _validate_systemroot()
+        assert exc_info.value.code == 1
+
+    def test_traversal_at_end_of_path_exits(self, windows_env):
+        """``..`` at the end of the path is also fail-closed."""
+        from voice_typer.server.config import _validate_systemroot
+
+        windows_env.setenv("SYSTEMROOT", r"C:\Windows\..")
+        with pytest.raises(SystemExit) as exc_info:
+            _validate_systemroot()
+        assert exc_info.value.code == 1
+
+    def test_traversal_does_not_reset_env_var(self, windows_env):
+        """On fail-closed exit, SystemRoot is NOT silently reset — the
+        user must see the startup abort and investigate.  (Silently
+        resetting would hide the attack.)"""
+        from voice_typer.server.config import _validate_systemroot
+
+        windows_env.setenv("SYSTEMROOT", r"C:\Windows\..\attacker")
+        with pytest.raises(SystemExit):
+            _validate_systemroot()
+        # The malicious value should still be there (not silently reset).
+        assert os.environ.get("SYSTEMROOT") == r"C:\Windows\..\attacker"
+
+
+class TestSystemRootUnusualCharsFailClosed:
+    """CR-19: unusual characters in SystemRoot → ``sys.exit(1)`` (fail-closed)."""
+
+    @pytest.mark.parametrize(
+        "bad_char",
+        ["<", ">", "|", '"', "&", "'", "\n", "\r", "\t"],
+    )
+    def test_unusual_char_exits(self, windows_env, bad_char):
+        """Each unusual character in SystemRoot must abort startup."""
+        from voice_typer.server.config import _validate_systemroot
+
+        # Insert the unusual char in an otherwise-valid Windows path.
+        bad_root = f"C:\\Win{bad_char}dows"
+        windows_env.setenv("SYSTEMROOT", bad_root)
+        with pytest.raises(SystemExit) as exc_info:
+            _validate_systemroot()
+        assert exc_info.value.code == 1
+
+
+def _make_fake_path(user_root, user_root_is_dir=False, default_is_dir=True, notepad_exists=True):
+    """Build a callable that mimics ``pathlib.Path`` for the specific
+    calls made by ``_validate_systemroot``.
+
+    The function uses ``Path(systemroot).is_dir()``,
+    ``Path(r"C:\\Windows").is_dir()``, and
+    ``Path(systemroot) / "System32" / "notepad.exe"`` then ``.exists()``.
+    This fake controls each branch's return value via the keyword args.
+    """
+    default_root = r"C:\Windows"
+
+    class _FakePathInstance:
+        def __init__(self, s):
+            self._s = str(s)
+
+        def __truediv__(self, other):
+            # Support chained division: Path(systemroot) / "System32" / "notepad.exe"
+            return _FakePathInstance(self._s + "\\" + str(other))
+
+        def is_dir(self):
+            if self._s == user_root:
+                return user_root_is_dir
+            if self._s == default_root:
+                return default_is_dir
+            return False
+
+        def exists(self):
+            # The notepad_path is Path(systemroot) / "System32" / "notepad.exe"
+            if "notepad.exe" in self._s:
+                return notepad_exists
+            return False
+
+        def __str__(self):
+            return self._s
+
+    return _FakePathInstance
+
+
+class TestSystemRootMissingDirResetToDefault:
+    """CR-19: missing directory → reset to ``C:\\Windows`` + continue."""
+
+    def test_missing_dir_resets_to_default(self, windows_env, monkeypatch):
+        """A SystemRoot pointing to a nonexistent directory should be
+        reset to ``C:\\Windows`` and startup should CONTINUE (not exit).
+
+        Rationale: a missing directory is a usability issue (e.g. user
+        moved their Windows installation), not a direct security issue.
+        Refusing to start would lock the user out of the app entirely.
+        """
+        from voice_typer.server import config
+
+        user_root = r"C:\Nonexistent\Path\12345"
+        windows_env.setenv("SYSTEMROOT", user_root)
+
+        # Mock Path so:
+        #   - the user-supplied path → is_dir()=False (missing)
+        #   - C:\Windows             → is_dir()=True  (so reset kicks in)
+        #   - notepad.exe            → exists()=True  (so we don't hit
+        #                                            the notepad branch)
+        fake_path = _make_fake_path(
+            user_root=user_root,
+            user_root_is_dir=False,
+            default_is_dir=True,
+            notepad_exists=True,
+        )
+        monkeypatch.setattr(config, "Path", fake_path)
+
+        # Should NOT raise SystemExit — the function returns normally
+        # after resetting SystemRoot to C:\Windows.
+        config._validate_systemroot()
+
+        # Verify SystemRoot was reset to the default.
+        assert os.environ.get("SYSTEMROOT") == r"C:\Windows"
+
+    def test_missing_dir_does_not_exit(self, windows_env, monkeypatch):
+        """Even if both the user-supplied path AND C:\\Windows are
+        missing, the function must NOT sys.exit — it just leaves
+        SystemRoot as-is and lets downstream Win32 APIs fail with
+        their own diagnostics (usability fallback)."""
+        from voice_typer.server import config
+
+        user_root = r"C:\Ghost\Path"
+        windows_env.setenv("SYSTEMROOT", user_root)
+
+        fake_path = _make_fake_path(
+            user_root=user_root,
+            user_root_is_dir=False,
+            default_is_dir=False,  # C:\Windows also missing
+            notepad_exists=False,
+        )
+        monkeypatch.setattr(config, "Path", fake_path)
+
+        # Must NOT raise SystemExit.
+        config._validate_systemroot()
+
+        # SystemRoot was not reset (because C:\Windows also "missing").
+        # It's left as the user-supplied value.
+        assert os.environ.get("SYSTEMROOT") == user_root
+
+
+class TestSystemRootMissingNotepadContinues:
+    """CR-19: missing ``System32\\notepad.exe`` → log warning + continue."""
+
+    def test_missing_notepad_does_not_exit(self, windows_env, monkeypatch):
+        """If SystemRoot exists but notepad.exe is missing, the
+        function must NOT exit — just log a warning.  The caller is
+        expected to use a hardcoded notepad fallback path."""
+        from voice_typer.server import config
+
+        user_root = r"C:\Windows"
+        windows_env.setenv("SYSTEMROOT", user_root)
+
+        fake_path = _make_fake_path(
+            user_root=user_root,
+            user_root_is_dir=True,  # directory exists
+            default_is_dir=True,
+            notepad_exists=False,  # notepad.exe missing
+        )
+        monkeypatch.setattr(config, "Path", fake_path)
+
+        # Must NOT raise SystemExit.
+        config._validate_systemroot()
+
+        # SystemRoot is left unchanged (not reset).
+        assert os.environ.get("SYSTEMROOT") == r"C:\Windows"
+
+
+class TestSystemRootNoopOnPosix:
+    """CR-19: ``_validate_systemroot`` is a no-op on non-Windows platforms.
+
+    (Sanity check — the CR-19 fix preserves this behavior.)
+    """
+
+    def test_noop_on_posix(self, monkeypatch):
+        """On Linux/macOS, the function returns immediately without
+        touching the SystemRoot env var."""
+        from voice_typer.server import config
+
+        # Force is_windows to False (the default on Linux CI, but be explicit).
+        monkeypatch.setattr(config, "is_windows", lambda: False)
+        monkeypatch.setenv("SYSTEMROOT", "irrelevant-on-posix")
+
+        # Must not raise.
+        config._validate_systemroot()
+
+        assert os.environ.get("SYSTEMROOT") == "irrelevant-on-posix"
+
+
+class TestSystemRootEmptyValueContinues:
+    """CR-19: empty SystemRoot value → log warning + return (no exit)."""
+
+    def test_empty_systemroot_continues(self, windows_env):
+        """An empty SystemRoot env var is unusual but not a direct
+        attack vector.  The function logs a warning and returns
+        without exiting."""
+        from voice_typer.server.config import _validate_systemroot
+
+        # Set SYSTEMROOT to an empty string (env var is set but empty).
+        windows_env.setenv("SYSTEMROOT", "")
+
+        # Must NOT raise SystemExit.
+        _validate_systemroot()
