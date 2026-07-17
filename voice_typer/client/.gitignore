@@ -8,3 +8,8 @@ storybook-static/
 # TS declaration stubs (emitted by tsc -b / composite builds) live in ./out
 # (see tsconfig.web.json outDir). Never commit in-source .d.ts artifacts.
 src/**/*.d.ts
+# Exception: hand-written ambient declarations are REQUIRED for typecheck
+# (e.g. globals.d.ts declares `*.css` so `import "./index.css"` side-effect
+# imports don't fail CI with TS2882). These are source, not build output.
+!src/renderer/src/globals.d.ts
+!src/renderer/src/vite-env.d.ts
