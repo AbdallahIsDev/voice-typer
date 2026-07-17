@@ -249,14 +249,32 @@ class StartupSequence:
 
         # DEAD-012: apply history retention policy at startup.
         # Previously the config keys were saved but never read.
-        try:
-            app.history_db.apply_retention(
-                retention_days=app.config.history_retention_days,
-                max_entries=app.config.history_max_entries,
-                retention_count=app.config.history_retention_count,
-            )
-        except Exception:
-            log.debug("[STARTUP] History retention apply failed")
+        # PERF-14: spawn a daemon thread so the SQLite DELETEs (which
+        # can take 100ms+ on a large history DB with index rebuilds)
+        # don't block the startup critical path to hotkey registration
+        # + model load. Retention is best-effort housekeeping — a
+        # 100ms delay before stale entries are pruned is invisible to
+        # the user, but a 100ms delay before F2 works is not. The
+        # thread is a daemon so it never blocks process exit, and the
+        # inner try/except ensures any DB error is swallowed (the
+        # next startup will retry).
+        import threading as _threading
+
+        def _apply_retention_bg() -> None:
+            try:
+                app.history_db.apply_retention(
+                    retention_days=app.config.history_retention_days,
+                    max_entries=app.config.history_max_entries,
+                    retention_count=app.config.history_retention_count,
+                )
+            except Exception:
+                log.debug("[STARTUP] History retention apply failed")
+
+        _threading.Thread(
+            target=_apply_retention_bg,
+            name="history-retention-apply",
+            daemon=True,
+        ).start()
 
         # PLAT-WAYLAND / XPLAT-004: Warn if running on Wayland and
         # suggest wtype/ydotool as fallback for global hotkeys.

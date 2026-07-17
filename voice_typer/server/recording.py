@@ -2283,14 +2283,14 @@ class Recorder:
         # before dropping.
         ring_maxlen = self._ring_buffer.maxlen
         if ring_maxlen is not None and len(self._ring_buffer) >= ring_maxlen:
+            # AUDIO-1: increment counters only (atomic under GIL). The
+            # log.warning() was removed from this PortAudio RT callback
+            # — logging I/O here can take ms and risks an overrun against
+            # the 32ms deadline. The counters are surfaced later by the
+            # worker thread / diagnostics paths (e.g. _finalize_audio_quality_report
+            # and the AUDIO-019 backpressure warning in _process_audio_chunk).
             self._dropped_ring_chunks += 1
             self._skipped_frames += 1  # preserve old counter for diagnostics
-            if self._dropped_ring_chunks == 1 or self._dropped_ring_chunks % 100 == 0:
-                log.warning(
-                    "[RECORDING] Audio ring buffer full — evicting oldest "
-                    "chunk (total=%d). Worker thread cannot keep up.",
-                    self._dropped_ring_chunks,
-                )
 
         # Push (copy, frames, time_info, status, perf_timestamp) to the
         # ring buffer. The timestamp is captured here (not in the worker)
@@ -2389,44 +2389,16 @@ class Recorder:
                 ).start()
             return
 
-        # AUDIO-HOT: periodic device availability check — verify
-        # the current device is still present in sd.query_devices().
-        # This catches cases where PortAudio doesn't deliver zeros
-        # but the device is already gone (e.g. USB unplug on some
-        # drivers). Runs every ~500 chunks to avoid per-chunk overhead.
-        self._device_check_counter += 1
-        if self._device_check_counter >= self._device_check_interval:
-            self._device_check_counter = 0
-            # RW-7: skip the periodic check if we've already detected a
-            # disconnect and scheduled a handler — avoids spawning a
-            # redundant device-disconnect-check thread every 500 chunks
-            # during the retry window. The flag is cleared by
-            # _handle_device_disconnect on successful restart.
-            if not self._device_disconnected:
-                try:
-                    current_device = self._resolve_device()
-                    if current_device is not None:
-                        try:
-                            sd.query_devices(current_device)
-                        except Exception:
-                            # HOTKEY-CRASH: double-check recording is still active
-                            if not self._recording_event.is_set():
-                                return
-                            log.warning(
-                                "[RECORDING] Current device no longer available in query_devices — disconnect detected"
-                            )
-                            self._device_disconnected = True
-                            _captured_gen = self._stop_generation
-                            with contextlib.suppress(Exception):
-                                threading.Thread(
-                                    target=self._handle_device_disconnect,
-                                    kwargs={"_captured_generation": _captured_gen},
-                                    name="device-disconnect-check",
-                                    daemon=True,
-                                ).start()
-                            return
-                except Exception:
-                    pass
+        # AUDIO-2: the per-N-chunks blocking ``sd.query_devices()``
+        # probe on the audio worker thread was removed — it is fully
+        # redundant with ``_device_health_checker_loop`` (a dedicated
+        # daemon thread that wakes every ``_device_check_interval_s``
+        # and runs the same ``sd.query_devices(current_device)`` probe
+        # with the same disconnect-handling logic). Running the probe
+        # here cost a blocking RPC on the audio hot path every ~500
+        # chunks; the health-checker thread covers the case off the
+        # hot path. See ``_device_health_checker_loop`` and
+        # ``_start_device_health_checker``.
 
         # NOTE: Dead-air timeout was REMOVED in RW-0.
         # Redundant with stop_on_silence_seconds (auto-stop already resets on
@@ -2489,11 +2461,20 @@ class Recorder:
         # alternative (holding the lock while calling user code)
         # risks deadlocks.
         with self._lock:
-            # Store FILTERED audio so the transcriber receives
-            # the cleaned signal. The .copy() is needed because
-            # the filter chain may return the same array (passthrough
-            # mode), and the buffer must own its data.
-            self._buffer.append(filtered.copy())
+            # Store FILTERED audio so the transcriber receives the
+            # cleaned signal. PERF-12: ``filtered`` is already an
+            # owned array — in the processor branch,
+            # ``process_chunk`` is called with ``indata_mono.copy()``
+            # and either returns that same owned copy (passthrough)
+            # or a fresh array from the filter chain. In the
+            # no-processor branch, ``indata_mono`` is either the
+            # owned ``chunk_copy`` (ndim==1), a fresh ``np.mean``
+            # result (multi-channel downmix), or a view of
+            # ``chunk_copy`` (reshape); numpy views keep their base
+            # alive via ``.base``, so the buffer safely owns its
+            # data without a redundant ``.copy()`` here (saves
+            # ~2KB alloc/chunk at 16Hz).
+            self._buffer.append(filtered)
             self._chunk_count += 1
             chunk_count = self._chunk_count
             buffer_len = len(self._buffer)
@@ -2604,7 +2585,17 @@ class Recorder:
                 except queue.Full:
                     pass  # worker fell behind — drop this telemetry event
 
-        recent_rms.append(chunk_rms)
+        # AUDIO-3 / PERF-11: append to the live deque (atomic under
+        # GIL — ``deque.append`` is a single C-level op with no torn
+        # state). Pre-fix this wrote to ``recent_rms`` (the snapshot
+        # list taken inside the lock above), which was a dead write —
+        # the snapshot is never read after this point, so the deque
+        # stayed empty and the snapshot was always ``[]``. Writing to
+        # the deque makes the snapshot meaningful for any future
+        # consumer that reads rolling RMS (e.g. waveform bubble, VAD
+        # auto-calibration) and removes ~800 wasted list.append
+        # allocs/s.
+        self._recent_rms_values.append(chunk_rms)
 
         # AUDIO-014: auto-calibrate VAD thresholds from ambient noise
         self._vad_auto_calibrate(chunk_rms, chunk_duration)
