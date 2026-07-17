@@ -26,6 +26,9 @@ the paste target appears to be a rich editor (e.g. Word, LibreOffice).
 
 import contextlib
 import logging
+import os
+import shutil
+import subprocess
 import threading
 import time
 from typing import Any
@@ -33,7 +36,7 @@ from typing import Any
 import pyperclip
 
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
-from voice_typer.server.platform_utils import is_macos, is_windows
+from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger(__name__)
 
@@ -110,6 +113,142 @@ _RICH_EDITOR_PROCESS_NAMES: set[str] = {
     "notion.exe",
     "obsidian.exe",
 }
+
+
+# ─── ADR-0020 §6.6: Wayland clipboard fallback (wl-copy / wl-paste) ────
+#
+# On Wayland, `pyperclip.copy()` does NOT work reliably — pyperclip
+# auto-detects xclip / xsel which are X11-only and silently no-op under
+# native Wayland apps. ADR-0020 §6.6 mandates the clipboard + Ctrl+V
+# fallback path via `wl-copy` / `wl-paste` (provided by the `wl-clipboard`
+# package) when `WAYLAND_DISPLAY` is set and we're on Linux.
+#
+# These helpers are best-effort: if `wl-clipboard` is not installed, the
+# caller falls back to `pyperclip` (which still works under XWayland
+# sessions where both X11 and Wayland clients are talking to the same
+# compositor). The runbook (linux-validation-runbook.md §5/§6) lists
+# `wl-clipboard` as a required system dep on both X11 and Wayland hosts
+# because the same binary runs on both session types.
+
+
+def _is_wayland_session() -> bool:
+    """Return True if running on a Linux Wayland session.
+
+    Detection: `WAYLAND_DISPLAY` is set AND we're on Linux. This is the
+    same heuristic `tauri-plugin-clipboard-manager` uses per ADR-0020 §6.6.
+
+    Note: a Wayland session typically also has `DISPLAY` set (for
+    XWayland), so checking only `DISPLAY` is insufficient. We check
+    `WAYLAND_DISPLAY` first.
+    """
+    if not is_linux():
+        return False
+    return bool(os.environ.get("WAYLAND_DISPLAY"))
+
+
+def _have_wl_clipboard() -> bool:
+    """Return True if both `wl-copy` and `wl-paste` are on PATH."""
+    return bool(shutil.which("wl-copy") and shutil.which("wl-paste"))
+
+
+def _linux_wayland_copy(text: str) -> None:
+    """Copy text to the Wayland clipboard via `wl-copy`.
+
+    Raises ``RuntimeError`` if `wl-copy` is missing or exits non-zero.
+    The text is piped to wl-copy's stdin so it works for arbitrary
+    Unicode (no shell escaping concerns).
+    """
+    if not text:
+        # `wl-copy` with no args clears the clipboard; that matches our
+        # "empty text → no-op" semantics in ClipboardManager.copy().
+        return
+    proc = subprocess.run(
+        ["wl-copy", "--", text],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        raise RuntimeError(f"wl-copy exited with {proc.returncode}: {stderr.strip()}")
+
+
+def _linux_wayland_paste() -> str:
+    """Read text from the Wayland clipboard via `wl-paste`.
+
+    Returns the clipboard text (may be empty). Raises ``RuntimeError``
+    if `wl-paste` is missing or exits non-zero.
+    """
+    proc = subprocess.run(
+        ["wl-paste", "--no-newline"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+    )
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
+        raise RuntimeError(f"wl-paste exited with {proc.returncode}: {stderr.strip()}")
+    return proc.stdout.decode("utf-8", errors="replace")
+
+
+def _linux_copy(text: str) -> None:
+    """Copy text to the clipboard on Linux, choosing the right backend.
+
+    On Wayland with wl-clipboard installed: use `wl-copy` (native
+    Wayland clipboard).
+
+    Otherwise: fall back to `pyperclip.copy()` (uses xclip/xsel on X11,
+    or the XWayland bridge under a Wayland session if X11 tools are
+    present).
+    """
+    if _is_wayland_session() and _have_wl_clipboard():
+        try:
+            _linux_wayland_copy(text)
+            return
+        except Exception as exc:
+            log.warning("[CLIPBOARD] wl-copy failed (%s) — falling back to pyperclip", exc)
+    pyperclip.copy(text)
+
+
+def _linux_paste() -> str:
+    """Read clipboard text on Linux, choosing the right backend.
+
+    Mirrors :func:`_linux_copy` — uses `wl-paste` on Wayland when
+    available, otherwise `pyperclip.paste()`.
+    """
+    if _is_wayland_session() and _have_wl_clipboard():
+        try:
+            return _linux_wayland_paste()
+        except Exception as exc:
+            log.warning("[CLIPBOARD] wl-paste failed (%s) — falling back to pyperclip", exc)
+    return pyperclip.paste()
+
+
+def _copy_to_clipboard(text: str) -> None:
+    """Platform-aware clipboard copy dispatcher.
+
+    On Linux: routes through :func:`_linux_copy` (Wayland-aware).
+    On Windows / macOS: calls ``pyperclip.copy(text)`` directly (the
+    Win32 / AppKit backend handles both, no wl-clipboard equivalent).
+
+    Tests that monkeypatch ``clipboard.pyperclip`` continue to work
+    because the Linux branch only short-circuits to ``wl-copy`` when
+    ``WAYLAND_DISPLAY`` is set — headless test environments fall through
+    to ``pyperclip.copy`` unchanged.
+    """
+    if is_linux():
+        _linux_copy(text)
+    else:
+        pyperclip.copy(text)
+
+
+def _paste_from_clipboard() -> str:
+    """Platform-aware clipboard read dispatcher (mirrors _copy_to_clipboard)."""
+    if is_linux():
+        return _linux_paste()
+    return pyperclip.paste()
 
 
 # ─── PLAT-027: Win32Clipboard abstraction ─────────────────────────────
@@ -780,9 +919,12 @@ class ClipboardManager:
             _win32_empty_clipboard()
 
             # ③ COPY TEXT (existing PLAT-007 retry on ERROR_ACCESS_DENIED).
+            # ADR-0020 §6.6: on Linux Wayland, route through _copy_to_clipboard
+            # which uses `wl-copy` instead of pyperclip's xclip/xsel (which
+            # are X11-only and silently no-op under native Wayland apps).
             for attempt in range(3):
                 try:
-                    pyperclip.copy(text)
+                    _copy_to_clipboard(text)
                     break
                 except OSError as copy_err:
                     # ERROR_ACCESS_DENIED = 5 on Windows. pyperclip wraps
@@ -797,7 +939,7 @@ class ClipboardManager:
             # ④ VERIFY (existing PLAT-PASTEVR).
             for verify_attempt in range(3):
                 try:
-                    actual = pyperclip.paste()
+                    actual = _paste_from_clipboard()
                     if actual == text:
                         break
                     log.warning(
@@ -806,7 +948,7 @@ class ClipboardManager:
                         len(text),
                         len(actual) if actual else 0,
                     )
-                    pyperclip.copy(text)
+                    _copy_to_clipboard(text)
                 except Exception:
                     pass  # pyperclip.paste() may not be supported on all platforms
             else:
@@ -1058,7 +1200,10 @@ class ClipboardManager:
         try:
             time.sleep(delay)
             try:
-                current = pyperclip.paste()
+                # ADR-0020 §6.6: on Linux Wayland, _paste_from_clipboard
+                # uses `wl-paste` so the defensive check actually reads
+                # the Wayland clipboard (pyperclip.paste() would no-op).
+                current = _paste_from_clipboard()
             except Exception:
                 current = None
             if current == pasted_text:
