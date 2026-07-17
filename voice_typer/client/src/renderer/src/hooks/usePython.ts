@@ -1,6 +1,6 @@
 // src/renderer/src/hooks/usePython.ts
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 type EventCallback = (event: {
 	type: string;
@@ -16,6 +16,126 @@ interface WindowWithPython {
 		onEvent: (callback: EventCallback) => () => void;
 	};
 }
+
+// ─── CR-18: per-command timeout table ────────────────────────────────
+//
+// A blanket 120s `setTimeout` is applied to every IPC call by the
+// Electron main process's `sendToPython` (client/src/main/index.ts:
+// 507-644) and by the Rust `dispatch` command (src-tauri/src/main.rs:
+// 522-552). A `get_status` call that hangs takes 120s to surface an
+// error; the 120s timer is created even for trivial commands.
+//
+// The renderer's `call` function (below) wraps the underlying bridge
+// call in a `Promise.race` against a per-command timeout, so:
+//   - `get_status` / `get_config` surface a hang in 5s instead of 120s.
+//   - `download_model` is allowed up to 10 minutes (large model files
+//     over slow links).
+//   - Unknown commands default to 30s (a reasonable middle ground).
+//
+// The underlying bridge promise may still resolve later (the Electron
+// main / Rust host's 120s timer is still active on their side), but the
+// caller sees the renderer-side timeout rejection first.
+const COMMAND_TIMEOUTS: Record<string, number> = {
+	get_status: 5_000,
+	get_config: 5_000,
+	get_history: 10_000,
+	download_model: 600_000, // 10 minutes
+	transcribe: 120_000, // 2 minutes
+};
+
+const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+
+/**
+ * Returns the per-command timeout (ms) for the given IPC command name.
+ * Falls back to {@link DEFAULT_COMMAND_TIMEOUT_MS} for unknown commands.
+ *
+ * Exported for unit testing (see `__tests__/command-timeouts.test.ts`).
+ */
+export function getTimeout(cmd: string): number {
+	return COMMAND_TIMEOUTS[cmd] ?? DEFAULT_COMMAND_TIMEOUT_MS;
+}
+
+/**
+ * Wraps a promise with a per-command timeout. If the promise does not
+ * settle within `getTimeout(cmd)` ms, the returned promise rejects with
+ * an `Error` of the form `IPC command "<cmd>" timed out after <ms>ms`.
+ *
+ * The timeout timer is cleared when the underlying promise settles first
+ * (so we don't leak a `setTimeout` reference).
+ */
+function withCommandTimeout<T>(promise: Promise<T>, cmd: string): Promise<T> {
+	const timeoutMs = getTimeout(cmd);
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => {
+			reject(new Error(`IPC command "${cmd}" timed out after ${timeoutMs}ms`));
+		}, timeoutMs);
+	});
+	return Promise.race([promise, timeoutPromise]).finally(() => {
+		if (timer) clearTimeout(timer);
+	});
+}
+
+// ─── CR-6: bridge-ready subscription via useSyncExternalStore ────────
+//
+// `usePythonEvent` previously returned early from its `useEffect` when
+// `window.python` was undefined at mount, and the effect's only
+// dependency was `[type]` — so if `window.python` was installed later
+// (e.g. by the Tauri bridge's auto-install on first import, or by the
+// Electron preload under slow HMR), the subscription was never
+// re-attempted and events were silently dropped.
+//
+// `useBridgeReady` polls `window.python` presence every 100ms until it
+// appears, then notifies React via the `useSyncExternalStore` callback.
+// Including `bridgeReady` in the effect's dependency array causes the
+// effect to re-run when `window.python` becomes available, so the
+// subscription is created lazily on first bridge availability.
+function subscribeBridgeReady(callback: () => void): () => void {
+	// Poll every 100ms until window.python is available, then stop.
+	// The interval self-clears on first detection to avoid leaking a
+	// timer once the bridge is installed.
+	//
+	// If `window.python` is already set at subscribe time, the first
+	// tick (≤100ms later) detects it and calls `callback()`. React
+	// re-renders, `getSnapshot()` returns the same `true`, and the
+	// effect (which already ran with `bridgeReady=true` on the
+	// initial render) does not re-run — so the no-op re-render is
+	// harmless.
+	const interval = setInterval(() => {
+		if (typeof window.python !== "undefined") {
+			callback();
+			clearInterval(interval);
+		}
+	}, 100);
+	return () => clearInterval(interval);
+}
+
+function getBridgeReadySnapshot(): boolean {
+	return typeof window.python !== "undefined";
+}
+
+function getBridgeReadyServerSnapshot(): boolean {
+	// During SSR (no `window`), the bridge is never ready. Vitest's
+	// jsdom env always has `window`, so this only fires in true SSR.
+	return false;
+}
+
+/**
+ * Returns `true` once `window.python` is installed (by the Electron
+ * preload script or by `installTauriBridge()`). Re-render-safe via
+ * `useSyncExternalStore`: the snapshot is a stable boolean.
+ *
+ * Used by {@link usePythonEvent} to re-attempt the event subscription
+ * when the bridge becomes available after mount (CR-6).
+ */
+export function useBridgeReady(): boolean {
+	return useSyncExternalStore(
+		subscribeBridgeReady,
+		getBridgeReadySnapshot,
+		getBridgeReadyServerSnapshot,
+	);
+}
+
 export function usePython() {
 	const call = useCallback(
 		async <T = unknown>(
@@ -24,10 +144,16 @@ export function usePython() {
 		): Promise<T> => {
 			const api = (window as unknown as WindowWithPython).python;
 			if (!api) throw new Error("Python bridge not available");
-			const result = (await api.call({ type, data })) as Record<
-				string,
-				unknown
-			>;
+			// CR-18: race the underlying bridge call against a per-command
+			// timeout so a hung trivial command (e.g. `get_status`) surfaces
+			// an error in seconds instead of the prior blanket 120s timeout
+			// imposed by the Electron main / Rust host. The underlying
+			// promise may still resolve later; the caller sees the timeout
+			// rejection first.
+			const result = (await withCommandTimeout(
+				api.call({ type, data }),
+				type,
+			)) as Record<string, unknown>;
 			// NEW-IPC-107 (d-review NEW-IPC-007): handle BOTH error
 			// envelope shapes that can flow back over the Electron
 			// path, surfacing each as a real JS Error so callers
@@ -105,14 +231,29 @@ export function usePythonEvent(
 	const handlerRef = useRef(handler);
 	handlerRef.current = handler;
 
+	// CR-6: track `window.python` presence so the effect re-runs when the
+	// bridge becomes available after mount. Previously the effect's only
+	// dependency was `[type]`, so if `window.python` was unset at mount
+	// (e.g. slow preload / late Tauri bridge install), the subscription
+	// was never re-attempted and events were silently dropped.
+	const bridgeReady = useBridgeReady();
+
 	useEffect(() => {
+		// CR-6: short-circuit until the bridge is installed. Without this
+		// guard the effect would call `api.onEvent` on a still-undefined
+		// `window.python` and silently drop the subscription; including
+		// `bridgeReady` in the dep array (below) is what makes React
+		// re-run this effect once the bridge comes online.
+		if (!bridgeReady) return;
 		const api = (window as unknown as WindowWithPython).python;
-		if (!api) return;
+		if (!api) return; // defensive double-check (bridgeReady mirrors window.python presence)
 
 		return api.onEvent((event) => {
 			if (event.type === type) {
 				handlerRef.current(event.data);
 			}
 		});
-	}, [type]);
+		// `bridgeReady` is included so the effect re-subscribes when
+		// `window.python` becomes available post-mount.
+	}, [type, bridgeReady]);
 }

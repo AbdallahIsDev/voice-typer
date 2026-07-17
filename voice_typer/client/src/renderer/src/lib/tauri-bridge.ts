@@ -214,9 +214,25 @@ export function installTauriBridge(): void {
 	};
 
 	// ─── window.bubble ───────────────────────────────────────────
-	// Only `onLevel` is wired (the core bubble function). The other
-	// APIs are stubbed with no-ops; they require Rust-side
-	// window-management commands that are out of scope for the MVP.
+	// MIG-1.2: `onLevel` listens to the `bubble_level` Tauri event
+	// (coalesced to ≤30 Hz by main.rs:427-442). The 6 mutator methods
+	// (`show`, `signalReady`, `setPosition`, `setDraggable`, `moveBy`,
+	// `hideComplete`) invoke Rust window-management commands added in
+	// MIG-1.2. Each fires-and-forgets — the return type is `void` per
+	// the MainRendererBubble contract, matching the Electron preload
+	// (which uses `ipcRenderer.send`, also void). The Rust commands
+	// update the bubble BrowserWindow state asynchronously.
+	//
+	// `setPosition` accepts `(x, y)` numeric coordinates on the Tauri
+	// path (the Rust `bubble_set_position` command takes `{x, y}` and
+	// moves the window to absolute screen coords). The Electron preload
+	// accepts `(pos: "top" | "bottom")` instead. The TS type signature
+	// widens `x` to `number | string` so the same bridge assignment
+	// satisfies the `MainRendererBubble` contract (which declares
+	// `(pos: string) => void`) AND accepts the numeric shape used by
+	// the Rust command. Parameter contravariance under
+	// `strictFunctionTypes` makes `(x: number | string, y?: number)`
+	// assignable to `(pos: string)` because `string ⊆ number | string`.
 	const bubble: MainRendererBubble = {
 		onLevel: (callback) => {
 			let unlisten: (() => void) | null = null;
@@ -241,19 +257,47 @@ export function installTauriBridge(): void {
 			};
 		},
 		show: () => {
-			/* TODO: Tauri bubble window show command */
+			// MIG-1.2: show the bubble BrowserWindow. The Rust
+			// `bubble_show` command makes the bubble window visible +
+			// moves it to the top of the z-order. Fire-and-forget —
+			// matches Electron's `ipcRenderer.send("bubble:show-from-renderer")`.
+			void tauri.core.invoke("bubble_show");
 		},
 		signalReady: () => {
-			/* TODO: Tauri bubble signalReady command */
+			// MIG-1.2: signal that the bubble renderer has mounted and
+			// is ready to receive `bubble_level` events. Matches
+			// Electron's `ipcRenderer.send("bubble:ready")`.
+			void tauri.core.invoke("bubble_signal_ready");
 		},
-		setPosition: () => {
-			/* TODO: Tauri bubble setPosition command */
+		setPosition: (x: number | string, y?: number) => {
+			// MIG-1.2: move the bubble window to absolute screen
+			// coordinates. The Rust `bubble_set_position` command takes
+			// `{x, y}` numerics. The `y ?? 0` default handles the
+			// legacy `setPosition("top" | "bottom")` call shape from
+			// `useConnection.ts:117` (which passes a string and no y);
+			// on the Tauri path the renderer is expected to pass
+			// numeric coords (the legacy string shape is a no-op on
+			// Tauri — the Rust command will reject non-numeric x).
+			void tauri.core.invoke("bubble_set_position", {
+				x,
+				y: y ?? 0,
+			});
 		},
-		setDraggable: () => {
-			/* TODO: Tauri bubble setDraggable command */
+		setDraggable: (draggable: boolean) => {
+			// MIG-1.2: toggle whether the bubble window can be dragged.
+			// Matches Electron's `ipcRenderer.send("bubble:draggable", draggable)`.
+			void tauri.core.invoke("bubble_set_draggable", { draggable });
 		},
-		moveBy: () => {
-			/* TODO */
+		moveBy: (deltaX: number, deltaY: number) => {
+			// MIG-1.2: nudge the bubble window by a relative delta
+			// (keyboard-based move — NEW-A11Y-006). The Rust command
+			// takes `{dx, dy}` (renamed from the renderer's `deltaX`/
+			// `deltaY` to match the snake_case Rust convention).
+			// Matches Electron's `ipcRenderer.send("bubble:move-by", {deltaX, deltaY})`.
+			void tauri.core.invoke("bubble_move_by", {
+				dx: deltaX,
+				dy: deltaY,
+			});
 		},
 		onShow: (callback) => {
 			let unlisten: (() => void) | null = null;
@@ -309,13 +353,25 @@ export function installTauriBridge(): void {
 			};
 		},
 		hideComplete: () => {
-			/* TODO */
+			// MIG-1.2: notify the host that the bubble's exit animation
+			// has finished and the window can be hidden. Matches
+			// Electron's `ipcRenderer.send("bubble:hidden")`.
+			void tauri.core.invoke("bubble_hide_complete");
 		},
 	};
 
 	// ─── window.window_ ──────────────────────────────────────────
 	// Basic window controls via Tauri's core window API. Export/dialog
-	// APIs are stubbed (they require Electron's dialog module).
+	// APIs (MIG-1.1) invoke the Rust `export_history` / `export_vocabulary`
+	// commands which use `tauri-plugin-dialog`'s save dialog. The return
+	// shape matches the Electron preload exactly:
+	//   - success → `{success: true, path: string}`
+	//   - user canceled → `{success: false}` (no path, no error)
+	//   - error → `{success: false, error: string}`
+	// The Rust command returns `{canceled: true}` on cancel (mapped to
+	// `{success: false}` here) or throws on error (caught and mapped to
+	// `{success: false, error}`). This keeps the renderer code (History.tsx
+	// and Vocabulary.tsx export buttons) unchanged on both paths.
 	const tauriWindow = tauri.window.getCurrentWindow();
 	const window_: WindowBridge = {
 		minimize: () => tauriWindow.minimize(),
@@ -348,16 +404,66 @@ export function installTauriBridge(): void {
 				}
 			};
 		},
-		// Export/dialog APIs are Electron-specific — stub with rejections
-		// so callers get a clear error instead of a silent no-op.
-		exportHistory: async () => ({
-			success: false,
-			error: "Export not supported in Tauri mode yet",
-		}),
-		exportVocabulary: async () => ({
-			success: false,
-			error: "Export not supported in Tauri mode yet",
-		}),
+		// MIG-1.1: invoke the Rust `export_history` command, which opens
+		// `tauri-plugin-dialog`'s save dialog and writes the file. The
+		// renderer call sites (History.tsx export button) are unchanged
+		// because the return shape matches Electron's `history:export`
+		// IPC handler (`{success, path?, error?}`).
+		exportHistory: async (data, format) => {
+			try {
+				const result = await tauri.core.invoke<{
+					success?: boolean;
+					path?: string;
+					canceled?: boolean;
+					error?: string;
+				}>("export_history", { data, format });
+				if (result?.canceled) {
+					// User dismissed the save dialog — matches Electron's
+					// `{success: false}` (no error, no path).
+					return { success: false };
+				}
+				if (result?.error) {
+					return { success: false, error: result.error };
+				}
+				return {
+					success: Boolean(result?.success),
+					path: result?.path,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+		// MIG-1.1: invoke the Rust `export_vocabulary` command. Same
+		// return-shape mapping as `exportHistory`. The renderer call
+		// site (Vocabulary.tsx export button) is unchanged.
+		exportVocabulary: async (data, format) => {
+			try {
+				const result = await tauri.core.invoke<{
+					success?: boolean;
+					path?: string;
+					canceled?: boolean;
+					error?: string;
+				}>("export_vocabulary", { data, format });
+				if (result?.canceled) {
+					return { success: false };
+				}
+				if (result?.error) {
+					return { success: false, error: result.error };
+				}
+				return {
+					success: Boolean(result?.success),
+					path: result?.path,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
 	};
 
 	window.python = python;
