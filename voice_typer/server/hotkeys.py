@@ -2092,11 +2092,12 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
       Falls back to ``WindowsNativeHotkey`` (GetAsyncKeyState polling)
       if the native binary is missing, and to ``PynputHotkey`` if Win32
       is unavailable.
-    - Linux/Wayland: ``LinuxEvdevHotkey`` (C binary using
-      ``/dev/input/event*``). Falls back to ``WaylandHotkey`` (Unix
-      socket) if the native binary is missing.
-    - Linux/X11: ``LinuxEvdevHotkey`` preferred (works on both X11 and
-      Wayland); falls back to ``PynputHotkey`` if missing.
+    - Linux/Wayland: Linux evdev native binary (the C binary reading
+      ``/dev/input/event*``, subprocess-wrapped via
+      ``native_hotkeys.SubprocessHotkeyBackend``). Falls back to
+      ``WaylandHotkey`` (Unix socket) if the native binary is missing.
+    - Linux/X11: Linux evdev native binary preferred (works on both X11
+      and Wayland); falls back to ``PynputHotkey`` if missing.
 
     The native backends are preferred because they support:
     - The FN key on macOS (firmware-level on Windows/Linux)
