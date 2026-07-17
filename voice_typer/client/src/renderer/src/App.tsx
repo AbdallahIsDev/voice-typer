@@ -455,6 +455,9 @@ export default function App() {
 					// NEW-TS-007: pass isMaximized down so TitleBar doesn't need
 					// its own subscription to bridge.onMaximizedChanged.
 					isMaximized={isMaximized}
+					// UX-8: surface the "?" help overlay as a TitleBar button so
+					// it's reachable without the keyboard shortcut.
+					onOpenHelp={() => setShowHelpOverlay(true)}
 				/>
 
 				<div className="flex min-h-0 flex-1">

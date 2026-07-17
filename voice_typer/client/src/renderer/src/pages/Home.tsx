@@ -514,7 +514,7 @@ export default function Home({
 				<button
 					type="button"
 					onClick={handleToggle}
-					disabled={toggling}
+					disabled={toggling || recordingState === "loading"}
 					aria-label={
 						isRecording ? t("home.stopDictation") : t("home.startDictation")
 					}

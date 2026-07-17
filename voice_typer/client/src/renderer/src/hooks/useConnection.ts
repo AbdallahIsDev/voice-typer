@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
-import { type ConnectionStatus, useAppStore } from "@/stores/appStore";
+import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page, RecordingState } from "@/types/ipc";
 
@@ -237,7 +237,10 @@ export function useConnection({
 	usePythonEvent(
 		"reconnecting",
 		useCallback(
-			() => setConnectionStatus("restarting" as ConnectionStatus),
+			// UX-22: `"restarting"` is a member of the ConnectionStatus
+			// union (see appStore.ts), so the `as ConnectionStatus` cast
+			// was redundant dead code.
+			() => setConnectionStatus("restarting"),
 			[setConnectionStatus],
 		),
 	);

@@ -12,6 +12,11 @@ interface TitleBarProps {
 	canGoBack?: boolean;
 	canGoForward?: boolean;
 	isMaximized?: boolean;
+	// UX-8: open the keyboard-shortcut help overlay. Previously the
+	// overlay was only reachable via the "?" key — invisible to users
+	// who never discover that shortcut. Exposing a TitleBar button
+	// makes the overlay discoverable for mouse + keyboard users alike.
+	onOpenHelp?: () => void;
 }
 
 function MinimizeIcon() {
@@ -126,6 +131,7 @@ export function TitleBar({
 	canGoBack,
 	canGoForward,
 	isMaximized: isMaximizedProp,
+	onOpenHelp,
 }: TitleBarProps) {
 	const [localIsMaximized, setLocalIsMaximized] = useState(false);
 	const bridge =
@@ -232,6 +238,27 @@ export function TitleBar({
 						strokeLinejoin="round"
 					/>
 				</svg>
+			</button>
+
+			{/* UX-8: discoverable "?" help button. Mirrors the "?"
+			    keyboard shortcut (handled in App.tsx) so mouse users and
+			    AT users can also open the keyboard-shortcut overlay. */}
+			<button
+				type="button"
+				onClick={onOpenHelp}
+				aria-label={t("help.openHelp")}
+				title={t("help.openHelp")}
+				className={cn(
+					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
+					"text-(--text-muted) transition-colors duration-75",
+					"hover:bg-black/5 hover:text-(--text-primary)",
+					"dark:hover:bg-white/5",
+					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
+				)}
+			>
+				<span aria-hidden className="text-[13px] font-semibold leading-none">
+					?
+				</span>
 			</button>
 
 			<div className="flex-1" />

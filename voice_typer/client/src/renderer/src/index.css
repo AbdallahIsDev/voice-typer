@@ -146,7 +146,12 @@
 	--surface-page: var(--background);
 	--surface-hover: oklch(0.93 0 0);
 	--text-primary: var(--foreground);
-	--text-muted: var(--muted-foreground);
+	/* A11Y-8: bump light-mode --text-muted from var(--muted-foreground)
+	   (oklch(0.552 0.016 285.938), ~4.0:1 contrast on white) to
+	   oklch(0.48 0 0) (~4.6:1 contrast on white) to clear WCAG AA 4.5:1.
+	   Dark mode is unaffected — its var(--muted-foreground) already
+	   has strong contrast against the dark background. */
+	--text-muted: oklch(0.48 0 0);
 	--text-secondary: oklch(0.45 0 0);
 	--accent: var(--primary);
 	--accent-foreground: var(--primary-foreground);

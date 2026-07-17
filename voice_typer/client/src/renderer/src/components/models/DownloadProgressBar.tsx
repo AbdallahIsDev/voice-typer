@@ -67,7 +67,14 @@ export function DownloadProgressBar({
 }: DownloadProgressBarProps) {
 	return (
 		<div className="space-y-2">
-			<div className="h-1.5 w-full rounded-full bg-border overflow-hidden">
+			<div
+				className="h-1.5 w-full rounded-full bg-border overflow-hidden"
+				role="progressbar"
+				aria-label="Model download progress"
+				aria-valuemin={0}
+				aria-valuemax={100}
+				aria-valuenow={Math.round(progress)}
+			>
 				<div
 					className={`h-full rounded-full transition-all duration-300 ${
 						isPaused ? "bg-amber-500" : "bg-accent"

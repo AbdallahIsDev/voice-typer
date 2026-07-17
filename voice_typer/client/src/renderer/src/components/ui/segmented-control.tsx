@@ -220,6 +220,11 @@ export function SegmentedControl<T extends string>({
 						className={cn(
 							"relative z-10 cursor-pointer font-normal outline-none transition-colors duration-150",
 							"select-none whitespace-nowrap inline-flex items-center justify-center",
+							// A11Y-1: visible focus indicator on the wrapping label so keyboard
+							// users see which segmented-control option has focus (the inner
+							// <input type="radio" class="sr-only"> owns the focus, so we use
+							// has-[:focus-visible] to style the parent label).
+							"has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring/50 has-[:focus-visible]:outline-none",
 							variant === "default" &&
 								"rounded-full px-2 py-1 text-[11px] tracking-wider",
 							variant === "tabs" &&

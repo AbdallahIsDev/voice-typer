@@ -53,6 +53,10 @@ export function ThemeSwitch({
 			className={cn(
 				"inline-flex items-center justify-center gap-2 rounded-full transition-[padding] duration-200 ease-out",
 				"hover:bg-black/5 dark:hover:bg-white/10",
+				// A11Y-2: visible focus indicator so keyboard users can see which
+				// theme-switch button is focused (the raw <button> previously had
+				// no focus-visible styling at all).
+				"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				collapsed ? "h-7 w-7 justify-center gap-0" : "h-7 px-2.5 gap-2",
 			)}
 			title={t("theme.switchTitle", { mode: label })}
