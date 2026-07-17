@@ -263,8 +263,12 @@ class TestOpenPrewarmLog:
     def test_happy_path_opens_file_and_returns_opened_true(self, ipc_server, monkeypatch, tmp_path):
         """When the log file exists, open it via the OS default editor.
 
-        We patch ``subprocess.Popen`` so the test doesn't actually
-        launch xdg-open (which would fail in a headless container).
+        The handler branches per-OS: ``os.startfile`` on Windows,
+        ``open`` on macOS, ``xdg-open`` on Linux.  We stub BOTH opener
+        seams so the test never actually launches an editor in CI, and
+        assert only the observable behavior (``opened: True`` + the
+        resolved ``path``) — not the opener mechanism — so the test is
+        portable across Windows / macOS / Linux runners.
         """
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -272,16 +276,21 @@ class TestOpenPrewarmLog:
         log_file.write_text("placeholder", encoding="utf-8")
 
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: log_dir)
-        popen_calls: list[list[str]] = []
+        # Linux/macOS path: handler calls ``subprocess.Popen``.
         monkeypatch.setattr(
             "subprocess.Popen",
-            lambda cmd, **kw: popen_calls.append(cmd) or MagicMock(),
+            lambda cmd, **kw: MagicMock(),
+        )
+        # Windows path: handler calls ``os.startfile``.  This attribute
+        # only exists on Windows Python builds, so use ``raising=False``
+        # to no-op the patch on Linux/macOS runners.
+        monkeypatch.setattr(
+            "os.startfile",
+            lambda path, *args, **kwargs: None,
+            raising=False,
         )
 
         resp = ipc_server._handle_open_prewarm_log({}, {})
         assert resp["type"] == "prewarm_log"
         assert resp["data"]["opened"] is True
         assert resp["data"]["path"] == str(log_file)
-        # On Linux (the test env), the editor command is xdg-open.
-        assert len(popen_calls) == 1
-        assert popen_calls[0][0] == "xdg-open"

@@ -19,18 +19,20 @@ def bubble():
 def _reset_ipc_hook():
     """Make sure the module-level IPC push hook doesn't leak between tests.
 
-    NEW-IPC-013: the global ``_push_event`` was replaced by a registry
-    (``_push_event_registry`` set + ``_push_event_registry_lock``).
-    Each test that wants a clean slate must clear the registry; we do
-    that here and on teardown.
+    B-1 FIX-12: the global ``_push_event`` was replaced by the
+    in-process ``event_bus`` (``_subscribers`` set + ``_lock`` RLock).
+    Each test that wants a clean slate must clear the registry; we
+    snapshot/restore it here so other tests aren't affected.
     """
-    from voice_typer.server import ipc_server
+    from voice_typer.server import event_bus
 
-    with ipc_server._push_event_registry_lock:
-        ipc_server._push_event_registry.clear()
+    with event_bus._lock:
+        original = set(event_bus._subscribers)
+        event_bus._subscribers.clear()
     yield
-    with ipc_server._push_event_registry_lock:
-        ipc_server._push_event_registry.clear()
+    with event_bus._lock:
+        event_bus._subscribers.clear()
+        event_bus._subscribers.update(original)
 
 
 class TestWaveformBubbleState:
@@ -278,7 +280,6 @@ class TestModuleLevelPushHook:
     """
 
     def test_show_pushes_event_when_hook_registered(self, bubble):
-        from voice_typer.server import ipc_server
         from voice_typer.server.app import VoiceTyperApp
 
         # Simulate an app and call _wire_waveform_bubble.  We use a
@@ -306,14 +307,15 @@ class TestModuleLevelPushHook:
         # Register a fake push function at the module level — the
         # exact same hook that IPCServer.start() sets in production.
         sent: list = []
-        ipc_server._set_push_event(sent.append)
+        from voice_typer.server import event_bus
+
+        event_bus.subscribe(sent.append)
 
         real_bubble.show()
         assert len(sent) == 1
         assert sent[0] == {"type": "bubble_show"}
 
     def test_show_drops_event_when_no_hook_registered(self, bubble):
-        from voice_typer.server import ipc_server
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
 
@@ -326,8 +328,10 @@ class TestModuleLevelPushHook:
         # No hook registered.  This is the state before
         # IPCServer.start() has run, or after it stopped.
         # NEW-IPC-013: the registry is a set, not a single Optional.
-        with ipc_server._push_event_registry_lock:
-            assert len(ipc_server._push_event_registry) == 0
+        from voice_typer.server import event_bus
+
+        with event_bus._lock:
+            assert len(event_bus._subscribers) == 0
         real_bubble.show()  # must not raise
         real_bubble.hide()  # must not raise
 
@@ -335,7 +339,6 @@ class TestModuleLevelPushHook:
         import queue as _queue
         import threading as _threading
 
-        from voice_typer.server import ipc_server
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
 
@@ -361,7 +364,9 @@ class TestModuleLevelPushHook:
         VoiceTyperApp._wire_waveform_bubble(app)
 
         sent: list = []
-        ipc_server._set_push_event(sent.append)
+        from voice_typer.server import event_bus
+
+        event_bus.subscribe(sent.append)
 
         # Force the throttle to allow the first push.
         app._last_bubble_level_push_ts = 0.0
@@ -395,29 +400,29 @@ class TestModuleLevelPushHook:
         assert ipc_server._push_event_now({"type": "test"}) is False
 
     def test_push_event_now_returns_true_when_hook_set(self):
-        from voice_typer.server import ipc_server
+        from voice_typer.server import event_bus, ipc_server
 
         sent: list = []
-        ipc_server._set_push_event(sent.append)
+        event_bus.subscribe(sent.append)
         try:
             assert ipc_server._push_event_now({"type": "x", "data": 1}) is True
             assert sent == [{"type": "x", "data": 1}]
         finally:
             # NEW-IPC-013: unregister via the registry helper.
-            ipc_server._clear_push_event(sent.append)
+            event_bus.unsubscribe(sent.append)
 
     def test_push_event_now_swallows_hook_exceptions(self):
-        from voice_typer.server import ipc_server
+        from voice_typer.server import event_bus, ipc_server
 
         def bad_hook(_msg):
             raise RuntimeError("boom")
 
-        ipc_server._set_push_event(bad_hook)
+        event_bus.subscribe(bad_hook)
         try:
             # Must not raise
             assert ipc_server._push_event_now({"type": "x"}) is False
         finally:
-            ipc_server._clear_push_event(bad_hook)
+            event_bus.unsubscribe(bad_hook)
 
 
 # ── app.main() must also wire the IPC server hook ────────────────────
@@ -435,12 +440,12 @@ class TestModuleLevelPushHook:
 class TestAppMainWiresIpcHook:
     def test_app_main_sets_ipc_push_hook(self, monkeypatch):
         from voice_typer.server import app as app_module
-        from voice_typer.server import ipc_server
+        from voice_typer.server import event_bus, ipc_server
 
         # Reset hook
         # NEW-IPC-013: clear the registry instead of setting a single None.
-        with ipc_server._push_event_registry_lock:
-            ipc_server._push_event_registry.clear()
+        with event_bus._lock:
+            event_bus._subscribers.clear()
 
         # Stub the heavy bits: setup_logging, single-instance, app
         # construction, app.start.  We only care that app.main
@@ -476,7 +481,9 @@ class TestAppMainWiresIpcHook:
             def start(self):
                 calls["ipc_started"] += 1
                 # Simulate the real IPCServer.start setting the hook
-                ipc_server._set_push_event(self.push)
+                from voice_typer.server import event_bus
+
+                event_bus.subscribe(self.push)
 
             def start_tcp(self, port=None):
                 # P1-FIX-001: standalone mode calls start_tcp(port);
@@ -511,12 +518,12 @@ class TestAppMainWiresIpcHook:
             # Module-level hook must be set (the whole point of the fix).
             # NEW-IPC-013: the registry is a set — non-empty means at
             # least one server registered its push callable.
-            with ipc_server._push_event_registry_lock:
-                assert len(ipc_server._push_event_registry) > 0, "ipc_server.main() did not register the IPC push hook"
+            with event_bus._lock:
+                assert len(event_bus._subscribers) > 0, "ipc_server.main() did not register the IPC push hook"
         finally:
             # NEW-IPC-013: clear the registry on teardown.
-            with ipc_server._push_event_registry_lock:
-                ipc_server._push_event_registry.clear()
+            with event_bus._lock:
+                event_bus._subscribers.clear()
 
 
 # ── T021: Silero VAD integration tests ──────────────────────────────
