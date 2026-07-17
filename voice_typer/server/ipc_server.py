@@ -312,6 +312,47 @@ class _RateLimiter:
             self._rejected += 1
 
 
+# ── CR-11: per-process rate limiter ──────────────────────────────────────
+#
+# Previously, both the TCP path (``_handle_tcp_connection``) and the WS
+# path (``sidecar_ws._make_dispatch``) instantiated a FRESH
+# ``_RateLimiter`` per connection. A local attacker could burst the
+# 200-message budget, disconnect, reconnect, and burst again — bypassing
+# the sustained cap entirely.
+#
+# The fix: ONE ``_RateLimiter`` per ``IPCServer`` instance, lazily
+# created and stored on the instance via ``_get_rate_limiter(server)``.
+# All connections (TCP reconnects, WS reconnects) within the same server
+# process share the same sliding-window deque, so the 10s sustained
+# budget continues to evict old timestamps across reconnects.
+#
+# Stored on the instance (not module-level) so:
+#   - Production: one limiter per server process (CR-11 fix).
+#   - Tests: each fresh IPCServer (or MagicMock test double) gets its
+#     own limiter, preserving test isolation without needing a reset
+#     hook. ``getattr(server, "_rate_limiter_instance", None)`` returns
+#     None for a real IPCServer (attribute not set) and a child
+#     MagicMock for a test double — the ``isinstance`` check filters
+#     both, creating+storing a real ``_RateLimiter`` on first access.
+
+
+def _get_rate_limiter(server: "object") -> _RateLimiter:
+    """Return the per-process ``_RateLimiter`` for ``server`` (CR-11).
+
+    Lazily creates and stores the limiter on the server instance so
+    reconnects within the same process share the same sliding-window
+    budget. A local attacker can no longer reset the budget by
+    disconnecting and reconnecting.
+    """
+    limiter = getattr(server, "_rate_limiter_instance", None)
+    if not isinstance(limiter, _RateLimiter):
+        limiter = _RateLimiter()
+        # ``setattr`` on a MagicMock overrides the auto-vivified child
+        # attribute; on a real IPCServer it just sets the attribute.
+        server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
+    return limiter
+
+
 # ── SEC-003: config sanitization for IPC ─────────────────────────────────
 #
 # ``get_config`` must NOT echo secret fields back to the IPC client.
@@ -1102,10 +1143,15 @@ class IPCServer(
         except Exception:
             log.debug("[TCP] failed to emit initial state_changed on connect")
 
-        # RELIABILITY-006: per-connection rate limiter.  A buggy or
-        # malicious Electron client that flood-dispatches commands
-        # would otherwise starve the tray thread.
-        rate_limiter = _RateLimiter()
+        # RELIABILITY-006 + CR-11: per-process rate limiter. A buggy or
+        # malicious Electron client that flood-dispatches commands would
+        # otherwise starve the tray thread. CR-11: the limiter is shared
+        # across all TCP connections to this server (looked up via
+        # ``_get_rate_limiter(self)``) so a local attacker can no longer
+        # reset the 200-message burst budget by disconnecting and
+        # reconnecting — the 10s sliding window continues to evict old
+        # timestamps across reconnects.
+        rate_limiter = _get_rate_limiter(self)
 
         try:
             for line in self._tcp_client:

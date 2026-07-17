@@ -164,9 +164,9 @@ class TrayIcon:
         # NEW-CQ-008: _microphones cache removed — was write-only
         self._autostart_enabled = False
 
-    # TRAY-015: Periodic update check state
+        # TRAY-015: Periodic update check state
         self._update_check_timer: threading.Timer | None = None
-        self._check_updates: bool = getattr(config, 'check_updates', True) if config else True
+        self._check_updates: bool = getattr(config, "check_updates", True) if config else True
 
         # Pre-run state queue — flushed once pystray event loop is live
         self._pending_states: list[tuple[AppState, str]] = []
@@ -174,7 +174,7 @@ class TrayIcon:
         self._queue_lock = threading.Lock()
         self._bg_work_fn: Callable | None = None
         self._bg_thread: threading.Thread | None = None
-        self._hotkey: str = getattr(config, 'hotkey', '<f2>') or '<f2>'
+        self._hotkey: str = getattr(config, "hotkey", "<f2>") or "<f2>"
 
         # P4 #30: Menu cache
         self._cached_menu = None
@@ -272,6 +272,7 @@ class TrayIcon:
         matters.
         """
         import os
+
         if not is_linux():
             return False
         if os.environ.get("XDG_SESSION_TYPE") != "wayland":
@@ -296,12 +297,15 @@ class TrayIcon:
             # plasma-workspace).  If it's not registered, the
             # NameHasOwner call returns False.
             proxy = bus.get_object(
-                "org.freedesktop.DBus", "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
             )
-            has_owner = bool(proxy.NameHasOwner(
-                "org.kde.StatusNotifierWatcher",
-                dbus_interface="org.freedesktop.DBus",
-            ))
+            has_owner = bool(
+                proxy.NameHasOwner(
+                    "org.kde.StatusNotifierWatcher",
+                    dbus_interface="org.freedesktop.DBus",
+                )
+            )
             if not has_owner:
                 log.info(
                     "[TRAY] Wayland session detected and org.kde.StatusNotifierWatcher "
@@ -311,8 +315,8 @@ class TrayIcon:
             return False
         except Exception as exc:
             log.debug(
-                "[TRAY] D-Bus check for StatusNotifierItem failed: %s — "
-                "assuming SNI is unavailable.", exc,
+                "[TRAY] D-Bus check for StatusNotifierItem failed: %s — assuming SNI is unavailable.",
+                exc,
             )
             return True
 
@@ -398,9 +402,7 @@ class TrayIcon:
                 menu=menu,
             )
         except TypeError as e:
-            raise RuntimeError(
-                f"Failed to create tray icon (pystray Menu construction error): {e}"
-            ) from e
+            raise RuntimeError(f"Failed to create tray icon (pystray Menu construction error): {e}") from e
         except OSError as e:
             # ARCH-045: headless / Windows Server / no-explorer sessions.
             log.warning(
@@ -483,7 +485,14 @@ class TrayIcon:
             # during rapid icon updates.  The stale handle prevents any future
             # icon updates from working, so clear it to let pystray re-create
             # the icon handle on the next call.
-            if hasattr(self._icon, '_icon_handle'):
+            #
+            # CR-16: `_icon_handle` is a PRIVATE pystray attribute (not part
+            # of the public API). pyproject.toml pins pystray to the 0.19
+            # minor series (`>=0.19,<0.20`) so this workaround stays
+            # effective.
+            # TODO CR-16: file upstream issue for public reset_icon_handle() API
+            # so we can drop the private-attr access.
+            if hasattr(self._icon, "_icon_handle"):
                 self._icon._icon_handle = None
         title = APP_NAME
         if message:
@@ -492,7 +501,7 @@ class TrayIcon:
             title += f" — {state.value}"
         # TRAY-022: Include model name and hotkey in tooltip
         if self._config:
-            model = getattr(self._config, 'model_size', '')
+            model = getattr(self._config, "model_size", "")
             if model:
                 title += f" [{model}]"
         hotkey = self._display_hotkey()
@@ -523,6 +532,7 @@ class TrayIcon:
     def _bring_electron_to_front() -> bool:
         """#13: Delegates to tray_window.bring_electron_to_front()."""
         from voice_typer.server.tray_window import bring_electron_to_front
+
         return bring_electron_to_front()
 
     def open_electron_window(self) -> None:
@@ -532,6 +542,7 @@ class TrayIcon:
         TCP push, Win32 focus, and Electron launch in order.
         """
         from voice_typer.server.tray_window import open_electron_window as _open
+
         _open()
 
     def invalidate_menu_cache(self) -> None:
@@ -560,7 +571,6 @@ class TrayIcon:
                 self._icon._update_menu()
             except Exception:
                 log.debug("[TRAY] _icon._update_menu() failed", exc_info=True)
-
 
     def _build_menu(self) -> tuple:
         """Build the minimal tray menu with Models submenu.
@@ -620,10 +630,12 @@ class TrayIcon:
         """
         # 1. Open/focus the Electron window
         from voice_typer.server.tray_window import open_electron_window as _open
+
         _open()
 
         # 2. Push a navigate event so the renderer navigates to /models
         from voice_typer.server import event_bus
+
         try:
             event_bus.publish({"type": "navigate", "data": {"path": "/models"}})
             log.info("[TRAY] Navigate-to-models push sent to Electron")
@@ -642,6 +654,7 @@ class TrayIcon:
         """
         from voice_typer.server.config import _config_dir
         from voice_typer.server.tray_models import build_models_menu_items
+
         # ARCH-037: pass a config provider that returns the live Config
         # instance, so the menu doesn't read stale config.json from disk.
         config_provider = getattr(self, "_config", None)
@@ -714,6 +727,7 @@ class TrayIcon:
             import urllib.request
 
             from voice_typer.server.cloud_engines import _read_capped
+
             url = "https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest"
             req = urllib.request.Request(url, headers={"User-Agent": "voice-typer"})
             with urllib.request.urlopen(req, timeout=10) as resp:

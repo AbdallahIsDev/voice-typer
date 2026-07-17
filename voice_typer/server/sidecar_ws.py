@@ -49,13 +49,18 @@ Cross-platform
 
 Rate limiting
 -------------
-ADR-0019's per-connection rate limiter
+ADR-0019's rate limiter
 (:class:`voice_typer.server.ipc_server._RateLimiter`) is applied on
 every incoming WS frame, mirroring the TCP path. A client that
 exceeds 200 burst / 600 sustained (10s window, per
 RELIABILITY-006-FIX-10) gets ``{"type":"error","code":
 "rate_limited","data":{"message":"rate limit exceeded; backing
 off"}}`` and the connection stays open.
+
+CR-11: the limiter is shared across ALL WS connections to this server
+process (looked up via ``_get_rate_limiter(server)``), so a local
+attacker can no longer reset the 200-message burst budget by dropping
+the WS and reconnecting.
 
 Heartbeat
 ---------
@@ -233,13 +238,17 @@ def _make_dispatch(server: IPCServer):
     so the 68-command registry + _validate_dict_payload + every
     handler mixin is exercised unchanged (ADR-0020 §2).
     """
-    # ADR-0019: per-connection rate limiter. Reuse the same private
+    # ADR-0019 + CR-11: per-process rate limiter. Reuse the same private
     # _RateLimiter class the TCP path uses (ipc_server.py:215) so the
     # burst/sustained semantics are identical — 200 burst, 600 sustained
     # over a 10s window (RELIABILITY-006-FIX-10).
-    from voice_typer.server.ipc_server import _RateLimiter
-
-    rate_limiter = _RateLimiter()
+    #
+    # CR-11: the limiter is looked up lazily via _get_rate_limiter(server)
+    # so it is shared across ALL WS connections to this server process.
+    # A local attacker can no longer reset the 200-message burst budget
+    # by dropping the WS and reconnecting — the 10s sliding window
+    # continues to evict old timestamps across reconnects.
+    from voice_typer.server.ipc_server import _get_rate_limiter
 
     async def dispatch(msg: dict, websocket) -> dict | None:
         msg_type = msg.get("type")
@@ -274,9 +283,12 @@ def _make_dispatch(server: IPCServer):
                 log.exception("[SIDECAR-WS] failed to schedule shutdown")
             return {"type": "result", "data": {"ack": True}}
 
-        # ADR-0019 rate limit check. _RateLimiter.allow() returns a
-        # bool (no retry-after); the host backs off via FT-1 backoff
-        # on repeated rate-limit hits.
+        # ADR-0019 + CR-11 rate limit check. Look up the shared limiter
+        # on every call (cheap — dict-style getattr) so all WS frames to
+        # this server share the same sliding-window budget. _RateLimiter
+        # .allow() returns a bool (no retry-after); the host backs off
+        # via FT-1 backoff on repeated rate-limit hits.
+        rate_limiter = _get_rate_limiter(server)
         if not rate_limiter.allow():
             rate_limiter.reject()
             return {
