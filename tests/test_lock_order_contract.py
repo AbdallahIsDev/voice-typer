@@ -295,22 +295,32 @@ def app_shell():
     ``Recorder`` (PortAudio), ``TrayIcon`` (pystray), and ``HotkeyDispatcher``
     — all of which require hardware not available in this headless
     container. The lock-using methods under test (``_schedule_timer`` /
-    ``_cancel_pending_timers``) only touch ``self._pending_timers_lock``,
-    ``self._pending_timers``, and ``self._timer_generation``, so we
-    initialise just those attributes plus the three contract locks.
+    ``_cancel_pending_timers``) only touch ``self.timers._pending_timers_lock``,
+    ``self.timers._pending_timers``, and ``self.timers._timer_generation``
+    (RW-9 Phase 7: TimerCoordinator owns the state; VoiceTyperApp keeps
+    thin shadow attributes that point at the coordinator's state, mirroring
+    production), so we initialise just those attributes plus the three
+    contract locks.
 
     The lock objects are REAL ``threading.Lock`` / ``threading.RLock``
     instances — same types as production (see ``app.py:324/336/382``).
     """
     from voice_typer.server.app import VoiceTyperApp
+    from voice_typer.server.timer_coordinator import TimerCoordinator
 
     shell = VoiceTyperApp.__new__(VoiceTyperApp)
     # Match the production declarations exactly.
     shell._lock = threading.Lock()  # app.py:324
     shell._config_mutation_lock = threading.RLock()  # app.py:336
-    shell._pending_timers_lock = threading.Lock()  # app.py:382
-    shell._pending_timers: list[threading.Timer] = []  # app.py:381
-    shell._timer_generation = 0  # app.py:383
+    # RW-9 Phase 7: install a real TimerCoordinator so the delegate
+    # methods (_schedule_timer / _cancel_pending_timers) reach real code.
+    shell.timers = TimerCoordinator(shell)
+    # Shadow declarations (mirror production __init__): point the shell's
+    # state attributes at the coordinator's state so tests that read
+    # app_shell._pending_timers_lock directly keep working.
+    shell._pending_timers_lock = shell.timers._pending_timers_lock
+    shell._pending_timers = shell.timers._pending_timers
+    shell._timer_generation = shell.timers._timer_generation
     return shell
 
 

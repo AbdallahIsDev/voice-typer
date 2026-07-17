@@ -9,6 +9,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_PY = REPO_ROOT / "voice_typer" / "server" / "app.py"
 STARTUP_SEQUENCE_PY = REPO_ROOT / "voice_typer" / "server" / "startup_sequence.py"
 MODEL_MANAGER_PY = REPO_ROOT / "voice_typer" / "server" / "model_manager.py"
+SETTINGS_CONTROLLER_PY = REPO_ROOT / "voice_typer" / "server" / "settings_controller.py"
+AUDIO_QUALITY_CONTROLLER_PY = REPO_ROOT / "voice_typer" / "server" / "audio_quality_controller.py"
 
 
 def _read_ux018(path: Path) -> str:
@@ -89,12 +91,19 @@ class TestNonCriticalNotificationsRespectToggle:
         assert "notify(" in block or 'notify("' in block
 
     def test_microphone_selection_uses_notify(self):
-        src = _read_ux018(APP_PY)
+        # RW-9 Phase 6: _select_microphone moved to SettingsController.
+        src = _read_ux018(SETTINGS_CONTROLLER_PY)
         assert "Microphone:" in src or "Microphone next recording" in src
 
     def test_audio_quality_warning_uses_notify(self):
-        src = _read_ux018(APP_PY)
-        assert "AudioQualityAnalyzer" in src or "audio_quality" in src.lower()
+        # RW-9 Phase 7: _finalize_audio_quality_report moved to
+        # AudioQualityController. The delegate stub on VoiceTyperApp
+        # still mentions "audio_quality" in its method name, so check
+        # both files.
+        src_app = _read_ux018(APP_PY)
+        src_aqc = _read_ux018(AUDIO_QUALITY_CONTROLLER_PY)
+        combined = src_app + "\n" + src_aqc
+        assert "AudioQualityAnalyzer" in combined or "audio_quality" in combined.lower()
 
 
 class TestNotifySafetyMethod:

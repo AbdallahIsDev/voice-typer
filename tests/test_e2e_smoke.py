@@ -3,6 +3,7 @@
 This is a sanity check that the fixes don't interfere with each other
 and the core flows still work end-to-end.
 """
+
 import json
 import os
 from unittest.mock import MagicMock
@@ -25,23 +26,27 @@ class TestEndToEndSmoke:
         import logging
 
         from voice_typer.server.config import Config
+
         # Write a default config (the case that previously triggered the bug)
-        (temp_config / "config.json").write_text(json.dumps({
-            "volume_duck_smart_poll_interval_ms": 500,
-        }))
+        (temp_config / "config.json").write_text(
+            json.dumps(
+                {
+                    "volume_duck_smart_poll_interval_ms": 500,
+                }
+            )
+        )
         with caplog.at_level(logging.WARNING):
             cfg = Config.load()
         assert cfg.volume_duck_smart_poll_interval_ms == 500
         assert not any(
-            "volume_duck_smart_poll_interval_ms" in r.message
-            and "invalid value" in r.message
-            for r in caplog.records
+            "volume_duck_smart_poll_interval_ms" in r.message and "invalid value" in r.message for r in caplog.records
         )
 
     def test_startup1_task_xml_uses_pythonw_directly(self):
         """STARTUP-1: Task Scheduler XML uses pythonw.exe, not cmd.exe /c."""
         from voice_typer.server import task_scheduler
-        xml = task_scheduler._build_task_xml('C:\\path\\pythonw.exe')
+
+        xml = task_scheduler._build_task_xml("C:\\path\\pythonw.exe")
         assert "cmd.exe" not in xml
         assert "C:\\path\\pythonw.exe" in xml
         assert "-m voice_typer.server.prewarm" in xml
@@ -49,11 +54,13 @@ class TestEndToEndSmoke:
     def test_startup2_logon_delay_is_zero(self):
         """STARTUP-2: prewarm fires at logon+0 (was PT45S)."""
         from voice_typer.server import task_scheduler
+
         assert task_scheduler._LOGON_DELAY == "PT0S"
 
     def test_startup4_prewarm_filters_to_active_model(self, temp_config, monkeypatch):
         """STARTUP-4: prewarm only warms active model + tiny.en fallback."""
         from voice_typer.server import prewarm
+
         # Set up HF cache with multiple model dirs
         hf_cache = temp_config / "huggingface" / "hub"
         hf_cache.mkdir(parents=True)
@@ -77,6 +84,7 @@ class TestEndToEndSmoke:
     def test_issue8_onboarding_wizard_first_run_detection(self, temp_config):
         """#8: OnboardingController.is_first_run detects wizard-should-show state."""
         from voice_typer.server.onboarding import OnboardingController
+
         # No config.json, no marker → first run
         ctrl = OnboardingController(config_dir=temp_config)
         assert ctrl.is_first_run() is True
@@ -89,6 +97,7 @@ class TestEndToEndSmoke:
         """UX-005: download_model pushes progress events via IPC."""
         import voice_typer.server.event_bus as event_bus_mod
         from voice_typer.server.service import VoiceTyperService
+
         events = []
         monkeypatch.setattr(event_bus_mod, "publish", lambda msg: events.append(msg) or True)
         # Mock Qwen with existing path → success path
@@ -113,6 +122,7 @@ class TestEndToEndSmoke:
 
         from voice_typer.server.recording_controller import RecordingController
         from voice_typer.server.waveform import WaveformBubble
+
         # Check signatures
         app_sig = inspect.signature(RecordingController.on_recorder_rms)
         assert "audio_chunk" in app_sig.parameters
@@ -120,12 +130,14 @@ class TestEndToEndSmoke:
         assert "audio_chunk" in bubble_sig.parameters
         # Check the recorder forwards 3 args
         from voice_typer.server import recording
+
         rec_src = inspect.getsource(recording)
         assert "rms_callback(chunk_rms, chunk_peak, filtered)" in rec_src
 
     def test_asr_registry_create_handler_exists(self):
         """ARCH-007: AsrBackendRegistry.create() method exists."""
         from voice_typer.server.asr_registry import AsrBackendRegistry
+
         assert hasattr(AsrBackendRegistry, "create")
         assert callable(AsrBackendRegistry.create)
 
@@ -136,6 +148,7 @@ class TestEndToEndSmoke:
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
+
         app = VoiceTyperApp()
         # ARCH-REFAC-003: registry now lives on ModelManager; the legacy
         # app._asr_registry @property delegate was removed.
@@ -145,11 +158,13 @@ class TestEndToEndSmoke:
     def test_issue13_tray_menu_module_exists(self):
         """#13: tray_menu module extracted with build_menu, display_hotkey, wrap_callback."""
         from voice_typer.server import tray_menu
+
         assert hasattr(tray_menu, "build_menu")
         assert hasattr(tray_menu, "display_hotkey")
         assert hasattr(tray_menu, "wrap_callback")
         # tray.py should delegate to tray_menu
         from voice_typer.server import tray
+
         assert tray.build_menu is tray_menu.build_menu
         assert tray.display_hotkey is tray_menu.display_hotkey
         assert tray.wrap_callback is tray_menu.wrap_callback
@@ -157,7 +172,79 @@ class TestEndToEndSmoke:
     def test_startup2_autostart_launcher_parses_delay(self):
         """STARTUP-2: autostart_launcher --delay flag is parsed correctly."""
         from voice_typer.server.autostart_launcher import _parse_delay
+
         assert _parse_delay([]) == 0.0
         assert _parse_delay(["--delay", "30"]) == 30.0
         assert _parse_delay(["--delay=45"]) == 45.0
         assert _parse_delay(["--delay", "abc"]) == 0.0  # invalid → 0
+
+
+class TestBrandingConstants:
+    """Smoke tests for ``voice_typer/server/branding.py``.
+
+    branding.py is a tiny constants-only module (BRAND-001: single source
+    of truth for the app name) — its coverage value is low on its own, so
+    we fold the assertions into the existing e2e smoke file rather than
+    maintaining a dedicated test module.
+    """
+
+    def test_branding_module_is_importable_in_isolation(self):
+        """The branding module must be importable on its own (no heavy deps)."""
+        import importlib
+
+        mod = importlib.import_module("voice_typer.server.branding")
+        assert mod is not None
+        # Re-import should be idempotent and return the cached module.
+        again = importlib.import_module("voice_typer.server.branding")
+        assert again is mod
+
+    def test_expected_branding_constants_exist(self):
+        """All four branding constants are present on the module."""
+        from voice_typer.server import branding
+
+        for name in ("APP_NAME", "APP_DESCRIPTION", "APP_URL", "APP_REPO"):
+            assert hasattr(branding, name), f"branding.{name} is missing"
+
+    def test_branding_constants_are_non_empty_strings(self):
+        """Branding constants must be non-empty ``str`` values (not bytes/None)."""
+        from voice_typer.server import branding
+
+        for name in ("APP_NAME", "APP_DESCRIPTION", "APP_URL", "APP_REPO"):
+            value = getattr(branding, name)
+            assert isinstance(value, str), f"branding.{name} must be str, got {type(value).__name__}"
+            assert not isinstance(value, (bytes, bytearray)), f"branding.{name} must not be bytes/bytearray"
+            assert value, f"branding.{name} must be a non-empty string"
+
+    def test_app_name_matches_known_product(self):
+        """APP_NAME is the documented product name (guards against silent renames)."""
+        from voice_typer.server.branding import APP_NAME
+
+        assert APP_NAME == "Voice Typer"
+
+    def test_app_module_uses_branding_app_name(self):
+        """``voice_typer.server.app`` must source its APP_NAME from branding.
+
+        This is the BRAND-001 consistency guarantee: a single rename in
+        branding.py should propagate to every consumer, including the app
+        module's startup banner / tray notifications.
+        """
+        import inspect
+
+        from voice_typer.server import app, branding
+
+        # The app module must expose an APP_NAME attribute that points to
+        # the branding constant (i.e. it was imported, not redefined).
+        assert hasattr(app, "APP_NAME"), "app module does not expose APP_NAME"
+        assert app.APP_NAME is branding.APP_NAME, (
+            "app.APP_NAME is not the branding.APP_NAME object — app module "
+            "appears to have redefined the constant instead of importing it."
+        )
+
+        # Belt-and-suspenders: the import line should appear verbatim in
+        # the app module source so a future refactor can't accidentally
+        # shadow the branding constant with a local literal.
+        src = inspect.getsource(app)
+        assert "from voice_typer.server.branding import APP_NAME" in src, (
+            "app module no longer imports APP_NAME from branding — "
+            "BRAND-001 single-source-of-truth invariant is broken."
+        )

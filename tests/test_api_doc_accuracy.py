@@ -317,10 +317,20 @@ class TestWindowsOpenConfigFile:
         monkeypatch.setattr("voice_typer.server.app._windows_close_process_handle", lambda h: None)
 
         popen_calls: list = []
-        monkeypatch.setattr(
-            "subprocess.Popen",
-            lambda *a, **kw: popen_calls.append((a, kw)) or MagicMock(),
-        )
+
+        def _record_popen(*a, **kw):
+            # Filter out library-init noise (e.g. `ldconfig -p` spawned by
+            # ctypes.CDLL / dynamic-linker probing during import). These calls
+            # are Python stdlib internals, not SUT behavior, and would otherwise
+            # leak into the recorder and break assertions that expect ZERO
+            # Notepad-related Popen calls on the default-app path.
+            cmd = a[0] if a else kw.get("args")
+            if isinstance(cmd, (list, tuple)) and cmd and "ldconfig" in str(cmd[0]):
+                return MagicMock()
+            popen_calls.append((a, kw))
+            return MagicMock()
+
+        monkeypatch.setattr("subprocess.Popen", _record_popen)
         startfile_calls: list = []
         monkeypatch.setattr("os.startfile", lambda p: startfile_calls.append(p), raising=False)
 
@@ -358,6 +368,13 @@ class TestWindowsOpenConfigFile:
                 return 0
 
         def _fake_popen(args, *rest, **kw):
+            # Filter out library-init noise (e.g. `ldconfig -p` spawned by
+            # ctypes.CDLL / dynamic-linker probing during import). These calls
+            # are Python stdlib internals, not SUT behavior; the only Popen
+            # the SUT should issue here is the SystemRoot-validated Notepad
+            # fallback (['C:\\Windows\\System32\\notepad.exe', config_file]).
+            if isinstance(args, (list, tuple)) and args and "ldconfig" in str(args[0]):
+                return _FakeProc(args)
             popen_calls.append(args)
             return _FakeProc(args)
 

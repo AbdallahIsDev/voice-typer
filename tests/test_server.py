@@ -1327,14 +1327,16 @@ class TestPushEventNow:
             event_bus.unsubscribe(broken_fn)
 
 
-# ── RELIABILITY-006: per-connection rate limiter ─────────────────────────
+# ── RELIABILITY-006: per-IPCServer shared rate limiter ───────────────────
 
 
 class TestRateLimiter:
-    """RELIABILITY-006: ``_RateLimiter`` is a sliding-window per-connection
-    limiter that protects the IPC dispatcher from flood attacks.
+    """RELIABILITY-006: ``_RateLimiter`` is a sliding-window limiter that
+    protects the IPC dispatcher from flood attacks.
 
-    Each connection gets its own limiter instance.  The limiter allows
+    One limiter is shared across all connections to a given ``IPCServer``
+    instance, looked up via ``_get_rate_limiter(server)``; its budget
+    persists across reconnects within the same process.  The limiter allows
     a burst of ``burst`` messages and a sustained rate of
     ``sustained_per_sec`` within a sliding 1-second window.  Messages
     over the budget are rejected (caller returns an error response

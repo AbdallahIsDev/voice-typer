@@ -1,6 +1,5 @@
 """Tests for the waveform bubble coordinator (server/waveform.py)."""
 
-import contextlib
 import threading
 from unittest.mock import MagicMock
 
@@ -286,9 +285,9 @@ class TestModuleLevelPushHook:
         # real VoiceTyperApp-shaped stand-in: just the methods we
         # need.  The wire function is a method, so we can't easily
         # call it on a MagicMock; instead exercise the actual code
-        # path by creating a real VoiceTyperApp and stubbing the
-        # heavy bits.
+        # path by creating a real WaveformBubbleWiring instance.
         from voice_typer.server.waveform import WaveformBubble as RealBubble
+        from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
 
         real_bubble = RealBubble()
 
@@ -301,8 +300,11 @@ class TestModuleLevelPushHook:
         # instance attribute set in __init__ (not part of the class
         # spec), so Mock(spec=...) doesn't expose it.  Provide one.
         app._thread_registry = MagicMock()
+        # RW-9 Phase 7: the wiring code now lives on WaveformBubbleWiring.
+        # Install a real WaveformBubbleWiring so the delegate reaches real code.
+        app.waveform_wiring = WaveformBubbleWiring(app)
         # Bypass the real __init__ and call only the wire method.
-        VoiceTyperApp._wire_waveform_bubble(app)
+        app.waveform_wiring._wire_waveform_bubble()
 
         # Register a fake push function at the module level — the
         # exact same hook that IPCServer.start() sets in production.
@@ -318,12 +320,14 @@ class TestModuleLevelPushHook:
     def test_show_drops_event_when_no_hook_registered(self, bubble):
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
+        from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
 
         real_bubble = RealBubble()
         app = MagicMock(spec=VoiceTyperApp)
         app._waveform_bubble = real_bubble
         app._thread_registry = MagicMock()
-        VoiceTyperApp._wire_waveform_bubble(app)
+        app.waveform_wiring = WaveformBubbleWiring(app)
+        app.waveform_wiring._wire_waveform_bubble()
 
         # No hook registered.  This is the state before
         # IPCServer.start() has run, or after it stopped.
@@ -336,32 +340,26 @@ class TestModuleLevelPushHook:
         real_bubble.hide()  # must not raise
 
     def test_level_pushes_via_hook(self, bubble):
-        import queue as _queue
-        import threading as _threading
 
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.waveform import WaveformBubble as RealBubble
+        from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
 
         real_bubble = RealBubble()
         app = MagicMock(spec=VoiceTyperApp)
         app._waveform_bubble = real_bubble
-        # PERF-NEW-001: _wire_waveform_bubble now sets up a background
-        # queue + worker thread.  We need to provide the queue, the
-        # threading event, AND a None worker (so the wiring code's
-        # "is the worker already alive?" check doesn't get fooled by
-        # MagicMock's auto-attribute behavior).
-        app._bubble_level_queue = _queue.Queue(maxsize=64)
-        app._bubble_level_worker_stop = _threading.Event()
-        app._bubble_level_worker = None
-        # THREAD-REGISTRY: the worker is registered on _thread_registry
-        # (instance attr, not in the class spec) — provide it.
         app._thread_registry = MagicMock()
+        # RW-9 Phase 7: install a real WaveformBubbleWiring. Its
+        # __init__ initializes the worker state to None, so the wiring
+        # code's "is the worker already alive?" check doesn't get
+        # fooled by MagicMock's auto-attribute behavior.
+        app.waveform_wiring = WaveformBubbleWiring(app)
         # Reset the throttle timestamp so the first update_level call
         # isn't dropped by the 16ms throttle (BUBBLE-FIX-4.1 changed it
         # from 33ms to 16ms = ~60Hz; other tests in the suite may have
         # set it recently).
-        app._last_bubble_level_push_ts = 0.0
-        VoiceTyperApp._wire_waveform_bubble(app)
+        app.waveform_wiring._last_bubble_level_push_ts = 0.0
+        app.waveform_wiring._wire_waveform_bubble()
 
         sent: list = []
         from voice_typer.server import event_bus
@@ -369,7 +367,7 @@ class TestModuleLevelPushHook:
         event_bus.subscribe(sent.append)
 
         # Force the throttle to allow the first push.
-        app._last_bubble_level_push_ts = 0.0
+        app.waveform_wiring._last_bubble_level_push_ts = 0.0
         real_bubble.update_level(0.05, 0.12)
         # PERF-NEW-001: pushes are now async (drained by a background
         # worker thread).  Wait briefly for the worker to drain.
@@ -389,10 +387,9 @@ class TestModuleLevelPushHook:
         assert "rms" in last and "peak" in last
         assert 0.0 < last["rms"] <= 1.0
 
-        # Cleanup: stop the worker thread
-        app._bubble_level_worker_stop.set()
-        with contextlib.suppress(_queue.Full):
-            app._bubble_level_queue.put_nowait(None)
+        # Cleanup: stop the worker thread (RW-9 Phase 7: via the
+        # WaveformBubbleWiring.stop() helper).
+        app.waveform_wiring.stop()
 
     def test_push_event_now_returns_false_when_no_hook(self):
         from voice_typer.server import ipc_server

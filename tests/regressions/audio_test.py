@@ -703,16 +703,26 @@ class TestAudioMicDeviceChangePoller:
         ``threading.Event()`` allocation.
 
         RW-8: KEEP — pins PERF-FIX-2 (redundant poller removed).
-        A behavioral test would need to start StartupSequence.run and
-        observe no thread spawn, which is heavy; the source-string
-        check catches reintroduction of the call directly.
+
+        PERF-FIX-2 (stronger): the dead-code ``start_device_change_poller``
+        function was deleted entirely from ``startup_tasks``. The previous
+        source-string check only asserted that ``StartupSequence.run``
+        didn't call it; now we additionally assert the function is GONE
+        from the module so it cannot be silently reintroduced as a
+        zombie helper.
         """
+        from voice_typer.server import startup_tasks
         from voice_typer.server.startup_sequence import StartupSequence
 
         src = inspect.getsource(StartupSequence.run)
         assert "_start_device_change_poller(" not in src, (
             "PERF-FIX-2: StartupSequence.run must NOT call _start_device_change_poller "
             "(redundant with the event-driven MicrophoneDeviceWatcher)."
+        )
+        assert not hasattr(startup_tasks, "start_device_change_poller"), (
+            "PERF-FIX-2: startup_tasks.start_device_change_poller must be deleted "
+            "(dead code — never called from production startup; "
+            "MicrophoneDeviceWatcher is the sole source of truth)."
         )
 
 
@@ -1057,9 +1067,18 @@ class TestPeakMeterAccuracy:
 
         # RT-SAFE-001: the callback body moved to _process_audio_chunk.
         src = inspect.getsource(recording.Recorder._process_audio_chunk)
-        # The peak computation uses abs_filtered.max()
-        assert "abs_filtered.max()" in src or "np.abs(filtered).max()" in src, (
-            "AUDIO-017: peak computation must use abs().max() on the audio."
+        # The peak computation returns max(|x|). The canonical forms
+        # are ``abs_filtered.max()`` and ``np.abs(filtered).max()``.
+        # PERF-FIX-2 introduced an allocation-free equivalent:
+        # ``max(float(flat.max()), -float(flat.min()))`` — same value
+        # (max of absolute values), no intermediate ``np.abs`` array.
+        assert (
+            "abs_filtered.max()" in src
+            or "np.abs(filtered).max()" in src
+            or "max(float(flat.max()), -float(flat.min()))" in src
+        ), (
+            "AUDIO-017: peak computation must use abs().max() on the audio "
+            "(or the allocation-free max(max(x), -min(x)) equivalent)."
         )
 
 
