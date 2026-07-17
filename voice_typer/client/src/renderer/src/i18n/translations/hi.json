@@ -770,12 +770,12 @@
 		"fastStartup": "Fast Startup (Prewarm)",
 		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
 		"keyring": {
-			"secure": "Secure",
-			"plaintext": "Plaintext",
-			"available": "Stored securely in your OS keychain.",
-			"availableWithBackend": "Stored securely in your OS keychain (backend: {backend}).",
-			"fallback": "Keyring backend not available — secrets will be stored in plaintext with 0o600 permissions.",
-			"fallbackWithReason": "Keyring backend not available ({reason}) — secrets will be stored in plaintext with 0o600 permissions."
+			"secure": "सुरक्षित",
+			"plaintext": "सादा पाठ",
+			"available": "सिस्टम कीचेन में सुरक्षित रूप से संग्रहीत।",
+			"availableWithBackend": "सिस्टम कीचेन में सुरक्षित रूप से संग्रहीत (बैकएंड: {backend})।",
+			"fallback": "कीचेन बैकएंड उपलब्ध नहीं है — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।",
+			"fallbackWithReason": "कीचेन बैकएंड उपलब्ध नहीं है ({reason}) — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।"
 		}
 	},
 	"models": {
@@ -1012,20 +1012,20 @@
 			"openHelp": "?",
 			"navBack": "Alt+Left / Alt+Right"
 		},
-		"punctuationTitle": "Punctuation Cheat Sheet",
-		"punctuationHint": "Say these words during dictation to insert the matching punctuation. Voice Typer recognizes these via the speech model and preserves them through text cleanup.",
+		"punctuationTitle": "विराम चिह्न संदर्भ पत्र",
+		"punctuationHint": "डिक्टेशन के दौरान इन शब्दों को बोलें ताकि संबंधित विराम चिह्न डाले जा सकें। Voice Typer इन्हें स्पीच मॉडल के माध्यम से पहचानता है और टेक्स्ट क्लीनअप के दौरान इन्हें बनाए रखता है।",
 		"punctuation": {
-			"comma": "Comma",
-			"period": "Period",
-			"questionMark": "Question mark",
-			"exclamationPoint": "Exclamation point",
-			"semicolon": "Semicolon",
-			"colon": "Colon",
-			"apostrophe": "Apostrophe",
-			"openQuote": "Open quote",
-			"closeQuote": "Close quote",
-			"newLine": "New line",
-			"newParagraph": "New paragraph"
+			"comma": "अल्पविराम",
+			"period": "पूर्ण विराम",
+			"questionMark": "प्रश्न चिह्न",
+			"exclamationPoint": "विस्मयादिबोधक चिह्न",
+			"semicolon": "अर्धविराम",
+			"colon": "उपविराम",
+			"apostrophe": "अपॉस्ट्रॉफी",
+			"openQuote": "खुला उद्धरण चिह्न",
+			"closeQuote": "बंद उद्धरण चिह्न",
+			"newLine": "नई पंक्ति",
+			"newParagraph": "नया पैराग्राफ"
 		}
 	},
 	"history": {

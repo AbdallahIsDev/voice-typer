@@ -499,12 +499,12 @@
 		"fastStartup": "Fast Startup (Prewarm)",
 		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
 		"keyring": {
-			"secure": "Secure",
-			"plaintext": "Plaintext",
-			"available": "Stored securely in your OS keychain.",
-			"availableWithBackend": "Stored securely in your OS keychain (backend: {backend}).",
-			"fallback": "Keyring backend not available — secrets will be stored in plaintext with 0o600 permissions.",
-			"fallbackWithReason": "Keyring backend not available ({reason}) — secrets will be stored in plaintext with 0o600 permissions."
+			"secure": "Sécurisé",
+			"plaintext": "Texte brut",
+			"available": "Stocké en toute sécurité dans le trousseau du système d'exploitation.",
+			"availableWithBackend": "Stocké en toute sécurité dans le trousseau du système d'exploitation (backend : {backend}).",
+			"fallback": "Le backend du trousseau n'est pas disponible — les secrets seront stockés en texte brut avec des permissions 0o600.",
+			"fallbackWithReason": "Le backend du trousseau n'est pas disponible ({reason}) — les secrets seront stockés en texte brut avec des permissions 0o600."
 		}
 	},
 	"models": {
@@ -790,20 +790,20 @@
 			"openHelp": "?",
 			"navBack": "Alt+Left / Alt+Right"
 		},
-		"punctuationTitle": "Punctuation Cheat Sheet",
-		"punctuationHint": "Say these words during dictation to insert the matching punctuation. Voice Typer recognizes these via the speech model and preserves them through text cleanup.",
+		"punctuationTitle": "Aide-mémoire de ponctuation",
+		"punctuationHint": "Prononcez ces mots pendant la dictée pour insérer le signe de ponctuation correspondant. Voice Typer les reconnaît via le modèle vocal et les conserve lors du nettoyage du texte.",
 		"punctuation": {
-			"comma": "Comma",
-			"period": "Period",
-			"questionMark": "Question mark",
-			"exclamationPoint": "Exclamation point",
-			"semicolon": "Semicolon",
-			"colon": "Colon",
-			"apostrophe": "Apostrophe",
-			"openQuote": "Open quote",
-			"closeQuote": "Close quote",
-			"newLine": "New line",
-			"newParagraph": "New paragraph"
+			"comma": "Virgule",
+			"period": "Point",
+			"questionMark": "Point d'interrogation",
+			"exclamationPoint": "Point d'exclamation",
+			"semicolon": "Point-virgule",
+			"colon": "Deux-points",
+			"apostrophe": "Apostrophe typographique",
+			"openQuote": "Guillemet ouvrant",
+			"closeQuote": "Guillemet fermant",
+			"newLine": "Nouvelle ligne",
+			"newParagraph": "Nouveau paragraphe"
 		}
 	},
 	"common": {
