@@ -1,0 +1,609 @@
+"""RW-9 Phase 7 regression tests for the ``ShutdownController`` extraction.
+
+The 7 shutdown/cleanup methods (``_do_cleanup``, ``quit``,
+``_atexit_log``, ``_atexit_cleanup``, ``_install_signal_handlers``,
+``_install_win32_console_handler``, ``_win32_console_handler``) were
+extracted from ``VoiceTyperApp`` to
+``voice_typer/server/shutdown_controller.py``. ``VoiceTyperApp`` keeps
+thin delegate methods so ``app.start()`` (which registers the atexit
+handlers via ``atexit.register(self._atexit_log)``), tray menu callbacks
+(via ``quit_app`` → ``self.quit()``), and tests calling
+``app._do_cleanup()`` directly all keep working unchanged.
+
+These tests pin the contract of the extraction:
+
+1. ``ShutdownController`` is wired into ``VoiceTyperApp.__init__`` as
+   ``self.shutdown`` (XFAIL until the primary agent wires it).
+2. ``ShutdownController.quit`` calls ``_do_cleanup`` and ``sys.exit(0)``.
+3. ``_do_cleanup`` is idempotent via the ``_cleanup_done`` flag.
+4. ``_do_cleanup`` calls shutdown on each subsystem (recording, hotkeys,
+   recorder, tray, history_db, _crash_recovery, _thread_registry,
+   _bubble_level_worker_*, _electron_pid).
+5. ``_install_signal_handlers`` registers SIGTERM/SIGINT handlers on POSIX.
+6. ``_atexit_cleanup`` is safe to call multiple times.
+7. ``_atexit_cleanup`` short-circuits when ``_shutting_down`` is True
+   (no spurious emergency cleanup after intentional shutdown).
+8. ``_atexit_cleanup`` never raises (even if ``_do_cleanup`` raises).
+9. ``_install_win32_console_handler`` is a no-op when ``is_windows()``
+   returns False.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import signal
+import sys
+import threading
+from unittest.mock import MagicMock
+
+import pytest
+from voice_typer.server.shutdown_controller import ShutdownController
+
+# ── Fixtures ────────────────────────────────────────────────────────────
+
+
+class _FakeApp:
+    """Minimal duck-typed stand-in for ``VoiceTyperApp``.
+
+    Provides every attribute / method that ``ShutdownController._do_cleanup``
+    and ``quit`` touch, mocked so we can assert call counts. Mirrors the
+    collaborators mocked by ``tests/test_app_cleanup.py::
+    _stub_restart_environment``.
+    """
+
+    def __init__(self):
+        # Shutdown state (mirrors VoiceTyperApp.__init__)
+        self._shutting_down = False
+        self._shutting_down_event = threading.Event()
+        self._cleanup_done = False
+        self._electron_pid: int | None = None
+        self._mutex_handle = None
+
+        # Subsystem collaborators (MagicMock so any attribute/method call
+        # is recorded).
+        self.recorder = MagicMock()
+        self.recorder.recording = True
+        self.recording = MagicMock()
+        self.recording._transcription_thread = None
+        self.hotkeys = MagicMock()
+        self.hotkeys._hotkey_backend = MagicMock()
+        self.hotkeys._esc_backend = MagicMock()
+        self.hotkeys._repaste_backend = MagicMock()
+        self.history_db = MagicMock()
+        self._crash_recovery = MagicMock()
+        self.tray = MagicMock()
+        self._thread_registry = MagicMock()
+
+        # Methods on VoiceTyperApp that _do_cleanup calls (kept on the
+        # app as delegates to other controllers).
+        self._cancel_pending_timers = MagicMock()
+        self._restore_volume = MagicMock()
+
+        # Bubble level worker (optional on VoiceTyperApp — _do_cleanup
+        # guards with hasattr; initialize to None so the worker-stop
+        # branch is skipped by default).
+        self._bubble_level_worker_stop = None
+        self._bubble_level_queue = None
+        self._bubble_level_worker = None
+
+        # ``_do_cleanup`` delegate on VoiceTyperApp. Default to a no-op
+        # MagicMock; per-test (or the ``controller`` fixture) wires it to
+        # the real body via ``side_effect``.
+        self._do_cleanup = MagicMock()
+
+
+@pytest.fixture
+def tmp_config_dir(tmp_path, monkeypatch):
+    """Point config to a temp directory (so PID file writes are isolated)."""
+    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
+def fake_app(tmp_config_dir, monkeypatch):
+    """A ``_FakeApp`` with the shutdown environment stubbed out.
+
+    Stubs (so ``_do_cleanup`` doesn't touch the real filesystem / Win32
+    API / devnull FDs):
+
+    - ``voice_typer.server.app._clear_backend_pid_file`` — no-op recorder.
+    - ``voice_typer.server.app._close_devnull_files`` — no-op.
+    - ``voice_typer.server.app._register_devnull_file`` — no-op.
+    - ``voice_typer.server.app.is_windows`` — returns False (POSIX test env).
+    """
+    monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None)
+    monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None)
+    monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None)
+    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+    return _FakeApp()
+
+
+@pytest.fixture
+def controller(fake_app):
+    """A ``ShutdownController`` wrapping ``fake_app``.
+
+    Wires ``fake_app._do_cleanup`` to delegate to the controller's real
+    body (via ``side_effect``), mirroring the post-extraction delegate
+    on ``VoiceTyperApp``. Per-test can override ``fake_app._do_cleanup``
+    (e.g. replace with a plain ``MagicMock()``) to assert call counts
+    without running the real body.
+    """
+    ctrl = ShutdownController(fake_app)
+    fake_app._do_cleanup = MagicMock(side_effect=ctrl._do_cleanup)
+    return ctrl
+
+
+# ── (1) Wiring: VoiceTyperApp.__init__ constructs self.shutdown ────────
+
+
+class TestShutdownControllerWiring:
+    """Verify ``VoiceTyperApp.__init__`` wires up ``ShutdownController``.
+
+    XFAIL until the primary agent adds
+    ``self.shutdown = ShutdownController(self)`` to ``VoiceTyperApp.__init__``
+    and the 7 delegate methods on ``VoiceTyperApp``.
+    """
+
+    @pytest.mark.xfail(
+        reason="wiring pending — primary agent will add "
+        "`self.shutdown = ShutdownController(self)` to VoiceTyperApp.__init__ "
+        "and replace the 7 extracted methods with 1-line delegates",
+        strict=False,
+    )
+    def test_app_has_shutdown_attribute(self, tmp_config_dir, monkeypatch):
+        """``self.shutdown`` must be a ``ShutdownController`` instance."""
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        instance = VoiceTyperApp()
+        assert hasattr(instance, "shutdown"), "VoiceTyperApp.__init__ must construct self.shutdown (ShutdownController)"
+        assert isinstance(instance.shutdown, ShutdownController), "self.shutdown must be a ShutdownController instance"
+
+    @pytest.mark.xfail(
+        reason="wiring pending — primary agent will add the delegate stubs",
+        strict=False,
+    )
+    def test_shutdown_back_references_app(self, tmp_config_dir, monkeypatch):
+        """``ShutdownController._app`` must be the ``VoiceTyperApp`` instance."""
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        instance = VoiceTyperApp()
+        assert instance.shutdown._app is instance, (
+            "ShutdownController._app must be the VoiceTyperApp instance that "
+            "constructed it (back-reference for state access)"
+        )
+
+
+# ── (2) quit() calls _do_cleanup and sys.exit ──────────────────────────
+
+
+class TestQuitCallsDoCleanupAndExits:
+    """``ShutdownController.quit`` must delegate to ``_do_cleanup`` and
+    call ``sys.exit(0)`` when invoked from the main thread."""
+
+    def test_quit_calls_app_do_cleanup_delegate(self, controller, fake_app, monkeypatch):
+        """``quit()`` must call ``app._do_cleanup()`` (the delegate on
+        VoiceTyperApp) — NOT ``self._do_cleanup()`` (the body on the
+        controller) — so test spies that
+        ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still intercept
+        the call."""
+        # Replace the delegate with a plain MagicMock so we can assert
+        # the call WITHOUT running the real body (we only care that quit
+        # routes through the delegate).
+        fake_app._do_cleanup = MagicMock()
+        # sys.exit must raise SystemExit so quit() returns control.
+        monkeypatch.setattr(sys, "exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
+
+        with contextlib.suppress(SystemExit):
+            controller.quit()
+
+        fake_app._do_cleanup.assert_called_once_with()
+
+    def test_quit_calls_sys_exit_zero_in_main_thread(self, controller, fake_app, monkeypatch):
+        """When called from the main thread, ``quit()`` must call
+        ``sys.exit(0)`` after ``_do_cleanup``."""
+        fake_app._do_cleanup = MagicMock()
+        exit_calls = []
+        monkeypatch.setattr(sys, "exit", lambda code=0: exit_calls.append(code))
+
+        controller.quit()
+
+        assert exit_calls == [0], f"quit() must call sys.exit(0) when invoked from the main thread; got {exit_calls}"
+
+    def test_quit_is_idempotent_when_already_shutting_down(self, controller, fake_app, monkeypatch):
+        """If ``_shutting_down`` is already True, ``quit()`` must
+        short-circuit — no ``_do_cleanup``, no ``sys.exit``."""
+        fake_app._shutting_down = True
+        fake_app._do_cleanup = MagicMock()
+        exit_calls = []
+        monkeypatch.setattr(sys, "exit", lambda code=0: exit_calls.append(code))
+
+        controller.quit()
+
+        fake_app._do_cleanup.assert_not_called()
+        assert exit_calls == [], "quit() must not call sys.exit when _shutting_down is already True"
+
+    def test_quit_sets_shutting_down_before_cleanup(self, controller, fake_app, monkeypatch):
+        """``quit()`` must set ``_shutting_down = True`` BEFORE calling
+        ``_do_cleanup()`` so the atexit safety net doesn't double-clean.
+
+        Mirrors ``tests/test_app_cleanup.py::
+        test_restart_app_sets_shutting_down_before_cleanup``.
+        """
+        flag_values_at_cleanup_entry = []
+
+        def spy_do_cleanup():
+            flag_values_at_cleanup_entry.append(fake_app._shutting_down)
+
+        fake_app._do_cleanup = MagicMock(side_effect=spy_do_cleanup)
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+
+        controller.quit()
+
+        assert flag_values_at_cleanup_entry == [True], (
+            "quit() must set _shutting_down=True BEFORE calling _do_cleanup(); "
+            f"got sequence: {flag_values_at_cleanup_entry}"
+        )
+
+    def test_quit_calls_thread_registry_shutdown_all(self, controller, fake_app, monkeypatch):
+        """``quit()`` must call ``thread_registry.shutdown_all()`` BEFORE
+        ``_do_cleanup()`` so the registry's centralized signal-and-join
+        runs first (THREAD-REGISTRY)."""
+        fake_app._do_cleanup = MagicMock()
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+
+        controller.quit()
+
+        fake_app._thread_registry.shutdown_all.assert_called_once_with()
+
+
+# ── (3) _do_cleanup idempotency ────────────────────────────────────────
+
+
+class TestDoCleanupIdempotency:
+    """``_do_cleanup`` must be safe to call multiple times — the
+    ``_cleanup_done`` flag is the hard guarantee."""
+
+    def test_do_cleanup_twice_is_noop(self, controller, fake_app):
+        """Calling ``_do_cleanup()`` twice must invoke each subsystem
+        exactly once — the second call is a true no-op."""
+        controller._do_cleanup()
+        controller._do_cleanup()
+
+        fake_app._cancel_pending_timers.assert_called_once()
+        fake_app.recorder.stop.assert_called_once()
+        fake_app.recorder.shutdown_mic_watcher.assert_called_once()
+        fake_app.history_db.flush.assert_called_once()
+        fake_app.history_db.close.assert_called_once()
+        fake_app._crash_recovery.flush.assert_called_once()
+        fake_app._crash_recovery.shutdown.assert_called_once()
+        fake_app.hotkeys._hotkey_backend.stop.assert_called_once()
+        fake_app.hotkeys._esc_backend.stop.assert_called_once()
+        fake_app.hotkeys._repaste_backend.stop.assert_called_once()
+        fake_app.tray.stop.assert_called_once()
+        fake_app._restore_volume.assert_called_once_with(fade_ms=0)
+
+    def test_do_cleanup_sets_cleanup_done_flag(self, controller, fake_app):
+        """After ``_do_cleanup()`` returns, ``_cleanup_done`` must be True
+        so subsequent calls short-circuit."""
+        assert fake_app._cleanup_done is False
+        controller._do_cleanup()
+        assert fake_app._cleanup_done is True
+
+    def test_do_cleanup_idempotent_when_recorder_stop_raises(self, controller, fake_app):
+        """Idempotency must hold even when an inner operation raises.
+
+        Mirrors ``tests/test_app_cleanup.py::
+        test_do_cleanup_idempotent_when_recorder_stop_raises``.
+        """
+        fake_app.recorder.stop.side_effect = RuntimeError("PortAudio already closed")
+        fake_app.recorder.discard.side_effect = RuntimeError("already discarded")
+
+        # First call: recorder.stop() raises, discard() is called as
+        # fallback (also raises — both caught by try-except). Must not
+        # propagate.
+        controller._do_cleanup()
+        # Second call must be a no-op.
+        controller._do_cleanup()
+
+        fake_app.recorder.stop.assert_called_once()
+        fake_app.recorder.discard.assert_called_once()
+        # history_db.flush still ran exactly once on the first call,
+        # despite the recorder errors.
+        fake_app.history_db.flush.assert_called_once()
+
+
+# ── (4) _do_cleanup calls shutdown on each subsystem ───────────────────
+
+
+class TestDoCleanupSubsystemCoverage:
+    """``_do_cleanup`` must call shutdown on every subsystem — no
+    subsystem should be silently skipped (the RW-3 bug)."""
+
+    def test_calls_cancel_pending_timers(self, controller, fake_app):
+        controller._do_cleanup()
+        fake_app._cancel_pending_timers.assert_called_once_with()
+
+    def test_calls_recording_stop_watchdog_thread(self, controller, fake_app):
+        controller._do_cleanup()
+        fake_app.recording._stop_watchdog_thread.assert_called_once_with()
+
+    def test_calls_recorder_stop_when_recording(self, controller, fake_app):
+        """When ``recorder.recording`` is truthy, ``_do_cleanup`` must
+        call ``recorder.stop()`` (falling back to ``discard()`` on
+        failure) to close the PortAudio stream."""
+        fake_app.recorder.recording = True
+        controller._do_cleanup()
+        fake_app.recorder.stop.assert_called_once_with()
+
+    def test_calls_recorder_shutdown_mic_watcher(self, controller, fake_app):
+        controller._do_cleanup()
+        fake_app.recorder.shutdown_mic_watcher.assert_called_once_with()
+
+    def test_calls_restore_volume_with_zero_fade(self, controller, fake_app):
+        controller._do_cleanup()
+        fake_app._restore_volume.assert_called_once_with(fade_ms=0)
+
+    def test_calls_all_three_hotkey_backend_stops(self, controller, fake_app):
+        controller._do_cleanup()
+        fake_app.hotkeys._hotkey_backend.stop.assert_called_once_with()
+        fake_app.hotkeys._esc_backend.stop.assert_called_once_with()
+        fake_app.hotkeys._repaste_backend.stop.assert_called_once_with()
+
+    def test_calls_crash_recovery_flush_and_shutdown(self, controller, fake_app):
+        controller._do_cleanup()
+        fake_app._crash_recovery.flush.assert_called_once_with(timeout=2.0)
+        fake_app._crash_recovery.shutdown.assert_called_once_with()
+
+    def test_calls_history_db_flush_and_close(self, controller, fake_app):
+        controller._do_cleanup()
+        fake_app.history_db.flush.assert_called_once_with()
+        fake_app.history_db.close.assert_called_once_with()
+
+    def test_calls_tray_stop(self, controller, fake_app):
+        controller._do_cleanup()
+        fake_app.tray.stop.assert_called_once_with()
+
+    def test_calls_clear_backend_pid_file(self, controller, fake_app, monkeypatch):
+        """``_do_cleanup`` must call the dynamic-lookup
+        ``voice_typer.server.app._clear_backend_pid_file`` so the PID
+        file is removed before the process exits."""
+        clear_calls: list[bool] = []
+        monkeypatch.setattr(
+            "voice_typer.server.app._clear_backend_pid_file",
+            lambda: clear_calls.append(True),
+        )
+        controller._do_cleanup()
+        assert clear_calls == [True], (
+            "_do_cleanup must call _clear_backend_pid_file() so the next "
+            "launch isn't falsely blocked by a stale PID file"
+        )
+
+    def test_calls_close_devnull_files(self, controller, fake_app, monkeypatch):
+        close_calls: list[bool] = []
+        monkeypatch.setattr(
+            "voice_typer.server.app._close_devnull_files",
+            lambda: close_calls.append(True),
+        )
+        controller._do_cleanup()
+        assert close_calls == [True]
+
+    def test_terminates_electron_subprocess_when_pid_tracked(self, controller, fake_app, monkeypatch):
+        """When ``_electron_pid`` is set, ``_do_cleanup`` must call
+        ``electron_launcher.terminate_electron(pid)`` to clean up the
+        subprocess."""
+        terminate_calls: list[int] = []
+        # Patch the real electron_launcher.terminate_electron function
+        # (the module is already imported at app.py import time, so
+        # monkeypatching the attribute on the real module is what
+        # actually intercepts the call — mirrors the convention used
+        # for ``_clear_backend_pid_file``).
+        monkeypatch.setattr(
+            "voice_typer.server.electron_launcher.terminate_electron",
+            lambda pid: terminate_calls.append(pid),
+        )
+        # Avoid the legacy tray_window fallback path (only runs when
+        # _electron_pid is None).
+        fake_app._electron_pid = 99999
+
+        controller._do_cleanup()
+
+        assert terminate_calls == [99999], (
+            "_do_cleanup must call electron_launcher.terminate_electron(pid) when _electron_pid is set"
+        )
+        assert fake_app._electron_pid is None, "_do_cleanup must clear _electron_pid after terminating"
+
+    def test_stops_bubble_level_worker_when_present(self, controller, fake_app):
+        """When the bubble level worker is wired, ``_do_cleanup`` must
+        delegate to ``app.waveform_wiring.stop()`` (RW-9 Phase 7: the
+        worker / queue / stop_event now live on WaveformBubbleWiring)."""
+        waveform_wiring = MagicMock()
+        fake_app.waveform_wiring = waveform_wiring
+
+        controller._do_cleanup()
+
+        waveform_wiring.stop.assert_called_once_with()
+
+
+# ── (5) _install_signal_handlers registers SIGINT/SIGTERM on POSIX ─────
+
+
+class TestInstallSignalHandlers:
+    """``_install_signal_handlers`` must register SIGINT/SIGTERM handlers
+    on POSIX so Ctrl+C / ``kill`` triggers graceful shutdown."""
+
+    @pytest.mark.skipif(
+        not hasattr(signal, "SIGTERM"),
+        reason="SIGTERM not available on this platform (Windows)",
+    )
+    def test_registers_sigint_and_sigterm_handlers(self, controller, monkeypatch):
+        """After ``_install_signal_handlers()``, ``signal.getsignal`` for
+        SIGINT and SIGTERM must return the installed handler (not the
+        default SIG_DFL / SIG_IGN)."""
+        # Save the original handlers so we can restore them after the
+        # test (signal handlers are process-global).
+        original_sigint = signal.getsignal(signal.SIGINT)
+        original_sigterm = signal.getsignal(signal.SIGTERM)
+
+        try:
+            controller._install_signal_handlers()
+            new_sigint = signal.getsignal(signal.SIGINT)
+            new_sigterm = signal.getsignal(signal.SIGTERM)
+            assert new_sigint is not signal.SIG_DFL, "_install_signal_handlers must register a SIGINT handler"
+            assert new_sigint is not signal.SIG_IGN, "_install_signal_handlers must register a SIGINT handler"
+            assert new_sigterm is not signal.SIG_DFL, "_install_signal_handlers must register a SIGTERM handler"
+            assert new_sigterm is not signal.SIG_IGN, "_install_signal_handlers must register a SIGTERM handler"
+            assert new_sigint is new_sigterm, "Both signals should share the same handler closure"
+        finally:
+            # Restore the original handlers.
+            with contextlib.suppress(Exception):
+                signal.signal(signal.SIGINT, original_sigint)
+            with contextlib.suppress(Exception):
+                signal.signal(signal.SIGTERM, original_sigterm)
+
+
+# ── (6) _atexit_cleanup safety net ─────────────────────────────────────
+
+
+class TestAtexitCleanupSafetyNet:
+    """``_atexit_cleanup`` must be safe to call multiple times, must
+    short-circuit when ``_shutting_down`` is True, and must NEVER
+    raise — even if ``_do_cleanup`` raises."""
+
+    def test_atexit_cleanup_when_not_shutting_down_runs_do_cleanup(self, controller, fake_app):
+        """When ``_shutting_down`` is False, ``_atexit_cleanup`` must
+        invoke ``app._do_cleanup()`` (the delegate)."""
+        fake_app._shutting_down = False
+        controller._atexit_cleanup()
+        fake_app._do_cleanup.assert_called_once_with()
+
+    def test_atexit_cleanup_when_shutting_down_short_circuits(self, controller, fake_app):
+        """When ``_shutting_down`` is True (quit/restart already ran),
+        ``_atexit_cleanup`` must early-return WITHOUT calling
+        ``_do_cleanup()`` again — avoids the spurious "[ATEXIT] Running
+        emergency cleanup" log line on every intentional shutdown."""
+        fake_app._shutting_down = True
+        controller._atexit_cleanup()
+        fake_app._do_cleanup.assert_not_called()
+
+    def test_atexit_cleanup_safe_to_call_multiple_times(self, controller, fake_app):
+        """Calling ``_atexit_cleanup`` multiple times must not raise.
+
+        The first call (with ``_shutting_down=False``) runs
+        ``_do_cleanup``. The second call ALSO runs ``_do_cleanup`` (the
+        delegate on the app), but the delegate's side_effect is
+        ``controller._do_cleanup`` which short-circuits via the
+        ``_cleanup_done`` flag set on the first call."""
+        fake_app._shutting_down = False
+        controller._atexit_cleanup()
+        controller._atexit_cleanup()
+        # The delegate was called twice (atexit doesn't know about
+        # _shutting_down unless set), but the body ran exactly once.
+        assert fake_app._do_cleanup.call_count == 2
+        fake_app.history_db.flush.assert_called_once()
+
+    def test_atexit_cleanup_never_raises_when_do_cleanup_raises(self, controller, fake_app):
+        """If ``app._do_cleanup()`` raises, ``_atexit_cleanup`` must
+        catch the exception and log it — NEVER propagate out of an
+        atexit handler (would mask the original exit cause).
+
+        Mirrors ``tests/test_app_cleanup.py::
+        test_atexit_cleanup_never_raises``.
+        """
+        fake_app._shutting_down = False
+        fake_app._do_cleanup = MagicMock(side_effect=RuntimeError("boom"))
+        # Must not raise.
+        controller._atexit_cleanup()
+
+
+# ── (7) _atexit_log ────────────────────────────────────────────────────
+
+
+class TestAtexitLog:
+    """``_atexit_log`` must warn when the process exits without
+    ``quit()`` having been called (``_shutting_down_event`` not set)."""
+
+    def test_atexit_log_warns_when_not_shutting_down(self, controller, fake_app, caplog):
+        """When ``_shutting_down_event`` is not set, ``_atexit_log`` must
+        log a warning so operators can see the process was likely killed
+        externally."""
+        fake_app._shutting_down_event.clear()
+        with caplog.at_level("WARNING"):
+            controller._atexit_log()
+        assert any("likely killed externally" in rec.message for rec in caplog.records), (
+            "_atexit_log must warn that the process likely exited without quit()"
+        )
+
+    def test_atexit_log_silent_when_shutting_down(self, controller, fake_app, caplog):
+        """When ``_shutting_down_event`` is set (intentional shutdown),
+        ``_atexit_log`` must NOT warn — the exit was expected."""
+        fake_app._shutting_down_event.set()
+        with caplog.at_level("WARNING"):
+            controller._atexit_log()
+        assert not any("likely killed externally" in rec.message for rec in caplog.records), (
+            "_atexit_log must not warn when _shutting_down_event is set"
+        )
+
+
+# ── (8) _install_win32_console_handler is a no-op off-Windows ──────────
+
+
+class TestInstallWin32ConsoleHandler:
+    """``_install_win32_console_handler`` must short-circuit on non-Windows
+    platforms (the SetConsoleCtrlHandler API doesn't exist there)."""
+
+    def test_noop_when_not_windows(self, controller, fake_app, monkeypatch):
+        """When ``is_windows()`` returns False, the handler must return
+        immediately without setting ``_console_handler`` / ``_kernel32``."""
+        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+        controller._install_win32_console_handler()
+        # _console_handler / _kernel32 should NOT have been set on the app.
+        assert not hasattr(fake_app, "_console_handler") or fake_app._console_handler is None
+        assert not hasattr(fake_app, "_kernel32") or fake_app._kernel32 is None
+
+    def test_noop_when_pythonw_exe(self, controller, fake_app, monkeypatch):
+        """Even on Windows, ``_install_win32_console_handler`` must skip
+        when running under ``pythonw.exe`` (no console attached)."""
+        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: True)
+        monkeypatch.setattr(sys, "executable", "/fake/path/pythonw.exe")
+        controller._install_win32_console_handler()
+        # _console_handler / _kernel32 should NOT have been set.
+        assert not hasattr(fake_app, "_console_handler") or fake_app._console_handler is None
+
+
+# ── (9) _win32_console_handler ctrl_type routing ───────────────────────
+
+
+class TestWin32ConsoleHandlerRouting:
+    """``_win32_console_handler`` must return True for handled ctrl-types
+    (close/logoff/shutdown/ctrl-c/ctrl-break) and False for unknown
+    types. The close branch must call ``FreeConsole``; the logoff /
+    shutdown / ctrl-c / ctrl-break branches must spawn a ``quit`` thread."""
+
+    def test_close_event_calls_free_console_and_returns_true(self, controller, fake_app):
+        """ctrl_close_event (2) must call ``_kernel32.FreeConsole()`` and
+        return True so the tray app survives console closure."""
+        fake_app._kernel32 = MagicMock()
+        # Ensure _devnull is already open so the open() branch is skipped.
+        fake_app._devnull = MagicMock()
+        fake_app._devnull.closed = False
+
+        result = controller._win32_console_handler(2)
+        assert result is True
+        fake_app._kernel32.FreeConsole.assert_called_once_with()
+
+    def test_unknown_ctrl_type_returns_false(self, controller, fake_app):
+        """An unknown ctrl_type (e.g. 99) must return False so Windows
+        falls back to the next handler in the chain."""
+        result = controller._win32_console_handler(99)
+        assert result is False
