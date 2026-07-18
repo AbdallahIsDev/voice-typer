@@ -452,11 +452,14 @@ def test_macos_paste_simpler_than_windows_no_uipi(
     This test verifies:
     1. ADR-0020 §6.2 migration table explicitly states "macOS paste is
        generally simpler (no UIPI)".
-    2. The Rust ``paste_text`` does NOT contain any Windows-only
+    2. The Rust ``paste_text`` correctly isolates any Windows-only
        focus-restore calls (``AttachThreadInput`` / ``SetForegroundWindow``
-       / ``GetForegroundWindow``) — those would be Windows-specific and
-       are NOT present (the Rust impl delegates to ``enigo`` which
-       handles platform differences internally).
+       / ``GetForegroundWindow``) behind ``#[cfg(target_os = "windows")]``
+       gates so they are EXCLUDED from the macOS build. The presence of
+       these symbols in the source is fine (they're Windows-only); what
+       matters is that they cannot leak into the macOS compile path.
+       Before MIG-1.5 added the focus-restore dance (ADR §6.3), these
+       symbols were entirely absent; now they exist but MUST be gated.
     3. The macOS validation runbook §6.3 does NOT document any
        focus-restore step for the macOS host validation procedure
        (it only documents Accessibility permission + short/long paste).
@@ -471,20 +474,44 @@ def test_macos_paste_simpler_than_windows_no_uipi(
         "row that references Cmd+V (the macOS paste shortcut)."
     )
 
-    # 2. The Rust paste_text must NOT contain Windows-only focus-restore calls.
-    # (These would be Win32 API calls invoked via `unsafe { ... }` blocks;
-    # the current Rust impl delegates to `enigo` which handles platform
-    # differences internally, so these symbols should NOT appear.)
+    # 2. The Rust paste_text MUST gate any Windows-only focus-restore calls
+    # behind `#[cfg(target_os = "windows")]` so they are excluded from the
+    # macOS build. The presence of these symbols is fine (they're Windows-only
+    # per ADR §6.3); what matters is that they cannot leak into the macOS
+    # compile path. We assert:
+    #   (a) The body contains at least one `#[cfg(target_os = "windows")]` gate.
+    #   (b) Every Win32 focus API that is CALLED (not just mentioned in a
+    #       comment) appears in a line that also contains `unsafe` OR is
+    #       part of a `use` import statement. Both forms are gated by the
+    #       enclosing `#[cfg(target_os = "windows")]` attribute.
+    # Source-grepping cannot fully verify Rust cfg-gating semantics (that
+    # requires parsing the AST). The authoritative validation is
+    # `cargo check` on a macOS host — see VALIDATE ON MACOS HOST below.
     body = _slice_paste_text(sidecar_cmds_src)
     win32_focus_apis = ["AttachThreadInput", "SetForegroundWindow", "GetForegroundWindow"]
+    gate_matches = list(re.finditer(r'#\[cfg\(target_os\s*=\s*"windows"\)\]', body))
+    assert gate_matches, (
+        "Rust `paste_text` must contain at least one "
+        '`#[cfg(target_os = "windows")]` gate to isolate the Win32 '
+        "focus-restore code from the macOS build (ADR §6.3 + §6.2)."
+    )
+    # For each Win32 focus API, verify it is referenced in a `use` import
+    # or called inside an `unsafe` block (both forms are cfg-gated). This
+    # is a conservative check — a stronger check would parse the Rust AST.
     for api in win32_focus_apis:
-        assert api not in body, (
-            f"Rust `paste_text` must NOT call the Win32 focus-restore API "
-            f"`{api}` directly — that is a Windows-only concept (ADR-0020 "
-            f"§6.3) and the macOS path has no focus-restore dance (no UIPI). "
-            f"The Rust impl delegates to `enigo` which handles platform "
-            f"differences internally."
-        )
+        if api in body:
+            # Look for either `use ...api...` or `unsafe { ...api...(` patterns.
+            api_in_use = re.search(r"use\s+[^;]*\b" + re.escape(api) + r"\b", body)
+            api_in_unsafe_call = re.search(r"unsafe\s*\{[^}]*\b" + re.escape(api) + r"\s*\(", body, re.DOTALL)
+            assert api_in_use or api_in_unsafe_call, (
+                f"Rust `paste_text` references Win32 API `{api}` but it is "
+                f"not in a `use` import or an `unsafe {{ ... }}` call. "
+                f"Either the API is mentioned only in a comment (OK) or it "
+                f"is being called without proper unsafe/gating (BAD). "
+                f"VALIDATE ON MACOS HOST: `cargo check --manifest-path "
+                f"src-tauri/Cargo.toml` must succeed on a macOS host (the "
+                f"gated Win32 code is excluded)."
+            )
 
     # 3. macOS runbook §6.3 must NOT document a focus-restore step.
     # Slice out the §6.3 section (up to the next "### Step 6.4" header).

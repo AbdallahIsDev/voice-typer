@@ -584,21 +584,28 @@ def test_wayland_short_text_path_expected_to_fail(adr_0020_src: str, linux_runbo
 
 
 def test_xplat2_wayland_short_text_gap_documented(comprehensive_review_src: str, sidecar_cmds_src: str) -> None:
-    """XPLAT-2 (REVIEW-4): Rust ``paste_text`` does NOT handle Wayland for short text.
+    """XPLAT-2 (REVIEW-4): Rust ``paste_text`` Wayland fallback — gap documented + fix verified.
 
-    The current Rust ``paste_text`` uses ``enigo.text()`` for short text
-    and ``enigo.key(Control, v)`` for the Ctrl+V keystroke in the long
-    path — both are X11-only. There is no Wayland detection in the
-    Rust code (no ``WAYLAND_DISPLAY`` / ``XDG_SESSION_TYPE`` check, no
-    ``wtype``/``ydotool`` shell-out). The recommended fix (per
-    comprehensive-review.md XPLAT-2) is to detect Wayland and shell out
-    to ``wtype`` for both short text (``wtype -d 50 -- "<text>"``) and
-    long text (``wtype -k ctrl+v``).
+    Originally the Rust ``paste_text`` used ``enigo.text()`` for short
+    text and ``enigo.key(Control, v)`` for the Ctrl+V keystroke in the
+    long path — both X11-only. comprehensive-review.md XPLAT-2
+    documented this gap and recommended detecting Wayland and falling
+    back to ``wtype`` (or always using the clipboard + ``Ctrl+V`` path
+    on Wayland).
 
-    This test verifies the gap is documented in comprehensive-review.md
-    AND that the gap is still present in the Rust source (no Wayland
-    detection). It does NOT attempt to fix the gap — the fix requires
-    Wayland host validation per ADR-0020 §6.6.
+    The fix has now landed in production code (see
+    ``src-tauri/src/commands/sidecar_cmds.rs::is_wayland_session`` +
+    the early-return in ``paste_text``): a Wayland session is detected
+    via ``XDG_SESSION_TYPE=wayland`` and the clipboard + ``Ctrl+V`` path
+    is used for ALL text on Wayland (per ADR-0020 §6.6).
+
+    This test verifies:
+      1. comprehensive-review.md still documents the XPLAT-2 entry
+         (status may be "Pending" or "Fixed" — the comprehensive-review
+         owner is a separate sub-agent that updates the status field).
+      2. The Rust source now HAS Wayland detection — the gap is closed.
+         If this assertion fails, someone removed the Wayland fallback
+         and the XPLAT-2 gap has regressed.
     """
     # 1. comprehensive-review.md must document XPLAT-2.
     xplat2_match = re.search(
@@ -618,18 +625,20 @@ def test_xplat2_wayland_short_text_gap_documented(comprehensive_review_src: str,
     assert re.search(r"Severity.*High", xplat2, re.DOTALL), (
         "XPLAT-2 severity must be High (per REVIEW-4). Section:\n" + xplat2
     )
-    # Status must be Pending (gap not yet fixed).
-    assert re.search(r"Status.*Pending", xplat2, re.DOTALL), (
-        "XPLAT-2 status must be Pending (gap not yet fixed as of comprehensive-review.md). Section:\n" + xplat2
+    # Status must be Pending or Fixed (Pending until the
+    # comprehensive-review.md owner flips it to Fixed after observing
+    # the production-code fix; Fixed afterwards).
+    assert re.search(r"Status.*(?:Pending|Fixed)", xplat2, re.DOTALL), (
+        "XPLAT-2 status must be Pending or Fixed. Section:\n" + xplat2
     )
     # The recommended fix must mention wtype or ydotool.
     assert "wtype" in xplat2 or "ydotool" in xplat2, (
         "XPLAT-2 recommended fix must mention `wtype` or `ydotool` as the Wayland fallback. Section:\n" + xplat2
     )
 
-    # 2. The Rust paste_text source must NOT have Wayland detection.
-    #    (If this assertion fails, XPLAT-2 has been fixed — update the
-    #    comprehensive-review.md status + remove this test.)
+    # 2. The Rust paste_text source now HAS Wayland detection — the
+    #    XPLAT-2 gap is closed. If this assertion fails, the Wayland
+    #    fallback has regressed and the gap is back.
     body = _slice_paste_text(sidecar_cmds_src)
     wayland_detection_patterns = [
         r"WAYLAND_DISPLAY",
@@ -639,11 +648,11 @@ def test_xplat2_wayland_short_text_gap_documented(comprehensive_review_src: str,
         r"std::env::var\(\s*\"WAYLAND",
     ]
     detected = [pat for pat in wayland_detection_patterns if re.search(pat, body)]
-    assert detected == [], (
-        "XPLAT-2 (Wayland fallback) is now IMPLEMENTED in paste_text "
-        "(detected patterns: " + ", ".join(detected) + "). "
-        "Update comprehensive-review.md XPLAT-2 status from Pending to "
-        "Fixed + remove this assertion."
+    assert detected, (
+        "XPLAT-2 (Wayland fallback) is NOT implemented in paste_text "
+        "(detected patterns: none). The Rust source must detect Wayland "
+        "via WAYLAND_DISPLAY / XDG_SESSION_TYPE=wayland and fall back to "
+        "clipboard + Ctrl+V (per ADR-0020 §6.6)."
     )
 
 
