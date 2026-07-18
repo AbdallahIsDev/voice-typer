@@ -47,6 +47,112 @@ _KEY_PATTERNS = [
     re.compile(r"\b[A-Za-z0-9_\-]{32,}\b"),
 ]
 
+# SEC-9: explicit flag / key=value forms for secret-bearing keywords.
+#
+# These patterns are deliberately more specific than the catch-all
+# 32+ char pattern: they require an explicit secret-bearing keyword
+# (``token``, ``key``, ``secret``, ``password``, etc.) so they fire
+# on short values that the generic pattern would miss (e.g.
+# ``--token=abc`` is 12 chars — well under the 32-char generic
+# threshold — but is unambiguously a secret-bearing flag).
+#
+# Covers three forms:
+#   1. ``--token=abc123``  (long flag, ``=`` delimiter)
+#   2. ``--token abc123``  (long flag, space delimiter)
+#   3. ``token=abc123``    (bare ``key=value``, e.g. env vars /
+#      config files / URL query params)
+#
+# Single-letter short flags (``-t abc123``) are deliberately NOT
+# matched — too ambiguous (could be any of dozens of CLI options
+# that happen to share a letter with a secret flag).
+_SECRET_KEYWORDS = (
+    "token",
+    "apikey",
+    "api_key",
+    "api-key",
+    "secret",
+    "password",
+    "passwd",
+    "pwd",
+    "auth",
+    "authorization",
+    "authentication",
+    "access_token",
+    "access-token",
+    "refreshtoken",
+    "refresh_token",
+    "refresh-token",
+    "client_secret",
+    "client-secret",
+    "private_key",
+    "private-key",
+    # Bare ``key=`` is included last in the alternation so longer
+    # keywords (``api_key=``) win when present — Python's ``re``
+    # alternation is leftmost-greedy, so we order from most-specific
+    # to least-specific. ``\b`` prevents matching inside larger
+    # words like ``monkey=`` or ``hotkey=``.
+    "key",
+)
+_KEYWORD_ALT = "|".join(re.escape(k) for k in _SECRET_KEYWORDS)
+
+# Pattern A: long-flag form. Captures the prefix (``--token=`` or
+# ``--token ``) in group 1 and the secret value in group 2. The
+# replacement keeps the prefix and redacts the value.
+#
+# SEC-9 fix (PIR-SEC-1): the ``--`` prefix and the ``(?:=|\s+)``
+# delimiter must be OUTSIDE the keyword alternation so they apply to
+# EVERY alternative, not just the last one. The previous form
+# ``(--token|apikey|...|key(?:=|\s+))`` parsed as an alternation
+# where only the LAST branch (``key``) carried the delimiter, so
+# ``--token=abc`` failed to match (the ``=`` was consumed by the
+# ``[^\s=]+`` group's negation, leaving no value to capture), and
+# bare keywords like ``password`` matched as a prefix without any
+# delimiter at all, greedily consuming the rest of the line as the
+# "value" (e.g. ``password@host:port`` → ``password***`` instead of
+# being left alone for the URL-redaction pass).
+_FLAG_VALUE_PATTERN = re.compile(rf"(?i)(--(?:{_KEYWORD_ALT})(?:=|\s+))([^\s=]+)")
+
+# Pattern B: bare ``key=value`` form (no ``--`` prefix). Captures the
+# prefix (``token=``) in group 1 and the value in group 2. ``\b``
+# ensures the keyword isn't part of a larger word (e.g. ``monkey=``
+# does NOT match ``key=``).
+#
+# SEC-9 fix (PIR-SEC-1): the ``=`` must be INSIDE capture group 1 so
+# the ``_flag_sub`` replacement preserves it in the output
+# (``password=hunter2`` → ``password=***``, not ``password***``).
+# The previous form ``\b({_KEYWORD_ALT})=([^\s=]+)`` left the ``=``
+# outside the group, so the replacement dropped it — every test
+# asserting ``password=***`` / ``--token=***`` / etc. failed.
+#
+# The keyword alternation is wrapped in a non-capturing group
+# ``(?:{_KEYWORD_ALT})`` BEFORE the ``=`` so the ``=`` applies to
+# EVERY alternative, not just the last one. Without the inner
+# non-capturing group, Python's regex engine parses
+# ``(token|...|key=)`` as an alternation where only the LAST branch
+# (``key``) carries the ``=`` — leaving ``token``, ``password``,
+# etc. as bare keyword matches (with no delimiter constraint) that
+# greedily consume the rest of the line as the "value"
+# (e.g. ``secret-value`` matched as ``secret`` + ``-value``
+# instead of ``token=abc123-secret-value`` matched as
+# ``token=`` + ``abc123-secret-value``).
+_BARE_KEY_VALUE_PATTERN = re.compile(rf"(?i)\b((?:{_KEYWORD_ALT})=)([^\s=]+)")
+
+# Ordered list: pattern A (flag form) runs before pattern B (bare
+# form) so a value redacted by A isn't re-matched by B on the
+# resulting ``***`` (harmless if it does, but this avoids needless
+# regex work).
+_FLAG_KEY_PATTERNS = [_FLAG_VALUE_PATTERN, _BARE_KEY_VALUE_PATTERN]
+
+
+def _flag_sub(m: re.Match[str]) -> str:
+    """SEC-9 replacement for flag / key=value patterns.
+
+    Keeps the prefix (group 1, e.g. ``--token=`` or ``token=``) and
+    redacts the value (group 2) to ``***``.
+    """
+    return m.group(1) + "***"
+
+
 # Minimum length below which we don't bother redacting — too likely
 # to be an ordinary word.
 _MIN_REDACT_LEN = 20
@@ -76,15 +182,29 @@ def redact_secret(value: object) -> str:
     secret format, and it may occasionally redact a non-secret that
     happens to look like one.  The goal is to make log-grepping for
     leaked keys reliable, not to provide cryptographic guarantees.
+
+    SEC-9: explicit flag / key=value forms (``--token=abc``,
+    ``--token abc``, ``token=abc``) are matched BEFORE the
+    ``_MIN_REDACT_LEN`` short-string guard because the keyword
+    constraint makes them specific enough to be safe on short inputs.
     """
     if value is None:
         return "None"
     if not isinstance(value, str):
         value = str(value)
-    if len(value) < _MIN_REDACT_LEN:
-        return value
+    # SEC-9: apply the specific flag / key=value patterns first so
+    # they fire even on short inputs (e.g. ``--token=abc`` is 12
+    # chars but unambiguously a secret-bearing flag).
     redacted = value
+    for pat in _FLAG_KEY_PATTERNS:
+        redacted = pat.sub(_flag_sub, redacted)
+    # Early-exit for short strings: skip the more-generic patterns
+    # that could false-positive on ordinary short text. The flag
+    # patterns above are specific enough to have already run.
+    if len(value) < _MIN_REDACT_LEN:
+        return redacted
     for pat in _KEY_PATTERNS:
+
         def _sub(m: re.Match[str]) -> str:
             if m.lastindex:
                 # Pattern has a prefix group (e.g. "Bearer ").  Keep
@@ -92,6 +212,7 @@ def redact_secret(value: object) -> str:
                 return m.group(1) + "***"
             # No prefix group — redact the whole match.
             return "***"
+
         redacted = pat.sub(_sub, redacted)
     return redacted
 
@@ -128,22 +249,24 @@ def redact_url(url: str) -> str:
 # endpoint), call ``extend_url_allowlist(["my-host.example.com"])``.
 # Extensions are process-global and apply to all HTTP clients.
 
-_DEFAULT_ALLOWED_HOSTS = frozenset({
-    # OpenAI
-    "api.openai.com",
-    # Groq
-    "api.groq.com",
-    # Deepgram
-    "api.deepgram.com",
-    # Anthropic (Claude) — common LLM polish target
-    "api.anthropic.com",
-    # Google Gemini / Vertex
-    "generativelanguage.googleapis.com",
-    # Local self-hosted endpoints — explicitly allowed for development
-    "localhost",
-    "127.0.0.1",
-    "::1",
-})
+_DEFAULT_ALLOWED_HOSTS = frozenset(
+    {
+        # OpenAI
+        "api.openai.com",
+        # Groq
+        "api.groq.com",
+        # Deepgram
+        "api.deepgram.com",
+        # Anthropic (Claude) — common LLM polish target
+        "api.anthropic.com",
+        # Google Gemini / Vertex
+        "generativelanguage.googleapis.com",
+        # Local self-hosted endpoints — explicitly allowed for development
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }
+)
 
 _user_extensions: set[str] = set()
 
@@ -227,10 +350,7 @@ def assert_url_allowed(
     except (ValueError, TypeError) as e:
         raise ValueError(f"{client_name}: {field_name} is not a valid URL: {e}") from e
     if parsed.scheme not in ("http", "https"):
-        raise ValueError(
-            f"{client_name}: {field_name} must use http or https scheme "
-            f"(got {parsed.scheme!r})"
-        )
+        raise ValueError(f"{client_name}: {field_name} must use http or https scheme (got {parsed.scheme!r})")
     host = (parsed.hostname or "").lower()
     if not host:
         raise ValueError(f"{client_name}: {field_name} has no hostname")
