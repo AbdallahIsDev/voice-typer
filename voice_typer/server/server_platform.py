@@ -3,6 +3,7 @@
 import contextlib
 import logging
 import os
+import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -1013,6 +1014,78 @@ def _start_menu_programs_dir() -> Path:
     return Path(os.environ.get("APPDATA", Path.home())) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
 
 
+def _ps_single_quote(value: object) -> str:
+    """SEC-10: escape a value for embedding in a PowerShell single-quoted string.
+
+    Wraps *value* in single quotes and doubles any embedded single
+    quotes (``'`` → ``''``), which is the ONLY escaping required
+    inside a PowerShell single-quoted string.
+
+    Why single-quoted strings (defense-in-depth):
+        PowerShell single-quoted strings disable **all** of the
+        following expansions that the previous double-quoted
+        generator left vulnerable:
+
+          * Variable expansion:      ``$env:USERNAME``
+          * Sub-expression:          ``$(Get-Process)``
+          * Command substitution:    ``& whoami``
+          * Backtick escape sequences: `` `n ``, `` `t ``, `` `$ ``
+          * Statement chaining:      ``; Remove-Item C:\\ -Recurse``
+          * Pipeline operator:       ``| Out-File evil.txt``
+          * Redirection:             ``> evil.txt``, ``< input.txt``
+          * Grouping:                ``(...)`` as expression
+          * Newline as separator:    multi-line injection
+
+        The previous generator only escaped ``"`` as ``""`` (the
+        double-quote escape inside double-quoted strings), leaving
+        every character above injectable. A malicious or merely
+        unusual path / description / arguments value could break
+        out of the double-quoted context and execute arbitrary
+        PowerShell.
+
+    Note:
+        Single-quoted strings in PowerShell natively support
+        embedded newlines, so multi-line values are safe without
+        any special handling.
+    """
+    return "'" + str(value).replace("'", "''") + "'"
+
+
+def _build_powershell_lnk_script(
+    lnk_path: Path,
+    target: str,
+    arguments: str,
+    icon_ico: Path | None,
+    description: str,
+    working_dir: Path | None = None,
+) -> str:
+    """SEC-10: build the .lnk-creation PowerShell script as a single string.
+
+    Extracted from ``_create_lnk_shortcut`` so the script body can be
+    unit-tested directly (without spawning ``powershell.exe`` or
+    mocking ``subprocess.run``). Each user-supplied value is wrapped
+    via :func:`_ps_single_quote` so no character can break out of the
+    string literal and inject PowerShell code.
+    """
+    if working_dir is None:
+        working_dir = Path.home()
+    lines = [
+        "$s = New-Object -ComObject WScript.Shell",
+        f"$l = $s.CreateShortcut({_ps_single_quote(lnk_path)})",
+        f"$l.TargetPath = {_ps_single_quote(target)}",
+        # arguments already has surrounding double quotes from the caller
+        # (e.g. '"C:\\launcher.py"'); _ps_single_quote wraps the whole
+        # string in single quotes so the inner double quotes are literal.
+        f"$l.Arguments = {_ps_single_quote(arguments)}",
+        f"$l.Description = {_ps_single_quote(description)}",
+        f"$l.WorkingDirectory = {_ps_single_quote(working_dir)}",
+    ]
+    if icon_ico:
+        lines.append(f"$l.IconLocation = {_ps_single_quote(icon_ico)}")
+    lines.append("$l.Save()")
+    return "\n".join(lines)
+
+
 def _create_lnk_shortcut(
     lnk_path: Path,
     target: str,
@@ -1025,6 +1098,14 @@ def _create_lnk_shortcut(
     Tries win32com first (fast, native COM).  Falls back to a PowerShell
     script written to a temp file — always available on Windows, no extra
     packages needed, and avoids string-escaping problems.
+
+    SEC-10: the PowerShell fallback now wraps every user-supplied value
+    (path, target, arguments, description, icon, working directory) in
+    a single-quoted PowerShell string via :func:`_ps_single_quote`,
+    which disables all variable expansion, command substitution, and
+    escape-sequence processing. Previously only ``"`` was escaped (as
+    ``""``), leaving ``$``, backtick, ``;``, ``|``, ``&``, ``()``,
+    ``<>``, and newlines injectable.
     """
     # 1) win32com path (native COM, fastest).
     try:
@@ -1047,32 +1128,28 @@ def _create_lnk_shortcut(
         return False
 
     # 2) PowerShell fallback — write a temp .ps1 to avoid escaping issues.
+    # SEC-10: every user-supplied value is wrapped in a single-quoted
+    # PowerShell string (see _build_powershell_lnk_script /
+    # _ps_single_quote). This is defense-in-depth against path /
+    # description / arguments values that contain PowerShell
+    # metacharacters — even though Voice Typer controls most of these
+    # values today, a future change (e.g. user-customizable shortcut
+    # description) shouldn't silently introduce an injection vector.
     import os as _os
-    import subprocess
     import tempfile
 
     tmp = None
     try:
-
-        def _q(s):
-            """Double every ``"`` for embedding in a PS double-quoted string."""
-            return str(s).replace('"', '""')
-
-        lines = [
-            "$s = New-Object -ComObject WScript.Shell",
-            f'$l = $s.CreateShortcut("{_q(lnk_path)}")',
-            f'$l.TargetPath = "{_q(target)}"',
-            # arguments already has surrounding double quotes — use _q() escaping
-            f'$l.Arguments = "{_q(arguments)}"',
-            f'$l.Description = "{_q(description)}"',
-            f'$l.WorkingDirectory = "{_q(Path.home())}"',
-        ]
-        if icon_ico:
-            lines.append(f'$l.IconLocation = "{_q(icon_ico)}"')
-        lines.append("$l.Save()")
+        script = _build_powershell_lnk_script(
+            lnk_path=lnk_path,
+            target=target,
+            arguments=arguments,
+            icon_ico=icon_ico,
+            description=description,
+        )
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".ps1", delete=False, encoding="utf-8-sig") as f:
-            f.write("\n".join(lines))
+            f.write(script)
             tmp = f.name
 
         subprocess.run(

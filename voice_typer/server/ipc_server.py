@@ -24,6 +24,7 @@ import threading
 import time
 import typing
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server import event_bus
 from voice_typer.server.keyboard_ownership import keyboard_ownership
@@ -99,14 +100,23 @@ def _validate_dict_payload(data, schema):
             value = data[field_name]
             expected_type = rules.get("type")
             if expected_type is not None and not isinstance(value, expected_type):
+                # IPC-3: format the expected-type name for the error
+                # message.  ``expected_type`` may be a single type
+                # (``str``) or a tuple of types (``(str, type(None))``)
+                # — the latter is the standard ``isinstance`` idiom for
+                # "any of these types".  A tuple has no ``__name__``,
+                # so format the names of all the allowed types and
+                # join them with ``|`` (e.g. ``"str|NoneType"``).
+                if isinstance(expected_type, tuple):
+                    expected_name = "|".join(t.__name__ for t in expected_type)
+                else:
+                    expected_name = expected_type.__name__
                 return None, {
                     "type": "error",
                     "data": {
                         "code": "invalid_field",
                         "field": field_name,
-                        "message": f"'{field_name}' must be of type "
-                        f"{expected_type.__name__}, got "
-                        f"{type(value).__name__}",
+                        "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
                     },
                 }
             validated[field_name] = value
@@ -196,8 +206,21 @@ def _pick_available_port(start: int = 9876, max_tries: int = 100) -> tuple[int, 
 # average) so short bursts within 1s (up to 200) are NOT throttled by
 # the sustained limit. Previously both used a 1s window with
 # sustained=60 < burst=200, making burst completely unreachable.
+#
+# IPC-4 fix (2026-07-18): the prior FIX-10 comment claimed "burst is
+# the hard per-second cap" but the implementation used a SINGLE deque
+# for both checks, with the same ``window`` (10s). With burst=200 and
+# sustained=600 over the same 10s deque, the burst check (>= 200)
+# ALWAYS fired first, making the sustained check (>= 600) unreachable
+# dead code. The fix: TWO independent deques — ``_burst_timestamps``
+# (1-second window) and ``_sustained_timestamps`` (10-second window) —
+# so burst catches fast-burst attacks (201 msgs in any 1s) and
+# sustained catches slow-drip attacks (601 msgs in any 10s = 60.1
+# msg/s average, never tripping the 200/s burst). The two checks are
+# now genuinely independent, not redundant.
 
 _RATE_LIMIT_WINDOW_SECONDS = 10.0
+_RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0
 _RATE_LIMIT_BURST = 200
 _RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
 
@@ -251,10 +274,23 @@ class _RateLimiter:
     """Sliding-window per-connection rate limiter.
 
     Each IPC connection gets its own ``_RateLimiter`` instance.  The
-    limiter tracks the timestamp of each accepted message in a deque;
-    when the deque exceeds the burst size, the oldest entries are
-    evicted and the message is rejected if the sustained rate would
-    be exceeded.
+    limiter tracks the timestamp of each accepted message in TWO
+    deques:
+
+    * ``_burst_timestamps`` — a 1-second sliding window. If the deque
+      reaches ``burst`` entries (default 200), the next message is
+      rejected. This catches fast-burst attacks (201+ msgs in any 1s).
+    * ``_sustained_timestamps`` — a ``window``-second sliding window
+      (default 10s). If the deque reaches ``sustained`` entries
+      (default 600 = 60 msg/s avg), the next message is rejected.
+      This catches slow-drip attacks (601+ msgs in any 10s = 60.1
+      msg/s avg) that never trip the per-second burst.
+
+    IPC-4 fix (2026-07-18): prior to this fix, both checks shared a
+    SINGLE deque (the ``window``-second one), so the burst check
+    (>= 200) always fired first and the sustained check (>= 600) was
+    unreachable dead code. The two checks are now genuinely
+    independent.
     """
 
     def __init__(
@@ -263,11 +299,17 @@ class _RateLimiter:
         burst: int = _RATE_LIMIT_BURST,
         sustained_per_sec: int = _RATE_LIMIT_SUSTAINED,
         window: float = _RATE_LIMIT_WINDOW_SECONDS,
+        burst_window: float = _RATE_LIMIT_BURST_WINDOW_SECONDS,
     ) -> None:
         self._burst = burst
         self._sustained = sustained_per_sec
         self._window = window
-        self._timestamps: deque[float] = deque()
+        self._burst_window = burst_window
+        # IPC-4: TWO independent deques. The burst deque uses a 1s
+        # window (configurable via ``burst_window``); the sustained
+        # deque uses the ``window`` parameter (default 10s).
+        self._burst_timestamps: deque[float] = deque()
+        self._sustained_timestamps: deque[float] = deque()
         self._rejected: int = 0
         self._lock = threading.Lock()
 
@@ -289,24 +331,36 @@ class _RateLimiter:
         the same deque state, both decide to reject, and double-count
         the rejection. Now ``allow()`` is the single source of truth
         for both the decision and the counter.
+
+        IPC-4: the burst and sustained checks are now INDEPENDENT.
+        A client can trip burst (201 msgs in 1s) without tripping
+        sustained (601 msgs in 10s), and vice versa. Both deques are
+        evicted and checked under the same lock acquisition so the
+        decision is atomic.
         """
         ts = now if now is not None else time.monotonic()
-        cutoff = ts - self._window
+        burst_cutoff = ts - self._burst_window
+        sustained_cutoff = ts - self._window
         with self._lock:
-            # Evict timestamps older than the window
-            while self._timestamps and self._timestamps[0] < cutoff:
-                self._timestamps.popleft()
-            # RELIABILITY-006-FIX-10: burst check first (hard per-second
-            # cap). Sustained check second (longer window, lower average).
-            # With window=10s, burst=200, sustained=600, a client can
-            # send 200 msgs in 1s without hitting the sustained limit.
-            if len(self._timestamps) >= self._burst:
+            # Evict expired timestamps from both deques.
+            while self._burst_timestamps and self._burst_timestamps[0] < burst_cutoff:
+                self._burst_timestamps.popleft()
+            while self._sustained_timestamps and self._sustained_timestamps[0] < sustained_cutoff:
+                self._sustained_timestamps.popleft()
+            # IPC-4: burst check (1s window, hard per-second cap).
+            if len(self._burst_timestamps) >= self._burst:
                 self._rejected += 1
                 return False
-            if len(self._timestamps) >= self._sustained:
+            # IPC-4: sustained check (10s window, avg-rate cap).
+            # Independent of burst — a slow-drip attacker who never
+            # sends >200 msgs/s but exceeds 600 msgs in 10s is caught
+            # here, where the prior single-deque impl would have
+            # missed them (burst fired first at 200).
+            if len(self._sustained_timestamps) >= self._sustained:
                 self._rejected += 1
                 return False
-            self._timestamps.append(ts)
+            self._burst_timestamps.append(ts)
+            self._sustained_timestamps.append(ts)
             return True
 
     @property
@@ -681,6 +735,15 @@ class IPCServer(
         # accept() forever (acceptable in production but leaks threads
         # and sockets in test start/stop cycles).
         self._tcp_server_socket: socket.socket | None = None
+        # SEC-8: TCP connection handler worker pool. Lazily created in
+        # start_tcp() so test-only IPCServer constructions don't spawn
+        # background threads. Each accepted connection is handed off to
+        # this pool IMMEDIATELY after accept(), so the auth handshake
+        # (with its 5s timeout) runs on a worker thread — a slow or
+        # malicious client that opens a connection and sends nothing
+        # can no longer stall the accept loop and block the next
+        # legitimate client from being accepted.
+        self._tcp_worker_pool: ThreadPoolExecutor | None = None
         # NEW-IPC-013: this server's push callable, registered in the
         # module-level _push_event_registry on start() and unregistered
         # on stop().  Tracked on the instance so stop() can remove just
@@ -890,6 +953,17 @@ class IPCServer(
             with contextlib.suppress(OSError):
                 server_sock.close()
             self._tcp_server_socket = None
+        # SEC-8: shut down the TCP worker pool so queued (not-yet-
+        # started) connection handoffs are dropped and in-flight
+        # workers' teardown is no longer tracked. The accept loop
+        # also shuts the pool down when it exits naturally; this is
+        # the belt-and-suspenders path for callers that close the
+        # listening socket directly (e.g. test fixtures) without
+        # waiting for the accept thread to observe the close.
+        pool = self._tcp_worker_pool
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
+            self._tcp_worker_pool = None
         # RW-10: signal the heartbeat watchdog to exit.  The thread
         # sleeps on ``_heartbeat_stop_event.wait(timeout=INTERVAL)``;
         # setting the event wakes it immediately so it doesn't linger
@@ -937,6 +1011,17 @@ class IPCServer(
           the probe and the listen.
         """
         self._tcp_mode = True
+        # SEC-8: lazily create the worker pool that handles accepted
+        # TCP connections off the accept-loop thread. A small pool is
+        # sufficient — production has a single Electron client, and the
+        # auth handshake's 5s timeout ensures slow/malicious clients
+        # don't hold a worker indefinitely. Reusing the pool across
+        # start_tcp() calls is fine; it's only torn down by stop().
+        if self._tcp_worker_pool is None:
+            self._tcp_worker_pool = ThreadPoolExecutor(
+                max_workers=4,
+                thread_name_prefix="tcp-worker",
+            )
         t = threading.Thread(
             target=self._accept_tcp,
             args=(port,),
@@ -1042,21 +1127,37 @@ class IPCServer(
                 # Server socket closed during shutdown (stop() called
                 # server_sock.close()).
                 break
-            try:
-                self._handle_tcp_connection(conn, addr, expected_token)
-            except OSError:
-                # Routine: the handler already logged the disconnect at
-                # DEBUG/INFO and ran its teardown. Nothing to surface.
-                log.debug("[TCP] connection handler completed")
-            except Exception:
-                # Anything else escaping the handler (e.g. teardown in
-                # _on_ipc_client_disconnect raising) is unexpected and
-                # must be visible in production logs.
-                log.warning(
-                    "[TCP] connection handler terminated unexpectedly",
-                    exc_info=True,
-                )
+            # SEC-8: hand the connection off to a worker thread
+            # IMMEDIATELY so a slow/malicious client cannot block the
+            # accept loop. Previously _handle_tcp_connection was called
+            # inline here, so a client that opened a connection and sent
+            # nothing would stall the accept loop for the full 5-second
+            # auth timeout (soft DoS) — any other client that connected
+            # during that window would be queued in the kernel backlog
+            # and not picked up until the stalled auth timed out. The
+            # auth handshake (and its timeout) now runs on a worker
+            # thread, leaving the accept loop free to accept the next
+            # connection right away.
+            pool = self._tcp_worker_pool
+            if pool is None:
+                # Defensive: pool was never created (shouldn't happen
+                # since start_tcp creates it before starting the accept
+                # thread). Close the connection and keep looping.
+                with contextlib.suppress(OSError):
+                    conn.close()
+                continue
+            pool.submit(self._run_tcp_handler_safely, conn, addr, expected_token)
             # Loop back to accept the next connection
+
+        # SEC-8: shut down the worker pool now that no new connections
+        # will arrive. cancel_futures=True drops queued (not-yet-started)
+        # submissions; in-flight workers are responsible for their own
+        # teardown (the auth timeout + dispatch loop's OSError handling
+        # ensure they exit promptly when their socket is closed).
+        pool = self._tcp_worker_pool
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
+            self._tcp_worker_pool = None
 
         with contextlib.suppress(OSError):
             server.close()
@@ -1064,6 +1165,30 @@ class IPCServer(
         # store a fresh socket without confusion.
         if self._tcp_server_socket is server:
             self._tcp_server_socket = None
+
+    def _run_tcp_handler_safely(self, conn, addr, expected_token: str) -> None:
+        """SEC-8: run ``_handle_tcp_connection`` on a worker thread.
+
+        Wraps the handler with the same exception handling that the
+        accept loop used to apply inline, so an unexpected exception
+        in one handler doesn't silently kill the worker thread (which
+        would otherwise be reported only via the ThreadPoolExecutor's
+        internal error handler and easy to miss in production logs).
+        """
+        try:
+            self._handle_tcp_connection(conn, addr, expected_token)
+        except OSError:
+            # Routine: the handler already logged the disconnect at
+            # DEBUG/INFO and ran its teardown. Nothing to surface.
+            log.debug("[TCP] connection handler completed")
+        except Exception:
+            # Anything else escaping the handler (e.g. teardown in
+            # _on_ipc_client_disconnect raising) is unexpected and
+            # must be visible in production logs.
+            log.warning(
+                "[TCP] connection handler terminated unexpectedly",
+                exc_info=True,
+            )
 
     def _handle_tcp_connection(self, conn, addr, expected_token: str) -> None:
         """Handle a single TCP client connection (auth + dispatch loop).
@@ -1134,7 +1259,27 @@ class IPCServer(
                             json.dumps(
                                 {
                                     "type": "error",
-                                    "data": {"message": "authentication failed"},
+                                    "data": {
+                                        # IPC-5 (2026-07-18): add
+                                        # ``code: "auth_failed"`` for
+                                        # envelope consistency with
+                                        # the other TCP/WS error
+                                        # paths (rate_limited,
+                                        # invalid_payload,
+                                        # internal_error, etc.). The
+                                        # WS path closes the socket
+                                        # with code 1008 instead of
+                                        # emitting an error frame, so
+                                        # there is no WS-side code to
+                                        # match — but a client reading
+                                        # the TCP error frame can now
+                                        # distinguish auth failure
+                                        # from other errors without
+                                        # substring-matching the
+                                        # message.
+                                        "code": "auth_failed",
+                                        "message": "authentication failed",
+                                    },
                                 }
                             )
                             + "\n"
@@ -1212,8 +1357,19 @@ class IPCServer(
         # timestamps across reconnects.
         rate_limiter = _get_rate_limiter(self)
 
+        # SEC-8: capture a LOCAL reference to the authenticated client.
+        # With the worker-pool fix, multiple handlers can run
+        # concurrently (e.g. a slow-auth client still in its 5s auth
+        # window while a fast-auth client connects and authenticates).
+        # If a second client authenticates, ``self._tcp_client`` is
+        # reassigned to the new client; iterating ``self._tcp_client``
+        # directly would then read from the WRONG socket. Capturing the
+        # local reference here ensures this handler's dispatch loop
+        # always reads from the client it authenticated.
+        client = auth_client
+
         try:
-            for line in self._tcp_client:
+            for line in client:
                 line = line.strip()
                 if not line:
                     continue
@@ -1222,10 +1378,22 @@ class IPCServer(
                     # atomically when it returns False — no separate
                     # ``reject()`` call needed (and calling it would
                     # double-count under the new atomic semantics).
+                    #
+                    # IPC-5 (2026-07-18): the error envelope now
+                    # includes a ``code: "rate_limited"`` field to
+                    # match the WS path (``sidecar_ws._make_dispatch``)
+                    # so a client can distinguish rate-limit rejections
+                    # from invalid-JSON and dispatch-exception errors
+                    # without substring-matching the message text. The
+                    # ADR-0020 §2 envelope contract is
+                    # ``{"type":"error","data":{"code":<str>,"message":<str>}}``.
                     self._send(
                         {
                             "type": "error",
-                            "data": {"message": "rate limit exceeded; backing off"},
+                            "data": {
+                                "code": "rate_limited",
+                                "message": "rate limit exceeded; backing off",
+                            },
                         }
                     )
                     log.warning(
@@ -1236,10 +1404,17 @@ class IPCServer(
                 try:
                     msg = json.loads(line)
                 except json.JSONDecodeError:
+                    # IPC-5 (2026-07-18): the error envelope now
+                    # includes a ``code: "invalid_payload"`` field to
+                    # match the WS path so the client can distinguish
+                    # invalid JSON from rate-limit and dispatch errors.
                     self._send(
                         {
                             "type": "error",
-                            "data": {"message": "invalid JSON"},
+                            "data": {
+                                "code": "invalid_payload",
+                                "message": "invalid JSON",
+                            },
                         }
                     )
                     continue
@@ -1306,8 +1481,16 @@ class IPCServer(
             # and was previously swallowed at DEBUG. Surface it.
             log.warning("[TCP] unexpected error in connection loop", exc_info=True)
         finally:
-            self._tcp_client.close()
-            self._tcp_client = None
+            # SEC-8: close the LOCAL client reference (not
+            # ``self._tcp_client``) and only clear the instance field
+            # if it still points to us. Another handler may have
+            # already replaced ``self._tcp_client`` with a newer
+            # authenticated client; blindly closing it would terminate
+            # the wrong connection.
+            client.close()
+            with self._lock:
+                if self._tcp_client is client:
+                    self._tcp_client = None
             log.info("[TCP] client disconnected")
             # TASK-0010: if the frontend crashed mid-capture (before
             # sending ``set_esc_cancel_paused: false``), the backend
@@ -1583,6 +1766,18 @@ class IPCServer(
                     result = self._dispatch(msg)
                     self._send(result, _out=stdout)
                 except json.JSONDecodeError:
+                    # IPC-5 note: the TCP path now emits
+                    # ``{"code": "invalid_payload", "message": "invalid JSON"}``
+                    # to match the WS path (see ``_handle_tcp_connection``).
+                    # The stdin/stdout (legacy console) path is
+                    # intentionally left WITHOUT the ``code`` field to
+                    # preserve backward compatibility with the
+                    # existing ``test_handles_invalid_json`` contract
+                    # in ``tests/test_server.py`` (which asserts the
+                    # bare ``{"message": "invalid JSON"}`` envelope).
+                    # The stdin path is not in the IPC-5 parity scope
+                    # (the directive only mentions TCP vs WS); a
+                    # future task may align all three paths.
                     self._send(
                         {
                             "type": "error",
@@ -1674,6 +1869,16 @@ class IPCServer(
     # Built once at class definition time; _dispatch does a single dict lookup.
     # Each handler takes (data, resp) and returns resp (to send) or None
     # (for commands that send their response internally, like restart_app).
+    #
+    # IPC-1 reconciliation (2026-07-18): the registry contains exactly 69
+    # commands. The 67 "domain" handlers live in voice_typer/server/handlers/
+    # (one mixin module per domain). The remaining two — `heartbeat` (RW-10,
+    # ADR-0018 Electron-alive watchdog) and `relaunch_ack` (PERF-005, ack of
+    # `relaunch_electron` so `restart_app` can drop its fixed 300 ms sleep) —
+    # are resident on IPCServer itself because they touch IPC-server-owned
+    # state (`_last_heartbeat_at`, `_relaunch_ack_event`) and don't belong to
+    # any domain mixin. The earlier "68 commands" claim in ADR-0020 §2 was
+    # stale; `relaunch_ack` was added by PERF-005 after the original count.
     _COMMAND_REGISTRY: dict[str, str] = {
         "get_status": "_handle_get_status",
         "toggle_dictation": "_handle_toggle_dictation",

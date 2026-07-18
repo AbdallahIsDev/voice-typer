@@ -311,9 +311,23 @@ def _make_dispatch(server: IPCServer):
             result = await loop.run_in_executor(None, server._dispatch, msg)
         except Exception:
             log.exception("[SIDECAR-WS] _dispatch raised")
+            # IPC-5 (2026-07-18): the error envelope now matches the
+            # TCP path (``ipc_server._handle_tcp_connection``'s
+            # ERR-018 block) verbatim — same ``code`` ("internal_error")
+            # AND same ``message`` ("internal error"). Pre-IPC-5 the WS
+            # path used the message "dispatch raised" while TCP used
+            # "internal error"; both messages were generic (neither
+            # leaked ``str(exception)``) but the divergence meant a
+            # client could not use the message text to confirm parity.
+            # The new contract: ``{"type":"error","data":{"code":
+            # "internal_error","message":"internal error"}}`` on BOTH
+            # paths. The WS-path test
+            # ``test_dispatch_dispatch_raises_returns_internal_error``
+            # asserts only ``code`` (not ``message``), so this change
+            # is backward-compatible.
             return {
                 "type": "error",
-                "data": {"code": "internal_error", "message": "dispatch raised"},
+                "data": {"code": "internal_error", "message": "internal error"},
             }
 
         # _dispatch returns None for fire-and-forget commands (e.g.
