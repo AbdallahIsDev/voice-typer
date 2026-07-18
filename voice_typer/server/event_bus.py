@@ -24,6 +24,76 @@ mode).
 Other transports (CLI, gRPC, future WebSocket) can subscribe the same
 way without touching the domain modules.
 
+Canonical event catalogue (IPC-2 reconciliation, 2026-07-18)
+------------------------------------------------------------
+Every event broadcast through ``event_bus.publish`` OR ``IPCServer.push``
+flows through the same channel (2) (server-initiated events). The
+catalogue below is the source of truth mirrored in ADR-0020 §2's
+"Sidecar→UI Event Table". When you ADD an event, append it to BOTH
+this list AND the ADR table (the docstring is the code-side anchor;
+the ADR is the spec-side anchor).
+
+Events emitted via ``event_bus.publish`` (the modern path):
+
+* ``ready`` — emitted once on first authenticated WS connection
+  (sidecar_ws.py) or on TCP server start (ipc_server.py:1899).
+  Payload: ``{}``.
+* ``bubble_show`` — show waveform bubble. Payload: ``{}``.
+* ``bubble_hide`` — hide waveform bubble. Payload: ``{}``.
+* ``bubble_level`` — ~60 Hz RMS/peak for the waveform bubble.
+  Payload: ``{rms:float, peak:float}``.
+* ``bubble_set_state`` — set the bubble's state machine.
+  Payload: ``{state:str}``.
+* ``transcription_final`` — final transcription text (UI preview).
+  Payload: ``{text:str (≤200 chr)}``.
+* ``vocabulary_suggestion`` — pending correction suggestions.
+  Payload: ``{suggestions:[{original,corrected,confidence,context,timestamp}]}``.
+* ``hotkey_capture_cancel`` — cancel hotkey capture mode. Payload: ``{}``.
+* ``config_changed`` — config was updated; renderer should refresh.
+  Payload: ``{<validated config updates>}``.
+* ``history_changed`` — history mutation (add/delete/clear/fav/restore).
+  Payload: ``{reason:str}``.
+* ``microphone_test_complete`` — a microphone test finished.
+  Payload: ``{duration:float}``.
+* ``microphones_changed`` — the mic list changed (hot-plug).
+  Payload: ``{count:int}``.
+* ``audio_clip`` — an audio clipping event was observed.
+  Payload: ``{peak:float, count:int}``.
+* ``recording_started`` — dictation started. Payload: ``{}``.
+* ``recording_stopped`` — dictation stopped. Payload: ``{}``.
+* ``download_progress`` — model download progress.
+  Payload: ``{model, progress(0-100), status, +optional downloaded_bytes,
+  total_bytes, speed_bytes_per_sec, eta_seconds, paused, resumed}``.
+* ``electron_notification`` — request a renderer toast (renamed
+  ``notification`` on the Tauri side). Payload: ``{title, message,
+  duration_ms, critical}``.
+* ``navigate`` — tray → UI route change. Payload: ``{path:str}``.
+* ``show_window`` — show the main window. Payload: ``{}``.
+* ``quit_app`` — sidecar requests app quit. Payload: ``{}``.
+* ``relaunch_electron`` — sidecar requests app relaunch (renamed
+  ``relaunch_app`` on the Tauri side). Payload: ``{}``.
+* ``paste_failed`` — clipboard paste failed (NEW-UX-006); renderer
+  shows a sonner toast with "Open recovery file" action.
+  Payload: ``{message:str, recovery_path:str|null}``.
+
+Events emitted via ``IPCServer.push`` (NOT through ``event_bus.publish``
+— they bypass the bus because they are wired into the IPC accept loop
+or the tray-state hook, both of which already hold a reference to the
+server):
+
+* ``state_changed`` — ERR-017; emitted ONCE per TCP/WS client connect
+  so the renderer immediately knows the current app state. Payload:
+  ``{status:str, message:str}``.
+* ``status_change`` — emitted on EVERY tray state transition via the
+  ``_hook_tray_set_state`` wrapper installed in ``IPCServer.start()``.
+  Payload: ``{status:str}``. Distinct from ``state_changed``: the
+  former is a per-transition signal with just ``status``; the latter
+  is the connect-time snapshot with a ``message`` field.
+
+Total: 24 events (23 via ``event_bus.publish`` + 1 ``ready`` (pushed
+directly) + 2 ``IPCServer.push``-only events = 24 unique event names;
+the ADR-0020 §2 table lists all 24).
+
 Thread safety
 -------------
 ``subscribe`` / ``unsubscribe`` / ``publish`` are all thread-safe.
