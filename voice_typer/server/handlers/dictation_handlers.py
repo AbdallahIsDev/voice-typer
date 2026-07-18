@@ -7,7 +7,10 @@ access ``self.app`` / ``self.service`` as before.
 
 from typing import Any
 
-from voice_typer.server.ipc_server import log
+from voice_typer.server.ipc_server import (
+    _validate_dict_payload,
+    log,
+)
 
 
 class DictationHandlersMixin:
@@ -27,6 +30,27 @@ class DictationHandlersMixin:
     def _handle_toggle_dictation(self, data, resp) -> dict | None:
         """Handle the ``toggle_dictation`` IPC command."""
         try:
+            # IPC-3: even though ``toggle_dictation`` reads no fields
+            # from ``data``, invoke ``_validate_dict_payload`` with an
+            # empty schema so the ADR-0020 §2 claim ("every handler
+            # re-validates via _validate_dict_payload") holds and a
+            # non-dict payload (e.g. ``{"data": "not-a-dict"}`` — a
+            # protocol violation) is rejected with ``invalid_payload``
+            # rather than silently accepted.
+            #
+            # Pre-coerce ``None`` (the value ``msg.get("data")``
+            # returns when the ``data`` key is absent, as in
+            # ``{"id": 1, "type": "toggle_dictation"}`` — a common
+            # shape in existing tests and Electron callers that omit
+            # the ``data`` key for no-arg commands) to ``{}`` so the
+            # validation passes cleanly. Without this pre-coercion,
+            # every existing caller that omits ``data`` would get
+            # ``invalid_payload`` instead of the expected ``ack``.
+            if data is None:
+                data = {}
+            _, error = _validate_dict_payload(data, {})
+            if error:
+                return error
             self.service.toggle_dictation()
             resp["type"] = "ack"
         except Exception as e:

@@ -18,7 +18,10 @@ and import pre-downloaded models from a local directory.
 
 from typing import Any
 
-from voice_typer.server.ipc_server import log
+from voice_typer.server.ipc_server import (
+    _validate_dict_payload,
+    log,
+)
 
 
 class ModelHandlersMixin:
@@ -38,7 +41,23 @@ class ModelHandlersMixin:
     def _handle_download_model(self, data, resp) -> dict | None:
         """Handle the ``download_model`` IPC command."""
         try:
-            model_name = (data or {}).get("model", "") if isinstance(data, dict) else ""
+            # IPC-3: validate the ``model`` field type via the shared
+            # ``_validate_dict_payload`` helper so the ADR-0020 §2 claim
+            # ("every handler re-validates via _validate_dict_payload")
+            # holds. ``required: False, default: ""`` preserves the
+            # existing inline missing-field error message
+            # ("Missing 'model' parameter") that callers depend on;
+            # only the *type* of a present ``model`` is checked here.
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "model": {"type": str, "required": False, "default": ""},
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
+            model_name = validated.get("model", "") or ""
             if not model_name:
                 log.warning("[IPC] download_model called without model name")
                 resp["type"] = "error"
@@ -126,6 +145,7 @@ class ModelHandlersMixin:
         """
         try:
             from voice_typer.server.model_registry import get_all_models
+
             models = [m.to_dict() for m in get_all_models()]
             resp["type"] = "model_catalog"
             resp["data"] = {"models": models}
@@ -167,8 +187,23 @@ class ModelHandlersMixin:
         pick via the file chooser.
         """
         try:
-            dir_path = (data or {}).get("dir_path", "") if isinstance(data, dict) else ""
-            if not dir_path or not isinstance(dir_path, str):
+            # IPC-3: validate ``dir_path`` is a string via the shared
+            # ``_validate_dict_payload`` helper. ``required: False,
+            # default: ""`` preserves the existing inline missing-field
+            # error message ("Missing 'dir_path' parameter") that
+            # callers depend on; only the *type* of a present
+            # ``dir_path`` is checked here.
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "dir_path": {"type": str, "required": False, "default": ""},
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
+            dir_path = validated.get("dir_path", "") or ""
+            if not dir_path:
                 log.warning("[IPC] import_model called without dir_path")
                 resp["type"] = "error"
                 resp["data"] = {"message": "Missing 'dir_path' parameter"}
@@ -180,6 +215,7 @@ class ModelHandlersMixin:
             # bypassed by ``..`` sequences or relative paths.
             try:
                 from voice_typer.server.config import _validate_import_path
+
                 dir_path = _validate_import_path(dir_path)
             except ValueError as exc:
                 log.warning("[IPC] import_model path rejected: %s", exc)
@@ -188,6 +224,7 @@ class ModelHandlersMixin:
                 return resp
 
             import os
+
             if not os.path.isdir(dir_path):
                 log.warning("[IPC] import_model: directory not found: %s", dir_path)
                 resp["type"] = "error"
@@ -208,7 +245,22 @@ class ModelHandlersMixin:
         # NEW-UX-005: actually delete the model files from disk,
         # not just remove from the UI list.
         try:
-            model_name = (data or {}).get("model", "") if isinstance(data, dict) else ""
+            # IPC-3: validate the ``model`` field type via the shared
+            # ``_validate_dict_payload`` helper. ``required: False,
+            # default: ""`` preserves the existing inline missing-field
+            # error message ("Missing 'model' parameter") that callers
+            # depend on; only the *type* of a present ``model`` is
+            # checked here.
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "model": {"type": str, "required": False, "default": ""},
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
+            model_name = validated.get("model", "") or ""
             if not model_name:
                 log.warning("[IPC] delete_model called without model name")
                 resp["type"] = "error"

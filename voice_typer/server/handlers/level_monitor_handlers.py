@@ -7,7 +7,10 @@ access ``self.app`` / ``self.service`` as before.
 
 from typing import Any
 
-from voice_typer.server.ipc_server import log
+from voice_typer.server.ipc_server import (
+    _validate_dict_payload,
+    log,
+)
 
 
 class LevelMonitorHandlersMixin:
@@ -27,7 +30,28 @@ class LevelMonitorHandlersMixin:
     def _handle_level_monitor_start(self, data, resp) -> dict | None:
         """Handle the ``level_monitor_start`` IPC command."""
         try:
-            mic_id = (data or {}).get("mic_id", None) if isinstance(data, dict) else None
+            # IPC-3: validate ``mic_id`` type via the shared
+            # ``_validate_dict_payload`` helper. Non-dict ``data`` is
+            # pre-coerced to ``{}`` so the
+            # ``test_non_dict_data_defaults_mic_id_to_none`` contract
+            # (None → mic_id=None) still holds; ``_validate_dict_payload``
+            # would otherwise reject non-dict with ``invalid_payload``.
+            if not isinstance(data, dict):
+                data = {}
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "mic_id": {
+                        "type": (str, type(None)),
+                        "required": False,
+                        "default": None,
+                    },
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
+            mic_id = validated.get("mic_id")
             result = self.service.level_monitor_start(mic_id=mic_id)
             resp["type"] = "level_monitor_status"
             resp["data"] = result

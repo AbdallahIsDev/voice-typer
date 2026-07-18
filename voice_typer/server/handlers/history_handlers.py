@@ -33,10 +33,40 @@ class HistoryHandlersMixin:
     def _handle_get_history(self, data, resp) -> dict | None:
         """Handle the ``get_history`` IPC command."""
         try:
+            # IPC-3: validate ``limit`` / ``offset`` types via the
+            # shared ``_validate_dict_payload`` helper. Non-dict
+            # ``data`` is pre-coerced to ``{}`` so the
+            # ``test_non_dict_data_falls_back_to_defaults`` contract
+            # (list → defaults) still holds. ``required: False`` (no
+            # default) means absent fields fall through to the
+            # ``_bound_history_limit`` / ``_bound_history_offset``
+            # clamping helpers (50 / 0) — preserving the existing
+            # ``test_default_limit_offset_when_payload_missing``
+            # contract.
+            #
+            # The schema accepts ``(int, str)`` for ``limit`` /
+            # ``offset`` because the renderer sometimes sends numeric
+            # strings from form inputs (see
+            # ``test_get_history_with_string_limit_accepted`` in
+            # ``tests/test_server.py``); the ``_bound_history_limit``
+            # helper coerces the string to int. A non-int, non-str
+            # value (e.g. a list or dict) is rejected with
+            # ``invalid_field``.
+            if not isinstance(data, dict):
+                data = {}
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "limit": {"type": (int, str), "required": False},
+                    "offset": {"type": (int, str), "required": False},
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
             # SEC-010: bound limit/offset to prevent DoS via huge values.
-            raw = (data or {}) if isinstance(data, dict) else {}
-            limit = _bound_history_limit(raw.get("limit", 50))
-            offset = _bound_history_offset(raw.get("offset", 0))
+            limit = _bound_history_limit(validated.get("limit", 50))
+            offset = _bound_history_offset(validated.get("offset", 0))
             resp["type"] = "history"
             resp["data"] = self.service.get_history(limit, offset)
         except Exception as e:
@@ -155,10 +185,25 @@ class HistoryHandlersMixin:
     def _handle_get_favorites(self, data, resp) -> dict | None:
         """Handle the ``get_favorites`` IPC command."""
         try:
+            # IPC-3: validate ``limit`` / ``offset`` types via the
+            # shared ``_validate_dict_payload`` helper. Same pattern as
+            # ``_handle_get_history`` (above) — ``(int, str)`` accepts
+            # numeric strings from form inputs.
+            if not isinstance(data, dict):
+                data = {}
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "limit": {"type": (int, str), "required": False},
+                    "offset": {"type": (int, str), "required": False},
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
             # SEC-010: bound limit/offset.
-            raw = (data or {}) if isinstance(data, dict) else {}
-            limit = _bound_history_limit(raw.get("limit", 50))
-            offset = _bound_history_offset(raw.get("offset", 0))
+            limit = _bound_history_limit(validated.get("limit", 50))
+            offset = _bound_history_offset(validated.get("offset", 0))
             resp["type"] = "history"
             resp["data"] = self.service.get_favorites(limit, offset)
         except Exception as e:
@@ -170,11 +215,30 @@ class HistoryHandlersMixin:
     def _handle_search_history(self, data, resp) -> dict | None:
         """Handle the ``search_history`` IPC command."""
         try:
-            raw = data if isinstance(data, dict) else {}
-            query = raw.get("query", "")
+            # IPC-3: validate ``query`` / ``limit`` / ``offset`` types
+            # via the shared ``_validate_dict_payload`` helper. Non-dict
+            # ``data`` is pre-coerced to ``{}`` so the
+            # ``test_non_dict_data_uses_empty_query`` contract (None →
+            # empty query, default limit/offset) still holds.
+            # ``limit`` / ``offset`` accept ``(int, str)`` for the same
+            # form-input coercion reason as ``_handle_get_history``.
+            if not isinstance(data, dict):
+                data = {}
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "query": {"type": str, "required": False, "default": ""},
+                    "limit": {"type": (int, str), "required": False},
+                    "offset": {"type": (int, str), "required": False},
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
+            query = validated.get("query", "")
             # SEC-010: bound limit/offset.
-            limit = _bound_history_limit(raw.get("limit", 50))
-            offset = _bound_history_offset(raw.get("offset", 0))
+            limit = _bound_history_limit(validated.get("limit", 50))
+            offset = _bound_history_offset(validated.get("offset", 0))
             resp["type"] = "history"
             resp["data"] = self.service.search_history(query, limit, offset)
         except Exception as e:

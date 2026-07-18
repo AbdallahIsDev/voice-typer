@@ -170,7 +170,31 @@ class SystemHandlersMixin:
         ``{"paused": false}``.
         """
         try:
-            paused = bool((data or {}).get("paused", False))
+            if data is None:
+                data = {}
+            # IPC-3: validate ``paused`` is a bool via the shared
+            # ``_validate_dict_payload`` helper. ``required: False,
+            # default: False`` preserves the existing
+            # ``test_missing_paused_defaults_to_false`` contract
+            # ({} → paused defaults to False → resume normal). The
+            # strict ``bool`` type check rejects truthy non-bools
+            # (e.g. ``{"paused": "true"}`` → ``invalid_field`` error)
+            # that the previous ``bool((data or {}).get("paused",
+            # False))`` coercion would have silently accepted as True.
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "paused": {
+                        "type": bool,
+                        "required": False,
+                        "default": False,
+                    },
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
+            paused = validated["paused"]
             # ARCH-ESC-001: update the canonical ownership state.
             from voice_typer.server.keyboard_ownership import keyboard_ownership
 

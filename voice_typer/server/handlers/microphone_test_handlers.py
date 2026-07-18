@@ -7,7 +7,10 @@ access ``self.app`` / ``self.service`` as before.
 
 from typing import Any
 
-from voice_typer.server.ipc_server import log
+from voice_typer.server.ipc_server import (
+    _validate_dict_payload,
+    log,
+)
 
 
 class MicrophoneTestHandlersMixin:
@@ -27,10 +30,40 @@ class MicrophoneTestHandlersMixin:
     def _handle_microphone_test_start(self, data, resp) -> dict | None:
         """Handle the ``microphone_test_start`` IPC command."""
         try:
-            d = data if isinstance(data, dict) else {}
-            mic_id = d.get("mic_id", None)
-            duration = float(d.get("duration") or 10.0)
-            filters = d.get("filters", None)
+            # IPC-3: validate ``mic_id`` and ``filters`` types via the
+            # shared ``_validate_dict_payload`` helper. ``duration`` is
+            # intentionally NOT in the schema — the existing inline
+            # ``float(d.get("duration") or 10.0)`` coercion accepts
+            # numeric strings ("7.5" → 7.5), and adding a strict
+            # numeric type check would break that documented coercion
+            # (see ``test_string_duration_is_coerced_to_float``).
+            # Non-dict ``data`` is pre-coerced to ``{}`` so the
+            # ``test_non_dict_data_uses_defaults`` contract (None →
+            # defaults) still holds; ``_validate_dict_payload`` would
+            # otherwise reject non-dict with ``invalid_payload``.
+            if not isinstance(data, dict):
+                data = {}
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "mic_id": {
+                        "type": (str, type(None)),
+                        "required": False,
+                        "default": None,
+                    },
+                    "filters": {
+                        "type": (list, type(None)),
+                        "required": False,
+                        "default": None,
+                    },
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
+            mic_id = validated.get("mic_id")
+            duration = float(data.get("duration") or 10.0)
+            filters = validated.get("filters")
             result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
             resp["type"] = "microphone_test_result"
             resp["data"] = result
