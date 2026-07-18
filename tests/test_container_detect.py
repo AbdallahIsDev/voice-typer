@@ -26,7 +26,7 @@ singleton module, so the local import sees our patch).
 from __future__ import annotations
 
 import logging
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 from voice_typer.server import container_detect
@@ -35,6 +35,32 @@ _LOGGER_NAME = "voice_typer.server.container_detect"
 
 
 # ── helpers ────────────────────────────────────────────────────────────
+#
+# TEST-GAP-1 (2026-07-18): Path comparison helpers use ``PurePosixPath``
+# for normalization so the tests pass on win32, Linux, and macOS without
+# depending on the runner's native ``Path`` string representation. The
+# SUT constructs ``Path("/.dockerenv")`` etc.; on win32 the native str
+# repr is ``"\\.dockerenv"`` (no drive), on Linux it is ``"/.dockerenv"``.
+# Both representations normalize to the same ``PurePosixPath`` string
+# (``/.dockerenv``) via ``Path.as_posix()``, so the membership test
+# succeeds regardless of runner platform. ``Path.as_posix()`` is the
+# documented cross-platform way to get a forward-slash string from any
+# ``Path`` (concrete or pure) — it returns the path with ``/`` separators
+# on every platform, which makes it a safe key for ``PurePosixPath``.
+
+
+def _normalize(p) -> str:
+    """Normalize a path-like to a POSIX-style string for cross-platform comparison.
+
+    Accepts a ``str``, a concrete ``Path``, or a ``PurePath``. Always
+    returns a forward-slash string (e.g. ``/.dockerenv``) regardless of
+    the runner platform. This is the single source of truth for path
+    comparison in this test module.
+    """
+    if isinstance(p, str):
+        return str(PurePosixPath(p))
+    # Concrete Path / PurePath: use as_posix() to force forward slashes.
+    return p.as_posix() if hasattr(p, "as_posix") else str(PurePosixPath(str(p)))
 
 
 def _force_linux(monkeypatch) -> None:
@@ -42,22 +68,25 @@ def _force_linux(monkeypatch) -> None:
     monkeypatch.setattr("sys.platform", "linux")
 
 
+def _force_win32(monkeypatch) -> None:
+    """Force the module to behave as if running on Windows."""
+    monkeypatch.setattr("sys.platform", "win32")
+
+
 def _set_existing_paths(monkeypatch, existing: set[str]) -> None:
     """Make ``Path.exists()`` return True only for paths in ``existing``.
 
-    The ``existing`` paths are passed through ``str(Path(p))`` so that
-    they are stored in the *runner's* native path representation. The
-    module under test constructs ``Path`` instances on the same runner,
-    so ``str(self)`` in ``_exists`` yields the same representation and
-    the membership test succeeds regardless of platform (e.g. on win32
-    ``str(Path("/.dockerenv"))`` is ``"\\\\.dockerenv"`` rather than
-    ``"/.dockerenv"``, so a raw comparison against the POSIX literal
-    would silently miss every patched path).
+    Path comparison is done via the ``_normalize`` helper, which uses
+    ``PurePosixPath`` to produce a forward-slash canonical form. This
+    is robust against the runner's native path separator (backslash on
+    win32, forward slash on Linux/macOS) and against drive-letter
+    differences (``Path("/x")`` on win32 has no drive; ``Path("C:/x")``
+    would normalize to ``/x`` only if the drive is empty).
     """
-    existing_normalized = {str(Path(p)) for p in existing}
+    existing_normalized = {_normalize(p) for p in existing}
 
     def _exists(self: Path) -> bool:
-        return str(self) in existing_normalized
+        return _normalize(self) in existing_normalized
 
     monkeypatch.setattr(Path, "exists", _exists)
 
@@ -70,15 +99,14 @@ def _set_cgroup(monkeypatch, content: str | None) -> None:
     other path raise ``FileNotFoundError`` — the module under test only
     reads ``/proc/1/cgroup`` so this never triggers in practice.
     """
+    cgroup_posix = _normalize(Path("/proc/1/cgroup"))
 
     def _read_text(self: Path, *args, **kwargs) -> str:
-        # Compare against ``str(Path("/proc/1/cgroup"))`` rather than the
-        # POSIX literal so the match succeeds on every runner: on win32
-        # ``str(Path("/proc/1/cgroup"))`` is ``"\\proc\\1\\cgroup"``,
-        # which is exactly what ``str(self)`` yields for the SUT's
-        # ``Path("/proc/1/cgroup")`` call. (``FileNotFoundError(str(self))``
-        # below is just a diagnostic message and needs no normalization.)
-        if str(self) == str(Path("/proc/1/cgroup")):
+        # Compare normalized POSIX forms so the match succeeds on every
+        # runner (see ``_normalize`` docstring for the cross-platform
+        # rationale). ``FileNotFoundError(str(self))`` below is just a
+        # diagnostic message and needs no normalization.
+        if _normalize(self) == cgroup_posix:
             if content is None:
                 raise OSError("cannot read /proc/1/cgroup")
             return content
