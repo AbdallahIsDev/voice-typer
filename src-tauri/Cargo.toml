@@ -57,6 +57,25 @@ serde_json = "1"
 log = "0.4"
 env_logger = "0.11"
 
+# ADR-0020 §6.3: Win32 focus-restore dance (`AttachThreadInput` +
+# `SetForegroundWindow` + `GetForegroundWindow` + `GetWindowThreadProcessId`)
+# used by `commands::sidecar_cmds::paste_text` on Windows. Target-gated so
+# the `windows` crate is NOT pulled into Linux/macOS builds (keeps the
+# dependency graph clean for the non-Windows MIG-1.6 / MIG-1.7 spikes).
+# Features: `Win32_UI_WindowsAndMessaging` (foreground/window APIs),
+# `Win32_Foundation` (`HWND`, `BOOL`), `Win32_System_Threading`
+# (`GetCurrentThreadId`).
+# NOTE: if the version selected here conflicts with whatever Tauri v2's
+# transitive `windows` requirement resolves to, `cargo check` on the
+# Windows host will surface the resolution failure — bump the major.minor
+# to match Tauri's resolved version in that case.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.57", features = [
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Foundation",
+    "Win32_System_Threading",
+] }
+
 [profile.release]
 # ADR-0020 §13: smaller release binary for the Tauri host
 opt-level = "s"
