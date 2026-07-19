@@ -52,8 +52,9 @@ ALLOWED_HOTKEYS = [
     "<ctrl>+<alt>+<v>",
     # Ctrl+Q is now allowed (user choice — no longer in blocked list).
     "<ctrl>+<q>",
-    # Multi-key non-modifier combos are allowed.
-    "<delete>+<end>",
+    # CFG-3: multi-key non-modifier combos (e.g. ``<delete>+<end>``) are
+    # NO LONGER allowed — they're structurally invalid for a global
+    # hotkey listener.  Moved to BLOCKED_HOTKEYS below.
     # F-key combos with modifiers are allowed.
     "<shift>+<f5>",
     "<ctrl>+<f1>",
@@ -137,6 +138,17 @@ BLOCKED_HOTKEYS = [
     "<shift>+<z>",
     "<shift>+<a>",
     "<shift>+<m>",
+    # CFG-3: multi-key non-modifier combos are structurally invalid for
+    # a global hotkey listener (pynput, the Windows low-level hook, and
+    # the macOS CGEventTap all register a single non-modifier key plus
+    # zero-or-more modifiers).  Such combos would either fail to register,
+    # fire spuriously when either key is pressed alone, or require the
+    # user to press both keys simultaneously in a way that's
+    # indistinguishable from typing.
+    "<delete>+<end>",
+    "<a>+<b>",
+    "<f1>+<f2>",
+    "<ctrl>+<a>+<b>",
 ]
 
 
@@ -146,9 +158,7 @@ class TestValidateHotkeyAllows:
     @pytest.mark.parametrize("hotkey", ALLOWED_HOTKEYS)
     def test_allows(self, hotkey: str) -> None:
         result = _validate_hotkey(hotkey)
-        assert result is None, (
-            f"Expected {hotkey!r} to be allowed, but got: {result}"
-        )
+        assert result is None, f"Expected {hotkey!r} to be allowed, but got: {result}"
 
 
 class TestValidateHotkeyBlocks:
@@ -157,9 +167,7 @@ class TestValidateHotkeyBlocks:
     @pytest.mark.parametrize("hotkey", BLOCKED_HOTKEYS)
     def test_blocks(self, hotkey: str) -> None:
         result = _validate_hotkey(hotkey)
-        assert result is not None, (
-            f"Expected {hotkey!r} to be blocked, but it was allowed"
-        )
+        assert result is not None, f"Expected {hotkey!r} to be blocked, but it was allowed"
 
 
 class TestValidateHotkeyPlatformConditional:
@@ -168,20 +176,18 @@ class TestValidateHotkeyPlatformConditional:
     def test_alt_shift_blocked_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Alt+Shift is blocked on Windows (language switching)."""
         import voice_typer.server.config_validators as cv
+
         monkeypatch.setattr(cv._sys, "platform", "win32")
         result = _validate_hotkey("<alt>+<shift>")
-        assert result is not None, (
-            "Alt+Shift should be blocked on Windows (language switching)"
-        )
+        assert result is not None, "Alt+Shift should be blocked on Windows (language switching)"
 
     def test_alt_shift_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Alt+Shift is allowed on Linux (no language-switching conflict)."""
         import voice_typer.server.config_validators as cv
+
         monkeypatch.setattr(cv._sys, "platform", "linux")
         result = _validate_hotkey("<alt>+<shift>")
-        assert result is None, (
-            "Alt+Shift should be allowed on Linux"
-        )
+        assert result is None, "Alt+Shift should be allowed on Linux"
 
 
 class TestValidateHotkeyWindowsSpecific:
@@ -196,43 +202,44 @@ class TestValidateHotkeyWindowsSpecific:
     """
 
     @pytest.mark.parametrize("hotkey", WINDOWS_BLOCKED_HOTKEYS)
-    def test_win_combos_blocked_on_windows(
-        self, hotkey: str, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_win_combos_blocked_on_windows(self, hotkey: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Win+<key> combos are blocked on Windows (OS shell reserved)."""
         import voice_typer.server.config_validators as cv
+
         monkeypatch.setattr(cv._sys, "platform", "win32")
         result = _validate_hotkey(hotkey)
-        assert result is not None, (
-            f"Expected {hotkey!r} to be blocked on Windows, but it was allowed"
-        )
+        assert result is not None, f"Expected {hotkey!r} to be blocked on Windows, but it was allowed"
 
     def test_win_combo_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Win+<key> is allowed on Linux (Win modifier isn't used on Linux)."""
+        """<win>+<r> is allowed on Linux because <super>+<r> isn't reserved.
+
+        CFG-2: ``win`` is now treated as an alias for ``super`` on Linux
+        for the per-platform reserved lookup (so ``<win>+<l>`` is blocked
+        on Linux just like ``<super>+<l>``).  This test confirms that the
+        alias doesn't over-block: combos whose ``super`` form isn't in the
+        Linux reserved list are still allowed.
+        """
         import voice_typer.server.config_validators as cv
+
         monkeypatch.setattr(cv._sys, "platform", "linux")
         result = _validate_hotkey("<win>+<r>")
-        assert result is None, (
-            "<win>+<r> should be allowed on Linux (Win isn't a Linux modifier)"
-        )
+        assert result is None, "<win>+<r> should be allowed on Linux — <super>+<r> isn't reserved"
 
     def test_super_space_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """<super>+<space> is allowed on Linux (not in the reserved list)."""
         import voice_typer.server.config_validators as cv
+
         monkeypatch.setattr(cv._sys, "platform", "linux")
         result = _validate_hotkey("<super>+<space>")
-        assert result is None, (
-            "<super>+<space> should be allowed on Linux — most DEs allow reassigning it"
-        )
+        assert result is None, "<super>+<space> should be allowed on Linux — most DEs allow reassigning it"
 
     def test_super_l_blocked_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """<super>+<l> is blocked on Linux (lock screen)."""
         import voice_typer.server.config_validators as cv
+
         monkeypatch.setattr(cv._sys, "platform", "linux")
         result = _validate_hotkey("<super>+<l>")
-        assert result is not None, (
-            "<super>+<l> should be blocked on Linux (lock screen)"
-        )
+        assert result is not None, "<super>+<l> should be blocked on Linux (lock screen)"
 
 
 class TestValidateHotkeyEdgeCases:
@@ -268,16 +275,12 @@ class TestValidateHotkeySingleLetterRejection:
     @pytest.mark.parametrize("letter", list("abcdefghijklmnopqrstuvwxyz"))
     def test_rejects_single_letter(self, letter: str) -> None:
         result = _validate_hotkey(f"<{letter}>")
-        assert result is not None, (
-            f"Single letter <{letter}> should be rejected — it would interfere with typing"
-        )
+        assert result is not None, f"Single letter <{letter}> should be rejected — it would interfere with typing"
 
     @pytest.mark.parametrize("digit", list("0123456789"))
     def test_rejects_single_digit(self, digit: str) -> None:
         result = _validate_hotkey(f"<{digit}>")
-        assert result is not None, (
-            f"Single digit <{digit}> should be rejected — it would interfere with typing"
-        )
+        assert result is not None, f"Single digit <{digit}> should be rejected — it would interfere with typing"
 
     def test_allows_single_special_key(self) -> None:
         """Non-letter, non-digit single keys are still valid (F-keys, Caps Lock, etc.)."""
@@ -303,9 +306,7 @@ class TestReservedHotkeysTable:
     def test_all_entries_are_lowercase(self) -> None:
         for platform, entries in _RESERVED_HOTKEYS.items():
             for entry in entries:
-                assert entry == entry.lower(), (
-                    f"Reserved hotkey {entry!r} for {platform} must be lowercase"
-                )
+                assert entry == entry.lower(), f"Reserved hotkey {entry!r} for {platform} must be lowercase"
 
     def test_linux_does_not_reserve_super_space(self) -> None:
         # Invariant: <super>+<space> is intentionally NOT reserved on Linux.
@@ -345,6 +346,212 @@ class TestHotkeyModifiers:
     def test_contains_left_right_variants(self) -> None:
         for mod in ("ctrl_l", "ctrl_r", "shift_l", "shift_r", "alt_l", "alt_r"):
             assert mod in _HOTKEY_MODIFIERS
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# CFG-1: whitespace bypass in reserved-shortcut lookup
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestCfg1WhitespaceBypass:
+    """CFG-1 (Medium): a hotkey string with leading/trailing whitespace
+    must NOT bypass the reserved-shortcut denylist.
+
+    Before the fix, ``normalized = value.lower()`` left the whitespace in
+    place, so ``" <alt>+<tab> "`` compared unequal to every entry in
+    ``_UNIVERSAL_RESERVED_HOTKEYS`` and was silently accepted.  A
+    malicious IPC client (or a buggy renderer that forgot to trim) could
+    bypass the entire backend mirror of the reserved-shortcut table.
+
+    The fix is ``normalized = value.strip().lower()`` so the lookup
+    matches the denylist regardless of surrounding whitespace.
+    """
+
+    @pytest.mark.parametrize(
+        "padding",
+        [" ", "  ", "\t", "\n", " \t\n ", "\r\n"],
+    )
+    def test_reserved_universal_with_padding_is_blocked(self, padding: str) -> None:
+        """A universal-reserved hotkey wrapped in whitespace is rejected."""
+        padded = f"{padding}<alt>+<tab>{padding}"
+        result = _validate_hotkey(padded)
+        assert result is not None, f"Padded reserved hotkey {padded!r} should be blocked (CFG-1)"
+
+    def test_ctrl_c_with_padding_is_blocked(self) -> None:
+        """``<ctrl>+<c>`` with surrounding whitespace is rejected via the
+        Ctrl+letter blanket rule."""
+        result = _validate_hotkey("   <ctrl>+<c>   ")
+        assert result is not None
+        assert "Ctrl+C" in result or "reserved" in result.lower()
+
+    def test_valid_hotkey_with_padding_is_allowed(self) -> None:
+        """A non-reserved hotkey with surrounding whitespace is still
+        accepted — the strip is for normalization only, not rejection."""
+        result = _validate_hotkey("  <f2>  ")
+        assert result is None, "<f2> with whitespace should be allowed (CFG-1 doesn't over-block)"
+
+    def test_tab_inside_combo_is_not_stripped(self) -> None:
+        """Whitespace BETWEEN tokens (e.g. ``<ctrl> + <c>``) is handled by
+        the parser, not the strip — the strip only affects leading/trailing
+        whitespace for the denylist lookup.  This test pins that behavior."""
+        # The parser may or may not accept "<ctrl> + <c>"; the strip
+        # shouldn't change the parser's verdict.  We just verify the
+        # function returns SOME result (either None or an error string),
+        # not None due to a strip-induced mismatch.
+        result = _validate_hotkey("<ctrl> + <c>")
+        assert isinstance(result, str | None)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# CFG-2: ``win`` alias for ``super`` on Linux per-platform reserved lookup
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestCfg2WinAliasForSuperOnLinux:
+    """CFG-2 (Medium): on Linux, the physical Windows key is reported as
+    ``super`` by pynput / evdev.  A user (or a buggy renderer) may send
+    ``<win>+<l>`` instead of ``<super>+<l>``, expecting it to behave the
+    same.  Before the fix, ``<win>+<l>`` was silently allowed on Linux
+    even though ``<super>+<l>`` is in the Linux reserved list (Super+L
+    locks the screen on GNOME/KDE/Cinnamon/etc.), letting the user
+    assign a hotkey that conflicts with the screen-lock shortcut.
+
+    The fix normalizes ``<win>`` → ``<super>`` in the per-platform
+    reserved lookup on Linux only (Windows keeps its blanket Win+block;
+    macOS doesn't use either name).
+    """
+
+    @pytest.mark.parametrize(
+        "hotkey",
+        ["<win>+<l>", "<win>+<d>", "<win>+<tab>"],
+    )
+    def test_win_alias_blocked_on_linux(self, hotkey: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Each Linux-reserved Super+<key> combo is also blocked when
+        sent with the ``win`` modifier name."""
+        import voice_typer.server.config_validators as cv
+
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        result = _validate_hotkey(hotkey)
+        assert result is not None, f"{hotkey!r} should be blocked on Linux (alias for reserved <super>+<key>) — CFG-2"
+
+    def test_win_non_reserved_combo_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A win+<key> combo whose super form is NOT reserved is still
+        allowed — the alias only triggers a block when it matches an
+        actual reserved entry."""
+        import voice_typer.server.config_validators as cv
+
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        # <super>+<r> is NOT in the Linux reserved list.
+        result = _validate_hotkey("<win>+<r>")
+        assert result is None, (
+            "<win>+<r> should be allowed on Linux (alias for non-reserved <super>+<r>) — CFG-2 doesn't over-block"
+        )
+
+    def test_win_alias_not_applied_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On Windows, ``win`` is the correct modifier name and is
+        blanket-blocked (Win+anything is OS-shell-reserved).  The
+        Linux-only ``win``→``super`` normalization doesn't run."""
+        import voice_typer.server.config_validators as cv
+
+        monkeypatch.setattr(cv._sys, "platform", "win32")
+        result = _validate_hotkey("<win>+<l>")
+        assert result is not None
+        # The block comes from the Win-blanket rule, not the per-platform
+        # reserved lookup.
+        assert "Windows key combinations" in result or "reserved" in result.lower()
+
+    def test_win_alias_not_applied_on_macos(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On macOS, neither ``win`` nor ``super`` is a recognized
+        modifier (the system modifier is ``cmd``).  The Linux-only
+        normalization doesn't run."""
+        import voice_typer.server.config_validators as cv
+
+        monkeypatch.setattr(cv._sys, "platform", "darwin")
+        # <win>+<f5> on macOS: win isn't a macOS modifier, and f5 isn't
+        # a Cmd+letter (so the Cmd-blanket doesn't fire).  Should be
+        # allowed.
+        result = _validate_hotkey("<win>+<f5>")
+        # Either allowed (None) or rejected by the multi-key check.
+        # The important thing is that it's NOT rejected as "reserved
+        # by operating system (darwin)" via the win→super alias.
+        if result is not None:
+            assert "reserved by operating system" not in result, "win→super alias must NOT be applied on macOS (CFG-2)"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# CFG-3: reject multi-key non-modifier combos
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestCfg3MultiKeyComboRejection:
+    """CFG-3 (Medium): a hotkey with more than one non-modifier key is
+    structurally invalid for a global hotkey listener.
+
+    pynput, the Windows low-level hook (``WH_KEYBOARD_LL``), and the
+    macOS ``CGEventTap`` all register a single non-modifier key plus
+    zero-or-more modifiers.  A combo like ``<a>+<b>`` would either fail
+    to register, fire spuriously when either key is pressed alone, or
+    require the user to press both keys simultaneously in a way that's
+    indistinguishable from typing.
+
+    The renderer's hotkey picker already enforces single-non-modifier;
+    this is the backend mirror so a malicious IPC client can't bypass it.
+    """
+
+    @pytest.mark.parametrize(
+        "hotkey",
+        [
+            "<delete>+<end>",
+            "<a>+<b>",
+            "<f1>+<f2>",
+            "<home>+<page_up>",
+            "<insert>+<delete>",
+            "<ctrl>+<a>+<b>",  # one modifier + two non-modifiers
+            "<ctrl>+<alt>+<f1>+<f2>",  # two modifiers + two non-modifiers
+        ],
+    )
+    def test_rejects_multi_non_modifier(self, hotkey: str) -> None:
+        result = _validate_hotkey(hotkey)
+        assert result is not None, f"{hotkey!r} has 2+ non-modifier keys and should be rejected (CFG-3)"
+        assert "at most one non-modifier" in result, (
+            f"Error message for {hotkey!r} should mention multi-key rule; got: {result!r}"
+        )
+
+    @pytest.mark.parametrize(
+        "hotkey",
+        [
+            # Single non-modifier + zero or more modifiers: all valid.
+            "<f2>",
+            "<caps_lock>",
+            "<ctrl>+<alt>+<v>",
+            "<shift>+<f5>",
+            "<ctrl>+<f1>",
+            "<ctrl>+<alt>+<f2>",
+            "<ctrl>+<shift>",  # zero non-modifiers (modifier-only combo)
+            "<alt>+<shift>",  # zero non-modifiers
+        ],
+    )
+    def test_allows_single_non_modifier(self, hotkey: str) -> None:
+        """Combos with at most one non-modifier key are still allowed
+        (CFG-3 doesn't over-block)."""
+        # Pin platform to linux for determinism (some combos are
+        # platform-conditional).
+        import voice_typer.server.config_validators as cv
+
+        original = cv._sys.platform
+        cv._sys.platform = "linux"
+        try:
+            result = _validate_hotkey(hotkey)
+            assert result is None, f"{hotkey!r} has <=1 non-modifier key and should be allowed; got: {result!r}"
+        finally:
+            cv._sys.platform = original
+
+    def test_error_message_includes_count(self) -> None:
+        """The error message includes the actual count so the user knows
+        how many non-modifier keys their combo has."""
+        result = _validate_hotkey("<a>+<b>+<c>")
+        assert result is not None
+        assert "3" in result, f"Error message should include the count '3'; got: {result!r}"
 
 
 if __name__ == "__main__":

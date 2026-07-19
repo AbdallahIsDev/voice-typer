@@ -93,6 +93,11 @@ class TestRegisterHotKeyFailure:
         backend = WindowsNativeHotkey("<f2>")
         try:
             backend.start(MagicMock())
+            # start() joins on _ready_event, which run() sets only AFTER
+            # assigning _using_polling (both failure branches set it
+            # before _ready_event.set()), so by the time start() returns
+            # _using_polling is already correct — no iteration-event race.
+            # Give the polling loop a moment to spin up its loop thread.
             assert backend._using_polling
             assert backend._hook_handle is None
         finally:

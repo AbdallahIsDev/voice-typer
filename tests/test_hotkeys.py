@@ -209,15 +209,108 @@ class TestApplyConfigReRegistersHotkeyForPushToTalk:
 
 
 class TestFallbackListenerChecksAllModifiersHeld:
-    """Fallback listener checks all modifiers are held before firing."""
+    """Fallback listener checks all modifiers are held before firing.
 
-    def test_fallback_tracks_modifiers(self):
-        from voice_typer.server.hotkeys import PynputHotkey
+    HOTKEYS-12: previously this test pinned the source text of
+    ``PynputHotkey._start_fallback`` via ``inspect.getsource``. That
+    made the test brittle — any cosmetic refactor (renaming a local
+    variable, adding a comment) would break it even if the behavior
+    was unchanged. The behavioral tests below verify the actual
+    contract: ``_parse_hotkey_to_pynput`` returns the modifier_keys
+    tuple that the fallback listener uses to gate the callback fire,
+    and the tuple contains ALL configured modifiers (not just one).
+    The on_press handler in ``_start_fallback`` then requires
+    ``len(held_modifiers) >= len(modifier_keys)`` before firing.
+    """
 
-        source = inspect.getsource(PynputHotkey._start_fallback)
-        assert "modifier_keys" in source
-        assert "held_modifiers" in source
-        assert "len(held_modifiers) < len(modifier_keys)" in source
+    @staticmethod
+    def _make_fake_pynput():
+        """Build minimal pynput.keyboard.Key / KeyCode stand-ins.
+
+        ``_parse_hotkey_to_pynput`` only uses ``hasattr``/``getattr`` on
+        the ``key`` object and ``key_code.from_char`` / ``from_vk`` on
+        the ``key_code`` object, so simple namespace classes work.
+        """
+
+        class _FakeKey:
+            def __init__(self, name):
+                self.name = name
+
+            def __repr__(self):
+                return f"_FakeKey({self.name!r})"
+
+        _FakeKey.ctrl = _FakeKey("ctrl")
+        _FakeKey.alt = _FakeKey("alt")
+        _FakeKey.shift = _FakeKey("shift")
+        _FakeKey.cmd = _FakeKey("cmd")
+        _FakeKey.alt_r = _FakeKey("alt_r")
+        _FakeKey.alt_gr = _FakeKey("alt_gr")
+
+        class _FakeKeyCode:
+            def __init__(self, kind, value):
+                self.kind = kind
+                self.value = value
+
+            @classmethod
+            def from_char(cls, char):
+                return cls("char", char)
+
+            @classmethod
+            def from_vk(cls, vk):
+                return cls("vk", vk)
+
+        return _FakeKey, _FakeKeyCode
+
+    def test_parse_returns_modifier_tuple_for_combo(self):
+        """For ``<ctrl>+1``, the parser returns ``(modifier_keys, target)``
+        where ``modifier_keys`` contains ctrl — the fallback listener
+        uses this tuple to require ALL modifiers held before firing."""
+        from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
+
+        Key, KeyCode = self._make_fake_pynput()
+        result = _parse_hotkey_to_pynput("<ctrl>+1", Key, KeyCode)
+        assert isinstance(result, tuple), f"expected (modifier_keys, target) tuple for combo, got {type(result)}"
+        modifier_keys, match_key = result
+        assert Key.ctrl in modifier_keys, f"ctrl not in modifier_keys {modifier_keys}"
+        assert match_key is not None
+
+    def test_parse_returns_single_key_for_no_modifiers(self):
+        """For ``<f2>`` (no modifiers), the parser returns the bare
+        target key — the fallback listener doesn't gate on modifiers."""
+        from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
+
+        Key, KeyCode = self._make_fake_pynput()
+        result = _parse_hotkey_to_pynput("1", Key, KeyCode)
+        # Single-key hotkeys return the bare key (not a tuple).
+        assert result is not None
+        assert not isinstance(result, tuple), f"expected bare key for single-key hotkey, got tuple {result}"
+
+    def test_parse_returns_all_modifiers_for_multi_combo(self):
+        """For ``<ctrl>+<alt>+v``, the parser returns ALL modifiers
+        (ctrl AND alt) — the fallback listener requires BOTH held
+        before firing the callback."""
+        from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
+
+        Key, KeyCode = self._make_fake_pynput()
+        result = _parse_hotkey_to_pynput("<ctrl>+<alt>+v", Key, KeyCode)
+        assert isinstance(result, tuple)
+        modifier_keys, match_key = result
+        assert Key.ctrl in modifier_keys
+        assert Key.alt in modifier_keys
+        assert len(modifier_keys) == 2, (
+            f"expected 2 modifiers for <ctrl>+<alt>+v, got {len(modifier_keys)}: {modifier_keys}"
+        )
+
+    def test_parse_returns_no_modifiers_for_bare_modifier(self):
+        """For ``<alt>`` alone, the parser returns the bare modifier key
+        (single-modifier hotkey — no main key, no modifier tuple)."""
+        from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
+
+        Key, KeyCode = self._make_fake_pynput()
+        result = _parse_hotkey_to_pynput("<alt>", Key, KeyCode)
+        # Single-modifier spec returns the bare modifier key, not a tuple.
+        assert result is not None
+        assert not isinstance(result, tuple)
 
 
 class TestAutouseFixturePatchesBothHotkeyNamespaces:
@@ -235,7 +328,6 @@ class TestAutouseFixturePatchesBothHotkeyNamespaces:
         assert hd_mod.create_hotkey_backend is not original
 
     def test_app_py_fixture_patches_both_namespaces(self):
-        import inspect
 
         import tests.test_app as test_app_mod
 

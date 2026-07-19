@@ -619,6 +619,12 @@ class TestE2EAuthEnforcement:
         sock2.settimeout(5.0)
         sock2.connect(("127.0.0.1", port))
         _send_line(sock2, {"type": "auth", "token": token})
+        # Drain the initial connect-time push (ERR-017 state_changed, sent
+        # right after auth) so the next line we read is the get_status
+        # response, not the push.  This mirrors every other E2E test in
+        # this file (e.g. test_auth_handshake_then_get_config), which
+        # drains pending events before dispatching a command.
+        _read_all_pending(sock2, timeout=0.5)
         _send_line(sock2, {"id": 100, "type": "get_status"})
         resp = _read_line(sock2, timeout=3.0)
         assert resp["id"] == 100

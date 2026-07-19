@@ -164,6 +164,8 @@ const baseConfig: VoiceTyperConfig = {
 	bubble_behavior: "show_on_record",
 	bubble_draggable: true,
 	bubble_show_on_startup: false,
+	bubble_click_to_toggle: true,
+	bubble_mic_button: true,
 	history_retention_days: 30,
 	history_retention_count: 100,
 	history_max_entries: 1000,

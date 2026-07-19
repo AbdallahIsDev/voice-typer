@@ -444,37 +444,32 @@ def test_tauri_conf_has_external_bin_for_sidecar(tauri_conf_json: dict):
 
 
 def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
-    """GAP-2 (documented): ``tauri.conf.json`` has NO ``bundle.windows`` block.
+    """XPLAT-4 FIXED: ``tauri.conf.json`` now HAS a ``bundle.windows`` block.
 
-    The bundle config has a ``linux`` block (deb + rpm with postInstall
-    / preRemove scripts) but NO ``windows`` block. Authenticode signing
-    of the host exe + MSI/NSIS is therefore entirely CI-driven (via
-    signtool in the workflow) — Tauri's bundler does not auto-sign
-    because no ``TAURI_SIGNING_PRIVATE_KEY`` / ``WIN_CSC_LINK`` is
+    The bundle config previously had a ``linux`` block (deb + rpm with
+    postInstall / preRemove scripts) but NO ``windows`` block. Authenticode
+    signing of the host exe + MSI/NSIS was therefore entirely CI-driven
+    (via signtool in the workflow) — Tauri's bundler did not auto-sign
+    because no ``TAURI_SIGNING_PRIVATE_KEY`` / ``WIN_CSC_LINK`` was
     wired into the config.
 
-    This is acceptable for v1 (ADR-0020 §15 — no auto-update, so no
-    updater signing key required), but should be tracked. A future
-    enhancement could add a ``bundle.windows.nsis`` block with
-    ``certificateThumbprint`` / ``signingIdentity`` for Tauri-bundler-
-    driven signing (alternative to the CI signtool path).
+    XPLAT-4 fix: added ``bundle.windows.signCommand`` using an env-var
+    reference (``${WIN_SIGN_COMMAND}``) so local builds without signing
+    env vars still work, but the config is present for CI/production
+    builds that have the env var set.
 
-    This test ASSERTS the gap is present (so a future fix will flip it
-    to a passing assertion). DO NOT fix this gap as part of MIG-1.8
-    check 5 — report it to the primary agent.
+    This test now ASSERTS PRESENCE of the ``windows`` block (GAP-2 closed).
     """
     bundle = tauri_conf_json.get("bundle", {})
     # The linux block must exist (sanity check that the config is loaded).
     assert "linux" in bundle, (
         "Reference pattern broken: tauri.conf.json bundle should have a `linux` block (deb + rpm postInstall scripts)."
     )
-    # The windows block is MISSING — assert this gap is present. If a
-    # future PR adds it, this assertion will fail and the test should be
-    # updated to assert presence.
-    assert "windows" not in bundle, (
-        "tauri.conf.json now has a `bundle.windows` block — update this "
-        "test to assert PRESENCE instead of absence, and remove GAP-2 "
-        "from the module docstring."
+    # XPLAT-4 FIXED: the windows block is now present.
+    assert "windows" in bundle, "tauri.conf.json should have a `bundle.windows` block (XPLAT-4 fix)."
+    windows = bundle["windows"]
+    assert "signCommand" in windows, (
+        "bundle.windows.signCommand must be set (XPLAT-4 fix — env-var ref for CI/production signing)."
     )
 
 

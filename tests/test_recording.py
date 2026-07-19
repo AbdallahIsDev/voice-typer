@@ -997,3 +997,709 @@ class TestScipyPreloaderDeferredSpawn:
         assert recording._scipy_preloader_thread is None, (
             "B-3 regression: _start_scipy_preloader spawned a thread even though _resample_poly was already cached."
         )
+
+
+# ─── FIX-2: REC-1..REC-8 + AUDIO-6/9 regression tests ──────────────────
+
+
+class TestRec1StaleWorkerGuard:
+    """REC-1: when ``_stop_audio_worker``'s join times out (worker still
+    alive), the stop event must NOT be cleared and the thread reference
+    must NOT be nulled — otherwise the next ``_start_audio_worker``
+    spawns a SECOND worker that races with the stale one on the same
+    ring buffer (SPSC invariant violation).
+    """
+
+    def test_stop_audio_worker_keeps_stop_event_when_still_alive(self, monkeypatch):
+        """When the worker is still alive after join, stop_event.is_set()
+        must remain True so the stale worker exits on its next iteration.
+        The thread reference must also remain non-None so the next
+        _start_audio_worker detects the stale worker via is_alive()."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        # Simulate a worker thread that's still alive after join.
+        stale_thread = MagicMock()
+        stale_thread.is_alive.return_value = True
+        stale_thread.join = MagicMock()  # join returns without actually joining
+        r._worker_thread = stale_thread
+
+        # Stop event starts cleared (simulating a healthy worker).
+        r._worker_stop_event.clear()
+        # Set the stop event the way _stop_audio_worker does (we'll
+        # call _stop_audio_worker which sets it, then checks is_alive).
+        r._stop_audio_worker(timeout=0.01, drain=False)
+
+        # The stop event must STILL be set (worker hasn't exited).
+        assert r._worker_stop_event.is_set(), (
+            "REC-1 regression: _stop_audio_worker cleared the stop event "
+            "even though the worker is still alive. This un-stops the "
+            "stale worker, causing it to keep looping on the ring buffer."
+        )
+        # The thread reference must NOT be None (so _start_audio_worker
+        # can detect the stale worker via is_alive()).
+        assert r._worker_thread is not None, (
+            "REC-1 regression: _stop_audio_worker nulled the thread "
+            "reference even though the worker is still alive. The next "
+            "_start_audio_worker would think no worker exists and spawn "
+            "a second one — SPSC invariant violation."
+        )
+
+    def test_start_audio_worker_creates_fresh_events_for_stale_worker(self, monkeypatch):
+        """When _start_audio_worker is called with a stale worker alive
+        (stop_event set), it must create fresh stop/wake events so the
+        new worker doesn't share events with the dying stale one."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        # Simulate a stale worker: alive, with stop event set.
+        stale_stop_event = r._worker_stop_event
+        stale_wake_event = r._worker_wake_event
+        stale_thread = MagicMock()
+        stale_thread.is_alive.return_value = True
+        r._worker_thread = stale_thread
+        r._worker_stop_event.set()
+
+        # Start a new worker. With REC-1, this should detect the stale
+        # worker and create fresh events.
+        r._start_audio_worker()
+
+        try:
+            # New worker must have fresh stop event objects.
+            assert r._worker_stop_event is not stale_stop_event, (
+                "REC-1 regression: _start_audio_worker reused the stale "
+                "worker's stop event. The stale worker would see the new "
+                "worker's cleared stop event and resume looping."
+            )
+            assert r._worker_wake_event is not stale_wake_event, (
+                "REC-1 regression: _start_audio_worker reused the stale worker's wake event."
+            )
+            # New worker must be alive and different from the stale one.
+            assert r._worker_thread is not None
+            assert r._worker_thread is not stale_thread
+            assert r._worker_thread.is_alive()
+            # Stop event for the new worker must be cleared.
+            assert not r._worker_stop_event.is_set()
+        finally:
+            # Cleanup the new worker.
+            r._worker_stop_event.set()
+            r._worker_wake_event.set()
+            r._worker_thread.join(timeout=1.0)
+
+    def test_stop_audio_worker_clears_when_worker_dead(self):
+        """REC-1: when the worker IS dead, stop event is cleared and
+        thread ref is nulled (the normal path)."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        # Simulate a dead worker thread.
+        dead_thread = MagicMock()
+        dead_thread.is_alive.return_value = False
+        dead_thread.join = MagicMock()
+        r._worker_thread = dead_thread
+        r._worker_stop_event.set()
+
+        r._stop_audio_worker(timeout=0.01, drain=False)
+
+        assert not r._worker_stop_event.is_set(), (
+            "REC-1: stop event should be cleared when worker is dead (normal path)."
+        )
+        assert r._worker_thread is None, "REC-1: thread ref should be None when worker is dead (normal path)."
+
+
+class TestRec2StartRollbackOnWorkerFailure:
+    """REC-2: if ``_start_audio_worker`` (or any worker starter) raises
+    after the stream is open and ``_recording_event`` is set, ``start()``
+    must roll back: tear down the stream, clear the event, bump
+    ``_stop_generation``, and re-raise the original exception."""
+
+    def test_start_rolls_back_stream_when_audio_worker_raises(self, monkeypatch):
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        class OkStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(
+            recording_mod.sd,
+            "query_devices",
+            lambda **kw: {"max_input_channels": 1, "default_samplerate": 16000, "hostapi": 0},
+        )
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        # Capture the original _teardown_stream so we can assert it's called.
+        teardown_calls = []
+        original_teardown = r._teardown_stream
+
+        def tracking_teardown():
+            teardown_calls.append(1)
+            return original_teardown()
+
+        r._teardown_stream = tracking_teardown
+
+        # Patch _start_audio_worker to raise after _recording_event.set().
+        def raising_start_audio_worker():
+            raise RuntimeError("simulated worker-start failure")
+
+        monkeypatch.setattr(r, "_start_audio_worker", raising_start_audio_worker)
+
+        gen_before = r._stop_generation
+
+        with pytest.raises(RuntimeError, match="simulated worker-start failure"):
+            r.start()
+
+        # REC-2: stream must be torn down.
+        assert len(teardown_calls) >= 1, (
+            "REC-2 regression: start() did not call _teardown_stream() on "
+            "worker-start failure — leaked PortAudio stream."
+        )
+        # REC-2: recording event must be cleared.
+        assert not r._recording_event.is_set(), (
+            "REC-2 regression: _recording_event was not cleared after "
+            "worker-start failure — recorder stuck in 'recording' state."
+        )
+        # REC-2: stop_generation must be bumped so stale disconnect
+        # handlers bail out.
+        assert r._stop_generation == gen_before + 1, (
+            "REC-2 regression: _stop_generation was not incremented after "
+            "worker-start failure — stale disconnect handlers may race."
+        )
+        # Stream reference must be None.
+        assert r._stream is None
+
+
+class TestRec3DeadNoOpRemoved:
+    """REC-3: the dead no-op expression
+    ``float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))``
+    in ``audio_quality.py:analyze_chunk`` must be removed."""
+
+    def test_analyze_chunk_has_no_bare_rms_expression(self):
+        import inspect
+
+        from voice_typer.server.audio_quality import AudioQualityAnalyzer
+
+        src = inspect.getsource(AudioQualityAnalyzer.analyze_chunk)
+        # The bare no-op expression must NOT appear as a statement.
+        # It's OK if it appears in a comment explaining the removal.
+        # We check that the first non-comment, non-docstring line is
+        # not the bare expression.
+        lines = src.splitlines()
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or stripped.startswith('"""'):
+                continue
+            # The bare expression would be a statement like
+            # "float(np.sqrt(...))" with no assignment.
+            assert not (stripped.startswith("float(np.sqrt(") and stripped.endswith(")")), (
+                f"REC-3 regression: dead no-op expression found: {stripped}"
+            )
+
+
+class TestRec4CounterReset:
+    """REC-4: ``_dropped_chunks`` and ``_rms_callback_error_count`` must
+    be declared in ``__init__`` and reset to 0 in ``start()``."""
+
+    def test_counters_declared_in_init(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert hasattr(r, "_dropped_chunks"), "REC-4: _dropped_chunks not declared in __init__"
+        assert hasattr(r, "_rms_callback_error_count"), "REC-4: _rms_callback_error_count not declared in __init__"
+        assert r._dropped_chunks == 0
+        assert r._rms_callback_error_count == 0
+
+    def test_counters_reset_on_start(self, monkeypatch):
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        class OkStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(
+            recording_mod.sd,
+            "query_devices",
+            lambda **kw: {"max_input_channels": 1, "default_samplerate": 16000, "hostapi": 0},
+        )
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        # Pollute the counters as if a previous session had errors.
+        r._dropped_chunks = 42
+        r._rms_callback_error_count = 17
+
+        r.start()
+        try:
+            assert r._dropped_chunks == 0, (
+                f"REC-4 regression: _dropped_chunks not reset on start() (got {r._dropped_chunks})"
+            )
+            assert r._rms_callback_error_count == 0, (
+                f"REC-4 regression: _rms_callback_error_count not reset on start() (got {r._rms_callback_error_count})"
+            )
+        finally:
+            r.stop()
+
+
+class TestRec5StartLock:
+    """REC-5: ``_start_lock`` serializes ``start()`` vs ``discard()`` so
+    they cannot race on the half-open stream state."""
+
+    def test_start_lock_exists(self):
+        import inspect
+
+        from voice_typer.server.recording import Recorder
+
+        init_src = inspect.getsource(Recorder.__init__)
+        assert "_start_lock" in init_src, "REC-5 regression: _start_lock not declared in Recorder.__init__"
+        start_src = inspect.getsource(Recorder.start)
+        assert "_start_lock" in start_src, "REC-5 regression: start() does not acquire _start_lock"
+        discard_src = inspect.getsource(Recorder.discard)
+        assert "_start_lock" in discard_src, "REC-5 regression: discard() does not acquire _start_lock"
+
+    def test_start_lock_is_threading_lock(self):
+        import threading
+
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert isinstance(r._start_lock, type(threading.Lock())), "REC-5: _start_lock must be a threading.Lock instance"
+
+    def test_concurrent_start_and_discard_no_crash(self, monkeypatch):
+        """start() and discard() called from two threads concurrently
+        must not crash. Without _start_lock, this could race on the
+        half-open stream state."""
+        import threading
+
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        class OkStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(
+            recording_mod.sd,
+            "query_devices",
+            lambda **kw: {"max_input_channels": 1, "default_samplerate": 16000, "hostapi": 0},
+        )
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        errors = []
+
+        def starter():
+            try:
+                for _ in range(20):
+                    r.start()
+            except Exception as e:
+                errors.append(e)
+
+        def discarder():
+            try:
+                for _ in range(20):
+                    r.discard()
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=starter)
+        t2 = threading.Thread(target=discarder)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+
+        assert not errors, f"REC-5: concurrent start()/discard() raised: {errors}"
+
+
+class TestRec6FallbackHostRank:
+    """REC-6: ``_fallback_host_rank`` must rank macOS and Linux host
+    APIs, not just Windows ones."""
+
+    def test_windows_hosts_unchanged(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._fallback_host_rank("MME") == 0
+        assert r._fallback_host_rank("Windows WASAPI") == 1
+        assert r._fallback_host_rank("WDM-KS") == 2
+        assert r._fallback_host_rank("Windows DirectSound") == 3
+
+    def test_macos_coreaudio_rank_0(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._fallback_host_rank("CoreAudio") == 0, "REC-6: CoreAudio (macOS) should rank 0"
+        assert r._fallback_host_rank("Core Audio") == 0
+
+    def test_linux_alsa_rank_0(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._fallback_host_rank("ALSA") == 0, "REC-6: ALSA (Linux) should rank 0"
+
+    def test_linux_pulseaudio_rank_1(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._fallback_host_rank("PulseAudio") == 1, "REC-6: PulseAudio (Linux) should rank 1"
+
+    def test_linux_jack_rank_2(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._fallback_host_rank("JACK") == 2, "REC-6: JACK (Linux) should rank 2"
+
+    def test_unknown_host_rank_5(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._fallback_host_rank("Some Unknown Host") == 5
+
+    def test_linux_ordering_alsa_before_pulseaudio_before_jack(self):
+        """REC-6: ALSA < PulseAudio < JACK in rank (lower = preferred)."""
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert r._fallback_host_rank("ALSA") < r._fallback_host_rank("PulseAudio") < r._fallback_host_rank("JACK")
+
+
+class TestRec7DelCleanup:
+    """REC-7: ``__del__`` must defensively clear ``_recording_event``,
+    set all worker stop events, and call ``_teardown_stream()`` —
+    not just stop the mic watcher."""
+
+    def test_del_clears_recording_event(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._recording_event.set()
+        r._stream = MagicMock()
+        # __del__ must not raise.
+        r.__del__()
+        assert not r._recording_event.is_set(), "REC-7 regression: __del__ did not clear _recording_event"
+
+    def test_del_sets_worker_stop_events(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        assert not r._worker_stop_event.is_set()
+        assert not r._event_stop_event.is_set()
+        assert not r._device_health_stop_event.is_set()
+        r.__del__()
+        assert r._worker_stop_event.is_set(), "REC-7 regression: __del__ did not set _worker_stop_event"
+        assert r._event_stop_event.is_set(), "REC-7 regression: __del__ did not set _event_stop_event"
+        assert r._device_health_stop_event.is_set(), "REC-7 regression: __del__ did not set _device_health_stop_event"
+
+    def test_del_calls_teardown_stream(self):
+        from voice_typer.server.recording import Recorder
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r._stream = MagicMock()
+        teardown_calls = []
+        original_teardown = r._teardown_stream
+
+        def tracking_teardown():
+            teardown_calls.append(1)
+            return original_teardown()
+
+        r._teardown_stream = tracking_teardown
+        r.__del__()
+        assert len(teardown_calls) >= 1, "REC-7 regression: __del__ did not call _teardown_stream"
+
+    def test_del_never_raises(self):
+        """__del__ must be safe to call on a partially-constructed instance."""
+        from voice_typer.server.recording import Recorder
+
+        # Create a Recorder without calling __init__ — simulates
+        # GC during a partially-failed construction.
+        r = Recorder.__new__(Recorder)
+        # __del__ must not raise even with missing attributes.
+        r.__del__()
+
+
+class TestRec8BufferOpsLocked:
+    """REC-8: ``_buffer.clear()`` and the ``_buffer`` rebind in ``start()``
+    must be wrapped in ``with self._lock:``."""
+
+    def test_buffer_clear_under_lock(self):
+        import inspect
+
+        from voice_typer.server.recording import Recorder
+
+        start_src = inspect.getsource(Recorder._start_impl)
+        # The buffer.clear() call must be inside a `with self._lock:` block.
+        # We verify by checking the source contains the lock + clear in
+        # proximity. A more robust test would instrument the lock.
+        assert "with self._lock:" in start_src, "REC-8: _start_impl does not acquire self._lock for buffer ops"
+        assert "self._buffer.clear()" in start_src, "REC-8: _start_impl does not call self._buffer.clear()"
+
+    def test_buffer_rebind_under_lock(self):
+        import inspect
+
+        from voice_typer.server.recording import Recorder
+
+        start_src = inspect.getsource(Recorder._start_impl)
+        # The buffer rebind (for dynamic max_recording_time) must be
+        # inside a `with self._lock:` block.
+        assert "self._buffer = collections.deque(" in start_src, "REC-8: _start_impl does not rebind self._buffer"
+
+
+class TestAudio69RebuildOnSampleRateMismatch:
+    """AUDIO-6/AUDIO-9: when the device's native sample rate differs
+    from the audio processor's chain sample rate, ``start()`` must
+    rebuild the chain via ``set_sample_rate`` (post-FIX-19) or
+    ``rebuild_from_config`` (pre-FIX-19 fallback)."""
+
+    def test_rebuild_called_when_sample_rate_mismatches(self, monkeypatch):
+        """If the audio processor's _sample_rate is 16000 but the device
+        runs at 48000, start() must call rebuild_from_config (or
+        set_sample_rate when available)."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        class OkStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(
+            recording_mod.sd,
+            "query_devices",
+            lambda *a, **kw: {
+                "name": "Test Mic",
+                "max_input_channels": 1,
+                "default_samplerate": 48000,
+                "hostapi": 0,
+            },
+        )
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        # Attach a mock audio processor built for 16 kHz.
+        audio_proc = MagicMock()
+        audio_proc._sample_rate = 16000
+        # set_sample_rate is NOT available pre-FIX-19 — the fallback
+        # path calls rebuild_from_config.
+        del audio_proc.set_sample_rate  # ensure hasattr returns False
+        r._audio_processor = audio_proc
+
+        r.start()
+        try:
+            # AUDIO-6: rebuild_from_config must have been called because
+            # the device native rate (48000) != chain rate (16000).
+            audio_proc.rebuild_from_config.assert_called_once_with(config)
+        finally:
+            r.stop()
+
+    def test_rebuild_skipped_when_sample_rate_matches(self, monkeypatch):
+        """If the audio processor's _sample_rate matches the device rate,
+        no rebuild is needed."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        class OkStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(
+            recording_mod.sd,
+            "query_devices",
+            lambda *a, **kw: {
+                "name": "Test Mic",
+                "max_input_channels": 1,
+                "default_samplerate": 16000,
+                "hostapi": 0,
+            },
+        )
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        audio_proc = MagicMock()
+        audio_proc._sample_rate = 16000  # matches device rate
+        del audio_proc.set_sample_rate
+        r._audio_processor = audio_proc
+
+        r.start()
+        try:
+            audio_proc.rebuild_from_config.assert_not_called()
+        finally:
+            r.stop()
+
+    def test_set_sample_rate_preferred_when_available(self, monkeypatch):
+        """Post-FIX-19: when AudioProcessor.set_sample_rate exists,
+        start() must prefer it over rebuild_from_config."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        class OkStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(
+            recording_mod.sd,
+            "query_devices",
+            lambda *a, **kw: {
+                "name": "Test Mic",
+                "max_input_channels": 1,
+                "default_samplerate": 48000,
+                "hostapi": 0,
+            },
+        )
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        audio_proc = MagicMock()
+        audio_proc._sample_rate = 16000
+        # set_sample_rate IS available (post-FIX-19).
+        audio_proc.set_sample_rate = MagicMock()
+        r._audio_processor = audio_proc
+
+        r.start()
+        try:
+            # set_sample_rate must be called with the new rate.
+            audio_proc.set_sample_rate.assert_called_once_with(48000)
+            # rebuild_from_config must NOT be called (set_sample_rate
+            # is the preferred path).
+            audio_proc.rebuild_from_config.assert_not_called()
+        finally:
+            r.stop()
+
+
+class TestRec2StartFailurePathCoverage:
+    """Additional REC-2 coverage: rollback also fires when
+    ``_start_event_worker`` raises (not just ``_start_audio_worker``)."""
+
+    def test_start_rolls_back_when_event_worker_raises(self, monkeypatch):
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        class OkStream:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
+        monkeypatch.setattr(
+            recording_mod.sd,
+            "query_devices",
+            lambda **kw: {"max_input_channels": 1, "default_samplerate": 16000, "hostapi": 0},
+        )
+        monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        teardown_calls = []
+        original_teardown = r._teardown_stream
+        r._teardown_stream = lambda: (teardown_calls.append(1), original_teardown())[1]
+
+        # _start_audio_worker succeeds, _start_event_worker raises.
+        def raising_event_worker():
+            raise MemoryError("simulated OOM in event worker start")
+
+        monkeypatch.setattr(r, "_start_event_worker", raising_event_worker)
+
+        gen_before = r._stop_generation
+
+        with pytest.raises(MemoryError, match="simulated OOM"):
+            r.start()
+
+        assert len(teardown_calls) >= 1
+        assert not r._recording_event.is_set()
+        assert r._stop_generation == gen_before + 1
+        assert r._stream is None

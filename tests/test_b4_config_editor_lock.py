@@ -141,6 +141,166 @@ class TestB4SourceInvariants:
         )
 
 
+# ── APP-3: config.save() must happen inside _config_mutation_lock ─────
+
+
+class TestApp3SaveInsideLock:
+    """APP-3: ``_open_config_file`` previously called
+    ``self.config.save()`` OUTSIDE ``_config_mutation_lock`` (before the
+    platform-specific ``with`` block). This opened a TOCTOU race:
+
+    1. Our save() writes the in-memory config to disk.
+    2. A concurrent IPC ``set_config`` call (which acquires
+       ``_config_mutation_lock`` via ``service.apply_config``) writes
+       its OWN version to disk via ``_secure_atomic_write``.
+    3. The editor opens the file written by step 2, NOT by step 1 —
+       so the user edits a config that doesn't include our pending
+       in-memory changes.
+
+    The fix moves ``self.config.save()`` INSIDE the
+    ``with self._config_mutation_lock:`` block in each platform branch,
+    so the save and the editor launch are atomic with respect to
+    concurrent set_config calls.
+
+    These tests pin the source-level invariant: there must be NO
+    ``self.config.save()`` call OUTSIDE the lock, and EXACTLY ONE
+    ``self.config.save()`` call INSIDE each platform branch's lock.
+    """
+
+    def _src(self) -> str:
+        from voice_typer.server.app import VoiceTyperApp
+
+        return inspect.getsource(VoiceTyperApp._open_config_file)
+
+    def _strip_docstring(self, src: str) -> str:
+        """Return ``src`` with the leading triple-quoted docstring AND
+        all comment lines removed.
+
+        Tests that count ``self.config.save()`` or
+        ``type(self.config).load()`` occurrences must not match mentions
+        in the docstring or in inline comments (which would inflate the
+        count and let a real regression slip through).
+        """
+        doc_start = src.find('"""')
+        if doc_start == -1:
+            return self._strip_comments(src)
+        doc_end = src.find('"""', doc_start + 3)
+        assert doc_end != -1, "_open_config_file must close its docstring"
+        body = src[doc_end + 3 :]
+        return self._strip_comments(body)
+
+    def _strip_comments(self, src: str) -> str:
+        """Strip Python ``#`` comments from each line of ``src``.
+
+        We deliberately do NOT use ``tokenize`` here because the source
+        we receive from ``inspect.getsource`` is a string fragment, not
+        a complete module. A line-by-line approach is sufficient and
+        robust for the assertions we need to make.
+        """
+        out_lines = []
+        for line in src.splitlines():
+            # Naive: strip everything after the first '#' that isn't
+            # inside a string literal. For our test source (which has
+            # no string literals containing '#' on the same line as a
+            # comment), this is correct.
+            hash_idx = line.find("#")
+            if hash_idx != -1:
+                line = line[:hash_idx]
+            out_lines.append(line)
+        return "\n".join(out_lines)
+
+    def test_no_save_call_outside_lock(self):
+        """There must be NO ``self.config.save()`` call that runs
+        unconditionally before the platform ``try`` block. The pre-fix
+        code had:
+
+            config_file = self.config.config_dir / "config.json"
+            if not self.config.save():  # ← ran outside the lock
+                log.warning(...)
+            import subprocess
+            try:
+                if is_windows():
+                    with self._config_mutation_lock:
+                        ...
+
+        After the fix, the save call is inside each branch's ``with``
+        block. This test verifies the "outside the lock" call is gone.
+        """
+        src = self._src()
+        body = self._strip_docstring(src)
+
+        first_lock_idx = body.find("with self._config_mutation_lock:")
+        assert first_lock_idx != -1, (
+            "APP-3: _open_config_file must acquire _config_mutation_lock in at least one platform branch"
+        )
+        # Slice the body BEFORE the first lock-acquire — this is the
+        # "outside the lock" region. There must be no save() call there.
+        before_lock = body[:first_lock_idx]
+        assert "self.config.save()" not in before_lock, (
+            "APP-3: _open_config_file must NOT call self.config.save() "
+            "outside _config_mutation_lock. The save must happen INSIDE "
+            "each platform branch's ``with`` block so a concurrent IPC "
+            "set_config call can't overwrite the file between our save "
+            "and the editor launch (TOCTOU race)."
+        )
+
+    def test_save_call_inside_each_branch_lock(self):
+        """Each platform branch's ``with self._config_mutation_lock:``
+        block must contain a ``self.config.save()`` call.
+
+        We split the source into the three branch blocks (Windows /
+        macOS / Linux) and verify each block has both
+        ``with self._config_mutation_lock:`` AND ``self.config.save()``.
+        """
+        src = self._src()
+        # Windows branch starts at "if is_windows():"
+        win_idx = src.find("if is_windows():")
+        assert win_idx != -1, "Windows branch must exist in _open_config_file"
+        macos_idx = src.find("elif is_macos():", win_idx)
+        assert macos_idx != -1, "macOS branch must exist after Windows branch"
+        # The Linux branch is the trailing ``else:`` after macOS.
+        linux_idx = src.find("\n            else:", macos_idx)
+        assert linux_idx != -1, "Linux else branch must exist after macOS branch"
+        # The Linux block runs to the end of the try (the ``except Exception as e:``).
+        except_idx = src.find("except Exception as e:", linux_idx)
+        assert except_idx != -1, "outer try must have an except clause"
+
+        win_block = src[win_idx:macos_idx]
+        macos_block = src[macos_idx:linux_idx]
+        linux_block = src[linux_idx:except_idx]
+
+        for branch_name, block in [
+            ("Windows", win_block),
+            ("macOS", macos_block),
+            ("Linux", linux_block),
+        ]:
+            assert "with self._config_mutation_lock:" in block, (
+                f"APP-3: {branch_name} branch must acquire _config_mutation_lock (B-4 invariant, preserved by APP-3)"
+            )
+            assert "self.config.save()" in block, (
+                f"APP-3: {branch_name} branch must call self.config.save() "
+                f"INSIDE the _config_mutation_lock block so the save and "
+                f"the editor launch are atomic with respect to concurrent "
+                f"set_config calls (TOCTOU race)."
+            )
+
+    def test_save_call_count_matches_branch_count(self):
+        """There must be exactly 3 ``self.config.save()`` calls in
+        _open_config_file — one per platform branch. (Not 1 outside the
+        lock + 0 inside, which was the pre-fix bug; not 4+ which would
+        indicate a copy-paste duplication.)
+        """
+        src = self._src()
+        body = self._strip_docstring(src)
+        save_count = body.count("self.config.save()")
+        assert save_count == 3, (
+            "APP-3: _open_config_file must contain exactly 3 "
+            "self.config.save() calls (one per platform branch, each "
+            f"inside its _config_mutation_lock block). Got {save_count}; "
+            "expected 3."
+        )
+
+
 # ── Runtime behavior ───────────────────────────────────────────────────
 
 

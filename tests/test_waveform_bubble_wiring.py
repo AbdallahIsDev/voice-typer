@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import contextlib
 import queue
+import threading
 import time
 from unittest.mock import MagicMock
 
@@ -454,3 +455,78 @@ class TestDoCleanupIntegration:
 
         assert len(join_calls) == 1, f"expected 1 join call, got {join_calls}"
         assert join_calls[0] == 1.0, f"join timeout must be 1.0 (mirrors _do_cleanup), got {join_calls[0]}"
+
+
+# ─── PERF-3: worker coalesces stale bubble_level items ─────────────────
+
+
+class TestWorkerCoalescesStaleLevels:
+    """PERF-3: when ``event_bus.publish`` blocks (slow subscriber), the
+    worker must coalesce stale ``bubble_level`` items in its queue,
+    publishing only the LATEST one.
+
+    Without coalescing, a 0.1s slow publish × N queued items = N×0.1s
+    freeze (and N stale frames painted in sequence — e.g. 64 queued
+    items = ~6.4s freeze, RW-9 PERF-3 finding). With coalescing, only
+    the latest level is published — the visualizer jumps directly to
+    the current smoothed level.
+    """
+
+    def test_coalesces_multiple_bubble_levels_to_one_publish(self, wiring, monkeypatch):
+        from voice_typer.server import event_bus
+
+        # Pre-create the queue + stop event so we can populate the queue
+        # BEFORE the worker starts. This eliminates the race where the
+        # worker drains the first item before the test enqueues the rest
+        # (which would result in 2 publishes instead of 1).
+        wiring._bubble_level_queue = queue.Queue(maxsize=64)
+        wiring._bubble_level_worker_stop = threading.Event()
+
+        # Stub publish with a Mock-like callable that blocks briefly
+        # (simulating a slow subscriber like a stalled IPC send).
+        # Records each call so we can assert on count + payload.
+        published_calls: list = []
+
+        def slow_publish(event):
+            published_calls.append(event)
+            time.sleep(0.1)
+            return True
+
+        monkeypatch.setattr(event_bus, "publish", slow_publish)
+
+        # Put 5 bubble_level items rapidly (before worker starts).
+        items = [
+            {
+                "type": "bubble_level",
+                "data": {"rms": float(i) / 10.0, "peak": float(i) / 20.0},
+            }
+            for i in range(5)
+        ]
+        for it in items:
+            wiring._bubble_level_queue.put_nowait(it)
+        assert wiring._bubble_level_queue.qsize() == 5
+
+        # Now wire — this creates + starts the worker on the
+        # pre-populated queue. The worker's coalescing loop should
+        # drain items 2-5 and keep only item 5 (the latest).
+        wiring._wire_waveform_bubble()
+
+        # Wait for the worker to publish at least once.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if len(published_calls) >= 1:
+                break
+            time.sleep(0.02)
+
+        # Settle: one slow_publish cycle (0.1s) + slack. If a second
+        # publish were going to happen, it would land in this window.
+        time.sleep(0.25)
+
+        # Cleanup: stop the worker.
+        wiring.stop()
+
+        # Assert: publish was called exactly 1 time, with the LATEST item.
+        assert len(published_calls) == 1, (
+            f"expected exactly 1 publish call (coalesced), got {len(published_calls)}: {published_calls}"
+        )
+        assert published_calls[0] is items[-1], f"expected the latest item (rms=0.4), got {published_calls[0]}"

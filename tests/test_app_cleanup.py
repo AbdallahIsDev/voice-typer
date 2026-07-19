@@ -558,3 +558,180 @@ class TestRelaunchAckEventDriven:
         assert sleep_calls == [0.3], (
             f"restart_app must fall back to the 300ms sleep when no IPC server is available; got {sleep_calls}"
         )
+
+
+# ── APP-1: restart_app re-entry guard ──────────────────────────────────
+
+
+class TestRestartAppReentryGuard:
+    """APP-1: ``restart_app`` must short-circuit when
+    ``_shutting_down`` is already True. Without this guard, a second
+    restart_app call (e.g. user double-clicks the tray restart item,
+    or a tray restart races with a SIGTERM-triggered quit) would:
+
+    1. Re-push a duplicate ``relaunch_electron`` event to Electron.
+    2. Re-enter ``_do_cleanup()`` (mitigated by ``_cleanup_done`` but
+       still wasteful — and the second ``sys.exit(0)`` could fire
+       while the first call's finally blocks are still draining).
+    3. Re-acquire ``_config_mutation_lock`` (an RLock, so technically
+       re-entrant — but the toctou window re-opens).
+
+    The guard short-circuits BEFORE any side effect so a duplicate
+    call is a true no-op.
+    """
+
+    def test_restart_app_no_op_when_already_shutting_down(self, app, monkeypatch):
+        """When _shutting_down is True, restart_app must return
+        immediately without pushing events, saving config, or calling
+        _do_cleanup()."""
+        _stub_restart_environment(app, monkeypatch)
+
+        publish_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: publish_calls.append(msg),
+        )
+        save_calls = []
+        monkeypatch.setattr(app.config, "save", lambda: save_calls.append(True) or True)
+        do_cleanup_calls = []
+        original_do_cleanup = app._do_cleanup
+
+        def spy_do_cleanup():
+            do_cleanup_calls.append(True)
+            return original_do_cleanup()
+
+        monkeypatch.setattr(app, "_do_cleanup", spy_do_cleanup)
+
+        app._shutting_down = True
+
+        # Must NOT raise (no SystemExit, no other exception).
+        app.restart_app()
+
+        assert publish_calls == [], (
+            "APP-1: restart_app must NOT push events when _shutting_down "
+            "is already True; got pushes: " + repr(publish_calls)
+        )
+        assert save_calls == [], "APP-1: restart_app must NOT call config.save() when _shutting_down is already True"
+        assert do_cleanup_calls == [], (
+            "APP-1: restart_app must NOT call _do_cleanup() when _shutting_down is already True"
+        )
+
+    def test_restart_app_runs_normally_when_not_shutting_down(self, app, monkeypatch):
+        """Sanity: when _shutting_down is False, restart_app must run
+        the full sequence (push event, set flag, _do_cleanup, sys.exit)."""
+        _stub_restart_environment(app, monkeypatch)
+
+        publish_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: publish_calls.append(msg),
+        )
+
+        assert app._shutting_down is False
+
+        with contextlib.suppress(SystemExit):
+            app.restart_app()
+
+        assert any(msg.get("type") == "relaunch_electron" for msg in publish_calls), (
+            "APP-1: when _shutting_down is False, restart_app must push "
+            f"the relaunch_electron event; got pushes: {publish_calls}"
+        )
+        assert app._shutting_down is True, (
+            "APP-1: when _shutting_down is False, restart_app must set it to True as part of its normal flow"
+        )
+
+    def test_restart_app_guard_is_first_statement_in_method(self):
+        """Source-level invariant: the ``if self._shutting_down:`` guard
+        must be the FIRST executable statement in restart_app (before
+        the log.info call, before the config.save(), before any push)."""
+        import inspect
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        src = inspect.getsource(VoiceTyperApp.restart_app)
+        doc_end = src.find('"""', src.find('"""') + 3)
+        assert doc_end != -1, "restart_app must have a docstring"
+        body = src[doc_end + 3 :].lstrip()
+
+        for line in body.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            assert stripped.startswith("if self._shutting_down:"), (
+                "APP-1: the first executable statement in restart_app "
+                "must be 'if self._shutting_down:' (the re-entry guard). "
+                f"Got: {stripped!r}"
+            )
+            assert "duplicate restart_app call" in stripped or "ignoring" in line, (
+                "APP-1: the re-entry guard must log a debug message mentioning the duplicate restart_app call"
+            )
+            break
+        else:
+            pytest.fail(
+                "APP-1: restart_app has no executable statements after the docstring — the re-entry guard is missing"
+            )
+
+
+# ── APP-11: restart_app no longer calls _restore_volume(fade_ms=0) ─────
+
+
+class TestRestartAppRemovesRedundantRestoreVolume:
+    """APP-11: ``restart_app`` used to call ``_restore_volume(fade_ms=0)``
+    right after setting ``_shutting_down = True``. This was redundant —
+    ``_do_cleanup()`` (called later in restart_app via the shared
+    ShutdownController body) already invokes the volume-restore path.
+
+    The redundant call could also race with the in-flight cleanup if
+    the volume backend wasn't reentrant (some backends hold a
+    subprocess lock during fade). Removing it eliminates the
+    double-restore and the potential race.
+    """
+
+    def test_restart_app_does_not_call_restore_volume_directly(self, app, monkeypatch):
+        """restart_app must NOT call ``_restore_volume`` directly —
+        the cleanup path inside _do_cleanup handles it."""
+        _stub_restart_environment(app, monkeypatch)
+
+        restore_calls = []
+        monkeypatch.setattr(app, "_restore_volume", lambda fade_ms=None: restore_calls.append(fade_ms))
+
+        with contextlib.suppress(SystemExit):
+            app.restart_app()
+
+        # The direct _restore_volume(fade_ms=0) call must NOT fire.
+        # (The volume restore that happens via _do_cleanup goes through
+        # ``self.volume._restore_volume`` on the VolumeController, not
+        # through the app-level delegate — so this spy only catches
+        # the redundant direct call we're removing.)
+        direct_calls = [c for c in restore_calls if c is not None]
+        assert direct_calls == [], (
+            "APP-11: restart_app must NOT call _restore_volume(fade_ms=0) "
+            "directly — _do_cleanup() handles the volume restore via the "
+            f"shared ShutdownController body. Got direct calls: {direct_calls}"
+        )
+
+    def test_restart_app_source_has_no_direct_restore_volume_call(self):
+        """Source-level invariant: ``_restore_volume(fade_ms=0)`` must
+        not appear in restart_app's source as an executable call (it's
+        redundant — _do_cleanup handles the restore)."""
+        import inspect
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        src = inspect.getsource(VoiceTyperApp.restart_app)
+        direct_call_idx = src.find("self._restore_volume(fade_ms=0)")
+        if direct_call_idx != -1:
+            line_start = src.rfind("\n", 0, direct_call_idx) + 1
+            line = src[line_start : src.find("\n", direct_call_idx)]
+            stripped = line.strip()
+            assert stripped.startswith("#") or stripped.startswith('"""'), (
+                "APP-11: restart_app must not call "
+                "self._restore_volume(fade_ms=0) directly. The only "
+                "allowed occurrence is inside a comment (explaining why "
+                f"it was removed). Found executable line: {line!r}"
+            )
+        # Also confirm the docstring/comment mentions the removal.
+        assert "_restore_volume" in src, (
+            "APP-11: restart_app source must mention _restore_volume "
+            "(in a comment explaining why the redundant call was removed)"
+        )

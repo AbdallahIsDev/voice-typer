@@ -28,6 +28,7 @@ previous ``_push_event_now`` semantics:
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 from voice_typer.server import event_bus
@@ -546,3 +547,109 @@ class TestSignatureSanity:
                 pass
 
         event_bus.subscribe(_CallableSubscriber())
+
+
+# ── PERF-2: real-time thread guard ─────────────────────────────────────
+
+
+class TestRTThreadGuard:
+    """PERF-2: publish() must refuse to run on real-time audio threads.
+
+    PortAudio (used by sounddevice) names its callback threads
+    ``PortAudio…``.  Calling publish() from such a thread is forbidden
+    because a slow subscriber would block the audio capture loop and
+    glitch the recording.  The guard returns ``False`` and logs an
+    error so callers fail loudly instead of silently degrading audio.
+
+    These tests spawn worker threads with the relevant names and
+    assert publish() short-circuits.  Two companion tests verify that
+    publish() on a normal worker thread and on the main thread still
+    works (the guard must not regress the common path).
+    """
+
+    def test_publish_returns_false_on_portaudio_thread(self):
+        """Publishing from a thread named 'PortAudio-...' returns False."""
+        result: dict = {}
+
+        def rt_call() -> None:
+            result["value"] = event_bus.publish({"type": "test"})
+
+        t = threading.Thread(target=rt_call, name="PortAudio-Callback", daemon=True)
+        t.start()
+        t.join()
+        assert result["value"] is False
+
+    def test_publish_returns_false_on_audio_callback_thread(self):
+        """Publishing from a thread named 'audio-callback-...' returns False."""
+        result: dict = {}
+
+        def rt_call() -> None:
+            result["value"] = event_bus.publish({"type": "test"})
+
+        t = threading.Thread(target=rt_call, name="audio-callback-worker", daemon=True)
+        t.start()
+        t.join()
+        assert result["value"] is False
+
+    def test_publish_defers_dispatch_off_rt_thread(self):
+        """PERF-2: publishing from an RT (PortAudio) thread must NOT invoke
+        the subscriber synchronously in the RT thread — fan-out is deferred
+        to the single-worker executor so the audio callback returns in
+        microseconds. The subscriber is still eventually delivered, but on
+        the deferred executor thread, never blocking the RT loop."""
+        received: list[dict] = []
+        received_thread: list[str] = []
+        event_bus.subscribe(lambda m: (received.append(m), received_thread.append(threading.current_thread().name)))
+
+        rt_thread_name: list[str] = []
+
+        def rt_call() -> None:
+            rt_thread_name.append(threading.current_thread().name)
+            event_bus.publish({"type": "rt_test"})
+
+        t = threading.Thread(target=rt_call, name="PortAudio-stream", daemon=True)
+        t.start()
+        t.join()
+        # The RT thread itself must not have run the subscriber.
+        assert rt_thread_name == ["PortAudio-stream"]
+        # Delivery is deferred: give the executor a moment, then assert it
+        # happened off the RT thread.
+        deadline = time.monotonic() + 2.0
+        while not received and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert received == [{"type": "rt_test"}], "subscriber must still be delivered"
+        assert received_thread and "PortAudio-stream" not in received_thread, (
+            "subscriber must NOT be invoked on the RT thread"
+        )
+
+    def test_publish_works_on_normal_thread(self):
+        """Publishing from a normal worker thread still works."""
+        received: list[dict] = []
+        cb = received.append
+        event_bus.subscribe(cb)
+
+        result: dict = {}
+
+        def normal_call() -> None:
+            result["value"] = event_bus.publish({"type": "test_normal"})
+
+        try:
+            t = threading.Thread(target=normal_call, name="worker-1", daemon=True)
+            t.start()
+            t.join()
+            assert result["value"] is True
+            assert received == [{"type": "test_normal"}]
+        finally:
+            event_bus.unsubscribe(cb)
+
+    def test_publish_works_on_main_thread(self):
+        """Publishing from the main thread still works."""
+        received: list[dict] = []
+        cb = received.append
+        event_bus.subscribe(cb)
+        try:
+            ok = event_bus.publish({"type": "test_main"})
+            assert ok is True
+            assert received == [{"type": "test_main"}]
+        finally:
+            event_bus.unsubscribe(cb)

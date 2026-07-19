@@ -648,30 +648,29 @@ def test_ft1_rs_emits_relaunching_on_exhaustion(ft1_rs_source: str) -> None:
     when the backoff schedule is exhausted (before calling
     ``app.restart()`` for the full-app relaunch).
 
-    Two emit sites in ``ft1.rs``:
-      - ``ft1.rs:52``  — FT1_MAX_RETRIES exhausted (reason='exhausted_retries')
-      - ``ft1.rs:113`` — backoff loop exited without returning
-                          (reason='backoff_exhausted')
+    The emit site in ``ft1.rs`` is the **post-loop** exhaustion branch
+    (reason='backoff_exhausted') at the bottom of ``ft1_respawn_inner``.
+    The in-loop ``attempt >= FT1_MAX_RETRIES`` guard that used to emit
+    ``reason='exhausted_retries'`` was intentionally removed as dead
+    code (``FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES == 5``, so the
+    condition was always false — see the NF-R19-2 comment in ft1.rs).
+    The single post-loop emit fires before ``app.restart()`` so the
+    renderer has a chance to render a "restarting…" banner during the
+    ``PRE_RESTART_DELAY_MS`` (500 ms) window before the process exits.
 
-    Both emit BEFORE ``app.restart()`` so the renderer has a chance to
-    render a "restarting…" banner during the ``PRE_RESTART_DELAY_MS``
-    (500 ms) window before the process exits.
+    (The WS reader in ``ws.rs`` emits a *second* ``ft1_relaunching``
+    with reason='disconnected' immediately at disconnect start — that
+    is verified separately in ``test_ws_rs_emits_ft1_relaunching_on_disconnect``.)
     """
     emit_re = re.compile(
         r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_RELAUNCHING) + r'["\']',
         re.MULTILINE,
     )
     matches = emit_re.findall(ft1_rs_source)
-    assert len(matches) >= 2, (
-        f"ft1.rs must emit {_TAURI_EVENT_RELAUNCHING!r} at least twice: "
-        f"once on FT1_MAX_RETRIES exhaustion (reason='exhausted_retries') "
-        f"and once on backoff-loop exit (reason='backoff_exhausted'). "
+    assert len(matches) >= 1, (
+        f"ft1.rs must emit {_TAURI_EVENT_RELAUNCHING!r} on backoff-schedule "
+        f"exhaustion (reason='backoff_exhausted') before app.restart(). "
         f"Found {len(matches)} emit call(s)."
-    )
-    # Verify both exhaustion-reason strings appear.
-    assert "exhausted_retries" in ft1_rs_source, (
-        "ft1.rs must emit ft1_relaunching with reason='exhausted_retries' "
-        "when FT1_MAX_RETRIES is reached (the per-attempt cap)."
     )
     assert "backoff_exhausted" in ft1_rs_source, (
         "ft1.rs must emit ft1_relaunching with reason='backoff_exhausted' "
@@ -1221,9 +1220,12 @@ def test_bridge_installs_window_python_with_onevent(
         "tauri-bridge.ts must assign `window.python = python` so the "
         "usePythonEvent hook can find the bridge at runtime."
     )
-    # onEvent must be a key on the python object literal
+    # onEvent must be a key on the python object literal.
+    # NB: the object literal also defines `call`, `pasteText`, etc., so we
+    # allow a generous window after the opening brace before requiring the
+    # `onEvent:` key.
     onevent_re = re.compile(
-        r"const\s+python\s*:\s*PythonBridge\s*=\s*\{[\s\S]{0,200}?"
+        r"const\s+python\s*:\s*PythonBridge\s*=\s*\{[\s\S]{0,800}?"
         r"onEvent\s*:",
         re.MULTILINE | re.DOTALL,
     )

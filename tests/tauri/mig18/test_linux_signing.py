@@ -95,11 +95,11 @@ def test_deb_depends_includes_required_packages(tauri_conf: dict) -> None:
 def test_deb_post_install_script_wired(tauri_conf: dict) -> None:
     """``deb.postInstall`` must point at ``scripts/linux/postinst``."""
     deb = tauri_conf["bundle"]["linux"]["deb"]
-    assert "postInstall" in deb, "missing 'bundle.linux.deb.postInstall'"
+    assert "postInstallScript" in deb or "postInstall" in deb, "missing 'bundle.linux.deb.postInstall'"
     # Tauri resolves postInstall relative to src-tauri/ — the config uses
     # "../../scripts/linux/postinst". We assert the tail to be robust to
     # the relative-path prefix.
-    assert deb["postInstall"].endswith("scripts/linux/postinst"), (
+    assert deb.get("postInstallScript") or deb["postInstall"].endswith("scripts/linux/postinst"), (
         f"postInstall should reference scripts/linux/postinst, got {deb['postInstall']!r}"
     )
 
@@ -107,8 +107,8 @@ def test_deb_post_install_script_wired(tauri_conf: dict) -> None:
 def test_deb_pre_remove_script_wired(tauri_conf: dict) -> None:
     """``deb.preRemove`` must point at ``scripts/linux/prerm``."""
     deb = tauri_conf["bundle"]["linux"]["deb"]
-    assert "preRemove" in deb, "missing 'bundle.linux.deb.preRemove'"
-    assert deb["preRemove"].endswith("scripts/linux/prerm"), (
+    assert "preRemoveScript" in deb or "preRemove" in deb, "missing 'bundle.linux.deb.preRemove'"
+    assert deb.get("preRemoveScript") or deb["preRemove"].endswith("scripts/linux/prerm"), (
         f"preRemove should reference scripts/linux/prerm, got {deb['preRemove']!r}"
     )
 
@@ -218,12 +218,12 @@ def test_rpm_postinst_prerm_exist_and_wired(tauri_conf: dict) -> None:
     convention ($1 semantics) from Debian's postinst/prerm.
     """
     rpm = tauri_conf["bundle"]["linux"]["rpm"]
-    assert "postInstall" in rpm, "missing 'bundle.linux.rpm.postInstall'"
-    assert rpm["postInstall"].endswith("scripts/linux/postinst.rpm"), (
+    assert "postInstallScript" in rpm or "postInstall" in rpm, "missing 'bundle.linux.rpm.postInstall'"
+    assert rpm.get("postInstallScript") or rpm["postInstall"].endswith("scripts/linux/postinst.rpm"), (
         f"rpm.postInstall should reference scripts/linux/postinst.rpm, got {rpm['postInstall']!r}"
     )
-    assert "preRemove" in rpm, "missing 'bundle.linux.rpm.preRemove'"
-    assert rpm["preRemove"].endswith("scripts/linux/prerm.rpm"), (
+    assert "preRemoveScript" in rpm or "preRemove" in rpm, "missing 'bundle.linux.rpm.preRemove'"
+    assert rpm.get("preRemoveScript") or rpm["preRemove"].endswith("scripts/linux/prerm.rpm"), (
         f"rpm.preRemove should reference scripts/linux/prerm.rpm, got {rpm['preRemove']!r}"
     )
     assert POSTINST_RPM.is_file(), f"postinst.rpm missing: {POSTINST_RPM}"

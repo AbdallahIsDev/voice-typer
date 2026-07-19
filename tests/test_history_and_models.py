@@ -4,6 +4,7 @@ model download/cancel mechanism, and miscellaneous engine infrastructure."""
 from __future__ import annotations
 
 import inspect
+import os
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,6 +20,7 @@ class TestHistoryDBErrorType:
 
     def test_historydberror_is_runtime_error(self):
         from voice_typer.server.history_db import HistoryDBError
+
         assert issubclass(HistoryDBError, RuntimeError)
 
 
@@ -85,7 +87,8 @@ class TestCloudEngineUlopenTimeout:
         from voice_typer.server import cloud_engines
 
         engine = cloud_engines.CloudEngine(
-            provider="openai", api_key="test-key",
+            provider="openai",
+            api_key="test-key",
             consent_given=True,
         )
 
@@ -146,6 +149,7 @@ class TestCorrectionsLoadError:
 
     def test_corrections_load_error_is_runtime_error(self):
         from voice_typer.server.text_cleanup import CorrectionsLoadError
+
         assert issubclass(CorrectionsLoadError, RuntimeError)
 
     def test_corrections_load_error_raised_on_malformed_file(self, tmp_path, monkeypatch):
@@ -153,9 +157,11 @@ class TestCorrectionsLoadError:
             CorrectionsLoadError,
             _load_external_corrections,
         )
+
         path = tmp_path / "voice-typer-corrections.json"
         path.write_text("{not valid json", encoding="utf-8")
         import voice_typer.server.text_cleanup as tc
+
         monkeypatch.setattr(tc, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         with pytest.raises(CorrectionsLoadError):
             _load_external_corrections(config_dir=tmp_path)
@@ -166,6 +172,7 @@ class TestSharedVocabConstants:
 
     def test_bundled_corrections_path_is_same_object(self):
         from voice_typer.server import text_cleanup, vocabulary
+
         assert text_cleanup._BUNDLED_CORRECTIONS_PATH is vocabulary.BUNDLED_CORRECTIONS_PATH
 
 
@@ -174,6 +181,7 @@ class TestResampleUnavailable:
 
     def test_resample_unavailable_is_runtime_error(self):
         from voice_typer.server.recording import ResampleUnavailable
+
         assert issubclass(ResampleUnavailable, RuntimeError)
 
 
@@ -269,11 +277,13 @@ class TestAsrSetupHasNoConfigDirCache:
 
     def test_no_config_dir_cache(self):
         from voice_typer.server import asr_setup
+
         assert not hasattr(asr_setup, "_CONFIG_DIR")
         assert not hasattr(asr_setup, "_config_dir")
 
     def test_parakeet_uses_config_directly(self):
         from voice_typer.server.parakeet_engine import ParakeetEngine
+
         source = inspect.getsource(ParakeetEngine._is_cached)
         assert "from voice_typer.server.config import _config_dir" in source
         assert "from voice_typer.server.asr_setup import _config_dir" not in source
@@ -284,6 +294,7 @@ class TestValidateNonNumericFieldsHasClarifyingDocstring:
 
     def test_validator_has_clarifying_docstring(self):
         from voice_typer.server.config import Config
+
         source = inspect.getsource(Config._validate_non_numeric_fields)
         assert "migration layer" in source
 
@@ -302,6 +313,7 @@ class TestTrayIconNoLongerReferencesStaleSvg:
 
     def test_tray_icon_no_longer_references_vt_logo(self):
         from voice_typer.server import tray_icon
+
         source = inspect.getsource(tray_icon._make_icon)
         assert "from vt_logo.svg" not in source
 
@@ -311,6 +323,7 @@ class TestTrayIconUsesGetchannelNotSplitIndex:
 
     def test_no_split_index_3(self):
         from voice_typer.server import tray_icon
+
         source = inspect.getsource(tray_icon._make_icon)
         code_lines = []
         for line in source.splitlines():
@@ -331,12 +344,14 @@ class TestOnboardingControllerRemovesStepCallbacks:
 
     def test_no_callbacks_in_init(self):
         from voice_typer.server.onboarding import OnboardingController
+
         source = inspect.getsource(OnboardingController.__init__)
         assert "self.on_step_change =" not in source
         assert "self.on_complete =" not in source
 
     def test_next_step_no_callback_invocation(self):
         from voice_typer.server.onboarding import OnboardingController
+
         source = inspect.getsource(OnboardingController.next_step)
         assert "on_step_change" not in source
         assert "on_complete" not in source
@@ -439,6 +454,7 @@ class TestTemplatesPersistToDisk:
         templates_file = templates_dir / "voice-typer-templates.json"
         assert templates_file.exists()
         import json
+
         data = json.loads(templates_file.read_text(encoding="utf-8"))
         assert "templates" in data
         assert len(data["templates"]) == 2
@@ -503,3 +519,582 @@ class TestTemplatesPersistToDisk:
         assert "bad mode" in triggers
         bad_mode_entry = next(t for t in loaded if t["trigger"] == "bad mode")
         assert bad_mode_entry["match_mode"] == "exact"
+
+
+# ── FIX-5 regression tests (SVC-2/6/7/8/9/10/11, PERF-21) ────────────
+#
+# Each test class below pins one of the SVC-N fixes applied to
+# ``voice_typer/server/service.py`` in FIX sub-agent #5. Tests are
+# intentionally narrow (unit-level) — they exercise the service in
+# isolation against a FakeApp/FakeConfig so they don't pull in the
+# heavy app/conftest autouse-mock machinery.
+
+
+class TestSVC6KeyringStatusHelper:
+    """SVC-6: ``_keyring_status()`` centralizes the duplicated probe."""
+
+    def test_returns_dict_with_expected_keys(self, tmp_config_dir, monkeypatch):
+        """``_keyring_status`` returns a dict containing the four
+        keys the renderer reads (``available``/``backend``/``fallback``/
+        ``reason``)."""
+        from voice_typer.server.service import VoiceTyperService
+
+        class FakeApp:
+            config = type("FakeConfig", (), {})()
+
+        service = VoiceTyperService(FakeApp())
+        import voice_typer.server.credential_store as cs
+
+        monkeypatch.setattr(
+            cs,
+            "get_keyring_status",
+            lambda: {
+                "available": True,
+                "backend": "SecretServiceKeyring",
+                "fallback": False,
+                "reason": None,
+            },
+        )
+        result = service._keyring_status()
+        assert result == {
+            "available": True,
+            "backend": "SecretServiceKeyring",
+            "fallback": False,
+            "reason": None,
+        }
+
+    def test_returns_fallback_when_credential_store_raises(self, tmp_config_dir, monkeypatch):
+        """When ``credential_store.get_keyring_status`` raises, the
+        helper returns a safe ``{available: False, fallback: True, ...}``
+        dict so the IPC ``get_config`` path never breaks."""
+        from voice_typer.server.service import VoiceTyperService
+
+        class FakeApp:
+            config = type("FakeConfig", (), {})()
+
+        service = VoiceTyperService(FakeApp())
+
+        def _boom():
+            raise RuntimeError("keychain exploded")
+
+        import voice_typer.server.credential_store as cs
+
+        monkeypatch.setattr(cs, "get_keyring_status", _boom)
+        result = service._keyring_status()
+        assert result["available"] is False
+        assert result["backend"] is None
+        assert result["fallback"] is True
+        assert "keychain exploded" in result["reason"]
+
+    def test_get_config_and_get_defaults_share_helper(self, tmp_config_dir, monkeypatch):
+        """Both ``get_config`` and ``get_defaults`` route through
+        ``_keyring_status`` — patching the helper once affects both
+        callers (proves the duplication was actually removed)."""
+        from voice_typer.server.service import VoiceTyperService
+
+        calls: list[int] = []
+
+        class FakeApp:
+            config = type("FakeConfig", (), {})()
+
+        service = VoiceTyperService(FakeApp())
+
+        def _spy(self):
+            calls.append(1)
+            return {"available": False, "backend": None, "fallback": True, "reason": "spy"}
+
+        monkeypatch.setattr(VoiceTyperService, "_keyring_status", _spy)
+
+        import voice_typer.server.ipc_server as ipc
+
+        monkeypatch.setattr(ipc, "_sanitize_config_for_ipc", lambda c: {})
+
+        import voice_typer.server.config as cfg_mod
+
+        monkeypatch.setattr(cfg_mod, "Config", lambda: object())
+
+        service.get_config()
+        service.get_defaults()
+        assert len(calls) == 2, (
+            f"Expected _keyring_status to be called once per get_config + "
+            f"once per get_defaults (2 total), got {len(calls)}"
+        )
+
+
+class TestSVC7DeleteModelUsesRegistryUnconditionally:
+    """SVC-7: ``delete_model`` resolves ``repo_id`` from
+    :data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)
+    — the inline ``elif model_name == "parakeet"`` / ``elif model_name ==
+    "qwen"`` branches are gone."""
+
+    def _make_service(self):
+        from voice_typer.server.service import VoiceTyperService
+
+        class FakeApp:
+            config = type(
+                "FakeConfig",
+                (),
+                {"asr_backend": "whisper", "model_size": "small.en"},
+            )()
+
+        return VoiceTyperService(FakeApp())
+
+    def test_parakeet_uses_registry_repo_id(self, tmp_config_dir, monkeypatch):
+        """``delete_model("parakeet")`` looks up the registry's
+        ``nvidia/parakeet-tdt-0.6b-v3`` repo_id (NOT a hardcoded branch)."""
+        from voice_typer.server.model_registry import get_model_metadata
+
+        service = self._make_service()
+        meta = get_model_metadata("parakeet")
+        assert meta is not None, "parakeet must be in MODEL_REGISTRY"
+        assert meta.repo_id == "nvidia/parakeet-tdt-0.6b-v3"
+
+        import voice_typer.server.config as cfg_mod
+
+        cache_dir = cfg_mod._config_dir() / "huggingface" / "hub"
+        model_dir_name = f"models--{meta.repo_id.replace('/', '--')}"
+        (cache_dir / model_dir_name).mkdir(parents=True)
+
+        result = service.delete_model("parakeet")
+        assert result["success"] is True, f"Expected success, got: {result}"
+        assert not (cache_dir / model_dir_name).exists()
+
+    def test_qwen_uses_registry_repo_id(self, tmp_config_dir):
+        """``delete_model("qwen")`` no longer returns "Unknown model"
+        — it derives ``Qwen/Qwen-Audio`` from the registry and either
+        deletes the matching cache dir or returns "not downloaded"
+        when the dir is absent."""
+        from voice_typer.server.model_registry import get_model_metadata
+
+        service = self._make_service()
+        meta = get_model_metadata("qwen")
+        assert meta is not None, "qwen must be in MODEL_REGISTRY"
+        assert meta.repo_id == "Qwen/Qwen-Audio"
+
+        result = service.delete_model("qwen")
+        assert result["success"] is False
+        assert "not downloaded" in result["message"], (
+            f"Expected 'not downloaded' message for absent qwen cache, got: {result}"
+        )
+
+    def test_unknown_model_still_errors(self, tmp_config_dir):
+        """A model name absent from the registry still surfaces the
+        existing "Unknown model" error (regression guard)."""
+        service = self._make_service()
+        result = service.delete_model("definitely-not-a-real-model")
+        assert result["success"] is False
+        assert "Unknown model" in result["message"]
+
+
+class TestSVC8RefreshMicrophonesForce:
+    """SVC-8: ``refresh_microphones(force=True)`` bypasses the 5 s TTL
+    cache so callers that *know* a hot-plug event happened can refresh
+    immediately."""
+
+    def _make_service(self, monkeypatch, mics_by_call):
+        from voice_typer.server.service import VoiceTyperService
+
+        class FakeApp:
+            def __init__(self):
+                self._microphones = []
+                self.tray = type(
+                    "FakeTray",
+                    (),
+                    {"set_microphones": staticmethod(lambda m: None)},
+                )()
+
+        service = VoiceTyperService(FakeApp())
+
+        def _fake_list_microphones():
+            return mics_by_call.pop(0)
+
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.list_microphones",
+            _fake_list_microphones,
+        )
+        return service
+
+    def test_default_call_uses_cache_within_ttl(self, tmp_config_dir, monkeypatch):
+        """Two calls within the 5 s window return the SAME list — the
+        second call is served from cache, so PortAudio is queried only
+        once."""
+        mics_v1 = [{"id": 0, "name": "Built-in"}]
+        mics_v2 = [{"id": 0, "name": "Built-in"}, {"id": 5, "name": "USB"}]
+        service = self._make_service(monkeypatch, [mics_v1, mics_v2])
+
+        first = service.refresh_microphones()
+        second = service.refresh_microphones()
+        assert first == mics_v1
+        assert second == mics_v1, "Second call within 5s should be served from cache (same list)"
+
+    def test_force_bypasses_cache(self, tmp_config_dir, monkeypatch):
+        """``refresh_microphones(force=True)`` ignores the cache and
+        re-queries PortAudio, picking up newly-plugged devices."""
+        mics_v1 = [{"id": 0, "name": "Built-in"}]
+        mics_v2 = [{"id": 0, "name": "Built-in"}, {"id": 5, "name": "USB"}]
+        service = self._make_service(monkeypatch, [mics_v1, mics_v2])
+
+        first = service.refresh_microphones()
+        assert first == mics_v1
+
+        cached = service.refresh_microphones()
+        assert cached == mics_v1
+
+        forced = service.refresh_microphones(force=True)
+        assert forced == mics_v2, "force=True must bypass the TTL cache and re-query PortAudio"
+
+
+class TestSVC9GetModelStatusCache:
+    """SVC-9 / PERF-10: ``get_model_status`` caches its result for 5 s
+    and is invalidated by ``delete_model`` + successful downloads."""
+
+    def _make_service(self):
+        from voice_typer.server.service import VoiceTyperService
+
+        class FakeApp:
+            config = type(
+                "FakeConfig",
+                (),
+                {"asr_backend": "whisper", "model_size": "tiny.en"},
+            )()
+
+        return VoiceTyperService(FakeApp())
+
+    def test_two_consecutive_calls_return_same_cached_object(self, tmp_config_dir, monkeypatch):
+        """Within the 5 s TTL window, the second call returns the SAME
+        dict object — proving the cache served it (not a fresh compute)."""
+        service = self._make_service()
+        monkeypatch.setattr("os.path.isdir", lambda p: False)
+        first = service.get_model_status()
+        second = service.get_model_status()
+        assert first is second, "Second call within TTL should return the cached dict object"
+
+    def test_invalidate_forces_recompute(self, tmp_config_dir, monkeypatch):
+        """``_invalidate_model_status_cache`` causes the next call to
+        re-compute (returns a different dict object)."""
+        service = self._make_service()
+        monkeypatch.setattr("os.path.isdir", lambda p: False)
+        first = service.get_model_status()
+        service._invalidate_model_status_cache()
+        second = service.get_model_status()
+        assert first is not second, "After invalidation, the cache should be re-populated with a fresh dict"
+
+    def test_delete_model_invalidates_cache(self, tmp_config_dir, monkeypatch):
+        """A successful ``delete_model`` drops the status cache so the
+        next ``get_model_status`` IPC call reflects the deletion."""
+        from voice_typer.server.model_registry import get_model_metadata
+
+        service = self._make_service()
+        monkeypatch.setattr("os.path.isdir", lambda p: False)
+        service.get_model_status()
+        assert service._model_status_cache is not None
+
+        import voice_typer.server.config as cfg_mod
+
+        cache_dir = cfg_mod._config_dir() / "huggingface" / "hub"
+        meta = get_model_metadata("parakeet")
+        assert meta is not None
+        model_dir_name = f"models--{meta.repo_id.replace('/', '--')}"
+        (cache_dir / model_dir_name).mkdir(parents=True)
+
+        result = service.delete_model("parakeet")
+        assert result["success"] is True
+
+        assert service._model_status_cache is None, "delete_model must invalidate the get_model_status cache (SVC-9)"
+
+    def test_cache_dir_exists_probed_once_per_compute(self, tmp_config_dir, monkeypatch):
+        """SVC-9 / PERF-10: ``cache_dir_exists = os.path.isdir(cache_dir)``
+        is hoisted above the loop. The cache_dir root is stat exactly
+        ONCE per ``_compute_model_status`` call, not once per model."""
+        service = self._make_service()
+
+        isdir_calls: list[str] = []
+
+        def _spy_isdir(p):
+            isdir_calls.append(str(p))
+            return False
+
+        monkeypatch.setattr("os.path.isdir", _spy_isdir)
+        service._compute_model_status()
+        cache_dir_root_probes = [c for c in isdir_calls if c.endswith(f"huggingface{os.sep}hub")]
+        assert len(cache_dir_root_probes) == 1, (
+            f"cache_dir root should be stat exactly once per compute_model_status "
+            f"call (hoisted above the loop). Got {len(cache_dir_root_probes)} probes: "
+            f"{cache_dir_root_probes}"
+        )
+
+
+class TestSVC10OnboardingUsesServiceChangeModel:
+    """SVC-10: ``onboarding_apply`` routes the model switch through
+    ``self.change_model`` (the ADR-0008-§3.1 service-layer wrapper)
+    instead of reaching into ``app.models.change_model`` directly."""
+
+    def test_calls_self_change_model_not_app_models_directly(self, tmp_config_dir, monkeypatch):
+        """When the user picks a non-default model in onboarding,
+        ``onboarding_apply`` invokes ``self.change_model`` (which goes
+        through ``app.change_model`` -> ``app.models.change_model``)."""
+        import voice_typer.server.event_bus as event_bus_mod
+
+        monkeypatch.setattr(event_bus_mod, "publish", lambda msg: True)
+
+        import contextlib
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.service import VoiceTyperService
+
+        app = MagicMock()
+        app.config.onboarding_completed = False
+        app.config.model_size = "small.en"
+        app.config.save = MagicMock(return_value=True)
+
+        @contextlib.contextmanager
+        def _fake_lock():
+            yield
+
+        app._config_mutation_lock = _fake_lock()
+
+        service = VoiceTyperService(app)
+
+        from voice_typer.server.onboarding import OnboardingController
+
+        ctrl = OnboardingController()
+        ctrl.set_hotkey("<f6>")
+        ctrl.set_model("tiny.en")
+        service._onboarding = ctrl
+
+        service.onboarding_apply()
+
+        (
+            app.change_model.assert_called_once_with("tiny.en"),
+            (
+                "onboarding_apply should route model switch through "
+                "self.change_model (SVC-10) which delegates to app.change_model"
+            ),
+        )
+
+
+class TestSVC11ApplyConfigPersistsOnSideEffectFailure:
+    """SVC-11: ``apply_config`` wraps side-effects in try/finally so
+    ``app.config.save()`` runs even when side effects raise."""
+
+    def _make_service_and_app(self):
+        import contextlib
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.service import VoiceTyperService
+
+        @contextlib.contextmanager
+        def _fake_lock():
+            yield
+
+        app = MagicMock()
+        app._config_mutation_lock = _fake_lock()
+        app.config = MagicMock()
+        app.config.save = MagicMock(return_value=True)
+        app.clipboard = MagicMock()
+        app.tray = MagicMock()
+
+        service = VoiceTyperService(app)
+        return service, app
+
+    def test_save_called_when_side_effects_succeed(self, tmp_config_dir, monkeypatch):
+        """Baseline: when side effects succeed, save() is called once."""
+        service, app = self._make_service_and_app()
+        import voice_typer.server.credential_store as cs
+
+        monkeypatch.setattr(cs, "CONFIG_FIELD_TO_PROVIDER", {})
+
+        service.apply_config({"hotkey": "<f4>"})
+        app.config.save.assert_called_once_with()
+
+    def test_save_called_when_side_effects_raise(self, tmp_config_dir, monkeypatch):
+        """SVC-11: when ``apply_config_side_effects`` raises, the
+        validated setattr updates are STILL persisted via save() (in
+        ``finally``). The original exception is re-raised so the IPC
+        layer can surface the error."""
+        import pytest
+
+        service, app = self._make_service_and_app()
+        import voice_typer.server.credential_store as cs
+
+        monkeypatch.setattr(cs, "CONFIG_FIELD_TO_PROVIDER", {})
+
+        def _boom(updates):
+            raise RuntimeError("side effect blew up")
+
+        monkeypatch.setattr(service, "apply_config_side_effects", _boom)
+
+        with pytest.raises(RuntimeError, match="side effect blew up"):
+            service.apply_config({"hotkey": "<f4>"})
+
+        (
+            app.config.save.assert_called_once_with(),
+            ("SVC-11: app.config.save() must run in finally even when apply_config_side_effects raises"),
+        )
+        assert app.config.hotkey == "<f4>"
+
+    def test_save_failure_surfaces_when_side_effects_succeeded(self, tmp_config_dir, monkeypatch):
+        """If save() itself raises (and side effects succeeded), the
+        save error is surfaced to the caller (not swallowed)."""
+        import pytest
+
+        service, app = self._make_service_and_app()
+        import voice_typer.server.credential_store as cs
+
+        monkeypatch.setattr(cs, "CONFIG_FIELD_TO_PROVIDER", {})
+
+        app.config.save.side_effect = OSError("disk full")
+
+        with pytest.raises(OSError, match="disk full"):
+            service.apply_config({"hotkey": "<f4>"})
+
+
+class TestSVC2ConfigSideEffectDispatcher:
+    """SVC-2: ``apply_config_side_effects`` is a thin dispatcher over
+    :data:`_CONFIG_SIDE_EFFECTS`. Behavior is preserved 1:1 (per-handler
+    try/except, same log messages, same call order)."""
+
+    def test_registry_is_non_empty_tuple_of_config_side_effect(self):
+        """``_CONFIG_SIDE_EFFECTS`` is a non-empty tuple of
+        :class:`ConfigSideEffect` instances."""
+        from voice_typer.server.service import _CONFIG_SIDE_EFFECTS, ConfigSideEffect
+
+        assert isinstance(_CONFIG_SIDE_EFFECTS, tuple)
+        assert len(_CONFIG_SIDE_EFFECTS) >= 10, (
+            f"Expected at least 10 registered side effects, got {len(_CONFIG_SIDE_EFFECTS)}"
+        )
+        for entry in _CONFIG_SIDE_EFFECTS:
+            assert isinstance(entry, ConfigSideEffect)
+            assert isinstance(entry.name, str) and entry.name
+            assert isinstance(entry.keys, tuple) and len(entry.keys) >= 1
+            assert callable(entry.apply)
+
+    def test_audio_preset_handler_registered_before_filter_chain(self):
+        """Ordering invariant: ``audio_preset`` MUST appear before
+        ``filter_chain`` in the registry (the preset handler mutates
+        ``config.noise_filter_enabled`` which the filter_chain handler
+        then reads)."""
+        from voice_typer.server.service import _CONFIG_SIDE_EFFECTS
+
+        names = [entry.name for entry in _CONFIG_SIDE_EFFECTS]
+        audio_preset_idx = names.index("audio_preset")
+        filter_chain_idx = names.index("filter_chain")
+        assert audio_preset_idx < filter_chain_idx, (
+            f"audio_preset (idx {audio_preset_idx}) must come before "
+            f"filter_chain (idx {filter_chain_idx}) — the preset handler "
+            f"mutates noise_filter_enabled which the filter_chain handler reads"
+        )
+
+    def test_dispatcher_invokes_handler_when_key_present(self, tmp_config_dir, monkeypatch):
+        """The dispatcher triggers a handler when ANY of its keys
+        appears in the validated updates dict."""
+        from voice_typer.server import service as svc_mod
+        from voice_typer.server.service import VoiceTyperService
+
+        class FakeApp:
+            config = type("FakeConfig", (), {})()
+            tray = type(
+                "FakeTray",
+                (),
+                {"set_notifications_enabled": staticmethod(lambda v: None)},
+            )()
+
+        service = VoiceTyperService(FakeApp())
+
+        called: list[bool] = []
+        original_registry = svc_mod._CONFIG_SIDE_EFFECTS
+
+        new_entries = []
+        for entry in original_registry:
+            if entry.name == "show_notifications":
+
+                def _spy(app, config, updates, _orig=entry.apply):
+                    called.append(updates["show_notifications"])
+                    _orig(app, config, updates)
+
+                new_entries.append(svc_mod.ConfigSideEffect(name=entry.name, keys=entry.keys, apply=_spy))
+            else:
+                new_entries.append(entry)
+        svc_mod._CONFIG_SIDE_EFFECTS = tuple(new_entries)
+        try:
+            service.apply_config_side_effects({"show_notifications": True})
+            assert called == [True], f"show_notifications handler should have been called once with True, got: {called}"
+        finally:
+            svc_mod._CONFIG_SIDE_EFFECTS = original_registry
+
+    def test_handler_exception_does_not_block_subsequent_handlers(self, tmp_config_dir, monkeypatch):
+        """When one handler raises, the dispatcher catches the exception
+        and continues to the next handler (per-handler isolation)."""
+        from voice_typer.server import service as svc_mod
+        from voice_typer.server.service import VoiceTyperService
+
+        class FakeApp:
+            config = type("FakeConfig", (), {})()
+
+        service = VoiceTyperService(FakeApp())
+
+        call_log: list[str] = []
+
+        def _raise(app, config, updates):
+            call_log.append("raising")
+            raise RuntimeError("boom")
+
+        def _ok(app, config, updates):
+            call_log.append("ok")
+
+        original_registry = svc_mod._CONFIG_SIDE_EFFECTS
+        svc_mod._CONFIG_SIDE_EFFECTS = (
+            svc_mod.ConfigSideEffect("raising", ("hotkey",), _raise),
+            svc_mod.ConfigSideEffect("ok", ("hotkey",), _ok),
+        )
+        try:
+            service.apply_config_side_effects({"hotkey": "<f4>"})
+            assert call_log == ["raising", "ok"], (
+                f"Both handlers should have run despite the first raising; got: {call_log}"
+            )
+        finally:
+            svc_mod._CONFIG_SIDE_EFFECTS = original_registry
+
+
+class TestPERF21DownloadPollScopedToModelDir:
+    """PERF-21: the download-progress polling loop walks ONLY the
+    in-progress model's directory, not the entire HF cache tree."""
+
+    def test_poll_walks_model_dir_not_cache_root(self, tmp_config_dir, monkeypatch):
+        """When polling for download progress, the loop calls
+        ``rglob`` on ``cache_dir / models--<repo_id>``, NOT on
+        ``cache_dir`` itself.
+
+        We verify by inspecting the source — running an actual
+        download is impractical in unit tests (snapshot_download +
+        threading). The source-level guard catches any future revert
+        that re-widens the rglob.
+        """
+        import inspect
+
+        from voice_typer.server.service import VoiceTyperService
+
+        src = inspect.getsource(VoiceTyperService.download_model)
+        assert "model_dir = cache_dir / f\"models--{repo_id.replace('/', '--')}\"" in src, (
+            "PERF-21: download_model must compute model_dir = "
+            "cache_dir / models--<repo_id> and walk THAT, not the whole cache"
+        )
+        assert 'model_dir.rglob("*")' in src, (
+            "PERF-21: progress polling must call model_dir.rglob('*'), not cache_dir.rglob('*')"
+        )
+        # Strip Python comments before checking so the PERF-21
+        # explanatory comment (which mentions cache_dir.rglob in plain
+        # English) doesn't trip the assertion. We only want to catch a
+        # regression where the actual CODE re-widens the rglob.
+        code_only_lines = []
+        for line in src.splitlines():
+            stripped = line.lstrip()
+            if stripped.startswith("#"):
+                continue
+            code_only_lines.append(line)
+        code_only = "\n".join(code_only_lines)
+        assert 'cache_dir.rglob("*")' not in code_only, (
+            "PERF-21 regression: download_model still calls "
+            "cache_dir.rglob('*') in actual code — this walks the ENTIRE "
+            "HF cache tree every 1 s and was the bug PERF-21 fixed."
+        )

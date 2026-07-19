@@ -7,12 +7,14 @@ import pytest
 @pytest.fixture
 def analyzer():
     from voice_typer.server.audio_quality import AudioQualityAnalyzer
+
     return AudioQualityAnalyzer()
 
 
 class TestAudioQualityReport:
     def test_report_defaults(self):
         from voice_typer.server.audio_quality import AudioQualityReport
+
         report = AudioQualityReport()
         assert report.clipping_detected is False
         assert report.low_volume_detected is False
@@ -21,28 +23,33 @@ class TestAudioQualityReport:
 
     def test_report_has_issues(self):
         from voice_typer.server.audio_quality import AudioQualityReport
+
         report = AudioQualityReport(clipping_detected=True)
         assert report.has_issues is True
 
     def test_report_summary_no_issues(self):
         from voice_typer.server.audio_quality import AudioQualityReport
+
         report = AudioQualityReport()
         assert "OK" in report.get_summary()
 
     def test_report_summary_with_clipping(self):
         from voice_typer.server.audio_quality import AudioQualityReport
+
         report = AudioQualityReport(clipping_detected=True, clipping_count=5, clipping_peak=0.99)
         summary = report.get_summary()
         assert "Clipping" in summary
 
     def test_report_summary_with_low_volume(self):
         from voice_typer.server.audio_quality import AudioQualityReport
+
         report = AudioQualityReport(low_volume_detected=True, low_volume_rms=0.002)
         summary = report.get_summary()
         assert "Low volume" in summary
 
     def test_report_summary_with_noise(self):
         from voice_typer.server.audio_quality import AudioQualityReport
+
         report = AudioQualityReport(high_noise_detected=True, noise_ratio=0.8)
         summary = report.get_summary()
         assert "noise" in summary.lower()
@@ -105,3 +112,115 @@ class TestAudioQualityAnalyzerProperties:
 
     def test_peak_property(self, analyzer):
         assert analyzer.peak == 0.0
+
+
+# ── AUDIO-8: per-chunk RMS EMA accumulator ────────────────────────────
+
+
+class TestAudioQualityAnalyzerRmsEma:
+    """AUDIO-8: AudioQualityAnalyzer must maintain a per-chunk RMS
+    exponential moving average so sustained low-input-level conditions
+    can be surfaced as a single warning. Previously the per-chunk RMS
+    value was dropped on the floor."""
+
+    def test_rms_ema_starts_at_zero(self, analyzer):
+        assert analyzer.rms_ema == 0.0
+
+    def test_update_live_rms_advances_ema(self, analyzer):
+        """AUDIO-8: update_live_rms applies the EMA formula
+        ``alpha*rms + (1-alpha)*prev`` with alpha=0.05."""
+        analyzer.update_live_rms(0.1)
+        # After 1 chunk: 0.05 * 0.1 + 0.95 * 0.0 = 0.005
+        assert analyzer.rms_ema == pytest.approx(0.005, rel=1e-6)
+
+        analyzer.update_live_rms(0.1)
+        # After 2 chunks: 0.05 * 0.1 + 0.95 * 0.005 = 0.00975
+        assert analyzer.rms_ema == pytest.approx(0.00975, rel=1e-6)
+
+    def test_update_live_rma_converges_to_input(self, analyzer):
+        """AUDIO-8: with constant input, EMA converges to that value."""
+        for _ in range(200):
+            analyzer.update_live_rms(0.05)
+        assert analyzer.rms_ema == pytest.approx(0.05, abs=1e-4)
+
+    def test_low_volume_warning_fires_after_sustained_chunks(self, analyzer):
+        """AUDIO-8: sustained low RMS for LOW_VOLUME_SUSTAINED_CHUNKS
+        consecutive chunks fires a single 'low input level — increase
+        mic gain' warning."""
+        analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 5  # speed up test
+        warnings = []
+        for _ in range(5):
+            w = analyzer.update_live_rms(0.001)
+            if w is not None:
+                warnings.append(w)
+        assert any("low input level" in w and "increase mic gain" in w for w in warnings), (
+            f"Expected low-volume warning after 5 sustained chunks, got: {warnings}"
+        )
+        assert analyzer.low_volume_warned is True
+
+    def test_low_volume_warning_latched_per_episode(self, analyzer):
+        """AUDIO-8: once the warning fires for an episode, subsequent
+        low-RMS chunks do NOT re-fire (latched)."""
+        analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 3
+        warnings = []
+        for _ in range(20):
+            w = analyzer.update_live_rms(0.001)
+            if w is not None:
+                warnings.append(w)
+        assert len(warnings) == 1, f"Expected 1 latched warning, got {len(warnings)}: {warnings}"
+
+    def test_low_volume_warning_resets_on_recovery(self, analyzer):
+        """AUDIO-8: when EMA recovers above LOW_VOLUME_THRESHOLD, the
+        latch resets and a future low-volume episode can fire again."""
+        analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 3
+        warnings_ep1 = []
+        for _ in range(3):
+            w = analyzer.update_live_rms(0.001)
+            if w is not None:
+                warnings_ep1.append(w)
+        assert len(warnings_ep1) == 1
+        assert analyzer.low_volume_warned is True
+
+        # Recovery: feed high RMS so EMA rises above threshold.
+        for _ in range(20):
+            analyzer.update_live_rms(0.5)
+        assert analyzer.low_volume_warned is False, "Recovery must unlatch the warning flag"
+        assert analyzer.low_volume_chunks == 0
+
+        # Second episode: need enough low-RMS chunks to bring EMA back
+        # below threshold (the recovery raised EMA to ~0.025, so we need
+        # ~35 chunks of 0.001 to bring it below 0.005, then 3 more to
+        # cross LOW_VOLUME_SUSTAINED_CHUNKS).
+        warnings_ep2 = []
+        for _ in range(50):
+            w = analyzer.update_live_rms(0.001)
+            if w is not None:
+                warnings_ep2.append(w)
+        assert len(warnings_ep2) == 1, f"After recovery, a new episode must fire again — got {warnings_ep2}"
+
+    def test_normal_rms_does_not_fire_warning(self, analyzer):
+        """AUDIO-8: normal RMS levels (above LOW_VOLUME_THRESHOLD) must
+        NOT fire the low-volume warning, even after many chunks."""
+        analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 5
+        warnings = []
+        for _ in range(100):
+            w = analyzer.update_live_rms(0.05)
+            if w is not None:
+                warnings.append(w)
+        assert warnings == [], f"Normal RMS must not fire low-volume warning, got: {warnings}"
+        assert analyzer.low_volume_warned is False
+
+    def test_reset_clears_rms_ema_state(self, analyzer):
+        """AUDIO-8: reset() must clear the EMA, low-volume counter,
+        and warning latch for a new recording session."""
+        analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 2
+        for _ in range(5):
+            analyzer.update_live_rms(0.001)
+        assert analyzer.low_volume_warned is True
+        assert analyzer.rms_ema > 0
+        assert analyzer.low_volume_chunks > 0
+
+        analyzer.reset()
+        assert analyzer.rms_ema == 0.0
+        assert analyzer.low_volume_chunks == 0
+        assert analyzer.low_volume_warned is False

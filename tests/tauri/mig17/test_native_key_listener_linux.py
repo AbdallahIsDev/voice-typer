@@ -241,9 +241,10 @@ class TestTauriBundleResources:
         ``bundle.linux.deb.postInstall`` field points at this script.
         """
         conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
-        post_install = conf.get("bundle", {}).get("linux", {}).get("deb", {}).get("postInstall")
+        deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
+        post_install = deb.get("postInstallScript") or deb.get("postInstall")
         assert post_install is not None, (
-            "tauri.conf.json bundle.linux.deb.postInstall must be set "
+            "tauri.conf.json bundle.linux.deb.postInstallScript must be set "
             "(the postinst script that sets up the input group + udev rule)"
         )
         assert "postinst" in post_install, (

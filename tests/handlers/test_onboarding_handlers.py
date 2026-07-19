@@ -225,3 +225,125 @@ class TestOnboardingListHandlers:
         fake_service.onboarding_get_microphones.side_effect = RuntimeError("portaudio")
         resp = ipc_server._handle_onboarding_get_microphones({}, {})
         assert resp["type"] == "error"
+
+
+# ── FIX-11: new onboarding IPC handlers (UX-32 / UX-4 / UX-27) ────────
+
+
+class TestOnboardingGetModelCatalogHandler:
+    """``_handle_onboarding_get_model_catalog`` — UX-32.
+
+    Returns the full ``model_registry`` catalog (rich metadata) so
+    the wizard's Model step can render every variant with VRAM /
+    language / speed / accuracy badges, instead of being limited to
+    the curated ``MODEL_OPTIONS`` subset.
+
+    Unlike most onboarding handlers, this does NOT delegate to
+    ``self.service`` — the catalog is pure static metadata shared
+    with the Models page's ``get_model_catalog`` IPC.
+    """
+
+    def test_happy_path_returns_onboarding_model_catalog(self, ipc_server, fake_service):
+        resp = ipc_server._handle_onboarding_get_model_catalog({}, {})
+        assert resp["type"] == "onboarding_model_catalog"
+        models = resp["data"]["models"]
+        assert isinstance(models, list)
+        assert len(models) > 0
+        # Catalog is a superset of MODEL_OPTIONS — must include the
+        # English-only Whisper variants plus multilingual, distilled,
+        # turbo, Parakeet.
+        names = {m["name"] for m in models}
+        assert "tiny.en" in names
+        assert "small.en" in names
+        assert "parakeet" in names
+
+    def test_response_includes_rich_metadata_fields(self, ipc_server, fake_service):
+        """UX-32 / UX-13: catalog entries must carry rich metadata
+        fields (download_size_mb, required_vram_mb, backend,
+        multilingual, supported_languages, repo_id, speed_rating,
+        accuracy_rating) so the renderer can render badges."""
+        resp = ipc_server._handle_onboarding_get_model_catalog({}, {})
+        models = resp["data"]["models"]
+        required_fields = {
+            "name",
+            "download_size_mb",
+            "required_vram_mb",
+            "backend",
+            "multilingual",
+            "supported_languages",
+            "repo_id",
+            "speed_rating",
+            "accuracy_rating",
+        }
+        for entry in models:
+            missing = required_fields - set(entry.keys())
+            assert not missing, f"catalog entry {entry.get('name')!r} missing: {missing}"
+
+    def test_does_not_call_service(self, ipc_server, fake_service):
+        """The handler must NOT delegate to ``self.service`` — the
+        catalog is pure static metadata from ``model_registry``."""
+        fake_service.onboarding_get_model_options.reset_mock()
+        fake_service.onboarding_get_model_catalog = None  # type: ignore[attr-defined]
+        ipc_server._handle_onboarding_get_model_catalog({}, {})
+        # Verify the service was never asked for model options.
+        fake_service.onboarding_get_model_options.assert_not_called()
+
+    def test_registry_failure_returns_error(self, ipc_server, fake_service, monkeypatch):
+        """If the catalog lookup raises, the handler returns an
+        ``error`` response (rather than propagating the exception)."""
+        # Force OnboardingController.get_model_catalog to raise.
+        from voice_typer.server import onboarding as onboarding_mod
+
+        def _boom():
+            raise RuntimeError("registry corrupted")
+
+        monkeypatch.setattr(onboarding_mod.OnboardingController, "get_model_catalog", _boom)
+        resp = ipc_server._handle_onboarding_get_model_catalog({}, {})
+        assert resp["type"] == "error"
+        assert "registry corrupted" in resp["data"]["message"]
+
+
+class TestOnboardingCheckPermissionsHandler:
+    """``_handle_onboarding_check_permissions`` — UX-4 / UX-27.
+
+    Returns the OS-level keyboard-monitoring permission state plus
+    platform-specific setup instructions. The wizard's new Permissions
+    step uses this to render a macOS Accessibility walkthrough or a
+    Linux input-group + udev-rule walkthrough.
+    """
+
+    def test_happy_path_returns_onboarding_permissions(self, ipc_server, fake_service):
+        resp = ipc_server._handle_onboarding_check_permissions({}, {})
+        assert resp["type"] == "onboarding_permissions"
+        data = resp["data"]
+        assert set(data.keys()) == {"platform", "state", "needed", "instructions"}
+        assert data["platform"] in {"windows", "macos", "linux", "unknown"}
+        assert data["state"] in {"granted", "denied", "unknown"}
+        assert isinstance(data["needed"], bool)
+
+    def test_does_not_call_service(self, ipc_server, fake_service):
+        """The handler must NOT delegate to ``self.service`` — the
+        permission probe lives in ``voice_typer.server.permissions``
+        and is shared with the hotkey-adapter runtime path."""
+        # If the handler tried to call self.service.onboarding_check_permissions,
+        # MagicMock would auto-create the attribute and return a MagicMock,
+        # which would not be a dict — the handler would still return a
+        # valid response, but the assertion below catches the case where
+        # the handler actually invokes a service method (MagicMock would
+        # record the call).
+        fake_service.onboarding_check_permissions = None  # type: ignore[attr-defined]
+        resp = ipc_server._handle_onboarding_check_permissions({}, {})
+        assert resp["type"] == "onboarding_permissions"
+
+    def test_check_permissions_failure_returns_error(self, ipc_server, fake_service, monkeypatch):
+        """If the permission probe raises, the handler returns an
+        ``error`` response."""
+        from voice_typer.server import onboarding as onboarding_mod
+
+        def _boom(self):
+            raise RuntimeError("probe failed")
+
+        monkeypatch.setattr(onboarding_mod.OnboardingController, "check_permissions", _boom)
+        resp = ipc_server._handle_onboarding_check_permissions({}, {})
+        assert resp["type"] == "error"
+        assert "probe failed" in resp["data"]["message"]

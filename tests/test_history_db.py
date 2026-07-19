@@ -629,3 +629,95 @@ class TestWriterThreadArchitecture:
         db.close()
         db.close()  # should not raise
         db.close()  # should not raise
+
+
+class TestQueueBounded:
+    """PERF-5: the write queue is bounded (maxsize=_WRITE_QUEUE_MAXSIZE)
+    and drop-oldest logic resolves dropped futures with HistoryDBError
+    so wait=True callers don't hang when the writer thread stalls.
+
+    Without this bound, a stalled writer (disk full, antivirus lock,
+    deadlocked external process) would cause the queue to grow
+    unboundedly and exhaust memory.
+    """
+
+    def test_write_queue_is_bounded(self, tmp_path):
+        """The write queue must have a maxsize of 10000 (the documented
+        _WRITE_QUEUE_MAXSIZE constant)."""
+        from voice_typer.server.history_db import (
+            _WRITE_QUEUE_MAXSIZE,
+            HistoryDB,
+        )
+
+        db = HistoryDB(tmp_path / "test.db")
+        try:
+            assert db._queue.maxsize == _WRITE_QUEUE_MAXSIZE
+            # Pin the constant to 10000 — if it changes, this test
+            # forces a deliberate review of the drop-oldest behavior.
+            assert _WRITE_QUEUE_MAXSIZE == 10000
+        finally:
+            db.close()
+
+    def test_dropped_oldest_write_resolves_future_with_error(self, tmp_path, monkeypatch):
+        """PERF-5: when the queue is full and a new write is submitted,
+        the OLDEST item is dropped. If the OLDEST item had a future
+        (wait=True), it is resolved with HistoryDBError so the caller
+        doesn't hang.
+
+        Strategy: replace ``_writer_loop`` with a stub that signals
+        ready then exits immediately — the writer thread dies, so the
+        queue is never drained (simulating a stalled writer). We then
+        fill the queue, submit one more write, and verify the OLDEST
+        future raises HistoryDBError.
+        """
+        import concurrent.futures
+        import queue as queue_mod
+
+        from voice_typer.server.history_db import HistoryDB, HistoryDBError
+
+        # Stall the writer: signals ready then exits. The writer thread
+        # dies, so the queue is never drained.
+        def _stalled_writer_loop(self):
+            self._writer_ready.set()
+            return  # writer exits immediately — queue never drains
+
+        monkeypatch.setattr(HistoryDB, "_writer_loop", _stalled_writer_loop)
+
+        db = HistoryDB(db_path=tmp_path / "stalled.db")
+        try:
+            # The writer thread should have exited (stalled).
+            assert not db._writer_thread.is_alive(), (
+                "Writer thread should have exited after _stalled_writer_loop returned"
+            )
+
+            # Manually enqueue the OLDEST write with a future. This
+            # simulates a wait=True write that is blocked on its future.
+            oldest_future = concurrent.futures.Future()
+            db._queue.put((lambda conn: "oldest", oldest_future))
+
+            # Fill the rest of the queue with fire-and-forget writes
+            # (future=None) until it's full.
+            maxsize = db._queue.maxsize
+            for _ in range(maxsize - 1):
+                db._queue.put_nowait((lambda conn: None, None))
+
+            assert db._queue.full(), "Queue should be full after filling"
+
+            # Submit one more write — this triggers drop-oldest. Use
+            # wait=False so the test doesn't block on a future.
+            db._submit_write(lambda conn: None, wait=False)
+
+            # The OLDEST future should now be resolved with HistoryDBError
+            # (rather than hanging forever as it would before PERF-5).
+            with pytest.raises(HistoryDBError, match="queue full"):
+                oldest_future.result(timeout=2.0)
+        finally:
+            # Drain the queue so close() doesn't block on the full
+            # bounded queue (close() uses put with a timeout, which
+            # would otherwise wait _WRITER_JOIN_TIMEOUT seconds).
+            while True:
+                try:
+                    db._queue.get_nowait()
+                except queue_mod.Empty:
+                    break
+            db.close()

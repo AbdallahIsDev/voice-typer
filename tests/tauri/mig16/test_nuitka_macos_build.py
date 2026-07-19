@@ -571,9 +571,15 @@ def test_prewarm_script_uses_macos_app_mode_background(prewarm_text: str):
 
 
 def test_prewarm_script_entry_point_is_prewarm_py(prewarm_text: str):
-    """The Nuitka entry point must be ``voice_typer/server/prewarm.py``."""
-    assert "voice_typer/server/prewarm.py" in prewarm_text, (
-        "build_prewarm_macos.sh entry point must be voice_typer/server/prewarm.py (ADR-0011 + ADR-0020 §5)."
+    """The Nuitka entry point must be ``voice_typer/server/prewarm/__main__.py``.
+
+    Originally the entry point was ``voice_typer/server/prewarm.py`` (a single
+    module). After the SPLIT-4 refactor (god-file split into a focused package),
+    the entry point is ``voice_typer/server/prewarm/__main__.py`` (the package's
+    ``__main__`` runner — equivalent to ``python -m voice_typer.server.prewarm``).
+    """
+    assert "voice_typer/server/prewarm/__main__.py" in prewarm_text, (
+        "build_prewarm_macos.sh entry point must be voice_typer/server/prewarm/__main__.py (ADR-0011 + ADR-0020 §5)."
     )
 
 

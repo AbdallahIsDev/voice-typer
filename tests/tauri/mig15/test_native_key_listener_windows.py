@@ -91,7 +91,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 COMPILE_NATIVE_PS1 = PROJECT_ROOT / "scripts" / "build" / "compile_native.ps1"
 WINDOWS_KEY_LISTENER_C = PROJECT_ROOT / "voice_typer" / "server" / "native" / "windows-key-listener.c"
-NATIVE_HOTKEYS_PY = PROJECT_ROOT / "voice_typer" / "server" / "native_hotkeys.py"
+# Phase 4.5 / ARCH-045 — ``native_hotkeys.py`` was split into a package at
+# ``voice_typer/server/native_hotkeys/`` with one submodule per concern
+# (base / mac_backend / windows_backend / linux_backend / factory / ...).
+# The ``__init__.py`` re-exports every public name.  Tests below that
+# source-inspect specific symbols now point at the submodule that actually
+# defines them (e.g. ``WindowsHookHotkey`` → ``windows_backend.py``).
+NATIVE_HOTKEYS_PKG = PROJECT_ROOT / "voice_typer" / "server" / "native_hotkeys"
+NATIVE_HOTKEYS_PY = NATIVE_HOTKEYS_PKG / "__init__.py"
+NATIVE_HOTKEYS_BASE_PY = NATIVE_HOTKEYS_PKG / "base.py"
+NATIVE_HOTKEYS_WINDOWS_PY = NATIVE_HOTKEYS_PKG / "windows_backend.py"
+NATIVE_HOTKEYS_MAC_PY = NATIVE_HOTKEYS_PKG / "mac_backend.py"
+NATIVE_HOTKEYS_LINUX_PY = NATIVE_HOTKEYS_PKG / "linux_backend.py"
 ADR_0020 = PROJECT_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 RUNBOOK = PROJECT_ROOT / "docs" / "migration" / "windows-validation-runbook.md"
 
@@ -422,7 +433,12 @@ class TestBinaryDiscovery:
         monkeypatch.delenv("VOICE_TYPER_NATIVE_DIR", raising=False)
 
         # The dev-mode path is <module_dir>/native/windows-key-listener.exe.
-        module_dir = NATIVE_HOTKEYS_PY.resolve().parent
+        # After the Phase 4.5 split, the package lives at
+        # ``voice_typer/server/native_hotkeys/``; production code in
+        # ``native_hotkeys/binary_path.py`` resolves the dev path via
+        # ``Path(__file__).resolve().parent.parent / "native"`` — i.e.
+        # the package's *parent* directory (``voice_typer/server/``).
+        module_dir = NATIVE_HOTKEYS_PKG.parent
         expected_dev_path = module_dir / "native" / "windows-key-listener.exe"
 
         real_is_file = Path.is_file
@@ -718,16 +734,23 @@ class TestSidecarOwnership:
         assert "server" in NATIVE_HOTKEYS_PY.parts
 
     def test_native_hotkeys_module_defines_subprocess_backend(self):
-        """``native_hotkeys.py`` defines ``SubprocessHotkeyBackend`` + ``WindowsHookHotkey``."""
-        src = NATIVE_HOTKEYS_PY.read_text(encoding="utf-8")
-        assert "class SubprocessHotkeyBackend" in src, (
-            "native_hotkeys.py must define SubprocessHotkeyBackend (the base class "
+        """``native_hotkeys`` defines ``SubprocessHotkeyBackend`` + ``WindowsHookHotkey``.
+
+        After the Phase 4.5 split, ``SubprocessHotkeyBackend`` lives in
+        ``native_hotkeys/base.py`` and ``WindowsHookHotkey`` lives in
+        ``native_hotkeys/windows_backend.py``.  ``subprocess.Popen`` is
+        invoked from ``base.py``'s ``_spawn_process``.
+        """
+        base_src = NATIVE_HOTKEYS_BASE_PY.read_text(encoding="utf-8")
+        win_src = NATIVE_HOTKEYS_WINDOWS_PY.read_text(encoding="utf-8")
+        assert "class SubprocessHotkeyBackend" in base_src, (
+            "native_hotkeys/base.py must define SubprocessHotkeyBackend (the base class "
             "that spawns the native binary via subprocess.Popen)"
         )
-        assert "class WindowsHookHotkey" in src, (
-            "native_hotkeys.py must define WindowsHookHotkey (the Windows subclass)"
+        assert "class WindowsHookHotkey" in win_src, (
+            "native_hotkeys/windows_backend.py must define WindowsHookHotkey (the Windows subclass)"
         )
-        assert "subprocess.Popen" in src, "native_hotkeys.py must use subprocess.Popen to spawn the binary"
+        assert "subprocess.Popen" in base_src, "native_hotkeys/base.py must use subprocess.Popen to spawn the binary"
 
     def test_adr_states_sidecar_owns_hotkey_subsystem(self):
         """ADR-0020 §6.4 explicitly states Tauri does not touch the hotkey subsystem."""

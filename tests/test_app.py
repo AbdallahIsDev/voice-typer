@@ -2482,3 +2482,473 @@ class TestSingleInstanceEnforcement:
             "_ensure_single_instance must be called BEFORE VoiceTyperApp() "
             "so a duplicate process exits before loading torch/etc."
         )
+
+
+# ── APP-N regression tests (FIX-8) ─────────────────────────────────────
+
+
+class TestAppRestartLogMessage:
+    """APP-2: ``restart_app`` previously logged
+    ``log.info("[RESTART] Restarting %s...")`` with no argument, so the
+    ``%s`` placeholder survived verbatim into the formatted log line
+    (showing as ``Restarting %s...``). The fix passes ``APP_NAME``.
+    """
+
+    def test_restart_log_format_string_has_argument(self):
+        """Source-level invariant: the ``log.info`` call for
+        ``"[RESTART] Restarting %s..."`` must pass ``APP_NAME`` as the
+        format argument so the placeholder is substituted."""
+        import inspect
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        src = inspect.getsource(VoiceTyperApp.restart_app)
+        restart_log_idx = src.find("Restarting %s...")
+        assert restart_log_idx != -1, 'APP-2: restart_app must contain log.info("[RESTART] Restarting %s...")'
+        line_end = src.find("\n", restart_log_idx)
+        line = src[restart_log_idx:line_end]
+        assert "APP_NAME" in line, (
+            'APP-2: log.info("[RESTART] Restarting %s...") must pass '
+            "APP_NAME as the format argument; got: " + repr(line)
+        )
+
+    def test_restart_log_does_not_leave_percent_s_in_output(self, app, monkeypatch, caplog):
+        """Runtime check: when restart_app runs, the formatted log line
+        must NOT contain a literal ``%s`` (which would indicate a
+        missing format argument)."""
+        import logging
+
+        _stub_restart_for_log_test(app, monkeypatch)
+
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.app"), contextlib.suppress(SystemExit):
+            app.restart_app()
+
+        restart_lines = [r.message for r in caplog.records if "Restarting" in r.message]
+        assert restart_lines, "APP-2: restart_app must emit a 'Restarting' log line at INFO level"
+        for line in restart_lines:
+            assert "%s" not in line, (
+                "APP-2: the formatted restart log line must not contain a "
+                "literal %s (missing format argument); got: " + repr(line)
+            )
+
+
+def _stub_restart_for_log_test(app, monkeypatch):
+    """Stub out restart_app side effects so it can run for log capture."""
+    monkeypatch.setattr(
+        "voice_typer.server.event_bus.publish",
+        lambda msg: None,
+    )
+    monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
+    monkeypatch.setattr(
+        "voice_typer.server.app.sys.exit",
+        lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
+    )
+    monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+    app.hotkeys._hotkey_backend = MagicMock()
+    app.hotkeys._esc_backend = MagicMock()
+    app.hotkeys._repaste_backend = MagicMock()
+    app._cancel_pending_timers = MagicMock()
+    app.tray = MagicMock()
+    app.recorder = MagicMock()
+    app.recorder.recording = False
+    app.recording._transcription_thread = None
+    app.recording.get_streaming_session = MagicMock(return_value=None)
+    app.recording.set_streaming_session = MagicMock()
+
+
+class TestAppUndoLastBatching:
+    """APP-6: ``undo_last`` must batch backspaces into chunks of ~10
+    with a 10ms sleep between chunks, so we don't flood the OS keyboard
+    event queue on long transcriptions (>200 chars). Without rate
+    limiting, pynput can drop keystrokes silently."""
+
+    def test_undo_last_sleeps_between_chunks(self, app, monkeypatch):
+        """For a transcription of 25 chars, undo_last must call
+        ``time.sleep(0.01)`` exactly twice (after chunk 1 of 10 and
+        after chunk 2 of 10; the last partial chunk of 5 doesn't
+        trigger a sleep because it's the final chunk).
+        """
+        app._last_transcription = "a" * 25
+        sleep_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.app.time.sleep",
+            lambda s: sleep_calls.append(s),
+        )
+
+        app.undo_last()
+
+        assert len(sleep_calls) == 2, (
+            "APP-6: undo_last must call time.sleep(0.01) once between "
+            "each chunk of 10 backspaces (and not after the last chunk). "
+            f"For 25 chars (3 chunks) expected 2 sleeps; got {len(sleep_calls)}."
+        )
+        for s in sleep_calls:
+            assert s == 0.01, f"APP-6: undo_last sleep between chunks must be 0.01s (10ms); got {s}"
+
+    def test_undo_last_no_sleep_for_short_text(self, app, monkeypatch):
+        """For text shorter than CHUNK_SIZE (10 chars), undo_last must
+        NOT sleep at all (single chunk, no inter-chunk pause needed)."""
+        app._last_transcription = "hello"  # 5 chars, 1 chunk
+        sleep_calls = []
+        monkeypatch.setattr(
+            "voice_typer.server.app.time.sleep",
+            lambda s: sleep_calls.append(s),
+        )
+
+        app.undo_last()
+
+        assert sleep_calls == [], (
+            "APP-6: undo_last must not sleep when the text fits in a "
+            f"single chunk (<=10 chars); got sleeps={sleep_calls}"
+        )
+
+    def test_undo_last_clears_last_transcription_after_undo(self, app, monkeypatch):
+        """Sanity: undo_last still clears ``_last_transcription`` after
+        sending backspaces (so a second undo is a no-op)."""
+        app._last_transcription = "hello world"
+        monkeypatch.setattr(
+            "voice_typer.server.app.time.sleep",
+            lambda s: None,
+        )
+
+        app.undo_last()
+
+        assert app._last_transcription == "", "undo_last must clear _last_transcription after sending backspaces"
+
+
+class TestAppUndoLastGraphemeCount:
+    """APP-7: ``undo_last`` must count grapheme clusters (NFC-normalized
+    code points) rather than raw UTF-16 code units. Combining-character
+    sequences like ``é`` written as ``U+0065 U+0301`` are TWO code units
+    but ONE user-perceived character — sending two backspaces would
+    leave the combining mark behind."""
+
+    def test_undo_counts_nfc_graphemes_not_code_units(self, app, monkeypatch):
+        """For a 5-grapheme NFC string that decomposes to 7 code points
+        under NFD, undo_last must send exactly 5 backspace pairs
+        (press+release), not 7."""
+        # 3 a-chars followed by 2 é (NFC) chars.
+        text = "aaa" + "é" * 2  # NFC: 5 code points
+        import unicodedata
+
+        assert len(unicodedata.normalize("NFC", text)) == 5
+        # Each é becomes 2 code points (e + combining acute) under NFD.
+        assert len(unicodedata.normalize("NFD", text)) == 7
+
+        app._last_transcription = text
+        monkeypatch.setattr(
+            "voice_typer.server.app.time.sleep",
+            lambda s: None,
+        )
+
+        press_calls = []
+        # pynput.keyboard is already a MagicMock from the autouse
+        # fixture. Replace its Controller attribute with a callable
+        # that returns a tracked mock.
+        import pynput.keyboard as pk  # type: ignore
+
+        kb_instance = MagicMock()
+
+        def fake_press(key):
+            press_calls.append(key)
+
+        kb_instance.press = fake_press
+        kb_instance.release = MagicMock()
+        pk.Controller = MagicMock(return_value=kb_instance)
+
+        app.undo_last()
+
+        assert len(press_calls) == 5, (
+            "APP-7: undo_last must send one backspace per NFC grapheme "
+            f"cluster, not per code unit. For 5-grapheme text got "
+            f"{len(press_calls)} presses; expected 5."
+        )
+
+    def test_undo_handles_empty_string_safely(self, app):
+        """When ``_last_transcription`` is empty, undo_last must notify
+        the user and return without sending any backspaces."""
+        app._last_transcription = ""
+        app.tray.notify = MagicMock()
+
+        app.undo_last()
+
+        app.tray.notify.assert_called_once()
+        notify_args = app.tray.notify.call_args
+        assert "Nothing to undo" in str(notify_args.args), (
+            f"undo_last must notify 'Nothing to undo' when there's no transcription to undo; got {notify_args}"
+        )
+
+
+class TestAppInitManagerFailureWarning:
+    """APP-8: ``__init__`` previously swallowed
+    ``TemplateManager``/``VocabularyManager`` init failures at
+    ``log.debug`` level, making them effectively invisible in
+    production logs (default level is INFO). The fix bumps to
+    ``log.warning`` with ``exc_info=True``."""
+
+    def test_template_manager_failure_logged_at_warning(self, monkeypatch, caplog, tmp_path):
+        """When TemplateManager construction raises, the exception must
+        be logged at WARNING level (not debug)."""
+        import logging
+
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+        import voice_typer.server.templates as templates_mod
+
+        original_tm = templates_mod.TemplateManager
+
+        class _FailingTemplateManager(original_tm):
+            def __init__(self, *a, **kw):
+                raise RuntimeError("template init exploded")
+
+        monkeypatch.setattr(templates_mod, "TemplateManager", _FailingTemplateManager)
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
+            app_instance = VoiceTyperApp()
+
+        try:
+            template_records = [
+                r
+                for r in caplog.records
+                if "TemplateManager eager-init failed" in r.message
+                or "TemplateManager eager-init failed" in str(r.getMessage())
+            ]
+            assert template_records, (
+                "APP-8: VoiceTyperApp.__init__ must log a warning when TemplateManager construction fails"
+            )
+            rec = template_records[0]
+            assert rec.levelno == logging.WARNING, (
+                f"APP-8: TemplateManager init failure must be logged at "
+                f"WARNING level (got {rec.levelname}); previously it was "
+                f"swallowed at debug level, making failures invisible."
+            )
+            assert rec.exc_info is not None, (
+                "APP-8: TemplateManager init failure log must include "
+                "exc_info=True so the stack trace is captured for diagnosis"
+            )
+            assert app_instance._template_manager is None, "APP-8: on failure, _template_manager must be reset to None"
+        finally:
+            templates_mod.TemplateManager = original_tm
+
+    def test_vocabulary_manager_failure_logged_at_warning(self, monkeypatch, caplog, tmp_path):
+        """When VocabularyManager construction raises, the exception
+        must be logged at WARNING level (not debug)."""
+        import logging
+
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+        import voice_typer.server.vocabulary as vocab_mod
+
+        original_vm = vocab_mod.VocabularyManager
+
+        class _FailingVocabularyManager(original_vm):
+            def __init__(self, *a, **kw):
+                raise RuntimeError("vocabulary init exploded")
+
+        monkeypatch.setattr(vocab_mod, "VocabularyManager", _FailingVocabularyManager)
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
+            app_instance = VoiceTyperApp()
+
+        try:
+            vocab_records = [
+                r
+                for r in caplog.records
+                if "VocabularyManager eager-init failed" in r.message
+                or "VocabularyManager eager-init failed" in str(r.getMessage())
+            ]
+            assert vocab_records, (
+                "APP-8: VoiceTyperApp.__init__ must log a warning when VocabularyManager construction fails"
+            )
+            rec = vocab_records[0]
+            assert rec.levelno == logging.WARNING, (
+                f"APP-8: VocabularyManager init failure must be logged at WARNING level (got {rec.levelname})"
+            )
+            assert rec.exc_info is not None, (
+                "APP-8: VocabularyManager init failure log must include exc_info=True so the stack trace is captured"
+            )
+            assert app_instance._vocabulary_manager is None, (
+                "APP-8: on failure, _vocabulary_manager must be reset to None"
+            )
+        finally:
+            vocab_mod.VocabularyManager = original_vm
+
+
+class TestAppExcepthookInstallGuard:
+    """APP-9: ``_crash_handler.install_python_excepthook()`` was called
+    unconditionally in ``__init__``. If the install path raised (e.g.
+    a missing Win32 API on an unsupported build), VoiceTyperApp
+    construction would fail entirely. The fix wraps the call in
+    try/except so the excepthook is a best-effort diagnostics aid."""
+
+    def test_excepthook_install_failure_does_not_break_init(self, monkeypatch, tmp_path):
+        """If install_python_excepthook raises, VoiceTyperApp must
+        still construct successfully (the excepthook is best-effort)."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+        from voice_typer.server import crash_handler
+
+        def _boom():
+            raise RuntimeError("excepthook install exploded")
+
+        monkeypatch.setattr(crash_handler, "install_python_excepthook", _boom)
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        app_instance = VoiceTyperApp()
+        assert app_instance is not None
+        assert app_instance._shutting_down is False
+
+    def test_excepthook_install_failure_logged_at_debug(self, monkeypatch, caplog, tmp_path):
+        """The excepthook-install failure must be logged at debug level
+        with exc_info=True so it's diagnosable but doesn't spam the
+        default-INFO production log."""
+        import logging
+
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+        from voice_typer.server import crash_handler
+
+        def _boom():
+            raise RuntimeError("excepthook install exploded")
+
+        monkeypatch.setattr(crash_handler, "install_python_excepthook", _boom)
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
+            VoiceTyperApp()
+
+        hook_records = [r for r in caplog.records if "excepthook install failed" in r.message]
+        assert hook_records, (
+            "APP-9: excepthook install failure must be logged at debug level so the failure is diagnosable"
+        )
+        rec = hook_records[0]
+        assert rec.levelno == logging.DEBUG, (
+            f"APP-9: excepthook install failure must be logged at DEBUG "
+            f"level (got {rec.levelname}); the excepthook is best-effort "
+            f"and shouldn't spam the production INFO log."
+        )
+        assert rec.exc_info is not None, "APP-9: excepthook install failure log must include exc_info=True"
+
+    def test_excepthook_install_source_has_try_except(self):
+        """Source-level invariant: __init__ must wrap the
+        ``install_python_excepthook()`` call in a try/except block."""
+        import inspect
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        src = inspect.getsource(VoiceTyperApp.__init__)
+        call_idx = src.find("_crash_handler.install_python_excepthook()")
+        assert call_idx != -1, "APP-9: __init__ must call _crash_handler.install_python_excepthook()"
+        before = src[:call_idx].rstrip()
+        after = src[call_idx:]
+        try_idx = before.rfind("try:")
+        assert try_idx != -1, (
+            "APP-9: __init__ must wrap install_python_excepthook() in a "
+            "try/except block so a failure doesn't abort construction"
+        )
+        line_end = after.find("\n")
+        rest = after[line_end + 1 :]
+        except_idx = rest.find("except")
+        assert except_idx != -1 and except_idx < 200, (
+            "APP-9: install_python_excepthook() call must be followed by an except clause within a few lines"
+        )
+
+
+class TestAppQuitAppAlwaysPushesEvent:
+    """APP-10: ``quit_app`` previously checked ``_shutting_down`` at the
+    TOP of the method, BEFORE pushing the ``quit_app`` event. On a
+    double-quit, the second call early-returned without pushing —
+    leaving Electron with no shutdown signal if the first push was lost
+    in a TCP race. The fix pushes unconditionally and only guards the
+    actual ``self.quit()`` call."""
+
+    def test_quit_app_pushes_event_even_when_already_shutting_down(self, app, monkeypatch):
+        """When _shutting_down is already True, quit_app must STILL
+        push the quit_app event to event_bus (so Electron is notified
+        even on a double-quit). Only self.quit() is skipped."""
+        pushed = []
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: pushed.append(msg),
+        )
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+        quit_calls = []
+        monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
+        app._shutting_down = True
+
+        app.quit_app()
+
+        assert pushed == [{"type": "quit_app"}], (
+            "APP-10: quit_app must push the quit_app event EVEN WHEN "
+            "_shutting_down is already True (so Electron is notified on "
+            "a double-quit). Got pushes: " + repr(pushed)
+        )
+        assert quit_calls == [], (
+            "APP-10: when _shutting_down is True, quit_app must skip "
+            "the duplicate self.quit() call (only the event push runs)"
+        )
+
+    def test_quit_app_calls_self_quit_when_not_shutting_down(self, app, monkeypatch):
+        """Sanity: when _shutting_down is False, quit_app must push
+        the event AND call self.quit()."""
+        pushed = []
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: pushed.append(msg),
+        )
+        quit_calls = []
+        monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
+        monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
+
+        assert app._shutting_down is False
+
+        app.quit_app()
+
+        assert pushed == [{"type": "quit_app"}]
+        assert quit_calls == [True], (
+            "APP-10: when _shutting_down is False, quit_app must still call self.quit() after pushing the event"
+        )
+
+    def test_quit_app_push_happens_before_shutting_down_check(self):
+        """Source-level invariant: the event_bus.publish call must
+        come BEFORE the _shutting_down early-return check in quit_app."""
+        import inspect
+
+        from voice_typer.server.app import VoiceTyperApp
+
+        src = inspect.getsource(VoiceTyperApp.quit_app)
+        publish_idx = src.find('event_bus.publish({"type": "quit_app"})')
+        assert publish_idx != -1, "APP-10: quit_app must call event_bus.publish with the quit_app event"
+        guard_idx = src.find("if self._shutting_down:", publish_idx)
+        assert guard_idx != -1, (
+            "APP-10: quit_app must have an 'if self._shutting_down:' "
+            "guard AFTER the event_bus.publish call (not before, which "
+            "was the pre-fix ordering that dropped quit_app events on "
+            "double-quit)"
+        )

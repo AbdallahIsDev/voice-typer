@@ -127,7 +127,16 @@ TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 COMPILE_NATIVE_SH = PROJECT_ROOT / "scripts" / "build" / "compile_native.sh"
 BUILD_NATIVE_LISTENER_MACOS_SH = PROJECT_ROOT / "scripts" / "build" / "build_native_listener_macos.sh"
 MACOS_KEY_LISTENER_SWIFT = PROJECT_ROOT / "voice_typer" / "server" / "native" / "macos-key-listener.swift"
-NATIVE_HOTKEYS_PY = PROJECT_ROOT / "voice_typer" / "server" / "native_hotkeys.py"
+# Phase 4.5 / ARCH-045 — ``native_hotkeys.py`` was split into a package at
+# ``voice_typer/server/native_hotkeys/`` with one submodule per concern
+# (base / mac_backend / windows_backend / linux_backend / factory / ...).
+# The ``__init__.py`` re-exports every public name.  Tests below that
+# source-inspect specific symbols now point at the submodule that actually
+# defines them (e.g. ``MacNativeHotkey`` → ``mac_backend.py``).
+NATIVE_HOTKEYS_PKG = PROJECT_ROOT / "voice_typer" / "server" / "native_hotkeys"
+NATIVE_HOTKEYS_PY = NATIVE_HOTKEYS_PKG / "__init__.py"
+NATIVE_HOTKEYS_BASE_PY = NATIVE_HOTKEYS_PKG / "base.py"
+NATIVE_HOTKEYS_MAC_PY = NATIVE_HOTKEYS_PKG / "mac_backend.py"
 ADR_0020 = PROJECT_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 RUNBOOK = PROJECT_ROOT / "docs" / "migration" / "macos-validation-runbook.md"
 
@@ -455,7 +464,12 @@ class TestBinaryDiscovery:
         monkeypatch.delenv("VOICE_TYPER_NATIVE_DIR", raising=False)
 
         # The dev-mode path is <module_dir>/native/macos-key-listener.
-        module_dir = NATIVE_HOTKEYS_PY.resolve().parent
+        # After the Phase 4.5 split, the package lives at
+        # ``voice_typer/server/native_hotkeys/``; production code in
+        # ``native_hotkeys/binary_path.py`` resolves the dev path via
+        # ``Path(__file__).resolve().parent.parent / "native"`` — i.e.
+        # the package's *parent* directory (``voice_typer/server/``).
+        module_dir = NATIVE_HOTKEYS_PKG.parent
         expected_dev_path = module_dir / "native" / "macos-key-listener"
 
         real_is_file = Path.is_file
@@ -956,14 +970,23 @@ class TestSidecarOwnership:
         assert "server" in NATIVE_HOTKEYS_PY.parts
 
     def test_native_hotkeys_module_defines_macos_backend(self):
-        """``native_hotkeys.py`` defines ``SubprocessHotkeyBackend`` + ``MacNativeHotkey``."""
-        src = NATIVE_HOTKEYS_PY.read_text(encoding="utf-8")
-        assert "class SubprocessHotkeyBackend" in src, (
-            "native_hotkeys.py must define SubprocessHotkeyBackend (the base class "
+        """``native_hotkeys`` defines ``SubprocessHotkeyBackend`` + ``MacNativeHotkey``.
+
+        After the Phase 4.5 split, ``SubprocessHotkeyBackend`` lives in
+        ``native_hotkeys/base.py`` and ``MacNativeHotkey`` lives in
+        ``native_hotkeys/mac_backend.py``.  ``subprocess.Popen`` is
+        invoked from ``base.py``'s ``_spawn_process``.
+        """
+        base_src = NATIVE_HOTKEYS_BASE_PY.read_text(encoding="utf-8")
+        mac_src = NATIVE_HOTKEYS_MAC_PY.read_text(encoding="utf-8")
+        assert "class SubprocessHotkeyBackend" in base_src, (
+            "native_hotkeys/base.py must define SubprocessHotkeyBackend (the base class "
             "that spawns the native binary via subprocess.Popen)"
         )
-        assert "class MacNativeHotkey" in src, "native_hotkeys.py must define MacNativeHotkey (the macOS subclass)"
-        assert "subprocess.Popen" in src, "native_hotkeys.py must use subprocess.Popen to spawn the binary"
+        assert "class MacNativeHotkey" in mac_src, (
+            "native_hotkeys/mac_backend.py must define MacNativeHotkey (the macOS subclass)"
+        )
+        assert "subprocess.Popen" in base_src, "native_hotkeys/base.py must use subprocess.Popen to spawn the binary"
 
     def test_adr_states_sidecar_owns_hotkey_subsystem(self):
         """ADR-0020 §6.4 explicitly states Tauri does not touch the hotkey subsystem."""

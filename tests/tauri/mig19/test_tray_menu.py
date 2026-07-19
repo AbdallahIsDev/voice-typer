@@ -22,29 +22,30 @@ into the **core** ``tauri`` crate (enabled by the ``tray-icon``
 feature) — it is NOT a separate ``tauri-plugin-tray`` crate. The
 project's ``src-tauri/Cargo.toml`` documents this choice.
 
-Implementation decision (deliberate deviation from ADR §6.5):
+Implementation decision (MIG-1.9 Phase 3 — host-side tray rendering):
 The capability file ``src-tauri/capabilities/migrate-runtime.json``
 records the actual decision taken for the v1 migration:
 
-    "Tray: the Python sidecar owns the tray via pystray (no
-    Tauri-mode branch needed; the sidecar inherits the desktop
-    session from externalBin spawn), so no core:tray:* permissions
-    are granted to the Rust host."
+    "core:tray:* — the Rust host OWNS the system tray (tauri-plugin-tray
+    / core tray-icon feature, ADR-0020 §6.5). The Python sidecar
+    computes the menu structure and emits a `tray_menu` event; the Rust
+    host renders it and routes clicks back via `dispatch({cmd:
+    'tray_click', data:{id}})` (pystray is the Electron-fallback path
+    only and is never used under Tauri)."
 
-In other words: rather than porting the *icon* to the Rust host and
-piping the menu over IPC (the ADR's original plan), the v1
-implementation keeps the **entire tray** (icon + menu + locale
-logic + dynamic items) in the Python sidecar via ``pystray``. The
-Rust host has zero tray code. This is sound because the sidecar is
-spawned by Tauri via ``externalBin`` and inherits the user's
-graphical session, so ``pystray`` can attach to the same Win32 /
-AppKit / GTK status-notifier area the host would have used.
+In other words: the Rust host renders the tray icon + menu via Tauri's
+built-in tray API (enabled by the ``tray-icon`` cargo feature). The
+Python sidecar still owns the menu *logic* (it computes the items,
+locale, and dynamic submenus and emits them as a ``tray_menu`` event),
+but the *rendering* + click-dispatch lives in the Rust host
+(``src-tauri/src/tray.rs``). This is the design the ADR-0020 §6.5
+anticipated and MIG-1.9 Phase 3 implemented — so the previously-planned
+"pystray owns the tray" fallback is only used on the Electron runtime.
 
-This test file therefore validates the **contract that matters to
-the user**: the menu structure, locale, and dynamic items are
-preserved 1:1 by the sidecar that renders them. The Rust-host tray
-hooks (which the ADR anticipated) are documented as a gap and
-deferred to a future host-side rendering iteration.
+This test file therefore validates BOTH halves of the contract: the
+menu structure/locale/dynamic items are preserved 1:1 by the sidecar
+that computes them, AND the Rust host correctly renders the
+``tray_menu`` event + routes ``tray_click`` back to the sidecar.
 
 Scope (ADR-0020 §6.5 + MIG-1.9 task brief):
 
@@ -151,31 +152,26 @@ VALIDATE ON HOST (macOS — after building the Tauri app):
     6. Quit via "Quit" — verify ``pgrep -f python-sidecar`` returns
        empty and the menu-bar icon disappears.
 
-Gaps documented (report, do NOT fix — out of scope for this gate check):
-  - GAP-1 (Rust host tray hooks not implemented): ADR-0020 §6.5
-    anticipated the Rust host rendering the tray icon via Tauri's
-    built-in tray API, with the menu piped from the sidecar over IPC
-    via a ``tray_menu`` event + a ``tray_click`` dispatch command.
-    The v1 implementation skips this: the Python sidecar owns the
-    entire tray via ``pystray``, and the Rust host has zero tray
-    code (``main.rs`` registers no tray builder, no
-    ``tray::TrayIconBuilder``, no ``tray_menu`` event handler).
-    Rationale: the sidecar inherits the desktop session from
-    ``externalBin`` spawn, so ``pystray`` can attach to the same
-    Win32 / AppKit / GTK status-notifier area the host would have
-    used — and the existing ``tray.py`` / ``tray_menu.py`` logic
-    stays unchanged (no IPC round-trip needed for menu rendering).
-    This is documented in
-    ``src-tauri/capabilities/migrate-runtime.json``'s description
-    field. See ``test_main_rs_no_direct_tray_setup`` and
-    ``test_capability_file_documents_tray_ownership_strategy``.
-  - GAP-2 (``tray-icon`` cargo feature not enabled): the
-    ``tauri`` crate's ``tray-icon`` feature is NOT enabled in
-    ``Cargo.toml`` (only ``devtools`` is). The Cargo.toml comment
-    *describes* the feature but the project doesn't turn it on
-    because there is no host-side tray code to use it. Enabling it
-    would compile the ``tray-icon`` crate for nothing. See
-    ``test_cargo_toml_tray_icon_feature_not_yet_enabled``.
+Gaps / decisions documented (report, do NOT fix — out of scope for this
+gate check):
+  - GAP-1 (RESOLVED in MIG-1.9 Phase 3 — Rust host owns the tray):
+    ADR-0020 §6.5 anticipated the Rust host rendering the tray icon via
+    Tauri's built-in tray API, with the menu piped from the sidecar over
+    IPC via a ``tray_menu`` event + a ``tray_click`` dispatch command.
+    MIG-1.9 Phase 3 IMPLEMENTED this: the Rust host (``src-tauri/src/
+    tray.rs``) renders the tray via the ``tray-icon`` cargo feature,
+    listens for the sidecar's ``tray_menu`` event, and routes clicks
+    back via ``dispatch({cmd:'tray_click', data:{id}})``. The Python
+    sidecar still owns the menu *logic* (it emits ``tray_menu``); pystray
+    is the Electron-fallback path only. This is documented in
+    ``src-tauri/capabilities/migrate-runtime.json``'s description field.
+    See ``test_main_rs_sets_up_rust_host_tray``,
+    ``test_tray_rs_routes_clicks_via_tray_click_dispatch``, and
+    ``test_capability_file_grants_core_tray_permissions``.
+  - GAP-2 (RESOLVED — ``tray-icon`` cargo feature enabled): the
+    ``tray-icon`` feature IS enabled on the ``tauri`` crate in
+    ``Cargo.toml`` (``features = ["tray-icon"]``) because the Rust host
+    now renders the tray. See ``test_cargo_toml_tray_icon_feature_is_enabled``.
   - GAP-3 (microphone list cache removed): the tray's
     ``set_microphones`` API is a no-op (NEW-CQ-008 removed the
     write-only cache). The IPC wiring is preserved for parity, but
@@ -301,7 +297,17 @@ def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None
         6. quit
     """
     # Locate each localize() call's key argument in source order.
-    key_occurrences = [m.group(1) for m in re.finditer(r'localize\(\s*["\']([a-z_]+)["\']', tray_menu_py_source)]
+    # Scope the scan to the build_menu() function body so the Tauri-side
+    # build_tray_menu_model() (which legitimately reuses the same
+    # localize() keys) does not pollute the pystray renderer's ordering
+    # check (ADR-0020 §6.5: build_menu is the renderer of record).
+    _src = tray_menu_py_source
+    _start = _src.find("def build_menu(")
+    _end = _src.find("\ndef ", _start + 1)
+    if _end == -1:
+        _end = len(_src)
+    build_menu_source = _src[_start:_end]
+    key_occurrences = [m.group(1) for m in re.finditer(r'localize\(\s*["\']([a-z_]+)["\']', build_menu_source)]
     # The 6 mandated keys must ALL be present.
     required_keys = [
         "open_app",
@@ -320,7 +326,13 @@ def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None
     # The keys must appear in the mandated order. We compare the
     # subsequence of key_occurrences filtered to required_keys.
     seen_order = [k for k in key_occurrences if k in required_keys]
-    assert seen_order == required_keys, (
+    # Collapse consecutive duplicate keys (e.g. the "models" label is
+    # emitted twice under Tauri — once as the pystray MenuItem and once
+    # as the Tauri-model spec {"id":"models","label":localize("models")}
+    # — both are the SAME logical menu item, so a consecutive repeat
+    # must not break the ordering check).
+    collapsed = [k for i, k in enumerate(seen_order) if i == 0 or k != seen_order[i - 1]]
+    assert collapsed == required_keys, (
         f"tray_menu.py menu keys out of order: expected {required_keys}, "
         f"got {seen_order} (the 6 items must appear in the ADR-mandated "
         f"order: Open App → Toggle Dictation → Cancel → Models → Restart → Quit)"
@@ -915,21 +927,24 @@ def test_cargo_toml_tray_icon_feature_documentation(
     )
 
 
-def test_cargo_toml_tray_icon_feature_not_yet_enabled(
+def test_cargo_toml_tray_icon_feature_is_enabled(
     cargo_toml_source,
 ) -> None:
-    """GAP-2: ``tray-icon`` feature is NOT yet enabled on the ``tauri`` crate.
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3: the ``tray-icon`` feature IS enabled
+    on the ``tauri`` crate.
 
-    The Cargo.toml declares ``tauri = { version = "2", features = ["devtools"] }``
-    — the ``tray-icon`` feature is documented in a comment but not
-    turned on, because the Rust host has no tray code (the Python
-    sidecar owns the tray via pystray — see GAP-1). Enabling the
-    feature would compile the ``tray-icon`` crate for nothing.
+    The Rust host now owns the system tray (it renders the menu piped
+    from the sidecar's ``tray_menu`` event via the Tauri tray API). The
+    ``tray-icon`` cargo feature on the ``tauri`` crate is the gate that
+    enables ``TrayIconBuilder`` / ``tauri::menu`` — so it MUST be present
+    in the ``tauri`` dependency's feature list.
 
-    This test documents the gap so a future host-side tray rendering
-    iteration knows to flip the feature on.
+    The Python sidecar still computes the menu structure under Tauri
+    (the Electron fallback uses pystray); under Tauri the sidecar emits
+    a ``tray_menu`` event and the Rust host renders it (see
+    ``src-tauri/src/tray.rs``).
     """
-    # The tauri dep line must NOT include "tray-icon" in its features list.
+    # The tauri dep line MUST include "tray-icon" in its features list.
     tauri_dep_match = re.search(
         r"^tauri\s*=\s*\{[^}]*features\s*=\s*\[([^\]]*)\][^}]*\}",
         cargo_toml_source,
@@ -939,96 +954,143 @@ def test_cargo_toml_tray_icon_feature_not_yet_enabled(
         "Cargo.toml must declare the 'tauri' dependency — couldn't find the tauri = { ... features = [...] } line."
     )
     features_list = tauri_dep_match.group(1)
-    assert "tray-icon" not in features_list, (
-        "GAP-2: the 'tray-icon' cargo feature is NOT yet enabled on "
-        "the 'tauri' crate (the Rust host has no tray code — the "
-        "Python sidecar owns the tray). When the host starts "
-        "rendering the tray directly, flip this feature on by adding "
-        "'tray-icon' to the features list."
+    assert "tray-icon" in features_list, (
+        "The 'tray-icon' cargo feature MUST be enabled on the 'tauri' "
+        "crate — the Rust host renders the system tray via Tauri's "
+        "built-in tray API (ADR-0020 §6.5 + MIG-1.9 Phase 3). Without "
+        "it TrayIconBuilder / tauri::menu are unavailable."
     )
 
 
-# ─── Section F: Rust host tray status — Python sidecar owns it ──────────────
+# ─── Section F: Rust host owns the tray (ADR-0020 §6.5 + MIG-1.9 Phase 3) ────
 
 
-def test_main_rs_no_direct_tray_setup(main_rs_source) -> None:
-    """GAP-1: ``main.rs`` does NOT directly configure the tray.
+def test_main_rs_sets_up_rust_host_tray(main_rs_source) -> None:
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3: the Rust host OWNS the tray.
 
-    Per ADR-0020 §6.5, the Rust host was supposed to render the tray
-    icon via Tauri's built-in tray API (with the menu piped from the
-    sidecar). The v1 implementation skips this: the Python sidecar
-    owns the entire tray via pystray, and ``main.rs`` has zero tray
-    code. This is documented in the capability file's description
-    (see ``test_capability_file_documents_tray_ownership_strategy``).
+    ``main.rs`` wires the tray via ``crate::tray::create_tray`` in its
+    ``.setup`` hook. The sidecar computes the menu structure and emits a
+    ``tray_menu`` event; the Rust host (in ``src-tauri/src/tray.rs``)
+    renders it via Tauri's built-in tray API and routes clicks back via
+    ``dispatch({cmd:'tray_click', data:{id}})``. This is the opposite of
+    the original v1 GAP-1 plan (where the Python sidecar owned the tray
+    via pystray) — the host now renders it directly.
 
-    This test confirms the gap is real (``main.rs`` has no
-    ``TrayIconBuilder``, no ``tray_menu`` event handler, no
-    ``tray_click`` dispatch) so future host-side rendering work has
-    a clear baseline.
+    This test confirms the ``main.rs`` wiring is present (``create_tray``
+    call + the ``tray_menu`` reference) so future refactors can't
+    silently drop it.
     """
-    # No tray builder, no tray event handler, no tray-click dispatch.
-    forbidden_tokens = [
-        "TrayIconBuilder",
-        "tray_menu",
-        "tray_click",
-        "tray::TrayIconBuilder",
-        "tauri::tray::",
-        ".tray(",
-    ]
-    for token in forbidden_tokens:
-        assert token not in main_rs_source, (
-            f"GAP-1 (informational): main.rs contains {token!r} — the "
-            f"v1 implementation expected NO tray code in main.rs (the "
-            f"Python sidecar owns the tray via pystray; see capability "
-            f"file's description). If you're adding host-side tray "
-            f"rendering, update this test + the capability file."
-        )
+    # The .setup hook must call create_tray.
+    assert "create_tray" in main_rs_source, (
+        "main.rs must call crate::tray::create_tray(...) in its .setup "
+        "hook — the Rust host owns the system tray (ADR-0020 §6.5 + "
+        "MIG-1.9 Phase 3). If host-side tray rendering is removed, "
+        "update this test + the capability file."
+    )
+    # The tray wiring uses the sidecar-driven menu event.
+    assert "tray_menu" in main_rs_source, (
+        "main.rs must reference the sidecar's `tray_menu` event (the "
+        "Rust host renders the menu piped from the sidecar)."
+    )
+
+
+def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3: ``src-tauri/src/tray.rs`` renders
+    the sidecar's ``tray_menu`` event and routes item clicks back to the
+    sidecar via ``dispatch({cmd:'tray_click', data:{id}})``.
+
+    The click routing is the host-side half of the tray contract: the
+    Python sidecar owns the menu *logic* (it computes the items + emits
+    ``tray_menu``), the Rust host owns the *rendering* + click dispatch
+    (it listens for ``tray_menu`` and emits a ``tray_click`` dispatch on
+    click). This test locks that wiring so a refactor can't silently
+    drop the click path.
+    """
+    tray_rs = PROJECT_ROOT / "src-tauri" / "src" / "tray.rs"
+    assert tray_rs.exists(), f"tray.rs not found: {tray_rs}"
+    src = tray_rs.read_text(encoding="utf-8")
+    # The tray module must listen for the sidecar's tray_menu event.
+    assert 'app.listen("tray_menu"' in src, (
+        "tray.rs must listen for the sidecar's `tray_menu` event to rebuild the native menu on demand."
+    )
+    # On click, it must dispatch a tray_click command with the item id.
+    assert '"tray_click"' in src, (
+        "tray.rs must dispatch `tray_click` (with the menu item id) when "
+        "a tray menu item is clicked — this routes the click back to the "
+        "Python sidecar (ADR-0020 §6.5 + MIG-1.9 Phase 3)."
+    )
+    # The dispatch must forward through the generic dispatch path.
+    assert 'app.emit("dispatch"' in src or 'emit("dispatch"' in src, (
+        "tray.rs must forward the tray_click through the generic "
+        "`dispatch` event so the existing Python sidecar handler "
+        "receives it."
+    )
 
 
 def test_main_rs_tray_ownership_documented_in_capability(
     capability_json,
 ) -> None:
-    """GAP-1: capability file documents the Python-sidecar-owns-tray decision.
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3: capability file documents the
+    Rust-host-owns-tray decision.
 
     The ``migrate-runtime.json`` capability's ``description`` field
-    records the deliberate decision that the Python sidecar owns
-    the tray (no ``core:tray:*`` permissions granted to the Rust
-    host). This is the contract that justifies the gap from ADR-0020
-    §6.5.
+    records that the Rust host OWNS the system tray (via the core
+    ``tray-icon`` feature) and that the sidecar computes the menu
+    structure and emits a ``tray_menu`` event (pystray is the
+    Electron-fallback path only). This justifies the ``core:tray:*``
+    permissions granted to the Rust host.
     """
     description = capability_json.get("description", "")
-    assert "Python sidecar owns the tray" in description, (
-        "capability file's description must document that 'the Python "
-        "sidecar owns the tray' — this is the rationale for not "
+    assert "Rust host OWNS the system tray" in description, (
+        "capability file's description must document that 'the Rust "
+        "host OWNS the system tray' — this is the rationale for "
         "granting core:tray:* permissions to the Rust host."
     )
-    assert "pystray" in description, (
-        "capability file's description must mention pystray — the "
-        "Python library the sidecar uses to render the tray icon + menu."
+    assert "tray_menu" in description, (
+        "capability file's description must mention the `tray_menu` "
+        "event — the sidecar computes the menu structure and emits it "
+        "for the Rust host to render."
     )
-    assert "no core:tray:* permissions are granted" in description, (
-        "capability file's description must explicitly state that no "
-        "core:tray:* permissions are granted to the Rust host — this "
-        "is the least-privilege contract."
+    assert "tray_click" in description, (
+        "capability file's description must mention `tray_click` — the "
+        "Rust host routes tray menu clicks back to the sidecar via this "
+        "command."
     )
 
 
-def test_capability_file_no_core_tray_permissions_granted(
+def test_capability_file_grants_core_tray_permissions(
     capability_json,
 ) -> None:
-    """GAP-1: no ``core:tray:*`` permissions are granted to the Rust host.
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3: ``core:tray:*`` permissions ARE
+    granted to the Rust host.
 
-    Since the Python sidecar owns the tray (via pystray), the Rust
-    host doesn't need any tray permissions. The capability file's
-    ``permissions`` list must NOT contain any ``core:tray:*`` entry.
+    The Rust host OWNS the system tray (renders the menu piped from the
+    sidecar's ``tray_menu`` event via Tauri's built-in tray API). It
+    therefore needs the full ``core:tray:*`` permission set
+    (``core:tray:default`` + the ``allow-*`` permissions for
+    set-icon / set-menu / set-tooltip / set-title / get-by-id /
+    remove-by-id / new). The capability file's ``permissions`` list
+    MUST contain these entries.
     """
     permissions = capability_json.get("permissions", [])
     tray_perms = [p for p in permissions if "tray" in p.lower()]
-    assert tray_perms == [], (
-        f"capability file must NOT grant any core:tray:* permissions "
-        f"to the Rust host (the Python sidecar owns the tray via "
-        f"pystray). Found tray permissions: {tray_perms}"
+    assert tray_perms, (
+        "capability file MUST grant core:tray:* permissions to the "
+        "Rust host (the Rust host owns the system tray under Tauri). "
+        "Found no tray permissions."
     )
+    # The essential tray permissions must all be present.
+    required_tray_perms = [
+        "core:tray:default",
+        "core:tray:allow-set-icon",
+        "core:tray:allow-set-menu",
+        "core:tray:allow-new",
+    ]
+    for perm in required_tray_perms:
+        assert perm in permissions, (
+            f"capability file must grant {perm} — the Rust host needs "
+            f"it to build + render the system tray (ADR-0020 §6.5)."
+        )
 
 
 def test_main_rs_plugins_do_not_include_tray(main_rs_source) -> None:

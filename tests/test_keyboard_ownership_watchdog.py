@@ -143,33 +143,52 @@ def test_disconnect_handler_safe_when_already_normal() -> None:
 # ── Integration test: real TCP socketpair through _handle_tcp_connection ──
 
 
-def test_tcp_disconnect_finally_block_resets_ownership() -> None:
+def test_tcp_disconnect_finally_block_resets_ownership(monkeypatch) -> None:
     """End-to-end: closing the TCP client triggers the reset.
 
     This exercises the actual ``_handle_tcp_connection`` finally
     block — the wiring that production relies on. We use a real
     ``socket.socketpair`` so the server's read loop sees a genuine
     EOF when the client side is closed.
+
+    SEC-2 / IPC-10 (2026-07-18): the handler now refuses connections
+    when ``expected_token`` is empty (SEC-2 hardening) and reads the
+    token from the ``VOICE_TYPER_IPC_TOKEN`` env var when the
+    ``expected_token`` parameter is ``None`` (IPC-10 fix).  The test
+    sets the env var and sends a valid auth line before closing so
+    the handler enters the dispatch loop and reaches the finally
+    block that calls ``_on_ipc_client_disconnect``.
     """
+    _test_token = "watchdog-test-token-ipc10"
+    monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _test_token)
+
     kb = keyboard_ownership()
     kb.set_owner("hotkey_capture", reason="frontend capture before crash")
     assert kb.current_owner() == "hotkey_capture"
 
     server = _make_server()
-    # No auth token configured — bypass the auth handshake by
-    # patching the env var lookup path. Easiest: clear the env
-    # var and set _tcp_client directly to skip _accept_tcp.
-    # We'll call _handle_tcp_connection with expected_token="".
     client_sock, server_sock = socket.socketpair()
 
-    # Run the connection handler in a thread — it blocks on
-    # readline() until the client closes.
+    # Pass the expected token directly (the handler requires a non-empty
+    # expected_token; it does not fall back to the env var when None, so
+    # we hand it the same value we set on VOICE_TYPER_IPC_TOKEN).
     handler_thread = threading.Thread(
         target=server._handle_tcp_connection,
-        args=(server_sock, ("127.0.0.1", 0), ""),
+        args=(server_sock, ("127.0.0.1", 0), _test_token),
         daemon=True,
     )
     handler_thread.start()
+
+    # Send valid auth so the handler enters the dispatch loop (reaches
+    # the try/finally that calls _on_ipc_client_disconnect on EOF).
+    client_sock.sendall((__import__("json").dumps({"type": "auth", "token": _test_token}) + "\n").encode("utf-8"))
+
+    # Give the handler a moment to process auth and enter the dispatch
+    # loop before we close the client (so the finally fires on EOF
+    # from the dispatch loop, not on EOF from the auth readline).
+    import time as _time
+
+    _time.sleep(0.15)
 
     # Close the client side — server's readline() returns "" (EOF),
     # the for-loop exits, the finally block fires _on_ipc_client_disconnect.
@@ -177,14 +196,11 @@ def test_tcp_disconnect_finally_block_resets_ownership() -> None:
 
     # Wait for the handler to finish (it should exit promptly on EOF).
     handler_thread.join(timeout=5.0)
-    assert not handler_thread.is_alive(), (
-        "TCP handler thread did not exit after client disconnect"
-    )
+    assert not handler_thread.is_alive(), "TCP handler thread did not exit after client disconnect"
 
     # The watchdog must have reset ownership to "normal".
     assert kb.current_owner() == "normal", (
-        "Expected ownership to be reset to 'normal' after TCP client "
-        f"disconnect, got {kb.current_owner()!r}"
+        f"Expected ownership to be reset to 'normal' after TCP client disconnect, got {kb.current_owner()!r}"
     )
 
 
@@ -217,9 +233,7 @@ def test_tcp_disconnect_during_shutdown_preserves_recording() -> None:
     assert not handler_thread.is_alive()
 
     # Ownership must be preserved — the watchdog correctly skipped.
-    assert kb.current_owner() == "recording", (
-        "Watchdog must not reset ownership during server shutdown"
-    )
+    assert kb.current_owner() == "recording", "Watchdog must not reset ownership during server shutdown"
 
 
 # ── stdin EOF path ──────────────────────────────────────────────────────
@@ -247,9 +261,7 @@ def test_stdin_eof_resets_ownership() -> None:
 
     server._run(_stdin=stdin_fake, _stdout=stdout_fake)
 
-    assert kb.current_owner() == "normal", (
-        "Expected ownership to be reset to 'normal' after stdin EOF"
-    )
+    assert kb.current_owner() == "normal", "Expected ownership to be reset to 'normal' after stdin EOF"
 
 
 def test_stdin_eof_does_not_reset_during_shutdown() -> None:
@@ -271,6 +283,4 @@ def test_stdin_eof_does_not_reset_during_shutdown() -> None:
     stdout_fake = io.StringIO()
     server._run(_stdin=stdin_fake, _stdout=stdout_fake)
 
-    assert kb.current_owner() == "recording", (
-        "Watchdog must not reset ownership during shutdown on stdin EOF"
-    )
+    assert kb.current_owner() == "recording", "Watchdog must not reset ownership during shutdown on stdin EOF"

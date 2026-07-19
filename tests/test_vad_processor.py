@@ -15,6 +15,7 @@ the new ``VadProcessor`` API surface so future refactors of
 
 from __future__ import annotations
 
+import logging
 import time
 from unittest.mock import MagicMock
 
@@ -242,6 +243,130 @@ class TestStateTransitions:
         assert vp.state == VadState.UNKNOWN
 
 
+# ── Grey-zone decay (AUDIO-5) ─────────────────────────────────────────
+
+
+class TestGreyZoneDecay:
+    """AUDIO-5: bound grey-zone hold so soft-speech tails don't stall the
+    silence timer indefinitely. After ``_grey_zone_hold_limit`` (30)
+    consecutive grey-zone frames, both counters decay by 1; the cycle
+    repeats so the grey-zone hold is bounded to ~1s at 30 Hz."""
+
+    def test_grey_zone_decay_after_hold_limit(self) -> None:
+        """First ``hold_limit - 1`` grey-zone chunks must NOT decay; the
+        30th triggers a single decay cycle (speech/silence each -= 1)."""
+        vp = VadProcessor(_config_with_vad_enabled())
+        # Default thresholds: silence=-50 dB, speech=-40 dB → -45 dB is grey.
+        assert vp.silence_threshold_db == DEFAULT_VAD_SILENCE_THRESHOLD_DB
+        assert vp.speech_threshold_db == DEFAULT_VAD_SPEECH_THRESHOLD_DB
+        grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0  # -45 dB
+        # Pre-load history so decay is observable (grey-zone preserves
+        # counters unchanged, so this baseline holds until the 30th frame).
+        vp.consecutive_speech_frames = 5
+        vp.consecutive_silence_frames = 5
+
+        # 29 grey-zone chunks: still under the hold limit — no decay.
+        for _ in range(29):
+            vp.update_frame(grey_db)
+        assert vp.consecutive_speech_frames == 5, "AUDIO-5: first 29 grey-zone chunks must NOT decay speech counter"
+        assert vp.consecutive_silence_frames == 5, "AUDIO-5: first 29 grey-zone chunks must NOT decay silence counter"
+        # The grey-frame counter is at 29 (one short of the trigger).
+        assert vp._consecutive_grey_frames == 29
+
+        # 6 more grey-zone chunks (total 35): the 30th triggers one decay
+        # cycle (speech 5→4, silence 5→4, grey reset to 0). Frames 31-35
+        # then re-accumulate grey to 5 — no second decay yet.
+        for _ in range(6):
+            vp.update_frame(grey_db)
+        assert vp.consecutive_speech_frames == 4, (
+            "AUDIO-5: after the 30th grey-zone chunk, speech counter must decay by 1"
+        )
+        assert vp.consecutive_silence_frames == 4, (
+            "AUDIO-5: after the 30th grey-zone chunk, silence counter must decay by 1"
+        )
+        # Grey counter reset to 0 at frame 30, then accumulated 5 more.
+        assert vp._consecutive_grey_frames == 5
+
+    def test_grey_zone_resets_on_clear_frame(self) -> None:
+        """A clear loud (or quiet) frame resets ``_consecutive_grey_frames``
+        to 0 so the decay cycle restarts from scratch on the next grey run."""
+        vp = VadProcessor(_config_with_vad_enabled())
+        # Default thresholds: silence=-50 dB, speech=-40 dB → -45 dB is grey.
+        grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0
+
+        # 20 grey-zone chunks: grey counter accumulates to 20.
+        for _ in range(20):
+            vp.update_frame(grey_db)
+        assert vp._consecutive_grey_frames == 20
+
+        # One clear loud chunk (-20 dB > speech_threshold -40 dB) resets grey.
+        vp.update_frame(-20.0)
+        assert vp._consecutive_grey_frames == 0, "AUDIO-5: a clear loud frame must reset the grey-zone counter"
+        # And the speech counter advanced (loud frame increments speech).
+        assert vp.consecutive_speech_frames == 1
+        assert vp.consecutive_silence_frames == 0
+
+    def test_grey_zone_decay_is_periodic(self) -> None:
+        """AUDIO-5: decay repeats every ``hold_limit`` frames — 60 grey
+        chunks (2 cycles) must decay each counter by 2 from the baseline."""
+        vp = VadProcessor(_config_with_vad_enabled())
+        grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0
+        vp.consecutive_speech_frames = 5
+        vp.consecutive_silence_frames = 5
+
+        # 60 grey-zone chunks → 2 full decay cycles (frames 30 and 60).
+        for _ in range(60):
+            vp.update_frame(grey_db)
+        assert vp.consecutive_speech_frames == 3, "AUDIO-5: 60 grey chunks (2 cycles) must decay speech by 2"
+        assert vp.consecutive_silence_frames == 3, "AUDIO-5: 60 grey chunks (2 cycles) must decay silence by 2"
+
+    def test_grey_zone_soft_tail_exits_speech(self) -> None:
+        """AUDIO-5 (root cause): a sustained grey tail after SPEECH must
+        transition to SILENCE, not stay locked in SPEECH.
+
+        The recorder's silence timer only advances when ``update_frame``
+        returns SILENCE (recorder.py:2420). Without this, a soft-spoken
+        phrase ending (audio hovering in the grey zone) keeps returning
+        SPEECH, holding the silence timer at 0 — so auto-stop never fires
+        and the tail is held/cut off. After the grey-hold limit (~1s) the
+        state must flip to SILENCE so the timer can advance/trigger.
+        """
+        vp = VadProcessor(_config_with_vad_enabled())
+        # Clearly loud to drive into SPEECH (need >= speech_frames loud frames).
+        loud_db = vp.speech_threshold_db + 5.0
+        for _ in range(vp.speech_frames + 2):
+            vp.update_frame(loud_db)
+        assert vp.state == VadState.SPEECH, f"precondition: must be in SPEECH, got {vp.state}"
+        # Now a sustained grey tail (between the thresholds).
+        grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0
+        last_state = vp.state
+        for _ in range(vp._grey_zone_hold_limit):
+            last_state = vp.update_frame(grey_db)
+        assert last_state == VadState.SILENCE, (
+            "AUDIO-5: sustained grey tail after speech must transition to "
+            f"SILENCE (so silence timer advances), got {last_state}"
+        )
+
+    def test_grey_zone_soft_tail_resumes_on_loud(self) -> None:
+        """AUDIO-5: if the speaker resumes (a loud frame) during/after the
+        grey tail, the state must flip back to SPEECH and the silence timer
+        would reset — i.e. we don't permanently wedge in SILENCE.
+        """
+        vp = VadProcessor(_config_with_vad_enabled())
+        loud_db = vp.speech_threshold_db + 5.0
+        for _ in range(vp.speech_frames + 2):
+            vp.update_frame(loud_db)
+        grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0
+        for _ in range(vp._grey_zone_hold_limit):
+            vp.update_frame(grey_db)
+        assert vp.state == VadState.SILENCE
+        # Speaker resumes — needs >= speech_frames consecutive loud frames
+        # to flip back to SPEECH (hysteresis), same as the initial onset.
+        for _ in range(vp.speech_frames + 2):
+            vp.update_frame(loud_db)
+        assert vp.state == VadState.SPEECH, "AUDIO-5: loud frames after the grey tail must resume SPEECH"
+
+
 # ── Auto-calibration ───────────────────────────────────────────────────
 
 
@@ -308,6 +433,90 @@ class TestAutoCalibration:
         # speech = -90 + 18 = -72
         assert vp.silence_threshold_db == pytest.approx(-84.0, abs=0.1)
         assert vp.speech_threshold_db == pytest.approx(-72.0, abs=0.1)
+
+    def test_calibration_skipped_when_silero_active(self, caplog: pytest.LogCaptureFixture) -> None:
+        """AUDIO-4: when Silero VAD is the active backend, dB-threshold
+        calibration has no effect (update_frame uses probability thresholds).
+        ``auto_calibrate`` must skip with a one-time INFO log and not collect
+        any RMS values.
+        """
+        cfg = _config_with_vad_enabled()
+        cfg.use_silero_vad = True
+        # Inject a stub ``vad_check_available_fn`` that returns True so
+        # ``__init__`` sets ``silero_available=True`` without importing torch.
+        vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
+        assert vp.use_silero_vad is True
+        assert vp.silero_available is True
+        assert vp.vad_enabled is True  # noise_filter_highpass=True
+
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.vad_processor"):
+            vp.auto_calibrate(0.01, elapsed_seconds=10.0)
+
+        # AUDIO-4: calibrated is True (set by the skip branch to prevent re-entry)
+        assert vp.calibrated is True
+        # AUDIO-4: no RMS values were collected (skip happened before append)
+        assert vp.calibration_rms_values == []
+        # AUDIO-4: the one-time INFO log was emitted
+        assert any("auto-calibration skipped" in record.getMessage() for record in caplog.records), (
+            f"expected skip log, got: {[r.getMessage() for r in caplog.records]}"
+        )
+        # AUDIO-4: status is explicit + inspectable (not a silent no-op)
+        assert vp.calibration_status == "skipped_silero"
+
+        # Re-entry is prevented (calibrated flag short-circuits).
+        caplog.clear()
+        vp.auto_calibrate(0.01, elapsed_seconds=20.0)
+        assert not any("auto-calibration skipped" in record.getMessage() for record in caplog.records), (
+            "skip log must fire only once (re-entry guarded by _calibrated)"
+        )
+        assert vp.calibration_status == "skipped_silero"
+
+
+# ── calibration_status (AUDIO-4) ──────────────────────────────────────
+
+
+class TestCalibrationStatus:
+    """AUDIO-4: calibration_status must be explicit + inspectable so a
+    no-op skip is never silent. Covered across every auto_calibrate branch.
+    """
+
+    def test_status_pending_until_run(self) -> None:
+        vp = VadProcessor(_config_with_vad_enabled())
+        assert vp.calibration_status == "pending"
+
+    def test_status_skipped_silero(self) -> None:
+        cfg = _config_with_vad_enabled()
+        cfg.use_silero_vad = True
+        vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
+        vp.auto_calibrate(0.01, elapsed_seconds=10.0)
+        assert vp.calibration_status == "skipped_silero"
+        assert vp.calibrated is True
+
+    def test_status_skipped_disabled(self) -> None:
+        vp = VadProcessor(_config_with_vad_disabled())
+        assert vp.vad_enabled is False
+        vp.auto_calibrate(0.01, elapsed_seconds=10.0)
+        assert vp.calibration_status == "skipped_disabled"
+        assert vp.calibrated is False
+        assert vp.calibration_rms_values == []
+
+    def test_status_calibrated(self) -> None:
+        vp = VadProcessor(_config_with_vad_enabled())
+        vp.calibration_duration = 1.5
+        for i in range(50):
+            vp.auto_calibrate(0.01, elapsed_seconds=0.05 * i + 0.05)
+        assert vp.calibration_status == "calibrated"
+        assert vp.calibrated is True
+
+    def test_status_reset_to_pending(self) -> None:
+        cfg = _config_with_vad_enabled()
+        cfg.use_silero_vad = True
+        vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
+        vp.auto_calibrate(0.01, elapsed_seconds=10.0)
+        assert vp.calibration_status == "skipped_silero"
+        vp.reset()
+        assert vp.calibration_status == "pending"
+        assert vp.calibrated is False
 
 
 # ── reset() ────────────────────────────────────────────────────────────

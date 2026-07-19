@@ -224,11 +224,16 @@ def test_stub_sidecar_scripts_exit_nonzero_with_marker():
 
     This is the safety feature: a stub that accidentally got into a
     release build fails loudly at runtime instead of silently doing nothing.
+
+    On POSIX hosts the stub is a ``#!/bin/sh`` script — running it
+    directly exec's the shell, exits 1, and prints the ``STUB`` marker to
+    stderr. On Windows the same file is NOT executable (``WinError 193``:
+    not a valid Win32 application — there is no ``/bin/sh``), so we verify
+    the marker is embedded in the stub content instead (the Windows .exe
+    stubs fail at ``CreateProcess`` time, which is equally "loud" but not
+    directly exec'-able from a Python test).
     """
     _run()
-    # Only test POSIX stubs (shell scripts). Windows .exe stubs are not
-    # PE binaries and can't be exec'd on Linux — they fail at
-    # CreateProcess time, which is also "loud" but not testable here.
     posix_sidecar_stubs = [
         SRC_TAURI / "bin/python-sidecar-x86_64-apple-darwin",
         SRC_TAURI / "bin/python-sidecar-aarch64-apple-darwin",
@@ -237,6 +242,18 @@ def test_stub_sidecar_scripts_exit_nonzero_with_marker():
     ]
     for p in posix_sidecar_stubs:
         if not p.exists():
+            continue
+        if sys.platform == "win32":
+            # Windows can't exec the POSIX shell script — assert the
+            # failure-mode content is present so a real spawn on a POSIX
+            # host (or a mis-packaged Windows build that picks the wrong
+            # binary) would fail loudly.
+            content = p.read_text(encoding="utf-8", errors="replace")
+            assert "STUB" in content, (
+                f"{p.name} should embed the STUB marker so it fails "
+                f"loudly if executed (Windows cannot run the POSIX "
+                f"shell script directly)."
+            )
             continue
         result = subprocess.run([str(p)], capture_output=True, text=True)
         assert result.returncode != 0, f"{p.name} should exit non-zero (got {result.returncode})"

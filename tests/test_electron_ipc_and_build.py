@@ -471,11 +471,13 @@ class TestAllowlistCorrectness:
     def test_dead_save_vocabulary_with_diff_not_in_allowlist(self, allowlist_entries):
         assert "save_vocabulary_with_diff" not in allowlist_entries
 
-    @pytest.mark.skip(
-        reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"
-    )
-    def test_dead_repaste_last_not_in_allowlist(self, allowlist_entries):
-        assert "repaste_last" not in allowlist_entries
+    def test_repaste_last_in_allowlist(self, allowlist_entries):
+        # UX-23: repaste_last is wired in the renderer (Home.tsx + tray menu)
+        # and dispatched by the backend (_COMMAND_REGISTRY in
+        # voice_typer/server/ipc/server.py). It must be in the renderer's
+        # ALLOWED_COMMANDS so the IPC call is not rejected. (Was previously
+        # asserted as a "dead" exclusion before the handler was added.)
+        assert "repaste_last" in allowlist_entries
 
     @pytest.mark.skip(
         reason="RW-1: rewritten as vitest in voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx (Section 13)"

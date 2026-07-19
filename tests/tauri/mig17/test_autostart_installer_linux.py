@@ -401,7 +401,7 @@ def test_tauri_conf_has_linux_deb_postinstall():
     """
     conf = json.loads(TAURI_CONF.read_text())
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-    post_install = deb.get("postInstall")
+    post_install = deb.get("postInstallScript") or deb.get("postInstall")
 
     assert post_install is not None, "bundle.linux.deb.postInstall is missing"
     # The path is relative to src-tauri/ per Tauri v2 docs (ADR-0020 §13.3
@@ -426,7 +426,7 @@ def test_tauri_conf_has_linux_deb_preremove():
     """``bundle.linux.deb.preRemove`` points to ``scripts/linux/prerm``."""
     conf = json.loads(TAURI_CONF.read_text())
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-    pre_remove = deb.get("preRemove")
+    pre_remove = deb.get("preRemoveScript") or deb.get("preRemove")
 
     assert pre_remove is not None, "bundle.linux.deb.preRemove is missing"
     # See test_tauri_conf_has_linux_deb_postinstall for why we don't

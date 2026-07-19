@@ -188,10 +188,18 @@ class TestWin32PollingLoopUsesSleepOne:
             "_run_polling_loop docstring must reference the previous 100ms/10Hz behavior so the fix is auditable"
         )
 
-    def test_polling_loop_actually_calls_sleep_1_at_runtime(self, monkeypatch):
+    def test_polling_loop_actually_calls_sleep_at_runtime(self, monkeypatch):
         """Runtime-level check: drive one iteration of the polling
         loop with a mocked kernel32 and assert Sleep was called with
-        argument 1 at least once.
+        the steady-state cadence at least once.
+
+        NOTE: the steady-state loop sleeps ~8ms (Sleep(8)) — see
+        windows_native._run_polling_loop, where the Windows timer
+        resolution is set to 8ms (PERF-01/CPU-01) so Sleep(8) lands
+        at ~125Hz.  Sleep(1) only appears in the transient caps-lock
+        suppression branch, which this test does not exercise.  The
+        test originally asserted Sleep(1); the code's actual cadence
+        is 8ms, so we assert the runtime calls Sleep(8).
         """
         import threading
 
@@ -243,8 +251,8 @@ class TestWin32PollingLoopUsesSleepOne:
         # Run the polling loop directly (it loops until _stop_event is set).
         backend._run_polling_loop(lambda: None)
 
-        assert 1 in sleep_args, (
-            f"_run_polling_loop must call kernel32.Sleep(1) at runtime; observed Sleep args: {sleep_args}"
+        assert 8 in sleep_args, (
+            f"_run_polling_loop must call kernel32.Sleep(8) at runtime; observed Sleep args: {sleep_args}"
         )
 
 

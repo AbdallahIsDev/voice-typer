@@ -49,6 +49,9 @@ sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
 sys.modules.setdefault("pyperclip", MagicMock())
 
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
+
+# ARCH-11: UIA singleton moved to clipboard_target_safety; reset it there.
+from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardCopyError,
     ClipboardManager,
@@ -306,6 +309,17 @@ class TestWin32EmptyClipboard:
 
 
 class TestIsElevatedTargetWindows:
+    @pytest.fixture(autouse=True)
+    def _reset_we_elevated(self):
+        """ARCH-11: clear the safety module's ``_WE_ELEVATED`` cache so
+        each test computes elevation fresh (``_get_we_elevated`` caches
+        at module level). Without this, an earlier test that caches
+        ``we_elevated=False`` would leak into a later test expecting
+        ``we_elevated=True``."""
+        safety_mod._WE_ELEVATED = None
+        yield
+        safety_mod._WE_ELEVATED = None
+
     def test_returns_false_when_no_foreground_window(self, fake_win32):
         """GetForegroundWindow returning 0 → False."""
         fake_win32["user32"].GetForegroundWindow.return_value = 0
@@ -509,14 +523,19 @@ class TestIsPasswordFieldWindows:
         in the singleton, and every subsequent test receives the stale
         mock — causing false positives/negatives depending on test order.
         """
-        clip_mod._UIA_SINGLETON = None
-        clip_mod._UIA_MODULE = None
-        clip_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+        safety_mod._UIA_SINGLETON = None
+        safety_mod._UIA_MODULE = None
+        safety_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+        # ARCH-11: _WE_ELEVATED is also a module-level cache in the
+        # safety module; reset it so elevated-target tests don't read a
+        # value cached by an earlier test in the session.
+        safety_mod._WE_ELEVATED = None
         yield
         # Restore after test in case the test set them.
-        clip_mod._UIA_SINGLETON = None
-        clip_mod._UIA_MODULE = None
-        clip_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+        safety_mod._UIA_SINGLETON = None
+        safety_mod._UIA_MODULE = None
+        safety_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+        safety_mod._WE_ELEVATED = None
 
     def test_returns_false_when_no_foreground_window(self, fake_win32):
         """No focused window → False (comtypes path returns False too)."""
@@ -526,7 +545,7 @@ class TestIsPasswordFieldWindows:
             patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}),
             patch.object(clip_mod, "log"),
             patch(
-                "voice_typer.server.clipboard._focused_window_is_credential_dialog",
+                "voice_typer.server.clipboard_target_safety._focused_window_is_credential_dialog",
                 return_value=False,
             ),
         ):
@@ -613,7 +632,7 @@ class TestIsPasswordFieldWindows:
             patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}),
             patch.object(clip_mod, "log"),
             patch(
-                "voice_typer.server.clipboard._focused_window_is_credential_dialog",
+                "voice_typer.server.clipboard_target_safety._focused_window_is_credential_dialog",
                 return_value=False,
             ) as mock_cred,
         ):
@@ -627,7 +646,7 @@ class TestIsPasswordFieldWindows:
             patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}),
             patch.object(clip_mod, "log"),
             patch(
-                "voice_typer.server.clipboard._focused_window_is_credential_dialog",
+                "voice_typer.server.clipboard_target_safety._focused_window_is_credential_dialog",
                 return_value=True,
             ),
         ):
@@ -660,7 +679,7 @@ class TestIsPasswordFieldWindows:
             patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}),
             patch.object(clip_mod, "log"),
             patch(
-                "voice_typer.server.clipboard._focused_window_is_credential_dialog",
+                "voice_typer.server.clipboard_target_safety._focused_window_is_credential_dialog",
                 side_effect=RuntimeError("cred dialog broke"),
             ),
         ):
@@ -713,13 +732,13 @@ class TestIsContentEditableWindows:
     @pytest.fixture(autouse=True)
     def _reset_uia_singleton(self):
         """Reset the module-level UIA singleton (see TestIsPasswordFieldWindows)."""
-        clip_mod._UIA_SINGLETON = None
-        clip_mod._UIA_MODULE = None
-        clip_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+        safety_mod._UIA_SINGLETON = None
+        safety_mod._UIA_MODULE = None
+        safety_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
         yield
-        clip_mod._UIA_SINGLETON = None
-        clip_mod._UIA_MODULE = None
-        clip_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
+        safety_mod._UIA_SINGLETON = None
+        safety_mod._UIA_MODULE = None
+        safety_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
 
     def test_returns_true_for_edit_with_value_pattern(self, fake_win32):
         """Edit control type (50004) with Value pattern → True."""

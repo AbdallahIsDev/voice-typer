@@ -307,3 +307,159 @@ class TestFinalizeAudioQualityReport:
         ctrl._finalize_audio_quality_report(np.ones(16, dtype=np.float32))
 
         mock_aq.reset.assert_not_called()
+
+
+# ── AUDIO-8: live RMS EMA wiring ──────────────────────────────────────
+
+
+class TestOnAudioQualityChunkRmsEma:
+    """AUDIO-8: the per-chunk ``rms`` value passed to
+    ``_on_audio_quality_chunk`` must be fed into the analyzer's
+    ``update_live_rms`` EMA accumulator. When the EMA stays below
+    ``LOW_VOLUME_THRESHOLD`` for ``LOW_VOLUME_SUSTAINED_CHUNKS``
+    consecutive chunks, a single WARNING is logged."""
+
+    def test_live_rms_ema_advances_per_chunk(self):
+        """AUDIO-8: each call to _on_audio_quality_chunk must advance
+        the analyzer's ``_rms_ema`` by the EMA formula."""
+        ctrl, app = _make_controller()
+        aq = app._audio_quality
+        assert aq.rms_ema == 0.0
+
+        ctrl._on_audio_quality_chunk(rms=0.1, peak=0.3)
+        # After 1 chunk: 0.05 * 0.1 + 0.95 * 0.0 = 0.005
+        assert aq.rms_ema == pytest.approx(0.005, rel=1e-6)
+
+        ctrl._on_audio_quality_chunk(rms=0.1, peak=0.3)
+        # After 2 chunks: 0.05 * 0.1 + 0.95 * 0.005 = 0.00975
+        assert aq.rms_ema == pytest.approx(0.00975, rel=1e-6)
+
+    def test_normal_rms_does_not_log_warning(self, caplog):
+        """AUDIO-8: normal RMS (above LOW_VOLUME_THRESHOLD) must NOT
+        log a low-volume warning, even after many chunks."""
+        ctrl, app = _make_controller()
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.audio_quality_controller"):
+            for _ in range(100):
+                ctrl._on_audio_quality_chunk(rms=0.05, peak=0.3)
+        warn_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert warn_msgs == [], f"Normal RMS must not fire low-volume warning, got: {warn_msgs}"
+
+    def test_sustained_low_rms_logs_single_warning(self, caplog):
+        """AUDIO-8: sustained low RMS for LOW_VOLUME_SUSTAINED_CHUNKS
+        consecutive chunks logs exactly ONE WARNING containing
+        'low input level — increase mic gain'."""
+        ctrl, app = _make_controller()
+        aq = app._audio_quality
+        aq.LOW_VOLUME_SUSTAINED_CHUNKS = 5  # speed up test
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.audio_quality_controller"):
+            for _ in range(10):
+                ctrl._on_audio_quality_chunk(rms=0.001, peak=0.001)
+        warn_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warn_records) == 1, f"Expected 1 latched warning, got {len(warn_records)}"
+        msg = warn_records[0].getMessage()
+        assert "low input level" in msg and "increase mic gain" in msg, (
+            f"Warning must say 'low input level — increase mic gain', got: {msg}"
+        )
+        assert "rms_ema=" in msg, f"Warning must include rms_ema diagnostic: {msg}"
+
+    def test_warning_resets_on_recovery(self, caplog):
+        """AUDIO-8: after EMA recovers above threshold, a future
+        low-volume episode must fire the warning again."""
+        ctrl, app = _make_controller()
+        aq = app._audio_quality
+        aq.LOW_VOLUME_SUSTAINED_CHUNKS = 3
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.audio_quality_controller"):
+            for _ in range(5):
+                ctrl._on_audio_quality_chunk(rms=0.001, peak=0.001)
+            for _ in range(20):
+                ctrl._on_audio_quality_chunk(rms=0.5, peak=0.5)
+            for _ in range(5):
+                ctrl._on_audio_quality_chunk(rms=0.001, peak=0.001)
+        warn_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warn_records) == 2, f"Expected 2 warnings (one per episode), got {len(warn_records)}"
+
+    def test_rms_ema_update_does_not_block_callback(self):
+        """AUDIO-8: the EMA update must remain non-blocking — 10k calls
+        must complete well under 2s."""
+        ctrl, app = _make_controller()
+        start = time.perf_counter()
+        for _ in range(10_000):
+            ctrl._on_audio_quality_chunk(rms=0.05, peak=0.3)
+        elapsed = time.perf_counter() - start
+        assert elapsed < 2.0, f"AUDIO-8: EMA update must not block the audio callback; 10k calls took {elapsed:.3f}s"
+
+
+# ── AUDIO-6 + AUDIO-9: force_sr parameter ────────────────────────────
+
+
+class TestRebuildAudioProcessorForceSr:
+    """AUDIO-6 (High) + AUDIO-9 (Medium): ``_rebuild_audio_processor``
+    accepts an optional ``force_sr`` parameter that rebuilds the chain
+    at a specific sample rate before applying config changes."""
+
+    def test_force_sr_calls_set_sample_rate(self):
+        """AUDIO-6: when force_sr is provided, the controller calls
+        ``set_sample_rate`` BEFORE the config-driven rebuild."""
+        ctrl, app = _make_controller()
+        ctrl._rebuild_audio_processor(force_sr=48000)
+        app._audio_processor.set_sample_rate.assert_called_once_with(48000)
+        app._audio_processor.rebuild_from_config.assert_called_once_with(app.config)
+
+    def test_force_sr_none_does_not_call_set_sample_rate(self):
+        """AUDIO-6: when force_sr is None (the default), set_sample_rate
+        must NOT be called — preserves backward compatibility."""
+        ctrl, app = _make_controller()
+        ctrl._rebuild_audio_processor()
+        app._audio_processor.set_sample_rate.assert_not_called()
+        app._audio_processor.rebuild_from_config.assert_called_once_with(app.config)
+
+    def test_force_sr_with_real_processor_updates_rate(self):
+        """AUDIO-6 + AUDIO-9: end-to-end — force_sr with a REAL
+        AudioProcessor rebuilds the chain at the new rate."""
+        from voice_typer.server.audio_processor import AudioProcessor
+
+        ctrl, app = _make_controller()
+        cfg = type("C", (), {})()
+        cfg.audio_preset = "custom"
+        cfg.noise_filter_highpass = True
+        cfg.noise_filter_highpass_cutoff_hz = 80.0
+        cfg.noise_filter_gate = True
+        cfg.noise_filter_gate_open_threshold_db = -26.0
+        cfg.noise_filter_gate_close_threshold_db = -32.0
+        cfg.noise_filter_gate_attack_ms = 25.0
+        cfg.noise_filter_gate_hold_ms = 200.0
+        cfg.noise_filter_gate_release_ms = 150.0
+        cfg.noise_suppression_method = "none"
+        cfg.noise_filter_eq = True
+        cfg.noise_filter_eq_low_db = -3.0
+        cfg.noise_filter_eq_mid_db = 3.0
+        cfg.noise_filter_eq_high_db = 2.0
+        cfg.noise_filter_compressor = True
+        cfg.noise_filter_compressor_threshold_db = -18.0
+        cfg.noise_filter_compressor_ratio = 3.0
+        cfg.noise_filter_compressor_attack_ms = 6.0
+        cfg.noise_filter_compressor_release_ms = 60.0
+        cfg.noise_filter_compressor_output_gain_db = 0.0
+        cfg.noise_filter_limiter = True
+        cfg.noise_filter_limiter_ceiling_db = -6.0
+        cfg.noise_filter_limiter_release_ms = 60.0
+        cfg.noise_filter_notch = False
+        cfg.noise_filter_notch_frequency_hz = 0.0
+        cfg.sample_rate = 16000
+
+        app._audio_processor = AudioProcessor(cfg, sample_rate=16000)
+        app.config = cfg
+        assert app._audio_processor.sample_rate == 16000
+
+        ctrl._rebuild_audio_processor(force_sr=48000)
+        assert app._audio_processor.sample_rate == 48000, "AUDIO-6: force_sr must rebuild the chain at the new rate"
+
+    def test_force_sr_skips_set_sample_rate_when_processor_lacks_it(self, caplog):
+        """AUDIO-6: if the audio processor lacks ``set_sample_rate``,
+        the controller must skip gracefully and still run the rebuild."""
+        ctrl, app = _make_controller()
+        app._audio_processor = MagicMock(spec=["rebuild_from_config", "filter_names"])
+        app._audio_processor.filter_names = ["highpass"]
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.audio_quality_controller"):
+            ctrl._rebuild_audio_processor(force_sr=48000)
+        app._audio_processor.rebuild_from_config.assert_called_once_with(app.config)

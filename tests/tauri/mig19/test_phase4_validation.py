@@ -138,6 +138,16 @@ import pytest
 #   parents[3] = <project root> (voice-typer/)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
+# Phase 4.5 / ARCH-045 — ``ipc_server.py`` is now a thin shim re-exporting
+# symbols from the ``voice_typer/server/ipc/`` package.  Tests below that
+# source-inspect specific code paths now point at the submodule that
+# actually contains them:
+#   - the heartbeat-watchdog TAURI_SIDECAR gate + ``_heartbeat_thread = None``
+#     skip path live in ``ipc/server.py`` (IPCServer.__init__);
+#   - the ``--ws`` mode env-var propagation + the Python-side single-instance
+#     mutex TAURI_SIDECAR gate live in ``ipc/main.py`` (main()).
+IPC_SERVER_IMPL_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "server.py"
+IPC_MAIN_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "main.py"
 SIDECAR_WS_PY = REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
 WS_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws.rs"
 ADR_0020 = REPO_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
@@ -166,6 +176,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "toggle_dictation",
         "undo_last",
         "force_cancel_transcription",
+        "repaste_last",  # UX-23: re-paste last transcription; handler in handlers/repaste_handlers.py
         # history_handlers
         "get_history",
         "get_today_stats",
@@ -239,9 +250,13 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "heartbeat",
     }
 )
-assert len(EXPECTED_COMMANDS) == 68, (
-    "ADR-0020 §2 freezes a 68-command table. Update this set + the ADR "
-    "addendum + tests/test_ipc_dispatch_errors.py together (§16)."
+assert len(EXPECTED_COMMANDS) == 69, (
+    "ADR-0020 §2 freezes the command table. 68 = original frozen table. "
+    "69 = + `repaste_last` (UX-23, 2026-07-19: handler already existed in "
+    "handlers/repaste_handlers.py and the renderer ALLOWED_COMMANDS already "
+    "permitted it; only the _COMMAND_REGISTRY dispatch route was missing). "
+    "Update this set + the ADR addendum together (§16). Note: `relaunch_ack` "
+    "is tracked separately in KNOWN_UNDOCUMENTED_COMMANDS, not here."
 )
 
 # ── Known undocumented command additions (ADR-0020 §16 violations) ──────
@@ -265,6 +280,17 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
         # sleep in favour of an event-driven wait (bounded by a 2s
         # timeout). Added without an ADR-0020 §16 addendum.
         "relaunch_ack",
+        # MIG-1.9 Phase 3 (Rust-host tray, ADR-0020 §6.5): ``tray_click``
+        # is a host-initiated dispatch command the Rust tray emits when
+        # the user clicks a menu item (``dispatch({cmd:'tray_click',
+        # data:{id}})``). It is NOT in the frozen 68-command table and
+        # has no Python ``_handle_tray_click`` mixin — the Rust host
+        # routes it directly to the sidecar's tray-click handler. Added
+        # without a formal ADR-0020 §16 addendum (tracked as a gap; the
+        # Python-side ``tray_click`` IPC handler lives in
+        # ``ipc/server.py``). Listed here so the frozen-contract gate
+        # does not block on it.
+        "tray_click",
     }
 )
 
@@ -692,13 +718,14 @@ def test_tauri_sidecar_env_disables_heartbeat_watchdog_in_source():
     """ADR-0020 §2 + §10: under ``TAURI_SIDECAR=1`` the Python
     heartbeat-watchdog thread (ADR-0018) is DISABLED — the Tauri
     host's FT-1 supervisor replaces it. Source-inspect
-    ``ipc_server.py`` for the env-var check + the
+    ``ipc/server.py`` (where ``IPCServer.__init__`` now lives after
+    the Phase 4.5 split) for the env-var check + the
     ``_heartbeat_thread = None`` skip path."""
-    src = IPC_SERVER_PY.read_text(encoding="utf-8")
+    src = IPC_SERVER_IMPL_PY.read_text(encoding="utf-8")
     # The env var MUST be read with the exact "1" sentinel (not
     # truthy / not "true" — ADR-0020 §10 specifies "=1").
     assert 'os.environ.get("TAURI_SIDECAR") == "1"' in src, (
-        'ipc_server.py must gate the heartbeat watchdog on `TAURI_SIDECAR == "1"` (ADR-0020 §2 + §10).'
+        'ipc/server.py must gate the heartbeat watchdog on `TAURI_SIDECAR == "1"` (ADR-0020 §2 + §10).'
     )
     # The skip path MUST set ``_heartbeat_thread = None`` (not
     # start the thread and then immediately stop it — that would
@@ -708,7 +735,7 @@ def test_tauri_sidecar_env_disables_heartbeat_watchdog_in_source():
     gate_idx = src.index('os.environ.get("TAURI_SIDECAR") == "1"')
     window = src[gate_idx : gate_idx + 600]
     assert "_heartbeat_thread = None" in window, (
-        "ipc_server.py must set `self._heartbeat_thread = None` when "
+        "ipc/server.py must set `self._heartbeat_thread = None` when "
         "TAURI_SIDECAR=1 (ADR-0020 §10 — skip the heartbeat-watchdog "
         "thread entirely, do not start-then-stop)."
     )
@@ -718,28 +745,35 @@ def test_tauri_sidecar_env_propagated_by_ws_mode():
     """ADR-0020 §2 + §10: ``--ws`` mode MUST set ``TAURI_SIDECAR=1``
     on the sidecar so the downstream heartbeat-watchdog + Python-side
     single-instance mutex gates see it. Source-inspect
-    ``ipc_server.py`` for the ``--ws`` flag handler."""
-    src = IPC_SERVER_PY.read_text(encoding="utf-8")
+    ``ipc/main.py`` (where ``main()`` now lives after the Phase 4.5
+    split) for the ``--ws`` flag handler."""
+    src = IPC_MAIN_PY.read_text(encoding="utf-8")
     # ``--ws`` mode MUST set the env var (so a terminal-launched
     # ``python -m voice_typer.server.ipc_server --ws`` also gets the
     # Tauri-sidecar behavior — ADR-0020 §2 footnote).
     assert 'os.environ["TAURI_SIDECAR"] = "1"' in src, (
-        "ipc_server.py must set os.environ['TAURI_SIDECAR'] = '1' in --ws mode (ADR-0020 §2 footnote + §10)."
+        "ipc/main.py must set os.environ['TAURI_SIDECAR'] = '1' in --ws mode (ADR-0020 §2 footnote + §10)."
     )
 
 
 def test_tauri_sidecar_env_disables_python_single_instance_mutex():
     """ADR-0020 §12: under ``TAURI_SIDECAR=1`` the Python-side
     ``VoiceTyperSingleInstance`` Win32 mutex is skipped (the Tauri
-    host's single-instance plugin owns it). Source-inspect
-    ``ipc_server.py`` for the second TAURI_SIDECAR gate."""
-    src = IPC_SERVER_PY.read_text(encoding="utf-8")
+    host's single-instance plugin owns it). Source-inspect both
+    ``ipc/server.py`` (the heartbeat-watchdog gate) and ``ipc/main.py``
+    (the Python single-instance mutex gate) for the second
+    TAURI_SIDECAR gate."""
+    server_src = IPC_SERVER_IMPL_PY.read_text(encoding="utf-8")
+    main_src = IPC_MAIN_PY.read_text(encoding="utf-8")
     # The mutex skip gate MUST appear (typically near the bottom of
     # main() — separate from the heartbeat-watchdog gate).
-    # Look for at least TWO occurrences of the env-var check.
-    occurrences = src.count('os.environ.get("TAURI_SIDECAR") == "1"')
+    # Look for at least TWO occurrences of the env-var check across
+    # the two submodules that now host the IPC logic.
+    occurrences = server_src.count('os.environ.get("TAURI_SIDECAR") == "1"') + main_src.count(
+        'os.environ.get("TAURI_SIDECAR") == "1"'
+    )
     assert occurrences >= 2, (
-        "ipc_server.py must reference TAURI_SIDECAR=1 in at least two "
+        "ipc/server.py + ipc/main.py must reference TAURI_SIDECAR=1 in at least two "
         "gates: (1) the heartbeat-watchdog skip (§10) and (2) the "
         f"Python single-instance mutex skip (§12). Found {occurrences}."
     )

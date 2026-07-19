@@ -33,30 +33,17 @@ verify both branches without spawning real editors.
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-# ─── Linux test-env shim ──────────────────────────────────────────────
-# ``voice_typer.server.crash_handler`` uses ``ctypes.WINFUNCTYPE`` as a
-# decorator at module load time.  That attribute only exists on Windows,
-# so importing ``voice_typer.server.app`` (which does
-# ``from voice_typer.server import crash_handler``) raises
-# ``AttributeError`` on Linux.  To let the Windows-notepad unit tests
-# below import ``app.py`` on any platform (the same way
-# ``tests/test_microphone_watcher.py`` mocks ``ctypes.WINFUNCTYPE`` with
-# ``create=True`` inside individual tests), we pre-inject a MagicMock
-# for the crash_handler module before any test in this file triggers an
-# app import.  On Windows the real module loads first (during normal
-# import) and this block is a no-op; on Linux it short-circuits the
-# broken import.  This is a *test-only* shim — production code never
-# monkey-patches ctypes.
-if sys.platform != "win32" and "voice_typer.server.crash_handler" not in sys.modules:
-    sys.modules["voice_typer.server.crash_handler"] = MagicMock()
-
-
+# WP-1: the previous Linux test-env shim that aliased
+# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
+# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
+# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
+# decorator behind ``sys.platform == "win32"``, so the module imports
+# cleanly on Linux/macOS without any test-infrastructure shim.
 # ─── H1: API.md config-table accuracy ─────────────────────────────────
 
 

@@ -23,21 +23,18 @@ from __future__ import annotations
 
 import contextlib
 import socket as _socket
-import sys
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-# ─── Linux test-env shim (RW-8) ──────────────────────────────────────────
-# Same shim as in tests/test_bugfix_regressions.py: crash_handler uses
-# ``ctypes.WINFUNCTYPE`` at module load, which only exists on Windows.
-# Pre-inject a MagicMock so app-importing tests work on Linux.
-if sys.platform != "win32" and "voice_typer.server.crash_handler" not in sys.modules:
-    sys.modules["voice_typer.server.crash_handler"] = MagicMock()
-
-
+# WP-1: the previous Linux test-env shim that aliased
+# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
+# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
+# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
+# decorator behind ``sys.platform == "win32"``, so the module imports
+# cleanly on Linux/macOS without any test-infrastructure shim.
 # ─── PORT 1: Electron launch sites call _electron_log_files() ────────────
 
 

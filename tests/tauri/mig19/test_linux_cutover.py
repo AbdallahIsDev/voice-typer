@@ -302,11 +302,14 @@ def test_ci_workflow_builds_rpm_via_bundle_config(tauri_conf: dict) -> None:
     rpm_cfg = bundle["linux"]["rpm"]
     assert isinstance(rpm_cfg, dict), "bundle.linux.rpm must be a dict"
     # postInstall + preRemove must be wired to the .rpm variants.
-    assert rpm_cfg.get("postInstall", "").endswith("postinst.rpm"), (
-        f"bundle.linux.rpm.postInstall must reference postinst.rpm, got {rpm_cfg.get('postInstall')!r}"
+    # WP-15: Tauri v2 uses postInstallScript / preRemoveScript field names.
+    rpm_postinst = rpm_cfg.get("postInstallScript") or rpm_cfg.get("postInstall", "")
+    rpm_prerm = rpm_cfg.get("preRemoveScript") or rpm_cfg.get("preRemove", "")
+    assert rpm_postinst.endswith("postinst.rpm"), (
+        f"bundle.linux.rpm.postInstallScript must reference postinst.rpm, got {rpm_postinst!r}"
     )
-    assert rpm_cfg.get("preRemove", "").endswith("prerm.rpm"), (
-        f"bundle.linux.rpm.preRemove must reference prerm.rpm, got {rpm_cfg.get('preRemove')!r}"
+    assert rpm_prerm.endswith("prerm.rpm"), (
+        f"bundle.linux.rpm.preRemoveScript must reference prerm.rpm, got {rpm_prerm!r}"
     )
     # `bundle.targets` must be "all" OR include "rpm".
     targets = bundle.get("targets")

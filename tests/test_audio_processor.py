@@ -264,3 +264,112 @@ class TestIntrospection:
     def test_total_latency_ms_is_float(self, processor):
         assert isinstance(processor.total_latency_ms, float)
         assert processor.total_latency_ms >= 0.0
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AUDIO-6 + AUDIO-9: set_sample_rate / sample-rate mismatch
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSetSampleRate:
+    """AUDIO-6 (High) + AUDIO-9 (Medium): the filter chain was built
+    for ``config.sample_rate`` (default 16 kHz) but the live PortAudio
+    stream may run at the device's native rate (e.g. 44.1 kHz, 48 kHz).
+    IIR coefficients and envelope ballistics are sample-rate-dependent
+    — feeding audio at the wrong rate shifts cutoff frequencies and
+    time constants. ``set_sample_rate`` rebuilds the chain at the new
+    rate."""
+
+    def test_sample_rate_property_returns_init_value(self, default_config):
+        p = AudioProcessor(default_config, sample_rate=16000)
+        assert p.sample_rate == 16000
+
+    def test_set_sample_rate_updates_internal_rate(self, default_config):
+        """AUDIO-6: set_sample_rate updates the internal sample rate
+        and rebuilds the chain so subsequent process_chunk calls use
+        the new rate."""
+        p = AudioProcessor(default_config, sample_rate=16000)
+        p.set_sample_rate(48000)
+        assert p.sample_rate == 48000
+        assert p._sample_rate == 48000
+
+    def test_set_sample_rate_noop_when_same(self, default_config):
+        """AUDIO-6: set_sample_rate is a no-op when called with the
+        current rate (avoids needless filter reconstruction)."""
+        p = AudioProcessor(default_config, sample_rate=16000)
+        initial_chain = p.chain
+        p.set_sample_rate(16000)
+        assert p.sample_rate == 16000
+        assert p.chain is initial_chain
+
+    def test_set_sample_rate_rebuilds_chain_with_new_filters(self, default_config):
+        """AUDIO-6: after set_sample_rate, the chain's filters are
+        reconstructed at the new rate. Verify by checking that the
+        HighPass filter's internal IIR coefficients reflect the new rate
+        (scipy.signal.butter produces different b/a arrays for different
+        sample rates at the same cutoff frequency)."""
+        from voice_typer.server.audio_filters import HighPassFilter
+
+        p = AudioProcessor(default_config, sample_rate=16000)
+        initial_hp = next(f for f in p.chain.filters if isinstance(f, HighPassFilter))
+        initial_b = initial_hp._state[0].copy()
+
+        p.set_sample_rate(48000)
+        new_hp = next(f for f in p.chain.filters if isinstance(f, HighPassFilter))
+        new_b = new_hp._state[0]
+
+        # The IIR ``b`` coefficients for an order-4 Butterworth high-pass
+        # at 80 Hz differ between 16 kHz and 48 kHz.
+        assert not np.allclose(initial_b, new_b), (
+            "AUDIO-6: set_sample_rate must rebuild filters with new "
+            f"coefficients (16kHz b={initial_b}, 48kHz b={new_b})"
+        )
+
+    def test_set_sample_rate_preserves_filter_set(self, default_config):
+        """AUDIO-6: set_sample_rate rebuilds the chain with the SAME
+        filter configuration (just at a different rate)."""
+        p = AudioProcessor(default_config, sample_rate=16000)
+        initial_names = p.filter_names
+        p.set_sample_rate(44100)
+        assert p.filter_names == initial_names, (
+            f"Filter set must be preserved across rate change: initial={initial_names}, after={p.filter_names}"
+        )
+
+    def test_set_sample_rate_processes_audio_at_new_rate(self, default_config):
+        """AUDIO-6: after set_sample_rate, process_chunk must not crash
+        on audio at the new rate."""
+        p = AudioProcessor(default_config, sample_rate=16000)
+        p.set_sample_rate(48000)
+        audio = (np.sin(2 * np.pi * 440 * np.linspace(0, 0.1, 4800, endpoint=False))).astype(np.float32) * 0.3
+        result = p.process_chunk(audio)
+        assert result is not None
+        assert result.shape == audio.shape
+
+    def test_set_sample_rate_then_rebuild_from_config_uses_new_rate(self, default_config):
+        """AUDIO-6 + AUDIO-9: after set_sample_rate, a subsequent
+        rebuild_from_config must use the NEW sample rate (not the
+        original init rate)."""
+        p = AudioProcessor(default_config, sample_rate=16000)
+        p.set_sample_rate(48000)
+        p.rebuild_from_config(default_config)
+        assert p.sample_rate == 48000
+
+    def test_set_sample_rate_idempotent_with_rebuild(self, default_config):
+        """AUDIO-6: calling set_sample_rate(48000) then
+        set_sample_rate(48000) again is a no-op the second time."""
+        p = AudioProcessor(default_config, sample_rate=16000)
+        p.set_sample_rate(48000)
+        chain_after_first = p.chain
+        p.set_sample_rate(48000)
+        assert p.chain is chain_after_first
+
+    def test_set_sample_rate_downward(self, default_config):
+        """AUDIO-6: set_sample_rate works downward (48000 → 16000)
+        as well as upward."""
+        p = AudioProcessor(default_config, sample_rate=48000)
+        assert p.sample_rate == 48000
+        p.set_sample_rate(16000)
+        assert p.sample_rate == 16000
+        audio = make_sine(440, 0.05, sr=16000, amp=0.3)
+        result = p.process_chunk(audio)
+        assert result is not None

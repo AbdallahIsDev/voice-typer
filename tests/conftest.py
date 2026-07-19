@@ -44,19 +44,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# RW-9 test-infrastructure fix: ``voice_typer.server.crash_handler`` decorates
-# its VEH callback with ``@ctypes.WINFUNCTYPE(...)`` at module-load time
-# (line 321). ``WINFUNCTYPE`` only exists on Windows — on Linux/macOS the
-# attribute is missing, so importing ``crash_handler`` (transitively imported
-# by ``voice_typer.server.app``) raises ``AttributeError`` and breaks every
-# test that touches ``app``.
+# WP-1: ``voice_typer.server.crash_handler`` previously used
+# ``@ctypes.WINFUNCTYPE(...)`` at module-load time, which broke Linux imports.
+# That has been fixed — the decorator is now gated behind
+# ``sys.platform == "win32"`` in crash_handler.py.
 #
-# The VEH callback is Windows-only by design (SEH exceptions don't exist on
-# POSIX). Aliasing ``WINFUNCTYPE`` to ``CFUNCTYPE`` on non-Windows lets the
-# module import successfully; the callback is never invoked because
-# ``install_crash_handler()`` short-circuits on ``sys.platform != "win32"``
-# (crash_handler.py:622, :651). This is a pure test-infrastructure shim —
-# production behaviour on Windows is unchanged.
+# However, ``hotkeys.py::_install_low_level_hook`` (line ~1311) and
+# ``microphone_watcher.py`` use ``ctypes.WINFUNCTYPE(...)`` inside Windows-
+# guarded function bodies. On Linux, those code paths are never executed in
+# production, but some tests (``tests/test_hotkeys_win32.py``) DO exercise
+# those code paths with mocked Windows state. Without the alias, those tests
+# fail with ``AttributeError: module 'ctypes' has no attribute 'WINFUNCTYPE'``.
+#
+# Aliasing ``WINFUNCTYPE = CFUNCTYPE`` on non-Windows lets those tests run.
+# This is a test-only shim — production behaviour on Windows is unchanged
+# (real ``WINFUNCTYPE`` is used). The alias is a no-op on Windows.
 if not hasattr(ctypes, "WINFUNCTYPE"):
     ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE  # type: ignore[attr-defined]
 

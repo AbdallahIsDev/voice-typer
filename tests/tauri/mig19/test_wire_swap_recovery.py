@@ -215,6 +215,12 @@ UTIL_RS = SRC_TAURI_DIR / "util.rs"
 STATE_RS = SRC_TAURI_DIR / "state.rs"
 SIDECAR_WS_PY = PROJECT_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
 IPC_SERVER_PY = PROJECT_ROOT / "voice_typer" / "server" / "ipc_server.py"
+# Phase 4.5 / ARCH-045 — ``ipc_server.py`` is now a thin shim re-exporting
+# symbols from the ``voice_typer/server/ipc/`` package.  Tests that
+# source-inspect the rate-limiter implementation read ``ipc/rate_limiter.py``
+# (where ``_RateLimiter`` / ``_get_rate_limiter`` / the ``_RATE_LIMIT_*``
+# constants now actually live) instead of the shim.
+IPC_RATE_LIMITER_PY = PROJECT_ROOT / "voice_typer" / "server" / "ipc" / "rate_limiter.py"
 ADR_0020 = PROJECT_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 
 
@@ -256,9 +262,16 @@ def sidecar_ws_source() -> str:
 
 @pytest.fixture(scope="module")
 def ipc_server_source() -> str:
-    """Full text of voice_typer/server/ipc_server.py (read once per module)."""
-    assert IPC_SERVER_PY.is_file(), f"missing: {IPC_SERVER_PY}"
-    return IPC_SERVER_PY.read_text(encoding="utf-8")
+    """Full text of the IPC rate-limiter submodule (read once per module).
+
+    Phase 4.5 / ARCH-045: ``ipc_server.py`` was split into the
+    ``voice_typer/server/ipc/`` package.  The rate-limiter implementation
+    (``_RateLimiter``, ``_get_rate_limiter``, ``_RATE_LIMIT_*`` constants)
+    now lives in ``ipc/rate_limiter.py`` — this fixture reads that file so
+    the rate-limiter source-inspection tests find the symbols they expect.
+    """
+    assert IPC_RATE_LIMITER_PY.is_file(), f"missing: {IPC_RATE_LIMITER_PY}"
+    return IPC_RATE_LIMITER_PY.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -370,12 +383,21 @@ def test_ft1_max_retries_constant_is_5(util_source: str) -> None:
 
 
 def test_ft1_exhaustion_branch_calls_app_restart(ft1_source: str) -> None:
-    """When ``attempt >= FT1_MAX_RETRIES``, the supervisor MUST call
+    """When the backoff schedule is exhausted, the supervisor MUST call
     ``app.restart()`` (the full-app relaunch fallback per ADR-0020 §10).
+
+    The exhaustion path is the **post-loop** ``app.restart()`` at the
+    bottom of ``ft1_respawn_inner`` (the in-loop
+    ``attempt as u32 >= FT1_MAX_RETRIES`` guard was intentionally
+    removed as dead code — ``FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES ==
+    5``, so ``attempt`` ranges ``0..=4`` and that condition was always
+    false; see the NF-R19-2 comment in ft1.rs). The post-loop path emits
+    ``ft1_relaunching`` (reason="backoff_exhausted") and then calls
+    ``app.restart()``.
     """
     # The exhaustion branch must exist + call app.restart().
-    assert "attempt as u32 >= FT1_MAX_RETRIES" in ft1_source, (
-        "FT-1 exhaustion guard (`attempt as u32 >= FT1_MAX_RETRIES`) not found — the cap check is missing"
+    assert "backoff schedule exhausted" in ft1_source, (
+        "FT-1 post-loop exhaustion branch (``backoff schedule exhausted``) not found — the exhaustion path is missing"
     )
     assert "app.restart()" in ft1_source, (
         "app.restart() call not found in ft1.rs — full-app relaunch fallback is missing"
@@ -781,9 +803,18 @@ def test_gap_no_persistent_crash_counter_across_invocations(ft1_source: str, sta
     # Proof there is no SustainedFlapDetector or similar on SidecarState.
     assert "SustainedFlap" not in state_source
     assert "flap_count" not in state_source
-    # The gap is real: the only escalation path is the per-call
-    # exhaustion branch (attempt >= FT1_MAX_RETRIES).
-    assert "attempt as u32 >= FT1_MAX_RETRIES" in ft1_source
+    # The per-call exhaustion path lives in the post-loop branch (the
+    # in-loop ``attempt as u32 >= FT1_MAX_RETRIES`` guard was removed as
+    # dead code — see NF-R19-2 in ft1.rs). Assert the dead guard is GONE
+    # so a future edit that reintroduces it (which would never fire,
+    # since FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES == 5) is caught.
+    assert "attempt as u32 >= FT1_MAX_RETRIES" not in ft1_source, (
+        "The in-loop `attempt as u32 >= FT1_MAX_RETRIES` guard was "
+        "removed as dead code (FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES "
+        "== 5, so the condition is always false). The real escalation "
+        "path is the post-loop `backoff schedule exhausted` branch that "
+        "calls app.restart(). Reintroducing the dead guard is misleading."
+    )
     # Document the gap explicitly — if this test fails in the future,
     # it means a sustained-flap detector was added (good! update the
     # gap docstring at the top of this file).

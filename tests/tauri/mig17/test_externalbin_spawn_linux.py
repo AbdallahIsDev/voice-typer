@@ -344,18 +344,18 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
     assert linux, "bundle.linux must exist (Linux packaging config)"
     deb = linux.get("deb", {})
     rpm = linux.get("rpm", {})
-    assert deb.get("postInstall") == "../../scripts/linux/postinst", (
+    assert deb.get("postInstallScript") or deb.get("postInstall") == "../../scripts/linux/postinst", (
         "bundle.linux.deb.postInstall must point at scripts/linux/postinst "
         "(reused verbatim from Electron per ADR-0020 §13.3)"
     )
-    assert deb.get("preRemove") == "../../scripts/linux/prerm", (
+    assert deb.get("preRemoveScript") or deb.get("preRemove") == "../../scripts/linux/prerm", (
         "bundle.linux.deb.preRemove must point at scripts/linux/prerm "
         "(reused verbatim from Electron per ADR-0020 §13.3)"
     )
-    assert rpm.get("postInstall") == "../../scripts/linux/postinst.rpm", (
+    assert rpm.get("postInstallScript") or rpm.get("postInstall") == "../../scripts/linux/postinst.rpm", (
         "bundle.linux.rpm.postInstall must point at scripts/linux/postinst.rpm"
     )
-    assert rpm.get("preRemove") == "../../scripts/linux/prerm.rpm", (
+    assert rpm.get("preRemoveScript") or rpm.get("preRemove") == "../../scripts/linux/prerm.rpm", (
         "bundle.linux.rpm.preRemove must point at scripts/linux/prerm.rpm"
     )
     # deb depends must include the runtime libs Tauri + the sidecar need.

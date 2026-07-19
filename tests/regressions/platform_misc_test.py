@@ -15,23 +15,15 @@ from __future__ import annotations
 import inspect
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-# ─── Linux test-env shim (RW-8) ──────────────────────────────────────────
-# ``voice_typer.server.crash_handler`` uses ``ctypes.WINFUNCTYPE`` as a
-# decorator at module load time. That attribute only exists on Windows,
-# so importing ``voice_typer.server.app`` (which does
-# ``from voice_typer.server import crash_handler``) raises
-# ``AttributeError`` on Linux. Many tests in this file introspect
-# ``VoiceTyperApp`` source via ``inspect.getsource``; without this
-# shim, those tests would fail non-deterministically depending on
-# whether some earlier test happened to pre-load ``app``. The same
-# pattern is used in ``tests/test_api_doc_accuracy.py:42-57``. This is
-# a *test-only* shim — production code never monkey-patches ctypes.
-if sys.platform != "win32" and "voice_typer.server.crash_handler" not in sys.modules:
-    sys.modules["voice_typer.server.crash_handler"] = MagicMock()
+from unittest.mock import patch
 
 
+# WP-1: the previous Linux test-env shim that aliased
+# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
+# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
+# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
+# decorator behind ``sys.platform == "win32"``, so the module imports
+# cleanly on Linux/macOS without any test-infrastructure shim.
 class TestPlatformUtilsDeadCodeRemoved:
     """PLAT-008.
 

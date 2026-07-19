@@ -103,10 +103,7 @@ class TestRegistration:
                 reg.register("worker-1", t, stop, join_timeout=1.0)
                 reg.register("worker-1", t, stop, join_timeout=2.0)
             # No warning should be emitted — same thread object.
-            warnings = [
-                r for r in caplog.records
-                if r.levelno >= logging.WARNING and "Re-registering" in r.message
-            ]
+            warnings = [r for r in caplog.records if r.levelno >= logging.WARNING and "Re-registering" in r.message]
             assert warnings == [], f"Unexpected re-register warning: {warnings}"
         finally:
             stop.set()
@@ -125,10 +122,7 @@ class TestRegistration:
             with caplog.at_level(logging.WARNING, logger="voice_typer.server.thread_registry"):
                 reg.register("worker-1", t1, stop1, join_timeout=1.0)
                 reg.register("worker-1", t2, stop2, join_timeout=1.0)
-            warnings = [
-                r for r in caplog.records
-                if r.levelno >= logging.WARNING and "Re-registering" in r.message
-            ]
+            warnings = [r for r in caplog.records if r.levelno >= logging.WARNING and "Re-registering" in r.message]
             assert len(warnings) == 1, f"Expected 1 warning, got {len(warnings)}"
             assert "worker-1" in warnings[0].message
         finally:
@@ -227,9 +221,7 @@ class TestShutdownAll:
         reg = ThreadRegistry()
         exits = [threading.Event() for _ in range(3)]
         stops = [threading.Event() for _ in range(3)]
-        threads = [
-            _make_worker(stops[i], on_exit=exits[i]) for i in range(3)
-        ]
+        threads = [_make_worker(stops[i], on_exit=exits[i]) for i in range(3)]
         for i, t in enumerate(threads):
             reg.register(f"worker-{i}", t, stops[i], join_timeout=2.0)
 
@@ -280,9 +272,7 @@ class TestShutdownAll:
 
         # shutdown_all should have returned in ~0.1s (the join timeout),
         # NOT 0.5s (the worker's sleep). Allow some scheduling slack.
-        assert elapsed < 0.4, (
-            f"shutdown_all took {elapsed:.2f}s, expected ~0.1s (the join timeout)"
-        )
+        assert elapsed < 0.4, f"shutdown_all took {elapsed:.2f}s, expected ~0.1s (the join timeout)"
         # The thread is still alive (it's sleeping). It will exit after
         # 0.5s. Wait for it so we don't leak a thread.
         t.join(timeout=2.0)
@@ -302,13 +292,12 @@ class TestShutdownAll:
             reg.shutdown_all()
 
         warnings = [
-            r for r in caplog.records
-            if r.levelno >= logging.WARNING and "stuck-worker" in r.message
-            and "did not exit" in r.message
+            r
+            for r in caplog.records
+            if r.levelno >= logging.WARNING and "stuck-worker" in r.message and "did not exit" in r.message
         ]
         assert len(warnings) == 1, (
-            f"Expected 1 warning for stuck-worker, got {len(warnings)}: "
-            f"{[r.message for r in caplog.records]}"
+            f"Expected 1 warning for stuck-worker, got {len(warnings)}: {[r.message for r in caplog.records]}"
         )
         # The thread is still alive (never_exit=True). It's a daemon, so
         # it won't block process exit, but we need to clean it up for the
@@ -334,18 +323,13 @@ class TestShutdownAll:
             reg.shutdown_all()
 
         # Should NOT have a WARNING (no stop_event was provided).
-        warnings = [
-            r for r in caplog.records
-            if r.levelno >= logging.WARNING and "no-stop-event-worker" in r.message
-        ]
-        assert warnings == [], (
-            f"Expected no warnings for no-stop-event-worker, got: {warnings}"
-        )
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING and "no-stop-event-worker" in r.message]
+        assert warnings == [], f"Expected no warnings for no-stop-event-worker, got: {warnings}"
         # Should have a DEBUG message about the timeout being expected.
         debugs = [
-            r for r in caplog.records
-            if r.levelno == logging.DEBUG and "no-stop-event-worker" in r.message
-            and "no stop_event" in r.message
+            r
+            for r in caplog.records
+            if r.levelno == logging.DEBUG and "no-stop-event-worker" in r.message and "no stop_event" in r.message
         ]
         assert len(debugs) == 1, (
             f"Expected 1 debug message for no-stop-event-worker, got: "
@@ -357,7 +341,14 @@ class TestShutdownAll:
         assert t.is_alive(), "no-stop-event-worker should still be alive"
 
     def test_shutdown_all_skips_join_for_dead_threads(self, caplog):
-        """shutdown_all() doesn't block on already-dead threads."""
+        """shutdown_all() doesn't block on already-dead threads.
+
+        PERF-23: the new bounded-join loop checks ``is_alive()`` before
+        each slice join, so a dead thread is never joined. The log
+        message is "exited cleanly after join" (the new common path
+        for both already-dead and successfully-joined threads) instead
+        of the old "already exited (no join needed)".
+        """
         reg = ThreadRegistry()
         stop = threading.Event()
         exit_event = threading.Event()
@@ -375,18 +366,16 @@ class TestShutdownAll:
             reg.shutdown_all()
         elapsed = time.monotonic() - start
 
-        assert elapsed < 0.5, (
-            f"shutdown_all took {elapsed:.2f}s on a dead thread, expected ~0s"
-        )
-        # Should log that the thread already exited.
+        assert elapsed < 0.5, f"shutdown_all took {elapsed:.2f}s on a dead thread, expected ~0s"
+        # Should log that the thread exited cleanly (the new common
+        # path covers both already-dead and successfully-joined).
         debugs = [
-            r for r in caplog.records
-            if r.levelno == logging.DEBUG and "dead-worker" in r.message
-            and "already exited" in r.message
+            r
+            for r in caplog.records
+            if r.levelno == logging.DEBUG and "dead-worker" in r.message and "exited cleanly" in r.message
         ]
         assert len(debugs) == 1, (
-            f"Expected 'already exited' debug for dead-worker, got: "
-            f"{[r.message for r in caplog.records]}"
+            f"Expected 'exited cleanly' debug for dead-worker, got: {[r.message for r in caplog.records]}"
         )
 
     def test_shutdown_all_continues_after_one_thread_times_out(self):
@@ -411,9 +400,7 @@ class TestShutdownAll:
 
         # shutdown_all should have returned in ~0.1s (A's timeout) + ~0s
         # (B exits immediately). Allow some scheduling slack.
-        assert elapsed < 1.0, (
-            f"shutdown_all took {elapsed:.2f}s, expected ~0.1s"
-        )
+        assert elapsed < 1.0, f"shutdown_all took {elapsed:.2f}s, expected ~0.1s"
         # B should have exited; A should still be alive.
         assert not t_b.is_alive(), "responsive worker should have exited"
         assert exit_b.is_set(), "responsive worker should have set exit event"
@@ -441,9 +428,7 @@ class TestThreadSafety:
             reg.shutdown_all()
 
     @staticmethod
-    def _run_concurrent_ops(
-        reg: ThreadRegistry, errors: list[Exception]
-    ) -> None:
+    def _run_concurrent_ops(reg: ThreadRegistry, errors: list[Exception]) -> None:
         """Run concurrent register/unregister/shutdown ops on ``reg``.
 
         Split out from ``test_concurrent_register_and_shutdown`` so the

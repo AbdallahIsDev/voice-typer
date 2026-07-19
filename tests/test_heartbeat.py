@@ -119,9 +119,7 @@ class TestHeartbeatHandler:
     def test_handler_registers_in_command_registry(self) -> None:
         """The ``heartbeat`` command must be in the dispatch registry."""
         assert "heartbeat" in IPCServer._COMMAND_REGISTRY
-        assert (
-            IPCServer._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"
-        )
+        assert IPCServer._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"
 
     def test_dispatch_routes_heartbeat_to_handler(self, server: IPCServer) -> None:
         """``_dispatch({"type": "heartbeat"})`` invokes the handler.
@@ -146,17 +144,13 @@ class TestHeartbeatHandler:
         repeated calls must overwrite (not accumulate).
         """
         # First heartbeat at t=100.
-        with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=100.0
-        ):
+        with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
         first = server._last_heartbeat_at
         assert first == 100.0
 
         # Second heartbeat at t=105.
-        with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=105.0
-        ):
+        with patch("voice_typer.server.ipc_server.time.monotonic", return_value=105.0):
             server._handle_heartbeat(None, {"id": 2})
         second = server._last_heartbeat_at
         assert second == 105.0
@@ -182,9 +176,7 @@ class TestHeartbeatWatchdog:
 
         # Even if a huge amount of time has passed (simulated), the
         # watchdog must refuse to fire.
-        with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=10_000.0
-        ):
+        with patch("voice_typer.server.ipc_server.time.monotonic", return_value=10_000.0):
             fired = server._check_heartbeat_timeout()
 
         assert fired is False
@@ -197,9 +189,7 @@ class TestHeartbeatWatchdog:
         if we're 0.1s shy of the timeout, we're still inside it.
         """
         # Heartbeat at t=100.
-        with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=100.0
-        ):
+        with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
         # 0.1s before the timeout — still inside the grace period.
@@ -222,9 +212,7 @@ class TestHeartbeatWatchdog:
         path.
         """
         # First heartbeat at t=100.
-        with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=100.0
-        ):
+        with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
         # Simulate that the timeout + 5s has elapsed (clearly past
@@ -245,9 +233,7 @@ class TestHeartbeatWatchdog:
         ``timeout + epsilon``, the watchdog fires.  This guards
         against off-by-one errors in the comparison.
         """
-        with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=100.0
-        ):
+        with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
         # Exactly at the timeout boundary (15.0s later) — strictly
@@ -269,9 +255,7 @@ class TestHeartbeatWatchdog:
         would never exit.  The ``try/except`` around ``app.quit()``
         logs the exception but still returns ``True``.
         """
-        with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=100.0
-        ):
+        with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
         # Make app.quit() raise.
@@ -287,9 +271,7 @@ class TestHeartbeatWatchdog:
         assert fired is True
         server.app.quit.assert_called_once_with()
 
-    def test_does_not_fire_when_app_already_shutting_down(
-        self, server: IPCServer
-    ) -> None:
+    def test_does_not_fire_when_app_already_shutting_down(self, server: IPCServer) -> None:
         """The watchdog should not trigger a redundant quit.
 
         If ``app.quit()`` was already called (e.g. by the tray Quit
@@ -308,9 +290,7 @@ class TestHeartbeatWatchdog:
         # Simulate the app already being in shutdown.
         server.app._shutting_down = True
 
-        with patch(
-            "voice_typer.server.ipc_server.time.monotonic", return_value=100.0
-        ):
+        with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
         with patch(
@@ -354,22 +334,13 @@ class TestHeartbeatThreadLifecycle:
                 if kwargs.get("name") == "heartbeat-watchdog":
                     captured.append(self)
 
-        with patch(
-            "voice_typer.server.ipc_server.threading.Thread", CapturingThread
-        ):
+        with patch("voice_typer.server.ipc_server.threading.Thread", CapturingThread):
             s.start()
 
         try:
-            assert len(captured) == 1, (
-                "start() must spawn exactly one heartbeat-watchdog thread"
-            )
-            assert captured[0].daemon is True, (
-                "heartbeat-watchdog thread MUST be a daemon so it doesn't "
-                "block shutdown"
-            )
-            assert captured[0].is_alive(), (
-                "heartbeat-watchdog thread should be running after start()"
-            )
+            assert len(captured) == 1, "start() must spawn exactly one heartbeat-watchdog thread"
+            assert captured[0].daemon is True, "heartbeat-watchdog thread MUST be a daemon so it doesn't block shutdown"
+            assert captured[0].is_alive(), "heartbeat-watchdog thread should be running after start()"
         finally:
             s.stop()
             # Give the thread a moment to exit (it sleeps on the
@@ -399,9 +370,7 @@ class TestHeartbeatThreadLifecycle:
         assert s._heartbeat_stop_event.is_set()
         # Thread exits within 2 seconds (well under the 5s wait).
         heartbeat_thread.join(timeout=2.0)
-        assert not heartbeat_thread.is_alive(), (
-            "heartbeat-watchdog thread did not exit after stop()"
-        )
+        assert not heartbeat_thread.is_alive(), "heartbeat-watchdog thread did not exit after stop()"
 
     def test_watchdog_loop_calls_check_heartbeat_timeout(self) -> None:
         """The loop body delegates to ``_check_heartbeat_timeout``.
@@ -424,9 +393,10 @@ class TestHeartbeatThreadLifecycle:
             return result
 
         # Patch the interval to 50ms so we don't wait 5s per tick.
-        with patch(
-            "voice_typer.server.ipc_server._HEARTBEAT_INTERVAL_SECONDS", 0.05
-        ), patch.object(s, "_check_heartbeat_timeout", spy):
+        with (
+            patch("voice_typer.server.ipc_server._HEARTBEAT_INTERVAL_SECONDS", 0.05),
+            patch.object(s, "_check_heartbeat_timeout", spy),
+        ):
             s.start()
             # Wait long enough for at least 2 ticks.
             time.sleep(0.2)
@@ -454,9 +424,10 @@ class TestHeartbeatThreadLifecycle:
             check_calls.append(True)
             return True  # simulate timeout fired
 
-        with patch(
-            "voice_typer.server.ipc_server._HEARTBEAT_INTERVAL_SECONDS", 0.05
-        ), patch.object(s, "_check_heartbeat_timeout", always_fires):
+        with (
+            patch("voice_typer.server.ipc_server._HEARTBEAT_INTERVAL_SECONDS", 0.05),
+            patch.object(s, "_check_heartbeat_timeout", always_fires),
+        ):
             s.start()
             # Wait long enough for the first tick to fire.
             time.sleep(0.2)
@@ -487,14 +458,24 @@ class TestHeartbeatThreadLifecycle:
 # ── Integration test: real TCP socketpair ──────────────────────────────
 
 
-def test_heartbeat_over_real_tcp_socket_updates_timestamp() -> None:
+def test_heartbeat_over_real_tcp_socket_updates_timestamp(monkeypatch) -> None:
     """End-to-end: a ``heartbeat`` command sent over TCP updates the timestamp.
 
     Spins up the real ``_handle_tcp_connection`` path with a real
     ``socket.socketpair`` so we exercise the same JSON-line dispatch
     path that production uses.  Electron's ``sendToPython({type:
     "heartbeat"})`` lands here.
+
+    SEC-2 / IPC-10 (2026-07-18): the handler now refuses connections
+    when ``expected_token`` is empty (SEC-2 hardening) and reads the
+    token from the ``VOICE_TYPER_IPC_TOKEN`` env var when the
+    ``expected_token`` parameter is ``None`` (IPC-10 fix).  The test
+    sets the env var and sends a valid auth line before the heartbeat
+    so the handler enters the dispatch loop.
     """
+    _test_token = "heartbeat-test-token-ipc10"
+    monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _test_token)
+
     app = make_fake_app()
     service = make_fake_service()
     server = IPCServer(app, service=service)
@@ -505,13 +486,37 @@ def test_heartbeat_over_real_tcp_socket_updates_timestamp() -> None:
     client_sock, server_sock = socket.socketpair()
 
     # Run the connection handler in a thread — it blocks on readline()
-    # until the client closes.
+    # until the client closes.  Pass the expected token directly (the
+    # handler requires a non-empty expected_token and does not fall back
+    # to the env var when None).
     handler_thread = threading.Thread(
         target=server._handle_tcp_connection,
-        args=(server_sock, ("127.0.0.1", 0), ""),
+        args=(server_sock, ("127.0.0.1", 0), _test_token),
         daemon=True,
     )
     handler_thread.start()
+
+    # Send the auth line first (SEC-2 hardening requires a valid token
+    # before the dispatch loop is entered).
+    client_sock.sendall((json.dumps({"type": "auth", "token": _test_token}) + "\n").encode("utf-8"))
+
+    # Drain the post-auth connect-time events (ERR-017 state_changed
+    # push + any pending flush) so the first response the test reads
+    # is the heartbeat_ack, not the state_changed event.
+    client_sock.settimeout(1.0)
+    _drain_buf = b""
+    try:
+        while True:
+            chunk = client_sock.recv(4096)
+            if not chunk:
+                break
+            _drain_buf += chunk
+            # Stop once we've consumed at least one newline-terminated
+            # line (the state_changed event).
+            if b"\n" in _drain_buf:
+                break
+    except (TimeoutError, OSError):
+        pass
 
     # Send a heartbeat command.  The dispatcher routes it to
     # _handle_heartbeat, which updates _last_heartbeat_at.
@@ -525,9 +530,7 @@ def test_heartbeat_over_real_tcp_socket_updates_timestamp() -> None:
             break
         time.sleep(0.02)
 
-    assert server._last_heartbeat_at is not None, (
-        "heartbeat command over TCP did not update _last_heartbeat_at"
-    )
+    assert server._last_heartbeat_at is not None, "heartbeat command over TCP did not update _last_heartbeat_at"
 
     # Read the response from the client side — should be a
     # heartbeat_ack with id=1.
