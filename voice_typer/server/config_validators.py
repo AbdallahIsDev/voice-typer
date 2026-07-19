@@ -216,6 +216,14 @@ def _make_url_validator(
     work.  This mirrors the request-time enforcement in
     ``voice_typer.server._secrets.require_https`` so a cleartext URL is
     rejected at ``set_config`` time, before it can ever reach config.
+
+    SECRET-1 (MED-M): URLs with embedded credentials (``user:pass@host``)
+    are rejected outright — the user must use the dedicated ``api_key``
+    field instead.  Embedded credentials in URLs are a security
+    anti-pattern: they end up in process lists (``ps aux``), shell
+    history, log files, and browser history.  They also bypass the
+    keyring-backed credential store (``credential_store``) which is the
+    application's single source of truth for secrets.
     """
 
     _loopback_hosts = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -238,6 +246,16 @@ def _make_url_validator(
         host = (parsed.hostname or "").lower()
         if not host:
             return "must include a network location (host)"
+        # SECRET-1 (MED-M): reject URLs with embedded credentials.
+        # ``urlparse`` exposes ``username`` and ``password`` as separate
+        # attributes; if either is non-empty, the URL has an authority
+        # section of the form ``user:pass@host``.  Such URLs leak the
+        # credentials into process listings, log files, and crash dumps,
+        # and they bypass the credential_store (which is the canonical
+        # place for API keys).  Reject the URL and point the user at the
+        # dedicated api_key field.
+        if parsed.username or parsed.password:
+            return "URL must not contain embedded credentials — use the api_key field"
         # NEW-SEC-003: close the defense-in-depth gap — reject cleartext
         # HTTP for non-loopback hosts at config time, not just at call time.
         if require_https and parsed.scheme == "http" and host not in _loopback_hosts:
@@ -363,6 +381,118 @@ def _parse_hotkey_parts(hotkey: str) -> list[str]:
     return list(spec.modifiers) + list(spec.keys)
 
 
+def _check_basic_shape(value: object) -> str | None:
+    """Stage 1: type / length / emptiness guards (shared by all hotkeys)."""
+    if not isinstance(value, str):
+        return f"must be a string, got {type(value).__name__}"
+    if len(value) > 256:
+        return "exceeds maximum length 256"
+    if not value.strip():
+        return "must not be empty"
+    return None
+
+
+def _check_universal_reserved(normalized: str) -> str | None:
+    """Stage 2: OS / common-app shortcuts blocked on EVERY platform.
+
+    Includes window-management shortcuts (Alt+Tab/F4/Esc/Space) and
+    Enter-based combos (Enter, Ctrl+Enter, Shift+Enter) which interfere
+    with typing, form submission, and messaging shortcuts.
+    """
+    if normalized in _UNIVERSAL_RESERVED_HOTKEYS:
+        return "reserved — conflicts with operating system or common app shortcuts"
+    return None
+
+
+def _check_platform_reserved(normalized: str, platform: str) -> str | None:
+    """Stage 3: per-platform OS-reserved shortcuts."""
+    reserved = _RESERVED_HOTKEYS.get(platform, set())
+    for r in reserved:
+        if r == normalized:
+            return f"reserved by operating system ({platform})"
+    return None
+
+
+def _check_single_alphanumeric(parts: list[str]) -> str | None:
+    """Stage 4: reject a standalone single letter/digit (HOTKEY-VALIDATION-002).
+
+    A standalone <a> would trigger dictation every time the user types
+    'a'. Multi-key combos (Alt+Q, Ctrl+V) are NOT affected — they have
+    2+ parts and are checked by the later stages.
+    """
+    if len(parts) == 1:
+        sole = parts[0]
+        if len(sole) == 1 and sole.isalnum():
+            return f"single letters and digits can't be used as hotkeys — '{sole}' would interfere with typing"
+    return None
+
+
+def _check_os_shell_combos(parts: list[str], platform: str) -> str | None:
+    """Stage 5: Win+* / Super+* (Windows shell) and Cmd+<letter> (macOS).
+
+    The Win/Super blanket block applies only on Windows (where the Win
+    key is heavily reserved by the OS shell). On Linux, Super combos are
+    deferred to the per-platform reserved list. Cmd+<letter> is blocked
+    on macOS but Cmd+<F-key>/<special-key> are allowed.
+    """
+    has_win = any(p in ("win", "super") for p in parts)
+    has_cmd = any(p in ("cmd", "cmd_l", "cmd_r") for p in parts)
+    if has_win and platform == "win32":
+        return "Windows key combinations are reserved by the OS shell"
+    if has_cmd and platform == "darwin" and len(parts) > 1:
+        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+        for nm in non_mods:
+            if len(nm) == 1 and nm.isalpha():
+                return f"Cmd+{nm.upper()} is reserved by macOS / common apps"
+    return None
+
+
+def _check_alt_shift(parts: list[str], platform: str) -> str | None:
+    """Stage 6: Alt+Shift block (Windows language switching)."""
+    if platform == "win32":
+        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+        has_alt = any(p.startswith("alt") for p in parts)
+        has_shift = any(p.startswith("shift") for p in parts)
+        if has_alt and has_shift and not non_mods:
+            return "Alt+Shift is reserved by Windows for language switching"
+    return None
+
+
+def _check_ctrl_letter(parts: list[str]) -> str | None:
+    """Stage 7: Ctrl+<common-letter> block (Copy/Paste/Undo/Save/etc.).
+
+    Only applies to PURE Ctrl+<letter> — if another modifier is present
+    (e.g. Ctrl+Alt+U), the combo is allowed because it doesn't conflict
+    with the common app shortcuts.
+    """
+    has_ctrl = any(p.startswith("ctrl") for p in parts)
+    if has_ctrl:
+        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+        modifiers_non_ctrl = [p for p in parts if p in _HOTKEY_MODIFIERS and not p.startswith("ctrl")]
+        if not modifiers_non_ctrl:
+            for nm in non_mods:
+                if nm in _BLOCKED_CTRL_LETTERS:
+                    return f"Ctrl+{nm.upper()} is a reserved application shortcut"
+    return None
+
+
+def _check_shift_letter(parts: list[str]) -> str | None:
+    """Stage 8: Shift+<letter> block (interferes with capitalization).
+
+    Only applies to PURE Shift+<letter> — if another modifier is present,
+    the combo is allowed (e.g. Ctrl+Shift+Z = redo in many apps).
+    """
+    has_shift = any(p.startswith("shift") for p in parts)
+    if has_shift:
+        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+        modifiers_non_shift = [p for p in parts if p in _HOTKEY_MODIFIERS and not p.startswith("shift")]
+        if not modifiers_non_shift:
+            for nm in non_mods:
+                if len(nm) == 1 and (nm.isalpha() or nm.isdigit()):
+                    return f"Shift+{nm.upper()} interferes with text capitalization or symbol input"
+    return None
+
+
 def _validate_hotkey(value: object) -> str | None:
     """Validate a hotkey string against the reserved-shortcut denylist.
 
@@ -373,103 +503,33 @@ def _validate_hotkey(value: object) -> str | None:
     (``_make_str_validator(max_len=256)``) which accepted OS-reserved
     shortcuts like ``<alt>+<tab>`` and conflict-prone combos like
     ``<ctrl>+<c>``.
+
+    ARCH-14: the 8 validation stages below are extracted into small
+    ``_check_*`` helpers so the orchestrator stays readable. Each helper
+    returns an error string or ``None``; the first non-``None`` wins,
+    preserving the original short-circuit ordering exactly.
     """
-    if not isinstance(value, str):
-        return f"must be a string, got {type(value).__name__}"
-    if len(value) > 256:
-        return "exceeds maximum length 256"
-    if not value.strip():
-        return "must not be empty"
+    if (err := _check_basic_shape(value)) is not None:
+        return err
 
     parts = _parse_hotkey_parts(value)
     if not parts:
         return "hotkey has no keys"
 
-    # Check the universal reserved denylist (applies to all platforms).
-    # Includes window-management shortcuts (Alt+Tab/F4/Esc/Space) and
-    # Enter-based combos (Enter, Ctrl+Enter, Shift+Enter) which
-    # interfere with typing, form submission, and messaging shortcuts.
     normalized = value.lower()
-    if normalized in _UNIVERSAL_RESERVED_HOTKEYS:
-        return "reserved — conflicts with operating system or common app shortcuts"
 
-    # Check the per-platform denylist.
-    platform = _platform_key()
-    reserved = _RESERVED_HOTKEYS.get(platform, set())
-    for r in reserved:
-        if r == normalized:
-            return f"reserved by operating system ({platform})"
-
-    # HOTKEY-VALIDATION-002 (Task 2.2.5): single letter/digit rejection.
-    # The prior fix (HOTKEY-FIX-002) added letters and digits to the
-    # frontend KEY_CODE_TO_PYNPUT table so that combos like Alt+Q parse
-    # correctly, but forgot to add a validation rule preventing single
-    # letters/digits from being assigned as standalone hotkeys. A
-    # standalone <a> would trigger dictation every time the user types
-    # 'a' — clearly unusable. Reject any single-part hotkey that is a
-    # single alphanumeric character. Multi-key combos (Alt+Q, Ctrl+V)
-    # are NOT affected — they have 2+ parts and are checked by the
-    # rules below.
-    if len(parts) == 1:
-        sole = parts[0]
-        if len(sole) == 1 and sole.isalnum():
-            return f"single letters and digits can't be used as hotkeys — '{sole}' would interfere with typing"
-
-    # Win+* / Super+* / Cmd+* blanket blocks for system shell shortcuts.
-    # HOTKEY-VALIDATION-002 (Task 2.2.5): the prior code blanket-blocked
-    # Super+anything on Linux, which incorrectly rejected <super>+<space>
-    # (a combo most Linux desktop environments allow reassigning). The
-    # blanket block now applies only on Windows (where the Win key is
-    # heavily reserved by the OS shell — Win+E, Win+L, Win+D, etc.). On
-    # Linux, Super combos are checked against the per-platform reserved
-    # list (_RESERVED_HOTKEYS["linux"] = Super+L, Super+D, Super+Tab) —
-    # all other Super combos are allowed.
-    has_win = any(p in ("win", "super") for p in parts)
-    has_cmd = any(p in ("cmd", "cmd_l", "cmd_r") for p in parts)
-    if has_win and platform == "win32":
-        return "Windows key combinations are reserved by the OS shell"
-    if has_cmd and platform == "darwin" and len(parts) > 1:
-        # On macOS, Cmd+<letter> is heavily used by the system and apps.
-        # Block Cmd+<letter> but allow Cmd+<F-key> and Cmd+<special-key>.
-        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
-        for nm in non_mods:
-            if len(nm) == 1 and nm.isalpha():
-                return f"Cmd+{nm.upper()} is reserved by macOS / common apps"
-
-    # Alt+Shift blanket block (Windows language switching).
-    if platform == "win32":
-        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
-        has_alt = any(p.startswith("alt") for p in parts)
-        has_shift = any(p.startswith("shift") for p in parts)
-        if has_alt and has_shift and not non_mods:
-            return "Alt+Shift is reserved by Windows for language switching"
-
-    # Ctrl+<common-letter> blanket block (Copy/Paste/Undo/Save/etc.).
-    # Only applies to PURE Ctrl+<letter> — if another modifier is present
-    # (e.g. Ctrl+Alt+U), the combo is allowed because it doesn't conflict
-    # with the common app shortcuts.
-    has_ctrl = any(p.startswith("ctrl") for p in parts)
-    if has_ctrl:
-        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
-        modifiers_non_ctrl = [p for p in parts if p in _HOTKEY_MODIFIERS and not p.startswith("ctrl")]
-        if not modifiers_non_ctrl:
-            # Pure Ctrl+<key> — apply the letter block.
-            for nm in non_mods:
-                if nm in _BLOCKED_CTRL_LETTERS:
-                    return f"Ctrl+{nm.upper()} is a reserved application shortcut"
-
-    # Shift+<letter> blanket block (interferes with capitalization).
-    # Only applies to PURE Shift+<letter> — if another modifier is present,
-    # the combo is allowed (e.g. Ctrl+Shift+Z = redo in many apps).
-    has_shift = any(p.startswith("shift") for p in parts)
-    if has_shift:
-        non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
-        modifiers_non_shift = [p for p in parts if p in _HOTKEY_MODIFIERS and not p.startswith("shift")]
-        if not modifiers_non_shift:
-            # Pure Shift+<key> — apply the letter block.
-            for nm in non_mods:
-                if len(nm) == 1 and (nm.isalpha() or nm.isdigit()):
-                    return f"Shift+{nm.upper()} interferes with text capitalization or symbol input"
+    # Stages run in priority order; the first rejection wins.
+    for check in (
+        lambda: _check_universal_reserved(normalized),
+        lambda: _check_platform_reserved(normalized, _platform_key()),
+        lambda: _check_single_alphanumeric(parts),
+        lambda: _check_os_shell_combos(parts, _platform_key()),
+        lambda: _check_alt_shift(parts, _platform_key()),
+        lambda: _check_ctrl_letter(parts),
+        lambda: _check_shift_letter(parts),
+    ):
+        if (err := check()) is not None:
+            return err
 
     return None
 
@@ -595,6 +655,9 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "bubble_behavior": (str, _make_enum_validator({"show_on_record", "always_visible"})),
     "bubble_draggable": (bool, _bool_validator),
     "bubble_show_on_startup": (bool, _bool_validator),
+    # UX-10: mic button + click-to-toggle for the always-visible bubble.
+    "bubble_click_to_toggle": (bool, _bool_validator),
+    "bubble_mic_button": (bool, _bool_validator),
     # ── History database ──────────────────────────────────────────────
     "history_retention_days": (int, _make_int_validator(lo=0, hi=36500)),
     "history_retention_count": (int, _make_int_validator(lo=0, hi=1_000_000)),
@@ -819,4 +882,17 @@ __all__ = [
     # Public API
     "IPC_CONFIG_ALLOWLIST",
     "validate_config_update",
+    # ARCH-14: extracted hotkey validation stage helpers
+    "_check_hotkey_type",
+    "_check_hotkey_length",
+    "_check_hotkey_not_empty",
+    "_check_hotkey_has_parts",
+    "_check_universal_reserved_shortcut",
+    "_check_per_platform_shortcut",
+    "_check_single_alphanumeric",
+    "_check_win_key_on_windows",
+    "_check_cmd_letter_on_macos",
+    "_check_alt_shift_on_windows",
+    "_check_ctrl_letter",
+    "_check_shift_letter",
 ]

@@ -28,6 +28,30 @@ def is_linux() -> bool:
     return sys.platform.startswith("linux")
 
 
+def is_wayland_session() -> bool:
+    """Return True if running under a Wayland session (Linux/macOS only).
+
+    NF-R9-4: replaces four inconsistent Wayland-session detectors that
+    were scattered across ``tray.py``, ``clipboard_snapshot.py`` and
+    ``startup_sequence.py``. The case-insensitive ``XDG_SESSION_TYPE``
+    check matches ``wayland``, ``Wayland`` and ``WAYLAND``. The
+    ``WAYLAND_DISPLAY`` fallback catches compositors that set the env
+    var without setting ``XDG_SESSION_TYPE`` (e.g. some wlroots setups
+    launched from a TTY).
+
+    Returns ``False`` on Windows (which can never be Wayland) and on
+    non-Linux/macOS platforms where the Wayland protocol isn't a thing.
+    """
+    if sys.platform not in ("linux", "darwin"):
+        return False  # Windows can't be Wayland
+    import os
+
+    xdg_session = os.environ.get("XDG_SESSION_TYPE", "")
+    if xdg_session.lower() == "wayland":
+        return True
+    return bool(os.environ.get("WAYLAND_DISPLAY"))
+
+
 def platform_name() -> str:
     """Return a human-readable platform name."""
     if is_windows():
@@ -90,21 +114,15 @@ def _set_windows_process_metadata(app_name: str) -> None:
         #    (``VoiceTyper`` in index.ts) for consistency.
         try:
             shell32 = ctypes.windll.shell32
-            shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [
-                wintypes.LPCWSTR
-            ]
+            shell32.SetCurrentProcessExplicitAppUserModelID.argtypes = [wintypes.LPCWSTR]
             # TASK-14: ``wintypes.HRESULT`` is only present in the
             # typeshed stub when ``sys.version_info >= (3, 14)``.
-            shell32.SetCurrentProcessExplicitAppUserModelID.restype = getattr(
-                wintypes, "HRESULT", wintypes.LONG
-            )
+            shell32.SetCurrentProcessExplicitAppUserModelID.restype = getattr(wintypes, "HRESULT", wintypes.LONG)
             # BRAND-FIX-001: use just the app name (no "abdallahisdev." prefix)
             # so Windows notifications show "VoiceTyper" as the title instead
             # of "abdallahisdev.VoiceTyper".  Matches the Electron side's
             # ``app.setAppUserModelId("VoiceTyper")`` in index.ts.
-            shell32.SetCurrentProcessExplicitAppUserModelID(
-                app_name.replace(' ', '')
-            )
+            shell32.SetCurrentProcessExplicitAppUserModelID(app_name.replace(" ", ""))
         except Exception:
             pass  # Best-effort — requires Windows 7+ with shell32
 

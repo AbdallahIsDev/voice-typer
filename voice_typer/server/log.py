@@ -147,6 +147,27 @@ class _SessionFilter(logging.Filter):
         return True
 
 
+class _BubbleLevelExclusionFilter(logging.Filter):
+    """ADR-0020 §11: keep ``bubble_level`` records out of the file log.
+
+    The ``bubble_level`` event is a high-frequency (~60 Hz, coalesced
+    to ≤30 Hz on the Tauri host per §9) RMS/peak push used only for
+    the live waveform bubble. It carries no diagnostic value in the
+    rotating file and would dominate the on-disk log. The console/stderr
+    handler is unaffected — only the file handler attaches this filter.
+
+    The marker string is the exact event-type token used by the
+    ``bubble_level`` push and by ``IPCServer._send``'s high-frequency
+    drop log, so any record mentioning it is excluded from the file.
+    """
+
+    _MARKER = "bubble_level"
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return self._MARKER not in msg
+
+
 # ── Shared colour tables ──────────────────────────────────────────────
 
 #: ANSI 256-colour codes keyed by topic label.
@@ -519,11 +540,21 @@ def setup_logging(
     # in the log file.
     handler = logging.handlers.RotatingFileHandler(
         log_file,
-        maxBytes=1_000_000,
-        backupCount=2,
+        # ADR-0020 §11: 5 MiB per file, keep 5 backups (was 1 MiB × 2).
+        maxBytes=5 * 1024 * 1024,
+        backupCount=5,
         encoding="utf-8",
         errors="backslashreplace",
     )
+    # ADR-0020 §11: keep high-frequency ``bubble_level`` events out of
+    # the rotating file log. They are ~60 Hz RMS/peak pushes (ADR-0020
+    # §9 coalesces to ≤30 Hz on the host) and carry no diagnostic
+    # value in the file — they only exist for the live waveform bubble.
+    # The console/stderr path is unchanged. The filter drops any record
+    # whose message mentions "bubble_level" (the exact marker used by
+    # IPCServer._send's high-frequency drop log and the bubble event
+    # type), so the file stays small and readable.
+    handler.addFilter(_BubbleLevelExclusionFilter())
     handler.setFormatter(_file_formatter)
 
     # PII / API-key redaction — imported lazily to avoid circular imports

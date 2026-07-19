@@ -126,6 +126,15 @@ class VadProcessor:
         self._consecutive_speech_frames: int = 0
         self._consecutive_silence_frames: int = 0
 
+        # AUDIO-5: grey-zone hold bounding. Without this, a long run of
+        # grey-zone chunks (between speech and silence thresholds) pins
+        # both counters indefinitely — soft-speech tails can stall the
+        # silence timer. After ``_grey_zone_hold_limit`` consecutive
+        # grey-zone frames, decay both counters by 1 so the state machine
+        # can transition on the next clear frame.
+        self._consecutive_grey_frames: int = 0
+        self._grey_zone_hold_limit: int = 30  # ~1s at 30 Hz; bound soft-speech stalls
+
         # RMS-dB thresholds (overridden by auto-calibration)
         self._speech_threshold_db: float = DEFAULT_VAD_SPEECH_THRESHOLD_DB
         self._silence_threshold_db: float = DEFAULT_VAD_SILENCE_THRESHOLD_DB
@@ -170,6 +179,11 @@ class VadProcessor:
         self._calibration_duration: float = DEFAULT_VAD_CALIBRATION_DURATION
         self._calibration_rms_values: list[float] = []
         self._calibrated: bool = False
+        # AUDIO-4: explicit, inspectable calibration status so a no-op skip
+        # (Silero active / VAD disabled / no samples) is never silent.
+        # Values: "pending" | "calibrated" | "skipped_silero" |
+        # "skipped_disabled" | "skipped_no_samples".
+        self._calibration_status: str = "pending"
 
         # VAD-GATE (Task 4): gate ALL VAD processing on whether any audio
         # enhancement is active. See ``vad_enabled`` property below for
@@ -219,19 +233,39 @@ class VadProcessor:
         if is_loud:
             self._consecutive_speech_frames += 1
             self._consecutive_silence_frames = 0
+            # AUDIO-5: a clear loud frame breaks the grey-zone run.
+            self._consecutive_grey_frames = 0
         elif is_quiet:
             self._consecutive_silence_frames += 1
             self._consecutive_speech_frames = 0
+            # AUDIO-5: a clear quiet frame breaks the grey-zone run.
+            self._consecutive_grey_frames = 0
         else:
-            # AUDIO-013: Grey zone (between speech and silence thresholds).
-            # Standard VAD hysteresis: leave counters unchanged so a long
-            # run of grey-zone chunks doesn't discard accumulated frame
-            # history. Resetting both counters here would cause spurious
-            # state-machine stalls when audio hovers near the threshold
-            # boundary (e.g. low-volume speech or breathy silence).
-            # Pre-fix this block reset both counters, contradicting the
-            # comment — the code now matches the comment.
-            pass
+            # Grey zone (between speech and silence thresholds).
+            # AUDIO-5: bound the grey-zone hold so a soft-speech tail can't
+            # lock the state machine in SPEECH and starve the silence timer.
+            self._consecutive_grey_frames += 1
+            if self._consecutive_grey_frames >= self._grey_zone_hold_limit:
+                if self._state == VadState.SPEECH:
+                    # Sustained grey after speech => the soft tail has ended.
+                    # Drop the stale speech history and seed the silence
+                    # counter so the SPEECH->SILENCE transition below fires.
+                    # Without this, a soft phrase ending (audio hovering in
+                    # the grey zone) keeps returning SPEECH, which holds the
+                    # recorder's silence timer at 0 — so auto-stop never
+                    # triggers and the tail is held/cut off. Bounding the hold
+                    # to ~1s lets the silence timer start advancing ~1s after
+                    # speech actually ends.
+                    self._consecutive_speech_frames = 0
+                    self._consecutive_silence_frames = self._hangover_frames
+                else:
+                    # Non-speech states: decay both counters by 1 so stale
+                    # history can't pin the machine. Bounds the hold to ~1s.
+                    if self._consecutive_speech_frames > 0:
+                        self._consecutive_speech_frames -= 1
+                    if self._consecutive_silence_frames > 0:
+                        self._consecutive_silence_frames -= 1
+                self._consecutive_grey_frames = 0  # reset so decay is periodic
 
         # State transitions with hysteresis
         old_state = self._state
@@ -286,8 +320,23 @@ class VadProcessor:
         # prevents the calibration work and the RMS-value list growth
         # that would otherwise happen on every chunk in raw mode.
         if not self.vad_enabled:
+            self._calibration_status = "skipped_disabled"
             return
         if self._calibrated:
+            return
+
+        # AUDIO-4: when Silero VAD is the active backend, dB-threshold
+        # calibration has no effect (update_frame uses probability thresholds).
+        # Skip the RMS collection and surface a one-time INFO log so the
+        # operator knows calibration is intentionally not running.
+        if self._use_silero_vad and self._silero_available:
+            self._calibration_status = "skipped_silero"
+            self._calibrated = True  # prevent re-entry
+            log.info(
+                "[VAD] auto-calibration skipped — Silero VAD active "
+                "(uses probability thresholds, not RMS-dB) "
+                "[status=skipped_silero]"
+            )
             return
 
         self._calibration_rms_values.append(chunk_rms)
@@ -296,6 +345,7 @@ class VadProcessor:
             return  # still collecting samples
 
         if not self._calibration_rms_values:
+            self._calibration_status = "skipped_no_samples"
             self._calibrated = True
             return
 
@@ -308,6 +358,7 @@ class VadProcessor:
         self._silence_threshold_db = noise_db + 6.0  # 6 dB above noise → silence
         self._speech_threshold_db = noise_db + 18.0  # 18 dB above noise → speech
         self._calibrated = True
+        self._calibration_status = "calibrated"
 
         # VAD auto-calibration runs every recording start (the dB thresholds
         # are a Silero-fallback used for silence/speech detection). Log the
@@ -315,7 +366,7 @@ class VadProcessor:
         # thresholds from the default app logs — this is genuine per-session
         # operational state (logged once per session, not per audio frame).
         log.info(
-            "[VAD] auto-calibrated: noise_floor=%.1f dBFS, silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS",
+            "[VAD] auto-calibrated: noise_floor=%.1f dBFS, silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS [status=calibrated]",
             noise_db,
             self._silence_threshold_db,
             self._speech_threshold_db,
@@ -331,10 +382,13 @@ class VadProcessor:
         self._state = VadState.UNKNOWN
         self._consecutive_speech_frames = 0
         self._consecutive_silence_frames = 0
+        # AUDIO-5: reset grey-zone hold counter on session reset.
+        self._consecutive_grey_frames = 0
         self._speech_threshold_db = DEFAULT_VAD_SPEECH_THRESHOLD_DB
         self._silence_threshold_db = DEFAULT_VAD_SILENCE_THRESHOLD_DB
         self._calibration_rms_values = []
         self._calibrated = False
+        self._calibration_status = "pending"
 
     # ── VAD-enabled cache (VAD-GATE Task 4 + PERF-02) ────────────────
 
@@ -544,6 +598,23 @@ class VadProcessor:
     @calibrated.setter
     def calibrated(self, value: bool) -> None:
         self._calibrated = value
+
+    @property
+    def calibration_status(self) -> str:
+        """Explicit, inspectable reason for the current calibration state.
+
+        AUDIO-4: makes a no-op skip (Silero active / VAD disabled / no
+        samples) explicit rather than a silent early-return. Values:
+        ``"pending"`` (not yet run), ``"calibrated"`` (RMS-dB thresholds
+        computed), ``"skipped_silero"`` (Silero active — uses probability
+        thresholds), ``"skipped_disabled"`` (VAD off), ``skipped_no_samples``
+        (calibration window elapsed with no RMS samples).
+        """
+        return self._calibration_status
+
+    @calibration_status.setter
+    def calibration_status(self, value: str) -> None:
+        self._calibration_status = value
 
     @property
     def vad_enabled_cached(self) -> bool | None:

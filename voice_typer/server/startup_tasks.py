@@ -258,21 +258,30 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
         except Exception:
             return False  # fail safe (assume not granted)
 
-    def _pulse_loop() -> None:
+    def _pulse_loop(stop_event: threading.Event) -> None:
         # PERF-FIX-2: allocate ONE Event for the lifetime of the pulse
         # thread and reuse it. The previous code called
         # ``threading.Event().wait(1.0)`` in a 60-iteration loop, which
         # allocated a fresh Event object (and its underlying condition
         # variable + lock) every second — ~3.6k allocations/hour per
         # pulse thread.
+        #
+        # PERF-25: the loop now also watches ``stop_event`` (registered
+        # with ``app._thread_registry``) so ``shutdown_all()`` can
+        # signal an early exit instead of waiting up to 60s for the
+        # next ``app._shutting_down`` poll.
         sleep_event = threading.Event()
         last_state = initial_state
         while not app._shutting_down:
             for _ in range(60):
-                if app._shutting_down:
+                if app._shutting_down or stop_event.is_set():
                     return
-                sleep_event.wait(1.0)
-            if app._shutting_down:
+                # PERF-25: wait on the registry-provided stop_event
+                # (1s slices) so shutdown signals are picked up within
+                # ~1s instead of up to 60s.
+                if stop_event.wait(1.0):
+                    return
+            if app._shutting_down or stop_event.is_set():
                 return
             current = _check_accessibility()
             if current != last_state:
@@ -293,8 +302,29 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
                         )
                 last_state = current
 
-    t = threading.Thread(target=_pulse_loop, daemon=True, name="A11yPulse")
+    # PERF-25: dedicated stop_event so ``app._thread_registry`` can
+    # signal the pulse thread to exit during ``shutdown_all()``. The
+    # thread is also still gated on ``app._shutting_down`` for
+    # backward compat with any code path that doesn't go through the
+    # registry.
+    stop_event = threading.Event()
+    t = threading.Thread(target=_pulse_loop, args=(stop_event,), daemon=True, name="A11yPulse")
     # RACE-008: daemon=True is acceptable — the pulse only reads
-    # permission state, no critical cleanup. On shutdown, the thread
-    # exits within 1 second.
+    # permission state, no critical cleanup. With the stop_event +
+    # registry, shutdown is signalled within ~1s.
     t.start()
+    # PERF-25: register with the central ThreadRegistry so
+    # ``shutdown_all()`` signals + joins this thread. join_timeout=2.0
+    # matches the original "exits within 1 second" contract with a
+    # safety margin.
+    registry = getattr(app, "_thread_registry", None)
+    if registry is not None:
+        try:
+            registry.register(
+                name="A11yPulse",
+                thread=t,
+                stop_event=stop_event,
+                join_timeout=2.0,
+            )
+        except Exception:
+            log.debug("[STARTUP] could not register A11yPulse with ThreadRegistry", exc_info=True)

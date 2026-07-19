@@ -110,6 +110,27 @@ class ShutdownController:
 
     def __init__(self, app: VoiceTyperApp) -> None:
         self._app = app
+        # MED-PPP / XCUT-4: POSIX signal handlers must be
+        # async-signal-safe — i.e. they may only call a small set of
+        # reentrant functions (``write``, ``_exit``, ``sigaction``-style
+        # flag setters, ``sem_post``, etc.). The previous handler did
+        # ``log.info(...)`` (acquires the logging lock),
+        # ``signal.Signals(signum).name`` (does a dict lookup; mostly
+        # safe but unnecessary), and ``threading.Thread(...).start()``
+        # (acquires the import lock + allocates). If a signal arrived
+        # while the main thread held the logging lock, the handler
+        # deadlocked.
+        #
+        # The fix: the signal handler now ONLY calls
+        # ``Event.set()`` (async-signal-safe in CPython — it's a thin
+        # wrapper around ``PyThread_acquire_lock`` with a non-blocking
+        # flag and never blocks). A watcher thread (started lazily in
+        # ``_install_signal_handlers``) polls the event and performs
+        # the unsafe work (logging + ``threading.Thread(target=quit)``)
+        # outside the signal context.
+        self._shutdown_signal_event: threading.Event = threading.Event()
+        self._shutdown_signum: int | None = None
+        self._signal_watcher_started = False
 
     # ─── Shared cleanup body ───────────────────────────────────────────
 
@@ -210,6 +231,24 @@ class ShutdownController:
                 app.recorder.shutdown_mic_watcher()
         except Exception as e:
             log.debug("[SHUTDOWN] mic watcher shutdown failed: %s", e)
+
+        # MED-NNN / XCUT-2: the level_monitor module owns its own
+        # PortAudio InputStream + worker thread as module-level globals
+        # that are NOT registered with ``app._thread_registry`` (they
+        # predate the registry and were never wired into it). Without
+        # this call the stream + worker leak across restart_app() and
+        # survive until the OS tears the process down. Best-effort —
+        # stop_monitoring() is itself idempotent (it short-circuits
+        # when ``_monitor_active`` is already False).
+        try:
+            from voice_typer.server import level_monitor
+
+            level_monitor.stop_monitoring()
+        except Exception:
+            log.warning(
+                "[SHUTDOWN] level_monitor.stop_monitoring failed",
+                exc_info=True,
+            )
 
         # Restore volume if we were ducked when the app quit.
         # Without this, a quit-during-recording leaves volume stuck low.
@@ -534,21 +573,80 @@ class ShutdownController:
         installs handlers that trigger quit() on a separate thread
         to avoid deadlock when the main thread is inside the signal
         handler.
+
+        MED-PPP / XCUT-4: the handler body itself is now
+        async-signal-safe — it only calls ``Event.set()`` (a thin
+        wrapper around ``PyThread_acquire_lock(NOWAIT_LOCK)`` which
+        is reentrant and never blocks). A long-lived watcher thread
+        (started lazily here) wakes on the event and performs the
+        unsafe work (logging + ``threading.Thread(target=quit)``)
+        outside the signal context. This eliminates the deadlock
+        risk if the signal fires while the main thread holds the
+        logging lock.
         """
 
+        # Start the watcher daemon once. ``_signal_watcher_started`` is
+        # set BEFORE the thread is created so a signal arriving during
+        # ``Thread.__init__`` (which acquires the import lock) won't
+        # race us into starting a second watcher.
+        if not self._signal_watcher_started:
+            self._signal_watcher_started = True
+            threading.Thread(
+                target=self._signal_watcher_loop,
+                name="shutdown-signal-watcher",
+                daemon=True,
+            ).start()
+
         def _signal_handler(signum, frame):
-            sig_name = signal.Signals(signum).name
-            log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
-            # Run quit on a separate thread to avoid deadlock.
-            # RACE-016: daemon=True is acceptable because quit() is
-            # idempotent and the atexit handler covers critical cleanup.
-            threading.Thread(target=self.quit, daemon=True).start()
+            # Async-signal-safe: only record the signum and set the
+            # event. ``Event.set()`` is a thin wrapper around a
+            # non-blocking lock acquire in CPython and is safe to
+            # call from a signal handler. ``int`` assignment is
+            # atomic under the GIL. Everything else (logging,
+            # thread creation) is deferred to ``_signal_watcher_loop``
+            # which runs in a normal thread context.
+            self._shutdown_signum = signum
+            self._shutdown_signal_event.set()
 
         for sig in (signal.SIGINT, signal.SIGTERM):
             with contextlib.suppress(OSError, ValueError):
                 # SIGTERM not available on Windows; signal.signal can
                 # raise if not in the main thread
                 signal.signal(sig, _signal_handler)
+
+    def _signal_watcher_loop(self) -> None:
+        """Watcher thread for the POSIX signal handlers.
+
+        MED-PPP / XCUT-4: polls ``_shutdown_signal_event`` (1s
+        timeout) and, when set, performs the unsafe work that the
+        signal handler itself must not do — logging the signal name
+        and spawning the quit() worker thread. Runs as a daemon so
+        it never blocks process exit; ``quit()`` is idempotent so a
+        duplicate signal that re-triggers the watcher is harmless.
+        """
+        # Block indefinitely until the event is set. ``wait(timeout=1)``
+        # (rather than ``wait()`` with no timeout) keeps the thread
+        # responsive to interpreter shutdown on platforms where the
+        # underlying lock isn't released automatically — a one-second
+        # poll loop is cheap and matches the convention used by the
+        # other daemon watchers in this codebase.
+        while not self._shutdown_signal_event.wait(timeout=1.0):
+            pass
+        # Outside the signal context — safe to use logging and threading.
+        signum = self._shutdown_signum
+        try:
+            sig_name = signal.Signals(signum).name if signum is not None else "UNKNOWN"
+            log.info("[SIGNAL] %s received, shutting down gracefully", sig_name)
+        except Exception:
+            # Never let a logging failure here prevent shutdown —
+            # the signal was delivered and we must still call quit().
+            pass
+        # RACE-016: daemon=True is acceptable because quit() is
+        # idempotent and the atexit handler covers critical cleanup.
+        try:
+            threading.Thread(target=self.quit, daemon=True).start()
+        except Exception:
+            log.exception("[SIGNAL] failed to spawn quit() worker thread")
 
     def _install_win32_console_handler(self):
         """On Windows, install a console control handler to survive console closure.

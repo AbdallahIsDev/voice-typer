@@ -117,6 +117,15 @@ class ModelManager:
         # before any thread can call ``active_transcriber``.
         self._lazy_init_lock = threading.Lock()
 
+        # HIGH-20 / MODEL-2: reentrant lock guarding the entire body of
+        # ``change_model`` so two concurrent calls cannot both unload +
+        # re-register + reload the same backend (which previously left
+        # the registry in an inconsistent state with two engines
+        # constructed for the same name).  Reentrant so ``apply_pending_model_change``
+        # can call ``change_model`` while already holding the lock if a
+        # caller further up the stack acquired it.
+        self._model_change_lock = threading.RLock()
+
     # ── Registry access ────────────────────────────────────────────────
 
     @property
@@ -281,6 +290,18 @@ class ModelManager:
             success = self._registry.load_with_fallback(progress_callback=on_progress)
 
             if success:
+                # HIGH-19 / MODEL-1: PERF-015 LRU eviction — touch the
+                # freshly-loaded backend so it's tracked, then evict the
+                # LRU model if more than _MAX_LOADED_MODELS are now loaded.
+                # Guarded so a tracking failure doesn't break the load.
+                try:
+                    self.touch_model(self._registry.active_name)
+                    self._evict_lru_model()
+                except Exception:
+                    log.warning(
+                        "[PERF-015] LRU tracking failed (non-fatal)",
+                        exc_info=True,
+                    )
                 active = self._registry.get_active()
                 name = self._registry.active_name
                 if name == "whisper" and active is not None:
@@ -326,6 +347,17 @@ class ModelManager:
         """
         self._app.config.model_size = "tiny.en"
         self._app.config.asr_backend = "whisper"
+        # HIGH-21 / MODEL-3: persist the fallback so the next boot
+        # doesn't re-try the failed backend and repeat the failure
+        # loop.  Previously the config mutation was in-memory only —
+        # if the app crashed after fallback, the next boot read the
+        # original (failed) backend from disk and re-entered the
+        # failure loop on every boot.  Mirrors the persist pattern in
+        # ``change_model`` (line 557).
+        try:
+            self._app.config.save()
+        except Exception:
+            log.warning("failed to persist fallback config", exc_info=True)
         existing = self._registry.get("whisper")
         if existing is None:
             self._registry.create(
@@ -359,6 +391,18 @@ class ModelManager:
 
         success = self._registry.load_with_fallback(progress_callback=on_progress)
         if success:
+            # HIGH-19 / MODEL-1: PERF-015 LRU eviction — touch the
+            # freshly-loaded backend so it's tracked, then evict the
+            # LRU model if more than _MAX_LOADED_MODELS are now loaded.
+            # Guarded so a tracking failure doesn't break the load.
+            try:
+                self.touch_model(self._registry.active_name)
+                self._evict_lru_model()
+            except Exception:
+                log.warning(
+                    "[PERF-015] LRU tracking failed (non-fatal)",
+                    exc_info=True,
+                )
             active = self._registry.get_active()
             self._app.tray.set_state(
                 AppState.IDLE,
@@ -481,6 +525,18 @@ class ModelManager:
 
             success = self._registry.load_with_fallback(progress_callback=on_progress)
             if success:
+                # HIGH-19 / MODEL-1: PERF-015 LRU eviction — touch the
+                # freshly-loaded backend so it's tracked, then evict the
+                # LRU model if more than _MAX_LOADED_MODELS are now loaded.
+                # Guarded so a tracking failure doesn't break the load.
+                try:
+                    self.touch_model(self._registry.active_name)
+                    self._evict_lru_model()
+                except Exception:
+                    log.warning(
+                        "[PERF-015] LRU tracking failed (non-fatal)",
+                        exc_info=True,
+                    )
                 active = self._registry.get_active()
                 info = getattr(active, "device_info", "unknown") if active else "unknown"
                 self._app.tray.set_state(AppState.IDLE, f"Ready -- {info}")
@@ -507,6 +563,24 @@ class ModelManager:
         three separate branches for parakeet/qwen/whisper.
 
         LOG-001: logs every model change with old/new backend and model size.
+
+        HIGH-20 / MODEL-2: the entire body is guarded by
+        ``self._model_change_lock`` so two concurrent calls cannot both
+        unload + re-register + reload the same backend.  Previously the
+        registry's ``_backends`` dict had no synchronization — a race
+        between two ``change_model`` calls (or between ``change_model``
+        and ``fallback_to_whisper``) could leave the registry with two
+        engines constructed for the same name, or with the old backend
+        unregistered before the new one finished loading.
+        """
+        with self._model_change_lock:
+            self._change_model_impl(model_size)
+
+    def _change_model_impl(self, model_size: str) -> None:
+        """Actual implementation of :meth:`change_model` (lock acquired by caller).
+
+        Split out so ``change_model`` can wrap the entire body in
+        ``with self._model_change_lock:`` without re-indenting ~80 LOC.
         """
         # Determine backend from model name
         if model_size == "parakeet":
@@ -581,6 +655,21 @@ class ModelManager:
         try:
             success = self._registry.load_active(progress_callback=on_progress)
             if success:
+                # HIGH-19 / MODEL-1: PERF-015 LRU eviction was dead code
+                # — _evict_lru_model and touch_model were defined but
+                # never called from production paths.  Touch the freshly-
+                # loaded backend so it's tracked, then evict the LRU
+                # model if more than _MAX_LOADED_MODELS are now loaded.
+                # Guarded so a tracking failure doesn't break the load.
+                try:
+                    self.touch_model(new_backend)
+                    self._evict_lru_model()
+                except Exception:
+                    log.warning(
+                        "[PERF-015] LRU tracking failed for %s (non-fatal)",
+                        new_backend,
+                        exc_info=True,
+                    )
                 active = self._registry.get_active()
                 if new_backend == "whisper" and active is not None:
                     self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
@@ -703,3 +792,29 @@ class ModelManager:
 
         with self._model_lru_lock:
             self._model_access_times[backend_name] = time.monotonic()
+
+    def touch_active_model(self) -> None:
+        """PERF-015 / HIGH-19: refresh the LRU timestamp for the active backend.
+
+        Public entry point intended to be called from
+        :meth:`voice_typer.server.dictation_pipeline.DictationPipeline._transcribe`
+        after every successful ``transcribe()`` so the LRU eviction
+        knows the active backend is in use (and therefore should NOT be
+        the one evicted on the next ``load_active`` / ``load_with_fallback``).
+
+        Wiring this into the dictation pipeline is tracked under
+        FIX-15 / follow-up — this method is exposed now so the LRU
+        tracking added in HIGH-19 (``touch_model`` after load) has a
+        matching "after transcribe" entry point ready to call.
+
+        Safe to call when no backend is active — ``touch_model`` is a
+        no-op for unknown backend names (it just records the timestamp;
+        eviction only considers names that were touched).
+        """
+        try:
+            self.touch_model(self._registry.active_name)
+        except Exception:
+            log.warning(
+                "[PERF-015] touch_active_model failed (non-fatal)",
+                exc_info=True,
+            )

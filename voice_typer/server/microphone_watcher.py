@@ -123,8 +123,7 @@ class MicrophoneDeviceWatcher:
             return
         if self._platform not in ("windows", "linux", "macos"):
             log.debug(
-                "[MIC-WATCHER] Platform %s not supported, "
-                "falling back to TTL polling",
+                "[MIC-WATCHER] Platform %s not supported, falling back to TTL polling",
                 self._platform,
             )
             return
@@ -139,17 +138,13 @@ class MicrophoneDeviceWatcher:
                     # The CoreAudio watcher started but failed to
                     # register its listener — fall back to polling.
                     log.warning(
-                        "[MIC-WATCHER] CoreAudio watcher start failed, "
-                        "falling back to sounddevice polling",
+                        "[MIC-WATCHER] CoreAudio watcher start failed, falling back to sounddevice polling",
                         exc_info=True,
                     )
                     self._coreaudio_watcher = None
                 else:
                     self._coreaudio_watcher = ca_watcher
-                    log.info(
-                        "[MIC-WATCHER] Using CoreAudio property-listener "
-                        "watcher (event-driven)"
-                    )
+                    log.info("[MIC-WATCHER] Using CoreAudio property-listener watcher (event-driven)")
                     return
             # else: pyobjc unavailable — fall through to polling.
 
@@ -183,14 +178,11 @@ class MicrophoneDeviceWatcher:
             )
         except ImportError:
             log.debug(
-                "[MIC-WATCHER] microphone_watcher_coreaudio module "
-                "unavailable, falling back to sounddevice polling"
+                "[MIC-WATCHER] microphone_watcher_coreaudio module unavailable, falling back to sounddevice polling"
             )
             return None
         try:
-            return CoreAudioMicrophoneWatcher(
-                self._on_change, poll_interval=self._poll_interval
-            )
+            return CoreAudioMicrophoneWatcher(self._on_change, poll_interval=self._poll_interval)
         except ImportError:
             # _try_import_coreaudio raises ImportError on non-macOS or
             # when pyobjc-framework-CoreAudio is missing — this is the
@@ -250,8 +242,7 @@ class MicrophoneDeviceWatcher:
         self._thread.join(timeout=2.0)
         if self._thread.is_alive():
             log.warning(
-                "[MIC-WATCHER] Watcher thread did not exit within 2s "
-                "(it is a daemon and will not block process exit)"
+                "[MIC-WATCHER] Watcher thread did not exit within 2s (it is a daemon and will not block process exit)"
             )
         self._thread = None
         log.info("[MIC-WATCHER] Stopped device-change watcher")
@@ -274,8 +265,7 @@ class MicrophoneDeviceWatcher:
                 self._run_macos()
         except Exception:
             log.warning(
-                "[MIC-WATCHER] Watcher thread crashed, "
-                "falling back to TTL polling",
+                "[MIC-WATCHER] Watcher thread crashed, falling back to TTL polling",
                 exc_info=True,
             )
 
@@ -326,8 +316,7 @@ class MicrophoneDeviceWatcher:
                 continue
             if current != last_entries:
                 log.debug(
-                    "[MIC-WATCHER] %s entries changed (%d -> %d), "
-                    "invalidating cache",
+                    "[MIC-WATCHER] %s entries changed (%d -> %d), invalidating cache",
                     snd_dir,
                     len(last_entries),
                     len(current),
@@ -335,7 +324,35 @@ class MicrophoneDeviceWatcher:
                 last_entries = current
                 self._invoke_callback()
 
-    # ── macOS implementation ──────────────────────────────────────────
+    # ── macOS implementation ────────────────────────────────────────
+
+    @staticmethod
+    def _device_signature(dev: Any) -> tuple:
+        """MED-V / XPLAT-MAC-POLL-1: build a hashable signature for a
+        sounddevice device entry.
+
+        Comparing only ``len(sd.query_devices())`` misses same-count device
+        swaps — e.g. a USB mic unplugged at the same moment a Bluetooth
+        headset is plugged in (count stays at 3 → 3). The signature
+        includes ``name``, ``hostapi``, and ``default_samplerate`` so any
+        such swap is detected even when the count is unchanged.
+
+        Uses ``dict.get`` so partial device entries (e.g. those returned
+        by the unit-test mocks that only populate ``name``) do not raise
+        ``KeyError``. ``None`` values are valid set members and compare
+        equal only to themselves, so stable-but-partial entries still
+        produce a stable signature across polls.
+        """
+        if not isinstance(dev, dict):
+            # sounddevice normally returns dicts; fall back to a
+            # sentinel that uniquely identifies each non-dict entry so
+            # the set still reflects "something changed here".
+            return (id(dev),)
+        return (
+            dev.get("name"),
+            dev.get("hostapi"),
+            dev.get("default_samplerate"),
+        )
 
     def _run_macos(self) -> None:
         """Watch for CoreAudio device changes by polling ``sounddevice``.
@@ -344,6 +361,13 @@ class MicrophoneDeviceWatcher:
         which in turn talks to CoreAudio) to get the current device
         list every ``poll_interval`` seconds. When the device count
         changes, ``_invoke_callback()`` fires.
+
+        MED-V / XPLAT-MAC-POLL-1: previously this method compared only
+        the device COUNT. A same-count device swap (USB mic unplugged
+        while a BT headset is plugged in) was missed and the cache was
+        not invalidated. Now we also diff the
+        ``(name, hostapi, default_samplerate)`` signature set so any
+        same-count swap fires the callback.
 
         A property-listener approach via
         ``AudioObjectAddPropertyListener`` on
@@ -365,23 +389,22 @@ class MicrophoneDeviceWatcher:
         try:
             import sounddevice as sd
         except ImportError:
-            log.debug(
-                "[MIC-WATCHER] sounddevice not importable on macOS, "
-                "falling back to TTL polling"
-            )
+            log.debug("[MIC-WATCHER] sounddevice not importable on macOS, falling back to TTL polling")
             return
 
-        # Capture the baseline device count. query_devices can raise
-        # PortAudioError on a fresh boot before the audio HAL is
-        # ready — treat that as "no baseline yet" so the first
+        # Capture the baseline device count AND signature. query_devices
+        # can raise PortAudioError on a fresh boot before the audio HAL
+        # is ready — treat that as "no baseline yet" so the first
         # successful poll doesn't spuriously fire a callback.
         try:
-            last_count: int | None = len(sd.query_devices())
+            initial_devices = sd.query_devices()
+            last_count: int | None = len(initial_devices)
+            last_sig: set | None = {self._device_signature(d) for d in initial_devices}
         except Exception:
             last_count = None
+            last_sig = None
             log.debug(
-                "[MIC-WATCHER] initial sd.query_devices() failed, "
-                "deferring baseline capture",
+                "[MIC-WATCHER] initial sd.query_devices() failed, deferring baseline capture",
                 exc_info=True,
             )
 
@@ -391,7 +414,9 @@ class MicrophoneDeviceWatcher:
         )
         while not self._stop_event.wait(self._poll_interval):
             try:
-                current_count = len(sd.query_devices())
+                current_devices = sd.query_devices()
+                current_count = len(current_devices)
+                current_sig = {self._device_signature(d) for d in current_devices}
             except Exception:
                 # Transient PortAudio error — skip this cycle. The
                 # TTL cache will refresh on the next list_microphones
@@ -401,15 +426,23 @@ class MicrophoneDeviceWatcher:
                     exc_info=True,
                 )
                 continue
-            if last_count is not None and current_count != last_count:
+            # MED-V / XPLAT-MAC-POLL-1: fire on count OR signature
+            # change. The signature check catches same-count device
+            # swaps (e.g. USB mic unplugged + BT headset plugged in
+            # simultaneously) that the count-only comparison missed.
+            if (
+                last_count is not None
+                and last_sig is not None
+                and (current_count != last_count or current_sig != last_sig)
+            ):
                 log.debug(
-                    "[MIC-WATCHER] macOS device count changed (%d -> %d), "
-                    "invalidating cache",
+                    "[MIC-WATCHER] macOS device set changed (count %d -> %d), invalidating cache",
                     last_count,
                     current_count,
                 )
                 self._invoke_callback()
             last_count = current_count
+            last_sig = current_sig
 
     # ── Windows implementation ────────────────────────────────────────
 
@@ -433,8 +466,9 @@ class MicrophoneDeviceWatcher:
         try:
             self._run_windows_impl()
         except Exception:
-            log.warning("[MIC-WATCHER] Windows watcher crashed "
-            "(Win32/ctypes fault), falling back to TTL polling", exc_info=True)
+            log.warning(
+                "[MIC-WATCHER] Windows watcher crashed (Win32/ctypes fault), falling back to TTL polling", exc_info=True
+            )
             return
 
     def _run_windows_impl(self) -> None:
@@ -443,10 +477,7 @@ class MicrophoneDeviceWatcher:
             import ctypes
             from ctypes import wintypes
         except (ImportError, AttributeError):
-            log.debug(
-                "[MIC-WATCHER] ctypes/wintypes unavailable, "
-                "falling back to TTL polling"
-            )
+            log.debug("[MIC-WATCHER] ctypes/wintypes unavailable, falling back to TTL polling")
             return
 
         wm_devicechange = 0x0219
@@ -457,10 +488,7 @@ class MicrophoneDeviceWatcher:
             user32 = ctypes.windll.user32
             kernel32 = ctypes.windll.kernel32
         except AttributeError:
-            log.debug(
-                "[MIC-WATCHER] windll unavailable (not Windows?), "
-                "falling back to TTL polling"
-            )
+            log.debug("[MIC-WATCHER] windll unavailable (not Windows?), falling back to TTL polling")
             return
 
         # MIC-WATCHER-WIN32: Explicit argtypes/restype for 64-bit safety.
@@ -473,10 +501,19 @@ class MicrophoneDeviceWatcher:
         user32.RegisterClassExW.argtypes = [ctypes.c_void_p]
         user32.CreateWindowExW.restype = wintypes.HWND
         user32.CreateWindowExW.argtypes = [
-                wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
-                ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
-                wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, ctypes.c_void_p,
-            ]
+            wintypes.DWORD,
+            wintypes.LPCWSTR,
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_int,
+            wintypes.HWND,
+            wintypes.HMENU,
+            wintypes.HINSTANCE,
+            ctypes.c_void_p,
+        ]
         user32.PeekMessageW.restype = wintypes.BOOL
         user32.PeekMessageW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT]
         user32.TranslateMessage.restype = wintypes.BOOL
@@ -496,10 +533,10 @@ class MicrophoneDeviceWatcher:
         # both 32-bit and 64-bit Windows.
         WNDPROC = ctypes.WINFUNCTYPE(  # noqa: N806
             ctypes.c_ssize_t,  # LRESULT
-            wintypes.HWND,     # hwnd
-            wintypes.UINT,     # uMsg
-            wintypes.WPARAM,   # wParam
-            wintypes.LPARAM,   # lParam
+            wintypes.HWND,  # hwnd
+            wintypes.UINT,  # uMsg
+            wintypes.WPARAM,  # wParam
+            wintypes.LPARAM,  # lParam
         )
 
         class WNDCLASSEXW(ctypes.Structure):
@@ -545,8 +582,7 @@ class MicrophoneDeviceWatcher:
         atom = user32.RegisterClassExW(ctypes.byref(wc))
         if not atom:
             log.warning(
-                "[MIC-WATCHER] RegisterClassExW failed (err=%d), "
-                "falling back to TTL polling",
+                "[MIC-WATCHER] RegisterClassExW failed (err=%d), falling back to TTL polling",
                 ctypes.get_last_error(),
             )
             return
@@ -554,20 +590,22 @@ class MicrophoneDeviceWatcher:
         hwnd = 0
         try:
             hwnd = user32.CreateWindowExW(
-                ws_ex_toolwindow,        # dwExStyle — no taskbar button
-                class_name,              # lpClassName
+                ws_ex_toolwindow,  # dwExStyle — no taskbar button
+                class_name,  # lpClassName
                 "VoiceTyper Mic Watcher",  # lpWindowName
-                0,                       # dwStyle — not WS_VISIBLE
-                0, 0, 0, 0,              # x, y, w, h
-                None,                    # hWndParent — top-level (not HWND_MESSAGE)
-                None,                    # hMenu
-                h_instance,              # hInstance
-                None,                    # lpParam
+                0,  # dwStyle — not WS_VISIBLE
+                0,
+                0,
+                0,
+                0,  # x, y, w, h
+                None,  # hWndParent — top-level (not HWND_MESSAGE)
+                None,  # hMenu
+                h_instance,  # hInstance
+                None,  # lpParam
             )
             if not hwnd:
                 log.warning(
-                    "[MIC-WATCHER] CreateWindowExW failed (err=%d), "
-                    "falling back to TTL polling",
+                    "[MIC-WATCHER] CreateWindowExW failed (err=%d), falling back to TTL polling",
                     ctypes.get_last_error(),
                 )
                 return
@@ -586,9 +624,7 @@ class MicrophoneDeviceWatcher:
             # is non-blocking, so the wait() between iterations is
             # what throttles the loop.
             while not self._stop_event.is_set():
-                while user32.PeekMessageW(
-                    ctypes.byref(msg), None, 0, 0, pm_remove
-                ):
+                while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, pm_remove):
                     if msg.message == WM_QUIT:
                         return
                     user32.TranslateMessage(ctypes.byref(msg))
@@ -600,15 +636,11 @@ class MicrophoneDeviceWatcher:
                 try:
                     user32.DestroyWindow(hwnd)
                 except Exception:
-                    log.debug(
-                        "[MIC-WATCHER] DestroyWindow failed", exc_info=True
-                    )
+                    log.debug("[MIC-WATCHER] DestroyWindow failed", exc_info=True)
             try:
                 user32.UnregisterClassW(class_name, h_instance)
             except Exception:
-                log.debug(
-                    "[MIC-WATCHER] UnregisterClassW failed", exc_info=True
-                )
+                log.debug("[MIC-WATCHER] UnregisterClassW failed", exc_info=True)
 
     def _post_quit_to_windows(self) -> None:
         """Post ``WM_QUIT`` to the watcher window to wake the message pump.
@@ -653,8 +685,7 @@ class MicrophoneDeviceWatcher:
         last = getattr(self, "_last_callback_time", 0.0)
         if now - last < self._DEBOUNCE_SECONDS:
             log.debug(
-                "[MIC-WATCHER] Skipping duplicate invalidation "
-                "(%.0fms since last)",
+                "[MIC-WATCHER] Skipping duplicate invalidation (%.0fms since last)",
                 (now - last) * 1000,
             )
             return

@@ -73,6 +73,7 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
     and return normally; pystray sees a clean return and its loop
     exits because ``stop()`` was called.
     """
+
     def wrapper(icon, item):
         try:
             fn()
@@ -89,6 +90,7 @@ def wrap_callback(fn: Callable[[], None]) -> Callable:
             # Do NOT re-raise — tray.stop() inside quit()/restart_app()
             # already broke the pystray event loop. Re-raising causes
             # pystray to print a confusing "error" traceback.
+
     return wrapper
 
 
@@ -196,3 +198,171 @@ def build_menu(
     items.append(pystray.MenuItem(localize("quit"), wrap_callback(quit_app)))
 
     return tuple(items)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADR-0020 §6.5 / §16: Tauri tray-menu MODEL builder.
+#
+# This is the Tauri/sidecar counterpart to ``build_menu`` above. Instead of
+# pystray ``MenuItem`` objects (which require a display), it returns plain
+# dicts that the Tauri host can render directly, plus an ``id`` → callback
+# map used to dispatch a click back to the right action.  It never imports
+# or touches pystray, so it is safe to call headless (e.g. in tests or on
+# the Tauri runtime).
+#
+# Each model item dict has exactly the keys the host expects:
+#     {id, label, disabled, separator, checked, submenu}
+# Separators use ``id=""`` and ``label=""``.  ``checked``/``submenu`` are
+# Optional (``None`` when absent).
+# -----------------------------------------------------------------------------
+
+
+def build_tray_menu_model(
+    *,
+    hotkey: str,
+    toggle_dictation: Callable[[], None],
+    open_app: Callable[[], None],
+    repaste_last: Callable[[], None],
+    force_cancel_transcription: Callable[[], None] | None = None,
+    is_transcribing: Callable[[], bool] = lambda: False,
+    restart_app: Callable[[], None],
+    quit_app: Callable[[], None],
+    build_models_submenu: Callable[[], list] = lambda: [],
+    left_click_action: str = "open_app",
+    microphones: list[dict] | None = None,
+    active_mic_id: str | None = None,
+    on_select_mic: Callable[[str], None] | None = None,
+    on_refresh_mics: Callable[[], None] | None = None,
+    localize: Callable[[str], str] = lambda k: k,
+) -> tuple[list[dict], dict[str, Callable]]:
+    """Build the tray menu MODEL (dicts) for the Tauri/sidecar host.
+
+    Returns ``(model, id_map)`` where ``model`` is a list of item dicts
+    and ``id_map`` maps every actionable item id to its callback.
+
+    Mirrors the structure of :func:`build_menu` but produces serialisable
+    dicts instead of pystray objects.  Per UX-3 the ``force_cancel`` item
+    is only included when ``is_transcribing()`` is true.  Per UX-2 the
+    microphones render as a submenu with ``mic:<id>`` ids (the active one
+    carries ``checked=True``) plus a ``refresh_mics`` entry.
+    """
+    id_map: dict[str, Callable] = {}
+    items: list[dict] = []
+
+    def _item(
+        item_id: str,
+        label: str,
+        *,
+        callback: Callable[[], None] | None = None,
+        disabled: bool = False,
+        checked: bool | None = None,
+        submenu: list[dict] | None = None,
+    ) -> dict:
+        if callback is not None:
+            id_map[item_id] = callback
+        return {
+            "id": item_id,
+            "label": label,
+            "disabled": disabled,
+            "separator": False,
+            "checked": checked,
+            "submenu": submenu,
+        }
+
+    def _sep() -> dict:
+        return {
+            "id": "",
+            "label": "",
+            "disabled": False,
+            "separator": True,
+            "checked": None,
+            "submenu": None,
+        }
+
+    # Open App (default/bold action depends on left_click_action).
+    items.append(_item("open_app", localize("open_app"), callback=open_app))
+
+    # Toggle Dictation (with hotkey hint in the label).
+    hotkey_label = display_hotkey(hotkey)
+    items.append(
+        _item(
+            "toggle_dictation",
+            f"{localize('toggle_dictation')} ({hotkey_label})",
+            callback=toggle_dictation,
+        )
+    )
+
+    # Repaste last transcription.
+    items.append(_item("repaste_last", localize("repaste_last"), callback=repaste_last))
+
+    # UX-3: force-cancel only while transcribing.
+    if force_cancel_transcription is not None and is_transcribing():
+        items.append(
+            _item(
+                "force_cancel_transcription",
+                localize("force_cancel_transcription"),
+                callback=force_cancel_transcription,
+            )
+        )
+
+    items.append(_sep())
+
+    # Models submenu.
+    models_sub: list[dict] = []
+    for m in build_models_submenu():
+        # build_models_submenu returns pystray MenuItems in the pystray path;
+        # for the model path we rebuild lightweight dicts from the same data
+        # by calling the submenu builder's textual form.  To keep this path
+        # self-contained and display-free, we derive dicts from the returned
+        # pystray items' text + a stable id.
+        text = getattr(m, "text", None)
+        label = text() if callable(text) else str(m)
+        models_sub.append(_item(f"model:{label}", label))
+    items.append(_item("models", localize("models"), submenu=models_sub))
+
+    # UX-2: microphones submenu (only when a mic list is supplied).
+    if microphones:
+        mic_sub: list[dict] = []
+        for mic in microphones:
+            mic_id = str(mic.get("id", ""))
+            mic_name = str(mic.get("name", mic_id))
+            mic_sub.append(
+                _item(
+                    f"mic:{mic_id}",
+                    mic_name,
+                    callback=(lambda _id=mic_id: on_select_mic(_id)) if on_select_mic else None,
+                    checked=(active_mic_id is not None and mic_id == str(active_mic_id)),
+                )
+            )
+        if on_refresh_mics is not None:
+            mic_sub.append(_item("refresh_mics", localize("refresh_mics"), callback=on_refresh_mics))
+        items.append(_item("microphones", localize("microphones"), submenu=mic_sub))
+
+    items.append(_sep())
+
+    # Restart + Quit.
+    items.append(_item("restart", localize("restart"), callback=restart_app))
+    items.append(_item("quit", localize("quit"), callback=quit_app))
+
+    return items, id_map
+
+
+def publish_tray_menu(model: list[dict]) -> bool:
+    """Emit the ``tray_menu`` event for the Tauri/sidecar host.
+
+    ADR-0020 §6.5 / §16: the serialized menu model is only pushed to the
+    event bus when running under the Tauri sidecar (``TAURI_SIDECAR=1``).
+    On the Electron/pystray runtime this is a no-op so the native pystray
+    menu (built by :func:`build_menu`) remains the single source of truth
+    and we never double-publish.
+
+    Returns ``True`` if the event was published, ``False`` otherwise.
+    """
+    import os
+
+    from voice_typer.server import event_bus
+
+    if os.environ.get("TAURI_SIDECAR") != "1":
+        return False
+    event_bus.publish({"type": "tray_menu", "data": {"items": model}})
+    return True

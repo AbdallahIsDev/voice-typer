@@ -501,6 +501,13 @@ class DictationPipeline:
             # needed.
             text = active.transcribe_with_fallback(self._audio, audio_stats=self._audio_stats)
 
+        # PERF-015 / HIGH-19: refresh the LRU timestamp for the active backend
+        # so it isn't evicted as least-recently-used after a successful
+        # transcribe. touch_active_model() is guarded internally and safe to
+        # call when no backend is active.
+        with contextlib.suppress(Exception):
+            self._app.models.touch_active_model()
+
         active = self._app.models.active_transcriber()
         self._device_info = (
             active.device_info if active is not None and hasattr(active, "device_info") else "Parakeet ASR"
@@ -918,6 +925,7 @@ class DictationPipeline:
             #    failure (caller writes to crash recovery).
             try:
                 snapshot = self._app.clipboard.copy(text)
+                paste_seq = self._app.clipboard._clipboard_seq
             except ClipboardCopyError:
                 log.error("[CLIPBOARD] Clipboard copy failed (cycle=%s)", self._cycle_id)
                 recovery_path: str | None = None
@@ -989,7 +997,7 @@ class DictationPipeline:
             #    at its top, before any early return (DP1). pasted_text
             #    is passed as a value so overlapping cycles stay isolated (DP4).
             if self._app.config.paste_on_stop:
-                pasted = self._app.clipboard.paste(snapshot, pasted_text=text)
+                pasted = self._app.clipboard.paste(snapshot, pasted_text=text, pasted_seq=paste_seq)
             else:
                 # paste_on_stop is False + save/restore OFF: leave the
                 # transcription on the clipboard for the user to paste

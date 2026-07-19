@@ -84,6 +84,16 @@ class AudioQualityController:
         the same metrics again would waste cycles.  Instead we feed
         the precomputed values into the analyzer's internal accumulators
         directly.
+
+        AUDIO-8: the per-chunk ``rms`` value is now fed into the
+        analyzer's :meth:`update_live_rms` EMA accumulator. Previously
+        ``rms`` was dropped on the floor (only ``peak`` was used for
+        clipping detection). When the EMA stays below
+        :attr:`AudioQualityAnalyzer.LOW_VOLUME_THRESHOLD` for
+        :attr:`AudioQualityAnalyzer.LOW_VOLUME_SUSTAINED_CHUNKS`
+        consecutive chunks, a single "low input level — increase mic
+        gain" WARNING is logged. The warning is latched per episode
+        (suppresses repeats) and resets on recovery.
         """
         try:
             aq = self._app._audio_quality
@@ -96,13 +106,28 @@ class AudioQualityController:
                 aq._peak = peak
             if peak >= aq.CLIPPING_THRESHOLD:
                 aq._clip_count += 1
+            # AUDIO-8: feed the precomputed rms into the EMA accumulator
+            # and surface a single low-volume warning if sustained. The
+            # EMA update is two float multiplies + one add — well within
+            # the PortAudio non-blocking budget.
+            warning = aq.update_live_rms(rms)
+            if warning is not None:
+                # WARNING level (not DEBUG) so operators see sustained
+                # low-input conditions in the default app logs. Single
+                # log per episode (latched in the analyzer).
+                log.warning(
+                    "[AUDIO_QUALITY] %s (rms_ema=%.6f, sustained_chunks=%d)",
+                    warning,
+                    aq.rms_ema,
+                    aq.low_volume_chunks,
+                )
         except Exception:
             # Quality analysis must NEVER break the audio callback.
             log.debug("[AUDIO_QUALITY] per-chunk update failed", exc_info=True)
 
     # ── Filter-chain rebuild (called from service.apply_config_side_effects) ──
 
-    def _rebuild_audio_processor(self) -> None:
+    def _rebuild_audio_processor(self, force_sr: int | None = None) -> None:
         """ADR 0007 §6.1: Rebuild the audio filter chain from current config.
 
         Called by ``service.apply_config_side_effects`` when any
@@ -110,8 +135,34 @@ class AudioQualityController:
         ``noise_suppression_method`` config field changes. Atomically
         swaps the filter chain so the next ``process_chunk()`` call
         uses the new filters — no restart required.
+
+        AUDIO-6 (High) + AUDIO-9 (Medium): ``force_sr`` parameter
+        rebuilds the chain at a specific sample rate before applying
+        config changes. Use this when the device's effective sample
+        rate changes (e.g. on hot-plug or when ``Recorder`` resolves a
+        new ``candidate_sr`` that differs from ``config.sample_rate``).
+        The wiring (calling this method with the new ``candidate_sr``)
+        is owned by FIX-2 in ``recording.py`` — this method just
+        exposes the API. When ``force_sr`` is None (the default,
+        used by all existing callers), behavior is unchanged.
+
+        Args:
+            force_sr: optional sample rate in Hz. When provided and
+                different from the processor's current rate, the chain
+                is rebuilt at this rate BEFORE the config-driven rebuild
+                runs (so the config rebuild sees the correct rate).
         """
         try:
+            if force_sr is not None:
+                # AUDIO-6/AUDIO-9: update the chain's sample rate first
+                # so the subsequent rebuild_from_config builds filters
+                # with coefficients tuned to the actual device rate.
+                # set_sample_rate is a no-op when the rate is unchanged.
+                set_sr = getattr(self._app._audio_processor, "set_sample_rate", None)
+                if callable(set_sr):
+                    set_sr(force_sr)
+                else:
+                    log.debug("[APP] AudioProcessor lacks set_sample_rate — skipping AUDIO-6 rebuild")
             self._app._audio_processor.rebuild_from_config(self._app.config)
             # PERF-02 (R8): refresh the recorder's _vad_enabled cache so the
             # next audio chunk sees the new VAD config without re-evaluating

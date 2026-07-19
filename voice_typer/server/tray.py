@@ -620,6 +620,52 @@ class TrayIcon:
         self._menu_cache_valid = True
         return result
 
+    def _maybe_publish_tray_menu(self) -> bool:
+        """ADR-0020 §6.5 / §16: push the serialized tray menu to the Tauri
+        sidecar host (no-op on the Electron/pystray runtime).
+
+        Builds the model via :func:`build_tray_menu_model` (using the same
+        controller callbacks as :meth:`_build_menu`) and emits it through
+        :func:`publish_tray_menu`, which guards on ``TAURI_SIDECAR``.  Returns
+        ``True`` if published.  Safe to call headless — never touches pystray.
+        """
+        from voice_typer.server.tray_menu import (
+            build_tray_menu_model,
+            publish_tray_menu,
+        )
+
+        if self._icon is None:
+            return False
+
+        controller = self._controller
+        if controller is None:
+            return False
+
+        hotkey = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
+        left_click = getattr(self._config, "tray_left_click_action", "open_app") or "open_app"
+
+        model, _id_map = build_tray_menu_model(
+            hotkey=hotkey,
+            toggle_dictation=controller.toggle_dictation,
+            open_app=self.open_electron_window,
+            repaste_last=getattr(controller, "repaste_last", lambda: None),
+            force_cancel_transcription=lambda: controller.recording._force_recover_from_stuck_transcription(force=True),
+            is_transcribing=lambda: (
+                getattr(self._state, "name", "") == "TRANSCRIBING"
+                or getattr(self._state, "value", "") == "TRANSCRIBING"
+            ),
+            restart_app=controller.restart_app,
+            quit_app=self._confirm_quit_while_recording,
+            build_models_submenu=self._build_models_submenu,
+            left_click_action=left_click,
+            microphones=getattr(controller, "_microphones", None),
+            active_mic_id=getattr(controller, "active_microphone_id", None),
+            on_select_mic=getattr(controller, "change_microphone", None),
+            on_refresh_mics=getattr(controller, "refresh_microphones", None),
+        )
+        self._tray_id_map = _id_map
+        return publish_tray_menu(model)
+
     def _open_models_page(self) -> None:
         """Open the Electron window and navigate to the Models page.
 

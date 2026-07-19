@@ -79,22 +79,13 @@ _PARAKERT_MODEL_ID = "nvidia/parakeet-tdt-0.6b-v3"
 # The model.safetensors file is ~2.4 GB on disk.
 _PARAKERT_WEIGHTS_MB = 2400
 
-# SEC-audit-005: Allowlist of file patterns permitted in Parakeet model downloads.
-# Prevents supply-chain attacks where a compromised HF repo could include
-# executables, scripts, or other unexpected files.
-_PARAKEET_ALLOW_PATTERNS = [
-    "*.safetensors",
-    "*.bin",
-    "config.json",
-    "tokenizer.json",
-    "tokenizer_config.json",
-    "special_tokens_map.json",
-    "preprocessor_config.json",
-    "feature_extractor_config.json",
-    "generation_config.json",
-    "model.safetensors.index.json",
-    "*.model",
-]
+# SEC-audit-005 / CRIT-5 / SEC-2: allow-list imported from the shared
+# ``_model_integrity`` module so ``parakeet_engine`` and ``asr_setup``
+# can never drift out of sync.  See ``_model_integrity.py`` for the
+# sync requirement with ``model_hashes.json`` — pinned files in the
+# manifest MUST be a subset of these allow-patterns, otherwise
+# ``verify_model_integrity()`` hard-fails on every download.
+from voice_typer.server._model_integrity import ALLOW_PATTERNS as _PARAKEET_ALLOW_PATTERNS
 
 # SEC-audit-005: Pin to a specific revision for reproducibility.
 # Use the centralized MODEL_HASHES manifest from security.py.
@@ -352,7 +343,21 @@ class ParakeetEngine:
                     except OSError:
                         pass
                     if not verified:
-                        log.warning("[PARAKEET] Model integrity check failed after download")
+                        # CRIT-4 / SEC-1: hard-fail when integrity check
+                        # fails — do NOT fall through to load the model
+                        # anyway.  The previous code only logged a
+                        # ``warning`` and continued, which combined with
+                        # CRIT-5 (manifest pinning files the allow-list
+                        # omits) meant every Parakeet download triggered
+                        # this branch and loaded the model regardless —
+                        # net effect: zero supply-chain protection.
+                        # Mirrors the hard-fail semantics in
+                        # ``asr_setup.download_parakeet_weights`` (lines
+                        # 316-320).
+                        log.error("[PARAKEET] Model integrity check failed after download. Refusing to load.")
+                        if progress_callback:
+                            progress_callback("Model integrity check failed; refusing to load tampered model.")
+                        return False
 
             # Load model from cache
             try:
@@ -495,34 +500,39 @@ class ParakeetEngine:
         PERF-STATS: ``audio_stats`` is an optional pre-computed
         ``(rms, peak, silence_pct)`` tuple. When provided, the
         engine skips its own RMS computation in hallucination detection.
+
+        HIGH-18 / PERF-REL-1: this method no longer catches ``Exception``
+        and returns ``""``.  The previous broad ``except`` swallowed
+        CUDA errors (cublas, cudnn, OOM) so ``transcribe_with_fallback``
+        received ``""`` — indistinguishable from a legitimate "no speech
+        detected" result — and the GPU→CPU fallback branch was
+        unreachable.  Genuine "no speech" cases do NOT raise (the model
+        returns an empty sequence and ``decode`` returns "") so letting
+        exceptions propagate is safe.
         """
-        try:
-            inputs = self._processor(
-                [audio],
-                sampling_rate=16000,
-                return_tensors="pt",
-            )
-            inputs.to(device=self._model.device, dtype=self._model.dtype)
-            # RW-T1: do NOT pass max_new_tokens — the previous cap of 256
-            # silently truncated dense 25s chunks (Parakeet TDT emits
-            # ~5-12 tokens/sec including duration tokens; dense speech at
-            # 200+ WPM can need 250-300+ tokens).  Let the model use its
-            # default ``generation_config.max_length`` (4096 for Parakeet
-            # TDT v3) and emit EOS when speech ends — same as Whisper.
-            output = self._model.generate(
-                **inputs,
-                return_dict_in_generate=True,
-            )
-            text = self._processor.decode(
-                output.sequences,
-                skip_special_tokens=True,
-            )
-            if isinstance(text, list):
-                text = text[0] if text else ""
-            text = text.strip()
-        except Exception as exc:
-            log.error("[PARAKEET] Segment transcription failed: %s", exc)
-            return ""
+        inputs = self._processor(
+            [audio],
+            sampling_rate=16000,
+            return_tensors="pt",
+        )
+        inputs.to(device=self._model.device, dtype=self._model.dtype)
+        # RW-T1: do NOT pass max_new_tokens — the previous cap of 256
+        # silently truncated dense 25s chunks (Parakeet TDT emits
+        # ~5-12 tokens/sec including duration tokens; dense speech at
+        # 200+ WPM can need 250-300+ tokens).  Let the model use its
+        # default ``generation_config.max_length`` (4096 for Parakeet
+        # TDT v3) and emit EOS when speech ends — same as Whisper.
+        output = self._model.generate(
+            **inputs,
+            return_dict_in_generate=True,
+        )
+        text = self._processor.decode(
+            output.sequences,
+            skip_special_tokens=True,
+        )
+        if isinstance(text, list):
+            text = text[0] if text else ""
+        text = text.strip()
 
         # English-only filter: only active when language="en" is configured
         if self.language == "en" and not _is_likely_english(text):
@@ -701,7 +711,13 @@ class ParakeetEngine:
                 if self.device == "cuda" and ("cuda" in err_str or "cublas" in err_str or "cudnn" in err_str):
                     log.warning("[PARAKEET] CUDA error, retrying on CPU: %s", exc)
                     try:
-                        self._model.to("cpu")
+                        # HIGH-18 / PERF-REL-1: pin dtype=float32 when
+                        # moving the model to CPU.  The previous bare
+                        # ``self._model.to("cpu")`` left the dtype as
+                        # float16 (set during GPU load) — float16 kernels
+                        # are unsupported or pathologically slow on CPU,
+                        # so the "fallback" was effectively unusable.
+                        self._model.to(device="cpu", dtype=self._torch.float32)
                         text = self._transcribe_impl(audio)
                         return text
                     except Exception as cpu_exc:
@@ -735,30 +751,37 @@ class ParakeetEngine:
         return self._merge_chunks(results)
 
     def _transcribe_segment_unlocked(self, audio: np.ndarray) -> str:
-        """Transcribe one segment without lock (for fallback path)."""
-        try:
-            inputs = self._processor(
-                [audio],
-                sampling_rate=16000,
-                return_tensors="pt",
-            )
-            inputs.to(device=self._model.device, dtype=self._model.dtype)
-            # RW-T1: do NOT pass max_new_tokens — same fix as the GPU path
-            # in ``_transcribe_segment``.  The previous cap of 256 silently
-            # truncated dense 25s chunks in the CPU fallback path too.
-            output = self._model.generate(
-                **inputs,
-                return_dict_in_generate=True,
-            )
-            text = self._processor.decode(
-                output.sequences,
-                skip_special_tokens=True,
-            )
-            if isinstance(text, list):
-                text = text[0] if text else ""
-            text = text.strip()
-        except Exception:
-            return ""
+        """Transcribe one segment without lock (for fallback path).
+
+        HIGH-18 / PERF-REL-1: mirrors the fix in ``_transcribe_segment`` —
+        no longer catches ``Exception`` and returns ``""``.  This is the
+        CPU-fallback code path called from ``_transcribe_impl`` after
+        ``transcribe_with_fallback`` moved the model to CPU; if it
+        swallowed exceptions, the caller would receive ``""`` and treat
+        a real CPU failure as a successful "no speech detected" result,
+        defeating the ``TranscriptionBackendError`` contract documented
+        on ``transcribe_with_fallback`` (ERR-007).
+        """
+        inputs = self._processor(
+            [audio],
+            sampling_rate=16000,
+            return_tensors="pt",
+        )
+        inputs.to(device=self._model.device, dtype=self._model.dtype)
+        # RW-T1: do NOT pass max_new_tokens — same fix as the GPU path
+        # in ``_transcribe_segment``.  The previous cap of 256 silently
+        # truncated dense 25s chunks in the CPU fallback path too.
+        output = self._model.generate(
+            **inputs,
+            return_dict_in_generate=True,
+        )
+        text = self._processor.decode(
+            output.sequences,
+            skip_special_tokens=True,
+        )
+        if isinstance(text, list):
+            text = text[0] if text else ""
+        text = text.strip()
 
         # English-only filter: only active when language="en" is configured
         if self.language == "en" and not _is_likely_english(text):

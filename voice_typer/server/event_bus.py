@@ -115,6 +115,7 @@ from __future__ import annotations
 import logging
 import threading
 import typing
+from concurrent.futures import ThreadPoolExecutor
 
 log = logging.getLogger("voice_typer.server.event_bus")
 
@@ -131,6 +132,42 @@ _subscribers: set[typing.Callable[[dict], None]] = set()
 # RLock (not Lock) so a subscriber that calls publish() re-entrantly
 # does not deadlock.  Re-entrant publish is discouraged but supported.
 _lock = threading.RLock()
+
+# PERF-2: When ``publish()`` is called from a real-time audio thread
+# (sounddevice's PortAudio callback, or the in-process "audio-worker"
+# thread that drives the callback), synchronous fan-out to every
+# subscriber can glitch capture — a slow subscriber (json.dumps +
+# socket.sendall to a stalled Electron renderer) blocks the RT loop.
+# Detect the audio thread by name and defer to a single-worker
+# ThreadPoolExecutor so the RT thread returns in microseconds.
+_RT_THREAD_NAME_PREFIXES: tuple[str, ...] = (
+    "audio-worker",  # voice_typer.server.recording._AUDIO_WORKER_THREAD_NAME
+    "PortAudio",  # sounddevice's native callback thread prefix
+)
+_deferred_executor: ThreadPoolExecutor | None = None
+_deferred_executor_lock = threading.Lock()
+
+
+def _get_deferred_executor() -> ThreadPoolExecutor:
+    """Lazily create the single-worker deferred-publish executor."""
+    global _deferred_executor
+    if _deferred_executor is not None:
+        return _deferred_executor
+    with _deferred_executor_lock:
+        if _deferred_executor is None:
+            _deferred_executor = ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="event-bus-publisher",
+            )
+    return _deferred_executor
+
+
+def _is_rt_thread() -> bool:
+    """Return True if the current thread is a real-time audio thread."""
+    name = threading.current_thread().name
+    if name == "audio-worker":
+        return True
+    return name.startswith("PortAudio")
 
 
 def subscribe(callback: typing.Callable[[dict], None] | None) -> None:
@@ -161,6 +198,18 @@ def unsubscribe(callback: typing.Callable[[dict], None] | None) -> None:
         _subscribers.discard(callback)
 
 
+def _deliver(event: dict, fns: list[typing.Callable[[dict], None]]) -> bool:
+    """Deliver *event* to every callback in *fns* (no lock held)."""
+    delivered = False
+    for fn in fns:
+        try:
+            fn(event)
+            delivered = True
+        except Exception:
+            log.debug("[event_bus] subscriber raised", exc_info=True)
+    return delivered
+
+
 def publish(event: dict) -> bool:
     """Broadcast *event* to every subscriber, synchronously.
 
@@ -177,6 +226,10 @@ def publish(event: dict) -> bool:
       This preserves the previous ``_push_event_now`` semantics
       (existing tests assert that the callable was invoked by the
       time ``publish`` returns).
+    - PERF-2: When called from a real-time audio thread (``audio-worker``
+      or ``PortAudio``-prefixed), fan-out is deferred to a single-worker
+      ``ThreadPoolExecutor`` so the RT thread returns in microseconds.
+      Synchronous path is preserved for all other threads.
     - Exception isolation: a subscriber that raises is logged at
       DEBUG level and skipped.  Other subscribers still receive
       the event.  See ``TestSubscriberExceptionIsolation``.
@@ -190,14 +243,17 @@ def publish(event: dict) -> bool:
         fns = list(_subscribers)
     if not fns:
         return False
-    delivered = False
-    for fn in fns:
+    # PERF-2: defer fan-out when called from an RT thread.
+    if _is_rt_thread():
         try:
-            fn(event)
-            delivered = True
-        except Exception:
-            log.debug("[event_bus] subscriber raised", exc_info=True)
-    return delivered
+            _get_deferred_executor().submit(_deliver, event, fns)
+        except RuntimeError:
+            # Executor was shut down (process exit); fall back to sync.
+            return _deliver(event, fns)
+        # Best-effort: we can't know eventual per-subscriber outcome
+        # without blocking, so report True (subscribers are queued).
+        return True
+    return _deliver(event, fns)
 
 
 def _subscriber_count() -> int:

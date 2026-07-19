@@ -103,6 +103,68 @@ IPC_HOST = "127.0.0.1"
 IPC_PORT = 9876
 
 
+def _read_ipc_port_from_pid_file() -> int | None:
+    """MED-Y / XPLAT-PORT-HARDCODE-1 (partial): read the backend's IPC
+    port from the backend PID file if the writer included a ``port=``
+    line.
+
+    The backend PID file is the canonical source of truth for "is a
+    Voice Typer backend running on this machine?" — it is written by
+    :func:`voice_typer.server.single_instance._write_backend_pid_file`
+    after the single-instance mutex is acquired. The current writer
+    emits ONLY the PID (``{pid}\\n``); a future change to that function
+    will extend the format to also include ``port=<n>\\n`` so the
+    autostart launcher does not have to assume the default port 9876
+    (which may have been auto-incremented if 9876 was busy).
+
+    This function parses the PID file looking for a ``port=<n>`` line.
+    Returns the port as an int if found, otherwise ``None`` (the caller
+    falls back to :data:`IPC_PORT`).
+
+    NOTE: the full fix requires :mod:`voice_typer.server.single_instance`
+    to write the port line — see ``comprehensive-review.md`` MED-Y.
+    This function alone is forward-compatible: once
+    ``single_instance._write_backend_pid_file`` is updated to also emit
+    the port, the autostart launcher will pick it up without further
+    changes here.
+
+    The function never raises — a missing/unreadable/malformed PID file
+    simply yields ``None`` and the caller falls back to the default.
+    """
+    try:
+        from voice_typer.server.app import _backend_pid_file
+
+        pid_file = _backend_pid_file()
+        if not pid_file.exists():
+            return None
+        # Read the file once and scan for a ``port=<n>`` line. We
+        # tolerate both the legacy single-int format (no port line)
+        # and the future multi-line
+        # ``launcher=..\\nchild=..\\nport=..\\n`` format.
+        text = pid_file.read_text()
+    except OSError:
+        return None
+    except Exception:
+        # Defensive: the PID file is shared state and a partial write
+        # could surface as any error. Never let a port-read failure
+        # propagate to launch() — fall back to IPC_PORT instead.
+        return None
+
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith("port="):
+            port_str = line[len("port=") :].strip()
+            try:
+                port = int(port_str)
+            except ValueError:
+                continue
+            # Reject obviously invalid port numbers (0 is reserved on
+            # most OSes; >65535 is out of range).
+            if 1 <= port <= 65535:
+                return port
+    return None
+
+
 # Where to write the PID file (under the app's data dir).
 # RW-7: delegates to voice_typer.server._paths so the path respects the
 # platform-aware _config_dir() logic (Windows %APPDATA%, macOS
@@ -445,8 +507,15 @@ def launch() -> int:
         except (OSError, ValueError):
             pass
     if not backend_running:
-        # Fallback: check the default port as a quick heuristic
-        backend_running = _is_port_open(IPC_HOST, IPC_PORT)
+        # MED-Y / XPLAT-PORT-HARDCODE-1 (partial): the backend may be
+        # listening on a non-default IPC port (auto-incremented when
+        # 9876 was busy). Read the actual port from the backend PID
+        # file if it was written there; otherwise fall back to the
+        # default IPC_PORT. This avoids the launcher spuriously
+        # concluding "backend not running" and spawning a SECOND
+        # backend that conflicts with the existing one.
+        ipc_port = _read_ipc_port_from_pid_file() or IPC_PORT
+        backend_running = _is_port_open(IPC_HOST, ipc_port)
 
     if backend_running:
         log.info("[AUTOSTART] backend already running — focusing existing instance")

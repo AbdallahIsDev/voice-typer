@@ -177,7 +177,14 @@ class WaveformBubbleWiring:
             self._bubble_level_worker_stop = threading.Event()
 
         def _bubble_level_worker() -> None:
-            """Drain the bubble_level queue and push events to the IPC server."""
+            """Drain the bubble_level queue and push events to the IPC server.
+
+            PERF-3: coalesce stale levels — after dequeuing an item, drain
+            any newer items that piled up (non-blocking) and keep only the
+            latest. Older frames are dropped silently (they've been
+            superseded by the newer level). This converts a slow-renderer
+            ~128s freeze into a single publish of the most recent level.
+            """
             q = self._bubble_level_queue
             stop = self._bubble_level_worker_stop
             while not stop.is_set():
@@ -187,6 +194,24 @@ class WaveformBubbleWiring:
                     continue
                 if item is None:
                     break
+                # PERF-3: drain any newer items that piled up while we
+                # were processing this one. Keep only the latest level.
+                # The None shutdown sentinel is honoured inline (we break
+                # out of the outer loop if we see it during drain).
+                while True:
+                    try:
+                        newer = q.get_nowait()
+                    except queue.Empty:
+                        break
+                    if newer is None:
+                        # Shutdown sentinel arrived during drain —
+                        # publish the current item, then exit.
+                        event_bus.publish(item)
+                        q.task_done()
+                        return
+                    # Drop the older item; promote the newer one.
+                    q.task_done()
+                    item = newer
                 event_bus.publish(item)
                 q.task_done()
 
@@ -229,10 +254,31 @@ class WaveformBubbleWiring:
                 }
             )
 
+        def _push_bubble_config(cfg: Any) -> None:
+            """UX-10: push the bubble-relevant subset of config to the
+            Electron bubble renderer so it can decide whether to show the
+            mic button (the bubble is sandboxed and receives NO get_config
+            otherwise). Emits a ``bubble_config`` event carrying just the
+            two keys the bubble needs. Fires once at startup and again on
+            every ``set_config`` that touches either key (see
+            ``config_handlers`` / service ``apply_config`` push path).
+            """
+            event_bus.publish(
+                {
+                    "type": "bubble_config",
+                    "data": {
+                        "bubble_behavior": getattr(cfg, "bubble_behavior", "show_on_record"),
+                        "bubble_click_to_toggle": getattr(cfg, "bubble_click_to_toggle", True),
+                        "bubble_mic_button": getattr(cfg, "bubble_mic_button", True),
+                    },
+                }
+            )
+
         app._waveform_bubble.on_show = _push_bubble_show
         app._waveform_bubble.on_hide = _push_bubble_hide
         app._waveform_bubble.on_level = _push_bubble_level
         app._waveform_bubble.on_set_state = _push_bubble_set_state
+        app._waveform_bubble.on_config = _push_bubble_config
         log.info("[WAVEFORM] listeners wired on bubble coordinator")
 
     # ─── Shutdown integration ─────────────────────────────────────────

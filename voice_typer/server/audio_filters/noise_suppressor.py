@@ -72,12 +72,12 @@ class NoiseSuppressor(AudioFilter):
     def _init_rnnoise(self) -> None:
         try:
             from pyrnnoise import RNNoise  # type: ignore[import-not-found]
+
             self._backend = RNNoise(sample_rate=_RNNOISE_SAMPLE_RATE)
             log.info("[NOISE-SUPPRESS] RNNoise backend ready")
         except ImportError:
             log.warning(
-                "[NOISE-SUPPRESS] pyrnnoise not installed — "
-                "falling back to none. Install with: pip install pyrnnoise"
+                "[NOISE-SUPPRESS] pyrnnoise not installed — falling back to none. Install with: pip install pyrnnoise"
             )
             self._degraded = True
             self._degraded_reason = "rnnoise library not installed"
@@ -92,6 +92,7 @@ class NoiseSuppressor(AudioFilter):
         try:
             import torch  # noqa: F401  — check torch available first
             from df import enhance, init_df  # type: ignore[import-not-found]
+
             self._backend = {
                 "init_df": init_df,
                 "enhance": enhance,
@@ -120,14 +121,12 @@ class NoiseSuppressor(AudioFilter):
         try:
             # speexdsp Python package
             import speexdsp  # type: ignore[import-not-found]
+
             # The speexdsp package exposes a Preprocessor
             self._backend = speexdsp.Preprocessor(_RNNOISE_FRAME_SIZE, _RNNOISE_SAMPLE_RATE)
             log.info("[NOISE-SUPPRESS] Speex backend ready")
         except ImportError:
-            log.warning(
-                "[NOISE-SUPPRESS] speexdsp not installed — "
-                "falling back to rnnoise"
-            )
+            log.warning("[NOISE-SUPPRESS] speexdsp not installed — falling back to rnnoise")
             self._degraded = True
             self._degraded_reason = "speexdsp not installed, falling back to rnnoise"
             self._method = "rnnoise"
@@ -163,6 +162,13 @@ class NoiseSuppressor(AudioFilter):
         RNNoise requires 48kHz / 480-sample frames. If source is 16kHz,
         we round-trip resample. Uses input/output deques like OBS.
         """
+        # NF-R20-5: assert the backend is non-None at the top so the
+        # subsequent ``self._backend.<attr>`` accesses can drop their
+        # ``# type: ignore[union-attr]`` suppressions. The process()
+        # entry point already guards on ``self._backend is None``, so
+        # this assertion is documentation-as-code — pyrefly/mypy infer
+        # the narrowed type for the rest of the method body.
+        assert self._backend is not None
         from scipy.signal import resample_poly
 
         # Resample to 48kHz if needed
@@ -183,19 +189,17 @@ class NoiseSuppressor(AudioFilter):
             return None  # signal caller to skip this chunk
 
         # Set channel info once for pyrnnoise (mono).
-        self._backend.channels = 1  # type: ignore[union-attr]
+        self._backend.channels = 1
 
         output_frames = []
         for i in range(n_full):
             start = i * _RNNOISE_FRAME_SIZE
-            frame = combined[start:start + _RNNOISE_FRAME_SIZE]
+            frame = combined[start : start + _RNNOISE_FRAME_SIZE]
             try:
                 # pyrnnoise uses int16 internally; convert from float32.
                 frame_i16 = (frame * 32767).astype(np.int16)
                 # pyrnnoise expects [num_channels, 480]; returns (speech_prob, cleaned) as int16
-                _, cleaned_i16 = self._backend.denoise_frame(  # type: ignore[union-attr]
-                    frame_i16[np.newaxis, :]
-                )
+                _, cleaned_i16 = self._backend.denoise_frame(frame_i16[np.newaxis, :])
                 output_frames.append(cleaned_i16[0].astype(np.float32) / 32767)
             except Exception as exc:
                 log.debug("[NOISE-SUPPRESS] RNNoise frame failed: %s", exc)
@@ -203,7 +207,7 @@ class NoiseSuppressor(AudioFilter):
 
         # Save remainder for next call
         if remainder > 0:
-            self._carry = combined[n_full * _RNNOISE_FRAME_SIZE:]
+            self._carry = combined[n_full * _RNNOISE_FRAME_SIZE :]
         else:
             self._carry = np.array([], dtype=np.float32)
 
@@ -222,7 +226,7 @@ class NoiseSuppressor(AudioFilter):
             result = result[:target_len]
         else:
             padded = np.zeros(target_len, dtype=np.float32)
-            padded[:len(result)] = result
+            padded[: len(result)] = result
             result = padded
 
         return result.astype(np.float32, copy=False).reshape(original_shape)

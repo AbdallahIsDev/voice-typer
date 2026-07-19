@@ -318,8 +318,7 @@ def _write_timestamp(buf: bytearray, offset: int) -> int:
 # ── The VEH callback ─────────────────────────────────────────────────
 
 
-@ctypes.WINFUNCTYPE(wintypes.LONG, ctypes.POINTER(_ExceptionPointers))
-def _vectored_handler(exception_pointers) -> int:
+def _vectored_handler_impl(exception_pointers) -> int:
     """VEH callback — runs when an SEH exception occurs.
 
     Writes crash diagnostics using ONLY pre-allocated buffers and raw
@@ -431,6 +430,21 @@ def _vectored_handler(exception_pointers) -> int:
         _write_to_file(_crash_file_path, buf[:pos])
 
     return EXCEPTION_CONTINUE_SEARCH
+
+
+# WP-1: Wrap the VEH callback implementation in ``WINFUNCTYPE`` ONLY on Windows.
+# ``ctypes.WINFUNCTYPE`` only exists on Windows — referencing it on Linux/macOS
+# raises ``AttributeError`` at module-load time, which breaks every test that
+# imports ``voice_typer.server.app`` (which transitively imports crash_handler).
+# On non-Windows, SEH exceptions don't exist, so ``_vectored_handler`` is None
+# and ``install_crash_handler()`` short-circuits on ``sys.platform != "win32"``
+# (crash_handler.py:622, :651) — it never dereferences ``_vectored_handler``.
+# This replaces the previous ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` band-aid
+# that lived in ``tests/conftest.py`` (now removed).
+if sys.platform == "win32":
+    _vectored_handler = ctypes.WINFUNCTYPE(wintypes.LONG, ctypes.POINTER(_ExceptionPointers))(_vectored_handler_impl)
+else:
+    _vectored_handler = None
 
 
 def _write_to_file(path_str: str, data: bytes) -> None:

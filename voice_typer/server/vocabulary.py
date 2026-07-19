@@ -17,6 +17,7 @@ in the pipeline: transcribe → text cleanup → vocabulary → templates → au
 
 import json
 import logging
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -52,6 +53,7 @@ class VocabularyManager:
     def __init__(self, config_dir: Path | None = None, bundled_path: Path | None = None):
         if config_dir is None:
             from voice_typer.server.config import _config_dir
+
             config_dir = _config_dir()
         self._config_dir = config_dir
         self._user_path = config_dir / VOCAB_FILENAME
@@ -63,6 +65,10 @@ class VocabularyManager:
 
         # Active merged data: {category: data}
         self._data: dict[str, Any] = {}
+        # SEC-012: guards read-modify-write mutations of self._data (add/remove/
+        # import) so concurrent callers (UI thread + auto-vocabulary analysis
+        # thread) can't corrupt the merge or lose entries.
+        self._lock = threading.Lock()
         self._load_and_merge()
 
     # ── Loading and merging ──────────────────────────────────────────
@@ -101,6 +107,7 @@ class VocabularyManager:
         try:
             # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
             from voice_typer.server.config import _secure_read_text
+
             raw = _secure_read_text(self._bundled_path, encoding="utf-8")
             data = json.loads(raw)
             return self._normalize_data(data)
@@ -115,6 +122,7 @@ class VocabularyManager:
         try:
             # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
             from voice_typer.server.config import _secure_read_text
+
             raw = _secure_read_text(self._user_path, encoding="utf-8")
             data = json.loads(raw)
             return self._normalize_data(data)
@@ -134,8 +142,10 @@ class VocabularyManager:
         an empty dict for non-dict input.
         """
         if not isinstance(data, dict):
-            return {cat: ({} if cat in ("misspellings", "technical_terms", "names", "products") else [])
-                    for cat in CATEGORIES}
+            return {
+                cat: ({} if cat in ("misspellings", "technical_terms", "names", "products") else [])
+                for cat in CATEGORIES
+            }
         result: dict[str, Any] = {}
         for cat in CATEGORIES:
             val = data.get(cat)
@@ -179,18 +189,20 @@ class VocabularyManager:
                     return
                 except PermissionError as exc:
                     if attempt < max_retries - 1:
-                        backoff = 0.05 * (2 ** attempt)  # 50ms, 100ms, 200ms
+                        backoff = 0.05 * (2**attempt)  # 50ms, 100ms, 200ms
                         log.warning(
-                            "[VOCAB] PermissionError on save (attempt %d/%d), "
-                            "retrying in %.0fms: %s",
-                            attempt + 1, max_retries, backoff * 1000, exc,
+                            "[VOCAB] PermissionError on save (attempt %d/%d), retrying in %.0fms: %s",
+                            attempt + 1,
+                            max_retries,
+                            backoff * 1000,
+                            exc,
                         )
                         _time.sleep(backoff)
                     else:
                         log.error(
-                            "[VOCAB] Failed to save user vocabulary after %d "
-                            "attempts: %s",
-                            max_retries, exc,
+                            "[VOCAB] Failed to save user vocabulary after %d attempts: %s",
+                            max_retries,
+                            exc,
                         )
                 except OSError as exc:
                     log.error("[VOCAB] Failed to save user vocabulary: %s", exc)
@@ -226,34 +238,43 @@ class VocabularyManager:
             log.error("[VOCAB] Cannot add dict entry to list category %s", category)
             return False
         if len(key) > MAX_PATTERN_LENGTH:
-            log.warning("[VOCAB] Pattern exceeds MAX_PATTERN_LENGTH (%d > %d), rejecting",
-                        len(key), MAX_PATTERN_LENGTH)
+            log.warning("[VOCAB] Pattern exceeds MAX_PATTERN_LENGTH (%d > %d), rejecting", len(key), MAX_PATTERN_LENGTH)
             return False
         if len(value) > MAX_REPLACEMENT_LENGTH:
-            log.warning("[VOCAB] Replacement exceeds MAX_REPLACEMENT_LENGTH (%d > %d), rejecting",
-                        len(value), MAX_REPLACEMENT_LENGTH)
+            log.warning(
+                "[VOCAB] Replacement exceeds MAX_REPLACEMENT_LENGTH (%d > %d), rejecting",
+                len(value),
+                MAX_REPLACEMENT_LENGTH,
+            )
             return False
-        if not isinstance(self._data.get(category), dict):
-            self._data[category] = {}
-        cat_data = self._data[category]
-        if not isinstance(cat_data, dict):
-            return False
-        if len(cat_data) >= MAX_CORRECTIONS_ENTRIES:
-            log.warning("[VOCAB] Category %s has reached MAX_CORRECTIONS_ENTRIES (%d), rejecting",
-                        category, MAX_CORRECTIONS_ENTRIES)
-            return False
-        cat_data[key] = value
+        with self._lock:
+            if not isinstance(self._data.get(category), dict):
+                self._data[category] = {}
+            cat_data = self._data[category]
+            if not isinstance(cat_data, dict):
+                return False
+            if len(cat_data) >= MAX_CORRECTIONS_ENTRIES:
+                log.warning(
+                    "[VOCAB] Category %s has reached MAX_CORRECTIONS_ENTRIES (%d), rejecting",
+                    category,
+                    MAX_CORRECTIONS_ENTRIES,
+                )
+                return False
+            cat_data[key] = value
         self._save_user()
         return True
 
     def remove_entry(self, category: str, key: str) -> bool:
         """Remove an entry from a dict-based category."""
-        cat_data = self._data.get(category)
-        if isinstance(cat_data, dict) and key in cat_data:
-            del cat_data[key]
+        removed = False
+        with self._lock:
+            cat_data = self._data.get(category)
+            if isinstance(cat_data, dict) and key in cat_data:
+                del cat_data[key]
+                removed = True
+        if removed:
             self._save_user()
-            return True
-        return False
+        return removed
 
     # ── CRUD for list-based categories ───────────────────────────────
 
@@ -267,34 +288,45 @@ class VocabularyManager:
             log.error("[VOCAB] Cannot add list entry to dict category %s", category)
             return False
         if len(wrong) > MAX_PATTERN_LENGTH:
-            log.warning("[VOCAB] Phrase pattern exceeds MAX_PATTERN_LENGTH (%d > %d), rejecting",
-                        len(wrong), MAX_PATTERN_LENGTH)
+            log.warning(
+                "[VOCAB] Phrase pattern exceeds MAX_PATTERN_LENGTH (%d > %d), rejecting", len(wrong), MAX_PATTERN_LENGTH
+            )
             return False
         if len(correct) > MAX_REPLACEMENT_LENGTH:
-            log.warning("[VOCAB] Phrase replacement exceeds MAX_REPLACEMENT_LENGTH (%d > %d), rejecting",
-                        len(correct), MAX_REPLACEMENT_LENGTH)
+            log.warning(
+                "[VOCAB] Phrase replacement exceeds MAX_REPLACEMENT_LENGTH (%d > %d), rejecting",
+                len(correct),
+                MAX_REPLACEMENT_LENGTH,
+            )
             return False
-        if not isinstance(self._data.get(category), list):
-            self._data[category] = []
-        cat_data = self._data[category]
-        if not isinstance(cat_data, list):
-            return False
-        if len(cat_data) >= MAX_CORRECTIONS_ENTRIES:
-            log.warning("[VOCAB] Category %s has reached MAX_CORRECTIONS_ENTRIES (%d), rejecting",
-                        category, MAX_CORRECTIONS_ENTRIES)
-            return False
-        cat_data.append([wrong, correct])
+        with self._lock:
+            if not isinstance(self._data.get(category), list):
+                self._data[category] = []
+            cat_data = self._data[category]
+            if not isinstance(cat_data, list):
+                return False
+            if len(cat_data) >= MAX_CORRECTIONS_ENTRIES:
+                log.warning(
+                    "[VOCAB] Category %s has reached MAX_CORRECTIONS_ENTRIES (%d), rejecting",
+                    category,
+                    MAX_CORRECTIONS_ENTRIES,
+                )
+                return False
+            cat_data.append([wrong, correct])
         self._save_user()
         return True
 
     def remove_phrase(self, category: str, index: int) -> bool:
         """Remove a phrase entry by index."""
-        cat_data = self._data.get(category)
-        if isinstance(cat_data, list) and 0 <= index < len(cat_data):
-            del cat_data[index]
+        removed = False
+        with self._lock:
+            cat_data = self._data.get(category)
+            if isinstance(cat_data, list) and 0 <= index < len(cat_data):
+                del cat_data[index]
+                removed = True
+        if removed:
             self._save_user()
-            return True
-        return False
+        return removed
 
     # ── Import / Export ───────────────────────────────────────────────
 
@@ -312,25 +344,26 @@ class VocabularyManager:
             data = json.loads(json_str)
             data = self._normalize_data(data)
             count = 0
-            for cat in CATEGORIES:
-                if cat not in data or data[cat] is None:
-                    continue
-                if merge:
-                    if cat in ("misspellings", "technical_terms", "names", "products"):
-                        if not isinstance(self._data.get(cat), dict):
-                            self._data[cat] = {}
-                        cat_dict = self._data[cat]
-                        if isinstance(cat_dict, dict) and isinstance(data[cat], dict):
-                            cat_dict.update(data[cat])
+            with self._lock:
+                for cat in CATEGORIES:
+                    if cat not in data or data[cat] is None:
+                        continue
+                    if merge:
+                        if cat in ("misspellings", "technical_terms", "names", "products"):
+                            if not isinstance(self._data.get(cat), dict):
+                                self._data[cat] = {}
+                            cat_dict = self._data[cat]
+                            if isinstance(cat_dict, dict) and isinstance(data[cat], dict):
+                                cat_dict.update(data[cat])
+                        else:
+                            if not isinstance(self._data.get(cat), list):
+                                self._data[cat] = []
+                            cat_list = self._data[cat]
+                            if isinstance(cat_list, list) and isinstance(data[cat], list):
+                                cat_list.extend(data[cat])
                     else:
-                        if not isinstance(self._data.get(cat), list):
-                            self._data[cat] = []
-                        cat_list = self._data[cat]
-                        if isinstance(cat_list, list) and isinstance(data[cat], list):
-                            cat_list.extend(data[cat])
-                else:
-                    self._data[cat] = data[cat]
-                count += 1
+                        self._data[cat] = data[cat]
+                    count += 1
             if count:
                 self._save_user()
             return count

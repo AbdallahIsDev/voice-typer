@@ -258,9 +258,15 @@ class StartupSequence:
         # thread is a daemon so it never blocks process exit, and the
         # inner try/except ensures any DB error is swallowed (the
         # next startup will retry).
+        # PERF-25: register with ``app._thread_registry`` so
+        # ``shutdown_all()`` can signal + join this thread instead of
+        # orphaning it (the retention sweep can take 10s+ on a huge
+        # DB, and we want clean shutdown to wait briefly for it).
         import threading as _threading
 
-        def _apply_retention_bg() -> None:
+        retention_stop_event = _threading.Event()
+
+        def _apply_retention_bg(stop_event: _threading.Event) -> None:
             try:
                 app.history_db.apply_retention(
                     retention_days=app.config.history_retention_days,
@@ -269,12 +275,35 @@ class StartupSequence:
                 )
             except Exception:
                 log.debug("[STARTUP] History retention apply failed")
+            finally:
+                # Clear the stop_event so the registry's join sees a
+                # finished thread (defensive — the thread exits on its
+                # own, but this makes the contract explicit).
+                with contextlib.suppress(Exception):
+                    stop_event.set()  # type: ignore[unused-ignore]
 
-        _threading.Thread(
+        retention_thread = _threading.Thread(
             target=_apply_retention_bg,
+            args=(retention_stop_event,),
             name="history-retention-apply",
             daemon=True,
-        ).start()
+        )
+        retention_thread.start()
+        # PERF-25: register with the central ThreadRegistry.
+        registry = getattr(app, "_thread_registry", None)
+        if registry is not None:
+            try:
+                registry.register(
+                    name="history-retention-apply",
+                    thread=retention_thread,
+                    stop_event=retention_stop_event,
+                    join_timeout=2.0,
+                )
+            except Exception:
+                log.debug(
+                    "[STARTUP] could not register history-retention-apply with ThreadRegistry",
+                    exc_info=True,
+                )
 
         # PLAT-WAYLAND / XPLAT-004: Warn if running on Wayland and
         # suggest wtype/ydotool as fallback for global hotkeys.
@@ -506,5 +535,15 @@ class StartupSequence:
                 log.info("[STARTUP] Bubble shown at startup (always_visible mode)")
             except Exception as e:
                 log.warning("[STARTUP] Failed to show bubble at startup: %s", e)
+            # UX-10: push the bubble-relevant config (bubble_behavior /
+            # bubble_click_to_toggle / bubble_mic_button) so the bubble
+            # renderer knows whether to show its mic button. The bubble
+            # is sandboxed and cannot call get_config itself.
+            try:
+                cb = app._waveform_bubble.on_config
+                if cb is not None:
+                    cb(app.config)
+            except Exception as e:
+                log.debug("[STARTUP] Failed to push bubble config: %s", e)
 
         log.info("[STARTUP] Startup complete, model still loading in background")

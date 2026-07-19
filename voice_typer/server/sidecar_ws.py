@@ -504,7 +504,7 @@ def run(server: IPCServer) -> int:
     # Local import so the module imports cleanly without `websockets`
     # installed (the Electron-only build path doesn't need it).
     try:
-        import websockets
+        import websockets  # noqa: F401 — imported for availability probe
         from websockets.asyncio.server import serve
     except ImportError as exc:
         log.error(

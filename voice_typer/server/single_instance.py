@@ -257,6 +257,7 @@ def _ensure_single_instance(silent=False):
         log.warning("[STARTUP] VOICE_TYPER_RESTART set but token invalid — blocking duplicate")
 
     import ctypes
+    from ctypes import wintypes
 
     error_already_exists = 183
     error_access_denied = 5
@@ -276,14 +277,47 @@ def _ensure_single_instance(silent=False):
     lp_mutex_attributes = ctypes.byref(sa) if sa is not None else None
 
     # Use CreateMutexW with bInitialOwner=True so WE own the handle.
-    # The Windows mutex handle is inheritable across CreateProcess /
-    # subprocess.Popen, so a child spawned by the parent will see the
-    # mutex as already owned.  We can't disable handle inheritance from
-    # Python; the inheritance concern is real but handled separately:
-    # Electron's main process kills stale backends before spawning, and
-    # the restart path sets VOICE_TYPER_RESTART to skip this check.
-    mutex = ctypes.windll.kernel32.CreateMutexW(lp_mutex_attributes, True, mutex_name)
-    last_error = ctypes.windll.kernel32.GetLastError()
+    # MED-SSS / XCUT-7: the SECURITY_ATTRIBUTES from
+    # ``_create_restrictive_security_attributes()`` set
+    # ``bInheritHandle=TRUE``, which means the mutex HANDLE is
+    # inheritable by child processes spawned via ``subprocess.Popen``
+    # (Python's Popen defaults to ``close_fds=False`` on Windows for
+    # stdin/stdout/stderr, and the handle is also marked inheritable).
+    # A child Python backend spawned for diagnostics would falsely see
+    # the mutex as already held (``error_already_exists``) and refuse
+    # to start — or worse, would inherit a duplicate handle that kept
+    # the named object alive even after the parent quit. We disable
+    # inheritance via ``SetHandleInformation(..., HANDLE_FLAG_INHERIT, 0)``
+    # immediately after ``CreateMutexW`` returns so no child ever
+    # inherits this handle. (The restrictive DACL still applies; we're
+    # only clearing the inheritance bit.)
+    kernel32 = ctypes.windll.kernel32
+    mutex = kernel32.CreateMutexW(lp_mutex_attributes, True, mutex_name)
+    last_error = kernel32.GetLastError()
+
+    # MED-SSS / XCUT-7: clear HANDLE_FLAG_INHERIT on the mutex handle
+    # so ``subprocess.Popen`` children don't inherit it. Best-effort —
+    # ``SetHandleInformation`` exists on every Windows version since
+    # NT 3.5, but we wrap it defensively in case a stripped-down
+    # kernel32 (e.g. Wine, Windows RT) lacks the export. Failure here
+    # doesn't block startup; the original inheritable-handle behavior
+    # is the pre-fix status quo and is no worse than before.
+    HANDLE_FLAG_INHERIT = 0x00000001
+    if mutex:
+        try:
+            kernel32.SetHandleInformation.argtypes = [
+                wintypes.HANDLE,
+                wintypes.DWORD,
+                wintypes.DWORD,
+            ]
+            kernel32.SetHandleInformation.restype = wintypes.BOOL
+            kernel32.SetHandleInformation(mutex, HANDLE_FLAG_INHERIT, 0)
+        except Exception:
+            log.debug(
+                "[STARTUP] SetHandleInformation(HANDLE_FLAG_INHERIT=0) failed — "
+                "mutex handle remains inheritable by child processes",
+                exc_info=True,
+            )
 
     if last_error == error_already_exists:
         # P1-1.4: belt-and-suspenders check.  Windows guarantees that

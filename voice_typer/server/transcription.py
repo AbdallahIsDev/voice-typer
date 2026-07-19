@@ -688,24 +688,33 @@ class TranscriptionEngine:
                 log.warning(
                     "[CUDA-PROBE] cuBLAS/cuDNN runtime error detected — falling back to CPU immediately",
                 )
-                try:
-                    del self._model
-                    import gc
+                # NF-R17-1: wrap the null-and-reload sequence in
+                # ``with self._lock:`` so a concurrent ``transcribe()`` from
+                # another thread can't observe ``self._model = None`` (or
+                # worse, a half-loaded model mid-reload). Pre-fix, the probe
+                # ran unlocked after the outer ``with self._lock:`` block at
+                # line 551 had exited, leaving a race window where
+                # ``transcribe()`` would raise ``RuntimeError("Model not
+                # loaded")`` or see a partially-initialized model.
+                with self._lock:
+                    try:
+                        del self._model
+                        import gc
 
-                    gc.collect()
-                    # NEW-MEM-001: release PyTorch's cached CUDA blocks
-                    # so the next backend (or CPU reload) can use them.
-                    release_gpu_memory()
-                except Exception:
-                    log.debug("[MODEL] GPU memory release failed", exc_info=True)
-                self._model = None
-                self._device = "cpu"
-                self._compute_type = "int8"
-                self._reload_under_lock()
-                log.warning(
-                    "[CUDA-PROBE] Model reloaded on CPU after CUDA probe failure. Loaded via: %s",
-                    self.loaded_via,
-                )
+                        gc.collect()
+                        # NEW-MEM-001: release PyTorch's cached CUDA blocks
+                        # so the next backend (or CPU reload) can use them.
+                        release_gpu_memory()
+                    except Exception:
+                        log.debug("[MODEL] GPU memory release failed", exc_info=True)
+                    self._model = None
+                    self._device = "cpu"
+                    self._compute_type = "int8"
+                    self._reload_under_lock()
+                    log.warning(
+                        "[CUDA-PROBE] Model reloaded on CPU after CUDA probe failure. Loaded via: %s",
+                        self.loaded_via,
+                    )
             else:
                 raise
 

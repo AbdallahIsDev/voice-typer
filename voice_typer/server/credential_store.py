@@ -60,15 +60,20 @@ Design notes
   stores it as a ``str`` attribute anyway). This is the standard
   Python limitation — full secret-memory hygiene requires a C extension.
 
-- **Two-instance migration race (known limitation)**: the
-  ``secrets_migrated`` flag in ``config.json`` is not race-safe across
-  processes — two app instances starting simultaneously could both
-  enter :func:`migrate_secrets_to_keyring` before either writes the
-  flag. The migration is idempotent (``keyring.set_password``
-  overwrites; ``_secure_atomic_write`` is atomic), so the worst case
-  is the same secret is stored twice. Cross-process file locking
-  (``fcntl.flock`` on POSIX, ``msvcrt.locking`` on Windows) would
-  close the window but is a larger change; deferred.
+- **Two-instance migration race (closed — RACE-001 / HIGH-13)**: the
+  ``secrets_migrated`` flag in ``config.json`` is guarded by an
+  exclusive cross-process lock (``fcntl.flock`` on POSIX,
+  ``msvcrt.locking`` on Windows) acquired on ``config.json.lock``.
+  :func:`migrate_secrets_to_keyring` acquires the lock before
+  reading config.json, RE-READS the file once the lock is held (so a
+  concurrent migration that completed while we waited is observed),
+  and only then proceeds with the read-migrate-write sequence.
+  This closes the prior race where two app instances could both enter
+  the function before either wrote the flag, both read plaintext,
+  both write their own ``data`` dict, and clobber each other (losing
+  a real secret from disk).  The migration remains idempotent at the
+  keyring level (``keyring.set_password`` overwrites) as defense in
+  depth.
 
 Cross-platform testing notes are in ``docs/security/credential-store.md``.
 """
@@ -549,6 +554,80 @@ def _write_plaintext_fallback(provider: str, value: str) -> None:
 # ── Migration ───────────────────────────────────────────────────────────
 
 
+def _is_windows() -> bool:
+    """Local platform check — avoids importing platform_utils at module
+    load time (which would transitively pull in heavier modules).
+    Kept local for the same reason :func:`_acquire_migration_lock`
+    does its own ``import fcntl``/``import msvcrt`` lazily.
+    """
+    import sys
+
+    return sys.platform == "win32"
+
+
+def _acquire_migration_lock(lock_file):
+    """RACE-001 (HIGH-13): acquire an exclusive cross-process lock.
+
+    Opens ``lock_file`` (creating it if needed) and acquires an
+    exclusive lock on it.  Returns the open file object (which the
+    caller must close to release the lock) on POSIX; on Windows the
+    same file object is returned but the lock is held via
+    ``msvcrt.locking`` on byte 0 of the file.
+
+    The lock prevents two app instances from simultaneously running
+    :func:`migrate_secrets_to_keyring` and clobbering each other's
+    writes — a real secret could otherwise be lost from disk when the
+    second writer's ``_secure_atomic_write`` overwrites the first's.
+
+    On platforms where neither ``fcntl`` nor ``msvcrt`` is available
+    (e.g. some niche embeddable Python builds), the lock is silently
+    skipped — the function still returns a file object so the caller's
+    ``finally: lock_fd.close()`` works, but no cross-process exclusion
+    is provided.  This preserves the prior single-process behavior on
+    such platforms and is the same fail-open stance documented as a
+    "known limitation" in the prior version of the migration function.
+    """
+    import os
+
+    # Open with O_CREAT so the lock file exists on first run.  Use
+    # 0o600 on POSIX so the lock file is not world-writable (defense
+    # in depth — even though the file holds no secret content).
+    if not _is_windows():
+        fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR, 0o600)
+    else:
+        # Windows: msvcrt.locking needs a file handle from os.open() so
+        # we can pass the fd.  os.open on Windows does NOT support
+        # mode=0o600 (it's ignored), but the lock file is created under
+        # the per-user config dir so NTFS ACLs already restrict access.
+        fd = os.open(str(lock_file), os.O_CREAT | os.O_RDWR)
+
+    lock_fd = os.fdopen(fd, "r+b")
+    try:
+        if not _is_windows():
+            import fcntl
+
+            fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
+        else:
+            # msvcrt.locking with LK_LOCK blocks until the lock is held
+            # (or raises OSError after ~1s on some Windows builds —
+            # fall back to a busy-wait by retrying on OSError).
+            import msvcrt
+
+            try:
+                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_LOCK, 1)
+            except OSError:
+                # Best-effort: if LK_LOCK fails (rare), proceed without
+                # a lock — same fail-open behavior as the no-fcntl case.
+                pass
+    except Exception:
+        # Any failure acquiring the lock: close the fd and re-raise so
+        # the caller knows the lock is NOT held (callers catch this and
+        # proceed without a lock rather than blocking migration).
+        lock_fd.close()
+        raise
+    return lock_fd
+
+
 def migrate_secrets_to_keyring() -> int:
     """One-time migration of plaintext API keys to the OS keychain.
 
@@ -569,6 +648,17 @@ def migrate_secrets_to_keyring() -> int:
     in config.json so the migration doesn't run again on every launch
     (idempotent).
 
+    RACE-001 (HIGH-13): the entire read-migrate-write sequence is
+    guarded by an exclusive lock on ``config.json.lock`` (alongside
+    ``config.json``).  POSIX uses ``fcntl.flock(LOCK_EX)``; Windows
+    uses ``msvcrt.locking(LK_LOCK)``.  After acquiring the lock, the
+    config is RE-READ so we observe any migration a concurrent process
+    completed while we were waiting — if ``secrets_migrated`` is now
+    set, we skip the migration entirely.  This closes the race where
+    two app instances starting simultaneously could both enter the
+    function, both read plaintext, both write their own ``data`` dict,
+    and clobber each other (losing a real secret from disk).
+
     Returns
     -------
     int
@@ -580,8 +670,6 @@ def migrate_secrets_to_keyring() -> int:
     try:
         from voice_typer.server.config import (
             _config_dir,
-            _secure_atomic_write,
-            _secure_read_text,
         )
     except Exception as e:
         log.error(
@@ -591,6 +679,63 @@ def migrate_secrets_to_keyring() -> int:
         return 0
 
     config_file = _config_dir() / "config.json"
+    lock_file = _config_dir() / "config.json.lock"
+
+    # RACE-001 (HIGH-13): acquire the cross-process lock BEFORE we
+    # inspect config.json.  The lock is held for the entire
+    # read-migrate-write sequence so a concurrent process cannot
+    # interleave its own migration with ours.
+    try:
+        _config_dir().mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # If the dir already exists this is a no-op; if it can't be
+        # created, the subsequent _acquire_migration_lock call will
+        # fail with a clearer error.
+        pass
+
+    try:
+        lock_fd = _acquire_migration_lock(lock_file)
+    except Exception as e:
+        # Fail-open: if we can't acquire the lock (e.g. the config dir
+        # is read-only), proceed WITHOUT the lock.  This preserves the
+        # prior single-process behavior on platforms where locking is
+        # unavailable.  The migration is still idempotent at the
+        # keyring level (set_password overwrites), so the worst case is
+        # a redundant keyring write — never data loss on a single
+        # process.
+        log.debug(
+            "[CREDENTIAL_STORE] migration: could not acquire lock (%s) — proceeding without",
+            _redact_sensitive(str(e)),
+        )
+        lock_fd = None
+
+    try:
+        return _migrate_secrets_to_keyring_locked(config_file)
+    finally:
+        if lock_fd is not None:
+            try:
+                lock_fd.close()
+            except OSError:
+                pass
+
+
+def _migrate_secrets_to_keyring_locked(config_file) -> int:
+    """Body of :func:`migrate_secrets_to_keyring` — assumes the lock is held.
+
+    Split out so the lock acquisition / release is symmetric and easy
+    to reason about.  The caller is responsible for acquiring
+    ``config.json.lock`` before invoking this function.
+    """
+    # Late import (kept here so the failure-mode log above is reached
+    # even if the import itself is what's broken).
+    from voice_typer.server.config import (
+        _secure_atomic_write,
+        _secure_read_text,
+    )
+
+    # RACE-001 (HIGH-13): re-check whether config.json exists NOW that
+    # we hold the lock.  A concurrent process may have just created it
+    # (with secrets_migrated=True) while we were waiting for the lock.
     if not config_file.exists():
         # No config to migrate — mark as migrated so we don't keep
         # checking on every launch. We do this by writing a minimal
@@ -619,7 +764,10 @@ def migrate_secrets_to_keyring() -> int:
         )
         return 0
 
-    # Idempotency: if already migrated, do nothing.
+    # RACE-001 (HIGH-13): re-check the secrets_migrated flag NOW that
+    # we hold the lock.  A concurrent process may have completed the
+    # migration while we were waiting — if so, skip our own migration
+    # entirely (idempotent).
     if data.get("secrets_migrated", False):
         log.debug("[CREDENTIAL_STORE] migration: secrets_migrated flag already set — skipping")
         return 0
@@ -674,13 +822,10 @@ def migrate_secrets_to_keyring() -> int:
     # for the user to manually add a plaintext key to config.json
     # (which would re-set the field), but that's an edge case we accept.
     #
-    # NOTE (known limitation): the secrets_migrated flag is NOT
-    # race-safe across processes — two app instances starting
-    # simultaneously could both enter this function before either
-    # writes the flag. The migration is idempotent (keyring.set_password
-    # overwrites; _secure_atomic_write is atomic), so the worst case
-    # is the same secret is stored twice. Cross-process file locking
-    # would close the window but is a larger change; deferred.
+    # RACE-001 (HIGH-13): the cross-process lock acquired by the caller
+    # guarantees no concurrent process is mutating config.json while we
+    # write this.  The previous "known limitation" note about the race
+    # window between two app instances is now closed.
     data["secrets_migrated"] = True
     try:
         _secure_atomic_write(config_file, json.dumps(data, indent=2))

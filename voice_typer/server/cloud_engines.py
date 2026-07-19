@@ -15,8 +15,8 @@ import io
 import json
 import logging
 import threading
-from urllib.error import URLError
-from urllib.request import HTTPSHandler, Request, build_opener
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 import numpy as np
 
@@ -28,9 +28,54 @@ from voice_typer.server._secrets import (
 
 log = logging.getLogger(__name__)
 
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """SEC-2: refuse to follow HTTP redirects.
+
+    ``urllib.request.build_opener`` ALWAYS installs the default
+    ``HTTPRedirectHandler`` (which silently follows 3xx responses)
+    UNLESS the caller passes an explicit ``HTTPRedirectHandler``
+    subclass. The previous code passed only ``HTTPSHandler()``,
+    expecting ``build_opener`` to skip the redirect handler — but
+    the urllib source adds the default handlers in addition to the
+    caller-provided ones (a handler of the same *class* replaces the
+    default; HTTPSHandler replaces HTTPSHandler but does NOT replace
+    HTTPRedirectHandler). So the opener was silently following 3xx
+    redirects despite the SECURITY comment claiming otherwise.
+
+    This subclass overrides ``redirect_request`` to raise
+    ``HTTPError`` so the existing ``except HTTPError`` / ``except
+    URLError`` branches in the cloud engines handle it as a hard
+    failure (no silent exfiltration of the request body — which
+    contains user audio + the API key in the Authorization header —
+    to an attacker-controlled redirect target).
+
+    See https://docs.python.org/3/library/urllib.request.html#urllib.request.HTTPRedirectHandler
+    for the contract.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        # Raise HTTPError so the caller's ``except HTTPError`` branch
+        # catches it. The error message includes the redirect target
+        # (newurl) so the user / operator can diagnose a misconfigured
+        # endpoint, but ``redact_url`` is applied by the caller before
+        # logging to avoid leaking credentials in the URL.
+        raise HTTPError(
+            url=newurl,
+            code=code,
+            msg=f"redirect refused (SEC-2): {code} {msg} -> {redact_url(newurl)}",
+            hdrs=headers,
+            fp=fp,
+        )
+
+
 # PERF-NEW-010: module-level OpenerDirector for connection pooling.
 # Reuses TCP connections across requests (like requests.Session).
-_opener = build_opener(HTTPSHandler())
+# SEC-2: pass ``_NoRedirectHandler()`` so the opener does NOT follow
+# 3xx redirects (the default ``HTTPRedirectHandler`` would silently
+# POST the request body — user audio + API key — to an attacker-
+# controlled redirect target).
+_opener = build_opener(HTTPSHandler(), _NoRedirectHandler())
 
 
 class ConsentRequiredError(RuntimeError):

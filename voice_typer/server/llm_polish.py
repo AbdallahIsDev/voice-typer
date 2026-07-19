@@ -15,8 +15,8 @@ Pipeline order: transcribe → text cleanup → vocabulary → templates → LLM
 
 import json
 import logging
-from urllib.error import URLError
-from urllib.request import HTTPSHandler, Request, build_opener
+from urllib.error import HTTPError, URLError
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 from voice_typer.server._secrets import (
     assert_url_allowed,
@@ -25,6 +25,38 @@ from voice_typer.server._secrets import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class _NoRedirectHandler(HTTPRedirectHandler):
+    """SEC-2: refuse to follow HTTP redirects.
+
+    ``urllib.request.build_opener`` ALWAYS installs the default
+    ``HTTPRedirectHandler`` (which silently follows 3xx responses)
+    UNLESS the caller passes an explicit ``HTTPRedirectHandler``
+    subclass. The previous code passed only ``HTTPSHandler()``,
+    expecting ``build_opener`` to skip the redirect handler — but
+    urllib adds the default handlers in addition to the caller-provided
+    ones (a handler of the same *class* replaces the default;
+    HTTPSHandler replaces HTTPSHandler but does NOT replace
+    HTTPRedirectHandler). So the opener was silently following 3xx
+    redirects despite the SECURITY comment claiming otherwise.
+
+    This subclass overrides ``redirect_request`` to raise ``HTTPError``
+    so the existing ``except HTTPError`` / ``except URLError`` branches
+    handle it as a hard failure (no silent exfiltration of the request
+    body — which contains the user's transcribed text — to an attacker-
+    controlled redirect target).
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        raise HTTPError(
+            url=newurl,
+            code=code,
+            msg=f"redirect refused (SEC-2): {code} {msg} -> {redact_url(newurl)}",
+            hdrs=headers,
+            fp=fp,
+        )
+
 
 # SEC-audit-006 (Round 0 forward-port): use a dedicated opener that does NOT
 # include ``HTTPRedirectHandler``.  The default ``urllib.request.urlopen()``
@@ -39,7 +71,12 @@ log = logging.getLogger(__name__)
 # This mirrors the pattern already used by
 # ``voice_typer.server.cloud_engines._opener`` for the main transcription
 # path; ``llm_polish._call_api`` was the last redirect-following path.
-_opener = build_opener(HTTPSHandler())
+#
+# SEC-2 (fix): the comment above was the INTENT but ``build_opener``
+# installs the default ``HTTPRedirectHandler`` regardless of whether
+# the caller passed ``HTTPSHandler``. Passing ``_NoRedirectHandler()``
+# (a subclass that raises on redirect) actually achieves the intent.
+_opener = build_opener(HTTPSHandler(), _NoRedirectHandler())
 
 # ─── Preset prompts ─────────────────────────────────────────────────────
 
@@ -127,8 +164,7 @@ class LLMPolisher:
             # RELIABILITY-004: redact any secret-looking string from
             # the exception before logging, so a leaked API key in
             # an error response body doesn't end up in the log file.
-            log.warning("[LLM_POLISH] Polish failed: %s (returning original)",
-                        redact_secret(str(exc)))
+            log.warning("[LLM_POLISH] Polish failed: %s (returning original)", redact_secret(str(exc)))
             return text
 
     def test_connection(self) -> tuple[bool, str]:
@@ -144,9 +180,7 @@ class LLMPolisher:
         if not self.api_key:
             return False, "API key not configured"
         try:
-            assert_url_allowed(
-                self.api_url, field_name="llm_api_url", client_name="llm_polish"
-            )
+            assert_url_allowed(self.api_url, field_name="llm_api_url", client_name="llm_polish")
         except ValueError as exc:
             return False, str(exc)
         try:
@@ -165,19 +199,19 @@ class LLMPolisher:
         endpoint-swap attack from exfiltrating transcribed speech
         text even if SEC-002's allowlist is somehow bypassed.
         """
-        assert_url_allowed(
-            self.api_url, field_name="llm_api_url", client_name="llm_polish"
-        )
+        assert_url_allowed(self.api_url, field_name="llm_api_url", client_name="llm_polish")
 
-        payload = json.dumps({
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text},
-            ],
-            "temperature": 0.3,
-            "max_tokens": min(4096, len(text) * 2 + 256),
-        }).encode("utf-8")
+        payload = json.dumps(
+            {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": text},
+                ],
+                "temperature": 0.3,
+                "max_tokens": min(4096, len(text) * 2 + 256),
+            }
+        ).encode("utf-8")
 
         headers = {
             "Content-Type": "application/json",
@@ -191,6 +225,7 @@ class LLMPolisher:
                 # SEC-030: cap response at 50 MB to prevent OOM from
                 # a malicious / buggy LLM endpoint.
                 from voice_typer.server.cloud_engines import _read_capped
+
                 raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
                 result = json.loads(raw.decode("utf-8"))
                 choices = result.get("choices", [])
@@ -200,10 +235,6 @@ class LLMPolisher:
         except URLError as exc:
             # RELIABILITY-004: redact URL and any secret-looking
             # substring from the exception before propagating.
-            raise RuntimeError(
-                f"LLM API error: {redact_secret(redact_url(str(exc)))}"
-            ) from exc
+            raise RuntimeError(f"LLM API error: {redact_secret(redact_url(str(exc)))}") from exc
         except Exception as exc:
-            raise RuntimeError(
-                f"LLM API error: {redact_secret(str(exc))}"
-            ) from exc
+            raise RuntimeError(f"LLM API error: {redact_secret(str(exc))}") from exc

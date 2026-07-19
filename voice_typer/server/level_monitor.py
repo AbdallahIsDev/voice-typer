@@ -870,7 +870,14 @@ def _do_auto_stop_test():
             }
         )
     except Exception:
-        pass
+        # NF-R20-2: this is load-bearing — if the publish fails, the
+        # frontend UI hangs in "test running" state forever with no
+        # indication the test completed. Log a warning so the user can
+        # diagnose why the mic test isn't completing.
+        log.warning(
+            "[LEVEL-MON] failed to publish microphone_test_complete event",
+            exc_info=True,
+        )
 
 
 def _cancel_test_locked() -> bool:

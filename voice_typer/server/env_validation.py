@@ -72,7 +72,18 @@ def _validate_env_vars() -> None:
 
     _validate_systemroot()
 
-    # PLAT-008: Validate HF_HOME is a valid path if set
+    # PLAT-008: Validate HF_HOME is a valid path if set.
+    # SEC-HFHOME-001 (HIGH-12): HF_HOME is consumed as an allow-root by
+    # ``config._validate_import_path`` (so ``import_model`` can import
+    # directories under it).  A malicious value like ``HF_HOME=/etc``
+    # would let the renderer import any directory under ``/etc``.
+    # After the basic pattern check, also run the same
+    # ``_validate_path_safety(Path(hf_home), Path.home())`` check that
+    # ``_config_dir()`` uses for ``VOICE_TYPER_CONFIG_DIR`` — this
+    # rejects values that escape the user's home directory via ``..``
+    # or absolute paths outside home.  If validation fails, log a
+    # warning and discard the unsafe value so downstream consumers
+    # never see it.
     hf_home = os.environ.get("HF_HOME")
     if hf_home is not None and (not _path_pattern.match(hf_home) or len(hf_home) > 4096):
         log.warning(
@@ -80,3 +91,21 @@ def _validate_env_vars() -> None:
             hf_home,
         )
         os.environ.pop("HF_HOME", None)
+    elif hf_home is not None:
+        # SEC-HFHOME-001 (HIGH-12): path-traversal / out-of-home check.
+        # Import locally to avoid a circular import at module load time
+        # (config.py is heavy and pulls in many dependencies).
+        from pathlib import Path
+
+        from voice_typer.server.config import _validate_path_safety
+
+        try:
+            _validate_path_safety(Path(hf_home), Path.home())
+        except (ValueError, OSError, RuntimeError) as exc:
+            log.warning(
+                "[ENV] HF_HOME=%r failed path-safety validation (%s) — "
+                "discarding to prevent import_model path traversal.",
+                hf_home,
+                exc,
+            )
+            os.environ.pop("HF_HOME", None)

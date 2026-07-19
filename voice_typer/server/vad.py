@@ -153,24 +153,62 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
         if audio_tensor.dim() > 1:
             audio_tensor = audio_tensor.squeeze()
 
-        # VAD-001: Silero VAD requires exactly 512 samples at 16kHz
-        # (or 256 at 8kHz). PortAudio may deliver chunks of arbitrary
-        # size (e.g. 1136 on WASAPI). Pad with zeros or truncate to
-        # the expected size so VAD works on any device.
+        # VAD-001 + AUDIO-10: Silero VAD requires exactly 512 samples at
+        # 16kHz (or 256 at 8kHz). PortAudio may deliver chunks of arbitrary
+        # size (e.g. 1136 on WASAPI, 480 on CoreAudio).
+        #
+        # VAD-001 (prior fix): padded/truncated to 512 samples — but
+        # *truncation* discarded up to 55% of each chunk (624 of 1136
+        # samples on WASAPI), making VAD miss speech that occurred in the
+        # latter half of the chunk.
+        #
+        # AUDIO-10 (this fix): slice the input into multiple 512-sample
+        # sub-chunks, run the model on each, and take the MAX probability
+        # (speech is an "any sub-chunk contains it" decision — max is more
+        # sensitive than mean for short speech bursts). Sub-chunks are fed
+        # sequentially through the SAME model instance so the Silero LSTM
+        # hidden state advances naturally across the chunk boundary.
+        # Short trailing remainder (< 512 samples) is dropped — at 16 kHz
+        # that's ≤31 ms of audio, below the Silero false-negative floor.
         _expected_samples = {16000: 512, 8000: 256}
         expected = _expected_samples.get(sample_rate, 512)
-        if audio_tensor.shape[0] != expected:
-            if audio_tensor.shape[0] < expected:
-                # Pad with zeros at the end
-                padding = torch.zeros(expected - audio_tensor.shape[0])
-                audio_tensor = torch.cat([audio_tensor, padding])
-            else:
-                # Truncate to expected size (take the first N samples)
-                audio_tensor = audio_tensor[:expected]
+        n = audio_tensor.shape[0]
 
+        if n < expected:
+            # Pad short chunks to expected size (preserves VAD-001 behavior
+            # for the small-chunk case — no sub-chunking possible).
+            padding = torch.zeros(expected - n)
+            audio_tensor = torch.cat([audio_tensor, padding])
+            with torch.no_grad():
+                prob = model(audio_tensor, sample_rate).item()
+            return prob
+
+        if n == expected:
+            # Exact fit — single inference, no slicing overhead.
+            with torch.no_grad():
+                prob = model(audio_tensor, sample_rate).item()
+            return prob
+
+        # n > expected: slice into sub-chunks of `expected` samples.
+        # range(0, n - expected + 1, expected) yields start indices for
+        # full sub-chunks only (drops the trailing remainder).
+        probs: list[float] = []
         with torch.no_grad():
-            prob = model(audio_tensor, sample_rate).item()
-        return prob
+            for start in range(0, n - expected + 1, expected):
+                sub = audio_tensor[start : start + expected]
+                probs.append(float(model(sub, sample_rate).item()))
+
+        if not probs:
+            # Defensive: should not happen since n > expected guarantees
+            # at least one full sub-chunk, but keep the fallback to be safe.
+            with torch.no_grad():
+                prob = model(audio_tensor[:expected], sample_rate).item()
+            return prob
+
+        # Max probability across sub-chunks — speech is a "any segment
+        # has it" decision. Mean would under-report short speech bursts
+        # that occupy only one sub-chunk of a multi-sub-chunk input.
+        return max(probs)
     except Exception as exc:
         log.debug("[VAD] Inference failed: %s", exc)
         return None

@@ -100,18 +100,34 @@ class TimerCoordinator:
           - A timer pool would add complexity (reuse tracking, stale timer
             cleanup, thread-safety) for no measurable user-visible gain
           - The generation-guard pattern already prevents stale callbacks
+
+        PERF-26: ``gen = self._timer_generation`` is now captured INSIDE
+        the ``_pending_timers_lock`` critical section. Previously the
+        read happened outside the lock, so a concurrent
+        ``_cancel_pending_timers`` could bump the generation between
+        our read and our ``append`` — a stale timer would capture the
+        OLD generation, then fire after the cancel and incorrectly
+        run ``func`` (because ``gen == self._timer_generation`` would
+        still be True at fire time if no further cancel happened).
+        Reading under the lock pairs the capture with the append so
+        the timer either:
+          (a) is in the pending list with the current generation
+              (will be cancelled by a subsequent cancel), OR
+          (b) is in the pending list with the current generation and
+              no cancel happens before it fires (legitimate run).
+        The previous race let a timer escape cancellation entirely.
         """
-        gen = self._timer_generation
-
-        def guarded_func():
-            if gen == self._timer_generation:
-                func()
-
-        timer = threading.Timer(delay, guarded_func)
-        # RACE-016: daemon=True is acceptable because timer callbacks
-        # are fire-and-forget UI updates; missing one on shutdown is harmless.
-        timer.daemon = True
         with self._pending_timers_lock:
+            gen = self._timer_generation
+
+            def guarded_func():
+                if gen == self._timer_generation:
+                    func()
+
+            timer = threading.Timer(delay, guarded_func)
+            # RACE-016: daemon=True is acceptable because timer callbacks
+            # are fire-and-forget UI updates; missing one on shutdown is harmless.
+            timer.daemon = True
             self._pending_timers.append(timer)
         timer.start()
         return timer

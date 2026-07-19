@@ -507,15 +507,32 @@ class CrashRecovery:
                     try:
                         import json
 
+                        # NF-R18-1: iterate over the canonical
+                        # ``_SECRET_CONFIG_FIELDS`` set (defined in
+                        # ``ipc_server.py``) instead of a hardcoded tuple
+                        # that missed ``cloud_api_key`` and ``groq_api_key``.
+                        # Pre-fix, the diagnostic bundle leaked 2 of the 5
+                        # API keys to the zip file (and thus to any bug
+                        # report the user attached it to). The shared
+                        # frozenset is the single source of truth — any
+                        # future secret field added there is automatically
+                        # redacted here too.
+                        from voice_typer.server.ipc_server import (
+                            _SECRET_CONFIG_FIELDS,
+                        )
+
                         raw = config_path.read_text(encoding="utf-8")
                         data = json.loads(raw)
                         # Redact sensitive keys
-                        for key in ("llm_api_key", "openai_api_key", "deepgram_api_key"):
+                        for key in _SECRET_CONFIG_FIELDS:
                             if key in data and data[key]:
                                 data[key] = "[REDACTED]"
                         zf.writestr("config.json", json.dumps(data, indent=2))
                     except Exception:
-                        pass
+                        log.debug(
+                            "[CRASH-RECOVERY] failed to redact+write config.json into diagnostic bundle",
+                            exc_info=True,
+                        )
 
                 # 3. System info
                 import platform

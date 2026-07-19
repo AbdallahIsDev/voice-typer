@@ -12,6 +12,7 @@ backend without knowing which one it is.
 """
 
 import logging
+import threading
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -23,6 +24,13 @@ class AsrBackendRegistry:
     ARCH-008: replaces the three-field pattern
     (self.transcriber / self._qwen_engine / self._parakeet_engine)
     with a single registry that callers query via get_active().
+
+    HIGH-20 / MODEL-2: the ``_backends`` dict is guarded by
+    ``self._lock`` (a reentrant lock).  ``register`` / ``unregister`` /
+    ``get`` / ``load_with_fallback`` acquire the lock around their dict
+    operations only — the actual ``backend.load(...)`` call is left
+    OUTSIDE the lock so a slow GPU/disk load doesn't block other
+    readers (e.g. ``get_active`` from the dictation pipeline).
     """
 
     def __init__(self, config: Any):
@@ -30,10 +38,15 @@ class AsrBackendRegistry:
         self._backends: dict[str, Any] = {}
         # ARCH-007: the whisper backend is registered under "whisper"
         # and also as the fallback for unknown backends.
+        # HIGH-20 / MODEL-2: reentrant lock so methods that already hold
+        # the lock (e.g. ``load_with_fallback`` calling ``self.unregister``)
+        # don't self-deadlock.  Plain ``Lock`` would deadlock here.
+        self._lock = threading.RLock()
 
     def register(self, name: str, backend: Any) -> None:
         """Register a backend by name (e.g. 'whisper', 'qwen', 'parakeet')."""
-        self._backends[name] = backend
+        with self._lock:
+            self._backends[name] = backend
         log.debug("[ASR_REGISTRY] registered backend: %s (loaded=%s)", name, getattr(backend, "is_loaded", True))
 
     def unregister(self, name: str) -> None:
@@ -43,9 +56,10 @@ class AsrBackendRegistry:
         should be removed from the registry so get_active() no longer
         considers it.
         """
-        if name in self._backends:
-            del self._backends[name]
-            log.debug("[ASR_REGISTRY] unregistered backend: %s", name)
+        with self._lock:
+            if name in self._backends:
+                del self._backends[name]
+                log.debug("[ASR_REGISTRY] unregistered backend: %s", name)
 
     def get_active(self) -> Any | None:
         """Return the currently active backend based on config.asr_backend.
@@ -54,21 +68,25 @@ class AsrBackendRegistry:
         Returns None if no backend is available.
         """
         name = getattr(self._config, "asr_backend", "whisper")
-        backend = self._backends.get(name)
-        if backend is not None and self._is_ready(backend):
-            return backend
+        with self._lock:
+            backend = self._backends.get(name)
+            if backend is not None and self._is_ready(backend):
+                return backend
 
-        # Fallback: try whisper (the default/local backend)
-        whisper = self._backends.get("whisper")
-        if whisper is not None and self._is_ready(whisper):
-            if name != "whisper":
-                log.info("[ASR_REGISTRY] %s backend not ready, falling back to whisper", name)
-            return whisper
+            # Fallback: try whisper (the default/local backend)
+            whisper = self._backends.get("whisper")
+            if whisper is not None and self._is_ready(whisper):
+                if name != "whisper":
+                    log.info("[ASR_REGISTRY] %s backend not ready, falling back to whisper", name)
+                return whisper
 
-        # Last resort: return whatever we have, even if not loaded
-        for b in self._backends.values():
-            if b is not None:
-                return b
+            # Last resort: return whatever we have, even if not loaded.
+            # Iterate a snapshot (``list``) so callers can mutate the
+            # registry while we hold the lock without raising
+            # ``RuntimeError: dictionary changed size during iteration``.
+            for b in list(self._backends.values()):
+                if b is not None:
+                    return b
         return None
 
     def _is_ready(self, backend: Any) -> bool:
@@ -83,7 +101,8 @@ class AsrBackendRegistry:
 
     def get(self, name: str) -> Any | None:
         """Get a specific backend by name."""
-        return self._backends.get(name)
+        with self._lock:
+            return self._backends.get(name)
 
     # ── ARCH-007/008: registry convenience methods ────────────────
 
@@ -205,6 +224,13 @@ class AsrBackendRegistry:
         on a partially-loaded engine — all three backends guard on
         ``self._model is None``.
 
+        HIGH-20 / MODEL-2: the dict reads (``self._backends.get``) are
+        guarded by ``self._lock`` so a concurrent ``register`` /
+        ``unregister`` from another thread (e.g. ``change_model``)
+        cannot corrupt the iteration.  The actual ``backend.load()``
+        call is OUTSIDE the lock so a slow GPU/disk load doesn't block
+        other readers (e.g. ``get_active`` from the dictation pipeline).
+
         Args:
             progress_callback: optional callable(msg: str) to report
                 loading progress (e.g. tray state updates).
@@ -213,9 +239,14 @@ class AsrBackendRegistry:
 
         # Try the configured backend first
         name = self.active_name
-        backend = self._backends.get(name)
+        with self._lock:
+            backend = self._backends.get(name)
         if backend is not None:
             try:
+                # OUTSIDE lock: a model load can take 5-50s (cold disk
+                # + torch import).  Holding the lock here would block
+                # every other ``get`` / ``register`` / ``get_active``
+                # call for the entire load duration.
                 backend.load(progress_callback=_cb)
                 log.info("[ASR_REGISTRY] loaded backend: %s", name)
                 return backend
@@ -237,12 +268,16 @@ class AsrBackendRegistry:
                         name,
                         unload_exc,
                     )
+                # unregister() acquires the lock itself (RLock, so
+                # re-entry is safe even if we held it here).
                 self.unregister(name)
 
         # Fallback to whisper
-        whisper = self._backends.get("whisper")
+        with self._lock:
+            whisper = self._backends.get("whisper")
         if whisper is not None:
             try:
+                # OUTSIDE lock — see comment above.
                 whisper.load(progress_callback=_cb)
                 log.info("[ASR_REGISTRY] loaded fallback backend: whisper")
                 return whisper
@@ -269,7 +304,8 @@ class AsrBackendRegistry:
         the new model.
         """
         target = name or self.active_name
-        backend = self._backends.get(target)
+        with self._lock:
+            backend = self._backends.get(target)
         if backend is not None:
             try:
                 backend.unload()
@@ -280,4 +316,5 @@ class AsrBackendRegistry:
     @property
     def available_backends(self) -> list[str]:
         """Return names of all registered backends."""
-        return list(self._backends.keys())
+        with self._lock:
+            return list(self._backends.keys())

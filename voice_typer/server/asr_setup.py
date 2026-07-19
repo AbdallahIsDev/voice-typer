@@ -144,15 +144,13 @@ def wait_while_paused(timeout_s: float = 1.0) -> bool:
     return ev.wait(timeout=timeout_s)
 
 
-# SEC-audit-005: Allowlist of file patterns permitted in model downloads.
-# Prevents supply-chain attacks where a compromised HF repo could include
-# executables, scripts, or other unexpected files.
-_HF_ALLOW_PATTERNS = [
-    "*.safetensors", "*.bin", "config.json", "tokenizer.json",
-    "tokenizer_config.json", "special_tokens_map.json",
-    "preprocessor_config.json", "feature_extractor_config.json",
-    "generation_config.json", "model.safetensors.index.json", "*.model",
-]
+# SEC-audit-005 / CRIT-5 / SEC-2: allow-list imported from the shared
+# ``_model_integrity`` module so ``parakeet_engine`` and ``asr_setup``
+# can never drift out of sync.  See ``_model_integrity.py`` for the
+# sync requirement with ``model_hashes.json`` — pinned files in the
+# manifest MUST be a subset of these allow-patterns, otherwise
+# ``verify_model_integrity()`` hard-fails on every download.
+from voice_typer.server._model_integrity import ALLOW_PATTERNS as _HF_ALLOW_PATTERNS
 
 # NEW-DEAD-027: removed the module-level ``_CONFIG_DIR`` cache.
 # It was a one-line indirection over ``config._config_dir()`` that
@@ -176,6 +174,7 @@ _MAX_DOWNLOAD_RETRIES = 4
 def ensure_hf_env():
     """Ensure HF_HOME points to ~/.voice-typer/huggingface/."""
     from voice_typer.server.config import _config_dir
+
     hf_home = str(_config_dir() / "huggingface")
     if os.environ.get("HF_HOME") != hf_home:
         os.environ["HF_HOME"] = hf_home
@@ -198,6 +197,7 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> bool:
     hashes against the MODEL_HASHES manifest when available.
     """
     from voice_typer.server.security import verify_model_integrity
+
     return verify_model_integrity(local_dir, repo_id)
 
 
@@ -230,6 +230,7 @@ def download_parakeet_weights(
 
     # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
     from voice_typer.server.security import MODEL_HASHES
+
     parakeet_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
     msg = "Checking Parakeet model cache..."
@@ -264,6 +265,7 @@ def download_parakeet_weights(
     # See FORENSIC_REVIEW_COMPLETE.md → PROD-005.
     try:
         from voice_typer.server.transcription import _check_disk_space_for_download
+
         _check_disk_space_for_download(repo_id, "parakeet")  # raises on insufficient space
     except RuntimeError as e:
         msg = str(e)
@@ -294,10 +296,11 @@ def download_parakeet_weights(
     # → PROD-004.
     try:
         from voice_typer.server.transcription import _download_with_retry
+
         local_dir = _download_with_retry(
             snapshot_download,
             max_attempts=_MAX_DOWNLOAD_RETRIES,
-            delays=tuple(2 ** i for i in range(_MAX_DOWNLOAD_RETRIES)),  # keep exponential backoff
+            delays=tuple(2**i for i in range(_MAX_DOWNLOAD_RETRIES)),  # keep exponential backoff
             repo_id=repo_id,
             revision=parakeet_revision,
             allow_patterns=_HF_ALLOW_PATTERNS,
@@ -306,7 +309,8 @@ def download_parakeet_weights(
     except Exception as e:
         log.error(
             "[ASR_SETUP] All %d download attempts failed. Last error: %s",
-            _MAX_DOWNLOAD_RETRIES, e,
+            _MAX_DOWNLOAD_RETRIES,
+            e,
         )
         if progress_callback:
             progress_callback(f"Download failed after {_MAX_DOWNLOAD_RETRIES} attempts: {e}")

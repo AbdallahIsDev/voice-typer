@@ -55,6 +55,13 @@ class WaveformBubble:
         #   "idle" — hide everything (bubble visible but showing nothing)
         self.on_set_state: Callable[[str], None] | None = None
 
+        # UX-10: `on_config` is called with the app Config when the bubble
+        # should learn its relevant settings (e.g. whether to show the mic
+        # button). The bubble renderer is sandboxed and receives no
+        # get_config, so this is how it gets bubble_behavior /
+        # bubble_click_to_toggle / bubble_mic_button.
+        self.on_config: Callable[[object], None] | None = None
+
     # ── Visibility ───────────────────────────────────────────────────
 
     @property
@@ -95,15 +102,15 @@ class WaveformBubble:
     def set_state(self, state: str) -> None:
         """Change the bubble's visual state.
 
-        States:
-          - ``"recording"`` — waveform visualizer active (default when shown)
-          - ``"transcribing"`` — hide visualizer, show "Transcribing…" text
-          - ``"idle"`` — bubble visible but showing nothing (no visualizer,
-            no text)
+                States:
+                  - ``"recording"`` — waveform visualizer active (default when shown)
+                  - ``"transcribing"`` — hide visualizer, show "Transcribing…" text
+                  - ``"idle"`` — bubble visible but showing nothing (no visualizer,
+                    no text)
 
-        Called from ``RecordingController.stop()`` when recording ends and
-        transcription begins, and from ``DictationPipeline`` when
-transcription completes.
+                Called from ``RecordingController.stop()`` when recording ends and
+                transcription begins, and from ``DictationPipeline`` when
+        transcription completes.
         """
         with self._lock:
             cb = self.on_set_state

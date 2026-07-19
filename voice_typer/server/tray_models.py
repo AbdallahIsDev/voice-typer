@@ -51,6 +51,7 @@ def _check_qwen_asr_available() -> bool:
         return bool(_qwen_asr_available_cache)
     try:
         import qwen_asr  # noqa: F401
+
         _qwen_asr_available_cache = True
     except ImportError:
         _qwen_asr_available_cache = False
@@ -112,6 +113,7 @@ def build_models_submenu_data(
             read when None.
     """
     from voice_typer.server.asr_setup import ensure_hf_env
+
     ensure_hf_env()
 
     # ARCH-037: prefer the in-memory Config object over a disk read.
@@ -167,6 +169,7 @@ def build_models_submenu_data(
 
     return results
 
+
 def build_models_menu_items(
     config_dir_fn,
     controller_change_model_fn,
@@ -175,6 +178,9 @@ def build_models_menu_items(
     menu_item_class=None,
     menu_separator=None,
     config_provider=None,
+    # NF-R16-3: localization callable. ``localize("more_models")`` returns
+    # the user-facing label for the trailing "More models..." item.
+    localize=None,
 ):
     """#13: Build the full list of pystray MenuItems for the Models submenu.
 
@@ -193,17 +199,38 @@ def build_models_menu_items(
             the data builder uses ``config_provider.asr_backend`` /
             ``config_provider.model_size`` instead of re-parsing config.json
             from disk. Falls back to disk read when None.
+        localize: optional ``Callable[[str], str]`` for label localization.
+            When provided, the trailing "More models..." item label is
+            ``localize("more_models")`` (with the literal English fallback
+            preserved for source-level regression tests). When None, the
+            English literal is used directly.
     """
     if menu_item_class is None:
         import pystray
+
         menu_item_class = pystray.MenuItem
     if menu_separator is None:
         import pystray
+
         menu_separator = pystray.Menu.SEPARATOR
+
+    # NF-R16-3: prefer the localized label when a localize callable is
+    # provided; fall back to the English literal so the source still
+    # contains the "More models..." string (tests/tauri/mig19/
+    # test_tray_menu.py asserts the literal substring is present).
+    more_models_label = "More models..."
+    more_models_text = more_models_label
+    if localize is not None:
+        try:
+            more_models_text = localize("more_models") or more_models_label
+        except Exception:
+            more_models_text = more_models_label
 
     items = []
     for name, downloaded, is_active, change_fn in build_models_submenu_data(
-        config_dir_fn, controller_change_model_fn, config_provider=config_provider,
+        config_dir_fn,
+        controller_change_model_fn,
+        config_provider=config_provider,
     ):
         if not downloaded:
             continue
@@ -217,7 +244,7 @@ def build_models_menu_items(
     items.append(menu_separator)
     items.append(
         menu_item_class(
-            "More models...",
+            more_models_text,
             wrap_fn(open_electron_window_fn),
         )
     )

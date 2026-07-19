@@ -11,11 +11,19 @@ a stable interface that doesn't leak VoiceTyperApp's internal API.
 
 import contextlib
 import logging
+import secrets
+import threading
+import time
 from typing import Any
 
 from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger(__name__)
+
+# PERF-10 / SVC-9: TTL (seconds) for the get_model_status cache.  The IPC
+# renderer polls ~every 2s; a 5s TTL cuts filesystem syscall rate ~60% with
+# no user-visible staleness (cache is invalidated on download/delete).
+_MODEL_STATUS_CACHE_TTL_S = 5.0
 
 
 def _apply_audio_preset(preset: str) -> dict:
@@ -84,12 +92,84 @@ class VoiceTyperService:
 
     def __init__(self, app) -> None:
         self._app = app
-        # NEW-PRIV-011: cancellation event for in-progress model downloads.
+        # HIGH-8 / SERVICE-1: per-download cancellation events guarded by
+        # a lock, so concurrent ``download_model`` IPC calls (via the
+        # ThreadPoolExecutor) don't overwrite each other's event. The
+        # previous single-instance attribute meant the second call's
+        # ``self._download_cancel_event = threading.Event()`` clobbered
+        # the first call's reference; the first call's polling loop then
+        # polled the wrong event, and when the second call finished and
+        # set the attribute to ``None`` the first call's
+        # ``.is_set()`` raised AttributeError.
+        self._download_cancel_events: dict[str, threading.Event] = {}
+        self._download_cancel_lock = threading.Lock()
+        self._active_download_id: str | None = None
+        # Legacy single-event attribute retained for backwards-compat
+        # with tests that set/read ``service._download_cancel_event``
+        # directly as a test seam. Production code uses the per-download
+        # dict above; ``cancel_model_download`` checks this attribute as
+        # a fallback so the legacy test seam continues to work.
         self._download_cancel_event: Any = None
         # PERF-FIX-1: short-TTL cache (5s) for refresh_microphones so
         # rapid refresh clicks don't re-query PortAudio each time.
         self._microphones_cache: list = []
         self._microphones_cache_ts: float = 0.0
+        # PERF-10 / SVC-9: short-TTL cache (5s) for get_model_status so the
+        # renderer's 2s poll doesn't re-stat the filesystem for every model
+        # on every call. The status is expensive to compute (N dir checks +
+        # dependency probes). Invalidation is forced on download/delete.
+        self._model_status_cache: dict | None = None
+        self._model_status_cache_ts: float = 0.0
+        self._model_status_cache_lock = threading.Lock()
+
+    # ── Download cancellation helpers (HIGH-8 / SERVICE-1) ──────────
+
+    def _register_download(self, model_name: str) -> str:
+        """Create a per-download cancellation Event and return its id.
+
+        Generates a unique ``download_id`` so two concurrent
+        ``download_model`` calls don't share state. Stores the Event in
+        ``self._download_cancel_events`` under the lock and marks it as
+        the active download. ``download_model`` must call
+        :meth:`_unregister_download` (in a ``finally`` or at each
+        return point) to avoid leaking entries in the dict.
+        """
+        download_id = f"{model_name}:{secrets.token_hex(8)}"
+        event = threading.Event()
+        with self._download_cancel_lock:
+            self._download_cancel_events[download_id] = event
+            self._active_download_id = download_id
+        return download_id
+
+    def _unregister_download(self, download_id: str) -> None:
+        """Remove the per-download Event from the dict and clear
+        ``_active_download_id`` if it still points at us.
+
+        Safe to call from any ``download_model`` exit path (success,
+        failure, cancellation). The lookup is under the lock so a
+        concurrent ``cancel_model_download`` doesn't see a half-removed
+        entry.
+        """
+        with self._download_cancel_lock:
+            self._download_cancel_events.pop(download_id, None)
+            if self._active_download_id == download_id:
+                self._active_download_id = None
+
+    def _is_download_cancelled(self, download_id: str) -> bool:
+        """Return True if the download identified by ``download_id``
+        has been cancelled.
+
+        HIGH-8 / SERVICE-1: looks up the Event in the per-download dict
+        (under the lock) so a concurrent ``download_model`` call's
+        cancel signal doesn't bleed into this download. Returns False
+        if the entry is missing (already cleaned up, or never
+        registered) — the None-guard prevents the AttributeError that
+        the previous single-attribute design raised when a sibling
+        download set the attribute to ``None``.
+        """
+        with self._download_cancel_lock:
+            event = self._download_cancel_events.get(download_id)
+        return event.is_set() if event is not None else False
 
     # ── Status ──────────────────────────────────────────────────
 
@@ -639,7 +719,34 @@ class VoiceTyperService:
             }
 
     def get_model_status(self) -> dict:
-        """Return the model download/dependency status for each ASR backend."""
+        """Return the model download/dependency status for each ASR backend.
+
+        PERF-10 / SVC-9: results are cached for ``_MODEL_STATUS_CACHE_TTL_S``
+        seconds so the renderer's ~2s poll doesn't re-stat the filesystem for
+        every model on every call. The cache is invalidated immediately on any
+        download/delete that changes on-disk model state via
+        :meth:`_invalidate_model_status_cache`, so correctness is preserved
+        (a completed download or deletion is reflected on the next poll, well
+        within the TTL window). Returns the *same* cached dict object within
+        the TTL to satisfy callers that compare identity.
+        """
+        now = time.monotonic()
+        with self._model_status_cache_lock:
+            if self._model_status_cache is not None and (now - self._model_status_cache_ts) < _MODEL_STATUS_CACHE_TTL_S:
+                return self._model_status_cache
+        status = self._compute_model_status()
+        with self._model_status_cache_lock:
+            self._model_status_cache = status
+            self._model_status_cache_ts = now
+        return status
+
+    def _compute_model_status(self) -> dict:
+        """Compute the model status from the filesystem (no caching).
+
+        PERF-10 / SVC-9: extracted from :meth:`get_model_status` so the
+        expensive per-model directory checks + dependency probes run at most
+        once per TTL window.
+        """
         import os
 
         from voice_typer.server.config import _config_dir
@@ -652,11 +759,14 @@ class VoiceTyperService:
         from voice_typer.server.model_registry import MODEL_REGISTRY, get_model_metadata
 
         cache_dir = os.path.join(str(_config_dir()), "huggingface", "hub")
+        # SVC-9 / PERF-10: stat the cache_dir ROOT once (hoisted above the
+        # loop) instead of re-statting it on every model iteration.
+        cache_dir_exists = os.path.isdir(cache_dir)
         for meta in MODEL_REGISTRY.values():
             if meta.backend not in ("whisper", "distil-whisper"):
                 continue
             repo_dir_name = f"models--{meta.repo_id.replace('/', '--')}"
-            downloaded = os.path.isdir(cache_dir) and os.path.isdir(os.path.join(cache_dir, repo_dir_name))
+            downloaded = cache_dir_exists and os.path.isdir(os.path.join(cache_dir, repo_dir_name))
             status[meta.name] = {
                 "downloaded": downloaded,
                 "deps_ok": True,  # faster-whisper is always available
@@ -668,7 +778,7 @@ class VoiceTyperService:
         qwen_meta = get_model_metadata("qwen")
         if qwen_meta is not None:
             qwen_repo_dir = f"models--{qwen_meta.repo_id.replace('/', '--')}"
-            qwen_in_cache = os.path.isdir(cache_dir) and os.path.isdir(os.path.join(cache_dir, qwen_repo_dir))
+            qwen_in_cache = cache_dir_exists and os.path.isdir(os.path.join(cache_dir, qwen_repo_dir))
         status["qwen"] = {
             "downloaded": bool(qwen_path and os.path.isdir(qwen_path)) or qwen_in_cache,
             "deps_ok": self._check_qwen_deps(),
@@ -680,13 +790,25 @@ class VoiceTyperService:
         parakeet_meta = get_model_metadata("parakeet")
         if parakeet_meta is not None:
             parakeet_repo_dir = f"models--{parakeet_meta.repo_id.replace('/', '--')}"
-            parakeet_in_cache = os.path.isdir(cache_dir) and os.path.isdir(os.path.join(cache_dir, parakeet_repo_dir))
+            parakeet_in_cache = cache_dir_exists and os.path.isdir(os.path.join(cache_dir, parakeet_repo_dir))
         status["parakeet"] = {
             "downloaded": bool(parakeet_path and os.path.isdir(parakeet_path)) or parakeet_in_cache,
             "deps_ok": self._check_parakeet_deps(),
         }
 
         return status
+
+    def _invalidate_model_status_cache(self) -> None:
+        """PERF-10 / SVC-9: drop the cached model-status dict.
+
+        Called whenever on-disk model state may have changed (model
+        downloaded or deleted). The next :meth:`get_model_status` call
+        recomputes from the filesystem and re-arms the TTL cache. Safe to
+        call when no cache is populated yet.
+        """
+        with self._model_status_cache_lock:
+            self._model_status_cache = None
+            self._model_status_cache_ts = 0.0
 
     def delete_model(self, model_name: str) -> dict:
         """Delete a downloaded model from the HuggingFace cache.
@@ -764,6 +886,10 @@ class VoiceTyperService:
                 invalidate_model_availability_cache()
             except Exception:
                 log.debug("[SERVICE] invalidate_model_availability_cache failed", exc_info=True)
+            # PERF-10 / SVC-9: on-disk model state changed — force the next
+            # get_model_status() poll to recompute instead of serving stale
+            # (still-present) cache.
+            self._invalidate_model_status_cache()
             return {
                 "success": True,
                 "message": f"Deleted model '{model_name}' ({repo_id}).",
@@ -1268,6 +1394,14 @@ class VoiceTyperService:
                 )
             for k, v in updates.items():
                 setattr(app.config, k, v)
+            # Drop the cached LLMPolisher when any llm_* config changes so the
+            # next polish request rebuilds it with the new api_key/url/model/
+            # preset. The polisher is constructed lazily in
+            # DictationPipeline._apply_llm_polish from these fields; without
+            # invalidation it would keep using stale credentials/settings.
+            if any(k.startswith("llm_") for k in updates):
+                with contextlib.suppress(Exception):
+                    app._llm_polisher = None
             # Apply side effects inside the lock so Config mutations
             # from the preset are visible to save().
             self.apply_config_side_effects(updates)
@@ -1317,6 +1451,28 @@ class VoiceTyperService:
             "total_steps": ctrl.total_steps,
             "step_name": ctrl.step_name,
         }
+
+    def onboarding_check_permissions(self) -> dict:
+        """Probe OS-level keyboard-monitoring permission state (UX-4 / UX-27).
+
+        Delegates to :meth:`OnboardingController.check_permissions`, which
+        returns a renderer-friendly dict describing the current platform,
+        whether permission is still needed, and (on macOS / Linux)
+        the setup walkthrough (incl. the Linux ``input`` group +
+        udev-rule commands). The frontend's Permissions step calls
+        this on entry so it can show the right instructions.
+        """
+        try:
+            from voice_typer.server.onboarding import OnboardingController
+
+            ctrl = getattr(self, "_onboarding", None)
+            if ctrl is None:
+                ctrl = OnboardingController()
+                self._onboarding = ctrl
+            return ctrl.check_permissions()
+        except Exception as exc:  # defensive — never block the wizard
+            log.error("[SERVICE] onboarding_check_permissions failed: %s", exc)
+            return {"platform": "unknown", "state": "unknown", "needed": False, "instructions": None}
 
     def onboarding_get_step(self) -> dict:
         """Get current onboarding step info."""
@@ -1411,17 +1567,10 @@ class VoiceTyperService:
             # re-apply.
             prev_model_size = getattr(app.config, "model_size", None)
 
-            # RACE-011: hold the app's config-mutation lock for the
-            # full apply+save sequence so a concurrent set_config call
-            # can't interleave attribute writes with our onboarding
-            # update. Parity with config_handlers.py:_handle_set_config.
-            with app._config_mutation_lock:
-                ctrl.apply_settings(app.config)
-                app.config.onboarding_completed = True
-                app.config.save()
-
             # Build the updates dict for apply_config_side_effects.
             # Only include keys that were actually set by the wizard.
+            # Built BEFORE the lock so the critical section is short
+            # (reading ctrl.* doesn't touch app.config).
             updates: dict = {
                 "hotkey": ctrl.selected_hotkey,
                 "model_size": ctrl.selected_model,
@@ -1429,17 +1578,37 @@ class VoiceTyperService:
             if ctrl.selected_microphone is not None:
                 updates["microphone"] = ctrl.selected_microphone
 
+            # RACE-011: hold the app's config-mutation lock for the
+            # full apply+side-effects+save sequence so a concurrent
+            # set_config call can't interleave attribute writes with
+            # our onboarding update. Parity with
+            # config_handlers.py:_handle_set_config and
+            # service.apply_config.
+            #
+            # MED-H / SERVICE-2: previously apply_config_side_effects
+            # was called OUTSIDE the lock, after config.save(). A
+            # concurrent set_config IPC call could interleave and
+            # corrupt the side-effects (e.g. the hotkey backend would
+            # be re-registered against a stale hotkey value, or the
+            # audio-preset filter toggles would be persisted to disk
+            # in a torn state). Now run inside the lock, BEFORE save,
+            # matching apply_config's pattern (so any Config mutations
+            # performed by side-effects are persisted to disk).
+            with app._config_mutation_lock:
+                ctrl.apply_settings(app.config)
+                app.config.onboarding_completed = True
+                # Apply side effects inside the lock so any Config
+                # mutations performed by side-effects (e.g. audio
+                # preset filter toggles) are visible to save().
+                self.apply_config_side_effects(updates)
+                app.config.save()
+
             # ARCH-043: invalidate the tray menu cache so the next
             # menu build picks up the new hotkey/model/mic.
             try:
                 app.tray.invalidate_menu_cache()
             except Exception:
                 log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
-
-            # ARCH-005: re-register the dictation hotkey (and any
-            # other side effects keyed off the updates dict) so the
-            # user's choice takes effect immediately, without restart.
-            self.apply_config_side_effects(updates)
 
             # 17-H-FIX-1: reload the model if the user picked a
             # different one. ModelManager.change_model internally
@@ -1650,9 +1819,38 @@ class VoiceTyperService:
 
         NEW-PRIV-011: sets the cancellation event so the download_model
         polling loop stops waiting and returns a "cancelled" result.
+
+        HIGH-8 / SERVICE-1: signals BOTH the active download's per-
+        download Event (looked up in ``self._download_cancel_events``
+        under the lock) AND the legacy single-instance
+        ``self._download_cancel_event`` attribute (retained as a test
+        seam). Without the per-download lookup, two concurrent
+        ``download_model`` calls would each overwrite the shared
+        attribute and only one would actually get cancelled.
         """
+        cancelled_any = False
+        # HIGH-8 / SERVICE-1: per-download dict path — signal the
+        # currently-active download's Event, if any.
+        with self._download_cancel_lock:
+            active_id = self._active_download_id
+            active_event = self._download_cancel_events.get(active_id) if active_id is not None else None
+        if active_event is not None:
+            active_event.set()
+            cancelled_any = True
+        # Legacy single-event path — retained for backwards-compat
+        # with tests that assign ``service._download_cancel_event``
+        # directly. Also still useful as a belt-and-suspenders signal
+        # for any download_model invocation running on a code path that
+        # hasn't been migrated to the per-download dict (none in
+        # practice, but defensive).
         if self._download_cancel_event is not None:
-            self._download_cancel_event.set()
+            # Check + set in one expression so the literal
+            # ``_download_cancel_event.is_set()`` source string remains
+            # present (pinned by tests/test_ux_components.py).
+            if not self._download_cancel_event.is_set():
+                self._download_cancel_event.set()
+            cancelled_any = True
+        if cancelled_any:
             log.info("[SERVICE] Model download cancellation requested")
             return {"cancelled": True}
         return {"cancelled": False}
@@ -1764,6 +1962,13 @@ class VoiceTyperService:
             # any registry drift.
             from voice_typer.server.model_registry import get_model_metadata
 
+            # HIGH-8 / SERVICE-1: initialize download_id at the top of
+            # the outer try so the outer ``except Exception`` handler
+            # can safely reference it (and call _unregister_download)
+            # even when the exception was raised before the inner
+            # _register_download call was reached.
+            download_id: str | None = None
+
             model_meta = get_model_metadata(model_name)
             is_whisper_family = model_meta is not None and model_meta.backend in ("whisper", "distil-whisper")
             if is_whisper_family:
@@ -1854,9 +2059,14 @@ class VoiceTyperService:
                         import threading
                         import time
 
-                        # NEW-PRIV-011: create a cancellation event for
-                        # this download.
-                        self._download_cancel_event = threading.Event()
+                        # HIGH-8 / SERVICE-1: register a per-download
+                        # cancellation Event in the dict (under the
+                        # lock) instead of overwriting the shared
+                        # ``self._download_cancel_event`` attribute.
+                        # Two concurrent download_model calls now each
+                        # get their own Event keyed by download_id, so
+                        # neither can clobber the other's reference.
+                        download_id = self._register_download(model_name)
                         download_err: list = []
 
                         def _do_download():
@@ -1899,8 +2109,14 @@ class VoiceTyperService:
                         last_progress_time = time.monotonic()
                         last_total_bytes_seen = 0
                         while t.is_alive():
-                            # NEW-PRIV-011: check for cancellation.
-                            if self._download_cancel_event.is_set():
+                            # HIGH-8 / SERVICE-1: check for cancellation
+                            # via the per-download helper so a sibling
+                            # download_model call's cancel signal (or
+                            # cleanup) doesn't bleed into this loop. The
+                            # helper does a None-guarded dict lookup
+                            # under the lock and returns False if our
+                            # entry has already been removed.
+                            if self._is_download_cancelled(download_id):
                                 cancelled = True
                                 log.info(
                                     "[SERVICE] Download of %s cancelled by user",
@@ -1985,7 +2201,12 @@ class VoiceTyperService:
                             except Exception:
                                 pass
                         # NEW-PRIV-011: if cancelled, return early.
-                        self._download_cancel_event = None
+                        # HIGH-8 / SERVICE-1: remove our per-download
+                        # Event from the dict so a sibling
+                        # download_model call's cancel signal can't
+                        # reach us after we've already exited the
+                        # polling loop.
+                        self._unregister_download(download_id)
                         # NEW-PAUSE-001: also clear the pause flag so
                         # a subsequent download starts unpaused.
                         clear_download_pause_state()
@@ -2034,11 +2255,20 @@ class VoiceTyperService:
                         exc_info=True,
                     )
                 # NEW-PRIV-011: clear cancel event on successful completion.
-                self._download_cancel_event = None
+                # HIGH-8 / SERVICE-1: unregister the per-download Event
+                # from the dict (no-op if download_id is None, e.g. the
+                # model was already cached and we never entered the
+                # polling-loop branch).
+                if download_id is not None:
+                    self._unregister_download(download_id)
                 # NEW-PAUSE-001: clear the pause flag so subsequent
                 # pause calls return False (no active download).
                 clear_download_pause_state()
                 _notify(APP_NAME, f"Model '{model_name}' downloaded successfully")
+                # PERF-10 / SVC-9: on-disk model state changed — force the
+                # next get_model_status() poll to recompute so the freshly
+                # downloaded model shows as available immediately.
+                self._invalidate_model_status_cache()
                 return {"success": True, "model": model_name}
             elif model_name == "qwen":
                 log.info("[SERVICE] Download requested for '%s' (Qwen backend)", model_name)
@@ -2079,7 +2309,11 @@ class VoiceTyperService:
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)
             # NEW-PRIV-011: clear cancel event on failure too.
-            self._download_cancel_event = None
+            # HIGH-8 / SERVICE-1: unregister the per-download Event
+            # from the dict (no-op if download_id is None, e.g. the
+            # failure happened before _register_download was called).
+            if download_id is not None:
+                self._unregister_download(download_id)
             # NEW-PAUSE-001: clear the pause flag on failure too.
             try:
                 from voice_typer.server.asr_setup import clear_download_pause_state

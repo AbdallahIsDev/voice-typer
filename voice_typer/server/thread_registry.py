@@ -180,11 +180,7 @@ class ThreadRegistry:
         ``shutdown_all()``.
         """
         with self._lock:
-            return [
-                name
-                for name, entry in self._entries.items()
-                if entry.thread.is_alive()
-            ]
+            return [name for name, entry in self._entries.items() if entry.thread.is_alive()]
 
     def list_all(self) -> list[str]:
         """Return a list of all registered thread names (alive or not)."""
@@ -211,10 +207,14 @@ class ThreadRegistry:
              signal was sent, so the timeout is expected; the existing
              per-site cleanup is responsible for stopping the thread).
 
-        Threads are processed in registration order (insertion order
-        of the underlying dict). The shutdown sequence is bounded by
-        the SUM of all ``join_timeout`` values; in the worst case,
-        shutdown takes that long before continuing.
+        PERF-23: threads are signaled in a single pass (no join in
+        the signal phase), then joined in a bounded poll loop. The
+        total shutdown time is bounded by ``max(join_timeout)`` (NOT
+        ``sum(join_timeout)``) — a stuck thread no longer blocks
+        shutdown of the other threads. Each iteration joins every
+        still-alive thread with a short ``timeout=0.1`` slice; the
+        loop exits when all threads are dead or when the total
+        elapsed time exceeds the maximum per-thread ``join_timeout``.
         """
         with self._lock:
             entries = list(self._entries.values())
@@ -228,50 +228,75 @@ class ThreadRegistry:
             ", ".join(entry.name for entry in entries),
         )
 
+        # PERF-23 Phase 1: signal ALL stop_events first (no join).
+        # This lets every thread begin its shutdown sequence in
+        # parallel; we don't block on the slowest thread before
+        # signaling the next.
         for entry in entries:
-            self._shutdown_one(entry)
+            if entry.stop_event is not None:
+                try:
+                    entry.stop_event.set()
+                except Exception:
+                    log.debug(
+                        "[THREAD-REGISTRY] Failed to set stop_event for %r",
+                        entry.name,
+                        exc_info=True,
+                    )
 
-    def _shutdown_one(self, entry: ThreadRegistryEntry) -> None:
-        """Signal and join a single thread entry.
-
-        Split out from ``shutdown_all()`` so the per-thread logic is
-        testable in isolation and the main loop stays readable.
-        """
-        # Signal the thread to stop (if it has a stop_event).
-        if entry.stop_event is not None:
-            try:
-                entry.stop_event.set()
-            except Exception:
-                log.debug(
-                    "[THREAD-REGISTRY] Failed to set stop_event for %r",
-                    entry.name,
-                    exc_info=True,
-                )
-
-        # Skip the join entirely if the thread is already dead. This
-        # avoids a redundant blocking call and the "thread exited
-        # cleanly" log on every shutdown_all() re-entry.
-        if not entry.thread.is_alive():
-            log.debug(
-                "[THREAD-REGISTRY] Thread %r already exited (no join needed)",
-                entry.name,
-            )
+        # PERF-23 Phase 2: bounded join loop.
+        # Each thread has its OWN deadline (``start + entry.join_timeout``).
+        # We loop, joining each still-alive thread with a short slice
+        # (0.1s) per iteration, until either:
+        #   - all threads are dead, OR
+        #   - every remaining alive thread has passed its individual
+        #     deadline (i.e. its per-thread join_timeout has elapsed).
+        # This bounds the total shutdown time by ``max(join_timeout)``
+        # (NOT ``sum(join_timeout)``) — a stuck thread no longer blocks
+        # shutdown of the other threads.
+        if not entries:
             return
+        join_slice = 0.1
+        import time as _time
 
-        # Join with the per-thread timeout. If the thread doesn't exit
-        # in time, log and continue — we must not block shutdown on a
-        # single stuck thread. The thread is a daemon, so it will be
-        # killed when the process exits.
-        try:
-            entry.thread.join(timeout=entry.join_timeout)
-        except Exception:
-            log.debug(
-                "[THREAD-REGISTRY] join() raised for %r",
-                entry.name,
-                exc_info=True,
-            )
+        start = _time.monotonic()
+        # Per-thread deadline: ``start + entry.join_timeout``. A thread
+        # is "expired" once monotonic time passes its deadline; we stop
+        # joining it (but keep checking is_alive() so a late exit is
+        # still logged as "exited cleanly").
+        deadlines = {id(entry): start + entry.join_timeout for entry in entries}
+        while True:
+            now = _time.monotonic()
+            alive_entries = [e for e in entries if e.thread.is_alive()]
+            if not alive_entries:
+                break
+            # If every alive thread has passed its individual deadline,
+            # we're done — give up on the laggards.
+            joinable = [e for e in alive_entries if now < deadlines[id(e)]]
+            if not joinable:
+                break
+            # Join each joinable thread with a short slice. Threads
+            # that exit early return immediately; threads that need
+            # more time get another slice on the next iteration.
+            for entry in joinable:
+                if not entry.thread.is_alive():
+                    continue
+                try:
+                    entry.thread.join(timeout=join_slice)
+                except Exception:
+                    log.debug(
+                        "[THREAD-REGISTRY] join() raised for %r",
+                        entry.name,
+                        exc_info=True,
+                    )
 
-        if entry.thread.is_alive():
+        # Phase 3: log final state of each entry (exit / still alive).
+        for entry in entries:
+            if not entry.thread.is_alive():
+                log.debug(
+                    "[THREAD-REGISTRY] Thread %r exited cleanly after join",
+                    entry.name,
+                )
+                continue
             if entry.stop_event is not None:
                 # We signaled the thread but it didn't exit. This is a
                 # potential deadlock or stuck I/O — surface it as a
@@ -295,8 +320,3 @@ class ThreadRegistry:
                     entry.name,
                     entry.join_timeout,
                 )
-        else:
-            log.debug(
-                "[THREAD-REGISTRY] Thread %r exited cleanly after join",
-                entry.name,
-            )

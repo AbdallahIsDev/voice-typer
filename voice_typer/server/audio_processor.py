@@ -24,6 +24,37 @@ import numpy as np
 from voice_typer.server.audio_chain_builder import build_chain
 from voice_typer.server.audio_filters import FilterChain
 
+# CRIT-6 / AUDIO-CHAIN-1: lazy-imported resampler to avoid pulling scipy
+# into every test that constructs an AudioProcessor.  The first
+# ``process_chunk`` call that actually needs to resample will import it.
+_resample_poly = None
+_resample_poly_import_error: Exception | None = None
+
+
+def _get_resample_poly():
+    """Lazy import of scipy.signal.resample_poly.
+
+    The chain is built at ``config.sample_rate`` (16 kHz) but the
+    PortAudio stream may run at the device's native rate (48 kHz on
+    most mics).  When the rates differ we resample the chunk to the
+    chain's rate before filtering so the filter coefficients are
+    applied at the correct frequency.
+    """
+    global _resample_poly, _resample_poly_import_error
+    if _resample_poly is not None:
+        return _resample_poly
+    if _resample_poly_import_error is not None:
+        raise _resample_poly_import_error
+    try:
+        from scipy.signal import resample_poly as _rp  # type: ignore[import-untyped]
+
+        _resample_poly = _rp
+        return _resample_poly
+    except Exception as exc:  # pragma: no cover - exercised only when scipy missing
+        _resample_poly_import_error = exc
+        raise
+
+
 log = logging.getLogger(__name__)
 
 QualityCallback = Callable[[float, float], None]
@@ -85,7 +116,7 @@ class AudioProcessor:
 
     # ── Real-time processing (called from PortAudio callback) ───────
 
-    def process_chunk(self, chunk: np.ndarray) -> np.ndarray | None:
+    def process_chunk(self, chunk: np.ndarray, input_sample_rate: int | None = None) -> np.ndarray | None:
         """Apply the filter chain to a single audio chunk.
 
         Returns the filtered chunk (same shape/dtype). If the chain
@@ -104,12 +135,51 @@ class AudioProcessor:
 
         **Must be non-blocking.** Only pre-allocated buffers and fast
         numpy/scipy operations are used.
+
+        CRIT-6 / AUDIO-CHAIN-1: if ``input_sample_rate`` is provided
+        and differs from the chain's construction sample rate, the
+        chunk is resampled to the chain's rate before processing.
+        This fixes the bug where filters built at 16 kHz were being
+        fed 48 kHz audio (the device's native rate), causing a
+        nominal 80 Hz high-pass to actually cut at 240 Hz — removing
+        male speech fundamentals.  When resampling fails (scipy
+        missing, integer ratio not available), we fall back to
+        passing the original chunk and log at debug level.
         """
         if chunk.size == 0:
             return chunk
 
         if chunk.dtype != np.float32:
             chunk = chunk.astype(np.float32)
+
+        # CRIT-6 / AUDIO-CHAIN-1: resample to the chain's rate if the
+        # input rate differs.  Filters were built at ``self._sample_rate``
+        # (16 kHz) — feeding them audio at a different rate silently
+        # mistunes every coefficient (high-pass, notch, EQ crossovers,
+        # compressor attack/release).
+        if input_sample_rate is not None and int(input_sample_rate) != self._sample_rate:
+            try:
+                resample_poly = _get_resample_poly()
+                # scipy.signal.resample_poly uses integer up/down ratios.
+                # Compute the greatest common divisor to keep the ratio
+                # in reduced form (smaller FFT sizes, faster).
+                from math import gcd
+
+                up = self._sample_rate
+                down = int(input_sample_rate)
+                g = gcd(up, down)
+                up //= g
+                down //= g
+                chunk = resample_poly(chunk, up, down).astype(np.float32, copy=False)
+            except Exception:
+                # Fall back to the original chunk — better to filter at
+                # the wrong rate than to drop the chunk entirely.
+                log.debug(
+                    "[AUDIO-PROC] resample failed (input_sr=%d, chain_sr=%d); filtering at wrong rate",
+                    input_sample_rate,
+                    self._sample_rate,
+                    exc_info=True,
+                )
 
         result = self._chain.process(chunk, self._sample_rate)
 
