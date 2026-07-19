@@ -18,8 +18,8 @@
  */
 import { spawn } from "node:child_process";
 import { app, dialog } from "electron";
-import { APP_NAME } from "../branding";
 import { IPC_PORT, IPC_TOKEN } from "../constants";
+import { mainT } from "../i18n";
 import { state } from "../state";
 import { pythonArgs } from "./python-args";
 import { relaunchApp } from "./relaunch-app";
@@ -111,9 +111,8 @@ export function startPython() {
 				state.mainWindow = null;
 			}
 			dialog.showErrorBox(
-				APP_NAME,
-				`Only one instance of ${APP_NAME} can run at a time.\n\n` +
-					"Close the existing instance first, then try again.",
+				mainT("dialog.singleInstance.title"),
+				mainT("dialog.singleInstance.message"),
 			);
 			app.quit();
 		} else if (code !== 0) {

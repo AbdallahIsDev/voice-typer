@@ -77,6 +77,18 @@ contextBridge.exposeInMainWorld("bubble", {
 			ipcRenderer.removeListener("bubble:draggable", handler);
 		};
 	},
+	// UX-10: receive bubble-relevant config (bubble_behavior /
+	// bubble_click_to_toggle / bubble_mic_button) pushed from the
+	// Python backend. The sandboxed bubble renderer has no get_config,
+	// so this is how it learns whether to show the mic button.
+	onConfig: (callback: (cfg: Record<string, unknown>) => void) => {
+		const handler = (_event: Electron.IpcRendererEvent, cfg: unknown) =>
+			callback(cfg as Record<string, unknown>);
+		ipcRenderer.on("bubble:config", handler);
+		return () => {
+			ipcRenderer.removeListener("bubble:config", handler);
+		};
+	},
 	hideComplete: () => {
 		ipcRenderer.send("bubble:hidden");
 	},
@@ -98,5 +110,14 @@ contextBridge.exposeInMainWorld("bubble", {
 	// bubble repositioning is dead in production.
 	moveBy: (deltaX: number, deltaY: number) => {
 		ipcRenderer.send("bubble:move-by", { deltaX, deltaY });
+	},
+	// UX-10: toggle dictation from the bubble's own mic button. The
+	// bubble is a sandboxed renderer (SEC-026) with NO `python.call`,
+	// so it cannot invoke `toggle_dictation` directly. Instead it sends
+	// a dedicated, single-purpose channel that the main process routes
+	// to the Python backend. Restricted to the bubble frame by the
+	// handler (assertFromBubble) so only the bubble can trigger it.
+	toggleDictation: () => {
+		ipcRenderer.send("bubble:toggle-dictation");
 	},
 });

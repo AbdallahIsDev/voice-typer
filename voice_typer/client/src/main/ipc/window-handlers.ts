@@ -12,6 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { dialog, ipcMain, shell } from "electron";
+import { mainT, setMainLocale } from "../i18n";
 import { state } from "../state";
 import { showMainWindow } from "../windows";
 
@@ -79,7 +80,7 @@ export function registerWindowHandlers(): void {
 	// directory containing HuggingFace model cache folders to import.
 	ipcMain.handle("model:import-dialog", async () => {
 		const { canceled, filePaths } = await dialog.showOpenDialog({
-			title: "Select Model Folder",
+			title: mainT("dialog.selectModelFolder.title"),
 			properties: ["openDirectory"],
 		});
 		if (canceled || !filePaths || filePaths.length === 0) {
@@ -87,6 +88,21 @@ export function registerWindowHandlers(): void {
 		}
 		return { canceled: false, path: filePaths[0] };
 	});
+
+	// ── i18n locale sync (NF-R16-5) ─────────────────────────────────
+	// Lets the renderer push its current UI locale to the main process so
+	// native Electron dialogs (single-instance error, critical-error crash
+	// dialog, model-folder picker, export save-as dialogs) are shown in the
+	// same language. The renderer should call this on startup and whenever
+	// the user changes the UI language (alongside the existing
+	// `set_tray_locale` call that pushes the locale to the Python backend).
+	ipcMain.handle(
+		"i18n:set-locale",
+		async (_event, { locale }: { locale: string }) => {
+			setMainLocale(typeof locale === "string" ? locale : "en");
+			return { ok: true };
+		},
+	);
 
 	// Allow the Python backend (tray "Open app") to request showing the
 	// dashboard over TCP — a clean, single-hop alternative to the Win32

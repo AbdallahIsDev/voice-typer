@@ -9,6 +9,7 @@
  */
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
+import { mainT } from "../i18n";
 
 /**
  * SEC-015: CSV formula injection defense.  Cells starting
@@ -44,7 +45,7 @@ export function registerExportHandlers(): void {
 					: [{ name: "JSON", extensions: ["json"] }];
 
 			const { canceled, filePath } = await dialog.showSaveDialog({
-				title: "Export History",
+				title: mainT("dialog.export.history"),
 				defaultPath: `voice-typer-history.${format}`,
 				filters,
 			});
@@ -88,7 +89,7 @@ export function registerExportHandlers(): void {
 					: [{ name: "JSON", extensions: ["json"] }];
 
 			const { canceled, filePath } = await dialog.showSaveDialog({
-				title: "Export Vocabulary",
+				title: mainT("dialog.export.vocabulary"),
 				defaultPath: `voice-typer-vocabulary.${format}`,
 				filters,
 			});
@@ -133,7 +134,7 @@ export function registerExportHandlers(): void {
 		"templates:export",
 		async (_event, { data }: { data: unknown }) => {
 			const { canceled, filePath } = await dialog.showSaveDialog({
-				title: "Export Templates",
+				title: mainT("dialog.export.templates"),
 				defaultPath: "voice-typer-templates.json",
 				filters: [{ name: "JSON", extensions: ["json"] }],
 			});
@@ -159,7 +160,7 @@ export function registerExportHandlers(): void {
 		"config:export",
 		async (_event, { data }: { data: unknown }) => {
 			const { canceled, filePath } = await dialog.showSaveDialog({
-				title: "Export Configuration",
+				title: mainT("dialog.export.config"),
 				defaultPath: "voice-typer-config.json",
 				filters: [{ name: "JSON", extensions: ["json"] }],
 			});

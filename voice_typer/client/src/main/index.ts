@@ -63,11 +63,19 @@ if (process.env.npm_lifecycle_event === "dev" || !app.isPackaged) {
 //
 // ERR-IPC-002 (fix): previously missing `quit_app` and `restart_app`,
 // which broke tray Quit/Restart (stopPython sends `quit_app`).
-// ERR-IPC-003 (fix): removed 6 dead/mismatched entries (`quit`,
+// ERR-IPC-003 (fix): removed 5 dead/mismatched entries (`quit`,
 // `restart`, `save_config`, `save_vocabulary_with_diff`,
-// `repaste_last`, `complete_onboarding`) — none exist as server
-// IPC commands. The list now matches the server's actual command
-// names exactly (cross-checked against ipc_server.py _dispatch).
+// `complete_onboarding`) — none exist as server IPC commands.
+//
+// UX-23 (renderer bits): `repaste_last` was previously in the
+// ERR-IPC-003 "removed" list, but it IS a real app method
+// (`service.repaste_last` / `app.repaste_last`) — it was previously
+// invoked only via the tray hotkey callback, not as an IPC command.
+// Re-added here so the renderer's "Re-paste" button can call it.
+// NOTE: a server-side `_handle_repaste_last` handler still needs to
+// be registered in `_COMMAND_REGISTRY` (ipc_server.py) for the call
+// to succeed; until then the renderer call will surface an "unknown
+// command" error toast (handled gracefully by Home.tsx).
 export const ALLOWED_COMMANDS = new Set([
 	"get_status",
 	"toggle_dictation",
@@ -160,6 +168,14 @@ export const ALLOWED_COMMANDS = new Set([
 	"heartbeat",
 	// PERF-005: ack that Electron received+is processing relaunch_electron
 	"relaunch_ack",
+	// UX-23 (renderer bits): repaste_last is a server-side app method
+	// (service.repaste_last / app.repaste_last) currently wired to a
+	// tray hotkey. Adding it to the IPC allowlist so the renderer's
+	// "Re-paste" button (Home.tsx) can invoke it via call(). The
+	// backend handler is added separately (tracked in the IPC
+	// _COMMAND_REGISTRY); until then the renderer call will return
+	// an "unknown command" error which the UI surfaces as a toast.
+	"repaste_last",
 	// d-review Finding 2: 10 server commands previously missing
 	// from the allowlist — renderer calls silently rejected.
 	"refresh_microphones",

@@ -10,10 +10,9 @@
  *      crash log + 5-error circuit breaker.
  */
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { app, dialog, session } from "electron";
-import { APP_NAME } from "./branding";
+import { mainT } from "./i18n";
 import { computeConfigDir } from "./single_instance";
 import { state } from "./state";
 
@@ -144,10 +143,11 @@ function setupErrorHandlers(): void {
 			);
 			try {
 				dialog.showErrorBox(
-					`${APP_NAME} — Critical Error`,
-					`The app encountered ${uncaughtCount} uncaught exceptions and will exit.\n` +
-						`Crash log: ${crashLogPath}\n` +
-						`Please restart ${APP_NAME}.`,
+					mainT("dialog.criticalError.title"),
+					mainT("dialog.criticalError.body", {
+						count: uncaughtCount,
+						logPath: crashLogPath,
+					}),
 				);
 			} catch {
 				// dialog may not be available in headless mode

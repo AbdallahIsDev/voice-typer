@@ -36,7 +36,14 @@ export function relaunchApp(): void {
 	}
 	state._relaunching = true;
 	state._restartTriggered = true;
-	app.isQuitting = true;
+	// HIGH-31 / ELEC-1: ``app.isQuitting = true`` is needed ONLY for
+	// the production ``app.exit(0)`` path (so the close handler
+	// doesn't preventDefault during teardown).  Setting it here
+	// unconditionally leaks into the dev-mode branch — after a
+	// dev-mode "Restart", ``app.isQuitting`` stays ``true`` for the
+	// rest of the process lifetime, so the next X-click DESTROYS
+	// the window instead of hiding it (close-to-tray).  Moved into
+	// the production-only branch below.
 
 	// ── Dev mode: keep Electron alive, just restart Python ──────────
 	// Production: app.relaunch() + app.exit(0) fully replaces the OS process.
@@ -103,6 +110,12 @@ export function relaunchApp(): void {
 	console.warn(
 		"[RESTART] Production mode: relaunching entire Electron application",
 	);
+
+	// HIGH-31 / ELEC-1: set isQuitting ONLY in the production branch
+	// so the close handler doesn't preventDefault during app.exit(0)
+	// teardown.  The dev branch above does NOT set it (dev mode keeps
+	// Electron alive and must preserve close-to-tray behavior).
+	app.isQuitting = true;
 
 	// Kill old Python (remove exit listener first to prevent race)
 	try {

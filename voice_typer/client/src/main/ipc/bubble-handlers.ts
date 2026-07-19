@@ -17,6 +17,7 @@
 import { ipcMain } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
 import { BUBBLE_CLR, RESET, ts } from "../logging";
+import { sendToPython } from "../python";
 import { state } from "../state";
 import { centerOnPrimaryDisplay, showBubbleWindow } from "../windows";
 
@@ -131,6 +132,24 @@ export function registerBubbleHandlers(): void {
 		// the main window uses `set_config` (allowlisted) for global toggle.
 		if (!assertFromBubble(event)) return;
 		showBubbleWindow();
+	});
+
+	// UX-10: toggle dictation from the bubble's mic button. The bubble
+	// renderer is sandboxed (SEC-026) and has NO `python.call`, so it
+	// cannot invoke `toggle_dictation` directly. This channel is the
+	// single-purpose bridge: the bubble sends `bubble:toggle-dictation`,
+	// the main process forwards it to the Python backend as the
+	// allowlisted `toggle_dictation` command. SEC-016: restricted to the
+	// bubble frame so only the bubble can trigger dictation this way.
+	ipcMain.on("bubble:toggle-dictation", (event) => {
+		if (!assertFromBubble(event)) return;
+		// `toggle_dictation` is in ALLOWED_COMMANDS, so this is a
+		// sanctioned backend call (never an arbitrary command).
+		void sendToPython({ type: "toggle_dictation" }).catch((err) => {
+			console.warn(
+				`${ts()}  ${BUBBLE_CLR}[BUBBLE] toggle_dictation failed: ${String(err)}${RESET}`,
+			);
+		});
 	});
 
 	ipcMain.on("set_bubble_position", (_event, position: "top" | "bottom") => {

@@ -56,6 +56,15 @@ export function handleMessage(msg: Record<string, unknown>) {
 			state.bubbleWindow?.webContents.send("bubble:set-state", state_);
 		} else if (msg.type === "bubble_level") {
 			state.bubbleWindow?.webContents.send("bubble:level", msg.data);
+		} else if (msg.type === "bubble_config") {
+			// UX-10: bubble-relevant config (bubble_behavior /
+			// bubble_click_to_toggle / bubble_mic_button) pushed from the
+			// Python backend so the sandboxed bubble renderer (which has
+			// no get_config) knows whether to show its mic button.
+			state.bubbleWindow?.webContents.send(
+				"bubble:config",
+				(msg.data as Record<string, unknown>) ?? {},
+			);
 		} else if (msg.type === "show_window") {
 			// Tray "Open app": Python asks us to show + focus the dashboard.
 			// Single hop over the always-up TCP channel; falls back to the
