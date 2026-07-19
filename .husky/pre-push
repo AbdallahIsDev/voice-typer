@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+echo "[pre-push] Running typecheck (client)..."
+cd voice_typer/client && npm run typecheck:ci || { echo "[pre-push] typecheck FAILED"; exit 1; }
+
+echo "[pre-push] Running pytest fast subset (server)..."
+cd ../..
+# Resolve a working Python interpreter: prefer the project venv (portable
+# across Unix `.venv/bin/python` and Windows `.venv/Scripts/python.exe`),
+# fall back to `python`/`python3` on PATH so the hook doesn't hard-fail in
+# environments without a local venv.
+PY_BIN=""
+if [ -x .venv/bin/python ]; then
+	PY_BIN=.venv/bin/python
+elif [ -x .venv/Scripts/python.exe ]; then
+	PY_BIN=.venv/Scripts/python.exe
+elif command -v python >/dev/null 2>&1; then
+	PY_BIN=python
+elif command -v python3 >/dev/null 2>&1; then
+	PY_BIN=python3
+fi
+if [ -z "$PY_BIN" ]; then
+	echo "[pre-push] No Python interpreter found; skipping pytest."
+	exit 1
+fi
+"$PY_BIN" -m pytest tests/ -x -q --timeout=60 --ignore=tests/tauri/mig15 --ignore=tests/tauri/mig16 --ignore=tests/tauri/mig17 --ignore=tests/tauri/mig18 --ignore=tests/tauri/mig19 -k "not slow" || { echo "[pre-push] pytest FAILED"; exit 1; }
+
+echo "[pre-push] All checks passed."

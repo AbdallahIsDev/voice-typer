@@ -89,11 +89,32 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
+        with:
+          # CI-5 / BUILD-N08: enable uv's own dependency cache so a warm
+          # runner re-uses the wheel cache across runs (saves ~2-3 min
+          # on the Nuitka-free install step).
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ env.BUILD_ARCH == 'aarch64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
+
+      # CI-5 / BUILD-N07: cache the cargo registry + src-tauri/target
+      # tree so a warm runner skips re-fetching crates and re-compiling
+      # unchanged dependencies. Keyed on arch + Cargo.lock hash so any
+      # dep bump cleanly invalidates the cache.
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: tauri-linux-${{ env.BUILD_ARCH }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            tauri-linux-${{ env.BUILD_ARCH }}-
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v4
@@ -149,7 +170,10 @@ jobs:
           # Fetch the latest cpython-3.12.x release for the target triple.
           # The astral-sh/python-build-standalone releases tag is "20240415" etc.
           # We use the GitHub API to find the latest release that has a matching asset.
-          API_URL="https://api.github.com/repos/indygreg/python-build-standalone/releases/latest"
+          # BUILD-N05: the canonical upstream is now astral-sh/python-build-standalone
+          # (the project was donated by indygreg to astral-sh in 2024; the indygreg
+          # org still serves a redirect but new releases are published under astral-sh).
+          API_URL="https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
           ASSET_PATTERN="cpython-3.12.*+${TRIPLE}-install_only.tar.gz"
           echo "Querying $API_URL for asset matching $ASSET_PATTERN"
           ASSET_URL=$(curl -fsSL "$API_URL" \
@@ -258,10 +282,24 @@ jobs:
         # the Tauri host doesn't open a window during `cargo tauri build`.
         # Smoke tests that need a display are documented in the runbook
         # (docs/migration/linux-validation-runbook.md) and run manually.
+        #
+        # XPLAT-17 fix: the base `tauri.conf.json` `bundle.resources` lists every
+        # platform's native binaries PLUS both prewarm arches (a documented
+        # superset — required so the Windows/macOS source-inspection tests under
+        # tests/tauri/mig15 + mig16 keep passing). On a Linux runner those
+        # cross-OS / other-arch files do NOT exist, so `cargo tauri build` would
+        # fail at the tauri-build resource-copy step (it canonicalizes each
+        # declared resource and hard-fails on any missing file — tauri-build
+        # lib.rs copy_resources). We override `resources` PER-ARCH with a
+        # `--config` file whose `bundle.resources` array REPLACES the base's
+        # (Tauri deep-merges objects but overwrites conflicting values,
+        # including arrays — verified against tauri-cli 2.11.4). x86_64 ships
+        # linux-key-listener; aarch64 does NOT (compile_native.sh can't
+        # cross-compile it — ADR-0020).
         run: |
           TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
           cd src-tauri
-          cargo tauri build --target "$TRIPLE"
+          cargo tauri build --target "$TRIPLE" --config "tauri.linux-${BUILD_ARCH}.conf.json"
 
       - name: List bundle artifacts
         run: |
@@ -269,10 +307,15 @@ jobs:
           find "src-tauri/target/$TRIPLE/release/bundle" -type f 2>/dev/null | sort
           find "src-tauri/target/release/bundle" -type f 2>/dev/null | sort
 
+      # CI-7: the orchestrator (tauri-build.yml::aggregate) downloads the
+      # artifact named `tauri-linux-installer`. The .deb is the primary
+      # installer for Debian/Ubuntu (the largest Linux install base); we
+      # also upload .AppImage and .rpm as separate artifacts for users on
+      # other distros (CI-3 — previously .rpm was not uploaded at all).
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: voice-typer-${{ env.BUILD_ARCH }}.deb
+          name: tauri-linux-installer
           path: |
             src-tauri/target/*/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/deb/*.deb
@@ -285,6 +328,19 @@ jobs:
           path: |
             src-tauri/target/*/release/bundle/appimage/*.AppImage
             src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: warn
+
+      # CI-3: previously only .deb + .AppImage were uploaded; .rpm was
+      # silently dropped. Fedora/RHEL/openSUSE users couldn't download a
+      # native package. Upload it as its own artifact so the Fedora
+      # subgraph of Linux users can grab the .rpm without rebuilding.
+      - name: Upload .rpm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-typer-${{ env.BUILD_ARCH }}.rpm
+          path: |
+            src-tauri/target/*/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/rpm/*.rpm
           if-no-files-found: warn
 
       - name: Upload build logs (Nuitka + cargo)

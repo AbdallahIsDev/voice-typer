@@ -141,6 +141,12 @@ jobs:
           name: tauri-linux-installer
           path: aggregated/linux
 
+      - name: Fail if no installers were found
+        if: needs.build-windows.result != 'success' && needs.build-macos.result != 'success' && needs.build-linux.result != 'success'
+        run: |
+          echo "::error::All per-platform workflows failed or were skipped. No installer artifacts were aggregated."
+          exit 1
+
       - name: List aggregated installers
         run: |
           echo "::group::Aggregated Tauri installers"

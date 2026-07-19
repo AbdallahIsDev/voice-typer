@@ -84,6 +84,14 @@ jobs:
       contents: read
       id-token: write   # required for actions/attest-build-provenance
       attestations: write
+    env:
+      # CRIT-7: the `secrets` context is NOT available in step `if:`
+      # conditions (GitHub Actions does not populate it there, so the
+      # condition never matches and signing is silently skipped). Map the
+      # signing secrets to job-level env so steps can gate on `env.*`
+      # (empty on PR/fork builds without secrets → signing steps skip).
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -211,7 +219,7 @@ jobs:
               --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\prewarm-onefile-tmp" `
               --output-filename=prewarm-x86_64-pc-windows-msvc.exe `
               --output-dir=src-tauri\resources `
-              voice_typer\server\prewarm.py
+              voice_typer\server\prewarm\__main__.py
           if (-not (Test-Path "src-tauri\resources\prewarm-x86_64-pc-windows-msvc.exe")) {
             Write-Error "Prewarm binary not built"; exit 1
           }
@@ -230,9 +238,6 @@ jobs:
       - name: Sign sidecar + prewarm (optional — ADR-0020 §13.1)
         if: ${{ env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
-        env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
           # Write the PFX (base64-encoded in the secret) to a temp file
           # and sign both binaries with signtool + an RFC-3161 timestamp.
@@ -274,9 +279,6 @@ jobs:
       - name: Sign the final NSIS installer (optional — ADR-0020 §13.1)
         if: ${{ env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
-        env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
           $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
           [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
@@ -290,7 +292,7 @@ jobs:
       - name: Upload NSIS installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VoiceTyper-Tauri-NSIS-Setup
+          name: tauri-windows-installer
           path: ${{ steps.artifacts.outputs.nsis_path }}
           if-no-files-found: error
 

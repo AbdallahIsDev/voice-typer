@@ -16,14 +16,30 @@ set -e
 
 case "$1" in
     configure)
-        # Find the install_permissions.py script. It's installed to
-        # /usr/share/voice-typer/scripts/ by the .deb package.
-        INSTALL_SCRIPT="/usr/share/voice-typer/scripts/install_permissions.py"
-        if [ ! -f "$INSTALL_SCRIPT" ]; then
-            # Fall back to the source-tree location (dev mode)
-            INSTALL_SCRIPT="$(dirname "$0")/../share/voice-typer/scripts/install_permissions.py"
-        fi
-        if [ ! -f "$INSTALL_SCRIPT" ]; then
+        # Find the install_permissions.py script.
+        # NF-R9-2: Tauri v2's .deb bundler installs `bundle.resources` entries
+        # to /usr/lib/voice-typer/resources/, NOT /usr/share/voice-typer/scripts/.
+        # The pre-fix postinst only looked at the legacy path, so every apt
+        # install ended with "install_permissions.py not found — skipping
+        # keyboard permission setup" and the user was NOT added to the input
+        # group, the udev rule was NOT installed, and the bundled
+        # linux-key-listener could not read /dev/input/event* — native hotkeys
+        # silently failed on Linux for every .deb/.rpm install.
+        # Fix: probe the canonical Tauri v2 resource path first, then fall
+        # back to legacy paths for backward compat.
+        INSTALL_SCRIPT=""
+        for candidate in \
+            "/usr/lib/voice-typer/resources/scripts/install_permissions.py" \
+            "/usr/lib/voice-typer/resources/scripts/linux/install_permissions.py" \
+            "/usr/share/voice-typer/scripts/install_permissions.py" \
+            "/opt/voice-typer/resources/scripts/install_permissions.py" \
+            "/opt/voice-typer/resources/scripts/linux/install_permissions.py"; do
+            if [ -f "$candidate" ]; then
+                INSTALL_SCRIPT="$candidate"
+                break
+            fi
+        done
+        if [ -z "$INSTALL_SCRIPT" ]; then
             echo "[voice-typer] WARNING: install_permissions.py not found — skipping keyboard permission setup"
             echo "[voice-typer] The hotkey may not work. Install the package via apt to get the setup script."
             exit 0

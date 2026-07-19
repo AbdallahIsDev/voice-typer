@@ -188,7 +188,23 @@ echo "::group::Phase 1c — cargo tauri build --target $TARGET_TRIPLE"
     # This script only builds the host-arch sidecar; for universal, run the
     # macOS workflow in CI which builds both arches then `cargo tauri build
     # --target universal-apple-darwin`.
-    cargo tauri build --target "$TARGET_TRIPLE"
+
+    # XPLAT-17: the base tauri.conf.json `bundle.resources` lists every
+    # platform's native binaries + both prewarm arches (a documented superset
+    # so the Windows/macOS source-inspection tests keep passing). On a Linux
+    # host only the CURRENT arch's prewarm + (for x86_64) the native
+    # linux-key-listener exist, so we override `resources` per-arch with a
+    # --config file whose array REPLACES the base (Tauri overwrites conflicting
+    # values, including arrays — verified against tauri-cli 2.11.4). aarch64
+    # omits linux-key-listener because compile_native.sh can't cross-compile it
+    # (ADR-0020). macOS/Windows build the base-listed binaries directly, so no
+    # override is needed there.
+    TAURI_BUILD_ARGS=(--target "$TARGET_TRIPLE")
+    if [[ "$HOST_PLATFORM" == "linux" && -f "tauri.linux-${HOST_ARCH}.conf.json" ]]; then
+        TAURI_BUILD_ARGS+=(--config "tauri.linux-${HOST_ARCH}.conf.json")
+        echo "[build_tauri_all] Linux: applying per-arch resource override tauri.linux-${HOST_ARCH}.conf.json"
+    fi
+    cargo tauri build "${TAURI_BUILD_ARGS[@]}"
 )
 BUILD_RC=$?
 echo "::endgroup::"

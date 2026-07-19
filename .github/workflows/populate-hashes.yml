@@ -47,10 +47,19 @@ jobs:
           # We need full history to compute a clean patch against HEAD.
           fetch-depth: 0
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+      # BUILD-N04: replace setup-python + `pip install` with
+      # astral-sh/setup-uv@v3 + `uv pip install --system`. The previous
+      # setup-python step rebuilt the wheel cache on every run (no
+      # caching) and the bare `pip install` re-resolved every transitive
+      # dep from scratch (10-20s per run wasted). setup-uv installs uv
+      # in <1s and its `enable-cache: true` directive gives us a
+      # persistent wheel cache keyed on pyproject.toml so subsequent
+      # runs re-use the cache (~5s install step vs ~25s previously).
+      - name: Install uv (with wheel cache)
+        uses: astral-sh/setup-uv@v3
         with:
-          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
 
       - name: Snapshot pre-run manifest
         id: pre
@@ -70,7 +79,7 @@ jobs:
 
       - name: Verify tests still pass
         run: |
-          pip install --quiet -e ".[test]"
+          uv pip install --system ".[test]"
           python -m pytest tests/test_model_integrity.py \
             tests/test_bugfix_regressions.py::TestModelIntegrityWarnsOnEmptyHashes \
             --no-cov -q --timeout=30

@@ -37,8 +37,16 @@ jobs:
       # CI-02: PRs run a reduced matrix (one Python per OS) to save CI
       # minutes; the full 4×3 matrix runs on push (branches/tags) where we
       # want maximum coverage before release.
+      # BUILD-N03: GitHub deprecated the macos-13 Intel runner in favor
+      # of macos-14 (Apple Silicon). The Intel test matrix was the only
+      # remaining use of macos-13 — port it to macos-14 with
+      # `architecture: x64` so the x86_64-only tests (win32 ABI parity,
+      # ctypes.windll, pywin32 stub paths) keep running on an Intel
+      # Python interpreter under Rosetta 2 on the arm64 host. Apple
+      # Silicon-native tests are covered by the macos-14 default
+      # (arm64) runner in the push matrix entry below.
       matrix:
-        ${{ github.event_name == 'pull_request' && fromJson('{"include":[{"os":"ubuntu-22.04","python-version":"3.12"},{"os":"windows-2022","python-version":"3.13"},{"os":"macos-13","python-version":"3.13"}]}') || fromJson('{"os":["windows-2022","ubuntu-22.04","macos-13"],"python-version":["3.10","3.11","3.12","3.13"]}') }}
+        ${{ github.event_name == 'pull_request' && fromJson('{"include":[{"os":"ubuntu-22.04","python-version":"3.12"},{"os":"windows-2022","python-version":"3.13"},{"os":"macos-14","python-version":"3.13","architecture":"x64"}]}') || fromJson('{"os":["windows-2022","ubuntu-22.04","macos-14"],"python-version":["3.10","3.11","3.12","3.13"],"architecture":["x64"]}') }}
       fail-fast: false
 
     steps:
@@ -48,6 +56,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          # BUILD-N03: when running on macos-14 (Apple Silicon),
+          # setup-python defaults to arm64. The macOS matrix entry
+          # explicitly sets architecture=x64 to keep testing the Intel
+          # interpreter (Rosetta 2 on the runner). Other OSes leave the
+          # value unset so the host arch is used.
+          architecture: ${{ matrix.architecture }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v3
@@ -118,9 +132,15 @@ jobs:
       #
       # PYREFLY-HARD-GATE: error count driven from 143 → 0.
       # pyrefly is now a hard gate — failures here will block the PR.
-      # The baseline file (pyrefly-baseline.json) tracks the remaining
-      # 16 platform-specific false positives that are intentionally
-      # suppressed (Windows-only APIs, optional imports, etc.).
+      # DOC-7: the baseline file (`pyrefly-baseline.json`) is currently
+      # EMPTY ("errors": []) — all previously-suppressed platform-specific
+      # false positives have been resolved via local stubs in
+      # `voice_typer/stubs/` and inline `# pyrefly: ignore` annotations
+      # at the small handful of genuinely-unsuppressable sites. The
+      # `Audit pyrefly baseline changes` step below still runs (it diffs
+      # the baseline against the base ref and fails if entries were
+      # ADDED) so any new false-positive that creeps in cannot be silently
+      # swallowed.
       - name: Run pyrefly type check
         run: |
           uv pip install --system pyrefly
@@ -633,10 +653,13 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
+          # installer.iss was removed (ADR-0020 §13.3 — Inno Setup superseded);
+          # the electron-builder NSIS installer inherits its version from
+          # voice_typer/client/package.json, so validate the tag against that.
           $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
-          $installerVersion = (Get-Content scripts/build/installer.iss | Select-String '#define MyAppVersion "([^"]+)"').Matches.Groups[1].Value
+          $installerVersion = (Get-Content voice_typer/client/package.json | ConvertFrom-Json).version
           if ($tagVersion -ne $installerVersion) {
-            Write-Error "Version mismatch! Git tag=$tagVersion, installer.iss=$installerVersion"
+            Write-Error "Version mismatch! Git tag=$tagVersion, package.json=$installerVersion"
             exit 1
           }
 
@@ -705,34 +728,30 @@ jobs:
           path: voice_typer/client/dist/*-setup.exe
           if-no-files-found: error
 
-      - name: Install Inno Setup (pinned)
-        run: choco install innosetup --version=6.2.0 --no-progress -y
-
-      - name: Build installer
-        run: |
-          iscc scripts/build/installer.iss /O"${{ github.workspace }}"
+      # NOTE: the legacy Inno Setup installer steps (choco innosetup + iscc
+      # scripts/build/installer.iss) were REMOVED — installer.iss was deleted
+      # from the repo (ADR-0020 §13.3: Inno superseded; the electron-builder
+      # NSIS installer above is the Windows installer on this legacy path,
+      # and the Tauri NSIS bundler is the migration target). The release
+      # steps below consume the electron-builder artifact instead.
 
       - name: Generate SHA-256 checksums
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
         run: |
           $checksums = @()
-          Get-ChildItem -Path "${{ github.workspace }}" -Filter "VoiceTyper-Setup-*.exe" | ForEach-Object {
+          Get-ChildItem -Path "voice_typer/client/dist" -Filter "*-setup.exe" | ForEach-Object {
             $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
             $checksums += "$hash  $($_.Name)"
           }
           $checksums | Out-File -FilePath "${{ github.workspace }}/SHA256SUMS.txt" -Encoding utf8
 
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: VoiceTyper-Setup
-          path: ${{ github.workspace }}/VoiceTyper-Setup-*.exe
-
       - name: Get installer filename
         id: installer
+        shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path "${{ github.workspace }}" -Filter "VoiceTyper-Setup-*.exe" | Select-Object -First 1
+          $exe = Get-ChildItem -Path "voice_typer/client/dist" -Filter "*-setup.exe" | Select-Object -First 1
+          if (-not $exe) { Write-Error "electron-builder NSIS installer not found"; exit 1 }
           echo "file=$($exe.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Upload to release
@@ -761,7 +780,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: ${{ github.workspace }}/VoiceTyper-Setup-*.exe
+          subject-path: voice_typer/client/dist/*-setup.exe
 
   # GAP-1: build-macos. Downloads the macOS native binary, runs
   # PyInstaller + electron-builder for .dmg.

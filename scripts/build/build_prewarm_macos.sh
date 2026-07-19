@@ -92,7 +92,7 @@ NUITKA_ARGS=(
     --onefile-tempdir-spec="$HOME/Library/Application Support/voice-typer/prewarm-onefile-tmp"
     --output-filename="$OUTPUT_NAME"
     --output-dir="$RESOURCES_DIR"
-    "$PROJECT_ROOT/voice_typer/server/prewarm.py"
+    "$PROJECT_ROOT/voice_typer/server/prewarm/__main__.py"
 )
 if [[ -d "$CT2_LIBS_DIR" ]]; then
     NUITKA_ARGS+=(--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR")

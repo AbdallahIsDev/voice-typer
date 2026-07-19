@@ -12,7 +12,6 @@ version string:
     without ``pip install``).
   - ``voice_typer/client/package.json`` (Electron app version).
   - ``voice_typer/client/electron-builder.yml`` (installer version).
-  - ``scripts/build/installer.iss`` (Inno Setup installer version).
   - ``CHANGELOG.md`` (most-recent Unreleased → version bump).
 
 Usage::
@@ -42,7 +41,6 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 INIT_PY = REPO_ROOT / "voice_typer" / "__init__.py"
 PACKAGE_JSON = REPO_ROOT / "voice_typer" / "client" / "package.json"
 ELECTRON_BUILDER = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
-INSTALLER_ISS = REPO_ROOT / "scripts" / "build" / "installer.iss"
 
 
 def read_pyproject_version() -> str:
@@ -96,7 +94,8 @@ def write_package_json_version(version: str) -> None:
     data = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))
     data["version"] = version
     PACKAGE_JSON.write_text(
-        json.dumps(data, indent=2) + "\n", encoding="utf-8",
+        json.dumps(data, indent=2) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -110,7 +109,7 @@ def read_electron_builder_version() -> str | None:
     if not ELECTRON_BUILDER.exists():
         return None
     text = ELECTRON_BUILDER.read_text(encoding="utf-8")
-    m = re.search(r'^version:\s*([^\s]+)', text, re.MULTILINE)
+    m = re.search(r"^version:\s*([^\s]+)", text, re.MULTILINE)
     return m.group(1).strip().strip('"').strip("'") if m else None
 
 
@@ -122,33 +121,15 @@ def write_electron_builder_version(version: str) -> None:
     Don't inject a redundant field.
     """
     text = ELECTRON_BUILDER.read_text(encoding="utf-8")
-    if not re.search(r'^version:\s*[^\s]+', text, re.MULTILINE):
+    if not re.search(r"^version:\s*[^\s]+", text, re.MULTILINE):
         return
     new_text = re.sub(
-        r'^(version:\s*)[^\s]+',
-        rf'\g<1>{version}',
+        r"^(version:\s*)[^\s]+",
+        rf"\g<1>{version}",
         text,
         flags=re.MULTILINE,
     )
     ELECTRON_BUILDER.write_text(new_text, encoding="utf-8")
-
-
-def read_inno_setup_version() -> str | None:
-    if not INSTALLER_ISS.exists():
-        return None
-    text = INSTALLER_ISS.read_text(encoding="utf-8")
-    m = re.search(r'^#define\s+MyAppVersion\s+"([^"]+)"', text, re.MULTILINE)
-    return m.group(1) if m else None
-
-
-def write_inno_setup_version(version: str) -> None:
-    text = INSTALLER_ISS.read_text(encoding="utf-8")
-    new_text = re.sub(
-        r'(#define\s+MyAppVersion\s+)"[^"]+"',
-        rf'\1"{version}"',
-        text,
-    )
-    INSTALLER_ISS.write_text(new_text, encoding="utf-8")
 
 
 def collect_versions() -> dict[str, str | None]:
@@ -158,7 +139,6 @@ def collect_versions() -> dict[str, str | None]:
         "voice_typer/__init__.py (fallback)": read_init_py_fallback(),
         "voice_typer/client/package.json": read_package_json_version(),
         "voice_typer/client/electron-builder.yml": read_electron_builder_version(),
-        "scripts/build/installer.iss": read_inno_setup_version(),
     }
 
 
@@ -173,9 +153,6 @@ def apply_version(version: str) -> list[str]:
     if ELECTRON_BUILDER.exists() and read_electron_builder_version() is not None:
         write_electron_builder_version(version)
         updated.append(str(ELECTRON_BUILDER))
-    if INSTALLER_ISS.exists():
-        write_inno_setup_version(version)
-        updated.append(str(INSTALLER_ISS))
     return updated
 
 
@@ -221,10 +198,7 @@ def main(argv: list[str] | None = None) -> int:
             display = ver
         print(f"  {marker} {location:50s} {display}")
 
-    drifted = [
-        (loc, ver) for loc, ver in versions.items()
-        if ver is not None and ver != source_version
-    ]
+    drifted = [(loc, ver) for loc, ver in versions.items() if ver is not None and ver != source_version]
 
     if args.apply:
         updated = apply_version(source_version)

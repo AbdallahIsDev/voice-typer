@@ -176,11 +176,24 @@ jobs:
 
   # ─── Job 3: Universal .app + .dmg via cargo tauri build ─────────────────────
   # Depends on both arch jobs having produced their binaries.
+  # CRIT-7 note: the universal (universal2) build is INTENTIONALLY DISABLED
+  # (`if: false`) until the Phase 0-M host validation gate passes on a real
+  # macOS host — flip to `if: true` together with the two arch jobs above.
   build-tauri-universal:
-    if: false  # Phase 0-M NOT YET STARTED — enable after manual validation
+    if: false  # Phase 0-M NOT YET STARTED — universal build intentionally disabled; enable after manual validation
     needs: [build-aarch64, build-x86_64]
     runs-on: macos-14
     timeout-minutes: 60
+    env:
+      # CRIT-7: the `secrets` context is NOT available in step `if:`
+      # conditions (GitHub Actions does not populate it there, so the
+      # condition never matches and notarization is silently skipped). Map
+      # the signing/notarization secrets to job-level env so steps can gate
+      # on `env.*` (empty on PR/fork builds without secrets → skip).
+      MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -234,11 +247,6 @@ jobs:
           ls -la src-tauri/bin src-tauri/resources src-tauri/resources/native
 
       - name: Build Tauri universal .app + .dmg
-        env:
-          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           cd src-tauri
           cargo install tauri-cli --version "^2.0"
@@ -247,11 +255,6 @@ jobs:
 
       - name: Notarize + staple (if secrets present)
         if: ${{ env.MAC_SIGNING_IDENTITY != '' }}
-        env:
-          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
           DMG_PATH="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
@@ -275,9 +278,9 @@ jobs:
       - name: Upload .dmg
         uses: actions/upload-artifact@v4
         with:
-          name: macos-universal-dmg
+          name: tauri-macos-installer
           path: |
             src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
             src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30

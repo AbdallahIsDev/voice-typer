@@ -107,7 +107,7 @@ echo "[build_prewarm_windows] Running Nuitka..."
     --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\prewarm-onefile-tmp" \
     --output-filename="$OUTPUT_NAME" \
     --output-dir="$RESOURCES_DIR" \
-    "$PROJECT_ROOT/voice_typer/server/prewarm.py"
+    "$PROJECT_ROOT/voice_typer/server/prewarm/__main__.py"
 
 if [[ ! -f "$OUTPUT_PATH" ]]; then
     echo "ERROR: $OUTPUT_PATH not built" >&2
