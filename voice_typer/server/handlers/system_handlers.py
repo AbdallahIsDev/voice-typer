@@ -7,14 +7,14 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import contextlib
+import logging
 from typing import Any
 
 from voice_typer.server import event_bus
 from voice_typer.server.branding import APP_NAME
-from voice_typer.server.ipc_server import (
-    _validate_dict_payload,
-    log,
-)
+from voice_typer.server.ipc.validation import _validate_dict_payload
+
+log = logging.getLogger("voice_typer.server.ipc_server")
 from voice_typer.server.platform_utils import is_macos
 
 
@@ -122,24 +122,37 @@ class SystemHandlersMixin:
         return resp
 
     def _handle_set_tray_locale(self, data, resp) -> dict | None:
-        """Handle the ``set_tray_locale`` IPC command."""
-        # TRAY-008: Set the tray menu locale. Called by the Electron
-        # UI when the user changes the UI language in Settings.
-        # The tray menu is rebuilt on the next state change so the
-        # new labels take effect.
+        """Handle the ``set_tray_locale`` IPC command.
+
+        TRAY-008 / UX-6: accepts ``locale`` (required) and an optional
+        ``labels`` dict of translated tray-menu strings. When ``labels``
+        is provided it is registered for that locale (merged over
+        English) so the tray menu can localize into any of the 8
+        renderer locales, not just the server-hard-coded en/es. The tray
+        menu is rebuilt so the new labels take effect immediately.
+        """
         try:
-            from voice_typer.server.tray import get_tray_locale, set_tray_locale
+            from voice_typer.server.tray import (
+                get_tray_locale,
+                register_tray_labels,
+                set_tray_locale,
+            )
 
             validated, error = _validate_dict_payload(
                 data,
                 {
                     "locale": {"type": str, "required": False, "default": "en"},
+                    "labels": {"type": dict, "required": False, "default": None},
                 },
             )
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above
-            set_tray_locale(validated["locale"])
+            locale = validated["locale"]
+            labels = validated["labels"]
+            if labels is not None:
+                register_tray_labels(locale, labels)
+            set_tray_locale(locale)
             # Force a tray menu rebuild so the new labels show immediately.
             with contextlib.suppress(Exception):
                 self.app.tray.invalidate_menu_cache()

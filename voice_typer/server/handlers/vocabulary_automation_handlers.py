@@ -20,9 +20,10 @@ automation instance doesn't exist yet, but there are also no
 suggestions to show).
 """
 
+import logging
 from typing import Any
 
-from voice_typer.server.ipc_server import log
+log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 class VocabularyAutomationHandlersMixin:
@@ -106,10 +107,7 @@ class VocabularyAutomationHandlersMixin:
                 if (
                     s.original == original
                     and s.corrected == corrected
-                    and (
-                        timestamp is None
-                        or s.timestamp == float(timestamp)
-                    )
+                    and (timestamp is None or s.timestamp == float(timestamp))
                 ):
                     target = s
                     break
@@ -168,10 +166,7 @@ class VocabularyAutomationHandlersMixin:
                 if (
                     s.original == original
                     and s.corrected == corrected
-                    and (
-                        timestamp is None
-                        or s.timestamp == float(timestamp)
-                    )
+                    and (timestamp is None or s.timestamp == float(timestamp))
                 ):
                     target = s
                     break

@@ -542,11 +542,15 @@ class Config:
     """Application configuration."""
 
     schema_version: int = _CURRENT_SCHEMA_VERSION
-    # NEW-CQ-016: warnings from the last load() call. Populated by
-    # _validate_non_numeric_fields when a field had an invalid type
-    # and was reset to default. The IPC layer can surface these to
-    # the renderer so the user knows their config was corrected.
-    last_load_warnings: list | None = None
+    # SCHEMA-1 (MED-I): ``last_load_warnings`` was previously a
+    # dataclass field, which meant ``asdict(self)`` (used by ``save()``)
+    # serialized it into ``config.json``.  On the next load the stale
+    # warnings would be read back as if they applied to THIS load,
+    # producing a confusing "your config was corrected" notice for a
+    # problem that no longer exists.  It's now a plain instance
+    # attribute set in :meth:`load` (and ``__post_init__``) — since
+    # ``asdict()`` only serializes declared dataclass fields, the
+    # attribute is excluded from ``config.json`` automatically.
 
     # RW-01: marks that plaintext API keys in config.json have been
     # migrated to the OS keychain (via credential_store). When False
@@ -746,6 +750,16 @@ class Config:
 
     # Whether to show the bubble at app startup (only applies when bubble_behavior is 'always_visible')
     bubble_show_on_startup: bool = True
+
+    # UX-10: when in `always_visible` mode, show a mic button next to the
+    # waveform that toggles dictation on click. Default ON — primary
+    # remediation for UX-10 (the always-visible bubble was non-interactive).
+    bubble_click_to_toggle: bool = True
+
+    # UX-10: explicit mic-button visibility toggle (independent of
+    # bubble_click_to_toggle). Default ON. When OFF, the bubble stays
+    # non-interactive even in always_visible mode (original behaviour).
+    bubble_mic_button: bool = True
 
     # History database
     history_retention_days: int = 90  # 0 = keep forever
@@ -951,6 +965,24 @@ class Config:
     # enough that the auto-apply path actually fires in practice.
     vocabulary_auto_apply_threshold: float = 0.95
 
+    def __post_init__(self) -> None:
+        """SCHEMA-1 (MED-I): initialize the transient ``last_load_warnings``
+        attribute.
+
+        ``last_load_warnings`` was previously a dataclass field (which
+        meant ``asdict()`` serialized it into ``config.json`` and stale
+        warnings were read back on the next load).  It's now a plain
+        instance attribute so ``asdict()`` skips it.  We initialise it
+        here so freshly-constructed ``Config()`` instances (e.g. the
+        defaults fallback in :meth:`load`) have the attribute — callers
+        that read ``instance.last_load_warnings`` get ``None`` instead
+        of ``AttributeError``.
+        """
+        # Use object.__setattr__ to bypass any frozen/dataclass
+        # machinery — Config is not frozen, but this is forward-
+        # compatible if it ever is.
+        object.__setattr__(self, "last_load_warnings", None)
+
     def save(self) -> bool:
         """Save config to disk atomically via temp file + os.replace.
 
@@ -1026,6 +1058,33 @@ class Config:
             log.error("[CONFIG] Failed to save config: %s", e)
             return False
 
+    def save_strict(self) -> None:
+        """PERSIST-1 (MED-N): save config to disk; raise on failure.
+
+        Wraps :meth:`save` and raises :class:`RuntimeError` if the
+        underlying save returned ``False`` (which indicates an
+        ``OSError`` or ``PermissionError`` was caught and logged by
+        ``save()``).  Callers who care about persistence — i.e. IPC
+        handlers that return an ``ack`` to the renderer only when the
+        config actually landed on disk — should call this instead of
+        ``save()`` so a silent disk failure is surfaced as an IPC error
+        rather than a successful-but-empty ack.
+
+        The error message is intentionally generic (it does NOT embed
+        the underlying ``OSError`` message) because the renderer may
+        display the error string to the user — the underlying message
+        could contain a filesystem path that we don't want to leak
+        across the IPC boundary.  ``save()`` already logs the full
+        error message on the server side.
+
+        Wiring ``apply_config`` (in ``service.py``) to call this
+        instead of ``save()`` is a follow-up task — out of scope for
+        this file.
+        """
+        ok = self.save()
+        if not ok:
+            raise RuntimeError("failed to persist config to disk")
+
     @classmethod
     def load(cls) -> "Config":
         """Load config from disk, or return defaults.
@@ -1080,21 +1139,70 @@ class Config:
 
                 # M3: Schema versioning and migration
                 loaded_version = data.get("schema_version", 0)
-                for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
-                    migrator = _MIGRATIONS.get(version)
-                    if migrator is not None:
-                        data = migrator(data)
-                data["schema_version"] = _CURRENT_SCHEMA_VERSION
+                # SCHEMA-2 (MED-J): if the on-disk schema_version is
+                # NEWER than this build supports, log a warning so the
+                # user knows some fields may be dropped (we filter
+                # unknown keys via the ``k in cls.__dataclass_fields__``
+                # filter above).  Do NOT downgrade the on-disk version —
+                # preserving the higher value means a future build that
+                # supports it can read the fields back, and the user
+                # gets an honest signal that they ran an older build
+                # against a newer config rather than silently losing the
+                # version metadata.
+                if isinstance(loaded_version, int) and loaded_version > _CURRENT_SCHEMA_VERSION:
+                    log.warning(
+                        "[CONFIG] config schema_version=%d is newer than supported=%d — "
+                        "some fields may be dropped (preserving on-disk version)",
+                        loaded_version,
+                        _CURRENT_SCHEMA_VERSION,
+                    )
+                    # Preserve the newer on-disk version — do NOT
+                    # downgrade to _CURRENT_SCHEMA_VERSION.  The
+                    # dataclass field will still be set to
+                    # ``loaded_version`` (it's an int field, so the
+                    # constructor accepts the higher value).
+                    final_schema_version = loaded_version
+                else:
+                    # Migrations forward: run each migrator from
+                    # loaded_version+1 up to _CURRENT_SCHEMA_VERSION.
+                    # If loaded_version >= _CURRENT_SCHEMA_VERSION the
+                    # range is empty (no migrations to run).
+                    if isinstance(loaded_version, int):
+                        for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
+                            migrator = _MIGRATIONS.get(version)
+                            if migrator is not None:
+                                data = migrator(data)
+                    final_schema_version = _CURRENT_SCHEMA_VERSION
+                data["schema_version"] = final_schema_version
 
                 # Config fields were renamed (no migration needed):
-                data["streaming_left_overlap_seconds"] = max(
-                    float(data.get("streaming_left_overlap_seconds", 3.0)),
-                    3.0,
-                )
-                data["streaming_right_guard_seconds"] = max(
-                    float(data.get("streaming_right_guard_seconds", 1.5)),
-                    1.5,
-                )
+                # VALID-1 (MED-K): each inline float()/int() coercion is
+                # wrapped in its own try/except so a SINGLE bad value
+                # resets ONLY that field to its default rather than
+                # aborting the entire load (which would discard every
+                # other valid field too).
+                try:
+                    data["streaming_left_overlap_seconds"] = max(
+                        float(data.get("streaming_left_overlap_seconds", 3.0)),
+                        3.0,
+                    )
+                except (TypeError, ValueError):
+                    log.warning(
+                        "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
+                        data.get("streaming_left_overlap_seconds"),
+                    )
+                    data["streaming_left_overlap_seconds"] = 3.0
+                try:
+                    data["streaming_right_guard_seconds"] = max(
+                        float(data.get("streaming_right_guard_seconds", 1.5)),
+                        1.5,
+                    )
+                except (TypeError, ValueError):
+                    log.warning(
+                        "[CONFIG] invalid streaming_right_guard_seconds value %r; resetting to default 1.5",
+                        data.get("streaming_right_guard_seconds"),
+                    )
+                    data["streaming_right_guard_seconds"] = 1.5
                 # NEW-CQ-017: enforce streaming config invariants so the
                 # AudioWindowPlanner doesn't run forever or produce
                 # overlapping windows that never advance.
@@ -1102,9 +1210,33 @@ class Config:
                 #   audio between windows.
                 # - left_overlap < chunk: otherwise every window is a
                 #   duplicate of the previous one.
-                chunk = float(data.get("streaming_chunk_seconds", 12.0))
-                step = float(data.get("streaming_step_seconds", 5.0))
-                left_overlap = float(data.get("streaming_left_overlap_seconds", 3.0))
+                try:
+                    chunk = float(data.get("streaming_chunk_seconds", 12.0))
+                except (TypeError, ValueError):
+                    log.warning(
+                        "[CONFIG] invalid streaming_chunk_seconds value %r; resetting to default 12.0",
+                        data.get("streaming_chunk_seconds"),
+                    )
+                    chunk = 12.0
+                    data["streaming_chunk_seconds"] = 12.0
+                try:
+                    step = float(data.get("streaming_step_seconds", 5.0))
+                except (TypeError, ValueError):
+                    log.warning(
+                        "[CONFIG] invalid streaming_step_seconds value %r; resetting to default 5.0",
+                        data.get("streaming_step_seconds"),
+                    )
+                    step = 5.0
+                    data["streaming_step_seconds"] = 5.0
+                try:
+                    left_overlap = float(data.get("streaming_left_overlap_seconds", 3.0))
+                except (TypeError, ValueError):
+                    log.warning(
+                        "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
+                        data.get("streaming_left_overlap_seconds"),
+                    )
+                    left_overlap = 3.0
+                    data["streaming_left_overlap_seconds"] = 3.0
                 if step >= chunk:
                     log.warning(
                         "[CONFIG] streaming_step_seconds (%.1f) >= streaming_chunk_seconds "
@@ -1123,7 +1255,18 @@ class Config:
                     data["streaming_left_overlap_seconds"] = chunk / 3.0
                 # SIMPLIFY-001: clamp max_recording_time_seconds to valid range [300, 3600]
                 # to handle old config files that had 0 = auto-select (which is now invalid).
-                max_rec = int(data.get("max_recording_time_seconds", 900))
+                # VALID-1 (MED-K): also wrap the int() coercion so a
+                # non-numeric value resets only this field, not the
+                # whole config.
+                try:
+                    max_rec = int(data.get("max_recording_time_seconds", 900))
+                except (TypeError, ValueError):
+                    log.warning(
+                        "[CONFIG] invalid max_recording_time_seconds value %r; resetting to default 900",
+                        data.get("max_recording_time_seconds"),
+                    )
+                    max_rec = 900
+                    data["max_recording_time_seconds"] = 900
                 if max_rec < 300 or max_rec > 3600:
                     log.warning(
                         "[CONFIG] max_recording_time_seconds=%d outside valid range [300, 3600], resetting to 900",
@@ -1329,8 +1472,10 @@ class Config:
 
         NEW-CQ-016: collects warnings in ``data['_load_warnings']`` so
         the caller (load()) can surface them via the
-        ``last_load_warnings`` field. Previously warnings were only
-        logged; the user had no way to know their config was corrected.
+        ``last_load_warnings`` instance attribute (SCHEMA-1 / MED-I:
+        no longer a dataclass field — see :meth:`__post_init__`).
+        Previously warnings were only logged; the user had no way to
+        know their config was corrected.
 
         NEW-DUP-005: this is NOT a duplicate of the type coercion that
         ``cls(**data)`` would do.  Python dataclasses do NOT coerce
@@ -1379,6 +1524,9 @@ class Config:
             "wayland_warned",
             "bubble_draggable",
             "bubble_show_on_startup",
+            # UX-10: mic-button + click-to-toggle for the always-visible bubble.
+            "bubble_click_to_toggle",
+            "bubble_mic_button",
             "volume_duck_enabled",
             "volume_duck_per_session",
             "volume_duck_smart",
@@ -1440,6 +1588,66 @@ class Config:
             "theme_mode",
             "theme_preset",
         }
+        # VALID-3 (MED-L): int / float field coercion.  Mirrors the
+        # bool/str pattern — if the on-disk value is not already the
+        # correct type, attempt coercion; if coercion fails, reset to
+        # default and add a warning so the user knows the field was
+        # corrected.  Note: ``bool`` is a subclass of ``int`` in
+        # Python, so we explicitly exclude bools from the int coercion
+        # (a bool value for an int field is almost certainly a
+        # misconfiguration, not a legacy int-as-bool — fall through to
+        # the default-reset branch).
+        int_fields = {
+            "sample_rate",
+            "beam_size",
+            "best_of",
+            "clipboard_restore_delay_ms",
+            "history_retention_days",
+            "history_retention_count",
+            "history_max_entries",
+            "text_size",
+            "max_recording_time_seconds",
+            "volume_duck_fade_ms",
+            "volume_duck_smart_poll_interval_ms",
+            "recording_channels",
+        }
+        float_fields = {
+            "streaming_chunk_seconds",
+            "streaming_step_seconds",
+            "streaming_left_overlap_seconds",
+            "streaming_right_guard_seconds",
+            "streaming_min_first_chunk_seconds",
+            "streaming_silence_threshold",
+            "silence_warning_seconds",
+            "stop_on_silence_seconds",
+            "pre_roll_buffer_seconds",
+            "vad_speech_threshold",
+            "vad_silence_threshold",
+            "noise_filter_highpass_cutoff_hz",
+            "noise_filter_gate_threshold",
+            "noise_filter_gate_hold_ms",
+            "noise_filter_gate_open_threshold_db",
+            "noise_filter_gate_close_threshold_db",
+            "noise_filter_gate_attack_ms",
+            "noise_filter_gate_release_ms",
+            "noise_filter_eq_low_db",
+            "noise_filter_eq_mid_db",
+            "noise_filter_eq_high_db",
+            "noise_filter_compressor_threshold_db",
+            "noise_filter_compressor_ratio",
+            "noise_filter_compressor_attack_ms",
+            "noise_filter_compressor_release_ms",
+            "noise_filter_compressor_output_gain_db",
+            "noise_filter_limiter_ceiling_db",
+            "noise_filter_limiter_release_ms",
+            "noise_filter_notch_frequency_hz",
+            "volume_duck_level",
+            "silence_rms_threshold",
+            "silence_peak_threshold",
+            "normalize_target_peak",
+            "vocabulary_auto_confidence_threshold",
+            "vocabulary_auto_apply_threshold",
+        }
         defaults = cls()
 
         for field_name in bool_fields:
@@ -1481,6 +1689,75 @@ class Config:
             log.warning("[CONFIG] %s", msg)
             warnings.append(msg)
             data[field_name] = default_val
+
+        # VALID-3 (MED-L): int field coercion.  Accepts ints, floats
+        # (truncated via int()), and numeric strings.  Rejects bools
+        # (bool is a subclass of int but almost certainly indicates a
+        # misconfigured field — reset to default).  Rejects anything
+        # int() can't parse (lists, dicts, None, non-numeric strings).
+        for field_name in int_fields:
+            if field_name not in data:
+                continue
+            val = data[field_name]
+            # ``bool`` is a subclass of ``int`` — exclude explicitly so
+            # ``True``/``False`` values are treated as invalid (the
+            # user probably toggled a checkbox they shouldn't have).
+            if isinstance(val, bool):
+                default_val = getattr(defaults, field_name)
+                msg = f"Config field '{field_name}' had bool value {val!r}, resetting to default {default_val!r}"
+                log.warning("[CONFIG] %s", msg)
+                warnings.append(msg)
+                data[field_name] = default_val
+                continue
+            if isinstance(val, int):
+                # Already an int (and not a bool — handled above).
+                continue
+            # Attempt coercion: int("42") → 42, int(3.7) → 3,
+            # int("3.7") raises ValueError (int() doesn't accept
+            # float-formatted strings — fall through to the catch-all).
+            try:
+                coerced = int(val)
+            except (TypeError, ValueError):
+                default_val = getattr(defaults, field_name)
+                msg = f"Config field '{field_name}' had non-int value {val!r}, resetting to default {default_val!r}"
+                log.warning("[CONFIG] %s", msg)
+                warnings.append(msg)
+                data[field_name] = default_val
+                continue
+            msg = f"Config field '{field_name}' had non-int value {val!r}, coerced to {coerced!r}"
+            log.warning("[CONFIG] %s", msg)
+            warnings.append(msg)
+            data[field_name] = coerced
+
+        # VALID-3 (MED-L): float field coercion.  Accepts floats,
+        # ints, and numeric strings.  Rejects bools and anything
+        # float() can't parse.
+        for field_name in float_fields:
+            if field_name not in data:
+                continue
+            val = data[field_name]
+            if isinstance(val, bool):
+                default_val = getattr(defaults, field_name)
+                msg = f"Config field '{field_name}' had bool value {val!r}, resetting to default {default_val!r}"
+                log.warning("[CONFIG] %s", msg)
+                warnings.append(msg)
+                data[field_name] = default_val
+                continue
+            if isinstance(val, float):
+                continue
+            try:
+                coerced = float(val)
+            except (TypeError, ValueError):
+                default_val = getattr(defaults, field_name)
+                msg = f"Config field '{field_name}' had non-float value {val!r}, resetting to default {default_val!r}"
+                log.warning("[CONFIG] %s", msg)
+                warnings.append(msg)
+                data[field_name] = default_val
+                continue
+            msg = f"Config field '{field_name}' had non-float value {val!r}, coerced to {coerced!r}"
+            log.warning("[CONFIG] %s", msg)
+            warnings.append(msg)
+            data[field_name] = coerced
 
         # NEW-CQ-016: stash warnings so load() can surface them
         data["_load_warnings"] = warnings

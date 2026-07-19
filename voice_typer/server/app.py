@@ -22,7 +22,10 @@ from voice_typer.server import crash_handler as _crash_handler
 
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
 # and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
-from voice_typer.server import task_scheduler
+from voice_typer.server import (
+    i18n,  # NF-R16-1: server-side i18n for tray notifications
+    task_scheduler,
+)
 
 # SEC-001: restart token functions moved to voice_typer.server.security
 # COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
@@ -616,6 +619,7 @@ class VoiceTyperApp:
         snapshot = None
         try:
             snapshot = self.clipboard.copy(text)
+            pasted_seq = self.clipboard._clipboard_seq
         except ClipboardCopyError as e:
             log.warning("[REPASTE] Clipboard copy failed: %s", e)
             self.tray.notify(
@@ -634,7 +638,9 @@ class VoiceTyperApp:
         # is safely stored in the DB. ``force=True`` bypasses the
         # ``paste_enabled`` gate (§2.12) so a manual repaste works
         # regardless of the auto-paste (``paste_on_stop``) setting.
-        pasted = self.clipboard.paste(snapshot, pasted_text=text, force=True)
+        # pasted_seq is threaded per-request (CRIT-3) so a concurrent
+        # copy() can't clobber the seq validated in paste().
+        pasted = self.clipboard.paste(snapshot, pasted_text=text, force=True, pasted_seq=pasted_seq)
         if pasted:
             log.info("[REPASTE] Repasted transcription (%d chars)", len(text))
             self.tray.notify(APP_NAME, "Last transcription re-pasted")
@@ -655,7 +661,7 @@ class VoiceTyperApp:
         keyboard controller (pynput on all platforms).
         """
         if not self._last_transcription:
-            self.tray.notify(APP_NAME, "Nothing to undo.")
+            self.tray.notify(APP_NAME, i18n.t("notify.app.undo_nothing"))
             return
         text = self._last_transcription
         char_count = len(text)
@@ -677,13 +683,13 @@ class VoiceTyperApp:
                 kb.press("\x08")  # Backspace
                 kb.release("\x08")
             self._last_transcription = ""
-            self.tray.notify(APP_NAME, f"Undid last transcription ({char_count} chars)")
+            self.tray.notify(APP_NAME, i18n.t("notify.app.undo_done", char_count=char_count))
         except ImportError:
             log.warning("[UNDO] pynput not available for undo")
-            self.tray.notify(APP_NAME, "Undo not available (pynput missing)")
+            self.tray.notify(APP_NAME, i18n.t("notify.app.undo_no_pynput"))
         except Exception as e:
             log.warning("[UNDO] Failed: %s", e)
-            self.tray.notify(APP_NAME, f"Undo failed: {e}")
+            self.tray.notify(APP_NAME, i18n.t("notify.app.undo_failed", error=e))
 
     def _cancel_dictation(self):
         """#2 delegate to RecordingController.cancel().
@@ -1034,6 +1040,27 @@ class VoiceTyperApp:
         #    because its _shutting_down guard short-circuited as soon
         #    as restart_app() set _shutting_down = True above.
         #    Extracting the shared _do_cleanup() body fixes both bugs.
+        #
+        #    HIGH-36 / XCUT-1: mirror quit()'s ordering by running
+        #    ``self._thread_registry.shutdown_all()`` BEFORE
+        #    ``_do_cleanup()``. The registry's centralized
+        #    signal-and-join (per-thread stop_event + join-with-timeout)
+        #    must run on the restart path too — otherwise the
+        #    bubble-level-pusher and any other registered daemon threads
+        #    never receive their stop signal and are only cleaned up
+        #    implicitly when the process exits. The per-site shutdown
+        #    methods inside ``_do_cleanup()`` are idempotent safety
+        #    nets, but they don't cover every registered thread (e.g.
+        #    future additions registered only with the registry).
+        #    ``shutdown_all()`` is itself idempotent, so a subsequent
+        #    call from ``_atexit_cleanup()`` is a no-op.
+        try:
+            self._thread_registry.shutdown_all()
+        except Exception:
+            log.warning(
+                "[RESTART] thread_registry.shutdown_all failed",
+                exc_info=True,
+            )
         self._do_cleanup()
 
         # 4. Exit cleanly — electron will relaunch us.

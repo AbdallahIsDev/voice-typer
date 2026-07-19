@@ -5,9 +5,12 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+import logging
 from typing import Any
 
-from voice_typer.server.ipc_server import _validate_dict_payload, log
+from voice_typer.server.ipc.validation import _validate_dict_payload
+
+log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 class OnboardingHandlersMixin:
@@ -87,9 +90,12 @@ class OnboardingHandlersMixin:
     def _handle_onboarding_set_microphone(self, data, resp) -> dict | None:
         """Handle the ``onboarding_set_microphone`` IPC command."""
         try:
-            validated, error = _validate_dict_payload(data, {
-                "mic_id": {"type": str, "required": True},
-            })
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "mic_id": {"type": str, "required": True},
+                },
+            )
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above
@@ -105,9 +111,12 @@ class OnboardingHandlersMixin:
     def _handle_onboarding_set_hotkey(self, data, resp) -> dict | None:
         """Handle the ``onboarding_set_hotkey`` IPC command."""
         try:
-            validated, error = _validate_dict_payload(data, {
-                "hotkey": {"type": str, "required": False, "default": "<f2>"},
-            })
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "hotkey": {"type": str, "required": False, "default": "<f2>"},
+                },
+            )
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above
@@ -123,9 +132,12 @@ class OnboardingHandlersMixin:
     def _handle_onboarding_set_model(self, data, resp) -> dict | None:
         """Handle the ``onboarding_set_model`` IPC command."""
         try:
-            validated, error = _validate_dict_payload(data, {
-                "model": {"type": str, "required": False, "default": "small.en"},
-            })
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "model": {"type": str, "required": False, "default": "small.en"},
+                },
+            )
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above
@@ -194,6 +206,23 @@ class OnboardingHandlersMixin:
             resp["data"] = result
         except Exception as e:
             log.error("[IPC] onboarding_get_hotkey_presets failed: %s", e)
+            resp["type"] = "error"
+            resp["data"] = {"message": str(e)}
+        return resp
+
+    def _handle_onboarding_check_permissions(self, data, resp) -> dict | None:
+        """Handle the ``onboarding_check_permissions`` IPC command (UX-4 / UX-27).
+
+        Returns the platform-conditional permission state so the
+        Permissions step can render the right setup walkthrough
+        (macOS Accessibility / Linux ``input`` group + udev rule).
+        """
+        try:
+            result = self.service.onboarding_check_permissions()
+            resp["type"] = "onboarding_permissions"
+            resp["data"] = result
+        except Exception as e:
+            log.error("[IPC] onboarding_check_permissions failed: %s", e)
             resp["type"] = "error"
             resp["data"] = {"message": str(e)}
         return resp

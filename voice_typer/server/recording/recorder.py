@@ -1,4 +1,37 @@
-"""Session-based audio recording."""
+"""``Recorder`` — session-based audio recording from the microphone.
+
+Phase 4.5 / ARCH-045 — extracted from the original ``recording.py``
+god-module.  The class body is unchanged; only the bare-name lookups
+for cross-submodule helpers (``_get_resample_poly``,
+``_secure_clear_array_background``, ``_start_scipy_preloader``, and
+the mutable ``_resample_poly`` / ``_resample_poly_error`` /
+``_scipy_preloader_thread`` globals) now route through the package
+namespace so test patches of the form
+``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
+keep affecting production code defined here.
+
+Patch-path compatibility
+------------------------
+Tests use ``patch("voice_typer.server.recording.X")`` for several
+names ``X`` that this module consumes.  For the patch to affect code
+defined here, the lookup must go through the package binding at call
+time — hence ``from voice_typer.server import recording as
+_recording_pkg`` and the ``_recording_pkg.X`` references below.  The
+package ``__init__.py`` re-exports ``X`` from the appropriate
+submodule (``.resampling`` / ``.buffer``), so ``_recording_pkg.X``
+resolves correctly without eager binding at import time.
+
+``inspect.getsource`` compatibility
+-----------------------------------
+``Recorder`` is genuinely defined in this file (not aliased), so
+``inspect.getsource(Recorder._process_audio_chunk)`` and similar
+method-level source checks continue to read from this file.
+
+The module-level constants (``DEFAULT_MAX_BUFFER_CHUNKS``,
+``_AUDIO_RING_BUFFER_CAPACITY``, ``_EVENT_WORKER_*``, ``_XRUN_*``,
+``_DEFAULT_VAD_*``, etc.) live here because they are only consumed by
+``Recorder`` and are not patched by any test.
+"""
 
 from __future__ import annotations
 
@@ -54,8 +87,27 @@ from voice_typer.server.vad_processor import VadProcessor, VadState
 
 sd = lazy_module("sounddevice")
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("voice_typer.server.recording")
 
+# Patch-path bridge: route lookups of cross-submodule helpers through
+# the package namespace so test patches of the form
+# ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
+# (and writes to the mutable globals ``_resample_poly``,
+# ``_resample_poly_error``, ``_scipy_preloader_thread``) keep affecting
+# production code defined here.  The package ``__init__.py`` re-exports
+# these names from ``.resampling`` / ``.buffer``; we look them up at
+# call time rather than binding at import time so the patch takes
+# effect.
+from voice_typer.server import recording as _recording_pkg  # noqa: E402
+
+# Constants that are NOT patched by tests and are only used by Recorder
+# can be imported directly from the sibling submodules.
+from .exceptions import (  # noqa: F401 — re-exported for tests
+    ResampleError,
+    ResampleUnavailable,
+    ResampleUnavailableError,
+)
+from .resampling import _SCIPY_PRELOADER_JOIN_TIMEOUT_S  # noqa: F401 — re-exported for tests
 
 # ─── AUDIO-013: VAD state machine ───────────────────────────────────────
 # RW-04: VadState and the VAD state-machine / auto-calibration logic
@@ -104,157 +156,6 @@ _DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as _VAD_SILENCE_FRAMES — configurabl
 _XRUN_WINDOW_MAXLEN = 10  # keep last 10 xrun timestamps
 _XRUN_ALERT_THRESHOLD = 5  # alert if N xruns in the window
 _XRUN_ALERT_PERIOD = 10.0  # ...within M seconds
-
-
-class ResampleError(RuntimeError):
-    """Raised when audio cannot be resampled to the target sample rate.
-
-    ERR-001: Previously the resample fallback returned the native-rate
-    audio silently, which produced garbage transcriptions because the
-    streaming path assumed the configured sample rate. Callers must
-    catch this exception and decide how to handle the failure (skip
-    the chunk, abort the dictation, or notify the user).
-    """
-
-
-def _secure_clear_array(arr: np.ndarray) -> None:
-    """SEC-audit-008: Securely clear a numpy array's contents before deallocation.
-
-    Fills the array with zeros using ``np.fill()`` to prevent forensic
-    recovery of audio data from process memory.  Call this before
-    ``del`` or before the array goes out of scope when the array
-    contains sensitive audio data (voice recordings that may contain
-    PII).
-
-    Parameters
-    ----------
-    arr : np.ndarray
-        Numpy array to zero out in-place.
-    """
-    with contextlib.suppress(Exception):
-        arr.fill(0)  # best-effort; some array types may not support fill
-
-
-# CR-10: A single long-lived "buffer-clear" worker thread replaces the
-# previous per-call ``threading.Thread(name="buffer-clear-bg", daemon=True)``
-# spawn. Under rapid hotkey toggling (e.g. user mashing the record key),
-# ``stop()`` / ``discard()`` could be invoked several times per second, and
-# each invocation spawned a brand-new daemon thread. Over a long session
-# this produced unbounded thread churn (thread creation/destruction cost,
-# extra scheduler pressure, and a small but non-zero risk of hitting the
-# process thread-table ceiling on constrained platforms).
-#
-# The fix is a classic producer/consumer: callers enqueue the deque to be
-# zeroed onto ``_buffer_clear_queue``; a single daemon worker thread
-# (``_buffer_clear_worker``) drains the queue and zeros each deque's
-# chunks in turn. The worker is created lazily on first enqueue (under a
-# lock) so simply importing the module has no thread-creation side
-# effects — important for tests and for short-lived CLI invocations.
-#
-# The queue is bounded (``_BUFFER_CLEAR_QUEUE_MAXSIZE``). In practice it
-# should never fill: the worker zeros ~30K chunks in ~30-100ms, so it
-# drains far faster than even a sustained hotkey toggle rate could
-# produce new buffers. But if it ever *does* fill (e.g. a runaway test
-# loop, or a system so loaded that the worker is starved for seconds),
-# we fall back to clearing the deque synchronously on the caller's
-# thread with a single warning log. That preserves the secure-clear
-# guarantee (data is still zeroed) at the cost of a one-off blocking
-# call — a strictly better failure mode than dropping the clear.
-_BUFFER_CLEAR_QUEUE_MAXSIZE = 64
-_buffer_clear_queue: queue.Queue = queue.Queue(maxsize=_BUFFER_CLEAR_QUEUE_MAXSIZE)
-_buffer_clear_worker_lock = threading.Lock()
-_buffer_clear_worker: threading.Thread | None = None
-
-
-def _ensure_buffer_clear_worker() -> threading.Thread:
-    """Lazily start the single long-lived buffer-clear worker thread.
-
-    CR-10: idempotent — repeated calls return the same running thread.
-    The worker is a daemon so it never blocks process exit. Acquired
-    under ``_buffer_clear_worker_lock`` to make the lazy-start race-free
-    under concurrent ``stop()``/``discard()`` calls.
-    """
-    global _buffer_clear_worker
-    # Fast path: worker already running. ``threading.Thread.is_alive``
-    # is a cheap C-level check; we avoid the lock in the common case.
-    worker = _buffer_clear_worker
-    if worker is not None and worker.is_alive():
-        return worker
-    with _buffer_clear_worker_lock:
-        worker = _buffer_clear_worker
-        if worker is None or not worker.is_alive():
-            worker = threading.Thread(
-                target=_buffer_clear_worker_loop,
-                name="buffer-clear-bg",
-                daemon=True,
-            )
-            _buffer_clear_worker = worker
-            worker.start()
-    return worker
-
-
-def _buffer_clear_worker_loop() -> None:
-    """CR-10: drain ``_buffer_clear_queue`` and zero each deque's chunks.
-
-    Loops until the worker thread is killed (it's a daemon, so process
-    exit handles that). Each item popped is a ``collections.deque`` of
-    audio chunks; we iterate it and ``ndarray.fill(0)`` each chunk. Best
-    effort — any exception is swallowed (the deque will be GC'd anyway,
-    and we don't want one bad buffer to poison the worker for the rest).
-    """
-    while True:
-        try:
-            buffer = _buffer_clear_queue.get()
-        except Exception:
-            # Should never happen with a stdlib Queue, but be defensive:
-            # if get() ever raises, yield the CPU and retry rather than
-            # spinning a tight loop.
-            time.sleep(0.01)
-            continue
-        try:
-            for chunk in buffer:
-                if isinstance(chunk, np.ndarray):
-                    chunk.fill(0)
-        except Exception:
-            pass  # best-effort; the buffer will be GC'd anyway
-        finally:
-            _buffer_clear_queue.task_done()
-
-
-def _secure_clear_array_background(buffer: collections.deque) -> None:
-    """SEC-audit-008 / MEM-04: Zero all chunks in a buffer on a background worker.
-
-    CR-10: previously this function spawned a fresh daemon thread per
-    call. Under rapid hotkey toggling that produced unbounded thread
-    churn. It now enqueues the deque onto ``_buffer_clear_queue`` and a
-    single long-lived daemon worker (``_buffer_clear_worker``) drains
-    the queue and zeros each chunk.
-
-    The old buffer reference is passed in; the caller has already
-    replaced it with a fresh deque, so the worker can zero the chunks
-    at its leisure without blocking the hot path.
-
-    If the queue is full (worker starved for an extended period — should
-    not happen in practice), we fall back to a synchronous clear on the
-    caller's thread with a single warning, preserving the secure-clear
-    guarantee rather than dropping it silently.
-    """
-    _ensure_buffer_clear_worker()
-    try:
-        _buffer_clear_queue.put_nowait(buffer)
-    except queue.Full:
-        log.warning(
-            "[RECORDING] buffer-clear queue full (size=%d); clearing "
-            "synchronously on caller thread. If this recurs, the "
-            "buffer-clear worker may be starved.",
-            _BUFFER_CLEAR_QUEUE_MAXSIZE,
-        )
-        try:
-            for chunk in buffer:
-                if isinstance(chunk, np.ndarray):
-                    chunk.fill(0)
-        except Exception:
-            pass  # best-effort; the buffer will be GC'd anyway
 
 
 # PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
@@ -322,140 +223,6 @@ _EVENT_WORKER_JOIN_TIMEOUT_S = 2.0
 # Join timeout for discard() — shorter because discard() clears the
 # queue first, so the worker exits after its current publish (if any).
 _EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
-
-_resample_poly = None
-_resample_poly_error: Exception | None = None
-# AUDIO-003: track when the error was cached so we can retry after a timeout
-_resample_poly_error_time: float = 0.0
-_RESAMPLE_RETRY_INTERVAL = 300.0  # Retry every 5 minutes
-_resample_poly_lock = threading.Lock()
-
-
-# PERF-001: eagerly preload scipy.signal.resample_poly at module import
-# so the first recording doesn't block 200-800ms on the import.  This
-# runs in a background daemon thread to avoid slowing down module
-# import for callers that don't record (e.g. the IPC server's
-# get_status handler).  If scipy isn't installed, the error is cached
-# and the lazy path in _get_resample_poly raises it on first use.
-def _preload_resample_poly() -> None:
-    """Background preloader for scipy.signal.resample_poly."""
-    try:
-        from scipy.signal import resample_poly  # noqa: F401
-
-        _get_resample_poly()
-    except Exception:
-        # Error will be cached by _get_resample_poly on first real use.
-        pass
-
-
-# THREAD-REGISTRY: store the preloader thread reference so Recorder can
-# register it with the application's ThreadRegistry if one is provided.
-# B-3/S-3: previously this thread was started eagerly at module import
-# time, which meant every test that imported recording.py triggered a
-# background thread doing real scipy imports. The spawn is now deferred
-# to ``Recorder.__init__`` so module imports are side-effect-free; the
-# first Recorder instance triggers the preloader exactly when needed.
-# The thread is a one-shot daemon with no stop mechanism (it just
-# imports scipy and exits), so it registers with stop_event=None —
-# shutdown_all() will join it but won't try to signal it. On a fast
-# system the thread has already exited by the time the first Recorder
-# finishes constructing; on a slow system it may still be loading
-# scipy, in which case the registry's join gives it up to
-# ``_SCIPY_PRELOADER_JOIN_TIMEOUT_S`` to finish before continuing.
-_scipy_preloader_thread: threading.Thread | None = None
-_SCIPY_PRELOADER_JOIN_TIMEOUT_S = 2.0
-_scipy_preloader_lock = threading.Lock()
-
-
-def _start_scipy_preloader() -> None:
-    """Start the scipy preloader thread (idempotent, deferred to first Recorder).
-
-    B-3/S-3: called from :meth:`Recorder.__init__` (not at module import)
-    so importing ``recording`` does not spawn a thread. Idempotent: if
-    the preloader has already been started (and is still alive), this is
-    a no-op. If a previous preloader thread exited (scipy import
-    finished), a new one is started only if the cached
-    ``_resample_poly`` is still None — i.e. the previous attempt failed
-    and we want to retry on the next Recorder construction.
-
-    Stored in ``_scipy_preloader_thread`` so ``Recorder.__init__`` can
-    register it with the application's ``ThreadRegistry`` if one is
-    provided.
-    """
-    global _scipy_preloader_thread
-    with _scipy_preloader_lock:
-        # Idempotent: don't start a second preloader if one is still alive.
-        if _scipy_preloader_thread is not None and _scipy_preloader_thread.is_alive():
-            return
-        # Don't re-spawn if scipy already loaded successfully — the
-        # cached _resample_poly is set, so a new preloader would be a
-        # wasted thread.
-        if _resample_poly is not None:
-            return
-        _scipy_preloader_thread = threading.Thread(
-            target=_preload_resample_poly,
-            name="scipy-preloader",
-            daemon=True,
-        )
-        _scipy_preloader_thread.start()
-
-
-class ResampleUnavailableError(RuntimeError):
-    """Raised when scipy.signal.resample_poly is unavailable.
-
-    ARCH-033: the 3-tier fallback (scipy → linear interp → native)
-    previously failed silently at each tier. We now raise this typed
-    exception at the scipy tier so the caller knows the high-quality
-    path is unavailable and can decide whether to use linear interp.
-    """
-
-
-# Backward-compatibility alias. The class was renamed from
-# ``ResampleUnavailable`` to ``ResampleUnavailableError`` to match the
-# project's exception naming convention, but several historical test
-# modules still import the old name. Re-exporting the alias keeps those
-# tests working without requiring a coordinated rename across the test
-# suite. The alias is part of the module's public surface.
-ResampleUnavailable = ResampleUnavailableError
-
-
-def _get_resample_poly():
-    """Load scipy's resampler once so imports do not happen on F2 stop.
-
-    ARCH-033: raises ``ResampleUnavailable`` (a typed exception) when
-    scipy is missing, instead of the bare ``ImportError``. Callers
-    that want to fall back to linear interp can catch this type.
-    """
-    global _resample_poly, _resample_poly_error, _resample_poly_error_time
-    if _resample_poly is not None:
-        return _resample_poly
-    if _resample_poly_error is not None:
-        # AUDIO-003: retry after timeout instead of memoizing forever
-        if time.monotonic() - _resample_poly_error_time < _RESAMPLE_RETRY_INTERVAL:
-            raise _resample_poly_error
-        # Retry — clear the cached error
-        _resample_poly_error = None
-
-    with _resample_poly_lock:
-        if _resample_poly is not None:
-            return _resample_poly
-        if _resample_poly_error is not None:
-            # AUDIO-003: retry after timeout instead of memoizing forever
-            if time.monotonic() - _resample_poly_error_time < _RESAMPLE_RETRY_INTERVAL:
-                raise _resample_poly_error
-            # Retry — clear the cached error
-            _resample_poly_error = None
-        try:
-            from scipy.signal import resample_poly
-        except ImportError as exc:
-            # ARCH-033: wrap in a typed exception so callers can catch
-            # without inspecting the ImportError message.
-            typed = ResampleUnavailableError(f"scipy.signal.resample_poly unavailable: {exc}")
-            _resample_poly_error = typed
-            _resample_poly_error_time = time.monotonic()
-            raise typed from exc
-        _resample_poly = resample_poly
-        return _resample_poly
 
 
 class Recorder:
@@ -703,15 +470,15 @@ class Recorder:
         # is skipped; on a slow system it may still be loading scipy,
         # in which case shutdown_all()'s join gives it up to
         # ``_SCIPY_PRELOADER_JOIN_TIMEOUT_S`` to finish before continuing.
-        _start_scipy_preloader()
+        _recording_pkg._start_scipy_preloader()
         if (
             self._thread_registry is not None
-            and _scipy_preloader_thread is not None
-            and _scipy_preloader_thread.is_alive()
+            and _recording_pkg._scipy_preloader_thread is not None
+            and _recording_pkg._scipy_preloader_thread.is_alive()
         ):
             self._thread_registry.register(
                 name="scipy-preloader",
-                thread=_scipy_preloader_thread,
+                thread=_recording_pkg._scipy_preloader_thread,
                 stop_event=None,
                 join_timeout=_SCIPY_PRELOADER_JOIN_TIMEOUT_S,
             )
@@ -1103,6 +870,7 @@ class Recorder:
     _vad_calibration_duration = _make_vad_property("calibration_duration")
     _vad_calibration_rms_values = _make_vad_property("calibration_rms_values")
     _vad_calibrated = _make_vad_property("calibrated")
+    _vad_calibration_status = _make_vad_property("calibration_status")
     _vad_enabled_cached = _make_vad_property("vad_enabled_cached")
     _vad_enabled_cache_ts = _make_vad_property("vad_enabled_cache_ts")
 
@@ -1246,7 +1014,7 @@ class Recorder:
     def warm_up_resampler(self) -> None:
         """Import and initialize the high-quality resampler before recording stops."""
         try:
-            resample_poly = _get_resample_poly()
+            resample_poly = _recording_pkg._get_resample_poly()
             resample_poly(np.zeros(32, dtype=np.float32), 160, 441)
             log.debug("[RECORDING] Resampler warmed up")
         except ImportError:
@@ -1830,7 +1598,11 @@ class Recorder:
                 )
 
         target_sr = self.config.sample_rate
-        if effective_sr != target_sr and _resample_poly is None and _resample_poly_error is None:
+        if (
+            effective_sr != target_sr
+            and _recording_pkg._resample_poly is None
+            and _recording_pkg._resample_poly_error is None
+        ):
             # Warm up synchronously to avoid racing with stop()
             self.warm_up_resampler()
 
@@ -2449,7 +2221,12 @@ class Recorder:
         # on the local `indata` copy.  See recording.py callback
         # ordering in the auto-volume-duck architecture doc §6.4.
         if self._audio_processor is not None:
-            filtered = self._audio_processor.process_chunk(indata_mono.copy())
+            # CRIT-6: pass the stream's native rate so the processor can
+            # resample to the chain's construction rate (16 kHz) before
+            # filtering. Without this argument the resampler is bypassed and
+            # filters built at 16 kHz are fed native-rate audio (e.g. 48 kHz),
+            # silently mistuning every coefficient.
+            filtered = self._audio_processor.process_chunk(indata_mono.copy(), input_sample_rate=self._effective_sr)
         else:
             filtered = indata_mono
 
@@ -2617,7 +2394,7 @@ class Recorder:
                 # path as _resample_audio_impl (gcd up/down pattern).
                 if self._effective_sr not in (8000, 16000):
                     try:
-                        resample_poly = _get_resample_poly()
+                        resample_poly = _recording_pkg._get_resample_poly()
                         gcd = math.gcd(self._effective_sr, 16000)
                         up = 16000 // gcd
                         down = self._effective_sr // gcd
@@ -2795,7 +2572,7 @@ class Recorder:
             self._buffer = collections.deque(
                 maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
             )
-            _secure_clear_array_background(_old_buffer)
+            _recording_pkg._secure_clear_array_background(_old_buffer)
             # Reset cache on stop
             self._cached_resampled = np.array([], dtype=np.float32)
             self._cached_native_chunk_count = 0
@@ -3083,7 +2860,7 @@ class Recorder:
         resampled = False
         last_error: Exception | None = None
         try:
-            resample_poly = _get_resample_poly()
+            resample_poly = _recording_pkg._get_resample_poly()
             gcd = math.gcd(effective_sr, target_sr)
             up = target_sr // gcd
             down = effective_sr // gcd
@@ -3212,4 +2989,4 @@ class Recorder:
             self._buffer = collections.deque(
                 maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
             )
-            _secure_clear_array_background(_old_buffer)
+            _recording_pkg._secure_clear_array_background(_old_buffer)

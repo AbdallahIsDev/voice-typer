@@ -5,11 +5,16 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+import logging
 from typing import Any
 
 from voice_typer.server import event_bus
 from voice_typer.server.config import validate_config_update
-from voice_typer.server.ipc_server import log
+
+# Local logger (not imported from ipc_server) to avoid a circular
+# import: ipc.server imports this mixin back, so importing ipc_server
+# here would create a cycle.
+log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 class ConfigHandlersMixin:
@@ -92,20 +97,12 @@ class ConfigHandlersMixin:
             # ADR 0008 §3.1: route through the service layer rather
             # than calling ``self.app.change_model()`` /
             # ``self.app.models.set_active_backend()`` directly.
-            if (
-                "model_size" in validated
-                and validated["model_size"]
-                    != getattr(self.app.config, "model_size", None)
-            ):
+            if "model_size" in validated and validated["model_size"] != getattr(self.app.config, "model_size", None):
                 try:
                     self.service.change_model(validated["model_size"])
                 except Exception as e:
                     log.warning("[IPC] change_model failed: %s", e)
-            if (
-                "asr_backend" in validated
-                and validated["asr_backend"]
-                    != getattr(self.app.config, "asr_backend", None)
-            ):
+            if "asr_backend" in validated and validated["asr_backend"] != getattr(self.app.config, "asr_backend", None):
                 try:
                     self.service.set_active_backend(validated["asr_backend"])
                 except Exception as e:
@@ -128,6 +125,7 @@ class ConfigHandlersMixin:
                 from voice_typer.server.tray_models import (
                     invalidate_model_availability_cache,
                 )
+
                 invalidate_model_availability_cache()
             except Exception:
                 log.debug(
@@ -141,12 +139,33 @@ class ConfigHandlersMixin:
             # The event carries the validated updates so the
             # renderer doesn't need an extra get_config round-trip.
             try:
-                event_bus.publish({
-                    "type": "config_changed",
-                    "data": validated,
-                })
+                event_bus.publish(
+                    {
+                        "type": "config_changed",
+                        "data": validated,
+                    }
+                )
             except Exception:
                 log.debug("[IPC] config_changed push failed", exc_info=True)
+
+            # UX-10: if the bubble-relevant settings changed (bubble_behavior
+            # / bubble_click_to_toggle / bubble_mic_button), push a dedicated
+            # `bubble_config` event so the sandboxed bubble renderer (which
+            # has no get_config) learns whether to show its mic button.
+            if any(
+                k in validated
+                for k in (
+                    "bubble_behavior",
+                    "bubble_click_to_toggle",
+                    "bubble_mic_button",
+                )
+            ):
+                try:
+                    on_config = getattr(self.app, "_waveform_bubble", None)
+                    if on_config is not None and on_config.on_config is not None:
+                        on_config.on_config(self.app.config)
+                except Exception:
+                    log.debug("[IPC] bubble_config push failed", exc_info=True)
 
             resp["type"] = "ack"
             # NEW-IPC-015: echo accepted + rejected keys so the

@@ -5,12 +5,12 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+import logging
 from typing import Any
 
-from voice_typer.server.ipc_server import (
-    _validate_dict_payload,
-    log,
-)
+from voice_typer.server.ipc.validation import _validate_dict_payload
+
+log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 class DictationHandlersMixin:

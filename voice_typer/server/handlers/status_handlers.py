@@ -6,9 +6,10 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+import logging
 from typing import Any
 
-from voice_typer.server.ipc_server import log
+log = logging.getLogger("voice_typer.server.ipc_server")
 from voice_typer.server.platform_utils import is_windows
 
 
@@ -111,6 +112,7 @@ class StatusHandlersMixin:
         """
         try:
             from voice_typer.server.prewarm import get_prewarm_status
+
             resp["type"] = "prewarm_status"
             resp["data"] = get_prewarm_status()
         except Exception as e:
@@ -156,8 +158,12 @@ class StatusHandlersMixin:
             # PW-2: pass --trigger manual so the prewarm log records
             # that the user explicitly clicked "Run Prewarm Now".
             cmd = [
-                python_bin, "-m", "voice_typer.server.prewarm",
-                "--force", "--trigger", "manual",
+                python_bin,
+                "-m",
+                "voice_typer.server.prewarm",
+                "--force",
+                "--trigger",
+                "manual",
             ]
             log.info("[IPC] run_prewarm: spawning %s", " ".join(cmd))
 
@@ -181,7 +187,8 @@ class StatusHandlersMixin:
 
             proc = subprocess.Popen(cmd, **kwargs)
             log.info(
-                "[IPC] run_prewarm: spawned pid=%d (force=True)", proc.pid,
+                "[IPC] run_prewarm: spawned pid=%d (force=True)",
+                proc.pid,
             )
 
             resp["type"] = "prewarm_started"
@@ -230,6 +237,7 @@ class StatusHandlersMixin:
             # The prewarm log lives in the app config dir. Use the same
             # resolution as _setup_logging() in prewarm.py.
             from voice_typer.server.config import _config_dir
+
             log_dir = _config_dir()
             log_file = log_dir / "prewarm.log"
 
@@ -239,6 +247,7 @@ class StatusHandlersMixin:
                 # successfully with context about why it's empty.
                 try:
                     from datetime import datetime as _dt
+
                     log_file.write_text(
                         "# Prewarm log\n"
                         "#\n"
@@ -247,9 +256,7 @@ class StatusHandlersMixin:
                         "# prewarm executes (at boot, logon, or via\n"
                         "# the Run Prewarm Now button).\n"
                         "#\n"
-                        "# Placeholder created: "
-                        + _dt.now().strftime("%Y-%m-%d %H:%M:%S")
-                        + "\n",
+                        "# Placeholder created: " + _dt.now().strftime("%Y-%m-%d %H:%M:%S") + "\n",
                         encoding="utf-8",
                     )
                 except OSError:
@@ -271,18 +278,21 @@ class StatusHandlersMixin:
             elif is_macos():
                 subprocess.Popen(
                     ["open", str(log_file)],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
             elif is_linux():
                 subprocess.Popen(
                     ["xdg-open", str(log_file)],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
             else:
                 # Unknown platform — try xdg-open as a last resort.
                 subprocess.Popen(
                     ["xdg-open", str(log_file)],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
                 )
 
             log.info("[IPC] open_prewarm_log: opened %s", log_file)

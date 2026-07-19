@@ -5,12 +5,12 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+import logging
 from typing import Any
 
-from voice_typer.server.ipc_server import (
-    _validate_dict_payload,
-    log,
-)
+from voice_typer.server.ipc.validation import _validate_dict_payload
+
+log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 class TemplatesHandlersMixin:
@@ -42,9 +42,12 @@ class TemplatesHandlersMixin:
     def _handle_save_templates(self, data, resp) -> dict | None:
         """Handle the ``save_templates`` IPC command."""
         try:
-            validated, error = _validate_dict_payload(data, {
-                "templates": {"type": list, "required": True},
-            })
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "templates": {"type": list, "required": True},
+                },
+            )
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above

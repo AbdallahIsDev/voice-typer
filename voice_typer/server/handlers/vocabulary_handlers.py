@@ -5,9 +5,10 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
+import logging
 from typing import Any
 
-from voice_typer.server.ipc_server import log
+log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 class VocabularyHandlersMixin:
@@ -51,13 +52,13 @@ class VocabularyHandlersMixin:
             # Cap total JSON payload at 1 MB
             _max_vocab_payload = 1 * 1024 * 1024
             import json as _json_mod
+
             payload_size = len(_json_mod.dumps(data))
             if payload_size > _max_vocab_payload:
                 resp["type"] = "error"
-                resp["data"] = {"message": (
-                    f"vocabulary payload too large ({payload_size}"
-                    f" bytes; max {_max_vocab_payload})"
-                )}
+                resp["data"] = {
+                    "message": (f"vocabulary payload too large ({payload_size} bytes; max {_max_vocab_payload})")
+                }
                 log.warning("[IPC] save_vocabulary rejected: payload %d > %d", payload_size, _max_vocab_payload)
                 return resp
             # Cap individual string values at 1024 chars
@@ -67,10 +68,9 @@ class VocabularyHandlersMixin:
                     for k, v in entries.items():
                         if isinstance(v, str) and len(v) > _max_value_len:
                             resp["type"] = "error"
-                            resp["data"] = {"message": (
-                                f"vocabulary value too long in {cat}.{k}"
-                                f" ({len(v)} > {_max_value_len})"
-                            )}
+                            resp["data"] = {
+                                "message": (f"vocabulary value too long in {cat}.{k} ({len(v)} > {_max_value_len})")
+                            }
                             return resp
                 elif isinstance(entries, list):
                     for entry in entries:
@@ -78,10 +78,9 @@ class VocabularyHandlersMixin:
                             for v in entry:
                                 if isinstance(v, str) and len(v) > _max_value_len:
                                     resp["type"] = "error"
-                                    resp["data"] = {"message": (
-                                        f"vocabulary value too long in {cat}"
-                                        f" ({len(v)} > {_max_value_len})"
-                                    )}
+                                    resp["data"] = {
+                                        "message": (f"vocabulary value too long in {cat} ({len(v)} > {_max_value_len})")
+                                    }
                                     return resp
             result = self.service.save_vocabulary_with_diff(data)
             resp["type"] = "ack"

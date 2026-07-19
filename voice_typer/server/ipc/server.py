@@ -1,5 +1,6 @@
-# ARCH-REFAC-002: handlers extracted to handlers/ package as mixins
-"""JSON-lines IPC server over stdin/stdout OR TCP.
+# ARCH-REFAC-002 / ARCH-045: extracted from the original
+# ``voice_typer/server/ipc_server.py`` god-module (Phase 4.5 split).
+"""``IPCServer`` — JSON-lines IPC server over stdin/stdout OR TCP.
 
 Reads JSON commands from stdin (legacy) or a TCP socket (Electron),
 dispatches to the VoiceTyperApp instance, and writes JSON responses.
@@ -11,6 +12,48 @@ Usage (TCP mode — Electron)::
 Usage (stdin/stdout mode — ``voice-typer`` CLI)::
 
     python -m voice_typer.server.ipc_server
+
+Phase 4.5 / ARCH-045 — extracted from the original ``ipc_server.py``
+god-module.  The class body is unchanged; only the bare-name lookups
+for cross-submodule helpers (``_TCPLineIO``, ``_get_rate_limiter``,
+``_push_event_now``, and the patched ``_HEARTBEAT_INTERVAL_SECONDS`` /
+``_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS`` constants) now route through
+the package namespace so test patches of the form
+``patch("voice_typer.server.ipc_server.X")`` keep affecting production
+code defined here.
+
+Patch-path compatibility
+------------------------
+Tests use ``patch("voice_typer.server.ipc_server.X")`` for several
+names ``X`` that this module consumes:
+
+- ``_HEARTBEAT_INTERVAL_SECONDS`` (``test_heartbeat.py``) — read inside
+  :meth:`IPCServer._heartbeat_loop`.  Replaced with
+  ``_ipc_server_pkg._HEARTBEAT_INTERVAL_SECONDS`` so the patch takes
+  effect.
+- ``_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS`` (``test_heartbeat_force_exit.py``)
+  — read inside :meth:`IPCServer._check_heartbeat_timeout` (in the
+  nested ``_force_exit_after_grace`` closure).  Replaced with
+  ``_ipc_server_pkg._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS`` so the patch
+  takes effect.
+- ``time.monotonic`` (``test_heartbeat_force_exit.py``) — patches the
+  real ``time`` module (which is bound on this module via ``import
+  time``); production code in this module uses ``time.monotonic()``
+  directly, so the patch propagates.
+- ``os._exit`` (``test_heartbeat_force_exit.py``) — same pattern as
+  ``time.monotonic``.
+- ``IPCServer`` (``test_waveform_bubble.py``,
+  ``test_feature_hardening_regressions.py``) — patches the symbol on
+  the ``ipc_server`` shim module.  ``main()`` (in :mod:`.main`) calls
+  ``build_ipc_server`` (in :mod:`voice_typer.server.providers`), which
+  does ``from voice_typer.server.ipc_server import IPCServer`` at call
+  time.  The patch on the shim is picked up there.
+
+``inspect.getsource`` compatibility
+-----------------------------------
+``IPCServer`` is genuinely defined in this file (not aliased), so
+``inspect.getsource(IPCServer._dispatch)`` and similar method-level
+source checks continue to read from this file.
 """
 
 import contextlib
@@ -23,615 +66,45 @@ import sys
 import threading
 import time
 import typing
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server import event_bus
+from voice_typer.server import ipc_server as _ipc_server_pkg
 from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+# Patch-path bridge: route lookups of cross-submodule helpers through
+# the package namespace so test patches of the form
+# ``patch("voice_typer.server.ipc_server.X")`` keep affecting production
+# code defined here.  The package ``__init__.py`` re-exports these
+# names from the appropriate submodule; we look them up at call time
+# rather than binding at import time so the patch takes effect.
+from .rate_limiter import (
+    _HEARTBEAT_TIMEOUT_SECONDS,
+    _TCP_WRITE_TIMEOUT_SECONDS,
+    _get_rate_limiter,
+)
+from .transport import _TCPLineIO
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-# PR-3-FINDING-3: shared IPC payload validation helper.
-#
-# Validates an IPC ``data`` argument against a declarative schema.
-# Returns ``(validated_dict, None)`` on success, or
-# ``(None, error_response_dict)`` on validation failure so the handler
-# can ``return resp`` immediately.
-#
-# Schema format::
-#
-#     schema = {
-#         "field_name": {
-#             "type": str,          # required: the expected Python type
-#             "required": True,     # field MUST be present in data
-#             "default": "val",    # optional default (only for
-#                                  #   required=False)
-#         }
-#     }
-#
-# Example::
-#
-#     validated, error = _validate_dict_payload(data, {
-#         "hotkey": {"type": str, "required": True},
-#         "model": {"type": str, "required": False, "default": "small.en"},
-#     })
-#     if error:
-#         return error
-
-
-def _validate_dict_payload(data, schema):
-    """Validate IPC ``data`` against a declarative *schema*.
-
-    Parameters
-    ----------
-    data : Any
-        The ``data`` field from the IPC message.
-    schema : dict[str, dict]
-        Mapping of field name → validation rules.  Each rule dict
-        supports:
-
-        - ``type`` (required): the expected Python type (e.g. ``str``,
-          ``list``).
-        - ``required`` (bool): if ``True``, the field MUST be present
-          in ``data``.  Mutually exclusive with ``default``.
-        - ``default``: default value when the field is absent.  Only
-          valid when ``required=False``.
-
-    Returns
-    -------
-    tuple[dict | None, dict | None]
-        ``(validated_dict, None)`` on success.
-        ``(None, error_response)`` on failure — the error_response
-        is a dict ready to be returned as ``resp`` from the handler.
-    """
-    if not isinstance(data, dict):
-        return None, {
-            "type": "error",
-            "data": {
-                "code": "invalid_payload",
-                "message": "data must be an object",
-            },
-        }
-
-    validated = {}
-    for field_name, rules in schema.items():
-        if field_name in data:
-            value = data[field_name]
-            expected_type = rules.get("type")
-            if expected_type is not None and not isinstance(value, expected_type):
-                # IPC-3: format the expected-type name for the error
-                # message.  ``expected_type`` may be a single type
-                # (``str``) or a tuple of types (``(str, type(None))``)
-                # — the latter is the standard ``isinstance`` idiom for
-                # "any of these types".  A tuple has no ``__name__``,
-                # so format the names of all the allowed types and
-                # join them with ``|`` (e.g. ``"str|NoneType"``).
-                if isinstance(expected_type, tuple):
-                    expected_name = "|".join(t.__name__ for t in expected_type)
-                else:
-                    expected_name = expected_type.__name__
-                return None, {
-                    "type": "error",
-                    "data": {
-                        "code": "invalid_field",
-                        "field": field_name,
-                        "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
-                    },
-                }
-            validated[field_name] = value
-        elif rules.get("required", False):
-            return None, {
-                "type": "error",
-                "data": {
-                    "code": "missing_field",
-                    "field": field_name,
-                    "message": f"Missing required field '{field_name}'",
-                },
-            }
-        elif "default" in rules:
-            validated[field_name] = rules["default"]
-
-    return validated, None
-
-
-def _pick_available_port(start: int = 9876, max_tries: int = 100) -> tuple[int, socket.socket]:
-    """Return ``(port, bound_socket)`` for the first TCP port >= ``start`` free on 127.0.0.1.
-
-    P1-1.2: used by standalone mode to auto-pick a port for the backend's
-    TCP server.  Starts at the default IPC port (9876) and increments
-    until a free port is found (capped at ``max_tries`` attempts).  Falls
-    back to an OS-assigned ephemeral port (port=0) if every port in the
-    range is busy — this guarantees the function never fails.
-
-    CR-7 fix: the BOUND socket is returned alongside the port number so
-    the caller can pass it through to :meth:`IPCServer.start_tcp` (which
-    accepts either an ``int`` for backward compatibility or a
-    ``(port, sock)`` tuple for the no-race-window gold-standard path).
-    The previous probe-then-bind pattern closed the probe socket before
-    the real ``bind()`` in ``_accept_tcp``, opening a (small but real)
-    race window where another local process could grab the port.  By
-    handing the already-bound socket to ``start_tcp``, the kernel
-    guarantees no other process can claim that port between probe and
-    listen.
-
-    The returned socket has ``SO_REUSEADDR`` set and is bound to
-    ``127.0.0.1:port`` but NOT yet listening — the caller is expected to
-    call ``.listen()`` on it (or pass it to ``start_tcp`` which does so).
-    Callers that only want the port number (and accept the race window)
-    can close the socket themselves::
-
-        port, sock = _pick_available_port(...)
-        sock.close()  # releases the port; race window re-opens
-    """
-    for offset in range(max_tries):
-        candidate = start + offset
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind(("127.0.0.1", candidate))
-        except OSError:
-            # Port busy — close the probe socket and try the next one.
-            with contextlib.suppress(OSError):
-                s.close()
-            continue
-        # CR-7: return the ACTUAL bound port (s.getsockname()[1]), not
-        # ``candidate``.  When ``candidate == 0`` (ephemeral-port
-        # request), the OS assigns a real port number which we must
-        # surface to the caller.  The bound socket is returned so the
-        # caller can pass it through to start_tcp (no race window).
-        return s.getsockname()[1], s
-    # All ports in range are busy — let the OS assign an ephemeral one.
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("127.0.0.1", 0))
-    return s.getsockname()[1], s
-
-
-# ── RELIABILITY-006: per-connection rate limiter ─────────────────────────
-#
-# A crash-looping or buggy Electron client can flood the IPC socket
-# with thousands of malformed messages per second, exhausting file
-# descriptors and starving the tray thread.  ``_RateLimiter`` is a
-# sliding-window per-connection limiter: each connection gets a
-# bounded number of messages per window.  Over-budget messages are
-# dropped (with an error response) rather than dispatched.
-#
-# The limits are intentionally generous — a well-behaved Electron client
-# sends maybe 1-5 msg/s.
-#
-# RELIABILITY-006-FIX-10: ``burst`` (200) is the hard per-second cap; a
-# client that sends >200 messages in any 1-second window is throttled.
-# ``sustained`` (600) is measured over a 10-second window (60 msg/s
-# average) so short bursts within 1s (up to 200) are NOT throttled by
-# the sustained limit. Previously both used a 1s window with
-# sustained=60 < burst=200, making burst completely unreachable.
-#
-# IPC-4 fix (2026-07-18): the prior FIX-10 comment claimed "burst is
-# the hard per-second cap" but the implementation used a SINGLE deque
-# for both checks, with the same ``window`` (10s). With burst=200 and
-# sustained=600 over the same 10s deque, the burst check (>= 200)
-# ALWAYS fired first, making the sustained check (>= 600) unreachable
-# dead code. The fix: TWO independent deques — ``_burst_timestamps``
-# (1-second window) and ``_sustained_timestamps`` (10-second window) —
-# so burst catches fast-burst attacks (201 msgs in any 1s) and
-# sustained catches slow-drip attacks (601 msgs in any 10s = 60.1
-# msg/s average, never tripping the 200/s burst). The two checks are
-# now genuinely independent, not redundant.
-
-_RATE_LIMIT_WINDOW_SECONDS = 10.0
-_RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0
-_RATE_LIMIT_BURST = 200
-_RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
-
-# NEW-CONC-003: write timeout for TCP sendall.  A stalled Electron
-# renderer (e.g. GC pause, dev-tools inspection, or a busy main thread)
-# can stop draining its TCP receive buffer.  Without a timeout, sendall
-# blocks indefinitely, holding the IPC lock (pre-NEW-IPC-014) or
-# blocking the bubble_level worker thread (post-NEW-IPC-014).  2
-# seconds is generous for a localhost write — under normal load the
-# kernel buffer accepts data in microseconds.  When the timeout fires,
-# we drop the client connection so the accept loop can pick up the
-# next reconnect.
-_TCP_WRITE_TIMEOUT_SECONDS = 2.0
-
-# ── RW-10: Electron-alive heartbeat ─────────────────────────────────────
-#
-# If Electron crashes or is force-killed, the Python backend keeps
-# running with the mic stream open, hotkeys registered, volume ducked,
-# and the single-instance mutex held.  The next launch hits
-# ``ERROR_ALREADY_EXISTS`` and surfaces "Only one instance can run",
-# forcing the user to manually kill ``python.exe``.
-#
-# The heartbeat mechanism works as follows:
-#   1. Electron connects via TCP and starts sending ``heartbeat`` IPC
-#      commands every 5 seconds (see ``client/src/main/index.ts``).
-#   2. The ``_handle_heartbeat`` handler updates
-#      ``self._last_heartbeat_at = time.monotonic()``.
-#   3. The ``_heartbeat_loop`` daemon thread wakes every 5 seconds and
-#      checks if more than 120 seconds (24 missed heartbeats) have
-#      elapsed since the last heartbeat.  If so, it calls
-#      ``self.app.quit()`` — which runs the shared ``_do_cleanup()``
-#      path from RW-3 (restores volume, flushes recovery, releases the
-#      mutex, closes PortAudio).
-#
-# The watchdog only fires AFTER the first heartbeat has been received,
-# so the backend doesn't exit prematurely during a slow Electron cold
-# start (10+ seconds for the torch import + window creation).
-_HEARTBEAT_INTERVAL_SECONDS = 5.0
-_HEARTBEAT_TIMEOUT_SECONDS = 120.0  # 24 missed heartbeats — increased from 15s
-# CR-9: grace period (seconds) the heartbeat watchdog's force-exit
-# daemon thread waits before calling ``os._exit(1)``. 10s is longer
-# than the slowest legitimate ``app.quit()`` path (PortAudio stream
-# teardown + history DB flush + mutex release ≈ 2-3s in the worst
-# observed case), giving graceful shutdown room to complete while
-# still bounding the worst-case hang to 10s. Extracted as a constant
-# so tests can patch it down to ~50ms to avoid waiting real seconds.
-_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS = 10.0
-
-
-class _RateLimiter:
-    """Sliding-window per-connection rate limiter.
-
-    Each IPC connection gets its own ``_RateLimiter`` instance.  The
-    limiter tracks the timestamp of each accepted message in TWO
-    deques:
-
-    * ``_burst_timestamps`` — a 1-second sliding window. If the deque
-      reaches ``burst`` entries (default 200), the next message is
-      rejected. This catches fast-burst attacks (201+ msgs in any 1s).
-    * ``_sustained_timestamps`` — a ``window``-second sliding window
-      (default 10s). If the deque reaches ``sustained`` entries
-      (default 600 = 60 msg/s avg), the next message is rejected.
-      This catches slow-drip attacks (601+ msgs in any 10s = 60.1
-      msg/s avg) that never trip the per-second burst.
-
-    IPC-4 fix (2026-07-18): prior to this fix, both checks shared a
-    SINGLE deque (the ``window``-second one), so the burst check
-    (>= 200) always fired first and the sustained check (>= 600) was
-    unreachable dead code. The two checks are now genuinely
-    independent.
-    """
-
-    def __init__(
-        self,
-        *,
-        burst: int = _RATE_LIMIT_BURST,
-        sustained_per_sec: int = _RATE_LIMIT_SUSTAINED,
-        window: float = _RATE_LIMIT_WINDOW_SECONDS,
-        burst_window: float = _RATE_LIMIT_BURST_WINDOW_SECONDS,
-    ) -> None:
-        self._burst = burst
-        self._sustained = sustained_per_sec
-        self._window = window
-        self._burst_window = burst_window
-        # IPC-4: TWO independent deques. The burst deque uses a 1s
-        # window (configurable via ``burst_window``); the sustained
-        # deque uses the ``window`` parameter (default 10s).
-        self._burst_timestamps: deque[float] = deque()
-        self._sustained_timestamps: deque[float] = deque()
-        self._rejected: int = 0
-        self._lock = threading.Lock()
-
-    def allow(self, *, now: float | None = None) -> bool:
-        """Return True if the message should be accepted.
-
-        Parameters
-        ----------
-        now : float, optional
-            Current monotonic time.  If omitted, ``time.monotonic()``
-            is used.  Passing ``now`` explicitly makes the limiter
-            trivially testable.
-
-        SEC-6: ``_rejected`` is incremented atomically with the
-        rejection decision inside the same lock acquisition as the
-        deque check. Previously ``allow()`` returned False and the
-        caller separately called ``reject()`` (acquiring the lock
-        again) — a benign race where two threads could both observe
-        the same deque state, both decide to reject, and double-count
-        the rejection. Now ``allow()`` is the single source of truth
-        for both the decision and the counter.
-
-        IPC-4: the burst and sustained checks are now INDEPENDENT.
-        A client can trip burst (201 msgs in 1s) without tripping
-        sustained (601 msgs in 10s), and vice versa. Both deques are
-        evicted and checked under the same lock acquisition so the
-        decision is atomic.
-        """
-        ts = now if now is not None else time.monotonic()
-        burst_cutoff = ts - self._burst_window
-        sustained_cutoff = ts - self._window
-        with self._lock:
-            # Evict expired timestamps from both deques.
-            while self._burst_timestamps and self._burst_timestamps[0] < burst_cutoff:
-                self._burst_timestamps.popleft()
-            while self._sustained_timestamps and self._sustained_timestamps[0] < sustained_cutoff:
-                self._sustained_timestamps.popleft()
-            # IPC-4: burst check (1s window, hard per-second cap).
-            if len(self._burst_timestamps) >= self._burst:
-                self._rejected += 1
-                return False
-            # IPC-4: sustained check (10s window, avg-rate cap).
-            # Independent of burst — a slow-drip attacker who never
-            # sends >200 msgs/s but exceeds 600 msgs in 10s is caught
-            # here, where the prior single-deque impl would have
-            # missed them (burst fired first at 200).
-            if len(self._sustained_timestamps) >= self._sustained:
-                self._rejected += 1
-                return False
-            self._burst_timestamps.append(ts)
-            self._sustained_timestamps.append(ts)
-            return True
-
-    @property
-    def rejected_count(self) -> int:
-        """Total messages rejected since this limiter was created.
-
-        Not currently exposed via IPC, but useful for tests.
-        """
-        return self._rejected
-
-    def reject(self) -> None:
-        """No-op kept for backward compatibility.
-
-        SEC-6: the counter is now incremented atomically inside
-        :meth:`allow` when it returns ``False``. The separate
-        ``reject()`` call from the caller was dropped to eliminate the
-        benign race where two threads could both observe the same
-        deque state, both decide to reject, and double-count the
-        rejection. This method is retained (as a no-op) so existing
-        callers (and the WS path's source-level string check in
-        ``test_sidecar_ws_calls_rate_limiter_allow_per_frame``) don't
-        have to change in lockstep.
-        """
-        return None
-
-
-# ── CR-11: per-process rate limiter ──────────────────────────────────────
-#
-# Previously, both the TCP path (``_handle_tcp_connection``) and the WS
-# path (``sidecar_ws._make_dispatch``) instantiated a FRESH
-# ``_RateLimiter`` per connection. A local attacker could burst the
-# 200-message budget, disconnect, reconnect, and burst again — bypassing
-# the sustained cap entirely.
-#
-# The fix: ONE ``_RateLimiter`` per ``IPCServer`` instance, lazily
-# created and stored on the instance via ``_get_rate_limiter(server)``.
-# All connections (TCP reconnects, WS reconnects) within the same server
-# process share the same sliding-window deque, so the 10s sustained
-# budget continues to evict old timestamps across reconnects.
-#
-# Stored on the instance (not module-level) so:
-#   - Production: one limiter per server process (CR-11 fix).
-#   - Tests: each fresh IPCServer (or MagicMock test double) gets its
-#     own limiter, preserving test isolation without needing a reset
-#     hook. ``getattr(server, "_rate_limiter_instance", None)`` returns
-#     None for a real IPCServer (attribute not set) and a child
-#     MagicMock for a test double — the ``isinstance`` check filters
-#     both, creating+storing a real ``_RateLimiter`` on first access.
-
-
-def _get_rate_limiter(server: "object") -> _RateLimiter:
-    """Return the per-process ``_RateLimiter`` for ``server`` (CR-11).
-
-    Lazily creates and stores the limiter on the server instance so
-    reconnects within the same process share the same sliding-window
-    budget. A local attacker can no longer reset the budget by
-    disconnecting and reconnecting.
-    """
-    limiter = getattr(server, "_rate_limiter_instance", None)
-    if not isinstance(limiter, _RateLimiter):
-        limiter = _RateLimiter()
-        # ``setattr`` on a MagicMock overrides the auto-vivified child
-        # attribute; on a real IPCServer it just sets the attribute.
-        server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
-    return limiter
-
-
-# ── SEC-003: config sanitization for IPC ─────────────────────────────────
-#
-# ``get_config`` must NOT echo secret fields back to the IPC client.
-# Even though the IPC socket is loopback-only, any local process can
-# connect to it (see SEC-018 for the auth fix).  We return a sanitized
-# view where API keys are replaced with a presence indicator so the
-# renderer can render "key configured" UI without ever holding the
-# actual key value.
-
-# Fields whose values are secrets and must never be echoed back.
-_SECRET_CONFIG_FIELDS = frozenset(
-    {
-        "cloud_api_key",
-        "openai_api_key",
-        "groq_api_key",
-        "deepgram_api_key",
-        "llm_api_key",
-    }
-)
-
-# Sentinel returned in place of a secret value.  The renderer treats
-# this as "key is set, do not display" — it must NOT treat this as the
-# actual key value (which would be a regression of SEC-003).
-_REDACTED_SENTINEL = "<redacted>"
-
-
-# SEC-010: maximum number of history rows a single IPC call can
-# materialize.  Without this cap, ``{"limit": 100000000}`` would
-# force SQLite to scan and the dispatcher to materialize a million
-# rows before slicing — a trivial DoS.
-_HISTORY_LIMIT_MAX = 500
-_HISTORY_LIMIT_DEFAULT = 50
-
-
-def _bound_history_limit(raw) -> int:
-    """Clamp a caller-supplied history ``limit`` to a safe range.
-
-    Accepts ints, floats, and numeric strings (the renderer sometimes
-    sends strings from form inputs).  Rejects anything else with the
-    default.  Result is always in ``[1, _HISTORY_LIMIT_MAX]``.
-    """
-    if raw is None:
-        return _HISTORY_LIMIT_DEFAULT
-    try:
-        v = int(raw)
-    except (TypeError, ValueError):
-        return _HISTORY_LIMIT_DEFAULT
-    return max(1, min(v, _HISTORY_LIMIT_MAX))
-
-
-def _bound_history_offset(raw) -> int:
-    """Clamp a caller-supplied history ``offset`` to a non-negative int."""
-    if raw is None:
-        return 0
-    try:
-        v = int(raw)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, v)
-
-
-def _sanitize_config_for_ipc(config) -> dict:
-    """Return a copy of ``config.__dict__`` with secret fields redacted.
-
-    A secret field is any field in :data:`_SECRET_CONFIG_FIELDS`.  If
-    the field's value is truthy (a key was set), it is replaced with
-    ``"<redacted>"``.  If falsy (empty string or None), the original
-    value (``""`` / ``None``) is preserved so the renderer can
-    distinguish "no key set" from "key set but hidden".
-    """
-    out = config.__dict__.copy()
-    for k in _SECRET_CONFIG_FIELDS:
-        if k in out:
-            v = out[k]
-            out[k] = _REDACTED_SENTINEL if v else v
-    return out
-
-
-# Module-level push hook.  Set by the active IPCServer instance when it
-# starts; cleared when it stops.  Using a module global (instead of
-# e.g. ``app._ipc_server``) means listeners from any module can push
-# events without needing a reference to the app or the server, and
-# without closure-capture surprises when multiple VoiceTyperApp
-# instances exist in the same process (tests, restarts, etc.).
-#
-# NEW-IPC-013: this used to be a single Optional[Callable].  When two
-# IPCServer instances existed in the same process (e.g. a test fixture
-# plus the production server), the second start() would stomp the
-# first server's push fn, and the first server's stop() would clear
-# the global — leaving the second server unable to push events.  We
-# now keep a registry (set) of push functions; _push_event_now fans
-# out to ALL registered servers.  Each IPCServer registers on start
-# and unregisters on stop, so the registry stays consistent across
-# any number of concurrent instances.
-#
-# B-1: the registry and helpers below are now THIN SHIMS over
-# ``voice_typer.server.event_bus``.  Domain modules should call
-# ``event_bus.publish(event)`` directly; the names here are kept so
-# existing lazy imports (``from voice_typer.server.ipc_server import
-# directly (``ipc_server._push_event_now``) and tests that manipulate the
-# registry set directly (``event_bus._subscribers.clear()``) continue to
-# work.  The shims reference the SAME underlying set and lock objects
-# as ``event_bus._subscribers`` / ``event_bus._lock`` so manipulating
-# one affects the other.
-# B-1 FIX-12: the _push_event_registry/_push_event_registry_lock aliases and
-# _set_push_event/_clear_push_event shims have been removed.  Domain code and
-# tests now call ``event_bus.subscribe`` / ``event_bus.unsubscribe`` directly.
-
-
-def _push_event_now(msg: dict) -> bool:
-    """Push a raw event to ALL active IPC servers, if any are wired.
-
-    B-1: thin shim over ``event_bus.publish``.  Domain code should
-    call ``event_bus.publish`` directly; this function is preserved
-    so existing lazy imports continue to work.
-
-    Returns True if at least one server accepted the event, False if
-    no server is active.  Safe to call from any thread; never raises.
-
-    NEW-IPC-013: previously pushed to a single global callable.  When
-    two IPCServer instances existed in the same process (tests +
-    production), the second start() would stomp the first's push fn,
-    and the first's stop() would clear the global entirely — leaving
-    the second server unable to push.  We now fan out to ALL servers
-    in the registry so both receive the event.
-    """
-    return event_bus.publish(msg)
-
-
-class _TCPLineIO:
-    """Wraps a TCP socket as a text-mode line-based IO.
-
-    Provides ``write()`` + ``flush()`` (like TextIO) and
-    ``readline()`` + ``__iter__`` (like a line reader).
-    """
-
-    def __init__(self, conn: socket.socket) -> None:
-        self.conn = conn
-        self._reader = conn.makefile("r", encoding="utf-8", buffering=1)
-
-    def write(self, text: str) -> None:
-        self.conn.sendall(text.encode("utf-8"))
-
-    def flush(self) -> None:
-        pass  # sendall is immediate
-
-    def readline(self) -> str:
-        """Read one line from the TCP socket.
-
-        SEC-009: cap line size to prevent OOM DoS.  ``socket.makefile``
-        ``readline`` with no size limit would happily allocate a 1 GB
-        buffer if the client sent a single huge line with no newline.
-        We cap at 1 MB (a single IPC message should be far under 1 KB;
-        transcription text + metadata is well under 100 KB even for
-        long dictations).  When the cap is exceeded, we return an
-        empty string to signal EOF — the caller closes the connection.
-        """
-        _max_line_bytes = 1 * 1024 * 1024  # 1 MB
-        _max_line_chars = _max_line_bytes  # conservative (UTF-8 worst case)
-        line = self._reader.readline(_max_line_chars + 1)
-        if len(line) > _max_line_chars:
-            log.warning(
-                "[TCP] client sent line exceeding %d char cap; closing connection",
-                _max_line_chars,
-            )
-            return ""  # signal EOF
-        return line
-
-    def __iter__(self):
-        return self
-
-    def __next__(self) -> str:
-        line = self.readline()
-        if not line:
-            raise StopIteration
-        return line
-
-    def close(self) -> None:
-        with contextlib.suppress(Exception):
-            self._reader.close()
-        with contextlib.suppress(Exception):
-            self.conn.close()
-
-
 # ARCH-REFAC-002: the per-command ``_handle_*`` methods live in the
 # ``handlers/`` subpackage as mixin classes.  We import them here (after
-# all module-level helpers like ``log`` / ``_push_event_now`` /
-# ``_bound_history_limit`` are defined) so the mixins can resolve their
+# all module-level helpers like ``log`` / ``_TCPLineIO`` /
+# ``_get_rate_limiter`` are defined and bound on the ipc_server shim)
+# so the mixins can resolve their
 # ``from voice_typer.server.ipc_server import ...`` references via the
-# partially initialized module already present in ``sys.modules``.
+# already-fully-initialized shim module in ``sys.modules``.
 #
-# CRITICAL: Register the canonical module name BEFORE the mixin imports.
-# When ``python -m voice_typer.server.ipc_server`` loads this module,
-# it is stored in ``sys.modules`` as ``__main__``, NOT under its
+# CRITICAL: the shim (``voice_typer/server/ipc_server.py``) registers
+# the canonical module name in ``sys.modules`` BEFORE importing this
+# module.  When ``python -m voice_typer.server.ipc_server`` loads the
+# shim, it is stored in ``sys.modules`` as ``__main__``, NOT under its
 # canonical dotted name.  The mixin handlers do
 # ``from voice_typer.server.ipc_server import log, _push_event_now``;
-# without this registration, Python creates a FRESH module for the
+# without that registration, Python creates a FRESH module for the
 # canonical name, which then tries to import the mixins again —
 # producing a circular ``ImportError``.
-_CANONICAL = "voice_typer.server.ipc_server"
-if _CANONICAL not in sys.modules:
-    sys.modules[_CANONICAL] = sys.modules["__main__"]
-
-
 from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.dictation_handlers import DictationHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin  # noqa: E402
@@ -658,6 +131,7 @@ class IPCServer(
     ConfigHandlersMixin,
     StatusHandlersMixin,
     DictationHandlersMixin,
+    RepasteHandlersMixin,
     HistoryHandlersMixin,
     MicrophoneHandlersMixin,
     VocabularyHandlersMixin,
@@ -668,7 +142,6 @@ class IPCServer(
     ModelHandlersMixin,
     SystemHandlersMixin,
     VocabularyAutomationHandlersMixin,
-    RepasteHandlersMixin,
 ):
     """Reads JSON commands from stdin or TCP, dispatches, writes responses.
 
@@ -1559,7 +1032,7 @@ class IPCServer(
         sets ``_heartbeat_stop_event`` to wake the thread immediately
         on a planned shutdown.
         """
-        while not self._heartbeat_stop_event.wait(_HEARTBEAT_INTERVAL_SECONDS):
+        while not self._heartbeat_stop_event.wait(_ipc_server_pkg._HEARTBEAT_INTERVAL_SECONDS):
             if self._check_heartbeat_timeout():
                 return  # app.quit() was called; thread exits
 
@@ -1649,11 +1122,11 @@ class IPCServer(
                 # for tests). Must be longer than the slowest legitimate
                 # quit() path — PortAudio stream teardown + history DB
                 # flush + mutex release ≈ 2-3s in the worst observed case.
-                time.sleep(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS)
+                time.sleep(_ipc_server_pkg._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS)
                 log.error(
                     "[HEARTBEAT] app.quit() did not exit within %ds — "
                     "force-exiting via os._exit(1) (tray.stop() likely hung)",
-                    int(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS),
+                    int(_ipc_server_pkg._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS),
                 )
                 os._exit(1)
 
@@ -1885,9 +1358,6 @@ class IPCServer(
         "get_status": "_handle_get_status",
         "toggle_dictation": "_handle_toggle_dictation",
         "undo_last": "_handle_undo_last",
-        "force_cancel_transcription": "_handle_force_cancel_transcription",
-        # UX-23: re-paste the last transcription (repaste_handlers mixin).
-        "repaste_last": "_handle_repaste_last",
         "get_config": "_handle_get_config",
         "get_defaults": "_handle_get_defaults",
         "set_config": "_handle_set_config",
@@ -1935,10 +1405,6 @@ class IPCServer(
         "onboarding_get_microphones": "_handle_onboarding_get_microphones",
         "onboarding_get_model_options": "_handle_onboarding_get_model_options",
         "onboarding_get_hotkey_presets": "_handle_onboarding_get_hotkey_presets",
-        # UX-4 / UX-27: platform-conditional permission probe
-        # (macOS Accessibility / Linux input group + udev rule) used by
-        # the Permissions step.
-        "onboarding_check_permissions": "_handle_onboarding_check_permissions",
         "microphone_test_start": "_handle_microphone_test_start",
         "microphone_test_stop": "_handle_microphone_test_stop",
         "microphone_test_cancel": "_handle_microphone_test_cancel",
@@ -1977,53 +1443,82 @@ class IPCServer(
         # the busy flag and tray state immediately, bypassing the normal
         # 3×90s watchdog timeout.
         "force_cancel_transcription": "_handle_force_cancel_transcription",
+        # UX-23: re-paste the most recent transcription. Handler lives in
+        # ``handlers/repaste_handlers.py``; the renderer ``ALLOWED_COMMANDS``
+        # set (client/src/main/index.ts) already permits ``repaste_last`` so
+        # Home.tsx / the tray menu can call it. This registry entry is the
+        # missing dispatch route that previously made the UI call a no-op.
+        "repaste_last": "_handle_repaste_last",
         # RW-10: Electron-alive heartbeat.  Electron's main process
         # sends this every 5 seconds; the backend's heartbeat-watchdog
         # daemon thread calls ``app.quit()`` if 24 consecutive heartbeats
         # are missed (120s timeout) so a crashed/force-killed Electron
         # doesn't strand the backend with the mic open + mutex held.
         "heartbeat": "_handle_heartbeat",
+        # ADR-0020 §16: Tauri tray menu click. The Rust host renders
+        # the tray menu from the ``tray_menu`` event (§6.5) and
+        # forwards user clicks as this command. It dispatches to the
+        # SAME action callback a pystray menu click would invoke for
+        # the given item id (see TrayIcon.dispatch_tray_action),
+        # so the Electron and Tauri tray paths share one source of truth.
+        "tray_click": "_handle_tray_click",
         # PERF-005: Electron acks receipt/processing of ``relaunch_electron``
         # so restart_app can drop its fixed 300ms sleep in favour of an
         # event-driven wait (bounded by a 2s timeout).
         "relaunch_ack": "_handle_relaunch_ack",
-        # ADR-0020 §6.5 / §16: Tauri sidecar tray-menu click dispatch.
-        # The Tauri host forwards a clicked menu item id; the backend looks
-        # it up in the tray's id→callback map and invokes the action. Unknown
-        # ids return a structured ``unknown_tray_item`` error (distinct from
-        # ``unknown_command``) so the host can surface "missing item" vs
-        # "unknown command" differently.
-        "tray_click": "_handle_tray_click",
     }
 
     def _handle_tray_click(self, data, resp) -> dict:
-        """ADR-0020 §6.5 / §16: dispatch a Tauri tray-menu click by item id.
+        """ADR-0020 §16: route a Tauri tray-menu click by item id.
 
-        Looks the clicked ``id`` up via the tray's ``dispatch_tray_action``
-        and returns ``{"ok": True}`` on success.  A missing ``id`` yields a
-        ``missing_field`` error; an id the tray doesn't recognise yields a
-        distinct ``unknown_tray_item`` error (so the host can tell "malformed
-        request" from "item not found").
+        The Rust host renders the tray menu from the ``tray_menu`` event
+        (ADR-0020 §6.5) and forwards user clicks as::
+
+            {"type": "tray_click", "data": {"id": "<item_id>"}}
+
+        This handler invokes the SAME callback a pystray menu click
+        would for that id (``self.app.tray.dispatch_tray_action``),
+        which consults the id→callback map built when the menu model
+        was published. That keeps the Electron and Tauri tray paths
+        on one source of truth.
+
+        Validation mirrors ``_validate_dict_payload`` (the contract
+        source of truth): ``id`` is required and must be a ``str``.
+        Unknown ids return ``unknown_tray_item`` (not ``unknown_command``,
+        which is reserved for IPC-command dispatch).
         """
-        if not isinstance(data, dict) or "id" not in data:
-            resp["type"] = "error"
-            resp["data"] = {"code": "missing_field", "field": "id"}
-            return resp
+        from voice_typer.server.ipc.validation import _validate_dict_payload
 
-        item_id = data["id"]
+        validated, error = _validate_dict_payload(
+            data,
+            {
+                "id": {"type": str, "required": True},
+            },
+        )
+        if error:
+            return error
+        item_id = validated["id"]
         tray = getattr(self.app, "tray", None)
         if tray is None or not hasattr(tray, "dispatch_tray_action"):
             resp["type"] = "error"
-            resp["data"] = {"code": "unknown_tray_item", "id": item_id}
+            resp["data"] = {
+                "code": "unknown_tray_item",
+                "message": f"no tray available to dispatch id '{item_id}'",
+                "id": item_id,
+            }
             return resp
-
-        handled = tray.dispatch_tray_action(item_id)
-        if not handled:
+        dispatched = tray.dispatch_tray_action(item_id)
+        if not dispatched:
             resp["type"] = "error"
-            resp["data"] = {"code": "unknown_tray_item", "id": item_id}
+            resp["data"] = {
+                "code": "unknown_tray_item",
+                "message": f"unknown tray item id: {item_id}",
+                "id": item_id,
+            }
             return resp
-
-        return {"type": "result", "data": {"ok": True}}
+        resp["type"] = "result"
+        resp["data"] = {"ok": True}
+        return resp
 
     def _handle_unknown_command(self, cmd, data, resp) -> dict | None:
         """Handle the ``__unknown__`` IPC command."""
@@ -2151,7 +1646,13 @@ class IPCServer(
             # kernel buffer accepts the data immediately.  If we hit the
             # timeout, the write raises ``socket.timeout`` and we drop
             # the connection (the accept loop will catch the next
-            # reconnect).
+            # reconnect).  We restore the PREVIOUS timeout afterwards
+            # rather than forcing blocking mode: the auth read set a
+            # deadline (PR-3-FIX-1) and we must not clobber it to
+            # ``None`` (blocking), or the dispatch-loop ``readline`` would
+            # block forever and the connection could never be reaped/
+            # closed on cleanup (SEC-018 auth-timeout/close path).
+            _prev_timeout = tcp_client.conn.gettimeout()
             with contextlib.suppress(OSError, AttributeError):
                 tcp_client.conn.settimeout(_TCP_WRITE_TIMEOUT_SECONDS)
             # settimeout can fail if the socket is already closed;
@@ -2191,10 +1692,16 @@ class IPCServer(
                             self._tcp_client.close()
                         self._tcp_client = None
             finally:
-                # Restore blocking mode (timeout=None means blocking
-                # with no timeout, the default for TCP sockets).
+                # Restore the previous timeout (NOT blocking ``None``) so
+                # the dispatch-loop ``readline`` keeps its auth deadline
+                # and the worker can exit/be reaped on cleanup.  Setting
+                # ``None`` here was the root cause of the
+                # auth-timeout/close deadlock: a blocking socket could
+                # never time out, so the reader thread never exited and
+                # ``_TCPLineIO.close()`` deadlocked against the in-progress
+                # ``recv``.
                 with contextlib.suppress(OSError, AttributeError):
-                    tcp_client.conn.settimeout(None)
+                    tcp_client.conn.settimeout(_prev_timeout)
             return
 
         if tcp_mode:
@@ -2252,358 +1759,4 @@ class IPCServer(
             log.info("[IPC] no client; dropping %s event: %s", msg_type, msg)
 
 
-# ── Entry point ─────────────────────────────────────────────────────────
-
-
-def _set_process_metadata() -> None:
-    """Set process-level metadata (console title, AppUserModelID, etc.).
-
-    BRAND-METADATA: On Windows the Python backend appears as a generic
-    pythonw.exe in Task Manager.  We call the platform helper to set
-    the console title and AppUserModelID, which improves the process
-    identity wherever the OS supports it.
-    """
-    from voice_typer.server.branding import APP_NAME
-    from voice_typer.server.platform_utils import _set_windows_process_metadata
-
-    _set_windows_process_metadata(APP_NAME)
-
-
-def main() -> None:
-    """Create a ``VoiceTyperApp``, wrap it in an ``IPCServer``, and block.
-
-    Designed as the subprocess entry point for an Electron frontend::
-
-        python -m voice_typer.server.ipc_server          # stdin/stdout
-        python -m voice_typer.server.ipc_server --port N  # TCP
-
-    In TCP mode, stdout/stderr are NOT piped (Electron uses
-    ``stdio: "inherit"``) so there is no pipe-backpressure issue
-    during the heavy torch import.  Push events reach the frontend
-    via TCP, and the terminal sees normal log output.
-    """
-    # BRAND-METADATA: set process metadata early, before any subsystem
-    # init, so the OS sees the correct identity from the start.
-    _set_process_metadata()
-
-    # NEW-CLI-003: import the standardized exit-code constants. Both
-    # EXIT_BAD_ARGS (bad --port) and EXIT_CRASH (uncaught exception in
-    # app.start()) are used below; previously EXIT_CRASH was imported
-    # but unused and the crash path called sys.exit with a raw literal.
-    from voice_typer.__main__ import EXIT_BAD_ARGS, EXIT_CRASH
-    # The canonical-name registration (``sys.modules[_CANONICAL]``)
-    # is handled at module level, before the mixin imports, so it
-    # applies to ALL execution modes (__main__, -m, and direct import).
-
-    # RACE-018: Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
-    # Invaluable for debugging production crashes with CUDA/GPU drivers.
-    try:
-        import faulthandler
-
-        faulthandler.enable()
-        # Optional: register SIGUSR1 for on-demand thread dumps (POSIX only)
-        import signal
-
-        if hasattr(signal, "SIGUSR1"):
-            # TASK-14: ``faulthandler.dump_traceback_later`` has the
-            # signature ``(timeout: float, repeat: bool = False, ...)
-            # -> None`` and does NOT match the ``signal.signal`` handler
-            # protocol ``(signum: int, frame: FrameType | None) -> Any``.
-            # Passing it directly would crash with TypeError the first
-            # time the signal fires (missing ``timeout`` positional).
-            # Wrap it in a closure that calls ``dump_traceback_later``
-            # with a 1-second delay — the documented use case for
-            # on-demand thread dumps from SIGUSR1.
-            def _on_sigusr1(_signum: int, _frame: "typing.Any") -> None:
-                faulthandler.dump_traceback_later(timeout=1.0)
-
-            signal.signal(signal.SIGUSR1, _on_sigusr1)
-    except Exception:
-        pass  # Not available on all platforms
-
-    # NEW-DOC-006: parse arguments BEFORE acquiring the single-instance
-    # lock, so ``--version`` works even when another instance is running
-    # (mirrors voice_typer.__main__, which parses args before app.main()).
-    import argparse
-    import importlib.metadata
-    import os
-
-    from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging
-    from voice_typer.server.config import _config_dir
-
-    try:
-        _pkg_version = importlib.metadata.version("voice-typer")
-    except Exception:
-        _pkg_version = "1.0.0"
-
-    parser = argparse.ArgumentParser(
-        prog="voice_typer.server.ipc_server",
-        description="Voice Typer IPC server (spawned by Electron)",
-        add_help=False,  # we add --help manually to avoid conflict with app
-    )
-    parser.add_argument(
-        "--port",
-        type=int,
-        default=None,
-        metavar="N",
-        help="TCP port to listen on (1..65535). If omitted, uses stdin/stdout IPC.",
-    )
-    parser.add_argument(
-        "--ws",
-        action="store_true",
-        default=False,
-        help=(
-            "ADR-0020: run as a Tauri sidecar. Binds a localhost WebSocket "
-            "server on an OS-assigned ephemeral port (127.0.0.1:0), prints "
-            'a single {"event":"server_started","port":N} JSON line to '
-            "stdout, then accepts WS connections authenticated by the "
-            "VOICE_TYPER_IPC_TOKEN env var. Mutually exclusive with --port."
-        ),
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version=f"%(prog)s {_pkg_version}",
-        help="Show version and exit.",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        default=False,
-        help="Enable debug logging to the console.",
-    )
-    args, _unknown = parser.parse_known_args(sys.argv[1:])
-    if args.debug:
-        os.environ["VOICE_TYPER_DEBUG"] = "1"
-    port = args.port
-    ws_mode = args.ws
-    # ADR-0020 §2: --ws and --port are mutually exclusive. --ws binds
-    # an OS-assigned ephemeral port and reports it via stdout; --port
-    # binds a fixed port for the legacy Electron TCP path.
-    if ws_mode and port is not None:
-        print("--ws and --port are mutually exclusive", file=sys.stderr)
-        sys.exit(EXIT_BAD_ARGS)
-    if port is not None and not (1 <= port <= 65535):
-        print(f"Invalid port: {port} (must be 1..65535)", file=sys.stderr)
-        sys.exit(EXIT_BAD_ARGS)
-    # ADR-0020 §2 + §10: when running as a Tauri sidecar, set the
-    # TAURI_SIDECAR=1 env var so downstream gates (heartbeat watchdog,
-    # VoiceTyperSingleInstance mutex) know to disable themselves. The
-    # Tauri host's single-instance plugin + FT-1 supervisor replace
-    # them. The env var is set here (rather than required to be set by
-    # the host) so a `python -m voice_typer.server.ipc_server --ws`
-    # invocation from a terminal also gets the right behavior.
-    if ws_mode:
-        os.environ["TAURI_SIDECAR"] = "1"
-        log.info("[IPC] --ws mode enabled (TAURI_SIDECAR=1 env set)")
-
-    _setup_logging()
-
-    # NEW-DOC-006: single-instance lock is acquired AFTER args are parsed
-    # but BEFORE app construction (which stores the mutex handle).  The
-    # lock is still taken for real launches (both standalone and --port IPC).
-    #
-    # ADR-0020 §12: under the Tauri sidecar path (TAURI_SIDECAR=1), the
-    # Tauri host's `tauri-plugin-single-instance` plugin already enforces
-    # single-instance via the OS's native mechanism (Win32 named mutex on
-    # Windows, NSApplication activation on macOS, lockfile on Linux). The
-    # Python-side `VoiceTyperSingleInstance` Win32 mutex (app.py:2086)
-    # would double-lock on Windows and block the second-instance focus
-    # path, so we skip it under Tauri.
-    _tauri_sidecar = os.environ.get("TAURI_SIDECAR") == "1"
-    if _tauri_sidecar:
-        log.info("[IPC] TAURI_SIDECAR=1 — skipping Python-side single-instance mutex (Tauri host owns it)")
-        _single_instance_mutex = None
-    else:
-        _single_instance_mutex = _ensure_single_instance(silent=True)
-
-    # NEW-SEC-015: the os._exit monkey-patch that printed a stack trace
-    # on every shutdown has been removed.
-
-    try:
-        app = VoiceTyperApp()
-    except Exception:
-        # Under pythonw.exe, _setup_logging() redirects stdout/stderr to
-        # devnull, so ANY exception here is invisible to the user — they
-        # only see "Python process exited: 1" + the misleading "Only one
-        # instance" dialog from Electron.  Log the full traceback to both
-        # the app's log file and a dedicated diagnostic file so debugging
-        # is possible.
-        log.exception("[FATAL] VoiceTyperApp() construction failed")
-        try:
-            import io
-            import traceback
-
-            from voice_typer.server.config import _secure_atomic_write
-
-            buf = io.StringIO()
-            buf.write(f"Voice Typer startup failed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            buf.write(f"sys.executable: {sys.executable}\n")
-            buf.write(f"sys.argv: {sys.argv}\n")
-            traceback.print_exc(file=buf)
-            diag_path = _config_dir() / "startup-error.log"
-            _secure_atomic_write(diag_path, buf.getvalue())
-            log.error("[FATAL] Diagnostic written to %s", diag_path)
-        except Exception:
-            pass
-        # NEW-CLI-003: use the standardized exit code instead of raw 1.
-        sys.exit(EXIT_CRASH)
-
-    # PLAT-HLEAK: store the mutex handle on the app instance so
-    # quit() can CloseHandle it on shutdown
-    app._mutex_handle = _single_instance_mutex
-
-    # ARCH-REFAC-004: use the providers.build_ipc_server composition
-    # root instead of constructing IPCServer directly.  Behavior is
-    # identical today (build_ipc_server just calls IPCServer(app));
-    # the factory exists so future wiring (logging, metrics, feature
-    # flags, an alternate service implementation) lives in one place
-    # rather than being threaded through this entry point.
-    from voice_typer.server.providers import build_ipc_server
-
-    server = build_ipc_server(app)
-    # d-review Finding 1: in explicit TCP (--port) or Tauri WS (--ws) mode
-    # the backend is driven by Electron/Tauri over the network, not by
-    # legacy stdin/stdout IPC. Mark TCP mode BEFORE start() so the stdin
-    # listener (an unauthenticated command path) is not spawned.
-    if port is not None or ws_mode:
-        server._tcp_mode = True
-    server.start()
-    # ADR-0020 §2: --ws mode starts the WebSocket sidecar server instead
-    # of the TCP server. The WS server binds 127.0.0.1:0, prints the
-    # `server_started` JSON to stdout, and accepts authenticated WS
-    # connections from the Tauri Rust host. The TCP / standalone paths
-    # below are unchanged for the Electron fallback.
-    if ws_mode:
-        from voice_typer.server import sidecar_ws
-
-        log.info("[IPC] starting Tauri sidecar WebSocket server (sidecar_ws.run)")
-        # ADR-0020 round-2 fix: do NOT call server.push({"type": "ready"})
-        # here — in WS mode, server.push writes to the TCP _tcp_client
-        # which is None (no TCP server started). The `ready` event is
-        # emitted by sidecar_ws._handle_connection() via event_bus.publish
-        # AFTER the first WS client authenticates, so the Tauri host
-        # receives it over the WS connection.
-        # sidecar_ws.run() blocks until the asyncio loop is cancelled
-        # (SIGTERM from the host's kill_children backstop). Returns an
-        # exit code; we propagate it.
-        _ws_exit = sidecar_ws.run(server)
-        if _ws_exit != 0:
-            log.warning("[IPC] sidecar_ws.run exited with code %d", _ws_exit)
-        sys.exit(_ws_exit)
-    elif port is not None:
-        server.start_tcp(port)
-        log.info("[IPC] TCP mode on port %d — Electron should connect here", port)
-    else:
-        # P1-1.2: Standalone mode (no --port). The user ran VoiceTyper
-        # from a terminal.  Auto-pick an available port, start the TCP
-        # server, generate a session token, and launch the Electron
-        # frontend so it connects back to us over TCP instead of
-        # spawning its own Python backend.
-        from voice_typer.server import electron_launcher
-
-        standalone_port, standalone_sock = _pick_available_port(9876)
-
-        # Generate the session token and set it as an env var BEFORE
-        # starting the TCP listener.  The _accept_tcp daemon thread reads
-        # VOICE_TYPER_IPC_TOKEN at the top of its function; if we set it
-        # after start_tcp(), the thread can read the env var before we
-        # assign it, leaving expected_token empty and the connection
-        # unauthenticated.
-        ipc_token = electron_launcher.generate_session_token()
-        os.environ["VOICE_TYPER_IPC_TOKEN"] = ipc_token
-
-        # CR-7: pass the BOUND socket through to start_tcp so there's
-        # no race window between _pick_available_port's probe and the
-        # real bind() in _accept_tcp.  The kernel guarantees no other
-        # local process can claim the port between probe and listen.
-        server.start_tcp((standalone_port, standalone_sock))
-        log.info(
-            "[IPC] standalone TCP mode on port %d — Electron will connect here",
-            standalone_port,
-        )
-
-        # Launch Electron as a subprocess.  Pass the port + token via
-        # env vars so Electron's main process detects them and connects
-        # directly instead of spawning its own Python backend.
-        electron_pid = electron_launcher.launch_electron_frontend(
-            standalone_port,
-            ipc_token,
-        )
-        if electron_pid is not None:
-            # Track PID on the app instance so quit() can terminate
-            # the subprocess during shutdown (P1-1.3).
-            app._electron_pid = electron_pid
-            # Also register with tray_window so its existing cleanup
-            # path (which calls get_electron_pid()) still works.
-            try:
-                from voice_typer.server.tray_window import set_electron_pid
-
-                set_electron_pid(electron_pid)
-            except Exception:
-                log.debug("[IPC] could not register Electron PID with tray_window", exc_info=True)
-            log.info(
-                "[STARTUP] Standalone mode — launched Electron (PID=%s) on port %d",
-                electron_pid,
-                standalone_port,
-            )
-        else:
-            log.error(
-                "[STARTUP] Standalone mode — failed to launch Electron; backend is running on port %d with no UI",
-                standalone_port,
-            )
-
-    # Tell the frontend we're ready — Electron defers window creation until this.
-    server.push({"type": "ready"})
-    log.info("[IPC] entering app.start() (tray event loop)")
-    try:
-        app.start()  # blocks (tray event loop)
-        # QUIT-CLEAN-001: keep shutdown quiet.  Only ``[QUIT] Quitting
-        # Voice Typer...`` (from app.quit_app) and ``[SHUTDOWN]
-        # Shutdown complete, exiting`` (from app.quit) should be at
-        # INFO during a normal quit; everything else is internal
-        # bookkeeping that the user doesn't need to see.
-        log.debug("[IPC] Shutdown complete")
-    except SystemExit as _se:
-        # sys.exit() or os._exit() called from within pystray or runtime.
-        # Catch it so we can log the cause, then re-raise.
-        log.debug("[IPC] app.start() exited via sys.exit(%s)", _se.code)
-        raise
-    except Exception:
-        # ERR-ERR-002 (fix): was `except BaseException` which also caught
-        # KeyboardInterrupt and GeneratorExit. Now catches only Exception
-        # so Ctrl+C and SystemExit propagate normally to the finally block.
-        log.exception("[FATAL] app.start() raised — shutting down")
-        # Also write to the diagnostic file for users running under
-        # pythonw.exe where stdout/stderr are devnull.
-        try:
-            import io
-            import traceback
-
-            from voice_typer.server.config import _secure_atomic_write
-
-            buf = io.StringIO()
-            buf.write(f"\n--- app.start() failed at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-            traceback.print_exc(file=buf)
-            diag_path = _config_dir() / "startup-error.log"
-            # Read existing content if any, then write full content atomically
-            try:
-                existing = diag_path.read_text(encoding="utf-8")
-            except (OSError, FileNotFoundError):
-                existing = ""
-            _secure_atomic_write(diag_path, existing + buf.getvalue())
-            log.error("[FATAL] Diagnostic written to %s", diag_path)
-        except Exception:
-            pass
-        # NEW-CLI-003: use the standardized exit code instead of raw 1.
-        sys.exit(EXIT_CRASH)
-    else:
-        pass
-    finally:
-        pass
-    # Keep mutex alive by referencing it until exit
-    _ = _single_instance_mutex
-
-
-if __name__ == "__main__":
-    main()
+__all__ = ["IPCServer"]
