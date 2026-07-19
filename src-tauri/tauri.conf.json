@@ -78,6 +78,13 @@
         "postInstallScript": "../../scripts/linux/postinst.rpm",
         "preRemoveScript": "../../scripts/linux/prerm.rpm"
       }
+    },
+    "windows": {
+      "signCommand": "${WIN_SIGN_COMMAND}"
+    },
+    "macOS": {
+      "signingIdentity": "${MAC_SIGNING_IDENTITY}",
+      "entitlements": "entitlements.plist"
     }
   },
   "plugins": {

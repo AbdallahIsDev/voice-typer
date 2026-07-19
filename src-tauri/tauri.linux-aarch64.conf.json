@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": [
+      "resources/prewarm-aarch64-unknown-linux-gnu"
+    ]
+  }
+}

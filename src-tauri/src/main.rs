@@ -58,9 +58,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod migrate;
 mod platform;
 mod sidecar;
 mod state;
+mod tray;
 mod util;
 
 use std::sync::Arc;
@@ -167,6 +169,17 @@ fn main() {
                 "[SETUP] config_dir resolved to: {}",
                 config_dir(&app_handle).display()
             );
+            // ADR-0020 §8: one-time Electron userData → Tauri config_dir
+            // migration, BEFORE the sidecar spawns (so the sidecar boots
+            // against already-migrated data and never hits a write
+            // conflict / fresh-empty init). Idempotent + non-destructive.
+            migrate::migrate_electron_userdata(&app_handle);
+            // ADR-0020 §6.5: create the system tray (rendered from the
+            // Python sidecar's `tray_menu` events). Failure is
+            // non-fatal — the app still runs without a tray.
+            if let Err(e) = crate::tray::create_tray(app.handle()) {
+                log::error!("[TRAY] init failed: {}", e);
+            }
             // Spawn the sidecar + WS bridge in a background tokio task.
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();

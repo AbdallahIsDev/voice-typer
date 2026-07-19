@@ -12,7 +12,23 @@
       prewarm-aarch64-apple-darwin)
     - the .app bundle (codesign deep-sign invocation with entitlements flag)
 
-  These three entitlements are the minimum set required for notarization:
+  BUILD-N02: the previous plist shipped only 3 entitlements and silently
+  dropped two that are required for the universal .app to function on
+  macOS 14+ under the hardened runtime. Added:
+    - allow-unsigned-executable-memory — Nuitka onefile loaders allocate
+      RWX pages when unpacking the embedded payload; without this
+      entitlement macOS 14 kills the process with EXC_BAD_ACCESS at
+      startup, breaking the sidecar + prewarm binaries (which Nuitka
+      froze with --onefile).
+    - automation.apple-events — the volume_ducker + clipboard_snapshot
+      modules use AppleScript via NSAppleEventDescriptor to drive
+      System Events.app (volume ramp, foreground app detection). Without
+      this entitlement, every AppleScript invocation fails silently with
+      `errAEEventNotPermitted` (-1743) and the duck/clipboard features
+      degrade to no-ops.
+
+  The pre-existing three entitlements remain (see ADR-0020 §13.2 for
+  justification):
     - allow-jit                      CTranslate2 may use JIT.
     - disable-library-validation     Nuitka onefile extracts unsigned dylibs at runtime.
     - device.audio-input             Mic access (sounddevice).
@@ -21,9 +37,13 @@
 <dict>
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
     <key>com.apple.security.cs.disable-library-validation</key>
     <true/>
     <key>com.apple.security.device.audio-input</key>
+    <true/>
+    <key>com.apple.security.automation.apple-events</key>
     <true/>
 </dict>
 </plist>

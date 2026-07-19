@@ -1,0 +1,8 @@
+{
+  "bundle": {
+    "resources": [
+      "resources/prewarm-x86_64-unknown-linux-gnu",
+      "resources/native/linux-key-listener"
+    ]
+  }
+}

@@ -17,6 +17,25 @@
 /// byte-for-byte, we resolve from env vars directly, matching the
 /// Python side's `_paths.config_dir()` resolution.
 ///
+/// # NF-R19-4: the `app` parameter is kept for future migration
+///
+/// Today the `app: &tauri::AppHandle` parameter is unused (env-var
+/// resolution matches Python `_paths.py`, see below). It is kept in
+/// the signature rather than dropped because:
+/// (1) the function is called from `main.rs` + `platform/logging.rs`
+///     where the `AppHandle` is already in scope — passing it in keeps
+///     the call sites forward-compatible with a future migration to
+///     `app.path().app_config_dir()` (e.g. if we ever align the
+///     Python side's dir name to `com.voicetyper.app`).
+/// (2) dropping the param would require editing `main.rs` and
+///     `platform/logging.rs`, which are NOT in this fix's file
+///     ownership set — that edit is sequenced as a follow-up by the
+///     primary agent after this fix lands. Keeping the param avoids a
+///     broken compile in the interim.
+/// `#[allow(unused_variables)]` is NOT acceptable per the project's
+/// lint rules, so the `let _ = app;` discards the value explicitly
+/// with this rationale attached.
+///
 /// # No Electron userData merge under Tauri
 ///
 /// ADR-0020 §8 mentions an optional one-time migration from the old
@@ -39,7 +58,7 @@
 /// the same Win32 mutex approach under the hood (different name based
 /// on the app identifier) so the two gates don't collide.
 pub(crate) fn config_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
-    let _ = app; // not used — env-var resolution matches Python `_paths.py`
+    let _ = app; // NF-R19-4: see doc comment above — kept for future migration.
     config_dir_from_env(
         std::env::var("HOME").ok().as_deref(),
         std::env::var("APPDATA").ok().as_deref(),
@@ -48,6 +67,23 @@ pub(crate) fn config_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
 }
 
 /// Pure form of `config_dir` for unit testing (no env-var reads).
+///
+/// # NF-R9-8: graceful fallback when env vars are missing
+///
+/// The previous implementation `panic!()`ed if `APPDATA` (Windows) /
+/// `HOME` (macOS, Linux) was unset. That crashes the host on:
+/// - Windows service accounts (no `%APPDATA%` profile).
+/// - Linux systemd units without `HOME=` in the unit file (rare but
+///   legitimate — the Tauri host could be launched by a user-unit
+///   without `Environment=HOME=...`).
+/// - Headless CI runners (mostly affects tests, but real failure).
+///
+/// The graceful fallback returns `<cwd>/voice-typer` (i.e. `./voice-typer`
+/// relative to the process's CWD) and logs a warning via `eprintln!`
+/// (logging may not be initialized yet at the time `config_dir` is first
+/// called — see `platform/logging.rs::init_logging`). The caller is
+/// expected to handle the resulting I/O errors (e.g. log file open
+/// fails) at the call site; this function never panics.
 pub(crate) fn config_dir_from_env(
     home: Option<&str>,
     appdata: Option<&str>,
@@ -58,8 +94,21 @@ pub(crate) fn config_dir_from_env(
     {
         let _ = home;
         let _ = xdg_data_home;
+        // NF-R9-8: graceful fallback when APPDATA is missing (Windows
+        // service accounts, headless CI). Previously panicked — now
+        // returns `./voice-typer` relative to CWD and logs a warning.
+        // The Tauri host's log file open at this path will fail loudly
+        // if CWD is read-only, which is the correct behavior (better
+        // than crashing during config-dir resolution).
         let base = appdata.unwrap_or_else(|| {
-            panic!("APPDATA env var must be set on Windows (config dir resolution)")
+            eprintln!(
+                "[paths] APPDATA env var is not set — falling back to \
+                 CWD-relative config dir (./{}). This is expected for \
+                 Windows service accounts / headless CI but indicates \
+                 a missing user profile in normal desktop sessions.",
+                APP_NAME
+            );
+            "."
         });
         std::path::PathBuf::from(base).join(APP_NAME)
     }
@@ -67,8 +116,18 @@ pub(crate) fn config_dir_from_env(
     {
         let _ = appdata;
         let _ = xdg_data_home;
+        // NF-R9-8: graceful fallback when HOME is missing (rare on
+        // macOS — `launchd` always sets HOME for user sessions, but
+        // a system LaunchDaemon runs without it). Falls back to CWD.
         let home = home.unwrap_or_else(|| {
-            panic!("HOME env var must be set on macOS (config dir resolution)")
+            eprintln!(
+                "[paths] HOME env var is not set — falling back to \
+                 CWD-relative config dir (./{}). This is expected for \
+                 system LaunchDaemons but indicates a missing user \
+                 profile in normal desktop sessions.",
+                APP_NAME
+            );
+            "."
         });
         std::path::PathBuf::from(home)
             .join("Library")
@@ -83,8 +142,23 @@ pub(crate) fn config_dir_from_env(
                 return std::path::PathBuf::from(xdg).join(APP_NAME);
             }
         }
+        // NF-R9-8: graceful fallback when HOME is missing on Linux
+        // (systemd user units without `Environment=HOME=...`, or a
+        // bare cron-spawned process). Falls back to CWD with a warning
+        // — the XDG spec mandates HOME as a fallback when
+        // XDG_DATA_HOME is unset, so the missing-HOME case is
+        // technically undefined behavior per the spec; we choose a
+        // CWD-relative path rather than panicking.
         let home = home.unwrap_or_else(|| {
-            panic!("HOME env var must be set on Linux (config dir resolution)")
+            eprintln!(
+                "[paths] HOME env var is not set — falling back to \
+                 CWD-relative config dir (./{}). This is expected for \
+                 systemd user units without `Environment=HOME=...` \
+                 but indicates a missing user profile in normal \
+                 desktop sessions.",
+                APP_NAME
+            );
+            "."
         });
         std::path::PathBuf::from(home)
             .join(".local")
@@ -149,6 +223,68 @@ mod tests {
         assert_eq!(
             p,
             std::path::PathBuf::from(r"C:\Users\user\AppData\Roaming\voice-typer")
+        );
+    }
+
+    // ── NF-R9-8: graceful fallback when env vars are missing ──────────
+    //
+    // The previous implementation panicked if APPDATA (Windows) or HOME
+    // (macOS, Linux) was unset. These tests pin the new graceful-
+    // fallback behavior: when the env var is missing, the function
+    // returns `./voice-typer` (CWD-relative) instead of panicking, so
+    // the Tauri host can boot under Windows service accounts / Linux
+    // systemd user units / headless CI runners.
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_config_dir_linux_missing_home_falls_back_to_cwd() {
+        // NF-R9-8: when HOME is missing AND XDG_DATA_HOME is unset,
+        // the function must NOT panic — it returns `./voice-typer`.
+        let p = config_dir_from_env(None, None, None);
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("./voice-typer"),
+            "missing HOME on Linux should fall back to CWD-relative voice-typer dir (NF-R9-8)"
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_config_dir_linux_missing_home_with_empty_xdg_falls_back_to_cwd() {
+        // Empty XDG_DATA_HOME is treated as unset (per XDG spec), so
+        // the missing-HOME fallback path applies.
+        let p = config_dir_from_env(None, None, Some(""));
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("./voice-typer"),
+            "missing HOME + empty XDG_DATA_HOME on Linux should fall back to CWD (NF-R9-8)"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_config_dir_macos_missing_home_falls_back_to_cwd() {
+        // NF-R9-8: when HOME is missing on macOS (system LaunchDaemon),
+        // the function must NOT panic — it returns `./Library/Application
+        // Support/voice-typer` (CWD-relative).
+        let p = config_dir_from_env(None, None, None);
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("./Library/Application Support/voice-typer"),
+            "missing HOME on macOS should fall back to CWD-relative path (NF-R9-8)"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn test_config_dir_windows_missing_appdata_falls_back_to_cwd() {
+        // NF-R9-8: when APPDATA is missing on Windows (service account),
+        // the function must NOT panic — it returns `./voice-typer`.
+        let p = config_dir_from_env(None, None, None);
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("./voice-typer"),
+            "missing APPDATA on Windows should fall back to CWD-relative voice-typer dir (NF-R9-8)"
         );
     }
 }

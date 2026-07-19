@@ -337,10 +337,13 @@ pub async fn shutdown_sidecar(
     // async mutex across the sync mutex lock + async kill await).
     drop(rx_guard);
     // Force-kill backstop — no-op if the child has already exited, but
-    // guarantees we never leak a zombie.
+    // guarantees we never leak a zombie. ADR-0020 §10: use `kill_tree`
+    // (recursive "kill_children") so the sidecar's grandchildren (native
+    // hotkey binary, model subprocesses) are reaped too, not just the
+    // direct child.
     let child_opt = state.child.lock().unwrap().take();
     if let Some(child) = child_opt {
-        let _ = child.kill().await;
+        let _ = child.kill_tree().await;
     }
     log::info!("[SHUTDOWN] sidecar kill completed (graceful={})", graceful);
     let _ = app;

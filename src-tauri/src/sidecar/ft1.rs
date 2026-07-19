@@ -40,25 +40,17 @@ pub(crate) async fn ft1_respawn_inner(
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
     for (attempt, delay_ms) in FT1_BACKOFF_MS.iter().enumerate() {
-        if attempt as u32 >= FT1_MAX_RETRIES {
-            log::error!(
-                "[FT-1] exhausted {} retries — falling back to full-app relaunch",
-                FT1_MAX_RETRIES
-            );
-            // ADR-0020 §10: full-app relaunch. Emit a Tauri event so
-            // the UI can show a "restarting…" banner, then call
-            // app.restart() which exits the current process and
-            // relaunches a fresh one.
-            let _ = app.emit("ft1_relaunching", json!({"reason": "exhausted_retries"}));
-            // Small delay so the UI event can render before restart.
-            tokio::time::sleep(Duration::from_millis(PRE_RESTART_DELAY_MS)).await;
-            // ADR-0020 §10: `app.restart()` is defined on the core
-            // `tauri::AppHandle` directly (tauri-2.11.5/src/app.rs:588).
-            // It exits with RESTART_EXIT_CODE so the Tauri launcher
-            // spawns a fresh instance before the old one fully exits.
-            // Returns `!` (never type) so following code is unreachable.
-            app.restart();
-        }
+        // NF-R19-2: there used to be an in-loop `if attempt as u32 >=
+        // FT1_MAX_RETRIES { app.restart(); }` guard here, but it was
+        // dead code — `FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES == 5`
+        // (see `util.rs:14-15` + the const-assert at `util.rs:197-199`),
+        // so `attempt` ranges `0..=4` and the condition
+        // `attempt >= FT1_MAX_RETRIES` (i.e. `attempt >= 5`) was always
+        // false. The real exhaustion path is the post-loop
+        // `app.restart()` at the bottom of this function — see the
+        // "backoff schedule exhausted" block below. Keeping the in-loop
+        // guard would just be misleading (it looks load-bearing but
+        // isn't).
         if state.shutting_down.load(Ordering::SeqCst) {
             log::info!("[FT-1] shutting down — skipping respawn");
             return Ok(());
@@ -109,6 +101,14 @@ pub(crate) async fn ft1_respawn_inner(
     }
     // Loop exited without returning — this happens if FT1_BACKOFF_MS
     // is shorter than FT1_MAX_RETRIES. Treat as exhaustion.
+    //
+    // NF-R19-2: THIS is the actual exhaustion path — the post-loop
+    // `app.restart()` at line 106 below. (The in-loop guard that used
+    // to live above was dead code — see the comment in the loop body.)
+    // ADR-0020 §10: full-app relaunch. Emit a Tauri event so the UI
+    // can show a "restarting…" banner, then call `app.restart()` which
+    // exits the current process and relaunches a fresh one. Returns
+    // `!` (never type) so the implicit `Ok(())` return is unreachable.
     log::error!("[FT-1] backoff schedule exhausted — full-app relaunch");
     let _ = app.emit("ft1_relaunching", json!({"reason": "backoff_exhausted"}));
     tokio::time::sleep(Duration::from_millis(PRE_RESTART_DELAY_MS)).await;

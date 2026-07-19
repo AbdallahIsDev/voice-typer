@@ -199,6 +199,14 @@ pub(crate) async fn reconnect_ws(
             // poison the tokio::spawn Send requirement. The FT-1
             // supervisor itself uses tokio::spawn internally for the
             // respawn attempts, so this is just a bridge.
+            //
+            // NF-R19-1 (reverted): a direct `tokio::spawn(async move {
+            // ft1_respawn(...).await })` was tried here and FAILED to
+            // compile — `ft1_respawn` awaits `reconnect_ws`, whose
+            // future is `!Send` (the tokio-tungstenite connect path
+            // holds a `!Send` across an await), and `tokio::spawn`
+            // requires `Send` futures. The thread + block_on bridge is
+            // the correct shape for driving this `!Send` future.
             let app_clone = app_for_reader.clone();
             let state_clone = state_for_reader.clone();
             std::thread::spawn(move || {

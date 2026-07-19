@@ -22,7 +22,19 @@ tauri-build = { version = "2", features = [] }
 # Tauri v2 core — tray support is built into the core crate in v2
 # (NOT a separate tauri-plugin-tray crate). The "tray-icon" feature
 # enables the tray API.
-tauri = { version = "2", features = ["devtools"] }
+#
+# MED-RR / RUST-9: the ``devtools`` feature is intentionally NOT in
+# the default feature set.  It's gated behind the optional ``dev``
+# feature below so release builds don't expose the WebView devtools
+# API to end users.  Devs who need devtools run
+# ``cargo tauri build --features dev`` or
+# ``cargo tauri dev --features dev``.
+#
+# ADR-0020 §6.5 + Task 1: the system-tray icon lives in Tauri v2 CORE
+# behind the ``tray-icon`` feature (NOT a separate tauri-plugin-tray
+# crate). ``TrayIconBuilder`` / ``tauri::menu`` are only available when
+# this feature is enabled.
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -83,3 +95,11 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# MED-RR / RUST-9: optional dev feature that enables the Tauri devtools
+# API.  NOT enabled by default — release builds must not expose devtools
+# to end users.  Devs run ``cargo tauri dev --features dev`` to get
+# devtools during development.
+[features]
+default = []
+dev = ["tauri/devtools"]

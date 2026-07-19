@@ -32,6 +32,17 @@ pub(crate) enum SidecarHandle {
 }
 
 impl SidecarHandle {
+    /// Return the OS process id of the sidecar, if available. Used by
+    /// `kill_tree` (ADR-0020 §10 — recursive "kill_children" backstop)
+    /// to also reap grandchildren (native hotkey binary, model processes)
+    /// that the Python sidecar does not reap on its own exit.
+    fn pid(&self) -> Option<u32> {
+        match self {
+            SidecarHandle::ShellPlugin(c) => Some(c.pid()),
+            SidecarHandle::DevMode(c) => c.id(),
+        }
+    }
+
     /// Kill the sidecar process. Consumes `self` because
     /// `CommandChild::kill(self)` takes ownership (the shell-plugin
     /// child handle is single-use after kill). The dev-mode variant
@@ -44,6 +55,52 @@ impl SidecarHandle {
             }
             SidecarHandle::DevMode(mut c) => c.kill().await,
         }
+    }
+
+    /// ADR-0020 §10: `kill_children` backstop. Kills the entire sidecar
+    /// process TREE (the sidecar plus any grandchildren it spawned, e.g.
+    /// the native hotkey binary and model subprocesses) rather than only
+    /// the direct child. This is the hard-kill fallback used when the
+    /// cooperative `{"type":"shutdown"}` handshake does not complete
+    /// within `SHUTDOWN_ACK_TIMEOUT_MS`. A plain `kill()` would orphan
+    /// the grandchildren and leave them holding the mic / input device.
+    ///
+    /// Best-effort and OS-native: shells out to the platform tool
+    /// (`taskkill /T` on Windows, `pkill -P` walk on Unix). Failures are
+    /// logged but do not abort shutdown — the direct child is still
+    /// reaped afterwards.
+    pub(crate) async fn kill_tree(self) -> std::io::Result<()> {
+        if let Some(pid) = self.pid() {
+            kill_process_tree(pid);
+        }
+        self.kill().await
+    }
+}
+
+/// Kill the process tree rooted at `pid` (the sidecar and its
+/// descendants). Platform-native, best-effort — never panics.
+fn kill_process_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        use std::process::Command;
+        // /F = force, /T = terminate the whole tree rooted at the pid.
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+    #[cfg(unix)]
+    {
+        use std::process::Command;
+        // Best-effort: signal direct children, then let the OS reap them.
+        // `pkill -P <pid>` matches children of `pid`; `-TERM` asks nicely
+        // first (the graceful path usually already released resources).
+        let _ = Command::new("pkill")
+            .args(["-TERM", "-P", &pid.to_string()])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
     }
 }
 
