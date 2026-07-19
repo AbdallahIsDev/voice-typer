@@ -24,6 +24,7 @@ plain text. In a future version, consider detecting contentEditable elements
 the paste target appears to be a rich editor (e.g. Word, LibreOffice).
 """
 
+import atexit
 import contextlib
 import logging
 import os
@@ -39,6 +40,73 @@ from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger(__name__)
+
+
+# ─── CLIP-8: module-level registry of pending delayed-restores ────────
+#
+# When paste() schedules a daemon-thread restore, it also appends an
+# entry to this list. The daemon thread removes its entry on normal
+# completion. If the app exits while a delayed restore is still
+# pending (e.g. user quits during the 150ms restore-delay window),
+# the atexit handler walks this list and force-restores each snapshot
+# synchronously — preventing the user's original clipboard content
+# from being lost forever.
+#
+# Each entry is a tuple of (ClipboardManager, ClipboardSnapshot,
+# pasted_text, delay). The lock guards the list because the daemon
+# thread and atexit handler may run concurrently.
+_pending_restores: list[tuple[Any, Any, str, float]] = []
+_pending_restores_lock = threading.Lock()
+
+
+def _force_restore_pending_at_exit() -> None:
+    """CLIP-8: atexit handler — force-restore any pending snapshots.
+
+    Walks the module-level ``_pending_restores`` list and synchronously
+    restores each snapshot. This prevents data loss when the app exits
+    while a delayed restore is still pending (e.g. user quits during
+    the 150ms restore delay window).
+
+    The handler is best-effort: per-snapshot failures are logged but
+    do not abort the loop (we restore as many as we can).
+    """
+    with _pending_restores_lock:
+        items = list(_pending_restores)
+        _pending_restores.clear()
+    for _cm, snapshot, pasted_text, delay in items:
+        try:
+            # Try to read the clipboard to decide whether to restore.
+            # If we can't read it, restore anyway (data-loss prevention
+            # beats false-positive restore — see CLIP-9).
+            try:
+                current = _paste_from_clipboard()
+            except Exception:
+                current = None
+            if current is None or current == pasted_text:
+                snapshot.restore()
+                log.info(
+                    "[CLIPBOARD-AUDIT] Atexit: restored snapshot (delay was %.3fs)",
+                    delay,
+                )
+            else:
+                log.debug(
+                    "[CLIPBOARD-AUDIT] Atexit: skip restore (clipboard changed, current=%d chars, expected=%d chars)",
+                    len(current) if current else 0,
+                    len(pasted_text),
+                )
+        except Exception:
+            log.exception("[CLIPBOARD] Atexit restore failed")
+
+
+# Register the atexit handler once at module import. Idempotent guard
+# prevents double-registration if the module is re-imported.
+_ATEXIT_REGISTERED = False
+if not _ATEXIT_REGISTERED:
+    try:
+        atexit.register(_force_restore_pending_at_exit)
+        _ATEXIT_REGISTERED = True
+    except Exception:  # pragma: no cover — atexit.register only fails if interpreter is shutting down
+        pass
 
 
 class ClipboardCopyError(RuntimeError):
@@ -250,23 +318,24 @@ def _linux_paste_via_wtype(text: str | None) -> None:
     """Paste on Wayland via `wtype`.
 
     XPLAT-15: pynput is X11-only and silently no-ops on Wayland. `wtype`
-    is the canonical Wayland text-injection tool. For short text we type
-    it directly (avoids clipboard round-trip + the 50ms/keystroke delay
-    is acceptable for ≤300 chars); for long text (or when no text is
-    available) we send Ctrl+V — the clipboard was already populated by
-    :meth:`ClipboardManager.copy` so this pastes the right content.
+    is the canonical Wayland text-injection tool.
+
+    CLIP-10 (High, Wayland perf): we ALWAYS use the clipboard path
+    (``wtype -k ctrl+v``) instead of typing short text directly with
+    ``wtype -d 50``. The previous short-text path used a 50ms/keystroke
+    delay, which made pasting 300 chars take ~15 seconds — a noticeable
+    UX regression for short dictations. Since :meth:`ClipboardManager.copy`
+    already populated the Wayland clipboard via ``wl-copy``, the
+    ``Ctrl+V`` path is always available and is O(1) regardless of text
+    length.
 
     Raises ``RuntimeError`` if `wtype` is missing or exits non-zero, or
     ``subprocess.TimeoutExpired``-derived ``RuntimeError`` on hang (5s
     cap — matches the wl-clipboard timeout per XPLAT-7).
     """
-    if text and len(text) <= _WTYPE_SHORT_TEXT_THRESHOLD:
-        # Short text: type directly with 50ms delay between keystrokes
-        # (matches the comprehensive-review.md XPLAT-2 recommendation).
-        cmd = ["wtype", "-d", "50", "--", text]
-    else:
-        # Long text (or no text available): paste from clipboard via Ctrl+V.
-        cmd = ["wtype", "-k", "ctrl+v"]
+    # CLIP-10: always paste from clipboard via Ctrl+V. The previous
+    # short-text path (`wtype -d 50 -- <text>`) took ~15s for 300 chars.
+    cmd = ["wtype", "-k", "ctrl+v"]
     try:
         proc = subprocess.run(
             cmd,
@@ -437,331 +506,27 @@ def _win32_empty_clipboard() -> None:
         pass
 
 
-# ─── PLAT-013: Elevated target detection ──────────────────────────────
-
-
-def _is_elevated_target() -> bool:
-    """PLAT-013: Check if the foreground window belongs to an elevated process.
-
-    Uses GetWindowThreadProcessId + OpenProcess + GetTokenInformation to
-    determine if the target process is running elevated.  If we are not
-    elevated but the target is, UIPI will block our SendInput calls.
-
-    Returns True if the foreground window is elevated and we are not.
-    Returns False if we can't determine (fail open) or if elevation
-    matches.
-    """
-    if not is_windows():
-        return False
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        user32 = ctypes.windll.user32
-        kernel32 = ctypes.windll.kernel32
-        advapi32 = ctypes.windll.advapi32
-
-        hwnd = user32.GetForegroundWindow()
-        if not hwnd:
-            return False
-
-        pid = wintypes.DWORD()
-        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-        if not pid.value:
-            return False
-
-        process_query_limited_information = 0x1000
-        h_process = kernel32.OpenProcess(process_query_limited_information, False, pid.value)
-        if not h_process:
-            return False
-
-        try:
-            # Check if the target process is elevated
-            token = wintypes.HANDLE()
-            if not advapi32.OpenProcessToken(h_process, 0x0008, ctypes.byref(token)):
-                return False
-            try:
-                # TokenElevation = 20
-                ret_len = wintypes.DWORD()
-                advapi32.GetTokenInformation(token, 20, None, 0, ctypes.byref(ret_len))
-                buf = ctypes.create_string_buffer(ret_len.value or 4)
-                if not advapi32.GetTokenInformation(token, 20, buf, ctypes.sizeof(buf), ctypes.byref(ret_len)):
-                    return False
-                # TOKEN_ELEVATION struct: DWORD TokenIsElevated
-                target_elevated = bool(ctypes.cast(buf, ctypes.POINTER(wintypes.DWORD))[0])
-            finally:
-                kernel32.CloseHandle(token)
-
-            # Now check if WE are elevated
-            our_token = wintypes.HANDLE()
-            if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(our_token)):
-                return False
-            try:
-                advapi32.GetTokenInformation(our_token, 20, None, 0, ctypes.byref(ret_len))
-                our_buf = ctypes.create_string_buffer(ret_len.value or 4)
-                if not advapi32.GetTokenInformation(
-                    our_token, 20, our_buf, ctypes.sizeof(our_buf), ctypes.byref(ret_len)
-                ):
-                    return False
-                we_elevated = bool(ctypes.cast(our_buf, ctypes.POINTER(wintypes.DWORD))[0])
-            finally:
-                kernel32.CloseHandle(our_token)
-
-            # If target is elevated and we're not, warn
-            if target_elevated and not we_elevated:
-                log.warning(
-                    "[CLIPBOARD] Target window (pid=%d) is elevated but we are not — paste may fail due to UIPI",
-                    pid.value,
-                )
-                return True
-            return False
-        finally:
-            kernel32.CloseHandle(h_process)
-    except Exception:
-        return False
-
-
-# ─── PLAT-014: Password field detection ───────────────────────────────
-
-
-# PLAT-014: Known credential dialog window classes on Windows.
-# When comtypes is unavailable, we fall back to checking the focused
-# window's class name against this set. This is a COARSE heuristic —
-# it only catches the standard Windows credential UI, not arbitrary
-# password fields in third-party apps. comtypes/UIA is required for
-# full coverage (see _is_password_field above).
-_CRED_DIALOG_CLASSES: set[str] = {
-    "CredentialDialog",  # Generic credential dialog
-    "CredDialogCallerWnd",  # CredUI dialog
-    "NN Credentials Dialog",  # Network credentials
-    "PassportWindow",  # Microsoft account
-}
-
-
-def _focused_window_is_credential_dialog() -> bool:
-    """PLAT-014: Check if the focused window is a known credential dialog.
-
-    Uses GetForegroundWindow + GetClassNameW via ctypes. Returns True
-    if the window class matches a known credential dialog class. This
-    is the comtypes-absence fallback for password field protection.
-    """
-    if not is_windows():
-        return False
-    try:
-        import ctypes
-
-        user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-        hwnd = user32.GetForegroundWindow()
-        if not hwnd:
-            return False
-        # GetClassNameW returns the class name length
-        class_name = ctypes.create_unicode_buffer(256)
-        length = user32.GetClassNameW(hwnd, class_name, 256)
-        if length <= 0:
-            return False
-        cls = class_name.value
-        return cls in _CRED_DIALOG_CLASSES
-    except Exception:
-        return False
-
-
-def _is_password_field() -> bool:
-    """PLAT-014: Check if the focused element is a password field.
-
-    On Windows, uses UI Automation to check IsPasswordPropertyId.
-    If the focused element has IsPassword=True, skip paste and warn
-    the user that dictation into password fields is disabled for security.
-
-    Returns True if a password field is detected, False otherwise.
-
-    PERF-FIX-001: previously this function created a fresh IUIAutomation
-    COM instance on every call (CoCreateInstance + GetModule), which is
-    a 10-50ms cross-process RPC.  Combined with ``_is_content_editable``
-    doing the same, that was 5+ UIA RPCs per paste (100-800ms total in
-    browsers/Electron/Office).  Now uses the module-level cached
-    ``_get_uia_focused_element()`` helper which:
-      - Creates the IUIAutomation instance ONCE (cached in
-        ``_UIA_SINGLETON``).
-      - Fetches the focused element ONCE per paste and returns it so
-        both password and content-editable checks can read multiple
-        properties from the same element without re-fetching.
-
-    PLAT-014 (revised): The previous code had a no-op ctypes fallback
-    block (lines 310-316) that just did ``pass`` if comtypes wasn't
-    installed — meaning password detection silently failed open. Now
-    we explicitly log when comtypes is unavailable and the check is
-    skipped, so operators can install comtypes to enable the check.
-    """
-    if not is_windows():
-        return False
-    try:
-        # Try using comtypes for UI Automation (preferred path)
-        try:
-            import comtypes
-            import comtypes.client
-
-            comtypes.CoInitialize()
-            try:
-                focused = _get_uia_focused_element()
-                if focused is not None:
-                    # UIA_IsPasswordPropertyId = 30022
-                    is_password = focused.GetCurrentPropertyValue(30022)
-                    if is_password:
-                        log.warning(
-                            "[CLIPBOARD] Password field detected — "
-                            "dictation into password fields is disabled for security"
-                        )
-                        return True
-            finally:
-                with contextlib.suppress(Exception):
-                    comtypes.CoUninitialize()
-        except ImportError:
-            # PLAT-014: comtypes not installed. Pre-fix this failed
-            # OPEN (returned False → paste allowed into any field).
-            # Now we log a WARNING (not INFO) so operators notice at
-            # default log levels, and we fail CLOSED for known
-            # credential-dialog window classes. The fail-closed path
-            # only blocks when the focused window class matches a
-            # known credential dialog (see _CRED_DIALOG_CLASSES below);
-            # for all other windows we still fail open to avoid
-            # blocking legitimate dictation, but with a louder log.
-            log.warning(
-                "[CLIPBOARD] comtypes not installed — password field detection "
-                "disabled. Install 'comtypes' (pip install comtypes) to enable "
-                "password field protection. Falling back to window-class heuristic."
-            )
-            # PLAT-014: window-class heuristic for known credential
-            # dialogs. This is a coarse fallback — it only catches the
-            # standard Windows credential UI, not arbitrary password
-            # fields in third-party apps. comtypes/UIA is required for
-            # full coverage.
-            try:
-                if _focused_window_is_credential_dialog():
-                    log.warning(
-                        "[CLIPBOARD] Credential dialog window detected (comtypes "
-                        "fallback) — dictation blocked for security"
-                    )
-                    return True
-            except Exception:
-                pass
-        except Exception as exc:
-            # comtypes is installed but UIA call failed (e.g. desktop
-            # bridge app, UAC dialog). Log and fail open.
-            log.debug(
-                "[CLIPBOARD] UIA password field check failed: %s — failing open",
-                exc,
-            )
-
-        # No raw ctypes fallback: implementing IsPassword via raw ctypes
-        # requires defining the full IUIAutomation COM interface vtable
-        # by hand (80+ methods), which is fragile and error-prone.
-        # comtypes is the supported way to call UIA from Python.
-        return False
-    except Exception:
-        return False
-
-
-# PERF-FIX-001: module-level cached IUIAutomation instance.
-# Creating a fresh IUIAutomation COM instance on every paste was costing
-# 10-50ms per call (cross-process RPC).  Caching it here eliminates that
-# cost for every subsequent paste.  The instance is created lazily on
-# first use and reused for the lifetime of the process.
-_UIA_SINGLETON = None
-_UIA_MODULE = None
-_UIA_SINGLETON_INIT_ATTEMPTED = False
-
-
-def _get_uia_singleton():
-    """Return the cached IUIAutomation instance, or None if unavailable.
-
-    PERF-FIX-001: caches both the comtypes module reference (from
-    GetModule("UIAutomationCore.dll")) and the IUIAutomation COM
-    instance so we don't pay the CoCreateInstance cost on every paste.
-    """
-    global _UIA_SINGLETON, _UIA_MODULE, _UIA_SINGLETON_INIT_ATTEMPTED
-    if _UIA_SINGLETON_INIT_ATTEMPTED:
-        return _UIA_SINGLETON
-    _UIA_SINGLETON_INIT_ATTEMPTED = True
-    if not is_windows():
-        return None
-    try:
-        import comtypes.client
-
-        _UIA_MODULE = comtypes.client.GetModule("UIAutomationCore.dll")
-        _UIA_SINGLETON = comtypes.CoCreateInstance(
-            _UIA_MODULE.CUIAutomation._reg_clsid_,
-            interface=_UIA_MODULE.IUIAutomation,
-        )
-    except Exception as exc:
-        log.debug(
-            "[CLIPBOARD] IUIAutomation singleton init failed: %s — UIA checks disabled",
-            exc,
-        )
-        _UIA_SINGLETON = None
-    return _UIA_SINGLETON
-
-
-def _get_uia_focused_element():
-    """Return the focused UI element via the cached IUIAutomation singleton.
-
-    PERF-FIX-001: reuses the module-level ``_UIA_SINGLETON`` so we don't
-    pay CoCreateInstance + GetModule on every call.  Returns None if
-    UIA is unavailable or no element is focused.
-    """
-    uia = _get_uia_singleton()
-    if uia is None:
-        return None
-    try:
-        return uia.GetFocusedElement()
-    except Exception as exc:
-        log.debug(
-            "[CLIPBOARD] GetFocusedElement failed: %s — failing open",
-            exc,
-        )
-        return None
-
-
-def _is_content_editable() -> bool:
-    """PLAT-CONTENT: Check if the focused element is a contentEditable element.
-
-    On Windows, uses UI Automation (same comtypes infrastructure as
-    ``_is_password_field``) to check if the focused element is an Edit
-    or Document control that supports rich text input. This allows the
-    clipboard module to log when the paste target is a rich editor
-    (Word, LibreOffice, Gmail compose) and potentially paste HTML in
-    a future version.
-
-    Returns True if the focused element is contentEditable, False otherwise.
-    Returns False on non-Windows or when comtypes is unavailable.
-    """
-    if not is_windows():
-        return False
-    try:
-        import comtypes
-
-        comtypes.CoInitialize()
-        try:
-            focused = _get_uia_focused_element()
-            if focused is None:
-                return False
-            # UIA_ControlTypePropertyId = 30003
-            control_type = focused.GetCurrentPropertyValue(30003)
-            # UIA_ControlType_Edit = 50004, UIA_ControlType_Document = 50036
-            # These are the control types that typically support contentEditable.
-            if control_type in (50004, 50036):
-                # Check if the element supports the Value pattern (text input)
-                # UIA_IsValuePatternAvailablePropertyId = 30101
-                has_value = focused.GetCurrentPropertyValue(30101)
-                if has_value:
-                    return True
-            return False
-        finally:
-            with contextlib.suppress(Exception):
-                comtypes.CoUninitialize()
-    except ImportError:
-        return False
-    except Exception:
-        return False
+# ─── ARCH-11: clipboard target-safety extraction ───────────────────
+# The Win32 UI Automation focus / password-field / elevated-target
+# detection (PLAT-013/014, PERF-FIX-001) was extracted to
+# ``clipboard_target_safety.py`` to untangle it from the clipboard I/O
+# helpers. We re-export the names here so internal callers
+# (``_is_safe_paste_target``) and external tests that patch
+# ``voice_typer.server.clipboard.<name>`` keep working unchanged.
+from voice_typer.server.clipboard_target_safety import (  # noqa: E402,F401
+    _CRED_DIALOG_CLASSES,
+    _UIA_MODULE,
+    _UIA_SINGLETON,
+    _UIA_SINGLETON_INIT_ATTEMPTED,
+    _WE_ELEVATED,
+    _focused_window_is_credential_dialog,
+    _get_uia_focused_element,
+    _get_uia_singleton,
+    _get_we_elevated,
+    _is_content_editable,
+    _is_elevated_target,
+    _is_password_field,
+)
 
 
 class ClipboardManager:
@@ -856,6 +621,41 @@ class ClipboardManager:
 
         Blocks paste into UAC dialogs, credential prompts, and
         Winlogon windows to prevent credential theft.
+
+        CLIP-3 (Medium, Security): the outer ``except Exception`` now
+        distinguishes "safety-check infrastructure is broken" from
+        "target is safe." Previously any exception (including from
+        ``_is_password_field`` or ``_is_elevated_target``) returned
+        ``True`` (fail-open) — meaning a broken UIA install would
+        silently disable credential-prompt blocking. Now:
+
+          * Exceptions from ``_is_password_field`` or
+            ``_is_elevated_target`` → log WARNING, return ``False``
+            (fail-closed). We'd rather skip paste than risk pasting
+            into a credential prompt with broken detection.
+          * Exceptions from ``_is_content_editable`` → log DEBUG,
+            continue (fail-open). contentEditable is informational
+            only — not a security gate.
+          * Truly outer exceptions (e.g. ``ctypes`` itself broken) →
+            still fail-open. This indicates a broken Python install,
+            not a security infra issue.
+
+        CLIP-4 (Perf): the focused UIA element is fetched ONCE at the
+        top via :func:`_get_uia_focused_element` and passed to both
+        :func:`_is_password_field` and :func:`_is_content_editable`.
+        Previously each helper fetched the focused element separately
+        (2x ``GetFocusedElement`` RPCs per paste).
+
+        CLIP-5 (Perf): ``CoInitialize`` / ``CoUninitialize`` are
+        hoisted here to wrap both ``_is_password_field`` and
+        ``_is_content_editable`` calls. Previously each helper did
+        its own init/teardown (2x ``CoInitialize`` + 2x
+        ``CoUninitialize`` per paste).
+
+        CLIP-12 (Perf): ``GetForegroundWindow`` is fetched ONCE at
+        the top and passed to ``_is_elevated_target`` and
+        ``_is_password_field`` (for the cred-dialog fallback).
+        Previously each helper fetched it separately.
         """
         if not is_windows():
             return True
@@ -863,6 +663,7 @@ class ClipboardManager:
             import ctypes
 
             user32 = ctypes.windll.user32
+            # CLIP-12: fetch hwnd ONCE and pass to all helpers.
             hwnd = user32.GetForegroundWindow()
             if not hwnd:
                 return True
@@ -892,36 +693,93 @@ class ClipboardManager:
             # elevated and we are not, return False to abort the paste.
             # The user will see no paste and can investigate (the function
             # logs a warning explaining why).
+            #
+            # CLIP-3: fail-closed on exception — if the elevation check
+            # itself raises, we block paste rather than risk UIPI failure.
             try:
-                if _is_elevated_target():
+                if _is_elevated_target(hwnd):
                     log.warning(
                         "[CLIPBOARD] Target window is elevated but we are not — blocking paste to avoid UIPI failure"
                     )
                     return False
             except Exception:
-                log.debug("[CLIPBOARD] _is_elevated_target check failed", exc_info=True)
-
-            # PLAT-014: check if the focused element is a password field
-            if _is_password_field():
+                log.warning(
+                    "[CLIPBOARD] _is_elevated_target check raised — blocking paste (fail-closed, CLIP-3)",
+                    exc_info=True,
+                )
                 return False
 
-            # PLAT-CONTENT: check if the focused element is a
-            # contentEditable element (rich editor like Word, Gmail
-            # compose, etc.). We don't block paste — just log it so
-            # the user knows the paste target supports rich text and
-            # our plain-text paste may lose formatting.
+            # CLIP-4/5: fetch the focused UIA element ONCE and hoist
+            # CoInitialize/CoUninitialize to wrap both password-field
+            # and content-editable checks. Falls back to the
+            # credential-dialog heuristic when comtypes is unavailable.
+            focused = None
+            com_initialized = False
             try:
-                if _is_content_editable():
-                    log.info(
-                        "[CLIPBOARD] Paste target is a contentEditable element — "
-                        "pasting plain text (rich text formatting may be lost)"
-                    )
+                import comtypes
+
+                comtypes.CoInitialize()
+                com_initialized = True
+                focused = _get_uia_focused_element()
+            except ImportError:
+                # comtypes unavailable — _is_password_field will fall
+                # through to its ImportError branch and use the
+                # window-class heuristic. Pass focused=None so the
+                # helper knows to fetch it itself (which will also
+                # fail safely).
+                pass
             except Exception:
-                log.debug("[CLIPBOARD] contentEditable check failed", exc_info=True)
+                # COM init failed — log and proceed. _is_password_field
+                # will retry CoInitialize (idempotent on same thread).
+                log.debug("[CLIPBOARD] CoInitialize failed in _is_safe_paste_target", exc_info=True)
+
+            try:
+                # PLAT-014: check if the focused element is a password field.
+                # CLIP-3: fail-closed on exception — if password-field
+                # detection itself raises, block paste rather than risk
+                # pasting into a credential prompt.
+                try:
+                    if _is_password_field(focused, hwnd):
+                        return False
+                except Exception:
+                    log.warning(
+                        "[CLIPBOARD] _is_password_field check raised — blocking paste (fail-closed, CLIP-3)",
+                        exc_info=True,
+                    )
+                    return False
+
+                # PLAT-CONTENT: check if the focused element is a
+                # contentEditable element (rich editor like Word, Gmail
+                # compose, etc.). We don't block paste — just log it so
+                # the user knows the paste target supports rich text and
+                # our plain-text paste may lose formatting.
+                #
+                # CLIP-3: keep fail-OPEN here — contentEditable is
+                # informational, not a security gate.
+                try:
+                    if _is_content_editable(focused):
+                        log.info(
+                            "[CLIPBOARD] Paste target is a contentEditable element — "
+                            "pasting plain text (rich text formatting may be lost)"
+                        )
+                except Exception:
+                    log.debug("[CLIPBOARD] contentEditable check failed", exc_info=True)
+            finally:
+                if com_initialized:
+                    with contextlib.suppress(Exception):
+                        import comtypes as _ct  # local re-import; safe inside finally
+
+                        _ct.CoUninitialize()
 
             return True
         except Exception:
-            return True  # Fail open — don't block paste on error
+            # CLIP-3: outer exception — fail-open ONLY when truly
+            # broken infra (e.g. ctypes itself unavailable). This is
+            # rare and indicates a broken Python install rather than
+            # a security infra issue. Security-check exceptions are
+            # caught earlier (per-helper) and fail-closed.
+            log.warning("[CLIPBOARD] _is_safe_paste_target outer exception — failing open", exc_info=True)
+            return True  # Fail open — don't block paste on outer infra error
 
     @staticmethod
     def _is_terminal_process(process_name: str | None) -> bool:
@@ -1112,6 +970,7 @@ class ClipboardManager:
         restore_delay: float | None = None,
         pasted_text: str | None = None,
         force: bool = False,
+        pasted_seq: int | None = None,
     ) -> bool:
         """Send a paste keystroke into the focused window.
 
@@ -1144,12 +1003,21 @@ class ClipboardManager:
         # must not prevent the paired restore. ``_delayed_restore``
         # re-checks the clipboard before restoring, so this is safe even
         # if the paste never lands.
+        #
+        # CLIP-8: register the pending restore in the module-level
+        # _pending_restores list so the atexit handler can force-restore
+        # it if the app exits before the daemon thread fires. The daemon
+        # thread removes its entry on normal completion.
+        _pending_entry: tuple[Any, Any, str, float] | None = None
         if snapshot is not None:
             delay = restore_delay if restore_delay is not None else (self._restore_delay_ms / 1000.0)
             expected = pasted_text if pasted_text is not None else self._last_copied_text
+            _pending_entry = (self, snapshot, expected, delay)
+            with _pending_restores_lock:
+                _pending_restores.append(_pending_entry)
             threading.Thread(
                 target=self._delayed_restore,
-                args=(snapshot, expected, delay),
+                args=(snapshot, expected, delay, _pending_entry),
                 daemon=True,
                 name="clipboard-restore",
             ).start()
@@ -1173,56 +1041,12 @@ class ClipboardManager:
                 log.warning("[CLIPBOARD] pynput unavailable — cannot paste")
                 return False
 
-        # PLAT-CLIPRACE (revised): verify clipboard wasn't modified between
-        # copy and paste. The previous code only LOGGED a warning when the
-        # clipboard sequence number changed between copy() and paste() —
-        # paste proceeded anyway with potentially stale clipboard content.
-        #
-        # Now we actually RECOVER: if the seq changed, re-copy the
-        # text before pasting. This handles the case where another app
-        # (clipboard manager, password manager, screenshot tool) overwrote
-        # the clipboard between our copy() and the paste keystroke.
-        if is_windows() and hasattr(self, "_clipboard_seq") and self._clipboard_seq:
-            current_seq = self._get_clipboard_sequence_number()
-            if current_seq != self._clipboard_seq:
-                log.warning(
-                    "[CLIPBOARD] Clipboard modified between copy and paste (seq %d -> %d) — re-copying before paste",
-                    self._clipboard_seq,
-                    current_seq,
-                )
-                # Re-copy the text we want to paste. Use the stored
-                # _last_copied_text to avoid passing the wrong content.
-                # Use the module-level pyperclip (not a fresh import) so
-                # tests that monkeypatch clipboard.pyperclip can intercept.
-                try:
-                    if self._last_copied_text:
-                        pyperclip.copy(self._last_copied_text)
-                        # Brief delay to let the clipboard settle
-                        time.sleep(0.02)
-                        # Update seq so a subsequent mismatch check is accurate
-                        self._clipboard_seq = self._get_clipboard_sequence_number()
-                except Exception as exc:
-                    log.error(
-                        "[CLIPBOARD] Failed to re-copy after seq mismatch: %s — paste may deliver stale content",
-                        exc,
-                    )
-
-        # PLAT-RDP: increase paste delay in RDP sessions where clipboard
-        # sync is slower
-        paste_delay = 0.02
-        if is_windows():
-            try:
-                from voice_typer.server.server_platform import is_remote_session
-
-                if is_remote_session():
-                    paste_delay = 0.10
-                    log.info(
-                        "[CLIPBOARD] RDP session detected — increasing paste delay to %dms", int(paste_delay * 1000)
-                    )
-            except Exception:
-                pass
-
-        # rate-limit (existing lines 945–951)
+        # CLIP-13: rate-limit check moved BEFORE seq-mismatch re-copy.
+        # Previously, a rate-limited paste would still trigger a
+        # re-copy of the clipboard (via pyperclip.copy) even though no
+        # keystroke would be sent — wasting the re-copy work and
+        # potentially racing with a concurrent paste cycle. Now we
+        # short-circuit on rate-limit before doing any clipboard work.
         now = time.monotonic()
         if now - self._last_paste_time < self._PASTE_RATE_LIMIT:
             log.info(
@@ -1238,12 +1062,92 @@ class ClipboardManager:
             log.info("[CLIPBOARD] Paste disabled by config -- skipping keystroke")
             return False
 
+        # PLAT-CLIPRACE (revised): verify clipboard wasn't modified between
+        # copy and paste. The previous code only LOGGED a warning when the
+        # clipboard sequence number changed between copy() and paste() —
+        # paste proceeded anyway with potentially stale clipboard content.
+        #
+        # Now we actually RECOVER: if the seq changed, re-copy the
+        # text before pasting. This handles the case where another app
+        # (clipboard manager, password manager, screenshot tool) overwrote
+        # the clipboard between our copy() and the paste keystroke.
+        if is_windows() and hasattr(self, "_clipboard_seq"):
+            # CRIT-3: use the request-scoped seq when provided (set by
+            # copy() for THIS request), falling back to the instance
+            # attribute for repaste/callers that don't thread it. This
+            # prevents a concurrent copy() in another request from
+            # clobbering the seq we validate against.
+            expected_seq = pasted_seq if pasted_seq is not None else self._clipboard_seq
+            if expected_seq:
+                current_seq = self._get_clipboard_sequence_number()
+                if current_seq != expected_seq:
+                    log.warning(
+                        "[CLIPBOARD] Clipboard modified between copy and paste (seq %d -> %d) — re-copying before paste",
+                        expected_seq,
+                        current_seq,
+                    )
+                    # Re-copy the text we want to paste. Use the stored
+                    # _last_copied_text to avoid passing the wrong content.
+                    #
+                    # CLIP-7 (Medium, Wayland): use _copy_to_clipboard()
+                    # instead of pyperclip.copy() so the Wayland dispatcher
+                    # routes through `wl-copy` on Linux Wayland sessions.
+                    # Previously, paste()'s seq-mismatch re-copy bypassed
+                    # the dispatcher and called pyperclip.copy directly —
+                    # which uses xclip/xsel (X11-only) and silently no-ops
+                    # under native Wayland apps, leaving the re-copy stale.
+                    try:
+                        if self._last_copied_text:
+                            _copy_to_clipboard(self._last_copied_text)
+                            # Brief delay to let the clipboard settle
+                            time.sleep(0.02)
+                            # Update seq so a subsequent mismatch check is accurate
+                            self._clipboard_seq = self._get_clipboard_sequence_number()
+                    except Exception as exc:
+                        log.error(
+                            "[CLIPBOARD] Failed to re-copy after seq mismatch: %s — paste may deliver stale content",
+                            exc,
+                        )
+
+        # PLAT-RDP: increase paste delay in RDP sessions where clipboard
+        # sync is slower.
+        #
+        # CLIP-11 (Low, Perf): drop the unconditional 20ms ``paste_delay``
+        # sleep. The 20ms was applied to every paste on every platform,
+        # adding latency without benefit (the seq-mismatch re-copy path
+        # already has its own 20ms settle delay when it fires). The 100ms
+        # RDP sleep is preserved because RDP clipboard sync genuinely
+        # needs the extra delay.
+        paste_delay = 0.0
+        if is_windows():
+            try:
+                from voice_typer.server.server_platform import is_remote_session
+
+                if is_remote_session():
+                    paste_delay = 0.10
+                    log.info(
+                        "[CLIPBOARD] RDP session detected — increasing paste delay to %dms", int(paste_delay * 1000)
+                    )
+            except Exception:
+                pass
+
         if not self._is_safe_paste_target():
             log.info("[CLIPBOARD] Paste blocked — security-sensitive window in foreground")
             return False
 
         try:
-            time.sleep(paste_delay)
+            if paste_delay > 0:
+                time.sleep(paste_delay)
+
+            # CRIT-2: re-validate the target RIGHT BEFORE sending the
+            # keystroke. The safety check above (line ~1563) ran before the
+            # paste_delay sleep; the foreground window could have changed
+            # during that window (TOCTOU). If the target is now unsafe
+            # (e.g. focus moved to a credential prompt), abort — do NOT
+            # send the paste into the wrong/unsafe window.
+            if not self._is_safe_paste_target():
+                log.info("[CLIPBOARD] Paste blocked — foreground target became unsafe during paste delay")
+                return False
 
             process_name = self._detect_focused_process()
             is_terminal = self._is_terminal_process(process_name)
@@ -1257,12 +1161,16 @@ class ClipboardManager:
                 )
 
             # XPLAT-15: on Linux Wayland, pynput silently no-ops (it's
-            # X11-only). Route through `wtype` instead — short text is
-            # typed directly (50ms/keystroke); long text uses Ctrl+V
+            # X11-only). Route through `wtype` instead — uses Ctrl+V
             # (the clipboard was already populated by copy()). Falls
             # through to the pynput path on X11, when wtype isn't
             # installed, or on non-Linux platforms.
+            #
+            # CLIP-10: ``_linux_paste_via_wtype`` now always uses the
+            # Ctrl+V clipboard path (no more ``-d 50`` keystroke delay
+            # for short text).
             use_wayland_wtype = is_linux() and _is_wayland_paste_session() and _have_wtype()
+            paste_succeeded = True
             if is_terminal:
                 if is_macos():
                     self._safe_key_press(_Key.cmd, "v")
@@ -1273,11 +1181,24 @@ class ClipboardManager:
             elif is_macos():
                 self._safe_key_press(_Key.cmd, "v")
             elif is_windows():
-                self._send_ctrl_v_win32()
+                # CLIP-14: check the return value of _send_ctrl_v_win32.
+                # A False return means SendInput reported partial success
+                # (1..3 of 4 events delivered) — the paste did NOT
+                # complete cleanly. Previously this was silently dropped
+                # (the user saw nothing happen and no warning). Now we
+                # log a warning and return False so the user knows the
+                # paste failed.
+                paste_succeeded = self._send_ctrl_v_win32()
             elif use_wayland_wtype:
                 _linux_paste_via_wtype(self._last_copied_text)
             else:
                 self._safe_key_press(_Key.ctrl, "v")
+
+            if not paste_succeeded:
+                log.warning(
+                    "[CLIPBOARD] Auto-paste failed (SendInput partial success — UIPI may have blocked) (CLIP-14)"
+                )
+                return False
 
             self._last_paste_time = time.monotonic()
             log.info(

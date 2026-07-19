@@ -161,7 +161,11 @@ class HistoryDB:
         # Write queue: items are (callable, future) tuples, or the
         # _SHUTDOWN_SENTINEL to ask the writer to exit. ``future`` is
         # None for fire-and-forget writes (e.g. add_transcription).
-        self._queue: queue.Queue[Any] = queue.Queue()
+        # PERF-5: bound the queue so a stalled writer thread can't let
+        # the in-memory queue grow without limit. On queue.Full we drop
+        # the oldest non-sentinel item and log a warning. 10000 is ~5
+        # minutes of fire-and-forget add_transcription writes at 30/s.
+        self._queue: queue.Queue[Any] = queue.Queue(maxsize=10000)
         # Signaled by the writer thread once schema init succeeds (or
         # fails). __init__ waits on this so subsequent reads see the
         # schema.
@@ -616,6 +620,60 @@ class HistoryDB:
     # Write submission
     # ──────────────────────────────────────────────────────────────
 
+    def _drop_oldest_for_overflow(self, current_future: concurrent.futures.Future | None) -> None:
+        """PERF-5: Drop the oldest non-sentinel queued item to make room.
+
+        Called when ``_submit_write`` hits ``queue.Full``. Signals the
+        dropped item's future (if any) with ``HistoryDBError`` so blocking
+        callers don't hang. If the head of the queue is the shutdown
+        sentinel, we leave it alone and drop the new write instead (the
+        writer is shutting down, so the new work wouldn't run anyway).
+        """
+        try:
+            dropped = self._queue.get_nowait()
+        except queue.Empty:
+            # Queue drained between put_nowait and now; just retry the put.
+            try:
+                self._queue.put_nowait((lambda _conn: None, current_future))
+            except queue.Full:
+                pass
+            return
+        if dropped is _SHUTDOWN_SENTINEL:
+            # Put the sentinel back; drop the new write instead.
+            try:
+                self._queue.put_nowait(dropped)
+            except queue.Full:
+                pass
+            if current_future is not None:
+                try:
+                    current_future.set_exception(HistoryDBError("Writer is shutting down; new write dropped"))
+                except concurrent.futures.InvalidStateError:
+                    pass
+            log.warning("[HISTORY_DB] Queue full during shutdown — new write dropped.")
+            return
+        # Dropped a real (fn, future) tuple. Signal its future.
+        dropped_fn, dropped_future = dropped
+        if dropped_future is not None:
+            try:
+                dropped_future.set_exception(HistoryDBError("Dropped to make room for newer write (queue overflow)"))
+            except concurrent.futures.InvalidStateError:
+                pass
+        log.warning("[HISTORY_DB] Queue overflow — dropped oldest write to make room. Writer thread may be stalled.")
+        # Retry the new put (the queue now has room for one item).
+        # We re-queue the NEW write (not the dropped one) so the latest
+        # state wins. The dropped write's future was already signalled
+        # with HistoryDBError above.
+        try:
+            # dropped_fn was the closure from the dropped write; we don't
+            # re-use it. We need to re-put the CURRENT (fn, future) pair,
+            # but _submit_write holds the original fn — re-queue a no-op
+            # so the slot is reserved and the caller's put_nowait retries.
+            # Actually simpler: just leave the slot empty; _submit_write
+            # will retry the put_nowait after we return.
+            pass
+        except Exception:
+            log.debug("[HISTORY_DB] Retry-put cleanup failed", exc_info=True)
+
     def _submit_write(
         self,
         fn: Callable[[sqlite3.Connection], Any],
@@ -652,7 +710,27 @@ class HistoryDB:
         future: concurrent.futures.Future | None = None
         if wait:
             future = concurrent.futures.Future()
-        self._queue.put((fn, future))
+        # PERF-5: bounded queue (maxsize=10000). Use put_nowait + drop-oldest
+        # so a stalled writer doesn't block the calling thread indefinitely.
+        try:
+            self._queue.put_nowait((fn, future))
+        except queue.Full:
+            self._drop_oldest_for_overflow(future)
+            # Retry once after dropping oldest.
+            try:
+                self._queue.put_nowait((fn, future))
+            except queue.Full:
+                # Still full (writer truly stuck); drop the new write.
+                if future is not None:
+                    try:
+                        future.set_exception(HistoryDBError("Queue full after drop-oldest; new write dropped"))
+                    except concurrent.futures.InvalidStateError:
+                        pass
+                log.warning(
+                    "[HISTORY_DB] Queue still full after drop-oldest — new write dropped. Writer thread is stuck."
+                )
+                if not wait:
+                    return None
         if not wait:
             return None
         assert future is not None
@@ -714,13 +792,40 @@ class HistoryDB:
             return
         self._shutdown.set()
         # Enqueue the sentinel — the writer drains remaining items
-        # before exiting. queue.Queue.put on an unbounded queue
-        # essentially never raises; the try/except is defensive against
-        # interpreter-shutdown edge cases.
+        # before exiting. PERF-5: the queue is now bounded (maxsize=10000).
+        # Use a drop-oldest loop so the sentinel is never dropped (we keep
+        # re-trying until it lands at the head of the queue).
         try:
-            self._queue.put(_SHUTDOWN_SENTINEL)
+            self._queue.put_nowait(_SHUTDOWN_SENTINEL)
         except queue.Full:
-            log.warning("[HISTORY_DB] Write queue full during shutdown")
+            # Drain non-sentinel items until the sentinel fits.
+            for _ in range(10001):  # bound to avoid infinite loop
+                try:
+                    dropped = self._queue.get_nowait()
+                except queue.Empty:
+                    break
+                if dropped is _SHUTDOWN_SENTINEL:
+                    # Sentinel was already queued by another close() call;
+                    # put it back and stop.
+                    try:
+                        self._queue.put_nowait(dropped)
+                    except queue.Full:
+                        pass
+                    break
+                # Dropped a real write — signal its future.
+                dropped_fn, dropped_future = dropped
+                if dropped_future is not None:
+                    try:
+                        dropped_future.set_exception(HistoryDBError("Dropped during shutdown sentinel enqueue"))
+                    except concurrent.futures.InvalidStateError:
+                        pass
+                log.warning("[HISTORY_DB] Dropped write during shutdown queue drain.")
+                # Try to enqueue the sentinel now.
+                try:
+                    self._queue.put_nowait(_SHUTDOWN_SENTINEL)
+                    break
+                except queue.Full:
+                    continue
         except RuntimeError as e:
             # Can occur during interpreter shutdown if the queue module
             # is in an inconsistent state.
