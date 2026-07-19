@@ -1885,7 +1885,6 @@ class IPCServer(
         "get_status": "_handle_get_status",
         "toggle_dictation": "_handle_toggle_dictation",
         "undo_last": "_handle_undo_last",
-        "force_cancel_transcription": "_handle_force_cancel_transcription",
         # UX-23: re-paste the last transcription (repaste_handlers mixin).
         "repaste_last": "_handle_repaste_last",
         "get_config": "_handle_get_config",
@@ -1934,6 +1933,7 @@ class IPCServer(
         "onboarding_apply": "_handle_onboarding_apply",
         "onboarding_get_microphones": "_handle_onboarding_get_microphones",
         "onboarding_get_model_options": "_handle_onboarding_get_model_options",
+        "onboarding_get_model_catalog": "_handle_onboarding_get_model_catalog",
         "onboarding_get_hotkey_presets": "_handle_onboarding_get_hotkey_presets",
         # UX-4 / UX-27: platform-conditional permission probe
         # (macOS Accessibility / Linux input group + udev rule) used by

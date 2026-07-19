@@ -1659,6 +1659,20 @@ class VoiceTyperService:
 
         return {"models": OnboardingController.MODEL_OPTIONS}
 
+    def onboarding_get_model_catalog(self) -> dict:
+        """UX-32: Get the full rich-metadata model catalog for the
+        onboarding wizard.
+
+        Unlike :meth:`onboarding_get_model_options` (which returns the
+        short curated :attr:`MODEL_OPTIONS` subset), this returns the
+        full catalog from :meth:`OnboardingController.get_model_catalog`
+        (every Whisper variant, distilled/turbo/Parakeet models with VRAM
+        / language / speed / accuracy metadata).
+        """
+        from voice_typer.server.onboarding import OnboardingController
+
+        return {"models": OnboardingController.get_model_catalog()}
+
     def onboarding_get_hotkey_presets(self) -> dict:
         """Get hotkey presets for the onboarding wizard."""
         from voice_typer.server.onboarding import OnboardingController

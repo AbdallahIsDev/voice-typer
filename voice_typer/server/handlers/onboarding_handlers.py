@@ -198,6 +198,28 @@ class OnboardingHandlersMixin:
             resp["data"] = {"message": str(e)}
         return resp
 
+    def _handle_onboarding_get_model_catalog(self, data, resp) -> dict | None:
+        """Handle the ``onboarding_get_model_catalog`` IPC command (UX-32).
+
+        Returns the full rich-metadata model catalog (a superset of the
+        curated ``MODEL_OPTIONS`` subset). Does NOT delegate to
+        ``self.service`` — the catalog is pure static metadata from
+        :mod:`voice_typer.server.model_registry`, shared with the Models
+        page's ``get_model_catalog`` IPC via
+        :meth:`OnboardingController.get_model_catalog`.
+        """
+        try:
+            from voice_typer.server.onboarding import OnboardingController
+
+            result = {"models": OnboardingController.get_model_catalog()}
+            resp["type"] = "onboarding_model_catalog"
+            resp["data"] = result
+        except Exception as e:
+            log.error("[IPC] onboarding_get_model_catalog failed: %s", e)
+            resp["type"] = "error"
+            resp["data"] = {"message": str(e)}
+        return resp
+
     def _handle_onboarding_get_hotkey_presets(self, data, resp) -> dict | None:
         """Handle the ``onboarding_get_hotkey_presets`` IPC command."""
         try:
@@ -216,9 +238,16 @@ class OnboardingHandlersMixin:
         Returns the platform-conditional permission state so the
         Permissions step can render the right setup walkthrough
         (macOS Accessibility / Linux ``input`` group + udev rule).
+
+        Does NOT delegate to ``self.service`` — the permission probe
+        lives in :mod:`voice_typer.server.permissions` (via
+        :meth:`OnboardingController.check_permissions`) and is shared
+        with the hotkey-adapter runtime path.
         """
         try:
-            result = self.service.onboarding_check_permissions()
+            from voice_typer.server.onboarding import OnboardingController
+
+            result = OnboardingController().check_permissions()
             resp["type"] = "onboarding_permissions"
             resp["data"] = result
         except Exception as e:
