@@ -41,9 +41,9 @@ pynput==1.7.7 \
 transformers==4.57.6 \
     --hash=sha256:55e44126ece9dc0a291521b7e5492b572e6ef2766338a610b9ab5afbb70689d3 \
     --hash=sha256:4c9e9de11333ddfe5114bc872c9f370509198acf0b87a832a0ab9458e2bd0550
-accelerate==0.34.2 \
-    --hash=sha256:98c1ebe1f5a45c0a3af02dc60b5bb8b7d58d60c3326a326a06ce6d956b18ca5b \
-    --hash=sha256:d69159e2c4e4a473d14443b27d2d732929254e826b3ab4813b3785b5ac616c7c
+# DEP-CLEAN: accelerate pin removed — nothing under voice_typer/ imports it;
+# dropped from pyproject.toml dependencies. (pip-compile `via accelerate`
+# comment lines below are stale until the next full regen; harmless.)
 psutil==6.0.0 \
     --hash=sha256:8faae4f310b6d969fa26ca0545338b21f73c6b15db7c4a8d934a5482faa818f2 \
     --hash=sha256:a021da3e881cd935e64a3d0a20983bda0bb4cf80e4f74fa9bfcb1bc5785360c6

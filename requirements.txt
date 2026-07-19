@@ -25,10 +25,16 @@ pyperclip>=1.8,<2.0
 # `_icon_handle` attribute as a Win32 DestroyIcon workaround. Tight pin
 # keeps the workaround effective until upstream exposes a public API.
 pystray>=0.19,<0.20
-Pillow>=9.0,<13.0
+# SEC-DEP-1: floor raised to >=10.3.0 — 13 CVEs affect Pillow <10.3.0.
+Pillow>=10.3.0,<13.0
 pynput>=1.7,<2.0
 transformers>=4.50,<5.0
-accelerate>=0.26,<2.0
+# DEP-CLEAN: accelerate removed — nothing under voice_typer/ imports it.
+# torch is imported directly by 8 server modules (vad.py, transcription.py,
+# dictation_pipeline.py, crash_recovery.py, parakeet_engine.py,
+# audio_filters/noise_suppressor.py, prewarm/) and is a core dep
+# (mirrors pyproject.toml); previously missing from this file.
+torch>=2.0,<3.0
 psutil>=5.9,<7.0
 # Volume ducking (platform-conditional — only installs on Windows)
 pycaw>=20230407; sys_platform == 'win32'
@@ -36,6 +42,26 @@ comtypes>=1.1; sys_platform == 'win32'
 # Volume ducking (platform-conditional — only installs on macOS)
 pyobjc-core>=9.0; sys_platform == 'darwin'
 pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin'
+# DEP-3: missing transitive deps that pyproject.toml declares but this
+# lockfile previously omitted. A `pip install --require-hashes -r requirements.txt`
+# install would succeed (because pip-tools resolved them from pyproject.toml
+# at compile time) but a plain `pip install -r requirements.txt` (the
+# developer fast-path documented at the top of this file) silently
+# skipped them — leading to ModuleNotFoundError on first dictation:
+#   - huggingface_hub: imported by asr_setup.py, parakeet_engine.py,
+#     service.py, transcription.py for snapshot_download.
+#   - keyring: imported by credential_store.py for OS-native credential
+#     storage (Windows Credential Manager, macOS Keychain, libsecret on
+#     Linux).
+#   - pyrnnoise: imported by noise_suppressor.py (ADR 0007: default RNNoise
+#     filter). Platform-gated to exclude macOS arm64 (no prebuilt wheel).
+#   - pyobjc-framework-Cocoa: imported by tray.py on macOS (pystray backend
+#     uses AppKit via pyobjc). Without it, pystray.Icon() raises ImportError
+#     at runtime and the tray silently fails.
+huggingface_hub>=0.20,<1.0
+keyring>=25.0,<26.0
+pyrnnoise>=0.4; platform_machine != 'arm64' or sys_platform != 'darwin'
+pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin'
 # ADR-0020 §14: WebSocket transport for the Tauri sidecar path.
 # Lazy-imported in voice_typer/server/sidecar_ws.py so the Electron-only
 # path doesn't pay the import cost. Pure-Python, ~200 KB.

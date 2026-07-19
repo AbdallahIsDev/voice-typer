@@ -167,15 +167,15 @@ Python backend.
 
 ### Key Endpoints
 
-| Endpoint | Parameters | Returns | Description |
+| Command | Parameters | Returns | Description |
 |----------|-----------|---------|-------------|
-| `status` | — | `{busy, recording, model, ...}` | Get current app state. |
-| `start_recording` | — | `{ok: true}` | Start dictation. |
-| `stop_recording` | — | `{ok: true, text: "..."}` | Stop dictation and get transcription. |
-| `cancel_recording` | — | `{ok: true}` | Cancel current recording. |
-| `set_config` | `{key, value}` | `{ok: true}` | Update a config value. |
-| `get_config` | `{key}` | `{value: ...}` | Get a config value. |
-| `list_models` | — | `{models: [...]}` | List available/loaded models. |
+| `get_status` | — | `{status, xruns_since_start, ...}` | Get current app state. |
+| `toggle_dictation` | — | `ack` | Start/stop dictation. |
+| `force_cancel_transcription` | — | `force_cancel_transcription_result` | Force-cancel a stuck transcription (resets busy flag immediately). |
+| `set_config` | `{<field>: value, ...}` | `ack` | Update config values (validated against allowlist). |
+| `get_config` | — | `{<field>: value, ...}` | Get current config (secret fields redacted). |
+| `get_model_status` | — | `{<model>: {downloaded, deps_ok}, ...}` | Get on-disk status of each model. |
+| `get_model_catalog` | — | `{models: [...]}` | Full model catalog with metadata (VRAM, languages, ratings). |
 
 ---
 

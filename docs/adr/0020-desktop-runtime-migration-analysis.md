@@ -276,6 +276,8 @@ Closes the gaps called out in review: port-bind direction, command table, token 
 
 > **IPC-1 reconciliation (2026-07-18):** the prior draft of this ADR stated "68 commands" — that count predated PERF-005, which added `relaunch_ack` (the UI's ack that it received `relaunch_electron`, so `restart_app` can drop its fixed 300 ms sleep in favour of an event-driven wait bounded by a 2 s timeout). `relaunch_ack` is intentional and stays in the registry; the prior "68 commands" claim was stale. The 69th command is `relaunch_ack` at `ipc_server.py:1775` (handler `_handle_relaunch_ack` at `ipc_server.py:1505`).
 
+> **UX-23 reconciliation (2026-07-19):** `repaste_last` is the 70th registered command. Its handler (`_handle_repaste_last`) already existed in `handlers/repaste_handlers.py` and the renderer `ALLOWED_COMMANDS` set (`client/src/main/index.ts`) already permitted it, but the `_COMMAND_REGISTRY` dispatch route was missing — so renderer/tray calls silently failed with `unknown_command`. Added `"repaste_last": "_handle_repaste_last"` to the registry (no payload; reads the latest history entry server-side). This closes the UX-23 gap.
+
 | Command | Handler module (`handlers/`) | Purpose |
 |---|---|---|
 | `get_status` | status_handlers | app/engine status snapshot |
@@ -371,7 +373,7 @@ Nuitka does **not** cross-compile. Each target triple gets its own Nuitka build,
 
 #### 4.1 Target triples (mandatory set)
 
-The Tauri `externalBin` mechanism requires the binary name to end with the Rust target triple (no `.exe` on macOS/Linux; `.exe` on Windows). The host selects the right one at runtime via `std::env::consts::ARCH` + `std::env::consts::OS`. Voice Typer's CI today ships:
+The Tauri `externalBin` mechanism resolves each binary by the Rust target triple (no `.exe` on macOS/Linux; `.exe` on Windows) at runtime via `std::env::consts::ARCH` + `std::env::consts::OS`. The table below is the set of **shipped** binaries you must place in `src-tauri/bin/` — it is NOT the `externalBin` config entry (that is the single base name `bin/python-sidecar`; see §7 for the correction). Voice Typer's CI today ships:
 
 | Platform | Target triple | CI runner | Binary name |
 |---|---|---|---|
@@ -605,12 +607,7 @@ Today the tray icon is `pystray` (Win32 / AppKit / GTK), with menu logic in `tra
 {
   "bundle": {
     "externalBin": [
-      "bin/python-sidecar-x86_64-pc-windows-msvc",
-      "bin/python-sidecar-aarch64-pc-windows-msvc",
-      "bin/python-sidecar-x86_64-apple-darwin",
-      "bin/python-sidecar-aarch64-apple-darwin",
-      "bin/python-sidecar-x86_64-unknown-linux-gnu",
-      "bin/python-sidecar-aarch64-unknown-linux-gnu"
+      "bin/python-sidecar"
     ],
     "resources": [
       "resources/prewarm-x86_64-pc-windows-msvc.exe",
@@ -642,22 +639,17 @@ Today the tray icon is `pystray` (Win32 / AppKit / GTK), with menu logic in `tra
 
 > **Tauri v2 capabilities are mandatory (not optional).** Unlike v1, Tauri v2 ships zero IPC/shell/plugin permissions by default — every `invoke`, `shell:spawn`, `notification:notify`, `clipboard` read/write, and `global-shortcut` must be explicitly whitelisted in `src-tauri/capabilities/*.json` or Tauri **silently blocks it at runtime** (no compile error). The implementer must confirm each capability below is present, or paste/clipboard/notification will mysteriously no-op.
 
-> **`externalBin` per-arch naming:** Tauri v2 selects the right `externalBin` by matching the Rust target triple at runtime. List ALL target triples you ship — omitting one means users on the missing arch see "sidecar not found" at launch.
+> **`externalBin` uses a BASE NAME, not per-triple file names (MANDATORY — 2026-07-18 correction).** Tauri v2's `sidecar()` API appends the **Rust target triple automatically** at runtime, so you register the base name once: `"bin/python-sidecar"`. Tauri then resolves it to `bin/python-sidecar-x86_64-pc-windows-msvc.exe` (Windows), `bin/python-sidecar-aarch64-apple-darwin` (macOS Apple Silicon), etc., by matching `std::env::consts::ARCH` + `OS` against the files you placed in `src-tauri/bin/`. **Do NOT list six triple-suffixed entries** in `externalBin` (an earlier draft of this ADR did — that is wrong and will fail to bundle). The build must still *ship* one frozen binary per target triple under `src-tauri/bin/` (see §4.1 for the required filenames), but the `tauri.conf.json` entry is the single base name. The same base-name rule applies to the `shell.scope` entry below.
 
 > **Native hotkey binaries are `resources`, not `externalBin`:** the native hotkey binaries are spawned by the **Python sidecar** (not by Tauri), so they must be `bundle.resources` extracted to `resourceDir`, then the sidecar discovers them via the existing `native_hotkeys.get_native_binary_path()` lookup (which already checks `VOICE_TYPER_NATIVE_BINARY` env var, `voice_typer/server/native/` dev path, next to `sys.executable`, and `_MEIPASS`). Add a fifth lookup path: `os.environ.get("VOICE_TYPER_NATIVE_DIR")` set by Tauri to `resourceDir/native/`. Do NOT change the existing four paths — they are used by the PyInstaller fallback build.
 
 `migrate-runtime.capability` (least privilege):
 - `core:default`, `core:event:default`, `core:window:allow-show`/`hide`/`set-focus`
-- `shell:allow-spawn` **scoped to the sidecar binary** — Tauri v2 rejects an unconstrained spawn, so the capability must name every target triple:
+- `shell:allow-spawn` **scoped to the sidecar binary** — Tauri v2 rejects an unconstrained spawn, so the capability must name the sidecar base name (Tauri appends the target triple at runtime — same rule as `externalBin`):
   ```json
   { "identifier": "shell:allow-spawn",
     "allow": [
-      { "name": "bin/python-sidecar-x86_64-pc-windows-msvc" },
-      { "name": "bin/python-sidecar-aarch64-pc-windows-msvc" },
-      { "name": "bin/python-sidecar-x86_64-apple-darwin" },
-      { "name": "bin/python-sidecar-aarch64-apple-darwin" },
-      { "name": "bin/python-sidecar-x86_64-unknown-linux-gnu" },
-      { "name": "bin/python-sidecar-aarch64-unknown-linux-gnu" }
+      { "name": "bin/python-sidecar" }
     ] }
   ```
   `shell:allow-kill-children` for the FT-1 force-kill backstop (§10).
