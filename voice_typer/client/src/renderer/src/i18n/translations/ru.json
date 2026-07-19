@@ -13,7 +13,9 @@
 		"lostConnection": "Потеряно соединение с серверной частью Python",
 		"retryConnection": "Повторить подключение",
 		"restartingBackend": "Перезапуск серверной части Voice Typer…",
-		"restartingHint": "Обычно это занимает несколько секунд. Диктовка возобновится из системного трея, когда будет готова."
+		"restartingHint": "Обычно это занимает несколько секунд. Диктовка возобновится из системного трея, когда будет готова.",
+		"goHome": "На главную",
+		"lostConnectionHint": "Бэкенд Python перестал отвечать. Попробуйте перезапустить его."
 	},
 	"nav": {
 		"home": "Главная",
@@ -43,7 +45,14 @@
 		"firstDictationDesc": "Добро пожаловать в Voice Typer. Нажмите горячую клавишу в любое время для диктовки.",
 		"press": "Нажмите",
 		"loadingTodayStatsAria": "Загрузка статистики за сегодня",
-		"loadingRecentAria": "Загрузка недавней активности"
+		"loadingRecentAria": "Загрузка недавней активности",
+		"downloadingModel": "Загрузка модели…",
+		"undo": "Отменить",
+		"undoAria": "Отменить последнюю транскрипцию",
+		"repaste": "Вставить заново",
+		"repasteAria": "Вставить последнюю транскрипцию заново",
+		"forceCancel": "Принудительно отменить",
+		"forceCancelHint": "Если диктовка зависла, принудительно отмените для восстановления"
 	},
 	"common": {
 		"cancel": "Отмена",
@@ -93,7 +102,9 @@
 		"noOtherMicrophones": "Других микрофонов нет",
 		"use": "Использовать",
 		"channels": "Каналы:",
-		"rateHz": "Частота:"
+		"rateHz": "Частота:",
+		"loadFailedTitle": "Не удалось загрузить микрофоны",
+		"retry": "Повторить"
 	},
 	"vocabulary": {
 		"title": "Пользовательский словарь",
@@ -177,7 +188,9 @@
 		"exactMatch": "Точное совпадение",
 		"contains": "Содержит",
 		"deleteTitle": "Удалить шаблон",
-		"deleteMessage": "Вы уверены, что хотите удалить «{name}»? Это действие нельзя отменить."
+		"deleteMessage": "Вы уверены, что хотите удалить «{name}»? Это действие нельзя отменить.",
+		"loadFailedTitle": "Не удалось загрузить шаблоны",
+		"retry": "Повторить"
 	},
 	"analytics": {
 		"title": "Аналитика",
@@ -875,7 +888,8 @@
 			"cancelAria": "Cancel model download",
 			"cancel": "Отмена",
 			"depsAria": "Download dependencies for {name}",
-			"deps": "Загрузить зависимости"
+			"deps": "Загрузить зависимости",
+			"progressAria": "Загрузка модели: {percent}% завершено"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -981,7 +995,9 @@
 		"decrease": "Уменьшить",
 		"microphoneQualityPreset": "Предустановка качества микрофона",
 		"noiseSuppressionMethod": "Метод подавления шума",
-		"importNotAvailableOutsideElectron": "Импорт недоступен вне Electron"
+		"importNotAvailableOutsideElectron": "Импорт недоступен вне Electron",
+		"opensInNewTab": "Открывается в новой вкладке",
+		"transcriptionComplete": "Транскрипция завершена."
 	},
 	"help": {
 		"title": "Горячие клавиши",
@@ -1026,7 +1042,8 @@
 			"closeQuote": "Закрывающая кавычка",
 			"newLine": "Новая строка",
 			"newParagraph": "Новый абзац"
-		}
+		},
+		"description": "Горячие клавиши и шпаргалка по пунктуации."
 	},
 	"history": {
 		"title": "История",
@@ -1075,7 +1092,9 @@
 		"duration": "Длительность",
 		"model": "Модель",
 		"words": "Слова",
-		"characters": "Символы"
+		"characters": "Символы",
+		"loadFailedTitle": "Не удалось загрузить историю",
+		"retry": "Повторить"
 	},
 	"onboarding": {
 		"welcomeTitle": "Добро пожаловать в Voice Typer",
@@ -1110,7 +1129,8 @@
 		"setupCompleteSnack": "Настройка завершена! Загрузка модели...",
 		"saveFailedSnack": "Не удалось сохранить выбор",
 		"skippedSnack": "Настройка пропущена — используются значения по умолчанию",
-		"stepProgress": "Шаг {current} из {total}"
+		"stepProgress": "Шаг {current} из {total}",
+		"progressAria": "Шаг настройки {current} из {total}"
 	},
 	"titleBar": {
 		"minimize": "Свернуть",
@@ -1193,6 +1213,31 @@
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",
 		"playRecording": "Play Recording",
-		"stop": "Stop"
+		"stop": "Stop",
+		"qualityFeedback": {
+			"recording": "Запись…",
+			"voiceDetected": "Голос обнаружен",
+			"excellent": "Отличное качество",
+			"tooHigh": "Слишком громко",
+			"tooLow": "Слишком тихо",
+			"lowVolume": "Обнаружен низкий уровень громкости",
+			"waiting": "Ожидание голоса…"
+		}
+	},
+	"dashboard": {
+		"cards": {
+			"dictations": "Диктовки",
+			"chars": "Символы",
+			"duration": "Общая длительность"
+		}
+	},
+	"stats": {
+		"shareImage": {
+			"backgroundWaveform": "Фоновая форма волны",
+			"wpm": "Сл/мин",
+			"min": "мин",
+			"savedVsTyping": "сэкономлено vs набор",
+			"title": "Статистика Voice Typer"
+		}
 	}
 }

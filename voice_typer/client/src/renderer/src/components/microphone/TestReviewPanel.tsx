@@ -35,7 +35,16 @@ function _QualityScore({ value, max }: { value: number; max: number }) {
 		pct >= 80 ? "bg-green-500" : pct >= 50 ? "bg-amber-500" : "bg-red-500";
 	return (
 		<div className="flex items-center gap-2">
-			<div className="h-1.5 w-24 rounded-full bg-border overflow-hidden">
+			{/* NF-R15-8: expose as a progressbar to assistive tech so SR users
+			    can hear the score without parsing the visual bar. */}
+			<div
+				className="h-1.5 w-24 rounded-full bg-border overflow-hidden"
+				role="progressbar"
+				aria-label={t("microphoneTest.estimatedQuality")}
+				aria-valuemin={0}
+				aria-valuemax={max}
+				aria-valuenow={value}
+			>
 				<div
 					className={`h-full rounded-full transition-all ${color}`}
 					style={{ width: `${pct}%` }}

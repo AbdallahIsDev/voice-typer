@@ -141,16 +141,42 @@
 }
 
 :root {
+	/* PROD-18: Text color convention.
+           
+           The renderer exposes three text-color CSS variables that are
+           easily confused. Use them according to semantic intent, NOT by
+           raw contrast value:
+           
+           --text-primary   for headings, page titles, and any content the
+                            user MUST read (nav labels of the current page,
+                            the main CTA label, dialog titles).
+           --text-secondary for body copy, form labels, table cells — text
+                            that the user reads but is not the dominant
+                            focus of the screen.
+           --text-muted     for hints, metadata, timestamps, helper text
+                            under inputs, placeholder text. Anything the
+                            user can skip without losing the gist of the
+                            screen.
+           
+           Do NOT pick a variable based on "I want it lighter" — pick
+           based on the role the text plays. If a role is ambiguous, prefer
+           --text-secondary (the body default) and only demote to
+           --text-muted when the text is genuinely optional.
+           
+           Note: this comment documents the convention. Existing usages
+           are NOT audited or bulk-replaced; new code should follow this
+           convention, and touched files should be brought in line as a
+           follow-up. */
 	--bg: var(--background);
 	--bg-subtle: oklch(0.97 0 0);
 	--surface-page: var(--background);
 	--surface-hover: oklch(0.93 0 0);
 	--text-primary: var(--foreground);
 	/* A11Y-8: bump light-mode --text-muted from var(--muted-foreground)
-	   (oklch(0.552 0.016 285.938), ~4.0:1 contrast on white) to
-	   oklch(0.48 0 0) (~4.6:1 contrast on white) to clear WCAG AA 4.5:1.
-	   Dark mode is unaffected — its var(--muted-foreground) already
-	   has strong contrast against the dark background. */
+           (oklch(0.552 0.016 285.938), ~4.0:1 contrast on white) to
+           oklch(0.48 0 0) (~4.6:1 contrast on white) to clear WCAG AA 4.5:1.
+           Dark mode is unaffected — its var(--muted-foreground) already
+           has strong contrast against the dark background. */
 	--text-muted: oklch(0.48 0 0);
 	--text-secondary: oklch(0.45 0 0);
 	--accent: var(--primary);
@@ -211,9 +237,15 @@
 		overflow: visible;
 	}
 
-	button[data-slot="button"] {
-		border-radius: var(--radius-md);
-	}
+	/* PROD-1: removed the `button[data-slot="button"] { border-radius:
+           var(--radius-md) }` rule that was overriding shadcn's cva-driven
+           `rounded-4xl` on every Button in the app. The cva in
+           components/ui/button.tsx already controls border-radius (default
+           `rounded-4xl`); adding a CSS override here forced a different
+           radius for every variant/size and prevented per-instance
+           overrides via className. If a smaller radius is genuinely
+           desired, change `rounded-4xl` to `rounded-md` directly in
+           button.tsx — do NOT reintroduce a global selector override. */
 
 	button:not(:disabled),
 	label,

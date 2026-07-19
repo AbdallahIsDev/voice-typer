@@ -13,13 +13,19 @@ interface InfoTooltipProps {
 }
 
 export function InfoTooltip({ text }: InfoTooltipProps) {
+	// NF-R15-5: use a real <button> so keyboard + screen-reader users can
+	// focus the tooltip trigger via Tab. Radix Tooltip opens on focus by
+	// default, so no custom keydown handler is needed — Enter/Space on a
+	// native button is a no-op here (the tooltip is already open from
+	// focus). Visual styling is overridden so the button looks identical to
+	// the previous <span> (no native button border/background).
 	return (
 		<TooltipProvider delayDuration={200}>
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<span
-						className="inline-flex size-4 items-center justify-center rounded-full text-(--text-muted) shrink-0"
-						role="img"
+					<button
+						type="button"
+						className="inline-flex size-4 items-center justify-center rounded-full text-(--text-muted) shrink-0 appearance-none border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-help"
 						aria-label={t("a11y.moreInfo")}
 					>
 						<svg
@@ -46,7 +52,7 @@ export function InfoTooltip({ text }: InfoTooltipProps) {
 							/>
 							<circle cx="8" cy="11.2" r="0.6" fill="currentColor" />
 						</svg>
-					</span>
+					</button>
 				</TooltipTrigger>
 				<TooltipContent side="top" align="center" className="max-w-64">
 					{text}

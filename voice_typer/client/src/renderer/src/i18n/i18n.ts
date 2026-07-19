@@ -82,6 +82,24 @@ try {
 	// localStorage may be unavailable in some contexts (SSR, sandboxed)
 }
 
+// HIGH-32 / I18N-4: apply the RTL ``dir`` attribute on initial module
+// load.  ``setLocale()`` (below) sets ``document.documentElement.dir``
+// whenever the locale changes at runtime, but the module-load restore
+// path above only sets ``_currentLocale`` in memory — it never touched
+// the DOM.  So a user with Arabic saved who reloaded the app saw
+// ``_currentLocale === "ar"`` but ``document.documentElement.dir === "ltr"``
+// (the browser default) until they manually re-selected Arabic in
+// Settings.  Setting the dir here at module init closes the gap.
+try {
+	if (typeof document !== "undefined") {
+		document.documentElement.dir = RTL_LOCALES.has(_currentLocale)
+			? "rtl"
+			: "ltr";
+	}
+} catch {
+	// document may be unavailable in some contexts (SSR, tests)
+}
+
 // Translation map: locale -> flat key-value pairs
 const _translations: Map<Locale, Map<string, string>> = new Map();
 

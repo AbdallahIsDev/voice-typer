@@ -13,7 +13,9 @@
 		"lostConnection": "पायथन बैकएंड से कनेक्शन खो गया",
 		"retryConnection": "कनेक्शन पुनः प्रयास करें",
 		"restartingBackend": "वॉयस टाइपर बैकएंड पुनः शुरू हो रहा है…",
-		"restartingHint": "इसमें आमतौर पर कुछ सेकंड लगते हैं। तैयार होने पर सिस्टम ट्रे से डिक्टेशन फिर से शुरू होगा।"
+		"restartingHint": "इसमें आमतौर पर कुछ सेकंड लगते हैं। तैयार होने पर सिस्टम ट्रे से डिक्टेशन फिर से शुरू होगा।",
+		"goHome": "होम पर जाएँ",
+		"lostConnectionHint": "Python बैकएंड प्रतिक्रिया नहीं दे रहा है। कृपया पुनः आरंभ करें।"
 	},
 	"nav": {
 		"home": "होम",
@@ -43,7 +45,14 @@
 		"firstDictationDesc": "Voice Typer में आपका स्वागत है। डिक्टेशन के लिए कभी भी हॉटकी दबाएँ।",
 		"press": "दबाएँ",
 		"loadingTodayStatsAria": "आज के आँकड़े लोड हो रहे हैं",
-		"loadingRecentAria": "हाल की गतिविधि लोड हो रही है"
+		"loadingRecentAria": "हाल की गतिविधि लोड हो रही है",
+		"downloadingModel": "मॉडल डाउनलोड हो रहा है…",
+		"undo": "पूर्ववत करें",
+		"undoAria": "अंतिम ट्रांसक्रिप्शन पूर्ववत करें",
+		"repaste": "पुनः पेस्ट करें",
+		"repasteAria": "अंतिम ट्रांसक्रिप्शन पुनः पेस्ट करें",
+		"forceCancel": "बलपूर्वक रद्द करें",
+		"forceCancelHint": "यदि डिक्टेशन रुक गया है, तो ठीक करने के लिए बलपूर्वक रद्द करें"
 	},
 	"common": {
 		"cancel": "रद्द करें",
@@ -93,7 +102,9 @@
 		"noOtherMicrophones": "कोई अन्य माइक्रोफ़ोन उपलब्ध नहीं",
 		"use": "उपयोग करें",
 		"channels": "चैनल:",
-		"rateHz": "दर:"
+		"rateHz": "दर:",
+		"loadFailedTitle": "माइक्रोफ़ोन लोड करने में विफल",
+		"retry": "पुनः प्रयास करें"
 	},
 	"vocabulary": {
 		"title": "कस्टम शब्दावली",
@@ -177,7 +188,9 @@
 		"exactMatch": "सटीक मिलान",
 		"contains": "शामिल",
 		"deleteTitle": "टेम्पलेट हटाएं",
-		"deleteMessage": "क्या आप वाकई \"{name}\" हटाना चाहते हैं? इस क्रिया को पूर्ववत नहीं किया जा सकता।"
+		"deleteMessage": "क्या आप वाकई \"{name}\" हटाना चाहते हैं? इस क्रिया को पूर्ववत नहीं किया जा सकता।",
+		"loadFailedTitle": "टेम्पलेट लोड करने में विफल",
+		"retry": "पुनः प्रयास करें"
 	},
 	"analytics": {
 		"title": "एनालिटिक्स",
@@ -875,7 +888,8 @@
 			"cancelAria": "Cancel model download",
 			"cancel": "रद्द करें",
 			"depsAria": "Download dependencies for {name}",
-			"deps": "निर्भरताएं डाउनलोड करें"
+			"deps": "निर्भरताएं डाउनलोड करें",
+			"progressAria": "मॉडल डाउनलोड हो रहा है: {percent}% पूर्ण"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -981,7 +995,9 @@
 		"decrease": "घटाएँ",
 		"microphoneQualityPreset": "माइक्रोफ़ोन गुणवत्ता प्रीसेट",
 		"noiseSuppressionMethod": "शोर दमन विधि",
-		"importNotAvailableOutsideElectron": "Electron के बाहर आयात उपलब्ध नहीं है"
+		"importNotAvailableOutsideElectron": "Electron के बाहर आयात उपलब्ध नहीं है",
+		"opensInNewTab": "नई टैब में खुलता है",
+		"transcriptionComplete": "ट्रांसक्रिप्शन पूर्ण।"
 	},
 	"help": {
 		"title": "कीबोर्ड शॉर्टकट",
@@ -1026,7 +1042,8 @@
 			"closeQuote": "बंद उद्धरण चिह्न",
 			"newLine": "नई पंक्ति",
 			"newParagraph": "नया पैराग्राफ"
-		}
+		},
+		"description": "कीबोर्ड शॉर्टकट और विरामचिह्न सहायता पत्र।"
 	},
 	"history": {
 		"title": "इतिहास",
@@ -1075,7 +1092,9 @@
 		"duration": "अवधि",
 		"model": "मॉडल",
 		"words": "शब्द",
-		"characters": "अक्षर"
+		"characters": "अक्षर",
+		"loadFailedTitle": "इतिहास लोड करने में विफल",
+		"retry": "पुनः प्रयास करें"
 	},
 	"onboarding": {
 		"welcomeTitle": "Voice Typer में आपका स्वागत है",
@@ -1110,7 +1129,8 @@
 		"setupCompleteSnack": "सेटअप पूर्ण! आपका मॉडल लोड हो रहा है...",
 		"saveFailedSnack": "चयन सहेजने में विफल",
 		"skippedSnack": "सेटअप छोड़ा गया — डिफ़ॉल्ट का उपयोग कर रहे हैं",
-		"stepProgress": "चरण {total} में से {current}"
+		"stepProgress": "चरण {total} में से {current}",
+		"progressAria": "सेटअप चरण {current} / {total}"
 	},
 	"titleBar": {
 		"minimize": "न्यूनतम करें",
@@ -1193,6 +1213,31 @@
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",
 		"playRecording": "Play Recording",
-		"stop": "Stop"
+		"stop": "Stop",
+		"qualityFeedback": {
+			"recording": "रिकॉर्डिंग हो रही है…",
+			"voiceDetected": "आवाज़ पहचानी गई",
+			"excellent": "उत्कृष्ट गुणवत्ता",
+			"tooHigh": "आवाज़ बहुत तेज़ है",
+			"tooLow": "आवाज़ बहुत कम है",
+			"lowVolume": "कम वॉल्यूम पहचाना गया",
+			"waiting": "आवाज़ की प्रतीक्षा…"
+		}
+	},
+	"dashboard": {
+		"cards": {
+			"dictations": "डिक्टेशन",
+			"chars": "अक्षर",
+			"duration": "कुल अवधि"
+		}
+	},
+	"stats": {
+		"shareImage": {
+			"backgroundWaveform": "बैकग्राउंड वेवफ़ॉर्म",
+			"wpm": "WPM",
+			"min": "मिनट",
+			"savedVsTyping": "टाइपिंग की तुलना में बचाया",
+			"title": "Voice Typer आँकड़े"
+		}
 	}
 }

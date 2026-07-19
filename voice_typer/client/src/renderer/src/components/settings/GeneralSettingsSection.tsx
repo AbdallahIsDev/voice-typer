@@ -26,6 +26,7 @@ import {
 	type Locale,
 	SUPPORTED_LOCALES,
 	setLocale,
+	t,
 	useT,
 } from "@/i18n/i18n";
 import { SettingsSkeleton } from "./SettingsSkeleton";
@@ -41,6 +42,31 @@ const BUBBLE_BEHAVIOR_OPTIONS = [
 	{ value: "always_visible", labelKey: "settings.bubbleBehaviorAlwaysVisible" },
 	{ value: "show_on_record", labelKey: "settings.bubbleBehaviorShowOnRecord" },
 ] as const;
+
+// UX-6 / TRAY-008: build a tray-menu label dict for a locale from the
+// renderer's existing translations. Only keys the current translation
+// actually defines are included; the server merges these over its English
+// defaults, so any key we omit falls back to English rather than breaking.
+// (The renderer does not yet carry full tray-menu strings for every
+// language, so this is a progressive improvement — it localizes the terms
+// we do have, e.g. Models / Microphone, into all 8 shipped locales.)
+const TRAY_LABEL_KEY_MAP: Record<string, string> = {
+	models: "models.title",
+	microphones: "microphone.microphone",
+};
+
+function trayLabelsForLocale(_locale: Locale): Record<string, string> {
+	const labels: Record<string, string> = {};
+	for (const [trayKey, i18nKey] of Object.entries(TRAY_LABEL_KEY_MAP)) {
+		const translated = t(i18nKey);
+		// `t` returns the key itself when the translation is missing;
+		// skip those so the server keeps its English default.
+		if (translated && translated !== i18nKey) {
+			labels[trayKey] = translated;
+		}
+	}
+	return labels;
+}
 
 // Locale selector options — derived from SUPPORTED_LOCALES so adding a
 // new locale in i18n.ts automatically appears here. The labels are
@@ -126,6 +152,10 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 			label: t("settings.dragToMove"),
 			info: t("settings.dragToMoveInfo"),
 		},
+		{
+			label: t("settings.bubbleMicButton"),
+			info: t("settings.bubbleMicButtonDescription"),
+		},
 	];
 	const overlayVisible = overlayItems.some((item) =>
 		isVisible(item.label, item.info, overlaySectionTitle),
@@ -156,6 +186,9 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 		updateConfig({ bubble_draggable: checked });
 		window.bubble?.setDraggable?.(checked);
 	};
+	// UX-10: mic button toggle — only meaningful in always_visible mode.
+	const handleBubbleMicButtonChange = (checked: boolean) =>
+		updateConfig({ bubble_mic_button: checked });
 
 	return (
 		<>
@@ -220,12 +253,19 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 									} catch {
 										// localStorage may be unavailable in some contexts
 									}
-									// TRAY-008: push the locale to the Python backend so
-									// the tray menu labels also switch language.
+									// TRAY-008 / UX-6: push the locale (and any tray-menu
+									// labels the renderer can translate) to the Python
+									// backend so the tray menu localizes into this locale.
+									// `trayLabelsForLocale` only includes keys the
+									// current translation actually defines, so missing
+									// keys fall back to English on the server side.
 									try {
 										void window.python?.call({
 											type: "set_tray_locale",
-											data: { locale: v },
+											data: {
+												locale: v,
+												labels: trayLabelsForLocale(v as Locale),
+											},
 										});
 									} catch {
 										// IPC may not be available during startup
@@ -326,6 +366,22 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 								checked={config.bubble_show_on_startup ?? true}
 								onCheckedChange={handleBubbleStartupChange}
 								aria-label={t("settings.showOnAppStartup")}
+							/>
+						</SettingRow>
+					)}
+
+					{/* UX-10: mic button toggle — only visible when Always Visible is
+					    selected. Lets the user disable the clickable mic button
+					    (reverting the bubble to non-interactive). */}
+					{config.bubble_behavior === "always_visible" && (
+						<SettingRow
+							label={t("settings.bubbleMicButton")}
+							info={t("settings.bubbleMicButtonDescription")}
+						>
+							<Switch
+								checked={config.bubble_mic_button ?? true}
+								onCheckedChange={handleBubbleMicButtonChange}
+								aria-label={t("settings.bubbleMicButton")}
 							/>
 						</SettingRow>
 					)}

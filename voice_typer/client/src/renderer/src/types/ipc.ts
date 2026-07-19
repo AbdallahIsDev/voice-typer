@@ -366,6 +366,13 @@ export interface MainRendererBubble {
 	// type over-promise a silent runtime no-op.  Bubble-window-only methods
 	// remain in ``BubbleWindowBubble`` (onSetState, resizeTo).
 	moveBy?: (deltaX: number, deltaY: number) => void;
+	// UX-10: mic-button toggle. Present on the bubble-window preload;
+	// optional here so the main-window preload (which doesn't expose it)
+	// still satisfies the type. The sandboxed bubble routes through a
+	// dedicated IPC channel rather than python.call.
+	toggleDictation?: () => void;
+	// UX-10: receive bubble-relevant config pushed from the backend.
+	onConfig?: (cb: (cfg: Record<string, unknown>) => void) => () => void;
 	// Event subscriptions (bubble window → main process) — always present
 	// when the bubble window is loaded (exposed by the preload script)
 	onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void;

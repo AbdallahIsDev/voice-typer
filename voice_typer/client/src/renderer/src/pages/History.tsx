@@ -1,4 +1,5 @@
 import {
+	AlertCircleIcon,
 	ArrowDown01Icon,
 	Delete01Icon,
 	HistoryIcon,
@@ -45,6 +46,11 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	const [records, setRecords] = useState<HistoryRecord[]>(_cachedRecords);
 	const [stats, setStats] = useState<TodayStats | null>(_cachedStats);
 	const [loading, setLoading] = useState(true);
+	// NF-R10-1: surface backend-load failures to the user instead of
+	// silently masking them. The previous implementation only logged to
+	// console, leaving the user with an empty list and no indication
+	// that the backend was unreachable (vs. genuinely empty history).
+	const [loadError, setLoadError] = useState<string | null>(null);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [hasMore, setHasMore] = useState(true);
 	const [searchQuery, setSearchQuery] = useState("");
@@ -72,6 +78,10 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	const load = useCallback(
 		async (query?: string, favs?: boolean) => {
 			setLoading(true);
+			// NF-R10-1: clear any prior load error before retrying so
+			// the EmptyState swaps back to the spinner during the
+			// retry attempt.
+			setLoadError(null);
 			try {
 				const isFav = favs ?? favoritesOnlyRef.current;
 				const q = query ?? searchQueryRef.current;
@@ -109,6 +119,12 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 				markUpdated();
 			} catch (err) {
 				console.error("Failed to load history:", err);
+				// NF-R10-1: capture the error message so the render
+				// path can show a retry EmptyState instead of an
+				// ambiguous empty list.
+				setLoadError(
+					err instanceof Error ? err.message : "Failed to load history",
+				);
 			} finally {
 				setLoading(false);
 			}
@@ -416,14 +432,14 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 						}
 						className={`gap-2 ${
 							favoritesOnly
-								? "bg-amber-400/15 text-amber-400 border-amber-400/30 hover:bg-amber-400/20"
+								? "bg-amber-400/15 text-amber-700 border-amber-400/30 hover:bg-amber-400/20 dark:text-amber-400"
 								: "text-(--text-muted) hover:text-(--text-primary)"
 						}`}
 					>
 						<HugeiconsIcon
 							icon={StarIcon}
 							strokeWidth={2}
-							className={`h-4 w-4 ${favoritesOnly ? "text-amber-400" : ""}`}
+							className={`h-4 w-4 ${favoritesOnly ? "text-amber-700 dark:text-amber-400" : ""}`}
 						/>
 						{t("history.favorites")}
 					</Button>
@@ -453,6 +469,18 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 					<div className="flex min-h-full items-center justify-center py-20">
 						<Spinner />
 					</div>
+				) : loadError && records.length === 0 ? (
+					// NF-R10-1: distinguish "backend failed to load" from
+					// "history is genuinely empty" so the user knows to
+					// retry instead of being presented with the
+					// start-dictation empty state.
+					<EmptyState
+						icon={AlertCircleIcon}
+						title={t("history.loadFailedTitle")}
+						description={loadError}
+						actionLabel={t("history.retry")}
+						onAction={() => load()}
+					/>
 				) : records.length === 0 ? (
 					<EmptyState
 						icon={HistoryIcon}

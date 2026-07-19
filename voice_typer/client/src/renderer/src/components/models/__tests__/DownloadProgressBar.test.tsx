@@ -1,0 +1,96 @@
+/**
+ * FIX-16 / MDL-12 / A11Y-8: i18n aria-label test for DownloadProgressBar.
+ *
+ * The pre-fix component used a hardcoded English aria-label
+ * ("Model download progress"). After the fix the label comes from the
+ * `models.download.progressAria` i18n key, so non-English users get a
+ * localized progress-bar announcement from screen readers.
+ *
+ * The test verifies:
+ *   1. The progressbar role is preserved.
+ *   2. The aria-label matches the en.json catalog value
+ *      `models.download.progressAria` ("Model download progress").
+ *   3. Mocking `t()` to return a sentinel makes the aria-label flip to
+ *      the sentinel — proving the label is NOT a hardcoded literal.
+ *   4. The aria-valuenow/min/max attributes still reflect the `progress`
+ *      prop (regression guard for the existing behavior).
+ */
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// vi.mock is HOISTED before imports, so the mocked `t` is in place by
+// the time DownloadProgressBar imports it. We use importOriginal to
+// preserve the rest of the i18n module and only override `t` when the
+// `useSentinel` flag is set.
+let useSentinel = false;
+vi.mock("@/i18n/i18n", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@/i18n/i18n")>();
+	return {
+		...actual,
+		t: (key: string, params?: Record<string, string>) => {
+			if (useSentinel && key === "models.download.progressAria") {
+				return "SENTINEL_PROGRESS_ARIA";
+			}
+			return actual.t(key, params);
+		},
+	};
+});
+
+import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
+import { t } from "@/i18n/i18n";
+
+const baseProps = {
+	progress: 42,
+	status: "downloading",
+	isPaused: false,
+	downloadedBytes: 1024 * 500,
+	totalBytes: 1024 * 1024,
+	speedBps: 1024 * 100,
+	etaSeconds: 60,
+	onTogglePause: vi.fn(),
+	onCancel: vi.fn(),
+};
+
+describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
+	afterEach(() => {
+		cleanup();
+		useSentinel = false;
+	});
+
+	beforeEach(() => {
+		useSentinel = false;
+	});
+
+	it("renders a progressbar with role + aria-valuenow/min/max (preserved behavior)", () => {
+		render(<DownloadProgressBar {...baseProps} />);
+		const bar = screen.getByRole("progressbar");
+		expect(bar).toBeInTheDocument();
+		expect(bar).toHaveAttribute("aria-valuemin", "0");
+		expect(bar).toHaveAttribute("aria-valuemax", "100");
+		expect(bar).toHaveAttribute("aria-valuenow", "42");
+	});
+
+	it("aria-label is sourced from models.download.progressAria (matches en.json catalog value)", () => {
+		render(<DownloadProgressBar {...baseProps} />);
+		const bar = screen.getByRole("progressbar");
+		// en.json: models.download.progressAria = "Model download progress".
+		// If the component hardcoded the literal, this assertion would
+		// still pass — so we also do the sentinel test below to prove
+		// the label is NOT a literal.
+		const expected = t("models.download.progressAria");
+		expect(bar).toHaveAttribute("aria-label", expected);
+	});
+
+	it("aria-label flips to the sentinel when t() is mocked (proves no hardcoded literal)", () => {
+		useSentinel = true;
+		render(<DownloadProgressBar {...baseProps} />);
+		const bar = screen.getByRole("progressbar");
+		expect(bar).toHaveAttribute("aria-label", "SENTINEL_PROGRESS_ARIA");
+	});
+
+	it("rounds the aria-valuenow to the nearest integer", () => {
+		render(<DownloadProgressBar {...baseProps} progress={42.7} />);
+		const bar = screen.getByRole("progressbar");
+		expect(bar).toHaveAttribute("aria-valuenow", "43");
+	});
+});

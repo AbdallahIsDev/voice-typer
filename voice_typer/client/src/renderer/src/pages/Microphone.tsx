@@ -1,4 +1,5 @@
 import {
+	AlertCircleIcon,
 	Mic02Icon,
 	MicOff01Icon,
 	PlayIcon,
@@ -8,6 +9,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { LevelBar } from "@/components/feedback/LevelBar";
 import { LiveQualityFeedback } from "@/components/feedback/LiveQualityFeedback";
 import { Spinner } from "@/components/feedback/Spinner";
@@ -155,6 +157,11 @@ export default function MicrophonePage() {
 	const { agoLabel, markUpdated } = useLastUpdated();
 	const [refreshing, setRefreshing] = useState(false);
 	const [loading, setLoading] = useState(true);
+	// NF-R10-2: surface backend-load failures to the user instead of
+	// silently masking them. The previous implementation only logged to
+	// console, leaving the user with an empty mic list and no indication
+	// that the backend was unreachable (vs. genuinely no microphones).
+	const [loadError, setLoadError] = useState<string | null>(null);
 	const [testRunning, setTestRunning] = useState(false);
 	const [testCountdown, setTestCountdown] = useState(0);
 	const [testElapsed, setTestElapsed] = useState(0);
@@ -202,6 +209,10 @@ export default function MicrophonePage() {
 
 	const loadData = useCallback(async () => {
 		setLoading(true);
+		// NF-R10-2: clear any prior load error before retrying so
+		// the EmptyState swaps back to the spinner during the retry
+		// attempt.
+		setLoadError(null);
 		try {
 			const [mics, cfg] = await Promise.all([
 				call<MicrophoneDevice[]>("get_microphones"),
@@ -213,6 +224,12 @@ export default function MicrophonePage() {
 			setConfig(cfg);
 		} catch (err) {
 			console.error("Failed to load microphone data:", err);
+			// NF-R10-2: capture the error message so the render
+			// path can show a retry EmptyState instead of an
+			// ambiguous empty list.
+			setLoadError(
+				err instanceof Error ? err.message : "Failed to load microphone data",
+			);
 		} finally {
 			setLoading(false);
 			// F4: bump the "last updated" timestamp after each load attempt.
@@ -600,6 +617,27 @@ export default function MicrophonePage() {
 		);
 	}
 
+	// NF-R10-2: distinguish "backend failed to load" from "no microphones
+	// found" so the user knows to retry instead of being told to connect
+	// a microphone when the real issue is the backend is unreachable.
+	if (loadError && microphones.length === 0) {
+		return (
+			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+				<PageHeading
+					title={t("microphone.microphone")}
+					description={t("microphone.description")}
+				/>
+				<EmptyState
+					icon={AlertCircleIcon}
+					title={t("microphone.loadFailedTitle")}
+					description={loadError}
+					actionLabel={t("microphone.retry")}
+					onAction={() => loadData()}
+				/>
+			</div>
+		);
+	}
+
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
 			<PageHeading
@@ -608,8 +646,8 @@ export default function MicrophonePage() {
 			/>
 
 			{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-			    refresh button. The module-level caches survive page
-			    navigations, so we surface staleness here. */}
+                            refresh button. The module-level caches survive page
+                            navigations, so we surface staleness here. */}
 			<div className="flex justify-end pb-2">
 				<LastUpdatedIndicator
 					agoLabel={agoLabel}
@@ -699,26 +737,43 @@ export default function MicrophonePage() {
 							</Button>
 						)}
 
-						<span className="text-xs text-(--text-muted) ml-auto">
+						{/* NF-R15-2 (a11y): split the live level indicator from
+                                                    the post-test duration readout. The live level
+                                                    (rapidly fluctuating during recording) is NOT
+                                                    announced to avoid screen-reader spam; the post-test
+                                                    duration (a single, stable value) IS announced via
+                                                    aria-live="polite" so users with AT know when a test
+                                                    completes and how long it ran. */}
+						<span
+							className="text-xs text-(--text-muted) ml-auto"
+							aria-hidden={testRunning ? undefined : true}
+						>
 							{testRunning
 								? t("microphone.level", {
 										percent: String(Math.round(level * 100)),
 									})
-								: testDurationMs > 0
-									? t("microphone.duration", {
-											seconds: (testDurationMs / 1000).toFixed(1),
+								: micMonitoring
+									? t("microphone.level", {
+											percent: String(Math.round(level * 100)),
 										})
-									: micMonitoring
-										? t("microphone.level", {
-												percent: String(Math.round(level * 100)),
-											})
-										: t("microphone.monitoring")}
+									: t("microphone.monitoring")}
 						</span>
+						{!testRunning && testDurationMs > 0 && (
+							<span
+								className="text-xs text-(--text-muted) ml-auto"
+								aria-live="polite"
+								aria-atomic="true"
+							>
+								{t("microphone.duration", {
+									seconds: (testDurationMs / 1000).toFixed(1),
+								})}
+							</span>
+						)}
 					</div>
 
 					{/* Filter invalidation notice */}
 					{filtersSinceLastTest && filtersChangedSinceTest && !testRunning && (
-						<div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-500">
+						<div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-500">
 							{t("microphone.filtersChangedNotice")}
 						</div>
 					)}

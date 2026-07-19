@@ -20,6 +20,7 @@ function makeMockBubble() {
 		show: Array<() => void>;
 		hide: Array<() => void>;
 		setState: Array<(state: string) => void>;
+		config?: (cfg: Record<string, unknown>) => void;
 	} = { show: [], hide: [], setState: [] };
 	return {
 		onLevel: vi.fn(() => vi.fn()),
@@ -46,8 +47,31 @@ function makeMockBubble() {
 		hideComplete: vi.fn(),
 		resizeTo: vi.fn(),
 		moveBy: vi.fn(),
+		// UX-10: bubble config + mic-button toggle (sandboxed renderer).
+		onConfig: vi.fn((cb: (cfg: Record<string, unknown>) => void) => {
+			listeners.config = cb;
+			return () => {
+				listeners.config = undefined;
+			};
+		}),
+		toggleDictation: vi.fn(),
 		_listeners: listeners,
 	};
+}
+
+// UX-10: helper to push bubble config (simulates the backend's
+// bubble:config event). The Bubble subscribes via onConfig and shows
+// the mic button only when always_visible + both toggles are on.
+function pushBubbleConfig(cfg: Record<string, unknown>) {
+	const cb = (
+		mockBubble as unknown as {
+			_listeners: { config?: (c: Record<string, unknown>) => void };
+		}
+	)._listeners.config;
+	if (cb)
+		act(() => {
+			cb(cfg);
+		});
 }
 
 let mockBubble: ReturnType<typeof makeMockBubble>;
@@ -228,5 +252,91 @@ describe("Bubble", () => {
 
 		const output = document.querySelector('output[aria-live="polite"]');
 		expect(output?.className).toContain("animate-bubble-exit");
+	});
+
+	// ── UX-10: mic button (always_visible + enabled) ──────────────
+
+	it("does NOT show a mic button by default (no config received)", () => {
+		render(<Bubble />);
+		// Without a bubble:config push, the button must stay hidden.
+		expect(screen.queryByLabelText("Start dictation")).toBeNull();
+		expect(screen.queryByLabelText("Stop dictation")).toBeNull();
+	});
+
+	it("shows a mic button when always_visible + both toggles are on", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "always_visible",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: true,
+		});
+
+		// Default mode is "recording", so the stop affordance shows.
+		const btn = screen.getByLabelText("Stop dictation");
+		expect(btn).toBeTruthy();
+		// It is clickable (not a dead pill).
+		expect(btn.tagName).toBe("BUTTON");
+	});
+
+	it("hides the mic button when bubble_mic_button is false", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "always_visible",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: false,
+		});
+
+		expect(screen.queryByLabelText("Start dictation")).toBeNull();
+		expect(screen.queryByLabelText("Stop dictation")).toBeNull();
+	});
+
+	it("hides the mic button when bubble_behavior is show_on_record", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "show_on_record",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: true,
+		});
+
+		expect(screen.queryByLabelText("Start dictation")).toBeNull();
+		expect(screen.queryByLabelText("Stop dictation")).toBeNull();
+	});
+
+	it("clicking the mic button calls toggleDictation (UX-10 fix)", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "always_visible",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: true,
+		});
+
+		const btn = screen.getByLabelText("Stop dictation");
+		act(() => {
+			btn.click();
+		});
+
+		expect(mockBubble.toggleDictation).toHaveBeenCalledTimes(1);
+	});
+
+	it("toggles the aria label between start/stop as recording state changes", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "always_visible",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: true,
+		});
+
+		// Recording → stop affordance.
+		expect(screen.getByLabelText("Stop dictation")).toBeTruthy();
+
+		// Go idle (not recording) → start affordance.
+		setBubbleState("idle");
+		expect(screen.getByLabelText("Start dictation")).toBeTruthy();
+		expect(screen.queryByLabelText("Stop dictation")).toBeNull();
 	});
 });

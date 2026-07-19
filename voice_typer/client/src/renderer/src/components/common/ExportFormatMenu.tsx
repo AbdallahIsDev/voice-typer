@@ -1,104 +1,72 @@
 import { Download01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { t } from "@/i18n/i18n";
 
 interface ExportFormatMenuProps {
 	onExport: (format: "json" | "csv") => void | Promise<void>;
 	disabled?: boolean;
 }
+
+// A11Y-7: migrated from a hand-rolled menu to the shared Radix
+// DropdownMenu wrapper (`ui/dropdown-menu.tsx`). Radix provides the
+// WAI-ARIA Menu Button pattern out of the box: role="menu"/"menuitem",
+// aria-haspopup/aria-expanded/aria-controls on the trigger, roving
+// arrow-key navigation (with wrapping), Home/End jumps, Escape closes +
+// restores focus to the trigger, and Tab closes the menu. On open, Radix
+// already moves focus to the first menuitem, so no extra handler is needed.
 export default function ExportFormatMenu({
 	onExport,
 	disabled,
 }: ExportFormatMenuProps) {
-	const [show, setShow] = useState(false);
-	const menuRef = useRef<HTMLDivElement>(null);
-	const btnRef = useRef<HTMLButtonElement>(null);
-
-	// Close on click outside
-	useEffect(() => {
-		if (!show) return;
-		const close = (e: MouseEvent) => {
-			if (
-				menuRef.current &&
-				!menuRef.current.contains(e.target as Node) &&
-				btnRef.current &&
-				!btnRef.current.contains(e.target as Node)
-			) {
-				setShow(false);
-			}
-		};
-		// Use a microtask delay so the current click that opened the menu
-		// doesn't immediately close it
-		const id = setTimeout(() => document.addEventListener("click", close), 0);
-		return () => {
-			clearTimeout(id);
-			document.removeEventListener("click", close);
-		};
-	}, [show]);
-
-	const handleToggle = () => setShow((prev) => !prev);
-
-	const handleExportJson = () => {
-		setShow(false);
-		onExport("json");
-	};
-
-	const handleExportCsv = () => {
-		setShow(false);
-		onExport("csv");
-	};
-
 	return (
-		<div className="relative">
-			<Button
-				ref={btnRef}
-				variant="outline"
-				size="sm"
-				onClick={handleToggle}
-				disabled={disabled}
-				// FIX: match the muted-text / white-on-hover style of the
-				// sibling buttons in the same action row (Favorites, Clear
-				// All, Add Word, etc.).  Without this, the outline variant
-				// inherits the default bright --text-primary color which
-				// looks out of place next to the muted siblings.
-				className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-				aria-haspopup="menu"
-				aria-expanded={show}
-			>
-				<HugeiconsIcon
-					icon={Download01Icon}
-					strokeWidth={2}
-					className="h-4 w-4"
-				/>
-				{t("exportFormat.export")}
-			</Button>
-			{show && (
-				<div
-					ref={menuRef}
-					role="menu"
-					aria-label={t("a11y.exportFormat")}
-					className="absolute right-0 top-full mt-1 z-10 w-30 rounded-xl border border-border bg-(--bg-subtle) shadow-lg overflow-hidden"
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					variant="outline"
+					size="sm"
+					disabled={disabled}
+					// Match the muted-text / white-on-hover style of the
+					// sibling buttons in the same action row (Favorites, Clear
+					// All, Add Word, etc.). Without this, the outline variant
+					// inherits the default bright --text-primary color which
+					// looks out of place next to the muted siblings.
+					className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 				>
-					<button
-						type="button"
-						role="menuitem"
-						onClick={handleExportJson}
-						className="w-full px-3 py-2 text-xs text-left text-(--text-primary) hover:bg-(--surface-hover) transition-colors"
-					>
-						{t("exportFormat.json")}
-					</button>
-					<button
-						type="button"
-						role="menuitem"
-						onClick={handleExportCsv}
-						className="w-full px-3 py-2 text-xs text-left text-(--text-primary) hover:bg-(--surface-hover) transition-colors"
-					>
-						{t("exportFormat.csv")}
-					</button>
-				</div>
-			)}
-		</div>
+					<HugeiconsIcon
+						icon={Download01Icon}
+						strokeWidth={2}
+						className="h-4 w-4"
+					/>
+					{t("exportFormat.export")}
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="end"
+				aria-label={t("a11y.exportFormat")}
+				// Preserve the pre-migration visual style (right-aligned,
+				// narrow, rounded-xl popover on the subtle background).
+				className="w-30 min-w-0 overflow-hidden rounded-xl border border-border bg-(--bg-subtle) p-0 shadow-lg ring-0"
+			>
+				<DropdownMenuItem
+					onSelect={() => onExport("json")}
+					className="w-full rounded-none px-3 py-2 text-left text-xs text-(--text-primary) transition-colors hover:bg-(--surface-hover) focus:bg-(--surface-hover) focus:text-(--text-primary)"
+				>
+					{t("exportFormat.json")}
+				</DropdownMenuItem>
+				<DropdownMenuItem
+					onSelect={() => onExport("csv")}
+					className="w-full rounded-none px-3 py-2 text-left text-xs text-(--text-primary) transition-colors hover:bg-(--surface-hover) focus:bg-(--surface-hover) focus:text-(--text-primary)"
+				>
+					{t("exportFormat.csv")}
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }

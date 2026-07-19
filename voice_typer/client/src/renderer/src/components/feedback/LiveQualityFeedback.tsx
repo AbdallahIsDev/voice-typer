@@ -1,3 +1,4 @@
+import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
 interface LiveQualityFeedbackProps {
@@ -29,12 +30,24 @@ export function LiveQualityFeedback({
 		return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 	};
 
+	// A11Y-5: live region announces quality warnings to screen-reader users.
+	// aria-atomic="true" ensures the entire message is re-read on each change
+	// (otherwise SR may only speak the diff). The timer is intentionally NOT
+	// wrapped in role="timer" / aria-live because rapid per-second updates
+	// would spam the SR broadcast channel — the polite status region already
+	// announces meaningful state transitions (recording, voice detected, warnings).
 	return (
-		<div className="mt-2 space-y-2">
-			{/* Timer */}
+		<div
+			className="mt-2 space-y-2"
+			role="status"
+			aria-live="polite"
+			aria-atomic="true"
+		>
+			{/* Timer — visual-only; rapid updates would spam SR if live */}
 			<div className="text-center">
 				<span className="text-xs font-mono tabular-nums text-(--text-muted)">
-					Recording... {formatTime(elapsedSeconds)} / {formatTime(totalSeconds)}
+					{t("microphoneTest.qualityFeedback.recording")}{" "}
+					{formatTime(elapsedSeconds)} / {formatTime(totalSeconds)}
 				</span>
 			</div>
 
@@ -49,23 +62,32 @@ export function LiveQualityFeedback({
 								: "bg-(--text-muted)/30",
 						)}
 					/>
-					{hasVoice ? "✓ Voice detected" : "Waiting for voice..."}
+					{hasVoice
+						? t("microphoneTest.qualityFeedback.voiceDetected")
+						: t("microphoneTest.qualityFeedback.waiting")}
 				</span>
 
-				{/* Quality indicator */}
+				{/* Quality indicator — NF-R15-11: bumped text-amber-500 → text-amber-700
+				    and text-green-500 → text-emerald-700 for WCAG AA contrast. */}
 				{hasVoice && !tooLoud && (
-					<span className="text-green-500">Quality: Excellent</span>
+					<span className="text-emerald-700 dark:text-emerald-400">
+						{t("microphoneTest.qualityFeedback.excellent")}
+					</span>
 				)}
 				{hasVoice && tooLoud && (
-					<span className="text-amber-500">
-						⚠ Volume too high (clipping risk)
+					<span className="text-amber-700 dark:text-amber-400">
+						{t("microphoneTest.qualityFeedback.tooHigh")}
 					</span>
 				)}
 				{volumeVeryLow && !hasVoice && (
-					<span className="text-amber-500">⚠ Volume too low</span>
+					<span className="text-amber-700 dark:text-amber-400">
+						{t("microphoneTest.qualityFeedback.tooLow")}
+					</span>
 				)}
 				{volumeLow && !hasVoice && (
-					<span className="text-amber-500">⚠ Low volume — speak up</span>
+					<span className="text-amber-700 dark:text-amber-400">
+						{t("microphoneTest.qualityFeedback.lowVolume")}
+					</span>
 				)}
 			</div>
 		</div>

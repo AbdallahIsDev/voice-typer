@@ -1,5 +1,6 @@
 import {
 	Add01Icon,
+	AlertCircleIcon,
 	Delete01Icon,
 	File02Icon,
 	PencilEdit02Icon,
@@ -84,6 +85,14 @@ function loadTemplatesFromLocalStorage(): Template[] {
  * NEW-UX-008: load templates from the Python backend.  Falls back to
  * localStorage on IPC failure (e.g. backend not yet started) so the
  * page remains usable during startup.
+ *
+ * NF-R10-8: previously this function returned `[]` for BOTH "no
+ * templates exist" (valid empty array from backend) AND "the backend
+ * returned malformed data" (null/undefined result, or a `templates`
+ * field that wasn't an array). That collapsed two very different
+ * states into one empty list, hiding genuine load failures from the
+ * user. Now we throw on genuine failure and only return `[]` when the
+ * backend explicitly reported an empty (but valid) template list.
  */
 async function loadTemplatesFromBackend(
 	callFn: <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>,
@@ -94,7 +103,15 @@ async function loadTemplatesFromBackend(
 	// The IPC layer may return either { templates: [...] } or a bare
 	// array — accept both for forward/backward compat.
 	const arr = Array.isArray(result) ? result : result?.templates;
-	if (!Array.isArray(arr)) return [];
+	if (!Array.isArray(arr)) {
+		// Genuine failure: the backend returned a non-array shape (null,
+		// undefined, or a malformed object). Distinguish from a valid
+		// empty list (arr === []) so the caller can surface a load error
+		// instead of treating this as "no templates exist".
+		throw new Error(
+			"Backend returned malformed templates payload (expected array)",
+		);
+	}
 	return arr.map((t: Partial<Template>) => ({
 		trigger: _sanitizeTemplateField(t.trigger),
 		output: _sanitizeTemplateField(t.output),
@@ -178,6 +195,12 @@ export default function TemplatesPage() {
 	const { showSnack } = useSnackbar();
 	const [templates, setTemplates] = useState<TemplateRow[]>([]);
 	const [loading, setLoading] = useState(true);
+	// NF-R10-8: surface backend-load failures (IPC error or malformed
+	// payload) to the user instead of silently falling back to an
+	// empty list. Distinguishes "no templates exist" (valid empty
+	// array from backend) from "load failed" (backend unreachable or
+	// returned garbage).
+	const [loadError, setLoadError] = useState<string | null>(null);
 	const [showDialog, setShowDialog] = useState(false);
 	const [editingTemplate, setEditingTemplate] = useState<TemplateRow | null>(
 		null,
@@ -192,9 +215,21 @@ export default function TemplatesPage() {
 	// On first run after upgrade, if the backend has no templates but
 	// localStorage does, push the localStorage data to the backend so the
 	// user doesn't lose their pre-existing templates.
+	//
+	// NF-R10-8: distinguish "no templates exist" (valid empty array
+	// from backend) from "load failed" (backend unreachable or
+	// returned malformed data). If the backend IPC fails AND the
+	// localStorage fallback is also empty, surface a load error so
+	// the user can retry instead of being presented with the
+	// "create your first template" empty state.
 	const loadRows = useCallback(async () => {
+		setLoading(true);
+		// Clear any prior load error before retrying so the EmptyState
+		// swaps back to the spinner during the retry attempt.
+		setLoadError(null);
 		try {
 			let backendTemplates: Template[] = [];
+			let backendFailed = false;
 			try {
 				backendTemplates = await loadTemplatesFromBackend(call);
 			} catch (err) {
@@ -205,6 +240,7 @@ export default function TemplatesPage() {
 					"get_templates IPC failed, falling back to localStorage",
 					err,
 				);
+				backendFailed = true;
 				backendTemplates = loadTemplatesFromLocalStorage();
 			}
 
@@ -238,9 +274,21 @@ export default function TemplatesPage() {
 			}
 
 			setTemplates(toRows(backendTemplates));
+			// NF-R10-8: if the backend failed AND we couldn't recover
+			// from localStorage (or migration), surface a load error
+			// so the user knows to retry. Otherwise the empty list
+			// would be indistinguishable from "no templates exist".
+			if (backendFailed && backendTemplates.length === 0) {
+				setLoadError(
+					"Failed to load templates from the backend. Check your connection and try again.",
+				);
+			}
 		} catch (err) {
 			console.error("Failed to load templates", err);
 			setTemplates([]);
+			setLoadError(
+				err instanceof Error ? err.message : "Failed to load templates",
+			);
 		} finally {
 			setLoading(false);
 		}
@@ -423,6 +471,31 @@ export default function TemplatesPage() {
 		);
 	}
 
+	// NF-R10-8: distinguish "no templates exist" (valid empty array from
+	// backend) from "load failed" (backend unreachable or returned
+	// malformed data). When the load genuinely failed AND we have no
+	// templates to show (including from localStorage fallback), surface
+	// a retry EmptyState instead of the "create your first template"
+	// empty state — the latter is misleading when the real issue is a
+	// backend connectivity problem.
+	if (loadError && templates.length === 0) {
+		return (
+			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
+				<PageHeading
+					title={t("templates.title")}
+					description={t("templates.description")}
+				/>
+				<EmptyState
+					icon={AlertCircleIcon}
+					title={t("templates.loadFailedTitle")}
+					description={loadError}
+					actionLabel={t("templates.retry")}
+					onAction={() => loadRows()}
+				/>
+			</div>
+		);
+	}
+
 	return (
 		<>
 			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6">
@@ -599,7 +672,10 @@ export default function TemplatesPage() {
 							{t("templates.matchMode")}
 						</span>
 						<Select value={matchMode} onValueChange={handleMatchModeChange}>
-							<SelectTrigger className="w-full">
+							<SelectTrigger
+								className="w-full"
+								aria-label={t("templates.matchMode")}
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>

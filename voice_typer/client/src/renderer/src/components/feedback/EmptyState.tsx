@@ -33,11 +33,16 @@ export function EmptyState({
 			<HugeiconsIcon
 				icon={_icon}
 				strokeWidth={2}
-				className="h-10 w-10 text-(--text-muted) opacity-30"
+				// NF-R15-16: opacity-50 (up from 30) so the icon passes WCAG
+				// 1.4.11 non-text contrast (3:1) against typical backgrounds.
+				className="h-10 w-10 text-(--text-muted) opacity-50"
 			/>
 			<p className="text-sm text-(--text-muted)">{title}</p>
+			{/* NF-R15-16: dropped opacity-70 — text-(--text-muted) is already
+			    a low-contrast token, and stacking opacity on top pushed the
+			    effective contrast below WCAG AA for body text. */}
 			{description && (
-				<p className="text-xs text-(--text-muted) opacity-70">{description}</p>
+				<p className="text-xs text-(--text-muted)">{description}</p>
 			)}
 			{children}
 			{actionLabel && onAction && (

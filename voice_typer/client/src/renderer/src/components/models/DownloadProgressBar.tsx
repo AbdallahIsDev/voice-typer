@@ -70,10 +70,14 @@ export function DownloadProgressBar({
 			<div
 				className="h-1.5 w-full rounded-full bg-border overflow-hidden"
 				role="progressbar"
-				aria-label="Model download progress"
+				aria-label={t("models.download.progressAria")}
 				aria-valuemin={0}
 				aria-valuemax={100}
-				aria-valuenow={Math.round(progress)}
+				// NF-R15-17: throttle aria-valuenow to the nearest 10% so screen
+				// readers don't broadcast a stream of percentage updates every
+				// frame (the visual bar still updates smoothly via the width
+				// style below).
+				aria-valuenow={Math.round(progress / 10) * 10}
 			>
 				<div
 					className={`h-full rounded-full transition-all duration-300 ${

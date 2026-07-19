@@ -13,7 +13,9 @@
 		"lostConnection": "تم فقدان الاتصال بالمحرك الخلفي لـ Python",
 		"retryConnection": "إعادة محاولة الاتصال",
 		"restartingBackend": "جاري إعادة تشغيل المحرك الخلفي لـ Voice Typer…",
-		"restartingHint": "عادة ما يستغرق ذلك بضع ثوانٍ. سيستأنف الإملاء من علبة النظام حالما يصبح جاهزًا."
+		"restartingHint": "عادة ما يستغرق ذلك بضع ثوانٍ. سيستأنف الإملاء من علبة النظام حالما يصبح جاهزًا.",
+		"goHome": "الذهاب إلى الرئيسية",
+		"lostConnectionHint": "توقّف الخادم عن الاستجابة. حاول إعادة التشغيل."
 	},
 	"nav": {
 		"home": "الرئيسية",
@@ -43,7 +45,14 @@
 		"firstDictationDesc": "مرحبًا بك في Voice Typer. اضغط مفتاح الاختصار في أي وقت للإملاء.",
 		"press": "اضغط",
 		"loadingTodayStatsAria": "جارٍ تحميل إحصائيات اليوم",
-		"loadingRecentAria": "جارٍ تحميل النشاط الأخير"
+		"loadingRecentAria": "جارٍ تحميل النشاط الأخير",
+		"downloadingModel": "جارٍ تنزيل النموذج…",
+		"undo": "تراجع",
+		"undoAria": "التراجع عن آخر تدوين",
+		"repaste": "إعادة اللصق",
+		"repasteAria": "إعادة لصق آخر تدوين",
+		"forceCancel": "إلغاء إجباري",
+		"forceCancelHint": "إذا تعلّق التدوين، استخدم الإلغاء الإجباري للاستعادة"
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -93,7 +102,9 @@
 		"noOtherMicrophones": "لا تتوفر ميكروفونات أخرى",
 		"use": "استخدام",
 		"channels": "القنوات:",
-		"rateHz": "المعدل:"
+		"rateHz": "المعدل:",
+		"loadFailedTitle": "تعذّر تحميل الميكروفونات",
+		"retry": "إعادة المحاولة"
 	},
 	"vocabulary": {
 		"title": "المفردات المخصصة",
@@ -177,7 +188,9 @@
 		"exactMatch": "تطابق تام",
 		"contains": "يحتوي",
 		"deleteTitle": "حذف القالب",
-		"deleteMessage": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء."
+		"deleteMessage": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء.",
+		"loadFailedTitle": "تعذّر تحميل القوالب",
+		"retry": "إعادة المحاولة"
 	},
 	"analytics": {
 		"title": "تحليلات",
@@ -875,7 +888,8 @@
 			"cancelAria": "إلغاء تحميل النموذج",
 			"cancel": "إلغاء",
 			"depsAria": "تحميل التبعيات لـ {name}",
-			"deps": "تحميل التبعيات"
+			"deps": "تحميل التبعيات",
+			"progressAria": "تنزيل النموذج: {percent}% مكتمل"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -981,7 +995,9 @@
 		"decrease": "تقليل",
 		"microphoneQualityPreset": "إعداد جودة الميكروفون",
 		"noiseSuppressionMethod": "طريقة قمع الضوضاء",
-		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron"
+		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron",
+		"opensInNewTab": "يفتح في علامة تبويب جديدة",
+		"transcriptionComplete": "اكتمل التدوين."
 	},
 	"help": {
 		"title": "اختصارات لوحة المفاتيح",
@@ -1026,7 +1042,8 @@
 			"closeQuote": "علامة اقتباس مغلقة",
 			"newLine": "سطر جديد",
 			"newParagraph": "فقرة جديدة"
-		}
+		},
+		"description": "اختصارات لوحة المفاتيح وورقة علامات الترقيم."
 	},
 	"history": {
 		"title": "السجل",
@@ -1075,7 +1092,9 @@
 		"duration": "المدة",
 		"model": "النموذج",
 		"words": "الكلمات",
-		"characters": "الأحرف"
+		"characters": "الأحرف",
+		"loadFailedTitle": "تعذّر تحميل السجل",
+		"retry": "إعادة المحاولة"
 	},
 	"onboarding": {
 		"welcomeTitle": "مرحبًا بك في Voice Typer",
@@ -1110,7 +1129,8 @@
 		"setupCompleteSnack": "اكتمل الإعداد! جاري تحميل النموذج...",
 		"saveFailedSnack": "فشل حفظ الاختيار",
 		"skippedSnack": "تم تخطي الإعداد — استخدام الإعدادات الافتراضية",
-		"stepProgress": "الخطوة {current} من {total}"
+		"stepProgress": "الخطوة {current} من {total}",
+		"progressAria": "خطوة الإعداد {current} من {total}"
 	},
 	"titleBar": {
 		"minimize": "تصغير",
@@ -1193,6 +1213,31 @@
 		"playEnhanced": "تشغيل المُحسَّن",
 		"playOriginal": "تشغيل الأصلي",
 		"playRecording": "تشغيل التسجيل",
-		"stop": "إيقاف"
+		"stop": "إيقاف",
+		"qualityFeedback": {
+			"recording": "جارٍ التسجيل…",
+			"voiceDetected": "تم اكتشاف الصوت",
+			"excellent": "جودة ممتازة",
+			"tooHigh": "الصوت مرتفع جدًا",
+			"tooLow": "الصوت منخفض جدًا",
+			"lowVolume": "تم اكتشاف صوت منخفض",
+			"waiting": "في انتظار الصوت…"
+		}
+	},
+	"dashboard": {
+		"cards": {
+			"dictations": "التدوينات",
+			"chars": "الأحرف",
+			"duration": "المدة الإجمالية"
+		}
+	},
+	"stats": {
+		"shareImage": {
+			"backgroundWaveform": "موجة خلفية",
+			"wpm": "ك/د",
+			"min": "دقيقة",
+			"savedVsTyping": "موفّر مقابل الكتابة",
+			"title": "إحصائيات Voice Typer"
+		}
 	}
 }

@@ -115,21 +115,21 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 				case "onboarding_start":
 					return Promise.resolve({
 						step: 0,
-						total_steps: 5,
+						total_steps: 6,
 						step_name: "welcome",
 					});
 				case "onboarding_next_step":
-					currentStep = Math.min(currentStep + 1, 4);
+					currentStep = Math.min(currentStep + 1, 5);
 					return Promise.resolve({
 						step: currentStep,
-						total_steps: 5,
+						total_steps: 6,
 						step_name: `step-${currentStep}`,
 					});
 				case "onboarding_prev_step":
 					currentStep = Math.max(currentStep - 1, 0);
 					return Promise.resolve({
 						step: currentStep,
-						total_steps: 5,
+						total_steps: 6,
 						step_name: `step-${currentStep}`,
 					});
 				case "get_config":
@@ -197,10 +197,11 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 			expect(screen.getByText("Welcome to Voice Typer")).toBeTruthy();
 		});
 
-		// Advance through the wizard to step 4 (Complete / Summary).
-		// Click Continue four times; each click calls onboarding_next_step
-		// (mocked to advance step: 0 → 1 → 2 → 3 → 4).
-		for (let i = 0; i < 4; i++) {
+		// Advance through the wizard to the final Done step. The wizard is
+		// now a 6-step flow (Welcome 0, Mic 1, Permissions 2, Hotkey 3,
+		// Model 4, Done 5), so click Continue five times to reach the
+		// "Get Started" button on the Done step.
+		for (let i = 0; i < 5; i++) {
 			const continueBtn = await screen.findByRole("button", {
 				name: "Continue",
 			});
@@ -245,7 +246,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 				case "onboarding_start":
 					return Promise.resolve({
 						step: 0,
-						total_steps: 5,
+						total_steps: 6,
 						step_name: "welcome",
 					});
 				case "onboarding_next_step": {
@@ -260,11 +261,11 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 							),
 							10,
 						) + 1,
-						4,
+						5,
 					);
 					return Promise.resolve({
 						step: next,
-						total_steps: 5,
+						total_steps: 6,
 						step_name: `step-${next}`,
 					});
 				}

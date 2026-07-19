@@ -69,9 +69,19 @@ export default function App() {
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
 			if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-				const active = document.activeElement;
+				const active = document.activeElement as HTMLElement | null;
 				const tag = active?.tagName?.toLowerCase();
-				if (tag === "input" || tag === "textarea" || tag === "select") return;
+				// UX-25: also skip contentEditable elements (mirror the
+				// Ctrl+B / Ctrl+, / Ctrl+H listener at the bottom of this
+				// file) so "?" typed inside a rich-text editor doesn't pop
+				// the help overlay mid-composition.
+				if (
+					tag === "input" ||
+					tag === "textarea" ||
+					tag === "select" ||
+					active?.isContentEditable === true
+				)
+					return;
 				e.preventDefault();
 				setShowHelpOverlay(true);
 			} else if (e.key === "Escape" && showHelpOverlay) {
@@ -347,6 +357,18 @@ export default function App() {
 		}
 	});
 
+	// NF-R10-5: Track the model download progress while the app is
+	// in the "connecting" state so the connecting screen can show a
+	// 3-step indicator (Starting Python → Loading model → Ready)
+	// instead of a static spinner with no progress feedback.
+	const [connectingProgress, setConnectingProgress] = useState<number | null>(
+		null,
+	);
+	usePythonEvent("download_progress", (data) => {
+		const progress = (data as Record<string, unknown> | undefined)?.progress;
+		if (typeof progress === "number") setConnectingProgress(progress);
+	});
+
 	// ── Sidebar toggle handler ──────────────────────────────────────
 	const handleToggleSidebar = () => setSidebarCollapsed((c) => !c);
 
@@ -373,6 +395,18 @@ export default function App() {
 			// non-fatal — config will be re-read on next mount
 		}
 	}, [navigate, call, reloadThemeFromConfig]);
+
+	// UX-24: derive the help-overlay's dictation / re-paste hotkey
+	// labels from the live config so they stay in sync with the
+	// user's actual hotkey (instead of always showing "Caps Lock (or
+	// your hotkey)" / "Ctrl+Alt+V"). Other shortcuts in the overlay
+	// (Ctrl+B, Ctrl+,, Ctrl+H, Tab, Space, Enter, Ctrl+Plus/Minus, ?,
+	// Alt+Left/Right) are NOT user-remappable, so they remain as
+	// static t("help.keys.*") values.
+	const formatHotkey = (h: string): string =>
+		h === "<caps_lock>" ? "Caps Lock" : h.replace(/[<>]/g, "").toUpperCase();
+	const dictationLabel = formatHotkey(config?.hotkey ?? "<f2>");
+	const repasteLabel = formatHotkey(config?.repaste_hotkey ?? "<ctrl>+<alt>+v");
 
 	const renderPage = () => {
 		switch (currentPage) {
@@ -420,6 +454,11 @@ export default function App() {
 						<p className="text-xs text-(--text-muted)">
 							Unknown page: {String(currentPage)}
 						</p>
+						{/* UX-19: recovery action so the user is not stuck on
+						    a dead-end screen — bounces them back to home. */}
+						<Button variant="default" onClick={() => navigate("home")}>
+							{t("app.goHome")}
+						</Button>
 					</div>
 				);
 		}
@@ -482,6 +521,27 @@ export default function App() {
 										<p className="text-sm font-medium text-(--text-primary)">
 											{t("app.startingBackend")}
 										</p>
+										{/* NF-R10-5: 3-step progress indicator with
+										    dynamic state derived from the
+										    `download_progress` push events. Each step
+										    shows a checkmark once it completes. */}
+										<ol className="text-xs text-(--text-muted) max-w-md space-y-1 list-none">
+											<li>
+												{connectingProgress !== null ? "✓" : "①"} Starting
+												Python
+											</li>
+											<li>
+												{connectingProgress !== null &&
+												connectingProgress >= 100
+													? "✓"
+													: "②"}{" "}
+												Loading model
+												{connectingProgress !== null && connectingProgress < 100
+													? ` (${Math.round(connectingProgress)}%)`
+													: ""}
+											</li>
+											<li>{"③"} Ready</li>
+										</ol>
 										<p className="text-xs text-(--text-muted) max-w-md">
 											{t("app.firstLaunchHint")}
 										</p>
@@ -510,6 +570,13 @@ export default function App() {
 									<p className="text-sm text-destructive">
 										{t("app.lostConnection")}
 									</p>
+									{/* NF-R10-6: surface the actual error reason when
+									    available (e.g. "Python crashed: exit code 137")
+									    so the user can act on it instead of seeing a
+									    generic "lost connection" message. */}
+									<p className="text-xs text-(--text-muted) max-w-md">
+										{lastError ?? t("app.lostConnectionHint")}
+									</p>
 									<Button
 										variant="outline"
 										size="sm"
@@ -531,20 +598,23 @@ export default function App() {
 					open={showHelpOverlay}
 					onClose={() => setShowHelpOverlay(false)}
 					title={t("help.title")}
+					// NF-R15-13: aria-describedby — gives screen readers a
+					// brief hint about what the dialog is for.
+					description={t("help.description")}
 					size="sm"
 					className="w-110"
 				>
-					<div className="space-y-2 text-sm">
+					<ul className="space-y-2 text-sm">
 						{[
 							{
-								keys: t("help.keys.dictation"),
+								keys: dictationLabel,
 								desc: t("help.dictation"),
 							},
 							{
 								keys: t("help.keys.cancel"),
 								desc: t("help.cancel"),
 							},
-							{ keys: t("help.keys.repaste"), desc: t("help.repaste") },
+							{ keys: repasteLabel, desc: t("help.repaste") },
 							{
 								keys: t("help.keys.toggleSidebar"),
 								desc: t("help.toggleSidebar"),
@@ -570,7 +640,7 @@ export default function App() {
 								desc: t("help.navBack"),
 							},
 						].map((shortcut) => (
-							<div
+							<li
 								key={shortcut.keys}
 								className="flex items-center justify-between gap-4"
 							>
@@ -578,9 +648,9 @@ export default function App() {
 								<kbd className="rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)">
 									{shortcut.keys}
 								</kbd>
-							</div>
+							</li>
 						))}
-					</div>
+					</ul>
 					{/* NEW-UX-026: Punctuation cheat sheet —
                                             say these words during dictation to
                                             insert the matching punctuation. */}
@@ -594,7 +664,7 @@ export default function App() {
           NEW-A11Y-002: NVDA/JAWS/VoiceOver users press F2, hear nothing,
           don't know if recording started.  This aria-live region announces
           state transitions so screen reader users know what's happening. */}
-				<div aria-live="polite" className="sr-only">
+				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
 					{recordingState === "transcribing" ? t("a11y.transcribingAudio") : ""}
 					{recordingState === "idle" ? t("a11y.ready") : ""}

@@ -1,3 +1,4 @@
+import { getLocale, isRtlLocale, type Locale, t } from "@/i18n/i18n";
 import type { ShareStats } from "@/types/stats";
 
 interface StatsShareImageProps {
@@ -19,6 +20,11 @@ interface StatsShareImageProps {
  *
  * To edit the design in the future: modify the JSX/CSS below.
  * The layout, colors, typography, and waveform are all here.
+ *
+ * NF-R16-6: all visible strings are localized via `t()` so the share
+ * image renders in the user's chosen UI language. The root container
+ * also flips to `direction: rtl` for right-to-left locales (Arabic)
+ * so the layout reads correctly when captured.
  */
 const WAVE_BAR_HEIGHTS = [
 	28, 42, 38, 55, 46, 62, 50, 38, 44, 58, 48, 34, 40, 56, 52, 36, 30, 48, 60,
@@ -32,6 +38,8 @@ const WAVE_BARS = WAVE_BAR_HEIGHTS.map((h, idx) => ({
 }));
 
 export function StatsShareImage({ stats }: StatsShareImageProps) {
+	const locale: Locale = getLocale();
+	const isRtl = isRtlLocale(locale);
 	return (
 		<div
 			style={{
@@ -41,6 +49,7 @@ export function StatsShareImage({ stats }: StatsShareImageProps) {
 				overflow: "hidden",
 				fontFamily:
 					"'Geist Variable', 'Inter', system-ui, -apple-system, sans-serif",
+				direction: isRtl ? "rtl" : "ltr",
 			}}
 		>
 			{/* ── Background gradient ──────────────────────────────── */}
@@ -68,7 +77,7 @@ export function StatsShareImage({ stats }: StatsShareImageProps) {
 					opacity: 0.15,
 				}}
 			>
-				<title>Background waveform</title>
+				<title>{t("stats.shareImage.backgroundWaveform")}</title>
 				<defs>
 					<linearGradient id="waveGrad" x1="0" y1="0" x2="1" y2="0">
 						<stop offset="0%" stopColor="#8b5cf6" />
@@ -142,7 +151,7 @@ export function StatsShareImage({ stats }: StatsShareImageProps) {
 								marginLeft: "8px",
 							}}
 						>
-							WPM
+							{t("stats.shareImage.wpm")}
 						</span>
 					</div>
 					<div
@@ -189,7 +198,7 @@ export function StatsShareImage({ stats }: StatsShareImageProps) {
 									marginLeft: "4px",
 								}}
 							>
-								min
+								{t("stats.shareImage.min")}
 							</span>
 						</div>
 						<div
@@ -199,7 +208,7 @@ export function StatsShareImage({ stats }: StatsShareImageProps) {
 								fontWeight: 500,
 							}}
 						>
-							saved vs typing
+							{t("stats.shareImage.savedVsTyping")}
 						</div>
 					</div>
 
@@ -250,7 +259,7 @@ export function StatsShareImage({ stats }: StatsShareImageProps) {
 						paddingBottom: "24px",
 					}}
 				>
-					Voice Typer Stats
+					{t("stats.shareImage.title")}
 				</div>
 			</div>
 		</div>

@@ -41,6 +41,13 @@ export function KeyringStatusBadge({
 	const backend = status?.backend ?? null;
 	const reason = status?.reason ?? null;
 
+	// NF-R15-5: use a real <button> (with appearance-none to look like the
+	// previous span) so keyboard + screen-reader users can focus the badge
+	// via Tab. Radix Tooltip opens on focus by default, exposing the
+	// status text without a mouse interaction.
+	const buttonBaseClass =
+		"inline-flex items-center appearance-none border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-help";
+
 	if (available) {
 		const tooltipText = backend
 			? t("settings.keyring.availableWithBackend", { backend })
@@ -49,13 +56,13 @@ export function KeyringStatusBadge({
 			<TooltipProvider delayDuration={200}>
 				<Tooltip>
 					<TooltipTrigger asChild>
-						<span
+						<button
+							type="button"
 							className={
 								compact
-									? "inline-flex items-center text-emerald-600 dark:text-emerald-400"
-									: "inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300"
+									? `${buttonBaseClass} text-emerald-600 dark:text-emerald-400 rounded-full`
+									: `${buttonBaseClass} gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300`
 							}
-							role="img"
 							aria-label={tooltipText}
 						>
 							<HugeiconsIcon
@@ -64,7 +71,7 @@ export function KeyringStatusBadge({
 								className="h-3.5 w-3.5"
 							/>
 							{!compact && <span>{t("settings.keyring.secure")}</span>}
-						</span>
+						</button>
 					</TooltipTrigger>
 					<TooltipContent side="top" align="center" className="max-w-72">
 						{tooltipText}
@@ -82,13 +89,13 @@ export function KeyringStatusBadge({
 		<TooltipProvider delayDuration={200}>
 			<Tooltip>
 				<TooltipTrigger asChild>
-					<span
+					<button
+						type="button"
 						className={
 							compact
-								? "inline-flex items-center text-amber-600 dark:text-amber-400"
-								: "inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300"
+								? `${buttonBaseClass} text-amber-600 dark:text-amber-400 rounded-full`
+								: `${buttonBaseClass} gap-1.5 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300`
 						}
-						role="img"
 						aria-label={tooltipText}
 					>
 						<HugeiconsIcon
@@ -97,7 +104,7 @@ export function KeyringStatusBadge({
 							className="h-3.5 w-3.5"
 						/>
 						{!compact && <span>{t("settings.keyring.plaintext")}</span>}
-					</span>
+					</button>
 				</TooltipTrigger>
 				<TooltipContent side="top" align="center" className="max-w-72">
 					{tooltipText}

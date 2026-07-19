@@ -1,4 +1,10 @@
-import { Mic02Icon, Share08Icon, StopIcon } from "@hugeicons/core-free-icons";
+import {
+	ClipboardPasteIcon,
+	Mic02Icon,
+	Share08Icon,
+	StopIcon,
+	Undo02Icon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -207,6 +213,18 @@ export default function Home({
 
 	const [hotkey, setHotkey] = useState("F2");
 	const [lastText, setLastText] = useState("");
+	// UX-9: model-download progress percent. Backend emits
+	// `download_progress` events with `{percent}` while a HuggingFace
+	// download is in flight. Null when no download is active (or when
+	// recordingState leaves "loading").
+	const [downloadPct, setDownloadPct] = useState<number | null>(null);
+	// UX-7: track how long recordingState has been "transcribing" so we
+	// can surface a "Taking too long? Force cancel" affordance after
+	// 60s. Null when not currently transcribing.
+	const [transcribeStartedAt, setTranscribeStartedAt] = useState<number | null>(
+		null,
+	);
+	const [showForceCancel, setShowForceCancel] = useState(false);
 	// FIX: initialize stats + recent from cache so the homepage renders
 	// instantly with the last-known data instead of flashing empty.
 	const [stats, setStats] = useState<TodayStats | null>(loadCachedStats);
@@ -311,7 +329,22 @@ export default function Home({
 	// state change), and we re-fetch the config to update the chip.
 	// This is a lightweight way to keep the hotkey chip in sync without
 	// a dedicated config-changed event.
-	usePythonEvent("status_change", () => {
+	//
+	// UX-7: the same listener also tracks when the backend enters the
+	// "transcribing" state so we can surface a "Force cancel" link
+	// after 60s. Using the event payload (rather than the recordingState
+	// prop) means we capture the transition at source-of-truth time
+	// (server emit), avoiding any prop-drill lag.
+	usePythonEvent("status_change", (data) => {
+		const status = typeof data?.status === "string" ? data.status : "";
+		if (status === "transcribing") {
+			setTranscribeStartedAt((prev) => prev ?? Date.now());
+			setShowForceCancel(false);
+		} else {
+			setTranscribeStartedAt(null);
+			setShowForceCancel(false);
+		}
+
 		let cancelled = false;
 		const reloadHotkey = async () => {
 			try {
@@ -326,6 +359,44 @@ export default function Home({
 			cancelled = true;
 		};
 	});
+
+	// UX-7: after 60s in "transcribing", surface the "Force cancel" link.
+	useEffect(() => {
+		if (transcribeStartedAt === null) return;
+		const timeout = setTimeout(() => setShowForceCancel(true), 60_000);
+		return () => clearTimeout(timeout);
+	}, [transcribeStartedAt]);
+
+	// UX-7: also keep transcribe tracking in sync with the recordingState
+	// prop — the status_change listener handles the typical case, but
+	// if the page mounts mid-transcription (e.g. user navigates here
+	// during a transcription) the event will not re-fire and the prop
+	// is our only signal. Belt-and-suspenders.
+	useEffect(() => {
+		if (recordingState === "transcribing") {
+			setTranscribeStartedAt((prev) => prev ?? Date.now());
+		} else {
+			setTranscribeStartedAt(null);
+			setShowForceCancel(false);
+		}
+	}, [recordingState]);
+
+	// UX-9: subscribe to download_progress events emitted by the backend
+	// while a HuggingFace model download is in flight. The percent value
+	// drives a thin progress bar under the status pill. Reset to null
+	// whenever recordingState leaves "loading" so we don't leave a stale
+	// bar visible after the download completes/aborts.
+	usePythonEvent("download_progress", (data) => {
+		const pct = data?.percent;
+		if (typeof pct === "number" && pct >= 0 && pct <= 100) {
+			setDownloadPct(pct);
+		}
+	});
+	useEffect(() => {
+		if (recordingState !== "loading") {
+			setDownloadPct(null);
+		}
+	}, [recordingState]);
 
 	// NEW-TS-006: timer refs declared BEFORE the usePythonEvent handler
 	// that uses them (previously the second listener was declared after
@@ -474,6 +545,48 @@ export default function Home({
 		}
 	}, [call]);
 
+	// UX-1: undo the last transcription. The backend's `undo_last` IPC
+	// sends backspace keystrokes to erase the previous paste; we also
+	// clear the local lastText preview so the UI matches immediately.
+	const handleUndo = useCallback(async () => {
+		try {
+			await call("undo_last");
+		} catch (err) {
+			console.error("Undo failed:", err);
+			toast.error(t("home.undo"));
+		}
+		setLastText("");
+		if (lastTextTimer.current) {
+			clearTimeout(lastTextTimer.current);
+			lastTextTimer.current = null;
+		}
+	}, [call]);
+
+	// UX-23: re-paste the most recent transcription. The backend reads
+	// the latest entry from history_db and re-pastes it (regardless of
+	// the auto-paste setting) using the clipboard borrow/restore path.
+	const handleRepaste = useCallback(async () => {
+		try {
+			await call("repaste_last");
+		} catch (err) {
+			console.error("Re-paste failed:", err);
+			toast.error(t("home.repaste"));
+		}
+	}, [call]);
+
+	// UX-7: force-cancel an in-flight transcription that has been
+	// running for >60s. The backend's `force_cancel_transcription`
+	// aborts the streaming session without waiting for graceful stop.
+	const handleForceCancel = useCallback(async () => {
+		try {
+			await call("force_cancel_transcription");
+			toast.success(t("home.forceCancel"));
+		} catch (err) {
+			console.error("Force cancel failed:", err);
+			toast.error(t("home.forceCancel"));
+		}
+	}, [call]);
+
 	const isRecording = recordingState === "recording";
 	const key = statusKeyFor(recordingState, !!lastError);
 	const statusColor = STATUS_COLORS[key] ?? STATUS_COLORS.idle;
@@ -506,6 +619,40 @@ export default function Home({
 					{statusLabel}
 				</span>
 			</output>
+
+			{/* UX-9: thin 2px progress bar shown under the status pill
+                            while a model download is in flight. Hidden when no
+                            download_progress events have arrived or after the
+                            recordingState leaves "loading". */}
+			{downloadPct !== null && (
+				<div
+					className="h-0.5 w-32 rounded-full bg-(--bg-subtle)"
+					role="progressbar"
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={Math.round(downloadPct)}
+					aria-label={t("home.downloadingModel")}
+				>
+					<div
+						style={{ width: `${downloadPct}%` }}
+						className="h-0.5 rounded-full bg-amber-500"
+					/>
+				</div>
+			)}
+
+			{/* UX-7: subtle amber "Force cancel" affordance shown after
+                            a transcription has been running for >60s. The link
+                            calls the backend's force_cancel_transcription IPC. */}
+			{showForceCancel && recordingState === "transcribing" && (
+				<button
+					type="button"
+					onClick={handleForceCancel}
+					className="text-xs text-amber-700 hover:text-amber-800 hover:underline dark:text-amber-500 dark:hover:text-amber-400 transition-colors"
+					aria-label={t("home.forceCancelHint")}
+				>
+					{t("home.forceCancelHint")}
+				</button>
+			)}
 
 			<div className="relative">
 				{isRecording && (
@@ -560,6 +707,46 @@ export default function Home({
 					<p className="line-clamp-2 overflow-hidden text-ellipsis text-[13px] text-(--text-muted)">
 						{lastText}
 					</p>
+					{/* UX-1 / UX-23: per-transcription action row.
+                                            Undo erases the last paste via backspace keystrokes;
+                                            Re-paste re-inserts the most recent transcription
+                                            via the clipboard borrow/restore path. Both buttons
+                                            are disabled when lastText is empty (it auto-clears
+                                            after 5s — see transcription_final handler). */}
+					<div className="mt-2 flex items-center justify-end gap-1">
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={handleUndo}
+							disabled={!lastText}
+							title={t("home.undoAria")}
+							aria-label={t("home.undoAria")}
+							className="gap-1.5 text-xs text-(--text-muted) hover:text-(--text-primary)"
+						>
+							<HugeiconsIcon
+								icon={Undo02Icon}
+								strokeWidth={2}
+								className="h-3.5 w-3.5"
+							/>
+							{t("home.undo")}
+						</Button>
+						<Button
+							variant="ghost"
+							size="sm"
+							onClick={handleRepaste}
+							disabled={!lastText}
+							title={t("home.repasteAria")}
+							aria-label={t("home.repasteAria")}
+							className="gap-1.5 text-xs text-(--text-muted) hover:text-(--text-primary)"
+						>
+							<HugeiconsIcon
+								icon={ClipboardPasteIcon}
+								strokeWidth={2}
+								className="h-3.5 w-3.5"
+							/>
+							{t("home.repaste")}
+						</Button>
+					</div>
 				</div>
 			)}
 

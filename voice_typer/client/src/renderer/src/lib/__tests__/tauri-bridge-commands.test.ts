@@ -13,7 +13,10 @@
  *  MIG-1.2 (bubble commands):
  *   - `window.bubble.show()` → `invoke('bubble_show')`
  *   - `window.bubble.signalReady()` → `invoke('bubble_signal_ready')`
- *   - `window.bubble.setPosition(x, y)` → `invoke('bubble_set_position', { x, y })`
+ *   - `window.bubble.setPosition(position)` → `invoke('bubble_set_position', { x: position, y: position })`
+ *     (XPLAT-6: `position: "top" | "bottom"` — the Rust host takes
+ *      `(x: Value, y: Value)` and resolves the strings to absolute
+ *      physical coords based on monitor bounds)
  *   - `window.bubble.setDraggable(draggable)` → `invoke('bubble_set_draggable', { draggable })`
  *   - `window.bubble.moveBy(dx, dy)` → `invoke('bubble_move_by', { dx, dy })`
  *   - `window.bubble.hideComplete()` → `invoke('bubble_hide_complete')`
@@ -75,7 +78,7 @@ interface WindowBridgeState {
 		onLevel: (cb: (d: { rms: number; peak: number }) => void) => () => void;
 		show?: () => void;
 		signalReady?: () => void;
-		setPosition?: (x: number, y: number) => void;
+		setPosition?: (position: string) => void;
 		setDraggable?: (draggable: boolean) => void;
 		moveBy?: (dx: number, dy: number) => void;
 		hideComplete?: () => void;
@@ -248,7 +251,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		expect(stub.core.invoke).toHaveBeenCalledWith("bubble_signal_ready");
 	});
 
-	it("bubble.setPosition invokes 'bubble_set_position' with { x, y }", async () => {
+	it("bubble.setPosition invokes 'bubble_set_position' with { x, y } (XPLAT-6)", async () => {
 		const stub = makeTauriStub();
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
@@ -256,11 +259,43 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.setPosition).toBeDefined();
-		bubble?.setPosition?.(100, 200);
+		// XPLAT-6: setPosition takes a single string ("top" | "bottom"),
+		// matching the MainRendererBubble.setPosition?: (pos: string) => void
+		// contract. The Rust host's signature is
+		// `bubble_set_position(x: Value, y: Value)` — Tauri v2 rejects
+		// a `{ position }` payload (missing required args), so the
+		// bridge forwards the string as BOTH x and y. The Rust host
+		// resolves "top"/"bottom" to absolute physical coords based on
+		// the primary monitor's bounds (x → centered, y → 0 for "top";
+		// see src-tauri/src/commands/bubble.rs). Both production call
+		// sites (`useConnection.ts:117` and
+		// `GeneralSettingsSection.tsx:151`) pass a single string.
+		bubble?.setPosition?.("top");
 
 		expect(stub.core.invoke).toHaveBeenCalledWith("bubble_set_position", {
-			x: 100,
-			y: 200,
+			x: "top",
+			y: "top",
+		});
+	});
+
+	it("bubble.setPosition forwards 'bottom' as { x, y } (XPLAT-6 — string shape used by production)", async () => {
+		const stub = makeTauriStub();
+		(window as unknown as WindowBridgeState).__TAURI__ = stub;
+
+		await import("@/lib/tauri-bridge");
+
+		const bubble = (window as unknown as WindowBridgeState).bubble;
+		expect(bubble?.setPosition).toBeDefined();
+		// Production's second call shape — GeneralSettingsSection.tsx:151
+		// passes `"bottom"` when the user picks the bottom anchor from the
+		// bubble-position dropdown. The bridge forwards the string as
+		// both x and y so the Rust host can resolve it to
+		// `y = monitor.height - bubble.height`.
+		bubble?.setPosition?.("bottom");
+
+		expect(stub.core.invoke).toHaveBeenCalledWith("bubble_set_position", {
+			x: "bottom",
+			y: "bottom",
 		});
 	});
 

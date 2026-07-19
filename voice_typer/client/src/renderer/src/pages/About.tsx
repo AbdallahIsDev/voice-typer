@@ -1,11 +1,23 @@
+// About page — diagnostics, privacy disclosure, and resources/feedback links.
+//
+// UX-20 / SET-5: the previous 726-line catch-all version had Help, Cache
+// Status, Updates, Diagnostics, Privacy, and Resources sections all crammed
+// together. The Help section duplicated the `?` overlay (already reachable
+// from TitleBar + the `?` keydown shortcut), and Cache Status + Updates
+// belonged on a "Diagnostics" surface rather than the lightweight About
+// page. They have been removed; the canonical help is now the `?` overlay,
+// and the prewarm/update features are available from Settings →
+// Troubleshooting (which already links back here for Diagnostics).
+//
+// The remaining three sections (Diagnostics, Privacy, Resources) keep the
+// page focused on "what is this app, where does my data go, where do I
+// file bugs." ~300 LOC, well under the ~400 LOC ceiling.
 import { type ReactNode, useEffect, useState } from "react";
-import { toast } from "sonner";
 import PageHeading from "@/components/common/PageHeading";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { t } from "@/i18n/i18n";
-import { compareSemver } from "@/lib/semver";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // VERSION-SOURCE-FIX: import the version directly from package.json so
@@ -16,18 +28,6 @@ import type { VoiceTyperConfig } from "@/types/config";
 // resolveJsonModule: true), so the bundled output contains the literal
 // string — no runtime file read.
 import pkg from "../../../../package.json";
-
-// ADR-0009 Issue 3: shape of the ``get_prewarm_status`` IPC response.
-// Mirrors the dict returned by voice_typer.server.prewarm.get_prewarm_status().
-interface PrewarmStatus {
-	last_run: string | null;
-	elapsed_s: number | null;
-	cache_ratio: number;
-	cache_label: "hot" | "partial" | "cold" | "unknown";
-	cached_bytes: number;
-	total_bytes: number;
-	prewarm_running: boolean;
-}
 
 // App version. Read directly from package.json (see VERSION-SOURCE-FIX
 // comment at the top of the file) so this never drifts from the
@@ -43,14 +43,6 @@ const CONTRIBUTING_URL =
 // NEW-PRIV-004 / NEW-UX-021: in-app documentation links.
 const PRIVACY_POLICY_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/SECURITY.md";
-const README_URL =
-	"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md";
-const CHANGELOG_URL =
-	"https://github.com/AbdallahIsDev/voice-typer/blob/main/CHANGELOG.md";
-// NEW-UX-023: GitHub releases feed for "new version available" checks.
-const RELEASES_URL = "https://github.com/AbdallahIsDev/voice-typer/releases";
-const LATEST_RELEASE_API =
-	"https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest";
 
 // Small label/value row that matches the visual rhythm of SettingRow
 // but doesn't carry the input-association machinery (we're read-only).
@@ -84,38 +76,11 @@ function StatusDot({ connected }: { connected: boolean }) {
 	);
 }
 
-// ADR-0009 Issue 3: badge for the prewarm cache status (Hot/Partial/Cold/Unknown).
-// Color-coded to match the StatusDot visual rhythm: green=hot, amber=partial,
-// red=cold, gray=unknown.
-function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
-	const colorClass =
-		label === "hot"
-			? "bg-emerald-500"
-			: label === "partial"
-				? "bg-amber-500"
-				: label === "cold"
-					? "bg-destructive"
-					: "bg-muted-foreground/40";
-	const textKey =
-		label === "hot"
-			? "about.cacheHot"
-			: label === "partial"
-				? "about.cachePartial"
-				: label === "cold"
-					? "about.cacheCold"
-					: "about.cacheUnknown";
-	return (
-		<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
-			<span className={`size-1.5 rounded-full ${colorClass}`} />
-			{t(textKey)}
-		</span>
-	);
-}
-
 // ADR-0009 Issue 3: format a byte count as a human-readable string.
-// 0 → "0 MB"; 1750000000 → "1.7 GB". Used by the "Cache Health" row.
-// Task 7: exported for unit testing (formatBytes, formatRelativeTime,
-// CacheStatusBadge are otherwise module-private).
+// 0 → "0 MB"; 1750000000 → "1.7 GB". Was used by the (now-removed)
+// Cache Status card; kept exported because the unit tests in
+// About.test.tsx still cover it and future diagnostics surfaces
+// (e.g. Settings → Troubleshooting) may want to reuse it.
 export function formatBytes(bytes: number): string {
 	if (bytes <= 0) return "0 MB";
 	const gb = bytes / (1024 * 1024 * 1024);
@@ -126,7 +91,7 @@ export function formatBytes(bytes: number): string {
 
 // ADR-0009 Issue 3: format an ISO timestamp as a relative "N hours ago" string.
 // Falls back to the raw ISO string for timestamps older than 7 days.
-// Task 7: exported for unit testing.
+// Kept exported for unit-test coverage (see About.test.tsx).
 export function formatRelativeTime(iso: string | null): string {
 	if (!iso) return t("about.neverRun");
 	try {
@@ -161,118 +126,6 @@ export default function AboutPage() {
 	// NEW-UX-038: the active model's loaded_via string (e.g.
 	// "cuda/float16/small.en" or "cpu/int8/tiny.en").
 	const [loadedVia, setLoadedVia] = useState<string>("");
-	// NEW-UX-023: latest release from GitHub (null = not checked yet).
-	const [latestVersion, setLatestVersion] = useState<string | null>(null);
-	const [checkingUpdate, setCheckingUpdate] = useState(false);
-	// ADR-0009 Issue 3: prewarm cache status. null = not fetched yet.
-	// Refreshable via a button so the user can re-probe after manual
-	// prewarm runs or cache eviction.
-	const [prewarmStatus, setPrewarmStatus] = useState<PrewarmStatus | null>(
-		null,
-	);
-	const [prewarmLoading, setPrewarmLoading] = useState(false);
-	// Task 3: "Run Prewarm Now" button state. runPrewarmLoading is
-	// true while the run_prewarm IPC is in flight (spawn the
-	// subprocess). Once spawned, prewarmRunning (from
-	// get_prewarm_status) takes over as the progress indicator.
-	const [runPrewarmLoading, setRunPrewarmLoading] = useState(false);
-
-	const fetchPrewarmStatus = async () => {
-		setPrewarmLoading(true);
-		try {
-			const status = await call<PrewarmStatus>("get_prewarm_status");
-			setPrewarmStatus(status);
-		} catch {
-			// Best-effort: leave the previous status (or null) in place.
-			// The card renders an "Unknown" placeholder when null.
-		} finally {
-			setPrewarmLoading(false);
-		}
-	};
-
-	// Task 3: trigger a manual prewarm run. Spawns a detached
-	// subprocess (pythonw -m voice_typer.server.prewarm --force).
-	// After spawning, polls get_prewarm_status every 2s until
-	// prewarm_running flips to False, then refreshes the card and
-	// shows a completion toast.
-	const handleRunPrewarm = async () => {
-		// Guard: don't re-warm if already hot (button should be
-		// disabled, but defend in depth).
-		if (prewarmStatus?.cache_label === "hot") {
-			toast.info(t("about.prewarmAlreadyHot"));
-			return;
-		}
-		setRunPrewarmLoading(true);
-		try {
-			const result = await call<{ started: boolean }>("run_prewarm");
-			if (result?.started) {
-				toast.info(t("about.prewarmStarting"));
-				// Poll get_prewarm_status every 2s until
-				// prewarm_running flips to False. The
-				// prewarm subprocess takes ~20-50s on a
-				// warm disk, ~50s+ on a cold one.
-				const pollDeadline = Date.now() + 120_000; // 2 min cap
-				const poll = async () => {
-					while (Date.now() < pollDeadline) {
-						await new Promise((r) => setTimeout(r, 2000));
-						try {
-							const status = await call<PrewarmStatus>("get_prewarm_status");
-							setPrewarmStatus(status);
-							if (!status.prewarm_running) {
-								// Prewarm finished — show completion toast
-								// based on the new cache label.
-								if (status.cache_label === "hot") {
-									toast.success(t("about.prewarmComplete"));
-								} else {
-									toast.info(t("about.prewarmComplete"));
-								}
-								return;
-							}
-						} catch {
-							// Backend went away — stop polling.
-							return;
-						}
-					}
-					// Timed out — silent (the subprocess may still
-					// be running; the user can Refresh manually).
-				};
-				poll(); // fire-and-forget; don't block the UI
-			}
-		} catch (err) {
-			toast.error(
-				t("about.prewarmFailed") +
-					(err instanceof Error ? `: ${err.message}` : ""),
-			);
-		} finally {
-			setRunPrewarmLoading(false);
-		}
-	};
-
-	// Task 2: open the prewarm log file in the OS default text editor.
-	// Calls the open_prewarm_log IPC handler which uses os.startfile
-	// (Windows), open (macOS), or xdg-open (Linux). Shows a toast
-	// if the log file doesn't exist or can't be opened.
-	const handleViewPrewarmLog = async () => {
-		try {
-			const result = await call<{
-				opened: boolean;
-				path?: string;
-				reason?: string;
-			}>("open_prewarm_log");
-			if (result?.opened) {
-				toast.success(t("about.prewarmLogOpened"));
-			} else if (result?.reason === "not_found") {
-				toast.info(t("about.prewarmLogNotFound"));
-			} else {
-				toast.error(t("about.prewarmLogOpenFailed"));
-			}
-		} catch (err) {
-			toast.error(
-				t("about.prewarmLogOpenFailed") +
-					(err instanceof Error ? `: ${err.message}` : ""),
-			);
-		}
-	};
 
 	useEffect(() => {
 		let cancelled = false;
@@ -308,16 +161,6 @@ export default function AboutPage() {
 				// intentionally leave config as null — diagnostics simply
 				// show "—" until the backend comes back online.
 			}
-
-			// ADR-0009 Issue 3: fetch prewarm cache status for the
-			// Cache Status card. Best-effort — failures leave the card
-			// in the "Unknown" placeholder state.
-			try {
-				const ps = await call<PrewarmStatus>("get_prewarm_status");
-				if (!cancelled) setPrewarmStatus(ps);
-			} catch {
-				// leave prewarmStatus as null; card renders "Unknown"
-			}
 		};
 
 		load();
@@ -325,73 +168,6 @@ export default function AboutPage() {
 			cancelled = true;
 		};
 	}, [call]);
-
-	// NEW-UX-023: check GitHub releases for a newer version.  Runs
-	// once on mount, non-blocking.  We don't auto-open any UI — just
-	// surface a "newer version available" link in the About page.
-	useEffect(() => {
-		let cancelled = false;
-		const checkForUpdate = async () => {
-			try {
-				const resp = await fetch(LATEST_RELEASE_API, {
-					headers: { Accept: "application/vnd.github+json" },
-				});
-				if (!resp.ok) return;
-				const data = (await resp.json()) as { tag_name?: string };
-				if (cancelled || !data.tag_name) return;
-				// Strip leading 'v' from tag name ("v1.2.3" → "1.2.3").
-				const remote = data.tag_name.replace(/^v/, "");
-				setLatestVersion(remote);
-			} catch {
-				// Network failure / rate limit — silently skip.  The user
-				// can manually click "Check for updates" to retry.
-			}
-		};
-		checkForUpdate();
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-
-	const handleManualCheck = async () => {
-		setCheckingUpdate(true);
-		try {
-			const resp = await fetch(LATEST_RELEASE_API, {
-				headers: { Accept: "application/vnd.github+json" },
-			});
-			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-			const data = (await resp.json()) as { tag_name?: string };
-			if (!data.tag_name) throw new Error("No tag_name in response");
-			const remote = data.tag_name.replace(/^v/, "");
-			setLatestVersion(remote);
-			// F3 (b-review Finding 9): use a proper semver comparison instead
-			// of lexicographic string comparison. The previous `remote > APP_VERSION`
-			// broke for versions like "1.10.0" vs "1.9.0" (lexicographically
-			// "1.10.0" < "1.9.0" because "1" < "9" at index 2). compareSemver
-			// splits on "." and compares numeric parts pairwise so the ordering
-			// matches what users expect from version numbers.
-			if (compareSemver(remote, APP_VERSION) === 0) {
-				toast.success(t("about.onLatestVersion", { version: APP_VERSION }));
-			} else if (compareSemver(remote, APP_VERSION) > 0) {
-				toast.info(t("about.newVersionAvailable", { version: remote }));
-			} else {
-				toast.info(
-					t("about.installedNewer", {
-						installed: APP_VERSION,
-						latest: remote,
-					}),
-				);
-			}
-		} catch (err) {
-			toast.error(
-				t("about.updateCheckFailed", {
-					error: err instanceof Error ? err.message : "unknown error",
-				}),
-			);
-		} finally {
-			setCheckingUpdate(false);
-		}
-	};
 
 	const asrBackend = config
 		? `${config.asr_backend} (${config.model_size})`
@@ -429,108 +205,13 @@ export default function AboutPage() {
 					<Row label={t("about.asrBackend")} value={asrBackend} />
 					<Row label={t("about.device")} value={device} />
 					{/* NEW-UX-038: show which device/compute_type the model
-              actually loaded via. */}
+          actually loaded via. */}
 					<Row
 						label={t("about.loadedVia")}
 						value={loadedVia || t("about.unknown")}
 					/>
 					<Row label={t("about.hotkey")} value={hotkey} />
 					<Row label={t("about.microphone")} value={microphone} />
-				</SettingsSection>
-
-				{/* ── Cache Status (ADR-0009 Issue 3) ──────────────────── */}
-				<SettingsSection
-					title={t("about.cacheTitle")}
-					description={t("about.cacheDescription")}
-				>
-					<Row
-						label={t("about.prewarmStatus")}
-						value={
-							prewarmStatus?.prewarm_running ? (
-								<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
-									<span className="size-1.5 animate-pulse rounded-full bg-sky-500" />
-									{t("about.cacheRunning")}
-								</span>
-							) : prewarmStatus ? (
-								<CacheStatusBadge label={prewarmStatus.cache_label} />
-							) : (
-								<span className="text-(--text-muted)">
-									{t("about.checking")}
-								</span>
-							)
-						}
-					/>
-					<Row
-						label={t("about.lastRun")}
-						value={
-							prewarmStatus?.last_run
-								? formatRelativeTime(prewarmStatus.last_run)
-								: prewarmStatus
-									? t("about.neverRun")
-									: t("about.checking")
-						}
-					/>
-					<Row
-						label={t("about.cacheHealth")}
-						value={
-							prewarmStatus && prewarmStatus.total_bytes > 0
-								? `${Math.round(
-										prewarmStatus.cache_ratio * 100,
-									)}% (${formatBytes(
-										prewarmStatus.cached_bytes,
-									)} / ${formatBytes(prewarmStatus.total_bytes)})`
-								: prewarmStatus
-									? `${Math.round(prewarmStatus.cache_ratio * 100)}%`
-									: t("about.checking")
-						}
-					/>
-					<Row
-						label={t("about.prewarmElapsed")}
-						value={
-							prewarmStatus?.elapsed_s !== null &&
-							prewarmStatus?.elapsed_s !== undefined
-								? `${prewarmStatus.elapsed_s.toFixed(1)}s`
-								: prewarmStatus
-									? t("about.unknown")
-									: t("about.checking")
-						}
-					/>
-					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={fetchPrewarmStatus}
-							disabled={prewarmLoading}
-						>
-							{prewarmLoading
-								? t("about.checking")
-								: t("about.refreshCacheStatus")}
-						</Button>
-						{/* Task 3: "Run Prewarm Now" button.
-                                                        Disabled when cache is Hot (no point re-warming),
-                                                        when prewarm is already running, or while the
-                                                        run_prewarm IPC is in flight. */}
-						<Button
-							variant="default"
-							size="sm"
-							onClick={handleRunPrewarm}
-							disabled={
-								prewarmStatus?.cache_label === "hot" ||
-								prewarmStatus?.prewarm_running === true ||
-								runPrewarmLoading
-							}
-						>
-							{prewarmStatus?.prewarm_running === true || runPrewarmLoading
-								? t("about.cacheRunning")
-								: t("about.runPrewarmNow")}
-						</Button>
-						{/* Task 2: "View prewarm log" button.
-                                                        Opens the prewarm log file in the OS default text
-                                                        editor. Shows a toast if the file doesn't exist. */}
-						<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
-							{t("about.viewPrewarmLog")}
-						</Button>
-					</div>
 				</SettingsSection>
 
 				{/* ── Privacy ──────────────────────────────────────────── */}
@@ -579,109 +260,6 @@ export default function AboutPage() {
 								rel="noreferrer noopener"
 							>
 								{t("about.fullPrivacyPolicy")}
-							</a>
-						</Button>
-					</div>
-				</SettingsSection>
-
-				{/* ── Updates ──────────────────────────────────────────── */}
-				{/* NEW-UX-023: in-app "new version available" check. */}
-				<SettingsSection
-					title={t("about.updatesTitle")}
-					description={t("about.updatesDescription")}
-				>
-					<Row
-						label={t("about.installedVersion")}
-						value={t("about.versionValue", { version: APP_VERSION })}
-					/>
-					<Row
-						label={t("about.latestRelease")}
-						value={
-							latestVersion === null
-								? t("about.checking")
-								: compareSemver(latestVersion, APP_VERSION) > 0
-									? t("about.updateAvailable", { version: latestVersion })
-									: t("about.versionValue", { version: latestVersion })
-						}
-					/>
-					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleManualCheck}
-							disabled={checkingUpdate}
-						>
-							{checkingUpdate
-								? t("about.checking")
-								: t("about.checkForUpdates")}
-						</Button>
-						{latestVersion !== null &&
-							compareSemver(latestVersion, APP_VERSION) > 0 && (
-								<Button asChild variant="default" size="sm">
-									<a
-										href={RELEASES_URL}
-										target="_blank"
-										rel="noreferrer noopener"
-									>
-										{t("about.downloadVersion", { version: latestVersion })}
-									</a>
-								</Button>
-							)}
-						<Button asChild variant="ghost" size="sm">
-							<a href={CHANGELOG_URL} target="_blank" rel="noreferrer noopener">
-								{t("about.viewChangelog")}
-							</a>
-						</Button>
-					</div>
-				</SettingsSection>
-
-				{/* ── Help ─────────────────────────────────────────────── */}
-				{/* NEW-UX-021 / NEW-UX-040: expanded help section. */}
-				<SettingsSection
-					title={t("about.helpTitle")}
-					description={t("about.helpDescription")}
-				>
-					<Row
-						label={t("about.startStopDictation")}
-						value={t("about.startStopDictationValue")}
-					/>
-					<Row
-						label={t("about.cancelRecording")}
-						value={t("about.cancelRecordingValue")}
-					/>
-					<Row
-						label={t("about.repasteTranscription")}
-						value={t("about.repasteTranscriptionValue")}
-					/>
-					<Row
-						label={t("about.toggleSidebar")}
-						value={t("about.toggleSidebarValue")}
-					/>
-					<Row
-						label={t("about.navigateFields")}
-						value={t("about.navigateFieldsValue")}
-					/>
-					<Row
-						label={t("about.toggleSwitches")}
-						value={t("about.toggleSwitchesValue")}
-					/>
-					<Row
-						label={t("about.closeDialogs")}
-						value={t("about.closeDialogsValue")}
-					/>
-					<Row
-						label={t("about.openDropdowns")}
-						value={t("about.openDropdownsValue")}
-					/>
-					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
-						<Button asChild variant="outline" size="sm">
-							<a href={README_URL} target="_blank" rel="noreferrer noopener">
-								{t("about.documentation")}
-							</a>
-						</Button>
-						<Button asChild variant="outline" size="sm">
-							<a href={CHANGELOG_URL} target="_blank" rel="noreferrer noopener">
-								{t("about.changelog")}
 							</a>
 						</Button>
 					</div>

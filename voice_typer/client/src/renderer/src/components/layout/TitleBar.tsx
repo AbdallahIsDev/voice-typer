@@ -171,7 +171,12 @@ export function TitleBar({
 				type="button"
 				onClick={onToggleSidebar}
 				aria-label={t("a11y.toggleSidebar")}
-				title={t("a11y.toggleSidebar")}
+				// UX-17: surface the Ctrl+B keyboard shortcut in the
+				// tooltip so users discover the keyboard alternative.
+				// On macOS the shortcut is Cmd+B; we show Ctrl+B here
+				// for cross-platform simplicity (most Windows/Linux
+				// users, the dominant audience for Voice Typer).
+				title={`${t("a11y.toggleSidebar")} (Ctrl+B)`}
 				className={cn(
 					"no-drag press-scale flex h-10 w-10 items-center justify-center",
 					"text-(--text-muted)",
@@ -192,7 +197,8 @@ export function TitleBar({
 				onClick={onGoBack}
 				disabled={!canGoBack}
 				aria-label={t("a11y.goBack")}
-				title={t("titleBar.back")}
+				// NF-R10-10: surface Alt+Left shortcut in the tooltip.
+				title={`${t("titleBar.back")} (Alt+←)`}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",
@@ -218,7 +224,8 @@ export function TitleBar({
 				onClick={onGoForward}
 				disabled={!canGoForward}
 				aria-label={t("a11y.goForward")}
-				title={t("titleBar.forward")}
+				// NF-R10-10: surface Alt+Right shortcut in the tooltip.
+				title={`${t("titleBar.forward")} (Alt+→)`}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",

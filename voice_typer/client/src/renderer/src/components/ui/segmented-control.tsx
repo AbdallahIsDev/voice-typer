@@ -3,6 +3,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "#utils";
 
 /**
+ * ARIA contract for `variant="tabs"`:
+ *
+ * When using `variant="tabs"`, the parent MUST wrap each corresponding panel
+ * in a `<div role="tabpanel" aria-labelledby={tabId} id={panelId}>`. The
+ * `SegmentedControl` itself renders the `role="tablist"` container and each
+ * option as a `role="tab"` with roving `tabIndex` (active=0, inactive=-1)
+ * plus `aria-selected`. ArrowLeft / ArrowRight move focus between tabs.
+ *
+ * Failure to provide matching `role="tabpanel"` siblings breaks the WAI-ARIA
+ * Tabs pattern (https://www.w3.org/WAI/ARIA/apg/patterns/tabpanel/) and
+ * screen-reader users will not be able to associate tabs with their content.
+ */
+
+/**
  * A single-select inline "pill" control with an animated active indicator.
  * Renders a row of buttons where the active option is highlighted with a
  * sliding accent bar.  Accepts any number of options — works well for 2–3
@@ -82,6 +96,7 @@ export function SegmentedControl<T extends string>({
 	activeClassName,
 	labelClassName,
 }: SegmentedControlProps<T>) {
+	const isTabs = variant === "tabs";
 	const containerRef = useRef<HTMLDivElement>(null);
 	// Store refs for each option label so we can measure their position.
 	const labelRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -110,8 +125,8 @@ export function SegmentedControl<T extends string>({
 			// BORDER-FIX: getBoundingClientRect() returns border-box coordinates,
 			// but CSS position:absolute inside position:relative is relative to
 			// the PADDING box (inside the border).  Since the container has
-			// `border border-border` (1 px), we must subtract the left border
-			// width so the indicator pill aligns pixel‑perfectly with the label.
+			// `border border-border` (1 px), we must subtract the left border
+			// width so the indicator pill aligns pixel-perfectly with the label.
 			// container.clientLeft returns the left border width in pixels.
 			const borderLeft = container.clientLeft || 0;
 			return {
@@ -154,7 +169,34 @@ export function SegmentedControl<T extends string>({
 		};
 	}, [resizeObserver]);
 
+	// A11Y-6: tabs variant uses the WAI-ARIA Tabs pattern with roving
+	// tabindex (only the active tab is in the page tab order). ArrowLeft /
+	// ArrowRight move focus between tabs and select the newly-focused tab
+	// (activation follows focus — "automatic" activation model).
+	const handleTabsKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLDivElement>) => {
+			if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+			e.preventDefault();
+			const currentIndex = options.findIndex((o) => o.value === value);
+			if (currentIndex === -1) return;
+			const dir = e.key === "ArrowRight" ? 1 : -1;
+			const nextIndex = (currentIndex + dir + options.length) % options.length;
+			const next = options[nextIndex];
+			if (!next) return;
+			onChange(next.value);
+			// Move focus to the newly-selected tab after the re-render.
+			requestAnimationFrame(() => {
+				labelRefs.current.get(next.value)?.focus();
+			});
+		},
+		[onChange, options, value],
+	);
+
 	return (
+		// A11Y-6: tabs variant renders role="tablist" + arrow-key
+		// navigation; default variant keeps the radiogroup pattern.
+		// biome-ignore lint/a11y/noStaticElementInteractions: role is always set (ternary below returns "tablist" or "radiogroup"), making this an interactive container. biome's static analysis can't follow the ternary.
+		// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label is supported by both "tablist" and "radiogroup" roles. biome's static analysis can't follow the ternary role.
 		<div
 			ref={(el) => {
 				if (containerRef.current !== el) {
@@ -167,8 +209,9 @@ export function SegmentedControl<T extends string>({
 					}
 				}
 			}}
-			role="radiogroup"
+			role={isTabs ? "tablist" : "radiogroup"}
 			aria-label={ariaLabel}
+			onKeyDown={isTabs ? handleTabsKeyDown : undefined}
 			className={cn(
 				"relative inline-flex items-center",
 				variant === "default" &&
@@ -212,6 +255,49 @@ export function SegmentedControl<T extends string>({
 						}
 					});
 				};
+				// A11Y-6: for the tabs variant we render role="tab" with
+				// roving tabIndex (active=0, inactive=-1) and aria-selected.
+				// For the default variant we keep role="radio" via the
+				// sr-only <input type="radio"> + parent <label>.
+				if (isTabs) {
+					return (
+						<button
+							type="button"
+							key={opt.value}
+							ref={
+								getLabelRef(opt.value) as React.RefCallback<HTMLButtonElement>
+							}
+							title={opt.title}
+							role="tab"
+							tabIndex={active ? 0 : -1}
+							aria-selected={active}
+							onClick={handleRadioChange}
+							className={cn(
+								"relative z-10 cursor-pointer font-normal outline-none transition-colors duration-150",
+								"select-none whitespace-nowrap inline-flex items-center justify-center",
+								// A11Y-1: visible focus indicator for keyboard users.
+								"focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
+								"rounded-none px-3 py-2 text-[13px] font-medium",
+								labelClassName,
+								active && "text-(--text-primary)",
+								!active && "text-(--text-muted) hover:text-(--text-primary)",
+							)}
+						>
+							{opt.icon && (
+								<HugeiconsIcon
+									icon={opt.icon}
+									strokeWidth={2}
+									className={cn(
+										"h-4 w-4 shrink-0",
+										active ? "opacity-100" : "opacity-60",
+										opt.label && "-ml-0.5 mr-1",
+									)}
+								/>
+							)}
+							{opt.label}
+						</button>
+					);
+				}
 				return (
 					<label
 						key={opt.value}
@@ -227,15 +313,8 @@ export function SegmentedControl<T extends string>({
 							"has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring/50 has-[:focus-visible]:outline-none",
 							variant === "default" &&
 								"rounded-full px-2 py-1 text-[11px] tracking-wider",
-							variant === "tabs" &&
-								"rounded-none px-3 py-2 text-[13px] font-medium",
 							labelClassName,
-							active && variant === "tabs" && "text-(--text-primary)",
-							active &&
-								variant !== "tabs" && [
-									"text-primary-foreground",
-									activeClassName,
-								],
+							active && ["text-primary-foreground", activeClassName],
 							!active && "text-(--text-muted) hover:text-(--text-primary)",
 						)}
 					>

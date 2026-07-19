@@ -13,7 +13,9 @@
 		"lostConnection": "与 Python 后端的连接已断开",
 		"retryConnection": "重试连接",
 		"restartingBackend": "正在重启 Voice Typer 后端…",
-		"restartingHint": "通常需要几秒钟。准备就绪后，听写将从系统托盘恢复。"
+		"restartingHint": "通常需要几秒钟。准备就绪后，听写将从系统托盘恢复。",
+		"goHome": "返回首页",
+		"lostConnectionHint": "Python 后端已停止响应。请尝试重启。"
 	},
 	"nav": {
 		"home": "首页",
@@ -43,7 +45,14 @@
 		"firstDictationDesc": "欢迎使用 Voice Typer。随时按快捷键进行听写。",
 		"press": "按",
 		"loadingTodayStatsAria": "正在加载今日统计",
-		"loadingRecentAria": "正在加载最近活动"
+		"loadingRecentAria": "正在加载最近活动",
+		"downloadingModel": "正在下载模型…",
+		"undo": "撤销",
+		"undoAria": "撤销上一次转写",
+		"repaste": "重新粘贴",
+		"repasteAria": "重新粘贴上一次转写",
+		"forceCancel": "强制取消",
+		"forceCancelHint": "如果听写卡住，可强制取消以恢复"
 	},
 	"common": {
 		"cancel": "取消",
@@ -93,7 +102,9 @@
 		"noOtherMicrophones": "没有其他麦克风",
 		"use": "使用",
 		"channels": "声道:",
-		"rateHz": "采样率:"
+		"rateHz": "采样率:",
+		"loadFailedTitle": "加载麦克风失败",
+		"retry": "重试"
 	},
 	"vocabulary": {
 		"title": "自定义词汇",
@@ -177,7 +188,9 @@
 		"exactMatch": "精确匹配",
 		"contains": "包含",
 		"deleteTitle": "删除模板",
-		"deleteMessage": "确定要删除「{name}」吗？此操作无法撤销。"
+		"deleteMessage": "确定要删除「{name}」吗？此操作无法撤销。",
+		"loadFailedTitle": "加载模板失败",
+		"retry": "重试"
 	},
 	"analytics": {
 		"title": "分析",
@@ -875,7 +888,8 @@
 			"cancelAria": "Cancel model download",
 			"cancel": "取消",
 			"depsAria": "Download dependencies for {name}",
-			"deps": "下载依赖项"
+			"deps": "下载依赖项",
+			"progressAria": "下载模型中：已完成 {percent}%"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -981,7 +995,9 @@
 		"decrease": "减少",
 		"microphoneQualityPreset": "麦克风质量预设",
 		"noiseSuppressionMethod": "降噪方法",
-		"importNotAvailableOutsideElectron": "在 Electron 外部不可用导入"
+		"importNotAvailableOutsideElectron": "在 Electron 外部不可用导入",
+		"opensInNewTab": "在新标签页中打开",
+		"transcriptionComplete": "转写完成。"
 	},
 	"help": {
 		"title": "键盘快捷键",
@@ -1026,7 +1042,8 @@
 			"closeQuote": "闭引号",
 			"newLine": "换行",
 			"newParagraph": "新段落"
-		}
+		},
+		"description": "键盘快捷键和标点符号速查表。"
 	},
 	"history": {
 		"title": "历史记录",
@@ -1075,7 +1092,9 @@
 		"duration": "时长",
 		"model": "模型",
 		"words": "字数",
-		"characters": "字符数"
+		"characters": "字符数",
+		"loadFailedTitle": "加载历史记录失败",
+		"retry": "重试"
 	},
 	"onboarding": {
 		"welcomeTitle": "欢迎使用 Voice Typer",
@@ -1110,7 +1129,8 @@
 		"setupCompleteSnack": "设置完成！正在加载模型...",
 		"saveFailedSnack": "保存选择失败",
 		"skippedSnack": "已跳过设置 — 使用默认值",
-		"stepProgress": "第 {current} 步，共 {total} 步"
+		"stepProgress": "第 {current} 步，共 {total} 步",
+		"progressAria": "设置步骤 {current}/{total}"
 	},
 	"titleBar": {
 		"minimize": "最小化",
@@ -1193,6 +1213,31 @@
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",
 		"playRecording": "Play Recording",
-		"stop": "Stop"
+		"stop": "Stop",
+		"qualityFeedback": {
+			"recording": "正在录音…",
+			"voiceDetected": "检测到人声",
+			"excellent": "质量优秀",
+			"tooHigh": "音量过高",
+			"tooLow": "音量过低",
+			"lowVolume": "检测到音量过低",
+			"waiting": "等待人声…"
+		}
+	},
+	"dashboard": {
+		"cards": {
+			"dictations": "听写次数",
+			"chars": "字符数",
+			"duration": "总时长"
+		}
+	},
+	"stats": {
+		"shareImage": {
+			"backgroundWaveform": "背景波形",
+			"wpm": "字/分",
+			"min": "分钟",
+			"savedVsTyping": "相比手打节省",
+			"title": "Voice Typer 统计"
+		}
 	}
 }

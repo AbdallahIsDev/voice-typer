@@ -38,6 +38,15 @@ const NAV_ITEMS: NavItem[] = [
 	{ id: "about", icon: InformationCircleIcon },
 ];
 
+// NF-R10-9: Per-page keyboard shortcuts surfaced in the nav item's
+// `title` tooltip so they're discoverable for both collapsed and
+// expanded sidebar states. Pages without a shortcut are omitted from
+// the map (no suffix appended to the tooltip).
+const NAV_SHORTCUTS: Partial<Record<Page, string>> = {
+	home: "Ctrl+H",
+	settings: "Ctrl+,",
+};
+
 interface SidebarProps {
 	currentPage: Page;
 	onNavigate: (page: Page) => void;
@@ -94,11 +103,17 @@ export function Sidebar({
 					{NAV_ITEMS.map((item) => {
 						const isActive = currentPage === item.id;
 						const handleNav = () => onNavigate(item.id);
+						// NF-R10-9: Always set a `title` (regardless of collapsed
+						// state) so keyboard users hovering focus can read the
+						// nav label, and include the shortcut when one exists.
+						const shortcut = NAV_SHORTCUTS[item.id];
+						const navLabel = t(`nav.${item.id}`);
+						const navTitle = shortcut ? `${navLabel} (${shortcut})` : navLabel;
 						return (
 							<Button
 								key={item.id}
 								variant="ghost"
-								title={collapsed ? t(`nav.${item.id}`) : undefined}
+								title={navTitle}
 								// NEW-A11Y-003: aria-current="page" tells screen readers
 								// which nav item represents the current page.
 								aria-current={isActive ? "page" : undefined}
@@ -107,7 +122,13 @@ export function Sidebar({
 									"transition-all duration-200 ease-out",
 									collapsed ? "px-2" : "px-3",
 									isActive
-										? "bg-(--bg) hover:bg-(--bg) border border-border dark:bg-(--bg) dark:hover:bg-(--bg)"
+										? cn(
+												"bg-(--bg) hover:bg-(--bg) border border-border dark:bg-(--bg) dark:hover:bg-(--bg)",
+												// UX-16: 2px left accent bar gives the active nav
+												// item stronger visual hierarchy (matches VS Code's
+												// active-tab indicator).
+												"relative before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-0.5 before:rounded-full before:bg-accent",
+											)
 										: "hover:bg-black/5 dark:hover:bg-white/5",
 								)}
 								onClick={handleNav}

@@ -10,6 +10,14 @@
  * - All models fail → shows error snackbar
  * - import_model IPC error → shows failure snackbar
  * - Outside Electron (no window_ API) → shows warning snackbar
+ *
+ * Additional coverage (FIX-13):
+ * - MDL-3: cancel produces no duplicate snackbar from `downloadModel`
+ * - MDL-5: cloud provider API key inputs have unique HTML ids
+ * - MDL-9: download success does not auto-activate the model in the
+ *   renderer; `get_config` is re-fetched to reconcile
+ * - MDL-16: Select buttons are disabled while any download is in
+ *   progress
  */
 
 import {
@@ -491,6 +499,295 @@ describe("ModelsPage — Import Model flow", () => {
 			imported: [],
 			found: [],
 			errors: [],
+		});
+	});
+});
+
+// ── FIX-13: MDL-3 / MDL-5 / MDL-9 / MDL-16 ──────────────────────────────
+//
+// These tests cover fixes for the Models.tsx bugs identified in the
+// comprehensive review (MDL-3, MDL-5, MDL-9, MDL-16). They focus on
+// user-visible behaviour (snackbar calls, button disabled state, DOM
+// ids) rather than internal state shape, so they survive future
+// refactors of the page internals.
+
+describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+		removeDialogMock();
+	});
+
+	async function renderPage() {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		render(<ModelsPage />);
+		await waitFor(() => {
+			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+		});
+	}
+
+	it("does NOT show an error snackbar when download_model returns cancelled:true", async () => {
+		await renderPage();
+		// tiny.en is not active (small.en is) and not downloaded, so the
+		// Download button is visible.
+		const downloadButton = screen.getByRole("button", {
+			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+		});
+		// Resolve download_model with cancelled:true — this simulates
+		// the user clicking Cancel during the download (the cancel
+		// handler in Models.tsx already shows the "cancelled" snackbar;
+		// downloadModel itself must NOT show another one).
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "download_model") {
+				return Promise.resolve({
+					success: false,
+					cancelled: true,
+				});
+			}
+			return Promise.resolve(MOCK_CONFIG);
+		});
+
+		fireEvent.click(downloadButton);
+
+		// Wait for the download_model call to settle and any
+		// potential snackbar to fire.
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("download_model", {
+				model: "tiny.en",
+			});
+		});
+		// Give React a tick to flush any state updates that might
+		// trigger a snackbar.
+		await new Promise((r) => setTimeout(r, 0));
+
+		// No snackbar should have been shown by downloadModel — the
+		// cancel handler is responsible for the "cancelled" toast,
+		// and we did not click Cancel in this test.
+		expect(showSnack).not.toHaveBeenCalled();
+	});
+
+	it("shows an error snackbar with the backend's message when download_model fails (not cancelled)", async () => {
+		await renderPage();
+		const downloadButton = screen.getByRole("button", {
+			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+		});
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "download_model") {
+				return Promise.resolve({
+					success: false,
+					message: "Disk full",
+				});
+			}
+			return Promise.resolve(MOCK_CONFIG);
+		});
+
+		fireEvent.click(downloadButton);
+
+		await waitFor(() => {
+			expect(showSnack).toHaveBeenCalledWith("Disk full", "error");
+		});
+	});
+});
+
+describe("ModelsPage — MDL-5: cloud provider API key inputs have unique HTML ids", () => {
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+		removeDialogMock();
+	});
+
+	it("renders a unique id per provider (no duplicate api-key-input)", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		render(<ModelsPage />);
+		await waitFor(() => {
+			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+		});
+
+		// Switch to the Cloud Providers tab.
+		const cloudTab = screen.getByText(t("models.cloudProviders"));
+		fireEvent.click(cloudTab);
+
+		// Verify each provider's input has a unique id and that
+		// each <label> points to the correct one via htmlFor.
+		for (const providerKey of ["openai", "groq", "deepgram"]) {
+			const input = await waitFor(() =>
+				document.getElementById(`api-key-input-${providerKey}`),
+			);
+			expect(input).not.toBeNull();
+			expect(input?.tagName).toBe("INPUT");
+
+			// Find the label pointing to this input.
+			const label = document.querySelector(
+				`label[for="api-key-input-${providerKey}"]`,
+			);
+			expect(label).not.toBeNull();
+			expect(label?.textContent).toContain(t("models.cloud.apiKey"));
+		}
+
+		// Sanity: no element uses the old shared id.
+		expect(document.getElementById("api-key-input")).toBeNull();
+		// And there are exactly 3 inputs with the api-key-input-*
+		// prefix (one per provider).
+		const allApiKeyInputs = document.querySelectorAll(
+			'input[id^="api-key-input-"]',
+		);
+		expect(allApiKeyInputs.length).toBe(3);
+	});
+});
+
+describe("ModelsPage — MDL-9: download does not auto-activate in the renderer", () => {
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+		removeDialogMock();
+	});
+
+	it("re-fetches get_config after download success to reconcile active state", async () => {
+		let getConfigCallCount = 0;
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") {
+				getConfigCallCount++;
+				return Promise.resolve(MOCK_CONFIG);
+			}
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "download_model") {
+				return Promise.resolve({ success: true });
+			}
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		render(<ModelsPage />);
+		await waitFor(() => {
+			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+		});
+		const initialCount = getConfigCallCount;
+		expect(initialCount).toBeGreaterThanOrEqual(1);
+
+		const downloadButton = screen.getByRole("button", {
+			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+		});
+		fireEvent.click(downloadButton);
+
+		// After download success, the renderer re-fetches get_config
+		// to reconcile the active state with the backend's view.
+		await waitFor(() => {
+			expect(getConfigCallCount).toBeGreaterThan(initialCount);
+		});
+	});
+
+	it("does NOT mark the downloaded model as active when get_config still reports the previous active model", async () => {
+		// small.en is active per MOCK_CONFIG. After downloading
+		// tiny.en, the renderer must NOT auto-activate tiny.en.
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") return Promise.resolve({});
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "download_model") {
+				return Promise.resolve({ success: true });
+			}
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		render(<ModelsPage />);
+		await waitFor(() => {
+			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+		});
+
+		const downloadButton = screen.getByRole("button", {
+			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
+		});
+		fireEvent.click(downloadButton);
+
+		// After download success, the "Active" button (with the
+		// Tick02Icon and the "Active" label) should NOT be shown
+		// for tiny.en — small.en is still the active model.
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("download_model", {
+				model: "tiny.en",
+			});
+		});
+		// Give the reconciliation get_config call time to resolve.
+		await new Promise((r) => setTimeout(r, 0));
+
+		// The Select button for tiny.en should now be visible
+		// (tiny.en is downloaded but not active).
+		const selectButton = screen.queryByRole("button", {
+			name: t("models.card.selectAria").replace("{name}", "tiny.en"),
+		});
+		expect(selectButton).not.toBeNull();
+		// The Active button (with aria-label "Active: tiny.en")
+		// should NOT exist.
+		const activeButton = screen.queryByRole("button", {
+			name: t("models.card.activeAria").replace("{name}", "tiny.en"),
+		});
+		expect(activeButton).toBeNull();
+	});
+});
+
+describe("ModelsPage — MDL-16: Select buttons disabled during download", () => {
+	afterEach(() => {
+		cleanup();
+		vi.clearAllMocks();
+		removeDialogMock();
+	});
+
+	it("disables Select buttons for downloaded models while a download is in progress", async () => {
+		// Make tiny.en "downloaded" via get_model_status so its
+		// Select button is rendered (instead of the Download button).
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
+			if (type === "get_model_status") {
+				return Promise.resolve({
+					"tiny.en": { downloaded: true, deps_ok: true },
+				});
+			}
+			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
+			if (type === "download_model") {
+				// Keep the download pending so the
+				// downloadingModel state stays non-null.
+				return new Promise(() => {});
+			}
+			return Promise.resolve(MOCK_CONFIG);
+		});
+		render(<ModelsPage />);
+		await waitFor(() => {
+			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
+		});
+
+		// Find the Select button for tiny.en (downloaded, not active).
+		const selectButton = await waitFor(() =>
+			screen.getByRole("button", {
+				name: t("models.card.selectAria").replace("{name}", "tiny.en"),
+			}),
+		);
+		// Initially enabled (no download in progress yet).
+		expect(selectButton.getAttribute("disabled")).toBeNull();
+
+		// Start a download on medium.en (not downloaded, not active).
+		const downloadButton = screen.getByRole("button", {
+			name: t("models.card.downloadAria").replace("{name}", "medium.en"),
+		});
+		fireEvent.click(downloadButton);
+
+		// The Select button for tiny.en should now be disabled
+		// because a download is in progress on a different model.
+		await waitFor(() => {
+			expect(selectButton.getAttribute("disabled")).not.toBeNull();
 		});
 	});
 });

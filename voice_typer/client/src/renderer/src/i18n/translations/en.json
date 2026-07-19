@@ -13,7 +13,9 @@
 		"lostConnection": "Lost connection to Python backend",
 		"retryConnection": "Retry Connection",
 		"restartingBackend": "Restarting Voice Typer backend…",
-		"restartingHint": "This usually takes a few seconds. Dictation will resume from the system tray once ready."
+		"restartingHint": "This usually takes a few seconds. Dictation will resume from the system tray once ready.",
+		"goHome": "Go to Home",
+		"lostConnectionHint": "The backend process exited unexpectedly. Try restarting the app."
 	},
 	"nav": {
 		"home": "Home",
@@ -43,7 +45,14 @@
 		"firstDictationDesc": "Welcome to Voice Typer. Press the hotkey anytime to dictate.",
 		"press": "Press",
 		"loadingTodayStatsAria": "Loading today's stats",
-		"loadingRecentAria": "Loading recent activity"
+		"loadingRecentAria": "Loading recent activity",
+		"downloadingModel": "Downloading model…",
+		"undo": "Undo",
+		"undoAria": "Undo last transcription (Ctrl+Z)",
+		"repaste": "Re-paste",
+		"repasteAria": "Re-paste last transcription (Ctrl+Alt+V)",
+		"forceCancel": "Force cancel requested",
+		"forceCancelHint": "Taking too long? Force cancel"
 	},
 	"common": {
 		"cancel": "Cancel",
@@ -93,7 +102,9 @@
 		"noOtherMicrophones": "No other microphones available",
 		"use": "Use",
 		"channels": "Channels:",
-		"rateHz": "Rate:"
+		"rateHz": "Rate:",
+		"loadFailedTitle": "Failed to load microphone data",
+		"retry": "Retry"
 	},
 	"vocabulary": {
 		"title": "Custom Vocabulary",
@@ -177,7 +188,9 @@
 		"exactMatch": "Exact match",
 		"contains": "Contains",
 		"deleteTitle": "Delete Template",
-		"deleteMessage": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
+		"deleteMessage": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
+		"loadFailedTitle": "Failed to load templates",
+		"retry": "Retry"
 	},
 	"analytics": {
 		"title": "Analytics",
@@ -312,6 +325,7 @@
 	"settings": {
 		"title": "Settings",
 		"searchPlaceholder": "Search settings…",
+		"searchNoMatch": "No settings match \"{query}\"",
 		"searchHints": {
 			"appearance": "theme, appearance, color, dark, light, text size, font",
 			"general": "language, notification, tray, bubble, overlay, startup, login, launch, hotkey, shortcut, dictation key, recording mode, push to talk",
@@ -363,6 +377,10 @@
 		"bubbleDraggableDescription": "Allow dragging the bubble to reposition it",
 		"bubbleShowOnStartup": "Show on Startup",
 		"bubbleShowOnStartupDescription": "Show the bubble when the app starts (only when Always Visible)",
+		"bubbleMicButton": "Bubble Mic Button",
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"bubbleClickToToggle": "Click Bubble to Toggle",
+		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation",
 		"theme": "Theme",
 		"themeDescription": "Application color scheme",
 		"advanced": "Advanced",
@@ -875,7 +893,8 @@
 			"cancelAria": "Cancel model download",
 			"cancel": "Cancel",
 			"depsAria": "Download dependencies for {name}",
-			"deps": "Download Deps"
+			"deps": "Download Deps",
+			"progressAria": "Model download progress"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -969,6 +988,7 @@
 		"goForward": "Go forward",
 		"recordingStarted": "Recording started.",
 		"transcribingAudio": "Transcribing audio…",
+		"transcriptionComplete": "Transcription complete.",
 		"ready": "Ready.",
 		"errorOccurred": "Error occurred.",
 		"loadingModel": "Loading model…",
@@ -1026,7 +1046,8 @@
 			"closeQuote": "Close quote",
 			"newLine": "New line",
 			"newParagraph": "New paragraph"
-		}
+		},
+		"description": "Press Esc to close."
 	},
 	"history": {
 		"title": "History",
@@ -1075,15 +1096,30 @@
 		"duration": "Duration",
 		"model": "Model",
 		"words": "Words",
-		"characters": "Characters"
+		"characters": "Characters",
+		"loadFailedTitle": "Failed to load history",
+		"retry": "Retry"
 	},
 	"onboarding": {
 		"welcomeTitle": "Welcome to Voice Typer",
 		"welcomeDescription": "Voice Typer is a premium offline voice-to-text utility that runs in your system tray. Press a hotkey, speak, and your words appear as text in any application. Let's set up a few things to get you started.",
 		"step1Item": "Choose your microphone",
-		"step2Item": "Select a hotkey",
-		"step3Item": "Pick a transcription model",
+		"step2Item": "Grant keyboard-monitoring permission",
+		"step3Item": "Select a hotkey",
+		"step4Item": "Pick a transcription model",
+		"step5Item": "Finish and load your model",
+		"permissionsTitle": "Keyboard Monitoring Permission",
+		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
+		"permissionsLoading": "Checking permission…",
+		"permissionsNeeded": "Permission still required",
+		"permissionsOk": "Permission granted — hotkeys will work.",
+		"permissionsNoneNeeded": "No extra permission needed on this platform. Hotkeys will work out of the box.",
+		"permissionsTestLabel": "Press your hotkey to test",
+		"permissionsTestSuccess": "Hotkey detected! It works.",
+		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
+		"permissionsTestButton": "Test hotkey",
 		"micTitle": "Choose Your Microphone",
+		"micLevel": "Input level",
 		"micDescription": "Select the microphone you want to use for dictation. You can change this later in Settings.",
 		"micSelectAria": "Select microphone",
 		"noMics": "No microphones detected. You can set one later in Settings.",
@@ -1093,6 +1129,7 @@
 		"modelTitle": "Choose Your Model",
 		"modelDescription": "Pick a transcription model. Smaller models are faster; larger models are more accurate. The model downloads in the background after setup.",
 		"modelSelectAria": "Select model: {name}",
+		"modelMultilingual": "Multilingual",
 		"completeTitle": "You're All Set!",
 		"completeDescription": "Your Voice Typer is configured and ready. Press your hotkey ({hotkey}) to start dictating. The model will download and load in the background — this may take a minute on first run.",
 		"summaryMic": "Microphone:",
@@ -1110,7 +1147,11 @@
 		"setupCompleteSnack": "Setup complete! Loading your model...",
 		"saveFailedSnack": "Failed to save selection",
 		"skippedSnack": "Setup skipped — using defaults",
-		"stepProgress": "Step {current} of {total}"
+		"skipConfirmTitle": "Skip setup?",
+		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmLabel": "Skip anyway",
+		"stepProgress": "Step {current} of {total}",
+		"progressAria": "Onboarding progress"
 	},
 	"titleBar": {
 		"minimize": "Minimize",
@@ -1122,7 +1163,10 @@
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer recording indicator",
-		"transcribingLabel": "Transcribing"
+		"transcribingLabel": "Transcribing",
+		"micButtonAria": "Toggle dictation",
+		"micButtonStartAria": "Start dictation",
+		"micButtonStopAria": "Stop dictation"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",
@@ -1193,6 +1237,24 @@
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",
 		"playRecording": "Play Recording",
-		"stop": "Stop"
+		"stop": "Stop",
+		"qualityFeedback": {
+			"recording": "Recording…",
+			"voiceDetected": "✓ Voice detected",
+			"waiting": "Waiting for voice…",
+			"excellent": "Quality: Excellent",
+			"tooHigh": "⚠ Volume too high (clipping risk)",
+			"tooLow": "⚠ Volume too low",
+			"lowVolume": "⚠ Low volume — speak up"
+		}
+	},
+	"stats": {
+		"shareImage": {
+			"backgroundWaveform": "Background waveform",
+			"wpm": "WPM",
+			"min": "min",
+			"savedVsTyping": "saved vs typing",
+			"title": "Voice Typer Stats"
+		}
 	}
 }

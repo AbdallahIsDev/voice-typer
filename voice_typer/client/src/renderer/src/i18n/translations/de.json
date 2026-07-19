@@ -13,7 +13,9 @@
 		"lostConnection": "Verbindung zum Python-Backend verloren",
 		"retryConnection": "Verbindung wiederherstellen",
 		"restartingBackend": "Voice Typer-Backend wird neu gestartet…",
-		"restartingHint": "Dies dauert in der Regel einige Sekunden. Das Diktat wird aus dem System-Tray fortgesetzt, sobald es bereit ist."
+		"restartingHint": "Dies dauert in der Regel einige Sekunden. Das Diktat wird aus dem System-Tray fortgesetzt, sobald es bereit ist.",
+		"goHome": "Zur Startseite",
+		"lostConnectionHint": "Das Python-Backend antwortet nicht. Bitte neu starten."
 	},
 	"nav": {
 		"home": "Startseite",
@@ -43,7 +45,14 @@
 		"firstDictationDesc": "Willkommen bei Voice Typer. Drücken Sie jederzeit die Tastenkombination zum Diktieren.",
 		"press": "Drücken Sie",
 		"loadingTodayStatsAria": "Statistiken von heute werden geladen",
-		"loadingRecentAria": "Letzte Aktivitäten werden geladen"
+		"loadingRecentAria": "Letzte Aktivitäten werden geladen",
+		"downloadingModel": "Modell wird heruntergeladen…",
+		"undo": "Rückgängig",
+		"undoAria": "Letzte Transkription rückgängig machen",
+		"repaste": "Erneut einfügen",
+		"repasteAria": "Letzte Transkription erneut einfügen",
+		"forceCancel": "Abbruch erzwingen",
+		"forceCancelHint": "Wenn die Diktatfunktion hängt, Abbruch erzwingen, um fortzufahren"
 	},
 	"common": {
 		"cancel": "Abbrechen",
@@ -93,7 +102,9 @@
 		"noOtherMicrophones": "Keine weiteren Mikrofone verfügbar",
 		"use": "Verwenden",
 		"channels": "Kanäle:",
-		"rateHz": "Abtastrate:"
+		"rateHz": "Abtastrate:",
+		"loadFailedTitle": "Mikrofone konnten nicht geladen werden",
+		"retry": "Erneut versuchen"
 	},
 	"vocabulary": {
 		"title": "Benutzerwortschatz",
@@ -177,7 +188,9 @@
 		"exactMatch": "Genaue Übereinstimmung",
 		"contains": "Enthält",
 		"deleteTitle": "Vorlage löschen",
-		"deleteMessage": "Möchten Sie „{name}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden."
+		"deleteMessage": "Möchten Sie „{name}\" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.",
+		"loadFailedTitle": "Vorlagen konnten nicht geladen werden",
+		"retry": "Erneut versuchen"
 	},
 	"analytics": {
 		"title": "Analysen",
@@ -875,7 +888,8 @@
 			"cancelAria": "Cancel model download",
 			"cancel": "Abbrechen",
 			"depsAria": "Download dependencies for {name}",
-			"deps": "Abhängigkeiten herunterladen"
+			"deps": "Abhängigkeiten herunterladen",
+			"progressAria": "Modell wird heruntergeladen: {percent}% abgeschlossen"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -981,7 +995,9 @@
 		"decrease": "Verringern",
 		"microphoneQualityPreset": "Mikrofon-Qualitätsvoreinstellung",
 		"noiseSuppressionMethod": "Rauschunterdrückungsmethode",
-		"importNotAvailableOutsideElectron": "Import außerhalb von Electron nicht verfügbar"
+		"importNotAvailableOutsideElectron": "Import außerhalb von Electron nicht verfügbar",
+		"opensInNewTab": "Wird in neuem Tab geöffnet",
+		"transcriptionComplete": "Transkription abgeschlossen."
 	},
 	"help": {
 		"title": "Tastaturkürzel",
@@ -1026,7 +1042,8 @@
 			"closeQuote": "Schließendes Anführungszeichen",
 			"newLine": "Neue Zeile",
 			"newParagraph": "Neuer Absatz"
-		}
+		},
+		"description": "Tastenkürzel und Zeichensetzung-Übersicht."
 	},
 	"history": {
 		"title": "Verlauf",
@@ -1075,7 +1092,9 @@
 		"duration": "Dauer",
 		"model": "Modell",
 		"words": "Wörter",
-		"characters": "Zeichen"
+		"characters": "Zeichen",
+		"loadFailedTitle": "Verlauf konnte nicht geladen werden",
+		"retry": "Erneut versuchen"
 	},
 	"onboarding": {
 		"welcomeTitle": "Willkommen bei Voice Typer",
@@ -1110,7 +1129,8 @@
 		"setupCompleteSnack": "Einrichtung abgeschlossen! Modell wird geladen...",
 		"saveFailedSnack": "Auswahl konnte nicht gespeichert werden",
 		"skippedSnack": "Einrichtung übersprungen — Standardwerte werden verwendet",
-		"stepProgress": "Schritt {current} von {total}"
+		"stepProgress": "Schritt {current} von {total}",
+		"progressAria": "Einrichtungsschritt {current} von {total}"
 	},
 	"titleBar": {
 		"minimize": "Minimieren",
@@ -1193,6 +1213,31 @@
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",
 		"playRecording": "Play Recording",
-		"stop": "Stop"
+		"stop": "Stop",
+		"qualityFeedback": {
+			"recording": "Aufnahme läuft…",
+			"voiceDetected": "Stimme erkannt",
+			"excellent": "Ausgezeichnete Qualität",
+			"tooHigh": "Lautstärke zu hoch",
+			"tooLow": "Lautstärke zu niedrig",
+			"lowVolume": "Geringe Lautstärke erkannt",
+			"waiting": "Warte auf Sprache…"
+		}
+	},
+	"dashboard": {
+		"cards": {
+			"dictations": "Diktate",
+			"chars": "Zeichen",
+			"duration": "Gesamtdauer"
+		}
+	},
+	"stats": {
+		"shareImage": {
+			"backgroundWaveform": "Hintergrund-Wellenform",
+			"wpm": "WpM",
+			"min": "Min.",
+			"savedVsTyping": "gespart vs. Tippen",
+			"title": "Voice Typer Statistiken"
+		}
 	}
 }

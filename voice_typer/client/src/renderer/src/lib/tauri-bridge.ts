@@ -223,16 +223,20 @@ export function installTauriBridge(): void {
 	// (which uses `ipcRenderer.send`, also void). The Rust commands
 	// update the bubble BrowserWindow state asynchronously.
 	//
-	// `setPosition` accepts `(x, y)` numeric coordinates on the Tauri
-	// path (the Rust `bubble_set_position` command takes `{x, y}` and
-	// moves the window to absolute screen coords). The Electron preload
-	// accepts `(pos: "top" | "bottom")` instead. The TS type signature
-	// widens `x` to `number | string` so the same bridge assignment
-	// satisfies the `MainRendererBubble` contract (which declares
-	// `(pos: string) => void`) AND accepts the numeric shape used by
-	// the Rust command. Parameter contravariance under
-	// `strictFunctionTypes` makes `(x: number | string, y?: number)`
-	// assignable to `(pos: string)` because `string ⊆ number | string`.
+	// `setPosition` accepts a single string `position` (XPLAT-6 fix).
+	// Both production call sites — `useConnection.ts:117` (syncing
+	// the saved `bubble_position` config) and
+	// `GeneralSettingsSection.tsx:151` (the bubble-position dropdown)
+	// — pass one of `"top"` / `"bottom"`. The Rust `bubble_set_position`
+	// command takes TWO args (`x: Value, y: Value`) and parses
+	// `"top"`/`"bottom"` strings server-side, resolving them to
+	// absolute physical coordinates based on the primary monitor's
+	// bounds (see `src-tauri/src/commands/bubble.rs`). The bridge
+	// therefore forwards the string as BOTH `x` and `y` — sending a
+	// single `{ position }` arg made Tauri v2 reject the invoke
+	// (missing required args), so the bubble never positioned. The
+	// call shape still matches the `MainRendererBubble.setPosition?:
+	// (pos: string) => void` contract exactly.
 	const bubble: MainRendererBubble = {
 		onLevel: (callback) => {
 			let unlisten: (() => void) | null = null;
@@ -269,18 +273,23 @@ export function installTauriBridge(): void {
 			// Electron's `ipcRenderer.send("bubble:ready")`.
 			void tauri.core.invoke("bubble_signal_ready");
 		},
-		setPosition: (x: number | string, y?: number) => {
-			// MIG-1.2: move the bubble window to absolute screen
-			// coordinates. The Rust `bubble_set_position` command takes
-			// `{x, y}` numerics. The `y ?? 0` default handles the
-			// legacy `setPosition("top" | "bottom")` call shape from
-			// `useConnection.ts:117` (which passes a string and no y);
-			// on the Tauri path the renderer is expected to pass
-			// numeric coords (the legacy string shape is a no-op on
-			// Tauri — the Rust command will reject non-numeric x).
+		setPosition: (position: string) => {
+			// MIG-1.2 + XPLAT-6: forward the `"top" | "bottom"`
+			// string as BOTH `x` and `y` — the Rust
+			// `bubble_set_position(x: Value, y: Value)` command
+			// requires both args (a single `{ position }` payload
+			// is rejected by Tauri v2 arg deserialization) and
+			// resolves the strings to absolute physical
+			// coordinates based on the primary monitor's bounds
+			// (x → centered, y → 0 for "top" / screen−bubble for
+			// "bottom"; see src-tauri/src/commands/bubble.rs).
+			// Both production call sites — `useConnection.ts:117`
+			// and `GeneralSettingsSection.tsx:151` — pass one of
+			// these two literals. Fire-and-forget matches
+			// Electron's `ipcRenderer.send("bubble:set-position", pos)`.
 			void tauri.core.invoke("bubble_set_position", {
-				x,
-				y: y ?? 0,
+				x: position,
+				y: position,
 			});
 		},
 		setDraggable: (draggable: boolean) => {
@@ -339,6 +348,29 @@ export function installTauriBridge(): void {
 			tauri.event
 				.listen<boolean>("bubble:draggable", (e) =>
 					callback(Boolean(e.payload)),
+				)
+				.then((un) => {
+					if (cancelled) un();
+					else unlisten = un;
+				});
+			return () => {
+				cancelled = true;
+				if (unlisten) {
+					unlisten();
+					unlisten = null;
+				}
+			};
+		},
+		// UX-10: bubble-relevant config pushed from the Python backend.
+		// The sandboxed bubble renderer has no get_config, so this is how
+		// it learns whether to show the mic button. Listens on the
+		// `bubble:config` Tauri event (emitted by the Rust host).
+		onConfig: (callback) => {
+			let unlisten: (() => void) | null = null;
+			let cancelled = false;
+			tauri.event
+				.listen<Record<string, unknown>>("bubble:config", (e) =>
+					callback(e.payload as Record<string, unknown>),
 				)
 				.then((un) => {
 					if (cancelled) un();

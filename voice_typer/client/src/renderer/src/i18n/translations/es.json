@@ -13,7 +13,9 @@
 		"lostConnection": "Se perdió la conexión con el backend de Python",
 		"retryConnection": "Reintentar conexión",
 		"restartingBackend": "Reiniciando backend de Voice Typer…",
-		"restartingHint": "Esto suele tardar unos segundos. El dictado se reanudará desde la bandeja del sistema cuando esté listo."
+		"restartingHint": "Esto suele tardar unos segundos. El dictado se reanudará desde la bandeja del sistema cuando esté listo.",
+		"goHome": "Ir al inicio",
+		"lostConnectionHint": "El proceso backend terminó inesperadamente. Intenta reiniciar la aplicación."
 	},
 	"nav": {
 		"home": "Inicio",
@@ -43,7 +45,14 @@
 		"firstDictationDesc": "Bienvenido a Voice Typer. Presiona el atajo de teclado en cualquier momento para dictar.",
 		"press": "Presiona",
 		"loadingTodayStatsAria": "Cargando estadísticas de hoy",
-		"loadingRecentAria": "Cargando actividad reciente"
+		"loadingRecentAria": "Cargando actividad reciente",
+		"downloadingModel": "Descargando modelo…",
+		"undo": "Deshacer",
+		"undoAria": "Deshacer la última transcripción (Ctrl+Z)",
+		"repaste": "Re-pegar",
+		"repasteAria": "Re-pegar la última transcripción (Ctrl+Alt+V)",
+		"forceCancel": "Cancelación forzada solicitada",
+		"forceCancelHint": "¿Tardando demasiado? Forzar cancelación"
 	},
 	"common": {
 		"cancel": "Cancelar",
@@ -93,7 +102,9 @@
 		"noOtherMicrophones": "No hay otros micrófonos disponibles",
 		"use": "Usar",
 		"channels": "Canales:",
-		"rateHz": "Tasa:"
+		"rateHz": "Tasa:",
+		"loadFailedTitle": "No se pudieron cargar los datos del micrófono",
+		"retry": "Reintentar"
 	},
 	"vocabulary": {
 		"title": "Vocabulario personalizado",
@@ -177,7 +188,9 @@
 		"exactMatch": "Coincidencia exacta",
 		"contains": "Contiene",
 		"deleteTitle": "Eliminar plantilla",
-		"deleteMessage": "¿Seguro que quieres eliminar \"{name}\"? Esta acción no se puede deshacer."
+		"deleteMessage": "¿Seguro que quieres eliminar \"{name}\"? Esta acción no se puede deshacer.",
+		"loadFailedTitle": "No se pudieron cargar las plantillas",
+		"retry": "Reintentar"
 	},
 	"analytics": {
 		"title": "Analíticas",
@@ -312,6 +325,7 @@
 	"settings": {
 		"title": "Configuración",
 		"searchPlaceholder": "Buscar configuración…",
+		"searchNoMatch": "Ninguna configuración coincide con \"{query}\"",
 		"searchHints": {
 			"appearance": "tema, apariencia, color, oscuro, claro, tamaño de texto, fuente",
 			"general": "idioma, notificación, bandeja, burbuja, superposición, inicio, inicio de sesión, lanzar, atajo, tecla de dictado, modo grabación, pulsar para hablar",
@@ -875,7 +889,8 @@
 			"cancelAria": "Cancelar descarga del modelo",
 			"cancel": "Cancelar",
 			"depsAria": "Descargar dependencias para {name}",
-			"deps": "Descargar Deps"
+			"deps": "Descargar Deps",
+			"progressAria": "Progreso de descarga del modelo"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -969,6 +984,7 @@
 		"goForward": "Adelante",
 		"recordingStarted": "Grabación iniciada.",
 		"transcribingAudio": "Transcribiendo audio…",
+		"transcriptionComplete": "Transcripción completa.",
 		"ready": "Listo.",
 		"errorOccurred": "Ocurrió un error.",
 		"loadingModel": "Cargando modelo…",
@@ -1026,7 +1042,8 @@
 			"closeQuote": "Comilla de cierre",
 			"newLine": "Nueva línea",
 			"newParagraph": "Nuevo párrafo"
-		}
+		},
+		"description": "Presiona Esc para cerrar."
 	},
 	"history": {
 		"title": "History",
@@ -1075,7 +1092,9 @@
 		"duration": "Duración",
 		"model": "Modelo",
 		"words": "Palabras",
-		"characters": "Caracteres"
+		"characters": "Caracteres",
+		"loadFailedTitle": "No se pudo cargar el historial",
+		"retry": "Reintentar"
 	},
 	"onboarding": {
 		"welcomeTitle": "Bienvenido a Voice Typer",
@@ -1110,7 +1129,8 @@
 		"setupCompleteSnack": "¡Configuración completa! Cargando tu modelo...",
 		"saveFailedSnack": "Error al guardar la selección",
 		"skippedSnack": "Configuración omitida — usando valores predeterminados",
-		"stepProgress": "Paso {current} de {total}"
+		"stepProgress": "Paso {current} de {total}",
+		"progressAria": "Progreso de configuración inicial"
 	},
 	"titleBar": {
 		"minimize": "Minimizar",
@@ -1193,6 +1213,24 @@
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",
 		"playRecording": "Play Recording",
-		"stop": "Stop"
+		"stop": "Stop",
+		"qualityFeedback": {
+			"recording": "Grabando…",
+			"voiceDetected": "✓ Voz detectada",
+			"waiting": "Esperando voz…",
+			"excellent": "Calidad: excelente",
+			"tooHigh": "⚠ Volumen demasiado alto (riesgo de saturación)",
+			"tooLow": "⚠ Volumen demasiado bajo",
+			"lowVolume": "⚠ Volumen bajo — hable más alto"
+		}
+	},
+	"stats": {
+		"shareImage": {
+			"backgroundWaveform": "Forma de onda de fondo",
+			"wpm": "PPM",
+			"min": "min",
+			"savedVsTyping": "ahorrado vs. escribir",
+			"title": "Estadísticas de Voice Typer"
+		}
 	}
 }

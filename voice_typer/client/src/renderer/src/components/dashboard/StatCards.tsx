@@ -1,5 +1,6 @@
 import { Mic02Icon, TextIcon, Time02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { t } from "@/i18n/i18n";
 import type { TodayStats } from "@/types/ipc";
 
 function formatCompactNumber(n: number): string {
@@ -24,26 +25,33 @@ function formatDuration(seconds: number): string {
 	return `${h}h ${m}m`;
 }
 
+// NF-R15-7: card labels are now i18n-driven. We look up the translation key
+// at render time so the active locale is always reflected — the previous
+// implementation hard-coded English strings, which broke i18n for es / fr /
+// de / ar / hi / zh users.
 const CARDS: {
-	label: string;
+	labelKey:
+		| "dashboard.cards.dictations"
+		| "dashboard.cards.chars"
+		| "dashboard.cards.duration";
 	key: keyof TodayStats;
 	icon: typeof Mic02Icon;
 	format: (v: number) => string;
 }[] = [
 	{
-		label: "Voice Dictations",
+		labelKey: "dashboard.cards.dictations",
 		key: "count",
 		icon: Mic02Icon,
 		format: formatCompactNumber,
 	},
 	{
-		label: "Text Transcribed",
+		labelKey: "dashboard.cards.chars",
 		key: "chars",
 		icon: TextIcon,
 		format: formatCompactNumber,
 	},
 	{
-		label: "Dictation Time",
+		labelKey: "dashboard.cards.duration",
 		key: "duration",
 		icon: Time02Icon,
 		format: formatDuration,
@@ -58,9 +66,10 @@ export default function StatCards({ stats }: StatCardsProps) {
 	return (
 		<div className="flex gap-2 w-full">
 			{CARDS.map((card) => {
+				const label = t(card.labelKey);
 				return (
 					<div
-						key={card.label}
+						key={card.labelKey}
 						className="rounded-lg bg-(--bg-subtle) px-4 py-3 flex-1 border border-border"
 					>
 						<div className="flex items-center gap-2 mb-1.5">
@@ -70,7 +79,7 @@ export default function StatCards({ stats }: StatCardsProps) {
 								className="h-4 w-4 text-(--text-muted)"
 							/>
 							<span className="text-[11px] text-(--text-muted) font-medium">
-								{card.label}
+								{label}
 							</span>
 						</div>
 						<span className="text-xl font-bold text-(--text-primary) leading-none tracking-tight">

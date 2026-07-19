@@ -1,23 +1,22 @@
 /**
- * Task 7: Tests for the About page's Cache Status card.
+ * Tests for the About page.
  *
- * Covers:
+ * UX-20 / SET-5: the About page was slimmed down from a 726-line catch-all
+ * to a focused ~300-line page with three sections (Diagnostics, Privacy,
+ * Resources). The Help section was removed (it duplicates the `?` overlay),
+ * and Cache Status + Updates were removed from About — they now live in
+ * Settings → Troubleshooting via the PrewarmAndUpdates component (added
+ * back after the slim-down incorrectly dropped them from the UI). These
+ * tests cover:
+ *
  *   - formatBytes(): 0, MB range, GB range
  *   - formatRelativeTime(): null, "never", <1 min, minutes, hours, days, ISO fallback
- *   - CacheStatusBadge: renders correct color dot + i18n label for each state
- *   - Cache Status card renders the expected rows
- *   - "Refresh" button calls get_prewarm_status IPC
- *   - "Run Prewarm Now" button calls run_prewarm IPC and refreshes status
- *   - "Run Prewarm Now" button is disabled when cache is Hot
- *   - PrewarmStatus type matches the Python get_prewarm_status() return shape
+ *   - Smoke test: Diagnostics + Privacy + Resources render
+ *   - Negative test: Help section is gone (no "Start / Stop dictation" row)
+ *   - Negative test: Cache Status section is gone from About (no "Run Prewarm Now" button)
+ *   - Negative test: Updates section is gone from About (no "Check for Updates" button)
  */
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoist the mock call handler so it's available inside vi.mock factories.
@@ -133,704 +132,110 @@ describe("formatRelativeTime", () => {
 	});
 });
 
-// ─── Cache Status card rendering ──────────────────────────────────────
+// ─── Slimmed-down About page (UX-20 / SET-5) ──────────────────────────
 
-describe("About page — Cache Status card", () => {
+describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_status") {
+				return Promise.resolve({
+					status: "idle",
+					config_dir: "/tmp",
+					loaded_via: "cpu/int8/tiny.en",
+				});
+			}
+			if (type === "get_config") {
+				return Promise.resolve({
+					asr_backend: "whisper",
+					model_size: "tiny.en",
+					device: "cpu",
+					hotkey: "F2",
+					microphone: null,
+				});
+			}
+			return Promise.resolve({});
+		});
 	});
 
 	afterEach(() => {
 		cleanup();
 	});
 
-	/**
-	 * Helper: render the About page with a specific prewarm status.
-	 * The About page calls get_status, get_config, and get_prewarm_status
-	 * on mount; we mock all three.
-	 */
-	async function renderAboutWithPrewarmStatus(
-		prewarmStatus: Record<string, unknown>,
-	) {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve(prewarmStatus);
-			}
-			return Promise.resolve({});
-		});
-
+	it("renders Diagnostics, Privacy, and Resources sections", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
-		// Wait for the prewarm status to load (the card title appears
-		// once the initial fetch resolves).
+		// Diagnostics section heading (i18n key about.diagnosticsTitle).
 		await waitFor(() => {
-			expect(screen.getByText("Cache Status")).toBeTruthy();
-		});
-	}
-
-	it("renders the Cache Status card with all four rows", async () => {
-		await renderAboutWithPrewarmStatus({
-			last_run: "2026-07-08T13:48:49",
-			elapsed_s: 20.4,
-			cache_ratio: 0.73,
-			cache_label: "partial",
-			cached_bytes: 1750000000,
-			total_bytes: 2400000000,
-			prewarm_running: false,
+			expect(screen.getByText("Diagnostics")).toBeTruthy();
 		});
 
-		// All four row labels must be present.
-		expect(screen.getByText("Prewarm Status")).toBeTruthy();
-		expect(screen.getByText("Last Run")).toBeTruthy();
-		expect(screen.getByText("Cache Health")).toBeTruthy();
-		expect(screen.getByText("Elapsed")).toBeTruthy();
+		// Privacy section heading.
+		expect(screen.getByText("Privacy")).toBeTruthy();
+
+		// Resources section heading.
+		expect(screen.getByText("Resources & Feedback")).toBeTruthy();
 	});
 
-	it("shows 'Partial' badge when cache_label is 'partial'", async () => {
-		await renderAboutWithPrewarmStatus({
-			last_run: "2026-07-08T13:48:49",
-			elapsed_s: 20.4,
-			cache_ratio: 0.5,
-			cache_label: "partial",
-			cached_bytes: 1200000000,
-			total_bytes: 2400000000,
-			prewarm_running: false,
-		});
-
-		expect(screen.getByText("Partial")).toBeTruthy();
-	});
-
-	it("shows 'Hot' badge when cache_label is 'hot'", async () => {
-		await renderAboutWithPrewarmStatus({
-			last_run: "2026-07-08T13:48:49",
-			elapsed_s: 20.4,
-			cache_ratio: 1.0,
-			cache_label: "hot",
-			cached_bytes: 2400000000,
-			total_bytes: 2400000000,
-			prewarm_running: false,
-		});
-
-		expect(screen.getByText("Hot")).toBeTruthy();
-	});
-
-	it("shows 'Cold' badge when cache_label is 'cold'", async () => {
-		await renderAboutWithPrewarmStatus({
-			last_run: "2026-07-08T13:48:49",
-			elapsed_s: 20.4,
-			cache_ratio: 0.0,
-			cache_label: "cold",
-			cached_bytes: 0,
-			total_bytes: 2400000000,
-			prewarm_running: false,
-		});
-
-		expect(screen.getByText("Cold")).toBeTruthy();
-	});
-
-	it("shows 'Unknown' badge when cache_label is 'unknown'", async () => {
-		await renderAboutWithPrewarmStatus({
-			last_run: null,
-			elapsed_s: null,
-			cache_ratio: 0.0,
-			cache_label: "unknown",
-			cached_bytes: 0,
-			total_bytes: 0,
-			prewarm_running: false,
-		});
-
-		expect(screen.getByText("Unknown")).toBeTruthy();
-	});
-
-	it("shows 'Running…' when prewarm_running is true (overrides badge)", async () => {
-		await renderAboutWithPrewarmStatus({
-			last_run: null,
-			elapsed_s: null,
-			cache_ratio: 0.0,
-			cache_label: "cold",
-			cached_bytes: 0,
-			total_bytes: 0,
-			prewarm_running: true,
-		});
-
-		// When prewarm is running, the Prewarm Status row shows "Running…".
-		// There may be multiple "Running…" texts (the row value + the
-		// button label), so use getAllByText.
-		const runningElements = screen.getAllByText("Running…");
-		expect(runningElements.length).toBeGreaterThanOrEqual(1);
-	});
-
-	it("shows cache health percentage and bytes", async () => {
-		// Use values that divide cleanly into GB:
-		//   1.6 GB = 1,717,986,918 bytes (1.6 * 1024^3)
-		//   2.4 GB = 2,576,980,378 bytes (2.4 * 1024^3)
-		//   ratio = 1.6 / 2.4 = 0.6667 → rounds to 67%
-		const totalBytes = Math.round(2.4 * 1024 * 1024 * 1024);
-		const cachedBytes = Math.round(1.6 * 1024 * 1024 * 1024);
-		const ratio = cachedBytes / totalBytes; // ~0.667
-		await renderAboutWithPrewarmStatus({
-			last_run: "2026-07-08T13:48:49",
-			elapsed_s: 20.4,
-			cache_ratio: ratio,
-			cache_label: "partial",
-			cached_bytes: cachedBytes,
-			total_bytes: totalBytes,
-			prewarm_running: false,
-		});
-
-		// The card renders "67% (1.6 GB / 2.4 GB)".
-		expect(screen.getByText(/67%/)).toBeTruthy();
-		expect(screen.getByText(/1\.6 GB/)).toBeTruthy();
-		expect(screen.getByText(/2\.4 GB/)).toBeTruthy();
-	});
-
-	it("shows elapsed seconds with one decimal", async () => {
-		await renderAboutWithPrewarmStatus({
-			last_run: "2026-07-08T13:48:49",
-			elapsed_s: 20.4,
-			cache_ratio: 1.0,
-			cache_label: "hot",
-			cached_bytes: 2400000000,
-			total_bytes: 2400000000,
-			prewarm_running: false,
-		});
-
-		expect(screen.getByText("20.4s")).toBeTruthy();
-	});
-});
-
-// ─── Refresh button ───────────────────────────────────────────────────
-
-describe("About page — Refresh button", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-	});
-
-	afterEach(() => {
-		cleanup();
-	});
-
-	it("calls get_prewarm_status when clicked", async () => {
-		let prewarmCallCount = 0;
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				prewarmCallCount++;
-				return Promise.resolve({
-					last_run: null,
-					elapsed_s: null,
-					cache_ratio: 0.0,
-					cache_label: "unknown",
-					cached_bytes: 0,
-					total_bytes: 0,
-					prewarm_running: false,
-				});
-			}
-			return Promise.resolve({});
-		});
-
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
-
-		// Wait for initial load (1 call to get_prewarm_status).
-		await waitFor(() => {
-			expect(screen.getByText("Refresh")).toBeTruthy();
-		});
-		expect(prewarmCallCount).toBe(1);
-
-		// Click Refresh → 1 more call.
-		fireEvent.click(screen.getByText("Refresh"));
-		await waitFor(() => {
-			expect(prewarmCallCount).toBe(2);
-		});
-	});
-});
-
-// ─── Run Prewarm Now button ───────────────────────────────────────────
-
-describe("About page — Run Prewarm Now button", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-	});
-
-	afterEach(() => {
-		cleanup();
-	});
-
-	it("is disabled when cache is Hot", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: "2026-07-08T13:48:49",
-					elapsed_s: 20.4,
-					cache_ratio: 1.0,
-					cache_label: "hot",
-					cached_bytes: 2400000000,
-					total_bytes: 2400000000,
-					prewarm_running: false,
-				});
-			}
-			return Promise.resolve({});
-		});
-
+	it("does NOT render the Help section (removed — duplicates `?` overlay)", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Run Prewarm Now")).toBeTruthy();
+			expect(screen.getByText("Diagnostics")).toBeTruthy();
 		});
 
-		const button = screen
-			.getByText("Run Prewarm Now")
-			.closest("button") as HTMLButtonElement;
-		expect(button).toBeTruthy();
-		expect(button?.disabled).toBe(true);
+		// The Help section previously rendered a "Start / Stop dictation"
+		// row. After UX-20, that row is gone (the help overlay is the
+		// canonical source for shortcut labels).
+		expect(screen.queryByText("Start / Stop dictation")).toBeNull();
+		// The Help section heading itself is also gone.
+		expect(screen.queryByText("Help")).toBeNull();
 	});
 
-	it("is enabled when cache is Cold", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: "2026-07-08T13:48:49",
-					elapsed_s: 20.4,
-					cache_ratio: 0.0,
-					cache_label: "cold",
-					cached_bytes: 0,
-					total_bytes: 2400000000,
-					prewarm_running: false,
-				});
-			}
-			return Promise.resolve({});
-		});
-
+	it("does NOT render the Cache Status section (removed — belongs on a diagnostics surface)", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Run Prewarm Now")).toBeTruthy();
+			expect(screen.getByText("Diagnostics")).toBeTruthy();
 		});
 
-		const button = screen
-			.getByText("Run Prewarm Now")
-			.closest("button") as HTMLButtonElement;
-		expect(button).toBeTruthy();
-		expect(button?.disabled).toBe(false);
+		// The Cache Status card previously had a "Run Prewarm Now"
+		// button and a "Refresh" button — both removed.
+		expect(screen.queryByText("Cache Status")).toBeNull();
+		expect(screen.queryByText("Run Prewarm Now")).toBeNull();
+		expect(screen.queryByText("View prewarm log")).toBeNull();
 	});
 
-	it("is enabled when cache is Partial", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: "2026-07-08T13:48:49",
-					elapsed_s: 20.4,
-					cache_ratio: 0.5,
-					cache_label: "partial",
-					cached_bytes: 1200000000,
-					total_bytes: 2400000000,
-					prewarm_running: false,
-				});
-			}
-			return Promise.resolve({});
-		});
-
+	it("does NOT render the Updates section (removed — belongs on a diagnostics surface)", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Run Prewarm Now")).toBeTruthy();
+			expect(screen.getByText("Diagnostics")).toBeTruthy();
 		});
 
-		const button = screen
-			.getByText("Run Prewarm Now")
-			.closest("button") as HTMLButtonElement;
-		expect(button).toBeTruthy();
-		expect(button?.disabled).toBe(false);
+		// The Updates section previously had a "Check for Updates"
+		// button — removed.
+		expect(screen.queryByText("Updates")).toBeNull();
+		expect(screen.queryByText("Check for Updates")).toBeNull();
 	});
 
-	it("is enabled when cache is Unknown", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: null,
-					elapsed_s: null,
-					cache_ratio: 0.0,
-					cache_label: "unknown",
-					cached_bytes: 0,
-					total_bytes: 0,
-					prewarm_running: false,
-				});
-			}
-			return Promise.resolve({});
-		});
-
+	it("does not call get_prewarm_status on mount (Cache Status section is gone)", async () => {
 		const { default: AboutPage } = await import("@/pages/About");
 		render(<AboutPage />);
 
 		await waitFor(() => {
-			expect(screen.getByText("Run Prewarm Now")).toBeTruthy();
+			expect(screen.getByText("Diagnostics")).toBeTruthy();
 		});
 
-		const button = screen
-			.getByText("Run Prewarm Now")
-			.closest("button") as HTMLButtonElement;
-		expect(button).toBeTruthy();
-		expect(button?.disabled).toBe(false);
-	});
-
-	it("calls run_prewarm IPC when clicked", async () => {
-		let runPrewarmCallCount = 0;
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: null,
-					elapsed_s: null,
-					cache_ratio: 0.0,
-					cache_label: "cold",
-					cached_bytes: 0,
-					total_bytes: 2400000000,
-					prewarm_running: false,
-				});
-			}
-			if (type === "run_prewarm") {
-				runPrewarmCallCount++;
-				return Promise.resolve({ started: true, pid: 12345 });
-			}
-			return Promise.resolve({});
-		});
-
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("Run Prewarm Now")).toBeTruthy();
-		});
-
-		// Click the button.
-		fireEvent.click(screen.getByText("Run Prewarm Now"));
-
-		// The run_prewarm IPC must have been called.
-		await waitFor(() => {
-			expect(runPrewarmCallCount).toBe(1);
-		});
-	});
-
-	it("is disabled when prewarm is already running", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: null,
-					elapsed_s: null,
-					cache_ratio: 0.0,
-					cache_label: "cold",
-					cached_bytes: 0,
-					total_bytes: 2400000000,
-					prewarm_running: true, // prewarm is running
-				});
-			}
-			return Promise.resolve({});
-		});
-
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
-
-		// Wait for the card to render. When prewarm is running, the
-		// Run Prewarm Now button shows "Running…" and is disabled.
-		await waitFor(() => {
-			const runningElements = screen.getAllByText("Running…");
-			expect(runningElements.length).toBeGreaterThanOrEqual(1);
-		});
-
-		// Find the Run Prewarm Now button — it's the <button> whose
-		// text contains "Running". The status row is a <span>, not a
-		// button, so this uniquely identifies the button.
-		const buttons = screen.getAllByRole("button") as HTMLButtonElement[];
-		const runButton = buttons.find((b) => b.textContent?.includes("Running"));
-		expect(runButton).toBeTruthy();
-		expect(runButton?.disabled).toBe(true);
-	});
-});
-
-// ─── View prewarm log button (Task 2) ─────────────────────────────────
-
-describe("About page — View prewarm log button", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-	});
-
-	afterEach(() => {
-		cleanup();
-	});
-
-	it("renders the View prewarm log button", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: null,
-					elapsed_s: null,
-					cache_ratio: 0.0,
-					cache_label: "unknown",
-					cached_bytes: 0,
-					total_bytes: 0,
-					prewarm_running: false,
-				});
-			}
-			return Promise.resolve({});
-		});
-
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("View prewarm log")).toBeTruthy();
-		});
-	});
-
-	it("calls open_prewarm_log IPC when clicked", async () => {
-		let openLogCallCount = 0;
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: null,
-					elapsed_s: null,
-					cache_ratio: 0.0,
-					cache_label: "unknown",
-					cached_bytes: 0,
-					total_bytes: 0,
-					prewarm_running: false,
-				});
-			}
-			if (type === "open_prewarm_log") {
-				openLogCallCount++;
-				return Promise.resolve({ opened: true, path: "/tmp/voice-typer.log" });
-			}
-			return Promise.resolve({});
-		});
-
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("View prewarm log")).toBeTruthy();
-		});
-
-		fireEvent.click(screen.getByText("View prewarm log"));
-
-		await waitFor(() => {
-			expect(openLogCallCount).toBe(1);
-		});
-	});
-
-	it("is always enabled (even when cache is hot)", async () => {
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_status") {
-				return Promise.resolve({ status: "idle", config_dir: "/tmp" });
-			}
-			if (type === "get_config") {
-				return Promise.resolve({
-					asr_backend: "whisper",
-					model_size: "tiny.en",
-					device: "cpu",
-					hotkey: "F2",
-					microphone: null,
-				});
-			}
-			if (type === "get_prewarm_status") {
-				return Promise.resolve({
-					last_run: "2026-07-08T13:48:49",
-					elapsed_s: 20.4,
-					cache_ratio: 1.0,
-					cache_label: "hot",
-					cached_bytes: 2400000000,
-					total_bytes: 2400000000,
-					prewarm_running: false,
-				});
-			}
-			return Promise.resolve({});
-		});
-
-		const { default: AboutPage } = await import("@/pages/About");
-		render(<AboutPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("View prewarm log")).toBeTruthy();
-		});
-
-		const button = screen
-			.getByText("View prewarm log")
-			.closest("button") as HTMLButtonElement;
-		expect(button).toBeTruthy();
-		// The log viewer is always enabled — the user may want to view
-		// the log even when the cache is hot.
-		expect(button?.disabled).toBe(false);
-	});
-});
-
-// ─── PrewarmStatus type shape ─────────────────────────────────────────
-
-describe("PrewarmStatus type matches Python get_prewarm_status()", () => {
-	it("has all required fields with correct types", () => {
-		// This is a compile-time + runtime check. The object below must
-		// match the PrewarmStatus interface in About.tsx AND the dict
-		// returned by voice_typer.server.prewarm.get_prewarm_status().
-		const status = {
-			last_run: "2026-07-08T13:48:49" as string | null,
-			elapsed_s: 20.4 as number | null,
-			cache_ratio: 0.73 as number,
-			cache_label: "partial" as "hot" | "partial" | "cold" | "unknown",
-			cached_bytes: 1750000000 as number,
-			total_bytes: 2400000000 as number,
-			prewarm_running: false as boolean,
-		};
-
-		// Runtime field presence + type checks.
-		expect(typeof status.last_run).toBe("string");
-		expect(typeof status.elapsed_s).toBe("number");
-		expect(typeof status.cache_ratio).toBe("number");
-		expect(typeof status.cache_label).toBe("string");
-		expect(typeof status.cached_bytes).toBe("number");
-		expect(typeof status.total_bytes).toBe("number");
-		expect(typeof status.prewarm_running).toBe("boolean");
-
-		// cache_label must be one of the allowed values.
-		expect(["hot", "partial", "cold", "unknown"]).toContain(status.cache_label);
-
-		// cache_ratio must be in [0.0, 1.0].
-		expect(status.cache_ratio).toBeGreaterThanOrEqual(0.0);
-		expect(status.cache_ratio).toBeLessThanOrEqual(1.0);
-	});
-
-	it("accepts null for last_run and elapsed_s (first-run state)", () => {
-		const status = {
-			last_run: null,
-			elapsed_s: null,
-			cache_ratio: 0.0,
-			cache_label: "unknown" as const,
-			cached_bytes: 0,
-			total_bytes: 0,
-			prewarm_running: false,
-		};
-
-		expect(status.last_run).toBeNull();
-		expect(status.elapsed_s).toBeNull();
+		// The slimmed-down About page no longer fetches prewarm status —
+		// only get_status + get_config are called on mount.
+		const prewarmCalls = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "get_prewarm_status",
+		);
+		expect(prewarmCalls.length).toBe(0);
 	});
 });

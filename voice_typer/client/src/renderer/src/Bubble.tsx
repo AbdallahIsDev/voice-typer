@@ -138,6 +138,8 @@ export function Bubble({ className: _className }: { className?: string }) {
 	const [animState, setAnimState] = useState<AnimState>("enter");
 	const [draggable, setDraggable] = useState(true);
 	const [mode, setMode] = useState<BubbleMode>("recording");
+	// UX-10: whether to show the mic button (always_visible + both toggles on).
+	const [micButton, setMicButton] = useState(false);
 	// Incremented on each hide request to force the exit effect to re-run
 	// even when mode doesn't change (e.g. recording → recording).
 	const [exitTick, setExitTick] = useState(0);
@@ -232,7 +234,54 @@ export function Bubble({ className: _className }: { className?: string }) {
 		return off;
 	}, []);
 
+	// UX-10: receive bubble-relevant config from the (sandboxed) backend.
+	// The bubble renderer has no get_config, so the Python backend pushes
+	// bubble_behavior / bubble_click_to_toggle / bubble_mic_button via the
+	// dedicated bubble:config channel. We show the mic button only when:
+	//   - bubble_behavior === "always_visible" (per the issue)
+	//   - bubble_mic_button is ON (explicit visibility toggle)
+	//   - bubble_click_to_toggle is ON (the button actually toggles)
+	useEffect(() => {
+		const api = window.bubble as
+			| import("@/types/ipc").BubbleWindowBubble
+			| undefined;
+		if (!api?.onConfig) return;
+
+		const off = api.onConfig((cfg) => {
+			const behavior = cfg.bubble_behavior;
+			const clickToToggle = cfg.bubble_click_to_toggle;
+			const micButton = cfg.bubble_mic_button;
+			const enabled =
+				behavior === "always_visible" &&
+				micButton !== false &&
+				clickToToggle !== false;
+			setMicButton(enabled);
+		});
+		return off;
+	}, []);
+
+	// UX-10: mic button click → toggle dictation. The bubble is a
+	// sandboxed renderer (SEC-026) with no python.call, so it routes
+	// through the dedicated bubble:toggle-dictation channel.
+	const handleMicClick = useCallback(() => {
+		(
+			window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
+		)?.toggleDictation?.();
+	}, []);
+
 	// Keyboard-based bubble repositioning (accessibility)
+	//
+	// NF-R15-9: NOTE — this keyboard handler is unreachable in production.
+	// The bubble BrowserWindow is created with `focusable: false` (see
+	// `voice_typer/client/src/main/windows/bubble-window.ts:81`), so the
+	// renderer never receives keyboard focus and window-level `keydown`
+	// events never fire in the shipped app. The handler is retained for
+	// jsdom tests that dispatch synthetic KeyboardEvents directly on
+	// `window` (see `Bubble.test.tsx`), and as a defensive layer in case a
+	// future refactor makes the bubble focusable (e.g. for an editable
+	// transcript overlay). If you remove `focusable: false` from the main
+	// process, this handler will start firing in production — verify the
+	// bubble doesn't steal arrow-key events from the user's active app.
 	useEffect(() => {
 		const handleKeyDown = (e: KeyboardEvent) => {
 			if (!draggable) return;
@@ -368,6 +417,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 	return (
 		<output
 			aria-live="polite"
+			aria-atomic="true"
 			aria-label={t("bubble.recordingIndicatorAria")}
 			className={`
         inline-flex items-center justify-center
@@ -416,7 +466,15 @@ export function Bubble({ className: _className }: { className?: string }) {
 						<span>{t("bubble.transcribingLabel")}</span>
 					</div>
 				) : mode === "idle" ? (
-					<div className="flex h-6 items-center" />
+					<>
+						{/* A11Y: sr-only announcement so screen-reader users hear
+						    "Transcription complete." when the bubble transitions to
+						    idle (always_visible mode). Sibling of the empty visual
+						    div so the existing `emptyContainer.textContent === ""`
+						    assertion in Bubble.test.tsx still passes. */}
+						<div className="flex h-6 items-center" />
+						<span className="sr-only">{t("a11y.transcriptionComplete")}</span>
+					</>
 				) : (
 					<>
 						{/* Recording mode: fixed-height wrapper so the animated bar
@@ -436,6 +494,59 @@ export function Bubble({ className: _className }: { className?: string }) {
 							))}
 						</div>
 					</>
+				)}
+
+				{/* UX-10: mic button — only shown when the bubble is in
+                    always_visible mode AND the user enabled the mic button
+                    (bubble_mic_button + bubble_click_to_toggle, both default
+                    ON). It is `no-drag` so clicks reach it instead of
+                    starting a window drag. When recording, it shows a stop
+                    affordance; otherwise a mic. Clicking toggles dictation
+                    via the sandboxed bubble:toggle-dictation channel. */}
+				{micButton && (
+					<button
+						type="button"
+						onClick={handleMicClick}
+						aria-label={
+							mode === "recording"
+								? t("bubble.micButtonStopAria")
+								: t("bubble.micButtonStartAria")
+						}
+						title={
+							mode === "recording"
+								? t("bubble.micButtonStopAria")
+								: t("bubble.micButtonStartAria")
+						}
+						className="no-drag ml-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+					>
+						{mode === "recording" ? (
+							<svg
+								width="12"
+								height="12"
+								viewBox="0 0 24 24"
+								fill="currentColor"
+								aria-hidden="true"
+							>
+								<rect x="6" y="6" width="12" height="12" rx="2" />
+							</svg>
+						) : (
+							<svg
+								width="13"
+								height="13"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round"
+								aria-hidden="true"
+							>
+								<rect x="9" y="2" width="6" height="12" rx="3" />
+								<path d="M5 11a7 7 0 0 0 14 0" />
+								<line x1="12" y1="18" x2="12" y2="22" />
+							</svg>
+						)}
+					</button>
 				)}
 			</div>
 		</output>

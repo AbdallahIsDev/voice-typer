@@ -102,6 +102,14 @@ export interface VoiceTyperConfig {
 	// Whether to show the bubble at app startup (only applies when bubble_behavior is 'always_visible')
 	bubble_show_on_startup: boolean;
 
+	// UX-10: when in `always_visible` mode, show a mic button that toggles
+	// dictation on click. Default ON.
+	bubble_click_to_toggle: boolean;
+
+	// UX-10: explicit mic-button visibility toggle. Default ON. When OFF
+	// the bubble stays non-interactive even in always_visible mode.
+	bubble_mic_button: boolean;
+
 	// History
 	history_retention_days: number;
 	history_retention_count: number;

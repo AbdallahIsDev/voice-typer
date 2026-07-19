@@ -6,7 +6,9 @@
 		"lostConnection": "Connexion perdue avec le backend Python",
 		"retryConnection": "Réessayer la connexion",
 		"restartingBackend": "Redémarrage du backend Voice Typer…",
-		"restartingHint": "Cela prend généralement quelques secondes. La dictée reprendra depuis la barre d'état système une fois prête."
+		"restartingHint": "Cela prend généralement quelques secondes. La dictée reprendra depuis la barre d'état système une fois prête.",
+		"goHome": "Aller à l'accueil",
+		"lostConnectionHint": "Le backend Python ne répond plus. Essayez de le redémarrer."
 	},
 	"nav": {
 		"home": "Accueil",
@@ -36,7 +38,14 @@
 		"firstDictationDesc": "Bienvenue dans Voice Typer. Appuyez sur le raccourci à tout moment pour dicter.",
 		"press": "Appuyez sur",
 		"loadingTodayStatsAria": "Chargement des statistiques du jour",
-		"loadingRecentAria": "Chargement de l'activité récente"
+		"loadingRecentAria": "Chargement de l'activité récente",
+		"downloadingModel": "Téléchargement du modèle…",
+		"undo": "Annuler",
+		"undoAria": "Annuler la dernière transcription",
+		"repaste": "Recoller",
+		"repasteAria": "Recoller la dernière transcription",
+		"forceCancel": "Forcer l'annulation",
+		"forceCancelHint": "Si la dictée est bloquée, forcez l'annulation pour rétablir"
 	},
 	"settings": {
 		"title": "Paramètres",
@@ -519,7 +528,8 @@
 			"cancelAria": "Cancel model download",
 			"cancel": "Annuler",
 			"depsAria": "Download dependencies for {name}",
-			"deps": "Télécharger les Dépendances"
+			"deps": "Télécharger les Dépendances",
+			"progressAria": "Téléchargement du modèle : {percent}% terminé"
 		},
 		"active": "Actif",
 		"delete": "Supprimer",
@@ -729,7 +739,9 @@
 		"duration": "Durée",
 		"model": "Modèle",
 		"words": "Mots",
-		"characters": "Caractères"
+		"characters": "Caractères",
+		"loadFailedTitle": "Échec du chargement de l'historique",
+		"retry": "Réessayer"
 	},
 	"tooltips": {
 		"toggleRecording": "Démarrer ou arrêter la dictée vocale",
@@ -759,7 +771,9 @@
 		"decrease": "Diminuer",
 		"microphoneQualityPreset": "Préréglage de qualité du microphone",
 		"noiseSuppressionMethod": "Méthode de suppression du bruit",
-		"importNotAvailableOutsideElectron": "Importation non disponible en dehors d'Electron"
+		"importNotAvailableOutsideElectron": "Importation non disponible en dehors d'Electron",
+		"opensInNewTab": "S'ouvre dans un nouvel onglet",
+		"transcriptionComplete": "Transcription terminée."
 	},
 	"help": {
 		"title": "Raccourcis clavier",
@@ -804,7 +818,8 @@
 			"closeQuote": "Guillemet fermant",
 			"newLine": "Nouvelle ligne",
 			"newParagraph": "Nouveau paragraphe"
-		}
+		},
+		"description": "Raccourcis clavier et aide-mémoire de ponctuation."
 	},
 	"common": {
 		"cancel": "Annuler",
@@ -854,7 +869,9 @@
 		"noOtherMicrophones": "Aucun autre microphone disponible",
 		"use": "Utiliser",
 		"channels": "Canaux:",
-		"rateHz": "Taux:"
+		"rateHz": "Taux:",
+		"loadFailedTitle": "Échec du chargement des microphones",
+		"retry": "Réessayer"
 	},
 	"vocabulary": {
 		"title": "Vocabulaire personnalisé",
@@ -938,7 +955,9 @@
 		"exactMatch": "Correspondance exacte",
 		"contains": "Contient",
 		"deleteTitle": "Supprimer le modèle",
-		"deleteMessage": "Voulez-vous vraiment supprimer « {name} » ? Cette action est irréversible."
+		"deleteMessage": "Voulez-vous vraiment supprimer « {name} » ? Cette action est irréversible.",
+		"loadFailedTitle": "Échec du chargement des modèles",
+		"retry": "Réessayer"
 	},
 	"analytics": {
 		"title": "Analytique",
@@ -1168,7 +1187,8 @@
 		"setupCompleteSnack": "Configuration terminée ! Chargement du modèle...",
 		"saveFailedSnack": "Échec de l'enregistrement de la sélection",
 		"skippedSnack": "Configuration ignorée — utilisation des valeurs par défaut",
-		"stepProgress": "Étape {current} sur {total}"
+		"stepProgress": "Étape {current} sur {total}",
+		"progressAria": "Étape {current} sur {total} de la configuration"
 	},
 	"microphoneTest": {
 		"title": "Test Complete",
@@ -1193,6 +1213,31 @@
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",
 		"playRecording": "Play Recording",
-		"stop": "Stop"
+		"stop": "Stop",
+		"qualityFeedback": {
+			"recording": "Enregistrement…",
+			"voiceDetected": "Voix détectée",
+			"excellent": "Qualité excellente",
+			"tooHigh": "Volume trop élevé",
+			"tooLow": "Volume trop faible",
+			"lowVolume": "Faible volume détecté",
+			"waiting": "En attente de voix…"
+		}
+	},
+	"dashboard": {
+		"cards": {
+			"dictations": "Dictées",
+			"chars": "Caractères",
+			"duration": "Durée totale"
+		}
+	},
+	"stats": {
+		"shareImage": {
+			"backgroundWaveform": "Forme d'onde d'arrière-plan",
+			"wpm": "MPM",
+			"min": "min",
+			"savedVsTyping": "économisé vs frappe",
+			"title": "Statistiques Voice Typer"
+		}
 	}
 }

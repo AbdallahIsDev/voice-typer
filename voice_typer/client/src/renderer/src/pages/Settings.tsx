@@ -18,6 +18,7 @@ import { AiEnhancementSettingsSection } from "@/components/settings/AiEnhancemen
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
 import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
+import PrewarmAndUpdates from "@/components/settings/PrewarmAndUpdates";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
@@ -96,6 +97,12 @@ export default function SettingsPage({
 	const [refreshing, setRefreshing] = useState(false);
 	// UX-028: search/filter state for settings
 	const [settingsFilter, setSettingsFilter] = useState("");
+
+	// UX-18: render-phase counter for the empty-state sentinel. Reset to 0
+	// at the top of every render and bumped by ``_filter_settings`` on
+	// each positive match. Read in a layout effect to derive
+	// ``hasAnyVisibleRow`` without modifying the section components.
+	const visibleMatchCountRef = useRef(0);
 
 	// SEARCH-SWITCH: when the user types a search query, check if it
 	// matches a hint keyword for a tab other than the current one. If so,
@@ -655,6 +662,31 @@ export default function SettingsPage({
 		[onThemeChange],
 	);
 
+	// UX-18: sentinel for the empty-state banner. After every render pass
+	// (including children's renders, which call ``_filter_settings``),
+	// check whether ANY row matched. If not AND the user has typed a
+	// non-empty query, show the "No settings match" banner. The effect
+	// has no deps so it runs after every render — the inner ``if`` guards
+	// against infinite loops by only dispatching when the value actually
+	// changes.
+	//
+	// NOTE: these hooks MUST be declared BEFORE the `if (!config) return`
+	// early-return below — the Rules of Hooks require hooks to be called
+	// in the same order on every render, and an early return before a
+	// hook breaks that guarantee.
+	const [hasAnyVisibleRow, setHasAnyVisibleRow] = useState(true);
+	useEffect(() => {
+		const next = visibleMatchCountRef.current > 0;
+		setHasAnyVisibleRow((prev) => (prev === next ? prev : next));
+	});
+
+	// UX-18: when the query is cleared, force the sentinel back to true
+	// immediately so the empty-state banner doesn't briefly persist while
+	// the children re-render with the empty filter.
+	useEffect(() => {
+		if (!settingsFilter.trim()) setHasAnyVisibleRow(true);
+	}, [settingsFilter]);
+
 	if (!config) {
 		return (
 			<div className="flex h-full items-center justify-center">
@@ -677,6 +709,16 @@ export default function SettingsPage({
 	// section title (passed by each section component as the third
 	// argument — derived dynamically from the same literal that feeds the
 	// ``<SettingsSection title="…">`` prop, never hardcoded here).
+	//
+	// UX-18: the function ALSO bumps a render-phase counter
+	// (``visibleMatchCountRef``) every time it returns true. The counter
+	// is reset at the top of every render and read in the layout effect
+	// above to derive ``hasAnyVisibleRow`` — the sentinel that drives
+	// the "No settings match '{query}'" empty state. This lets us lift
+	// per-section visibility into a single page-level signal WITHOUT
+	// modifying the section components (which receive ``isVisible`` as
+	// an opaque predicate and have no idea the page is tracking matches).
+	visibleMatchCountRef.current = 0;
 	const _filter_settings = (
 		label: string,
 		info?: string,
@@ -684,12 +726,13 @@ export default function SettingsPage({
 	): boolean => {
 		if (!settingsFilter.trim()) return true;
 		const q = settingsFilter.toLowerCase();
-		return (
+		const match =
 			label.toLowerCase().includes(q) ||
 			info?.toLowerCase().includes(q) ||
 			sectionTitle?.toLowerCase().includes(q) ||
-			false
-		);
+			false;
+		if (match) visibleMatchCountRef.current++;
+		return match;
 	};
 
 	return (
@@ -726,8 +769,8 @@ export default function SettingsPage({
 				/>
 
 				{/* F11-FIX (b-review Finding 11): "Last updated" indicator +
-				    manual refresh — Settings was the only one of the six cached
-				    pages without this visible staleness safety net. */}
+                                    manual refresh — Settings was the only one of the six cached
+                                    pages without this visible staleness safety net. */}
 				<div className="flex justify-end pb-2">
 					<LastUpdatedIndicator
 						agoLabel={agoLabel}
@@ -743,6 +786,26 @@ export default function SettingsPage({
 					onChange={handleSearchChange}
 					placeholder={t("settings.searchPlaceholder")}
 				/>
+
+				{/* UX-18: empty-state banner — shown when the user has typed a
+                                    non-empty query that matches no row on the active tab. The
+                                    sentinel (``hasAnyVisibleRow``) is computed by lifting the
+                                    per-section visibility calls via ``_filter_settings`` (see
+                                    the ref counter above). When no row matches, every section
+                                    component's section-level hide-when-empty check removes it,
+                                    leaving a blank tab — this banner fills that void with a
+                                    friendly message so the user knows the search ran but found
+                                    nothing. */}
+				{settingsFilter.trim() && !hasAnyVisibleRow && (
+					<output
+						aria-live="polite"
+						className="block rounded-lg border border-dashed border-border bg-(--bg-subtle) px-6 py-10 text-center"
+					>
+						<p className="text-sm font-medium text-(--text-primary)">
+							{t("settings.searchNoMatch", { query: settingsFilter.trim() })}
+						</p>
+					</output>
+				)}
 
 				{/* ── TAB: Appearance (theme mode, preset, custom picker, text size) ───── */}
 				{activeTab === "appearance" && (
@@ -952,6 +1015,10 @@ export default function SettingsPage({
 								</div>
 							</SettingsSection>
 						)}
+
+						{/* ── Prewarm cache + Updates (restored from the About
+						page slim-down; see PrewarmAndUpdates.tsx). ── */}
+						<PrewarmAndUpdates />
 					</>
 				)}
 
