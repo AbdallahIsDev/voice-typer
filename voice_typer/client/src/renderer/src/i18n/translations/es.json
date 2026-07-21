@@ -209,7 +209,7 @@
 		"recordingTime": "Tiempo de grabación",
 		"today": "Hoy",
 		"yesterday": "Ayer",
-		"allTimeTotal": "Total histórico",
+		"recentTotal": "Total reciente (últimas 200)",
 		"activeDays": "Días activos",
 		"dayStreak": "Racha de {count} días",
 		"noStreak": "Aún no hay racha",
@@ -855,14 +855,6 @@
 			"endpointUnavailable": "Clave API guardada — endpoint de prueba no disponible para este proveedor.",
 			"connectionTestFailed": "Error en la prueba de conexión: {error}"
 		},
-		"benchmark": {
-			"notImplemented": "Benchmark aún no implementado.",
-			"title": "Benchmark de Modelo",
-			"description": "Compara el rendimiento del modelo en tu sistema",
-			"runAria": "Ejecutar benchmark de modelo",
-			"running": "Ejecutando...",
-			"run": "Ejecutar Benchmark"
-		},
 		"status": {
 			"active": "Activo",
 			"downloaded": "Descargado",
@@ -962,7 +954,6 @@
 		"pleaseEnterApiKey": "Por favor, introduce una clave API primero",
 		"consentGranted": "Consentimiento otorgado — las descargas de modelos desde HuggingFace continuarán.",
 		"consentRevoked": "Consentimiento revocado — las descargas de modelos desde HuggingFace están bloqueadas.",
-		"benchmarkNotImplemented": "Benchmark aún no implementado.",
 		"speed": "Velocidad",
 		"size": "Tamaño",
 		"language": "Idioma",
@@ -1073,6 +1064,7 @@
 		"startDictation": "Start dictation",
 		"loading": "Cargando...",
 		"loadMore": "Cargar más",
+		"showingCap": "Mostrando {shown} de {total} — usa la búsqueda para encontrar anteriores",
 		"entryDeleted": "Entrada eliminada",
 		"entryRestored": "Entrada restaurada",
 		"deleteFailed": "Error al eliminar el elemento",
@@ -1241,7 +1233,12 @@
 			"wpm": "PPM",
 			"min": "min",
 			"savedVsTyping": "ahorrado vs. escribir",
-			"title": "Estadísticas de Voice Typer"
+			"title": "Estadísticas de Voice Typer",
+			"cloudMode": "Nube",
+			"offlineMode": "Sin conexión",
+			"cloudApi": "API en la nube",
+			"localModel": "Modelo local",
+			"fasterThanAvg": "{percent}% más rápido que el promedio"
 		}
 	},
 	"hotkey": {

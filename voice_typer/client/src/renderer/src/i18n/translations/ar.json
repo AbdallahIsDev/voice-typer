@@ -209,7 +209,7 @@
 		"recordingTime": "وقت التسجيل",
 		"today": "اليوم",
 		"yesterday": "أمس",
-		"allTimeTotal": "الإجمالي الكلي",
+		"recentTotal": "الإجمالي الأخير (آخر 200)",
 		"activeDays": "أيام نشطة",
 		"dayStreak": "سلسلة {count} يوم",
 		"noStreak": "لا توجد سلسلة بعد",
@@ -854,14 +854,6 @@
 			"endpointUnavailable": "تم حفظ مفتاح API — نقطة الاختبار غير متاحة لهذا المزود.",
 			"connectionTestFailed": "فشل اختبار الاتصال: {error}"
 		},
-		"benchmark": {
-			"notImplemented": "لم يتم تنفيذ المعيار بعد.",
-			"title": "معيار الأداء للنموذج",
-			"description": "قارن أداء النموذج على نظامك",
-			"runAria": "تشغيل معيار الأداء للنموذج",
-			"running": "جارٍ التشغيل...",
-			"run": "تشغيل المعيار"
-		},
 		"status": {
 			"active": "نشط",
 			"downloaded": "محمّل",
@@ -961,7 +953,6 @@
 		"pleaseEnterApiKey": "الرجاء إدخال مفتاح API أولاً",
 		"consentGranted": "تم منح الموافقة — ستستمر تحميلات النماذج من HuggingFace.",
 		"consentRevoked": "تم إلغاء الموافقة — تحميلات النماذج من HuggingFace محظورة.",
-		"benchmarkNotImplemented": "لم يتم تنفيذ المعيار بعد.",
 		"speed": "السرعة",
 		"size": "الحجم",
 		"language": "اللغة",
@@ -1073,6 +1064,7 @@
 		"startDictation": "بدء الإملاء",
 		"loading": "جارٍ التحميل...",
 		"loadMore": "تحميل المزيد",
+		"showingCap": "عرض {shown} من {total} — استخدم البحث للعثور على الأقدم",
 		"entryDeleted": "تم حذف الإدخال",
 		"entryRestored": "تمت استعادة الإدخال",
 		"deleteFailed": "فشل حذف العنصر",
@@ -1248,7 +1240,12 @@
 			"wpm": "ك/د",
 			"min": "دقيقة",
 			"savedVsTyping": "موفّر مقابل الكتابة",
-			"title": "إحصائيات Voice Typer"
+			"title": "إحصائيات Voice Typer",
+			"cloudMode": "سحابي",
+			"offlineMode": "غير متصل",
+			"cloudApi": "واجهة سحابية",
+			"localModel": "نموذج محلي",
+			"fasterThanAvg": "{percent}% أسرع من المتوسط"
 		}
 	},
 	"hotkey": {

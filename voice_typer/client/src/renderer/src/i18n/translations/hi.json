@@ -209,7 +209,7 @@
 		"recordingTime": "रिकॉर्डिंग समय",
 		"today": "आज",
 		"yesterday": "कल",
-		"allTimeTotal": "कुल काल",
+		"recentTotal": "हाल का कुल (अंतिम 200)",
 		"activeDays": "सक्रिय दिन",
 		"dayStreak": "{count}-दिन की लय",
 		"noStreak": "अभी कोई लय नहीं",
@@ -854,14 +854,6 @@
 			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
 			"connectionTestFailed": "Connection test failed: {error}"
 		},
-		"benchmark": {
-			"notImplemented": "Benchmark not yet implemented.",
-			"title": "मॉडल बेंचमार्क",
-			"description": "अपने सिस्टम पर मॉडल के प्रदर्शन की तुलना करें",
-			"runAria": "Run model benchmark",
-			"running": "चल रहा है...",
-			"run": "बेंचमार्क चलाएं"
-		},
 		"status": {
 			"active": "सक्रिय",
 			"downloaded": "डाउनलोड किया गया",
@@ -961,7 +953,6 @@
 		"pleaseEnterApiKey": "कृपया पहले एक API कुंजी दर्ज करें",
 		"consentGranted": "सहमति प्रदान की गई — HuggingFace से मॉडल डाउनलोड आगे बढ़ेंगे।",
 		"consentRevoked": "सहमति वापस ली गई — HuggingFace से मॉडल डाउनलोड अवरुद्ध हैं।",
-		"benchmarkNotImplemented": "बेंचमार्क अभी तक लागू नहीं किया गया है।",
 		"speed": "गति",
 		"size": "आकार",
 		"language": "भाषा",
@@ -1073,6 +1064,7 @@
 		"startDictation": "डिक्टेशन शुरू करें",
 		"loading": "लोड हो रहा है...",
 		"loadMore": "और लोड करें",
+		"showingCap": "{total} में से {shown} दिखाई दे रहे हैं — पुराने खोजने के लिए खोज का उपयोग करें",
 		"entryDeleted": "प्रविष्टि हटा दी गई",
 		"entryRestored": "प्रविष्टि पुनर्स्थापित कर दी गई",
 		"deleteFailed": "आइटम हटाने में विफल",
@@ -1248,7 +1240,12 @@
 			"wpm": "WPM",
 			"min": "मिनट",
 			"savedVsTyping": "टाइपिंग की तुलना में बचाया",
-			"title": "Voice Typer आँकड़े"
+			"title": "Voice Typer आँकड़े",
+			"cloudMode": "क्लाउड",
+			"offlineMode": "ऑफ़लाइन",
+			"cloudApi": "क्लाउड API",
+			"localModel": "स्थानीय मॉडल",
+			"fasterThanAvg": "औसत टाइपिस्ट से {percent}% तेज़"
 		}
 	},
 	"hotkey": {

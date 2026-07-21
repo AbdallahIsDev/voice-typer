@@ -209,7 +209,7 @@
 		"recordingTime": "录音时长",
 		"today": "今天",
 		"yesterday": "昨天",
-		"allTimeTotal": "全部时间总计",
+		"recentTotal": "近期总计（最近 200 条）",
 		"activeDays": "活跃天数",
 		"dayStreak": "连续 {count} 天",
 		"noStreak": "尚未连续",
@@ -854,14 +854,6 @@
 			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
 			"connectionTestFailed": "Connection test failed: {error}"
 		},
-		"benchmark": {
-			"notImplemented": "Benchmark not yet implemented.",
-			"title": "模型基准测试",
-			"description": "在您的系统上比较模型性能",
-			"runAria": "Run model benchmark",
-			"running": "运行中...",
-			"run": "运行基准测试"
-		},
 		"status": {
 			"active": "活跃",
 			"downloaded": "已下载",
@@ -961,7 +953,6 @@
 		"pleaseEnterApiKey": "请先输入 API 密钥",
 		"consentGranted": "已授同意 — 将继续从 HuggingFace 下载模型。",
 		"consentRevoked": "已撤销同意 — 从 HuggingFace 下载模型已被阻止。",
-		"benchmarkNotImplemented": "基准测试尚未实现。",
 		"speed": "速度",
 		"size": "大小",
 		"language": "语言",
@@ -1073,6 +1064,7 @@
 		"startDictation": "开始听写",
 		"loading": "加载中...",
 		"loadMore": "加载更多",
+		"showingCap": "显示 {shown} / {total} — 使用搜索查找更早的记录",
 		"entryDeleted": "条目已删除",
 		"entryRestored": "条目已恢复",
 		"deleteFailed": "删除项目失败",
@@ -1248,7 +1240,12 @@
 			"wpm": "字/分",
 			"min": "分钟",
 			"savedVsTyping": "相比手打节省",
-			"title": "Voice Typer 统计"
+			"title": "Voice Typer 统计",
+			"cloudMode": "云端",
+			"offlineMode": "离线",
+			"cloudApi": "云端 API",
+			"localModel": "本地模型",
+			"fasterThanAvg": "比平均打字员快 {percent}%"
 		}
 	},
 	"hotkey": {

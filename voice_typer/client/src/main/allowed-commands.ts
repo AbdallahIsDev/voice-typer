@@ -80,6 +80,13 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"onboarding_set_model",
 	"onboarding_skip",
 	"onboarding_apply",
+	// CR-35 / CR-063: 3 commands were previously missing from this
+	// canonical allowlist (they lived only in the inline `index.ts`
+	// duplicate). Added here so the canonical allowlist matches the
+	// server's `_COMMAND_REGISTRY` exactly.
+	"onboarding_check_permissions",
+	"onboarding_get_model_catalog",
+	"tray_click",
 	"onboarding_get_microphones",
 	"onboarding_get_model_options",
 	"onboarding_get_hotkey_presets",

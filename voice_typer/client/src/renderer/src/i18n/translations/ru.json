@@ -209,7 +209,7 @@
 		"recordingTime": "Время записи",
 		"today": "Сегодня",
 		"yesterday": "Вчера",
-		"allTimeTotal": "Всего за всё время",
+		"recentTotal": "Недавний итог (последние 200)",
 		"activeDays": "Активные дни",
 		"dayStreak": "Серия из {count} дней",
 		"noStreak": "Серии пока нет",
@@ -854,14 +854,6 @@
 			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
 			"connectionTestFailed": "Connection test failed: {error}"
 		},
-		"benchmark": {
-			"notImplemented": "Benchmark not yet implemented.",
-			"title": "Тест производительности модели",
-			"description": "Сравните производительность модели в вашей системе",
-			"runAria": "Run model benchmark",
-			"running": "Выполняется...",
-			"run": "Запустить тест"
-		},
 		"status": {
 			"active": "Активен",
 			"downloaded": "Загружен",
@@ -961,7 +953,6 @@
 		"pleaseEnterApiKey": "Сначала введите API-ключ",
 		"consentGranted": "Согласие получено — загрузка моделей с HuggingFace будет продолжена.",
 		"consentRevoked": "Согласие отозвано — загрузка моделей с HuggingFace заблокирована.",
-		"benchmarkNotImplemented": "Бенчмарк ещё не реализован.",
 		"speed": "Скорость",
 		"size": "Размер",
 		"language": "Язык",
@@ -1073,6 +1064,7 @@
 		"startDictation": "Начать диктовку",
 		"loading": "Загрузка...",
 		"loadMore": "Загрузить ещё",
+		"showingCap": "Показано {shown} из {total} — используйте поиск для более старых",
 		"entryDeleted": "Запись удалена",
 		"entryRestored": "Запись восстановлена",
 		"deleteFailed": "Не удалось удалить элемент",
@@ -1248,7 +1240,12 @@
 			"wpm": "Сл/мин",
 			"min": "мин",
 			"savedVsTyping": "сэкономлено vs набор",
-			"title": "Статистика Voice Typer"
+			"title": "Статистика Voice Typer",
+			"cloudMode": "Облако",
+			"offlineMode": "Офлайн",
+			"cloudApi": "Облачный API",
+			"localModel": "Локальная модель",
+			"fasterThanAvg": "на {percent}% быстрее среднего"
 		}
 	},
 	"hotkey": {

@@ -586,14 +586,6 @@
 			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
 			"connectionTestFailed": "Connection test failed: {error}"
 		},
-		"benchmark": {
-			"notImplemented": "Benchmark not yet implemented.",
-			"title": "Benchmark du Modèle",
-			"description": "Comparez les performances du modèle sur votre système",
-			"runAria": "Run model benchmark",
-			"running": "En cours...",
-			"run": "Lancer le Benchmark"
-		},
 		"status": {
 			"active": "Actif",
 			"downloaded": "Téléchargé",
@@ -682,7 +674,6 @@
 		"pleaseEnterApiKey": "Veuillez d'abord saisir une clé API",
 		"consentGranted": "Consentement accordé — les téléchargements de modèles depuis HuggingFace vont continuer.",
 		"consentRevoked": "Consentement révoqué — les téléchargements de modèles depuis HuggingFace sont bloqués.",
-		"benchmarkNotImplemented": "Benchmark pas encore implémenté.",
 		"speed": "Vitesse",
 		"size": "Taille",
 		"language": "Langue",
@@ -716,6 +707,7 @@
 		"startDictation": "Démarrer la dictée",
 		"loading": "Chargement...",
 		"loadMore": "Charger plus",
+		"showingCap": "Affichage de {shown} sur {total} — utilisez la recherche pour trouver les plus anciennes",
 		"entryDeleted": "Entrée supprimée",
 		"entryRestored": "Entrée restaurée",
 		"deleteFailed": "Échec de la suppression de l'élément",
@@ -976,7 +968,7 @@
 		"recordingTime": "Durée d'enregistrement",
 		"today": "Aujourd'hui",
 		"yesterday": "Hier",
-		"allTimeTotal": "Total cumulé",
+		"recentTotal": "Total récent (200 dernières)",
 		"activeDays": "Jours actifs",
 		"dayStreak": "Série de {count} jour(s)",
 		"noStreak": "Aucune série pour le moment",
@@ -1248,7 +1240,12 @@
 			"wpm": "MPM",
 			"min": "min",
 			"savedVsTyping": "économisé vs frappe",
-			"title": "Statistiques Voice Typer"
+			"title": "Statistiques Voice Typer",
+			"cloudMode": "Cloud",
+			"offlineMode": "Hors ligne",
+			"cloudApi": "API Cloud",
+			"localModel": "Modèle local",
+			"fasterThanAvg": "{percent}% plus rapide que la moyenne"
 		}
 	},
 	"hotkey": {

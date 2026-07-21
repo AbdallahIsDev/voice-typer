@@ -209,7 +209,7 @@
 		"recordingTime": "Aufnahmedauer",
 		"today": "Heute",
 		"yesterday": "Gestern",
-		"allTimeTotal": "Gesamt",
+		"recentTotal": "Letzte Gesamt (letzte 200)",
 		"activeDays": "Aktive Tage",
 		"dayStreak": "{count}-Tage-Serie",
 		"noStreak": "Noch keine Serie",
@@ -854,14 +854,6 @@
 			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
 			"connectionTestFailed": "Connection test failed: {error}"
 		},
-		"benchmark": {
-			"notImplemented": "Benchmark not yet implemented.",
-			"title": "Modell-Benchmark",
-			"description": "Vergleichen Sie die Modellleistung auf Ihrem System",
-			"runAria": "Modell-Benchmark ausführen",
-			"running": "Wird ausgeführt...",
-			"run": "Benchmark ausführen"
-		},
 		"status": {
 			"active": "Aktiv",
 			"downloaded": "Heruntergeladen",
@@ -961,7 +953,6 @@
 		"pleaseEnterApiKey": "Bitte geben Sie zuerst einen API-Schlüssel ein",
 		"consentGranted": "Zustimmung erteilt — Modell-Downloads von HuggingFace werden fortgesetzt.",
 		"consentRevoked": "Zustimmung widerrufen — Modell-Downloads von HuggingFace sind blockiert.",
-		"benchmarkNotImplemented": "Benchmark noch nicht implementiert.",
 		"speed": "Geschwindigkeit",
 		"size": "Größe",
 		"language": "Sprache",
@@ -1073,6 +1064,7 @@
 		"startDictation": "Diktat starten",
 		"loading": "Wird geladen...",
 		"loadMore": "Mehr laden",
+		"showingCap": "Zeige {shown} von {total} — benutze die Suche, um Älteres zu finden",
 		"entryDeleted": "Eintrag gelöscht",
 		"entryRestored": "Eintrag wiederhergestellt",
 		"deleteFailed": "Löschen des Elements fehlgeschlagen",
@@ -1248,7 +1240,12 @@
 			"wpm": "WpM",
 			"min": "Min.",
 			"savedVsTyping": "gespart vs. Tippen",
-			"title": "Voice Typer Statistiken"
+			"title": "Voice Typer Statistiken",
+			"cloudMode": "Cloud",
+			"offlineMode": "Offline",
+			"cloudApi": "Cloud-API",
+			"localModel": "Lokales Modell",
+			"fasterThanAvg": "{percent}% schneller als Durchschnitt"
 		}
 	},
 	"hotkey": {
