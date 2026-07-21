@@ -7,7 +7,6 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
 import { Modal, ModalFooter } from "@/components/common/Modal";
 import PageHeading from "@/components/common/PageHeading";
@@ -39,42 +38,45 @@ const CATEGORIES = [
 	"products",
 ] as const;
 
-// NEW-UX-039: human-readable labels + descriptions for each category.
-const CATEGORY_LABELS: Record<
+// CR-37: getCategoryLabels() — called at render time so locale
+// switches re-resolve the t() keys against the new locale.
+function getCategoryLabels(): Record<
 	string,
 	{ label: string; description: string; example: string }
-> = {
-	misspellings: {
-		label: t("vocabulary.category.misspellings"),
-		description: t("vocabulary.category.misspellingsDesc"),
-		example: "recieve \u2192 receive",
-	},
-	phrase_corrections: {
-		label: t("vocabulary.category.phraseCorrections"),
-		description: t("vocabulary.category.phraseCorrectionsDesc"),
-		example: "i am going to \u2192 I'm going to",
-	},
-	extra_word_patterns: {
-		label: t("vocabulary.category.extraWordPatterns"),
-		description: t("vocabulary.category.extraWordPatternsDesc"),
-		example: "um, uh, like \u2192 (removed)",
-	},
-	technical_terms: {
-		label: t("vocabulary.category.technicalTerms"),
-		description: t("vocabulary.category.technicalTermsDesc"),
-		example: "kubernetes \u2192 Kubernetes",
-	},
-	names: {
-		label: t("vocabulary.category.names"),
-		description: t("vocabulary.category.namesDesc"),
-		example: "jon \u2192 John",
-	},
-	products: {
-		label: t("vocabulary.category.products"),
-		description: t("vocabulary.category.productsDesc"),
-		example: "ipad \u2192 iPad",
-	},
-};
+> {
+	return {
+		misspellings: {
+			label: t("vocabulary.category.misspellings"),
+			description: t("vocabulary.category.misspellingsDesc"),
+			example: "recieve \u2192 receive",
+		},
+		phrase_corrections: {
+			label: t("vocabulary.category.phraseCorrections"),
+			description: t("vocabulary.category.phraseCorrectionsDesc"),
+			example: "i am going to \u2192 I'm going to",
+		},
+		extra_word_patterns: {
+			label: t("vocabulary.category.extraWordPatterns"),
+			description: t("vocabulary.category.extraWordPatternsDesc"),
+			example: "um, uh, like \u2192 (removed)",
+		},
+		technical_terms: {
+			label: t("vocabulary.category.technicalTerms"),
+			description: t("vocabulary.category.technicalTermsDesc"),
+			example: "kubernetes \u2192 Kubernetes",
+		},
+		names: {
+			label: t("vocabulary.category.names"),
+			description: t("vocabulary.category.namesDesc"),
+			example: "jon \u2192 John",
+		},
+		products: {
+			label: t("vocabulary.category.products"),
+			description: t("vocabulary.category.productsDesc"),
+			example: "ipad \u2192 iPad",
+		},
+	};
+}
 
 /** Flatten category-shaped VocabularyData into a flat array. */
 function flattenEntries(data: VocabularyData): VocabularyEntry[] {
@@ -150,6 +152,9 @@ export default function VocabularyPage() {
 	const { showSnack } = useSnackbar();
 	const [entries, setEntries] = useState<VocabularyEntry[]>([]);
 
+	// CR-37: resolve category labels at render time.
+	const categoryLabels = getCategoryLabels();
+
 	// D2-FIX (b-review Finding 4): ref mirror of `entries` so the
 	// `instantDeleteEntry` undo callback can read the LATEST list at
 	// undo time (potentially seconds after the delete).  Previously the
@@ -187,9 +192,6 @@ export default function VocabularyPage() {
 	// NEW-UX-039: explicit category selection.
 	const [category, setCategory] = useState<string>("auto");
 
-	// #7: ConfirmDialog state for entry deletion
-	const [deleteEntryTarget, setDeleteEntryTarget] =
-		useState<VocabularyEntry | null>(null);
 	const handleSearchChange = (value: string) => setSearchQuery(value);
 
 	const handleTriggerChange = (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -199,8 +201,6 @@ export default function VocabularyPage() {
 		setReplacement(e.target.value);
 
 	const handleCloseDialog = () => setShowDialog(false);
-
-	const handleCancelDelete = () => setDeleteEntryTarget(null);
 
 	const doExport = useCallback(
 		async (format: "json" | "csv") => {
@@ -347,31 +347,6 @@ export default function VocabularyPage() {
 			);
 		} catch {
 			showSnack(t("vocabulary.saveFailed"), "error");
-		}
-	};
-
-	// #7: Request confirmation before deleting an entry.
-	// NEW-UX-004: This path is kept for accessibility users; the
-	// default trash-icon click path now uses instant-delete + Undo
-	// toast via ``instantDeleteEntry`` (below).
-	const _requestDeleteEntry = (entry: VocabularyEntry) => {
-		setDeleteEntryTarget(entry);
-	};
-
-	const confirmDeleteEntry = async () => {
-		if (!deleteEntryTarget) return;
-		try {
-			const updated = entries.filter((e) => e !== deleteEntryTarget);
-			await persistVocabulary(updated);
-			setEntries(updated);
-			showSnack(
-				t("vocabulary.deletedEntry", { name: deleteEntryTarget.original }),
-				"warning",
-			);
-		} catch {
-			showSnack(t("vocabulary.deleteFailed"), "error");
-		} finally {
-			setDeleteEntryTarget(null);
 		}
 	};
 
@@ -567,7 +542,7 @@ export default function VocabularyPage() {
 
 				{/* Count footer */}
 				{entries.length > 0 && !searchQuery.trim() && (
-					<p className="mt-3 text-[10px] text-(--text-muted) text-center opacity-50">
+					<p className="mt-3 text-xs text-(--text-muted) text-center">
 						{t(
 							entries.length === 1
 								? "vocabulary.entryCountSingular"
@@ -601,7 +576,7 @@ export default function VocabularyPage() {
 							id="vocab-trigger"
 							value={trigger}
 							onChange={handleTriggerChange}
-							placeholder="treat three, mynameis"
+							placeholder={t("vocabulary.triggerPlaceholder")}
 							className="w-full"
 							autoFocus
 						/>
@@ -653,18 +628,18 @@ export default function VocabularyPage() {
 								{CATEGORIES.map((cat) => (
 									<SelectItem key={cat} value={cat}>
 										<span className="flex flex-col">
-											<span>{CATEGORY_LABELS[cat]?.label ?? cat}</span>
+											<span>{categoryLabels[cat]?.label ?? cat}</span>
 											<span className="text-xs text-(--text-muted)">
-												{CATEGORY_LABELS[cat]?.example ?? ""}
+												{categoryLabels[cat]?.example ?? ""}
 											</span>
 										</span>
 									</SelectItem>
 								))}
 							</SelectContent>
 						</Select>
-						{category !== "auto" && CATEGORY_LABELS[category] && (
+						{category !== "auto" && categoryLabels[category] && (
 							<p className="mt-1.5 text-xs text-(--text-muted)">
-								{CATEGORY_LABELS[category].description}
+								{categoryLabels[category].description}
 							</p>
 						)}
 					</div>
@@ -683,18 +658,6 @@ export default function VocabularyPage() {
 					</Button>
 				</ModalFooter>
 			</Modal>
-
-			{/* #7: ConfirmDialog for entry deletion */}
-			<ConfirmDialog
-				open={deleteEntryTarget !== null}
-				title={t("vocabulary.deleteEntryTitle")}
-				message={t("vocabulary.deleteEntryMessage", {
-					name: deleteEntryTarget?.original ?? "",
-				})}
-				confirmLabel={t("common.delete")}
-				onConfirm={confirmDeleteEntry}
-				onCancel={handleCancelDelete}
-			/>
 		</>
 	);
 }

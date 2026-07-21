@@ -7,10 +7,10 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useState } from "react";
-import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Modal, ModalFooter } from "@/components/common/Modal";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
+import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -209,8 +209,6 @@ export default function TemplatesPage() {
 	const [expansion, setExpansion] = useState("");
 	const [matchMode, setMatchMode] = useState<"exact" | "contains">("exact");
 
-	// #7: ConfirmDialog state for template deletion
-	const [deleteTarget, setDeleteTarget] = useState<TemplateRow | null>(null);
 	// NEW-UX-008: load from the Python backend (the new source of truth).
 	// On first run after upgrade, if the backend has no templates but
 	// localStorage does, push the localStorage data to the backend so the
@@ -352,72 +350,11 @@ export default function TemplatesPage() {
 		}
 	};
 
-	// #7: Request confirmation before deleting a template.
-	// NEW-UX-004: This path is now reserved for keyboard/accessibility
-	// users who explicitly request confirmation (e.g. via a "More
-	// options" menu).  The default mouse-click delete path uses
-	// ``instantDeleteTemplate`` + an undoable toast instead.  We keep
-	// this function so the existing ConfirmDialog flow continues to
-	// work for users who prefer it; the dialog itself is triggered
-	// elsewhere (e.g. via the row's "Delete" context menu item).
-	const _requestDeleteTemplate = (tmpl: TemplateRow) => {
-		setDeleteTarget(tmpl);
-	};
-
-	// #6: Delete now passes call to saveTemplates so IPC notify happens
-	// NEW-UX-004: instead of a separate confirm dialog (which adds
-	// friction), we use the macOS/iOS-style "delete now + Undo toast"
-	// pattern.  The template is removed immediately and an Undo toast
-	// is shown for 6 seconds; clicking Undo re-adds it.
-	//
-	// The previous ConfirmDialog is kept as `requestDeleteTemplate`
-	// for accessibility users who prefer explicit confirmation, but the
-	// default delete flow is now undoable instead of confirmable.  We
-	// still render the ConfirmDialog if `deleteTarget` is set, so the
-	// existing accessibility path continues to work.
-	const confirmDeleteTemplate = () => {
-		if (!deleteTarget) return;
-		try {
-			const items = loadTemplatesFromLocalStorage();
-			const removed = items.splice(deleteTarget.index, 1)[0];
-			// #6: pass call so the backend is notified of deletion
-			saveTemplates(items, call);
-
-			// NEW-UX-004: show an undoable toast so the user can restore
-			// the deleted template within 6 seconds.
-			if (removed) {
-				showUndoableToast(
-					t("templates.deletedTemplate", { name: deleteTarget.trigger }),
-					() => {
-						// Undo: re-insert at the same index.
-						const current = loadTemplatesFromLocalStorage();
-						current.splice(deleteTarget.index, 0, removed);
-						saveTemplates(current, call);
-						loadRows();
-					},
-					{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
-				);
-			} else {
-				showSnack(
-					t("templates.deletedTemplate", { name: deleteTarget.trigger }),
-					"warning",
-				);
-			}
-			loadRows();
-		} catch (err) {
-			console.error("Failed to delete template", err);
-			showSnack(t("templates.deleteFailed"), "error");
-		} finally {
-			setDeleteTarget(null);
-		}
-	};
-
-	// NEW-UX-004: instant-delete path (no confirm dialog).  Triggered
-	// by the trash icon.  We keep ``requestDeleteTemplate`` →
-	// ``ConfirmDialog`` as an alternative path for keyboard users who
-	// press Space on the trash button (which still opens the confirm
-	// dialog).  Mouse clicks bypass the dialog and use the undoable
-	// toast instead, since the undo toast is faster and recoverable.
+	// NEW-UX-004 / R7-F10: instant-delete path (no confirm dialog).
+	// Triggered by the trash icon.  The legacy ConfirmDialog flow
+	// was unreachable dead code and has been removed; all deletes
+	// now go through this instant-delete + Undo toast path, which is
+	// faster and recoverable (6-second undo window).
 	const instantDeleteTemplate = useCallback(
 		(tmpl: TemplateRow) => {
 			try {
@@ -460,8 +397,6 @@ export default function TemplatesPage() {
 		setMatchMode(v as "exact" | "contains");
 
 	const handleCloseDialog = () => setShowDialog(false);
-
-	const handleCancelDelete = () => setDeleteTarget(null);
 
 	if (loading) {
 		return (
@@ -549,21 +484,18 @@ export default function TemplatesPage() {
 												<p className="max-w-75 truncate text-xs text-(--text-muted)">
 													{row.expansion}
 												</p>
-												<span
-													className="text-xs text-(--text-muted)"
-													// NEW-TS-019: show the actual variable names in
-													// a native tooltip so the user can see WHICH
-													// variables the template uses, not just the count.
-													title={
+												<span className="text-xs text-(--text-muted)">
+													{row.variables}v &middot; {row.match_mode}
+												</span>
+												<InfoTooltip
+													text={
 														row.used_variables.length > 0
 															? t("templates.variablesTooltip", {
 																	vars: row.used_variables.join(", "),
 																})
 															: t("templates.noVariablesTooltip")
 													}
-												>
-													{row.variables}v &middot; {row.match_mode}
-												</span>
+												/>
 											</div>
 										</div>
 										<div className="flex shrink-0 items-center gap-0.5">
@@ -606,6 +538,18 @@ export default function TemplatesPage() {
 						</div>
 					)}
 				</div>
+
+				{/* Count footer */}
+				{templates.length > 0 && (
+					<p className="mt-3 text-xs text-(--text-muted) text-center">
+						{t(
+							templates.length === 1
+								? "templates.countSingular"
+								: "templates.countPlural",
+							{ count: String(templates.length) },
+						)}
+					</p>
+				)}
 			</div>
 
 			{/* Add/Edit Dialog — migrated to shared Modal (F-3) */}
@@ -629,7 +573,7 @@ export default function TemplatesPage() {
 							id="template-trigger"
 							value={trigger}
 							onChange={handleTriggerChange}
-							placeholder="my email"
+							placeholder={t("templates.triggerPlaceholder")}
 							className="w-full"
 							// autoFocus removed — Radix Dialog handles first-focus automatically
 						/>
@@ -699,18 +643,6 @@ export default function TemplatesPage() {
 					</Button>
 				</ModalFooter>
 			</Modal>
-
-			{/* #7: ConfirmDialog for template deletion */}
-			<ConfirmDialog
-				open={deleteTarget !== null}
-				title={t("templates.deleteTitle")}
-				message={t("templates.deleteMessage", {
-					name: deleteTarget?.trigger ?? "",
-				})}
-				confirmLabel={t("common.delete")}
-				onConfirm={confirmDeleteTemplate}
-				onCancel={handleCancelDelete}
-			/>
 		</>
 	);
 }

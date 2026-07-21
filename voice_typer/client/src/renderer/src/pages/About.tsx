@@ -77,10 +77,11 @@ function StatusDot({ connected }: { connected: boolean }) {
 }
 
 // ADR-0009 Issue 3: format a byte count as a human-readable string.
-// 0 → "0 MB"; 1750000000 → "1.7 GB". Was used by the (now-removed)
-// Cache Status card; kept exported because the unit tests in
-// About.test.tsx still cover it and future diagnostics surfaces
-// (e.g. Settings → Troubleshooting) may want to reuse it.
+// R7-F19: marked `@internal`. Exported only for unit-test coverage.
+// Coordinate with I9/I12 about moving it to `lib/format.ts`.
+/**
+ * @internal
+ */
 export function formatBytes(bytes: number): string {
 	if (bytes <= 0) return "0 MB";
 	const gb = bytes / (1024 * 1024 * 1024);
@@ -90,8 +91,16 @@ export function formatBytes(bytes: number): string {
 }
 
 // ADR-0009 Issue 3: format an ISO timestamp as a relative "N hours ago" string.
-// Falls back to the raw ISO string for timestamps older than 7 days.
-// Kept exported for unit-test coverage (see About.test.tsx).
+// R7-F19: JSDoc clarifies the ISO fallback is English-only.
+/**
+ * Format an ISO timestamp as a localized relative-time string. Falls
+ * back to the raw ISO string for timestamps older than 7 days.
+ *
+ * **Note (R7-F19):** the >7-day fallback returns the raw ISO 8601
+ * timestamp as-is. This is intentionally English-only /
+ * locale-independent — localizing it would require a date-formatting
+ * library that is not currently a dependency.
+ */
 export function formatRelativeTime(iso: string | null): string {
 	if (!iso) return t("about.neverRun");
 	try {
@@ -118,7 +127,9 @@ export function formatRelativeTime(iso: string | null): string {
 export default function AboutPage() {
 	const { call } = usePython();
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(null);
-	const [configDir, setConfigDir] = useState<string>("~/.voice-typer");
+	// R7-F15: initialize to empty string and render `t("about.loading")`
+	// as a fallback. Previously hardcoded "~/.voice-typer".
+	const [configDir, setConfigDir] = useState<string>("");
 	// null = still probing, true/false = settled.
 	const [backendConnected, setBackendConnected] = useState<boolean | null>(
 		null,
@@ -201,7 +212,10 @@ export default function AboutPage() {
 						value={t("about.versionValue", { version: APP_VERSION })}
 					/>
 					<Row label={t("about.pythonBackend")} value={backendStatus} />
-					<Row label={t("about.configDirectory")} value={configDir} />
+					<Row
+						label={t("about.configDirectory")}
+						value={configDir || t("about.loading")}
+					/>
 					<Row label={t("about.asrBackend")} value={asrBackend} />
 					<Row label={t("about.device")} value={device} />
 					{/* NEW-UX-038: show which device/compute_type the model
@@ -249,7 +263,10 @@ export default function AboutPage() {
 							<span className="font-medium text-(--text-primary)">
 								{t("about.localDataTitle")}
 							</span>{" "}
-							{t("about.localDataDesc", { configDir })}
+							{t("about.localDataDesc", {
+								// R7-F15: fall back to "Loading…" while configDir is empty.
+								configDir: configDir || t("about.loading"),
+							})}
 						</p>
 					</div>
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">

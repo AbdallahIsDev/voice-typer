@@ -147,13 +147,26 @@ interface HomeProps {
 // backend never emits — they were leftover from a long-ago refactor.
 // Keeping them gave a false impression of supported states and
 // caused dead branches in the rendering logic.
+// FIX-15 (CR-14): aligned with `voice_typer/server/tray_icon.py:277-284`
+// color-blind-safe palette so the Home status pill no longer
+// contradicts the tray icon. Previously `recording` and `error` both
+// used `#FF3333` (sighted users couldn't tell them apart) and `idle`
+// was green (confusingly the same color the tray uses for
+// `recording`). The new values are the hex equivalents of the tray's
+// RGBA tuples:
+//   idle        #787878  (120,120,120) — gray
+//   recording   #2ECC71  (46,204,113)  — bright green
+//   transcribing #3498DB (52,152,219)  — blue
+//   loading     #F39C12  (243,156,18)  — amber
+//   cancelling  #F39C12  (243,156,18)  — amber
+//   error       #E74C3C  (231,76,60)   — red
 const STATUS_COLORS: Record<string, string> = {
-	idle: "#22C55E",
-	recording: "#FF3333",
-	transcribing: "#7C3AED",
-	loading: "#F59E0B",
-	cancelling: "#C0392B",
-	error: "#FF3333",
+	idle: "#787878",
+	recording: "#2ECC71",
+	transcribing: "#3498DB",
+	loading: "#F39C12",
+	cancelling: "#F39C12",
+	error: "#E74C3C",
 };
 
 // IMPL-C: status labels resolved via i18n so they honour the user's UI locale.
@@ -478,36 +491,30 @@ export default function Home({
 		}, 500);
 	});
 
-	// F11-FIX (b-review Finding 11): invalidate the cached recent records +
-	// today's stats when history changes through a path OUTSIDE this page
-	// (clear/delete/restore/favorite from the tray menu, another window, or
-	// a CLI tool). Without this, such an external change left ghost records
-	// in the cache until the next transcription_final / manual refresh.
-	// Mirrors the transcription_final refresh below.
-	usePythonEvent(
-		"history_changed",
-		useCallback(() => {
-			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			refreshTimer.current = setTimeout(async () => {
-				try {
-					const [newRecent, newStats] = await Promise.all([
-						call<HistoryRecord[]>("get_history", { limit: 5 }),
-						call<TodayStats>("get_today_stats"),
-					]);
-					if (newRecent) {
-						persistRecent(newRecent);
-						setRecent(newRecent);
-					}
-					if (newStats) {
-						persistStats(newStats);
-						setStats(newStats);
-					}
-				} catch {
-					// Silently ignore — next manual load picks up fresh data
+	// F11-FIX + R7-F13: extracted `debouncedRefreshFromEvent`.
+	const debouncedRefreshFromEvent = useCallback(() => {
+		if (refreshTimer.current) clearTimeout(refreshTimer.current);
+		refreshTimer.current = setTimeout(async () => {
+			try {
+				const [newRecent, newStats] = await Promise.all([
+					call<HistoryRecord[]>("get_history", { limit: 5 }),
+					call<TodayStats>("get_today_stats"),
+				]);
+				if (newRecent) {
+					persistRecent(newRecent);
+					setRecent(newRecent);
 				}
-			}, 500);
-		}, [call]),
-	);
+				if (newStats) {
+					persistStats(newStats);
+					setStats(newStats);
+				}
+			} catch {
+				// Silently ignore — next manual load picks up fresh data
+			}
+		}, 500);
+	}, [call]);
+
+	usePythonEvent("history_changed", debouncedRefreshFromEvent);
 
 	usePythonEvent("recording_started", () => {
 		setLastText("");

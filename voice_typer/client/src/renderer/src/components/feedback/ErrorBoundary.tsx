@@ -69,7 +69,7 @@ export class ErrorBoundary extends Component<
 							{t("errorBoundary.description")}
 						</p>
 					</div>
-					<pre className="max-w-2xl overflow-auto rounded-lg border border-border bg-(--bg-card) p-4 text-left text-xs text-(--text-muted)">
+					<pre className="max-w-2xl overflow-auto rounded-lg border border-border bg-(--bg-subtle) p-4 text-left text-xs text-(--text-muted)">
 						{this.state.error?.message ?? t("errorBoundary.unknownError")}
 					</pre>
 					<div className="flex gap-2">
@@ -83,7 +83,7 @@ export class ErrorBoundary extends Component<
 						<button
 							type="button"
 							onClick={this.handleReload}
-							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-card)"
+							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle)"
 						>
 							{t("errorBoundary.reloadApp")}
 						</button>

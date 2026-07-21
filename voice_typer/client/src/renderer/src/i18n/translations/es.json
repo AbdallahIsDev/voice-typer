@@ -15,7 +15,12 @@
 		"restartingBackend": "Reiniciando backend de Voice Typer…",
 		"restartingHint": "Esto suele tardar unos segundos. El dictado se reanudará desde la bandeja del sistema cuando esté listo.",
 		"goHome": "Ir al inicio",
-		"lostConnectionHint": "El proceso backend terminó inesperadamente. Intenta reiniciar la aplicación."
+		"lostConnectionHint": "El proceso backend terminó inesperadamente. Intenta reiniciar la aplicación.",
+		"connecting": {
+			"step1StartingPython": "Starting Python",
+			"step2LoadingModel": "Loading model",
+			"step3Ready": "Ready"
+		}
 	},
 	"nav": {
 		"home": "Inicio",
@@ -156,7 +161,9 @@
 			"namesDesc": "Personas, lugares y sustantivos propios que el ASR malinterpreta.",
 			"products": "Productos",
 			"productsDesc": "Nombres de marcas y productos."
-		}
+		},
+		"triggerPlaceholder": "treat three, mynameis",
+		"replacementPlaceholder": "treat this, My Name Is"
 	},
 	"templates": {
 		"title": "Plantillas",
@@ -190,7 +197,9 @@
 		"deleteTitle": "Eliminar plantilla",
 		"deleteMessage": "¿Seguro que quieres eliminar \"{name}\"? Esta acción no se puede deshacer.",
 		"loadFailedTitle": "No se pudieron cargar las plantillas",
-		"retry": "Reintentar"
+		"retry": "Reintentar",
+		"triggerPlaceholder": "my email",
+		"outputPlaceholder": "john.doe@example.com"
 	},
 	"analytics": {
 		"title": "Analíticas",
@@ -1142,7 +1151,9 @@
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Indicador de grabación de Voice Typer",
-		"transcribingLabel": "Transcribiendo"
+		"transcribingLabel": "Transcribiendo",
+		"idleLabel": "Ready",
+		"recordingLabel": "REC"
 	},
 	"errorBoundary": {
 		"title": "Algo salió mal",
@@ -1231,6 +1242,45 @@
 			"min": "min",
 			"savedVsTyping": "ahorrado vs. escribir",
 			"title": "Estadísticas de Voice Typer"
+		}
+	},
+	"hotkey": {
+		"keys": {
+			"ctrl": "Ctrl",
+			"shift": "Shift",
+			"alt": "Alt",
+			"altGr": "AltGr",
+			"cmd": "Cmd",
+			"win": "Win",
+			"super": "Super",
+			"fn": "Fn",
+			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
+			"space": "Space",
+			"enter": "Enter",
+			"tab": "Tab",
+			"esc": "Esc",
+			"capsLock": "Caps Lock",
+			"numLock": "Num Lock",
+			"scrollLock": "Scroll Lock",
+			"printScreen": "Print Screen",
+			"pause": "Pause",
+			"insert": "Insert",
+			"delete": "Delete",
+			"home": "Home",
+			"end": "End",
+			"pageUp": "Page Up",
+			"pageDown": "Page Down",
+			"up": "↑",
+			"down": "↓",
+			"left": "←",
+			"right": "→"
+		},
+		"combos": {
+			"ctrlShiftV": "Ctrl+Shift+V",
+			"ctrlAltV": "Ctrl+Alt+V",
+			"ctrlSpace": "Ctrl+Space",
+			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
+			"superSpace": "Super+Space"
 		}
 	}
 }

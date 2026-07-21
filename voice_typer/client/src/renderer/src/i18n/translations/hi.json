@@ -15,7 +15,12 @@
 		"restartingBackend": "वॉयस टाइपर बैकएंड पुनः शुरू हो रहा है…",
 		"restartingHint": "इसमें आमतौर पर कुछ सेकंड लगते हैं। तैयार होने पर सिस्टम ट्रे से डिक्टेशन फिर से शुरू होगा।",
 		"goHome": "होम पर जाएँ",
-		"lostConnectionHint": "Python बैकएंड प्रतिक्रिया नहीं दे रहा है। कृपया पुनः आरंभ करें।"
+		"lostConnectionHint": "Python बैकएंड प्रतिक्रिया नहीं दे रहा है। कृपया पुनः आरंभ करें।",
+		"connecting": {
+			"step1StartingPython": "Starting Python",
+			"step2LoadingModel": "Loading model",
+			"step3Ready": "Ready"
+		}
 	},
 	"nav": {
 		"home": "होम",
@@ -156,7 +161,9 @@
 			"namesDesc": "लोग, स्थान और संज्ञा जो ASR गलत सुनता है।",
 			"products": "उत्पाद",
 			"productsDesc": "ब्रांड और उत्पाद नाम।"
-		}
+		},
+		"triggerPlaceholder": "treat three, mynameis",
+		"replacementPlaceholder": "treat this, My Name Is"
 	},
 	"templates": {
 		"title": "टेम्पलेट",
@@ -190,7 +197,9 @@
 		"deleteTitle": "टेम्पलेट हटाएं",
 		"deleteMessage": "क्या आप वाकई \"{name}\" हटाना चाहते हैं? इस क्रिया को पूर्ववत नहीं किया जा सकता।",
 		"loadFailedTitle": "टेम्पलेट लोड करने में विफल",
-		"retry": "पुनः प्रयास करें"
+		"retry": "पुनः प्रयास करें",
+		"triggerPlaceholder": "my email",
+		"outputPlaceholder": "john.doe@example.com"
 	},
 	"analytics": {
 		"title": "एनालिटिक्स",
@@ -1142,7 +1151,9 @@
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer रिकॉर्डिंग संकेतक",
-		"transcribingLabel": "लिखा जा रहा है"
+		"transcribingLabel": "लिखा जा रहा है",
+		"idleLabel": "Ready",
+		"recordingLabel": "REC"
 	},
 	"errorBoundary": {
 		"title": "कुछ गलत हो गया",
@@ -1238,6 +1249,45 @@
 			"min": "मिनट",
 			"savedVsTyping": "टाइपिंग की तुलना में बचाया",
 			"title": "Voice Typer आँकड़े"
+		}
+	},
+	"hotkey": {
+		"keys": {
+			"ctrl": "Ctrl",
+			"shift": "Shift",
+			"alt": "Alt",
+			"altGr": "AltGr",
+			"cmd": "Cmd",
+			"win": "Win",
+			"super": "Super",
+			"fn": "Fn",
+			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
+			"space": "Space",
+			"enter": "Enter",
+			"tab": "Tab",
+			"esc": "Esc",
+			"capsLock": "Caps Lock",
+			"numLock": "Num Lock",
+			"scrollLock": "Scroll Lock",
+			"printScreen": "Print Screen",
+			"pause": "Pause",
+			"insert": "Insert",
+			"delete": "Delete",
+			"home": "Home",
+			"end": "End",
+			"pageUp": "Page Up",
+			"pageDown": "Page Down",
+			"up": "↑",
+			"down": "↓",
+			"left": "←",
+			"right": "→"
+		},
+		"combos": {
+			"ctrlShiftV": "Ctrl+Shift+V",
+			"ctrlAltV": "Ctrl+Alt+V",
+			"ctrlSpace": "Ctrl+Space",
+			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
+			"superSpace": "Super+Space"
 		}
 	}
 }

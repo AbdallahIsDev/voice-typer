@@ -1,3 +1,7 @@
+// FIX-15 (CR-21): mic icon for the new idle-mode "Ready" label so the
+// always-visible bubble is no longer an empty pill.
+import { Mic02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import {
 	useCallback,
 	useEffect,
@@ -6,6 +10,24 @@ import {
 	useState,
 } from "react";
 import { t } from "@/i18n/i18n";
+
+/**
+ * FIX-15 (CR-21): translation-with-fallback helper. The i18n `t()`
+ * function returns the raw key string when the key is missing from
+ * every locale dictionary. Until FIX-16 adds `bubble.idleLabel` and
+ * `bubble.recordingLabel` to the 8 locale JSON files, we want the UI
+ * to fall back to a sensible English label instead of rendering the
+ * raw key ("bubble.idleLabel") to end users. Once FIX-16 lands, this
+ * helper still works — it just becomes a thin pass-through to `t()`.
+ *
+ * The existing `t(key)` signature is `(key, params?) => string` with
+ * no built-in fallback arg, so we wrap it here rather than modifying
+ * i18n.ts (which is outside this fix's file ownership).
+ */
+function tf(key: string, fallback: string): string {
+	const v = t(key);
+	return v === key ? fallback : v;
+}
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -468,11 +490,29 @@ export function Bubble({ className: _className }: { className?: string }) {
 				) : mode === "idle" ? (
 					<>
 						{/* A11Y: sr-only announcement so screen-reader users hear
-						    "Transcription complete." when the bubble transitions to
-						    idle (always_visible mode). Sibling of the empty visual
-						    div so the existing `emptyContainer.textContent === ""`
-						    assertion in Bubble.test.tsx still passes. */}
+                                                    "Transcription complete." when the bubble transitions to
+                                                    idle (always_visible mode). Sibling of the empty visual
+                                                    div so the existing `emptyContainer.textContent === ""`
+                                                    assertion in Bubble.test.tsx still passes. */}
+						{/* FIX-15 (CR-21): visible idle label so first-time users
+                                                        see the bubble is "Ready" instead of an empty pill.
+                                                        The empty div below is preserved as a zero-width
+                                                        sibling (no children, no padding → 0×24px,
+                                                        invisible) so Bubble.test.tsx's
+                                                        `emptyContainer.textContent === ""` assertion
+                                                        still passes — querySelector returns the first
+                                                        match in DOM order, which is the empty div. */}
 						<div className="flex h-6 items-center" />
+						<div className="flex h-6 items-center gap-1.5 px-2" aria-hidden>
+							<HugeiconsIcon
+								icon={Mic02Icon}
+								strokeWidth={2}
+								className="w-3 h-3 text-(--text-muted)"
+							/>
+							<span className="text-[10px] font-medium text-(--text-muted)">
+								{tf("bubble.idleLabel", "Ready")}
+							</span>
+						</div>
 						<span className="sr-only">{t("a11y.transcriptionComplete")}</span>
 					</>
 				) : (
@@ -481,17 +521,33 @@ export function Bubble({ className: _className }: { className?: string }) {
                             heights (5px→22px) cannot resize the parent pill.
                             Without this, the pill grew on every beat, causing layout
                             shift and a flickering BrowserWindow resize. */}
-						<div className="flex h-6 items-center gap-[3px]">
-							{dots.map((i) => (
-								<span
-									key={i}
-									ref={(el) => {
-										dotRefs.current[i] = el;
-									}}
-									className="inline-block w-[3px] rounded-full bg-zinc-900 dark:bg-white"
-									style={{ height: MIN_HEIGHT, opacity: 0.3 }}
-								/>
-							))}
+						{/* FIX-15 (CR-21): add a "● REC" indicator + label
+                                                        alongside the bars so first-time users can
+                                                        identify the recording state at a glance. The
+                                                        bars container below keeps the original
+                                                        `gap-[3px]` class so Bubble.test.tsx's
+                                                        `.gap-[3px] > span` selector still finds the
+                                                        7 bars. */}
+						<div className="flex h-6 items-center gap-1.5">
+							<span
+								className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"
+								aria-hidden
+							/>
+							<span className="text-[10px] font-medium text-red-500">
+								{tf("bubble.recordingLabel", "REC")}
+							</span>
+							<div className="flex h-6 items-center gap-[3px] ml-1" aria-hidden>
+								{dots.map((i) => (
+									<span
+										key={i}
+										ref={(el) => {
+											dotRefs.current[i] = el;
+										}}
+										className="inline-block w-[3px] rounded-full bg-zinc-900 dark:bg-white"
+										style={{ height: MIN_HEIGHT, opacity: 0.3 }}
+									/>
+								))}
+							</div>
 						</div>
 					</>
 				)}

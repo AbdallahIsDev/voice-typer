@@ -140,7 +140,6 @@ export function AudioFilterChain({
 					<SelectContent>
 						<SelectItem value="rnnoise">RNNoise</SelectItem>
 						<SelectItem value="deepfilternet">DeepFilterNet</SelectItem>
-						<SelectItem value="speex">Speex</SelectItem>
 						<SelectItem value="none">
 							{t("settings.audioEnhancement.noneOption")}
 						</SelectItem>

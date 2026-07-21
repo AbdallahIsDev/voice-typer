@@ -1,6 +1,6 @@
 import { Mic02Icon, TextIcon, Time02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { t } from "@/i18n/i18n";
+import { getLocale, t } from "@/i18n/i18n";
 import type { TodayStats } from "@/types/ipc";
 
 function formatCompactNumber(n: number): string {
@@ -12,7 +12,9 @@ function formatCompactNumber(n: number): string {
 			return `${Math.floor(display)}${suffix}`;
 		return `${display}${suffix}`;
 	}
-	return n.toLocaleString();
+	// CR-46: respect the user-selected UI locale for number formatting
+	// (e.g. "1.234" in de vs "1,234" in en).
+	return n.toLocaleString(getLocale());
 }
 
 function formatDuration(seconds: number): string {

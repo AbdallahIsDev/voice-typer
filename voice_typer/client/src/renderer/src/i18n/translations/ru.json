@@ -15,7 +15,12 @@
 		"restartingBackend": "Перезапуск серверной части Voice Typer…",
 		"restartingHint": "Обычно это занимает несколько секунд. Диктовка возобновится из системного трея, когда будет готова.",
 		"goHome": "На главную",
-		"lostConnectionHint": "Бэкенд Python перестал отвечать. Попробуйте перезапустить его."
+		"lostConnectionHint": "Бэкенд Python перестал отвечать. Попробуйте перезапустить его.",
+		"connecting": {
+			"step1StartingPython": "Starting Python",
+			"step2LoadingModel": "Loading model",
+			"step3Ready": "Ready"
+		}
 	},
 	"nav": {
 		"home": "Главная",
@@ -156,7 +161,9 @@
 			"namesDesc": "Люди, места и имена собственные, которые ASR расслышивает неверно.",
 			"products": "Продукты",
 			"productsDesc": "Названия брендов и продуктов."
-		}
+		},
+		"triggerPlaceholder": "treat three, mynameis",
+		"replacementPlaceholder": "treat this, My Name Is"
 	},
 	"templates": {
 		"title": "Шаблоны",
@@ -190,7 +197,9 @@
 		"deleteTitle": "Удалить шаблон",
 		"deleteMessage": "Вы уверены, что хотите удалить «{name}»? Это действие нельзя отменить.",
 		"loadFailedTitle": "Не удалось загрузить шаблоны",
-		"retry": "Повторить"
+		"retry": "Повторить",
+		"triggerPlaceholder": "my email",
+		"outputPlaceholder": "john.doe@example.com"
 	},
 	"analytics": {
 		"title": "Аналитика",
@@ -1142,7 +1151,9 @@
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Индикатор записи Voice Typer",
-		"transcribingLabel": "Расшифровка"
+		"transcribingLabel": "Расшифровка",
+		"idleLabel": "Ready",
+		"recordingLabel": "REC"
 	},
 	"errorBoundary": {
 		"title": "Что-то пошло не так",
@@ -1238,6 +1249,45 @@
 			"min": "мин",
 			"savedVsTyping": "сэкономлено vs набор",
 			"title": "Статистика Voice Typer"
+		}
+	},
+	"hotkey": {
+		"keys": {
+			"ctrl": "Ctrl",
+			"shift": "Shift",
+			"alt": "Alt",
+			"altGr": "AltGr",
+			"cmd": "Cmd",
+			"win": "Win",
+			"super": "Super",
+			"fn": "Fn",
+			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
+			"space": "Space",
+			"enter": "Enter",
+			"tab": "Tab",
+			"esc": "Esc",
+			"capsLock": "Caps Lock",
+			"numLock": "Num Lock",
+			"scrollLock": "Scroll Lock",
+			"printScreen": "Print Screen",
+			"pause": "Pause",
+			"insert": "Insert",
+			"delete": "Delete",
+			"home": "Home",
+			"end": "End",
+			"pageUp": "Page Up",
+			"pageDown": "Page Down",
+			"up": "↑",
+			"down": "↓",
+			"left": "←",
+			"right": "→"
+		},
+		"combos": {
+			"ctrlShiftV": "Ctrl+Shift+V",
+			"ctrlAltV": "Ctrl+Alt+V",
+			"ctrlSpace": "Ctrl+Space",
+			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
+			"superSpace": "Super+Space"
 		}
 	}
 }

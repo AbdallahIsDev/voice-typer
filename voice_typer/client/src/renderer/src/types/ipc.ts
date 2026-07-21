@@ -336,6 +336,15 @@ export interface WindowBridge {
 		data: unknown,
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
 	openLogs?: () => Promise<{ success: boolean; error?: string }>;
+	// CR-33: native folder picker for HuggingFace model imports. Was
+	// missing from the type — Models.tsx accessed it via a runtime cast.
+	// Declared optional because the Tauri bridge installs it but the
+	// legacy Electron preload also installs it (so the type is satisfied
+	// on both paths).
+	openModelImportDialog?: () => Promise<{
+		canceled: boolean;
+		path?: string;
+	}>;
 }
 
 // ── Bubble bridge API (exposed by Electron preload for the bubble overlay) ─

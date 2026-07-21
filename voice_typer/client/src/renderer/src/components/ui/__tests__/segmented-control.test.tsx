@@ -424,8 +424,10 @@ describe("SegmentedControl tabs variant", () => {
 				ariaLabel="tabs-control"
 			/>,
 		);
-
-		const group = screen.getByRole("radiogroup");
+		// CR-52: the tabs variant renders role="tablist" (NOT
+		// radiogroup) so screen readers announce it as a tab
+		// navigation region per the WAI-ARIA Tabs pattern.
+		const group = screen.getByRole("tablist");
 		expect(group.className).toContain("bg-transparent");
 		expect(group.className).toContain("border-none");
 		expect(group.className).toContain("rounded-none");
@@ -434,7 +436,6 @@ describe("SegmentedControl tabs variant", () => {
 		expect(group.className).toContain("p-1");
 		expect(group.className).not.toContain("p-0.75");
 	});
-
 	it("labels have no rounded-full and use larger font", () => {
 		render(
 			<SegmentedControl
@@ -445,17 +446,19 @@ describe("SegmentedControl tabs variant", () => {
 				ariaLabel="tabs-control"
 			/>,
 		);
-
-		const radios = screen.getAllByRole("radio");
-		for (const radio of radios) {
-			const label = radio.closest("label");
-			expect(label?.className).toContain("rounded-none");
-			expect(label?.className).not.toContain("rounded-full");
-			expect(label?.className).toContain("text-[13px]");
-			expect(label?.className).toContain("font-medium");
+		// CR-52: each option renders role="tab" on a <button> (NOT
+		// role="radio" on an <input>), so we query by tab role and
+		// assert directly on the button's className (no .closest
+		// "label" needed).
+		const tabs = screen.getAllByRole("tab");
+		expect(tabs).toHaveLength(4);
+		for (const tab of tabs) {
+			expect(tab.className).toContain("rounded-none");
+			expect(tab.className).not.toContain("rounded-full");
+			expect(tab.className).toContain("text-[13px]");
+			expect(tab.className).toContain("font-medium");
 		}
 	});
-
 	it("active label uses text-(--text-primary) instead of text-primary-foreground", () => {
 		render(
 			<SegmentedControl
@@ -466,15 +469,58 @@ describe("SegmentedControl tabs variant", () => {
 				ariaLabel="tabs-control"
 			/>,
 		);
-
-		const radios = screen.getAllByRole("radio");
-		const leftLabel = radios[0].closest("label");
-		const rightLabel = radios[1].closest("label");
-
-		expect(leftLabel?.className).toContain("text-(--text-primary)");
-		expect(rightLabel?.className).not.toContain("text-primary-foreground");
+		// CR-52: query by role="tab" and assert aria-selected +
+		// className on the same <button> element (no .closest).
+		const tabs = screen.getAllByRole("tab");
+		expect(tabs).toHaveLength(2);
+		// Active tab: aria-selected="true" + text-(--text-primary).
+		expect(tabs[0]).toHaveAttribute("aria-selected", "true");
+		expect(tabs[1]).toHaveAttribute("aria-selected", "false");
+		expect(tabs[0].className).toContain("text-(--text-primary)");
+		expect(tabs[1].className).not.toContain("text-primary-foreground");
 	});
-
+	it("active tab is in the tab order (tabIndex=0) and inactive tabs are not (tabIndex=-1)", () => {
+		// CR-52: WAI-ARIA Tabs "roving tabindex" pattern — only the
+		// active tab is reachable via Tab; inactive tabs require
+		// ArrowLeft/ArrowRight to focus.
+		render(
+			<SegmentedControl
+				variant="tabs"
+				options={FOUR_OPTIONS}
+				value="two"
+				onChange={() => {}}
+				ariaLabel="tabs-control"
+			/>,
+		);
+		const tabs = screen.getAllByRole("tab");
+		expect(tabs).toHaveLength(4);
+		expect(tabs[0]).toHaveAttribute("tabindex", "-1");
+		expect(tabs[1]).toHaveAttribute("tabindex", "0");
+		expect(tabs[2]).toHaveAttribute("tabindex", "-1");
+		expect(tabs[3]).toHaveAttribute("tabindex", "-1");
+	});
+	it("each tab emits an id and aria-controls linking to its panel id", () => {
+		// CR-52/CR-53: WAI-ARIA Tabs contract — each tab needs a
+		// stable id (so the panel can aria-labelledby it) and
+		// aria-controls pointing at the matching panel id (so
+		// screen readers can jump from tab → panel).
+		render(
+			<SegmentedControl
+				variant="tabs"
+				options={TWO_OPTIONS}
+				value="left"
+				onChange={() => {}}
+				ariaLabel="tabs-control"
+				getTabId={(v) => `my-tab-${v}`}
+				getPanelId={(v) => `my-panel-${v}`}
+			/>,
+		);
+		const tabs = screen.getAllByRole("tab");
+		expect(tabs[0]).toHaveAttribute("id", "my-tab-left");
+		expect(tabs[0]).toHaveAttribute("aria-controls", "my-panel-left");
+		expect(tabs[1]).toHaveAttribute("id", "my-tab-right");
+		expect(tabs[1]).toHaveAttribute("aria-controls", "my-panel-right");
+	});
 	it("indicator has no rounded corners", async () => {
 		const { container } = render(
 			<SegmentedControl
@@ -516,11 +562,6 @@ describe("SegmentedControl tabs variant", () => {
 		await user.click(screen.getByText("Right"));
 		expect(onChange).toHaveBeenCalledWith("right");
 	});
-});
-
-// ── Extra className ──────────────────────────────────────────────────────────
-
-describe("SegmentedControl className prop", () => {
 	it("appends extra className to the container", () => {
 		render(
 			<SegmentedControl

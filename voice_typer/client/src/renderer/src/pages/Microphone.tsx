@@ -254,7 +254,16 @@ export default function MicrophonePage() {
 		}
 	}, [loadData]);
 
-	// Start continuous level monitoring on mount, stop on unmount
+	// CR-57: gate the 100ms polling on visibility + active state.
+	const testRunningRef = useRef(false);
+	const micMonitoringRef = useRef(false);
+	useEffect(() => {
+		testRunningRef.current = testRunning;
+	}, [testRunning]);
+	useEffect(() => {
+		micMonitoringRef.current = micMonitoring;
+	}, [micMonitoring]);
+
 	useEffect(() => {
 		const micId = config?.microphone ?? null;
 		call<{ success: boolean }>("level_monitor_start", { mic_id: micId }).catch(
@@ -262,6 +271,12 @@ export default function MicrophonePage() {
 		);
 
 		levelIntervalRef.current = setInterval(async () => {
+			if (
+				typeof document !== "undefined" &&
+				document.visibilityState !== "visible"
+			)
+				return;
+			if (!testRunningRef.current && !micMonitoringRef.current) return;
 			if (playingRef.current) return;
 			try {
 				const levelData = await call<{
@@ -283,10 +298,20 @@ export default function MicrophonePage() {
 			}
 		}, 100);
 
+		const handleVisibility = () => {
+			// no-op — next interval tick reads visibilityState.
+		};
+		if (typeof document !== "undefined") {
+			document.addEventListener("visibilitychange", handleVisibility);
+		}
+
 		return () => {
 			if (levelIntervalRef.current) {
 				clearInterval(levelIntervalRef.current);
 				levelIntervalRef.current = null;
+			}
+			if (typeof document !== "undefined") {
+				document.removeEventListener("visibilitychange", handleVisibility);
 			}
 			call("level_monitor_stop").catch(() => {});
 		};
@@ -686,7 +711,7 @@ export default function MicrophonePage() {
 						<span className="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold border border-primary/20 bg-primary/10 text-primary">
 							{testRunning
 								? t("microphone.recordingStatus")
-								: t("microphone.active")}
+								: t("microphone.selected")}
 						</span>
 					</div>
 
@@ -814,19 +839,11 @@ export default function MicrophonePage() {
 
 				{/* Available Microphones List */}
 				{microphones.length === 0 ? (
-					<div className="flex flex-col items-center justify-center py-16 gap-3">
-						<HugeiconsIcon
-							icon={MicOff01Icon}
-							strokeWidth={1.625}
-							className="h-10 w-10 text-(--text-muted) opacity-30"
-						/>
-						<p className="text-sm text-(--text-muted)">
-							{t("microphone.noMicrophonesFound")}
-						</p>
-						<p className="text-xs text-(--text-muted) opacity-70">
-							{t("microphone.connectAndRestart")}
-						</p>
-					</div>
+					<EmptyState
+						icon={MicOff01Icon}
+						title={t("microphone.noMicrophonesFound")}
+						description={t("microphone.connectAndRestart")}
+					/>
 				) : (
 					<div>
 						<p className="text-xs font-semibold capitalize tracking-wide text-(--text-muted) mb-2 px-1">

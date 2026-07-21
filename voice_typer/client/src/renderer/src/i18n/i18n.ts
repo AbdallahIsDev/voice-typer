@@ -95,6 +95,9 @@ try {
 		document.documentElement.dir = RTL_LOCALES.has(_currentLocale)
 			? "rtl"
 			: "ltr";
+		// CR-44: also set ``lang`` so screen readers pronounce content in
+		// the user-selected UI locale (not the browser default).
+		document.documentElement.lang = _currentLocale;
 	}
 } catch {
 	// document may be unavailable in some contexts (SSR, tests)
@@ -220,6 +223,9 @@ export function setLocale(locale: Locale): void {
 	try {
 		if (typeof document !== "undefined") {
 			document.documentElement.dir = RTL_LOCALES.has(next) ? "rtl" : "ltr";
+			// CR-44: also set ``lang`` so screen readers pronounce content
+			// in the user-selected UI locale (not the browser default).
+			document.documentElement.lang = next;
 		}
 	} catch {
 		// SSR environments may not have document

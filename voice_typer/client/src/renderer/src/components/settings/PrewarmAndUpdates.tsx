@@ -16,7 +16,7 @@
 
 import { Download01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -196,25 +196,12 @@ export default function PrewarmAndUpdates() {
 		}
 	};
 
-	// NEW-UX-023: check GitHub releases for a newer version. Runs once on
-	// mount, non-blocking. We don't auto-open any UI — just surface a
-	// "newer version available" link in the Updates section.
-	const checkForUpdate = useCallback(async () => {
-		try {
-			const resp = await fetch(LATEST_RELEASE_API, {
-				headers: { Accept: "application/vnd.github+json" },
-			});
-			if (!resp.ok) return;
-			const data = (await resp.json()) as { tag_name?: string };
-			if (!data.tag_name) return;
-			// Strip leading 'v' from tag name ("v1.2.3" → "1.2.3").
-			const remote = data.tag_name.replace(/^v/, "");
-			setLatestVersion(remote);
-		} catch {
-			// Network failure / rate limit — silently skip. The user can
-			// manually click "Check for Updates" to retry.
-		}
-	}, []);
+	// CR-11: REMOVED the auto-firing `checkForUpdate` callback and its
+	// useEffect invocation on mount. The previous implementation fired a
+	// network request to api.github.com on every mount of this component,
+	// violating the offline-first guarantee. The manual "Check for Updates"
+	// button (handleManualCheck) is the explicit opt-in path and remains
+	// unchanged.
 
 	const handleManualCheck = async () => {
 		setCheckingUpdate(true);
@@ -257,6 +244,8 @@ export default function PrewarmAndUpdates() {
 		}
 	};
 
+	// On mount: fetch prewarm status only. CR-11: do NOT auto-fire the
+	// GitHub release check.
 	useEffect(() => {
 		let cancelled = false;
 		const load = async () => {
@@ -266,13 +255,12 @@ export default function PrewarmAndUpdates() {
 			} catch {
 				// leave prewarmStatus as null; card renders "Unknown"
 			}
-			if (!cancelled) await checkForUpdate();
 		};
 		load();
 		return () => {
 			cancelled = true;
 		};
-	}, [call, checkForUpdate]);
+	}, [call]);
 
 	return (
 		<>

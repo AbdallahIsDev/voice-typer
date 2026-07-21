@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +11,6 @@ import {
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 
 interface StepInfo {
@@ -27,29 +26,84 @@ interface ModelOption {
 	description: string;
 }
 
-// #8: Optional callback fired after the user finishes the wizard
-// (either by completing all steps or by skipping). App.tsx wires this
-// to navigate back to the home page and reload the config so the rest
-// of the UI picks up the user's onboarding choices.
-interface OnboardingPageProps {
-	onComplete?: () => void;
+// CR-6 (UX-4 / UX-27): renderer was previously out of sync with the
+// server's 6-step wizard — it branched on the numeric `step.step` index
+// (0/1/2/3/4) and never rendered a Permissions step. The server (see
+// `voice_typer/server/onboarding.py:124-141`) declares 6 steps with
+// names [Welcome, Microphone, Permissions, Hotkey, Model, Done]. When
+// the server reported step=2 with step_name="Permissions", the renderer
+// fell through to the Hotkey branch and silently skipped the
+// keyboard-permission probe.
+//
+// To prevent recurrence (a new step added server-side would silently
+// fall through to "render nothing" again), we now branch on
+// `step.step_name` (the stable string identifier) rather than the
+// numeric index. The numeric index is only used for the progress bar
+// and the Skip-button guard (which compares against the LAST step
+// name, "Done", so adding steps doesn't require touching the guard).
+const DONE_STEP_NAME = "Done";
+
+// IPC response shape for `onboarding_check_permissions` (mirrors
+// `OnboardingController.check_permissions` in
+// `voice_typer/server/onboarding.py:218-314`). `instructions` is null
+// on Windows / unknown platforms or when permission is already
+// granted; on macOS / Linux with `needed === true` it carries a
+// platform-specific setup walkthrough.
+interface PermissionsResult {
+	platform: "windows" | "macos" | "linux" | "unknown";
+	state: "granted" | "denied" | "unknown";
+	needed: boolean;
+	instructions: {
+		title: string;
+		steps: string[];
+		commands: string[] | null;
+	} | null;
 }
 
-export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
+type PermissionsTestState =
+	| { kind: "idle" }
+	| { kind: "listening" }
+	| { kind: "success" }
+	| { kind: "failure" };
+
+export default function OnboardingPage({
+	onComplete,
+}: {
+	onComplete?: () => void;
+}) {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
-	const [step, setStep] = useState<StepInfo | null>(null);
+
+	// ── State ──────────────────────────────────────────────────────
+
 	const [loading, setLoading] = useState(true);
 	const [initError, setInitError] = useState<string | null>(null);
+	const [step, setStep] = useState<StepInfo | null>(null);
 	const [retryCounter, setRetryCounter] = useState(0);
+
+	// Wizard selections
+	const [selectedHotkey, setSelectedHotkey] = useState("<f2>");
+	const [selectedModel, setSelectedModel] = useState("small.en");
+	const [selectedMic, setSelectedMic] = useState("");
+	const [hotkeyPresets, setHotkeyPresets] = useState<string[]>([]);
+	const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
 	const [microphones, setMicrophones] = useState<
 		{ id: string; name: string }[]
 	>([]);
-	const [selectedMic, setSelectedMic] = useState<string>("");
-	const [hotkeyPresets, setHotkeyPresets] = useState<string[]>([]);
-	const [selectedHotkey, setSelectedHotkey] = useState("<f2>");
-	const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
-	const [selectedModel, setSelectedModel] = useState("small.en");
+
+	// CR-6: Permissions step state.
+	const [permissionsResult, setPermissionsResult] =
+		useState<PermissionsResult | null>(null);
+	const [permissionsLoading, setPermissionsLoading] = useState(false);
+	const [permissionsTest, setPermissionsTest] = useState<PermissionsTestState>({
+		kind: "idle",
+	});
+	const permissionsTestTimeoutRef = useRef<
+		ReturnType<typeof setTimeout> | undefined
+	>(undefined);
+	const permissionsHeadingRef = useRef<HTMLHeadingElement | null>(null);
+
+	// ── Init effect ────────────────────────────────────────────────
 
 	const retryInit = useCallback(() => {
 		setInitError(null);
@@ -60,28 +114,16 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 
 	useEffect(() => {
 		void retryCounter;
+		let cancelled = false;
 		async function init() {
 			try {
 				const started = await call<StepInfo>("onboarding_start");
+				if (cancelled) return;
 				setStep(started);
 
-				// F2 (b-review Finding 6): pre-select the wizard's
-				// hotkey/model/microphone from the user's existing config
-				// instead of overwriting them with hardcoded defaults.
-				// If the user already has a hotkey/model/mic set (e.g. they
-				// re-ran the wizard from Settings → "Run onboarding again"),
-				// the wizard now shows their existing choices, and clicking
-				// "Continue" preserves them rather than overwriting with
-				// "<f2>" / "small.en" / first-mic-in-list.
-				//
-				// The mic pre-selection has a slight wrinkle: the existing
-				// config's microphone id may not be in the list returned by
-				// `onboarding_get_microphones` (e.g. the mic was unplugged
-				// since the user last configured it). We honour the config
-				// value if it's still in the list; otherwise we fall back to
-				// the first available mic so the Select shows a valid value.
 				try {
 					const cfg = await call<VoiceTyperConfig>("get_config");
+					if (cancelled) return;
 					if (cfg) {
 						const cfgHotkey = cfg.hotkey ?? "<f2>";
 						if (cfgHotkey) setSelectedHotkey(cfgHotkey);
@@ -91,20 +133,14 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 						setSelectedMic(cfgMic);
 					}
 				} catch {
-					// Older backend without get_config (or backend is down) —
-					// fall back to the hardcoded defaults already in state.
-					// Non-fatal: the wizard still works, just with defaults.
+					// Older backend without get_config — fall back to defaults.
 				}
 
 				const mics = await call<{
 					microphones: { id: string; name: string }[];
 				}>("onboarding_get_microphones");
+				if (cancelled) return;
 				setMicrophones(mics.microphones || []);
-				// Only auto-select the first mic if the config-derived
-				// selection isn't already present in the available list.
-				// This preserves the user's existing mic choice when it's
-				// still connected, and falls back to the first mic when it's
-				// not (matches the pre-fix behaviour for first-run users).
 				if (mics.microphones?.length > 0) {
 					setSelectedMic((prev) => {
 						if (prev && mics.microphones.some((m) => m.id === prev)) {
@@ -117,56 +153,137 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				const presets = await call<{ presets: string[] }>(
 					"onboarding_get_hotkey_presets",
 				);
+				if (cancelled) return;
 				setHotkeyPresets(presets.presets || []);
 
 				const models = await call<{ models: ModelOption[] }>(
 					"onboarding_get_model_options",
 				);
+				if (cancelled) return;
 				setModelOptions(models.models || []);
 			} catch (err) {
+				if (cancelled) return;
 				console.error("Failed to start onboarding:", err);
 				setInitError(err instanceof Error ? err.message : "Unknown error");
 			} finally {
-				setLoading(false);
+				if (!cancelled) setLoading(false);
 			}
 		}
 		init();
+		return () => {
+			cancelled = true;
+		};
 	}, [call, retryCounter]);
+
+	// ── Permissions probe effect ───────────────────────────────────
+
+	useEffect(() => {
+		if (step?.step_name !== "Permissions") {
+			setPermissionsResult(null);
+			setPermissionsTest({ kind: "idle" });
+			return;
+		}
+		let cancelled = false;
+		setPermissionsLoading(true);
+		setPermissionsResult(null);
+		setPermissionsTest({ kind: "idle" });
+		queueMicrotask(() => {
+			permissionsHeadingRef.current?.focus();
+		});
+		call<PermissionsResult>("onboarding_check_permissions")
+			.then((result) => {
+				if (cancelled) return;
+				setPermissionsResult(result);
+			})
+			.catch((err) => {
+				if (cancelled) return;
+				console.error("Failed to check permissions:", err);
+				setPermissionsResult({
+					platform: "unknown",
+					state: "unknown",
+					needed: false,
+					instructions: null,
+				});
+			})
+			.finally(() => {
+				if (!cancelled) setPermissionsLoading(false);
+			});
+		return () => {
+			cancelled = true;
+			if (permissionsTestTimeoutRef.current) {
+				clearTimeout(permissionsTestTimeoutRef.current);
+				permissionsTestTimeoutRef.current = undefined;
+			}
+		};
+	}, [call, step?.step_name]);
+
+	// ── Hotkey normalizer ──────────────────────────────────────────
+
+	const normalizeHotkey = useCallback((raw: string): string => {
+		return raw.replace(/[<>]/g, "").replace(/_/g, "").toLowerCase();
+	}, []);
+
+	// ── Test hotkey button handler ─────────────────────────────────
+
+	const handleTestHotkey = useCallback(() => {
+		if (permissionsTest.kind === "listening") return;
+		setPermissionsTest({ kind: "listening" });
+		const target = normalizeHotkey(selectedHotkey);
+		const onKeyDown = (e: KeyboardEvent) => {
+			const pressed = normalizeHotkey(e.key);
+			if (pressed && pressed === target) {
+				window.removeEventListener("keydown", onKeyDown);
+				if (permissionsTestTimeoutRef.current) {
+					clearTimeout(permissionsTestTimeoutRef.current);
+					permissionsTestTimeoutRef.current = undefined;
+				}
+				setPermissionsTest({ kind: "success" });
+			}
+		};
+		window.addEventListener("keydown", onKeyDown);
+		permissionsTestTimeoutRef.current = setTimeout(() => {
+			window.removeEventListener("keydown", onKeyDown);
+			setPermissionsTest({ kind: "failure" });
+			permissionsTestTimeoutRef.current = undefined;
+		}, 5_000);
+	}, [normalizeHotkey, selectedHotkey, permissionsTest.kind]);
+
+	// ── Handle Next (persist selection and advance) ────────────────
 
 	const handleNext = useCallback(async () => {
 		try {
-			// Save current step's selection before advancing
-			if (step?.step === 1) {
+			// Persist the current step's selection before advancing.
+			if (step?.step_name === "Microphone") {
 				await call("onboarding_set_microphone", {
 					mic_id: selectedMic || null,
 				});
-			} else if (step?.step === 2) {
+			} else if (step?.step_name === "Hotkey") {
 				await call("onboarding_set_hotkey", { hotkey: selectedHotkey });
-			} else if (step?.step === 3) {
+			} else if (step?.step_name === "Model") {
 				await call("onboarding_set_model", { model: selectedModel });
-			} else if (step?.step === 4) {
+			} else if (step?.step_name === DONE_STEP_NAME) {
 				await call("onboarding_apply");
-				showSnack(t("onboarding.setupCompleteSnack"), "success");
-				// #8: wizard finished — hand control back to App.tsx so it can
-				// navigate to home and reload the config.
-				if (onComplete) onComplete();
-				return;
 			}
+
 			const newStep = await call<StepInfo>("onboarding_next_step");
 			setStep(newStep);
 		} catch (err) {
 			console.error("Failed to advance step:", err);
-			showSnack(t("onboarding.saveFailedSnack"), "error");
 		}
-	}, [
-		call,
-		step,
-		selectedMic,
-		selectedHotkey,
-		selectedModel,
-		showSnack,
-		onComplete,
-	]);
+	}, [call, step?.step_name, selectedMic, selectedHotkey, selectedModel]);
+
+	// ── Handle Apply (apply all settings and complete) ─────────────
+
+	const handleApply = useCallback(async () => {
+		try {
+			await call("onboarding_apply");
+			if (onComplete) onComplete();
+		} catch (err) {
+			console.error("Failed to apply onboarding:", err);
+		}
+	}, [call, onComplete]);
+
+	// ── Handle Prev / Skip ─────────────────────────────────────────
 
 	const handlePrev = useCallback(async () => {
 		try {
@@ -181,12 +298,13 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 		try {
 			await call("onboarding_skip");
 			showSnack(t("onboarding.skippedSnack"), "warning");
-			// #8: wizard skipped — hand control back to App.tsx.
 			if (onComplete) onComplete();
 		} catch (err) {
 			console.error("Failed to skip onboarding:", err);
 		}
 	}, [call, showSnack, onComplete]);
+
+	// ── Render: loading ────────────────────────────────────────────
 
 	if (loading) {
 		return (
@@ -195,6 +313,8 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 			</div>
 		);
 	}
+
+	// ── Render: init error ─────────────────────────────────────────
 
 	if (initError) {
 		return (
@@ -216,7 +336,6 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 									showSnack(t("onboarding.skippedSnack"), "warning");
 									if (onComplete) onComplete();
 								} catch {
-									// Even if skip fails, navigate away
 									if (onComplete) onComplete();
 								}
 							}}
@@ -233,6 +352,9 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 	if (!step) return null;
 
 	const progress = ((step.step + 1) / step.total_steps) * 100;
+	const isDoneStep = step.step_name === DONE_STEP_NAME;
+
+	// ── Render: wizard ─────────────────────────────────────────────
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center px-6 pt-28 pb-6">
@@ -255,12 +377,12 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 				</div>
 			</div>
 
-			{/* Screen-reader-only page heading for correct heading hierarchy */}
+			{/* Screen-reader-only page heading */}
 			<h1 className="sr-only">{step.step_name}</h1>
 
 			{/* Step content */}
 			<div className="w-full rounded-xl border border-border bg-(--bg) p-8">
-				{step.step === 0 && (
+				{step.step_name === "Welcome" && (
 					<>
 						<h1 className="mb-3 text-2xl font-bold text-(--text-primary)">
 							{t("onboarding.welcomeTitle")}
@@ -285,7 +407,7 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 					</>
 				)}
 
-				{step.step === 1 && (
+				{step.step_name === "Microphone" && (
 					<>
 						<h2 className="mb-3 text-lg font-semibold text-(--text-primary)">
 							{t("onboarding.micTitle")}
@@ -317,7 +439,105 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 					</>
 				)}
 
-				{step.step === 2 && (
+				{/* CR-6: Permissions step */}
+				{step.step_name === "Permissions" && (
+					<>
+						<h2
+							ref={permissionsHeadingRef}
+							tabIndex={-1}
+							className="mb-3 outline-none text-lg font-semibold text-(--text-primary)"
+						>
+							{t("onboarding.permissionsTitle")}
+						</h2>
+						<p className="mb-4 text-sm text-(--text-muted)">
+							{t("onboarding.permissionsDescription")}
+						</p>
+
+						<div
+							aria-live="polite"
+							aria-busy={permissionsLoading}
+							className="mb-4"
+						>
+							{permissionsLoading && (
+								<div className="flex items-center gap-2 text-sm text-(--text-muted)">
+									<Spinner />
+									<span>{t("onboarding.permissionsLoading")}</span>
+								</div>
+							)}
+
+							{!permissionsLoading &&
+								permissionsResult &&
+								(permissionsResult.needed ? (
+									<output className="rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm">
+										<p className="mb-2 font-medium text-(--text-primary)">
+											{t("onboarding.permissionsNeeded")}
+										</p>
+										{permissionsResult.instructions && (
+											<div className="space-y-2">
+												<p className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">
+													{permissionsResult.instructions.title}
+												</p>
+												<ol className="ml-4 list-decimal space-y-1 text-xs text-(--text-secondary)">
+													{permissionsResult.instructions.steps.map((s) => (
+														<li key={s}>{s}</li>
+													))}
+												</ol>
+												{permissionsResult.instructions.commands &&
+													permissionsResult.instructions.commands.length >
+														0 && (
+														<pre className="mt-2 overflow-x-auto rounded bg-(--bg-subtle) p-2 text-xs text-(--text-secondary)">
+															{permissionsResult.instructions.commands.join(
+																"\n",
+															)}
+														</pre>
+													)}
+											</div>
+										)}
+									</output>
+								) : permissionsResult.state === "granted" ? (
+									<p className="text-sm text-(--text-secondary)">
+										{t("onboarding.permissionsOk")}
+									</p>
+								) : (
+									<p className="text-sm text-(--text-secondary)">
+										{t("onboarding.permissionsNoneNeeded")}
+									</p>
+								))}
+						</div>
+
+						{/* "Test hotkey" button */}
+						<div className="space-y-2">
+							<Button
+								type="button"
+								variant="outline"
+								onClick={handleTestHotkey}
+								disabled={
+									permissionsLoading || permissionsTest.kind === "listening"
+								}
+								aria-label={t("onboarding.permissionsTestButton")}
+							>
+								{t("onboarding.permissionsTestButton")}
+							</Button>
+							<div aria-live="polite" className="text-xs text-(--text-muted)">
+								{permissionsTest.kind === "listening" && (
+									<span>{t("onboarding.permissionsTestLabel")}</span>
+								)}
+								{permissionsTest.kind === "success" && (
+									<span className="text-green-600 dark:text-green-400">
+										{t("onboarding.permissionsTestSuccess")}
+									</span>
+								)}
+								{permissionsTest.kind === "failure" && (
+									<span className="text-red-600 dark:text-red-400">
+										{t("onboarding.permissionsTestFailure")}
+									</span>
+								)}
+							</div>
+						</div>
+					</>
+				)}
+
+				{step.step_name === "Hotkey" && (
 					<>
 						<h2 className="mb-3 text-lg font-semibold text-(--text-primary)">
 							{t("onboarding.hotkeyTitle")}
@@ -343,7 +563,7 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 					</>
 				)}
 
-				{step.step === 3 && (
+				{step.step_name === "Model" && (
 					<>
 						<h2 className="mb-3 text-lg font-semibold text-(--text-primary)">
 							{t("onboarding.modelTitle")}
@@ -351,81 +571,61 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 						<p className="mb-4 text-sm text-(--text-muted)">
 							{t("onboarding.modelDescription")}
 						</p>
-						<div className="space-y-3">
-							{modelOptions.map((m) => {
-								const handleModelSelect = () => setSelectedModel(m.name);
-								return (
-									<button
-										type="button"
-										key={m.name}
-										onClick={handleModelSelect}
-										className={cn(
-											"w-full rounded-lg border p-4 text-left transition-colors",
-											selectedModel === m.name
-												? "border-accent bg-accent/10"
-												: "border-border hover:border-accent/50",
-										)}
-										aria-label={t("onboarding.modelSelectAria", {
-											name: m.name,
-										})}
-										aria-pressed={selectedModel === m.name}
-									>
-										<div className="flex items-center justify-between">
-											<span className="text-sm font-medium text-(--text-primary)">
-												{m.name}
-											</span>
-											<span className="text-xs text-(--text-muted)">
-												{m.size}
-											</span>
-										</div>
-										<div className="mt-1 flex items-center justify-between">
-											<span className="text-xs text-(--text-muted)">
-												{m.description}
-											</span>
-											<span className="text-xs text-accent">{m.speed}</span>
-										</div>
-									</button>
-								);
-							})}
-						</div>
+						<Select value={selectedModel} onValueChange={setSelectedModel}>
+							<SelectTrigger
+								className="w-full"
+								aria-label={t("onboarding.modelSelectAria")}
+							>
+								<SelectValue placeholder={t("onboarding.modelSelectAria")} />
+							</SelectTrigger>
+							<SelectContent>
+								{modelOptions.map((m) => (
+									<SelectItem key={m.name} value={m.name}>
+										{m.description} — {m.size} ({m.speed})
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
 					</>
 				)}
 
-				{step.step === 4 && (
+				{step.step_name === DONE_STEP_NAME && (
 					<>
 						<h2 className="mb-3 text-lg font-semibold text-(--text-primary)">
 							{t("onboarding.completeTitle")}
 						</h2>
-						<p className="mb-4 text-sm text-(--text-muted)">
-							{t("onboarding.completeDescription", {
-								hotkey: selectedHotkey.replace(/[<>]/g, "").toUpperCase(),
-							})}
-						</p>
-						<div className="rounded-lg bg-(--bg-subtle) p-4 text-xs text-(--text-muted)">
+						<div className="mb-6 space-y-2 text-sm text-(--text-secondary)">
 							<p>
-								<strong>{t("onboarding.summaryMic")}</strong>{" "}
-								{microphones.find((m) => m.id === selectedMic)?.name ||
-									selectedMic ||
-									t("onboarding.defaultMic")}
+								{t("onboarding.doneHotkey")}{" "}
+								<strong>
+									{selectedHotkey.replace(/[<>]/g, "").toUpperCase()}
+								</strong>
 							</p>
 							<p>
-								<strong>{t("onboarding.summaryHotkey")}</strong>{" "}
-								{selectedHotkey.replace(/[<>]/g, "").toUpperCase()}
+								{t("onboarding.doneModel")} <strong>{selectedModel}</strong>
 							</p>
-							<p>
-								<strong>{t("onboarding.summaryModel")}</strong> {selectedModel}
-							</p>
+							{selectedMic && (
+								<p>
+									{t("onboarding.doneMic")}{" "}
+									<strong>
+										{microphones.find((m) => m.id === selectedMic)?.name ??
+											selectedMic}
+									</strong>
+								</p>
+							)}
 						</div>
 					</>
 				)}
 
-				{/* Navigation */}
-				<div className="mt-6 flex items-center justify-between">
+				{/* Navigation buttons */}
+				<div className="mt-8 flex items-center justify-between gap-4">
 					<div>
-						{step.step > 0 && (
+						{!isDoneStep && (
 							<Button
+								type="button"
 								variant="ghost"
 								onClick={handlePrev}
+								disabled={step.step === 0}
 								aria-label={t("onboarding.backAria")}
 							>
 								{t("onboarding.back")}
@@ -433,8 +633,9 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 						)}
 					</div>
 					<div className="flex items-center gap-2">
-						{step.step < 4 && (
+						{!isDoneStep && (
 							<Button
+								type="button"
 								variant="ghost"
 								onClick={handleSkip}
 								aria-label={t("onboarding.skipAria")}
@@ -443,15 +644,16 @@ export default function OnboardingPage({ onComplete }: OnboardingPageProps) {
 							</Button>
 						)}
 						<Button
+							type="button"
 							variant="default"
-							onClick={handleNext}
+							onClick={isDoneStep ? handleApply : handleNext}
 							aria-label={
-								step.step === 4
+								isDoneStep
 									? t("onboarding.getStartedAria")
 									: t("onboarding.continueAria")
 							}
 						>
-							{step.step === 4
+							{isDoneStep
 								? t("onboarding.getStarted")
 								: t("onboarding.continue")}
 						</Button>

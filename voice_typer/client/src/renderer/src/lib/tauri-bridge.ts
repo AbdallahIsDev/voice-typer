@@ -59,7 +59,7 @@
 // load-bearing on Electron.
 
 import type {
-	MainRendererBubble,
+	BubbleWindowBubble,
 	PythonBridge,
 	PythonPushEvent,
 	WindowBridge,
@@ -237,7 +237,7 @@ export function installTauriBridge(): void {
 	// (missing required args), so the bubble never positioned. The
 	// call shape still matches the `MainRendererBubble.setPosition?:
 	// (pos: string) => void` contract exactly.
-	const bubble: MainRendererBubble = {
+	const bubble: BubbleWindowBubble = {
 		onLevel: (callback) => {
 			let unlisten: (() => void) | null = null;
 			let cancelled = false;
@@ -390,6 +390,66 @@ export function installTauriBridge(): void {
 			// Electron's `ipcRenderer.send("bubble:hidden")`.
 			void tauri.core.invoke("bubble_hide_complete");
 		},
+		// CR-33: bubble-window-only methods (onSetState, resizeTo,
+		// toggleDictation) — port of preload/bubble.ts:64-71 / 100-102
+		// / 120-122. These are only invoked by the bubble renderer
+		// (Bubble.tsx), but the bridge installs the same `bubble`
+		// object on both windows. The MainRendererBubble type marks
+		// them optional (`?`), so the main window's `window.bubble`
+		// still satisfies the type. The bubble renderer casts to
+		// BubbleWindowBubble where it needs them.
+		onSetState: (callback) => {
+			// CR-33: bubble renderer listens for `bubble:set-state`
+			// events pushed by the Rust `bubble_emit_state` command
+			// (invoked from the main renderer when the sidecar
+			// emits `status_change`). Matches Electron's
+			// `ipcRenderer.on("bubble:set-state", handler)` in
+			// preload/bubble.ts:64-71.
+			let unlisten: (() => void) | null = null;
+			let cancelled = false;
+			tauri.event
+				.listen<string>("bubble:set-state", (e) => {
+					callback(String(e.payload));
+				})
+				.then((un) => {
+					if (cancelled) un();
+					else unlisten = un;
+				});
+			return () => {
+				cancelled = true;
+				if (unlisten) {
+					unlisten();
+					unlisten = null;
+				}
+			};
+		},
+		resizeTo: (width, height) => {
+			// CR-33: auto-resize the bubble BrowserWindow to exactly
+			// fit the pill content (eliminates the transparent dead
+			// zone around the bubble that blocks clicks to the
+			// windows underneath). Matches Electron's
+			// `ipcRenderer.send("bubble:resize", {width, height})`
+			// in preload/bubble.ts:100-102. Fire-and-forget — the
+			// Rust `bubble_resize` command updates the window size
+			// asynchronously.
+			void tauri.core.invoke("bubble_resize", { width, height });
+		},
+		toggleDictation: () => {
+			// CR-33 + UX-10: toggle dictation from the bubble's own
+			// mic button. The bubble is sandboxed (SEC-026 / CR-5)
+			// with NO `dispatch` access — the Rust
+			// `check_dispatch_window_label` guard rejects any
+			// `dispatch` call from a non-main window. So instead
+			// of `invoke('dispatch', ...)`, the bubble invokes
+			// this dedicated `bubble_toggle_dictation` command
+			// which forwards the `toggle_dictation` envelope to
+			// the sidecar via the WS bridge (fire-and-forget —
+			// the bubble learns the new state via the
+			// `bubble:set-state` event). Matches Electron's
+			// `ipcRenderer.send("bubble:toggle-dictation")` in
+			// preload/bubble.ts:120-122.
+			void tauri.core.invoke("bubble_toggle_dictation");
+		},
 	};
 
 	// ─── window.window_ ──────────────────────────────────────────
@@ -494,6 +554,110 @@ export function installTauriBridge(): void {
 					success: false,
 					error: e instanceof Error ? e.message : String(e),
 				};
+			}
+		},
+		// CR-33 (NEW-PRIV-007): GDPR right-to-export for templates.
+		// Invokes the Rust `export_templates` command (save-file dialog
+		// + JSON write). Same return-shape mapping as `exportHistory`.
+		// The renderer call site (Templates.tsx export button) is
+		// unchanged on both Electron and Tauri paths.
+		exportTemplates: async (data) => {
+			try {
+				const result = await tauri.core.invoke<{
+					success?: boolean;
+					path?: string;
+					canceled?: boolean;
+					error?: string;
+				}>("export_templates", { data });
+				if (result?.canceled) {
+					return { success: false };
+				}
+				if (result?.error) {
+					return { success: false, error: result.error };
+				}
+				return {
+					success: Boolean(result?.success),
+					path: result?.path,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+		// CR-33 (NEW-PRIV-007): GDPR right-to-export for the full
+		// config. API keys are redacted by the Python sidecar before
+		// the data reaches this command. Same shape as
+		// `exportTemplates`.
+		exportConfig: async (data) => {
+			try {
+				const result = await tauri.core.invoke<{
+					success?: boolean;
+					path?: string;
+					canceled?: boolean;
+					error?: string;
+				}>("export_config", { data });
+				if (result?.canceled) {
+					return { success: false };
+				}
+				if (result?.error) {
+					return { success: false, error: result.error };
+				}
+				return {
+					success: Boolean(result?.success),
+					path: result?.path,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+		// CR-33 (UX-008): open the Voice Typer log directory in the
+		// OS file manager. Invokes the Rust `open_logs` command which
+		// shells out to `explorer.exe` / `open` / `xdg-open`. The
+		// renderer call site (Settings.tsx viewLogs button) is
+		// unchanged on both paths.
+		openLogs: async () => {
+			try {
+				const result = await tauri.core.invoke<{
+					success: boolean;
+					path?: string;
+					error?: string;
+				}>("open_logs");
+				return {
+					success: Boolean(result?.success),
+					error: result?.error,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+		// CR-33 (MODEL-IMPORT): native folder picker for HuggingFace
+		// model imports. Invokes the Rust `open_model_import_dialog`
+		// command which uses `tauri-plugin-dialog`'s folder picker.
+		// The renderer call site (Models.tsx import button) is
+		// unchanged on both paths.
+		openModelImportDialog: async () => {
+			try {
+				const result = await tauri.core.invoke<{
+					canceled: boolean;
+					path?: string;
+				}>("open_model_import_dialog");
+				return {
+					canceled: Boolean(result?.canceled),
+					path: result?.path,
+				};
+			} catch {
+				// Surface errors as a canceled pick with no
+				// path — the renderer treats both shapes the
+				// same (no-op on cancel / error).
+				return { canceled: true };
 			}
 		},
 	};

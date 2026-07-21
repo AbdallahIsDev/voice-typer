@@ -8,16 +8,18 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { t } from "@/i18n/i18n";
+import { getLocale, t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
 
 function formatTimestamp(ts: string): string {
 	try {
 		const d = new Date(ts);
+		// CR-46: pass the user-selected UI locale (not the browser
+		// default) so dates/times respect the user's language choice.
 		return (
-			d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+			d.toLocaleDateString(getLocale(), { month: "short", day: "numeric" }) +
 			" · " +
-			d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+			d.toLocaleTimeString(getLocale(), { hour: "2-digit", minute: "2-digit" })
 		);
 	} catch {
 		return ts;

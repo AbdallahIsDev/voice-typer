@@ -15,20 +15,12 @@
  * is the single source of truth for reserved-shortcut checking,
  * structural validation, and normalization.
  *
- * ISSUE-8: the preset lists are now exposed via getter functions
+ * ISSUE-8: the preset lists are exposed via getter functions
  * ``getSingleKeyPresets()`` and ``getComboPresets()`` that re-detect
- * the platform on every call. The legacy module-level constants
- * ``SINGLE_KEY_PRESETS`` and ``COMBO_PRESETS`` are kept as deprecated
- * aliases (they snapshot the getter output at module load time) for
- * backward compatibility with external consumers. New code should
- * call the getters directly so the presets always reflect the current
- * platform — handy in Electron where UA spoofing or headless mode can
- * cause the initial ``navigator.userAgent`` detection to be wrong.
- *
- * The combo presets are filtered through ``isReserved()`` on every
- * call, so any preset that conflicts with an OS-reserved shortcut
- * (e.g. ``<cmd>+<space>`` on macOS) is automatically excluded from
- * the dropdown.
+ * the platform on every call. New code should call the getters
+ * directly so the presets always reflect the current platform — handy
+ * in Electron where UA spoofing or headless mode can cause the initial
+ * ``navigator.userAgent`` detection to be wrong.
  */
 
 import {
@@ -266,39 +258,13 @@ export function getSingleKeyPresets(): { value: string; label: string }[] {
 }
 
 /**
- * @deprecated Use ``getSingleKeyPresets()`` instead. This alias
- * snapshots the getter output at module load time and will not reflect
- * subsequent platform changes. Kept for backward compatibility with
- * external consumers; new code should call the getter directly.
- */
-export const SINGLE_KEY_PRESETS: { value: string; label: string }[] =
-	getSingleKeyPresets();
-
-/**
- * Combo presets — combos that work on all platforms (with platform-aware
- * modifier naming).
+ * Combo presets — multi-key hotkey combinations (e.g. Ctrl+Shift+V,
+ * Ctrl+Alt+V) used for re-paste and other shortcut settings.
  *
- * HOTKEY-UNIFY-002: presets are filtered through ``isReserved()`` so
- * any combo that conflicts with an OS-reserved shortcut is NOT
- * offered. Previously ``<cmd>+<space>`` (macOS Spotlight) was
- * offered with a warning label — now it's silently excluded, since
- * the user shouldn't be able to pick a combo that will silently
- * break the OS. ``<super>+<space>`` on Linux is NOT reserved (most
- * desktop environments allow reassigning it), so it's still offered.
- *
- * ISSUE-8: this used to be a module-level constant filtered once at
- * import time. It's now a getter so the platform is re-detected and
- * ``isReserved()`` is re-evaluated on every call, which keeps the
- * preset list fresh if the platform detection was wrong at module
- * load (Electron UA spoofing, headless mode) or if the reserved
- * list is ever updated dynamically in the future. The list is small
- * (<10 entries) and the filter is O(n), so calling this on every
- * render is cheap.
+ * ISSUE-8: this is a getter so the platform is re-detected on every
+ * call, avoiding staleness from module-level platform detection.
  */
 export function getComboPresets(): { value: string; label: string }[] {
-	// Re-detect platform on every call so the macOS/Linux-only branches
-	// and the reserved-shortcut filter always reflect the CURRENT
-	// navigator.userAgent, not whatever was detected at module load.
 	const platform = detectPlatform();
 	const isMac = platform === "darwin";
 	const isLinux = platform === "linux";
@@ -308,13 +274,10 @@ export function getComboPresets(): { value: string; label: string }[] {
 		{ value: "<ctrl>+<space>", label: "Ctrl+Space" },
 		...(isMac
 			? [
-					{ value: "<cmd>+<shift>+v", label: "Cmd+Shift+V (macOS)" },
-					// HOTKEY-UNIFY-002: <cmd>+<space> (Spotlight) is now
-					// excluded — it's reserved by macOS and binding it as
-					// a dictation shortcut would silently break Spotlight.
-					// Users who really want it can still attempt the custom
-					// capture button, where validateHotkey() will reject it
-					// with a clear error message.
+					{
+						value: "<cmd>+<shift>+v",
+						label: "Cmd+Shift+V (macOS)",
+					},
 				]
 			: []),
 		// Win+Space is intentionally NOT offered on Windows: it is reserved
@@ -327,16 +290,12 @@ export function getComboPresets(): { value: string; label: string }[] {
 }
 
 /**
- * @deprecated Use ``getComboPresets()`` instead. This alias snapshots
- * the getter output at module load time and will not reflect subsequent
- * platform changes or reserved-list updates. Kept for backward
- * compatibility with external consumers; new code should call the
- * getter directly.
+ * Format a pynput-format hotkey (e.g. "<ctrl>+<alt>+v") for display
+ * in the UI (e.g. "Ctrl+Alt+V").
+ *
+ * Returns "None" if the hotkey is empty/falsy.
  */
-export const COMBO_PRESETS: { value: string; label: string }[] =
-	getComboPresets();
-
-export function formatHotkeyLabel(hotkey: string): string {
+export function formatHotkey(hotkey: string): string {
 	if (!hotkey) return "None";
 	return hotkey
 		.split("+")
@@ -388,6 +347,22 @@ export function formatHotkeyLabel(hotkey: string): string {
 		.join("+");
 }
 
+/**
+ * Alias for {@link formatHotkey}. Several components and tests import the
+ * label formatter as `formatHotkeyLabel`; keep this named export so both
+ * call sites resolve to the same implementation.
+ */
+export const formatHotkeyLabel = formatHotkey;
+
+/**
+ * Validate a hotkey for the UI, with an additional mode parameter
+ * for single-key vs. combo constraints.
+ *
+ * For single mode: must be exactly one key (no modifiers together).
+ * For combo mode: delegates to the shared validateHotkey.
+ *
+ * Returns null on success, or an error message string on failure.
+ */
 export function validateHotkey(
 	hotkey: string,
 	mode: "single" | "combo",

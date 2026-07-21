@@ -1,5 +1,5 @@
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "#utils";
 
 /**
@@ -51,7 +51,9 @@ export interface SegmentedControlOption<T extends string> {
 	/** Optional title attribute shown on hover (tooltip). */
 	title?: string;
 }
+
 export interface SegmentedControlProps<T extends string> {
+	/** Array of options to render. */
 	options: SegmentedControlOption<T>[];
 	/** Currently-selected value. */
 	value: T;
@@ -83,6 +85,30 @@ export interface SegmentedControlProps<T extends string> {
 	 * to make each option take equal width).
 	 */
 	labelClassName?: string;
+	/**
+	 * Optional function returning the DOM id for the ``role="tab"``
+	 * button corresponding to the given value. When provided, each
+	 * tab button emits ``id={getTabId(opt.value)}`` and the matching
+	 * ``role="tabpanel"`` sibling SHOULD set ``aria-labelledby`` to
+	 * the same string. When omitted, an id is auto-derived from
+	 * ``useId()`` so the contract still holds (but the parent must
+	 * pass ``getPanelId`` to wire up the panel side).
+	 *
+	 * Only used by ``variant="tabs"``.
+	 */
+	getTabId?: (value: T) => string;
+	/**
+	 * Optional function returning the DOM id of the ``role="tabpanel"``
+	 * element that corresponds to the given tab value. When provided,
+	 * each tab button emits ``aria-controls={getPanelId(opt.value)}``
+	 * so assistive tech can jump from tab → panel. When omitted, an id
+	 * is auto-derived from ``useId()`` so ``aria-controls`` is always
+	 * present (the parent SHOULD still wrap panel content in a real
+	 * ``role="tabpanel"`` element with that id).
+	 *
+	 * Only used by ``variant="tabs"``.
+	 */
+	getPanelId?: (value: T) => string;
 }
 
 export function SegmentedControl<T extends string>({
@@ -95,9 +121,24 @@ export function SegmentedControl<T extends string>({
 	indicatorClassName,
 	activeClassName,
 	labelClassName,
+	getTabId,
+	getPanelId,
 }: SegmentedControlProps<T>) {
 	const isTabs = variant === "tabs";
 	const containerRef = useRef<HTMLDivElement>(null);
+	// CR-53: stable base id for the tablist. Used to derive per-tab and
+	// per-panel ids when the caller doesn't pass getTabId / getPanelId,
+	// so the WAI-ARIA Tabs contract (id on tab + aria-controls on tab
+	// → matching id on tabpanel + aria-labelledby back) always holds.
+	const baseId = useId();
+	const resolveTabId = useCallback(
+		(val: T) => (getTabId ? getTabId(val) : `${baseId}-tab-${val}`),
+		[baseId, getTabId],
+	);
+	const resolvePanelId = useCallback(
+		(val: T) => (getPanelId ? getPanelId(val) : `${baseId}-panel-${val}`),
+		[baseId, getPanelId],
+	);
 	// Store refs for each option label so we can measure their position.
 	const labelRefs = useRef<Map<string, HTMLElement>>(new Map());
 	// Track the measured position of the active indicator.
@@ -269,6 +310,14 @@ export function SegmentedControl<T extends string>({
 							}
 							title={opt.title}
 							role="tab"
+							// CR-53: WAI-ARIA Tabs contract — each tab needs a stable
+							// id (so the panel can aria-labelledby it) and aria-controls
+							// pointing at the matching panel id (so screen readers can
+							// jump from tab → panel). Both are derived from getTabId /
+							// getPanelId when the caller supplies them, otherwise from
+							// useId() so the attributes are always present.
+							id={resolveTabId(opt.value)}
+							aria-controls={resolvePanelId(opt.value)}
 							tabIndex={active ? 0 : -1}
 							aria-selected={active}
 							onClick={handleRadioChange}
@@ -310,7 +359,7 @@ export function SegmentedControl<T extends string>({
 							// users see which segmented-control option has focus (the inner
 							// <input type="radio" class="sr-only"> owns the focus, so we use
 							// has-[:focus-visible] to style the parent label).
-							"has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring/50 has-[:focus-visible]:outline-none",
+							"has-focus-visible:ring-2 has-focus-visible:ring-ring/50 has-focus-visible:outline-none",
 							variant === "default" &&
 								"rounded-full px-2 py-1 text-[11px] tracking-wider",
 							labelClassName,

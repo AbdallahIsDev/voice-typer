@@ -15,7 +15,12 @@
 		"restartingBackend": "Restarting Voice Typer backend…",
 		"restartingHint": "This usually takes a few seconds. Dictation will resume from the system tray once ready.",
 		"goHome": "Go to Home",
-		"lostConnectionHint": "The backend process exited unexpectedly. Try restarting the app."
+		"lostConnectionHint": "The backend process exited unexpectedly. Try restarting the app.",
+		"connecting": {
+			"step1StartingPython": "Starting Python",
+			"step2LoadingModel": "Loading model",
+			"step3Ready": "Ready"
+		}
 	},
 	"nav": {
 		"home": "Home",
@@ -156,7 +161,9 @@
 			"namesDesc": "People, places, and proper nouns the ASR mishears.",
 			"products": "Products",
 			"productsDesc": "Brand and product names."
-		}
+		},
+		"triggerPlaceholder": "treat three, mynameis",
+		"replacementPlaceholder": "treat this, My Name Is"
 	},
 	"templates": {
 		"title": "Templates",
@@ -190,7 +197,9 @@
 		"deleteTitle": "Delete Template",
 		"deleteMessage": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
 		"loadFailedTitle": "Failed to load templates",
-		"retry": "Retry"
+		"retry": "Retry",
+		"triggerPlaceholder": "my email",
+		"outputPlaceholder": "john.doe@example.com"
 	},
 	"analytics": {
 		"title": "Analytics",
@@ -1166,7 +1175,9 @@
 		"transcribingLabel": "Transcribing",
 		"micButtonAria": "Toggle dictation",
 		"micButtonStartAria": "Start dictation",
-		"micButtonStopAria": "Stop dictation"
+		"micButtonStopAria": "Stop dictation",
+		"idleLabel": "Ready",
+		"recordingLabel": "REC"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",
@@ -1255,6 +1266,45 @@
 			"min": "min",
 			"savedVsTyping": "saved vs typing",
 			"title": "Voice Typer Stats"
+		}
+	},
+	"hotkey": {
+		"keys": {
+			"ctrl": "Ctrl",
+			"shift": "Shift",
+			"alt": "Alt",
+			"altGr": "AltGr",
+			"cmd": "Cmd",
+			"win": "Win",
+			"super": "Super",
+			"fn": "Fn",
+			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
+			"space": "Space",
+			"enter": "Enter",
+			"tab": "Tab",
+			"esc": "Esc",
+			"capsLock": "Caps Lock",
+			"numLock": "Num Lock",
+			"scrollLock": "Scroll Lock",
+			"printScreen": "Print Screen",
+			"pause": "Pause",
+			"insert": "Insert",
+			"delete": "Delete",
+			"home": "Home",
+			"end": "End",
+			"pageUp": "Page Up",
+			"pageDown": "Page Down",
+			"up": "↑",
+			"down": "↓",
+			"left": "←",
+			"right": "→"
+		},
+		"combos": {
+			"ctrlShiftV": "Ctrl+Shift+V",
+			"ctrlAltV": "Ctrl+Alt+V",
+			"ctrlSpace": "Ctrl+Space",
+			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
+			"superSpace": "Super+Space"
 		}
 	}
 }

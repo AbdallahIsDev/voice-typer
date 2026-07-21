@@ -181,73 +181,35 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 		}
 	}, [call, records.length]);
 
-	// ── Proactive background refresh after new transcriptions ────────
-	//
-	// When a transcription_final event arrives (from any page), refresh the
-	// cached stats and records so the next visit to History shows fresh data
-	// instead of stale cache.  If the user is *already* on the History page
-	// and not mid-search, also update the visible UI.
-	usePythonEvent(
-		"transcription_final",
-		useCallback(() => {
-			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			refreshTimer.current = setTimeout(async () => {
-				try {
-					const [newStats, newRecs] = await Promise.all([
-						call<TodayStats>("get_today_stats"),
-						call<HistoryRecord[]>("get_history", {
-							limit: PAGE_SIZE,
-							offset: 0,
-						}),
-					]);
-					_cachedStats = newStats;
-					_cachedRecords = newRecs;
-					setStats(newStats);
-					// Only replace visible records when no search/filter is active
-					if (!searchQueryRef.current && !favoritesOnlyRef.current) {
-						setHasMore(newRecs.length >= PAGE_SIZE);
-						setRecords(newRecs);
-					}
-				} catch {
-					// Silently ignore — the next manual load will pick up fresh data
+	// R7-F13: extracted `debouncedRefreshFromEvent` via useCallback.
+	const debouncedRefreshFromEvent = useCallback(() => {
+		if (refreshTimer.current) clearTimeout(refreshTimer.current);
+		refreshTimer.current = setTimeout(async () => {
+			try {
+				const [newStats, newRecs] = await Promise.all([
+					call<TodayStats>("get_today_stats"),
+					call<HistoryRecord[]>("get_history", {
+						limit: PAGE_SIZE,
+						offset: 0,
+					}),
+				]);
+				_cachedStats = newStats;
+				_cachedRecords = newRecs;
+				setStats(newStats);
+				if (!searchQueryRef.current && !favoritesOnlyRef.current) {
+					setHasMore(newRecs.length >= PAGE_SIZE);
+					setRecords(newRecs);
 				}
-			}, 500);
-		}, [call]),
-	);
+			} catch {
+				// Silently ignore — next manual load will pick up fresh data
+			}
+		}, 500);
+	}, [call]);
 
-	// F11-FIX (b-review Finding 11): invalidate the cache when history
-	// changes through a path OUTSIDE this page (clear/delete/restore/
-	// favorite from the tray menu, another window, or a CLI tool). This
-	// is the exact case the original History.tsx:88-90 comment warned
-	// about — an external clear while viewing search results left ghost
-	// records. Mirrors the transcription_final handler above.
-	usePythonEvent(
-		"history_changed",
-		useCallback(() => {
-			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			refreshTimer.current = setTimeout(async () => {
-				try {
-					const [newStats, newRecs] = await Promise.all([
-						call<TodayStats>("get_today_stats"),
-						call<HistoryRecord[]>("get_history", {
-							limit: PAGE_SIZE,
-							offset: 0,
-						}),
-					]);
-					_cachedStats = newStats;
-					_cachedRecords = newRecs;
-					setStats(newStats);
-					// Only replace visible records when no search/filter is active
-					if (!searchQueryRef.current && !favoritesOnlyRef.current) {
-						setHasMore(newRecs.length >= PAGE_SIZE);
-						setRecords(newRecs);
-					}
-				} catch {
-					// Silently ignore — the next manual load will pick up fresh data
-				}
-			}, 500);
-		}, [call]),
-	);
+	usePythonEvent("transcription_final", debouncedRefreshFromEvent);
+
+	// F11-FIX: invalidate cache on external history_changed events.
+	usePythonEvent("history_changed", debouncedRefreshFromEvent);
 
 	// Clean up pending refresh timer on unmount
 	useEffect(() => {
@@ -513,7 +475,8 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 				) : (
 					<>
 						<ActivityList
-							items={records}
+							// R7-F16: cap visible list at 200 items.
+							items={records.slice(0, 200)}
 							lineClamp={3}
 							onDelete={handleDelete}
 							onToggleFavorite={handleToggleFavorite}

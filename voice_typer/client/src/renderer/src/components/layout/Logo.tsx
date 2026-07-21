@@ -56,7 +56,7 @@ export function Logo({ size = 20, className, decorative = false }: LogoProps) {
 				width="14"
 				height="96"
 				rx="7"
-				className="fill-current text-(--primary)"
+				className="fill-current text-primary"
 			/>
 			<rect
 				x="99"

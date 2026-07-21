@@ -15,7 +15,12 @@
 		"restartingBackend": "正在重启 Voice Typer 后端…",
 		"restartingHint": "通常需要几秒钟。准备就绪后，听写将从系统托盘恢复。",
 		"goHome": "返回首页",
-		"lostConnectionHint": "Python 后端已停止响应。请尝试重启。"
+		"lostConnectionHint": "Python 后端已停止响应。请尝试重启。",
+		"connecting": {
+			"step1StartingPython": "Starting Python",
+			"step2LoadingModel": "Loading model",
+			"step3Ready": "Ready"
+		}
 	},
 	"nav": {
 		"home": "首页",
@@ -156,7 +161,9 @@
 			"namesDesc": "ASR 听错的人物、地点和专有名词。",
 			"products": "产品",
 			"productsDesc": "品牌和产品名称。"
-		}
+		},
+		"triggerPlaceholder": "treat three, mynameis",
+		"replacementPlaceholder": "treat this, My Name Is"
 	},
 	"templates": {
 		"title": "模板",
@@ -190,7 +197,9 @@
 		"deleteTitle": "删除模板",
 		"deleteMessage": "确定要删除「{name}」吗？此操作无法撤销。",
 		"loadFailedTitle": "加载模板失败",
-		"retry": "重试"
+		"retry": "重试",
+		"triggerPlaceholder": "my email",
+		"outputPlaceholder": "john.doe@example.com"
 	},
 	"analytics": {
 		"title": "分析",
@@ -1142,7 +1151,9 @@
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer 录音指示器",
-		"transcribingLabel": "转写中"
+		"transcribingLabel": "转写中",
+		"idleLabel": "Ready",
+		"recordingLabel": "REC"
 	},
 	"errorBoundary": {
 		"title": "出错了",
@@ -1238,6 +1249,45 @@
 			"min": "分钟",
 			"savedVsTyping": "相比手打节省",
 			"title": "Voice Typer 统计"
+		}
+	},
+	"hotkey": {
+		"keys": {
+			"ctrl": "Ctrl",
+			"shift": "Shift",
+			"alt": "Alt",
+			"altGr": "AltGr",
+			"cmd": "Cmd",
+			"win": "Win",
+			"super": "Super",
+			"fn": "Fn",
+			"fnMacOSOnly": "Fn / Globe 🌐 (macOS only)",
+			"space": "Space",
+			"enter": "Enter",
+			"tab": "Tab",
+			"esc": "Esc",
+			"capsLock": "Caps Lock",
+			"numLock": "Num Lock",
+			"scrollLock": "Scroll Lock",
+			"printScreen": "Print Screen",
+			"pause": "Pause",
+			"insert": "Insert",
+			"delete": "Delete",
+			"home": "Home",
+			"end": "End",
+			"pageUp": "Page Up",
+			"pageDown": "Page Down",
+			"up": "↑",
+			"down": "↓",
+			"left": "←",
+			"right": "→"
+		},
+		"combos": {
+			"ctrlShiftV": "Ctrl+Shift+V",
+			"ctrlAltV": "Ctrl+Alt+V",
+			"ctrlSpace": "Ctrl+Space",
+			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
+			"superSpace": "Super+Space"
 		}
 	}
 }
