@@ -1,0 +1,81 @@
+#!/bin/bash
+# Voice Typer — Debian postrm script
+#
+# Runs as root during `apt remove` (with `remove` arg, AFTER prerm) and
+# during `apt purge` (with `purge` arg, AFTER prerm). Debian convention:
+# leave user data on `remove`, only purge on `purge`.
+#
+# CR-43: on `purge`, removes the user's per-user data directory
+# (`~/.local/share/voice-typer/` by default; may also be at
+# `~/.config/voice-typer/` or `~/.voice-typer/` on older installs). This
+# directory contains config.json, history.db, logs/, huggingface/hub/
+# (model cache — potentially GB-sized), backend.pid, etc.
+#
+# Important: this script does NOT remove the user from the `input` group
+# (other apps may rely on it). It also does NOT remove system artifacts
+# installed by the postinst (udev rule, XKB conf, manifest at
+# /var/lib/voice-typer/) — those are removed by prerm via
+# uninstall_permissions.py. This script ONLY removes per-user data on
+# `purge`.
+#
+# Tauri v2 limitation: as of Tauri 2.x, the bundle config supports
+# `postInstallScript` and `preRemoveScript` but NOT `postRemoveScript`.
+# This postrm script is therefore NOT automatically wired into the .deb
+# by Tauri's bundler. To enable true `apt purge` cleanup, the .deb must
+# be post-processed (e.g. via a `dpkg-deb --extract` + re-pack step in
+# CI) to copy this file into the package's maintainer-scripts directory
+# (`DEBIAN/postrm`). Until that CI step is added, `apt purge voice-typer`
+# will leave user data in place — same behavior as `apt remove`.
+# Tracked as a known gap; see worklog Fix-R.
+
+set -e
+
+# User data directories that may exist across installs / platforms.
+# Order: XDG_DATA_HOME-style, XDG_CONFIG_HOME-style, legacy ~/.voice-typer.
+VOICE_TYPER_DATA_DIRS=(
+    ".local/share/voice-typer"
+    ".config/voice-typer"
+    ".voice-typer"
+)
+
+remove_user_data_for_home() {
+    local home_dir="$1"
+    [ -d "$home_dir" ] || return 0
+    for sub in "${VOICE_TYPER_DATA_DIRS[@]}"; do
+        local target="$home_dir/$sub"
+        if [ -d "$target" ]; then
+            echo "[voice-typer] purge: removing $target"
+            rm -rf "$target" 2>/dev/null || true
+        fi
+    done
+}
+
+case "$1" in
+    purge)
+        # Remove the system-level manifest directory (already removed by
+        # prerm via uninstall_permissions.py, but defensive: ensure it's
+        # gone on purge).
+        rm -rf /var/lib/voice-typer 2>/dev/null || true
+
+        # Remove per-user data for every user with a home directory.
+        # `getent passwd` enumerates all users with home dirs; we filter
+        # out system users (uid < 1000) to avoid touching service
+        # accounts. /root is handled explicitly below.
+        while IFS=: read -r _ _ uid _ _ home_dir _; do
+            [ -n "$home_dir" ] || continue
+            [ "$uid" -ge 1000 ] 2>/dev/null || continue
+            remove_user_data_for_home "$home_dir"
+        done < <(getent passwd 2>/dev/null || true)
+
+        # Root may also have user data (rare, but possible if the user
+        # ever ran voice-typer via sudo -E).
+        remove_user_data_for_home /root
+    ;;
+    remove|upgrade|failed-upgrade|disappear|abort-install|abort-upgrade)
+        # On `remove` (and others), leave user data in place — Debian
+        # convention. The prerm has already removed system artifacts
+        # (udev rule, XKB conf, manifest) and per-user autostart entries.
+    ;;
+esac
+
+exit 0

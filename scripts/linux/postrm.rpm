@@ -1,0 +1,65 @@
+#!/bin/bash
+# Voice Typer — RPM %postun script
+#
+# Runs as root after `dnf remove voice-typer`. RPM passes $1 as the
+# number of packages of this name that will remain installed after the
+# operation: $1 = 0 means full uninstall, $1 = 1 means upgrade.
+#
+# CR-43: on full uninstall ($1 = 0), this is the RPM analog of the
+# Debian postrm `purge` action — it removes the user's per-user data
+# directory (config, history DB, model cache). System artifacts (udev
+# rule, XKB conf) are removed by prerm.rpm via uninstall_permissions.py.
+# Per-user autostart .desktop entries are also removed by prerm.rpm.
+#
+# RPM convention note: RPM has no separate `purge` action (unlike
+# Debian). `dnf remove` is the equivalent of `apt purge` — there is no
+# "remove-but-keep-user-data" path. To match Debian's "leave user data
+# on remove" convention, this script does NOT remove user data on
+# upgrade ($1 = 1) but DOES remove it on full uninstall ($1 = 0).
+# Users who want to keep their data across a `dnf remove` +
+# re-install cycle must back up `~/.local/share/voice-typer/` first.
+#
+# Tauri v2 limitation: as of Tauri 2.x, the bundle config supports
+# `postInstallScript` and `preRemoveScript` but NOT `postRemoveScript`.
+# This %postun script is therefore NOT automatically wired into the .rpm
+# by Tauri's bundler. To enable it, the .rpm must be post-processed
+# (e.g. via `rpmrebuild` or a custom spec file in CI) to add this file
+# as the %postun section. Tracked as a known gap; see worklog Fix-R.
+
+set -e
+
+VOICE_TYPER_DATA_DIRS=(
+    ".local/share/voice-typer"
+    ".config/voice-typer"
+    ".voice-typer"
+)
+
+remove_user_data_for_home() {
+    local home_dir="$1"
+    [ -d "$home_dir" ] || return 0
+    for sub in "${VOICE_TYPER_DATA_DIRS[@]}"; do
+        local target="$home_dir/$sub"
+        if [ -d "$target" ]; then
+            echo "[voice-typer] uninstall: removing $target"
+            rm -rf "$target" 2>/dev/null || true
+        fi
+    done
+}
+
+# $1 = 0 → full uninstall. $1 = 1 → upgrade (keep user data).
+if [ "$1" = "0" ]; then
+    # Remove the system-level manifest directory (already removed by
+    # prerm.rpm, but defensive).
+    rm -rf /var/lib/voice-typer 2>/dev/null || true
+
+    # Remove per-user data for every non-system user.
+    while IFS=: read -r _ _ uid _ _ home_dir _; do
+        [ -n "$home_dir" ] || continue
+        [ "$uid" -ge 1000 ] 2>/dev/null || continue
+        remove_user_data_for_home "$home_dir"
+    done < <(getent passwd 2>/dev/null || true)
+
+    remove_user_data_for_home /root
+fi
+
+exit 0
