@@ -1,0 +1,21 @@
+{
+  "_comment": "CR-46: Native binary integrity manifest. Each entry maps a binary file name (as produced by scripts/build/compile_native.sh and discovered by voice_typer.server.native_hotkeys.binary_path._BINARY_NAMES) to its expected SHA-256, build version, and minimum wire-protocol version. At runtime, binary_path.verify_native_binary() hashes the discovered binary with hashlib.sha256 and compares against the sha256 field here. On mismatch, the factory logs an error and falls back to the legacy backend (pynput / WindowsNativeHotkey / WaylandHotkey). Entries with an empty sha256 (macOS / Windows binaries not built in this Linux dev tree) cause verification to be SKIPPED with a debug log — production builds MUST populate all three sha256 fields via scripts/build/update_native_manifests.py (run by CI after compile_native.sh). The min_proto_version field is reserved for future wire-protocol version gating (CR-46 follow-up); the loader does not yet enforce it.",
+  "version": 1,
+  "binaries": {
+    "linux-key-listener": {
+      "sha256": "4e39df2bd257df99b47c7e566c1f91bd9252053bb4eee881504e6fd1c461fc4d",
+      "version": "1.0.0",
+      "min_proto_version": 1
+    },
+    "macos-key-listener": {
+      "sha256": "",
+      "version": "1.0.0",
+      "min_proto_version": 1
+    },
+    "windows-key-listener.exe": {
+      "sha256": "",
+      "version": "1.0.0",
+      "min_proto_version": 1
+    }
+  }
+}
