@@ -353,6 +353,19 @@ class ServiceProtocol(Protocol):
     def quit(self) -> None: ...
     def export_diagnostics(self) -> dict: ...
 
+    # ── Privacy / GDPR ────────────────────────────────────────────
+    # CR-87 (GDPR Art. 17 right-to-erasure) and CR-88 (Art. 20
+    # right-to-data-portability).  Both are implemented on
+    # :class:`voice_typer.server.service.VoiceTyperService`; the IPC
+    # handlers in ``voice_typer/server/handlers/privacy_handlers.py``
+    # are thin envelopes that delegate to these service methods.
+    # Declaring them on the protocol keeps the AST introspection test
+    # in ``tests/test_di_providers.py`` honest (any handler that calls
+    # ``self.service.X`` must have ``X`` declared on
+    # ``ServiceProtocol``).
+    def delete_all_personal_data(self) -> dict: ...
+    def export_gdpr_bundle(self) -> dict: ...
+
 
 def build_ipc_server(app: AppProtocol) -> IPCServer:
     """Construct an :class:`IPCServer` wired to ``app``.

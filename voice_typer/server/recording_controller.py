@@ -84,6 +84,17 @@ class RecordingController:
         self._watchdog_event = threading.Event()
         self._watchdog_stop_event = threading.Event()
         self._watchdog_thread: threading.Thread | None = None
+        # CR-006 (IMPROVE-mode run, 2026-07-21): set of cycle_ids that were
+        # force-cancelled by the watchdog. ``DictationPipeline.run()`` checks
+        # this set BEFORE calling ``_copy_and_paste`` — if the cycle was
+        # cancelled (because the transcription thread took >4.5min and the
+        # watchdog fired), the late transcription is NOT pasted into whatever
+        # window currently has focus. Prevents data corruption when the user
+        # alt-tabs away during a stuck transcription and the ctranslate2 call
+        # eventually completes 5-30 min later. Entries are discarded by the
+        # pipeline's ``finally`` block to keep the set bounded.
+        self._cancelled_cycle_ids: set[str] = set()
+        self._cancelled_cycle_ids_lock = threading.Lock()
 
     # ── Streaming session accessors ────────────────────────────────────
 
@@ -803,6 +814,20 @@ class RecordingController:
             )
         else:
             log.warning("[RECOVERY] FORCE RECOVER: transcription watchdog fired, resetting state")
+        # CR-006: record the current cycle_id as cancelled so the late
+        # transcription (when the stuck ctranslate2 call eventually
+        # completes 5-30 min later) will NOT be pasted into whatever
+        # window currently has focus. ``DictationPipeline.run()`` checks
+        # this set BEFORE ``_copy_and_paste`` and skips the paste if the
+        # cycle is present.
+        cycle_id = getattr(app, "_cycle_id", None)
+        if cycle_id is not None:
+            with self._cancelled_cycle_ids_lock:
+                self._cancelled_cycle_ids.add(cycle_id)
+            log.warning(
+                "[STUCK-RECOVERY] cycle %s marked cancelled — late transcription will not be pasted",
+                cycle_id,
+            )
         # RACE-013: stop the persistent watchdog thread on recovery
         self._stop_watchdog_thread()
         app._busy_event.set()  # busy = False

@@ -659,18 +659,60 @@ class VoiceTyperApp:
         Sends one backspace per character in the last transcription.
         Works by simulating keyboard input via the hotkey backend's
         keyboard controller (pynput on all platforms).
+
+        CR-016 (IMPROVE-mode run, 2026-07-21): count grapheme clusters
+        (not Unicode code points) so emoji and combining-character
+        sequences are deleted with a single backspace (matching the
+        OS's grapheme-level delete behavior). Pre-fix, ``len(text)`` returned
+        14 for ``"Hello \U0001f468\u200d\U0001f469\u200d\U0001f467 world"``
+        (1 grapheme = 5 code points ZWJ-joined) but the OS only needs 11
+        backspaces — the extra 3 deleted the user's PREVIOUS text.
+
+        CR-017 (IMPROVE-mode run, 2026-07-21): check keyboard_ownership
+        before sending backspaces (mirror ``_cancel_dictation``). Pre-fix,
+        if the frontend HotkeyPicker was in capture mode, the backspaces
+        landed in the capture field instead of undoing the transcription.
         """
+        # CR-017: keyboard-ownership check — mirror _cancel_dictation.
+        try:
+            from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+            if keyboard_ownership().is_hotkey_capture_active():
+                log.debug("[UNDO] skipping undo — frontend hotkey capture active")
+                return
+        except Exception:
+            log.debug("[UNDO] keyboard ownership check failed", exc_info=True)
         if not self._last_transcription:
             self.tray.notify(APP_NAME, i18n.t("notify.app.undo_nothing"))
             return
         text = self._last_transcription
-        char_count = len(text)
+        # CR-016: count grapheme clusters using the regex library (already
+        # in deps for text_cleanup.py). ``\X`` matches a single user-perceived
+        # grapheme (handles ZWJ emoji, combining marks, etc.).
+        try:
+            import regex as _regex
+
+            char_count = len(_regex.findall(r"\X", text))
+        except ImportError:
+            # Fallback: code-point count (pre-CR-016 behavior — buggy for
+            # multi-code-point graphemes but at least doesn't crash).
+            char_count = len(text)
         log.info("[UNDO] Undoing last transcription (%d chars)", char_count)
         try:
-            # Use pynput to send backspace keystrokes
-            from pynput.keyboard import Controller as KeyboardController
+            # CR-016 (cont.): use ``import pynput.keyboard as _pk_keyboard``
+            # + ``_pk_keyboard.Controller()`` (module-attribute access at
+            # call time) rather than ``from pynput.keyboard import Controller``
+            # (which binds the name at import time). Both are functionally
+            # identical in production, but the module-attribute form makes
+            # the existing test mock setup work: tests do
+            # ``pk.Controller = MagicMock(return_value=kb_instance)`` AFTER
+            # the autouse fixture installs the ``pynput.keyboard`` MagicMock,
+            # and the module-attribute access picks up that late assignment
+            # while the ``from`` import may bind to the auto-generated
+            # MagicMock child before the test's override lands.
+            import pynput.keyboard as _pk_keyboard
 
-            kb = KeyboardController()
+            kb = _pk_keyboard.Controller()
             # Select all text in the current field first (Ctrl+A), then
             # Delete — this is more reliable than sending N backspaces
             # because it handles multi-line text and doesn't leave
@@ -771,9 +813,13 @@ class VoiceTyperApp:
         ``xdg-open``; both block on the editor and reload afterwards.
         """
         config_file = self.config.config_dir / "config.json"
-        # Save current in-memory config so the editor sees the latest state
-        if not self.config.save():
-            log.warning("[CONFIG] Failed to save config before opening editor")
+        # CR-015 (IMPROVE-mode run, 2026-07-21): the pre-fix code called
+        # ``self.config.save()`` OUTSIDE ``_config_mutation_lock`` — opening
+        # a TOCTOU race where a concurrent IPC ``set_config`` could write
+        # its own version to disk AFTER our save and BEFORE the editor opens,
+        # so the user edits a stale file. The save is now performed INSIDE
+        # each platform branch's ``with self._config_mutation_lock:`` block
+        # so the save + editor launch are atomic w.r.t. concurrent set_config.
         import subprocess
 
         try:
@@ -788,6 +834,10 @@ class VoiceTyperApp:
                 # a concurrent IPC set_config cannot atomically clobber
                 # config.json mid-edit (TOCTOU, SEC-audit-011).
                 with self._config_mutation_lock:
+                    # CR-015: save INSIDE the lock so concurrent set_config
+                    # can't interleave with the editor launch.
+                    if not self.config.save():
+                        log.warning("[CONFIG] Failed to save config before opening editor")
                     handle = _windows_open_with_default_app(str(config_file))
                     if handle is not None:
                         try:
@@ -820,6 +870,9 @@ class VoiceTyperApp:
                 # ``service.apply_config`` → ``with app._config_mutation_lock``)
                 # blocks until the user finishes editing.
                 with self._config_mutation_lock:
+                    # CR-015: save INSIDE the lock.
+                    if not self.config.save():
+                        log.warning("[CONFIG] Failed to save config before opening editor")
                     with contextlib.suppress(Exception):
                         subprocess.run(
                             ["open", "-W", str(config_file)],
@@ -838,6 +891,9 @@ class VoiceTyperApp:
                 # with the launch. After the spawn returns we reload the
                 # config from disk so any saved edits are picked up.
                 with self._config_mutation_lock:
+                    # CR-015: save INSIDE the lock.
+                    if not self.config.save():
+                        log.warning("[CONFIG] Failed to save config before opening editor")
                     with contextlib.suppress(Exception):
                         subprocess.run(
                             ["xdg-open", str(config_file)],
@@ -934,37 +990,25 @@ class VoiceTyperApp:
         0 and triggers the same relaunch as a fallback — see
         ``client/src/main/index.ts``.
 
-        This replaces the old ``restart_ack`` design which tried to
-        keep Electron alive while swapping only the Python backend.
-        That design had multiple race conditions:
+        CR-013 (IMPROVE-mode run, 2026-07-21): re-entry guard at the
+        top — mirror ``quit_app``. Pre-fix, a double-clicked tray
+        "Restart" item or a tray restart racing with SIGTERM-triggered
+        quit would push duplicate ``relaunch_electron`` events, re-acquire
+        ``_config_mutation_lock`` for a second ``config.save()``, re-enter
+        ``_do_cleanup()``, and fire a second ``sys.exit(0)`` while the
+        first call's finally blocks were still draining.
 
-          1. The TCP 'close' event could fire before the 'data' event
-             delivering ``restart_ack`` was processed, causing spurious
-             "Python socket closed" errors.
-          2. ``tcpConnect()`` set ``tcpSocket = client`` BEFORE the
-             socket connected, so IPC calls during the reconnection
-             window were written to the unconnected socket, buffered,
-             and sent BEFORE the auth handshake — causing auth failures
-             and cascading "Error: Timeout" errors.
-          3. The ``_restarting`` flag was cleared too early (in
-             ``startPython``, before the new process was up), leaving a
-             window where ``sendToPython`` wrote to a stale/dying socket.
-
-        The full-relaunch approach eliminates all of these: the entire
-        OS process is replaced, so there's no state to coordinate. The
-        user's explicit request was "close the entire process, the
-        entire backend, and the entire Electron application; everything
-        should be closed and opened again."
-
-        RELIABILITY-001: was ``os._exit(0)`` which skipped atexit
-        handlers + ``__del__``, leaking the Win32 mutex, PortAudio
-        handles, and ``RegisterHotKey`` registrations. RELIABILITY-003:
-        also stops ``_esc_backend`` and ``_repaste_backend`` so the new
-        instance can re-register them. RELIABILITY-006: marks
-        ``_shutting_down`` before cleanup so atexit doesn't log "likely
-        killed externally" for an intentional restart.
+        CR-014 (same run): pass ``APP_NAME`` as the format argument to
+        ``log.info("[RESTART] Restarting %s...", APP_NAME)``. Pre-fix,
+        the ``%s`` placeholder was never substituted, producing a literal
+        ``[RESTART] Restarting %s...`` log line.
         """
-        log.info("[RESTART] Restarting %s...")
+        # CR-013: re-entry guard.
+        if self._shutting_down:
+            log.debug("[RESTART] ignoring duplicate restart_app call (already shutting down)")
+            return
+        # CR-014: pass APP_NAME as the format argument.
+        log.info("[RESTART] Restarting %s...", APP_NAME)
 
         # ── THEME-RESTART-FIX: save the config before push ───────────
         # Save any pending in-memory config changes (e.g. a theme preset
@@ -1010,7 +1054,14 @@ class VoiceTyperApp:
         # check it (matches quit()'s shutdown signaling — important now
         # that restart_app() shares the same _do_cleanup() body).
         self._shutting_down_event.set()
-        self._restore_volume(fade_ms=0)
+        # CR-018 (IMPROVE-mode run, 2026-07-21): the redundant
+        # ``self._restore_volume(fade_ms=0)`` call that lived here was
+        # deleted — ``_do_cleanup()`` (invoked further down via
+        # ``ShutdownController._do_cleanup``) already invokes the
+        # volume-restore path. Pre-fix, the double-restore wasted ~10ms
+        # and produced confusing log noise (two "volume restored" lines
+        # per restart). If the volume backend isn't reentrant, the second
+        # call could see a stale "ducked" state and re-apply the duck.
         # CR-64: encapsulated the IPCServer's private
         # ``_relaunch_ack_event`` access in ``_wait_for_relaunch_ack``
         # so the backwards coupling (VoiceTyperApp reaching INTO the

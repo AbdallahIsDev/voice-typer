@@ -671,14 +671,15 @@ class Recorder:
             self._max_disconnect_retries,
         )
 
-        # Stop current stream
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
+        # CR-005 (IMPROVE-mode run, 2026-07-21): Stop current stream via
+        # ``_teardown_stream()`` instead of raw ``stop()/close()``.
+        # ``_teardown_stream`` polls ``self._is_in_audio_callback`` for up
+        # to 300ms before ``close()``, preventing PortAudio use-after-free
+        # or deadlock when the audio callback is still in-flight (the
+        # disconnect handler is spawned FROM the audio callback / worker
+        # thread on a fresh daemon thread — the callback may still be
+        # running when we close). ``_teardown_stream`` is idempotent.
+        self._teardown_stream()
 
         # Try to open with default device
         try:

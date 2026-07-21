@@ -354,6 +354,20 @@ def load_binary_manifest() -> dict | None:
 
 
 def get_expected_sha256(binary_name: str) -> str | None:
+    """Look up the expected SHA-256 for a binary by its filename.
+
+    CR-002: ``binary_name`` MUST be the arch-suffixed name actually
+    produced by ``scripts/build/compile_native.sh`` and discovered by
+    :func:`get_native_binary_path` (e.g. ``linux-key-listener-x86_64``,
+    ``windows-key-listener-aarch64.exe``, ``macos-key-listener``).
+    Pre-CR-002 the manifest was keyed by the legacy non-suffixed names
+    (``linux-key-listener``, ``windows-key-listener.exe``), so every
+    call with an arch-suffixed name returned ``None`` and
+    :func:`verify_native_binary_or_skip` silently trusted the binary.
+    The manifest is now keyed by the arch-suffixed names; this function
+    is a plain dict lookup, so callers MUST pass the same name
+    :func:`get_native_binary_path` returned (``path.name``).
+    """
     manifest = load_binary_manifest()
     if manifest is None:
         return None
@@ -396,6 +410,28 @@ def verify_native_binary_or_skip(path: Path) -> bool:
         return True
     expected = get_expected_sha256(path.name)
     if expected is None:
-        log.debug("[NATIVE-BINARY] No manifest entry for %s — skip", path.name)
-        return True
+        # CR-002: FAIL CLOSED. Previously this branch silently trusted
+        # the binary (returned True with a debug log) whenever the
+        # manifest entry was missing OR had an empty sha256. That made
+        # the entire SHA-256 gate a no-op in any environment where the
+        # manifest wasn't perfectly populated (e.g. dev trees without
+        # cross-compiled Windows/macOS binaries, CI builds that hadn't
+        # yet run scripts/build/update_native_manifests.py, or — as the
+        # CR-002 reviewer found — pre-CR-002 manifests keyed by the
+        # legacy non-suffixed names while the build emitted
+        # arch-suffixed names). A tampered binary could bypass
+        # verification simply by being named something the manifest
+        # didn't list. Now we refuse to use the binary and fall back
+        # to the legacy backend instead. Production builds MUST
+        # populate every manifest entry's sha256 via
+        # scripts/build/update_native_manifests.py (run by CI after
+        # compile_native.sh).
+        log.error(
+            "[NATIVE-BINARY] FAIL CLOSED for %s — no usable manifest entry "
+            "(manifest missing, entry missing, or sha256 empty). "
+            "Refusing to use this binary; falling back to legacy backend. "
+            "Run scripts/build/update_native_manifests.py to populate the manifest.",
+            path.name,
+        )
+        return False
     return verify_native_binary(path, expected)

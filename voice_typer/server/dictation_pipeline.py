@@ -189,6 +189,41 @@ class DictationPipeline:
             self._store_result(text)
             _store_ms = (time.perf_counter() - _stage_t0) * 1000
 
+            # CR-006 (IMPROVE-mode run, 2026-07-21): check if this cycle was
+            # force-cancelled by the watchdog while the stuck ctranslate2 call
+            # was still running. If so, the user has already been notified
+            # ("Transcription took too long and was cancelled") and has likely
+            # alt-tabbed to another window. Pasting the late transcription
+            # now would corrupt whatever window currently has focus. Skip the
+            # paste, write the text to crash-recovery (so the user can review
+            # it manually), and exit gracefully.
+            _cancelled_cycle_ids = getattr(self._app.recording, "_cancelled_cycle_ids", None)
+            if _cancelled_cycle_ids is not None and self._cycle_id in _cancelled_cycle_ids:
+                log.warning(
+                    "[DICTATION] skipping paste of late transcription (cycle %s was force-cancelled by watchdog)",
+                    self._cycle_id,
+                )
+                try:
+                    # Persist to crash-recovery so the user can review the
+                    # late transcription manually (without auto-pasting it).
+                    if hasattr(self._app, "_crash_recovery"):
+                        self._app._crash_recovery.add(text, pasted=False)
+                except Exception:
+                    log.debug("[DICTATION] crash-recovery write for cancelled cycle failed", exc_info=True)
+                # Tear down the bubble + tray state — the watchdog already
+                # set tray to IDLE, but the bubble may still be showing
+                # "Transcribing…" if the watchdog's tray update happened
+                # before the bubble wiring was reset.
+                try:
+                    if self._app.config.bubble_behavior == "always_visible":
+                        self._app._waveform_bubble.set_state("idle")
+                    else:
+                        self._app._waveform_bubble.hide()
+                except Exception:
+                    log.debug("[DICTATION] bubble hide on cancelled cycle failed", exc_info=True)
+                # Skip Step 9 (paste) — the cycle was cancelled.
+                return
+
             # Step 9: Copy to clipboard + paste
             _stage_t0 = time.perf_counter()
             self._copy_and_paste(text)
@@ -265,6 +300,14 @@ class DictationPipeline:
                 if recording is not None:
                     recording._reset_watchdog()
                     recording._stop_watchdog_thread()
+                    # CR-006: discard this cycle from the cancelled set so
+                    # the set doesn't grow unboundedly across cycles. ``discard``
+                    # is a no-op if the cycle wasn't cancelled (the normal path).
+                    _cancelled_lock = getattr(recording, "_cancelled_cycle_ids_lock", None)
+                    _cancelled_set = getattr(recording, "_cancelled_cycle_ids", None)
+                    if _cancelled_lock is not None and _cancelled_set is not None:
+                        with _cancelled_lock:
+                            _cancelled_set.discard(self._cycle_id)
             try:
                 session = self._app.recording.get_streaming_session()
                 if session is not None and not self._app.recorder.recording:

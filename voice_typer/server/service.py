@@ -2466,3 +2466,192 @@ class VoiceTyperService:
         except Exception as exc:
             log.error("export_diagnostics failed: %s", exc)
             return {"success": False, "message": redact_secret(redact_url(str(exc)))}
+
+    # ── Privacy / GDPR (CR-87 / CR-88) ───────────────────────────────
+    #
+    # CR-87 (GDPR Art. 17 right-to-erasure) and CR-88 (Art. 20
+    # right-to-data-portability).  Both are wrapped by
+    # :mod:`voice_typer.server.handlers.privacy_handlers` (thin IPC
+    # envelopes that delegate to these service methods).  The handlers
+    # pass through the service's return shape unchanged so the
+    # renderer can show the user exactly which files were
+    # deleted/exported and which failed.
+    #
+    # Personal-data file set (CR-87 / CR-88 spec):
+    #
+    #   * ``history.db``                       — transcription history
+    #   * ``voice-typer-recovery.json``        — crash-recovery buffer
+    #   * ``config.json``                      — user settings + secrets
+    #   * ``voice-typer-corrections.json``     — vocabulary corrections
+    #   * ``voice-typer-vocabulary.json``      — user vocabulary
+    #   * ``voice-typer-templates.json``       — user templates
+    #   * ``voice-typer.log``                  — runtime log
+    #   * ``mic-test-*.wav``                   — mic-test recordings
+    #   * ``crash-*.dmp``                      — crash dumps
+    #
+    # Model weights (``<config_dir>/models/`` and
+    # ``<config_dir>/huggingface/``) are explicitly EXCLUDED — they
+    # are downloadable artifacts, not personal data.
+
+    # Hardcoded list of personal-data file names (not glob patterns)
+    # to delete / export.  Glob patterns are handled separately below.
+    _GDPR_PERSONAL_FILES: tuple = (
+        "history.db",
+        "voice-typer-recovery.json",
+        "config.json",
+        "voice-typer-corrections.json",
+        "voice-typer-vocabulary.json",
+        "voice-typer-templates.json",
+        "voice-typer.log",
+    )
+    # Glob patterns for personal-data files with timestamped names.
+    _GDPR_PERSONAL_GLOBS: tuple = (
+        "mic-test-*.wav",
+        "crash-*.dmp",
+    )
+
+    def delete_all_personal_data(self) -> dict:
+        """GDPR Art. 17 — right to erasure.
+
+        Delete every personal-data artifact the app owns (history DB,
+        crash-recovery buffer, config + secrets, corrections /
+        vocabulary / templates, runtime log, mic-test recordings,
+        crash dumps).  Model weights are explicitly preserved — they
+        are not personal data (CR-87 spec).
+
+        Returns::
+
+            {"success": bool,
+             "erased": ["/path/to/history.db", ...],
+             "failed": {"/path/to/locked.log": "PermissionError: ..."}}
+
+        ``success`` is ``True`` if no failures occurred; the renderer
+        uses ``failed`` to show the user which files could not be
+        deleted (e.g. locked by another process) so they can manually
+        delete them.  A fresh-install config dir (no artifacts) is
+        treated as success — there's nothing to erase, but the user's
+        right to erasure is satisfied.
+        """
+        from voice_typer.server.config import _config_dir
+
+        config_dir = _config_dir()
+        erased: list = []
+        failed: dict = {}
+
+        # 1. Hardcoded personal-data files.
+        for name in self._GDPR_PERSONAL_FILES:
+            path = config_dir / name
+            if not path.exists():
+                continue
+            try:
+                path.unlink()
+                erased.append(str(path))
+            except Exception as exc:
+                failed[str(path)] = f"{type(exc).__name__}: {exc}"
+
+        # 2. Glob-pattern personal-data files (mic-test recordings,
+        # crash dumps).
+        for pattern in self._GDPR_PERSONAL_GLOBS:
+            for path in config_dir.glob(pattern):
+                try:
+                    path.unlink()
+                    erased.append(str(path))
+                except Exception as exc:
+                    failed[str(path)] = f"{type(exc).__name__}: {exc}"
+
+        # 3. Best-effort: if the app exposes a live ``history_db``,
+        # call its ``clear_all()`` so any in-memory caches are flushed
+        # (the on-disk file was already unlinked above; this prevents
+        # a re-flush from rewriting it).  Wrapped in try/except so a
+        # failure here doesn't fail the whole GDPR delete (the file is
+        # already gone, which is what the user wanted).
+        try:
+            hdb = getattr(self._app, "history_db", None)
+            if hdb is not None and hasattr(hdb, "clear_all"):
+                hdb.clear_all()
+        except Exception:
+            log.debug("[SERVICE] history_db.clear_all() during GDPR delete failed", exc_info=True)
+
+        log.info(
+            "[SERVICE] GDPR Art. 17 delete: erased %d file(s), %d failure(s)",
+            len(erased),
+            len(failed),
+        )
+        result: dict = {"success": not failed, "erased": erased}
+        if failed:
+            result["failed"] = failed
+        return result
+
+    def export_gdpr_bundle(self) -> dict:
+        """GDPR Art. 20 — right to data portability.
+
+        Produce a single timestamped ``.zip`` at
+        ``<config_dir>/gdpr-export-YYYYMMDD-HHMMSS.zip`` containing
+        every personal-data artifact the app owns (the same set as
+        :meth:`delete_all_personal_data`).  Unlike
+        :meth:`export_diagnostics` (which redacts PII for a support
+        ticket bundle), this export is the user's OWN data verbatim —
+        no redaction.  Model weights are excluded (not personal data).
+
+        Returns::
+
+            {"success": bool,
+             "path": "/tmp/.../gdpr-export-20240101-120000.zip"}
+
+        On failure (e.g. the config dir is not writable), returns::
+
+            {"success": False, "message": "..."}.
+
+        A fresh-install config dir (no artifacts) still produces a
+        (mostly empty) zip rather than raising — the user's right to
+        portability is satisfied even if there's nothing to export.
+        """
+        import time as _time
+        import zipfile as _zipfile
+
+        from voice_typer.server.config import _config_dir
+
+        config_dir = _config_dir()
+        timestamp = _time.strftime("%Y%m%d-%H%M%S")
+        zip_path = config_dir / f"gdpr-export-{timestamp}.zip"
+
+        try:
+            with _zipfile.ZipFile(zip_path, "w", _zipfile.ZIP_DEFLATED) as zf:
+                # 1. Hardcoded personal-data files.
+                for name in self._GDPR_PERSONAL_FILES:
+                    path = config_dir / name
+                    if path.exists() and path.is_file():
+                        try:
+                            zf.write(path, arcname=name)
+                        except Exception as exc:
+                            log.debug(
+                                "[SERVICE] GDPR export: could not add %s to zip: %s",
+                                path,
+                                exc,
+                            )
+                # 2. Glob-pattern personal-data files.
+                for pattern in self._GDPR_PERSONAL_GLOBS:
+                    for path in config_dir.glob(pattern):
+                        if not path.is_file():
+                            continue
+                        try:
+                            zf.write(path, arcname=path.name)
+                        except Exception as exc:
+                            log.debug(
+                                "[SERVICE] GDPR export: could not add %s to zip: %s",
+                                path,
+                                exc,
+                            )
+        except Exception as exc:
+            log.error("export_gdpr_bundle failed: %s", exc)
+            return {
+                "success": False,
+                "message": redact_secret(redact_url(str(exc))),
+            }
+
+        log.info(
+            "[SERVICE] GDPR Art. 20 export: wrote %s (%d bytes)",
+            zip_path,
+            zip_path.stat().st_size if zip_path.exists() else 0,
+        )
+        return {"success": True, "path": str(zip_path)}

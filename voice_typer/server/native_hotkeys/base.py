@@ -74,6 +74,18 @@ class SubprocessHotkeyBackend(ABC):
         self._failed = False
         self._error_message: str | None = None
         self._binary_path: Path | None = get_native_binary_path()
+        # CR-007 (IMPROVE-mode run, 2026-07-21): restart lock + instance-level
+        # attempt counter. Pre-fix, ``_reader_loop`` used a LOCAL ``attempts``
+        # counter and the old thread did ``continue`` after spawning a
+        # replacement, causing a fork-bomb (after 5 crashes the backend could
+        # have 2^5 ≈ 32 orphaned reader threads + processes). Post-fix, the
+        # check-then-spawn sequence is guarded by ``_restart_lock`` so only
+        # one thread performs a restart; the old thread ``return``s after
+        # spawning so the new reader thread owns the new process; and
+        # ``_restart_attempts`` is an instance variable reset to 0 on a
+        # successful READY (so the cap is per-backend, not per-thread).
+        self._restart_lock = threading.Lock()
+        self._restart_attempts = 0
         # Hotkey state tracking for matching
         self._held_modifiers: set[str] = set()
         self._fn_down: bool = False
@@ -250,32 +262,46 @@ class SubprocessHotkeyBackend(ABC):
         self._reader_thread.start()
 
     def _reader_loop(self) -> None:
-        """Read lines from the binary's stdout and dispatch."""
-        attempts = 0
+        """Read lines from the binary's stdout and dispatch.
+
+        CR-007 (IMPROVE-mode run, 2026-07-21): the check-then-spawn sequence
+        is guarded by ``_restart_lock`` and the old thread ``return``s after
+        spawning a replacement (was: ``continue`` → fork-bomb). The attempt
+        counter is the instance-level ``_restart_attempts`` (was: local
+        ``attempts`` → per-thread, defeating the cap).
+        """
         while not self._stop_event.is_set():
             if self._process is None or self._process.poll() is not None:
                 # Process exited — decide whether to restart
                 if self._stop_event.is_set():
                     return
-                attempts += 1
-                if attempts > MAX_RESTART_ATTEMPTS:
-                    self._failed = True
-                    self._error_message = f"{self.platform_name} binary crashed {attempts} times; giving up"
-                    log.error("[NATIVE-HOTKEY] %s", self._error_message)
-                    self._ready_event.set()  # unblock start() wait
-                    # GAP-4: notify the adapter so it can swap to a
-                    # legacy backend. The callback is invoked on the
-                    # reader thread; adapters must be thread-safe.
-                    if self._on_permanent_failure_callback is not None:
-                        try:
-                            self._on_permanent_failure_callback()
-                        except Exception:
-                            log.exception(
-                                "[NATIVE-HOTKEY] _on_permanent_failure_callback raised in %s backend",
-                                self.platform_name,
-                            )
-                    return
-                delay = RESTART_DELAY_BASE_SECONDS * (2 ** (attempts - 1))
+                with self._restart_lock:
+                    # Re-check under lock — another reader thread may have
+                    # already restarted while we were waiting for the lock.
+                    if self._process is not None and self._process.poll() is None:
+                        # Another thread is handling the restart; exit cleanly
+                        # so the new reader thread owns the new process.
+                        return
+                    self._restart_attempts += 1
+                    attempts = self._restart_attempts
+                    if attempts > MAX_RESTART_ATTEMPTS:
+                        self._failed = True
+                        self._error_message = f"{self.platform_name} binary crashed {attempts} times; giving up"
+                        log.error("[NATIVE-HOTKEY] %s", self._error_message)
+                        self._ready_event.set()  # unblock start() wait
+                        # GAP-4: notify the adapter so it can swap to a
+                        # legacy backend. The callback is invoked on the
+                        # reader thread; adapters must be thread-safe.
+                        if self._on_permanent_failure_callback is not None:
+                            try:
+                                self._on_permanent_failure_callback()
+                            except Exception:
+                                log.exception(
+                                    "[NATIVE-HOTKEY] _on_permanent_failure_callback raised in %s backend",
+                                    self.platform_name,
+                                )
+                        return
+                    delay = RESTART_DELAY_BASE_SECONDS * (2 ** (attempts - 1))
                 log.warning(
                     "[NATIVE-HOTKEY] %s binary exited (attempt %d/%d); restarting in %.1fs",
                     self.platform_name,
@@ -303,7 +329,15 @@ class SubprocessHotkeyBackend(ABC):
                                 self.platform_name,
                             )
                     return
-                continue
+                # CR-007: the new spawn creates its own reader thread (in
+                # ``_spawn_process``). The OLD thread (this one) MUST return
+                # so it doesn't compete with the new reader for
+                # ``self._process.stdout.readline()``. Pre-fix, the old
+                # thread did ``continue`` and would race with the new
+                # reader, causing out-of-order event processing (e.g.
+                # ``MOD_DOWN:Ctrl`` and ``KEY_DOWN:V`` for a combo could be
+                # processed by different threads).
+                return
 
             assert self._process is not None
             assert self._process.stdout is not None
@@ -331,6 +365,10 @@ class SubprocessHotkeyBackend(ABC):
         """Parse one wire-protocol line and dispatch to the hotkey matcher."""
         if line == "READY":
             self._ready_event.set()
+            # CR-007: reset the per-backend restart counter on successful
+            # READY so a transient crash followed by recovery doesn't
+            # permanently count toward MAX_RESTART_ATTEMPTS.
+            self._restart_attempts = 0
             log.info("[NATIVE-HOTKEY] %s binary is READY", self.platform_name)
             return
 

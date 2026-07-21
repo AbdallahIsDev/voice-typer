@@ -597,6 +597,9 @@ from voice_typer.server.handlers.microphone_test_handlers import (  # noqa: E402
 )
 from voice_typer.server.handlers.model_handlers import ModelHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin  # noqa: E402
+from voice_typer.server.handlers.privacy_handlers import (  # noqa: E402
+    PrivacyHandlersMixin,
+)
 from voice_typer.server.handlers.repaste_handlers import RepasteHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.status_handlers import StatusHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.system_handlers import SystemHandlersMixin  # noqa: E402
@@ -622,6 +625,7 @@ class IPCServer(
     SystemHandlersMixin,
     VocabularyAutomationHandlersMixin,
     RepasteHandlersMixin,
+    PrivacyHandlersMixin,
 ):
     """Reads JSON commands from stdin or TCP, dispatches, writes responses.
 
@@ -2017,6 +2021,12 @@ class IPCServer(
         # ``unknown_command``) so the host can surface "missing item" vs
         # "unknown command" differently.
         "tray_click": "_handle_tray_click",
+        # CR-009 / Fix-A (IMPROVE-mode run, 2026-07-21): GDPR Art. 17 (right
+        # to erasure) and Art. 20 (right to data portability) handlers.
+        # Registered by PrivacyHandlersMixin; service methods live on
+        # VoiceTyperService (delete_all_personal_data / export_gdpr_bundle).
+        "delete_all_personal_data": "_handle_delete_all_personal_data",
+        "export_gdpr_bundle": "_handle_export_gdpr_bundle",
     }
 
     def _handle_tray_click(self, data, resp) -> dict:
