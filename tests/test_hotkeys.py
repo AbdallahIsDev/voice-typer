@@ -146,21 +146,12 @@ class TestAutouseFixturePatchesBothHotkeyNamespaces:
         assert hd_mod.create_hotkey_backend is not original
 
     def test_app_py_fixture_patches_both_namespaces(self):
+        import tests.conftest as conftest_mod
 
-        import tests.test_app as test_app_mod
-
-        fixture_src = None
-        for _name, obj in vars(test_app_mod).items():
-            if callable(obj) and hasattr(obj, "__wrapped__"):
-                src = inspect.getsource(obj)
-                if "create_hotkey_backend" in src and "PynputHotkey" in src:
-                    fixture_src = src
-                    break
-        if fixture_src is None:
-            test_app_path = inspect.getfile(test_app_mod)
-            with open(test_app_path) as f:
-                fixture_src = f.read()
-        assert "hotkey_dispatcher.create_hotkey_backend" in fixture_src
+        conftest_path = inspect.getfile(conftest_mod)
+        with open(conftest_path) as f:
+            src = f.read()
+        assert "hotkey_dispatcher.create_hotkey_backend" in src
 
 
 class TestVKMapInitLockGuarded:

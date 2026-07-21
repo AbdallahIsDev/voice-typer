@@ -200,6 +200,39 @@ def mock_heavy_imports(monkeypatch, request):
     with contextlib.suppress(Exception):
         monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
 
+    # CR-068 (IMPROVE-mode run, 2026-07-21): hoist the
+    # ``force_pynput_hotkey_backend`` patch from the deleted
+    # ``tests/test_app.py:76-88`` into this autouse fixture so
+    # ``tests/app/test_hotkeys.py`` (and other hotkey tests) work on
+    # macOS/Windows where the default hotkey backend is NOT PynputHotkey.
+    # Pre-fix, the tests passed only because on Linux/X11 the unpatched
+    # ``create_hotkey_backend`` falls through to PynputHotkey by default
+    # — same accidental pass condition documented in the (now-deleted)
+    # ``tests/test_app.py:73-75``. With the hoist, the patch is applied
+    # uniformly across platforms.
+    with contextlib.suppress(Exception):
+        from voice_typer.server.hotkeys import PynputHotkey
+
+        def _force_pynput(hotkey_str):
+            return PynputHotkey(hotkey_str)
+
+        monkeypatch.setattr("voice_typer.server.app.create_hotkey_backend", _force_pynput)
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            _force_pynput,
+        )
+
+    # CR-017 (IMPROVE-mode run, 2026-07-21): reset the keyboard_ownership
+    # singleton before each test so stale state from a prior test (e.g.
+    # ``set_owner("hotkey_capture")``) doesn't cause ``undo_last`` /
+    # ``_cancel_dictation`` to early-return. The singleton persists across
+    # tests because it's a class-level ``_instance``; without this reset,
+    # test ordering affects test outcomes.
+    with contextlib.suppress(Exception):
+        from voice_typer.server.keyboard_ownership import keyboard_ownership
+
+        keyboard_ownership().reset()
+
 
 # ── Shared fixtures for domain-split test files ────────────────────────
 
