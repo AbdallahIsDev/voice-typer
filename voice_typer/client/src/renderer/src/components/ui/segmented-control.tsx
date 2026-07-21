@@ -1,6 +1,7 @@
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "#utils";
+import { getLocale, isRtlLocale } from "@/i18n/i18n";
 
 /**
  * ARIA contract for `variant="tabs"`:
@@ -214,13 +215,22 @@ export function SegmentedControl<T extends string>({
 	// tabindex (only the active tab is in the page tab order). ArrowLeft /
 	// ArrowRight move focus between tabs and select the newly-focused tab
 	// (activation follows focus — "automatic" activation model).
+	//
+	// CR-062: ArrowRight/ArrowLeft direction is now RTL-aware. In an RTL
+	// locale (Arabic), the visual order of tabs is mirrored, so the
+	// "forward" direction (next tab) is to the LEFT instead of the RIGHT.
+	// We XOR the key with the current locale's RTL flag so the same key
+	// always moves the user toward the next visual tab:
+	//   - LTR: ArrowRight → +1 (next), ArrowLeft → -1 (prev)
+	//   - RTL: ArrowRight → -1 (prev), ArrowLeft → +1 (next)
 	const handleTabsKeyDown = useCallback(
 		(e: React.KeyboardEvent<HTMLDivElement>) => {
 			if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
 			e.preventDefault();
 			const currentIndex = options.findIndex((o) => o.value === value);
 			if (currentIndex === -1) return;
-			const dir = e.key === "ArrowRight" ? 1 : -1;
+			const rtl = isRtlLocale(getLocale());
+			const dir = (e.key === "ArrowRight") !== rtl ? 1 : -1;
 			const nextIndex = (currentIndex + dir + options.length) % options.length;
 			const next = options[nextIndex];
 			if (!next) return;

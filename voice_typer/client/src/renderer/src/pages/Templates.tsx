@@ -6,7 +6,7 @@ import {
 	PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal, ModalFooter } from "@/components/common/Modal";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -152,10 +152,17 @@ function _sanitizeTemplateField(value: unknown): string {
 // templates_data field).  We still mirror to localStorage as a
 // startup-fallback cache in case the backend is unreachable on next
 // launch (e.g. user opens the page during Python boot).
-function saveTemplates(
+//
+// CR-052: now async so callers can `await saveTemplates(...)` before
+// triggering `loadRows()`.  Previously the IPC save was fire-and-forget
+// (`.catch(...)`), which meant `loadRows()` could re-read the backend
+// BEFORE the save landed — racing the just-saved list out of the UI
+// and re-rendering the pre-save state.  Awaiting guarantees the load
+// sees the new state.
+async function saveTemplates(
 	items: Template[],
 	callFn?: <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>,
-): void {
+): Promise<void> {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
 	} catch {
@@ -163,9 +170,11 @@ function saveTemplates(
 		// The backend is the source of truth now, so this is non-fatal.
 	}
 	if (callFn) {
-		callFn("save_templates", { templates: items }).catch((err: unknown) => {
+		try {
+			await callFn("save_templates", { templates: items });
+		} catch (err: unknown) {
 			console.error("IPC save_templates failed:", err);
-		});
+		}
 	}
 }
 
@@ -190,6 +199,33 @@ function toRows(items: Template[]): TemplateRow[] {
 	});
 }
 
+// CR-052: inverse of `toRows` — maps the React-state TemplateRow[]
+// back to the persisted Template[] shape so `saveTemplate` and the
+// `instantDeleteTemplate` undo callback can read the LATEST list from
+// the `templatesRef` mirror (kept in sync by the effect below) instead
+// of from `loadTemplatesFromLocalStorage()`.  Reading from the ref
+// avoids two bugs:
+//   1. Stale-closure: the undo callback previously closed over the
+//      `tmpl.index` captured at delete time, but re-read from
+//      localStorage which may have been re-written by other
+//      add/edit/delete operations in the 6s undo window — so the
+//      splice at the captured index landed at the WRONG position and
+//      could silently reorder templates or insert duplicates.
+//   2. Lost-edits: any add/edit of OTHER templates between the delete
+//      and the Undo click was preserved by the localStorage read
+//      (because every saveTemplates call writes localStorage), but
+//      the captured `tmpl.index` was NOT re-clamped to the new list
+//      length, so a shrunken list could get an out-of-bounds insert.
+//      The ref-based read + clamp below matches Vocabulary.tsx's
+//      D2-FIX pattern.
+function rowsToTemplates(rows: TemplateRow[]): Template[] {
+	return rows.map((r) => ({
+		trigger: r.trigger ?? "",
+		output: r.expansion ?? "",
+		match_mode: r.match_mode === "contains" ? "contains" : "exact",
+	}));
+}
+
 export default function TemplatesPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
@@ -208,6 +244,27 @@ export default function TemplatesPage() {
 	const [trigger, setTrigger] = useState("");
 	const [expansion, setExpansion] = useState("");
 	const [matchMode, setMatchMode] = useState<"exact" | "contains">("exact");
+
+	// CR-052: ref mirror of `templates` (the React-state TemplateRow[])
+	// so `saveTemplate` and the `instantDeleteTemplate` undo callback
+	// can read the LATEST list at undo time (potentially seconds after
+	// the delete, during which the user may have added/edited/deleted
+	// OTHER templates).  Previously both call sites re-read from
+	// `loadTemplatesFromLocalStorage()`, which:
+	//   1. Could disagree with React state if a `saveTemplates()` call
+	//      was still in flight (the old `saveTemplates` was fire-and-
+	//      forget on the IPC leg).
+	//   2. Used the `tmpl.index` captured at delete time against the
+	//      fresh localStorage list — if other operations had shifted
+	//      indices in the interim, the splice landed at the WRONG
+	//      position (data loss / silent reordering).
+	// The ref is kept in sync by the effect below; reads inside
+	// callbacks always see the latest committed state.  Mirrors the
+	// D2-FIX pattern from Vocabulary.tsx (entriesRef).
+	const templatesRef = useRef<TemplateRow[]>(templates);
+	useEffect(() => {
+		templatesRef.current = templates;
+	}, [templates]);
 
 	// NEW-UX-008: load from the Python backend (the new source of truth).
 	// On first run after upgrade, if the backend has no templates but
@@ -312,13 +369,20 @@ export default function TemplatesPage() {
 		setShowDialog(true);
 	};
 
-	const saveTemplate = () => {
+	const saveTemplate = async () => {
 		if (!trigger.trim() || !expansion.trim()) {
 			showSnack(t("templates.fillBothFields"), "warning");
 			return;
 		}
 		try {
-			const items = loadTemplatesFromLocalStorage();
+			// CR-052: read from the React-state ref mirror (always
+			// the latest committed list) instead of from
+			// `loadTemplatesFromLocalStorage()`.  The localStorage
+			// read used to race with in-flight IPC saves and could
+			// disagree with what the user was seeing on screen;
+			// the ref read guarantees we mutate the same list the
+			// user just edited.
+			const items = rowsToTemplates(templatesRef.current);
 			const next: Template = {
 				trigger: trigger.trim(),
 				output: expansion.trim(),
@@ -337,8 +401,12 @@ export default function TemplatesPage() {
 					"success",
 				);
 			}
-			// #6: pass call so the backend is notified of add/edit
-			saveTemplates(items, call);
+			// CR-052: await the IPC save BEFORE loadRows() so the
+			// reload is guaranteed to see the just-saved state.
+			// Previously `saveTemplates` was fire-and-forget on
+			// the IPC leg, so `loadRows()` could re-fetch the
+			// pre-save list and briefly render stale data.
+			await saveTemplates(items, call);
 			setShowDialog(false);
 			// NEW-UX-008: reload from backend so the UI stays in sync with
 			// what actually persisted (the backend may have rejected or
@@ -355,20 +423,67 @@ export default function TemplatesPage() {
 	// was unreachable dead code and has been removed; all deletes
 	// now go through this instant-delete + Undo toast path, which is
 	// faster and recoverable (6-second undo window).
+	//
+	// CR-052: the delete + undo now read from `templatesRef.current`
+	// (the latest committed React state) instead of from
+	// `loadTemplatesFromLocalStorage()`.  We capture `originalIndex`
+	// BEFORE the delete (when templatesRef still holds the pre-delete
+	// array).  At undo time we re-read `templatesRef.current` (which
+	// may reflect add/edit/delete operations performed in the 6s
+	// undo window), defensively filter out any item matching the
+	// removed one (in case it was re-added in the interim), and
+	// splice it back at the captured index CLAMPED to the current
+	// length.  This guarantees exactly ONE copy is restored,
+	// regardless of concurrent edits — mirroring Vocabulary.tsx's
+	// D2-FIX pattern.  Previously the undo re-read from localStorage
+	// (which could disagree with React state if a save was in
+	// flight) and used the un-clamped `tmpl.index`, so concurrent
+	// operations could shift indices and land the restore at the
+	// wrong position (silent reordering / data loss).
 	const instantDeleteTemplate = useCallback(
-		(tmpl: TemplateRow) => {
+		async (tmpl: TemplateRow) => {
 			try {
-				const items = loadTemplatesFromLocalStorage();
+				const items = rowsToTemplates(templatesRef.current);
+				const originalIndex = tmpl.index;
 				const removed = items.splice(tmpl.index, 1)[0];
-				saveTemplates(items, call);
+				// CR-052: await the IPC save so loadRows()
+				// below sees the post-delete state.
+				await saveTemplates(items, call);
 				if (removed) {
 					showUndoableToast(
 						t("templates.deletedTemplate", { name: tmpl.trigger }),
-						() => {
-							const current = loadTemplatesFromLocalStorage();
-							current.splice(tmpl.index, 0, removed);
-							saveTemplates(current, call);
-							loadRows();
+						async () => {
+							try {
+								// Re-read the LATEST list (may include
+								// concurrent edits made between the delete
+								// and the Undo click).
+								const latest = rowsToTemplates(templatesRef.current);
+								// Defensively filter out any item matching
+								// the removed one (in case it was re-added
+								// in the interim) so we don't end up with
+								// a duplicate after the splice.
+								const filtered = latest.filter(
+									(existing) =>
+										!(
+											existing.trigger === removed.trigger &&
+											existing.output === removed.output &&
+											existing.match_mode === removed.match_mode
+										),
+								);
+								// Clamp the captured index to the current
+								// length so a shrunken list doesn't get
+								// an out-of-bounds insert.
+								const insertAt =
+									originalIndex >= 0
+										? Math.min(originalIndex, filtered.length)
+										: filtered.length;
+								filtered.splice(insertAt, 0, removed);
+								await saveTemplates(filtered, call);
+								loadRows();
+							} catch (err) {
+								console.error("Failed to restore template", err);
+								showSnack(t("templates.saveFailed"), "error");
+							}
 						},
 						{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
 					);

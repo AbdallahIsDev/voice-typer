@@ -182,16 +182,55 @@ export const MODIFIER_KEYS = [
 	"capslock",
 ] as const;
 
-export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> = {
-	ControlLeft: "ctrl",
-	ControlRight: "ctrl",
-	ShiftLeft: "shift",
-	ShiftRight: "shift",
-	AltLeft: "alt",
-	AltRight: "alt",
-	MetaLeft: "cmd",
-	MetaRight: "cmd",
-};
+/**
+ * Build the e.code → pynput-modifier-name map for the given platform.
+ *
+ * CR-058: ``MetaLeft`` / ``MetaRight`` previously always mapped to
+ * ``"cmd"``, which is the macOS name for the modifier. On Windows and
+ * Linux, committing a bare Win/Super key would emit ``"<cmd>"`` — a
+ * name the native backend on those platforms can't register, silently
+ * breaking the hotkey. This factory now branches on ``isMac`` so the
+ * Meta keys map to ``"cmd"`` on macOS (where ``<cmd>`` is registered)
+ * and to ``"win"`` on Windows/Linux (where ``<win>`` / ``<super>`` is
+ * the registered name).
+ *
+ * On Linux, ``<super>`` is also accepted by the backend as an alias
+ * for the Meta key — we emit ``"win"`` for parity with the legacy
+ * modifier vocabulary and let the backend normalize as needed.
+ *
+ * @param isMac Whether the current platform is macOS.
+ * @returns A record mapping Browser ``e.code`` values for modifier
+ *   keys to their pynput-style lowercase modifier names.
+ */
+export function getModifierCodeMap(isMac: boolean): Record<string, string> {
+	return {
+		ControlLeft: "ctrl",
+		ControlRight: "ctrl",
+		ShiftLeft: "shift",
+		ShiftRight: "shift",
+		AltLeft: "alt",
+		AltRight: "alt",
+		MetaLeft: isMac ? "cmd" : "win",
+		MetaRight: isMac ? "cmd" : "win",
+	};
+}
+
+/**
+ * Deprecated alias for {@link getModifierCodeMap} evaluated at module
+ * load time with the host's detected platform.
+ *
+ * CR-058: kept for backwards-compat with any caller that imports
+ * ``MODIFIER_CODE_TO_PYNPUT`` directly. New code should call
+ * ``getModifierCodeMap(isMac)`` (or ``getModifierCodeMap(IS_MAC)``)
+ * so the map is always computed against the current platform —
+ * module-level constants are evaluated once at import time and become
+ * stale if the platform changes (rare, but possible in Electron with
+ * UA spoofing or headless mode).
+ *
+ * @deprecated Use {@link getModifierCodeMap} instead.
+ */
+export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> =
+	getModifierCodeMap(IS_MAC);
 
 /**
  * Single-key presets — only keys that are safe to use alone as a

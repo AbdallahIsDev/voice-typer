@@ -1,5 +1,6 @@
 import { toPng } from "html-to-image";
 import { useCallback, useRef } from "react";
+import { t } from "@/i18n/i18n";
 import type { TodayStats } from "@/types/ipc";
 import type { ShareStats } from "@/types/stats";
 
@@ -13,6 +14,12 @@ const CLOUD_BACKENDS = new Set(["openai", "groq", "deepgram"]);
  *
  * This is intentionally a pure function (no hooks, no side effects)
  * so it's easy to test and reuse.
+ *
+ * CR-060: the user-visible strings (mode display, faster-than-avg)
+ * previously hardcoded English ("Cloud", "Offline", "Cloud API",
+ * "Local Model", "X% faster than avg typer") regardless of the
+ * active locale. They now resolve through ``t()`` so the share image
+ * renders in the user-selected UI language.
  */
 export function computeShareStats(
 	todayStats: TodayStats,
@@ -33,8 +40,12 @@ export function computeShareStats(
 			: 0;
 
 	const isCloud = CLOUD_BACKENDS.has(asrBackend);
-	const modeDisplay = isCloud ? "Cloud" : "Offline";
-	const modeDetail = isCloud ? "Cloud API" : "Local Model";
+	const modeDisplay = isCloud
+		? t("stats.shareImage.cloudMode")
+		: t("stats.shareImage.offlineMode");
+	const modeDetail = isCloud
+		? t("stats.shareImage.cloudApi")
+		: t("stats.shareImage.localModel");
 
 	const fasterPercent =
 		wpm > 0 ? Math.round(((wpm - AVG_TYPING_WPM) / AVG_TYPING_WPM) * 100) : 0;
@@ -46,7 +57,9 @@ export function computeShareStats(
 		minutesSavedDisplay: String(minutesSaved),
 		modeDisplay,
 		modeDetail,
-		fasterThanAvg: `${fasterPercent}% faster than avg typer`,
+		fasterThanAvg: t("stats.shareImage.fasterThanAvg", {
+			percent: String(fasterPercent),
+		}),
 	};
 }
 

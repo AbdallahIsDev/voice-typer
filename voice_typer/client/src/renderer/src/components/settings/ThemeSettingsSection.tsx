@@ -11,9 +11,13 @@
 // - 300 ms debounced save of the custom-theme draft.
 // - Per-row search-filter visibility via the `isVisible` prop.
 //
-// All theme-only helpers (cssColorToHex, getCurrentThemeColors, the
-// localStorage draft helpers) live here because no other section uses
-// them.
+// CR-147: the colour-conversion helpers (cssColorToHex and its private
+// oklch / DOM fallbacks) now live in ``@/lib/color-utils`` so they can
+// be unit-tested independently and reused. The inline copies that
+// used to live in this file were byte-identical to the lib versions
+// — keeping both was dead-code duplication. The remaining helpers
+// (getCurrentThemeColors, the localStorage draft helpers) still live
+// here because no other section uses them.
 
 import {
 	ModernTvIcon,
@@ -34,6 +38,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useT } from "@/i18n/i18n";
+import { cssColorToHex } from "@/lib/color-utils";
 import {
 	applyThemeVars,
 	CUSTOM_COLOR_KEYS,
@@ -82,126 +87,11 @@ function _clearDraftLS(): void {
 	}
 }
 
-/** Convert any CSS color value to #rrggbb hex using a hidden DOM element.
- *  Uses getComputedStyle(backgroundColor) which reliably resolves oklch(),
- *  hsl(), rgb(), named colors, etc. to an rgba() string that the browser
- *  engine can compute, unlike the canvas 2d context which may fail on
- *  oklch() values in some Electron/Chromium versions.
- *
- *  Falls back to a manual oklch→sRGB→hex converter when the DOM approach
- *  fails or returns transparent black (indicating the browser couldn't
- *  parse the color).  This ensures the custom theme editor always receives
- *  valid hex values regardless of Chromium version.
- */
-function cssColorToHex(color: string): string {
-	if (!color) return "#000000";
-
-	// Already a clean hex colour — normalise and return.
-	const hexMatch = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
-	if (hexMatch) {
-		const hex = hexMatch[1].toLowerCase();
-		if (hex.length === 3) {
-			return `#${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`;
-		}
-		return `#${hex}`;
-	}
-
-	// Attempt 1: DOM-based resolution (works in modern browsers)
-	const domHex = _cssColorToHexViaDOM(color);
-	if (domHex && domHex !== "#000000") return domHex;
-
-	// Attempt 2: Manual oklch() → sRGB → hex parser (works everywhere)
-	const oklchHex = _cssColorToHexViaOklch(color);
-	if (oklchHex) return oklchHex;
-
-	return "#000000";
-}
-
-/** Try resolving a CSS color via a hidden DOM element. */
-function _cssColorToHexViaDOM(color: string): string | null {
-	try {
-		const temp = document.createElement("div");
-		temp.style.backgroundColor = color;
-		temp.style.position = "absolute";
-		temp.style.left = "-9999px";
-		temp.style.width = "1px";
-		temp.style.height = "1px";
-		document.body.appendChild(temp);
-		const computed = getComputedStyle(temp).backgroundColor;
-		document.body.removeChild(temp);
-
-		const match = computed.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-		if (match) {
-			return (
-				"#" +
-				[1, 2, 3]
-					.map((i) =>
-						Math.round(Number(match[i])).toString(16).padStart(2, "0"),
-					)
-					.join("")
-			);
-		}
-	} catch {
-		// Fall through to next attempt
-	}
-	return null;
-}
-
-/**
- * Manual oklch() to sRGB hex converter.
- * Parses "oklch(L C H)" and "oklch(L C H / alpha)" formats,
- * converts OKLCH → OKLab → linear sRGB via the LMS cube-root
- * approach (Björn Ottosson's method), applies sRGB gamma, and
- * returns a #rrggbb hex string.
- */
-function _cssColorToHexViaOklch(color: string): string | null {
-	const match = color.match(/oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/i);
-	if (!match) return null;
-
-	const L = Number(match[1]);
-	const C = Number(match[2]);
-	const H = (Number(match[3]) * Math.PI) / 180;
-
-	// OKLCH → OKLab
-	const a = C * Math.cos(H);
-	const b = C * Math.sin(H);
-
-	// OKLab → linear LMS (cube root domain → linear via cube)
-	const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-	const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-	const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-
-	const l = l_ * l_ * l_;
-	const m = m_ * m_ * m_;
-	const s = s_ * s_ * s_;
-
-	// LMS → linear sRGB (inverse of sRGB→LMS OKLab matrix)
-	let r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
-	let g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-	let bl = -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s;
-
-	// Apply sRGB gamma
-	r = _srgbGamma(r);
-	g = _srgbGamma(g);
-	bl = _srgbGamma(bl);
-
-	return (
-		"#" +
-		[r, g, bl]
-			.map((c) =>
-				Math.round(c * 255)
-					.toString(16)
-					.padStart(2, "0"),
-			)
-			.join("")
-	);
-}
-
-function _srgbGamma(c: number): number {
-	c = Math.min(1, Math.max(0, c));
-	if (c <= 0.0031308) return 12.92 * c;
-	return 1.055 * c ** (1 / 2.4) - 0.055;
-}
+// CR-147: the four inline colour-conversion helpers that used to live
+// here (cssColorToHex, _cssColorToHexViaDOM, _cssColorToHexViaOklch,
+// _srgbGamma) have been deleted — they were byte-identical copies of
+// the implementations in ``@/lib/color-utils``. The component now
+// imports ``cssColorToHex`` from there (see the import block above).
 
 /**
  * Read the 6 core theme colors for BOTH light and dark modes of the
@@ -712,7 +602,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							onMouseLeave={revertToSavedPreset}
 						>
 							{/* Filter out 'custom' from the dropdown — custom is now
-								a toggle switch below this row. */}
+                                                                a toggle switch below this row. */}
 							{THEMES.filter((t) => t.id !== "custom").map((theme) => {
 								const isDark =
 									document.documentElement.classList.contains("dark");
@@ -746,9 +636,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 			{/* ── Custom Theme toggle ────────────────────────────── */}
 			{/* A switch that enables/disables the custom color editor.
-				When ON, theme_preset is forced to 'custom' and the color
-				picker appears.  When OFF, the preset reverts to the
-				previously-selected preset. */}
+                                When ON, theme_preset is forced to 'custom' and the color
+                                picker appears.  When OFF, the preset reverts to the
+                                previously-selected preset. */}
 			{isVisible(customThemeLabel, customThemeInfoSearch, sectionTitle) && (
 				<SettingRow
 					label={customThemeLabel}
@@ -842,12 +732,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					</div>
 
 					{/* Reset to defaults.
-						Part C5: the previously-broken "#888" 3-digit hex in
-						DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
-						so the validator accepts the payload — no more "Failed to
-						save settings" toast.
-						Part C6: button is disabled while the draft already matches
-						the defaults (re-enables the moment the user edits a color). */}
+                                                Part C5: the previously-broken "#888" 3-digit hex in
+                                                DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+                                                so the validator accepts the payload — no more "Failed to
+                                                save settings" toast.
+                                                Part C6: button is disabled while the draft already matches
+                                                the defaults (re-enables the moment the user edits a color). */}
 					<button
 						type="button"
 						disabled={customDraftIsDefault}

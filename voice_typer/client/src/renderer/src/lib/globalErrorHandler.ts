@@ -40,6 +40,18 @@
 
 import { toast } from "sonner";
 
+// CR-059: hoist the i18n import to module scope. The previous
+// implementation used ``require("../i18n/i18n")`` inside the
+// ``_genericUserMessage`` helper, but ``require`` is undefined in
+// Electron renderer processes under ``contextIsolation: true`` +
+// ``nodeIntegration: false`` — the call always threw and the catch
+// block silently fell back to the hardcoded English string. Importing
+// ``t`` as a top-level ESM binding is the renderer-safe equivalent:
+// the bundler (Vite) resolves the import at build time, the function
+// is a pure lookup (no side effects), and ``t()`` itself falls back
+// to English when the key is missing from the active locale map.
+import { t } from "@/i18n/i18n";
+
 let _installed = false;
 
 /**
@@ -50,21 +62,22 @@ let _installed = false;
  * implementation details (file paths, internal module names) that
  * could confuse users or, in a worst case, aid an attacker probing
  * the renderer surface.
+ *
+ * CR-059: previously called ``require("../i18n/i18n")`` lazily so
+ * the global error handler could be installed before the i18n module
+ * loaded. That reasoning was sound but ``require`` is not available
+ * in the sandboxed renderer — so the lazy import always failed and
+ * the hardcoded English fallback always won. With the top-level ESM
+ * ``import`` we now actually resolve the localized string.
  */
 function _genericUserMessage(): string {
-	// Try to use the i18n key if the translations module is loaded.
-	// Fall back to a hardcoded English string if i18n isn't available
-	// (e.g. during early bootstrap before the i18n module loads, or in
-	// a test environment without the translations JSON).
+	// ``t()`` is a pure lookup that falls back to English, then to
+	// the raw key. It cannot throw — but we still guard so a future
+	// i18n implementation that does throw never breaks the global
+	// error handler.
 	try {
-		// Lazy import via require to avoid a hard dependency at module
-		// load time — the global error handler must install BEFORE the
-		// i18n module loads (otherwise an error in i18n bootstrap would
-		// be swallowed).
-		// eslint-disable-next-line @typescript-eslint/no-require-imports
-		const i18n = require("../i18n/i18n");
-		const t = i18n.t?.("errorBoundary.description");
-		if (typeof t === "string" && t.length > 0) return t;
+		const msg = t("errorBoundary.description");
+		if (typeof msg === "string" && msg.length > 0) return msg;
 	} catch {
 		// Fall through to the hardcoded default.
 	}

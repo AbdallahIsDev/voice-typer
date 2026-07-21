@@ -482,7 +482,27 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 							onToggleFavorite={handleToggleFavorite}
 						/>
 
-						{hasMore && (
+						{/*
+							CR-054: once `records.length` reaches the 200-item
+							display cap AND the backend still reports more
+							available (`hasMore`), further "Load More" clicks
+							would be silent no-ops — `records.slice(0, 200)`
+							above hides any items past 200, so the user would
+							click Load More and see nothing change for several
+							clicks.  Replace the button with a notice pointing
+							the user at the search field to find older entries.
+							When `records.length < 200`, the Load More button is
+							still useful (it grows the visible list below the
+							cap), so we keep it.
+						*/}
+						{records.length >= 200 && hasMore ? (
+							<p className="mt-4 text-center text-xs text-(--text-muted)">
+								{t("history.showingCap", {
+									shown: "200",
+									total: "N+",
+								})}
+							</p>
+						) : hasMore ? (
 							<Button
 								variant="outline"
 								size="default"
@@ -506,7 +526,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 									</>
 								)}
 							</Button>
-						)}
+						) : null}
 					</>
 				)}
 			</div>

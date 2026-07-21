@@ -7,11 +7,11 @@ import {
 	Shield01Icon,
 	SparklesIcon,
 	Tick02Icon,
-	ZapIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
@@ -312,10 +312,8 @@ export default function ModelsPage() {
 	const [modelCatalog, setModelCatalog] = useState<
 		Record<string, ModelMetadata>
 	>({});
-	const [benchmarkResult, setBenchmarkResult] = useState("");
-	const [isBenchmarking, _setIsBenchmarking] = useState(false);
 	const [selectingModel, setSelectingModel] = useState<string | null>(null);
-	const [_deleteModelTarget, setDeleteModelTarget] = useState<ModelInfo | null>(
+	const [deleteModelTarget, setDeleteModelTarget] = useState<ModelInfo | null>(
 		null,
 	);
 	const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
@@ -628,6 +626,46 @@ export default function ModelsPage() {
 		setDeleteModelTarget(model);
 	};
 
+	// CR-008: confirm + execute the delete_model IPC call. The delete
+	// button had been wired to setDeleteModelTarget but no <ConfirmDialog>
+	// was ever rendered, so the stored target was orphaned and the
+	// backend's `delete_model` IPC was never invoked.
+	const confirmDelete = async () => {
+		const target = deleteModelTarget;
+		if (!target) return;
+		try {
+			const result = await call<{
+				success: boolean;
+				error?: string;
+				message?: string;
+			}>("delete_model", { model: target.name });
+			if (result.success) {
+				setModels((prev) =>
+					prev.map((m) =>
+						m.name === target.name
+							? { ...m, downloaded: false, isActive: false }
+							: m,
+					),
+				);
+				showSnack(
+					result.message || t("models.snack.deleted", { name: target.name }),
+					"success",
+				);
+			} else {
+				showSnack(result.error || t("models.snack.deleteFailed"), "error");
+			}
+		} catch (err) {
+			showSnack(
+				t("models.snack.deleteFailedError", {
+					error: formatErrorMessage(err),
+				}),
+				"error",
+			);
+		} finally {
+			setDeleteModelTarget(null);
+		}
+	};
+
 	const saveApiKey = async (provider: string) => {
 		const key = apiKeys[provider] ?? "";
 		const configKey =
@@ -786,10 +824,6 @@ export default function ModelsPage() {
 				},
 			}));
 		}
-	};
-
-	const runBenchmark = async () => {
-		setBenchmarkResult(t("models.benchmarkNotImplemented"));
 	};
 
 	const handleTogglePause = async () => {
@@ -1033,11 +1067,7 @@ export default function ModelsPage() {
 																<div className="flex-1 min-w-0">
 																	<div className="flex items-center gap-2">
 																		<h4 className="text-sm font-semibold text-(--text-primary) truncate">
-																			{model.name === "qwen"
-																				? "Qwen3-ASR-1.7B"
-																				: model.name === "parakeet"
-																					? "NVIDIA Parakeet TDT v3"
-																					: model.name}
+																			{meta?.display_name ?? model.name}
 																		</h4>
 																		{badge && (
 																			<output
@@ -1232,37 +1262,6 @@ export default function ModelsPage() {
 										</AccordionItem>
 									))}
 								</Accordion>
-
-								{/* Model Benchmark */}
-								<div className="rounded-xl border border-border bg-(--bg-subtle) p-6">
-									<h2 className="font-sans text-lg font-semibold text-(--text-primary)">
-										{t("models.benchmark.title")}
-									</h2>
-									<p className="text-sm text-(--text-muted) mt-0.5 mb-4">
-										{t("models.benchmark.description")}
-									</p>
-									<Button
-										variant="default"
-										className="gap-2"
-										onClick={runBenchmark}
-										disabled={isBenchmarking}
-										aria-label={t("models.benchmark.runAria")}
-									>
-										<HugeiconsIcon
-											icon={ZapIcon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{isBenchmarking
-											? t("models.benchmark.running")
-											: t("models.benchmark.run")}
-									</Button>
-									{benchmarkResult && (
-										<p className="text-sm text-(--text-muted) mt-3">
-											{benchmarkResult}
-										</p>
-									)}
-								</div>
 							</div>
 						</div>
 					) : (
@@ -1428,6 +1427,22 @@ export default function ModelsPage() {
 					)}
 				</div>
 			</div>
+			{/* CR-008: delete-model confirmation dialog. The delete
+		     button stores the target in `deleteModelTarget`;
+		     this dialog surfaces the confirmation and invokes
+		     the `delete_model` IPC. */}
+			<ConfirmDialog
+				open={!!deleteModelTarget}
+				title={t("models.deleteDialog.title")}
+				message={t("models.deleteDialog.message", {
+					name: deleteModelTarget?.name ?? "",
+				})}
+				confirmLabel={t("models.deleteModel")}
+				cancelLabel={t("common.cancel")}
+				variant="destructive"
+				onConfirm={confirmDelete}
+				onCancel={() => setDeleteModelTarget(null)}
+			/>
 		</>
 	);
 }

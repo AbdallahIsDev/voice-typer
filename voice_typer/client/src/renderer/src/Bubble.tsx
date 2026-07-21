@@ -138,19 +138,78 @@ type AnimState = "enter" | "exit" | "";
 
 // ── Theme sync — keeps the bubble's <html> in sync with the main
 //     app's theme so Tailwind dark: variants resolve correctly.
+//
+// CR-056: previously this hook honored ONLY the OS
+// `prefers-color-scheme` media query.  The main app's `useTheme` honors
+// `light` / `dark` / `system` from the saved config (driven by the
+// Python backend's `theme_mode` field), but the bubble is a sandboxed
+// renderer with NO `get_config` access — so it never learned the
+// user's choice and always followed the OS.  When the user picked
+// "light" explicitly (overriding an OS dark preference), the main app
+// rendered light but the bubble rendered dark (and vice versa).
+//
+// Forward-compatible fix (frontend-only): the bubble now also
+// subscribes to the existing `bubble:config` channel.  When the
+// payload includes a `theme_mode` field (`light` | `dark` | `system`),
+// it overrides the OS-based decision.  Until the backend's
+// `_push_bubble_config` (in voice_typer/server/waveform_bubble_wiring.py)
+// is updated to include `theme_mode` in the payload, `themeModeRef`
+// stays `null` and the bubble keeps deferring to the OS listener —
+// preserving the pre-fix behavior.  See CR-056 flag in the return
+// report.
 
 function useThemeSync() {
+	// CR-056: latest theme_mode received from bubble:config.  `null`
+	// means "backend hasn't pushed one yet" → defer to OS.
+	const themeModeRef = useRef<"light" | "dark" | "system" | null>(null);
+
+	// Resolve the desired dark-state given the current theme_mode and
+	// the OS prefers-color-scheme.  Extracted as a useCallback so both
+	// the OS listener and the bubble:config listener can call it after
+	// updating their respective inputs, and so the effect deps stay
+	// stable (no re-subscription storm on every render).
+	const applyTheme = useCallback(() => {
+		const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+		const mode = themeModeRef.current;
+		const isDark =
+			mode === "dark" ? true : mode === "light" ? false : prefersDark.matches; // mode === "system" || mode === null
+		document.documentElement.classList.toggle("dark", isDark);
+	}, []);
+
+	// OS prefers-color-scheme listener (existing behavior, preserved).
 	useEffect(() => {
 		const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
+		applyTheme();
+		prefersDark.addEventListener("change", applyTheme);
+		return () => prefersDark.removeEventListener("change", applyTheme);
+	}, [applyTheme]);
 
-		const apply = () => {
-			document.documentElement.classList.toggle("dark", prefersDark.matches);
-		};
+	// CR-056: bubble:config listener for theme_mode.  When the backend
+	// pushes a config payload that includes theme_mode, override the
+	// OS-based decision.  If theme_mode is missing or unknown, fall
+	// back to OS (set ref to null and re-apply).  The subscription is
+	// additive in production (ipcRenderer.on supports multiple
+	// handlers per channel) so the Bubble's existing mic-button
+	// onConfig subscription (declared in the component body below)
+	// keeps working alongside this one.
+	useEffect(() => {
+		const api = window.bubble as
+			| import("@/types/ipc").BubbleWindowBubble
+			| undefined;
+		if (!api?.onConfig) return;
 
-		apply();
-		prefersDark.addEventListener("change", apply);
-		return () => prefersDark.removeEventListener("change", apply);
-	}, []);
+		const off = api.onConfig((cfg) => {
+			const mode = cfg.theme_mode;
+			if (mode === "light" || mode === "dark" || mode === "system") {
+				themeModeRef.current = mode;
+			} else {
+				// Missing or unknown — fall back to OS prefers-color-scheme.
+				themeModeRef.current = null;
+			}
+			applyTheme();
+		});
+		return off;
+	}, [applyTheme]);
 }
 
 // ── Bubble component ───────────────────────────────────────────────

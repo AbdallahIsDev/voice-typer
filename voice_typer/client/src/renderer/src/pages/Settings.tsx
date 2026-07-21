@@ -757,12 +757,15 @@ export default function SettingsPage({
 						indicatorClassName="bg-input/50"
 						labelClassName="flex-1 text-center"
 						className="w-full"
-						// CR-53: pass explicit id-derivers so the wrapping
-						// role="tabpanel" elements below can use the SAME id
-						// strings for aria-labelledby / id, completing the
-						// WAI-ARIA Tabs contract (tab ↔ panel association).
-						getTabId={(v: SettingsTab) => `settings-tab-${v}`}
-						getPanelId={(v: SettingsTab) => `settings-panel-${v}`}
+						// CR-53 / CR-19-F2: pass explicit id-derivers so the
+						// wrapping role="tabpanel" elements below can use the
+						// SAME id strings for aria-labelledby / id, completing
+						// the WAI-ARIA Tabs contract (tab ↔ panel association).
+						// CR-19-F2: id scheme is `tab-${tabId}` / `panel-${tabId}`
+						// (no `settings-` prefix) so the rendered DOM matches the
+						// WAI-ARIA Tabs pattern's documented id convention.
+						getTabId={(v: SettingsTab) => `tab-${v}`}
+						getPanelId={(v: SettingsTab) => `panel-${v}`}
 					/>
 				</div>
 			</div>
@@ -823,8 +826,8 @@ export default function SettingsPage({
 				{activeTab === "appearance" && (
 					<div
 						role="tabpanel"
-						id="settings-panel-appearance"
-						aria-labelledby="settings-tab-appearance"
+						id="panel-appearance"
+						aria-labelledby="tab-appearance"
 						// The HTML element div is non-interactive. Do not use tabIndex.
 						className="space-y-8 focus-visible:outline-none"
 					>
@@ -843,8 +846,8 @@ export default function SettingsPage({
 				{activeTab === "general" && (
 					<div
 						role="tabpanel"
-						id="settings-panel-general"
-						aria-labelledby="settings-tab-general"
+						id="panel-general"
+						aria-labelledby="tab-general"
 						className="space-y-8 focus-visible:outline-none"
 					>
 						<GeneralSettingsSection
@@ -866,8 +869,8 @@ export default function SettingsPage({
 				{activeTab === "aiAudio" && (
 					<div
 						role="tabpanel"
-						id="settings-panel-aiAudio"
-						aria-labelledby="settings-tab-aiAudio"
+						id="panel-aiAudio"
+						aria-labelledby="tab-aiAudio"
 						className="space-y-8 focus-visible:outline-none"
 					>
 						<ModelSettingsSection
@@ -895,8 +898,8 @@ export default function SettingsPage({
 				{activeTab === "privacy" && (
 					<div
 						role="tabpanel"
-						id="settings-panel-privacy"
-						aria-labelledby="settings-tab-privacy"
+						id="panel-privacy"
+						aria-labelledby="tab-privacy"
 						className="space-y-8 focus-visible:outline-none"
 					>
 						<PrivacySettingsSection
@@ -905,13 +908,15 @@ export default function SettingsPage({
 							updateConfigDebounced={updateConfigDebounced}
 							isVisible={_filter_settings}
 						/>
-						<div
-							role="tabpanel"
-							id="settings-tab-privacy-panel"
-							aria-labelledby="settings-tab-privacy"
-						>
-							{/* ── Troubleshooting ──────────────────────────── */}
-							{/* NEW-UX-025: previously only had "View Logs" (which lied —
+						{/* CR-050: previously the Troubleshooting section +
+						    PrewarmAndUpdates were wrapped in a nested
+						    duplicate role="tabpanel" <div>. The outer
+						    panel already provides the WAI-ARIA contract;
+						    the inner wrapper was redundant and produced
+						    a duplicate tabpanel in the accessibility
+						    tree. */}
+						{/* ── Troubleshooting ──────────────────────────── */}
+						{/* NEW-UX-025: previously only had "View Logs" (which lied —
                                                                 it opened the log FOLDER, not a log viewer) and "Reset to
                                                                 Defaults" (destructive, no undo).  We now also surface:
                                                                                 - Diagnostics link (opens the About page's diagnostics
@@ -919,147 +924,144 @@ export default function SettingsPage({
                                                                                 - Help / FAQ link
                                                                                 - Report a Bug link
                                                                 And clarify the "View Logs" label. */}
-							{(_filter_settings(
-								t("settings.troubleshooting.title"),
-								t("settings.troubleshooting.description"),
-								t("settings.troubleshooting.title"),
-							) ||
-								[
-									t("settings.troubleshooting.openLogFolder"),
-									t("settings.troubleshooting.diagnostics"),
-									t("settings.troubleshooting.helpFaq"),
-									t("settings.troubleshooting.reportBug"),
-									t("settings.troubleshooting.reRunWizard"),
-									t("settings.troubleshooting.resetToDefaults"),
-								].some((label) =>
-									_filter_settings(
-										label,
-										undefined,
-										t("settings.troubleshooting.title"),
-									),
-								)) && (
-								<SettingsSection
-									title={t("settings.troubleshooting.title")}
-									description={t("settings.troubleshooting.description")}
-								>
-									<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
-										<Button
-											variant="outline"
-											className="gap-2"
-											onClick={viewLogs}
-											aria-label={t(
-												"settings.troubleshooting.openLogFolderAria",
-											)}
-											title={t("settings.troubleshooting.openLogFolderHint")}
-										>
-											<HugeiconsIcon
-												icon={File02Icon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{t("settings.troubleshooting.openLogFolder")}
-										</Button>
-										<Button
-											variant="outline"
-											className="gap-2"
-											onClick={() => onNavigate?.("about")}
-											aria-label={t("settings.troubleshooting.diagnosticsAria")}
-											title={t("settings.troubleshooting.diagnosticsHint")}
-										>
-											<HugeiconsIcon
-												icon={InformationCircleIcon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{t("settings.troubleshooting.diagnostics")}
-										</Button>
-										<Button
-											variant="outline"
-											className="gap-2"
-											onClick={() =>
-												window.open(
-													"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
-													"_blank",
-													"noopener,noreferrer",
-												)
-											}
-											aria-label={t("settings.troubleshooting.openDocsAria")}
-											title={t("settings.troubleshooting.openDocsHint")}
-										>
-											<HugeiconsIcon
-												icon={Book02Icon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{t("settings.troubleshooting.helpFaq")}
-										</Button>
-										<Button
-											variant="outline"
-											className="gap-2"
-											onClick={() =>
-												window.open(
-													"https://github.com/AbdallahIsDev/voice-typer/issues",
-													"_blank",
-													"noopener,noreferrer",
-												)
-											}
-											aria-label={t("settings.troubleshooting.reportBugAria")}
-											title={t("settings.troubleshooting.reportBugHint")}
-										>
-											<HugeiconsIcon
-												icon={Bug02Icon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{t("settings.troubleshooting.reportBug")}
-										</Button>
-										{/* F-6: Re-run setup wizard */}
-										<Button
-											variant="outline"
-											className="gap-2"
-											onClick={async () => {
-												await updateConfig({
-													onboarding_completed: false,
-												});
-												showSnack(
-													t("settings.troubleshooting.reRunWizardToast"),
-													"success",
-												);
-												onNavigate?.("onboarding");
-											}}
-											aria-label={t("settings.troubleshooting.reRunWizardAria")}
-											title={t("settings.troubleshooting.reRunWizardHint")}
-										>
-											<HugeiconsIcon
-												icon={RefreshIcon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{t("settings.troubleshooting.reRunWizard")}
-										</Button>
-										<Button
-											variant="destructive"
-											className="gap-2"
-											onClick={() => setShowResetDialog(true)}
-											aria-label={t(
-												"settings.troubleshooting.resetToDefaultsAria",
-											)}
-											title={t("settings.troubleshooting.resetToDefaultsHint")}
-										>
-											<HugeiconsIcon
-												icon={RefreshIcon}
-												strokeWidth={2}
-												className="h-4 w-4"
-											/>
-											{t("settings.troubleshooting.resetToDefaults")}
-										</Button>
-									</div>
-								</SettingsSection>
-							)}
-							{/* ── Prewarm cache + Updates (restored from the About
+						{(_filter_settings(
+							t("settings.troubleshooting.title"),
+							t("settings.troubleshooting.description"),
+							t("settings.troubleshooting.title"),
+						) ||
+							[
+								t("settings.troubleshooting.openLogFolder"),
+								t("settings.troubleshooting.diagnostics"),
+								t("settings.troubleshooting.helpFaq"),
+								t("settings.troubleshooting.reportBug"),
+								t("settings.troubleshooting.reRunWizard"),
+								t("settings.troubleshooting.resetToDefaults"),
+							].some((label) =>
+								_filter_settings(
+									label,
+									undefined,
+									t("settings.troubleshooting.title"),
+								),
+							)) && (
+							<SettingsSection
+								title={t("settings.troubleshooting.title")}
+								description={t("settings.troubleshooting.description")}
+							>
+								<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={viewLogs}
+										aria-label={t("settings.troubleshooting.openLogFolderAria")}
+										title={t("settings.troubleshooting.openLogFolderHint")}
+									>
+										<HugeiconsIcon
+											icon={File02Icon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										{t("settings.troubleshooting.openLogFolder")}
+									</Button>
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={() => onNavigate?.("about")}
+										aria-label={t("settings.troubleshooting.diagnosticsAria")}
+										title={t("settings.troubleshooting.diagnosticsHint")}
+									>
+										<HugeiconsIcon
+											icon={InformationCircleIcon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										{t("settings.troubleshooting.diagnostics")}
+									</Button>
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={() =>
+											window.open(
+												"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
+												"_blank",
+												"noopener,noreferrer",
+											)
+										}
+										aria-label={t("settings.troubleshooting.openDocsAria")}
+										title={t("settings.troubleshooting.openDocsHint")}
+									>
+										<HugeiconsIcon
+											icon={Book02Icon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										{t("settings.troubleshooting.helpFaq")}
+									</Button>
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={() =>
+											window.open(
+												"https://github.com/AbdallahIsDev/voice-typer/issues",
+												"_blank",
+												"noopener,noreferrer",
+											)
+										}
+										aria-label={t("settings.troubleshooting.reportBugAria")}
+										title={t("settings.troubleshooting.reportBugHint")}
+									>
+										<HugeiconsIcon
+											icon={Bug02Icon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										{t("settings.troubleshooting.reportBug")}
+									</Button>
+									{/* F-6: Re-run setup wizard */}
+									<Button
+										variant="outline"
+										className="gap-2"
+										onClick={async () => {
+											await updateConfig({
+												onboarding_completed: false,
+											});
+											showSnack(
+												t("settings.troubleshooting.reRunWizardToast"),
+												"success",
+											);
+											onNavigate?.("onboarding");
+										}}
+										aria-label={t("settings.troubleshooting.reRunWizardAria")}
+										title={t("settings.troubleshooting.reRunWizardHint")}
+									>
+										<HugeiconsIcon
+											icon={RefreshIcon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										{t("settings.troubleshooting.reRunWizard")}
+									</Button>
+									<Button
+										variant="destructive"
+										className="gap-2"
+										onClick={() => setShowResetDialog(true)}
+										aria-label={t(
+											"settings.troubleshooting.resetToDefaultsAria",
+										)}
+										title={t("settings.troubleshooting.resetToDefaultsHint")}
+									>
+										<HugeiconsIcon
+											icon={RefreshIcon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										{t("settings.troubleshooting.resetToDefaults")}
+									</Button>
+								</div>
+							</SettingsSection>
+						)}
+						{/* ── Prewarm cache + Updates (restored from the About
                                                 page slim-down; see PrewarmAndUpdates.tsx). ── */}
-							<PrewarmAndUpdates />
-						</div>
+						<PrewarmAndUpdates />
 					</div>
 				)}
 

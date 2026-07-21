@@ -429,7 +429,7 @@ export default function DashboardPage({
 						sublabel={t("analytics.today")}
 					/>
 					<DashboardStatCard
-						label={t("analytics.allTimeTotal")}
+						label={t("analytics.recentTotal")}
 						value={compactNumber(d.totalCount)}
 						icon={File02Icon}
 						sublabel={t("analytics.charsValue", {
