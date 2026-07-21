@@ -6,20 +6,25 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-import logging
 from typing import Any
 
+from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.history_bounds import (
     _bound_history_limit,
     _bound_history_offset,
 )
 from voice_typer.server.ipc.validation import _validate_dict_payload
 
-log = logging.getLogger("voice_typer.server.ipc_server")
 
+class HistoryHandlersMixin(HandlerBase):
+    """Mixin: history-related IPC handlers (get_history / delete_history / ...).
 
-class HistoryHandlersMixin:
-    """Mixin: history-related IPC handlers (get_history / delete_history / ...)."""
+    CR-20: this mixin is one of the four "representative" handlers
+    migrated to :meth:`HandlerBase._respond_with_error` for the
+    catch-all ``except Exception`` path. See
+    ``voice_typer/server/handlers/_base.py`` for the migration plan.
+    """
 
     # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
     # These attributes are provided at runtime by the IPCServer host
@@ -71,10 +76,9 @@ class HistoryHandlersMixin:
             offset = _bound_history_offset(validated.get("offset", 0))
             resp["type"] = "history"
             resp["data"] = self.service.get_history(limit, offset)
-        except Exception as e:
-            log.error("[IPC] get_history failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_history")
         return resp
 
     def _handle_get_today_stats(self, data, resp) -> dict | None:
@@ -82,10 +86,9 @@ class HistoryHandlersMixin:
         try:
             resp["type"] = "today_stats"
             resp["data"] = self.service.get_today_stats()
-        except Exception as e:
-            log.error("[IPC] get_today_stats failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "get_today_stats")
         return resp
 
     def _handle_delete_history(self, data, resp) -> dict | None:
@@ -109,10 +112,9 @@ class HistoryHandlersMixin:
             # records in the cache until the next transcription_final /
             # manual refresh. clear_history already does the same above.
             _publish_history_changed("deleted")
-        except Exception as e:
-            log.error("[IPC] delete_history failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "delete_history")
         return resp
 
     def _handle_restore_history(self, data, resp) -> dict | None:
@@ -135,10 +137,9 @@ class HistoryHandlersMixin:
             # F11-FIX (b-review Finding 11): a restored record must also
             # invalidate the history caches (see _publish_history_changed).
             _publish_history_changed("restored")
-        except Exception as e:
-            log.error("[IPC] restore_history failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "restore_history")
         return resp
 
     def _handle_clear_history(self, data, resp) -> dict | None:
@@ -153,10 +154,9 @@ class HistoryHandlersMixin:
             # action or another window) left ghost records in the cache until
             # the next transcription_final / manual refresh.
             _publish_history_changed("cleared")
-        except Exception as e:
-            log.error("[IPC] clear_history failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "clear_history")
         return resp
 
     def _handle_toggle_favorite(self, data, resp) -> dict | None:
@@ -178,10 +178,9 @@ class HistoryHandlersMixin:
             # records show under the "Favorites only" filter and the favorites
             # count on the Dashboard, so invalidate history caches too.
             _publish_history_changed("favorite_toggled")
-        except Exception as e:
-            log.error("[IPC] toggle_favorite failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "toggle_favorite")
         return resp
 
     def _handle_get_favorites(self, data, resp) -> dict | None:
@@ -208,10 +207,9 @@ class HistoryHandlersMixin:
             offset = _bound_history_offset(validated.get("offset", 0))
             resp["type"] = "history"
             resp["data"] = self.service.get_favorites(limit, offset)
-        except Exception as e:
-            log.error("[IPC] get_favorites failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "get_favorites")
         return resp
 
     def _handle_search_history(self, data, resp) -> dict | None:
@@ -243,10 +241,9 @@ class HistoryHandlersMixin:
             offset = _bound_history_offset(validated.get("offset", 0))
             resp["type"] = "history"
             resp["data"] = self.service.search_history(query, limit, offset)
-        except Exception as e:
-            log.error("[IPC] search_history failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "search_history")
         return resp
 
 

@@ -14,24 +14,15 @@ instance — it has no state of its own.
 """
 
 import logging
-from typing import Any
+
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-class RepasteHandlersMixin:
+class RepasteHandlersMixin(HandlerMixinBase):
     """Mixin: repaste IPC handlers (repaste_last)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_repaste_last(self, data, resp) -> dict | None:
         """Handle the ``repaste_last`` IPC command (UX-23).
@@ -53,6 +44,5 @@ class RepasteHandlersMixin:
             resp["data"] = {"ok": True, "result": result}
         except Exception as e:
             log.error("[IPC] repaste_last failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp

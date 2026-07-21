@@ -6,26 +6,15 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import logging
-from typing import Any
 
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-class LevelMonitorHandlersMixin:
+class LevelMonitorHandlersMixin(HandlerMixinBase):
     """Mixin: level-monitor IPC handlers (start / stop / status)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_level_monitor_start(self, data, resp) -> dict | None:
         """Handle the ``level_monitor_start`` IPC command."""
@@ -56,9 +45,8 @@ class LevelMonitorHandlersMixin:
             resp["type"] = "level_monitor_status"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] level_monitor_start failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] level_monitor_start failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_level_monitor_stop(self, data, resp) -> dict | None:
@@ -68,9 +56,8 @@ class LevelMonitorHandlersMixin:
             resp["type"] = "level_monitor_status"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] level_monitor_stop failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] level_monitor_stop failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_level_monitor_status(self, data, resp) -> dict | None:
@@ -80,7 +67,6 @@ class LevelMonitorHandlersMixin:
             resp["type"] = "level_monitor_status"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] level_monitor_status failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] level_monitor_status failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp

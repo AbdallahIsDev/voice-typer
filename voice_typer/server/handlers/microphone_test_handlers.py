@@ -6,26 +6,15 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import logging
-from typing import Any
 
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-class MicrophoneTestHandlersMixin:
+class MicrophoneTestHandlersMixin(HandlerMixinBase):
     """Mixin: microphone-test IPC handlers (start / stop / cancel / status / get_level)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_microphone_test_start(self, data, resp) -> dict | None:
         """Handle the ``microphone_test_start`` IPC command."""
@@ -68,9 +57,8 @@ class MicrophoneTestHandlersMixin:
             resp["type"] = "microphone_test_result"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] microphone_test_start failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] microphone_test_start failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_microphone_test_stop(self, data, resp) -> dict | None:
@@ -80,9 +68,8 @@ class MicrophoneTestHandlersMixin:
             resp["type"] = "microphone_test_result"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] microphone_test_stop failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] microphone_test_stop failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_microphone_test_cancel(self, data, resp) -> dict | None:
@@ -92,9 +79,8 @@ class MicrophoneTestHandlersMixin:
             resp["type"] = "microphone_test_result"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] microphone_test_cancel failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] microphone_test_cancel failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_microphone_test_status(self, data, resp) -> dict | None:
@@ -104,9 +90,8 @@ class MicrophoneTestHandlersMixin:
             resp["type"] = "microphone_test_status"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] microphone_test_status failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] microphone_test_status failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_microphone_test_get_level(self, data, resp) -> dict | None:
@@ -116,7 +101,6 @@ class MicrophoneTestHandlersMixin:
             resp["type"] = "microphone_test_level"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] microphone_test_get_level failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] microphone_test_get_level failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp

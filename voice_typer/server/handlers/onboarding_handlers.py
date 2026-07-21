@@ -5,16 +5,20 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-import logging
 from typing import Any
 
+from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.ipc.validation import _validate_dict_payload
 
-log = logging.getLogger("voice_typer.server.ipc_server")
 
+class OnboardingHandlersMixin(HandlerBase):
+    """Mixin: onboarding-wizard IPC handlers (onboarding_start / onboarding_apply / ...).
 
-class OnboardingHandlersMixin:
-    """Mixin: onboarding-wizard IPC handlers (onboarding_start / onboarding_apply / ...)."""
+    CR-20: this mixin is one of the four "representative" handlers
+    migrated to :meth:`HandlerBase._respond_with_error` for the
+    catch-all ``except Exception`` path. See
+        ``voice_typer/server/handlers/_base.py`` for the migration plan.
+    """
 
     # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
     # These attributes are provided at runtime by the IPCServer host
@@ -33,10 +37,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_is_first_run()
             resp["type"] = "onboarding_first_run"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_is_first_run failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "onboarding_is_first_run")
         return resp
 
     def _handle_onboarding_start(self, data, resp) -> dict | None:
@@ -45,10 +48,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_start()
             resp["type"] = "onboarding_step"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_start failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_start")
         return resp
 
     def _handle_onboarding_get_step(self, data, resp) -> dict | None:
@@ -57,10 +59,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_get_step()
             resp["type"] = "onboarding_step"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_get_step failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_get_step")
         return resp
 
     def _handle_onboarding_next_step(self, data, resp) -> dict | None:
@@ -69,10 +70,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_next_step()
             resp["type"] = "onboarding_step"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_next_step failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_next_step")
         return resp
 
     def _handle_onboarding_prev_step(self, data, resp) -> dict | None:
@@ -81,19 +81,29 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_prev_step()
             resp["type"] = "onboarding_step"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_prev_step failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_prev_step")
         return resp
 
     def _handle_onboarding_set_microphone(self, data, resp) -> dict | None:
-        """Handle the ``onboarding_set_microphone`` IPC command."""
+        """Handle the ``onboarding_set_microphone`` IPC command.
+
+        CR-64: ``mic_id`` is allowed to be ``None`` (no microphone
+        detected case). The renderer sends ``mic_id: null`` when no
+        microphones are present, so the validator accepts both ``str``
+        and ``NoneType``. The ``OnboardingController.set_microphone``
+        stores ``None`` verbatim, which :meth:`apply_settings` then
+        skips writing to the config (preserving the default).
+        """
         try:
             validated, error = _validate_dict_payload(
                 data,
                 {
-                    "mic_id": {"type": str, "required": True},
+                    "mic_id": {
+                        "type": (str, type(None)),
+                        "required": True,
+                    },
                 },
             )
             if error:
@@ -102,10 +112,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_set_microphone(validated["mic_id"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_set_microphone failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_set_microphone")
         return resp
 
     def _handle_onboarding_set_hotkey(self, data, resp) -> dict | None:
@@ -123,10 +132,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_set_hotkey(validated["hotkey"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_set_hotkey failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_set_hotkey")
         return resp
 
     def _handle_onboarding_set_model(self, data, resp) -> dict | None:
@@ -144,10 +152,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_set_model(validated["model"])
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_set_model failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_set_model")
         return resp
 
     def _handle_onboarding_skip(self, data, resp) -> dict | None:
@@ -156,10 +163,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_skip()
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_skip failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_skip")
         return resp
 
     def _handle_onboarding_apply(self, data, resp) -> dict | None:
@@ -168,10 +174,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_apply()
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_apply failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_apply")
         return resp
 
     def _handle_onboarding_get_microphones(self, data, resp) -> dict | None:
@@ -180,10 +185,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_get_microphones()
             resp["type"] = "onboarding_microphones"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_get_microphones failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_get_microphones")
         return resp
 
     def _handle_onboarding_get_model_options(self, data, resp) -> dict | None:
@@ -192,10 +196,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_get_model_options()
             resp["type"] = "onboarding_models"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_get_model_options failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_get_model_options")
         return resp
 
     def _handle_onboarding_get_model_catalog(self, data, resp) -> dict | None:
@@ -214,10 +217,9 @@ class OnboardingHandlersMixin:
             result = {"models": OnboardingController.get_model_catalog()}
             resp["type"] = "onboarding_model_catalog"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_get_model_catalog failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_get_model_catalog")
         return resp
 
     def _handle_onboarding_get_hotkey_presets(self, data, resp) -> dict | None:
@@ -226,10 +228,9 @@ class OnboardingHandlersMixin:
             result = self.service.onboarding_get_hotkey_presets()
             resp["type"] = "onboarding_hotkey_presets"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_get_hotkey_presets failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_get_hotkey_presets")
         return resp
 
     def _handle_onboarding_check_permissions(self, data, resp) -> dict | None:
@@ -250,8 +251,7 @@ class OnboardingHandlersMixin:
             result = OnboardingController().check_permissions()
             resp["type"] = "onboarding_permissions"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] onboarding_check_permissions failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_check_permissions")
         return resp

@@ -5,16 +5,20 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-import logging
 from typing import Any
 
+from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.ipc.validation import _validate_dict_payload
 
-log = logging.getLogger("voice_typer.server.ipc_server")
 
+class DictationHandlersMixin(HandlerBase):
+    """Mixin: dictation IPC handlers (toggle_dictation / undo_last).
 
-class DictationHandlersMixin:
-    """Mixin: dictation IPC handlers (toggle_dictation / undo_last)."""
+    CR-20: this mixin is one of the four "representative" handlers
+    migrated to :meth:`HandlerBase._respond_with_error` for the
+    catch-all ``except Exception`` path. See
+    ``voice_typer/server/handlers/_base.py`` for the migration plan.
+    """
 
     # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
     # These attributes are provided at runtime by the IPCServer host
@@ -53,10 +57,9 @@ class DictationHandlersMixin:
                 return error
             self.service.toggle_dictation()
             resp["type"] = "ack"
-        except Exception as e:
-            log.error("[IPC] toggle_dictation failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "toggle_dictation")
         return resp
 
     def _handle_undo_last(self, data, resp) -> dict | None:
@@ -65,10 +68,9 @@ class DictationHandlersMixin:
         try:
             self.service.undo_last()
             resp["type"] = "ack"
-        except Exception as e:
-            log.error("[IPC] undo_last failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "undo_last")
         return resp
 
     def _handle_force_cancel_transcription(self, data, resp) -> dict | None:
@@ -84,8 +86,7 @@ class DictationHandlersMixin:
             result = self.service.force_cancel_transcription()
             resp["type"] = "force_cancel_transcription_result"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] force_cancel_transcription failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "force_cancel_transcription")
         return resp

@@ -7,25 +7,16 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import logging
-from typing import Any
 
-log = logging.getLogger("voice_typer.server.ipc_server")
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response
 from voice_typer.server.platform_utils import is_windows
 
+log = logging.getLogger("voice_typer.server.ipc_server")
 
-class StatusHandlersMixin:
+
+class StatusHandlersMixin(HandlerMixinBase):
     """Mixin: status-query IPC handlers (get_status / get_audio_status / ...)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_get_status(self, data, resp) -> dict | None:
         """Handle the ``get_status`` IPC command."""
@@ -52,8 +43,7 @@ class StatusHandlersMixin:
             resp["data"] = result
         except Exception as e:
             log.error("[IPC] get_rms_level failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_get_volume_backend_status(self, data, resp) -> dict | None:
@@ -67,8 +57,7 @@ class StatusHandlersMixin:
             resp["data"] = status
         except Exception as e:
             log.error("[IPC] get_volume_backend_status failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_get_audio_status(self, data, resp) -> dict | None:
@@ -82,8 +71,7 @@ class StatusHandlersMixin:
             resp["data"] = self.service.get_audio_status()
         except Exception as e:
             log.error("[IPC] get_audio_status failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_get_model_status(self, data, resp) -> dict | None:
@@ -97,8 +85,7 @@ class StatusHandlersMixin:
             resp["data"] = status
         except Exception as e:
             log.error("[IPC] get_model_status failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_get_prewarm_status(self, data, resp) -> dict | None:
@@ -117,8 +104,7 @@ class StatusHandlersMixin:
             resp["data"] = get_prewarm_status()
         except Exception as e:
             log.error("[IPC] get_prewarm_status failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_run_prewarm(self, data, resp) -> dict | None:
@@ -198,13 +184,12 @@ class StatusHandlersMixin:
             resp["type"] = "error"
             resp["data"] = {"message": f"Python interpreter not found: {e}"}
         except OSError as e:
-            log.error("[IPC] run_prewarm: spawn failed: %s", e)
+            log.error("[IPC] run_prewarm: spawn failed: %s", e, exc_info=True)
             resp["type"] = "error"
             resp["data"] = {"message": f"Failed to start prewarm: {e}"}
         except Exception as e:
             log.error("[IPC] run_prewarm failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_open_prewarm_log(self, data, resp) -> dict | None:
@@ -303,11 +288,10 @@ class StatusHandlersMixin:
             resp["type"] = "error"
             resp["data"] = {"message": f"No editor available to open the log: {e}"}
         except OSError as e:
-            log.error("[IPC] open_prewarm_log: open failed: %s", e)
+            log.error("[IPC] open_prewarm_log: open failed: %s", e, exc_info=True)
             resp["type"] = "error"
             resp["data"] = {"message": f"Failed to open log: {e}"}
         except Exception as e:
             log.error("[IPC] open_prewarm_log failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp

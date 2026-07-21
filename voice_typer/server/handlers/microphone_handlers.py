@@ -6,24 +6,15 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import logging
-from typing import Any
+
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-class MicrophoneHandlersMixin:
+class MicrophoneHandlersMixin(HandlerMixinBase):
     """Mixin: microphone-listing IPC handlers (get_microphones / refresh_microphones)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_get_microphones(self, data, resp) -> dict | None:
         """Handle the ``get_microphones`` IPC command."""
@@ -32,8 +23,7 @@ class MicrophoneHandlersMixin:
             resp["data"] = self.service.get_microphones()
         except Exception as e:
             log.error("[IPC] get_microphones failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_refresh_microphones(self, data, resp) -> dict | None:
@@ -47,6 +37,5 @@ class MicrophoneHandlersMixin:
             resp["data"] = mics
         except Exception as e:
             log.error("[IPC] refresh_microphones failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp

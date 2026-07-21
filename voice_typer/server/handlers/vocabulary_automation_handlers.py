@@ -18,27 +18,93 @@ turned on.  If the user opens the Vocabulary page before any
 dictation has occurred, the handler returns an empty list (the
 automation instance doesn't exist yet, but there are also no
 suggestions to show).
+
+R4-F4 (IMPROVE-mode run, 2026-07-19): extracted
+:func:`_find_pending_suggestion` from the duplicated lookup+validation
+block in ``_handle_apply_vocabulary_suggestion`` and
+``_handle_dismiss_vocabulary_suggestion`` (was ~63 LOC of copy-paste
+across the two handlers). Both handlers now call the helper, then
+dispatch to ``automation.apply_suggestion`` / ``automation.dismiss_suggestion``
+based on which handler they are. The helper does NOT mutate the
+automation state — it returns the matched suggestion (or an error
+message) and leaves the action to the caller, preserving the original
+behavioral split (``apply`` and ``dismiss`` are separate IPC commands
+on the wire).
 """
 
 import logging
-from typing import Any
+
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-class VocabularyAutomationHandlersMixin:
-    """Mixin: vocabulary-automation IPC handlers."""
+def _find_pending_suggestion(automation, data):
+    """Look up a pending suggestion matching the client-supplied fields.
 
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
+    R4-F4: extracted from the duplicated validation+lookup block that
+    previously lived inline in both ``_handle_apply_vocabulary_suggestion``
+    and ``_handle_dismiss_vocabulary_suggestion``.
+
+    Validates the ``data`` payload shape (non-dict, ``original`` and
+    ``corrected`` must be strings) and searches ``automation``'s
+    pending list for a suggestion matching ``(original, corrected,
+    optional timestamp)``. The match logic mirrors the prior inline
+    implementation:
+
+    * ``original`` and ``corrected`` are compared by equality.
+    * ``timestamp`` is optional. When absent from ``data`` (or ``None``),
+      the timestamp comparison is skipped — the matcher accepts the
+      first suggestion whose ``original``/``corrected`` match. When
+      present, the matcher coerces it to ``float`` and compares
+      against ``s.timestamp`` (a float on the suggestion dataclass).
+
+    Parameters
+    ----------
+    automation : VocabularyAutomation
+        The lazily-created automation instance from
+        ``app._vocabulary_automation``. The caller has already verified
+        it's not None.
+    data : Any
+        The ``data`` field from the IPC message.
+
+    Returns
+    -------
+    tuple[CorrectionSuggestion | None, str | None]
+        ``(target, None)`` on a successful lookup — ``target`` is the
+        matching ``CorrectionSuggestion`` instance ready to be passed
+        to ``automation.apply_suggestion`` / ``automation.dismiss_suggestion``.
+        ``(None, error_message)`` on a validation or lookup failure —
+        the caller should stamp the error_message onto ``resp["data"]``
+        and return. The helper does NOT mutate ``resp`` so the caller
+        retains full control of the response envelope (e.g. for the
+        ``code: "handler_error"`` stamp added by R13-F3).
+    """
+    if not isinstance(data, dict):
+        return None, "requires data: object"
+
+    original = data.get("original")
+    corrected = data.get("corrected")
+    timestamp = data.get("timestamp")
+
+    if not isinstance(original, str) or not isinstance(corrected, str):
+        return None, "original and corrected must be strings"
+
+    pending = automation.get_pending_suggestions()
+    for s in pending:
+        if (
+            s.original == original
+            and s.corrected == corrected
+            and (timestamp is None or s.timestamp == float(timestamp))
+        ):
+            return s, None
+
+    return None, "suggestion not found in pending list"
+
+
+class VocabularyAutomationHandlersMixin(HandlerMixinBase):
+    """Mixin: vocabulary-automation IPC handlers."""
 
     def _handle_get_vocabulary_suggestions(self, data, resp) -> dict | None:
         """Handle the ``get_vocabulary_suggestions`` IPC command.
@@ -62,8 +128,7 @@ class VocabularyAutomationHandlersMixin:
             }
         except Exception as e:
             log.error("[IPC] get_vocabulary_suggestions failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_apply_vocabulary_suggestion(self, data, resp) -> dict | None:
@@ -76,45 +141,27 @@ class VocabularyAutomationHandlersMixin:
         ``get_vocabulary_suggestions``.
         """
         try:
-            if not isinstance(data, dict):
-                resp["type"] = "error"
-                resp["data"] = {"message": "apply_vocabulary_suggestion requires data: object"}
-                return resp
-
             automation = getattr(self.app, "_vocabulary_automation", None)
             if automation is None:
                 resp["type"] = "error"
                 resp["data"] = {"message": "vocabulary automation is not initialized"}
                 return resp
 
-            # Find the matching pending suggestion.  We match on the
-            # tuple (original, corrected, timestamp) which is unique
-            # per suggestion within a single dictation cycle.
-            original = data.get("original")
-            corrected = data.get("corrected")
-            timestamp = data.get("timestamp")
-
-            if not isinstance(original, str) or not isinstance(corrected, str):
-                resp["type"] = "error"
-                resp["data"] = {"message": "original and corrected must be strings"}
-                return resp
-
-            from voice_typer.server.vocabulary_automation import CorrectionSuggestion
-
-            pending = automation.get_pending_suggestions()
-            target: CorrectionSuggestion | None = None
-            for s in pending:
-                if (
-                    s.original == original
-                    and s.corrected == corrected
-                    and (timestamp is None or s.timestamp == float(timestamp))
-                ):
-                    target = s
-                    break
-
+            # R4-F4: delegate validation + lookup to the shared helper.
+            target, error_message = _find_pending_suggestion(automation, data)
             if target is None:
+                # Pre-R4-F4 the non-dict path emitted a handler-specific
+                # message ("apply_vocabulary_suggestion requires data:
+                # object"). The helper returns the generic "requires
+                # data: object" — preserve the handler-specific prefix
+                # by prepending the command name so existing tests that
+                # assert "data: object" in resp["data"]["message"] keep
+                # passing.
                 resp["type"] = "error"
-                resp["data"] = {"message": "suggestion not found in pending list"}
+                if error_message == "requires data: object":
+                    resp["data"] = {"message": f"apply_vocabulary_suggestion {error_message}"}
+                else:
+                    resp["data"] = {"message": error_message}
                 return resp
 
             automation.apply_suggestion(target)
@@ -126,8 +173,7 @@ class VocabularyAutomationHandlersMixin:
             }
         except Exception as e:
             log.error("[IPC] apply_vocabulary_suggestion failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_dismiss_vocabulary_suggestion(self, data, resp) -> dict | None:
@@ -138,42 +184,20 @@ class VocabularyAutomationHandlersMixin:
         added to the vocabulary.
         """
         try:
-            if not isinstance(data, dict):
-                resp["type"] = "error"
-                resp["data"] = {"message": "dismiss_vocabulary_suggestion requires data: object"}
-                return resp
-
             automation = getattr(self.app, "_vocabulary_automation", None)
             if automation is None:
                 resp["type"] = "error"
                 resp["data"] = {"message": "vocabulary automation is not initialized"}
                 return resp
 
-            original = data.get("original")
-            corrected = data.get("corrected")
-            timestamp = data.get("timestamp")
-
-            if not isinstance(original, str) or not isinstance(corrected, str):
-                resp["type"] = "error"
-                resp["data"] = {"message": "original and corrected must be strings"}
-                return resp
-
-            from voice_typer.server.vocabulary_automation import CorrectionSuggestion
-
-            pending = automation.get_pending_suggestions()
-            target: CorrectionSuggestion | None = None
-            for s in pending:
-                if (
-                    s.original == original
-                    and s.corrected == corrected
-                    and (timestamp is None or s.timestamp == float(timestamp))
-                ):
-                    target = s
-                    break
-
+            # R4-F4: delegate validation + lookup to the shared helper.
+            target, error_message = _find_pending_suggestion(automation, data)
             if target is None:
                 resp["type"] = "error"
-                resp["data"] = {"message": "suggestion not found in pending list"}
+                if error_message == "requires data: object":
+                    resp["data"] = {"message": f"dismiss_vocabulary_suggestion {error_message}"}
+                else:
+                    resp["data"] = {"message": error_message}
                 return resp
 
             automation.dismiss_suggestion(target)
@@ -185,6 +209,5 @@ class VocabularyAutomationHandlersMixin:
             }
         except Exception as e:
             log.error("[IPC] dismiss_vocabulary_suggestion failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp

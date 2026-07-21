@@ -6,10 +6,11 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import logging
-from typing import Any
 
 from voice_typer.server import event_bus
 from voice_typer.server.config import validate_config_update
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response
 
 # Local logger (not imported from ipc_server) to avoid a circular
 # import: ipc.server imports this mixin back, so importing ipc_server
@@ -17,19 +18,8 @@ from voice_typer.server.config import validate_config_update
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-class ConfigHandlersMixin:
+class ConfigHandlersMixin(HandlerMixinBase):
     """Mixin: config-related IPC handlers (get_config / get_defaults / set_config)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_get_config(self, data, resp) -> dict | None:
         """Handle the ``get_config`` IPC command."""
@@ -57,8 +47,7 @@ class ConfigHandlersMixin:
             resp["data"] = self.service.get_defaults()
         except Exception as e:
             log.error("[IPC] get_defaults failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_set_config(self, data, resp) -> dict | None:
@@ -101,12 +90,16 @@ class ConfigHandlersMixin:
                 try:
                     self.service.change_model(validated["model_size"])
                 except Exception as e:
-                    log.warning("[IPC] change_model failed: %s", e)
+                    # CR-76: include the operation input in the log so
+                    # operators can see which model_size failed without
+                    # having to cross-reference the IPC payload.
+                    log.warning("[IPC] change_model(model_size=%s) failed: %s", validated["model_size"], e)
             if "asr_backend" in validated and validated["asr_backend"] != getattr(self.app.config, "asr_backend", None):
                 try:
                     self.service.set_active_backend(validated["asr_backend"])
                 except Exception as e:
-                    log.warning("[IPC] set_active_backend failed: %s", e)
+                    # CR-76: include the operation input in the log.
+                    log.warning("[IPC] set_active_backend(asr_backend=%s) failed: %s", validated["asr_backend"], e)
             # Apply only allowlisted, validated values.
             # RACE-011 + AUDIO-PRESET-SAVE-FIX + ARCH-043:
             # ``service.apply_config`` holds the app's config-mutation
@@ -178,6 +171,5 @@ class ConfigHandlersMixin:
                 resp["data"] = {"accepted": accepted_keys, "rejected": rejected_keys}
         except Exception as e:
             log.error("[IPC] set_config failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp

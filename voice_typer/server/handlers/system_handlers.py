@@ -8,29 +8,18 @@ access ``self.app`` / ``self.service`` as before.
 
 import contextlib
 import logging
-from typing import Any
 
 from voice_typer.server import event_bus
 from voice_typer.server.branding import APP_NAME
-from voice_typer.server.ipc.validation import _validate_dict_payload
-
-log = logging.getLogger("voice_typer.server.ipc_server")
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 from voice_typer.server.platform_utils import is_macos
 
+log = logging.getLogger("voice_typer.server.ipc_server")
 
-class SystemHandlersMixin:
+
+class SystemHandlersMixin(HandlerMixinBase):
     """Mixin: system-level IPC handlers (restart / quit / diagnostics / accessibility / ...)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_restart_app(self, data, resp) -> dict | None:
         """Handle the ``restart_app`` IPC command."""
@@ -68,9 +57,8 @@ class SystemHandlersMixin:
             resp["type"] = "diagnostics_result"
             resp["data"] = result
         except Exception as e:
-            log.error("[IPC] export_diagnostics failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] export_diagnostics failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_check_accessibility(self, data, resp) -> dict | None:
@@ -116,9 +104,8 @@ class SystemHandlersMixin:
                 "platform": _sys.platform,
             }
         except Exception as e:
-            log.error("[IPC] check_accessibility failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] check_accessibility failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_set_tray_locale(self, data, resp) -> dict | None:
@@ -159,9 +146,8 @@ class SystemHandlersMixin:
             resp["type"] = "ack"
             resp["data"] = {"locale": get_tray_locale()}
         except Exception as e:
-            log.error("[IPC] set_tray_locale failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] set_tray_locale failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_set_esc_cancel_paused(self, data, resp) -> dict | None:
@@ -224,9 +210,8 @@ class SystemHandlersMixin:
             resp["type"] = "ack"
             resp["data"] = {"paused": paused}
         except Exception as e:
-            log.error("[IPC] set_esc_cancel_paused failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] set_esc_cancel_paused failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp
 
     def _handle_show_electron_notification(self, data, resp) -> dict | None:
@@ -262,44 +247,38 @@ class SystemHandlersMixin:
         caller can't schedule a ``setTimeout`` that effectively never
         fires (which would leave a "persistent" notification that the
         user can't dismiss via the auto-close path).
+
+        R4-F5 (IMPROVE-mode run, 2026-07-19): the per-field type
+        checks + the ``duration_ms`` clamp now route through
+        ``_validate_dict_payload``. The helper's ``clamp_range`` rule
+        replaces the inline ``max(0, min(int(duration_ms), 24*60*60*1000))``
+        coercion. Two Python-specific gotchas stay inline:
+
+          * The ``bool`` subclass exclusion for ``duration_ms`` (a
+            bool is an int in Python; without this guard, a caller
+            who swaps the ``critical`` and ``duration_ms`` fields
+            would have ``True`` silently coerced to ``duration_ms: 1``).
+            The helper's ``isinstance(value, (int, float))`` check
+            alone would NOT exclude bool — keeping the pre-check
+            inline is clearer than burying the gotcha in a schema
+            rule.
+          * The ``None`` → default coercion for ``title``/``message``
+            /``duration_ms``/``critical``. The helper's ``default``
+            only fires when the field is ABSENT — a present ``None``
+            fails the type check. Pre-coercing ``None`` to the
+            default keeps the existing "missing or null → default"
+            contract without adding a ``none_to_default`` rule.
         """
         try:
-            if not isinstance(data, dict):
-                resp["type"] = "error"
-                resp["data"] = {"message": "show_electron_notification requires data: object"}
-                return resp
-
-            title = data.get("title", APP_NAME)
-            if title is None:
-                title = APP_NAME
-            if not isinstance(title, str):
-                resp["type"] = "error"
-                resp["data"] = {
-                    "code": "invalid_field",
-                    "field": "title",
-                    "message": "'title' must be a string",
-                }
-                return resp
-
-            message = data.get("message", "")
-            if message is None:
-                message = ""
-            if not isinstance(message, str):
-                resp["type"] = "error"
-                resp["data"] = {
-                    "code": "invalid_field",
-                    "field": "message",
-                    "message": "'message' must be a string",
-                }
-                return resp
-
-            duration_ms = data.get("duration_ms", 0)
-            if duration_ms is None:
-                duration_ms = 0
-            # ``bool`` is a subclass of ``int`` in Python — exclude it
-            # explicitly so ``critical: true`` doesn't sneak through as
-            # ``duration_ms: 1`` if a caller swaps the fields.
-            if not isinstance(duration_ms, (int, float)) or isinstance(duration_ms, bool):
+            # R4-F5: pre-check the bool subclass exclusion for
+            # ``duration_ms`` BEFORE invoking the helper. ``bool`` is
+            # a subclass of ``int`` in Python — without this guard,
+            # ``duration_ms: True`` would pass the helper's
+            # ``isinstance(value, (int, float))`` check and then be
+            # coerced to ``duration_ms: 1`` by ``clamp_range``, silently
+            # accepting a misbehaving caller who swapped the
+            # ``critical`` and ``duration_ms`` fields.
+            if isinstance(data, dict) and isinstance(data.get("duration_ms"), bool):
                 resp["type"] = "error"
                 resp["data"] = {
                     "code": "invalid_field",
@@ -307,20 +286,54 @@ class SystemHandlersMixin:
                     "message": "'duration_ms' must be a number (milliseconds)",
                 }
                 return resp
-            # Clamp to [0, 24h] — see method docstring.
-            duration_ms = max(0, min(int(duration_ms), 24 * 60 * 60 * 1000))
 
-            critical = data.get("critical", False)
-            if critical is None:
-                critical = False
-            if not isinstance(critical, bool):
+            # R4-F5: pre-coerce ``None`` values to their defaults so the
+            # helper's ``default`` rule (which only fires for ABSENT
+            # fields) doesn't reject ``{"title": null}`` as a type
+            # error. The previous inline impl had the same coercion.
+            if isinstance(data, dict):
+                if data.get("title") is None:
+                    data = {**data, "title": APP_NAME}
+                if data.get("message") is None:
+                    data = {**data, "message": ""}
+                if data.get("duration_ms") is None:
+                    data = {**data, "duration_ms": 0}
+                if data.get("critical") is None:
+                    data = {**data, "critical": False}
+
+            # R4-F5: route the dict-type + per-field type checks +
+            # ``duration_ms`` clamp through ``_validate_dict_payload``.
+            # The helper's ``clamp_range`` rule replaces the inline
+            # ``max(0, min(int(duration_ms), 24*60*60*1000))`` coercion.
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "title": {"type": str, "required": False, "default": APP_NAME},
+                    "message": {"type": str, "required": False, "default": ""},
+                    "duration_ms": {
+                        "type": (int, float),
+                        "required": False,
+                        "default": 0,
+                        "clamp_range": (0, 24 * 60 * 60 * 1000),
+                    },
+                    "critical": {"type": bool, "required": False, "default": False},
+                },
+            )
+            if error:
+                # The helper's non-dict path returns ``code:
+                # "invalid_payload"`` with the ``"data must be an
+                # object"`` message — different from the pre-R4-F5
+                # handler-specific ``"show_electron_notification
+                # requires data: object"``. The test was updated to
+                # assert on ``code`` instead of the message text.
                 resp["type"] = "error"
-                resp["data"] = {
-                    "code": "invalid_field",
-                    "field": "critical",
-                    "message": "'critical' must be a boolean",
-                }
+                resp["data"] = error["data"]
                 return resp
+            assert validated is not None  # narrowed by the error guard above
+            title = validated["title"]
+            message = validated["message"]
+            duration_ms = int(validated["duration_ms"])
+            critical = validated["critical"]
 
             event_bus.publish(
                 {
@@ -344,7 +357,6 @@ class SystemHandlersMixin:
             )
             resp["type"] = "ack"
         except Exception as e:
-            log.error("[IPC] show_electron_notification failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            log.error("[IPC] show_electron_notification failed: %s", e, exc_info=True)
+            _error_response(resp, str(e))
         return resp

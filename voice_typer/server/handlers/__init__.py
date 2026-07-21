@@ -34,6 +34,15 @@ from voice_typer.server.handlers.microphone_test_handlers import (
 )
 from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
 from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin
+
+# R4-F6 (IMPROVE-mode run, 2026-07-19): ``RepasteHandlersMixin`` was
+# defined in ``repaste_handlers.py`` (UX-23) and imported by
+# ``ipc_server.py`` at module load time, but was missing from this
+# package's ``__all__`` re-export list. External callers doing
+# ``from voice_typer.server.handlers import RepasteHandlersMixin``
+# would have hit ``ImportError``. Adding it here makes the package
+# re-export match the actual set of mixin classes.
+from voice_typer.server.handlers.repaste_handlers import RepasteHandlersMixin
 from voice_typer.server.handlers.status_handlers import StatusHandlersMixin
 from voice_typer.server.handlers.system_handlers import SystemHandlersMixin
 from voice_typer.server.handlers.templates_handlers import TemplatesHandlersMixin
@@ -56,4 +65,9 @@ __all__ = [
     "ModelHandlersMixin",
     "SystemHandlersMixin",
     "VocabularyAutomationHandlersMixin",
+    # R4-F6: ``RepasteHandlersMixin`` (UX-23) is part of the package
+    # re-export surface — it was previously defined in
+    # ``repaste_handlers.py`` and imported by ``ipc_server.py`` but
+    # missing from ``__all__``.
+    "RepasteHandlersMixin",
 ]

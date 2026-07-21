@@ -16,16 +16,21 @@ MODEL-IMPORT: added ``_handle_import_model`` so the renderer can scan
 and import pre-downloaded models from a local directory.
 """
 
-import logging
 from typing import Any
 
+from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import _validate_dict_payload
 
-log = logging.getLogger("voice_typer.server.ipc_server")
 
+class ModelHandlersMixin(HandlerBase):
+    """Mixin: model-management IPC handlers (download / cancel / test_llm / delete).
 
-class ModelHandlersMixin:
-    """Mixin: model-management IPC handlers (download / cancel / test_llm / delete)."""
+    CR-20: this mixin is one of the four "representative" handlers
+    migrated to :meth:`HandlerBase._respond_with_error` for the
+    catch-all ``except Exception`` path. See
+    ``voice_typer/server/handlers/_base.py`` for the migration plan.
+    """
 
     # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
     # These attributes are provided at runtime by the IPCServer host
@@ -67,10 +72,14 @@ class ModelHandlersMixin:
                 result = self.service.download_model(model_name)
                 resp["type"] = "download_model_result"
                 resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] download_model failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: emit the generic WS-path envelope instead of
+            # leaking ``str(exc)`` to the renderer. CR-76's intent
+            # (correlate failure with operation input) is satisfied by
+            # the entry INFO log above (which records ``model_name``)
+            # plus the ``cmd_name`` argument to ``_respond_with_error``
+            # (which records the operation).
+            self._respond_with_error(resp, exc, "download_model")
         return resp
 
     def _handle_cancel_model_download(self, data, resp) -> dict | None:
@@ -81,10 +90,9 @@ class ModelHandlersMixin:
             result = self.service.cancel_model_download()
             resp["type"] = "ack"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] cancel_model_download failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "cancel_model_download")
         return resp
 
     def _handle_pause_model_download(self, data, resp) -> dict | None:
@@ -99,10 +107,9 @@ class ModelHandlersMixin:
             result = self.service.pause_model_download()
             resp["type"] = "ack"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] pause_model_download failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "pause_model_download")
         return resp
 
     def _handle_resume_model_download(self, data, resp) -> dict | None:
@@ -116,10 +123,9 @@ class ModelHandlersMixin:
             result = self.service.resume_model_download()
             resp["type"] = "ack"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] resume_model_download failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "resume_model_download")
         return resp
 
     def _handle_get_model_catalog(self, data, resp) -> dict | None:
@@ -149,10 +155,9 @@ class ModelHandlersMixin:
             models = [m.to_dict() for m in get_all_models()]
             resp["type"] = "model_catalog"
             resp["data"] = {"models": models}
-        except Exception as e:
-            log.error("[IPC] get_model_catalog failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "get_model_catalog")
         return resp
 
     def _handle_test_llm_connection(self, data, resp) -> dict | None:
@@ -164,10 +169,9 @@ class ModelHandlersMixin:
             result = self.service.test_llm_connection()
             resp["type"] = "test_llm_connection_result"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] test_llm_connection failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope.
+            self._respond_with_error(resp, exc, "test_llm_connection")
         return resp
 
     def _handle_import_model(self, data, resp) -> dict | None:
@@ -234,10 +238,11 @@ class ModelHandlersMixin:
                 result = self.service.import_model(dir_path)
                 resp["type"] = "import_model_result"
                 resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] import_model failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no str(exc) leak).
+            # CR-76 correlation: ``dir_path`` is logged at INFO on
+            # entry above; ``cmd_name`` here records the operation.
+            self._respond_with_error(resp, exc, "import_model")
         return resp
 
     def _handle_delete_model(self, data, resp) -> dict | None:
@@ -270,8 +275,9 @@ class ModelHandlersMixin:
                 result = self.service.delete_model(model_name)
                 resp["type"] = "delete_model_result"
                 resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] delete_model failed: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no str(exc) leak).
+            # CR-76 correlation: ``model_name`` is logged at INFO on
+            # entry above; ``cmd_name`` here records the operation.
+            self._respond_with_error(resp, exc, "delete_model")
         return resp

@@ -6,26 +6,15 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import logging
-from typing import Any
 
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-class TemplatesHandlersMixin:
+class TemplatesHandlersMixin(HandlerMixinBase):
     """Mixin: templates IPC handlers (get_templates / save_templates)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_get_templates(self, data, resp) -> dict | None:
         """Handle the ``get_templates`` IPC command."""
@@ -35,8 +24,9 @@ class TemplatesHandlersMixin:
             resp["data"] = {"templates": templates}
         except Exception as e:
             log.error("[IPC] get_templates failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            # R13-F3: route through ``_error_response`` so the envelope
+            # carries the structured ``code: "handler_error"`` field.
+            _error_response(resp, str(e))
         return resp
 
     def _handle_save_templates(self, data, resp) -> dict | None:
@@ -56,6 +46,5 @@ class TemplatesHandlersMixin:
             resp["data"] = {"saved": len(validated["templates"])}
         except Exception as e:
             log.error("[IPC] save_templates failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp

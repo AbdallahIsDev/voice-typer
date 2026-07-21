@@ -6,24 +6,15 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import logging
-from typing import Any
+
+from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-class VocabularyHandlersMixin:
+class VocabularyHandlersMixin(HandlerMixinBase):
     """Mixin: vocabulary IPC handlers (get_vocabulary / save_vocabulary)."""
-
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
 
     def _handle_get_vocabulary(self, data, resp) -> dict | None:
         """Handle the ``get_vocabulary`` IPC command."""
@@ -34,8 +25,7 @@ class VocabularyHandlersMixin:
             resp["data"] = result
         except Exception as e:
             log.error("[IPC] get_vocabulary failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
 
     def _handle_save_vocabulary(self, data, resp) -> dict | None:
@@ -45,23 +35,51 @@ class VocabularyHandlersMixin:
         # payload would exhaust disk and CPU; a 10 MB `good` value
         # would re-compile regex per transcription chunk.
         try:
-            if not isinstance(data, dict):
+            # R4-F5: route the dict-type + 1 MB payload-size check
+            # through ``_validate_dict_payload``. The helper's
+            # ``max_payload_bytes`` rule replaces the inline
+            # ``len(json.dumps(data)) > _max_vocab_payload`` check.
+            # The non-dict case is handled by the helper's first
+            # guard (returns ``code: "invalid_payload"`` with the
+            # ``"data must be an object"`` message — different from
+            # the pre-R4-F5 ``"save_vocabulary requires data: object"``
+            # message, but the test was updated to assert on
+            # ``code`` instead of the message text).
+            #
+            # The placeholder field name ``"_payload"`` is a sentinel
+            # — ``max_payload_bytes`` is a whole-payload rule, not a
+            # per-field rule, but the schema is keyed by field name
+            # so we use ``"_"``-prefixed name to signal "not a real
+            # field". The helper checks the rule on the FIRST field
+            # that declares it (see ``_validate_dict_payload`` in
+            # ``ipc/validation.py``).
+            _validated, error = _validate_dict_payload(
+                data,
+                {
+                    "_payload": {
+                        "max_payload_bytes": 1 * 1024 * 1024,
+                    },
+                },
+            )
+            if error:
                 resp["type"] = "error"
-                resp["data"] = {"message": "save_vocabulary requires data: object"}
+                resp["data"] = error["data"]
+                if error["data"]["code"] == "invalid_payload":
+                    log.warning(
+                        "[IPC] save_vocabulary rejected: %s",
+                        error["data"]["message"],
+                    )
                 return resp
-            # Cap total JSON payload at 1 MB
-            _max_vocab_payload = 1 * 1024 * 1024
-            import json as _json_mod
 
-            payload_size = len(_json_mod.dumps(data))
-            if payload_size > _max_vocab_payload:
-                resp["type"] = "error"
-                resp["data"] = {
-                    "message": (f"vocabulary payload too large ({payload_size} bytes; max {_max_vocab_payload})")
-                }
-                log.warning("[IPC] save_vocabulary rejected: payload %d > %d", payload_size, _max_vocab_payload)
-                return resp
-            # Cap individual string values at 1024 chars
+            # Per-value length cap (NESTED). Kept inline because the
+            # schema rule ``max_value_len`` only applies to TOP-LEVEL
+            # string fields — vocabulary entries are nested inside
+            # dict-of-entries or list-of-tuples, so the rule can't
+            # express the per-(category, key) check. R4-F5 centralizes
+            # the type + payload-size checks but leaves this loop in
+            # place; the message format ("vocabulary value too long in
+            # <cat>.<key>") is preserved for the
+            # ``test_value_over_1024_chars_returns_error`` contract.
             _max_value_len = 1024
             for cat, entries in data.items():
                 if isinstance(entries, dict):
@@ -87,6 +105,5 @@ class VocabularyHandlersMixin:
             resp["data"] = result
         except Exception as e:
             log.error("[IPC] save_vocabulary failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+            _error_response(resp, str(e))
         return resp
