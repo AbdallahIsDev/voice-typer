@@ -64,20 +64,34 @@ def _setup_logging() -> None:
         _setup_logging_shared(log_dir)
 
         prewarm_log = log_dir / "prewarm.log"
+        # CR-42 fix: align prewarm.log handler with the main voice-typer.log
+        # handler's filtering and rotation policy. Previously this handler
+        # used a plain Formatter (no session_id for cross-process correlation),
+        # 1 MB × 2 rotation (vs main's 5 MB × 5 per ADR-0020 §11), and was
+        # missing PIIRedactionFilter (defence-in-depth gap — any config field,
+        # HF token, or transcription-adjacent value logged by prewarm code
+        # would land unredacted in prewarm.log), _SessionFilter (no
+        # cross-process correlation), and _BubbleLevelExclusionFilter (could
+        # fill with bubble_level noise).
+        from voice_typer.server.log import (
+            _BubbleLevelExclusionFilter,
+            _FileFormatter,
+            _SessionFilter,
+        )
+        from voice_typer.server.security import PIIRedactionFilter
+
         prewarm_handler = logging.handlers.RotatingFileHandler(
             prewarm_log,
-            maxBytes=1_000_000,
-            backupCount=2,
+            maxBytes=5 * 1024 * 1024,  # 5 MB — align with main handler (was 1 MB)
+            backupCount=5,  # was 2 — align with ADR-0020 §11 spec
             encoding="utf-8",
             errors="backslashreplace",
         )
-        prewarm_handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s [%(levelname)s] %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
+        prewarm_handler.setFormatter(_FileFormatter())
         prewarm_handler.addFilter(logging.Filter("voice_typer.server.prewarm"))
+        prewarm_handler.addFilter(_SessionFilter())
+        prewarm_handler.addFilter(PIIRedactionFilter())
+        prewarm_handler.addFilter(_BubbleLevelExclusionFilter())
         prewarm_handler.setLevel(logging.DEBUG)
         logging.getLogger("voice_typer").addHandler(prewarm_handler)
     except Exception:

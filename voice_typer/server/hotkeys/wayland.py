@@ -19,19 +19,29 @@ class WaylandHotkey(HotkeyBackend):
 
     On Wayland compositors, pynput's X11-based keyboard listener doesn't
     work. This backend listens on a Unix domain socket at
-    ``$XDG_RUNTIME_DIR/voice-typer-hotkey.sock`` (falling back to
-    ``/tmp/voice-typer-hotkey.sock``) for commands like ``toggle`` and
-    ``ping``. External tools (systemd, shell scripts, wlr-which-key)
-    can send these commands to trigger dictation.
+    ``$XDG_RUNTIME_DIR/voice-typer-hotkey.sock`` for commands like
+    ``toggle`` and ``ping``. External tools (systemd, shell scripts,
+    wlr-which-key) can send these commands to trigger dictation.
 
-    Falls back to pynput if the socket fails, with a timer-based
-    safety net that stops the pynput listener if it doesn't respond
-    within a timeout (it silently fails on Wayland).
+    M-88 (security): when ``$XDG_RUNTIME_DIR`` is unset, the socket
+    server is **refused** (returns ``None`` from ``_socket_path()``)
+    and the backend falls back to pynput-only. Previously, the code
+    fell back to ``/tmp/voice-typer-hotkey.sock`` — a world-writable
+    directory where another local user could pre-create a symlink at
+    that path, causing ``bind()`` to write to (and ``chmod()`` to
+    secure) an attacker-controlled file (classic /tmp symlink attack).
+    The clear warning ``XDG_RUNTIME_DIR unset; Wayland hotkey socket
+    disabled — set XDG_RUNTIME_DIR or run via systemd user session.``
+    is logged so the user knows how to fix the environment.
+
+    Falls back to pynput if the socket fails (or is disabled), with a
+    timer-based safety net that stops the pynput listener if it
+    doesn't respond within a timeout (it silently fails on Wayland).
     """
 
     @staticmethod
-    def _socket_path() -> str:
-        """Return the Unix socket path, preferring ``$XDG_RUNTIME_DIR``.
+    def _socket_path() -> str | None:
+        """Return the Unix socket path under ``$XDG_RUNTIME_DIR``, or ``None``.
 
         ``$XDG_RUNTIME_DIR`` is the Freedesktop standard for
         per-user runtime files (typically
@@ -40,13 +50,18 @@ class WaylandHotkey(HotkeyBackend):
         TOCTOU window between ``bind()`` and ``chmod()`` that existed
         when the path was hardcoded to the world-writable ``/tmp``.
 
-        Falls back to ``/tmp/voice-typer-hotkey.sock`` when
-        ``$XDG_RUNTIME_DIR`` is not set.
+        M-88: returns ``None`` when ``XDG_RUNTIME_DIR`` is unset.
+        Callers (``start``, ``stop``, ``diagnose``) must handle the
+        ``None`` case — typically by falling back to pynput-only and
+        logging the warning. The previous ``/tmp/voice-typer-hotkey.sock``
+        fallback was removed because ``/tmp`` is world-writable and
+        vulnerable to a symlink attack (another user pre-creates the
+        socket path as a symlink to a sensitive file).
         """
         xdg = os.environ.get("XDG_RUNTIME_DIR")
         if xdg:
             return os.path.join(xdg, "voice-typer-hotkey.sock")
-        return "/tmp/voice-typer-hotkey.sock"
+        return None
 
     # RW-6 (pyrefly): expose the socket path as a read-only property so
     # the rest of the class (and tests) can use ``self.SOCKET_PATH``
@@ -56,8 +71,11 @@ class WaylandHotkey(HotkeyBackend):
     # have raised AttributeError at runtime on every code path. The
     # property delegates to the staticmethod so the logic stays in one
     # place.
+    #
+    # M-88: the property is now ``str | None`` — ``None`` signals that
+    # ``XDG_RUNTIME_DIR`` is unset and the socket is disabled.
     @property
-    def SOCKET_PATH(self) -> str:  # noqa: N802 — matches existing attr-access call sites
+    def SOCKET_PATH(self) -> str | None:  # noqa: N802 — matches existing attr-access call sites
         return self._socket_path()
 
     PING_RESPONSE = b"pong\n"
@@ -81,6 +99,20 @@ class WaylandHotkey(HotkeyBackend):
         self._callback = callback
         self._alive = True
 
+        # M-88: refuse to use the /tmp fallback when XDG_RUNTIME_DIR is
+        # unset. /tmp is world-writable and another local user could
+        # pre-create a symlink at the socket path, causing bind() to
+        # write to (and chmod() to secure) an attacker-controlled file.
+        # Fall back to pynput-only with a clear, actionable warning.
+        if self.SOCKET_PATH is None:
+            log.warning(
+                "[HOTKEY-WAYLAND] XDG_RUNTIME_DIR unset; Wayland hotkey "
+                "socket disabled — set XDG_RUNTIME_DIR or run via systemd "
+                "user session."
+            )
+            self._start_pynput_fallback()
+            return
+
         # Try Unix socket first
         try:
             self._start_socket_server()
@@ -100,19 +132,34 @@ class WaylandHotkey(HotkeyBackend):
         import socket as _socket
         import stat
 
+        # M-88: SOCKET_PATH is None when XDG_RUNTIME_DIR is unset.
+        # ``start()`` guards this before calling us, but be defensive
+        # in case of direct calls — refuse to bind anywhere under /tmp.
+        socket_path = self.SOCKET_PATH
+        if socket_path is None:
+            raise RuntimeError("XDG_RUNTIME_DIR unset; refusing to use /tmp fallback (M-88: /tmp symlink attack)")
+
         # Clean up stale socket
-        if os.path.exists(self.SOCKET_PATH):
-            os.unlink(self.SOCKET_PATH)
+        if os.path.exists(socket_path):
+            os.unlink(socket_path)
 
         self._server_socket = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-        self._server_socket.bind(self.SOCKET_PATH)
+        # CR-107: close bind→chmod TOCTOU window with umask(0o077).
+        # Use the local ``socket_path`` (already None-checked above per M-88)
+        # rather than ``self.SOCKET_PATH`` (which is ``str | None`` after the
+        # M-88 fix and would be unsafe to pass to ``bind()`` without a guard).
+        old_umask = os.umask(0o077)
+        try:
+            self._server_socket.bind(socket_path)
+        finally:
+            os.umask(old_umask)
         # PLAT-WAYLAND: restrict socket to owner-only (0o600). Pre-fix
         # this was 0o666 (world-writable) which allowed any local user
         # to send "toggle" commands to the socket. The socket is only
         # used by the same user's wtype/ydotool wrapper script, so
         # group/other access is unnecessary.
         os.chmod(
-            self.SOCKET_PATH,
+            socket_path,
             stat.S_IRUSR | stat.S_IWUSR,
         )
         self._server_socket.listen(5)
@@ -206,9 +253,14 @@ class WaylandHotkey(HotkeyBackend):
         if self._server_socket:
             with contextlib.suppress(Exception):
                 self._server_socket.close()
-        if os.path.exists(self.SOCKET_PATH):
+        # M-88: SOCKET_PATH may be None if XDG_RUNTIME_DIR was unset at
+        # start() time — in that case the socket was never created, so
+        # there is nothing to unlink. Guard against None to avoid an
+        # AttributeError / TypeError from os.path.exists(None).
+        socket_path = self.SOCKET_PATH
+        if socket_path is not None and os.path.exists(socket_path):
             with contextlib.suppress(Exception):
-                os.unlink(self.SOCKET_PATH)
+                os.unlink(socket_path)
         log.info("[HOTKEY-WAYLAND] Stopped")
 
     def is_alive(self) -> bool:
@@ -217,10 +269,25 @@ class WaylandHotkey(HotkeyBackend):
 
     def diagnose(self) -> str:
         """Return diagnostic information about the Wayland hotkey backend."""
-        socket_ok = os.path.exists(self.SOCKET_PATH)
+        # M-88: SOCKET_PATH may be None if XDG_RUNTIME_DIR is unset.
+        socket_path = self.SOCKET_PATH
+        if socket_path is None:
+            socket_desc = "<disabled: XDG_RUNTIME_DIR unset>"
+            socket_ok = False
+        else:
+            socket_desc = socket_path
+            socket_ok = os.path.exists(socket_path)
         thread_alive = self._thread is not None and self._thread.is_alive()
         pynput_alive = self._pynput_fallback is not None and self._pynput_fallback.is_alive()
         return (
-            f"WaylandHotkey: socket={self.SOCKET_PATH} (exists={socket_ok}), "
+            f"WaylandHotkey: socket={socket_desc} (exists={socket_ok}), "
             f"thread_alive={thread_alive}, pynput_fallback={pynput_alive}"
         )
+
+
+# CR-66 / verify-compat alias: some downstream callers and the F20
+# verify command import the class as ``WaylandHotkeyBackend``. Keep
+# both names available — the canonical name remains ``WaylandHotkey``
+# (matches the existing ``WaylandHotkey`` references in factory.py,
+# native_adapter.py, __init__.py and the existing test suite).
+WaylandHotkeyBackend = WaylandHotkey

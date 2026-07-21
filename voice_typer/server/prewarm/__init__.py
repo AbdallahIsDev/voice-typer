@@ -78,6 +78,48 @@ module exposed so existing imports of the form
 ``from voice_typer.server.prewarm import X`` keep working without
 modification.
 
+CR-67 / TECH-DEBT: ``_pkg.X`` indirection for test-patch compatibility
+-------------------------------------------------------------------------
+This package uses an **indirection pattern** (rather than a custom
+module subclass like :mod:`voice_typer.server.recording` does) to
+make test patches on the package namespace propagate to submodules:
+
+- Each submodule does ``from voice_typer.server import prewarm as _pkg``
+  at the top of its file.
+- Functions inside the submodules look up patched names via
+  ``_pkg.X()`` at call time (rather than capturing the function
+  object at import time).
+- This ``__init__.py`` re-exports ``X`` from the appropriate
+  submodule so ``_pkg.X`` resolves correctly without eager binding
+  at import time.
+
+WHY this hack exists: the test suite uses
+``monkeypatch.setattr(prewarm, "X", ...)`` and
+``monkeypatch.setattr("voice_typer.server.prewarm.X", ...)`` to
+inject fakes / failure modes, and then expects the production code
+in the submodules to see the new value.  Without the ``_pkg.X``
+indirection, the submodule's binding (captured at import time)
+would be unchanged — the test would silently no-op.
+
+The same pattern exists in :mod:`voice_typer.server.recording` (which
+additionally installs a custom ``_RecordingModule`` class for the
+mutable-state routing case) and :mod:`voice_typer.server.server_platform`.
+All three packages together account for ~500 LOC of ``__init__.py``
+boilerplate that exists purely for test-patch compatibility.
+
+TODO: migrate tests to patch submodules directly, then remove the
+``_pkg.X`` indirection.  Concretely: replace
+``monkeypatch.setattr("voice_typer.server.prewarm.X", ...)`` with
+``monkeypatch.setattr("voice_typer.server.prewarm.<submodule>.X", ...)``
+and have the submodules do ``from .<submodule> import X`` at the top
+of their file (so the binding is captured at import time and the
+patch takes effect via the submodule's ``__dict__``).  Once every
+test site has been migrated, the ``_pkg.X`` references and the
+``from voice_typer.server import prewarm as _pkg`` lines in the
+submodules can be deleted.  Estimated scope: 30-50 test files per
+package (so 90-150 test files total across the three packages).
+Tracked as CR-67 / TECH-DEBT.
+
 Patch-path compatibility
 ------------------------
 Tests heavily patch names on this package namespace via

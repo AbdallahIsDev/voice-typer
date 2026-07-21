@@ -328,7 +328,14 @@ def create_launcher_shortcut() -> Path | None:
             log.info("[STARTUP] Desktop .lnk created: %s", lnk_desktop)
             primary_path = lnk_desktop
         else:
-            log.warning("[STARTUP] Could not create desktop .lnk — install pywin32 or check logs")
+            # CR-76: include the operation inputs (target + destination)
+            # so operators can tell which path / launcher failed without
+            # having to dig through the rest of the startup log.
+            log.warning(
+                "[STARTUP] Could not create desktop .lnk (target=%s, lnk=%s) — install pywin32 or check logs",
+                pythonw,
+                lnk_desktop,
+            )
 
     # Secondary: Start Menu copy so Start search finds "Voice Typer".
     try:

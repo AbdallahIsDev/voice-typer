@@ -104,7 +104,16 @@ from .base import (
     RESTART_DELAY_BASE_SECONDS,
     SubprocessHotkeyBackend,
 )
-from .binary_path import _BINARY_NAMES, get_native_binary_path
+from .binary_path import (
+    _BINARY_NAMES,
+    _MANIFEST_PATH,
+    _is_trusted_path_override,
+    get_expected_sha256,
+    get_native_binary_path,
+    load_binary_manifest,
+    verify_native_binary,
+    verify_native_binary_or_skip,
+)
 from .factory import create_native_backend, is_native_backend_available
 from .linux_backend import LinuxEvdevHotkey
 from .mac_backend import MacNativeHotkey
@@ -126,7 +135,13 @@ __all__ = [
     "log",
     # binary_path
     "_BINARY_NAMES",
+    "_MANIFEST_PATH",
+    "_is_trusted_path_override",
+    "get_expected_sha256",
     "get_native_binary_path",
+    "load_binary_manifest",
+    "verify_native_binary",
+    "verify_native_binary_or_skip",
     # modifiers
     "_MOD_CANONICAL_MAP",
     "_canonical_modifier",

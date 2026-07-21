@@ -1362,6 +1362,32 @@ class Recorder:
         # AUDIO-HOT: store callback reference for device restart
         self._current_callback = callback
 
+        # =====================================================================
+        # CRITICAL — DO NOT RESTRUCTURE (2026-07-20)
+        # =====================================================================
+        # The device-enumeration block below (last_error, selected_device,
+        # effective_sr, ``for candidate in candidates``, the fallback loop,
+        # and the ``if self._stream is None:`` check) MUST stay at start()
+        # method scope — this 8-space indent level, OUTSIDE the ``callback``
+        # closure defined above.
+        #
+        # A previous merge accidentally nested this block INSIDE the
+        # ``def callback()`` closure (12-space indent). That made
+        # ``last_error`` a local of ``callback``, not ``start()``. When
+        # ``start()`` checked ``if last_error is not None:``, Python raised:
+        #     UnboundLocalError: cannot access local variable 'last_error'
+        #     where it is not associated with a value
+        # → recording start crashed on every attempt.
+        #
+        # The fallback loop (``for candidate in all_candidates``) was also
+        # misplaced — trapped inside the preroll-buffer block instead of
+        # ``if self._stream is None and not used_fallback:``.
+        #
+        # DO NOT move device enumeration inside the callback closure.
+        # DO NOT re-add ``set_thread_registry`` — it was merge damage, not
+        # in the original codebase, and referenced a function that did not
+        # exist. The ``recording/__init__.py`` stub for it is dead code.
+        # =====================================================================
         last_error = None
         selected_device = None
         effective_sr = self.config.sample_rate

@@ -53,112 +53,74 @@ keyboards (German ^/°, French #, etc.).
 # `sys` is imported (and re-exported) so that tests using
 # ``monkeypatch.setattr("voice_typer.server.hotkeys.sys.platform", "linux")``
 # resolve the dotted path to the real ``sys`` module.
-import logging
-import sys  # noqa: F401 — re-exported for monkeypatch.setattr targets
 
-from voice_typer.server.platform_utils import (
-    is_linux,
-    is_macos,
-    is_windows,
+import sys
+
+from voice_typer.server.hotkeys.base import HotkeyBackend
+from voice_typer.server.hotkeys.factory import create_hotkey_backend
+from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
+
+# =====================================================================
+# CRITICAL — DO NOT REMOVE (2026-07-20)
+# =====================================================================
+# These three platform predicates (is_windows, is_linux, is_macos) MUST
+# be defined at package level here. They are NOT dead code.
+#
+# Submodules (factory.py, native_adapter.py, capture.py, pynput_backend.py)
+# delegate to them via wrapper lambdas like:
+#     is_windows = lambda: _hotkeys_pkg.is_windows()
+# And tests patch them via:
+#     monkeypatch.setattr("voice_typer.server.hotkeys.is_windows", ...)
+#
+# If removed, every hotkey registration fails at runtime with:
+#     AttributeError: module 'voice_typer.server.hotkeys' has no attribute
+#     'is_windows'
+# which silently disables ALL hotkeys (caps_lock, ESC cancel, repaste, etc.)
+# without crashing the app — the user just gets a non-functional hotkey layer.
+#
+# They are callables (not bare bools) so test patches take effect on every
+# call, and so ``monkeypatch.setattr("...sys.platform", "linux")`` propagates
+# through ``sys.platform`` lookups to every submodule caller.
+# =====================================================================
+is_windows = lambda: sys.platform == "win32"  # noqa: E731
+is_linux = lambda: sys.platform.startswith("linux")  # noqa: E731
+is_macos = lambda: sys.platform == "darwin"  # noqa: E731
+from voice_typer.server.hotkeys.pynput_backend import (
+    PynputHotkey,
+    _parse_hotkey_to_pynput,
 )
-
-# ─── Public API re-exports ──────────────────────────────────────────────────
-# Order matters: each submodule imports from earlier ones (base → win32_vk →
-# pynput_backend → windows_native → wayland → native_adapter → factory →
-# capture).  All submodules also do ``from voice_typer.server import hotkeys
-# as _hotkeys_pkg`` to defer ``is_windows`` / ``is_linux`` / ``is_macos``
-# lookups to call time, so the package's bindings for those names must be
-# in place before the submodules' lambdas ever fire — which they are,
-# because the lambdas only execute when the wrapped functions are called
-# at runtime, long after this ``__init__.py`` has finished loading.
-from .base import HotkeyBackend, log
-from .capture import capture_custom_hotkey
-from .factory import create_hotkey_backend
-from .native_adapter import _NativeBackendAdapter
-from .pynput_backend import PynputHotkey, _parse_hotkey_to_pynput
-from .wayland import WaylandHotkey
-from .win32_vk import (
-    _GWLP_USERDATA,
-    _KEYEVENTF_KEYUP,
+from voice_typer.server.hotkeys.wayland import WaylandHotkey
+from voice_typer.server.hotkeys.win32_vk import (
     _MOD_ALT,
     _MOD_ALTGR,
     _MOD_CONTROL,
-    _MOD_NOREPEAT,
     _MOD_SHIFT,
     _MOD_WIN,
-    _VK_CAPITAL,
-    _VK_CONTROL,
-    _VK_LWIN,
     _VK_MAP,
     _VK_MAP_LOCK,
-    _VK_MENU,
-    _VK_RMENU,
-    _VK_RWIN,
-    _VK_SHIFT,
-    _WHC_KEYBOARD_LL,
-    _WM_HOTKEY,
-    _WM_KEYDOWN,
-    _WM_KEYUP,
-    _WM_QUIT,
-    _WM_SYSKEYDOWN,
-    _WM_SYSKEYUP,
     _init_vk_map,
-    _win32_vk,
     parse_hotkey_to_vk,
     parse_hotkey_to_win32,
 )
-from .windows_native import WindowsNativeHotkey
+from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
 
 __all__ = [
-    # base
+    "sys",
     "HotkeyBackend",
-    "log",
-    # pynput_backend
+    "create_hotkey_backend",
     "PynputHotkey",
     "_parse_hotkey_to_pynput",
-    # win32_vk
-    "_GWLP_USERDATA",
-    "_KEYEVENTF_KEYUP",
+    "WindowsNativeHotkey",
+    "WaylandHotkey",
+    "_NativeBackendAdapter",
+    "_VK_MAP",
+    "_VK_MAP_LOCK",
+    "_init_vk_map",
+    "parse_hotkey_to_vk",
+    "parse_hotkey_to_win32",
     "_MOD_ALT",
     "_MOD_ALTGR",
     "_MOD_CONTROL",
-    "_MOD_NOREPEAT",
     "_MOD_SHIFT",
     "_MOD_WIN",
-    "_VK_CAPITAL",
-    "_VK_CONTROL",
-    "_VK_LWIN",
-    "_VK_MAP",
-    "_VK_MAP_LOCK",
-    "_VK_MENU",
-    "_VK_RMENU",
-    "_VK_RWIN",
-    "_VK_SHIFT",
-    "_WHC_KEYBOARD_LL",
-    "_WM_HOTKEY",
-    "_WM_KEYDOWN",
-    "_WM_KEYUP",
-    "_WM_QUIT",
-    "_WM_SYSKEYDOWN",
-    "_WM_SYSKEYUP",
-    "_init_vk_map",
-    "_win32_vk",
-    "parse_hotkey_to_vk",
-    "parse_hotkey_to_win32",
-    # windows_native
-    "WindowsNativeHotkey",
-    # native_adapter
-    "_NativeBackendAdapter",
-    # wayland
-    "WaylandHotkey",
-    # factory
-    "create_hotkey_backend",
-    # capture
-    "capture_custom_hotkey",
-    # platform_utils (re-exported for patch compatibility)
-    "is_linux",
-    "is_macos",
-    "is_windows",
-    # sys (re-exported for monkeypatch.setattr compatibility)
-    "sys",
 ]

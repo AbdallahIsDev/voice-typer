@@ -81,6 +81,14 @@ _BUFFER_CLEAR_QUEUE_MAXSIZE = 64
 _buffer_clear_queue: queue.Queue = queue.Queue(maxsize=_BUFFER_CLEAR_QUEUE_MAXSIZE)
 _buffer_clear_worker_lock = threading.Lock()
 _buffer_clear_worker: threading.Thread | None = None
+# NOTE (2026-07-20): ``_thread_registry`` and the registration block in
+# ``_ensure_buffer_clear_worker`` were removed — they were added as part of
+# a merge-damage repair, but HEAD's ``recorder.py`` never calls
+# ``recording.set_thread_registry()``, so the registry was always ``None``
+# and the registration was dead code. Keeping it risked a future agent
+# re-adding the orphan call site in ``recorder.py`` (which was the original
+# crash). If ThreadRegistry propagation is genuinely needed, implement it
+# end-to-end properly — see the note in ``recording/__init__.py``.
 
 
 def _ensure_buffer_clear_worker() -> threading.Thread:

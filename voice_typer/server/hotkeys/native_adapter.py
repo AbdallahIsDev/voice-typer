@@ -150,6 +150,8 @@ class _NativeBackendAdapter(HotkeyBackend):
         native_backend._on_permanent_failure_callback = (  # type: ignore[assignment]
             self._on_native_permanent_failure
         )
+        # CR-143: wire WARN callback
+        native_backend._on_warn_callback = self._on_native_warn  # type: ignore[assignment]
 
     def start(self, callback: Callable[[], None]) -> None:
         self._callback = callback
@@ -231,6 +233,17 @@ class _NativeBackendAdapter(HotkeyBackend):
         )
 
     # ── GAP-2: permission error handling ────────────────────────────────
+
+    def _on_native_warn(self, warn_message: str) -> None:
+        """CR-143: non-fatal degradation (e.g. SKIP_ACCESSIBILITY)."""
+        log.warning("[HOTKEY] Native backend WARN: %s", warn_message)
+        tray = self._get_tray()
+        if tray is not None:
+            try:
+                short = warn_message if len(warn_message) <= 160 else warn_message[:157] + "..."
+                tray.notify(f"{APP_NAME}: Native hotkey warning", short)
+            except Exception:
+                log.debug("[HOTKEY] tray.notify failed for WARN")
 
     def _on_native_error(self, error_message: str) -> None:
         """Called by the native backend when it emits an ERROR: line.
@@ -344,6 +357,9 @@ class _NativeBackendAdapter(HotkeyBackend):
                         legacy.stop()
                     return
                 self._legacy = legacy
+                # CR-142: propagate _tray to legacy backend
+                with contextlib.suppress(AttributeError, TypeError):
+                    self._legacy._tray = self._tray  # type: ignore[attr-defined]
                 self._state = self._STATE_FALLBACK
             log.info("[HOTKEY] Successfully swapped to legacy backend")
             self._show_fallback_notification()
@@ -430,6 +446,9 @@ class _NativeBackendAdapter(HotkeyBackend):
             self._legacy.start(self._callback)  # type: ignore[arg-type]
             if self._on_release_callback is not None:
                 self._legacy.set_on_release(self._on_release_callback)
+            # CR-142 (cont.): propagate _tray
+            with contextlib.suppress(AttributeError, TypeError):
+                self._legacy._tray = self._tray  # type: ignore[attr-defined]
             with self._swap_lock:
                 if self._state == self._STATE_STOPPED:
                     self._legacy.stop()

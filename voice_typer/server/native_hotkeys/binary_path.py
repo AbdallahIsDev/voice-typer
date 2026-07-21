@@ -1,33 +1,259 @@
 """Native binary discovery.
 
 Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-(ARCH-045).
+(ARCH-045). CR-46 (session-1): adds SHA-256 manifest verification.
+CR-66 (session-2): adds Windows arch-suffixed binary names
+(Windows on ARM/aarch64 support).
 
 This module owns:
 
-- :data:`_BINARY_NAMES` — per-platform binary filename map.
+- :data:`_BINARY_NAMES` — per-``(platform, machine)`` binary filename
+  map (CR-32: per-arch native binaries). Implemented as
+  :class:`_ArchAwareBinaryNameMap` so pre-CR-32 callers that index by
+  bare platform string (``_BINARY_NAMES.get("linux")``) keep working
+  via the legacy shim.
+- :data:`_LEGACY_BINARY_NAMES` — pre-CR-32 non-arch-suffixed names,
+  used both as a fallback for existing Tauri bundles (during the
+  ``tauri.conf.json`` resource-list transition owned by IMPL-4) and
+  as the backing store for the string-key shim on
+  :class:`_ArchAwareBinaryNameMap`.
 - :func:`get_native_binary_path` — find the native key-listener
   binary for the current platform (env var → dev mode → PyInstaller
   bundle).
+
+Per-arch naming convention (CR-32)
+-----------------------------------
+- Linux:   ``linux-key-listener-x86_64`` /
+  ``linux-key-listener-aarch64``
+- Windows: ``windows-key-listener-x86_64.exe`` /
+  ``windows-key-listener-aarch64.exe``
+- macOS:   ``macos-key-listener`` (single universal binary produced
+  via ``lipo`` of arm64 + x86_64 — no arch suffix).
+
+The :func:`_normalize_machine` helper maps the various
+``platform.machine()`` return values (``x86_64``/``amd64`` on x86_64,
+``aarch64``/``arm64`` on ARM64, uppercase variants on Windows) to a
+canonical arch token used as the dict key.
 """
 
+import hashlib
+import json
+import logging
 import os
+
+log = logging.getLogger(__name__)
+
+import platform
 import sys
 from pathlib import Path
 
-# Binary names per platform
-_BINARY_NAMES = {
+# Legacy (non-arch-suffixed) names, kept as a backward-compat fallback
+# for bundles that still ship the old single-arch binary under the
+# pre-CR-32 name. Probed ONLY when the arch-suffixed name is not found
+# at a given candidate location, so it adds at most one extra
+# ``is_file()`` call per lookup miss. Also used by
+# :class:`_ArchAwareBinaryNameMap` to satisfy the legacy
+# ``_BINARY_NAMES.get("<platform>")`` call site in pre-CR-32 callers
+# (e.g. existing tests that pin the contract by platform-string key).
+# Once IMPL-4 / the primary agent updates ``src-tauri/tauri.conf.json``
+# to ship the arch-suffixed names exclusively AND old bundles have
+# aged out of the field, this map (and the fallback logic + string-key
+# shim in :class:`_ArchAwareBinaryNameMap`) can be removed.
+_LEGACY_BINARY_NAMES: dict[str, str] = {
     "darwin": "macos-key-listener",
     "win32": "windows-key-listener.exe",
     "linux": "linux-key-listener",
 }
+
+# CR-46: path to the SHA-256 manifest emitted by the build script
+# (``scripts/build/compile_native.*``). Used by :func:`load_binary_manifest`
+# to verify native binaries were not tampered with after install.
+_MANIFEST_PATH = Path(__file__).resolve().parent.parent / "native" / "binaries.json"
+
+# CR-66: arch-suffixed binary names. Windows on ARM (aarch64) requires
+# a separate native binary build because the x86_64 MSVC toolchain
+# cannot emit ARM64 code. The lookup key for Windows combines the
+# platform (``win32``) with the architecture suffix returned by
+# :func:`_windows_arch_suffix` (``x86_64`` or ``aarch64``). Non-Windows
+# platforms do not have arch variants and use the bare ``sys.platform``
+# value as the key.
+_BINARY_NAMES_BY_PLATFORM_ARCH = {
+    "darwin": "macos-key-listener",
+    "linux": "linux-key-listener",
+    "win32-x86_64": "windows-key-listener-x86_64.exe",
+    "win32-aarch64": "windows-key-listener-aarch64.exe",
+}
+
+
+def _windows_arch_suffix() -> str:
+    """Return the Windows binary arch suffix for the current CPU.
+
+    CR-66: Windows on ARM (aarch64) is now supported via a separate
+    binary build (``windows-key-listener-aarch64.exe``). The x86_64
+    build is renamed to ``windows-key-listener-x86_64.exe`` for
+    clarity (and so the binary name uniquely identifies the target
+    arch).
+
+    ``platform.machine()`` returns:
+
+      - ``'AMD64'`` on x86_64 Windows (Windows convention — the CPU
+        vendor string, not the architecture string).
+      - ``'ARM64'`` on aarch64 Windows.
+      - ``'x86_64'`` / ``'aarch64'`` on Linux/macOS hosts (POSIX
+        convention). On POSIX we don't actually need this function
+        (the Windows branch is only entered when ``sys.platform ==
+        'win32'``), but we normalize defensively anyway.
+
+    Returns the suffix used in the binary filename:
+
+      - ``'aarch64'`` for ARM64 hosts.
+      - ``'x86_64'`` for everything else (AMD64, x64, x86_64, etc.).
+    """
+    machine = platform.machine().upper()
+    if machine in ("ARM64", "AARCH64"):
+        return "aarch64"
+    # Default: AMD64, x86_64, x64, EM64T, etc. — all map to x86_64 suffix.
+    return "x86_64"
+
+
+def _platform_arch_key() -> str:
+    """Return the key into :data:`_BINARY_NAMES_BY_PLATFORM_ARCH`.
+
+    For Windows, combines the platform with the arch suffix returned
+    by :func:`_windows_arch_suffix` (e.g. ``"win32-x86_64"`` or
+    ``"win32-aarch64"``). For other platforms, returns the bare
+    ``sys.platform`` value.
+    """
+    if sys.platform == "win32":
+        return f"win32-{_windows_arch_suffix()}"
+    return sys.platform
+
+
+class _ArchAwareBinaryNameMap(dict):
+    """Dict keyed by ``(platform, machine)`` with a legacy string-key shim.
+
+    CR-32 mandates that ``_BINARY_NAMES`` be a ``dict[tuple[str, str],
+    str]`` keyed by ``(platform, machine)``. This subclass satisfies
+    that contract while *also* keeping the pre-CR-32 string-key
+    interface alive for backward compatibility:
+
+    - ``_BINARY_NAMES[("linux", "x86_64")]`` → ``"linux-key-listener-x86_64"``
+      (new arch-aware lookup — CR-32).
+    - ``_BINARY_NAMES.get("linux")`` → ``"linux-key-listener"``
+      (legacy string-key lookup — delegates to
+      :data:`_LEGACY_BINARY_NAMES`).
+
+    The string-key shim is implemented only on ``__getitem__``,
+    ``get``, and ``__contains__``; iteration and other dict operations
+    only see the tuple keys (so ``len(_BINARY_NAMES)`` returns the
+    arch-aware entry count, not the legacy count).
+    """
+
+    def __getitem__(self, key):
+        if isinstance(key, tuple):
+            return super().__getitem__(key)
+        if isinstance(key, str):
+            return _LEGACY_BINARY_NAMES[key]
+        raise KeyError(key)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __contains__(self, key):
+        if isinstance(key, tuple):
+            return super().__contains__(key)
+        if isinstance(key, str):
+            return key in _LEGACY_BINARY_NAMES
+        return False
+
+
+# Per-(platform, machine) binary filename map (CR-32).
+#
+# macOS ships a single universal binary (lipo of arm64 + x86_64) so
+# the same filename ``macos-key-listener`` is used for both arches.
+# Linux and Windows ship per-arch variants because neither OS has a
+# lipo-style universal binary mechanism.
+#
+# Note: the dict literal is built with tuple keys (CR-32 contract);
+# the :class:`_ArchAwareBinaryNameMap` subclass adds the legacy
+# string-key shim on top so pre-CR-32 callers that index by bare
+# platform string keep working.
+_BINARY_NAMES: dict[tuple[str, str], str] = _ArchAwareBinaryNameMap(
+    {
+        # macOS: universal binary covers both arm64 + x86_64.
+        ("darwin", "x86_64"): "macos-key-listener",
+        ("darwin", "arm64"): "macos-key-listener",
+        ("darwin", "aarch64"): "macos-key-listener",
+        # Windows: per-arch variants.
+        ("win32", "x86_64"): "windows-key-listener-x86_64.exe",
+        ("win32", "amd64"): "windows-key-listener-x86_64.exe",
+        ("win32", "aarch64"): "windows-key-listener-aarch64.exe",
+        ("win32", "arm64"): "windows-key-listener-aarch64.exe",
+        # Linux: per-arch variants.
+        ("linux", "x86_64"): "linux-key-listener-x86_64",
+        ("linux", "amd64"): "linux-key-listener-x86_64",
+        ("linux", "aarch64"): "linux-key-listener-aarch64",
+        ("linux", "arm64"): "linux-key-listener-aarch64",
+    }
+)
+
+
+def _normalize_machine(machine: str | None) -> str:
+    """Normalize :func:`platform.machine` output to a canonical arch token.
+
+    ``platform.machine()`` returns:
+
+    - ``"x86_64"`` on Linux x86_64 and macOS Intel
+    - ``"amd64"`` on Windows x86_64
+    - ``"aarch64"`` on Linux ARM64
+    - ``"arm64"`` on macOS Apple Silicon and Windows 11 ARM
+    - ``"ARM64"`` (uppercase) on some Windows 11 ARM builds
+    - ``"i386"`` / ``"i686"`` / ``"x86"`` on 32-bit hosts
+
+    The normalization lowercases the input and folds aliases together
+    so the ``_BINARY_NAMES`` lookup table only needs one entry per
+    architecture family.
+    """
+    m = (machine or "").lower()
+    if m in ("x86_64", "amd64"):
+        return "x86_64"
+    if m in ("aarch64", "arm64"):
+        return "aarch64"
+    if m in ("i386", "i686", "x86"):
+        return "i686"
+    return m  # unknown — caller will see no _BINARY_NAMES entry
+
+
+def _candidate_binary_names() -> list[str]:
+    """Return the candidate binary names for the current platform+arch.
+
+    The arch-suffixed name (CR-32) is preferred; the legacy
+    non-arch-suffixed name is appended as a fallback so existing
+    bundles keep working during the ``tauri.conf.json`` transition.
+    The returned list is de-duplicated (macOS universal binary uses
+    the same name for both arch and legacy, so it appears once).
+
+    Returns an empty list if the platform is unknown.
+    """
+    machine = _normalize_machine(platform.machine())
+    names: list[str] = []
+    primary = _BINARY_NAMES.get((sys.platform, machine))
+    if primary:
+        names.append(primary)
+    legacy = _LEGACY_BINARY_NAMES.get(sys.platform)
+    if legacy and legacy not in names:
+        names.append(legacy)
+    return names
 
 
 # ─── Binary discovery ──────────────────────────────────────────────────────
 
 
 def get_native_binary_path() -> Path | None:
-    """Find the native key-listener binary for the current platform.
+    """Find the native key-listener binary for the current platform+arch.
 
     Search order:
     1. ``VOICE_TYPER_NATIVE_BINARY`` env var (explicit override — single binary)
@@ -37,31 +263,41 @@ def get_native_binary_path() -> Path | None:
     5. Next to the Python executable (PyInstaller onedir mode)
     6. Inside ``_MEIPASS`` (PyInstaller onefile mode)
 
+    At each step (2–6) the arch-suffixed name (CR-32) is tried first;
+    if no file is found, the legacy non-arch-suffixed name is tried as
+    a fallback (CR-32 transition — see :data:`_LEGACY_BINARY_NAMES`).
+
     Returns ``None`` if no binary is found.
+
+    CR-66: on Windows, the binary name is arch-suffixed
+    (``windows-key-listener-x86_64.exe`` or
+    ``windows-key-listener-aarch64.exe``) — see
+    :func:`_windows_arch_suffix`. The legacy non-suffixed
+    ``windows-key-listener.exe`` name in :data:`_BINARY_NAMES` is no
+    longer looked up here; existing installs should rebuild via
+    ``scripts/build/compile_native.ps1`` (which now emits the
+    arch-suffixed name).
+
+    CR-46: callers SHOULD follow this with a call to
+    :func:`verify_native_binary_or_skip` to verify the SHA-256 of the
+    returned path against the manifest (``binaries.json``).
     """
-    binary_name = _BINARY_NAMES.get(sys.platform)
-    if binary_name is None:
+    binary_names = _candidate_binary_names()
+    if not binary_names:
         return None
 
-    # 1. Explicit override (single binary path)
+    # 1. Explicit override (single binary path) — name-agnostic.
     env_path = os.environ.get("VOICE_TYPER_NATIVE_BINARY")
     if env_path:
         p = Path(env_path)
         if p.is_file():
             return p
-
-    # 2. ADR-0020 §7: Tauri resource dir. The Tauri host sets this env
-    # var to point at the bundle's `resources/native/` directory, which
-    # contains all three platform binaries (only the matching one is
-    # used). This is the path the Nuitka-frozen sidecar uses in
-    # production. Falls through silently if the env var is unset (dev
-    # mode) or points at a dir without the binary (broken install —
-    # the dev/source-tree path below will pick up the slack).
     env_dir = os.environ.get("VOICE_TYPER_NATIVE_DIR")
     if env_dir:
-        candidate = Path(env_dir) / binary_name
-        if candidate.is_file():
-            return candidate
+        for binary_name in binary_names:
+            candidate = Path(env_dir) / binary_name
+            if candidate.is_file():
+                return candidate
 
     # 3/4. Dev mode — alongside this package's source tree.  Use
     # ``__file__`` of *this* module (``native_hotkeys/binary_path.py``)
@@ -69,26 +305,97 @@ def get_native_binary_path() -> Path | None:
     # then into ``server/native/``.  This mirrors the original layout
     # where ``native_hotkeys.py`` lived directly in ``server/``.
     module_dir = Path(__file__).resolve().parent.parent / "native"
-    candidates = [
-        module_dir / binary_name,
-        # Some platforms may have a .exe suffix even in dev (cross-compile)
-        module_dir / f"{binary_name}.exe",
-    ]
-    for c in candidates:
-        if c.is_file():
-            return c
+    for binary_name in binary_names:
+        candidates = [
+            module_dir / binary_name,
+            # Some platforms may have a .exe suffix even in dev (cross-compile)
+            module_dir / f"{binary_name}.exe",
+        ]
+        for c in candidates:
+            if c.is_file():
+                return c
 
-    # 5. PyInstaller onedir: binary sits next to python executable
+    # 5. PyInstaller onedir: binary sits next to python executable.
     exe_dir = Path(sys.executable).resolve().parent
-    onedir_candidate = exe_dir / binary_name
-    if onedir_candidate.is_file():
-        return onedir_candidate
+    for binary_name in binary_names:
+        onedir_candidate = exe_dir / binary_name
+        if onedir_candidate.is_file():
+            return onedir_candidate
 
-    # 6. PyInstaller onefile: binary extracted to _MEIPASS
+    # 6. PyInstaller onefile: binary extracted to _MEIPASS.
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
-        meipass_candidate = Path(meipass) / "voice_typer" / "server" / "native" / binary_name
-        if meipass_candidate.is_file():
-            return meipass_candidate
+        for binary_name in binary_names:
+            meipass_candidate = Path(meipass) / "voice_typer" / "server" / "native" / binary_name
+            if meipass_candidate.is_file():
+                return meipass_candidate
 
     return None
+
+
+def load_binary_manifest() -> dict | None:
+    try:
+        text = _MANIFEST_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        log.debug("[NATIVE-BINARY] No manifest at %s", _MANIFEST_PATH)
+        return None
+    except OSError as exc:
+        log.warning("[NATIVE-BINARY] Failed to read manifest %s: %s", _MANIFEST_PATH, exc)
+        return None
+    try:
+        manifest = json.loads(text)
+    except json.JSONDecodeError as exc:
+        log.warning("[NATIVE-BINARY] Malformed manifest %s: %s", _MANIFEST_PATH, exc)
+        return None
+    if not isinstance(manifest, dict):
+        log.warning("[NATIVE-BINARY] Manifest %s is not a JSON object", _MANIFEST_PATH)
+        return None
+    return manifest
+
+
+def get_expected_sha256(binary_name: str) -> str | None:
+    manifest = load_binary_manifest()
+    if manifest is None:
+        return None
+    entry = manifest.get("binaries", {}).get(binary_name)
+    if not isinstance(entry, dict):
+        return None
+    sha = entry.get("sha256", "")
+    if not isinstance(sha, str) or not sha:
+        return None
+    return sha.strip().lower()
+
+
+def verify_native_binary(path: Path, expected_sha256: str) -> bool:
+    try:
+        actual = hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as exc:
+        log.warning("[NATIVE-BINARY] Failed to read %s: %s", path, exc)
+        return False
+    expected = expected_sha256.strip().lower()
+    if actual != expected:
+        log.error(
+            "[NATIVE-BINARY] CHECKSUM MISMATCH for %s — expected %s, got %s. "
+            "Refusing to use this binary; falling back to legacy backend.",
+            path,
+            expected,
+            actual,
+        )
+        return False
+    log.debug("[NATIVE-BINARY] Checksum OK for %s (%s)", path.name, actual)
+    return True
+
+
+def _is_trusted_path_override() -> bool:
+    return bool(os.environ.get("VOICE_TYPER_NATIVE_BINARY")) or bool(os.environ.get("VOICE_TYPER_NATIVE_DIR"))
+
+
+def verify_native_binary_or_skip(path: Path) -> bool:
+    if _is_trusted_path_override():
+        log.debug("[NATIVE-BINARY] Skipping checksum for %s — trusted override", path)
+        return True
+    expected = get_expected_sha256(path.name)
+    if expected is None:
+        log.debug("[NATIVE-BINARY] No manifest entry for %s — skip", path.name)
+        return True
+    return verify_native_binary(path, expected)

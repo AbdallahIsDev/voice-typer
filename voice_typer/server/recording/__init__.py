@@ -19,6 +19,44 @@ module exposed so existing imports of the form
 ``from voice_typer.server.recording import X`` keep working without
 modification.
 
+CR-67 / TECH-DEBT: custom module class for test-patch compatibility
+-------------------------------------------------------------------
+This package installs a custom module subclass (``_RecordingModule``,
+defined at the bottom of this file) whose ``__getattr__`` and
+``__setattr__`` route a small set of mutable global names
+(``_resample_poly``, ``_resample_poly_error``,
+``_resample_poly_error_time``, ``_scipy_preloader_thread``,
+``_buffer_clear_worker``) through to the owning submodule
+(:mod:`.resampling` / :mod:`.buffer`) instead of landing on the
+package's own ``__dict__``.
+
+WHY this hack exists: the test suite uses
+``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
+to inject failure modes into the resample path, and then expects
+``Recorder._get_resample_poly`` (defined in :mod:`.resampling`) to
+see the new value when it next reads the global.  Without the
+custom module class, the test's write would land on the package's
+``__dict__`` (a stale snapshot) and :mod:`.resampling`'s binding
+would be unchanged — the test would silently no-op.
+
+The same indirection pattern exists in :mod:`voice_typer.server.prewarm`
+and :mod:`voice_typer.server.server_platform` (their submodules do
+``from voice_typer.server import X as _pkg`` and look up patched
+names via ``_pkg.X`` at call time).  All three packages together
+account for ~500 LOC of ``__init__.py`` boilerplate that exists
+purely for test-patch compatibility.
+
+TODO: migrate tests to patch submodules directly, then remove this
+class.  Concretely: replace
+``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
+with
+``monkeypatch.setattr("voice_typer.server.recording.resampling._resample_poly_error", ...)``
+(and similarly for the other routed names).  Once every test site
+has been migrated, ``_RecordingModule`` and the ``_MUTABLE_*``
+frozensets below can be deleted.  Estimated scope: 30-50 test files
+per package (so 90-150 test files total across the three packages).
+Tracked as CR-67 / TECH-DEBT.
+
 Patch-path compatibility
 ------------------------
 Tests use ``monkeypatch.setattr("voice_typer.server.recording.X", ...)``
@@ -258,6 +296,28 @@ __all__ = [
 #   self._preroll_buffer.clear()  # then release the deque
 
 # ── Custom module class for mutable-state routing ───────────────────────
+# CR-67 / TECH-DEBT: this entire block exists for test-patch
+# compatibility — see the docstring at the top of this file for the
+# full rationale.  In short: tests do
+# ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
+# and expect :mod:`.resampling`'s binding to be mutated, but a plain
+# module's ``__dict__`` snapshot wouldn't propagate the write.  The
+# custom ``_RecordingModule`` class below installs ``__getattr__`` /
+# ``__setattr__`` overrides that route the mutable names through to
+# the owning submodule.
+#
+# TODO: migrate tests to patch submodules directly, then remove this
+# class.  Replace
+# ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
+# with
+# ``monkeypatch.setattr("voice_typer.server.recording.resampling._resample_poly_error", ...)``
+# (and similarly for the other names in ``_MUTABLE_RESAMPLING`` /
+# ``_MUTABLE_BUFFER``).  Once every test site has been migrated,
+# ``_RecordingModule`` and the ``_MUTABLE_*`` frozensets below can be
+# deleted.  Tracked as CR-67 / TECH-DEBT (estimated 30-50 test files
+# per package; ~90-150 total across recording / prewarm /
+# server_platform).
+#
 # Tests like tests/test_recording.py:689 do
 # ``rec_mod._resample_poly_error = RuntimeError(...)`` (write to the
 # package namespace) and then expect ``_get_resample_poly`` (defined in
@@ -295,6 +355,17 @@ _MUTABLE_BUFFER = frozenset(
         "_buffer_clear_worker",
     }
 )
+
+# NOTE (2026-07-20): ``set_thread_registry`` was previously added here as
+# part of a merge-damage repair, but the authoritative HEAD version of
+# ``recorder.py`` does NOT call it — it was orphan code from the merge,
+# not an original feature. The function + ``_thread_registry`` global
+# have been removed to avoid a future agent re-adding the call site and
+# re-introducing the ``UnboundLocalError`` crash. If ThreadRegistry
+# propagation to the buffer worker is genuinely needed in the future,
+# implement it properly: define the setter, add the call at the correct
+# scope in ``recorder.py`` (start() method level, NOT inside the callback
+# closure), and have ``buffer._ensure_buffer_clear_worker`` register.
 
 
 class _RecordingModule(sys.modules[__name__].__class__):

@@ -92,6 +92,8 @@ class SubprocessHotkeyBackend(ABC):
         # opt-in and don't affect tests that don't care about them.
         self._on_error_callback: Callable[[str], None] | None = None
         self._on_permanent_failure_callback: Callable[[], None] | None = None
+        # CR-143: optional callback for WARN: lines.
+        self._on_warn_callback: Callable[[str], None] | None = None
 
     # ── HotkeyBackend interface (compatible with hotkeys.HotkeyBackend) ──
 
@@ -350,6 +352,24 @@ class SubprocessHotkeyBackend(ABC):
                 except Exception:
                     log.exception(
                         "[NATIVE-HOTKEY] _on_error_callback raised in %s backend",
+                        self.platform_name,
+                    )
+            return
+
+        # CR-143: WARN: lines (non-fatal degradation).
+        if line.startswith("WARN:"):
+            warn_message = line[len("WARN:") :]
+            log.warning(
+                "[NATIVE-HOTKEY] %s binary reported WARN: %s",
+                self.platform_name,
+                warn_message,
+            )
+            if self._on_warn_callback is not None:
+                try:
+                    self._on_warn_callback(warn_message)
+                except Exception:
+                    log.exception(
+                        "[NATIVE-HOTKEY] _on_warn_callback raised in %s backend",
                         self.platform_name,
                     )
             return

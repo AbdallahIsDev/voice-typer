@@ -227,6 +227,29 @@ class _RateLimiter:
 #     None for a real IPCServer (attribute not set) and a child
 #     MagicMock for a test double — the ``isinstance`` check filters
 #     both, creating+storing a real ``_RateLimiter`` on first access.
+#
+# R4-F18 (IMPROVE-mode run, 2026-07-19): the lazy get-or-create is now
+# guarded by a module-level ``threading.Lock`` so two threads
+# simultaneously hitting ``_get_rate_limiter(server)`` on a fresh
+# server instance cannot race past the ``isinstance`` check and each
+# construct a competing ``_RateLimiter`` instance. The race window was
+# tiny (a few microseconds between the ``getattr`` and the
+# ``setattr``), but the consequence was severe: the orphaned limiter's
+# accepted timestamps would NOT count toward the canonical budget, so
+# a slow-drip attacker could effectively double the rate-limit budget
+# for the brief overlap window (or worse, N× with N racing threads).
+# The init lock is held only for the brief get-or-create window, NOT
+# for the subsequent ``allow()`` call — the per-instance lock inside
+# ``_RateLimiter.allow()`` already serializes deque mutation, so this
+# outer lock does not serialize dispatch.
+#
+# NOTE: this leaf copy in ``voice_typer/server/ipc/rate_limiter.py`` is
+# kept in sync with the canonical implementation in
+# ``voice_typer/server/ipc_server.py`` (CR-14 deferred the package
+# delete). The canonical implementation is the one imported by tests
+# and by ``sidecar_ws.py``; this copy exists only because the
+# ``ipc/`` package was not deleted in this IMPROVE-mode run.
+_RATE_LIMITER_INIT_LOCK = threading.Lock()
 
 
 def _get_rate_limiter(server: "object") -> _RateLimiter:
@@ -236,19 +259,49 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
     reconnects within the same process share the same sliding-window
     budget. A local attacker can no longer reset the budget by
     disconnecting and reconnecting.
+
+    R4-F18: the get-or-create sequence is now atomic across threads
+    thanks to ``_RATE_LIMITER_INIT_LOCK``. The lock is module-level
+    (shared across all server instances) — that's correct because the
+    critical section is "check this specific ``server._rate_limiter_instance``
+    and, if missing, create+store". Different server instances have
+    different ``_rate_limiter_instance`` attributes, so the lock
+    serializes only the get-or-create on the SAME server (which is
+    the only race that matters); different servers can init in
+    parallel without contention. The lock is held for microseconds
+    at most (no I/O, no ``allow()`` call), so contention is negligible.
     """
+    # Fast path: limiter already exists on the server instance — return
+    # it WITHOUT acquiring the init lock. This is the common case after
+    # the first dispatch on each server; the lock is only needed for
+    # the brief first-call race. The fast path is safe because
+    # ``server._rate_limiter_instance`` is set atomically by the
+    # ``setattr`` below (CPython's GIL makes single-attribute writes
+    # atomic) and the ``_RateLimiter`` instance itself is fully
+    # thread-safe (its own ``self._lock`` guards deque mutation).
     limiter = getattr(server, "_rate_limiter_instance", None)
-    if not isinstance(limiter, _RateLimiter):
-        limiter = _RateLimiter()
-        # ``setattr`` on a MagicMock overrides the auto-vivified child
-        # attribute; on a real IPCServer it just sets the attribute.
-        server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
-    return limiter
+    if isinstance(limiter, _RateLimiter):
+        return limiter
+
+    # Slow path: limiter is None or a non-_RateLimiter (e.g. an
+    # auto-vivified MagicMock child). Acquire the init lock and
+    # RE-CHECK — another thread may have created+stored the limiter
+    # between our fast-path check and the lock acquisition (classic
+    # double-checked locking pattern).
+    with _RATE_LIMITER_INIT_LOCK:
+        limiter = getattr(server, "_rate_limiter_instance", None)
+        if not isinstance(limiter, _RateLimiter):
+            limiter = _RateLimiter()
+            # ``setattr`` on a MagicMock overrides the auto-vivified child
+            # attribute; on a real IPCServer it just sets the attribute.
+            server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
+        return limiter
 
 
 __all__ = [
     "_RateLimiter",
     "_get_rate_limiter",
+    "_RATE_LIMITER_INIT_LOCK",
     "_RATE_LIMIT_WINDOW_SECONDS",
     "_RATE_LIMIT_BURST_WINDOW_SECONDS",
     "_RATE_LIMIT_BURST",

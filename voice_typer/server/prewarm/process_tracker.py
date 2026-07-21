@@ -505,6 +505,24 @@ def is_prewarm_running() -> bool:
 
     Safe to call from any thread (the app's model_manager.try_load()
     calls this from a daemon thread).
+
+    CR-12 (Low, informational): there is an inherent TOCTOU race window
+    between this check and any subsequent action that depends on the
+    result. Between the moment ``is_prewarm_running()`` returns True
+    and the caller acts on that, the prewarm process may exit (so
+    ``wait_for_prewarm()`` then sees the PID file gone and returns
+    True immediately — harmless), or a new prewarm process may start
+    and overwrite the PID file (so the caller's snapshot is stale —
+    also harmless, since ``wait_for_prewarm()`` re-reads the PID file
+    before waiting). The residual race that is NOT closeable without a
+    PID-file lock is: prewarm exits AND the OS recycles its PID for an
+    unrelated process between our ``_process_alive(pid)`` check and
+    our ``_process_is_prewarm(pid)`` check. In that case we may
+    falsely return True (the recycled process briefly looks like
+    prewarm) — but ``_process_is_prewarm``'s "voice_typer" +
+    "prewarm" cmdline match makes this practically impossible. No
+    code change is needed; the race is theoretical and the worst case
+    is a spurious 60s wait that the caller can interrupt.
     """
     pid_file = _pkg._pid_file_path()
     if not pid_file.exists():
