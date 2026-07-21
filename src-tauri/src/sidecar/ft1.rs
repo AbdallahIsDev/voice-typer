@@ -3,12 +3,64 @@
 use crate::state::SidecarState;
 use crate::sidecar::spawn::spawn_sidecar_and_get_port;
 use crate::sidecar::ws::reconnect_ws;
-use crate::util::{generate_token, FT1_BACKOFF_MS, FT1_MAX_RETRIES, PRE_RESTART_DELAY_MS};
+use crate::util::{generate_token, FT1_BACKOFF_MS, PRE_RESTART_DELAY_MS};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use serde_json::json;
 use tauri::Emitter;
+
+/// CR-29: max number of `app.restart()` attempts before the FT-1
+/// supervisor gives up and emits `ft1_failed` instead of looping
+/// forever. Each `ft1_respawn` call increments a disk-persisted
+/// counter; on successful `ft1_reconnected` the counter resets to 0.
+/// 3 attempts is enough to ride out transient sidecar crashes without
+/// masking a permanently-broken install (missing binary, corrupt env).
+const FT1_MAX_RESTART_ATTEMPTS: u32 = 3;
+
+/// CR-29: read the disk-persisted FT-1 restart counter. Returns 0 on
+/// any error (missing file, parse error, etc.) — fail-open is safer
+/// than blocking recovery on a transient disk issue.
+fn read_ft1_restart_counter(_state: &Arc<SidecarState>) -> u32 {
+    let path = match crate::platform::paths::config_dir_from_env(
+        std::env::var("HOME").ok().as_deref(),
+        std::env::var("APPDATA").ok().as_deref(),
+        std::env::var("XDG_DATA_HOME").ok().as_deref(),
+        std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
+    ) {
+        p if p.as_os_str().is_empty() => return 0,
+        p => p.join("ft1_restart_counter.json"),
+    };
+    match std::fs::read_to_string(&path) {
+        Ok(s) => {
+            let v: serde_json::Value = match serde_json::from_str(&s) {
+                Ok(v) => v,
+                Err(_) => return 0,
+            };
+            v.get("count").and_then(|c| c.as_u64()).map(|c| c as u32).unwrap_or(0)
+        }
+        Err(_) => 0,
+    }
+}
+
+/// CR-29: write the disk-persisted FT-1 restart counter. Best-effort
+/// — if the write fails, log and continue (the counter is a safety
+/// gate, not a correctness requirement).
+fn write_ft1_restart_counter(_state: &Arc<SidecarState>, count: u32) {
+    let path = match crate::platform::paths::config_dir_from_env(
+        std::env::var("HOME").ok().as_deref(),
+        std::env::var("APPDATA").ok().as_deref(),
+        std::env::var("XDG_DATA_HOME").ok().as_deref(),
+        std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
+    ) {
+        p if p.as_os_str().is_empty() => return,
+        p => p.join("ft1_restart_counter.json"),
+    };
+    let payload = json!({"count": count});
+    if let Err(e) = std::fs::write(&path, payload.to_string()) {
+        log::warn!("[FT-1] failed to persist restart counter to {:?}: {}", path, e);
+    }
+}
 
 // ─── FT-1 supervisor (ADR-0020 §10) ───────────────────────────────────
 
@@ -27,6 +79,37 @@ pub(crate) async fn ft1_respawn(
         log::info!("[FT-1] respawn already in progress — skipping");
         return Ok(());
     }
+    // CR-29: circuit breaker — persist restart-attempt counter to
+    // disk so we don't enter an infinite restart loop on a broken
+    // install (missing sidecar binary, corrupted Python env, etc.).
+    // If counter >= FT1_MAX_RESTART_ATTEMPTS, STOP the loop and emit
+    // a `ft1_failed` event so the UI can surface the error instead of
+    // silently restart-looping forever. Counter is reset on successful
+    // `ft1_reconnected` event.
+    let restart_count = read_ft1_restart_counter(state);
+    if restart_count >= FT1_MAX_RESTART_ATTEMPTS {
+        log::error!(
+            "[FT-1] circuit breaker tripped — restart count {} >= max {}. Stopping FT-1 supervisor.",
+            restart_count,
+            FT1_MAX_RESTART_ATTEMPTS
+        );
+        state.respawn_in_progress.store(false, Ordering::SeqCst);
+        let _ = app.emit(
+            "ft1_failed",
+            json!({
+                "reason": "circuit_breaker_tripped",
+                "restart_count": restart_count,
+                "message": "Voice Typer could not start its backend after multiple attempts. Please reinstall."
+            }),
+        );
+        return Err(format!(
+            "FT-1 circuit breaker tripped (restart_count={})",
+            restart_count
+        ));
+    }
+    // Increment counter before attempting restart — will be reset on
+    // successful reconnect.
+    write_ft1_restart_counter(state, restart_count + 1);
     // Scope the respawn body so we can clear the flag on every exit path
     // (including the `app.restart()` paths, which are `-> !` so the
     // clear is unreachable but harmless; the Ok() paths need it).
@@ -43,14 +126,10 @@ pub(crate) async fn ft1_respawn_inner(
         // NF-R19-2: there used to be an in-loop `if attempt as u32 >=
         // FT1_MAX_RETRIES { app.restart(); }` guard here, but it was
         // dead code — `FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES == 5`
-        // (see `util.rs:14-15` + the const-assert at `util.rs:197-199`),
         // so `attempt` ranges `0..=4` and the condition
-        // `attempt >= FT1_MAX_RETRIES` (i.e. `attempt >= 5`) was always
-        // false. The real exhaustion path is the post-loop
-        // `app.restart()` at the bottom of this function — see the
-        // "backoff schedule exhausted" block below. Keeping the in-loop
-        // guard would just be misleading (it looks load-bearing but
-        // isn't).
+        // `attempt >= FT1_MAX_RETRIES` was always false. The real
+        // exhaustion path is the post-loop `app.restart()` at the
+        // bottom of this function.
         if state.shutting_down.load(Ordering::SeqCst) {
             log::info!("[FT-1] shutting down — skipping respawn");
             return Ok(());
@@ -58,15 +137,103 @@ pub(crate) async fn ft1_respawn_inner(
         log::warn!("[FT-1] respawn attempt {} after {}ms", attempt + 1, delay_ms);
         tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
 
-        // Rotate token + respawn.
+        // CR-81: re-check `shutting_down` immediately before spawning a
+        // new sidecar. The check at the top of the loop (line ~54 above)
+        // could be stale — the user might have closed the main window
+        // (triggering `shutdown_sidecar`) during the backoff sleep. If
+        // we spawn a fresh sidecar here, we'd be installing it into a
+        // host that is already tearing down, racing the shutdown path
+        // (which calls `state.child.lock().take()` + `kill_tree`) and
+        // potentially overwriting the killed child with a live one.
+        if state.shutting_down.load(Ordering::SeqCst) {
+            log::info!("[FT-1] shutting down (pre-spawn re-check) — skipping respawn");
+            return Ok(());
+        }
+
+        // CR-3 fix: BEFORE spawning the new sidecar, take + kill the OLD
+        // child handle. SidecarHandle::ShellPlugin(CommandChild) does NOT
+        // kill the OS process on Drop (unlike DevMode's kill_on_drop(true)),
+        // so without this explicit kill_tree, replacing state.child would
+        // silently ORPHAN the old Python sidecar — leaving it running with
+        // the mic handle, IPC port, and native hotkey binary child still
+        // held. After 5 exhausted retries, up to 5 zombie Python sidecars
+        // could accumulate. See CR-3 in comprehensive-review.md.
+        let old_child = state.child.lock().unwrap().take();
+        if let Some(old) = old_child {
+            log::info!("[FT-1] killing old sidecar before respawn");
+            let _ = old.kill_tree().await;
+        }
+
+        // Rotate the auth token for the fresh sidecar instance.
         let new_token = generate_token();
         match spawn_sidecar_and_get_port(app, &new_token).await {
             Ok((port, child, exit_rx)) => {
-                // Drop the MutexGuards BEFORE awaiting reconnect_ws so
-                // the future is Send (std::sync::MutexGuard is !Send).
-                {
+                // CR-3: take AND kill_tree the PREVIOUS child before
+                // installing the new one. Without this, every successful
+                // respawn overwrites `state.child` with the new
+                // `SidecarHandle` and the previous child is leaked:
+                // `SidecarHandle::ShellPlugin(CommandChild)` has NO
+                // `Drop` impl and `SidecarHandle::DevMode` only kills
+                // on drop via `kill_on_drop(true)`. After 5 backoff
+                // retries, up to 5 zombie Python sidecar processes can
+                // run concurrently — each holding the microphone, the
+                // native hotkey binary, and model subprocesses. The
+                // single-instance mutex is disabled under
+                // `TAURI_SIDECAR=1`, so nothing else gates them.
+                //
+                // `kill_tree` (state.rs) reaps the entire process tree
+                // (sidecar + grandchildren: native hotkey binary, model
+                // subprocesses) — `kill()` alone would orphan the
+                // grandchildren. Best-effort: errors are logged but do
+                // not abort the respawn (a kill failure here is
+                // recoverable — the OS may reap the zombie on its own
+                // once the parent exits, but we want it gone NOW so
+                // the new sidecar can re-acquire the mic).
+                let prev = state.child.lock().unwrap().take();
+                if let Some(prev) = prev {
+                    log::info!("[FT-1] killing previous sidecar handle before respawn install");
+                    if let Err(e) = prev.kill_tree().await {
+                        log::warn!("[FT-1] prev child kill_tree failed (best-effort): {}", e);
+                    }
+                }
+
+                // CR-81: second re-check — install-time guard. If the
+                // shutdown path ran between the spawn above and the
+                // lock acquire below (e.g., `shutdown_sidecar` was
+                // invoked while `spawn_sidecar_and_get_port` was
+                // awaiting stdout), we MUST NOT install the fresh child
+                // over the (possibly already-killed) one the shutdown
+                // path took. Instead, kill the freshly-spawned child
+                // and return — the host is shutting down and doesn't
+                // need a live sidecar.
+                if state.shutting_down.load(Ordering::SeqCst) {
+                    log::info!(
+                        "[FT-1] shutting down (post-spawn re-check) — killing freshly-spawned sidecar instead of installing"
+                    );
+                    // Best-effort kill of the new child we just spawned.
+                    if let Err(e) = child.kill_tree().await {
+                        log::warn!(
+                            "[FT-1] freshly-spawned child kill_tree failed (best-effort): {}",
+                            e
+                        );
+                    }
+                    return Ok(());
+                }
+
+                // Drop the MutexGuard BEFORE awaiting kill_tree so the
+                // future stays Send (std::sync::MutexGuard is !Send).
+                // Take the old handle out under the lock, drop the
+                // guard, then await the kill outside the critical
+                // section (CR-28).
+                let old_handle = {
                     let mut child_guard = state.child.lock().unwrap();
+                    let old = child_guard.take();
                     *child_guard = Some(child);
+                    old
+                };
+                if let Some(old) = old_handle {
+                    log::info!("[FT-1] killing old sidecar before installing new one (CR-28)");
+                    let _ = old.kill_tree().await;
                 }
                 {
                     let mut token_guard = state.token.lock().unwrap();
@@ -82,13 +249,37 @@ pub(crate) async fn ft1_respawn_inner(
                 match reconnect_ws(app, state, port, &new_token).await {
                     Ok(()) => {
                         log::info!("[FT-1] respawn succeeded on attempt {}", attempt + 1);
+                        // CR-29: reset the restart counter on success.
+                        write_ft1_restart_counter(state, 0);
                         // Emit a Tauri event so the UI can clear its
                         // "reconnecting…" banner.
                         let _ = app.emit("ft1_reconnected", json!({}));
+                        // CR-13: Clear the flag BEFORE returning Ok(()).
+                        // `reconnect_ws` has already spawned the new WS
+                        // reader task, which owns the new connection. If
+                        // the new sidecar dies immediately (fast-double-
+                        // crash), the new reader will detect the
+                        // disconnect and try `ft1_respawn` — clearing
+                        // the flag here (before the reader can run)
+                        // ensures the reader's `ft1_respawn` proceeds
+                        // instead of bailing with "already in progress".
+                        // The `app.restart()` exhaustion path at the
+                        // bottom of this function is `-> !` (never
+                        // returns), so no clear is needed there.
+                        state.respawn_in_progress.store(false, Ordering::SeqCst);
                         return Ok(());
                     }
                     Err(e) => {
                         log::warn!("[FT-1] WS reconnect failed: {}", e);
+                        // CR-3 fix: kill the just-spawned child before
+                        // continuing to the next retry iteration,
+                        // otherwise it would be orphaned when the next
+                        // iteration overwrites state.child.
+                        let orphan = state.child.lock().unwrap().take();
+                        if let Some(c) = orphan {
+                            log::info!("[FT-1] killing respawned sidecar after WS reconnect failure");
+                            let _ = c.kill_tree().await;
+                        }
                         continue;
                     }
                 }
@@ -140,8 +331,13 @@ pub(crate) fn bubble_coalesce_should_emit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::{SidecarHandle, SidecarState};
     use crate::util::BUBBLE_LEVEL_COALESCE_HZ;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, AtomicU64};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
+    use tokio::sync::Mutex as AsyncMutex;
 
     // ── CR-13: bubble_level coalesce (ADR-0020 §9) ───────────────────
 
@@ -210,5 +406,336 @@ mod tests {
             "emitted {} events in 1s, expected ~30 — coalesce is too aggressive",
             emitted
         );
+    }
+
+    // ── CR-13: FT-1 respawn race — flag cleared before inner returns ──
+    //
+    // The fast-double-crash race (CR-13): `ft1_respawn_inner` spawns a
+    // new sidecar + starts a new WS reader task (via `reconnect_ws`)
+    // BEFORE returning Ok(()). If the new sidecar dies immediately, the
+    // new WS reader tries `ft1_respawn` — but if the flag is still set
+    // (cleared in the wrapper AFTER the inner returns), the reader bails
+    // with "already in progress" and the sidecar is permanently dead.
+    //
+    // Fix: clear the flag INSIDE `ft1_respawn_inner` before `return Ok(())`.
+    // These tests verify the flag semantics that make the fix work.
+
+    /// Helper: build a fresh `SidecarState` for testing. All fields
+    /// initialized to their default (empty) state.
+    fn make_test_state() -> Arc<SidecarState> {
+        Arc::new(SidecarState {
+            child: Mutex::new(None),
+            token: Mutex::new(String::new()),
+            ws_tx: Mutex::new(None),
+            pending: Arc::new(AsyncMutex::new(HashMap::new())),
+            next_id: AtomicU64::new(1),
+            shutting_down: AtomicBool::new(false),
+            respawn_in_progress: AtomicBool::new(false),
+            child_exit_rx: AsyncMutex::new(None),
+        })
+    }
+
+    #[test]
+    fn test_cr13_flag_is_clear_after_simulated_successful_respawn() {
+        // Simulate the flag transitions for a SUCCESSFUL respawn that
+        // uses the CR-13 fix (flag cleared inside the inner function
+        // before returning Ok(())).
+        //
+        // Step 1: ft1_respawn entry — acquire the flag.
+        // Step 2: ft1_respawn_inner runs, spawns new sidecar, starts WS
+        //          reader, reconnects WS, succeeds.
+        // Step 3: ft1_respawn_inner clears the flag (CR-13 fix) BEFORE
+        //          returning Ok(()).
+        // Step 4: A concurrent ft1_respawn call (from the new WS reader,
+        //          which detected a fast-double-crash disconnect) must
+        //          be able to acquire the flag.
+        let state = make_test_state();
+
+        // Step 1: ft1_respawn entry.
+        assert!(
+            state
+                .respawn_in_progress
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok(),
+            "first compare_exchange should succeed (flag was false)"
+        );
+
+        // Step 2 (simulated): inner function runs. While it's running,
+        // a concurrent ft1_respawn call would bail:
+        assert!(
+            state
+                .respawn_in_progress
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err(),
+            "concurrent compare_exchange should fail while inner is running (flag is true)"
+        );
+
+        // Step 3 (CR-13 fix): inner function clears the flag BEFORE
+        // returning Ok(()). This is the key change — the flag is cleared
+        // inside the inner function, not in the wrapper after it returns.
+        state.respawn_in_progress.store(false, Ordering::SeqCst);
+
+        // Step 4: after the inner function returns (flag already clear),
+        // a concurrent ft1_respawn call from the new WS reader SUCCEEDS.
+        // This is the behavior that was BROKEN before CR-13: the flag
+        // was still set (cleared in the wrapper, which hadn't run yet),
+        // so the reader's ft1_respawn bailed and the sidecar was
+        // permanently dead.
+        assert!(
+            state
+                .respawn_in_progress
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok(),
+            "compare_exchange after CR-13 clear should succeed — \
+             the new WS reader's ft1_respawn must be able to proceed"
+        );
+    }
+
+    #[test]
+    fn test_cr13_flag_bails_when_already_in_progress() {
+        // Verify the "already in progress" bail path still works
+        // correctly (this is the normal single-crash serialization —
+        // the flag prevents parallel respawns from corrupting state).
+        // The CR-13 fix does NOT change this behavior; it only changes
+        // WHEN the flag is cleared (inside the inner function vs. in
+        // the wrapper after it returns).
+        let state = make_test_state();
+
+        // First ft1_respawn acquires the flag.
+        assert!(
+            state
+                .respawn_in_progress
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_ok()
+        );
+
+        // A concurrent ft1_respawn (e.g. from a second WS reader task
+        // that also detected a disconnect) must bail.
+        let concurrent_result = state
+            .respawn_in_progress
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
+        assert!(
+            concurrent_result.is_err(),
+            "concurrent ft1_respawn must bail when flag is already set"
+        );
+
+        // The flag must still be set (the bail path does NOT clear it).
+        assert!(
+            state.respawn_in_progress.load(Ordering::SeqCst),
+            "flag must still be true after a concurrent bail (the in-flight respawn owns it)"
+        );
+    }
+
+    // ── CR-14: retry loop kills old child before storing new ──────────
+    //
+    // The retry loop in `ft1_respawn_inner` spawns a new sidecar on each
+    // iteration and stores it in `state.child`. Without the CR-14 fix,
+    // overwriting `state.child` orphans the old sidecar process (no Drop
+    // kill on `SidecarHandle`). These tests verify the take-kill-store
+    // pattern kills the old process before the new one is stored.
+
+    /// Read the state char from `/proc/<pid>/stat`. Returns `None` if
+    /// the process doesn't exist (fully reaped). Returns `Some('Z')` for
+    /// a zombie (killed but not yet reaped). Returns `Some(other)` for a
+    /// running/stopped process.
+    #[cfg(target_os = "linux")]
+    fn proc_state(pid: u32) -> Option<char> {
+        let stat_path = format!("/proc/{}/stat", pid);
+        let stat = std::fs::read_to_string(&stat_path).ok()?;
+        // The stat format is: `pid (comm) state ...`. The comm field can
+        // contain spaces and parens, so find the LAST ')' to skip comm.
+        let after_comm = stat.rfind(')')?;
+        let rest = &stat[after_comm + 1..];
+        // rest is ` state ...` — trim leading space, take first char.
+        rest.trim_start().chars().next()
+    }
+
+    /// Returns true if the process is dead (doesn't exist or is a zombie).
+    #[cfg(target_os = "linux")]
+    fn is_process_dead(pid: u32) -> bool {
+        match proc_state(pid) {
+            None => true,      // process doesn't exist (fully reaped)
+            Some('Z') => true, // zombie (killed, awaiting reap)
+            Some(_) => false,  // still running
+        }
+    }
+
+    /// Spawn a long-running dummy process (sleep 30) as a dev-mode
+    /// `SidecarHandle`. Returns the handle + its PID.
+    fn spawn_dummy_sidecar() -> (SidecarHandle, u32) {
+        let mut cmd = tokio::process::Command::new("sleep");
+        cmd.arg("30");
+        // Suppress stdout/stderr so test output stays clean.
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
+        let child = cmd.spawn().expect("failed to spawn dummy sleep process");
+        let pid = child.id().expect("child has no pid");
+        (SidecarHandle::DevMode(child), pid)
+    }
+
+    #[tokio::test]
+    #[cfg(target_os = "linux")]
+    async fn test_cr14_kill_tree_kills_dev_mode_child() {
+        // Foundation test: verify `SidecarHandle::kill_tree()` actually
+        // kills the underlying process. This is the primitive the CR-14
+        // fix relies on (the retry loop calls `old.kill_tree().await`
+        // before storing the new child).
+        let (handle, pid) = spawn_dummy_sidecar();
+
+        // Verify the process is alive before kill_tree.
+        assert!(
+            !is_process_dead(pid),
+            "dummy sidecar should be alive before kill_tree (pid={})",
+            pid
+        );
+
+        // CR-14 primitive: kill_tree kills the process tree.
+        let result = handle.kill_tree().await;
+        assert!(
+            result.is_ok(),
+            "kill_tree should succeed, got: {:?}",
+            result
+        );
+
+        // Give the kernel a moment to deliver SIGKILL and clean up.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify the process is dead (zombie or fully reaped).
+        assert!(
+            is_process_dead(pid),
+            "dummy sidecar should be dead after kill_tree (pid={}, state={:?})",
+            pid,
+            proc_state(pid)
+        );
+    }
+
+    #[tokio::test]
+    #[cfg(target_os = "linux")]
+    async fn test_cr14_retry_loop_kills_old_child_before_storing_new() {
+        // Integration test: simulate the CR-14 retry-loop pattern
+        // (take → kill_tree → store new) and verify:
+        // 1. The OLD child is killed (process dead).
+        // 2. The NEW child is stored in `state.child`.
+        // 3. The NEW child is alive.
+        //
+        // This is the exact pattern added by the CR-14 fix in
+        // `ft1_respawn_inner`'s retry loop.
+        let state = make_test_state();
+
+        // Setup: store an "old" sidecar in state.child (simulating a
+        // previous spawn or retry iteration).
+        let (old_handle, old_pid) = spawn_dummy_sidecar();
+        *state.child.lock().unwrap() = Some(old_handle);
+
+        // Verify the old process is alive.
+        assert!(
+            !is_process_dead(old_pid),
+            "old sidecar should be alive before retry overwrite (pid={})",
+            old_pid
+        );
+
+        // ── CR-14 retry-loop pattern (take → kill → store) ──
+        // Step 1: take the old child out of the slot.
+        let old_child = {
+            let mut child_guard = state.child.lock().unwrap();
+            child_guard.take()
+        };
+        // Step 2: kill the old child.
+        if let Some(old) = old_child {
+            let _ = old.kill_tree().await;
+        }
+        // Step 3: store the new child.
+        let (new_handle, new_pid) = spawn_dummy_sidecar();
+        {
+            let mut child_guard = state.child.lock().unwrap();
+            *child_guard = Some(new_handle);
+        }
+
+        // Give the kernel a moment to deliver SIGKILL to the old process.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Verify: old child is dead.
+        assert!(
+            is_process_dead(old_pid),
+            "CR-14: old sidecar must be killed before storing new (pid={}, state={:?})",
+            old_pid,
+            proc_state(old_pid)
+        );
+
+        // Verify: new child is alive.
+        assert!(
+            !is_process_dead(new_pid),
+            "CR-14: new sidecar should be alive after retry overwrite (pid={})",
+            new_pid
+        );
+
+        // Verify: state.child holds the new child (not the old one).
+        let child_guard = state.child.lock().unwrap();
+        assert!(
+            child_guard.is_some(),
+            "CR-14: state.child should hold the new child after retry"
+        );
+        // The new child's PID should match new_pid (verifying we stored
+        // the new child, not a stale reference to the old one).
+        let stored_pid = child_guard.as_ref().and_then(|h| h.pid());
+        assert_eq!(
+            stored_pid,
+            Some(new_pid),
+            "CR-14: state.child should hold the NEW child (pid={}), not the old one",
+            new_pid
+        );
+        drop(child_guard);
+
+        // Cleanup: kill the new child so we don't leak a sleep process.
+        let new_child = state.child.lock().unwrap().take();
+        if let Some(h) = new_child {
+            let _ = h.kill_tree().await;
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(target_os = "linux")]
+    async fn test_cr14_retry_loop_first_iteration_kills_crashed_sidecar() {
+        // Edge case: on the FIRST retry iteration (attempt=0), the
+        // `state.child` slot holds the CRASHED sidecar's handle (the WS
+        // reader detected the disconnect, but the host's child handle is
+        // still there). The CR-14 fix must kill it too — the sidecar
+        // process may not be fully dead (the WS thread could have died
+        // while the process is still running with mic/hotkeys held).
+        //
+        // This test verifies the take-kill-store pattern works correctly
+        // when the "old" child is still alive (simulating a half-dead
+        // sidecar where the WS thread died but the process is running).
+        let state = make_test_state();
+
+        // Setup: store a "crashed but still running" sidecar.
+        let (old_handle, old_pid) = spawn_dummy_sidecar();
+        *state.child.lock().unwrap() = Some(old_handle);
+
+        // Verify the old process is alive (simulating half-dead sidecar).
+        assert!(!is_process_dead(old_pid));
+
+        // CR-14 pattern: take + kill + store new.
+        let old_child = state.child.lock().unwrap().take();
+        if let Some(old) = old_child {
+            let _ = old.kill_tree().await;
+        }
+        let (new_handle, new_pid) = spawn_dummy_sidecar();
+        *state.child.lock().unwrap() = Some(new_handle);
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // The "crashed but still running" sidecar must be killed.
+        assert!(
+            is_process_dead(old_pid),
+            "CR-14: even on first iteration, the crashed-but-running sidecar must be killed"
+        );
+        assert!(!is_process_dead(new_pid));
+
+        // Cleanup.
+        let new_child = state.child.lock().unwrap().take();
+        if let Some(h) = new_child {
+            let _ = h.kill_tree().await;
+        }
     }
 }

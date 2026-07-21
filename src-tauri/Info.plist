@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Voice Typer - macOS Info.plist partial (merged into the bundle's
+  generated Info.plist by Tauri v2 at build time).
+
+  Tauri v2 typing: bundle.macOS.infoPlist is a PATH to a plist file
+  (Option<PathBuf> in tauri-utils), NOT an inline JSON map. The usage
+  descriptions below were previously inlined incorrectly in
+  tauri.conf.json, which failed the config parse with
+  "invalid type: map, expected path string".
+-->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Voice Typer needs microphone access to transcribe your speech to text.</string>
+  <key>NSUserNotificationsUsageDescription</key>
+  <string>Voice Typer posts native notifications for dictation events and errors.</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
+</dict>
+</plist>

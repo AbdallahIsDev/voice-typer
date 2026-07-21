@@ -134,11 +134,30 @@ pub(crate) fn value_to_string(v: &Value) -> String {
 /// RFC 4180 CSV cell escaping: wrap in double quotes if the cell
 /// contains a comma, double-quote, newline, or carriage return; double
 /// any embedded double-quotes.
+///
+/// H-12 (IMPROVE-2026-07-19): SEC-015 CSV formula-injection defense.
+/// Cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` are prefixed
+/// with a single quote `'` before quoting so spreadsheet apps (Excel,
+/// LibreOffice) treat them as text rather than executing them as
+/// formulas. Mirrors the Electron-side `csvEscape` in
+/// `voice_typer/client/src/main/ipc/export-handlers.ts:23-29`.
+/// Without this defense, a user who dictates `=cmd|'/C calc'!A1` and
+/// then exports history to CSV would be vulnerable to formula injection
+/// when opening the file in a spreadsheet.
 pub(crate) fn csv_escape(s: &str) -> String {
-    if s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r') {
-        format!("\"{}\"", s.replace('"', "\"\""))
+    // SEC-015: prefix formula-injection-prone cells with a single quote.
+    let needs_prefix = s.starts_with('=')
+        || s.starts_with('+')
+        || s.starts_with('-')
+        || s.starts_with('@')
+        || s.starts_with('\t')
+        || s.starts_with('\r');
+    let v = if needs_prefix { format!("'{}", s) } else { s.to_string() };
+    // Then apply standard CSV quoting (RFC 4180) on the prefixed value.
+    if v.contains(',') || v.contains('"') || v.contains('\n') || v.contains('\r') {
+        format!("\"{}\"", v.replace('"', "\"\""))
     } else {
-        s.to_string()
+        v
     }
 }
 
@@ -178,6 +197,49 @@ mod tests {
     #[test]
     fn test_csv_escape_all_special() {
         assert_eq!(csv_escape("a,b\"c\nd\re"), "\"a,b\"\"c\nd\re\"");
+    }
+
+    // ── csv_escape — SEC-015 formula-injection defense (H-12) ────────
+
+    #[test]
+    fn test_csv_escape_formula_equals() {
+        // `=cmd|'/C calc'!A1` must be prefixed with `'` so Excel/LibreOffice
+        // treats it as text, not a formula.
+        assert_eq!(csv_escape("=cmd|'/C calc'!A1"), "'=cmd|'/C calc'!A1");
+    }
+
+    #[test]
+    fn test_csv_escape_formula_plus() {
+        assert_eq!(csv_escape("+1+1"), "'+1+1");
+    }
+
+    #[test]
+    fn test_csv_escape_formula_minus() {
+        // `-2+3` would be a formula in Excel; prefix with `'`.
+        assert_eq!(csv_escape("-2+3"), "'-2+3");
+    }
+
+    #[test]
+    fn test_csv_escape_formula_at() {
+        assert_eq!(csv_escape("@SUM(A1:A2)"), "'@SUM(A1:A2)");
+    }
+
+    #[test]
+    fn test_csv_escape_formula_tab() {
+        assert_eq!(csv_escape("\tcmd"), "'\tcmd");
+    }
+
+    #[test]
+    fn test_csv_escape_formula_carriage_return() {
+        assert_eq!(csv_escape("\rcmd"), "'\rcmd");
+    }
+
+    #[test]
+    fn test_csv_escape_formula_with_comma_quoted() {
+        // Formula prefix AND comma → both defenses apply: prefix `'`
+        // then RFC 4180 quoting (because the prefixed value contains
+        // a comma).
+        assert_eq!(csv_escape("=a,b"), "\"'=a,b\"");
     }
 
     // ── json_to_csv ───────────────────────────────────────────────────

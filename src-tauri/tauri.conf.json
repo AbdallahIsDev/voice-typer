@@ -40,7 +40,10 @@
     ],
     "security": {
       "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'",
-      "capabilities": ["migrate-runtime"]
+      "capabilities": [
+        "main-runtime",
+        "bubble-runtime"
+      ]
     }
   },
   "bundle": {
@@ -68,23 +71,35 @@
     ],
     "linux": {
       "deb": {
-        "depends": ["libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3", "wl-clipboard", "xclip"],
+        "depends": [
+          "libnotify4",
+          "libxtst6",
+          "libwebkit2gtk-4.1-0",
+          "python3",
+          "wl-clipboard",
+          "xclip"
+        ],
         "desktopTemplate": "voice-typer.desktop.template",
         "postInstallScript": "../../scripts/linux/postinst",
         "preRemoveScript": "../../scripts/linux/prerm"
       },
       "rpm": {
-        "depends": ["libnotify", "libXtst", "webkit2gtk3", "python3", "wl-clipboard", "xclip"],
+        "depends": [
+          "libnotify",
+          "libXtst",
+          "webkit2gtk3",
+          "python3",
+          "wl-clipboard",
+          "xclip"
+        ],
         "postInstallScript": "../../scripts/linux/postinst.rpm",
         "preRemoveScript": "../../scripts/linux/prerm.rpm"
       }
     },
-    "windows": {
-      "signCommand": "${WIN_SIGN_COMMAND}"
-    },
     "macOS": {
-      "signingIdentity": "${MAC_SIGNING_IDENTITY}",
-      "entitlements": "entitlements.plist"
+      "entitlements": "entitlements.plist",
+      "minimumSystemVersion": "13.0",
+      "infoPlist": "Info.plist"
     }
   },
   "plugins": {

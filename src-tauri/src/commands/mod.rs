@@ -1,8 +1,9 @@
-//! Tauri command handler modules (ADR-0020 §6 + §7 + §10 + MIG-1.1 + MIG-1.2).
+//! Tauri command handler modules (ADR-0020 §6 + §7 + §10 + MIG-1.1 + MIG-1.2 + CR-33).
 
 pub(crate) mod sidecar_cmds;
 pub(crate) mod export;
 pub(crate) mod bubble;
+pub(crate) mod system_cmds;
 
 // Re-export the command functions so `tauri::generate_handler!` in `main.rs`
 // can find both the functions AND the helper macros (`__cmd__<name>` etc.)
@@ -12,12 +13,33 @@ pub(crate) mod bubble;
 // `#[allow(unused_imports)]` silences the false-positive warning — these
 // are referenced by the `tauri::generate_handler!` macro expansion, which
 // the lint pass cannot see.
+// CR-5: `dispatch_inner` + `DispatchArgs` are also re-exported (without
+// `#[tauri::command]` — they are NOT Tauri commands) so the tray menu
+// click handler in `crate::tray` can construct a `DispatchArgs` and call
+// `dispatch_inner` directly, bypassing the public `dispatch` command's
+// ALLOWED_COMMANDS gate (CR-4). The tray handler routes the
+// Rust-only `tray_click` command — which is NOT in the renderer
+// allowlist (the renderer never invokes it; only the Rust tray handler
+// does) — so it must use `dispatch_inner` rather than `dispatch`.
 #[allow(unused_imports)]
 pub use sidecar_cmds::{dispatch, paste_text, shutdown_sidecar};
+// CR-5: `dispatch_inner` + `DispatchArgs` are `pub(crate)` (not Tauri
+// commands), so they must be re-exported with crate visibility — a
+// `pub use` on `pub(crate)` items fails with E0364/E0365.
+#[allow(unused_imports)]
+pub(crate) use sidecar_cmds::{dispatch_inner, DispatchArgs};
 #[allow(unused_imports)]
 pub use export::{export_history, export_vocabulary};
 #[allow(unused_imports)]
 pub use bubble::{
-    bubble_hide_complete, bubble_move_by, bubble_set_draggable, bubble_set_position,
-    bubble_show, bubble_signal_ready,
+    bubble_emit_state, bubble_hide_complete, bubble_move_by, bubble_resize,
+    bubble_set_draggable, bubble_set_position, bubble_show, bubble_signal_ready,
+    bubble_toggle_dictation,
 };
+// CR-33: system_cmds exposes the 4 window_-namespace commands the
+// renderer's `window.window_?` bridge expects (openLogs,
+// openModelImportDialog, exportTemplates, exportConfig). The
+// `open_logs` command name is snake_case to match the Rust convention
+// while the TS bridge maps it to `window_.openLogs` (camelCase).
+#[allow(unused_imports)]
+pub use system_cmds::{export_config, export_templates, open_logs, open_model_import_dialog};

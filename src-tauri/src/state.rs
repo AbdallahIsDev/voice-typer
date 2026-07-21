@@ -36,7 +36,14 @@ impl SidecarHandle {
     /// `kill_tree` (ADR-0020 §10 — recursive "kill_children" backstop)
     /// to also reap grandchildren (native hotkey binary, model processes)
     /// that the Python sidecar does not reap on its own exit.
-    fn pid(&self) -> Option<u32> {
+    ///
+    /// CR-14: exposed as `pub(crate)` so the FT-1 retry-loop tests in
+    /// `ft1.rs` can verify that `state.child` holds the NEW child (not
+    /// a stale reference to the old one) after the take-kill-store
+    /// pattern runs. Previously private; the visibility bump is the
+    /// minimal change needed to make the CR-14 fix testable without
+    /// adding a Drop impl or a new public API.
+    pub(crate) fn pid(&self) -> Option<u32> {
         match self {
             SidecarHandle::ShellPlugin(c) => Some(c.pid()),
             SidecarHandle::DevMode(c) => c.id(),

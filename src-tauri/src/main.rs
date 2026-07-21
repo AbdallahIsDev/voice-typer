@@ -70,11 +70,18 @@ use std::sync::Arc;
 use tauri::{Manager, WindowEvent};
 
 use commands::bubble::{
-    bubble_hide_complete, bubble_move_by, bubble_set_draggable, bubble_set_position,
-    bubble_show, bubble_signal_ready,
+    bubble_emit_state, bubble_hide_complete, bubble_move_by, bubble_resize,
+    bubble_set_draggable, bubble_set_position, bubble_show, bubble_signal_ready,
+    bubble_toggle_dictation,
 };
 use commands::export::{export_history, export_vocabulary};
 use commands::sidecar_cmds::{dispatch, paste_text, shutdown_sidecar};
+// CR-33: system_cmds exposes open_logs / open_model_import_dialog /
+// export_templates / export_config — the 4 window_-namespace commands
+// the renderer's `window.window_?` bridge expects (porting the Electron
+// `window:open-logs`, `model:import-dialog`, `templates:export`,
+// `config:export` IPC handlers).
+use commands::system_cmds::{export_config, export_templates, open_logs, open_model_import_dialog};
 use platform::logging::init_file_logger;
 use platform::paths::config_dir;
 use sidecar::ft1::ft1_respawn;
@@ -98,6 +105,7 @@ fn main() {
         std::env::var("HOME").ok().as_deref(),
         std::env::var("APPDATA").ok().as_deref(),
         std::env::var("XDG_DATA_HOME").ok().as_deref(),
+        std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
     );
     if let Err(e) = init_file_logger(&config_dir_path) {
         eprintln!(
@@ -158,6 +166,17 @@ fn main() {
             bubble_set_draggable,
             bubble_move_by,
             bubble_hide_complete,
+            // CR-33: bubble window extensions (resize / state / toggle).
+            bubble_resize,
+            bubble_emit_state,
+            bubble_toggle_dictation,
+            // CR-33: system-level window_ commands (port of Electron
+            // window:open-logs / model:import-dialog / templates:export
+            // / config:export IPC handlers).
+            open_logs,
+            open_model_import_dialog,
+            export_templates,
+            export_config,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();

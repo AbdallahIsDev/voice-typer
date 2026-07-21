@@ -34,7 +34,7 @@ tauri-build = { version = "2", features = [] }
 # behind the ``tray-icon`` feature (NOT a separate tauri-plugin-tray
 # crate). ``TrayIconBuilder`` / ``tauri::menu`` are only available when
 # this feature is enabled.
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-clipboard-manager = "2"

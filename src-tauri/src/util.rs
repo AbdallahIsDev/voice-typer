@@ -12,6 +12,11 @@ pub(crate) const TOKEN_BYTES: usize = 32;
 /// ADR-0020 §10: FT-1 supervisor backoff schedule (ms). Cap 5 retries
 /// before falling back to full-app relaunch.
 pub(crate) const FT1_BACKOFF_MS: &[u64] = &[500, 1000, 2000, 4000, 8000];
+// Referenced by the const-assert in the `#[cfg(test)]` block below and by
+// the Python source-inspection contract tests (test_shutdown_windows.py).
+// The in-loop retry cap was removed in NF-R19-2 (dead code), so no runtime
+// code path reads it — keep it as the documented contract value.
+#[allow(dead_code)]
 pub(crate) const FT1_MAX_RETRIES: u32 = 5;
 
 /// ADR-0020 §10: cooperative shutdown hard timeout. The sidecar must

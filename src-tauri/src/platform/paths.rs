@@ -63,6 +63,10 @@ pub(crate) fn config_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
         std::env::var("HOME").ok().as_deref(),
         std::env::var("APPDATA").ok().as_deref(),
         std::env::var("XDG_DATA_HOME").ok().as_deref(),
+        // CR-39: VOICE_TYPER_CONFIG_DIR env-var override — mirrors
+        // Python's _config_dir() resolution order (env var → legacy →
+        // platform default).
+        std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
     )
 }
 
@@ -84,12 +88,54 @@ pub(crate) fn config_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
 /// called — see `platform/logging.rs::init_logging`). The caller is
 /// expected to handle the resulting I/O errors (e.g. log file open
 /// fails) at the call site; this function never panics.
+///
+/// # CR-39: legacy `~/.voice-typer` migration + env-var override
+///
+/// The function mirrors the Python side's `_config_dir()` resolution
+/// order: `VOICE_TYPER_CONFIG_DIR` env var wins, then legacy
+/// `~/.voice-typer` (if it exists), then the per-platform default.
+/// Without the legacy check, the Tauri host writes log/PID files to
+/// the platform default while the Python sidecar reads `config.json`
+/// from `~/.voice-typer` — split-brain state for users upgrading from
+/// a legacy install.
 pub(crate) fn config_dir_from_env(
     home: Option<&str>,
     appdata: Option<&str>,
     xdg_data_home: Option<&str>,
+    config_dir_env: Option<&str>,
 ) -> std::path::PathBuf {
     const APP_NAME: &str = "voice-typer";
+
+    // CR-39: VOICE_TYPER_CONFIG_DIR env-var override. Mirrors the
+    // Python side's _config_dir() resolution order: env var wins,
+    // then legacy ~/.voice-typer, then platform default. Without this
+    // check, a user who sets VOICE_TYPER_CONFIG_DIR (e.g. for a
+    // portable / snap install) would have the Tauri host and Python
+    // sidecar disagree on the config dir.
+    if let Some(custom) = config_dir_env {
+        if !custom.is_empty() {
+            return std::path::PathBuf::from(custom);
+        }
+    }
+
+    // CR-39: legacy ~/.voice-typer check. Python's _config_dir() and
+    // Electron's computeConfigDir() both check this first; the Tauri
+    // host must do the same so the host and Python sidecar agree on
+    // the config dir for users upgrading from a legacy install.
+    // Without this check, Tauri writes log files / single-instance
+    // lock / PID files to the platform default (~/.local/share/voice-
+    // typer on Linux) while the Python sidecar reads config.json from
+    // ~/.voice-typer — split-brain state where Tauri can't find the
+    // backend PID file (single-instance detection fails → duplicate
+    // launches) and Tauri-side state (window placement, theme,
+    // recent-files) is in a different dir than Python's.
+    if let Some(h) = home {
+        let legacy = std::path::PathBuf::from(h).join(".voice-typer");
+        if legacy.exists() {
+            return legacy;
+        }
+    }
+
     #[cfg(target_os = "windows")]
     {
         let _ = home;
@@ -116,8 +162,8 @@ pub(crate) fn config_dir_from_env(
     {
         let _ = appdata;
         let _ = xdg_data_home;
-        // NF-R9-8: graceful fallback when HOME is missing (rare on
-        // macOS — `launchd` always sets HOME for user sessions, but
+        // NF-R9-8: graceful fallback when HOME is missing on macOS
+        // (rare — `launchd` always sets HOME for user sessions, but
         // a system LaunchDaemon runs without it). Falls back to CWD.
         let home = home.unwrap_or_else(|| {
             eprintln!(
@@ -167,7 +213,7 @@ pub(crate) fn config_dir_from_env(
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
     {
-        let _ = (home, appdata, xdg_data_home);
+        let _ = (home, appdata, xdg_data_home, config_dir_env);
         std::path::PathBuf::from(".").join(APP_NAME)
     }
 }
@@ -181,7 +227,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn test_config_dir_linux_default() {
-        let p = config_dir_from_env(Some("/home/user"), None, None);
+        let p = config_dir_from_env(Some("/home/user"), None, None, None);
         assert_eq!(
             p,
             std::path::PathBuf::from("/home/user/.local/share/voice-typer")
@@ -191,7 +237,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     fn test_config_dir_linux_xdg_set() {
-        let p = config_dir_from_env(Some("/home/user"), None, Some("/custom/xdg"));
+        let p = config_dir_from_env(Some("/home/user"), None, Some("/custom/xdg"), None);
         assert_eq!(p, std::path::PathBuf::from("/custom/xdg/voice-typer"));
     }
 
@@ -199,7 +245,7 @@ mod tests {
     #[test]
     fn test_config_dir_linux_xdg_empty_falls_back_to_home() {
         // Empty XDG_DATA_HOME should be treated as unset (per XDG spec).
-        let p = config_dir_from_env(Some("/home/user"), None, Some(""));
+        let p = config_dir_from_env(Some("/home/user"), None, Some(""), None);
         assert_eq!(
             p,
             std::path::PathBuf::from("/home/user/.local/share/voice-typer")
@@ -209,7 +255,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn test_config_dir_macos() {
-        let p = config_dir_from_env(Some("/Users/user"), None, None);
+        let p = config_dir_from_env(Some("/Users/user"), None, None, None);
         assert_eq!(
             p,
             std::path::PathBuf::from("/Users/user/Library/Application Support/voice-typer")
@@ -219,7 +265,7 @@ mod tests {
     #[cfg(target_os = "windows")]
     #[test]
     fn test_config_dir_windows() {
-        let p = config_dir_from_env(None, Some(r"C:\Users\user\AppData\Roaming"), None);
+        let p = config_dir_from_env(None, Some(r"C:\Users\user\AppData\Roaming"), None, None);
         assert_eq!(
             p,
             std::path::PathBuf::from(r"C:\Users\user\AppData\Roaming\voice-typer")
@@ -240,7 +286,7 @@ mod tests {
     fn test_config_dir_linux_missing_home_falls_back_to_cwd() {
         // NF-R9-8: when HOME is missing AND XDG_DATA_HOME is unset,
         // the function must NOT panic — it returns `./voice-typer`.
-        let p = config_dir_from_env(None, None, None);
+        let p = config_dir_from_env(None, None, None, None);
         assert_eq!(
             p,
             std::path::PathBuf::from("./voice-typer"),
@@ -253,7 +299,7 @@ mod tests {
     fn test_config_dir_linux_missing_home_with_empty_xdg_falls_back_to_cwd() {
         // Empty XDG_DATA_HOME is treated as unset (per XDG spec), so
         // the missing-HOME fallback path applies.
-        let p = config_dir_from_env(None, None, Some(""));
+        let p = config_dir_from_env(None, None, Some(""), None);
         assert_eq!(
             p,
             std::path::PathBuf::from("./voice-typer"),
@@ -267,7 +313,7 @@ mod tests {
         // NF-R9-8: when HOME is missing on macOS (system LaunchDaemon),
         // the function must NOT panic — it returns `./Library/Application
         // Support/voice-typer` (CWD-relative).
-        let p = config_dir_from_env(None, None, None);
+        let p = config_dir_from_env(None, None, None, None);
         assert_eq!(
             p,
             std::path::PathBuf::from("./Library/Application Support/voice-typer"),
@@ -280,11 +326,127 @@ mod tests {
     fn test_config_dir_windows_missing_appdata_falls_back_to_cwd() {
         // NF-R9-8: when APPDATA is missing on Windows (service account),
         // the function must NOT panic — it returns `./voice-typer`.
-        let p = config_dir_from_env(None, None, None);
+        let p = config_dir_from_env(None, None, None, None);
         assert_eq!(
             p,
             std::path::PathBuf::from("./voice-typer"),
             "missing APPDATA on Windows should fall back to CWD-relative voice-typer dir (NF-R9-8)"
+        );
+    }
+
+    // ── CR-39: legacy ~/.voice-typer check + VOICE_TYPER_CONFIG_DIR override ──
+    //
+    // The Tauri host must mirror Python's _config_dir() resolution
+    // order (env var → legacy ~/.voice-typer → platform default) so
+    // the host and Python sidecar agree on the config dir for users
+    // upgrading from a legacy install. Without the legacy check,
+    // Tauri writes log/PID files to the platform default while Python
+    // reads config.json from ~/.voice-typer — split-brain state.
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn test_config_dir_legacy_voice_typer_wins_over_platform_default() {
+        // CR-39: if ~/.voice-typer exists, it should be returned in
+        // preference to the platform default.
+        use std::fs;
+        use std::time::SystemTime;
+        let tmp = std::env::temp_dir().join(format!(
+            "vt_paths_legacy_test_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(tmp.join(".voice-typer")).unwrap();
+        let p = config_dir_from_env(
+            Some(tmp.to_str().unwrap()),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(
+            p,
+            tmp.join(".voice-typer"),
+            "CR-39: existing ~/.voice-typer should win over platform default"
+        );
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_config_dir_voice_typer_config_dir_env_override() {
+        // CR-39: VOICE_TYPER_CONFIG_DIR env var wins over legacy and
+        // platform default.
+        let p = config_dir_from_env(
+            Some("/home/user"),
+            None,
+            None,
+            Some("/custom/config/dir"),
+        );
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("/custom/config/dir"),
+            "CR-39: VOICE_TYPER_CONFIG_DIR env var should override platform default"
+        );
+    }
+
+    #[test]
+    fn test_config_dir_env_override_beats_legacy_check() {
+        // CR-39: env var wins over legacy ~/.voice-typer check.
+        use std::fs;
+        use std::time::SystemTime;
+        let tmp = std::env::temp_dir().join(format!(
+            "vt_paths_env_test_{}_{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(tmp.join(".voice-typer")).unwrap();
+        let p = config_dir_from_env(
+            Some(tmp.to_str().unwrap()),
+            None,
+            None,
+            Some("/explicit/override"),
+        );
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("/explicit/override"),
+            "CR-39: VOICE_TYPER_CONFIG_DIR env var should win over legacy ~/.voice-typer"
+        );
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_config_dir_empty_env_override_falls_through() {
+        // CR-39: an empty VOICE_TYPER_CONFIG_DIR value should be
+        // treated as unset (mirrors the XDG spec for empty XDG vars).
+        let p = config_dir_from_env(
+            Some("/nonexistent_home_for_cr39_test"),
+            None,
+            None,
+            Some(""),
+        );
+        // No legacy dir at /nonexistent_home_for_cr39_test/.voice-typer,
+        // so falls through to platform default.
+        #[cfg(target_os = "linux")]
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("/nonexistent_home_for_cr39_test/.local/share/voice-typer"),
+            "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
+        );
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("/nonexistent_home_for_cr39_test/Library/Application Support/voice-typer"),
+            "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            p,
+            std::path::PathBuf::from("/nonexistent_home_for_cr39_test/voice-typer"),
+            "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
         );
     }
 }

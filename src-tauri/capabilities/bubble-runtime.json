@@ -1,0 +1,10 @@
+{
+  "$schema": "https://schema.tauri.app/config/2/capability",
+  "identifier": "bubble-runtime",
+  "description": "ADR-0020 §7 + §9 + CR-5 (SEC-026 regression fix): least-privilege capability for the BUBBLE window ONLY. The bubble is a sandboxed renderer that displays the audio-level pill (waveform + state label). It must NOT be able to invoke shell:spawn, clipboard write, dialog save, tray operations, or any main-window-only IPC — even if it is compromised (e.g. an XSS payload in the waveform renderer). The original migrate-runtime.json granted BOTH windows the full permission set, which silently undid the SEC-026 sandboxing that the Electron bubble preload (voice_typer/client/src/preload/bubble.ts) put in place. This file is the Tauri-side equivalent of that sandboxing. Permissions granted: (1) core:event:default — listen for `bubble_level`, `bubble:show`, `bubble:hide`, `bubble:draggable`, `bubble:set-state`, `bubble:config` events emitted by the Rust host; (2) core:window:allow-start-dragging — the bubble renderer calls `getCurrentWindow().start_dragging()` directly on mouse-down when draggable mode is enabled (the Rust `bubble_set_draggable` command just flips a flag and emits `bubble:draggable` to tell the renderer to bind/unbind the drag handler). Custom `#[tauri::command]` functions (bubble_show, bubble_signal_ready, bubble_set_position, bubble_set_draggable, bubble_move_by, bubble_hide_complete, bubble_resize, bubble_emit_state, bubble_toggle_dictation) do NOT need capability entries — Tauri v2 only gates plugin commands via the capability system, not user-defined commands. The window-label guard in `commands::sidecar_cmds::dispatch` (CR-5) is the runtime backstop: even if the bubble renderer somehow invokes `dispatch`, Rust rejects it because `window.label() != \"main\"`. Without that guard, a compromised bubble could `invoke('dispatch', {cmd:'quit_app'})` to take over the app.",
+  "windows": ["bubble"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-start-dragging"
+  ]
+}

@@ -1,7 +1,11 @@
 //! Bubble window commands (MIG-1.2 + ADR-0020 §9).
 
 use serde_json::{json, Value};
+use std::sync::Arc;
 use tauri::{PhysicalPosition, Emitter, Manager};
+use tokio_tungstenite::tungstenite::Message;
+
+use crate::state::SidecarState;
 
 // ─── Tauri commands: bubble window (MIG-1.2, ADR-0020 §9) ────────────
 
@@ -254,4 +258,108 @@ pub async fn bubble_hide_complete(app: tauri::AppHandle) -> Result<(), String> {
     window.hide().map_err(|e| e.to_string())?;
     app.emit_to("bubble", "bubble:hide_complete", ())
         .map_err(|e| e.to_string())
+}
+
+// ─── Tauri commands: bubble window extensions (CR-33) ────────────────
+//
+// CR-33: the Tauri bridge was missing 3 bubble-window methods that the
+// Electron bubble preload (`voice_typer/client/src/preload/bubble.ts`)
+// exposes — `resizeTo`, `onSetState`, `toggleDictation`. Without these,
+// the bubble renderer's mic button (toggleDictation) is dead, the
+// state label (onSetState) never updates, and the pill content has a
+// transparent dead zone around it (resizeTo is never called to fit the
+// window to the pill). These commands restore parity with the Electron
+// preload surface so the same `Bubble.tsx` component works on both
+// runtimes.
+
+/// Resize the bubble window to exactly `(width, height)` physical
+/// pixels (CR-33 / ADR-0020 §9). The TS bridge's `resizeTo(w, h)`
+/// invokes this with the pill content's measured bounds so there is no
+/// invisible dead zone around the bubble that would block clicks to the
+/// windows underneath (the BrowserWindow is 240×80 initially; the pill
+/// content is typically smaller).
+///
+/// Mirrors the Electron `bubble:resize` IPC handler in
+/// `voice_typer/client/src/main/index.ts` which calls
+/// `BrowserWindow.setSize(width, height)`.
+#[tauri::command]
+pub async fn bubble_resize(
+    width: u32,
+    height: u32,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("bubble")
+        .ok_or("bubble window not found")?;
+    use tauri::PhysicalSize;
+    window
+        .set_size(PhysicalSize::new(width, height))
+        .map_err(|e| e.to_string())
+}
+
+/// Emit a `bubble:set-state` event to the bubble window with the given
+/// state string (CR-33 / ADR-0020 §9). The bubble renderer's
+/// `onSetState(callback)` listener (in preload/bubble.ts:64-71) updates
+/// the state label — e.g. "recording", "transcribing", "loading".
+///
+/// This command is invoked from the MAIN renderer (which has dispatch
+/// access) when the Python sidecar sends a `status_change` event, so
+/// the sandboxed bubble renderer doesn't need to subscribe to the full
+/// Python event stream. The main renderer routes only the state
+/// relevant to the bubble via this dedicated channel.
+///
+/// Mirrors the Electron `bubble:set-state` IPC send in
+/// `voice_typer/client/src/main/index.ts`.
+#[tauri::command]
+pub async fn bubble_emit_state(
+    state: String,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    app.emit_to("bubble", "bubble:set-state", state)
+        .map_err(|e| e.to_string())
+}
+
+/// Toggle dictation from the bubble's own mic button (CR-33 / ADR-0020
+/// §9 + UX-10). The bubble is a sandboxed renderer (SEC-026 / CR-5)
+/// with NO `dispatch` access — the `check_dispatch_window_label` guard
+/// in `commands::sidecar_cmds` rejects any `dispatch` call from a
+/// non-main window. So instead of calling `dispatch` from JS, the
+/// bubble renderer invokes this dedicated command which forwards the
+/// `toggle_dictation` envelope to the sidecar via the WS bridge
+/// (mirroring how `dispatch` does it but with a fixed command name and
+/// fire-and-forget semantics — the bubble doesn't need the response
+/// because the sidecar's `status_change` event will reach it via
+/// `bubble_emit_state`).
+///
+/// The Python sidecar's `toggle_dictation` handler responds with
+/// `{type:"result", data:{recording: bool}}` — we ignore the response
+/// here (no `pending` entry is registered) because the bubble renderer
+/// doesn't need it (it learns the new state via the `bubble:set-state`
+/// event the main renderer forwards). The main renderer's
+/// `usePython.ts` subscription to `status_change` is the source of
+/// truth for the toggle's effect on the rest of the UI.
+///
+/// Mirrors the Electron `bubble:toggle-dictation` IPC handler in
+/// `voice_typer/client/src/main/index.ts` which calls
+/// `python.call({type: 'toggle_dictation'})`.
+#[tauri::command]
+pub async fn bubble_toggle_dictation(
+    state: tauri::State<'_, Arc<SidecarState>>,
+) -> Result<(), String> {
+    // Fire-and-forget: send the toggle_dictation envelope with a
+    // synthetic id of 0 (the sidecar's response is dropped — see the
+    // doc comment above). We do NOT register a pending entry, so the
+    // WS reader task's response will be a no-op log warning about an
+    // unknown id (acceptable: the sidecar already logs every dispatch
+    // round-trip; one extra unmatched response per toggle is noise).
+    let frame = json!({
+        "type": "toggle_dictation",
+        "data": {},
+        "id": 0u64,
+    });
+    let ws_tx_opt = state.ws_tx.lock().unwrap().clone();
+    let ws_tx = ws_tx_opt.ok_or_else(|| "sidecar not connected".to_string())?;
+    ws_tx.send(Message::Text(frame.to_string()))
+        .map_err(|e| format!("WS send failed: {e}"))?;
+    Ok(())
 }

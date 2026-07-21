@@ -52,13 +52,10 @@ fn electron_userdata_dir() -> Option<PathBuf> {
             .ok()
             .filter(|b| !b.is_empty())
             .or_else(|| std::env::var("HOME").ok())
-            .map(|h| {
-                if h.starts_with("./") || h == "." {
-                    PathBuf::from(".").join(".config")
-                } else {
-                    PathBuf::from(h).join(".config")
-                }
-            })?;
+            // CR-80 fix: collapse dead conditional (both arms returned the
+            // same value — `PathBuf::from(X).join(".config")` where X was
+            // `.` or `h`).
+            .map(|h| PathBuf::from(h).join(".config"))?;
         Some(base.join("Voice Typer"))
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
@@ -71,9 +68,21 @@ fn electron_userdata_dir() -> Option<PathBuf> {
 pub fn migrate_electron_userdata(app: &tauri::AppHandle) {
     let new_dir = crate::platform::paths::config_dir(app);
 
-    // 3. If new config_dir already has a config.json, treat as migrated.
-    if new_dir.join("config.json").exists() {
-        log::info!("[MIGRATE] already migrated (config.json present in target)");
+    // CR-19 fix: use a sentinel file (.migrated-from-electron) as the
+    // idempotency marker instead of checking config.json existence.
+    //
+    // The previous guard (`if new_dir.join("config.json").exists()`)
+    // conflated "already migrated" with "target config.json exists," which
+    // is true after the very first launch even when migration hasn't actually
+    // run. Users upgrading from Electron who launched Tauri once (even
+    // briefly) before the migration was wired would never get their old
+    // Electron config merged — silently losing their settings. The
+    // merge_config logic (newest-mtime-wins per key) was dead code in the
+    // common case. The sentinel marker is touched ONLY after successful
+    // migration, so merge_config can actually run when both configs exist.
+    let migration_marker = new_dir.join(".migrated-from-electron");
+    if migration_marker.exists() {
+        log::info!("[MIGRATE] already migrated (sentinel marker present)");
         return;
     }
 
@@ -144,11 +153,38 @@ pub fn migrate_electron_userdata(app: &tauri::AppHandle) {
             log::warn!(
                 "[MIGRATE] history.db skipped (target exists) — NOT overwriting to avoid corruption"
             );
-        } else if let Err(e) = std::fs::copy(&old_db, &new_db) {
-            log::error!("[MIGRATE] history.db copy failed: {}", e);
         } else {
-            history_copied = true;
-            log::info!("[MIGRATE] history.db copied");
+            // M-65: copy main db atomically (temp + rename in same dir)
+            // so an interrupted migration never leaves a partial
+            // history.db on disk that SQLite would refuse to open.
+            match atomic_copy(&old_db, &new_db) {
+                Ok(()) => {
+                    history_copied = true;
+                    log::info!("[MIGRATE] history.db copied");
+                }
+                Err(e) => log::error!("[MIGRATE] history.db copy failed: {}", e),
+            }
+            // M-65: also copy SQLite WAL sidecars (-wal / -shm) if
+            // present. Without these, recent WAL-mode transactions
+            // in the source db would be lost on the migrated copy.
+            // Each sidecar is copied atomically and independently;
+            // a missing sidecar is not an error (SQLite regenerates
+            // -shm and replays -wal only if both are present).
+            for suffix in &["-wal", "-shm"] {
+                let old_side = sidecar_path(&old_db, suffix);
+                let new_side = sidecar_path(&new_db, suffix);
+                if old_side.is_file() && !new_side.exists() {
+                    if let Err(e) = atomic_copy(&old_side, &new_side) {
+                        log::warn!(
+                            "[MIGRATE] history.db{} copy failed: {}",
+                            suffix,
+                            e
+                        );
+                    } else {
+                        log::info!("[MIGRATE] history.db{} copied", suffix);
+                    }
+                }
+            }
         }
     }
 
@@ -174,6 +210,19 @@ pub fn migrate_electron_userdata(app: &tauri::AppHandle) {
         history_copied,
         recovery_copied
     );
+
+    // CR-19 fix: write the sentinel marker AFTER successful migration so
+    // subsequent launches skip re-migration. Without this, every launch
+    // would re-attempt the (idempotent but log-noisy) migration.
+    if let Err(e) = std::fs::write(&migration_marker, "") {
+        log::warn!(
+            "[MIGRATE] failed to write sentinel marker {}: {} (migration will re-run next launch)",
+            migration_marker.display(),
+            e
+        );
+    } else {
+        log::info!("[MIGRATE] sentinel marker written to {}", migration_marker.display());
+    }
 }
 
 enum MergeOutcome {
@@ -186,9 +235,20 @@ enum MergeOutcome {
 /// - If `new` does not exist, copy the whole file (Copied).
 /// - If `new` exists: merge key-by-key, newest-mtime-wins per key across
 ///   the two files. Returns Merged(keys_from_old_written).
+///
+/// H-19 (IMPROVE-2026-07-19): all writes are now ATOMIC (temp-file +
+/// `rename`). Previously `std::fs::copy` and `std::fs::write` truncated
+/// the target before writing — a crash mid-write (power loss, SIGKILL,
+/// OOM) would leave `config.json` truncated/corrupt. Since `migrate.rs`
+/// runs BEFORE the Python sidecar spawns, the sidecar would boot against
+/// a corrupt config and fall back to defaults — permanently losing the
+/// user's migrated Electron config. The atomic write ensures the target
+/// is either fully-old or fully-new, never partial.
 fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     if !new.exists() {
-        std::fs::copy(old, new).map_err(|e| e.to_string())?;
+        // M-65: atomic copy so an interrupted migration never leaves
+        // a partially-written config.json at the target.
+        atomic_copy(old, new)?;
         return Ok(MergeOutcome::Copied);
     }
 
@@ -219,9 +279,9 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     let mut written = 0usize;
     for (k, v) in old_obj {
         let take_old = match base.get(k) {
-            // Key present in target → winner determined by file mtime.
+            // Key present in target — winner determined by file mtime.
             Some(_) => old_newer == Some(true),
-            // Key absent in target → always take old.
+            // Key absent in target — always take old.
             None => true,
         };
         if take_old {
@@ -232,8 +292,97 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
 
     let merged = serde_json::Value::Object(base);
     let out = serde_json::to_string_pretty(&merged).map_err(|e| e.to_string())?;
-    std::fs::write(new, out).map_err(|e| e.to_string())?;
+    // M-65: write atomically (temp + fsync + rename in the same dir)
+    // so an interrupted migration never leaves a partially-written
+    // config.json that would fail to parse on next launch and cause
+    // the user's merged settings to be lost.
+    atomic_write_bytes(new, out.as_bytes())?;
     Ok(MergeOutcome::Merged(written))
+}
+
+// ─── M-65: atomic write helpers ───────────────────────────────────────────
+//
+// `std::fs::write` and `std::fs::copy` are NOT atomic: if the process
+// is killed (or the disk fills, or the OS crashes) mid-write, the
+// destination file is left with a partial body. For the migration
+// path that means a half-written `config.json` that fails to parse
+// on next launch (losing the user's merged settings) or a truncated
+// `history.db` that SQLite refuses to open (losing the user's
+// history). The helpers below write to a sibling temp file in the
+// SAME directory (so `rename` is a same-filesystem atomic op on
+// POSIX, and on Windows the destination is absent so rename
+// succeeds), `fsync` the temp file (so the data is durable before
+// the rename), then rename into place. On failure the temp file is
+// best-effort cleaned up so we don't leak `.history.db.tmp.migrate`
+// files in the user's config dir.
+
+/// M-65: write `contents` to `path` atomically (temp + fsync + rename).
+fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
+    let dir = path
+        .parent()
+        .ok_or_else(|| format!("path has no parent: {}", path.display()))?;
+    // Same dir as target so rename is atomic (same filesystem).
+    // The temp filename is dotted so it doesn't show up in normal
+    // directory listings and is prefixed with the target's filename
+    // so a human inspecting the dir can tell what it's for.
+    let tmp_name = match path.file_name().and_then(|n| n.to_str()) {
+        Some(n) => format!(".{}.tmp.migrate", n),
+        None => return Err(format!("path has no file_name: {}", path.display())),
+    };
+    let tmp = dir.join(&tmp_name);
+
+    {
+        let mut f = std::fs::File::create(&tmp)
+            .map_err(|e| format!("create tmp {}: {}", tmp.display(), e))?;
+        f.write_all(contents)
+            .map_err(|e| format!("write tmp {}: {}", tmp.display(), e))?;
+        // fsync the file so the data is on disk before we rename.
+        // Without this, a crash after rename but before the kernel
+        // flushes the file's data could leave the new file with zero
+        // bytes (POSIX allows this).
+        f.sync_all()
+            .map_err(|e| format!("fsync tmp {}: {}", tmp.display(), e))?;
+        // Drop the file handle BEFORE rename so Windows can rename
+        // (Windows refuses to rename a file that's still open).
+    }
+
+    std::fs::rename(&tmp, path).map_err(|e| {
+        // Best-effort cleanup of the temp file on rename failure so
+        // we don't leave orphaned .tmp.migrate files lying around.
+        let _ = std::fs::remove_file(&tmp);
+        format!("rename {} -> {}: {}", tmp.display(), path.display(), e)
+    })?;
+    Ok(())
+}
+
+/// M-65: atomically copy `src` to `dst` by reading src into memory
+/// then writing via `atomic_write_bytes`. Suitable for small-to-
+/// medium files (config.json, history.db, WAL sidecars). For very
+/// large files (model weights) we use `std::fs::copy` directly via
+/// `copy_missing_files` — those aren't safety-critical and the
+/// double-buffering would be wasteful.
+fn atomic_copy(src: &Path, dst: &Path) -> Result<(), String> {
+    let bytes = std::fs::read(src)
+        .map_err(|e| format!("read src {}: {}", src.display(), e))?;
+    atomic_write_bytes(dst, &bytes)
+}
+
+/// M-65: build the path of a SQLite sidecar file (`-wal` / `-shm`)
+/// for a given main db path. Appends the suffix to the literal
+/// file_name (NOT to the extension) so `history.db` →
+/// `history.db-wal`.
+fn sidecar_path(db: &Path, suffix: &str) -> PathBuf {
+    let mut name = match db.file_name().and_then(|n| n.to_str()) {
+        Some(n) => n.to_string(),
+        None => return db.to_path_buf(),
+    };
+    name.push_str(suffix);
+    match db.parent() {
+        Some(dir) => dir.join(name),
+        None => PathBuf::from(name),
+    }
 }
 
 /// Returns Some(true) if `a` is newer than `b`, Some(false) if `b` is

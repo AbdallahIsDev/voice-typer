@@ -15,14 +15,29 @@
 //! ```
 //!
 //! On item click we dispatch `{"cmd":"tray_click","data":{"id": <id>}}`
-//! back to the sidecar via the generic `dispatch` command (emitted as a
-//! Tauri event that the WS bridge picks up). Left-click (no item)
-//! focuses the main window.
+//! back to the sidecar via the shared `dispatch_frame` helper (CR-14:
+//! previously the click was forwarded by emitting a Tauri event named
+//! `"dispatch"` that had no listener — `app.emit("dispatch", payload)`
+//! was dead code, so the click was silently dropped). Left-click (no
+//! item) focuses the main window.
 
 use serde::Deserialize;
+use std::sync::Arc;
 use tauri::menu::{IsMenuItem, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Listener, Manager};
+use tauri::{AppHandle, Listener, Manager};
+use tauri::image::Image;
+
+// CR-5: use `dispatch_inner` (no allowlist gate — `tray_click` is a
+// Rust-only command not in the renderer `ALLOWED_COMMANDS` set) which
+// internally delegates to session-2's shared `dispatch_frame` helper
+// (CR-14). This combines both sessions' fixes for the dropped-tray-click
+// bug: session-1 added the typed `dispatch_inner`/`DispatchArgs` path
+// for trusted Rust callers; session-2 extracted the WS-send body into
+// `dispatch_frame` so the public `dispatch` command and the tray
+// handler share one implementation.
+use crate::commands::{dispatch_inner, DispatchArgs};
+use crate::state::SidecarState;
 
 type R = tauri::Wry;
 
@@ -48,8 +63,64 @@ struct TrayMenuPayload {
     items: Vec<MenuItemData>,
 }
 
+/// CR-6: payload shape for the `tray_state` event emitted by the
+/// Python sidecar. `icon` is a logical name (`"idle"`, `"recording"`,
+/// `"transcribing"`, `"error"`) that the Rust host maps to a bundled
+/// tray icon resource. `tooltip` is the new tooltip string (e.g.
+/// "Voice Typer — Recording (12s)"). Both fields are optional — the
+/// host only updates the field(s) present in the payload.
+#[derive(Debug, Clone, Deserialize)]
+struct TrayStatePayload {
+    #[serde(default)]
+    icon: Option<String>,
+    #[serde(default)]
+    tooltip: Option<String>,
+}
+
 const TRAY_TOOLTIP: &str = "Voice Typer";
 const TRAY_ID: &str = "voice-typer-tray";
+
+/// CR-6: map a logical icon name (`"idle"`, `"recording"`,
+/// `"transcribing"`, `"error"`) emitted by the Python sidecar to a
+/// bundled Tauri image resource. Returns `None` if the name is unknown
+/// (caller logs and skips the icon update — non-fatal).
+///
+/// The icon files live under `src-tauri/icons/tray/` and are declared
+/// in `bundle.resources` of the per-arch Tauri config overrides so
+/// they're shipped with the bundle. At runtime they're resolved via
+/// `app.path().resource_dir()` → `tray/<name>.png`.
+///
+/// If the icon file is missing on disk (e.g. a fresh dev checkout that
+/// hasn't run the icon-generation script), the call returns `None` —
+/// the tray icon is left unchanged so the app still runs.
+fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
+    // Whitelist the logical names — never load an arbitrary path from
+    // the sidecar (defense against a compromised sidecar trying to read
+    // an arbitrary file via the tray icon path).
+    let allowed = match name {
+        "idle" | "recording" | "transcribing" | "error" => name,
+        _ => {
+            log::warn!("[TRAY] ignoring unknown tray_state icon name: {:?}", name);
+            return None;
+        }
+    };
+    let resource_dir = app.path().resource_dir().ok()?;
+    let path = resource_dir.join("tray").join(format!("{}.png", allowed));
+    let bytes = std::fs::read(&path).ok()?;
+    match Image::from_path(&path) {
+        Ok(img) => Some(img),
+        Err(e) => {
+            log::warn!(
+                "[TRAY] failed to decode tray icon {:?} ({} bytes from {}): {}",
+                allowed,
+                bytes.len(),
+                path.display(),
+                e
+            );
+            None
+        }
+    }
+}
 
 /// Build the list of `IsMenuItem` boxed items for `items`. Each entry is
 /// either a separator, a leaf `MenuItem` (with optional checkmark via
@@ -111,16 +182,41 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
-            // `event.id()` is the string id we assigned via `with_id`.
+            // CR-5: invoke the `tray_click` command on the Python
+            // sidecar DIRECTLY via `dispatch_inner` — the previous
+            // implementation emitted a Tauri event named `dispatch`
+            // that nobody listened to (events ≠ commands in Tauri).
+            // The click silently dropped.
+            //
+            // `tray_click` is a Rust-only command — the renderer never
+            // invokes it — so it is NOT in the renderer-side
+            // `ALLOWED_COMMANDS` allowlist. The public `dispatch`
+            // Tauri command (CR-4) enforces the allowlist and would
+            // reject `tray_click`. We therefore call `dispatch_inner`
+            // directly, which is the WS-send path WITHOUT the
+            // allowlist gate (callers are trusted Rust code).
             let id = event.id().as_ref().to_string();
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                let payload = serde_json::json!({
-                    "cmd": "tray_click",
-                    "data": { "id": id }
-                });
-                // Forward through the existing generic `dispatch` path.
-                let _ = app.emit("dispatch", payload);
+                // CR-5 + CR-14 (combined): previously emitted a Tauri event
+                // named "dispatch" via `app.emit("dispatch", payload)` — but
+                // no listener was registered for that event (the renderer
+                // invokes the `dispatch` *command* via `invoke('dispatch',
+                // ...)`, not by listening to a "dispatch" event). The emit
+                // was dead code, so tray clicks were silently dropped. Now
+                // call `dispatch_inner` (CR-5) which delegates to the shared
+                // `dispatch_frame` helper (CR-14) — the same WS-send path
+                // the renderer's `invoke('dispatch', ...)` takes, but
+                // without the ALLOWED_COMMANDS gate (CR-4) since
+                // `tray_click` is a Rust-only command.
+                let state: tauri::State<'_, Arc<SidecarState>> = app.state();
+                let args = DispatchArgs {
+                    cmd: "tray_click".to_string(),
+                    data: Some(serde_json::json!({ "id": id })),
+                };
+                if let Err(e) = dispatch_inner(args, state.inner().clone()).await {
+                    log::warn!("[TRAY] tray_click dispatch failed: {}", e);
+                }
             });
         })
         .on_tray_icon_event(|tray, event| {
@@ -156,6 +252,47 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         });
     });
 
+    // CR-6 (Rust side): listen for `tray_state` events from the Python
+    // sidecar and update the tray icon + tooltip. The Python-side
+    // `_maybe_publish_tray_menu` + `tray_state` emission is owned by
+    // Fix-E — this listener is a no-op until Fix-E wires the publish
+    // path. Once Fix-E adds `app.emit("tray_state", ...)` from
+    // `tray.py::set_state`, the icon + tooltip here will start moving.
+    let app_clone_state = app.clone();
+    app.listen("tray_state", move |event| {
+        let payload: TrayStatePayload = match serde_json::from_str(event.payload()) {
+            Ok(p) => p,
+            Err(e) => {
+                log::warn!("[TRAY] failed to parse tray_state payload: {}", e);
+                return;
+            }
+        };
+        let app_inner = app_clone_state.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Some(tray) = app_inner.tray_by_id(TRAY_ID) {
+                if let Some(icon_name) = &payload.icon {
+                    if let Some(img) = load_tray_icon(&app_inner, icon_name) {
+                        if let Err(e) = tray.set_icon(Some(img)) {
+                            log::warn!("[TRAY] set_icon({}) failed: {}", icon_name, e);
+                        }
+                    } else {
+                        log::warn!(
+                            "[TRAY] tray_state icon {:?} not available — leaving icon unchanged",
+                            icon_name
+                        );
+                    }
+                }
+                if let Some(tooltip) = &payload.tooltip {
+                    if let Err(e) = tray.set_tooltip(Some(tooltip)) {
+                        log::warn!("[TRAY] set_tooltip({:?}) failed: {}", tooltip, e);
+                    }
+                }
+            } else {
+                log::warn!("[TRAY] tray_by_id({}) returned None — tray not yet built?", TRAY_ID);
+            }
+        });
+    });
+
     Ok(())
 }
 
@@ -167,4 +304,173 @@ fn rebuild_tray_menu(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<(
         tray.set_menu(Some(menu))?;
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ── CR-6: TrayStatePayload parsing ───────────────────────────────
+
+    #[test]
+    fn test_tray_state_payload_parses_icon_only() {
+        let p: TrayStatePayload =
+            serde_json::from_str(r#"{"icon":"recording"}"#).expect("parse");
+        assert_eq!(p.icon.as_deref(), Some("recording"));
+        assert!(p.tooltip.is_none());
+    }
+
+    #[test]
+    fn test_tray_state_payload_parses_tooltip_only() {
+        let p: TrayStatePayload =
+            serde_json::from_str(r#"{"tooltip":"Voice Typer — Recording"}"#).expect("parse");
+        assert!(p.icon.is_none());
+        assert_eq!(p.tooltip.as_deref(), Some("Voice Typer — Recording"));
+    }
+
+    #[test]
+    fn test_tray_state_payload_parses_both_fields() {
+        let p: TrayStatePayload =
+            serde_json::from_str(r#"{"icon":"error","tooltip":"Voice Typer — Error"}"#)
+                .expect("parse");
+        assert_eq!(p.icon.as_deref(), Some("error"));
+        assert_eq!(p.tooltip.as_deref(), Some("Voice Typer — Error"));
+    }
+
+    #[test]
+    fn test_tray_state_payload_parses_empty_object() {
+        let p: TrayStatePayload = serde_json::from_str(r#"{}"#).expect("parse");
+        assert!(p.icon.is_none());
+        assert!(p.tooltip.is_none());
+    }
+
+    #[test]
+    fn test_tray_state_payload_ignores_unknown_fields() {
+        let p: TrayStatePayload =
+            serde_json::from_str(r#"{"icon":"idle","tooltip":"ok","future_field":42}"#)
+                .expect("parse");
+        assert_eq!(p.icon.as_deref(), Some("idle"));
+        assert_eq!(p.tooltip.as_deref(), Some("ok"));
+    }
+
+    // ── CR-6: TrayMenuPayload still parses (regression guard) ────────
+
+    #[test]
+    fn test_tray_menu_payload_parses_items() {
+        let p: TrayMenuPayload =
+            serde_json::from_str(r#"{"items":[{"id":"quit","label":"Quit"}]}"#).expect("parse");
+        assert_eq!(p.items.len(), 1);
+        assert_eq!(p.items[0].id, "quit");
+        assert_eq!(p.items[0].label, "Quit");
+    }
+
+    #[test]
+    fn test_tray_menu_payload_parses_empty_items() {
+        let p: TrayMenuPayload = serde_json::from_str(r#"{"items":[]}"#).expect("parse");
+        assert!(p.items.is_empty());
+    }
+
+    #[test]
+    fn test_tray_menu_payload_parses_missing_items_default_empty() {
+        let p: TrayMenuPayload = serde_json::from_str(r#"{}"#).expect("parse");
+        assert!(p.items.is_empty(), "items defaults to empty vec");
+    }
+
+    #[test]
+    fn test_tray_menu_payload_parses_separator() {
+        let p: TrayMenuPayload = serde_json::from_str(
+            r#"{"items":[{"id":"a","label":"A"},{"separator":true},{"id":"b","label":"B"}]}"#,
+        )
+        .expect("parse");
+        assert_eq!(p.items.len(), 3);
+        assert!(!p.items[0].separator);
+        assert!(p.items[1].separator);
+        assert!(!p.items[2].separator);
+    }
+
+    #[test]
+    fn test_tray_menu_payload_parses_checked_state() {
+        let p: TrayMenuPayload = serde_json::from_str(
+            r#"{"items":[{"id":"x","label":"X","checked":true},{"id":"y","label":"Y","checked":false}]}"#,
+        )
+        .expect("parse");
+        assert_eq!(p.items[0].checked, Some(true));
+        assert_eq!(p.items[1].checked, Some(false));
+    }
+
+    #[test]
+    fn test_tray_menu_payload_parses_submenu() {
+        let p: TrayMenuPayload = serde_json::from_str(
+            r#"{"items":[{"id":"models","label":"Models","submenu":[{"id":"m1","label":"M1"}]}]}"#,
+        )
+        .expect("parse");
+        assert_eq!(p.items.len(), 1);
+        let sub = p.items[0].submenu.as_ref().expect("submenu present");
+        assert_eq!(sub.len(), 1);
+        assert_eq!(sub[0].id, "m1");
+    }
+
+    // ── CR-6: load_tray_icon name whitelist (defense in depth) ──────
+
+    const ALLOWED_ICON_NAMES: &[&str] = &["idle", "recording", "transcribing", "error"];
+
+    #[test]
+    fn test_allowed_icon_names_are_stable() {
+        assert_eq!(
+            ALLOWED_ICON_NAMES,
+            &["idle", "recording", "transcribing", "error"],
+            "ALLOWED_ICON_NAMES changed — update src-tauri/icons/tray/ + bundle.resources too"
+        );
+    }
+
+    #[test]
+    fn test_allowed_icon_names_rejects_arbitrary_path() {
+        let bad_names = [
+            "",
+            ".",
+            "..",
+            "../etc/passwd",
+            "/etc/passwd",
+            "idle.png",
+            "IDLE",
+            "recording ",
+            "recording\x00.png",
+            "arbitrary_name",
+        ];
+        for bad in bad_names {
+            assert!(
+                !ALLOWED_ICON_NAMES.contains(&bad),
+                "sentinel {:?} should NOT be in ALLOWED_ICON_NAMES",
+                bad
+            );
+        }
+    }
+
+    // ── CR-5: DispatchArgs construction shape (regression guard) ────
+
+    #[test]
+    fn test_dispatch_args_tray_click_shape() {
+        let args = DispatchArgs {
+            cmd: "tray_click".to_string(),
+            data: Some(json!({ "id": "toggle_dictation" })),
+        };
+        assert_eq!(args.cmd, "tray_click");
+        assert_eq!(
+            args.data,
+            Some(json!({ "id": "toggle_dictation" }))
+        );
+    }
+
+    #[test]
+    fn test_dispatch_args_tray_click_shape_with_empty_id() {
+        let args = DispatchArgs {
+            cmd: "tray_click".to_string(),
+            data: Some(json!({ "id": "" })),
+        };
+        let serialized = serde_json::to_string(&args).expect("serialize");
+        assert!(serialized.contains("\"cmd\":\"tray_click\""));
+        assert!(serialized.contains("\"id\":\"\""));
+    }
 }

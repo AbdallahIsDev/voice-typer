@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Voice Typer — polkit policy for pkexec-based permission installation.
+
+  This policy allows the install_permissions.py script to run as root via
+  pkexec, with a GUI password prompt (polkit). Used by the AppImage
+  first-run permission helper.
+
+  Placement: /usr/share/polkit-1/actions/org.voice-typer.policy
+
+  The `auth_admin_keep` default allows the user to authenticate once and
+  not be re-prompted for 5 minutes (default polkit timeout).
+-->
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+
+<policyconfig>
+  <vendor>Voice Typer</vendor>
+  <vendor_url>https://github.com/AbdallahIsDev/voice-typer</vendor_url>
+
+  <action id="org.voice-typer.install-permissions">
+    <description>Install Voice Typer keyboard permissions</description>
+    <message>Authentication is required to grant Voice Typer access to keyboard events</message>
+    <message xml:lang="es">Se requiere autenticación para conceder a Voice Typer acceso a los eventos del teclado</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/share/voice-typer/scripts/install_permissions.py</annotate>
+    <annotate key="org.freedesktop.policykit.exec.allow_gui">true</annotate>
+  </action>
+</policyconfig>

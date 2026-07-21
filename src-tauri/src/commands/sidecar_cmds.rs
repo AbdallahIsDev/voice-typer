@@ -2,8 +2,9 @@
 
 use crate::state::SidecarState;
 use crate::util::{DISPATCH_TIMEOUT_SECS, PASTE_SHORT_THRESHOLD, SHUTDOWN_ACK_TIMEOUT_MS, SHUTDOWN_POLL_INTERVAL_MS};
+use std::collections::HashSet;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,25 +12,210 @@ use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
+// ─── CR-4: ALLOWED_COMMANDS allowlist (ADR-0015 defense-in-depth) ──────
+//
+// Mirrors the Electron renderer-side allowlist in
+// `voice_typer/client/src/main/index.ts:79-191` (SEC-019). The Tauri
+// `dispatch` command is the only path from the webview to the Python
+// sidecar over WS — without this gate, a compromised renderer (XSS in
+// the WebView, malicious extension) could invoke arbitrary server-side
+// commands by `invoke('dispatch', {cmd: 'quit_app'})` or
+// `invoke('dispatch', {cmd: 'set_config', data: {...}})`.
+//
+// The Electron path enforces `ALLOWED_COMMANDS` in
+// `voice_typer/client/src/main/python/send-to-python.ts:48-51` — this
+// Rust gate is the **defense-in-depth** equivalent (an attacker who
+// escapes the renderer sandbox cannot bypass it by talking to Rust
+// directly).
+//
+// KEEP IN SYNC with the TS allowlist:
+//   - The Python test `tests/test_security_doc_command_count.py` (this
+//     fix adds a parity assertion that the Rust `ALLOWED_COMMANDS`
+//     set matches the TS set's command count + exact entries).
+//   - The TS test in `tests/test_electron_ipc_and_build.py` cross-checks
+//     the renderer allowlist against the server command registry.
+//   - When adding/removing a command in TS, do the same here in the
+//     same PR.
+//
+// The set is constructed once at process startup and stored in a
+// `OnceLock` so all subsequent `dispatch` calls share the same
+// `HashSet<&'static str>` allocation. `HashSet::contains` is O(1).
+static ALLOWED_COMMANDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
+
+/// Returns the process-global `ALLOWED_COMMANDS` set, initializing it
+/// on first call. Separated from the static so unit tests can call it
+/// directly without going through `dispatch`.
+pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
+    ALLOWED_COMMANDS.get_or_init(|| {
+        // CR-4: this list MUST mirror the Electron renderer's
+        // ALLOWED_COMMANDS in `voice_typer/client/src/main/index.ts`.
+        // The Python test `tests/test_security_doc_command_count.py`
+        // cross-checks parity (count + exact entries).
+        let cmds: &[&str] = &[
+            "get_status",
+            "toggle_dictation",
+            "undo_last",
+            "get_config",
+            "get_defaults",
+            "set_config",
+            "get_history",
+            "search_history",
+            "get_today_stats",
+            "delete_history",
+            "restore_history",
+            "clear_history",
+            "toggle_favorite",
+            "get_favorites",
+            "get_microphones",
+            "restart_app",
+            "quit_app",
+            "get_templates",
+            "save_templates",
+            "get_volume_backend_status",
+            "get_model_status",
+            "get_prewarm_status",
+            "run_prewarm",
+            "open_prewarm_log",
+            "get_vocabulary",
+            "save_vocabulary",
+            "onboarding_is_first_run",
+            "onboarding_start",
+            "onboarding_get_step",
+            "onboarding_next_step",
+            "onboarding_prev_step",
+            "onboarding_set_microphone",
+            "onboarding_set_hotkey",
+            "onboarding_set_model",
+            "onboarding_skip",
+            "onboarding_apply",
+            "onboarding_get_microphones",
+            "onboarding_get_model_options",
+            "onboarding_get_hotkey_presets",
+            "download_model",
+            "cancel_model_download",
+            "pause_model_download",
+            "resume_model_download",
+            "test_llm_connection",
+            "delete_model",
+            "get_model_catalog",
+            "microphone_test_start",
+            "microphone_test_stop",
+            "microphone_test_cancel",
+            "microphone_test_status",
+            "microphone_test_get_level",
+            "level_monitor_start",
+            "level_monitor_stop",
+            "level_monitor_status",
+            "set_esc_cancel_paused",
+            "set_tray_locale",
+            "import_model",
+            "heartbeat",
+            "relaunch_ack",
+            "repaste_last",
+            "refresh_microphones",
+            "get_rms_level",
+            "get_audio_status",
+            "export_diagnostics",
+            "check_accessibility",
+            "show_electron_notification",
+            "get_vocabulary_suggestions",
+            "apply_vocabulary_suggestion",
+            "dismiss_vocabulary_suggestion",
+            "force_cancel_transcription",
+        ];
+        let mut set = HashSet::with_capacity(cmds.len());
+        for c in cmds {
+            // Defensive — should never happen (no dupes in the literal
+            // above), but a duplicate entry would silently drop one
+            // command from the set. Log so a future copy-paste slip is
+            // visible during dev.
+            if !set.insert(*c) {
+                log::error!(
+                    "[CR-4] duplicate command in ALLOWED_COMMANDS literal: {} — \
+                     update src-tauri/src/commands/sidecar_cmds.rs",
+                    c
+                );
+            }
+        }
+        set
+    })
+}
+
+/// Returns true iff `cmd` is in the `ALLOWED_COMMANDS` allowlist.
+/// Pure + unit-testable (no state mutation).
+pub(crate) fn is_command_allowed(cmd: &str) -> bool {
+    allowed_commands().contains(cmd)
+}
+
 // ─── Tauri command: generic dispatch (ADR-0020 §7) ────────────────────
 
 #[derive(Serialize, Deserialize)]
 pub(crate) struct DispatchArgs {
-    cmd: String,
-    data: Option<Value>,
+    pub(crate) cmd: String,
+    pub(crate) data: Option<Value>,
 }
 
-#[tauri::command]
-pub async fn dispatch(
+/// Internal dispatch path: forwards a command to the Python sidecar
+/// over WS and awaits the per-id response. Performs NO allowlist check
+/// — callers are trusted Rust-internal code (e.g. the tray menu click
+/// handler, which routes `tray_click` — a Rust-only command that is
+/// NOT in the renderer `ALLOWED_COMMANDS` set because the renderer
+/// never invokes it; CR-4's allowlist parity test would fail if it
+/// were added).
+///
+/// The public `dispatch` Tauri command wraps this with the allowlist
+/// gate (CR-4) before delegating. Trusted Rust callers that need to
+/// send a non-allowlisted command (currently only `tray_click` from
+/// `tray.rs::on_menu_event`) call this directly.
+///
+/// `state` is taken as `Arc<SidecarState>` (not `tauri::State`) so
+/// this function is callable from contexts that aren't Tauri command
+/// invocations (e.g. an `async_runtime::spawn` block in the tray
+/// handler).
+pub(crate) async fn dispatch_inner(
     args: DispatchArgs,
-    state: tauri::State<'_, Arc<SidecarState>>,
+    state: Arc<SidecarState>,
+) -> Result<Value, String> {
+    // CR-14: the dispatch body is extracted into the shared
+    // `dispatch_frame` helper below so the tray menu handler
+    // (`tray.rs::on_menu_event`) can call it directly instead of
+    // emitting a Tauri "dispatch" event that has no listener.
+    dispatch_frame(&state, &args.cmd, args.data).await
+}
+
+/// CR-14: shared dispatch body used by both the `dispatch` Tauri command
+/// (renderer `invoke('dispatch', {cmd, data})` calls) and the tray menu
+/// event handler in `tray.rs::on_menu_event` (which previously emitted
+/// a Tauri event named "dispatch" that had no listener — the click was
+/// silently dropped).
+///
+/// Builds a WS frame `{"type": cmd, "data": data, "id": <next_id>}`,
+/// inserts a pending oneshot entry, sends the frame via `state.ws_tx`,
+/// and awaits the response (or times out).
+///
+/// CR-50: the pending entry is inserted AFTER confirming `ws_tx` is
+/// `Some`. Previously the entry was inserted first and the early-return
+/// Err branch on `ws_tx == None` leaked the entry — the WS reader never
+/// fulfilled it (no frame was sent), so the map accumulated stale
+/// senders across reconnects. We also remove the pending entry on
+/// `ws_tx.send` failure (writer task has exited; the reader's drain
+/// loop is the only other remover and may not have run yet).
+pub(crate) async fn dispatch_frame(
+    state: &Arc<SidecarState>,
+    cmd: &str,
+    data: Option<Value>,
 ) -> Result<Value, String> {
     let id = state.next_id.fetch_add(1, Ordering::SeqCst);
     let frame = json!({
-        "type": args.cmd,
-        "data": args.data.unwrap_or(json!({})),
+        "type": cmd,
+        "data": data.unwrap_or(json!({})),
         "id": id,
     });
+
+    // CR-50: confirm `ws_tx` is Some BEFORE inserting into the pending
+    // map so the early-return Err path doesn't leak a stale entry.
+    let ws_tx_opt = state.ws_tx.lock().unwrap().clone();
+    let ws_tx = ws_tx_opt.ok_or_else(|| "sidecar not connected".to_string())?;
 
     let (tx, rx) = oneshot::channel::<Value>();
     {
@@ -37,11 +223,15 @@ pub async fn dispatch(
         pending.insert(id, tx);
     }
 
-    // Send the frame via the WS writer channel.
-    let ws_tx_opt = state.ws_tx.lock().unwrap().clone();
-    let ws_tx = ws_tx_opt.ok_or_else(|| "sidecar not connected".to_string())?;
-    ws_tx.send(Message::Text(frame.to_string()))
-        .map_err(|e| format!("WS send failed: {e}"))?;
+    // Send the frame via the WS writer channel. On send failure, remove
+    // the pending entry too — the writer task has exited so the WS
+    // reader's drain loop is the only other remover and it may not have
+    // run yet (race window).
+    if let Err(e) = ws_tx.send(Message::Text(frame.to_string())) {
+        let mut pending = state.pending.lock().await;
+        pending.remove(&id);
+        return Err(format!("WS send failed: {e}"));
+    }
 
     // Await the response with a timeout.
     match tokio::time::timeout(Duration::from_secs(DISPATCH_TIMEOUT_SECS), rx).await {
@@ -75,6 +265,43 @@ pub async fn dispatch(
     }
 }
 
+#[tauri::command]
+pub async fn dispatch(
+    args: DispatchArgs,
+    state: tauri::State<'_, Arc<SidecarState>>,
+) -> Result<Value, String> {
+    // CR-4: enforce the ALLOWED_COMMANDS allowlist BEFORE forwarding the
+    // command to the Python sidecar over WS. This mirrors the Electron
+    // renderer-side gate (SEC-019 / ADR-0015) and is the
+    // defense-in-depth backstop for a compromised-renderer attack
+    // (XSS in the WebView → `invoke('dispatch', {cmd:'<arbitrary>'})`).
+    //
+    // The error envelope shape mirrors the sidecar's WS error envelope
+    // ({"type":"error","data":{"code":...,"message":...}}) so the
+    // renderer's existing `dispatch` reject path treats this identically
+    // to a server-side rejection.
+    if !is_command_allowed(&args.cmd) {
+        log::warn!(
+            "[CR-4] rejected disallowed dispatch command: {:?} (not in ALLOWED_COMMANDS)",
+            args.cmd
+        );
+        let err = json!({
+            "type": "error",
+            "data": {
+                "code": "disallowed_command",
+                "message": "Command not in allowlist"
+            }
+        });
+        return Err(err.to_string());
+    }
+
+    // Delegate to the internal dispatch path (no allowlist check —
+    // already done above). Clone the Arc<SidecarState> out of the
+    // Tauri State wrapper so `dispatch_inner` is callable from non-
+    // command contexts too (e.g. the tray menu click handler).
+    dispatch_inner(args, state.inner().clone()).await
+}
+
 // ─── Tauri command: paste_text (ADR-0020 §6.2) ────────────────────────
 
 #[derive(Serialize, Deserialize)]
@@ -103,9 +330,31 @@ pub(crate) struct PasteTextArgs {
 ///   clipboard + `Ctrl+V` path (the short-text `enigo.text()` branch is
 ///   skipped). On macOS + Linux X11, behavior is unchanged.
 ///
-/// The Python sidecar emits a `paste_text` event when a transcription
-/// completes; this command (invoked by the React UI on that event)
-/// performs the actual paste.
+/// # CR-75 — DevTools-only / manual testing status
+///
+/// The original ADR-0020 §6.2 design called for the React UI to invoke
+/// this Rust command on every transcription completion. In practice,
+/// the Python sidecar does its OWN paste internally in
+/// `voice_typer/server/dictation_pipeline.py:990-1010` via
+/// `self._app.clipboard.paste(...)` (which uses the same clipboard +
+/// Ctrl+V mechanism but runs in the sidecar process). Grep confirms:
+/// no Python code publishes a `paste_text` event, and no TS code
+/// invokes `invoke('paste_text', ...)`.
+///
+/// The command is retained (still registered in `main.rs`'s
+/// `generate_handler!` list, still has `#[tauri::command]`) so that:
+///   1. The behavioral contract pinned by `tests/tauri/mig15/`,
+///      `tests/tauri/mig16/`, `tests/tauri/mig17/`, and
+///      `tests/tauri/mig19/test_final_glue.py` keeps passing.
+///   2. Developers debugging paste issues can drive the Rust paste
+///      path directly from the WebView DevTools console via
+///      `await window.__TAURI__.core.invoke('paste_text', {text:'...'})`
+///      (requires the `dev` Cargo feature for `tauri/devtools`).
+///
+/// Production traffic never reaches this command. If the Python-side
+/// paste path is removed in a future refactor, this command becomes
+/// the live paste entry point again — keep the logic in sync with
+/// `dictation_pipeline.py::_dispatch_paste`.
 #[tauri::command]
 pub async fn paste_text(
     args: PasteTextArgs,
@@ -411,4 +660,174 @@ async fn paste_via_clipboard_and_ctrl_v(
         text.chars().count()
     );
     Ok(())
+}
+
+
+// ─── CR-4: unit tests for ALLOWED_COMMANDS ─────────────────────────────
+//
+// These tests pin the dispatch allowlist (SEC-019 / ADR-0015 defense-in-
+// depth). The Python parity test in
+// `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
+// cross-checks the Rust set against the TS `ALLOWED_COMMANDS` literal —
+// these Rust tests are the unit-level sanity checks (must contain key
+// commands, must NOT contain dangerous commands).
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_allowed_commands_contains_get_status() {
+        assert!(
+            is_command_allowed("get_status"),
+            "get_status must be in ALLOWED_COMMANDS (used by Home.tsx on mount)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_contains_set_config() {
+        assert!(
+            is_command_allowed("set_config"),
+            "set_config must be in ALLOWED_COMMANDS (Settings page saves)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_contains_quit_app() {
+        assert!(
+            is_command_allowed("quit_app"),
+            "quit_app must be in ALLOWED_COMMANDS (tray Quit menu item)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_contains_toggle_dictation() {
+        assert!(
+            is_command_allowed("toggle_dictation"),
+            "toggle_dictation must be in ALLOWED_COMMANDS (main hotkey action)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_contains_download_model() {
+        assert!(
+            is_command_allowed("download_model"),
+            "download_model must be in ALLOWED_COMMANDS (Models page download button)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_contains_heartbeat() {
+        assert!(
+            is_command_allowed("heartbeat"),
+            "heartbeat must be in ALLOWED_COMMANDS (RW-10 watchdog)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_does_not_contain_delete_everything() {
+        assert!(
+            !is_command_allowed("delete_everything"),
+            "delete_everything must NOT be in ALLOWED_COMMANDS (no such server command; \
+             a positive result here means a typo added a dangerous sentinel)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_does_not_contain_eval() {
+        assert!(
+            !is_command_allowed("eval"),
+            "eval must NOT be in ALLOWED_COMMANDS (would let a compromised renderer run \
+             arbitrary Python)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_does_not_contain_exec() {
+        assert!(
+            !is_command_allowed("exec"),
+            "exec must NOT be in ALLOWED_COMMANDS (would let a compromised renderer run \
+             arbitrary shell commands)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_does_not_contain_shutdown() {
+        assert!(
+            !is_command_allowed("shutdown"),
+            "shutdown must NOT be in ALLOWED_COMMANDS (sent via shutdown_sidecar, \
+             not via the generic dispatch path)"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_does_not_contain_empty_string() {
+        assert!(
+            !is_command_allowed(""),
+            "empty string must NOT be in ALLOWED_COMMANDS"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_does_not_contain_arbitrary_string() {
+        assert!(
+            !is_command_allowed("not_a_real_command_xyz"),
+            "arbitrary string must NOT pass the allowlist"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_set_is_nonempty() {
+        assert!(
+            !allowed_commands().is_empty(),
+            "ALLOWED_COMMANDS must not be empty"
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_count_matches_ts_parity() {
+        // CR-4: the Rust allowlist must contain EXACTLY the same number
+        // of commands as the TS allowlist in
+        // `voice_typer/client/src/main/index.ts:79-191`. The Python test
+        // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
+        // asserts the entries match exactly — this Rust-side test pins
+        // the COUNT so a local `cargo test` catches a drift before the
+        // Python test even runs.
+        assert_eq!(
+            allowed_commands().len(),
+            70,
+            "ALLOWED_COMMANDS must contain exactly 70 entries (parity with TS allowlist). \
+             Got {} — update both src-tauri/src/commands/sidecar_cmds.rs and \
+             voice_typer/client/src/main/index.ts together.",
+            allowed_commands().len()
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_set_contains_no_duplicates() {
+        let set = allowed_commands();
+        assert_eq!(
+            set.len(),
+            70,
+            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (70). \
+             Check the constructor log for the duplicate name.",
+            set.len()
+        );
+    }
+
+    #[test]
+    fn test_is_command_allowed_is_case_sensitive() {
+        assert!(
+            !is_command_allowed("Get_Status"),
+            "is_command_allowed must be case-sensitive (Get_Status should not match get_status)"
+        );
+        assert!(
+            !is_command_allowed("GET_STATUS"),
+            "is_command_allowed must be case-sensitive (GET_STATUS should not match get_status)"
+        );
+        assert!(
+            !is_command_allowed("get_Status"),
+            "is_command_allowed must be case-sensitive (get_Status should not match get_status)"
+        );
+    }
 }
