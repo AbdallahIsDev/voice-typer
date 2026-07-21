@@ -196,17 +196,22 @@ _REPO_ROOT = _THIS_FILE.parents[3]
 _SRC_TAURI = _REPO_ROOT / "src-tauri"
 _TAURI_CONF = _SRC_TAURI / "tauri.conf.json"
 _CAPABILITIES_DIR = _SRC_TAURI / "capabilities"
-_MIGRATE_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "migrate-runtime.json"
+# CR-5: migrate-runtime.json was split into main-runtime.json + bubble-runtime.json
+_MAIN_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "main-runtime.json"
+_BUBBLE_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "bubble-runtime.json"
 _MAIN_RS = _SRC_TAURI / "src" / "main.rs"
 _SIDECAR_CMDS_RS = _SRC_TAURI / "src" / "commands" / "sidecar_cmds.rs"
 
 
 # ─── Expected wiring constants (single source of truth) ────────────────
 
-#: ADR-0020 §7: capability identifier referenced by tauri.conf.json's
-#: ``app.security.capabilities`` list. MUST match the filename stem
-#: (``migrate-runtime.json`` → ``migrate-runtime``).
-EXPECTED_CAPABILITY_IDENTIFIER = "migrate-runtime"
+#: ADR-0020 §7 + CR-5: capability identifier referenced by tauri.conf.json's
+#: ``app.security.capabilities`` list. CR-5 split the original
+#: ``migrate-runtime.json`` into ``main-runtime.json`` (full grant set)
+#: + ``bubble-runtime.json`` (minimal sandboxed grant).
+EXPECTED_MAIN_CAPABILITY_IDENTIFIER = "main-runtime"
+EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER = "bubble-runtime"
+EXPECTED_CAPABILITY_IDENTIFIER = EXPECTED_MAIN_CAPABILITY_IDENTIFIER
 
 #: ADR-0020 §4.1 + §7: externalBin base name (Tauri appends the Rust
 #: target triple at spawn time). The shell scope in tauri.conf.json
@@ -240,10 +245,25 @@ def tauri_conf() -> dict:
 
 
 @pytest.fixture(scope="module")
-def migrate_runtime_capability() -> dict:
-    """Load + parse the migrate-runtime capability JSON."""
-    assert _MIGRATE_RUNTIME_CAPABILITY.exists(), f"capability file not found: {_MIGRATE_RUNTIME_CAPABILITY}"
-    return json.loads(_MIGRATE_RUNTIME_CAPABILITY.read_text(encoding="utf-8"))
+def main_runtime_capability() -> dict:
+    """Load + parse the main-runtime capability JSON (CR-5 split)."""
+    assert _MAIN_RUNTIME_CAPABILITY.exists(), f"capability file not found: {_MAIN_RUNTIME_CAPABILITY}"
+    return json.loads(_MAIN_RUNTIME_CAPABILITY.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def bubble_runtime_capability() -> dict:
+    """Load + parse the bubble-runtime capability JSON (CR-5 split)."""
+    assert _BUBBLE_RUNTIME_CAPABILITY.exists(), f"capability file not found: {_BUBBLE_RUNTIME_CAPABILITY}"
+    return json.loads(_BUBBLE_RUNTIME_CAPABILITY.read_text(encoding="utf-8"))
+
+
+# Back-compat alias fixture so existing test signatures that take
+# ``migrate_runtime_capability`` continue to work after the CR-5 split.
+@pytest.fixture(scope="module")
+def migrate_runtime_capability(main_runtime_capability: dict) -> dict:
+    """Back-compat alias — delegates to ``main_runtime_capability`` after CR-5."""
+    return main_runtime_capability
 
 
 @pytest.fixture(scope="module")
@@ -264,73 +284,67 @@ def sidecar_cmds_rs_source() -> str:
 
 
 def test_capabilities_file_exists_and_is_valid_json(
-    migrate_runtime_capability: dict,
+    main_runtime_capability: dict,
+    bubble_runtime_capability: dict,
 ) -> None:
-    """ADR-0020 §7: ``migrate-runtime.json`` exists + parses as JSON.
-
-    Tauri v2 ships zero permissions by default — without this file
-    (or with a malformed one), every plugin ``invoke()`` silently
-    no-ops at runtime. A JSON parse error at startup would also
-    crash the Tauri builder before the app window appears.
-    """
-    assert isinstance(migrate_runtime_capability, dict), "capability file must parse to a JSON object"
-    # Sanity: a real capability has at minimum an identifier + a
-    # permissions list (Tauri v2 schema requirement).
-    assert "identifier" in migrate_runtime_capability, "capability must have an 'identifier' field (Tauri v2 schema)"
-    assert "permissions" in migrate_runtime_capability, "capability must have a 'permissions' field (Tauri v2 schema)"
-    assert isinstance(migrate_runtime_capability["permissions"], list), (
-        "capability 'permissions' must be a list of permission identifiers"
-    )
+    """ADR-0020 §7 + CR-5: ``main-runtime.json`` + ``bubble-runtime.json`` parse as JSON."""
+    for cap, label in (
+        (main_runtime_capability, "main-runtime.json"),
+        (bubble_runtime_capability, "bubble-runtime.json"),
+    ):
+        assert isinstance(cap, dict), f"{label} must parse to a JSON object"
+        assert "identifier" in cap, f"{label} must have an 'identifier' field (Tauri v2 schema)"
+        assert "permissions" in cap, f"{label} must have a 'permissions' field (Tauri v2 schema)"
+        assert isinstance(cap["permissions"], list), f"{label} 'permissions' must be a list of permission identifiers"
 
 
-# ─── Test 2: tauri.conf.json references migrate-runtime ────────────────
+# ─── Test 2: tauri.conf.json references main-runtime + bubble-runtime ───
 
 
 def test_tauri_conf_references_migrate_runtime_capability(
     tauri_conf: dict,
 ) -> None:
-    """ADR-0020 §7: ``app.security.capabilities`` lists ``migrate-runtime``.
-
-    Without this reference, the capability file is dead code — Tauri
-    loads capabilities by identifier, and only those identifiers listed
-    in ``app.security.capabilities`` are activated for the app.
-    """
+    """ADR-0020 §7 + CR-5: ``app.security.capabilities`` lists both
+    ``main-runtime`` and ``bubble-runtime`` (the original migrate-runtime
+    was deleted)."""
     security = tauri_conf.get("app", {}).get("security", {})
     assert "capabilities" in security, (
-        "app.security.capabilities must exist (ADR-0020 §7) — without it the migrate-runtime.json file is never loaded"
+        "app.security.capabilities must exist (ADR-0020 §7) — without it the capability files are never loaded"
     )
     capabilities = security["capabilities"]
     assert isinstance(capabilities, list), "app.security.capabilities must be a list of identifier strings"
-    assert EXPECTED_CAPABILITY_IDENTIFIER in capabilities, (
-        f"app.security.capabilities must reference {EXPECTED_CAPABILITY_IDENTIFIER!r} — got {capabilities!r}"
+    assert EXPECTED_MAIN_CAPABILITY_IDENTIFIER in capabilities, (
+        f"app.security.capabilities must reference {EXPECTED_MAIN_CAPABILITY_IDENTIFIER!r} — got {capabilities!r}"
+    )
+    assert EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER in capabilities, (
+        f"app.security.capabilities must reference {EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER!r} "
+        f"(CR-5 split — the bubble window MUST have its own minimal capability) — got {capabilities!r}"
+    )
+    assert "migrate-runtime" not in capabilities, (
+        f"app.security.capabilities must NOT reference 'migrate-runtime' (CR-5 deleted it) — got {capabilities!r}"
     )
 
 
-# ─── Test 3: identifier matches filename ───────────────────────────────
+# ─── Test 3: identifier matches filename (CR-5: both files) ────────────
 
 
 def test_capability_identifier_matches_filename(
-    migrate_runtime_capability: dict,
+    main_runtime_capability: dict,
+    bubble_runtime_capability: dict,
 ) -> None:
-    """ADR-0020 §7: ``identifier`` field matches the filename stem.
-
-    Tauri v2's capability loader keys capabilities by identifier; a
-    mismatch between the filename (``migrate-runtime.json``) and the
-    ``identifier`` field (``migrate-runtime``) would cause Tauri to
-    silently fail to match the capability to the
-    ``app.security.capabilities`` list.
-    """
-    identifier = migrate_runtime_capability.get("identifier")
-    assert identifier == EXPECTED_CAPABILITY_IDENTIFIER, (
-        f"capability identifier {identifier!r} must match filename stem "
-        f"{EXPECTED_CAPABILITY_IDENTIFIER!r} (file: "
-        f"{_MIGRATE_RUNTIME_CAPABILITY.name})"
-    )
-    # Belt-and-suspenders: the filename stem (minus .json) must also
-    # match — guards against a rename of the file without updating
-    # the identifier field.
-    filename_stem = _MIGRATE_RUNTIME_CAPABILITY.stem
-    assert filename_stem == identifier, f"filename stem {filename_stem!r} must match identifier {identifier!r}"
+    """ADR-0020 §7 + CR-5: ``identifier`` field matches the filename stem."""
+    for cap, expected_id, path in (
+        (main_runtime_capability, EXPECTED_MAIN_CAPABILITY_IDENTIFIER, _MAIN_RUNTIME_CAPABILITY),
+        (bubble_runtime_capability, EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER, _BUBBLE_RUNTIME_CAPABILITY),
+    ):
+        identifier = cap.get("identifier")
+        assert identifier == expected_id, (
+            f"capability identifier {identifier!r} must match filename stem {expected_id!r} (file: {path.name})"
+        )
+        filename_stem = path.stem
+        assert filename_stem == identifier, (
+            f"filename stem {filename_stem!r} must match identifier {identifier!r} (file: {path.name})"
+        )
 
 
 # ─── Test 4: shell:allow-spawn granted + scoped to python-sidecar ──────
@@ -608,18 +622,24 @@ def test_dispatch_command_is_registered_as_tauri_command(
     assert "#[tauri::command]" in sidecar_cmds_rs_source, (
         "sidecar_cmds.rs must define at least one #[tauri::command] — no tauri::command attribute found"
     )
-    assert "fn dispatch" in sidecar_cmds_rs_source, (
+    # The public generic dispatch command is `pub async fn dispatch(`.
+    # (The CR-5/CR-14 decomposition also adds `dispatch_inner` and
+    # `dispatch_frame` internal helpers — match the public command
+    # exactly so those helpers don't shadow this check.)
+    assert "fn dispatch(" in sidecar_cmds_rs_source, (
         "sidecar_cmds.rs must define a `dispatch` function — ADR-0020 §7 mandates exactly one generic dispatch command"
     )
-    # The #[tauri::command] attribute must appear BEFORE `fn dispatch`
-    # (within a few lines — Rust attribute placement is strict).
-    dispatch_idx = sidecar_cmds_rs_source.find("fn dispatch")
-    tauri_cmd_idx = sidecar_cmds_rs_source.find("#[tauri::command]")
+    # The #[tauri::command] attribute must appear BEFORE `fn dispatch(`
+    # (within a few lines — Rust attribute placement is strict). The
+    # attribute immediately preceding the public dispatch command is the
+    # last `#[tauri::command]` before `fn dispatch(`.
+    dispatch_idx = sidecar_cmds_rs_source.find("fn dispatch(")
+    tauri_cmd_idx = sidecar_cmds_rs_source.rfind("#[tauri::command]", 0, dispatch_idx)
     assert tauri_cmd_idx != -1 and dispatch_idx != -1, (
-        "both #[tauri::command] and fn dispatch must be present in sidecar_cmds.rs"
+        "both #[tauri::command] and fn dispatch( must be present in sidecar_cmds.rs"
     )
     assert tauri_cmd_idx < dispatch_idx, (
-        "#[tauri::command] attribute must precede `fn dispatch` in "
+        "#[tauri::command] attribute must precede `fn dispatch(` in "
         "sidecar_cmds.rs — currently the attribute appears AFTER the fn"
     )
 

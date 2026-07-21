@@ -344,20 +344,70 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
     assert linux, "bundle.linux must exist (Linux packaging config)"
     deb = linux.get("deb", {})
     rpm = linux.get("rpm", {})
-    assert deb.get("postInstallScript") or deb.get("postInstall") == "../../scripts/linux/postinst", (
-        "bundle.linux.deb.postInstall must point at scripts/linux/postinst "
-        "(reused verbatim from Electron per ADR-0020 §13.3)"
+
+    # CR-53/CR-91 fix: the previous assertions used
+    #   `assert deb.get("postInstallScript") or deb.get("postInstall") == "..."`
+    # which due to Python operator precedence parses as
+    #   `assert deb.get("postInstallScript") or (deb.get("postInstall") == "...")`
+    # — if the (legacy Tauri v1) `postInstallScript` key was present with ANY
+    # truthy value, the path-content check on the v2 `postInstall` key was
+    # never evaluated, so the test would pass even if the path was wrong.
+    # The rewrite below captures the value into a local and asserts on it
+    # explicitly, so the path-content check ALWAYS runs regardless of which
+    # key (v1 or v2) is present.
+    deb_post_install = deb.get("postInstall") or deb.get("postInstallScript")
+    assert deb_post_install is not None, (
+        "neither postInstall (v2) nor postInstallScript (v1) present on bundle.linux.deb"
     )
-    assert deb.get("preRemoveScript") or deb.get("preRemove") == "../../scripts/linux/prerm", (
-        "bundle.linux.deb.preRemove must point at scripts/linux/prerm "
-        "(reused verbatim from Electron per ADR-0020 §13.3)"
+    assert deb_post_install.endswith("scripts/linux/postinst"), (
+        f"bundle.linux.deb.postInstall must point at scripts/linux/postinst "
+        f"(reused verbatim from Electron per ADR-0020 §13.3), got {deb_post_install!r}"
     )
-    assert rpm.get("postInstallScript") or rpm.get("postInstall") == "../../scripts/linux/postinst.rpm", (
-        "bundle.linux.rpm.postInstall must point at scripts/linux/postinst.rpm"
+    # Tauri v2 schema (ADR-0020) uses 'postInstall' (no 'Script' suffix).
+    # TODO: Uncomment after CR-54 fix (FIX-4) lands:
+    #   assert "postInstall" in deb, ("Tauri v2 'postInstall' key missing on "
+    #       "bundle.linux.deb — config still uses v1 'postInstallScript'")
+    #   assert "postInstallScript" not in deb, ("stale Tauri v1 'postInstallScript' "
+    #       "key present on bundle.linux.deb — should be renamed to 'postInstall'")
+    # FIX-4 (CR-54) renames postInstallScript→postInstall and preRemoveScript→preRemove
+    # in tauri.conf.json. Until FIX-4 lands, the strict v2-only assertions are
+    # commented out to avoid breaking the test suite.
+
+    deb_pre_remove = deb.get("preRemove") or deb.get("preRemoveScript")
+    assert deb_pre_remove is not None, "neither preRemove (v2) nor preRemoveScript (v1) present on bundle.linux.deb"
+    assert deb_pre_remove.endswith("scripts/linux/prerm"), (
+        f"bundle.linux.deb.preRemove must point at scripts/linux/prerm "
+        f"(reused verbatim from Electron per ADR-0020 §13.3), got {deb_pre_remove!r}"
     )
-    assert rpm.get("preRemoveScript") or rpm.get("preRemove") == "../../scripts/linux/prerm.rpm", (
-        "bundle.linux.rpm.preRemove must point at scripts/linux/prerm.rpm"
+    # TODO: Uncomment after CR-54 fix (FIX-4) lands:
+    #   assert "preRemove" in deb, ("Tauri v2 'preRemove' key missing on "
+    #       "bundle.linux.deb — config still uses v1 'preRemoveScript'")
+    #   assert "preRemoveScript" not in deb, ("stale Tauri v1 'preRemoveScript' "
+    #       "key present on bundle.linux.deb — should be renamed to 'preRemove'")
+
+    rpm_post_install = rpm.get("postInstall") or rpm.get("postInstallScript")
+    assert rpm_post_install is not None, (
+        "neither postInstall (v2) nor postInstallScript (v1) present on bundle.linux.rpm"
     )
+    assert rpm_post_install.endswith("scripts/linux/postinst.rpm"), (
+        f"bundle.linux.rpm.postInstall must point at scripts/linux/postinst.rpm, got {rpm_post_install!r}"
+    )
+    # TODO: Uncomment after CR-54 fix (FIX-4) lands:
+    #   assert "postInstall" in rpm, ("Tauri v2 'postInstall' key missing on "
+    #       "bundle.linux.rpm — config still uses v1 'postInstallScript'")
+    #   assert "postInstallScript" not in rpm, ("stale Tauri v1 'postInstallScript' "
+    #       "key present on bundle.linux.rpm — should be renamed to 'postInstall'")
+
+    rpm_pre_remove = rpm.get("preRemove") or rpm.get("preRemoveScript")
+    assert rpm_pre_remove is not None, "neither preRemove (v2) nor preRemoveScript (v1) present on bundle.linux.rpm"
+    assert rpm_pre_remove.endswith("scripts/linux/prerm.rpm"), (
+        f"bundle.linux.rpm.preRemove must point at scripts/linux/prerm.rpm, got {rpm_pre_remove!r}"
+    )
+    # TODO: Uncomment after CR-54 fix (FIX-4) lands:
+    #   assert "preRemove" in rpm, ("Tauri v2 'preRemove' key missing on "
+    #       "bundle.linux.rpm — config still uses v1 'preRemoveScript'")
+    #   assert "preRemoveScript" not in rpm, ("stale Tauri v1 'preRemoveScript' "
+    #       "key present on bundle.linux.rpm — should be renamed to 'preRemove'")
     # deb depends must include the runtime libs Tauri + the sidecar need.
     deb_depends = deb.get("depends", [])
     for required in ("libnotify4", "libxtst6", "libwebkit2gtk-4.1-0", "python3"):

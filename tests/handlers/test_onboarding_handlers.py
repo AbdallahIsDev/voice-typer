@@ -79,7 +79,9 @@ class TestOnboardingStepNavigation:
         fake_service.onboarding_next_step.side_effect = RuntimeError("at last step")
         resp = ipc_server._handle_onboarding_next_step({}, {})
         assert resp["type"] == "error"
-        assert "at last step" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestOnboardingSetMicrophone:
@@ -191,7 +193,9 @@ class TestOnboardingSkipAndApply:
         fake_service.onboarding_apply.side_effect = RuntimeError("config save failed")
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
-        assert "config save failed" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestOnboardingListHandlers:
@@ -300,7 +304,12 @@ class TestOnboardingGetModelCatalogHandler:
         monkeypatch.setattr(onboarding_mod.OnboardingController, "get_model_catalog", _boom)
         resp = ipc_server._handle_onboarding_get_model_catalog({}, {})
         assert resp["type"] == "error"
-        assert "registry corrupted" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak) —
+        # the handler no longer surfaces "registry corrupted" to the
+        # renderer; the full traceback lands in voice-typer.log via
+        # ``_respond_with_error``'s ``log.error(..., exc_info=True)``.
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestOnboardingCheckPermissionsHandler:
@@ -346,4 +355,6 @@ class TestOnboardingCheckPermissionsHandler:
         monkeypatch.setattr(onboarding_mod.OnboardingController, "check_permissions", _boom)
         resp = ipc_server._handle_onboarding_check_permissions({}, {})
         assert resp["type"] == "error"
-        assert "probe failed" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"

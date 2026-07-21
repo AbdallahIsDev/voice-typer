@@ -227,17 +227,20 @@ class TestShutdownSidecarSource:
         assert "state.child.lock().unwrap().take()" in body, (
             "shutdown_sidecar must take() the child handle (single-use after kill)"
         )
-        # Calls .kill().await on the child.
-        assert "child.kill().await" in body, (
-            "shutdown_sidecar must call child.kill().await as the force-kill "
-            "backstop (no-op if already exited, guarantees no zombie)"
+        # Calls .kill_tree().await on the child (ADR-0020 §10: recursive
+        # kill so the sidecar's grandchildren — native hotkey binary, model
+        # subprocesses — are reaped too, not just the direct child).
+        assert "child.kill_tree().await" in body, (
+            "shutdown_sidecar must call child.kill_tree().await as the force-kill "
+            "backstop (no-op if already exited, guarantees no zombie; ADR-0020 §10 "
+            "uses kill_tree so grandchildren are reaped too)"
         )
         # The kill is reached on BOTH paths (graceful + timeout) — verify
         # the kill call is NOT inside an `if`/`else` that only fires on
         # one branch. We check it appears after the wait block closes.
         # The `drop(rx_guard)` line marks the end of the wait block.
         idx_drop = body.index("drop(rx_guard)")
-        idx_kill = body.index("child.kill().await")
+        idx_kill = body.index("child.kill_tree().await")
         assert idx_kill > idx_drop, (
             "child.kill() must run AFTER the wait block (drop(rx_guard)) so it "
             "fires on both the graceful-exit and timeout paths"
@@ -463,15 +466,24 @@ class TestFt1SupervisorSource:
         respawn).
 
         ADR-0020 §10: "backoff 500ms → 1s → 2s (cap 5 retries) then
-        full-app relaunch". The cap check is `attempt as u32 >=
-        FT1_MAX_RETRIES` at the TOP of the loop body, so the 6th
-        iteration (attempt index 5) triggers the relaunch instead of
-        a 6th respawn.
+        full-app relaunch". NF-R19-2: the cap is enforced by the length
+        of ``FT1_BACKOFF_MS`` (pinned equal to FT1_MAX_RETRIES == 5), so
+        the loop iterates exactly 5 times and then falls through to the
+        post-loop exhaustion relaunch. The old in-loop
+        ``attempt as u32 >= FT1_MAX_RETRIES`` guard was removed as dead
+        code (it was always false when the schedule length equals the
+        cap). The real exhaustion path is the post-loop ``app.restart()``
+        with reason ``backoff_exhausted``.
         """
         src = _read(_FT1_RS)
-        # The cap check.
-        assert "attempt as u32 >= FT1_MAX_RETRIES" in src, (
-            "FT-1 supervisor must cap retries at FT1_MAX_RETRIES via `attempt as u32 >= FT1_MAX_RETRIES`"
+        # NF-R19-2: the cap is the backoff-schedule length, enforced by
+        # iterating FT1_BACKOFF_MS exactly once per entry, then the
+        # post-loop exhaustion relaunch fires.
+        assert "backoff_exhausted" in src, (
+            "FT-1 supervisor must cap retries via the post-loop "
+            "exhaustion path (reason 'backoff_exhausted') — the in-loop "
+            "attempt>=FT1_MAX_RETRIES guard was removed as dead code "
+            "(NF-R19-2), since FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES."
         )
         # Emits the relaunch event so the UI can show a banner.
         assert 'app.emit("ft1_relaunching"' in src, (
@@ -513,20 +525,23 @@ class TestFt1SupervisorSource:
         # The success branch returns Ok(()).
         assert "respawn succeeded" in src, "FT-1 supervisor must log 'respawn succeeded' when reconnect_ws succeeds"
         # Find the success branch and verify it returns Ok(()) inside
-        # the loop (not after it). We locate the "respawn succeeded"
-        # log line, then assert a `return Ok(())` appears shortly
-        # after it (within the same Ok(()) match arm).
+        # the loop's `Ok(()) =>` match arm (not after the loop). We
+        # locate the "respawn succeeded" log line, then assert a
+        # `return Ok(())` appears in that same arm — i.e. BEFORE the
+        # arm closes and the `Err(e) =>` arm begins. Anchoring on the
+        # Err arm boundary (rather than a fixed char count) keeps this
+        # robust against the CR-29/CR-13 success-branch logic (counter
+        # reset + ft1_reconnected emit + respawn_in_progress clear),
+        # which legitimately lengthens the arm to ~1300 chars.
         idx_log = src.index("respawn succeeded")
-        # Search forward from the log line for `return Ok(())`.
         idx_return = src.index("return Ok(())", idx_log)
-        # The return must be within ~400 chars of the log line (same
-        # match arm, not a distant return elsewhere in the file).
-        assert idx_return - idx_log < 400, (
-            f"`return Ok(())` after 'respawn succeeded' log must be in the "
-            f"same match arm (within 400 chars); gap was "
-            f"{idx_return - idx_log} chars — the supervisor must return "
-            f"immediately on successful reconnect_ws (reset-on-success: the "
-            f"loop exits early, the next crash starts a fresh backoff schedule)"
+        idx_err_arm = src.index("Err(e) =>", idx_log)
+        assert idx_return < idx_err_arm, (
+            "`return Ok(())` after 'respawn succeeded' log must be in the "
+            "success `Ok(()) =>` match arm (before the `Err(e) =>` arm) — "
+            "the supervisor must return immediately on successful "
+            "reconnect_ws (reset-on-success: the loop exits early, the "
+            "next crash starts a fresh backoff schedule)"
         )
 
     def test_emits_reconnected_event_on_success(self):

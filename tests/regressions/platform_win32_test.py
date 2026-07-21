@@ -207,7 +207,11 @@ class TestPlatHleakDeadCodeRemoved:
 
         from voice_typer.server import app as app_mod
 
-        src = inspect.getsource(app_mod._ensure_single_instance)
+        # CR-11: _ensure_single_instance is now a thin dispatcher; the
+        # Windows mutex logic (which sets the mutex name) lives in
+        # _ensure_windows_single_instance. Inspect that function so the
+        # PLAT-HLEAK invariant is still pinned.
+        src = inspect.getsource(app_mod._ensure_windows_single_instance)
         assert "VoiceTyperSingleInstance" in src, "Mutex name must contain VoiceTyperSingleInstance."
         assert "hashlib.sha256(sys.executable.encode())" not in src, "Mutex name must NOT depend on sys.executable."
 

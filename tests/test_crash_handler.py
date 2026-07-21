@@ -1,0 +1,552 @@
+"""Tests for ``voice_typer.server.crash_handler`` (CR-78).
+
+The crash_handler module installs a Windows Vectored Exception Handler
+(VEH) to capture silent process crashes (heap corruption, access
+violation, stack overrun). On POSIX it's a no-op: ``install_crash_handler``
+returns False and ``_vectored_handler`` is None.
+
+These tests cover the Linux-runnable surface:
+  - ``set_crash_handler_config_dir`` builds the crash file path
+  - ``report_pending_crash`` scans for leftover diagnostics files
+  - ``install_crash_handler`` is a no-op on POSIX
+  - ``install_python_excepthook`` swaps ``sys.excepthook``
+
+The Windows-only paths (VEH registration, ``MiniDumpWriteDump``-style
+diagnostic writes, the kernel32 WriteFile callback) are guarded by
+``sys.platform == "win32"`` and are validated separately on a Windows
+host — see the VALIDATE-ON-WINDOWS section at the bottom of this file.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+import textwrap
+from pathlib import Path
+
+import pytest
+from voice_typer.server import crash_handler
+
+# ─── Fixtures ───────────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _reset_crash_handler_module_state():
+    """Reset module-level globals between tests.
+
+    ``crash_handler`` caches the config-dir, the resolved crash-file
+    path, the kernel32 function pointers, and the VEH handle on module
+    globals. Without resetting them, a test that calls
+    ``set_crash_handler_config_dir`` leaks the cached path into the next
+    test, which may assert a different path.
+
+    NOTE: the production source has BOTH ``_CONFIG_DIR_BYTES`` (the
+    module-level declaration at line 152) AND ``_config_dir_bytes``
+    (which ``set_crash_handler_config_dir`` declares via ``global``).
+    The two are NOT the same binding — a known quirk we work around by
+    resetting both.
+    """
+    keys = (
+        "_crash_file_path",
+        "_CONFIG_DIR_BYTES",
+        "_config_dir_bytes",  # may not exist yet — see note above
+        "_PID",
+        "_handler_handle",
+        "_kernel32",
+    )
+    saved = {k: getattr(crash_handler, k, _UNSET) for k in keys}
+    if hasattr(crash_handler, "_crash_file_path"):
+        crash_handler._crash_file_path = ""
+    if hasattr(crash_handler, "_CONFIG_DIR_BYTES"):
+        crash_handler._CONFIG_DIR_BYTES = b""
+    if hasattr(crash_handler, "_config_dir_bytes"):
+        crash_handler._config_dir_bytes = b""
+    crash_handler._PID = 0
+    crash_handler._handler_handle = None
+    crash_handler._kernel32 = None
+    yield
+    for k, v in saved.items():
+        if v is _UNSET:
+            # Attribute didn't exist before the test — delete if created.
+            if hasattr(crash_handler, k):
+                delattr(crash_handler, k)
+        else:
+            setattr(crash_handler, k, v)
+
+
+# Sentinel used by the autouse fixture to distinguish "attribute was
+# absent before the test" from "attribute was set to None".
+_UNSET = object()
+
+
+@pytest.fixture
+def restore_excepthook():
+    """Snapshot ``sys.excepthook`` so a test can restore it.
+
+    ``install_python_excepthook`` swaps the global ``sys.excepthook``;
+    without restoring it, the mock hook leaks into subsequent tests in
+    the same process.
+    """
+    saved = sys.excepthook
+    saved_orig_attr = crash_handler._original_excepthook
+    yield
+    sys.excepthook = saved
+    crash_handler._original_excepthook = saved_orig_attr
+
+
+# ─── set_crash_handler_config_dir ───────────────────────────────────────
+
+
+class TestCrashHandlerConfigDir:
+    """``set_crash_handler_config_dir`` caches the config-dir path."""
+
+    def test_set_config_dir_stores_path(self, tmp_path):
+        """After ``set_crash_handler_config_dir``, the cached crash-file
+        path points at ``<config_dir>/crash_diagnostics.<PID>.txt``.
+        """
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        # The cached path is a Python str ending with a NUL terminator
+        # (for CreateFileW on Windows). On POSIX we still set it.
+        assert crash_handler._crash_file_path
+        assert "crash_diagnostics" in crash_handler._crash_file_path
+        assert str(os.getpid()) in crash_handler._crash_file_path
+        assert os.getpid() == crash_handler._PID
+
+    def test_set_config_dir_stores_resolved_bytes(self, tmp_path):
+        """``_config_dir_bytes`` is the UTF-8 encoding of the resolved path."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        expected = str(tmp_path.resolve()).encode("utf-8")
+        # The function writes to ``_config_dir_bytes`` (lowercase), which
+        # is a distinct binding from the module-level ``_CONFIG_DIR_BYTES``
+        # declaration (see the autouse fixture docstring for details).
+        actual = getattr(crash_handler, "_config_dir_bytes", b"")
+        assert actual == expected
+
+    def test_set_config_dir_idempotent(self, tmp_path):
+        """Calling twice with the same dir produces the same cached path."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        first = crash_handler._crash_file_path
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        second = crash_handler._crash_file_path
+        assert first == second
+
+    def test_set_config_dir_handles_invalid_path(self, monkeypatch):
+        """A resolve() failure must NOT crash — fall back to empty path."""
+
+        # Force Path.resolve() to raise.
+        class BadPath:
+            def resolve(self):
+                raise OSError("permission denied")
+
+        # The function catches Exception broadly.
+        crash_handler.set_crash_handler_config_dir(BadPath())  # type: ignore[arg-type]
+        assert crash_handler._crash_file_path == ""
+
+
+# ─── report_pending_crash ───────────────────────────────────────────────
+
+
+class TestCrashHandlerReportPending:
+    """``report_pending_crash(config_dir)`` scans for leftover diagnostics."""
+
+    def test_returns_none_when_no_file(self, tmp_path):
+        """No crash file → return None, no crash logged."""
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is None
+
+    def test_returns_none_when_dir_missing(self, tmp_path):
+        """A non-existent config dir → return None (no raise)."""
+        missing = tmp_path / "does-not-exist"
+        result = crash_handler.report_pending_crash(missing)
+        assert result is None
+
+    def test_reads_file_and_returns_summary(self, tmp_path):
+        """A crash file with STATUS_HEAP_CORRUPTION returns the heap summary."""
+        crash_file = tmp_path / f"crash_diagnostics.{os.getpid()}.txt"
+        crash_file.write_text(
+            textwrap.dedent(
+                """\
+                \ufeff2026-07-14 23:09:48.123  CRASH  code=0xC0000374, addr=0x00007FFA12345678, pid=0x1234, tid=0x5678
+                STATUS_HEAP_CORRUPTION: the process heap has been corrupted.
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Heap corruption" in result
+        assert "0xC0000374" in result
+
+    def test_reads_file_with_access_violation(self, tmp_path):
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "code=0xC0000005 STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Access violation" in result
+        assert "0xC0000005" in result
+
+    def test_reads_file_with_stack_overrun(self, tmp_path):
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_STACK_BUFFER_OVERRUN: a stack buffer overrun was detected.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Stack overrun" in result
+
+    def test_reads_file_with_fatal_app_exit(self, tmp_path):
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_FATAL_APP_EXIT: the application requested termination.\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Fatal exit" in result
+
+    def test_unknown_crash_code_extracts_code_line(self, tmp_path):
+        """An unknown crash code → summary includes the ``code=0x…`` line."""
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "CRASH code=0xDEADBEEF, addr=0x00000000, pid=0x1, tid=0x2\r\n",
+            encoding="utf-8",
+        )
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        # The fallback summary either extracts the code line OR uses the
+        # generic message. Both are acceptable; just verify we got a
+        # non-None summary that mentions the crash.
+        assert "crash" in result.lower() or "0x" in result.lower()
+
+    def test_empty_crash_file_skipped(self, tmp_path):
+        """An empty diagnostics file is silently cleaned up (not reported)."""
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text("", encoding="utf-8")
+
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is None
+        # The empty file must still be deleted to prevent re-reporting.
+        assert not crash_file.exists()
+
+    def test_deletes_crash_file_after_reading(self, tmp_path):
+        """Once a crash file is processed, it must be deleted (no duplicates)."""
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+
+        crash_handler.report_pending_crash(tmp_path)
+        assert not crash_file.exists(), "crash file must be deleted after reporting"
+
+        # Second call must return None — no leftover crash file.
+        assert crash_handler.report_pending_crash(tmp_path) is None
+
+    def test_multiple_crash_files_all_reported(self, tmp_path):
+        """Multiple crash files (from several crashed sessions) are all read."""
+        (tmp_path / "crash_diagnostics.1111.txt").write_text(
+            "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "crash_diagnostics.2222.txt").write_text(
+            "STATUS_HEAP_CORRUPTION: the process heap has been corrupted.\r\n",
+            encoding="utf-8",
+        )
+
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Access violation" in result
+        assert "Heap corruption" in result
+
+    def test_non_crash_file_ignored(self, tmp_path):
+        """Files NOT matching ``crash_diagnostics.*.txt`` are ignored."""
+        # Wrong prefix.
+        (tmp_path / "not_a_crash_file.txt").write_text("hello")
+        # Right prefix, wrong extension.
+        (tmp_path / "crash_diagnostics.1234.log").write_text("hello")
+        # Right pattern, but empty (skipped + deleted).
+        (tmp_path / "crash_diagnostics.1234.txt").write_text("")
+
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is None
+
+    def test_handles_unreadable_file_gracefully(self, tmp_path):
+        """A file that raises during read is logged + deleted, no raise."""
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text("STATUS_ACCESS_VIOLATION\n", encoding="utf-8")
+
+        # Patch Path.read_text to raise on this specific file.
+        original_read_text = Path.read_text
+
+        def boom(self, *args, **kwargs):
+            if self == crash_file:
+                raise OSError("permission denied")
+            return original_read_text(self, *args, **kwargs)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "read_text", boom)
+            # Must not raise.
+            result = crash_handler.report_pending_crash(tmp_path)
+        # Either None (read failed before any summary was added) or a
+        # partial summary — both are acceptable. The important thing is
+        # no exception propagated.
+        assert result is None or isinstance(result, str)
+        # File must still be deleted (cleanup runs in finally).
+        assert not crash_file.exists()
+
+
+# ─── install_crash_handler (POSIX no-op) ────────────────────────────────
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only test")
+class TestCrashHandlerPosix:
+    """On POSIX, ``install_crash_handler`` is a no-op (VEH is Windows-only)."""
+
+    def test_install_crash_handler_returns_false_on_posix(self):
+        """``install_crash_handler`` must return False on POSIX without raising."""
+        result = crash_handler.install_crash_handler()
+        assert result is False
+        # No handle was registered.
+        assert crash_handler._handler_handle is None
+
+    def test_install_crash_handler_idempotent_on_posix(self):
+        """Calling twice on POSIX still returns False (no state change)."""
+        assert crash_handler.install_crash_handler() is False
+        assert crash_handler.install_crash_handler() is False
+
+    def test_remove_crash_handler_is_noop_on_posix(self):
+        """``remove_crash_handler`` must not raise on POSIX (even when nothing
+        was installed)."""
+        # Should not raise.
+        crash_handler.remove_crash_handler()
+        assert crash_handler._handler_handle is None
+
+    def test_remove_crash_handler_after_install_attempt_on_posix(self):
+        """Even after a failed install, remove is safe to call."""
+        crash_handler.install_crash_handler()
+        crash_handler.remove_crash_handler()
+        assert crash_handler._handler_handle is None
+
+
+# ─── Constants ──────────────────────────────────────────────────────────
+
+
+class TestCrashHandlerConstants:
+    """Verify the Windows exception code constants are stable.
+
+    These constants are part of the crash-file format — third-party log
+    readers (and the ``report_pending_crash`` parser itself) depend on
+    the numeric values NEVER changing.
+    """
+
+    def test_status_heap_corruption_value(self):
+        assert crash_handler.STATUS_HEAP_CORRUPTION == 0xC0000374
+
+    def test_status_access_violation_value(self):
+        assert crash_handler.STATUS_ACCESS_VIOLATION == 0xC0000005
+
+    def test_status_stack_buffer_overrun_value(self):
+        assert crash_handler.STATUS_STACK_BUFFER_OVERRUN == 0xC0000409
+
+    def test_status_fatal_app_exit_value(self):
+        assert crash_handler.STATUS_FATAL_APP_EXIT == 0x40000015
+
+    def test_crash_codes_set_contains_all_four(self):
+        assert (
+            frozenset(
+                {
+                    crash_handler.STATUS_HEAP_CORRUPTION,
+                    crash_handler.STATUS_ACCESS_VIOLATION,
+                    crash_handler.STATUS_STACK_BUFFER_OVERRUN,
+                    crash_handler.STATUS_FATAL_APP_EXIT,
+                }
+            )
+            == crash_handler._CRASH_CODES
+        )
+
+    def test_exception_continue_search_is_zero(self):
+        """VEH callbacks return ``EXCEPTION_CONTINUE_SEARCH`` (=0) to let
+        the OS proceed with normal termination. This is a Windows ABI
+        constant — it must never change.
+        """
+        assert crash_handler.EXCEPTION_CONTINUE_SEARCH == 0x0
+
+
+# ─── Hex encoding helpers ───────────────────────────────────────────────
+
+
+class TestHexEncoders:
+    """``_write_u32_hex`` + ``_write_u64_hex`` produce fixed-width hex."""
+
+    def test_u32_hex_writes_8_digits(self):
+        buf = bytearray(16)
+        n = crash_handler._write_u32_hex(0xDEADBEEF, buf, 0)
+        assert n == 8
+        assert bytes(buf[:8]) == b"DEADBEEF"
+
+    def test_u32_hex_zero(self):
+        buf = bytearray(16)
+        crash_handler._write_u32_hex(0, buf, 0)
+        assert bytes(buf[:8]) == b"00000000"
+
+    def test_u32_hex_max(self):
+        buf = bytearray(16)
+        crash_handler._write_u32_hex(0xFFFFFFFF, buf, 0)
+        assert bytes(buf[:8]) == b"FFFFFFFF"
+
+    def test_u64_hex_writes_16_digits(self):
+        buf = bytearray(32)
+        n = crash_handler._write_u64_hex(0x123456789ABCDEF0, buf, 0)
+        assert n == 16
+        assert bytes(buf[:16]) == b"123456789ABCDEF0"
+
+    def test_u64_hex_zero(self):
+        buf = bytearray(32)
+        crash_handler._write_u64_hex(0, buf, 0)
+        assert bytes(buf[:16]) == b"0000000000000000"
+
+    def test_u64_hex_max(self):
+        buf = bytearray(32)
+        crash_handler._write_u64_hex(0xFFFFFFFFFFFFFFFF, buf, 0)
+        assert bytes(buf[:16]) == b"FFFFFFFFFFFFFFFF"
+
+    def test_hex_writes_at_offset(self):
+        """Both encoders must respect the ``offset`` argument."""
+        buf = bytearray(32)
+        crash_handler._write_u32_hex(0xABCD1234, buf, 4)
+        # Bytes 0-3 untouched, 4-11 hold the hex, 12+ untouched.
+        assert bytes(buf[:4]) == b"\x00\x00\x00\x00"
+        assert bytes(buf[4:12]) == b"ABCD1234"
+
+
+# ─── Python excepthook ──────────────────────────────────────────────────
+
+
+class TestPythonExcepthook:
+    """``install_python_excepthook`` swaps ``sys.excepthook``."""
+
+    def test_install_sets_custom_excepthook(self, restore_excepthook):
+        """After install, ``sys.excepthook`` is the crash_handler's hook."""
+        original = sys.excepthook
+        crash_handler.install_python_excepthook()
+        assert sys.excepthook is crash_handler._crash_excepthook
+        assert sys.excepthook is not original
+
+    def test_install_is_idempotent(self, restore_excepthook):
+        """Calling install twice does NOT re-save the original (the second
+        call would otherwise save the crash hook as the "original")."""
+        crash_handler.install_python_excepthook()
+        saved_once = crash_handler._original_excepthook
+        crash_handler.install_python_excepthook()
+        saved_twice = crash_handler._original_excepthook
+        assert saved_once is saved_twice
+
+    def test_crash_excepthook_logs_and_chains(self, restore_excepthook, caplog):
+        """The custom hook logs the exception then chains to the original."""
+        original_called: list[bool] = []
+
+        def fake_original(*args, **kwargs):
+            original_called.append(True)
+
+        # install_python_excepthook saves the CURRENT sys.excepthook as
+        # ``_original_excepthook`` and then swaps in the crash hook. So
+        # we set our fake as ``sys.excepthook`` BEFORE install — that
+        # way the crash hook will chain to it.
+        sys.excepthook = fake_original  # type: ignore[assignment]
+        crash_handler.install_python_excepthook()
+        # Sanity: the crash hook was installed.
+        assert sys.excepthook is crash_handler._crash_excepthook
+
+        try:
+            raise ValueError("test crash")
+        except ValueError as exc:
+            with caplog.at_level(logging.CRITICAL, logger="voice_typer"):
+                sys.excepthook(type(exc), exc, exc.__traceback__)
+
+        # The hook must have logged at CRITICAL level.
+        assert any("Unhandled Python exception" in r.message for r in caplog.records)
+        # The original hook must have been chained to.
+        assert original_called == [True]
+
+    def test_crash_excepthook_swallows_errors_in_original(self, restore_excepthook):
+        """If the original hook raises, the crash hook must not propagate."""
+
+        def boom(*args, **kwargs):
+            raise RuntimeError("original hook broken")
+
+        # See test_crash_excepthook_logs_and_chains: we must set
+        # ``sys.excepthook = boom`` BEFORE install so install saves boom
+        # as the original.
+        sys.excepthook = boom  # type: ignore[assignment]
+        crash_handler.install_python_excepthook()
+
+        try:
+            raise ValueError("test")
+        except ValueError as exc:
+            # Must not raise — the original-hook failure is suppressed.
+            sys.excepthook(type(exc), exc, exc.__traceback__)
+
+
+# ─── _vectored_handler_impl (no-op on POSIX) ────────────────────────────
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only — handler is None")
+class TestVectoredHandlerPosix:
+    """On POSIX the VEH callback wrapper is None (no SEH exceptions)."""
+
+    def test_vectored_handler_is_none_on_posix(self):
+        """``_vectored_handler`` is None on POSIX — see WP-1 comment in
+        crash_handler.py:435-447."""
+        assert crash_handler._vectored_handler is None
+
+    def test_vectored_handler_impl_continues_search_on_posix(self):
+        """Calling the impl directly returns EXCEPTION_CONTINUE_SEARCH.
+
+        On POSIX the impl is never wired to a real VEH (it's just a
+        function), but we can still call it with a mock pointer to
+        verify the "exception code not in _CRASH_CODES" early return.
+        """
+        # Build a fake EXCEPTION_POINTERS that yields a benign code.
+        # On POSIX, ctypes has no real EXCEPTION_RECORD but the impl
+        # catches all exceptions and returns CONTINUE_SEARCH.
+        result = crash_handler._vectored_handler_impl(None)
+        assert result == crash_handler.EXCEPTION_CONTINUE_SEARCH
+
+
+# ============================================================================
+# VALIDATE ON WINDOWS HOST
+# ============================================================================
+# The following paths are NOT exercisable on the Linux sandbox because they
+# require real Windows kernel32 entry points. Run these on a Windows host:
+#
+# 1. **VEH registration**: mock ``ctypes.windll.kernel32`` so
+#    ``AddVectoredExceptionHandler`` returns a non-NULL handle. Call
+#    ``install_crash_handler()`` and assert ``_handler_handle`` is set,
+#    return value is True, and a second call is idempotent.
+#
+# 2. **VEH callback writes diagnostic file**: build a fake
+#    ``EXCEPTION_POINTERS`` ctypes structure with ``ExceptionCode =
+#    STATUS_ACCESS_VIOLATION``. Patch ``_crash_file_path`` to a tmp_path
+#    file. Invoke ``_vectored_handler_impl`` directly. Assert the file is
+#    created with the expected CRASH line + friendly name.
+#
+# 3. **MiniDumpWriteDump / kernel32 WriteFile path**: patch
+#    ``_func_create_file_w`` + ``_func_write_file`` to record calls.
+#    Invoke ``_write_to_file`` with sample data and assert both kernel32
+#    functions were invoked with the expected arguments (LPCWSTR path,
+#    GENERIC_WRITE, etc.).
+#
+# 4. **remove_crash_handler on Windows**: after registering the VEH,
+#    call ``remove_crash_handler()`` and assert
+#    ``RemoveVectoredExceptionHandler`` was called with the saved handle.
+#
+# 5. **Heap-corruption-safe buffer write**: under simulated heap
+#    corruption (patch ``_func_create_file_w`` to return -1),
+#    ``_write_to_file`` must NOT raise and the empty file must be
+#    deleted via ``_func_delete_file_w``.

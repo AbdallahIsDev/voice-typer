@@ -214,6 +214,11 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "onboarding_get_microphones",
         "onboarding_get_model_options",
         "onboarding_get_hotkey_presets",
+        # CR-7 (IMPROVE-2026-07-19): two onboarding commands added in
+        # handlers/onboarding_handlers.py — UX-4/UX-27 macOS/Linux
+        # permission probe + UX-32 rich-metadata model catalog.
+        "onboarding_check_permissions",
+        "onboarding_get_model_catalog",
         # microphone_handlers
         "get_microphones",
         "refresh_microphones",
@@ -250,13 +255,19 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "heartbeat",
     }
 )
-assert len(EXPECTED_COMMANDS) == 69, (
+assert len(EXPECTED_COMMANDS) == 71, (
     "ADR-0020 §2 freezes the command table. 68 = original frozen table. "
     "69 = + `repaste_last` (UX-23, 2026-07-19: handler already existed in "
     "handlers/repaste_handlers.py and the renderer ALLOWED_COMMANDS already "
     "permitted it; only the _COMMAND_REGISTRY dispatch route was missing). "
-    "Update this set + the ADR addendum together (§16). Note: `relaunch_ack` "
-    "is tracked separately in KNOWN_UNDOCUMENTED_COMMANDS, not here."
+    "71 = + `onboarding_check_permissions` + `onboarding_get_model_catalog` "
+    "(CR-7 / IMPROVE-2026-07-19: two onboarding handlers added server-side "
+    "for UX-4/UX-27 macOS/Linux permission probe and UX-32 rich-metadata "
+    "model catalog — both have full _handle_* implementations in "
+    "handlers/onboarding_handlers.py and are now in the renderer "
+    "ALLOWED_COMMANDS too). Update this set + the ADR addendum together "
+    "(§16). Note: `relaunch_ack` and `tray_click` are tracked separately "
+    "in KNOWN_UNDOCUMENTED_COMMANDS, not here."
 )
 
 # ── Known undocumented command additions (ADR-0020 §16 violations) ──────

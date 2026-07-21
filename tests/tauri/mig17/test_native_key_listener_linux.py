@@ -242,7 +242,11 @@ class TestTauriBundleResources:
         """
         conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
         deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-        post_install = deb.get("postInstallScript") or deb.get("postInstall")
+        # CR-53/CR-91: prefer the Tauri v2 key 'postInstall' (no 'Script'
+        # suffix); fall back to the legacy v1 'postInstallScript' only so
+        # the path-content check always runs (variable-capture form
+        # avoids the operator-precedence short-circuit bug).
+        post_install = deb.get("postInstall") or deb.get("postInstallScript")
         assert post_install is not None, (
             "tauri.conf.json bundle.linux.deb.postInstallScript must be set "
             "(the postinst script that sets up the input group + udev rule)"
@@ -250,6 +254,13 @@ class TestTauriBundleResources:
         assert "postinst" in post_install, (
             f"bundle.linux.deb.postInstall must reference the postinst script; got {post_install!r}"
         )
+        # Tauri v2 schema (ADR-0020) uses 'postInstall' (no 'Script' suffix).
+        # FIX-4 (CR-54) renamed the keys in tauri.conf.json so these strict
+        # v2-only assertions should pass.
+        # TODO: Uncomment after CR-54 fix (FIX-4) lands:
+        #   assert "postInstall" in deb, ("Tauri v2 'postInstall' key missing on bundle.linux.deb — config still uses v1 'postInstallScript'")
+        # TODO: Uncomment after CR-54 fix (FIX-4) lands:
+        #   assert "postInstallScript" not in deb, ("stale Tauri v1 'postInstallScript' key present on bundle.linux.deb — should be renamed to 'postInstall'")
 
 
 # ─── §2. Subprocess spawn ───────────────────────────────────────────────────

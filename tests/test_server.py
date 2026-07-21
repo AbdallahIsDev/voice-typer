@@ -2642,12 +2642,20 @@ class TestSendDoesNotHoldLockDuringWrite:
         )
 
     def test_settimeout_called_on_tcp_socket(self, server_with_mock_app__014):
-        """NEW-CONC-003: _send must call settimeout before sendall so a
-        stalled client can't block the worker forever."""
+        """NEW-CONC-003 / CR-2: _send must call settimeout before sendall so a
+        stalled client can't block the worker forever, and must restore the
+        PREVIOUS timeout (NOT clobber to None) so the dispatch-loop readline
+        keeps its auth-read deadline and the connection can be reaped on
+        cleanup."""
         srv = server_with_mock_app__014
 
         fake_conn = MagicMock()
         fake_conn.settimeout = MagicMock()
+        # CR-2: gettimeout() is called to capture the previous timeout
+        # before overwriting it.  Mock it to return a distinctive
+        # sentinel so we can verify the restore.
+        _PREV_TIMEOUT = 7.0  # simulates an auth-read deadline
+        fake_conn.gettimeout = MagicMock(return_value=_PREV_TIMEOUT)
 
         class FakeClient:
             def __init__(self):
@@ -2668,7 +2676,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         srv._send({"type": "test"})
 
         # settimeout must have been called with the write timeout, then
-        # restored to None (blocking) in the finally block.
+        # restored to _PREV_TIMEOUT (NOT None) in the finally block.
         assert fake_conn.settimeout.call_count >= 2, (
             f"settimeout must be called at least twice (set + restore): {fake_conn.settimeout.call_count}"
         )
@@ -2677,9 +2685,18 @@ class TestSendDoesNotHoldLockDuringWrite:
         assert first_call[0][0] == _TCP_WRITE_TIMEOUT_SECONDS, (
             f"first settimeout must be {_TCP_WRITE_TIMEOUT_SECONDS}, got {first_call[0][0]}"
         )
-        # Last call restores to None (blocking).
+        # CR-2: last call must restore _PREV_TIMEOUT (the auth-read
+        # deadline), NOT None.  Restoring None was the root cause of
+        # the auth-timeout/close deadlock: a blocking socket could
+        # never time out, so the reader thread never exited and
+        # _TCPLineIO.close() deadlocked against the in-progress recv.
         last_call = fake_conn.settimeout.call_args_list[-1]
-        assert last_call[0][0] is None, f"last settimeout must restore None, got {last_call[0][0]}"
+        assert last_call[0][0] == _PREV_TIMEOUT, (
+            f"last settimeout must restore the PREVIOUS timeout "
+            f"({_PREV_TIMEOUT}), got {last_call[0][0]!r}. Restoring None "
+            "clobbers the auth-read deadline and re-introduces the CR-2 "
+            "deadlock."
+        )
 
     def test_write_failure_drops_client(self, server_with_mock_app__014):
         """NEW-CONC-003: when sendall raises (timeout or OSError), the

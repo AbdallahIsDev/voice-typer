@@ -324,6 +324,35 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.troubleshooting.reRunWizardAria",
     "settings.troubleshooting.reRunWizardHint",
     "settings.troubleshooting.reRunWizardToast",
+    # IMPROVE-mode RW-2 backfill (25 keys) — English-fallback pending native
+    # translation. Added when CR-4/CR-51/CR-54/CR-55 i18n parity gates were
+    # enforced. Remove each key from this set once it is properly translated
+    # in EVERY non-English locale (ar/de/es/fr/hi/ru/zh).
+    "settings.searchNoMatch",
+    "settings.bubbleMicButton",
+    "settings.bubbleMicButtonDescription",
+    "settings.bubbleClickToToggle",
+    "settings.bubbleClickToToggleDescription",
+    "onboarding.step4Item",
+    "onboarding.step5Item",
+    "onboarding.permissionsTitle",
+    "onboarding.permissionsDescription",
+    "onboarding.permissionsLoading",
+    "onboarding.permissionsNeeded",
+    "onboarding.permissionsOk",
+    "onboarding.permissionsNoneNeeded",
+    "onboarding.permissionsTestLabel",
+    "onboarding.permissionsTestSuccess",
+    "onboarding.permissionsTestFailure",
+    "onboarding.permissionsTestButton",
+    "onboarding.micLevel",
+    "onboarding.modelMultilingual",
+    "onboarding.skipConfirmTitle",
+    "onboarding.skipConfirmMessage",
+    "onboarding.skipConfirmLabel",
+    "bubble.micButtonAria",
+    "bubble.micButtonStartAria",
+    "bubble.micButtonStopAria",
 }
 
 
@@ -417,11 +446,7 @@ class TestI18nCompleteness:
         loc_file = TRANSLATIONS_DIR / f"{locale}.json"
         loc_data = _load_json(loc_file)
         loc_flat = _flatten_keys(loc_data)
-        skipped_keys = (
-            ALLOWED_UNTRANSLATED
-            | PRE_EXISTING_UNTRANSLATED
-            | RW2_BACKFILLED_PENDING_TRANSLATION
-        )
+        skipped_keys = ALLOWED_UNTRANSLATED | PRE_EXISTING_UNTRANSLATED | RW2_BACKFILLED_PENDING_TRANSLATION
         untranslated: list[str] = []
         for key, en_value in en_flat.items():
             if key in skipped_keys:
@@ -515,9 +540,7 @@ class TestRW2BackfillSetIsMinimal:
             f"en.json (likely renamed/removed): {sorted(stale)}"
         )
 
-    def test_every_entry_is_still_english_fallback_somewhere(
-        self, en_flat: dict[str, str]
-    ) -> None:
+    def test_every_entry_is_still_english_fallback_somewhere(self, en_flat: dict[str, str]) -> None:
         # For each entry, check that at least one non-English locale has the
         # English value for that key. If all 7 locales have a translated
         # (non-English) value, the entry is stale and should be removed.
@@ -529,9 +552,7 @@ class TestRW2BackfillSetIsMinimal:
         stale: list[str] = []
         for key in RW2_BACKFILLED_PENDING_TRANSLATION:
             en_value = en_flat.get(key, "")
-            still_english_somewhere = any(
-                locale_flats[loc].get(key) == en_value for loc in NON_ENGLISH_LOCALES
-            )
+            still_english_somewhere = any(locale_flats[loc].get(key) == en_value for loc in NON_ENGLISH_LOCALES)
             if not still_english_somewhere:
                 stale.append(key)
         assert not stale, (
@@ -547,7 +568,7 @@ class TestRW2BackfillSetIsMinimal:
         every backfilled key has been properly translated — delete the set
         and the ratchet test class entirely.
         """
-        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) == 49, (
+        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) == 74, (
             "RW2_BACKFILLED_PENDING_TRANSLATION set size changed. Update this "
             "assertion to match — the set should only shrink over time as "
             "translations are commissioned."

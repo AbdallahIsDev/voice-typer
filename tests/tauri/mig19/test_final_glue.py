@@ -150,10 +150,13 @@ EXPECTED_DEV_URL = "http://localhost:1420"
 #: and be invoked by both beforeDevCommand + beforeBuildCommand.
 EXPECTED_RENDERER_BUILD_SCRIPT = "build:renderer"
 
-#: ADR-0020 §7: capability identifier referenced by tauri.conf.json's
-#: ``app.security.capabilities`` list. The matching capability file
-#: lives at ``src-tauri/capabilities/migrate-runtime.json``.
-EXPECTED_CAPABILITY_IDENTIFIER = "migrate-runtime"
+#: ADR-0020 §7 + CR-5: capability identifier referenced by tauri.conf.json's
+#: ``app.security.capabilities`` list. CR-5 split the original
+#: ``migrate-runtime.json`` into ``main-runtime.json`` (full grant set,
+#: scoped to the main window) + ``bubble-runtime.json`` (minimal sandboxed
+#: grant, scoped to the bubble window).
+EXPECTED_CAPABILITY_IDENTIFIER = "main-runtime"
+EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER = "bubble-runtime"
 
 #: ADR-0020 §7 + the Electron CSP (client/src/main/bootstrap.ts setupCsp).
 #: The Tauri CSP must reproduce at least these four core directives:
@@ -184,11 +187,8 @@ EXPECTED_MAIN_RS_PLUGINS = [
     "tauri_plugin_dialog",
 ]
 
-#: ADR-0020 §6.2 + §7 + §10 + MIG-1.1 + MIG-1.2: commands that main.rs
-#: MUST register in ``tauri::generate_handler![...]``. These are the
-#: only Tauri-exposed IPC entry points — everything else goes through
-#: the generic ``dispatch`` command (which forwards to the sidecar
-#: over the WS bridge).
+#: ADR-0020 §6.2 + §7 + §9 + §10 + MIG-1.1 + MIG-1.2 + CR-33: commands
+#: that main.rs MUST register in ``tauri::generate_handler![...]``.
 EXPECTED_MAIN_RS_COMMANDS = [
     # ADR-0020 §6.2 + §10 — generic dispatch + paste + shutdown
     "dispatch",
@@ -204,6 +204,17 @@ EXPECTED_MAIN_RS_COMMANDS = [
     "bubble_set_draggable",
     "bubble_move_by",
     "bubble_hide_complete",
+    # CR-33 — bubble window extensions (resize / state / toggle).
+    "bubble_resize",
+    "bubble_emit_state",
+    "bubble_toggle_dictation",
+    # CR-33 — system-level window_ commands (port of Electron
+    # window:open-logs / model:import-dialog / templates:export /
+    # config:export IPC handlers).
+    "open_logs",
+    "open_model_import_dialog",
+    "export_templates",
+    "export_config",
 ]
 
 #: ADR-0020 §15: the v1 Tauri migration MUST NOT wire up
@@ -440,17 +451,8 @@ def test_tauri_conf_security_csp_matches_electron_subset(tauri_conf) -> None:
 def test_tauri_conf_security_capabilities_references_migrate_runtime(
     tauri_conf,
 ) -> None:
-    """ADR-0020 §7: ``app.security.capabilities`` must reference ``migrate-runtime``.
-
-    Tauri v2 ships zero IPC/shell/plugin permissions by default —
-    every ``invoke``, ``shell:spawn``, ``notification:notify``,
-    ``clipboard`` read/write, and ``dialog`` save must be explicitly
-    whitelisted in ``src-tauri/capabilities/*.json`` or Tauri
-    **silently blocks it at runtime** (no compile error). The
-    ``migrate-runtime`` capability file is the consolidated whitelist
-    for the v1 migration; tauri.conf.json must reference it by name
-    in ``app.security.capabilities``.
-    """
+    """ADR-0020 §7 + CR-5: ``app.security.capabilities`` must reference
+    ``main-runtime`` AND ``bubble-runtime`` (CR-5 deleted migrate-runtime)."""
     security = tauri_conf.get("app", {}).get("security", {})
     assert "capabilities" in security, (
         "app.security.capabilities must exist (ADR-0020 §7) — Tauri v2 "
@@ -463,8 +465,19 @@ def test_tauri_conf_security_capabilities_references_migrate_runtime(
     )
     assert EXPECTED_CAPABILITY_IDENTIFIER in capabilities, (
         f"app.security.capabilities must reference "
-        f"{EXPECTED_CAPABILITY_IDENTIFIER!r} (the consolidated capability "
-        f"file for the v1 Tauri migration); got {capabilities!r}"
+        f"{EXPECTED_CAPABILITY_IDENTIFIER!r} (the main-window capability "
+        f"file — CR-5 split); got {capabilities!r}"
+    )
+    assert EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER in capabilities, (
+        f"app.security.capabilities must reference "
+        f"{EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER!r} (the bubble-window "
+        f"sandboxed capability file — CR-5 split / SEC-026); got "
+        f"{capabilities!r}"
+    )
+    assert "migrate-runtime" not in capabilities, (
+        f"app.security.capabilities must NOT reference 'migrate-runtime' "
+        f"(CR-5 deleted it; use 'main-runtime' + 'bubble-runtime' instead) "
+        f"— got {capabilities!r}"
     )
 
 
@@ -638,6 +651,11 @@ def test_main_rs_does_not_register_unknown_commands(main_rs_source) -> None:
     )
     assert handler_match, "main.rs must call tauri::generate_handler![...] (ADR-0020 §6.2 + §7)"
     handler_body = handler_match.group("body")
+    # Strip `//` line comments before tokenizing — the macro body carries
+    # explanatory comments (e.g. "// CR-33: bubble window extensions
+    # (resize / state / toggle)") whose prose words would otherwise be
+    # mis-read as command identifiers.
+    handler_body = re.sub(r"//[^\n]*", "", handler_body)
     # Extract candidate identifiers: snake_case tokens, possibly with
     # a leading path segment (we strip those).
     candidates = re.findall(r"\b([a-z][a-z0-9_]*)\b", handler_body)

@@ -11,8 +11,9 @@ Covers the 3 dictation IPC handlers defined in
 
 All three handlers delegate to the service layer and return either
 ``{type: ack}`` (toggle/undo) or ``{type: <cmd>_result, data: <result>}``
-(force_cancel).  Each has a service-raises path that must produce
-``{type: error, data: {message: str(e)}}``.
+(force_cancel).  Each has a service-raises path that produces the
+CR-20 generic WS-path error envelope
+``{type: error, data: {code: "internal_error", message: "internal error"}}``.
 """
 
 from __future__ import annotations
@@ -30,7 +31,9 @@ class TestToggleDictation:
         fake_service.toggle_dictation.side_effect = RuntimeError("mic in use")
         resp = ipc_server._handle_toggle_dictation({}, {})
         assert resp["type"] == "error"
-        assert "mic in use" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestUndoLast:
@@ -45,7 +48,9 @@ class TestUndoLast:
         fake_service.undo_last.side_effect = RuntimeError("nothing to undo")
         resp = ipc_server._handle_undo_last({}, {})
         assert resp["type"] == "error"
-        assert "nothing to undo" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestForceCancelTranscription:
@@ -68,7 +73,9 @@ class TestForceCancelTranscription:
         fake_service.force_cancel_transcription.side_effect = RuntimeError("no transcription in progress")
         resp = ipc_server._handle_force_cancel_transcription({}, {})
         assert resp["type"] == "error"
-        assert "no transcription in progress" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"
 
     def test_failure_result_is_passed_through_not_converted_to_error(self, ipc_server, fake_service):
         """A ``{success: False}`` return value is NOT converted to an error

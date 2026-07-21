@@ -328,8 +328,11 @@ class TestMutexAcquisitionHasRetryAndTimeout:
         # catches reintroduction of a retry loop directly.
         from voice_typer.server import app as app_mod
 
-        # _ensure_single_instance is a module-level function, not a method
-        src = inspect.getsource(app_mod._ensure_single_instance)
+        # CR-11: _ensure_single_instance is now a thin dispatcher; the
+        # Windows mutex logic (which checks error_already_exists) lives
+        # in _ensure_windows_single_instance. Inspect that function so
+        # the PLAT-011 invariant is still pinned.
+        src = inspect.getsource(app_mod._ensure_windows_single_instance)
         # Must check ERROR_ALREADY_EXISTS and exit. The implementation
         # may use either the symbolic name "ERROR_ALREADY_EXISTS" or the
         # numeric value 183 assigned to a lowercase variable

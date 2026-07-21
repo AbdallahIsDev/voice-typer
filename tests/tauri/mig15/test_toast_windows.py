@@ -94,7 +94,9 @@ _SRC_TAURI = _REPO_ROOT / "src-tauri"
 MAIN_RS = _SRC_TAURI / "src" / "main.rs"
 WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 TAURI_CONF_JSON = _SRC_TAURI / "tauri.conf.json"
-CAPABILITIES_JSON = _SRC_TAURI / "capabilities" / "migrate-runtime.json"
+CAPABILITIES_JSON = (
+    _SRC_TAURI / "capabilities" / "main-runtime.json"
+)  # CR-5: migrate-runtime split; notification perms live in main-runtime
 TRAY_PY = _REPO_ROOT / "voice_typer" / "server" / "tray.py"
 SYSTEM_HANDLERS_PY = _REPO_ROOT / "voice_typer" / "server" / "handlers" / "system_handlers.py"
 

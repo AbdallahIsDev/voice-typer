@@ -31,10 +31,12 @@ PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
 # === Common helpers / fixtures (identical across files) ===
 
+
 @pytest.fixture
 def server_with_mock_app():
     app = MagicMock()
     return IPCServer(app)
+
 
 # === Source: tests/test_new_dead_002_scripts.py ===
 
@@ -58,6 +60,7 @@ The fix:
   ``Audio too short, skipping transcription``, ``FORCE RECOVER``).
 """
 
+
 class TestRuntimeProofImports:
     """NEW-DEAD-002: runtime_proof.py must import from the right paths."""
 
@@ -80,12 +83,10 @@ class TestRuntimeProofImports:
             "runtime_proof.py must import Config from voice_typer.server.config"
         )
         assert "from voice_typer.server.transcription import" in source, (
-            "runtime_proof.py must import TranscriptionEngine from "
-            "voice_typer.server.transcription"
+            "runtime_proof.py must import TranscriptionEngine from voice_typer.server.transcription"
         )
         assert "from voice_typer.server.tray_types import" in source, (
-            "runtime_proof.py must import AppState from "
-            "voice_typer.server.tray_types"
+            "runtime_proof.py must import AppState from voice_typer.server.tray_types"
         )
         # The legacy paths must NOT appear.
         assert "from voice_typer.config import" not in source, (
@@ -97,6 +98,7 @@ class TestRuntimeProofImports:
         assert "from voice_typer.tray import" not in source, (
             "runtime_proof.py still imports from the legacy voice_typer.tray path"
         )
+
 
 class TestRuntimeTestRunnerMarkers:
     """NEW-DEAD-002: runtime_test_runner.py must grep for current markers."""
@@ -113,8 +115,7 @@ class TestRuntimeTestRunnerMarkers:
         """
         source = (SCRIPTS_DIR / "runtime_test_runner.py").read_text()
         assert "[TRANSCRIBE] Transcription complete" in source, (
-            "runtime_test_runner.py must grep for "
-            "'[TRANSCRIBE] Transcription complete' (current production marker)"
+            "runtime_test_runner.py must grep for '[TRANSCRIBE] Transcription complete' (current production marker)"
         )
 
     def test_does_not_rely_on_legacy_busy_reset_marker(self):
@@ -130,8 +131,7 @@ class TestRuntimeTestRunnerMarkers:
         # Easiest check: the wait_for_log call must not pass the legacy
         # string.
         assert 'wait_for_log(LOG_FILE, "_busy reset to False"' not in source, (
-            "runtime_test_runner.py still uses the legacy _busy reset to False "
-            "marker as a wait_for_log argument"
+            "runtime_test_runner.py still uses the legacy _busy reset to False marker as a wait_for_log argument"
         )
 
     def test_force_recover_still_checked(self):
@@ -140,9 +140,9 @@ class TestRuntimeTestRunnerMarkers:
         """
         source = (SCRIPTS_DIR / "runtime_test_runner.py").read_text()
         assert "FORCE RECOVER" in source, (
-            "runtime_test_runner.py should still check for FORCE RECOVER "
-            "(still emitted by recording_controller.py:623)"
+            "runtime_test_runner.py should still check for FORCE RECOVER (still emitted by recording_controller.py:623)"
         )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -163,6 +163,7 @@ package-data, but:
 The fix removes the package-data reference, saving 1.9 MB in the
 built wheel and installer.
 """
+
 
 class TestPyprojectNoDeadFontReference:
     """NEW-DEAD-003: pyproject.toml must not reference the dead font."""
@@ -191,15 +192,10 @@ class TestPyprojectNoDeadFontReference:
                 if idx != -1:
                     end = min(end, idx)
             section = content[start:end]
-            assert "hgi" not in section.lower(), (
-                f"package-data section still references hgi font: {section}"
-            )
-            assert "fonts/" not in section, (
-                f"package-data section still references fonts/ directory: {section}"
-            )
-            assert "icons/" not in section, (
-                f"package-data section still references icons/ directory: {section}"
-            )
+            assert "hgi" not in section.lower(), f"package-data section still references hgi font: {section}"
+            assert "fonts/" not in section, f"package-data section still references fonts/ directory: {section}"
+            assert "icons/" not in section, f"package-data section still references icons/ directory: {section}"
+
 
 class TestNoPythonCodeLoadsTheFont:
     """Sanity check: no Python source file should reference the font
@@ -216,9 +212,8 @@ class TestNoPythonCodeLoadsTheFont:
                 continue
             if "hgi-stroke-rounded" in content or "hgi_stroke" in content:
                 offenders.append(str(py_file))
-        assert not offenders, (
-            f"Python files still reference the dead font: {offenders}"
-        )
+        assert not offenders, f"Python files still reference the dead font: {offenders}"
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
@@ -233,6 +228,7 @@ invoke it.  The fix provides a default no-op implementation so new
 backends don't have to implement it just to satisfy the Protocol.
 """
 
+
 class TestDiagnoseNotAbstract:
     """NEW-DEAD-009: diagnose must not be @abstractmethod."""
 
@@ -240,13 +236,10 @@ class TestDiagnoseNotAbstract:
         """The HotkeyBackend base class must provide a default
         ``diagnose`` implementation that returns an empty string.
         """
-        assert hasattr(HotkeyBackend, "diagnose"), (
-            "HotkeyBackend must have a diagnose method"
-        )
+        assert hasattr(HotkeyBackend, "diagnose"), "HotkeyBackend must have a diagnose method"
         source = inspect.getsource(HotkeyBackend.diagnose)
         assert 'return ""' in source, (
-            "HotkeyBackend.diagnose must have a default implementation "
-            "that returns an empty string"
+            "HotkeyBackend.diagnose must have a default implementation that returns an empty string"
         )
 
     def test_diagnose_not_marked_abstract(self):
@@ -267,6 +260,7 @@ class TestDiagnoseNotAbstract:
         """A new subclass that doesn't override diagnose must be
         instantiable (with the other abstract methods implemented).
         """
+
         class MinimalBackend(HotkeyBackend):
             def start(self, callback):
                 pass
@@ -288,6 +282,7 @@ class TestDiagnoseNotAbstract:
         backend = MinimalBackend("<f2>")
         assert backend.diagnose() == ""
 
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
@@ -308,6 +303,7 @@ These tests verify the wiring is in place and the key-up callback
 fires the stop-dictation path.
 """
 
+
 class TestPttWiring:
     """NEW-DEAD-010: PTT mode must wire set_on_release to _stop_dictation."""
 
@@ -316,15 +312,9 @@ class TestPttWiring:
         call ``set_on_release(app._stop_dictation)``.
         """
         source = inspect.getsource(HotkeyDispatcher.register)
-        assert "set_on_release" in source, (
-            "HotkeyDispatcher.register must call set_on_release for PTT mode"
-        )
-        assert "push_to_talk" in source, (
-            "HotkeyDispatcher.register must check recording_mode == 'push_to_talk'"
-        )
-        assert "_stop_dictation" in source, (
-            "HotkeyDispatcher.register must wire set_on_release to app._stop_dictation"
-        )
+        assert "set_on_release" in source, "HotkeyDispatcher.register must call set_on_release for PTT mode"
+        assert "push_to_talk" in source, "HotkeyDispatcher.register must check recording_mode == 'push_to_talk'"
+        assert "_stop_dictation" in source, "HotkeyDispatcher.register must wire set_on_release to app._stop_dictation"
 
     def test_win32_backend_fires_on_release_on_key_up(self):
         """The Win32 polling backend must detect key-up transitions and
@@ -345,12 +335,8 @@ class TestPttWiring:
         """
         # Find the PynputHotkey class's on_release closure.
         source = inspect.getsource(hotkeys.PynputHotkey._start_fallback)
-        assert "_on_release_callback" in source, (
-            "PynputHotkey._start_fallback must reference _on_release_callback"
-        )
-        assert "on_release" in source, (
-            "PynputHotkey._start_fallback must register an on_release handler"
-        )
+        assert "_on_release_callback" in source, "PynputHotkey._start_fallback must reference _on_release_callback"
+        assert "on_release" in source, "PynputHotkey._start_fallback must register an on_release handler"
 
     def test_set_on_release_stores_callback(self):
         """``HotkeyBackend.set_on_release`` must store the callback in
@@ -361,6 +347,7 @@ class TestPttWiring:
         backend._on_release_callback = None
 
         callback_called = []
+
         def my_callback():
             callback_called.append(True)
 
@@ -379,6 +366,7 @@ class TestPttWiring:
 
         backend.set_on_release(None)
         assert backend._on_release_callback is None
+
 
 class TestPttFunctionalFlow:
     """Functional test: simulate the PTT wiring end-to-end."""
@@ -437,6 +425,7 @@ class TestPttFunctionalFlow:
         # set_on_release must NOT have been called.
         fake_backend.set_on_release.assert_not_called()
 
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
@@ -455,11 +444,13 @@ never invoked by any IPC route or UI button.  The fix:
    allowlist so the Electron main process will forward it.
 """
 
+
 class TestServiceTestMethod:
     """NEW-DEAD-015: VoiceTyperService must expose test_llm_connection()."""
 
     def test_service_has_test_llm_connection_method(self):
         from voice_typer.server.service import VoiceTyperService
+
         assert hasattr(VoiceTyperService, "test_llm_connection"), (
             "VoiceTyperService must have a test_llm_connection method "
             "so the renderer can test the LLM polish API connection"
@@ -510,6 +501,7 @@ class TestServiceTestMethod:
         assert kwargs["api_url"] == "https://api.openai.com/v1"
         assert kwargs["model"] == "gpt-4"
 
+
 class TestDispatchesTestLlmConnection:
     """NEW-DEAD-015: the IPC dispatcher must route test_llm_connection."""
 
@@ -518,9 +510,7 @@ class TestDispatchesTestLlmConnection:
         ``service.test_llm_connection()`` and return the result.
         """
         srv = server_with_mock_app
-        srv.service.test_llm_connection = MagicMock(
-            return_value={"success": True, "message": "Connected"}
-        )
+        srv.service.test_llm_connection = MagicMock(return_value={"success": True, "message": "Connected"})
 
         result = srv._dispatch({"id": 1, "type": "test_llm_connection"})
 
@@ -531,14 +521,13 @@ class TestDispatchesTestLlmConnection:
     def test_ipc_handles_service_exception(self, server_with_mock_app):
         """When the service raises, the IPC route must return an error."""
         srv = server_with_mock_app
-        srv.service.test_llm_connection = MagicMock(
-            side_effect=RuntimeError("boom")
-        )
+        srv.service.test_llm_connection = MagicMock(side_effect=RuntimeError("boom"))
 
         result = srv._dispatch({"id": 1, "type": "test_llm_connection"})
 
         assert result["type"] == "error"
         assert "boom" in result["data"]["message"]
+
 
 class TestRendererAllowlist:
     """NEW-DEAD-015: the Electron main process allowlist must include
@@ -546,19 +535,158 @@ class TestRendererAllowlist:
 
     def test_allowlist_includes_test_llm_connection(self):
         from pathlib import Path
-        main_ts = (
-            Path(__file__).resolve().parent.parent
-            / "voice_typer"
-            / "client"
-            / "src"
-            / "main"
-            / "index.ts"
-        )
+
+        main_ts = Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "main" / "index.ts"
         source = main_ts.read_text(encoding="utf-8")
         assert '"test_llm_connection"' in source, (
-            "Electron main process ALLOWED_COMMANDS must include "
-            "'test_llm_connection' so the renderer can invoke it"
+            "Electron main process ALLOWED_COMMANDS must include 'test_llm_connection' so the renderer can invoke it"
         )
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+# === Source: CR-1 — ipc/ subpackage dead-code removal ===
+
+"""Regression tests for CR-1: ``voice_typer/server/ipc/`` subpackage is
+NOT a parallel implementation of ``ipc_server.py``.
+
+Phase 4.5 / ARCH-045 began a split of the original ``ipc_server.py``
+god-module into a per-concern package.  The split was abandoned
+mid-way: the shim ``ipc_server.py`` retained the full implementation
+AND the parallel ``ipc/server.py`` (1,764 lines), ``ipc/main.py``
+(389), ``ipc/process_meta.py`` (25), and ``ipc/push_events.py`` (60)
+existed as unreachable duplicates (~2,238+ lines of dead code).
+
+The fix deletes the four dead modules and keeps only the leaf
+submodules that the handler mixins actually import (``validation``,
+``history_bounds``, ``rate_limiter``, ``transport``).
+"""
+
+
+class TestIpcDeadCodeStaysRemoved:
+    """CR-1: the four dead parallel-implementation modules must stay gone."""
+
+    @pytest.mark.parametrize(
+        "rel_path",
+        [
+            "voice_typer/server/ipc/server.py",
+            "voice_typer/server/ipc/main.py",
+            "voice_typer/server/ipc/process_meta.py",
+            "voice_typer/server/ipc/push_events.py",
+        ],
+    )
+    def test_dead_ipc_module_does_not_exist(self, rel_path):
+        """Each deleted parallel-implementation module must not exist on disk."""
+        repo_root = Path(__file__).resolve().parent.parent
+        assert not (repo_root / rel_path).exists(), (
+            f"CR-1 regression: {rel_path} was deleted as dead-code parallel of "
+            "ipc_server.py — do NOT re-create it. The canonical implementation "
+            "lives in voice_typer/server/ipc_server.py."
+        )
+
+    @pytest.mark.parametrize(
+        "mod_path",
+        [
+            "voice_typer.server.ipc.server",
+            "voice_typer.server.ipc.main",
+            "voice_typer.server.ipc.process_meta",
+            "voice_typer.server.ipc.push_events",
+        ],
+    )
+    def test_dead_ipc_module_is_not_importable(self, mod_path):
+        """Each deleted module must raise ModuleNotFoundError on import."""
+        import importlib
+
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(mod_path)
+
+    def test_ipc_init_does_not_re_export_ipcserver_or_main(self):
+        """The ``ipc`` package __init__ must NOT re-export ``IPCServer`` or
+        ``main`` — those names live only in ``ipc_server.py`` (the shim
+        that retains the full implementation).  Re-exporting them from
+        ``ipc`` would re-create the parallel-system surface.
+        """
+        import voice_typer.server.ipc as ipc_pkg
+
+        assert not hasattr(ipc_pkg, "IPCServer"), (
+            "ipc/__init__.py must not re-export IPCServer — it lives in "
+            "voice_typer.server.ipc_server. Re-exporting it re-creates the "
+            "parallel-system surface that CR-1 removed."
+        )
+        assert not hasattr(ipc_pkg, "main"), (
+            "ipc/__init__.py must not re-export main — it lives in "
+            "voice_typer.server.ipc_server. Re-exporting it re-creates the "
+            "parallel-system surface that CR-1 removed."
+        )
+
+    def test_ipc_init_does_not_re_export_push_event_now_or_process_meta(self):
+        """The ``ipc`` package __init__ must NOT re-export
+        ``_push_event_now`` or ``_set_process_metadata`` — they live in
+        ``ipc_server.py`` and were previously re-exported from the (now
+        deleted) ``ipc/push_events.py`` and ``ipc/process_meta.py``.
+        """
+        import voice_typer.server.ipc as ipc_pkg
+
+        assert not hasattr(ipc_pkg, "_push_event_now"), (
+            "ipc/__init__.py must not re-export _push_event_now — its "
+            "source module ipc/push_events.py was deleted as dead code."
+        )
+        assert not hasattr(ipc_pkg, "_set_process_metadata"), (
+            "ipc/__init__.py must not re-export _set_process_metadata — "
+            "its source module ipc/process_meta.py was deleted as dead code."
+        )
+
+    def test_leaf_submodules_still_importable(self):
+        """The surviving leaf submodules must still be importable."""
+        import importlib
+
+        for mod_path in [
+            "voice_typer.server.ipc.validation",
+            "voice_typer.server.ipc.history_bounds",
+            "voice_typer.server.ipc.rate_limiter",
+            "voice_typer.server.ipc.transport",
+        ]:
+            importlib.import_module(mod_path)
+
+    def test_ipc_server_imports_TCPLineIO_from_transport(self):
+        """CR-2: ``ipc_server.py`` must import ``_TCPLineIO`` from
+        ``voice_typer.server.ipc.transport`` (the canonical location with
+        the deadlock fix in ``close``), not define a parallel copy.
+        """
+        import inspect
+
+        from voice_typer.server import ipc_server
+        from voice_typer.server.ipc import transport as ipc_transport
+
+        # The class object identity must match — no parallel copy.
+        assert ipc_server._TCPLineIO is ipc_transport._TCPLineIO, (
+            "ipc_server._TCPLineIO must be the SAME class object as "
+            "ipc.transport._TCPLineIO (single source of truth for the "
+            "CR-2 close()-deadlock fix). A parallel copy would let the "
+            "bugged close() resurface."
+        )
+        # The source file must be transport.py, not ipc_server.py.
+        src_file = inspect.getsourcefile(ipc_server._TCPLineIO)
+        assert src_file is not None and src_file.endswith("transport.py"), (
+            f"_TCPLineIO source must be transport.py; got {src_file!r}."
+        )
+
+    def test_ipc_server_TCPLineIO_close_uses_shutdown(self):
+        """CR-2: ``_TCPLineIO.close`` must call ``shutdown(SHUT_RDWR)``
+        BEFORE ``close()`` so an in-progress ``recv`` on another thread
+        is interrupted and the ``BufferedReader.close()`` doesn't
+        deadlock.
+        """
+        import inspect
+
+        from voice_typer.server.ipc_server import _TCPLineIO
+
+        src = inspect.getsource(_TCPLineIO.close)
+        assert "shutdown" in src, (
+            "_TCPLineIO.close must call self.conn.shutdown(SHUT_RDWR) to "
+            "interrupt in-progress reads (CR-2 deadlock fix)."
+        )
+        assert "SHUT_RDWR" in src, (
+            "_TCPLineIO.close must use socket.SHUT_RDWR (full duplex shutdown) to interrupt both reads and writes."
+        )

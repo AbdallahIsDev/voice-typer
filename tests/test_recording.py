@@ -53,6 +53,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [
             np.array([[1.0], [2.0]], dtype=np.float32),
@@ -81,6 +82,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
+        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -99,6 +101,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
 
@@ -276,6 +279,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [
             np.array([[1.0], [2.0]], dtype=np.float32),
@@ -297,6 +301,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._buffer = []
 
         snapshot = r.snapshot()
@@ -319,6 +324,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
+        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         snapshot = r.snapshot()
@@ -341,6 +347,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
+        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         with caplog.at_level("INFO"):
@@ -377,6 +384,7 @@ class TestStopCallbackBackoff:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
@@ -404,6 +412,7 @@ class TestStopCallbackBackoff:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
@@ -451,6 +460,7 @@ class TestStopCallbackBackoff:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
@@ -496,6 +506,7 @@ class TestStopCallbackBackoff:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
@@ -537,6 +548,7 @@ class TestCachedResampling:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
+        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -561,6 +573,7 @@ class TestCachedResampling:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
 
@@ -627,6 +640,7 @@ class TestH12SilenceDetection:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
         r._cached_resampled = np.ones(10, dtype=np.float32)
@@ -673,6 +687,7 @@ class TestResampleFallback:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
+        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -833,6 +848,7 @@ class TestRecordingParametrized:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((chunk_size, 1), dtype=np.float32)]
 
@@ -849,6 +865,7 @@ class TestRecordingParametrized:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
+        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32) for _ in range(num_chunks)]
 

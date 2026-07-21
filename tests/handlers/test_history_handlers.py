@@ -79,7 +79,9 @@ class TestGetTodayStats:
         fake_service.get_today_stats.side_effect = RuntimeError("db locked")
         resp = ipc_server._handle_get_today_stats({}, {})
         assert resp["type"] == "error"
-        assert "db locked" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestDeleteHistory:
@@ -172,7 +174,9 @@ class TestClearHistory:
         fake_service.clear_history.side_effect = RuntimeError("db error")
         resp = ipc_server._handle_clear_history({}, {})
         assert resp["type"] == "error"
-        assert "db error" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestToggleFavorite:

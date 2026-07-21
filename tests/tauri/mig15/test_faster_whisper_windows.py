@@ -237,7 +237,7 @@ def test_build_script_handles_ct2_libs_plural_guarded():
 
 
 # ─── Tests: model path resolves to %APPDATA%\voice-typer\models ──────────────
-def test_model_path_resolves_to_appdata_on_windows(monkeypatch):
+def test_model_path_resolves_to_appdata_on_windows(monkeypatch, tmp_path):
     """The model download path MUST resolve to
     ``%APPDATA%\\voice-typer\\models`` on Windows.
 
@@ -252,7 +252,11 @@ def test_model_path_resolves_to_appdata_on_windows(monkeypatch):
     :mod:`server_platform` and other modules use; it delegates to
     ``config._config_dir()`` which honors ``APPDATA`` on Windows.
     """
-    fake_appdata = "C:\\Users\\testuser\\AppData\\Roaming"
+    # APPDATA lives under the (isolated) home dir, mirroring the real
+    # Windows layout (%USERPROFILE%\AppData\Roaming). config._config_dir()
+    # validates the APPDATA-derived path stays within Path.home() (SEC-005),
+    # so it must be a subdir of the patched home below.
+    fake_appdata = str(tmp_path / "AppData" / "Roaming")
 
     # Force Windows platform detection. ``config._config_dir`` calls
     # ``is_windows()`` from ``platform_utils``. We patch the function
@@ -264,8 +268,12 @@ def test_model_path_resolves_to_appdata_on_windows(monkeypatch):
 
     monkeypatch.setattr(config_mod, "is_windows", lambda: True)
 
-    # No legacy ~/.voice-typer dir in the sandbox (we don't create one),
-    # so _config_dir will fall through to the Windows APPDATA branch.
+    # Isolate Path.home() to a clean temp dir so the legacy ~/.voice-typer
+    # check in config._config_dir() misses (a real dev machine may have a
+    # ~/.voice-typer from actual app use, which would otherwise short-circuit
+    # before the Windows APPDATA branch). With no legacy dir present,
+    # _config_dir falls through to the APPDATA branch as intended.
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
     monkeypatch.setenv("APPDATA", fake_appdata)
     # Clear the override so we test the real APPDATA branch.
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)

@@ -190,7 +190,7 @@ _SRC_TAURI = _REPO_ROOT / "src-tauri"
 _TAURI_CONF = _SRC_TAURI / "tauri.conf.json"
 _SPAWN_RS = _SRC_TAURI / "src" / "sidecar" / "spawn.rs"
 _CAPABILITIES_DIR = _SRC_TAURI / "capabilities"
-_MIGRATE_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "migrate-runtime.json"
+_MIGRATE_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "main-runtime.json"
 
 
 # ─── Expected wiring constants (single source of truth) ────────────────
@@ -232,7 +232,7 @@ EXPECTED_TARGET_TRIPLES = [
 
 #: ADR-0020 §7: capability identifier referenced by tauri.conf.json's
 #: ``app.security.capabilities`` list.
-EXPECTED_CAPABILITY_IDENTIFIER = "migrate-runtime"
+EXPECTED_CAPABILITY_IDENTIFIER = "main-runtime"
 
 
 # ─── Shared fixtures ───────────────────────────────────────────────────
