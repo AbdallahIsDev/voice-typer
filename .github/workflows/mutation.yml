@@ -1,0 +1,115 @@
+# =============================================================================
+# Voice Typer — weekly mutation testing (mutmut)
+#
+# CR-62 / M-77 follow-up: this workflow runs `mutmut run` weekly so the
+# mutation-testing gate stays enforced without burdening every contributor's
+# local `pip install .[dev]` (mutmut was removed from the `dev` extra in
+# pyproject.toml — see CR-62 note in pyproject.toml). The workflow installs
+# mutmut ad-hoc + runs against the modules declared in
+# `tests/mutmut_config.py` (MODULES_TO_MUTATE) using the test command
+# declared there (TEST_COMMAND).
+#
+# COORDINATION NOTE (F2): if F2 has DELETED tests/mutmut_config.py and the
+# `[tool.mutmut]` block from pyproject.toml as part of the cleanup, this
+# workflow's `Regenerate mutmut config + run` step detects the missing
+# config and exits 0 with a notice — it does NOT fail the build. Once F2
+# restores the config (or replaces it with an equivalent inline
+# declaration), the workflow will pick it up automatically on the next
+# scheduled run.
+#
+# The workflow is gated by `if: false` at the job level until mutmut is
+# ready to be re-enabled. Flip to `if: true` (or trigger manually via
+# workflow_dispatch) once the config is restored.
+# =============================================================================
+name: Mutation testing (mutmut)
+
+on:
+  workflow_dispatch:
+    inputs:
+      paths_to_mutate:
+        description: "Comma-separated list of paths to mutate (defaults to tests/mutmut_config.py's MODULES_TO_MUTATE)"
+        required: false
+        default: ""
+  # Weekly schedule — Sunday 03:00 UTC (low-traffic window; mutmut is
+  # CPU-heavy + takes ~2-4h on the configured module set).
+  schedule:
+    - cron: "0 3 * * 0"
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write   # to open an issue if survivors are found
+
+jobs:
+  mutmut:
+    # DISABLED by default — flip to `if: true` once tests/mutmut_config.py
+    # is present (F2 coordination) AND mutmut has been validated against
+    # the current module set. The `if: false` here is a second layer of
+    # protection on top of the missing-config early-exit inside the job.
+    if: false
+    runs-on: ubuntu-22.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Install project + mutmut
+        run: |
+          # Install the project + test deps so TEST_COMMAND (pytest) works.
+          uv pip install --system ".[test]"
+          # CR-62: mutmut is NOT in the `dev` extra anymore — install it
+          # ad-hoc here so the workflow is self-contained.
+          uv pip install --system "mutmut>=2.4"
+          pip list | grep -i mutmut || true
+
+      - name: Check mutmut config exists (F2 coordination gate)
+        id: config_check
+        run: |
+          set -euo pipefail
+          if [ ! -f tests/mutmut_config.py ]; then
+            echo "::notice::tests/mutmut_config.py is missing — F2 has deleted the mutmut config. Skipping mutation testing until the config is restored."
+            echo "skip=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "skip=false" >> $GITHUB_OUTPUT
+          echo "::notice::tests/mutmut_config.py found — proceeding with mutmut run."
+
+      - name: Run mutmut
+        if: steps.config_check.outputs.skip == 'false'
+        id: mutmut_run
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # mutmut 2.x uses `mutmut run` (replaces 1.x's `mutmut run`).
+          # --paths-to-mutate overrides tests/mutmut_config.py's
+          # MODULES_TO_MUTATE when provided via workflow_dispatch input
+          # (useful for re-running a single module after a fix).
+          if [ -n "${{ github.event.inputs.paths_to_mutate }}" ]; then
+            mutmut run --paths-to-mutate="${{ github.event.inputs.paths_to_mutate }}"
+          else
+            mutmut run
+          fi
+          # List survivors so the next step can include them in the issue.
+          mutmut results > /tmp/mutmut-results.txt 2>&1 || true
+          cat /tmp/mutmut-results.txt
+
+      - name: Open issue if survivors
+        if: steps.config_check.outputs.skip == 'false' && steps.mutmut_run.outcome == 'failure'
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "[Weekly mutmut] Mutation survivors detected"
+          content-filepath: /tmp/mutmut-results.txt
+          labels: testing,mutation

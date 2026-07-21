@@ -20,7 +20,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language: ['python', 'javascript-typescript']
+        # L-35 (IMPROVE-2026-07-19): added 'actions' to scan GitHub
+        # Actions workflow YAML files for known-action vulnerabilities
+        # (insecure actions/checkout versions, typosquatted action
+        # names, pull_request_target misuse, ${{ github.event.* }}
+        # injection patterns). Without this, the 8 workflow files in
+        # .github/workflows/ are unaudited for Actions-specific CVEs.
+        language: ['python', 'javascript-typescript', 'actions']
 
     steps:
       - name: Checkout

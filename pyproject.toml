@@ -84,8 +84,23 @@ dependencies = [
     "Pillow>=10.3.0,<13.0",
     "pynput>=1.7,<2.0",
     # BUILD-N04: pin transformers to <5.0. The 4.x -> 5.x boundary
-    # renamed AutoProcessor methods and removed AutoModelForCTC, both
-    # of which we use. Allow 4.50+ for the safe tensor / fp16 fixes.
+    # REMOVED ``AutoModelForTDT`` (verified empirically against
+    # transformers==5.5.0 on Linux: ``hasattr(transformers,
+    # "AutoModelForTDT") == False``; ``AutoModelForCTC`` is, contrary
+    # to a previous version of this comment, still present in 5.x).
+    # ``parakeet_engine.py`` uses ``AutoModelForTDT.from_pretrained``
+    # (lines 395, 413) and ``AutoProcessor.from_pretrained`` (line
+    # 387) via ``getattr(transformers, "AutoModelForTDT", None)``
+    # (line 206) — the getattr guards the import, but the engine
+    # raises a RuntimeError at load time if AutoModelForTDT is
+    # missing. Until parakeet_engine.py is migrated to a 5.x-supported
+    # model API (e.g. AutoModelForImageTextToText or a manual class
+    # lookup), the <5.0 pin is mandatory. Allow 4.50+ for the safe
+    # tensor / fp16 fixes. See comprehensive-review.md CR-25.
+    # CR-25 deviation: 4 known CVEs (PYSEC-2026-2288/2289/2290 + the
+    # no-fix PYSEC-2025-217) cannot be cleared without migrating the
+    # parakeet engine off AutoModelForTDT — tracked as a follow-up
+    # task. The <5.0 pin blocks the upstream fix deliberately.
     "transformers>=4.50,<5.0",
     # DEP-CLEAN: accelerate removed — nothing under voice_typer/ imports it
     # (verified by grep). It previously only pulled torch in transitively;
@@ -292,7 +307,7 @@ search-path = [
 # TEST-010: mutmut configuration for mutation testing.
 # To run mutation testing locally (expensive — don't run in CI):
 #   mutmut run --paths-to-mutate=voice_typer/server/text_cleanup.py,voice_typer/server/config.py
-# See tests/mutmut_config.py for full configuration.
+# Full configuration is the [tool.mutmut] table below.
 [tool.mutmut]
 paths_to_mutate = "voice_typer/server/text_cleanup.py,voice_typer/server/config.py,voice_typer/server/tray.py,voice_typer/server/tray_menu.py"
 test_command = "pytest -x -q tests/test_text_cleanup.py tests/test_config.py tests/test_tray.py tests/test_tray_menu.py"
@@ -415,7 +430,6 @@ module = [
     "pyperclip",
     "psutil",
     "transformers.*",
-    "accelerate",
     "qwen_asr.*",
     "pyrnnoise",
     # ADR 0007: noisereduce removed (post-capture denoise deleted).
