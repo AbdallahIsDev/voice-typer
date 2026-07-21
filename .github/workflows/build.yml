@@ -96,11 +96,28 @@ jobs:
       #
       # See docs/ruff-ratchet.md for the developer workflow.
       - name: Ruff (F-rules hard-fail)
-        run: python -m ruff check voice_typer/server/ --select F --no-fix
+        # CR-187: scope expanded from `voice_typer/server/` only to
+        # `voice_typer/ tests/ scripts/ conftest.py` so F-rule
+        # violations (unused imports, undefined names, redefinitions)
+        # in tests/ and scripts/ no longer accumulate without a CI
+        # signal. As of 2026-07-21 this step reports 22 F-rule
+        # violations across the expanded scope (4 in voice_typer/,
+        # 18 in tests/scripts/conftest.py) — those need to be fixed
+        # before this gate can pass. The pre-CR-187 scope
+        # (voice_typer/server/) reported 4 violations, so CI was
+        # already failing on this step; CR-187 just makes the
+        # failure cover the full surface area.
+        run: python -m ruff check voice_typer/ tests/ scripts/ conftest.py --select F --no-fix
 
       - name: Ruff (ratchet compare against baseline)
+        # CR-187: scope expanded to match the F-rules hard-fail above.
+        # The ruff-baseline.json `_target` field was updated to match.
+        # Per-rule and total counts were bumped from the pre-CR-187
+        # server/-only baseline (45 total / 6 rules) to the expanded
+        # scope (159 total / 19 rules) so the ratchet catches future
+        # growth across the full codebase.
         run: |
-          python -m ruff check voice_typer/server/ --output-format=json > ruff-current.json || true
+          python -m ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json > ruff-current.json || true
           python scripts/ruff_ratchet_check.py
 
       # RW-2: i18n key-completeness gate. Runs the i18n completeness suite
@@ -132,15 +149,11 @@ jobs:
       #
       # PYREFLY-HARD-GATE: error count driven from 143 → 0.
       # pyrefly is now a hard gate — failures here will block the PR.
-      # DOC-7: the baseline file (`pyrefly-baseline.json`) is currently
-      # EMPTY ("errors": []) — all previously-suppressed platform-specific
-      # false positives have been resolved via local stubs in
-      # `voice_typer/stubs/` and inline `# pyrefly: ignore` annotations
-      # at the small handful of genuinely-unsuppressable sites. The
-      # `Audit pyrefly baseline changes` step below still runs (it diffs
-      # the baseline against the base ref and fails if entries were
-      # ADDED) so any new false-positive that creeps in cannot be silently
-      # swallowed.
+      # DOC-7 / CR-074 / CR-188: the baseline file
+      # (`pyrefly-baseline.json`) is currently EMPTY ("errors": []) —
+      # the pre-CR-074 74-entry baseline was stale (line numbers +
+      # names no longer matched current code) and has been reset on
+      # 2026-07-21. The audit will catch growth from 0.
       - name: Run pyrefly type check
         run: |
           uv pip install --system pyrefly
@@ -166,19 +179,26 @@ jobs:
           fi
           git fetch origin ${{ github.base_ref || '' }} 2>/dev/null || true
           if git show "$BASE_REF:pyrefly-baseline.json" > /dev/null 2>&1; then
-            OLD_BASELINE=$(git show "$BASE_REF:pyrefly-baseline.json" | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('suppressed', []) if isinstance(d, dict) else d))" 2>/dev/null)
-            NEW_BASELINE=$(python -c "import json; d=json.load(open('pyrefly-baseline.json')); print(len(d.get('suppressed', []) if isinstance(d, dict) else d))" 2>/dev/null)
+            # CR-010: pyrefly-baseline.json's top-level key is `errors`
+            # (pyrefly's native output schema). Pre-CR-010 this read
+            # `d.get('suppressed', [])` — a key that does not exist in
+            # the baseline — so OLD_BASELINE and NEW_BASELINE were both
+            # always 0 and the audit could never fire. The diff-set
+            # computation below was also reading `d.get('file','')` —
+            # the actual schema field is `path`. Both fixed here.
+            OLD_BASELINE=$(git show "$BASE_REF:pyrefly-baseline.json" | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null)
+            NEW_BASELINE=$(python -c "import json; d=json.load(open('pyrefly-baseline.json')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null)
             if [ -n "$OLD_BASELINE" ] && [ -n "$NEW_BASELINE" ] && [ "$NEW_BASELINE" -gt "$OLD_BASELINE" ]; then
-              echo "ERROR: pyrefly baseline grew from $OLD_BASELINE to $NEW_BASELINE suppressed entries."
+              echo "ERROR: pyrefly baseline grew from $OLD_BASELINE to $NEW_BASELINE errors."
               echo "Each new entry must be justified in a comment. Run 'pyrefly check' locally"
               echo "and update pyrefly-baseline.json with only genuinely platform-specific errors."
               echo ""
               echo "Added entries:"
               git show "$BASE_REF:pyrefly-baseline.json" > /tmp/old_baseline.json 2>/dev/null
-              python -c "import json;o=json.load(open('/tmp/old_baseline.json'));n=json.load(open('pyrefly-baseline.json'));os_={(d.get('file',''),d.get('line',0),d.get('code','')) for d in (o if isinstance(o,list) else o.get('suppressed',[]))};ns_={(d.get('file',''),d.get('line',0),d.get('code','')) for d in (n if isinstance(n,list) else n.get('suppressed',[]))};[print(f'  {e[0]}:{e[1]} [{e[2]}]') for e in sorted(ns_-os_)]" 2>/dev/null || echo "  (could not diff)"
+              python -c "import json;o=json.load(open('/tmp/old_baseline.json'));n=json.load(open('pyrefly-baseline.json'));os_={(d.get('path',''),d.get('line',0),d.get('code','')) for d in (o if isinstance(o,list) else o.get('errors',[]))};ns_={(d.get('path',''),d.get('line',0),d.get('code','')) for d in (n if isinstance(n,list) else n.get('errors',[]))};[print(f'  {e[0]}:{e[1]} [{e[2]}]') for e in sorted(ns_-os_)]" 2>/dev/null || echo "  (could not diff)"
               exit 1
             fi
-            echo "Baseline audit passed: $NEW_BASELINE suppressed entries"
+            echo "Baseline audit passed: $NEW_BASELINE errors"
           else
             echo "No previous baseline to compare against — skipping audit"
           fi
@@ -412,6 +432,14 @@ jobs:
   # on Linux). The binaries are uploaded as artifacts so the per-platform
   # installer jobs (build-windows, build-macos, build-linux) can download
   # them and bundle them into PyInstaller/electron-builder packages.
+  #
+  # CR-011: the two macOS legs pass `--arch x86_64` / `--arch arm64`
+  # explicitly so `compile_native.sh` invokes `swiftc -target
+  # <arch>-apple-macos11.0` for each leg — previously both legs ran
+  # plain `swiftc` which produced an arm64 binary on the Apple-Silicon
+  # runner regardless of the matrix leg, so the `lipo -create` step in
+  # `build-macos-universal` merged two identical arm64 slices and
+  # silently produced a single-arch "universal" binary.
   build-native:
     needs: [test, client-build, version-check]
     strategy:
@@ -420,17 +448,27 @@ jobs:
           # RW-12: macOS x64 build (macos-14 = Apple Silicon runner running
           # the x64 compile under Rosetta). CI-04: migrated from the
           # deprecated macos-13 Intel runner.
+          # CR-011: `--arch x86_64` forces `swiftc -target
+          # x86_64-apple-macos11.0` so the resulting slice is actually
+          # x86_64 (without it, swiftc on the arm64 runner would emit
+          # an arm64 binary and the universal merge would silently
+          # produce a single-arch fat binary).
           - os: macos-14
             platform: macos-x64
-            script: bash scripts/build/compile_native.sh
+            script: bash scripts/build/compile_native.sh --arch x86_64
             binary: voice_typer/server/native/macos-key-listener
             artifact_name: macos-key-listener-x64
           # RW-12: macOS arm64 build (macos-14 = Apple Silicon).
           # The two macOS builds are merged into a universal binary by
           # the build-macos-universal job below (lipo -create).
+          # CR-011: `--arch arm64` is redundant on the Apple-Silicon
+          # runner (swiftc's default target is arm64) but is passed
+          # explicitly so the matrix leg is self-documenting and a
+          # future switch to an x86 runner doesn't silently break the
+          # arm64 slice.
           - os: macos-14
             platform: macos-arm64
-            script: bash scripts/build/compile_native.sh
+            script: bash scripts/build/compile_native.sh --arch arm64
             binary: voice_typer/server/native/macos-key-listener
             artifact_name: macos-key-listener-arm64
           - os: windows-2022
@@ -564,14 +602,48 @@ jobs:
       - name: Merge with lipo
         run: |
           mkdir -p voice_typer/server/native
+          # CR-011: verify the two input slices are DIFFERENT arches
+          # before merging. Pre-CR-011, both matrix legs ran plain
+          # `swiftc` on the arm64 runner and produced identical arm64
+          # binaries — `lipo -create` on two identical arm64 slices
+          # either errored out ("duplicate architecture") or silently
+          # produced a single-arch "universal" binary depending on the
+          # Xcode version. The build-native matrix now passes
+          # `--arch x86_64` / `--arch arm64` so the slices are
+          # guaranteed different — this assertion makes that guarantee
+          # explicit so a future regression fails loudly here.
+          echo "Input slice arches:"
+          lipo -info /tmp/macos-x64/macos-key-listener
+          lipo -info /tmp/macos-arm64/macos-key-listener
+          X64_ARCH="$(lipo -info /tmp/macos-x64/macos-key-listener | awk '{print $NF}')"
+          ARM_ARCH="$(lipo -info /tmp/macos-arm64/macos-key-listener | awk '{print $NF}')"
+          if [ "$X64_ARCH" = "$ARM_ARCH" ]; then
+            echo "ERROR: both input slices are the same arch ($X64_ARCH) — CR-011 regressed."
+            echo "  build-native must pass --arch x86_64 / --arch arm64 to compile_native.sh."
+            exit 1
+          fi
           lipo -create \
             /tmp/macos-x64/macos-key-listener \
             /tmp/macos-arm64/macos-key-listener \
             -output voice_typer/server/native/macos-key-listener
           chmod +x voice_typer/server/native/macos-key-listener
-          # Verify the universal binary contains both architectures.
-          lipo -info voice_typer/server/native/macos-key-listener
+          # Verify the universal binary contains BOTH architectures.
+          UNIVERSAL_INFO="$(lipo -info voice_typer/server/native/macos-key-listener)"
+          echo "$UNIVERSAL_INFO"
           file voice_typer/server/native/macos-key-listener
+          # CR-011: hard-assert both arches are present in the fat
+          # binary. `lipo -info` on a universal binary prints
+          # "Architectures in the fat file: <path> are: x86_64 arm64"
+          # — both arch names must appear.
+          echo "$UNIVERSAL_INFO" | grep -q "x86_64" || {
+            echo "ERROR: universal binary is missing x86_64 slice — CR-011 regressed."
+            exit 1
+          }
+          echo "$UNIVERSAL_INFO" | grep -q "arm64" || {
+            echo "ERROR: universal binary is missing arm64 slice — CR-011 regressed."
+            exit 1
+          }
+          echo "OK: universal binary contains both x86_64 + arm64 slices."
 
       - name: Codesign universal binary
         run: |

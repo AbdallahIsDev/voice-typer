@@ -16,8 +16,18 @@ repos:
     hooks:
       - id: mypy
         files: ^voice_typer/server/
-        args: [--ignore-missing-imports, --no-strict-optional]
-        additional_dependencies: []
+        # CR-183: pre-CR-183 this hook passed `args: [--ignore-missing-imports,
+        # --no-strict-optional]` which OVERRIDES pyproject.toml's
+        # `[tool.mypy]` settings (`ignore_missing_imports = false`,
+        # per-module overrides, strict-optional enabled). The result was
+        # a contributor's `pre-commit run mypy` passing cleanly while CI
+        # mypy failed with errors the pre-commit hook had hidden. The
+        # `args:` line is removed entirely so mypy reads pyproject.toml.
+        # `additional_dependencies` is populated with the project's
+        # runtime deps so mypy can actually resolve imports (pre-CR-183
+        # it was `[]`, so mypy couldn't import numpy/torch/etc. and
+        # silently emitted `--ignore-missing-imports`-suppressed errors).
+        additional_dependencies: [numpy, torch, transformers, pydantic, sounddevice, pystray]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
