@@ -12,6 +12,27 @@ import { dialog, ipcMain } from "electron";
 import { mainT } from "../i18n";
 
 /**
+ * R6-F9: validated format set for `history:export` and
+ * `vocabulary:export`. The renderer type unions `"json" | "csv"` but
+ * the IPC boundary is untyped at runtime — a compromised renderer (or
+ * a hand-crafted `ipcRenderer.invoke` call from devtools) could pass
+ * any string. Validating here prevents the format string from being
+ * interpolated into the file extension (`voice-typer-history.${format}`)
+ * or the dialog filter, both of which are mild injection surfaces.
+ */
+const VALID_FORMATS = new Set(["json", "csv"]);
+
+/**
+ * R6-F9: hard cap on the number of rows exported via `history:export`.
+ * 100k rows is ~50 MB of JSON / ~20 MB of CSV — well within the
+ * fs.writeFileSync budget but far enough above any realistic history
+ * size that legitimate users never hit it. The cap defends against a
+ * compromised renderer passing a fabricated 10M-row array (which would
+ * pin the CPU + disk for minutes and produce a multi-GB export file).
+ */
+const MAX_EXPORT_ROWS = 100_000;
+
+/**
  * SEC-015: CSV formula injection defense.  Cells starting
  * with =, +, -, @, TAB, or CR are interpreted as formulas by
  * Excel/LibreOffice when the user opens the exported file.
@@ -39,6 +60,21 @@ export function registerExportHandlers(): void {
 				format,
 			}: { data: Record<string, unknown>[]; format: "json" | "csv" },
 		) => {
+			// R6-F9: validate format against the allowlist BEFORE using it
+			// in the dialog filter or the file path. Rejects unknown
+			// formats early with a structured error instead of letting
+			// the renderer pass through an arbitrary string.
+			if (!VALID_FORMATS.has(format)) {
+				return { success: false, error: "Invalid format" };
+			}
+			// R6-F9: cap the row count so a compromised renderer can't
+			// pin the CPU + disk on a fabricated 10M-row payload.
+			const rows = Array.isArray(data)
+				? data.length > MAX_EXPORT_ROWS
+					? data.slice(0, MAX_EXPORT_ROWS)
+					: data
+				: [];
+
 			const filters =
 				format === "csv"
 					? [{ name: "CSV", extensions: ["csv"] }]
@@ -54,17 +90,17 @@ export function registerExportHandlers(): void {
 
 			try {
 				if (format === "csv") {
-					const header = Object.keys(data[0] ?? {})
+					const header = Object.keys(rows[0] ?? {})
 						.map(csvEscape)
 						.join(",");
-					const rows = data.map((r) =>
+					const csvRows = rows.map((r) =>
 						Object.values(r)
 							.map((v) => csvEscape(v as string))
 							.join(","),
 					);
-					fs.writeFileSync(filePath, [header, ...rows].join("\n"), "utf-8");
+					fs.writeFileSync(filePath, [header, ...csvRows].join("\n"), "utf-8");
 				} else {
-					fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+					fs.writeFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
 				}
 				return { success: true, path: filePath };
 			} catch (e: unknown) {
@@ -83,6 +119,24 @@ export function registerExportHandlers(): void {
 				format,
 			}: { data: Record<string, unknown>; format: "json" | "csv" },
 		) => {
+			// R6-F9: validate format against the allowlist BEFORE using it
+			// in the dialog filter or the file path (same rationale as
+			// history:export above).
+			if (!VALID_FORMATS.has(format)) {
+				return { success: false, error: "Invalid format" };
+			}
+			// R6-F9: cap the vocabulary entries at MAX_EXPORT_ROWS so a
+			// compromised renderer can't pin the CPU + disk on a
+			// fabricated 10M-row payload (same rationale as history:export).
+			const vocab = (data ?? {}) as Record<string, unknown>;
+			const rawEntries = Array.isArray(vocab.entries)
+				? (vocab.entries as unknown[])
+				: [];
+			const entries =
+				rawEntries.length > MAX_EXPORT_ROWS
+					? rawEntries.slice(0, MAX_EXPORT_ROWS)
+					: rawEntries;
+
 			const filters =
 				format === "csv"
 					? [{ name: "CSV", extensions: ["csv"] }]
@@ -99,24 +153,15 @@ export function registerExportHandlers(): void {
 			try {
 				if (format === "csv") {
 					// SEC-015: CSV formula injection defense (see history:export).
-					const rows: string[] = ["original,correction"];
-					const vocab = data as Record<string, unknown>;
-					const entries = (vocab.entries ?? []) as Array<
-						Record<string, string>
-					>;
-					for (const entry of entries) {
-						rows.push(
+					const csvRows: string[] = ["original,correction"];
+					for (const entry of entries as Array<Record<string, string>>) {
+						csvRows.push(
 							`${csvEscape(entry.original ?? "")},${csvEscape(entry.correction ?? "")}`,
 						);
 					}
-					fs.writeFileSync(filePath, rows.join("\n"), "utf-8");
+					fs.writeFileSync(filePath, csvRows.join("\n"), "utf-8");
 				} else {
-					const vocab = data as Record<string, unknown>;
-					fs.writeFileSync(
-						filePath,
-						JSON.stringify(vocab.entries ?? [], null, 2),
-						"utf-8",
-					);
+					fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), "utf-8");
 				}
 				return { success: true, path: filePath };
 			} catch (e: unknown) {

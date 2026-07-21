@@ -24,8 +24,18 @@
  * contract as the Python side, which runs the check inside `__init__`
  * before the tray thread starts). The D-Bus subprocess call is ~1ms on
  * a warm session bus.
+ * R6-F11: `execFileSync` timeout reduced from 2000ms → 500ms. The check
+ * runs at module load AND in the `window-all-closed` handler (CR-20),
+ * which is on the quit hot-path. A 2s timeout on a missing `gdbus` /
+ * `dbus-send` binary (or a hung D-Bus session) would block the quit
+ * sequence for 2s per check — visible "the app takes forever to close"
+ * UX bug. 500ms is still 50× the typical warm-cache latency (~1ms) but
+ * short enough that a worst-case hang is barely noticeable.
  */
 import { execFileSync } from "node:child_process";
+
+/** R6-F11: per-call subprocess timeout. Exported for unit tests. */
+export const DBUS_PROBE_TIMEOUT_MS = 500;
 
 let _cached: boolean | null = null;
 
@@ -46,7 +56,7 @@ function dbusNameHasOwner(name: string): boolean | null {
 	];
 	try {
 		const out = execFileSync("gdbus", gdbusArgs, {
-			timeout: 2000,
+			timeout: DBUS_PROBE_TIMEOUT_MS,
 			stdio: ["ignore", "pipe", "ignore"],
 		}).toString();
 		// gdbus prints `(true,)` or `(false,)` for a boolean return.
@@ -65,7 +75,7 @@ function dbusNameHasOwner(name: string): boolean | null {
 	];
 	try {
 		const out = execFileSync("dbus-send", dbusSendArgs, {
-			timeout: 2000,
+			timeout: DBUS_PROBE_TIMEOUT_MS,
 			stdio: ["ignore", "pipe", "ignore"],
 		}).toString();
 		// dbus-send prints `   boolean true` or `   boolean false`.

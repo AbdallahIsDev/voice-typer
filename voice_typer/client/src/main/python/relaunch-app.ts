@@ -73,6 +73,15 @@ export function relaunchApp(): void {
 		state.pythonExitedEarly = false;
 		state._hadConnectedBefore = false;
 		state._tcpRetryCount = 0;
+		// R6-F6: clear the pending TCP retry timer BEFORE bumping the
+		// generation, otherwise the stale `tryConnect()` invocation
+		// would fire once more (creating a fresh socket that
+		// immediately hits the generation mismatch and bails — wasted
+		// work + a brief window of "extra" socket churn).
+		if (state._tcpRetryTimer) {
+			clearTimeout(state._tcpRetryTimer);
+			state._tcpRetryTimer = null;
+		}
 		state._tcpRetryGeneration++;
 		// RW-10: clear the heartbeat interval — the next connect
 		// callback will start a fresh one when the new backend
@@ -130,6 +139,12 @@ export function relaunchApp(): void {
 	} catch {}
 	state.tcpSocket = null;
 	state._tcpAuthed = false;
+	// R6-F6: clear the pending TCP retry timer so a stale
+	// `tryConnect()` doesn't fire during the brief exit window.
+	if (state._tcpRetryTimer) {
+		clearTimeout(state._tcpRetryTimer);
+		state._tcpRetryTimer = null;
+	}
 	// RW-10: clear the heartbeat interval — process is exiting and
 	// we don't want the timer to fire sendToPython() against a
 	// dead socket during the brief exit window.

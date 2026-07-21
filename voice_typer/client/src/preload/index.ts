@@ -34,16 +34,6 @@ contextBridge.exposeInMainWorld("bubble", {
 	setDraggable: (draggable: boolean) => {
 		ipcRenderer.send("bubble:draggable", draggable);
 	},
-	// ── Drag-to-move ─────────────────────────────────────────
-	startDrag: () => {
-		ipcRenderer.send("bubble:drag-start");
-	},
-	drag: (deltaX: number, deltaY: number) => {
-		ipcRenderer.send("bubble:drag", { deltaX, deltaY });
-	},
-	endDrag: () => {
-		ipcRenderer.send("bubble:drag-end");
-	},
 	// NEW-A11Y-006: keyboard-based move (accessibility alternative to drag).
 	// Main process clamps to screen bounds.
 	moveBy: (deltaX: number, deltaY: number) => {

@@ -51,19 +51,39 @@ export function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 		}
 		const id = state.nextId++;
 		(msg as Record<string, unknown>).id = id;
-		state.pendingRequests.set(id, { resolve, reject });
 		const line = `${JSON.stringify(msg)}\n`;
 		state.tcpSocket.write(line); // 120s timeout for IPC calls  increased from 15s so model downloads
 		// (which block the IPC dispatch loop for their entire duration) don't
 		// trigger a false-positive timeout.  The Python-side heartbeat watchdog
 		// was increased from 15s to 120s (ipc_server.py) for the same reason —
 		// both timeouts must be in sync.
-		setTimeout(() => {
+		//
+		// CR-17: capture the timer handle and clearTimeout in BOTH the
+		// success and reject paths so the 120s timer doesn't leak after
+		// a prompt reply. Previously the timer held a strong reference
+		// to `reject` (and the captured `msg`) for the full 120s even
+		// after the reply arrived — handle-message.ts deletes the
+		// pendingRequests entry but never cleared the timer, so the
+		// closure stayed in the Node.js timer wheel until it fired and
+		// no-op'd the `has(id)` check. Wrapping resolve/reject here lets
+		// handle-message.ts transparently clear the timer when it
+		// resolves or rejects the entry, releasing the closure early.
+		const timer = setTimeout(() => {
 			if (state.pendingRequests.has(id)) {
 				state.pendingRequests.delete(id);
 				const cmd = String(msg?.type ?? "unknown").trim();
 				reject(new Error(`Timeout after 120s for command: ${cmd}`));
 			}
 		}, 120000);
+		state.pendingRequests.set(id, {
+			resolve: (value: unknown) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			reject: (reason: unknown) => {
+				clearTimeout(timer);
+				reject(reason);
+			},
+		});
 	});
 }

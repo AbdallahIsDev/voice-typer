@@ -119,6 +119,12 @@ export const ALLOWED_COMMANDS = new Set([
 	"onboarding_set_model",
 	"onboarding_skip",
 	"onboarding_apply",
+	// CR-35: 3 commands were missing from the allowlist, causing the
+	// Electron path to silently reject renderer calls (the Tauri path
+	// has no allowlist and worked). Added to match _COMMAND_REGISTRY.
+	"onboarding_check_permissions",
+	"onboarding_get_model_catalog",
+	"tray_click",
 	"onboarding_get_microphones",
 	"onboarding_get_model_options",
 	"onboarding_get_hotkey_presets",
@@ -190,27 +196,10 @@ export const ALLOWED_COMMANDS = new Set([
 	"force_cancel_transcription",
 ]);
 
-// IPC channel names registered by `./ipc/` (kept here as literals so the
-// Python source-string tests in `tests/test_electron_ipc_and_build.py`
-// find the quoted substrings in `src/main/index.ts`):
-//   "templates:export"   "config:export"
-//   "history:export"     "vocabulary:export"
-
-// BRAND-METADATA: Set the AppUserModelID so Windows associates the
-// Electron process with Voice Typer (taskbar grouping, Task Manager,
-// Volume Mixer). This must be called before any windows are created.
-//
-// BRAND-FIX-001: previously set to "abdallahisdev.VoiceTyper" which caused
-// Windows notifications to display "Abdallah isdev.voice typer" as the
-// notification header instead of just "Voice Typer". On Windows, the
-// AppUserModelID is used as the notification title, NOT the `title`
-// parameter passed to the Notification constructor. Changed to match
-// the app name so notifications show "Voice Typer".
 try {
-	app.setAppUserModelId("VoiceTyper");
-} catch {
 	// Best-effort — only matters on Windows 7+.
-}
+	app.setAppUserModelId("VoiceTyper");
+} catch {}
 
 // Single-instance gate + `app.on("second-instance")` handler. Must run
 // before `app.whenReady()` — the lock is checked at process start.

@@ -8,7 +8,8 @@
  *     and schedules exponential-backoff retries on close.
  */
 import net from "node:net";
-import { HEARTBEAT_INTERVAL_MS, IPC_PORT, IPC_TOKEN } from "../constants";
+
+import { HEARTBEAT_INTERVAL_MS, IPC_TOKEN } from "../constants";
 import { state } from "../state";
 import { createWindows } from "../windows";
 import { handleMessage } from "./handle-message";
@@ -204,7 +205,24 @@ export function tcpConnect(port: number) {
 				// torch import.  This shaves 2-4 seconds off the
 				// typical cold-start reconnection window.
 				const delay = Math.min(250 * 2 ** (state._tcpRetryCount - 1), 2000);
-				setTimeout(tryConnect, delay);
+				// R6-F6: store the retry timer on shared state so
+				// `stopPython()` and `relaunchApp()` can clearTimeout
+				// it before bumping `_tcpRetryGeneration`. Previously
+				// the timer was a fire-and-forget local — even after
+				// `state._tcpRetryGeneration++` invalidated the
+				// generation check at the top of `tryConnect()`, the
+				// pending timer still fired `tryConnect()` once more
+				// (creating a fresh socket that immediately hit the
+				// generation mismatch and bailed). Clearing the timer
+				// explicitly in `stopPython()` / `relaunchApp()`
+				// short-circuits this.
+				if (state._tcpRetryTimer) {
+					clearTimeout(state._tcpRetryTimer);
+				}
+				state._tcpRetryTimer = setTimeout(() => {
+					state._tcpRetryTimer = null;
+					tryConnect();
+				}, delay);
 			}
 		});
 	}

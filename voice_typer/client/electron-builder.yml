@@ -119,17 +119,29 @@ linux:
 # the udev rule, add the user to the input group, and configure Caps Lock
 # neutralization. The user only types their sudo password once (prompted
 # by apt/dnf themselves, not by us).
+# R6-F8: `python3` is NOT listed in `deb.depends` or `rpm.depends`. The
+# Python backend is bundled as a standalone PyInstaller / Nuitka executable
+# (see the linux.extraResources block above) — it embeds its own CPython
+# interpreter, so the system `python3` package is unnecessary bloat and a
+# needless install-time dependency. Removing it also avoids pulling in a
+# distro Python that could shadow or conflict with the bundled one
+# (e.g. user has python3.13 installed but PyInstaller bundled 3.11).
 deb:
   depends:
     - libnotify4
     - libxtst6
-    - python3
-  afterInstall: resources/linux/postinst
-  afterRemove: resources/linux/prerm
+  # CR-26: the postinst/prerm scripts live at <repo>/scripts/linux/, NOT at
+  # voice_typer/client/resources/linux/ (which does not exist). electron-builder
+  # resolves these paths relative to its cwd (voice_typer/client/), so we use
+  # ../../scripts/linux/... to reach the actual scripts. Without this fix, the
+  # .deb/.rpm installers either fail to build or ship without the udev rule /
+  # input-group setup that the native hotkey listener needs.
+  afterInstall: ../../scripts/linux/postinst
+  afterRemove: ../../scripts/linux/prerm
 rpm:
   depends:
     - libnotify
     - libXtst
-    - python3
-  afterInstall: resources/linux/postinst.rpm
-  afterRemove: resources/linux/prerm.rpm
+  # CR-26: same path correction as the deb: section above.
+  afterInstall: ../../scripts/linux/postinst.rpm
+  afterRemove: ../../scripts/linux/prerm.rpm

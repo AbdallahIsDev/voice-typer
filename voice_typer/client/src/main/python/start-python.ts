@@ -48,6 +48,14 @@ export function startPython() {
 	// Each tryConnect() closure captures this value at creation time;
 	// after incrementing, all existing close/error handlers will see
 	// a mismatch and stop retrying.
+	// R6-F6: clear any pending retry timer BEFORE bumping the
+	// generation, so a stale `tryConnect()` doesn't fire once more
+	// against the new generation (which would create a fresh socket
+	// that immediately bails on the generation mismatch).
+	if (state._tcpRetryTimer) {
+		clearTimeout(state._tcpRetryTimer);
+		state._tcpRetryTimer = null;
+	}
 	state._tcpRetryGeneration++;
 
 	// P1-1.2: if VT_PYTHON_PORT is set, a Python backend spawned us
@@ -107,7 +115,20 @@ export function startPython() {
 				entry.reject(new Error("Python backend exited early"));
 			}
 			if (state.mainWindow) {
-				state.mainWindow.close();
+				// CR-34 (fix): use `.destroy()` instead of `.close()`.
+				// `.close()` fires the `close` event, which is intercepted
+				// by the close-to-tray handler in
+				// `windows/main-window.ts:125-132` (`event.preventDefault()`
+				// when `!app.isQuitting`). At this point `app.isQuitting`
+				// is false (we call `app.quit()` below, but `before-quit`
+				// hasn't fired yet), so `.close()` is intercepted and the
+				// window is merely HIDDEN, not destroyed. Setting
+				// `state.mainWindow = null` then orphans a hidden
+				// BrowserWindow (with its `nativeTheme.on("updated")`
+				// listener, webContents, and renderer process still
+				// attached). `.destroy()` bypasses the close event and
+				// actually tears down the window + renderer.
+				state.mainWindow.destroy();
 				state.mainWindow = null;
 			}
 			dialog.showErrorBox(

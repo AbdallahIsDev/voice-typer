@@ -16,50 +16,99 @@
  *   `unsafe-inline` for script-src (Vite HMR + React Refresh preamble +
  *   eval-based sourcemaps need them) and ws://localhost:* / http://localhost:*
  *   in connect-src for the HMR websocket.
- * - Prod (command === 'build' && mode === 'production'): emit CSP_PROD with
- *   only `'self'` for script-src. The production bundle has no inline scripts
+ * - Prod (command === 'build' && mode === 'production'): emit a strict
+ *   `'self'`-only script-src. The production bundle has no inline scripts
  *   and no eval, so the strict policy is sufficient.
  *
- * Belt-and-suspenders: the onHeadersReceived HTTP-header CSP in main/index.ts
- * still overrides the meta tag in Electron (HTTP headers take precedence over
- * meta tags per the CSP spec). The plugin's job is to ensure the meta tag is
- * also strict in production, so the meta tag is no longer a backdoor.
+ * CR-11 / R6-F5 (fix): the CSP `connect-src` is now split per window so the
+ * bubble.html policy does NOT include `https://api.github.com`. The main
+ * window's policy keeps it (the Settings page's "Check for Updates" button
+ * still fetches the GitHub releases API on an EXPLICIT user click — see
+ * CR-11 fix in `PrewarmAndUpdates.tsx` which removed the auto-mount
+ * `useEffect`). The bubble has NO update-check surface, so granting it
+ * `connect-src https://api.github.com` would be dead attack surface.
+ *
+ * Belt-and-suspenders: the onHeadersReceived HTTP-header CSP in
+ * `main/bootstrap.ts::setupCsp()` still overrides the meta tag in Electron
+ * (HTTP headers take precedence over meta tags per the CSP spec). The
+ * plugin's job is to ensure the meta tag is also strict in production, so
+ * the meta tag is no longer a backdoor.
  *
  * Fail-safe: the source HTML files (index.html / bubble.html) ship with
- * CSP_PROD as their default meta tag. If this plugin fails to fire in dev,
- * HMR breaks visibly (loud failure). If this plugin fails to fire in prod,
- * the meta tag is already strict (safe failure).
+ * `CSP_PROD_MAIN` / `CSP_PROD_BUBBLE` (respectively) as their default meta
+ * tag. If this plugin fails to fire in dev, HMR breaks visibly (loud
+ * failure). If this plugin fails to fire in prod, the meta tag is already
+ * strict (safe failure).
  */
 import type { Plugin } from "vite";
 
 /**
- * Production CSP. No `unsafe-eval`, no `unsafe-inline` for script-src.
- * Only `'self'` is allowed for scripts. The Vite production bundle has no
- * inline scripts and no eval, so this is sufficient.
+ * Build the production `connect-src` directive for a given window.
  *
- * `style-src 'self' 'unsafe-inline'` is kept because Tailwind 4 injects
- * styles at runtime and the bubble.html source has an inline `<style>` block.
- * Style `'unsafe-inline'` is low-risk (no script execution from CSS in
- * modern browsers).
+ * `api.github.com` is included ONLY for the main window — the bubble has
+ * no update-check surface (CR-11 / R6-F5).
  */
-export const CSP_PROD = [
+function buildConnectSrc(opts: { allowGitHub: boolean }): string {
+	const parts = ["'self'"];
+	if (opts.allowGitHub) parts.push("https://api.github.com");
+	return `connect-src ${parts.join(" ")}`;
+}
+
+/**
+ * Production CSP for the MAIN window (index.html). Includes
+ * `https://api.github.com` in `connect-src` so the Settings page's
+ * explicit "Check for Updates" button can fetch the GitHub releases
+ * API. CR-11 removed the auto-mount `useEffect` that previously
+ * fired the check on every Settings open, so this URL is now reached
+ * ONLY on a deliberate user click.
+ */
+export const CSP_PROD_MAIN = [
 	"default-src 'self'",
 	"script-src 'self'",
 	"style-src 'self' 'unsafe-inline'",
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	"connect-src 'self' https://api.github.com",
+	buildConnectSrc({ allowGitHub: true }),
 	"frame-ancestors 'none'",
 	"form-action 'none'",
 	"base-uri 'self'",
 ].join("; ");
 
 /**
+ * Production CSP for the BUBBLE window (bubble.html). Does NOT include
+ * `https://api.github.com` in `connect-src` — the bubble has no
+ * update-check surface (CR-11 / R6-F5). A compromised bubble renderer
+ * must not be able to phone home to GitHub or exfiltrate data via a
+ * CSP-permitted `connect-src`.
+ */
+export const CSP_PROD_BUBBLE = [
+	"default-src 'self'",
+	"script-src 'self'",
+	"style-src 'self' 'unsafe-inline'",
+	"img-src 'self' data:",
+	"font-src 'self' data:",
+	"media-src 'self' data:",
+	buildConnectSrc({ allowGitHub: false }),
+	"frame-ancestors 'none'",
+	"form-action 'none'",
+	"base-uri 'self'",
+].join("; ");
+
+/**
+ * Back-compat alias for the old single-policy name. Main-window tests
+ * and external consumers that import `CSP_PROD` continue to get the
+ * main-window policy (the bubble now ships its own). New code should
+ * import `CSP_PROD_MAIN` or `CSP_PROD_BUBBLE` explicitly.
+ */
+export const CSP_PROD = CSP_PROD_MAIN;
+
+/**
  * Dev CSP. Allows `unsafe-eval` and `unsafe-inline` for script-src (Vite HMR
  * + React Refresh + eval sourcemaps). Adds ws://localhost:* and
  * http://localhost:* to connect-src for the HMR websocket + dev server
- * fetches.
+ * fetches. `api.github.com` is retained in dev so the explicit "Check for
+ * Updates" button works against the live API during development.
  */
 export const CSP_DEV = [
 	"default-src 'self'",
@@ -82,8 +131,25 @@ export function cspMetaTag(csp: string): string {
 }
 
 /**
+ * Pick the production CSP for a given HTML file path.
+ *
+ * Exported for unit tests (R6-F5) so we can assert that bubble.html
+ * maps to `CSP_PROD_BUBBLE` (no `api.github.com`) and index.html
+ * maps to `CSP_PROD_MAIN` (with `api.github.com`).
+ */
+export function pickProdCsp(filePath: string): string {
+	// Match on the basename so this works regardless of the absolute
+	// path the Vite dev server / build pipeline hands us. The bubble
+	// preload + renderer always load `bubble.html`; the main window
+	// loads `index.html`.
+	const base = filePath.split(/[\\/]/).pop() ?? "";
+	return base === "bubble.html" ? CSP_PROD_BUBBLE : CSP_PROD_MAIN;
+}
+
+/**
  * Vite plugin that rewrites the CSP meta tag in index.html / bubble.html
- * based on the current mode (dev vs prod).
+ * based on the current mode (dev vs prod) and which file is being
+ * transformed (CR-11 / R6-F5 per-window split).
  */
 export function cspEmissionPlugin(): Plugin {
 	let isProduction = false;
@@ -104,8 +170,12 @@ export function cspEmissionPlugin(): Plugin {
 			// added (those need 'unsafe-inline' to execute, which the dev CSP
 			// provides).
 			order: "pre",
-			handler(html: string) {
-				const csp = isProduction ? CSP_PROD : CSP_DEV;
+			handler(html: string, ctx?: { path?: string; filename?: string }) {
+				// CR-11 / R6-F5: pick the per-window prod policy. In dev we
+				// always use CSP_DEV (the dev server needs the HMR websocket
+				// regardless of which window is loading).
+				const filePath = ctx?.path ?? ctx?.filename ?? "";
+				const csp = isProduction ? pickProdCsp(filePath) : CSP_DEV;
 				const metaTag = cspMetaTag(csp);
 				// Replace any existing CSP meta tag (single- or double-quote
 				// attribute form, with or without self-closing slash). If no

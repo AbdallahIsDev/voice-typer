@@ -36,16 +36,6 @@ contextBridge.exposeInMainWorld("bubble", {
 	setDraggable: (draggable: boolean) => {
 		ipcRenderer.send("bubble:draggable", draggable);
 	},
-	// ── Drag-to-move ─────────────────────────────────────────
-	startDrag: () => {
-		ipcRenderer.send("bubble:drag-start");
-	},
-	drag: (deltaX: number, deltaY: number) => {
-		ipcRenderer.send("bubble:drag", { deltaX, deltaY });
-	},
-	endDrag: () => {
-		ipcRenderer.send("bubble:drag-end");
-	},
 	// ── Enter/exit animations ────────────────────────────────
 	onShow: (callback: () => void) => {
 		const handler = () => callback();

@@ -8,6 +8,9 @@
  *   - `broadcastMaximized(bool)` — fans out `window:maximized-changed` to
  *     every open BrowserWindow (used by the main window's maximize /
  *     unmaximize event listeners).
+ *   - `_nativeThemeHandler` + `registerNativeThemeListener()` — R6-F3:
+ *     the `nativeTheme.on("updated", ...)` listener is registered ONCE
+ *     at module load and cleaned up when the main window is destroyed.
  */
 import path from "node:path";
 import { app, BrowserWindow, Menu, nativeTheme } from "electron";
@@ -46,9 +49,100 @@ export function broadcastMaximized(maximized: boolean): void {
 	});
 }
 
+/**
+ * R6-F3: the `nativeTheme.on("updated", ...)` listener is registered ONCE
+ * at module load (see `registerNativeThemeListener()` below) instead of
+ * being re-registered inside `createMainWindow()` on every window
+ * recreation. Previously each call to `createMainWindow()` added a NEW
+ * listener to `nativeTheme` without ever removing the previous one —
+ * so after N window recreations (dev-mode `relaunchApp()` + tray
+ * "Restart"), there were N listeners all firing on every theme change,
+ * each holding a stale reference to a destroyed BrowserWindow.
+ *
+ * The single module-level handler reads `state.mainWindow` live (so it
+ * always operates on the current window) and is removed once via
+ * `nativeTheme.off(...)` when the window is destroyed (in case the
+ * module is hot-reloaded in dev — in production the listener lives
+ * for the process lifetime, which is correct since `state.mainWindow`
+ * is the canonical window reference).
+ */
+let _nativeThemeHandler: (() => void) | null = null;
+
+/**
+ * Register the global `nativeTheme.on("updated", ...)` listener exactly
+ * once. Idempotent — safe to call multiple times. Exported for tests
+ * (R6-F3) so we can assert it's only registered once across multiple
+ * `createMainWindow()` calls.
+ */
+export function registerNativeThemeListener(): void {
+	if (_nativeThemeHandler) return;
+	_nativeThemeHandler = () => {
+		if (state.mainWindow && !state.mainWindow.isDestroyed()) {
+			const name = nativeTheme.shouldUseDarkColors
+				? "icon-dark.png"
+				: "icon.png";
+			state.mainWindow.setIcon(path.join(__dirname, `../../resources/${name}`));
+		}
+	};
+	nativeTheme.on("updated", _nativeThemeHandler);
+}
+
+/**
+ * Test-only: remove the global `nativeTheme.on("updated", ...)` listener
+ * and reset internal state so a test can verify registration happens
+ * exactly once across `createMainWindow()` calls.
+ */
+export function _resetNativeThemeListenerForTest(): void {
+	if (_nativeThemeHandler) {
+		try {
+			nativeTheme.off("updated", _nativeThemeHandler);
+		} catch {
+			/* best-effort */
+		}
+		_nativeThemeHandler = null;
+	}
+}
+
+/**
+ * Test-only: return whether the module-level `nativeTheme.on("updated")`
+ * listener is currently registered. Used by R6-F3 unit tests.
+ */
+export function _nativeThemeListenerRegistered(): boolean {
+	return _nativeThemeHandler !== null;
+}
+
 export function createMainWindow(forceShow = false): void {
 	if (state.mainWindow) return;
-	state.pythonReady = true;
+	// CR-28: do NOT set `state.pythonReady = true` here.
+	//
+	// The BrowserWindow is created on the first successful TCP
+	// connect (see tcp-connect.ts:59 `createWindows()`), but "TCP
+	// alive" only means the Python IPC server has bound its port
+	// and accepted our auth line. The backend's heavier subsystems
+	// — model load, history DB schema init, tray, hotkey
+	// registration, dictation pipeline — may still be
+	// initializing on the Python side. Treating that as
+	// "pythonReady" masked real backend-startup failures: if
+	// Python crashed *after* TCP accept but *before* finishing
+	// init, start-python.ts's exit handler saw `pythonReady ===
+	// true` and classified the crash as a "real crash during
+	// operation" instead of the more accurate "early exit during
+	// backend init".
+	//
+	// We instead defer `state.pythonReady = true` until the
+	// backend sends its `{"type":"ready"}` push event (emitted by
+	// ipc_server.py:2557 right before `app.start()` enters the
+	// tray event loop). The interceptor installed below catches
+	// that event the first time the main process broadcasts it
+	// to the renderer via `webContents.send("python-event", msg)`
+	// (see handle-message.ts:115) and flips the flag.
+	//
+	// The distinction matters for start-python.ts's exit
+	// handler: if Python exits before sending `ready`, it's an
+	// "early exit" (clear single-instance / setup-failure dialog);
+	// after `ready`, it's a "crash" (silent quit). This matches
+	// the user's mental model and surfaces real init failures
+	// instead of swallowing them.
 
 	// When autostarted hidden, the window is created but not shown — the
 	// React app still boots (so opening it later is instant) while staying
@@ -108,14 +202,62 @@ export function createMainWindow(forceShow = false): void {
 		},
 	});
 
-	nativeTheme.on("updated", () => {
-		if (state.mainWindow) {
-			const name = nativeTheme.shouldUseDarkColors
-				? "icon-dark.png"
-				: "icon.png";
-			state.mainWindow.setIcon(path.join(__dirname, `../../resources/${name}`));
+	// CR-28 (session-1): intercept outbound `python-event` broadcasts
+	// to the renderer so we can flip `state.pythonReady = true` the
+	// moment the backend signals it has finished initialization.
+	// The handle-message.ts module broadcasts *every* Python push
+	// event to the renderer via `state.mainWindow.webContents.send(
+	// "python-event", msg)` — by wrapping that single chokepoint we
+	// catch the `ready` event without needing to modify
+	// handle-message.ts. The wrapper is a no-op for every other
+	// event and for subsequent `ready` events (idempotent).
+	//
+	// We use a wrapper-instead-of-ipcMain because `webContents.send`
+	// is main → renderer; `ipcMain.on` only catches renderer → main.
+	// There is no native Electron hook for "outgoing message
+	// observed" so we override `send` on this specific webContents
+	// instance. The original is captured via `.bind()` so the
+	// wrapper can delegate without losing `this`.
+	const wc = state.mainWindow.webContents;
+	const origSend = wc.send.bind(wc) as (
+		channel: string,
+		...args: unknown[]
+	) => void;
+	// Cast through unknown to satisfy TS: Electron's `send` overload
+	// set is complex; we only need to preserve call-through
+	// behavior. The runtime contract is identical to the original.
+	wc.send = ((channel: string, ...args: unknown[]) => {
+		if (
+			!state.pythonReady &&
+			channel === "python-event" &&
+			args.length > 0 &&
+			typeof args[0] === "object" &&
+			args[0] !== null &&
+			(args[0] as Record<string, unknown>).type === "ready"
+		) {
+			state.pythonReady = true;
+			console.warn(
+				"[STARTUP] backend sent {type:'ready'} — pythonReady = true (backend fully initialized)",
+			);
 		}
-	});
+		return origSend(channel, ...args);
+	}) as typeof wc.send;
+
+	// R6-F3 (session-3): register the module-level nativeTheme
+	// listener once. Previously this was an inline
+	// `nativeTheme.on("updated", ...)` inside `createMainWindow()`,
+	// which leaked a new listener per window recreation (dev-mode
+	// `relaunchApp()` + tray "Restart").
+	// `registerNativeThemeListener()` is idempotent — the second
+	// call is a no-op, so subsequent `createMainWindow()`
+	// invocations don't stack duplicate handlers.
+	//
+	// Note: the inline `nativeTheme.on("updated", ...)` listener
+	// that was previously here has been REMOVED — it is now
+	// registered inside `registerNativeThemeListener()` to prevent
+	// the per-recreation leak. Keeping both would register TWO
+	// listeners (the idempotent one + the leaked inline one).
+	registerNativeThemeListener();
 
 	Menu.setApplicationMenu(null);
 

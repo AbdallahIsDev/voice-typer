@@ -8,11 +8,9 @@
  *   - window:open-logs (UX-008: open the Python log directory in the OS file manager)
  *   - model:import-dialog (MODEL-IMPORT: native folder picker for HuggingFace imports)
  */
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { dialog, ipcMain, shell } from "electron";
 import { mainT, setMainLocale } from "../i18n";
+import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
 import { showMainWindow } from "../windows";
 
@@ -54,16 +52,21 @@ export function registerWindowHandlers(): void {
 	// anything.  This handler opens the Python backend's log directory
 	// in the OS file manager.  The path mirrors what
 	// voice_typer/server/app.py:_setup_logging() writes to.
+	//
+	// CR-33 (fix): previously hardcoded `path.join(os.homedir(),
+	// ".voice-typer")`, which (a) pointed at the WRONG directory on
+	// platforms where `computeConfigDir()` returns a different path
+	// (e.g. %APPDATA%/voice-typer on Windows, ~/Library/Application
+	// Support/voice-typer on macOS), and (b) called `fs.mkdirSync(logDir,
+	// { recursive: true })` which CREATED a stray `~/.voice-typer`
+	// directory on every fresh install. Now we resolve the log
+	// directory via `computeConfigDir()` (mirrors
+	// `voice_typer/server/config.py:_config_dir()` and
+	// `bootstrap.ts::setupUserData()`), and we NO LONGER create the
+	// directory — the Python backend creates it on its own startup.
 	ipcMain.handle("window:open-logs", async () => {
 		try {
-			// Mirror voice_typer/server/config.py:_config_dir()
-			const logDir = path.join(os.homedir(), ".voice-typer");
-			// Create the directory if it doesn't exist yet (first run).
-			try {
-				fs.mkdirSync(logDir, { recursive: true });
-			} catch {
-				/* ignore */
-			}
+			const logDir = computeConfigDir();
 			const result = await shell.openPath(logDir);
 			if (result) {
 				// openPath returns an error string on failure, empty string on success.

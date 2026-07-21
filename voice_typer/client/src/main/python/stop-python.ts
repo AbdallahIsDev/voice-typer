@@ -24,6 +24,15 @@ export function stopPython() {
 		clearInterval(state.heartbeatInterval);
 		state.heartbeatInterval = null;
 	}
+	// R6-F6: clear any pending TCP retry timer so a stale
+	// `tryConnect()` invocation doesn't fire after we've begun
+	// shutdown. `stopPython()` is called from `before-quit`,
+	// `will-quit` (R6-F7), and the uncaughtException handler
+	// (R6-F7), so this guards all three shutdown paths.
+	if (state._tcpRetryTimer) {
+		clearTimeout(state._tcpRetryTimer);
+		state._tcpRetryTimer = null;
+	}
 	if (!state.pythonProcess) return;
 	sendToPython({ type: "quit_app" }).catch(() => {});
 	const killTimer = setTimeout(() => {

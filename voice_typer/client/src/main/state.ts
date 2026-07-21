@@ -67,8 +67,6 @@ export interface MainState {
 	bubblePosition: "top" | "bottom";
 	/** Config-driven toggle for whether the bubble pill is draggable. Synced to the bubble renderer. */
 	bubbleDraggable: boolean;
-	/** True while a bubble drag is in progress (set by bubble:drag-start, cleared by bubble:drag-end). */
-	bubbleDragging: boolean;
 	/** Set true when the bubble renderer reports `bubble:ready`. Reset on window close. */
 	_bubblePageReady: boolean;
 	/** Pending hide-animation timeout for the bubble (cancelled on rapid re-show). */
@@ -77,6 +75,8 @@ export interface MainState {
 	_tcpRetryCount: number;
 	/** Monotonic generation counter — bumped by startPython() to invalidate stale retry loops. */
 	_tcpRetryGeneration: number;
+	/** R6-F6: pending TCP retry timer handle (cleared by stopPython/relaunchApp/startPython before bumping generation). */
+	_tcpRetryTimer: ReturnType<typeof setTimeout> | null;
 	/** True once the auth line has been written on the current socket. */
 	_tcpAuthed: boolean;
 	/** True once the renderer has ever seen a successful TCP connect (drives synthetic "reconnected"). */
@@ -103,11 +103,11 @@ export const state: MainState = {
 	sessionNonce: "",
 	bubblePosition: "top",
 	bubbleDraggable: true,
-	bubbleDragging: false,
 	_bubblePageReady: false,
 	_hideTimeout: null,
 	_tcpRetryCount: 0,
 	_tcpRetryGeneration: 0,
+	_tcpRetryTimer: null,
 	_tcpAuthed: false,
 	_hadConnectedBefore: false,
 	_relaunching: false,

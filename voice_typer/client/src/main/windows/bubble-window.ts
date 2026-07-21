@@ -283,10 +283,32 @@ export function hideBubbleWindow(): void {
 		state._hideTimeout = null;
 		try {
 			if (!win.isDestroyed() && win.isVisible()) {
+				// R6-F4: remove the one-shot `bubble:hidden` listener
+				// BEFORE calling `win.hide()`. Previously the fallback
+				// timeout only called `win.hide()` and left the
+				// `ipcMain.once("bubble:hidden", onHidden)` listener
+				// registered. If the renderer later DID emit
+				// `bubble:hidden` (e.g. it was just slow, not dead),
+				// the `onHidden` callback fired on an already-hidden
+				// window. Removing the listener explicitly here keeps
+				// the IPC bus clean.
+				try {
+					ipcMain.removeListener("bubble:hidden", onHidden);
+				} catch {
+					/* listener already removed or never registered */
+				}
 				win.hide();
 				console.warn(
 					`${ts()}  ${BUBBLE_CLR}[BUBBLE] hidden (fallback)${RESET}`,
 				);
+			} else {
+				// Window is already hidden or destroyed — still
+				// remove the listener so it doesn't accumulate.
+				try {
+					ipcMain.removeListener("bubble:hidden", onHidden);
+				} catch {
+					/* ignore */
+				}
 			}
 		} catch {}
 	}, 300);

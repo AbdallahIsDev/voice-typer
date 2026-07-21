@@ -2,7 +2,6 @@
  * Bubble-window IPC handlers.
  *
  * Extracted from `index.ts` (REF-2). Registers:
- *   - bubble:drag-start / bubble:drag / bubble:drag-end — mouse drag
  *   - bubble:move-by — keyboard nudge (NEW-A11Y-006)
  *   - bubble:draggable — toggle draggability (synced to bubble renderer)
  *   - bubble:resize — fit pill content exactly
@@ -37,34 +36,6 @@ function assertFromBubble(event: Electron.IpcMainEvent): boolean {
 }
 
 export function registerBubbleHandlers(): void {
-	ipcMain.on("bubble:drag-start", (event) => {
-		// SEC-016: only the bubble window may start a drag.
-		if (!assertFromBubble(event)) return;
-		state.bubbleDragging = true;
-	});
-
-	ipcMain.on(
-		"bubble:drag",
-		(event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
-			// SEC-016: only the bubble window may drag itself.
-			if (!assertFromBubble(event)) return;
-			if (
-				!state.bubbleDragging ||
-				!state.bubbleWindow ||
-				state.bubbleWindow.isDestroyed()
-			)
-				return;
-			const [x, y] = state.bubbleWindow.getPosition();
-			state.bubbleWindow.setPosition(x + deltaX, y + deltaY);
-		},
-	);
-
-	ipcMain.on("bubble:drag-end", (event) => {
-		// SEC-016: only the bubble window may end a drag.
-		if (!assertFromBubble(event)) return;
-		state.bubbleDragging = false;
-	});
-
 	// NEW-A11Y-006: keyboard-based bubble repositioning for accessibility.
 	// Arrow keys move the bubble by 10px; Shift+Arrow moves by 1px (fine).
 	// The bubble renderer listens for keydown when focused and sends these.
