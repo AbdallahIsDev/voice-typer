@@ -4,6 +4,13 @@ pub(crate) mod sidecar_cmds;
 pub(crate) mod export;
 pub(crate) mod bubble;
 pub(crate) mod system_cmds;
+// CR-066: `paste` was extracted from `sidecar_cmds::paste_text` per
+// CR-52 (325-LOC god function split into a focused paste module) but
+// was never declared as a module here, so `sidecar_cmds::paste_text`
+// kept its inline implementation and the extracted `paste.rs` was dead
+// code (Rust silently ignores orphan `.rs` files in module dirs).
+// Wiring it up lets `paste_text` delegate to `paste::execute_paste`.
+pub(crate) mod paste;
 
 // Re-export the command functions so `tauri::generate_handler!` in `main.rs`
 // can find both the functions AND the helper macros (`__cmd__<name>` etc.)

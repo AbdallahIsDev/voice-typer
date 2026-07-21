@@ -321,15 +321,16 @@ pub async fn bubble_emit_state(
 
 /// Toggle dictation from the bubble's own mic button (CR-33 / ADR-0020
 /// §9 + UX-10). The bubble is a sandboxed renderer (SEC-026 / CR-5)
-/// with NO `dispatch` access — the `check_dispatch_window_label` guard
-/// in `commands::sidecar_cmds` rejects any `dispatch` call from a
-/// non-main window. So instead of calling `dispatch` from JS, the
-/// bubble renderer invokes this dedicated command which forwards the
-/// `toggle_dictation` envelope to the sidecar via the WS bridge
-/// (mirroring how `dispatch` does it but with a fixed command name and
-/// fire-and-forget semantics — the bubble doesn't need the response
-/// because the sidecar's `status_change` event will reach it via
-/// `bubble_emit_state`).
+/// with NO `dispatch` access — the `window.label() != "main"` guard at
+/// the top of `commands::sidecar_cmds::dispatch` (CR-5) rejects any
+/// `dispatch` call from a non-main window, returning the
+/// `disallowed_window` error envelope. So instead of calling
+/// `dispatch` from JS, the bubble renderer invokes this dedicated
+/// command which forwards the `toggle_dictation` envelope to the
+/// sidecar via the WS bridge (mirroring how `dispatch` does it but
+/// with a fixed command name and fire-and-forget semantics — the
+/// bubble doesn't need the response because the sidecar's
+/// `status_change` event will reach it via `bubble_emit_state`).
 ///
 /// The Python sidecar's `toggle_dictation` handler responds with
 /// `{type:"result", data:{recording: bool}}` — we ignore the response
