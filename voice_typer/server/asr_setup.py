@@ -254,8 +254,26 @@ def download_parakeet_weights(
             return True
         else:
             log.warning("[ASR_SETUP] Cached model failed integrity check, re-downloading")
-    except Exception:
-        pass
+    except Exception as exc:
+        # CR-92: previously a bare ``except Exception: pass``.
+        # Corrupted HF cache (partial download, broken lock file,
+        # permissions issue, HF cache schema change) silently triggered
+        # a full re-download. The user saw "Downloading Parakeet TDT v3
+        # model..." (potentially 2.5 GB) on every launch with no
+        # explanation. Log at DEBUG level (this is expected on the
+        # first run when no cache exists yet) and include the exception
+        # so a non-trivial cache corruption is at least visible in the
+        # log file when the user is debugging.
+        #
+        # NOTE (Fix-I / Fix-D coordination): Fix-D also touches this
+        # function (the ``download_parakeet_weights`` body) but only
+        # the retry-loop / progress-callback portion below. This cache-
+        # probe block is Fix-I's exclusive territory per the disjoint
+        # ownership table.
+        log.debug(
+            "[ASR_SETUP] cache probe failed (%s); will re-download",
+            exc,
+        )
 
     # PROD-005 (revised): Use the canonical disk space check from
     # transcription.py instead of the local _check_disk_space() duplicate.

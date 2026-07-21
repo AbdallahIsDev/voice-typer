@@ -37,7 +37,7 @@
  * Build (MinGW):
  *   gcc -O2 windows-key-listener.c -o windows-key-listener.exe -luser32
  *
- * SPDX-License-Identifier: project-wide
+ * SPDX-License-Identifier: MIT
  * =============================================================================
  */
 

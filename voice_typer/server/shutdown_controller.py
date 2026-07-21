@@ -131,6 +131,24 @@ class ShutdownController:
         self._shutdown_signal_event: threading.Event = threading.Event()
         self._shutdown_signum: int | None = None
         self._signal_watcher_started = False
+        # CR-51: dedicated lock for the check-then-set-then-shutdown_all
+        # sequence in ``quit()``. Multiple shutdown triggers can fire
+        # concurrently (POSIX signal-watcher, Win32 console handler,
+        # IPC ``quit_app`` handler, atexit safety net). Without this
+        # lock, two threads can both read ``app._shutting_down == False``,
+        # both set it to True, and both proceed into
+        # ``thread_registry.shutdown_all()`` — a duplicate pass that
+        # races per-thread ``join_timeout`` accounting.
+        #
+        # This is a SEPARATE lock from the three app-level locks
+        # (``_lock``, ``_config_mutation_lock``, ``_pending_timers_lock``)
+        # governed by docs/architecture/lock-order-contract.md. It is
+        # NEVER nested with any of those — ``quit()`` does not acquire
+        # any of them. The lock is released BEFORE ``_do_cleanup()``
+        # (which has its own ``_cleanup_done`` guard) so a second quit()
+        # arriving during cleanup short-circuits at the
+        # ``_shutting_down`` check rather than blocking on _quit_lock.
+        self._quit_lock: threading.Lock = threading.Lock()
 
     # ─── Shared cleanup body ───────────────────────────────────────────
 
@@ -424,6 +442,24 @@ class ShutdownController:
         except Exception:
             log.debug("[CLEANUP] close devnull files failed", exc_info=True)
 
+        # M-22: shut down the event_bus deferred-publish executor.
+        # This is the LAST module-level cleanup because earlier steps
+        # (tray.stop, bubble worker stop, recorder stop) can each
+        # publish events via event_bus.publish, and an RT-thread
+        # publish defers to this executor. Shutting it down here
+        # ensures no deferred _deliver tasks outlive the subsystems
+        # they deliver TO (e.g. the IPC server's TCP push, which was
+        # torn down with the socket close above). Idempotent — safe
+        # under the _do_cleanup double-call guard. Already-queued
+        # tasks finish on the worker thread (shutdown(wait=False)
+        # doesn't cancel them), so in-flight events are not lost.
+        try:
+            from voice_typer.server import event_bus as _event_bus
+
+            _event_bus.shutdown()
+        except Exception:
+            log.debug("[CLEANUP] event_bus.shutdown failed", exc_info=True)
+
     # ─── Quit ──────────────────────────────────────────────────────────
 
     def quit(self):
@@ -455,31 +491,54 @@ class ShutdownController:
         dead thread returns immediately), so the redundant calls are
         harmless. ``shutdown_all()`` is itself idempotent, so a
         subsequent call from ``_atexit_cleanup()`` is a no-op.
+
+        CR-51: the check-then-set on ``_shutting_down`` is now
+        serialized by ``_quit_lock``. Multiple shutdown triggers can
+        fire concurrently (POSIX signal-watcher thread, Win32 console
+        handler thread, IPC ``quit_app`` handler thread, atexit safety
+        net). Without the lock, two threads could both read False,
+        both set True, and both proceed into ``shutdown_all()``. The
+        lock is released BEFORE ``_do_cleanup()`` (which has its own
+        ``_cleanup_done`` guard) so a second quit() arriving during
+        cleanup short-circuits at the ``_shutting_down`` check rather
+        than blocking on _quit_lock.
         """
         app = self._app
-        if app._shutting_down:
-            log.debug("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
-            return
+        # CR-51: hold _quit_lock around the check-then-set-then-
+        # shutdown_all sequence. A second concurrent caller that
+        # arrives while we hold the lock will see
+        # ``app._shutting_down == True`` once we release it (because
+        # we set it inside the critical section) and short-circuit.
+        with self._quit_lock:
+            if app._shutting_down:
+                log.debug("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
+                return
 
-        is_main = threading.current_thread() is threading.main_thread()
-        log.info("[SHUTDOWN] Shutting down")
-        app._shutting_down = True
-        # RACE-020: also set the Event version so executor tasks can check it
-        app._shutting_down_event.set()
+            is_main = threading.current_thread() is threading.main_thread()
+            log.info("[SHUTDOWN] Shutting down")
+            app._shutting_down = True
+            # RACE-020: also set the Event version so executor tasks can check it
+            app._shutting_down_event.set()
 
-        # THREAD-REGISTRY: signal all registered threads to stop and
-        # join them with their per-thread timeouts. Runs BEFORE
-        # _do_cleanup() so the registry's centralized shutdown is the
-        # first pass; the per-site methods in _do_cleanup() then run
-        # as a safety net. Best-effort — failures here don't prevent
-        # the rest of shutdown from running.
-        try:
-            app._thread_registry.shutdown_all()
-        except Exception:
-            log.debug(
-                "[SHUTDOWN] thread_registry.shutdown_all() failed",
-                exc_info=True,
-            )
+            # THREAD-REGISTRY: signal all registered threads to stop and
+            # join them with their per-thread timeouts. Runs BEFORE
+            # _do_cleanup() so the registry's centralized shutdown is the
+            # first pass; the per-site methods in _do_cleanup() then run
+            # as a safety net. Best-effort — failures here don't prevent
+            # the rest of shutdown from running.
+            try:
+                app._thread_registry.shutdown_all()
+            except Exception:
+                log.debug(
+                    "[SHUTDOWN] thread_registry.shutdown_all() failed",
+                    exc_info=True,
+                )
+            # _quit_lock is released here (end of ``with`` block) BEFORE
+            # _do_cleanup() runs. _do_cleanup() has its own
+            # ``_cleanup_done`` idempotency guard, so a concurrent quit()
+            # that arrives during cleanup will short-circuit at the
+            # ``_shutting_down`` check above (now True) rather than
+            # block on _quit_lock.
 
         # RW-3: delegate to the shared, idempotent cleanup body. The
         # _cleanup_done flag inside _do_cleanup() guarantees that a

@@ -130,7 +130,13 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     if exe and not _main_entry_built():
         log.info("[LAUNCHER] No pre-built output — building first")
         if not _build_electron():
-            log.warning("[LAUNCHER] Build failed; will try npm run dev")
+            # CR-76: include the operation inputs (exe path + CLIENT_DIR)
+            # so operators can tell which build attempt failed.
+            log.warning(
+                "[LAUNCHER] Build failed (exe=%s, cwd=%s); will try npm run dev",
+                exe,
+                CLIENT_DIR,
+            )
             exe = None
         elif not _main_entry_built():
             log.warning("[LAUNCHER] Build succeeded but out/main/index.js still missing")
@@ -166,8 +172,8 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
             port,
         )
         return pid
-    except FileNotFoundError as exc:
-        log.error("[LAUNCHER] npm not found: %s", exc)
+    except FileNotFoundError:
+        log.exception("[LAUNCHER] npm not found")
         return None
     except Exception:
         log.exception("[LAUNCHER] failed to spawn npm run dev")

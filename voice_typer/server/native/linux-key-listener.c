@@ -21,7 +21,7 @@
  * Build:
  *   gcc -O2 -std=c99 linux-key-listener.c -o linux-key-listener
  *
- * SPDX-License-Identifier: project-wide
+ * SPDX-License-Identifier: MIT
  * =============================================================================
  */
 

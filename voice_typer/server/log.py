@@ -337,29 +337,28 @@ class _ColorFormatter(logging.Formatter):
             ts = ts[1:]
         msg = record.getMessage()
         topic, _ = _extract_topic(msg)
-        # a-review Finding 5: render the per-process session_id (set by
-        # ``_SessionFilter``) so interleaved logs from concurrent or
-        # restarted processes can be correlated.  ``getattr`` defaults
-        # to dashes for records that bypass the filter (e.g. third-party
-        # library logs propagated up to the root logger) or before
-        # ``setup_logging`` has assigned a session_id.
-        session_id = getattr(record, "session_id", "") or "--------"
+        # NOTE (2026-07-20): the per-process ``[hex session_id]`` label was
+        # removed from rendered output by user request. The ``session_id``
+        # attribute is still injected on every record by ``_SessionFilter``
+        # and remains available to structured consumers (e.g. the JSON
+        # formatter field, if re-enabled), but it is no longer printed in
+        # the human-readable text streams. Do NOT re-add the ``[{session_id}]``
+        # bracket to these format strings.
 
         if record.levelno >= logging.WARNING:
             c = self._LVL_COLOR.get(record.levelno, "0")
             sym = self._LVL_SYM.get(record.levelno, "????")
-            return f"\033[{c}m{ts}  {sym} \033[2m[{session_id}]\033[22m {msg}\033[0m"
+            return f"\033[{c}m{ts}  {sym} {msg}\033[0m"
 
         # INFO — dim timestamp, no level label, message coloured by topic
         prefix = f"\033[{self._DIM}m{ts}\033[0m"
-        session_part = f"\033[2m[{session_id}]\033[22m"
         tc = _TOPIC_COLOR.get(topic) if topic else None
         if tc is None and not topic:
             inferred = _infer_topic(msg)
             if inferred:
                 tc = _TOPIC_COLOR.get(inferred)
         body = f"\033[{tc}m{msg}\033[0m" if tc else msg
-        return f"{prefix}  {session_part}  {body}"
+        return f"{prefix}  {body}"
 
 
 class _FileFormatter(logging.Formatter):
@@ -371,13 +370,16 @@ class _FileFormatter(logging.Formatter):
 
     Format::
 
-        2026-06-28 18:36:22  INFO  [a3f1b2c4]  [HOTKEY] RegisterHotKey succeeded
-        2026-06-28 18:36:22  WARN  [a3f1b2c4]  [ENV] Invalid value ...
-        2026-06-28 18:36:22  ERROR [a3f1b2c4]  [RECORDING] Stream finished unexpectedly
+        2026-06-28 18:36:22  INFO   [HOTKEY] RegisterHotKey succeeded
+        2026-06-28 18:36:22  WARN   [ENV] Invalid value ...
+        2026-06-28 18:36:22  ERROR  [RECORDING] Stream finished unexpectedly
 
-    The ``[a3f1b2c4]`` bracket is the 8-char per-process session ID
-    injected by :class:`_SessionFilter` (a-review Finding 5) so log
-    lines from concurrent or restarted processes can be correlated.
+    NOTE (2026-07-20): the per-process ``[hex session_id]`` bracket was
+    removed from rendered output by user request. The ``session_id``
+    attribute is still injected on every record by ``_SessionFilter``
+    (kept for structured/JSON consumers), but it is no longer printed
+    in the human-readable text streams. Do NOT re-add ``[{session_id}]``
+    to the format string below.
 
     Level labels are aligned so lines scroll cleanly:
     - ``DEBUG``   (5 chars)
@@ -399,14 +401,7 @@ class _FileFormatter(logging.Formatter):
         ts = self.formatTime(record, "%Y-%m-%d  %H:%M:%S")
         msg = record.getMessage()
         label = self._LVL_LABEL.get(record.levelno, "INFO ")
-        # a-review Finding 5: render the per-process session_id (set by
-        # ``_SessionFilter``) so interleaved logs from concurrent or
-        # restarted processes can be correlated.  ``getattr`` defaults
-        # to dashes for records that bypass the filter (e.g. third-party
-        # library logs propagated up to the root logger) or before
-        # ``setup_logging`` has assigned a session_id.
-        session_id = getattr(record, "session_id", "") or "--------"
-        return f"{ts}  {label}  [{session_id}]  {msg}"
+        return f"{ts}  {label}  {msg}"
 
 
 class _JsonFormatter(logging.Formatter):
@@ -420,7 +415,6 @@ class _JsonFormatter(logging.Formatter):
           "ts": "2026-07-15 12:34:56",
           "level": "INFO",
           "component": "voice_typer.server.recording",
-          "session_id": "a3f1b2c4",
           "topic": "RECORDING",        # present only if a [TOPIC] prefix exists
           "correlation_id": "#7",       # present only when a correlation id is in scope
           "message": "Microphone opened (rate=16000)"
@@ -456,7 +450,6 @@ class _JsonFormatter(logging.Formatter):
             "ts": self.formatTime(record, "%Y-%m-%d  %H:%M:%S"),
             "level": record.levelname,
             "component": getattr(record, "component", record.name),
-            "session_id": getattr(record, "session_id", "") or "--------",
             "message": record.getMessage(),
         }
         # Topic prefix (e.g. "[HOTKEY]") — purely structural convenience.

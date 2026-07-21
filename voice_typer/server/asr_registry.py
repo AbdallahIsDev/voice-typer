@@ -181,10 +181,18 @@ class AsrBackendRegistry:
             )
             return None
         except Exception as exc:
+            # CR-91: previously ``log.error("...: %s", name, exc)`` with
+            # no ``exc_info=True``. Backend init failures (Parakeet /
+            # Qwen) often originate deep in torch / CUDA / transformers
+            # stack — the actionable diagnostic is in the *traceback*,
+            # not the exception's ``str()``. Include ``exc_info=True`` so
+            # the full traceback is logged (matches the ``log.exception``
+            # pattern used elsewhere in this codebase).
             log.error(
                 "[ASR_REGISTRY] failed to initialise %s backend: %s",
                 name,
                 exc,
+                exc_info=True,
             )
             return None
 
@@ -204,7 +212,7 @@ class AsrBackendRegistry:
             log.info("[ASR_REGISTRY] loaded active backend: %s", self.active_name)
             return backend
         except Exception as exc:
-            log.error("[ASR_REGISTRY] failed to load active backend %s: %s", self.active_name, exc)
+            log.exception("[ASR_REGISTRY] failed to load active backend %s: %s", self.active_name, exc)
             return None
 
     def load_with_fallback(self, progress_callback: Any = None) -> Any | None:
@@ -281,8 +289,8 @@ class AsrBackendRegistry:
                 whisper.load(progress_callback=_cb)
                 log.info("[ASR_REGISTRY] loaded fallback backend: whisper")
                 return whisper
-            except Exception as exc:
-                log.error("[ASR_REGISTRY] whisper fallback also failed: %s", exc)
+            except Exception:
+                log.exception("[ASR_REGISTRY] whisper fallback also failed")
                 # MEM-01 (c-review): same fix for the whisper fallback
                 # path — unload before giving up so we don't leak the
                 # whisper backend's partially-allocated resources.

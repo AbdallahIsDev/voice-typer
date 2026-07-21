@@ -349,9 +349,18 @@ class StreamingTextAssembler:
             # Peek the leftmost item; deque.append will evict it.
             evicted_word = self._words[0]
             evicted_absolute_idx = self._base_offset  # current offset → 0 in deque
+            # CR-74: do NOT log evicted_word.word here — that leaks user
+            # speech content into the warning log (which is shown by
+            # default). Log only the structural fact (max + index). The
+            # actual word is preserved at log.debug level for developers
+            # diagnosing eviction storms.
             log.warning(
-                "[STREAMING] Word list exceeded %d entries; evicted oldest: %r",
+                "[STREAMING] Word list exceeded %d entries; evicted oldest (idx=%d)",
                 self._MAX_WORDS,
+                evicted_absolute_idx,
+            )
+            log.debug(
+                "[STREAMING] Evicted word content (debug only): %r",
                 evicted_word.word,
             )
             # Bump base offset so all future absolute-index → deque-index
@@ -366,6 +375,20 @@ class StreamingTextAssembler:
                         self._word_key_index[key] = new_indices
                     else:
                         del self._word_key_index[key]
+            # CR-25: also drop the evicted word's (start, end) timestamp
+            # from ``_seen_timestamps`` so the dedup set is bounded by
+            # the deque maxlen. Pre-fix this was only cleaned up by
+            # ``_prune_old_entries``, which short-circuits on
+            # ``commit_horizon_seconds == math.inf`` (the ``finalize()``
+            # path) — so under inf commit-horizon the set grew linearly
+            # with the number of unique timestamps added, even though
+            # ``_words`` was correctly bounded. Use the same 3-decimal
+            # rounding as ``_add_words_unlocked`` so the key matches.
+            evicted_ts_key = (
+                round(evicted_word.start_seconds, 3),
+                round(evicted_word.end_seconds, 3),
+            )
+            self._seen_timestamps.discard(evicted_ts_key)
 
         key = _word_key(word.word)
         # Absolute index = base_offset + current deque length (before append).

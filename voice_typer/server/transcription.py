@@ -207,10 +207,10 @@ def _download_with_retry(
                 )
                 _time.sleep(delay)
             else:
-                log.error(
-                    "[PROD-004] All %d download attempts failed. Last error: %s",
+                # CR-41: log.exception preserves the traceback; keep max_attempts arg, drop exc.
+                log.exception(
+                    "[PROD-004] All %d download attempts failed.",
                     max_attempts,
-                    exc,
                 )
     raise last_exc
 

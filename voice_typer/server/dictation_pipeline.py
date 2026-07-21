@@ -869,7 +869,18 @@ class DictationPipeline:
                 }
             )
         except Exception:
-            pass
+            # CR-93: previously a bare ``except Exception: pass``. If
+            # the event bus is broken, the renderer never receives the
+            # ``transcription_final`` push event — Home / Dashboard /
+            # History pages won't auto-refresh and the user sees stale
+            # data. Log at DEBUG (this is non-fatal — the transcription
+            # was already pasted; only the proactive refresh is lost)
+            # so an issue with the event bus is at least visible in the
+            # log file when debugging UI staleness.
+            log.debug(
+                "[PIPELINE] could not publish transcription_final event",
+                exc_info=True,
+            )
 
         if self._app.config.log_transcriptions:
             # SEC-009: run transcription text through ``redact_pii()``

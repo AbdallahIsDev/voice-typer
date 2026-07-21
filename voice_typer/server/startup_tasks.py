@@ -270,7 +270,10 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
         # with ``app._thread_registry``) so ``shutdown_all()`` can
         # signal an early exit instead of waiting up to 60s for the
         # next ``app._shutting_down`` poll.
-        sleep_event = threading.Event()
+        # CR-23: removed dead ``sleep_event = threading.Event()`` —
+        # PERF-25 replaced this with ``stop_event`` from the thread
+        # registry (used below); the dead assignment was an F841
+        # violation.
         last_state = initial_state
         while not app._shutting_down:
             for _ in range(60):

@@ -106,8 +106,8 @@ class OnboardingController:
                 json.dumps({"completed": True, "version": 1}),
             )
             log.info("[ONBOARDING] Marked as complete")
-        except Exception as exc:
-            log.error("[ONBOARDING] Failed to mark complete: %s", exc)
+        except Exception:
+            log.exception("[ONBOARDING] Failed to mark complete")
 
     # ─── Step navigation ─────────────────────────────────────────────
 
@@ -452,7 +452,23 @@ class OnboardingController:
             config.microphone = self.selected_microphone
         config.hotkey = self.selected_hotkey
         config.model_size = self.selected_model
-        config.save()
+        # CR-30: ``config.save()`` returns ``False`` on failure (errors
+        # are caught and logged inside ``save()``) but previously
+        # ``mark_complete()`` ran unconditionally — so a silent disk
+        # failure would leave the onboarding marker written while the
+        # user's selections were lost, and the wizard would NOT
+        # reappear on next launch. Now we surface the failure as a
+        # ``RuntimeError`` so the IPC handler's ``except`` clause
+        # converts it into an error envelope and the marker is never
+        # written. We use ``is False`` (not ``not ...``) so that
+        # legacy mocks returning ``None`` are treated as success —
+        # matching the contract that *only an explicit ``False``
+        # indicates failure*. If ``save()`` raises (e.g. ``OSError``
+        # for disk full), the exception propagates and we still never
+        # reach ``mark_complete()``.
+        save_result = config.save()
+        if save_result is False:
+            raise RuntimeError("failed to persist onboarding settings")
         # UX-31: only mark complete once the config has been
         # successfully persisted. If save() raises above, we never
         # reach this line and is_first_run() will remain True.

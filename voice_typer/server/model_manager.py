@@ -183,10 +183,34 @@ class ModelManager:
         the backend selection logic. Previously every caller re-checked
         self.config.asr_backend and tested three separate fields.
 
-        The registry is re-synced on every call so it never holds stale
-        references after model changes.
+        CR-78: previously this method called ``_sync_registry_from_fields()``
+        on every read — which mutates the registry by re-importing state
+        from the three legacy engine fields (``self.transcriber`` /
+        ``self._qwen_engine`` / ``self._parakeet_engine``) — WITHOUT
+        holding ``_model_change_lock``.  A concurrent ``change_model``
+        call sets e.g. ``self._parakeet_engine = None`` then later
+        unregisters/registers in the registry; if ``active_transcriber``
+        interleaved between those two writes, the registry would be
+        re-synced from a half-mutated field set (one backend already
+        cleared, the others not), and the next ``get_active()`` would
+        return a stale or None reference.
+
+        The registry is the source of truth (see file-level docstring):
+        all production mutations go through ``ModelManager`` methods
+        which keep the registry and the fields in sync via the explicit
+        ``_sync_legacy_fields`` / ``_sync_registry_from_fields`` calls
+        inside ``_change_model_impl`` (now guarded by both
+        ``_config_mutation_lock`` and ``_model_change_lock`` per CR-77).
+        Reading via ``self._registry.get_active()`` directly is safe:
+        ``AsrBackendRegistry`` is internally synchronized (its own
+        ``_lock``), and any concurrent ``change_model`` either has not
+        yet mutated the registry (so we read the old active backend,
+        which is still valid) or has already finished (so we read the
+        new one).  Test code that assigns to ``app.models.transcriber``
+        must call ``app.models._sync_registry_from_fields()`` explicitly
+        — that contract is already documented at the top of this file
+        and asserted by ``tests/test_app.py``.
         """
-        self._sync_registry_from_fields()
         return self._registry.get_active()
 
     # ── Engine construction (ARCH-007 single chokepoint) ──────────────
@@ -258,7 +282,16 @@ class ModelManager:
                     f"Could not initialize the {backend_name.title()} backend.{hint}",
                 )
             except Exception:
-                pass
+                # CR-90: previously a bare ``except Exception: pass``.
+                # If ``tray.notify`` ALSO fails (e.g. pystray broken on
+                # a headless Linux container), the user was left with
+                # NO visual signal that backend init failed. Log the
+                # secondary failure so the error trail is at least
+                # visible in the log file.
+                log.error(
+                    "[MODEL] tray.notify ALSO failed for backend init error",
+                    exc_info=True,
+                )
             # Re-raise so callers (load_background, ensure_active_engine_loaded)
             # can react; previously the bare-except in registry.create
             # swallowed the error.
@@ -276,6 +309,17 @@ class ModelManager:
         here; if a dictation is pending (user pressed F2 during load), it
         is auto-started once loading succeeds.
         """
+        # CR-18: bail out early if shutdown was signalled while this
+        # loader was queued. Without this guard the loader would proceed
+        # to construct + load an ASR backend after ``_do_cleanup`` has
+        # already torn down the tray, recorder, hotkeys, etc., touching
+        # freed state. The thread_registry join (3s timeout) gives the
+        # in-flight loader a chance to exit, but this early check avoids
+        # the race where the loader hasn't started its first instruction
+        # yet.
+        if self._app._shutting_down:
+            log.debug("[MODEL] load_background skipped — shutdown already in progress")
+            return
         try:
             backend_name = self._app.config.asr_backend
             self._ensure_engine(backend_name)
@@ -327,7 +371,22 @@ class ModelManager:
                 self._app._schedule_timer(0, self._app._start_dictation)
 
     def start_background_load(self) -> None:
-        """Spawn the background model-load thread (idempotent)."""
+        """Spawn the background model-load thread (idempotent).
+
+        CR-18: register the thread with ``app._thread_registry`` so
+        ``shutdown_all()`` can join it during ``quit()``. Previously
+        the ModelLoad thread was a daemon but untracked — it was
+        indirectly signalled via ``_shutting_down`` checks inside
+        ``load_background``, which meant a stuck model load (e.g. a
+        slow Whisper download on a cold boot) could outlive
+        ``_do_cleanup`` and access torn-down state (tray, recorder,
+        hotkeys). With registration, ``shutdown_all()`` joins it with
+        a 3s timeout, matching the existing transcription-thread join
+        in ``_do_cleanup``. ``stop_event=None`` because the loader
+        has no single cancellation point — it checks
+        ``_app._shutting_down`` itself at the top of
+        ``load_background``.
+        """
         if self._model_load_thread is not None and self._model_load_thread.is_alive():
             return
         self._model_load_thread = threading.Thread(
@@ -336,6 +395,22 @@ class ModelManager:
             daemon=True,
         )
         self._model_load_thread.start()
+        # CR-18: track the loader centrally so shutdown_all() can
+        # signal-and-join it. Best-effort — if the registry is missing
+        # (e.g. in a stripped-down test fixture) we log and continue;
+        # the loader is a daemon and will die on process exit anyway.
+        try:
+            self._app._thread_registry.register(
+                name="ModelLoad",
+                thread=self._model_load_thread,
+                stop_event=None,
+                join_timeout=3.0,
+            )
+        except Exception:
+            log.debug(
+                "[MODEL] Failed to register ModelLoad thread with thread_registry",
+                exc_info=True,
+            )
 
     def fallback_to_whisper(self, notify_on_failure: bool = False) -> None:
         """Fallback to Whisper tiny.en after Parakeet/Qwen backend failed.
@@ -572,15 +647,42 @@ class ModelManager:
         and ``fallback_to_whisper``) could leave the registry with two
         engines constructed for the same name, or with the old backend
         unregistered before the new one finished loading.
+
+        CR-77: ``_change_model_impl`` mutates ``app.config.asr_backend``
+        / ``model_size`` and calls ``app.config.save()``.  That mutation
+        must be atomic w.r.t. concurrent IPC handlers
+        (``service.apply_config`` / ``set_config`` / onboarding) which
+        all hold ``app._config_mutation_lock`` for the same
+        setattr+save sequence.  Without this lock, a concurrent
+        ``apply_config`` could read ``asr_backend`` mid-write (seeing
+        the new value) but then ``save()`` a config dict that still
+        held the OLD ``model_size`` (because the assignment to
+        ``model_size`` happened between the read and the save in the
+        IPC handler).  We therefore acquire ``_config_mutation_lock``
+        OUTSIDE ``_model_change_lock`` — outer-most first, matching the
+        lock-order contract enforced by ``tests/test_lock_order_contract.py``.
+
+        ``_model_change_lock`` lives on ModelManager, NOT on
+        VoiceTyperApp, so it is NOT one of the three app-level locks
+        (``_lock`` / ``_config_mutation_lock`` / ``_pending_timers_lock``)
+        governed by the no-nesting contract.  Nesting it inside
+        ``_config_mutation_lock`` is safe and does not create a cycle:
+        ``_model_change_lock`` is never held while ``_config_mutation_lock``
+        is acquired, so there is no A→B / B→A deadlock hazard.
         """
-        with self._model_change_lock:
+        # CR-77: outer = _config_mutation_lock (app-level, governs config
+        # setattr + save); inner = _model_change_lock (ModelManager-level,
+        # guards the unload/reload cycle).  See method docstring.
+        with self._app._config_mutation_lock, self._model_change_lock:
             self._change_model_impl(model_size)
 
     def _change_model_impl(self, model_size: str) -> None:
-        """Actual implementation of :meth:`change_model` (lock acquired by caller).
+        """Actual implementation of :meth:`change_model` (locks acquired by caller).
 
         Split out so ``change_model`` can wrap the entire body in
-        ``with self._model_change_lock:`` without re-indenting ~80 LOC.
+        ``with self._app._config_mutation_lock:`` (outer) and
+        ``with self._model_change_lock:`` (inner) without re-indenting
+        ~80 LOC.  CR-77: the caller MUST hold both locks.
         """
         # Determine backend from model name
         if model_size == "parakeet":

@@ -51,9 +51,19 @@
       "<cmd>+<shift>+<5>"
     ],
     "linux": [
+      "<super>",
       "<super>+<l>",
       "<super>+<d>",
-      "<super>+<tab>"
+      "<super>+<tab>",
+      "<alt>+<f2>",
+      "<ctrl>+<alt>+<f1>",
+      "<ctrl>+<alt>+<f2>",
+      "<ctrl>+<alt>+<f3>",
+      "<ctrl>+<alt>+<f4>",
+      "<ctrl>+<alt>+<f5>",
+      "<ctrl>+<alt>+<f6>",
+      "<ctrl>+<alt>+<f7>",
+      "<ctrl>+<shift>+<esc>"
     ]
   },
   "blocked_ctrl_letters": [

@@ -16,6 +16,7 @@ import threading
 import time
 from typing import Any
 
+from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger(__name__)
@@ -236,7 +237,7 @@ class VoiceTyperService:
             return {"success": True, "message": "Transcription cancelled."}
         except Exception as exc:
             log.warning("[SERVICE] force_cancel_transcription failed: %s", exc)
-            return {"success": False, "message": str(exc)}
+            return {"success": False, "message": redact_secret(redact_url(str(exc)))}
 
     # ── Config ──────────────────────────────────────────────────
 
@@ -446,7 +447,7 @@ class VoiceTyperService:
         Returns:
             dict with success, message, duration, sample_rate.
         """
-        from voice_typer.server.microphone_test import start_test
+        from voice_typer.server.level_monitor import start_test_recording as start_test
 
         return start_test(mic_id=mic_id, duration=duration, filters=filters)
 
@@ -461,7 +462,7 @@ class VoiceTyperService:
             sample_rate, quality, message, and optionally transcription and
             transcription_confidence.
         """
-        from voice_typer.server.microphone_test import stop_test
+        from voice_typer.server.level_monitor import stop_test_recording as stop_test
 
         result = stop_test()
 
@@ -511,13 +512,13 @@ class VoiceTyperService:
 
     def microphone_test_cancel(self) -> dict:
         """Cancel a running microphone test without returning audio."""
-        from voice_typer.server.microphone_test import cancel_test
+        from voice_typer.server.level_monitor import cancel_test_recording as cancel_test
 
         return cancel_test()
 
     def microphone_test_status(self) -> dict:
         """Check if a microphone test is currently active."""
-        from voice_typer.server.microphone_test import is_test_active
+        from voice_typer.server.level_monitor import is_test_active
 
         return {"active": is_test_active()}
 
@@ -896,7 +897,7 @@ class VoiceTyperService:
             }
         except Exception as exc:
             log.warning("[SERVICE] delete_model failed: %s", exc)
-            return {"success": False, "message": str(exc)}
+            return {"success": False, "message": redact_secret(redact_url(str(exc)))}
 
     def test_llm_connection(self) -> dict:
         """Test the LLM polish API connection.
@@ -912,6 +913,24 @@ class VoiceTyperService:
         cfg = getattr(self._app, "config", None)
         if cfg is None:
             return {"success": False, "message": "Config not loaded"}
+
+        # CR-43 fix: gate on consent BEFORE sending any test request.
+        # The polish production path (dictation_pipeline.py:650) requires
+        # BOTH `llm_polish` AND `llm_polish_consent` to be True before
+        # sending any HTTP request to the LLM endpoint. The previous
+        # implementation of test_llm_connection bypassed the consent gate
+        # — a user who explicitly denied consent (llm_polish_consent=False)
+        # but had an API key configured could trigger an outbound HTTP POST
+        # to llm_api_url (with Authorization: Bearer <key> header + the
+        # literal "Hello" body) by clicking "Test Connection" in Settings.
+        # The request leaks the user's IP, the existence of an active API
+        # key, and a Python urllib User-Agent to the configured LLM
+        # endpoint, despite explicit user opt-out.
+        if not getattr(cfg, "llm_polish_consent", False):
+            return {
+                "success": False,
+                "message": "LLM polish consent not given. Enable LLM polish in Settings to test the connection.",
+            }
 
         # Use the same consent + key-resolution logic as the polish path
         # (dictation_pipeline.py:288-300).
@@ -933,7 +952,7 @@ class VoiceTyperService:
             return {"success": success, "message": message}
         except Exception as exc:
             log.warning("[SERVICE] test_llm_connection failed: %s", exc)
-            return {"success": False, "message": str(exc)}
+            return {"success": False, "message": redact_secret(redact_url(str(exc)))}
 
     def _check_qwen_deps(self) -> bool:
         """Check if qwen_asr package is importable."""
@@ -1900,6 +1919,59 @@ class VoiceTyperService:
         log.info("[SERVICE] Model download resume requested")
         return {"resumed": True}
 
+    def _require_huggingface_consent(self, model_name: str) -> dict | None:
+        """CR-11: Gate IPC-triggered HuggingFace downloads on explicit consent.
+
+        Mirrors the consent gate in
+        :meth:`voice_typer.server.transcription.TranscriptionEngine._pre_download_model`
+        (transcription.py:835-849).  The IPC download path previously
+        had NO consent check, so clicking "Download" on the Models page
+        phoned home to huggingface.co (revealing the user's IP to a
+        US-headquartered third party) without the explicit GDPR
+        Art. 13/44 consent that ``config.huggingface_consent`` was
+        specifically designed to gate (NEW-PRIV-005).
+
+        Returns ``None`` when consent has been given — the caller
+        proceeds with the download.  Returns a failure dict AND
+        publishes a ``consent_required`` event when consent is missing;
+        the renderer is responsible for showing the consent dialog and
+        retrying the download after the user accepts.
+
+        Defensive: ``self._app.config`` may be ``None`` in degenerate
+        paths (test stubs, benchmark harness).  Treat missing config
+        as NOT consented — safe default per GDPR Art. 6/13.
+        """
+        from voice_typer.server import event_bus
+
+        cfg = getattr(self._app, "config", None)
+        consent = False if cfg is None else bool(getattr(cfg, "huggingface_consent", False))
+        if not consent:
+            log.warning(
+                "[SERVICE] HuggingFace consent not given — refusing to download "
+                "model '%s' via IPC. The renderer should show the consent dialog.",
+                model_name,
+            )
+            try:
+                event_bus.publish(
+                    {
+                        "type": "consent_required",
+                        "data": {
+                            "provider": "huggingface",
+                            "model": model_name,
+                            "message": "HuggingFace consent required before downloading model.",
+                        },
+                    }
+                )
+            except Exception:
+                log.debug("[SERVICE] consent_required event push failed", exc_info=True)
+            return {
+                "success": False,
+                "error": "HuggingFace consent required",
+                "consent_required": True,
+                "model": model_name,
+            }
+        return None
+
     def download_model(self, model_name: str) -> dict:
         """Download a model weight file via HuggingFace.
 
@@ -1919,6 +1991,13 @@ class VoiceTyperService:
         paused, progress updates freeze and a ``paused: True`` event is
         pushed once per transition.  Resume clears the flag and pushes
         a ``resumed: True`` event.
+
+        CR-11: the Whisper and Parakeet branches now gate on
+        :meth:`_require_huggingface_consent` before any HuggingFace
+        network call, mirroring the consent gate that already lived in
+        ``TranscriptionEngine._pre_download_model`` (transcription.py:835-849).
+        The Qwen branch uses a local file path and does not phone home,
+        so it is exempt from the consent gate.
         """
         import os
 
@@ -1986,6 +2065,19 @@ class VoiceTyperService:
             model_meta = get_model_metadata(model_name)
             is_whisper_family = model_meta is not None and model_meta.backend in ("whisper", "distil-whisper")
             if is_whisper_family:
+                # CR-11: HuggingFace consent gate.  Without this check,
+                # clicking "Download" on the Models page would phone
+                # home to huggingface.co before the user had explicitly
+                # opted in via the consent dialog (NEW-PRIV-005).
+                # Mirrors TranscriptionEngine._pre_download_model
+                # (transcription.py:835-849).  The gate must fire BEFORE
+                # any snapshot_download call (including the
+                # local_files_only cache probe) so that a user who has
+                # NOT consented cannot trigger any HuggingFace Hub
+                # interaction from the IPC path.
+                consent_err = self._require_huggingface_consent(model_name)
+                if consent_err is not None:
+                    return consent_err
                 log.info(
                     "[SERVICE] Starting download for '%s' (repo=%s, backend=%s)",
                     model_name,
@@ -2293,6 +2385,18 @@ class VoiceTyperService:
                 _notify(APP_NAME, "Qwen model path not configured")
                 return {"success": False, "error": "Qwen model path not configured. Set qwen_model_path in Settings."}
             elif model_name == "parakeet":
+                # CR-11: HuggingFace consent gate.  Parakeet weights
+                # are fetched from huggingface.co via
+                # download_parakeet_weights(); gate the network call
+                # on explicit user consent (NEW-PRIV-005).  Mirrors
+                # TranscriptionEngine._pre_download_model
+                # (transcription.py:835-849).  Must fire BEFORE the
+                # asr_setup import + call so a user who has NOT
+                # consented cannot trigger any HuggingFace Hub
+                # interaction from the IPC path.
+                consent_err = self._require_huggingface_consent(model_name)
+                if consent_err is not None:
+                    return consent_err
                 log.info("[SERVICE] Download requested for '%s' (Parakeet backend, ~2.5 GB)", model_name)
                 _push_progress(0, "Starting Parakeet download (~2.5 GB)...")
                 from voice_typer.server.asr_setup import download_parakeet_weights
@@ -2361,4 +2465,4 @@ class VoiceTyperService:
                 return {"success": False, "message": "Failed to create diagnostic bundle"}
         except Exception as exc:
             log.error("export_diagnostics failed: %s", exc)
-            return {"success": False, "message": str(exc)}
+            return {"success": False, "message": redact_secret(redact_url(str(exc)))}

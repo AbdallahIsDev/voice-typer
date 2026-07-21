@@ -88,7 +88,10 @@ class AppProtocol(Protocol):
     ``recorder``, ``tray``) and a small set of private attributes
     that are still accessed by ``ipc_server.py`` itself
     (``_ipc_server``, ``_shutting_down``) or by handlers not yet
-    refactored (``_esc_cancel_paused``).
+    refactored (``_esc_cancel_paused``, ``_vocabulary_automation``,
+    ``_waveform_bubble`` — the last two were promoted in CR-59
+    because four handler sites read them via ``getattr``; see the
+    per-attribute docstrings below).
 
     The private attributes ``_audio_processor``, ``_volume_ducker``,
     and ``_config_mutation_lock`` were removed in TASK-2: the
@@ -160,6 +163,35 @@ class AppProtocol(Protocol):
     """``True`` while the frontend HotkeyPicker is in capture mode; the
     ESC cancel handler checks this to avoid stealing the Escape key
     while the user is assigning it in the Settings UI.
+    """
+
+    _vocabulary_automation: Any
+    """Vocabulary-automation controller (or ``None`` if not initialised).
+
+    CR-59: promoted to ``AppProtocol`` (typed ``Any``) because four
+    handler sites in
+    :mod:`voice_typer.server.handlers.vocabulary_automation_handlers`
+    read it via ``getattr(self.app, "_vocabulary_automation", None)``
+    (apply / dismiss / list-pending paths).  Declaring it here keeps
+    the introspection test honest once the ``getattr`` string-form
+    access is also covered by the AST walk (see ADR 0010 §2.5).
+
+    Fix-G will follow up by converting those ``getattr`` reads to
+    direct ``self.app._vocabulary_automation`` access — at which
+    point the existing ``ast.Attribute`` walk would have caught the
+    access even without the ``getattr`` AST inspection.  Either way,
+    the name belongs on the protocol.
+    """
+
+    _waveform_bubble: Any
+    """Waveform-bubble controller (or ``None`` if not initialised).
+
+    CR-59: promoted to ``AppProtocol`` (typed ``Any``) because
+    :mod:`voice_typer.server.handlers.config_handlers` reads it via
+    ``getattr(self.app, "_waveform_bubble", None)`` in the
+    ``apply_config`` side-effect path (so the bubble can be redrawn
+    when the user toggles the waveform feature).  Same rationale as
+    ``_vocabulary_automation`` above.
     """
 
     # ── Methods invoked by the IPC layer ───────────────────────────

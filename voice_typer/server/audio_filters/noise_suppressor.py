@@ -1,4 +1,4 @@
-"""Multi-backend noise suppressor (RNNoise / DeepFilterNet / Speex)."""
+"""Multi-backend noise suppressor (RNNoise / DeepFilterNet)."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ class NoiseSuppressor(AudioFilter):
       BSD-licensed, ~1ms per frame. Default.
     - ``"deepfilternet"`` — ``deepfilternet`` package (requires torch).
       Higher quality, 2-3x CPU. Premium option.
-    - ``"speex"`` — ``speexdsp`` preprocessor. Lightest CPU. Fallback.
     - ``"none"`` — passthrough (no suppression).
 
     If the selected backend's library is missing, falls back to ``"none"``
@@ -62,8 +61,6 @@ class NoiseSuppressor(AudioFilter):
             self._init_rnnoise()
         elif method == "deepfilternet":
             self._init_deepfilternet()
-        elif method == "speex":
-            self._init_speex()
         else:
             log.warning("[NOISE-SUPPRESS] unknown method %r — using none", method)
             self._method = "none"
@@ -117,27 +114,6 @@ class NoiseSuppressor(AudioFilter):
             self._method = "rnnoise"
             self._init_rnnoise()
 
-    def _init_speex(self) -> None:
-        try:
-            # speexdsp Python package
-            import speexdsp  # type: ignore[import-not-found]
-
-            # The speexdsp package exposes a Preprocessor
-            self._backend = speexdsp.Preprocessor(_RNNOISE_FRAME_SIZE, _RNNOISE_SAMPLE_RATE)
-            log.info("[NOISE-SUPPRESS] Speex backend ready")
-        except ImportError:
-            log.warning("[NOISE-SUPPRESS] speexdsp not installed — falling back to rnnoise")
-            self._degraded = True
-            self._degraded_reason = "speexdsp not installed, falling back to rnnoise"
-            self._method = "rnnoise"
-            self._init_rnnoise()
-        except Exception as exc:
-            log.warning("[NOISE-SUPPRESS] Speex init failed: %s — falling back to rnnoise", exc)
-            self._degraded = True
-            self._degraded_reason = f"speex init failed: {exc}"
-            self._method = "rnnoise"
-            self._init_rnnoise()
-
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if self._method == "none" or self._backend is None or audio.size == 0:
             return audio
@@ -147,8 +123,19 @@ class NoiseSuppressor(AudioFilter):
 
         if self._method == "rnnoise":
             return self._process_rnnoise(samples, sample_rate, original_shape)
-        # DeepFilterNet and Speex would go here — for now, passthrough
-        # with a warning (backends initialized but not yet wired)
+        # CR-6: DeepFilterNet and Speex backends are initialized but not
+        # yet wired to actual processing. Previously this was a silent
+        # passthrough — users selecting `noisy_room` preset (which picks
+        # `deepfilternet`) got ZERO noise suppression with no UI signal.
+        # Now we mark the filter as degraded so the UI surfaces the gap
+        # and the user knows their audio is not being processed.
+        if not self._degraded:
+            self._degraded = True
+            self._degraded_reason = (
+                f"{self._method} backend not yet implemented — using passthrough "
+                "(fall back to rnnoise for actual noise suppression)"
+            )
+            log.warning("[AUDIO] NoiseSuppressor: %s", self._degraded_reason)
         return audio.reshape(original_shape)
 
     def _process_rnnoise(

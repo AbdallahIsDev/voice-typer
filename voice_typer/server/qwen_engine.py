@@ -31,14 +31,25 @@ log = logging.getLogger(__name__)
 # NOTE: .py is deliberately excluded — model directories should never contain
 # Python source files, which could execute arbitrary code during from_pretrained().
 _QWEN_ALLOWED_EXTENSIONS = {
-    ".safetensors", ".bin", ".json", ".model", ".txt",
+    ".safetensors",
+    ".bin",
+    ".json",
+    ".model",
+    ".txt",
 }
 _QWEN_ALLOWED_BASENAMES = {
-    "config.json", "tokenizer.json", "tokenizer_config.json",
-    "special_tokens_map.json", "preprocessor_config.json",
-    "feature_extractor_config.json", "generation_config.json",
-    "model.safetensors.index.json", "tokenizer.model",
-    "vocab.json", "merges.txt", "vocab.txt",
+    "config.json",
+    "tokenizer.json",
+    "tokenizer_config.json",
+    "special_tokens_map.json",
+    "preprocessor_config.json",
+    "feature_extractor_config.json",
+    "generation_config.json",
+    "model.safetensors.index.json",
+    "tokenizer.model",
+    "vocab.json",
+    "merges.txt",
+    "vocab.txt",
 }
 
 # RW-T1: Qwen3-ASR is Whisper-based and natively handles 30 s segments.
@@ -108,8 +119,8 @@ class QwenEngine:
             # SEC-audit-007: Validate model directory contains only expected file types
             if not _validate_qwen_model_dir(self.model_path):
                 log.error(
-                    "[QWEN] Model directory %s failed security validation — "
-                    "contains unexpected files", self.model_path,
+                    "[QWEN] Model directory %s failed security validation — contains unexpected files",
+                    self.model_path,
                 )
                 return False
 
@@ -126,15 +137,15 @@ class QwenEngine:
             try:
                 if not _verify_qwen_model_hashes(self.model_path):
                     log.error(
-                        "[QWEN] Model hash verification FAILED for %s — "
-                        "refusing to load tampered or corrupted model",
+                        "[QWEN] Model hash verification FAILED for %s — refusing to load tampered or corrupted model",
                         self.model_path,
                     )
                     return False
             except Exception as exc:
                 log.warning(
                     "[QWEN] Model hash verification warning for %s: %s",
-                    self.model_path, exc,
+                    self.model_path,
+                    exc,
                 )
 
             # SEC-audit-007: Read config.json with O_NOFOLLOW to prevent symlink attacks
@@ -146,6 +157,7 @@ class QwenEngine:
                     try:
                         with os.fdopen(fd, "r", encoding="utf-8") as f:
                             import json
+
                             json.load(f)  # Validate it's parseable JSON
                     except Exception:
                         with contextlib.suppress(OSError):
@@ -155,12 +167,13 @@ class QwenEngine:
                     # Windows: standard open (NTFS ACLs provide protection)
                     with open(config_path, encoding="utf-8") as f:
                         import json
+
                         json.load(f)
             except OSError as exc:
-                log.error("[QWEN] Failed to safely read config.json from %s: %s", self.model_path, exc)
+                log.exception("[QWEN] Failed to safely read config.json from %s: %s", self.model_path, exc)
                 return False
             except Exception as exc:
-                log.error("[QWEN] config.json in %s is not valid JSON: %s", self.model_path, exc)
+                log.exception("[QWEN] config.json in %s is not valid JSON: %s", self.model_path, exc)
                 return False
 
             try:
@@ -184,12 +197,15 @@ class QwenEngine:
                 _warm_label = "warm (page-cache)" if _load_elapsed < 5.0 else "cold (disk)"
                 log.info(
                     "[QWEN] Model loaded successfully from %s (%s) — %.1fs",
-                    self.model_path, _warm_label, _load_elapsed,
+                    self.model_path,
+                    _warm_label,
+                    _load_elapsed,
                 )
                 return True
             except ImportError as exc:
                 log.error(
-                    "[QWEN] qwen-asr package is not installed: %s", exc,
+                    "[QWEN] qwen-asr package is not installed: %s",
+                    exc,
                 )
                 self._model = None
                 return False
@@ -229,9 +245,7 @@ class QwenEngine:
         """
         with self._lock:
             if self._model is None:
-                raise RuntimeError(
-                    "Qwen model not loaded. Call load() first or check logs for errors."
-                )
+                raise RuntimeError("Qwen model not loaded. Call load() first or check logs for errors.")
             model = self._model
             self._inference_event.set()
 
@@ -274,7 +288,8 @@ class QwenEngine:
             if should_reject_low_audio_hallucination(text, rms):
                 # SEC-009: Use PII-safe logging helper instead of raw text
                 log_hallucination_rejection(
-                    "[QWEN]", text,
+                    "[QWEN]",
+                    text,
                     reason="hallucination",
                     log_transcriptions=False,
                 )
@@ -302,13 +317,17 @@ class QwenEngine:
         duration = len(audio) / sample_rate
         log.info("[QWEN] Splitting %.1fs audio into chunks", duration)
         chunks = self._split_audio(
-            audio, _QWEN_CHUNK_SECONDS, _QWEN_CHUNK_OVERLAP_SECONDS,
+            audio,
+            _QWEN_CHUNK_SECONDS,
+            _QWEN_CHUNK_OVERLAP_SECONDS,
         )
         results: list[str] = []
         for i, chunk in enumerate(chunks):
             log.info(
                 "[QWEN] Transcribing chunk %d/%d (%.1fs)",
-                i + 1, len(chunks), len(chunk) / sample_rate,
+                i + 1,
+                len(chunks),
+                len(chunk) / sample_rate,
             )
             chunk_result = model.transcribe(
                 (chunk, sample_rate),
@@ -316,11 +335,7 @@ class QwenEngine:
             )
             if not chunk_result:
                 continue
-            text = (
-                chunk_result[0].text
-                if hasattr(chunk_result[0], "text")
-                else str(chunk_result[0])
-            )
+            text = chunk_result[0].text if hasattr(chunk_result[0], "text") else str(chunk_result[0])
             text = text.strip()
             if not text:
                 continue
@@ -329,7 +344,8 @@ class QwenEngine:
             if should_reject_low_audio_hallucination(text, rms):
                 # SEC-009: Use PII-safe logging helper instead of raw text
                 log_hallucination_rejection(
-                    "[QWEN]", text,
+                    "[QWEN]",
+                    text,
                     reason="hallucination",
                     log_transcriptions=False,
                 )
@@ -341,7 +357,9 @@ class QwenEngine:
 
     @staticmethod
     def _split_audio(
-        audio: np.ndarray, chunk_sec: float, overlap_sec: float,
+        audio: np.ndarray,
+        chunk_sec: float,
+        overlap_sec: float,
     ) -> list[np.ndarray]:
         """Split audio into overlapping chunks (mirrors ParakeetEngine._split_audio).
 
@@ -398,9 +416,11 @@ class QwenEngine:
             results.append(self.transcribe(chunk))
         return results
 
-    def transcribe_with_fallback(self, audio: np.ndarray,
-            audio_stats: "tuple[float, float, float] | None" = None,
-        ) -> str:
+    def transcribe_with_fallback(
+        self,
+        audio: np.ndarray,
+        audio_stats: "tuple[float, float, float] | None" = None,
+    ) -> str:
         """Transcribe with GPU→CPU fallback on CUDA errors.
 
         ERR-008: Previously this method just delegated to ``transcribe``
@@ -419,8 +439,7 @@ class QwenEngine:
         except Exception as exc:
             err_str = str(exc).lower()
             if self.device == "cuda" and (
-                "cuda" in err_str or "cublas" in err_str or "cudnn" in err_str
-                or "out of memory" in err_str
+                "cuda" in err_str or "cublas" in err_str or "cudnn" in err_str or "out of memory" in err_str
             ):
                 log.warning("[QWEN] CUDA error, retrying on CPU: %s", exc)
                 # TASK-14: initialize ``original_device`` BEFORE the try
@@ -458,6 +477,7 @@ class QwenEngine:
         import gc
 
         from voice_typer.server.transcription import release_gpu_memory
+
         with self._lock:
             self._model = None
         # RACE-023: gc.collect() OUTSIDE the lock
@@ -503,8 +523,9 @@ def _validate_qwen_model_dir(model_path: str) -> bool:
                 continue
             # Reject any file that doesn't match allowlist
             log.warning(
-                "[QWEN] Model directory contains unexpected file: %s "
-                "(extension=%r not in allowlist)", entry, ext,
+                "[QWEN] Model directory contains unexpected file: %s (extension=%r not in allowlist)",
+                entry,
+                ext,
             )
             return False
     except OSError as exc:
@@ -558,12 +579,29 @@ def _verify_qwen_model_hashes(model_path: str) -> bool:
         # was empty for the Qwen entry.
         log.warning(
             "[QWEN] Model integrity check is a NO-OP for %s — "
-            "model_hashes.json has empty \"files\" dict for the qwen entry. "
+            'model_hashes.json has empty "files" dict for the qwen entry. '
             "Computed hashes are logged below; copy them into "
-            "model_hashes.json under the \"qwen\" entry's \"files\" field "
+            'model_hashes.json under the "qwen" entry\'s "files" field '
             "to enable enforcement on the next run.",
             model_path,
         )
+        # CR-96: previously the inner ``except Exception: pass`` silently
+        # skipped unreadable files (e.g. ``chmod 000`` on a tampered
+        # model file) and returned True — meaning "integrity OK". A
+        # tampered local Qwen model that has had its file permissions
+        # removed would pass integrity verification. Now we:
+        #   (1) count unreadable files,
+        #   (2) log a WARNING per unreadable file (with the relative path
+        #       so the operator can fix the permissions), and
+        #   (3) return False if ANY of the unreadable files are "expected
+        #       model files" (``.safetensors`` / ``.bin`` / ``config.json``)
+        #       — those are load-bearing files and a tampered local
+        #       model that can't be read is a strong signal of foul
+        #       play. Non-load-bearing files (``tokenizer.json`` etc.)
+        #       are still skipped with a WARNING but don't fail the
+        #       check, matching the prior soft-pass stance.
+        unreadable_count = 0
+        load_bearing_unreadable = False
         try:
             for entry in path.rglob("*"):
                 if not entry.is_file():
@@ -572,10 +610,46 @@ def _verify_qwen_model_hashes(model_path: str) -> bool:
                     h = compute_file_sha256(entry)
                     rel = entry.relative_to(path).as_posix()
                     log.info("[QWEN]   %s: sha256=%s", rel, h)
-                except Exception:
-                    pass
+                except Exception as file_exc:
+                    unreadable_count += 1
+                    rel = entry.relative_to(path).as_posix()
+                    log.warning(
+                        "[QWEN]   could not hash %s (unreadable): %s",
+                        rel,
+                        file_exc,
+                    )
+                    # Detect load-bearing files by suffix / basename.
+                    # ``config.json`` is the basename; ``.safetensors``
+                    # and ``.bin`` are suffixes (model weight files).
+                    if rel == "config.json" or rel.endswith(".safetensors") or rel.endswith(".bin"):
+                        load_bearing_unreadable = True
         except Exception:
-            pass
+            # Outer rglob itself failed (e.g. directory vanished mid-
+            # iteration). Log and fall through — we can't enumerate, so
+            # we can't say integrity is OK either. Treat it the same as
+            # a load-bearing-unreadable case and fail.
+            log.warning(
+                "[QWEN] could not enumerate model directory %s for hash audit",
+                model_path,
+                exc_info=True,
+            )
+            return False
+        if unreadable_count > 0:
+            log.warning(
+                "[QWEN] Model integrity soft-pass: %d file(s) could not be "
+                "hashed in %s (see preceding WARNING entries for paths).",
+                unreadable_count,
+                model_path,
+            )
+        if load_bearing_unreadable:
+            log.error(
+                "[QWEN] Model integrity check FAILED for %s — at least one "
+                "load-bearing model file (.safetensors / .bin / config.json) "
+                "was unreadable. This is a strong signal of tampering or "
+                "corrupted file permissions; refusing to verify.",
+                model_path,
+            )
+            return False
         return True
 
     # Verify each pinned file
@@ -584,18 +658,21 @@ def _verify_qwen_model_hashes(model_path: str) -> bool:
         if not file_path.exists():
             log.warning(
                 "[QWEN] Model integrity: pinned file %s missing in %s",
-                filename, model_path,
+                filename,
+                model_path,
             )
             return False
         try:
             actual_hash = compute_file_sha256(file_path)
             import hmac
+
             if not hmac.compare_digest(actual_hash, expected_hash):
                 log.warning(
-                    "[QWEN] Model integrity: hash mismatch for %s in %s "
-                    "(expected %s..., got %s...)",
-                    filename, model_path,
-                    expected_hash[:16], actual_hash[:16],
+                    "[QWEN] Model integrity: hash mismatch for %s in %s (expected %s..., got %s...)",
+                    filename,
+                    model_path,
+                    expected_hash[:16],
+                    actual_hash[:16],
                 )
                 return False
         except Exception as exc:

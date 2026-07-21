@@ -89,12 +89,29 @@ class CrashRecovery:
     # ── Persistence ──────────────────────────────────────────────────
 
     def _load(self) -> None:
-        """Load recovery entries from disk."""
+        """Load recovery entries from disk.
+
+        M-64: previously this used :meth:`pathlib.Path.read_text`,
+        which silently follows symlinks — inconsistent with the
+        write side (:meth:`_save_sync`), which already used
+        :func:`voice_typer.server.config._secure_atomic_write`
+        (POSIX ``O_NOFOLLOW``). A local attacker who replaced the
+        recovery file with a symlink to a sensitive file (e.g.
+        ``~/.ssh/id_rsa``) could have the JSON parser read its
+        contents into memory (and logged in a warning on parse
+        failure). Now we use :func:`_secure_read_text` so the read
+        fails closed: symlink detected → ``OSError`` → ``_entries``
+        is reset to ``[]`` and a warning is logged, matching the
+        templates / vocabulary / config load paths.
+        """
         if not self._path.exists():
             self._entries = []
             return
         try:
-            data = json.loads(self._path.read_text(encoding="utf-8"))
+            from voice_typer.server.config import _secure_read_text
+
+            raw = _secure_read_text(self._path)
+            data = json.loads(raw)
             if isinstance(data, list):
                 self._entries = data
             elif isinstance(data, dict) and "entries" in data:
@@ -581,12 +598,29 @@ class CrashRecovery:
                 except Exception:
                     pass
 
-                # 5. Crash recovery entries
+                # 5. Crash recovery entries — METADATA ONLY (no transcription text).
+                # CR-39 fix: previously this dumped the full self._entries list
+                # (which contains the user's dictated transcribed text) into the
+                # diagnostic zip. Users sharing diagnostic bundles for bug
+                # reports would leak their last 10 transcriptions (which may
+                # contain names, addresses, medical info, passwords dictated
+                # via voice) in cleartext. The companion CLI path
+                # (scripts/diagnostics.py:74) explicitly documents "Excludes:
+                # Transcription text (PIII)" — the IPC handler path now
+                # honors the same policy.
                 import json as _json
 
                 with self._lock:
+                    redacted_entries = [
+                        {
+                            "timestamp": e.get("timestamp"),
+                            "pasted": e.get("pasted", False),
+                            "text_length": len(e.get("text", "")),
+                        }
+                        for e in self._entries
+                    ]
                     entries_json = _json.dumps(
-                        {"entries": self._entries},
+                        {"entries": redacted_entries, "count": len(self._entries)},
                         indent=2,
                         ensure_ascii=False,
                     )

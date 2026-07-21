@@ -26,7 +26,7 @@ import logging
 import os
 import sys
 from dataclasses import asdict, dataclass
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from voice_typer.server.config_validators import ALLOWED_USER_MODELS
@@ -356,7 +356,14 @@ def _validate_systemroot() -> None:
     # with ``..`` segments is a classic DLL-injection vector.  Refusing
     # to start is safer than silently resetting (the user would have no
     # indication that their SystemRoot was being tampered with).
-    if ".." in systemroot:
+    # H-11 (IMPROVE-2026-07-19): the previous check used naive substring
+    # matching (`".." in systemroot`) which produced false positives on
+    # legitimate Windows paths like `C:\Win..dows` or `C:\Windows\file..exe`.
+    # CFG-10 fixed this by switching to `PureWindowsPath(systemroot).parts`
+    # component check — only an actual `..` path SEGMENT is rejected, not
+    # a `..` substring inside a directory/file name. Restoring that fix
+    # (3 regression tests in tests/test_validate_systemroot.py now pass).
+    if ".." in PureWindowsPath(systemroot).parts:
         log.error(
             "[CONFIG] SystemRoot contains path traversal ('..'): %s — "
             "possible DLL injection attack. ABORTING STARTUP (fail-closed).",

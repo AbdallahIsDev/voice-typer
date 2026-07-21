@@ -143,6 +143,50 @@ def _read_capped(resp, *, max_bytes: int) -> bytes:
     return b"".join(chunks)
 
 
+def _parse_retry_after(header_value: str | None) -> float:
+    """Parse a ``Retry-After`` header into a sleep duration in seconds.
+
+    CR-47: RFC 7231 §7.1.3 allows ``Retry-After`` to be either:
+      1. An integer number of seconds, OR
+      2. An HTTP-date (e.g. ``Wed, 21 Oct 2015 07:28:00 GMT``).
+
+    We cap the wait at 60 seconds so a hostile or misconfigured server
+    cannot stall the dictation thread indefinitely. A negative or
+    unparseable value falls back to a small default (2s) so we still
+    honor the spirit of "wait briefly before retrying" without trusting
+    the server blindly.
+
+    Returns a float suitable for ``time.sleep``.
+    """
+    if not header_value:
+        return 2.0
+    # Case 1: integer seconds.
+    try:
+        seconds = float(header_value)
+    except (TypeError, ValueError):
+        # Case 2: HTTP-date. ``email.utils.parsedate_to_datetime``
+        # returns a timezone-aware datetime (or None if unparseable).
+        seconds = 2.0
+        try:
+            from datetime import datetime, timezone
+            from email.utils import parsedate_to_datetime
+
+            dt = parsedate_to_datetime(header_value)
+            if dt is not None:
+                now = datetime.now(timezone.utc)
+                # parsedate_to_datetime may return a naive datetime if
+                # the date string has no tz; normalize to UTC.
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                delta = (dt - now).total_seconds()
+                if delta > 0:
+                    seconds = delta
+        except (TypeError, ValueError, OverflowError):
+            pass
+    # Cap at 60s; never sleep for a negative amount.
+    return max(0.0, min(seconds, 60.0))
+
+
 class _StreamingMultipartBody:
     """File-like object that yields multipart body chunks on demand.
 
@@ -386,8 +430,15 @@ class CloudEngine:
 
         req = Request(self.api_url, data=body, headers=headers, method="POST")
 
-        # PERF-NEW-010: retry with exponential backoff
+        # PERF-NEW-010: retry with exponential backoff.
+        # CR-47/CR-48: HTTPError is a subclass of URLError, so it must be
+        # caught FIRST. Retrying 4xx (auth failures, bad request) is
+        # counterproductive — the request will never succeed without a
+        # config change — and burns API quota. 429 (Too Many Requests) is
+        # the one 4xx that is retryable: the server explicitly tells us
+        # when to retry via the Retry-After header.
         max_retries = 3
+        retried_429 = False
         for attempt in range(max_retries):
             try:
                 with _opener.open(req, timeout=30) as resp:
@@ -400,9 +451,42 @@ class CloudEngine:
                     text = result.get("text", "").strip()
                     log.info("[CLOUD] %s transcription: %d chars", self.provider, len(text))
                     return text
+            except HTTPError as exc:
+                # CR-47: 429 Too Many Requests is the only retryable 4xx.
+                # Honor Retry-After (numeric seconds or HTTP-date); cap the
+                # wait at 60s so a hostile server can't stall us forever.
+                # Only retry once on 429 — the backoff loop is intended for
+                # transient network errors, not rate-limit backoff.
+                if exc.code == 429 and not retried_429 and attempt < max_retries - 1:
+                    retried_429 = True
+                    wait = _parse_retry_after(exc.headers.get("Retry-After"))
+                    log.warning(
+                        "[CLOUD] %s got 429 (attempt %d/%d); honoring Retry-After, retrying once in %.1fs",
+                        self.provider,
+                        attempt + 1,
+                        max_retries,
+                        wait,
+                    )
+                    import time as _time
+
+                    _time.sleep(wait)
+                    continue
+                # Non-retryable HTTPError (4xx other than 429, or 5xx that
+                # we also surface without retrying — 5xx from a cloud ASR
+                # provider typically indicates a sustained outage that
+                # won't clear in 2s of backoff).
+                safe_msg = redact_secret(redact_url(str(exc)))
+                log.error(
+                    "[CLOUD] %s HTTP %d error (not retried): %s",
+                    self.provider,
+                    exc.code,
+                    safe_msg,
+                )
+                raise RuntimeError(f"{self.provider} API error (HTTP {exc.code})") from exc
             except URLError as exc:
-                # Only retry on transient errors (timeouts, connection reset)
-                # Don't retry on 4xx errors (bad request, auth failure)
+                # CR-48: URLError that is NOT an HTTPError = transient
+                # network error (timeout, connection reset, DNS failure).
+                # Retry with exponential backoff.
                 if attempt < max_retries - 1:
                     import time as _time
 
@@ -474,8 +558,11 @@ class CloudEngine:
         url = f"{self.api_url}?{query}"
         req = Request(url, data=wav_bytes, headers=headers, method="POST")
 
-        # PERF-NEW-010: retry with exponential backoff (same as OpenAI path)
+        # PERF-NEW-010: retry with exponential backoff (same as OpenAI path).
+        # CR-47/CR-48: HTTPError caught before URLError; 4xx (except 429)
+        # is not retried; 429 honors Retry-After (capped at 60s, retry once).
         max_retries = 3
+        retried_429 = False
         for attempt in range(max_retries):
             try:
                 with _opener.open(req, timeout=30) as resp:
@@ -491,7 +578,31 @@ class CloudEngine:
                             log.info("[CLOUD] Deepgram transcription: %d chars", len(text))
                             return text
                     return ""
+            except HTTPError as exc:
+                # CR-47: 429 is the only retryable 4xx; honor Retry-After
+                # and retry once. All other 4xx/5xx surface immediately.
+                if exc.code == 429 and not retried_429 and attempt < max_retries - 1:
+                    retried_429 = True
+                    wait = _parse_retry_after(exc.headers.get("Retry-After"))
+                    log.warning(
+                        "[CLOUD] Deepgram got 429 (attempt %d/%d); honoring Retry-After, retrying once in %.1fs",
+                        attempt + 1,
+                        max_retries,
+                        wait,
+                    )
+                    import time as _time
+
+                    _time.sleep(wait)
+                    continue
+                safe_msg = redact_secret(redact_url(str(exc)))
+                log.error(
+                    "[CLOUD] Deepgram HTTP %d error (not retried): %s",
+                    exc.code,
+                    safe_msg,
+                )
+                raise RuntimeError(f"Deepgram API error (HTTP {exc.code})") from exc
             except URLError as exc:
+                # CR-48: URLError (non-HTTPError) = transient network error.
                 if attempt < max_retries - 1:
                     import time as _time
 

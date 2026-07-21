@@ -198,8 +198,39 @@ class LLMPolisher:
         allowlist before sending any text.  This prevents an
         endpoint-swap attack from exfiltrating transcribed speech
         text even if SEC-002's allowlist is somehow bypassed.
+
+        CR-10: Apply PII redaction to the user-content text BEFORE
+        sending to the LLM API. This is defense-in-depth against
+        template ``{clipboard}`` substitution (which can inject
+        passwords, 2FA codes, private messages from the user's
+        clipboard into the LLM-bound text). The redaction patterns
+        cover credit cards, SSNs, email addresses, phone numbers,
+        and API keys. The redacted text is what's sent to the API;
+        the original (un-redacted) text is what's returned to the
+        user for pasting.
         """
         assert_url_allowed(self.api_url, field_name="llm_api_url", client_name="llm_polish")
+
+        # CR-10: redact PII from the user-content text before API send.
+        # ``redact_pii`` is the same helper used by the log redaction
+        # filter — it covers credit cards, SSNs, emails, phone numbers,
+        # and common API-key formats. This is a defense-in-depth gate:
+        # if a template's ``{clipboard}`` substitution injects
+        # sensitive clipboard content, the redaction strips the most
+        # common PII patterns before the text leaves the device.
+        try:
+            from voice_typer.server.security import redact_pii
+
+            redacted_text = redact_pii(text)
+            if redacted_text != text:
+                log.info(
+                    "[LLM_POLISH] CR-10: redacted PII from %d chars of user-content before API send (delta=%d chars)",
+                    len(text),
+                    len(text) - len(redacted_text),
+                )
+                text = redacted_text
+        except Exception:
+            log.debug("[LLM_POLISH] CR-10: redact_pii failed — sending original text", exc_info=True)
 
         payload = json.dumps(
             {

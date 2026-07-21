@@ -413,8 +413,8 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
             hidden,
         )
         return child
-    except FileNotFoundError as exc:
-        log.error("[AUTOSTART] npm not found: %s", exc)
+    except FileNotFoundError:
+        log.exception("[AUTOSTART] npm not found")
         _close_log_files(spawn_kwargs)
         return None
     except Exception:

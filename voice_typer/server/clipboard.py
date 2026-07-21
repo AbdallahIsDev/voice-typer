@@ -824,7 +824,7 @@ class ClipboardManager:
             pass
         return None
 
-    def copy(self, text: str) -> "ClipboardSnapshot | None":
+    def copy(self, text: str) -> ClipboardSnapshot | None:
         """Copy text to the clipboard. Returns a snapshot of the prior content.
 
         ADR-0010 §5.2 / DP4 / DP7.
@@ -966,7 +966,7 @@ class ClipboardManager:
 
     def paste(
         self,
-        snapshot: "ClipboardSnapshot | None" = None,
+        snapshot: ClipboardSnapshot | None = None,
         restore_delay: float | None = None,
         pasted_text: str | None = None,
         force: bool = False,
@@ -1217,6 +1217,7 @@ class ClipboardManager:
         snapshot: "ClipboardSnapshot",
         pasted_text: str,
         delay: float,
+        pending_entry: Any = None,
     ) -> None:
         """Restore a snapshot after a delay. Runs on a daemon thread.
 
@@ -1225,6 +1226,16 @@ class ClipboardManager:
         Defensive check: if the clipboard no longer contains
         ``pasted_text`` (user copied something else, or target app
         rewrote it), skip restore to avoid clobbering the new content.
+
+        CR-3 fix: the ``pending_entry`` parameter is the tuple that
+        ``paste()`` appended to ``_pending_restores`` before spawning
+        this daemon thread. The entry is removed from the list in the
+        ``finally`` block below so the list does not grow unboundedly
+        across many paste invocations (memory leak) and so the atexit
+        handler does not double-restore an already-restored snapshot.
+        The default ``None`` preserves backward compatibility with
+        legacy 3-arg direct calls (e.g. existing tests at
+        ``tests/test_clipboard_borrow_restore.py:301/318``).
         """
         try:
             time.sleep(delay)
@@ -1249,8 +1260,21 @@ class ClipboardManager:
                 )
         except Exception:
             log.exception("[CLIPBOARD] Delayed restore failed")
+        finally:
+            # CR-3: remove this entry from _pending_restores under the
+            # lock. ValueError is benign — the atexit handler may have
+            # already cleared the list while the daemon thread slept.
+            if pending_entry is not None:
+                try:
+                    with _pending_restores_lock:
+                        try:
+                            _pending_restores.remove(pending_entry)
+                        except ValueError:
+                            pass  # already removed by atexit or another path
+                except Exception:  # pragma: no cover — catastrophic lock failure
+                    log.exception("[CLIPBOARD] Failed to remove pending restore entry")
 
-    def restore_now(self, snapshot: "ClipboardSnapshot | None") -> None:
+    def restore_now(self, snapshot: ClipboardSnapshot | None) -> None:
         """Restore a snapshot immediately (no paste keystroke, no delay).
 
         ADR-0010 §5.4 / DP2.
@@ -1289,7 +1313,7 @@ class ClipboardManager:
                 with contextlib.suppress(Exception):
                     self._keyboard.release(key)
 
-    def _send_ctrl_v_win32(self) -> None:
+    def _send_ctrl_v_win32(self) -> bool:
         """Send Ctrl+V via a single atomic SendInput batch.
 
         PLAT-001: On Windows, we always prefer SendInput over
@@ -1298,6 +1322,13 @@ class ClipboardManager:
         non-elevated one.  Our direct SendInput call is subject to the
         same UIPI restriction, but we log the failure explicitly
         instead of silently dropping it.
+
+        Returns ``True`` if the full Ctrl+V sequence was delivered
+        (SendInput returned 4) OR the pynput fallback was invoked
+        (best-effort — assumed success since pynput raises on failure).
+        Returns ``False`` on partial success (SendInput returned 1..3)
+        so the caller can surface a warning without risking a
+        double-paste.
         """
         import ctypes
 
@@ -1386,7 +1417,7 @@ class ClipboardManager:
                     SendInput(2, ctypes.byref(release_events), ctypes.sizeof(INPUT))
                 except Exception:
                     log.debug("[CLIPBOARD] failed to synthesize KEYUP cleanup", exc_info=True)
-                return  # paste did not complete cleanly; do not proceed
+                return False  # paste did not complete cleanly; do not proceed
 
             # result == 0: complete failure — safe to fall back to pynput
             # (no events were delivered, so no double-paste risk).
@@ -1395,3 +1426,7 @@ class ClipboardManager:
             # Note: pynput.keyboard.Controller is also subject to UIPI,
             # so this may also fail silently.
             self._safe_key_press(_Key.ctrl, "v")
+            return True  # pynput fallback invoked — best-effort success
+
+        # SendInput returned 4 — full Ctrl+V sequence delivered.
+        return True

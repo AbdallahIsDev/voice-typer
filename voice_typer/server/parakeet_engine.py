@@ -316,7 +316,7 @@ class ParakeetEngine:
                         resume_download=True,
                     )
                 except Exception as exc:
-                    log.error("[PARAKEET] Model download failed: %s", exc)
+                    log.exception("[PARAKEET] Model download failed")
                     if progress_callback:
                         progress_callback(f"Download failed: {exc}")
                     return False
@@ -441,7 +441,7 @@ class ParakeetEngine:
                 return True
 
             except ImportError as exc:
-                log.error("[PARAKEET] transformers package not installed: %s", exc)
+                log.exception("[PARAKEET] transformers package not installed")
                 if progress_callback:
                     progress_callback(f"Missing dependency: {exc}")
                 return False
@@ -451,7 +451,7 @@ class ParakeetEngine:
                     progress_callback("Loading cancelled")
                 return False
             except Exception as exc:
-                log.error("[PARAKEET] Failed to load model: %s", exc)
+                log.exception("[PARAKEET] Failed to load model")
                 if progress_callback:
                     progress_callback(f"Model load failed: {exc}")
                 return False

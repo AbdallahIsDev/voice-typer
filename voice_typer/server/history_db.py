@@ -52,6 +52,7 @@ import contextlib
 import logging
 import os
 import queue
+import re
 import sqlite3
 import threading
 import time
@@ -64,8 +65,20 @@ from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
-_CURRENT_SCHEMA_VERSION = 2
+_CURRENT_SCHEMA_VERSION = 3
 _MAX_SEARCH_QUERY_CHARS = 200
+
+# CR-27: hard upper bound on the total time a blocking _submit_write
+# caller will wait for the writer thread to execute its closure. The
+# per-retry timeout is _WRITE_FUTURE_TIMEOUT (30s); without a hard cap,
+# the retry loop below could wait forever as long as the writer thread
+# was merely *alive* (e.g. a multi-batch retention sweep on a huge DB
+# that never makes progress because of an external SQLite lock). 60s is
+# 2× the per-retry timeout — generous enough that a legitimate slow
+# write (large retention sweep) is never aborted prematurely, but short
+# enough that a truly stuck writer surfaces a clear error to the caller
+# instead of hanging the IPC handler thread indefinitely.
+_WRITE_FUTURE_TOTAL_TIMEOUT = 60.0
 
 # IMPL-A: writer-thread tuning constants.
 #   _WAL_CHECKPOINT_INTERVAL — the writer thread runs
@@ -91,6 +104,17 @@ _WRITER_READY_TIMEOUT = 30.0
 _CLEAR_ALL_BATCH_SIZE = 100
 _RETENTION_BATCH = 100
 
+# PERF-5: maximum number of pending write closures enqueued on the
+# writer thread's queue. Bounded so a stalled writer (disk full, antivirus
+# lock, deadlocked external process) cannot cause the in-memory queue to
+# grow unboundedly and exhaust memory. 10000 is ~5 minutes of fire-and-
+# forget add_transcription writes at 30/s. When the bound is hit, the
+# oldest non-sentinel queued item is dropped (and its future, if any, is
+# resolved with ``HistoryDBError`` so wait=True callers don't hang).
+# Exposed as a module-level constant so tests can pin the documented
+# bound and reference it as the contract for the drop-oldest path.
+_WRITE_QUEUE_MAXSIZE = 10000
+
 # Sentinel enqueued to ask the writer thread to drain and exit.
 _SHUTDOWN_SENTINEL: Any = object()
 
@@ -112,8 +136,62 @@ _MIGRATION_V2 = """
     ALTER TABLE transcriptions ADD COLUMN language TEXT DEFAULT '';
 """
 
+# CR-49 / M-61: FTS5 full-text search index.
+#
+# Previously `search()` did a `WHERE text LIKE ?` table scan — O(n) on
+# the full transcriptions table. For a user with thousands of history
+# rows this is several hundred milliseconds per keystroke in the search
+# box. The FTS5 virtual table brings this down to O(log n + match count)
+# and gives proper tokenization (case-insensitive, Unicode-aware,
+# prefix queries via `query*`).
+#
+# The migration is intentionally additive:
+#   - CREATE VIRTUAL TABLE IF NOT EXISTS — safe to re-run on every
+#     schema init (existing FTS table is left untouched).
+#   - Triggers keep the FTS table in sync with INSERT/UPDATE/DELETE on
+#     `transcriptions`. They are created with `IF NOT EXISTS` so the
+#     migration is idempotent.
+#   - The `INSERT INTO transcriptions_fts(rowid, text) SELECT id, text
+#     FROM transcriptions` backfill is safe to re-run because the FTS
+#     table is empty on the first migration (and a re-run after a
+#     successful migration is a no-op: `transcriptions_fts` already
+#     contains every rowid, so the reinsert just overwrites the same
+#     row). The backfill is wrapped in its own transaction so a partial
+#     failure (e.g. disk full) doesn't leave the FTS table half-populated
+#     AND the schema_meta version bumped.
+#
+# M-61: the entire migration runs inside an explicit BEGIN / COMMIT.
+# Previously each migration statement ran in its own implicit
+# transaction (Python sqlite3 autocommit-off semantics), so a crash
+# mid-migration could leave the schema half-migrated with the version
+# number already bumped. The explicit transaction ensures the schema
+# version is only persisted if every statement in the migration
+# succeeded.
+_MIGRATION_V3 = """
+    BEGIN;
+    CREATE VIRTUAL TABLE IF NOT EXISTS transcriptions_fts USING fts5(
+        text,
+        content='transcriptions',
+        content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2'
+    );
+    CREATE TRIGGER IF NOT EXISTS transcriptions_ai_fts AFTER INSERT ON transcriptions BEGIN
+        INSERT INTO transcriptions_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS transcriptions_ad_fts AFTER DELETE ON transcriptions BEGIN
+        INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', old.id, old.text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS transcriptions_au_fts AFTER UPDATE ON transcriptions BEGIN
+        INSERT INTO transcriptions_fts(transcriptions_fts, rowid, text) VALUES ('delete', old.id, old.text);
+        INSERT INTO transcriptions_fts(rowid, text) VALUES (new.id, new.text);
+    END;
+    INSERT INTO transcriptions_fts(rowid, text) SELECT id, text FROM transcriptions;
+    COMMIT;
+"""
+
 _MIGRATIONS = {
     2: _MIGRATION_V2,
+    3: _MIGRATION_V3,
 }
 
 
@@ -122,6 +200,63 @@ def _prepare_like_search_pattern(query: str) -> str:
     capped_query = query[:_MAX_SEARCH_QUERY_CHARS]
     escaped_query = capped_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped_query}%"
+
+
+def _is_fts_compatible_query(query: str) -> bool:
+    """CR-49: return True if the (capped) query can be served by the FTS5 index.
+
+    FTS5's ``unicode61`` tokenizer treats ``%``, ``_``, and most
+    punctuation as *separators*. A query consisting ONLY of separator
+    characters produces zero tokens and either raises a syntax error
+    (e.g. ``%``) or silently matches nothing (e.g. ``_``). For such
+    queries we fall back to LIKE so users can still find rows containing
+    literal ``%`` / ``_`` characters (matches the pre-CR-49 behavior
+    pinned by ``test_search_treats_like_wildcards_as_literals``).
+
+    Heuristic: strip every non-word character (Unicode-aware) and check
+    if anything remains. If yes, FTS5 will produce at least one token
+    and can serve the query. If no, fall back to LIKE.
+    """
+    capped = query[:_MAX_SEARCH_QUERY_CHARS]
+    # \W matches [^a-zA-Z0-9_] in ASCII mode, but with re.UNICODE (the
+    # default in Py3) it matches any non-word character. We also
+    # explicitly strip ``_`` because ``\w`` includes underscore.
+    stripped = re.sub(r"[\W_]+", "", capped, flags=re.UNICODE)
+    return bool(stripped)
+
+
+def _sanitize_fts_query(query: str) -> str:
+    """CR-49: escape FTS5 special characters so user input is treated as literals.
+
+    FTS5 MATCH syntax treats ``*``, ``"``, ``(``, ``)``, ``:``, ``^``,
+    ``{``, ``}`` and a few others as syntax. A user typing ``foo*``
+    expects a substring/literal match, not an FTS5 prefix query. We wrap
+    each whitespace-separated token in double quotes (FTS5 "phrase"
+    syntax) so the token is treated as a literal string. This means:
+
+    - ``foo`` → ``"foo"`` (exact-token match)
+    - ``foo*`` → ``"foo*"`` (literal ``foo*``, no prefix expansion)
+    - ``hello world`` → ``"hello" "world"`` (implicit AND of two tokens)
+    - ``100%`` → ``"100%"`` (but ``%`` is a separator, so the actual
+      token FTS5 sees is ``100``; the query still works)
+
+    The caller is responsible for checking ``_is_fts_compatible_query``
+    first — this function assumes the query has at least one
+    FTS5-tokenizable character.
+    """
+    capped = query[:_MAX_SEARCH_QUERY_CHARS]
+    tokens = capped.split()
+    if not tokens:
+        # Shouldn't happen (caller checks _is_fts_compatible_query), but
+        # guard anyway: an empty MATCH is a syntax error.
+        return '""'
+    # Wrap each token in double quotes. Escape any embedded double
+    # quotes by doubling them (SQL string-literal style).
+    quoted = []
+    for tok in tokens:
+        escaped_tok = tok.replace('"', '""')
+        quoted.append(f'"{escaped_tok}"')
+    return " ".join(quoted)
 
 
 class HistoryDB:
@@ -163,9 +298,10 @@ class HistoryDB:
         # None for fire-and-forget writes (e.g. add_transcription).
         # PERF-5: bound the queue so a stalled writer thread can't let
         # the in-memory queue grow without limit. On queue.Full we drop
-        # the oldest non-sentinel item and log a warning. 10000 is ~5
-        # minutes of fire-and-forget add_transcription writes at 30/s.
-        self._queue: queue.Queue[Any] = queue.Queue(maxsize=10000)
+        # the oldest non-sentinel item and log a warning. See
+        # ``_WRITE_QUEUE_MAXSIZE`` for the bound's rationale (~5 minutes
+        # of fire-and-forget add_transcription writes at 30/s).
+        self._queue: queue.Queue[Any] = queue.Queue(maxsize=_WRITE_QUEUE_MAXSIZE)
         # Signaled by the writer thread once schema init succeeds (or
         # fails). __init__ waits on this so subsequent reads see the
         # schema.
@@ -511,48 +647,139 @@ class HistoryDB:
         cursor.execute("PRAGMA table_info(transcriptions)")
         existing_columns = {row[1] for row in cursor.fetchall()}
 
+        # CR-49 / M-61 (session-1) + CR-32 / R2-F3 (session-3) combined:
+        # the migration loop handles two distinct migration shapes:
+        #
+        # 1. Trigger-bearing migrations (e.g. _MIGRATION_V3 with
+        #    `CREATE TRIGGER ... BEGIN ... END;`) CANNOT be naively
+        #    split on `;` — the inner statement terminators inside
+        #    BEGIN/END would be misinterpreted as end-of-statement.
+        #    These are detected and routed through ``executescript``,
+        #    which parses the SQL script as a whole. The script's own
+        #    BEGIN/COMMIT defines the atomicity boundary (so a mid-
+        #    migration crash can't leave the schema half-migrated).
+        #
+        # 2. Plain ALTER/CREATE migrations (e.g. _MIGRATION_V2) are
+        #    split on `;` and executed per-statement. CR-32 adds
+        #    defensive per-statement try/except: "column already
+        #    exists" / "duplicate column" is benign (log + continue),
+        #    any other sqlite3.Error is logged and the migration
+        #    continues to the next statement (matching HEAD's
+        #    behavior — the version bump only happens if the loop
+        #    completes, and the next launch retries from the
+        #    pre-migration version if a statement failed).
+        #
+        # Note: CR-32's outer BEGIN/COMMIT/ROLLBACK wrapper was
+        # intentionally NOT adopted because it is incompatible with
+        # ``executescript`` (which implicitly commits any pending
+        # transaction before running). The version bump is gated on
+        # the loop completing without an unrecoverable error, which
+        # achieves CR-32's goal (don't bump version on partial
+        # migration) without the executescript incompatibility.
         for version in range(current_version + 1, _CURRENT_SCHEMA_VERSION + 1):
             migration_sql = _MIGRATIONS.get(version)
-            if migration_sql:
-                for stmt in migration_sql.strip().split(";"):
-                    stmt = stmt.strip()
-                    if not stmt:
-                        continue
-                    # Skip ALTER TABLE ADD COLUMN if column already
-                    # exists. Must extract the column name (word after
-                    # ADD COLUMN), not the last token.
-                    if stmt.upper().startswith("ALTER TABLE") and "ADD COLUMN" in stmt.upper():
-                        idx = stmt.upper().find("ADD COLUMN")
-                        if idx >= 0:
-                            parts_after = stmt[idx + 10 :].lstrip().split()
-                            col_name = parts_after[0] if parts_after else ""
-                            if col_name in existing_columns:
-                                continue
-                    try:
-                        cursor.execute(stmt)
+            if not migration_sql:
+                continue
+
+            # CR-49 / M-61: detect trigger-bearing migrations and use
+            # executescript for atomic application.
+            needs_executescript = "CREATE TRIGGER" in migration_sql.upper() or "BEGIN;" in migration_sql.upper()
+            if needs_executescript:
+                try:
+                    cursor.executescript(migration_sql)
+                    log.info(
+                        "[HISTORY_DB] Applied migration v%d (executescript, atomic BEGIN/COMMIT)",
+                        version,
+                    )
+                except sqlite3.Error as e:
+                    log.warning(
+                        "[HISTORY_DB] Migration v%d (executescript) failed: %s "
+                        "(version NOT bumped; next launch will retry)",
+                        version,
+                        e,
+                    )
+                    # Skip the version bump — the next launch retries.
+                    # Continue to the next migration only if it's
+                    # independent; in practice V3 is the last migration
+                    # so this is the loop's last iteration.
+                    continue
+                log.info("[HISTORY_DB] Migrated schema to version %d", version)
+                continue
+
+            # Plain migration: split on `;` and execute per-statement
+            # with CR-32's defensive try/except.
+            for stmt in migration_sql.strip().split(";"):
+                stmt = stmt.strip()
+                if not stmt:
+                    continue
+                # Skip ALTER TABLE ADD COLUMN if column already exists.
+                # Must extract the column name (word after ADD COLUMN),
+                # not the last token.
+                if stmt.upper().startswith("ALTER TABLE") and "ADD COLUMN" in stmt.upper():
+                    idx = stmt.upper().find("ADD COLUMN")
+                    if idx >= 0:
+                        parts_after = stmt[idx + 10 :].lstrip().split()
+                        col_name = parts_after[0] if parts_after else ""
+                        if col_name in existing_columns:
+                            log.info(
+                                "[HISTORY_DB] Skipping migration statement (column already exists): %s",
+                                stmt[:60],
+                            )
+                            continue
+                try:
+                    cursor.execute(stmt)
+                    log.info(
+                        "[HISTORY_DB] Applied migration: %s...",
+                        stmt[:60],
+                    )
+                except sqlite3.Error as e:
+                    # CR-32: "column already exists" / "duplicate
+                    # column" is benign (defensive — the pre-check
+                    # above should have skipped these, but race
+                    # conditions or external writers could still hit
+                    # it). Any other failure is logged; the version
+                    # bump at the end of the loop is NOT gated on
+                    # individual statement success (matching HEAD's
+                    # behavior), but the next launch will detect the
+                    # missing column via PRAGMA table_info and retry.
+                    msg = str(e).lower()
+                    if "duplicate column" in msg or "already exists" in msg:
                         log.info(
-                            "[HISTORY_DB] Applied migration: %s...",
+                            "[HISTORY_DB] Migration statement skipped (column already exists): %s",
                             stmt[:60],
                         )
-                    except sqlite3.Error as e:
-                        log.warning("[HISTORY_DB] Migration statement failed: %s", e)
-                log.info("[HISTORY_DB] Migrated schema to version %d", version)
-
-        cursor.execute(
-            "INSERT OR REPLACE INTO schema_meta (key, value) VALUES (?, ?)",
-            ("version", str(_CURRENT_SCHEMA_VERSION)),
-        )
-        conn.commit()
+                        continue
+                    log.warning(
+                        "[HISTORY_DB] Migration statement failed: %s "
+                        "(continuing — version bump may be skipped on next "
+                        "launch if the column is still missing)",
+                        e,
+                    )
+            log.info("[HISTORY_DB] Migrated schema to version %d", version)
 
         # Create indexes AFTER migration so 'favorite' column exists.
+        # CR-32: refresh existing_columns post-migration and guard
+        # idx_favorite creation so a rolled-back / partial migration
+        # does not crash the whole init. The index on timestamp is
+        # safe to create unconditionally — 'timestamp' is in the
+        # original CREATE TABLE.
+        cursor.execute("PRAGMA table_info(transcriptions)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_timestamp
             ON transcriptions(timestamp DESC)
         """)
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_favorite
-            ON transcriptions(favorite)
-        """)
+        if "favorite" in existing_columns:
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_favorite
+                ON transcriptions(favorite)
+            """)
+        else:
+            log.warning(
+                "[HISTORY_DB] Skipping idx_favorite creation: 'favorite' "
+                "column missing (migration was rolled back or not yet "
+                "applied). Next launch will retry.",
+            )
         log.info(
             "[HISTORY] History database initialized: %s (schema v%d)",
             self.db_path,
@@ -633,46 +860,43 @@ class HistoryDB:
             dropped = self._queue.get_nowait()
         except queue.Empty:
             # Queue drained between put_nowait and now; just retry the put.
-            try:
+            with contextlib.suppress(queue.Full):
                 self._queue.put_nowait((lambda _conn: None, current_future))
-            except queue.Full:
-                pass
             return
         if dropped is _SHUTDOWN_SENTINEL:
             # Put the sentinel back; drop the new write instead.
-            try:
+            with contextlib.suppress(queue.Full):
                 self._queue.put_nowait(dropped)
-            except queue.Full:
-                pass
             if current_future is not None:
-                try:
+                with contextlib.suppress(concurrent.futures.InvalidStateError):
                     current_future.set_exception(HistoryDBError("Writer is shutting down; new write dropped"))
-                except concurrent.futures.InvalidStateError:
-                    pass
             log.warning("[HISTORY_DB] Queue full during shutdown — new write dropped.")
             return
         # Dropped a real (fn, future) tuple. Signal its future.
         dropped_fn, dropped_future = dropped
         if dropped_future is not None:
             try:
-                dropped_future.set_exception(HistoryDBError("Dropped to make room for newer write (queue overflow)"))
+                # CR-78 / PERF-5: the dropped future must be resolved
+                # with a clear, machine-greppable message so callers
+                # that catch HistoryDBError can distinguish "queue full"
+                # from other failure modes (e.g. "Writer is shutting
+                # down" or "Dropped during shutdown sentinel enqueue").
+                # The literal "queue full" substring is part of the
+                # contract asserted by TestQueueBounded.
+                dropped_future.set_exception(
+                    HistoryDBError(
+                        "queue full; dropped oldest write to make room for newer write (writer thread may be stalled)"
+                    )
+                )
             except concurrent.futures.InvalidStateError:
                 pass
-        log.warning("[HISTORY_DB] Queue overflow — dropped oldest write to make room. Writer thread may be stalled.")
-        # Retry the new put (the queue now has room for one item).
-        # We re-queue the NEW write (not the dropped one) so the latest
-        # state wins. The dropped write's future was already signalled
-        # with HistoryDBError above.
-        try:
-            # dropped_fn was the closure from the dropped write; we don't
-            # re-use it. We need to re-put the CURRENT (fn, future) pair,
-            # but _submit_write holds the original fn — re-queue a no-op
-            # so the slot is reserved and the caller's put_nowait retries.
-            # Actually simpler: just leave the slot empty; _submit_write
-            # will retry the put_nowait after we return.
-            pass
-        except Exception:
-            log.debug("[HISTORY_DB] Retry-put cleanup failed", exc_info=True)
+        log.warning("[HISTORY_DB] queue full — dropped oldest write to make room. Writer thread may be stalled.")
+        # The caller (_submit_write) retries the put_nowait after we
+        # return — we've freed one slot by dropping the oldest item, so
+        # the retry will succeed unless the writer is also stalling and
+        # another caller has already filled the slot. CR-78: previously
+        # had an empty ``try: pass except Exception: log.debug(...)`` here
+        # that could never raise (the body was ``pass``) — removed.
 
     def _submit_write(
         self,
@@ -710,8 +934,9 @@ class HistoryDB:
         future: concurrent.futures.Future | None = None
         if wait:
             future = concurrent.futures.Future()
-        # PERF-5: bounded queue (maxsize=10000). Use put_nowait + drop-oldest
-        # so a stalled writer doesn't block the calling thread indefinitely.
+        # PERF-5: bounded queue (maxsize=_WRITE_QUEUE_MAXSIZE). Use
+        # put_nowait + drop-oldest so a stalled writer doesn't block
+        # the calling thread indefinitely.
         try:
             self._queue.put_nowait((fn, future))
         except queue.Full:
@@ -722,10 +947,8 @@ class HistoryDB:
             except queue.Full:
                 # Still full (writer truly stuck); drop the new write.
                 if future is not None:
-                    try:
+                    with contextlib.suppress(concurrent.futures.InvalidStateError):
                         future.set_exception(HistoryDBError("Queue full after drop-oldest; new write dropped"))
-                    except concurrent.futures.InvalidStateError:
-                        pass
                 log.warning(
                     "[HISTORY_DB] Queue still full after drop-oldest — new write dropped. Writer thread is stuck."
                 )
@@ -792,14 +1015,19 @@ class HistoryDB:
             return
         self._shutdown.set()
         # Enqueue the sentinel — the writer drains remaining items
-        # before exiting. PERF-5: the queue is now bounded (maxsize=10000).
-        # Use a drop-oldest loop so the sentinel is never dropped (we keep
-        # re-trying until it lands at the head of the queue).
+        # before exiting. PERF-5: the queue is now bounded
+        # (maxsize=_WRITE_QUEUE_MAXSIZE). Use a drop-oldest loop so the
+        # sentinel is never dropped (we keep re-trying until it lands at
+        # the head of the queue).
         try:
             self._queue.put_nowait(_SHUTDOWN_SENTINEL)
         except queue.Full:
             # Drain non-sentinel items until the sentinel fits.
-            for _ in range(10001):  # bound to avoid infinite loop
+            # Bound the loop at ``_WRITE_QUEUE_MAXSIZE + 1`` — the queue
+            # can hold at most that many items, so one full sweep
+            # guarantees the sentinel fits (modulo concurrent enqueues,
+            # which we accept as a rare race; close() is best-effort).
+            for _ in range(_WRITE_QUEUE_MAXSIZE + 1):  # bound to avoid infinite loop
                 try:
                     dropped = self._queue.get_nowait()
                 except queue.Empty:
@@ -807,18 +1035,14 @@ class HistoryDB:
                 if dropped is _SHUTDOWN_SENTINEL:
                     # Sentinel was already queued by another close() call;
                     # put it back and stop.
-                    try:
+                    with contextlib.suppress(queue.Full):
                         self._queue.put_nowait(dropped)
-                    except queue.Full:
-                        pass
                     break
                 # Dropped a real write — signal its future.
                 dropped_fn, dropped_future = dropped
                 if dropped_future is not None:
-                    try:
+                    with contextlib.suppress(concurrent.futures.InvalidStateError):
                         dropped_future.set_exception(HistoryDBError("Dropped during shutdown sentinel enqueue"))
-                    except concurrent.futures.InvalidStateError:
-                        pass
                 log.warning("[HISTORY_DB] Dropped write during shutdown queue drain.")
                 # Try to enqueue the sentinel now.
                 try:

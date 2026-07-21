@@ -32,7 +32,24 @@ from urllib.parse import urlparse
 log = logging.getLogger("voice_typer.server.config_validators")
 
 
-ALLOWED_USER_MODELS = {"tiny.en", "small.en", "medium.en", "qwen", "parakeet"}
+# CR-38: extended to include the multilingual variants (tiny/small/medium,
+# no .en suffix) that OnboardingController.MODEL_OPTIONS offers to users.
+# Without these, non-English users who pick a multilingual model in
+# onboarding silently get English-only Whisper after the first restart
+# (Config.load() resets model_size to "small.en" because the multilingual
+# name is not in the allowlist). large-v3 is intentionally NOT included
+# because the existing test_load_normalizes_legacy_or_unsupported_model_to_small_en
+# regression test pins it to normalize to "small.en" (legacy/unsupported).
+ALLOWED_USER_MODELS = {
+    "tiny.en",
+    "small.en",
+    "medium.en",  # English-only Whisper
+    "tiny",
+    "small",
+    "medium",  # Multilingual Whisper (CR-38)
+    "qwen",
+    "parakeet",  # Non-Whisper backends
+}
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -111,6 +128,12 @@ def _make_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
             return f"must be a string, got {type(v).__name__}"
         if len(v) > max_len:
             return f"exceeds maximum length {max_len}"
+        # CR-26: Reject C0 control characters and DEL (0x7f) to prevent
+        # log poisoning, header injection, and config.json truncation.
+        for ch in v:
+            o = ord(ch)
+            if o < 0x20 or o == 0x7F:
+                return f"contains control character (ord={o})"
         return None
 
     return _validate
@@ -124,6 +147,11 @@ def _make_optional_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
             return f"must be a string or null, got {type(v).__name__}"
         if len(v) > max_len:
             return f"exceeds maximum length {max_len}"
+        # CR-26: Reject C0 control characters and DEL (0x7f).
+        for ch in v:
+            o = ord(ch)
+            if o < 0x20 or o == 0x7F:
+                return f"contains control character (ord={o})"
         return None
 
     return _validate
@@ -710,9 +738,7 @@ IPC_CONFIG_ALLOWLIST: dict = {
     # ── Volume ducking (v1.1.0) ───────────────────────────────────────
     "volume_duck_enabled": (bool, _bool_validator),
     "volume_duck_level": (float, _make_float_validator(lo=0.0, hi=1.0)),
-    "volume_duck_per_session": (bool, _bool_validator),
     "volume_duck_fade_ms": (int, _make_int_validator(lo=0, hi=1000)),
-    "volume_duck_smart": (bool, _bool_validator),
     "volume_duck_smart_poll_interval_ms": (int, _make_int_validator(lo=50, hi=5000)),
     # ── Audio enhancement preset (ADR 0007) ───────────────────────────
     "audio_preset": (
@@ -730,16 +756,16 @@ IPC_CONFIG_ALLOWLIST: dict = {
         ),
     ),
     # ── Noise filtering (ADR 0007 — filter chain) ────────────────────
-    "noise_filter_enabled": (bool, _bool_validator),  # DEPRECATED
+    # CR-32: Removed deprecated fields: noise_filter_enabled,
+    # noise_filter_gate_threshold, noise_filter_rnnoise,
+    # noise_filter_post_capture. Use noise_suppression_method + the
+    # gate_*_db fields below instead.
     "noise_filter_highpass": (bool, _bool_validator),
     "noise_filter_highpass_cutoff_hz": (float, _make_float_validator(lo=20.0, hi=500.0)),
     "noise_filter_gate": (bool, _bool_validator),
-    "noise_filter_gate_threshold": (float, _make_float_validator(lo=0.0, hi=0.1)),  # DEPRECATED
     "noise_filter_gate_hold_ms": (float, _make_float_validator(lo=0.0, hi=1000.0)),
-    "noise_filter_rnnoise": (bool, _bool_validator),  # DEPRECATED
-    "noise_filter_post_capture": (bool, _bool_validator),  # DEPRECATED
     # ADR 0007 §5.1: New filter chain fields
-    "noise_suppression_method": (str, _make_enum_validator({"rnnoise", "deepfilternet", "speex", "none"})),
+    "noise_suppression_method": (str, _make_enum_validator({"rnnoise", "deepfilternet", "none"})),
     "noise_filter_gate_open_threshold_db": (float, _make_float_validator(lo=-96.0, hi=0.0)),
     "noise_filter_gate_close_threshold_db": (float, _make_float_validator(lo=-96.0, hi=0.0)),
     "noise_filter_gate_attack_ms": (float, _make_float_validator(lo=0.0, hi=10000.0)),
@@ -777,9 +803,9 @@ def validate_config_update(data: dict) -> tuple[dict, list]:
         ``validated`` is the subset of ``data`` whose keys are in
         :data:`IPC_CONFIG_ALLOWLIST` and whose values passed their
         validators.  ``errors`` is a list of human-readable error
-        strings for the first invalid field encountered (the function
-        stops at the first error to keep messages actionable; the
-        dispatcher treats the entire payload atomically — see
+        strings for ALL invalid fields encountered (CR-25: the function
+        accumulates all errors rather than stopping at the first — the
+        dispatcher treats the entire payload atomically, see
         ``ipc_server.set_config``).
 
         Unknown keys are silently dropped (no error, no log entry beyond
@@ -832,11 +858,13 @@ def validate_config_update(data: dict) -> tuple[dict, list]:
                 else expected_type.__name__
             )
             errors.append(f"field {k!r} must be {type_name}, got {type(v).__name__}")
-            break
+            # CR-25: accumulate ALL errors, do not break on first.
+            continue
         err = validator(v)
         if err is not None:
             errors.append(f"field {k!r} {err}")
-            break
+            # CR-25: accumulate ALL errors, do not break on first.
+            continue
         validated[k] = v
     return validated, errors
 
@@ -882,17 +910,14 @@ __all__ = [
     # Public API
     "IPC_CONFIG_ALLOWLIST",
     "validate_config_update",
-    # ARCH-14: extracted hotkey validation stage helpers
-    "_check_hotkey_type",
-    "_check_hotkey_length",
-    "_check_hotkey_not_empty",
-    "_check_hotkey_has_parts",
-    "_check_universal_reserved_shortcut",
-    "_check_per_platform_shortcut",
-    "_check_single_alphanumeric",
-    "_check_win_key_on_windows",
-    "_check_cmd_letter_on_macos",
-    "_check_alt_shift_on_windows",
+    # ARCH-14: extracted hotkey validation stage helpers (CR-29 / CR-22:
+    # reconciled with actual function names — the prior list referenced
+    # 9 nonexistent symbols that caused F822 × 9 hard-fail in CI).
+    "_check_basic_shape",
+    "_check_universal_reserved",
+    "_check_platform_reserved",
+    "_check_os_shell_combos",
+    "_check_alt_shift",
     "_check_ctrl_letter",
     "_check_shift_letter",
 ]

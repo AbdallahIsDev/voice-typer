@@ -245,7 +245,10 @@ class StartupSequence:
                         f"Recovered {len(unpasted)} transcription(s) from last session. Open History to view.",
                     )
             except Exception:
-                log.debug("[STARTUP] Crash recovery check failed")
+                # M-67: promote debug→warning so the failure surfaces in
+                # the default log; include the traceback so operators can
+                # diagnose why crash-recovery check failed.
+                log.warning("[STARTUP] Crash recovery check failed", exc_info=True)
 
         # DEAD-012: apply history retention policy at startup.
         # Previously the config keys were saved but never read.
@@ -274,13 +277,21 @@ class StartupSequence:
                     retention_count=app.config.history_retention_count,
                 )
             except Exception:
-                log.debug("[STARTUP] History retention apply failed")
+                # M-67: promote debug→warning so the failure surfaces in
+                # the default log; include the traceback so operators can
+                # diagnose why history-retention apply failed.
+                log.warning("[STARTUP] History retention apply failed", exc_info=True)
             finally:
                 # Clear the stop_event so the registry's join sees a
                 # finished thread (defensive — the thread exits on its
                 # own, but this makes the contract explicit).
                 with contextlib.suppress(Exception):
-                    stop_event.set()  # type: ignore[unused-ignore]
+                    # L-6 (IMPROVE-2026-07-19): removed dead
+                    # `# type: ignore[unused-ignore]` meta-suppression —
+                    # there was no other `# type: ignore` on this line
+                    # to suppress the "unused ignore" warning for. The
+                    # `stop_event.set()` call has no type issues.
+                    stop_event.set()
 
         retention_thread = _threading.Thread(
             target=_apply_retention_bg,
@@ -377,7 +388,10 @@ class StartupSequence:
                         f"and add {APP_NAME} (or Terminal).",
                     )
             except Exception:
-                log.debug("[STARTUP] macOS accessibility check failed")
+                # M-67: promote debug→warning so the failure surfaces in
+                # the default log; include the traceback so operators can
+                # diagnose why the macOS accessibility check failed.
+                log.warning("[STARTUP] macOS accessibility check failed", exc_info=True)
 
             # PLAT-009: Start a periodic accessibility health monitor.
             # If the user grants permission AFTER startup, the app will

@@ -83,6 +83,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from typing import Any
 
 log = logging.getLogger("voice_typer.server.credential_store")
@@ -120,6 +121,118 @@ CONFIG_FIELD_TO_PROVIDER: dict[str, str] = {v: k for k, v in PROVIDER_TO_CONFIG_
 #: renderer tooltip concise and bounds the amount of keyring-backend
 #: error text we surface over IPC or write to logs.
 _REASON_MAX_LEN = 200
+
+# CR-94: thread-local record of the most recent ``store_secret`` outcome.
+# Used by :func:`last_store_outcome` so the IPC handler (Fix-G) can
+# surface ``{"stored_in": "keyring"|"plaintext", "provider": "...",
+# "reason": "..."}`` in the ``set_config`` ack payload WITHOUT changing
+# ``store_secret``'s return type from ``bool``. The state is thread-local
+# because the IPC server is multi-threaded and the call to
+# ``store_secret`` and the subsequent call to ``last_store_outcome``
+# always happen on the same IPC handler thread (no inter-thread hand-off).
+#
+# ``_last_store_outcome`` is a ``threading.local()`` instance whose
+# ``outcome`` attribute is a dict (or None before the first store on
+# that thread). We use ``threading.local`` directly (rather than a
+# ``threading.Lock`` + dict[thread_id, dict]) so we don't accumulate
+# stale entries for threads that have exited.
+_last_store_outcome = threading.local()
+
+
+def _set_last_store_outcome(
+    stored_in: str,
+    reason: str | None,
+    provider: str | None = None,
+) -> None:
+    """Record the outcome of the most recent ``store_secret`` call.
+
+    Called from inside :func:`store_secret` on every code path that
+    returns. Stored in thread-local state so a subsequent
+    :func:`last_store_outcome` call on the same thread returns the
+    matching outcome.
+
+    Parameters
+    ----------
+    stored_in : str
+        ``"keyring"`` if the secret was stored in the OS keychain, or
+        ``"plaintext"`` if it was written to ``config.json`` as a
+        fallback. ``"deleted"`` is used when an empty value triggered
+        :func:`delete_secret` (so the caller can distinguish a delete
+        from a real store).
+    reason : str | None
+        Short, redacted reason string when ``stored_in`` is
+        ``"plaintext"`` (the keyring exception message passed through
+        :func:`_redact_sensitive`). ``None`` for the keyring-success
+        and delete paths.
+    provider : str | None
+        The provider name passed to ``store_secret`` (e.g.
+        ``"openai"``, ``"groq"``). Included so the IPC handler can
+        build a more informative ack message (e.g. "OpenAI API key
+        stored in plaintext because ...") without re-deriving it from
+        the call site. ``None`` only on the ``unknown`` (no-store-yet)
+        path.
+    """
+    _last_store_outcome.outcome = {
+        "stored_in": stored_in,
+        "reason": _redact_sensitive(reason) if reason else None,
+        "provider": provider,
+    }
+
+
+def last_store_outcome() -> dict[str, Any]:
+    """Return the outcome of the most recent ``store_secret`` call.
+
+    CR-94: ``store_secret`` returns a plain ``bool`` and silently
+    falls back to plaintext on keyring failure. The IPC handler
+    (``set_config`` — Fix-G's territory) needs to surface *why* the
+    store fell back so the renderer can show a "your API key was
+    stored in plaintext because <reason>" warning. Rather than change
+    ``store_secret``'s return type (which would break every caller),
+    we record the outcome in thread-local state and expose it via
+    this function.
+
+    The state is thread-local so concurrent IPC handler threads don't
+    stomp each other's outcomes. The IPC handler always calls
+    ``store_secret`` and ``last_store_outcome`` on the same thread
+    (no inter-thread hand-off), so this is safe.
+
+    Returns
+    -------
+    dict with keys:
+        - ``stored_in`` (str): one of
+              * ``"keyring"``    — secret stored in OS keychain.
+              * ``"plaintext"``  — secret written to ``config.json``
+                as a fallback (keyring was unavailable or errored).
+              * ``"deleted"``    — empty value triggered a delete.
+              * ``"unknown"``    — no ``store_secret`` call has been
+                made on this thread yet (e.g. on a fresh IPC handler
+                thread that has only served read requests).
+        - ``reason`` (str | None): a short, redacted reason string
+          when ``stored_in`` is ``"plaintext"`` (the keyring exception
+          message, with paths / API-key-like substrings stripped by
+          :func:`_redact_sensitive`). ``None`` for the keyring-success,
+          delete, and unknown paths.
+        - ``provider`` (str | None): the provider name passed to the
+          most recent ``store_secret`` call (e.g. ``"openai"``).
+          Included so the IPC handler can build a more informative
+          ack message (e.g. "OpenAI API key stored in plaintext
+          because ...") without re-deriving it from the call site.
+          ``None`` only on the ``unknown`` (no-store-yet) path.
+
+    Notes
+    -----
+    The returned ``reason`` is passed through :func:`_redact_sensitive`
+    before being stored, so it never contains a filesystem path or an
+    API-key-like substring. Suitable for direct inclusion in an IPC
+    ack payload that the renderer displays to the user.
+    """
+    outcome = getattr(_last_store_outcome, "outcome", None)
+    if outcome is None:
+        return {"stored_in": "unknown", "reason": None, "provider": None}
+    # Return a shallow copy so callers can't mutate our thread-local
+    # state via the returned dict reference.
+    return dict(outcome)
+
 
 # Defense-in-depth redaction patterns. Applied to keyring exception
 # messages and probe reasons before they're logged or surfaced to the
@@ -324,9 +437,19 @@ def store_secret(provider: str, value: str) -> bool:
     Returns
     -------
     bool
-        True if the secret was stored in keyring. False if keyring was
-        unavailable and the secret was written to config.json as a
-        plaintext fallback (with ``0o600`` perms on POSIX).
+        True if the secret was stored in keyring (or deleted via the
+        empty-value path). False if keyring was unavailable or errored
+        and the secret was written to config.json as a plaintext
+        fallback (with ``0o600`` perms on POSIX).
+
+        CR-94: to surface *why* the store fell back to plaintext to
+        the IPC caller (Fix-G), call :func:`last_store_outcome`
+        immediately after this function returns on the same thread.
+        It returns a dict ``{"stored_in": "keyring"|"plaintext"|
+        "deleted"|"unknown", "reason": str | None, "provider": str | None}``
+        matching the most recent call to ``store_secret`` on this
+        thread. The boolean return value alone is preserved for
+        backwards compat with every existing caller.
 
     Notes
     -----
@@ -335,12 +458,24 @@ def store_secret(provider: str, value: str) -> bool:
     and the secret is written to config.json as a fallback. This means
     a broken D-Bus or locked Keychain never prevents the user from
     saving their API key.
+
+    Thread-safety: the outcome record (read via
+    :func:`last_store_outcome`) is thread-local, so concurrent
+    ``store_secret`` calls on different IPC handler threads do not
+    stomp each other's outcome. The IPC handler always calls
+    ``store_secret`` and ``last_store_outcome`` on the same thread
+    (no inter-thread hand-off).
     """
     if not value:
         # Empty value = delete. Remove from both stores to keep them
         # in sync (the keyring might have a stale entry from a prior
         # successful store that we now want to clear).
         delete_secret(provider)
+        # CR-94: record the delete outcome so the IPC ack can
+        # distinguish "stored in keyring" from "deleted" without
+        # inspecting the value the caller passed (which we no longer
+        # have by the time the ack is built).
+        _set_last_store_outcome("deleted", None, provider=provider)
         return True
 
     try:
@@ -355,6 +490,8 @@ def store_secret(provider: str, value: str) -> bool:
             len(value),
             _keyring_backend_name_cache,
         )
+        # CR-94: record the success outcome.
+        _set_last_store_outcome("keyring", None, provider=provider)
         return True
     except Exception as e:
         # NEVER log the value — only metadata. The provider name is
@@ -363,14 +500,19 @@ def store_secret(provider: str, value: str) -> bool:
         # _redact_sensitive strips paths / API-key-like substrings from
         # the exception text — defense in depth in case a buggy backend
         # embeds the value in its error message.
+        redacted_reason = _redact_sensitive(str(e))
         log.warning(
             "[CREDENTIAL_STORE] keyring store failed for provider=%s (len=%d): %s — "
             "falling back to plaintext in config.json",
             provider,
             len(value),
-            _redact_sensitive(str(e)),
+            redacted_reason,
         )
         _write_plaintext_fallback(provider, value)
+        # CR-94: record the fallback outcome (with the redacted reason)
+        # so the IPC handler can include the reason in the ack payload
+        # the renderer shows to the user.
+        _set_last_store_outcome("plaintext", redacted_reason, provider=provider)
         return False
 
 

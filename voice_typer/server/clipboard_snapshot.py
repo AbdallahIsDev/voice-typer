@@ -173,6 +173,51 @@ class ClipboardSnapshot:
 
     # ─── Windows (Win32 API) ───────────────────────────────────────────
 
+    @staticmethod
+    def _configure_win32_signatures(user32: Any, kernel32: Any) -> None:
+        """Pin ctypes ``restype``/``argtypes`` for the Win32 calls we use.
+
+        Without this, ctypes defaults every return value and unspecified
+        argument to a 32-bit C ``int``. On 64-bit Windows, clipboard
+        HANDLEs and the pointers from ``GlobalLock`` are 64-bit, so the
+        default truncates them to 32 bits — a corrupted pointer that,
+        when handed to ``ctypes.string_at``/``memmove``, reads or writes
+        a garbage address and corrupts the heap (STATUS_HEAP_CORRUPTION,
+        0xC0000374). Declaring the signatures makes ctypes marshal the
+        full 64-bit values.
+        """
+        import ctypes
+        from ctypes import c_int, c_size_t, c_uint, c_void_p, c_wchar_p
+
+        user32.OpenClipboard.argtypes = [c_void_p]
+        user32.OpenClipboard.restype = c_int
+        user32.CloseClipboard.argtypes = []
+        user32.CloseClipboard.restype = c_int
+        user32.EmptyClipboard.argtypes = []
+        user32.EmptyClipboard.restype = c_int
+        user32.EnumClipboardFormats.argtypes = [c_uint]
+        user32.EnumClipboardFormats.restype = c_uint
+        user32.GetClipboardFormatNameW.argtypes = [c_uint, c_wchar_p, c_int]
+        user32.GetClipboardFormatNameW.restype = c_int
+        user32.GetClipboardData.argtypes = [c_uint]
+        user32.GetClipboardData.restype = c_void_p
+        user32.SetClipboardData.argtypes = [c_uint, c_void_p]
+        user32.SetClipboardData.restype = c_void_p
+        user32.RegisterClipboardFormatW.argtypes = [c_wchar_p]
+        user32.RegisterClipboardFormatW.restype = c_uint
+
+        kernel32.GlobalSize.argtypes = [c_void_p]
+        kernel32.GlobalSize.restype = c_size_t
+        kernel32.GlobalLock.argtypes = [c_void_p]
+        kernel32.GlobalLock.restype = c_void_p
+        kernel32.GlobalUnlock.argtypes = [c_void_p]
+        kernel32.GlobalUnlock.restype = c_int
+        kernel32.GlobalAlloc.argtypes = [c_uint, c_size_t]
+        kernel32.GlobalAlloc.restype = c_void_p
+        kernel32.GlobalFree.argtypes = [c_void_p]
+        kernel32.GlobalFree.restype = c_void_p
+        _ = ctypes  # keep the import referenced for clarity
+
     @classmethod
     def _capture_windows(cls) -> ClipboardSnapshot | None:
         """Capture all formats from the Windows clipboard via Win32 API.
@@ -186,6 +231,7 @@ class ClipboardSnapshot:
 
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        cls._configure_win32_signatures(user32, kernel32)
 
         # OpenClipboard(0) — pass NULL owner so we don't associate the
         # clipboard with our window (we have none; we're a tray app).
@@ -199,6 +245,18 @@ class ClipboardSnapshot:
                 fmt = user32.EnumClipboardFormats(fmt)
                 if fmt == 0:
                     break
+
+                # Skip GDI-handle formats (CF_BITMAP, CF_METAFILEPICT,
+                # CF_ENHMETAFILE). For these, GetClipboardData returns a
+                # GDI HANDLE — NOT an HGLOBAL — so calling GlobalSize /
+                # GlobalLock / string_at on it reads a non-memory handle
+                # as if it were a heap block, corrupting the heap
+                # (STATUS_HEAP_CORRUPTION, 0xC0000374). We also cannot
+                # restore them from raw bytes anyway (the restore path
+                # skips the same set), so there is no reason to capture
+                # them. Image data is still preserved via CF_DIB/CF_DIBV5.
+                if fmt in _NON_RESTORABLE_FORMATS:
+                    continue
 
                 # Get human-readable name (for registered formats).
                 name_buf = ctypes.create_unicode_buffer(256)
@@ -247,6 +305,7 @@ class ClipboardSnapshot:
 
         user32 = ctypes.windll.user32  # type: ignore[attr-defined]
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        self._configure_win32_signatures(user32, kernel32)
 
         # GMEM_MOVEABLE — required by SetClipboardData.
         gmem_moveable = 0x0002

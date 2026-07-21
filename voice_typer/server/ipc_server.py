@@ -27,6 +27,27 @@ from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server import event_bus
+
+# CR-14 (IMPROVE-mode run): the helper leaf submodules under
+# ``voice_typer.server.ipc`` (``validation.py``, ``history_bounds.py``,
+# ``rate_limiter.py``, ``push_events.py``, ``process_meta.py``,
+# ``transport.py``) are actively imported by ``handlers/*.py`` and were
+# RETAINED when the dead duplicates ``ipc/server.py`` and ``ipc/main.py``
+# were deleted. We import the canonical helpers here so the
+# module-level names (``_validate_dict_payload``, ``_error_response``,
+# ``_pick_available_port``, ``_RateLimiter``, …) stay bound on
+# ``ipc_server`` for ``from voice_typer.server.ipc_server import X``
+# compatibility (pinned by ``tests/tauri/mig19/test_phase4_validation.py``
+# and ``tests/test_app.py``).
+#
+# The ``noqa: F401`` on the import below marks these as intentional
+# re-exports — they're not used directly in this module but are part
+# of the public-ish API surface for test imports (``from
+# voice_typer.server.ipc_server import _error_response`` etc).
+from voice_typer.server.ipc.validation import (  # noqa: F401
+    _error_response,
+    _validate_dict_payload,
+)
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
 log = logging.getLogger("voice_typer.server.ipc_server")
@@ -58,81 +79,15 @@ log = logging.getLogger("voice_typer.server.ipc_server")
 #     })
 #     if error:
 #         return error
-
-
-def _validate_dict_payload(data, schema):
-    """Validate IPC ``data`` against a declarative *schema*.
-
-    Parameters
-    ----------
-    data : Any
-        The ``data`` field from the IPC message.
-    schema : dict[str, dict]
-        Mapping of field name → validation rules.  Each rule dict
-        supports:
-
-        - ``type`` (required): the expected Python type (e.g. ``str``,
-          ``list``).
-        - ``required`` (bool): if ``True``, the field MUST be present
-          in ``data``.  Mutually exclusive with ``default``.
-        - ``default``: default value when the field is absent.  Only
-          valid when ``required=False``.
-
-    Returns
-    -------
-    tuple[dict | None, dict | None]
-        ``(validated_dict, None)`` on success.
-        ``(None, error_response)`` on failure — the error_response
-        is a dict ready to be returned as ``resp`` from the handler.
-    """
-    if not isinstance(data, dict):
-        return None, {
-            "type": "error",
-            "data": {
-                "code": "invalid_payload",
-                "message": "data must be an object",
-            },
-        }
-
-    validated = {}
-    for field_name, rules in schema.items():
-        if field_name in data:
-            value = data[field_name]
-            expected_type = rules.get("type")
-            if expected_type is not None and not isinstance(value, expected_type):
-                # IPC-3: format the expected-type name for the error
-                # message.  ``expected_type`` may be a single type
-                # (``str``) or a tuple of types (``(str, type(None))``)
-                # — the latter is the standard ``isinstance`` idiom for
-                # "any of these types".  A tuple has no ``__name__``,
-                # so format the names of all the allowed types and
-                # join them with ``|`` (e.g. ``"str|NoneType"``).
-                if isinstance(expected_type, tuple):
-                    expected_name = "|".join(t.__name__ for t in expected_type)
-                else:
-                    expected_name = expected_type.__name__
-                return None, {
-                    "type": "error",
-                    "data": {
-                        "code": "invalid_field",
-                        "field": field_name,
-                        "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
-                    },
-                }
-            validated[field_name] = value
-        elif rules.get("required", False):
-            return None, {
-                "type": "error",
-                "data": {
-                    "code": "missing_field",
-                    "field": field_name,
-                    "message": f"Missing required field '{field_name}'",
-                },
-            }
-        elif "default" in rules:
-            validated[field_name] = rules["default"]
-
-    return validated, None
+#
+# CR-14: the canonical implementation now lives in
+# ``voice_typer/server/ipc/validation.py`` (kept under the ``ipc/``
+# package because the handler mixins import it directly). The local
+# definition that used to live here was removed and replaced with the
+# import above to avoid the two copies drifting. R4-F5 / R13-F3
+# extended the helper with ``max_value_len`` / ``max_payload_bytes`` /
+# ``clamp_range`` rules and added :func:`_error_response` — both
+# extensions are documented in ``ipc/validation.py``.
 
 
 def _pick_available_port(start: int = 9876, max_tries: int = 100) -> tuple[int, socket.socket]:
@@ -409,6 +364,22 @@ class _RateLimiter:
 #     None for a real IPCServer (attribute not set) and a child
 #     MagicMock for a test double — the ``isinstance`` check filters
 #     both, creating+storing a real ``_RateLimiter`` on first access.
+#
+# R4-F18 (IMPROVE-mode run, 2026-07-19): the lazy get-or-create is now
+# guarded by a module-level ``threading.Lock`` so two threads
+# simultaneously hitting ``_get_rate_limiter(server)`` on a fresh
+# server instance cannot race past the ``isinstance`` check and each
+# construct a competing ``_RateLimiter`` instance. The race window was
+# tiny (a few microseconds between the ``getattr`` and the
+# ``setattr``), but the consequence was severe: the orphaned limiter's
+# accepted timestamps would NOT count toward the canonical budget, so
+# a slow-drip attacker could effectively double the rate-limit budget
+# for the brief overlap window (or worse, N× with N racing threads).
+# The init lock is held only for the brief get-or-create window, NOT
+# for the subsequent ``allow()`` call — the per-instance lock inside
+# ``_RateLimiter.allow()`` already serializes deque mutation, so this
+# outer lock does not serialize dispatch.
+_RATE_LIMITER_INIT_LOCK = threading.Lock()
 
 
 def _get_rate_limiter(server: "object") -> _RateLimiter:
@@ -418,14 +389,43 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
     reconnects within the same process share the same sliding-window
     budget. A local attacker can no longer reset the budget by
     disconnecting and reconnecting.
+
+    R4-F18: the get-or-create sequence is now atomic across threads
+    thanks to ``_RATE_LIMITER_INIT_LOCK``. The lock is module-level
+    (shared across all server instances) — that's correct because the
+    critical section is "check this specific ``server._rate_limiter_instance``
+    and, if missing, create+store". Different server instances have
+    different ``_rate_limiter_instance`` attributes, so the lock
+    serializes only the get-or-create on the SAME server (which is
+    the only race that matters); different servers can init in
+    parallel without contention. The lock is held for microseconds
+    at most (no I/O, no ``allow()`` call), so contention is negligible.
     """
+    # Fast path: limiter already exists on the server instance — return
+    # it WITHOUT acquiring the init lock. This is the common case after
+    # the first dispatch on each server; the lock is only needed for
+    # the brief first-call race. The fast path is safe because
+    # ``server._rate_limiter_instance`` is set atomically by the
+    # ``setattr`` below (CPython's GIL makes single-attribute writes
+    # atomic) and the ``_RateLimiter`` instance itself is fully
+    # thread-safe (its own ``self._lock`` guards deque mutation).
     limiter = getattr(server, "_rate_limiter_instance", None)
-    if not isinstance(limiter, _RateLimiter):
-        limiter = _RateLimiter()
-        # ``setattr`` on a MagicMock overrides the auto-vivified child
-        # attribute; on a real IPCServer it just sets the attribute.
-        server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
-    return limiter
+    if isinstance(limiter, _RateLimiter):
+        return limiter
+
+    # Slow path: limiter is None or a non-_RateLimiter (e.g. an
+    # auto-vivified MagicMock child). Acquire the init lock and
+    # RE-CHECK — another thread may have created+stored the limiter
+    # between our fast-path check and the lock acquisition (classic
+    # double-checked locking pattern).
+    with _RATE_LIMITER_INIT_LOCK:
+        limiter = getattr(server, "_rate_limiter_instance", None)
+        if not isinstance(limiter, _RateLimiter):
+            limiter = _RateLimiter()
+            # ``setattr`` on a MagicMock overrides the auto-vivified child
+            # attribute; on a real IPCServer it just sets the attribute.
+            server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
+        return limiter
 
 
 # ── SEC-003: config sanitization for IPC ─────────────────────────────────
@@ -557,60 +557,13 @@ def _push_event_now(msg: dict) -> bool:
     return event_bus.publish(msg)
 
 
-class _TCPLineIO:
-    """Wraps a TCP socket as a text-mode line-based IO.
-
-    Provides ``write()`` + ``flush()`` (like TextIO) and
-    ``readline()`` + ``__iter__`` (like a line reader).
-    """
-
-    def __init__(self, conn: socket.socket) -> None:
-        self.conn = conn
-        self._reader = conn.makefile("r", encoding="utf-8", buffering=1)
-
-    def write(self, text: str) -> None:
-        self.conn.sendall(text.encode("utf-8"))
-
-    def flush(self) -> None:
-        pass  # sendall is immediate
-
-    def readline(self) -> str:
-        """Read one line from the TCP socket.
-
-        SEC-009: cap line size to prevent OOM DoS.  ``socket.makefile``
-        ``readline`` with no size limit would happily allocate a 1 GB
-        buffer if the client sent a single huge line with no newline.
-        We cap at 1 MB (a single IPC message should be far under 1 KB;
-        transcription text + metadata is well under 100 KB even for
-        long dictations).  When the cap is exceeded, we return an
-        empty string to signal EOF — the caller closes the connection.
-        """
-        _max_line_bytes = 1 * 1024 * 1024  # 1 MB
-        _max_line_chars = _max_line_bytes  # conservative (UTF-8 worst case)
-        line = self._reader.readline(_max_line_chars + 1)
-        if len(line) > _max_line_chars:
-            log.warning(
-                "[TCP] client sent line exceeding %d char cap; closing connection",
-                _max_line_chars,
-            )
-            return ""  # signal EOF
-        return line
-
-    def __iter__(self):
-        return self
-
-    def __next__(self) -> str:
-        line = self.readline()
-        if not line:
-            raise StopIteration
-        return line
-
-    def close(self) -> None:
-        with contextlib.suppress(Exception):
-            self._reader.close()
-        with contextlib.suppress(Exception):
-            self.conn.close()
-
+# CR-1 / CR-2: ``_TCPLineIO`` is the canonical TCP line-IO wrapper and
+# lives in ``voice_typer.server.ipc.transport`` (the surviving leaf of
+# the Phase-4.5 split).  Importing it here (rather than maintaining a
+# parallel copy in this shim) keeps a single source of truth and ensures
+# the CR-2 deadlock fix in ``_TCPLineIO.close`` (``shutdown(SHUT_RDWR)``
+# before ``close``) is the one every call site uses.
+from voice_typer.server.ipc.transport import _TCPLineIO  # noqa: E402,F401
 
 # ARCH-REFAC-002: the per-command ``_handle_*`` methods live in the
 # ``handlers/`` subpackage as mixin classes.  We import them here (after
@@ -1303,6 +1256,27 @@ class IPCServer(
         else:
             auth_client = _TCPLineIO(conn)
 
+        # =====================================================================
+        # CRITICAL FIX — DO NOT REMOVE (2026-07-20)
+        # =====================================================================
+        # Clear the 5s auth-read timeout (set at line ~1171) AFTER auth
+        # succeeds. Without this ``conn.settimeout(None)``, the 5s timeout
+        # leaks into the long-lived dispatch ``readline()`` loop, which then
+        # raises ``socket.timeout`` (an OSError) every 5 seconds of idle.
+        #
+        # Symptom if removed: the app enters an infinite reconnect loop —
+        #   connect → auth OK → 5s idle → socket.timeout →
+        #   "client connection closed" → socket close → RST →
+        #   Electron logs "connection reset by Python backend" → reconnect.
+        # Every 5 seconds, forever. The backend appears "connected" but
+        # never stays up long enough to handle real IPC.
+        #
+        # The timeout is set for auth (to reject stalled clients) and MUST
+        # be cleared here for the dispatch loop (which blocks on readline).
+        # =====================================================================
+        with contextlib.suppress(OSError, AttributeError):
+            conn.settimeout(None)  # blocking; socket may be a mock in tests
+
         # PR-3-FIX-1: now acquire the lock ONLY for the post-auth setup
         # (installing the client + snapshotting pending events). This is
         # a short critical section that can't block on unbounded I/O.
@@ -1531,15 +1505,19 @@ class IPCServer(
             log.debug("[IPC] client disconnect during shutdown; skipping keyboard ownership reset")
             return
         keyboard_ownership().reset()
-        # ISSUE-8: also clear the ESC-pending-capture-exit flag on the
-        # hotkey dispatcher. If the frontend crashed mid-capture (ESC
-        # pressed but not yet released), the flag would remain True and
-        # cause a spurious ``hotkey_capture_cancel`` event on the next
-        # ESC press after reconnect.
+        # ISSUE-8 / M-94: also clear the ESC-pending-capture-exit Event
+        # on the hotkey dispatcher. If the frontend crashed mid-capture
+        # (ESC pressed but not yet released), the flag would remain set
+        # and cause a spurious ``hotkey_capture_cancel`` event on the
+        # next ESC press after reconnect. M-94 replaced the plain bool
+        # with a ``threading.Event`` so the 3 threads that touch this
+        # flag (ESC listener / ESC release handler / this IPC worker)
+        # cannot race on the read-modify-write cycle. ``.clear()`` is
+        # atomic.
         _hotkeys = getattr(self.app, "hotkeys", None)
         if _hotkeys is not None:
             with contextlib.suppress(AttributeError):
-                _hotkeys._esc_pending_capture_exit = False
+                _hotkeys._esc_pending_capture_exit_event.clear()
         log.info("[IPC] keyboard ownership reset to normal (%s)", reason)
 
     # ── Heartbeat watchdog (RW-10) ───────────────────────────────────────
@@ -1765,6 +1743,29 @@ class IPCServer(
                     continue
                 try:
                     msg = json.loads(line)
+                    # CR-31: validate that the parsed JSON is a dict
+                    # before dispatch. ``_dispatch`` calls
+                    # ``msg.get("type")`` which raises ``AttributeError``
+                    # if ``msg`` is a list/int/str/None (all valid JSON).
+                    # Previously the ``except json.JSONDecodeError`` did
+                    # NOT catch ``AttributeError``, so a single non-dict
+                    # JSON line on stdin killed the IPC thread silently
+                    # (keyboard ownership was not reset, app became
+                    # unresponsive with no diagnostic). The TCP path was
+                    # hardened by ERR-018 but the stdin path was not
+                    # updated in lockstep.
+                    if not isinstance(msg, dict):
+                        self._send(
+                            {
+                                "type": "error",
+                                "data": {
+                                    "code": "invalid_payload",
+                                    "message": "message must be a JSON object",
+                                },
+                            },
+                            _out=stdout,
+                        )
+                        continue
                     result = self._dispatch(msg)
                     self._send(result, _out=stdout)
                 except json.JSONDecodeError:
@@ -1784,6 +1785,28 @@ class IPCServer(
                         {
                             "type": "error",
                             "data": {"message": "invalid JSON"},
+                        },
+                        _out=stdout,
+                    )
+                except Exception as dispatch_exc:
+                    # CR-31: mirror the TCP path's ERR-018 hardening —
+                    # catch ANY exception from ``_dispatch`` so a
+                    # handler bug doesn't silently kill the stdin
+                    # thread. Log server-side with traceback; return a
+                    # generic ``internal_error`` envelope to the client.
+                    log.error(
+                        "[IPC] stdin dispatch failed for line=%r: %s",
+                        line[:120],
+                        dispatch_exc,
+                        exc_info=True,
+                    )
+                    self._send(
+                        {
+                            "type": "error",
+                            "data": {
+                                "code": "internal_error",
+                                "message": "internal error",
+                            },
                         },
                         _out=stdout,
                     )
@@ -2004,13 +2027,23 @@ class IPCServer(
         ``missing_field`` error; an id the tray doesn't recognise yields a
         distinct ``unknown_tray_item`` error (so the host can tell "malformed
         request" from "item not found").
-        """
-        if not isinstance(data, dict) or "id" not in data:
-            resp["type"] = "error"
-            resp["data"] = {"code": "missing_field", "field": "id"}
-            return resp
 
-        item_id = data["id"]
+        CR-12: validation is delegated to the shared
+        ``_validate_dict_payload`` helper (the contract source of truth)
+        rather than an inline ``isinstance`` check, so the error envelope
+        (``invalid_payload`` / ``invalid_field`` / ``missing_field``)
+        matches every other handler in the codebase.
+        """
+        validated, error = _validate_dict_payload(
+            data,
+            {
+                "id": {"type": str, "required": True},
+            },
+        )
+        if error:
+            return error
+
+        item_id = validated["id"]
         tray = getattr(self.app, "tray", None)
         if tray is None or not hasattr(tray, "dispatch_tray_action"):
             resp["type"] = "error"
@@ -2151,7 +2184,13 @@ class IPCServer(
             # kernel buffer accepts the data immediately.  If we hit the
             # timeout, the write raises ``socket.timeout`` and we drop
             # the connection (the accept loop will catch the next
-            # reconnect).
+            # reconnect).  We restore the PREVIOUS timeout afterwards
+            # rather than forcing blocking mode: the auth read set a
+            # deadline (PR-3-FIX-1) and we must not clobber it to
+            # ``None`` (blocking), or the dispatch-loop ``readline`` would
+            # block forever and the connection could never be reaped/
+            # closed on cleanup (SEC-018 auth-timeout/close path).
+            _prev_timeout = tcp_client.conn.gettimeout()
             with contextlib.suppress(OSError, AttributeError):
                 tcp_client.conn.settimeout(_TCP_WRITE_TIMEOUT_SECONDS)
             # settimeout can fail if the socket is already closed;
@@ -2191,10 +2230,16 @@ class IPCServer(
                             self._tcp_client.close()
                         self._tcp_client = None
             finally:
-                # Restore blocking mode (timeout=None means blocking
-                # with no timeout, the default for TCP sockets).
+                # Restore the previous timeout (NOT blocking ``None``) so
+                # the dispatch-loop ``readline`` keeps its auth deadline
+                # and the worker can exit/be reaped on cleanup.  Setting
+                # ``None`` here was the root cause of the
+                # auth-timeout/close deadlock (CR-2): a blocking socket
+                # could never time out, so the reader thread never exited
+                # and ``_TCPLineIO.close()`` deadlocked against the
+                # in-progress ``recv``.
                 with contextlib.suppress(OSError, AttributeError):
-                    tcp_client.conn.settimeout(None)
+                    tcp_client.conn.settimeout(_prev_timeout)
             return
 
         if tcp_mode:
@@ -2249,7 +2294,16 @@ class IPCServer(
         if msg_type in ("bubble_level", "waveform"):
             log.debug("[IPC] no client; dropping high-freq %s event", msg_type)
         else:
-            log.info("[IPC] no client; dropping %s event: %s", msg_type, msg)
+            # CR-8: never log the message body — push events include
+            # transcription text (``transcription_partial`` /
+            # ``transcription_final``) which is user PII.  Log only the
+            # type and a size hint so the operator can see drop rate
+            # without leaking dictated content to the log file.
+            log.info(
+                "[IPC] no client; dropping %s event (size=%d)",
+                msg_type,
+                len(str(msg)),
+            )
 
 
 # ── Entry point ─────────────────────────────────────────────────────────
@@ -2444,8 +2498,25 @@ def main() -> None:
             diag_path = _config_dir() / "startup-error.log"
             _secure_atomic_write(diag_path, buf.getvalue())
             log.error("[FATAL] Diagnostic written to %s", diag_path)
-        except Exception:
-            pass
+        except Exception as write_exc:
+            # CR-40: last-resort — try stderr then a temp file so the
+            # traceback isn't lost (e.g. read-only config dir under
+            # pythonw.exe where stdout/stderr are also devnull).
+            print(buf.getvalue(), file=sys.stderr)
+            try:
+                import tempfile
+                from pathlib import Path
+
+                tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
+                tmp.write_text(buf.getvalue(), encoding="utf-8")
+                log.error(
+                    "[FATAL] Could not write %s; wrote to %s instead (write error: %s)",
+                    diag_path,
+                    tmp,
+                    write_exc,
+                )
+            except Exception:
+                log.error("[FATAL] Could not write diagnostic anywhere: %s", write_exc)
         # NEW-CLI-003: use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
 
@@ -2586,15 +2657,36 @@ def main() -> None:
             buf.write(f"\n--- app.start() failed at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
             traceback.print_exc(file=buf)
             diag_path = _config_dir() / "startup-error.log"
-            # Read existing content if any, then write full content atomically
-            try:
-                existing = diag_path.read_text(encoding="utf-8")
-            except (OSError, FileNotFoundError):
-                existing = ""
-            _secure_atomic_write(diag_path, existing + buf.getvalue())
+            # CR-10: OVERWRITE (not append) the diagnostic file.  The
+            # previous implementation read the existing content and
+            # appended, which made ``startup-error.log`` grow without
+            # bound across repeated ``app.start()`` failures (the
+            # operator would hit the same crash on every relaunch and
+            # the file accumulated every traceback).  Capping at one
+            # entry mirrors the construction-failure path above (line
+            # ~2445) and keeps the file a useful "what just happened"
+            # diagnostic instead of a multi-MB append-only log.
+            _secure_atomic_write(diag_path, buf.getvalue())
             log.error("[FATAL] Diagnostic written to %s", diag_path)
-        except Exception:
-            pass
+        except Exception as write_exc:
+            # CR-40: last-resort — try stderr then a temp file so the
+            # traceback isn't lost (e.g. read-only config dir under
+            # pythonw.exe where stdout/stderr are also devnull).
+            print(buf.getvalue(), file=sys.stderr)
+            try:
+                import tempfile
+                from pathlib import Path
+
+                tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
+                tmp.write_text(buf.getvalue(), encoding="utf-8")
+                log.error(
+                    "[FATAL] Could not write %s; wrote to %s instead (write error: %s)",
+                    diag_path,
+                    tmp,
+                    write_exc,
+                )
+            except Exception:
+                log.error("[FATAL] Could not write diagnostic anywhere: %s", write_exc)
         # NEW-CLI-003: use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
     else:

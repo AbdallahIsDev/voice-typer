@@ -167,9 +167,7 @@ def _levenshtein(a: str, b: str, *, max_distance: int | None = None) -> int:
         for i in range(1, m + 1):
             insert_cost = current_row[i - 1] + 1
             delete_cost = previous_row[i] + 1
-            substitute_cost = previous_row[i - 1] + (
-                0 if a[i - 1] == b_char else 1
-            )
+            substitute_cost = previous_row[i - 1] + (0 if a[i - 1] == b_char else 1)
             current_row[i] = min(insert_cost, delete_cost, substitute_cost)
             if current_row[i] < row_min:
                 row_min = current_row[i]
@@ -252,6 +250,16 @@ _MIN_WORD_LENGTH = 3
 # IPC payload stays small even for long transcriptions.
 _MAX_CONTEXT_LENGTH = 80
 
+# CR-86: cap on the number of pending (not-yet-applied / not-yet-
+# dismissed) suggestions retained in memory.  Items only get removed
+# via explicit user action (apply / dismiss), so without a cap, a long
+# unattended dictation session would grow the list without bound
+# (~50 suggestions / 5 min × 8h ≈ 4800 entries × ~200 bytes ≈ 1 MB).
+# When the cap is exceeded, the OLDEST pending suggestions are dropped
+# (they're the least likely to still be actionable — the user has had
+# the most time to act on them and hasn't).
+MAX_PENDING = 200
+
 
 class VocabularyAutomation:
     """Analyze transcriptions and suggest vocabulary corrections.
@@ -300,6 +308,7 @@ class VocabularyAutomation:
         # actually fine; we keep it lazy for symmetry with other
         # late imports in this codebase).
         import threading
+
         self._lock = threading.Lock()
 
     # ── Public API ──────────────────────────────────────────────────
@@ -351,9 +360,13 @@ class VocabularyAutomation:
         if not words:
             return []
 
-        threshold = float(getattr(
-            self._config, "vocabulary_auto_confidence_threshold", 0.7,
-        ))
+        threshold = float(
+            getattr(
+                self._config,
+                "vocabulary_auto_confidence_threshold",
+                0.7,
+            )
+        )
 
         if segments:
             # Map segment-level confidence onto words by accumulating
@@ -427,7 +440,9 @@ class VocabularyAutomation:
                 # Try to find a close vocabulary match as the
                 # proposed correction.
                 corrected = _find_closest_vocabulary_match(
-                    clean, vocab_words, _MAX_LEVENSHTEIN_DISTANCE,
+                    clean,
+                    vocab_words,
+                    _MAX_LEVENSHTEIN_DISTANCE,
                 )
                 if corrected is None:
                     # No close match — the user will need to supply
@@ -456,7 +471,9 @@ class VocabularyAutomation:
             # the user has already made).
             elif clean not in vocab_words and vocab_words:
                 corrected = _find_closest_vocabulary_match(
-                    clean, vocab_words, _MAX_LEVENSHTEIN_DISTANCE,
+                    clean,
+                    vocab_words,
+                    _MAX_LEVENSHTEIN_DISTANCE,
                 )
                 if corrected is not None and corrected != clean:
                     context = word_to_sentence.get(i, text)
@@ -475,11 +492,39 @@ class VocabularyAutomation:
         # Add the new suggestions to the pending queue.
         with self._lock:
             self._pending.extend(suggestions)
+            # CR-86: enforce the MAX_PENDING cap.  Items only get
+            # removed via explicit user action (apply / dismiss), so
+            # without this cap, a long unattended dictation session
+            # would grow ``_pending`` without bound.  When the cap is
+            # exceeded, drop the OLDEST entries (insertion order =
+            # oldest first; slice from the end to keep the most-recent
+            # ``MAX_PENDING`` entries).
+            #
+            # In normal operation ``_pending`` contains only "pending"
+            # (non-applied, non-dismissed) entries — ``apply_suggestion``
+            # and ``dismiss_suggestion`` filter applied/dismissed entries
+            # out at the time they're marked.  ``get_pending_suggestions``
+            # ALSO filters at read time, so a transiently-present
+            # applied/dismissed entry (e.g. ``auto_apply_high_confidence_
+            # suggestions`` calls ``apply_suggestion`` while we hold a
+            # snapshot, but doesn't mutate ``_pending`` until
+            # ``apply_suggestion`` itself acquires the lock) would be
+            # dropped here too, which is correct — it's no longer
+            # actionable.
+            if len(self._pending) > MAX_PENDING:
+                overflow = len(self._pending) - MAX_PENDING
+                log.info(
+                    "[VOCAB_AUTO] pending queue exceeded MAX_PENDING=%d; dropping %d oldest suggestion(s)",
+                    MAX_PENDING,
+                    overflow,
+                )
+                self._pending = self._pending[-MAX_PENDING:]
 
         if suggestions:
             log.info(
                 "[VOCAB_AUTO] Analyzed %d words, found %d suggestion(s)",
-                len(words), len(suggestions),
+                len(words),
+                len(suggestions),
             )
 
         return suggestions
@@ -505,20 +550,21 @@ class VocabularyAutomation:
             # Add to misspellings — that's the most appropriate
             # category for "the ASR said X, the correct word is Y".
             self._vm.add_entry(
-                "misspellings", suggestion.original, suggestion.corrected,
+                "misspellings",
+                suggestion.original,
+                suggestion.corrected,
             )
         except Exception:
             log.warning(
                 "[VOCAB_AUTO] Failed to apply suggestion %r -> %r",
-                suggestion.original, suggestion.corrected, exc_info=True,
+                suggestion.original,
+                suggestion.corrected,
+                exc_info=True,
             )
             return
         suggestion.applied = True
         with self._lock:
-            self._pending = [
-                s for s in self._pending
-                if not (s is suggestion or s.applied or s.dismissed)
-            ]
+            self._pending = [s for s in self._pending if not (s is suggestion or s.applied or s.dismissed)]
 
     def get_pending_suggestions(self) -> list[CorrectionSuggestion]:
         """Return the suggestions not yet applied or dismissed.
@@ -542,10 +588,7 @@ class VocabularyAutomation:
         """
         suggestion.dismissed = True
         with self._lock:
-            self._pending = [
-                s for s in self._pending
-                if not (s is suggestion or s.applied or s.dismissed)
-            ]
+            self._pending = [s for s in self._pending if not (s is suggestion or s.applied or s.dismissed)]
 
     def auto_apply_high_confidence_suggestions(
         self,
@@ -588,13 +631,14 @@ class VocabularyAutomation:
                 # correction different from the original.  Suggestions
                 # where ``corrected == original`` (no Levenshtein
                 # match found) require user input.
-                    self.apply_suggestion(suggestion)
-                    applied_count += 1
+                self.apply_suggestion(suggestion)
+                applied_count += 1
 
         if applied_count > 0:
             log.info(
                 "[VOCAB_AUTO] Auto-applied %d suggestion(s) at threshold %.2f",
-                applied_count, threshold,
+                applied_count,
+                threshold,
             )
         return applied_count
 
@@ -645,6 +689,7 @@ def _logprob_to_confidence(logprob: float) -> float:
     of that range gives [0.37, 1.0].  We clamp to [0, 1] for safety.
     """
     import math
+
     try:
         c = math.exp(logprob)
     except (OverflowError, ValueError):
@@ -692,5 +737,6 @@ def _find_closest_vocabulary_match(
 
 __all__ = [
     "CorrectionSuggestion",
+    "MAX_PENDING",
     "VocabularyAutomation",
 ]

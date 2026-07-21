@@ -126,26 +126,40 @@ def log_hallucination_rejection(
         # SEC-009: When logging is disabled, only log metadata — no text content
         log.warning(
             "%s Rejected likely %s (%d chars)",
-            engine_tag, reason, char_count,
+            engine_tag,
+            reason,
+            char_count,
         )
         return
 
-    # SEC-009: When logging is enabled, apply PII redaction and truncation
-    safe_text = text[:_HALLUCINATION_LOG_MAX_CHARS]
+    # SEC-009: When logging is enabled, apply PII redaction and truncation.
+    # CR-87: previously this constructed a synthetic ``logging.LogRecord``
+    # and ran ``PIIRedactionFilter().filter(record)`` just to redact a
+    # plain string. The LogRecord dance was a heavyweight detour that
+    # also depended on the filter's mutating ``record.msg``/``record.args``
+    # contract. ``security.redact_pii`` is the canonical string-in /
+    # string-out helper that ``PIIRedactionFilter`` itself uses (via
+    # ``_redact_text``), so the redaction behavior is identical.
+    #
+    # Order: redact first, then truncate. The previous code truncated
+    # first then redacted — which could leak a partial PII pattern that
+    # straddled the 40-char boundary (the regex wouldn't match the
+    # truncated fragment). Redacting first guarantees ALL PII patterns
+    # are fully replaced before truncation. Truncation can only cut into
+    # a redaction token (``[EMAIL]``/``[PHONE]``/``[SSN]``/``[CC]``),
+    # which is non-sensitive.
     try:
-        from voice_typer.server.security import PIIRedactionFilter
-        _pii_filter = PIIRedactionFilter()
-        # Create a temporary LogRecord to apply PII redaction
-        record = logging.LogRecord(
-            name=log.name, level=logging.WARNING, pathname="", lineno=0,
-            msg=safe_text, args=(), exc_info=None,
-        )
-        _pii_filter.filter(record)
-        safe_text = record.msg
+        from voice_typer.server.security import redact_pii
+
+        safe_text = redact_pii(text)[:_HALLUCINATION_LOG_MAX_CHARS]
     except Exception:
-        # If PII filter fails, fall back to truncation only
-        pass
+        # If PII redaction fails, fall back to truncation only.
+        safe_text = text[:_HALLUCINATION_LOG_MAX_CHARS]
+
     log.warning(
-        "%s Rejected likely %s: %r",
-        engine_tag, reason, safe_text,
+        "%s Rejected likely %s (%d chars): %s",
+        engine_tag,
+        reason,
+        char_count,
+        safe_text,
     )

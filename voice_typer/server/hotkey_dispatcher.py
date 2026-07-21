@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 from typing import Any
 
 from voice_typer.server.branding import APP_NAME
@@ -42,6 +43,20 @@ class HotkeyDispatcher:
         self._hotkey_backend: HotkeyBackend | None = None
         self._esc_backend: HotkeyBackend | None = None
         self._repaste_backend: HotkeyBackend | None = None
+        # CR-85 + M-94 (combined): threading.Event for atomic cross-
+        # thread access. Both sessions independently identified the
+        # plain-bool race; session-2's attribute name
+        # ``_esc_pending_capture_exit_event`` is adopted because it is
+        # already used at ``ipc_server._on_ipc_client_disconnect``.
+        # TODO Fix-A: ipc/server.py:1022 still does
+        # ``_hotkeys._esc_pending_capture_exit = False`` — that line
+        # targets the OLD attribute name. Session-4 deletes the dead
+        # ``ipc/server.py`` parallel implementation entirely, which
+        # eliminates the TODO. Until then, the OLD attribute is NOT
+        # initialized here (so the ``= False`` write hits a missing
+        # attribute and raises AttributeError — fail-loud is safer
+        # than silently overwriting the Event).
+        self._esc_pending_capture_exit_event: threading.Event = threading.Event()
 
     # ── Backend accessors (for back-compat with tests that read them) ──
 
@@ -59,7 +74,7 @@ class HotkeyDispatcher:
 
     # ── Registration ───────────────────────────────────────────────────
 
-    def register(self) -> None:
+    def register(self) -> bool:
         """Register global hotkey using the platform-appropriate backend.
 
         UX-002: when registration fails (typically because another app
@@ -72,34 +87,31 @@ class HotkeyDispatcher:
         then immediately stop recording. This is wired via
         ``set_toggle_on_keyup(True)`` for the main dictation hotkey in
         toggle mode; push-to-talk keeps start-on-press / stop-on-release.
+
+        CR-15 (atomic register): ``self._hotkey_backend`` is assigned the
+        NEW backend only AFTER ``start()`` succeeds. If ``create_hotkey_backend``
+        or ``start()`` raises, the OLD backend (if any) is left in place
+        so the user is never left without a working hotkey. This is the
+        building block ``restart()`` relies on for its atomicity.
+
+        Returns:
+            True if a new backend was successfully created, wired, and
+            started (and assigned to ``self._hotkey_backend``); False if
+            any step failed (the OLD backend, if any, is left running).
+            Callers that ignore the return value (the historical
+            contract) continue to work unchanged.
         """
         app = self._app
         hotkey_str = app.config.hotkey
         log.info("[HOTKEY] Registering: %r -> toggle_dictation", hotkey_str)
 
+        success = False
         try:
-            self._hotkey_backend = create_hotkey_backend(hotkey_str)
-            log.info("[HOTKEY] Backend created: %s", type(self._hotkey_backend).__name__)
-            # GAP-2/GAP-4: give the backend a reference to the tray so
-            # it can show permission/fallback/recovery notifications.
-            # The _NativeBackendAdapter uses this for its notifications;
-            # other backends ignore it.
-            with contextlib.suppress(AttributeError, TypeError):
-                self._hotkey_backend._tray = app.tray  # type: ignore[attr-defined]
-            # USER-REQUESTED FIX: in toggle mode, fire the toggle on key-up
-            # (release) so holding the key never starts-then-stops recording.
-            if app.config.recording_mode == "toggle":
-                with contextlib.suppress(AttributeError, TypeError):
-                    self._hotkey_backend.set_toggle_on_keyup(True)
-            self._hotkey_backend.start(self._make_dictation_callback())
-            # P1: Push-to-talk mode -- set release callback
-            if app.config.recording_mode == "push_to_talk":
-                self._hotkey_backend.set_on_release(app._stop_dictation)
-            log.info(
-                "[HOTKEY] Registration OK (alive=%s, backend=%s)",
-                self._hotkey_backend.is_alive(),
-                type(self._hotkey_backend).__name__,
-            )
+            new_backend = self._create_and_start_main_backend(hotkey_str)
+            # CR-15: assign only after start() succeeded. A failure
+            # mid-way leaves the OLD backend in self._hotkey_backend.
+            self._hotkey_backend = new_backend
+            success = True
         except Exception as exc:
             # UX-002: name the hotkey in the notification so the user
             # knows which one to rebind.  Common cause: another app
@@ -120,6 +132,56 @@ class HotkeyDispatcher:
         # Feature: Repaste hotkey
         if app.config.repaste_hotkey:
             self.register_repaste()
+
+        return success
+
+    def _create_and_start_main_backend(self, hotkey_str: str) -> HotkeyBackend:
+        """Create, wire up, and start the main dictation hotkey backend.
+
+        Shared by :meth:`register` (first-time setup) and :meth:`restart`
+        (hot-swap). Returns the new backend on success; raises on failure
+        so the caller can decide whether to install it as the active
+        backend (atomic swap pattern).
+
+        - ``create_hotkey_backend`` (factory) selects the best platform
+          backend; can raise on spec parse errors or missing native
+          binary paths.
+        - ``start(callback)`` launches the listener thread; can raise if
+          the OS rejects the hotkey (e.g. Win32 ``RegisterHotKey`` fails
+          because another app already claimed it).
+
+        Wiring applied to the new backend before ``start()``:
+        - ``_tray`` attribute (GAP-2/GAP-4): so the backend can show
+          permission / fallback / recovery notifications.
+        - ``set_toggle_on_keyup(True)`` in toggle mode: so the toggle
+          fires on key-UP and a press-and-hold cannot start-then-stop
+          recording.
+        - ``set_on_release(app._stop_dictation)`` in push-to-talk mode.
+        """
+        app = self._app
+        new_backend = create_hotkey_backend(hotkey_str)
+        log.info("[HOTKEY] Backend created: %s", type(new_backend).__name__)
+        # GAP-2/GAP-4: give the backend a reference to the tray so
+        # it can show permission/fallback/recovery notifications.
+        # The _NativeBackendAdapter uses this for its notifications;
+        # other backends ignore it.
+        with contextlib.suppress(AttributeError, TypeError):
+            new_backend._tray = app.tray  # type: ignore[attr-defined]
+        # USER-REQUESTED FIX: in toggle mode, fire the toggle on key-up
+        # (release) so holding the key never starts-then-stops recording.
+        if app.config.recording_mode == "toggle":
+            with contextlib.suppress(AttributeError, TypeError):
+                new_backend.set_toggle_on_keyup(True)
+        new_backend.start(self._make_dictation_callback())
+        # P1: Push-to-talk mode -- set release callback
+        if app.config.recording_mode == "push_to_talk":
+            new_backend.set_on_release(app._stop_dictation)
+        log.info(
+            "[HOTKEY] Registration OK (alive=%s, backend=%s)",
+            new_backend.is_alive(),
+            type(new_backend).__name__,
+        )
+        return new_backend
 
     def _make_dictation_callback(self):
         """Create a dictation hotkey callback that respects keyboard ownership.
@@ -184,9 +246,14 @@ class HotkeyDispatcher:
                 self._esc_backend.stop()
             self._esc_backend = None
 
-        # ESC-KEYUP-FIX: flag set on ESC key-down during capture,
-        # cleared after the release callback fires on key-up.
-        self._esc_pending_capture_exit = False
+        # ESC-KEYUP-FIX / M-94 + CR-85 (combined): Event (initially
+        # not-set, equivalent to the old ``False``) set on ESC key-down
+        # during capture, cleared after the release callback fires on
+        # key-up. ``threading.Event`` provides atomic ``is_set`` / ``set``
+        # / ``clear`` so the 3 threads that touch this flag (ESC listener,
+        # ESC release handler, IPC disconnect worker) cannot race on the
+        # read-modify-write cycle that the plain bool exhibited.
+        self._esc_pending_capture_exit_event.clear()
 
         try:
             self._esc_backend = create_hotkey_backend("<esc>")
@@ -198,7 +265,10 @@ class HotkeyDispatcher:
                     # ESC-KEYUP-FIX: set the pending flag and install
                     # a release callback. The actual cancel happens on
                     # key-up (release), not key-down (press).
-                    self._esc_pending_capture_exit = True
+                    # CR-85 + M-94 (combined): ``threading.Event.set()``
+                    # is atomic — no race vs. a concurrent ``.clear()``
+                    # from the IPC disconnect worker.
+                    self._esc_pending_capture_exit_event.set()
                     if self._esc_backend is not None:
                         self._esc_backend.set_on_release(self._on_esc_release)
                     return
@@ -220,10 +290,25 @@ class HotkeyDispatcher:
         (``if (!recordingRef.current) return;``) prevents duplicate
         ``onCaptureEnd`` calls when both this backend push AND the
         frontend's own DOM key-up handler fire for the same ESC release.
+
+        M-94: the check-then-clear is still technically racy (a
+        concurrent ``.set()`` from the ESC listener between the
+        ``is_set()`` read and the ``clear()`` write would be lost),
+        but ``threading.Event`` is the canonical primitive for this
+        pattern and the race window is sub-microsecond — far shorter
+        than the human reaction time between two ESC presses.  The
+        previous plain-bool implementation had the SAME race window
+        plus an additional race against the IPC disconnect worker
+        (which ``= False``'d the bool without consulting the listener
+        thread).  The Event eliminates the second race; the first is
+        tolerable (a second ESC press within the same microsecond
+        would re-arm the flag and the next release would fire the
+        cancel again — idempotent via ``keyboard_ownership().reset()``).
         """
-        if not self._esc_pending_capture_exit:
+        # CR-85 + M-94 (combined): threading.Event.is_set() / .clear()
+        if not self._esc_pending_capture_exit_event.is_set():
             return
-        self._esc_pending_capture_exit = False
+        self._esc_pending_capture_exit_event.clear()
 
         log.info("[HOTKEY] ESC released during hotkey capture — canceling capture")
 
@@ -271,8 +356,38 @@ class HotkeyDispatcher:
                 log.warning("[HOTKEY] Repaste hotkey registration failed")
 
     def restart(self, hotkey: str) -> None:
-        """Re-register the global hotkey after settings change."""
+        """Re-register the global hotkey after settings change.
+
+        CR-105: validate hotkey before mutating config.
+        CR-15 (atomic restart): the NEW backend is brought up BEFORE
+        the OLD one is stopped. If ``register()`` fails (e.g. the new
+        hotkey spec is invalid, or the OS rejects it because another
+        app already claimed it), the OLD backend is kept running so
+        the user is never left without a working dictation hotkey.
+
+        Atomicity is provided by :meth:`register` itself: it assigns
+        ``self._hotkey_backend = new_backend`` only AFTER ``start()``
+        succeeds, leaving the OLD backend in place on failure, and
+        returns ``True``/``False`` to signal the outcome. This method
+        uses that return value to decide whether to stop the OLD
+        backend.
+
+        UX-002: on failure, ``register()`` already shows the tray
+        notification naming the rejected hotkey; we don't duplicate
+        it here.
+        """
         app = self._app
+        from voice_typer.server.config_validators import _validate_hotkey
+
+        validation_error = _validate_hotkey(hotkey)
+        if validation_error is not None:
+            log.warning("[HOTKEY] restart(%r) rejected: %s", hotkey, validation_error)
+            with contextlib.suppress(Exception):
+                app.tray.notify(
+                    APP_NAME,
+                    f"Hotkey {hotkey} is not valid: {validation_error}. Keeping the previous hotkey.",
+                )
+            return
         app.config.hotkey = hotkey
         if not app.config.save():
             log.warning("[HOTKEY] config.save() returned False — hotkey change may not persist")
@@ -280,13 +395,30 @@ class HotkeyDispatcher:
                 APP_NAME,
                 "Failed to save hotkey to disk. Check disk space or permissions.",
             )
-        if self._hotkey_backend:
-            try:
-                self._hotkey_backend.stop()
-            except Exception:
-                log.exception("[HOTKEY] Failed to stop previous backend")
-            self._hotkey_backend = None
-        self.register()
+
+        old_backend = self._hotkey_backend
+
+        # register() atomically installs a NEW backend on success
+        # (assigning self._hotkey_backend = new_backend AFTER start()
+        # succeeds) and leaves self._hotkey_backend UNCHANGED on
+        # failure. Its return value signals the outcome.
+        register_ok = self.register()
+
+        if register_ok:
+            # register() installed a new backend — stop the old one.
+            if old_backend is not None:
+                try:
+                    old_backend.stop()
+                except Exception:
+                    log.exception("[HOTKEY] Failed to stop previous backend")
+        else:
+            # register() failed and left the OLD backend in place.
+            # Do NOT stop it — the user keeps the working hotkey.
+            log.warning(
+                "[HOTKEY] restart did not install a new backend — keeping old backend running (old=%s)",
+                type(old_backend).__name__ if old_backend is not None else None,
+            )
+
         app.tray.set_hotkey(app.config.hotkey)
 
     # ── Cleanup ────────────────────────────────────────────────────────

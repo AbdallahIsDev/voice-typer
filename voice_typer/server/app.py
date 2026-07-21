@@ -1011,16 +1011,20 @@ class VoiceTyperApp:
         # that restart_app() shares the same _do_cleanup() body).
         self._shutting_down_event.set()
         self._restore_volume(fade_ms=0)
-        _relaunch_ack_event = (
-            getattr(self._ipc_server, "_relaunch_ack_event", None) if self._ipc_server is not None else None
-        )
-        if _relaunch_ack_event is not None:
-            _relaunch_ack_event.clear()
-            log.info("[RESTART] Waiting for relaunch_ack from Electron (timeout 2.0s)")
-            _relaunch_ack_event.wait(timeout=2.0)
-        else:
-            log.info("[RESTART] No IPC server available; pausing 300ms for Electron")
-            time.sleep(0.3)
+        # CR-64: encapsulated the IPCServer's private
+        # ``_relaunch_ack_event`` access in ``_wait_for_relaunch_ack``
+        # so the backwards coupling (VoiceTyperApp reaching INTO the
+        # IPCServer's private state) is at least named and easy to
+        # migrate.  The helper still uses ``getattr`` defensively
+        # because the IPCServer may not be wired yet (early restart)
+        # or may be a non-IPC test double.
+        # TODO Fix-A: replace ``_wait_for_relaunch_ack`` with a call
+        # to ``IPCServer.wait_for_relaunch_ack(timeout)`` — a public
+        # method on the IPCServer itself (Fix-A owns IPCServer).  Once
+        # that public method exists, ``_wait_for_relaunch_ack`` and
+        # the ``getattr(self._ipc_server, "_relaunch_ack_event")``
+        # lookup below can be deleted.
+        self._wait_for_relaunch_ack(timeout=2.0)
 
         # 3. RW-3: run the SAME audited cleanup as quit() — flushes
         #    history_db and _crash_recovery (so no pending writes are
@@ -1064,8 +1068,90 @@ class VoiceTyperApp:
         self._do_cleanup()
 
         # 4. Exit cleanly — electron will relaunch us.
+        # CR-17: mirror ShutdownController.quit()'s threading-aware exit.
+        # restart_app is invoked from the tray menu callback, which runs
+        # on pystray's worker thread (NOT the main thread). When
+        # sys.exit(0) is called from a non-main thread, CPython raises
+        # SystemExit in THAT thread only — the process does not exit.
+        # The tray's _wrap callback wrapper suppresses SystemExit, so
+        # the sys.exit(0) is silently swallowed and the process lingers
+        # for up to ~1s (holding the single-instance mutex / IPC port)
+        # until tray.stop() (called inside _do_cleanup above) breaks
+        # the pystray loop and app.start() returns. On the main thread,
+        # sys.exit(0) works normally. The conditional mirrors quit()'s
+        # pattern at shutdown_controller.py:464,497-498.
         log.info("[RESTART] Old process exiting via sys.exit(0)")
-        sys.exit(0)
+        if threading.current_thread() is threading.main_thread():
+            sys.exit(0)
+        # else: rely on tray.stop() (called inside _do_cleanup) to
+        # break the pystray loop so app.start() returns and
+        # ipc_server.main() falls through to process exit.
+
+    def _wait_for_relaunch_ack(self, timeout: float) -> bool:
+        """Wait for Electron to ack the ``relaunch_electron`` event.
+
+        CR-64: encapsulates the IPCServer's private
+        ``_relaunch_ack_event`` access so :meth:`restart_app` no longer
+        reaches directly into ``self._ipc_server._relaunch_ack_event``.
+        The previous inline code did::
+
+            _relaunch_ack_event = (
+                getattr(self._ipc_server, "_relaunch_ack_event", None)
+                if self._ipc_server is not None
+                else None
+            )
+            if _relaunch_ack_event is not None:
+                _relaunch_ack_event.clear()
+                _relaunch_ack_event.wait(timeout=2.0)
+            else:
+                time.sleep(0.3)
+
+        — which couples :class:`VoiceTyperApp` backwards into the
+        IPCServer's private state.  This helper preserves the exact
+        behaviour (defensive ``getattr`` for early-restart / test
+        double scenarios, 300ms fallback sleep when no IPCServer is
+        attached, bounded ``timeout`` wait on the cleared event) while
+        making the dependency explicit and easy to migrate.
+
+        TODO Fix-A: once ``IPCServer`` exposes a public
+        ``wait_for_relaunch_ack(timeout)`` method (Fix-A owns
+        IPCServer), this helper should delegate to it and the
+        ``getattr(self._ipc_server, "_relaunch_ack_event")`` lookup
+        can be removed entirely.
+
+        Parameters
+        ----------
+        timeout :
+            Maximum seconds to wait for Electron's ack.  Mirrors the
+            original hardcoded ``2.0`` in :meth:`restart_app`.
+
+        Returns
+        -------
+        bool
+            ``True`` if the ack event was signalled within ``timeout``;
+            ``False`` if no IPCServer is attached, the IPCServer has no
+            ``_relaunch_ack_event`` attribute (e.g. a test double), or
+            the wait timed out.  Callers today ignore the return value
+            (the original inline code didn't return one either) — the
+            contract is preserved for future use.
+        """
+        # TODO Fix-A: replace this defensive ``getattr`` with a call
+        # to ``self._ipc_server.wait_for_relaunch_ack(timeout)`` once
+        # that public method exists on the IPCServer (Fix-A owns it).
+        ipc_server = self._ipc_server
+        if ipc_server is None:
+            log.info("[RESTART] No IPC server available; pausing 300ms for Electron")
+            time.sleep(0.3)
+            return False
+        _relaunch_ack_event = getattr(ipc_server, "_relaunch_ack_event", None)
+        if _relaunch_ack_event is None:
+            log.info("[RESTART] No IPC server available; pausing 300ms for Electron")
+            time.sleep(0.3)
+            return False
+        _relaunch_ack_event.clear()
+        log.info("[RESTART] Waiting for relaunch_ack from Electron (timeout %.1fs)", timeout)
+        acked = _relaunch_ack_event.wait(timeout=timeout)
+        return acked
 
     # DEAD-008: the following 6 TrayController protocol methods were
     # removed because no IPC route, tray menu item, or UI invoked them:
@@ -1134,6 +1220,7 @@ from voice_typer.server.single_instance import (  # noqa: F401
     _backend_pid_file,
     _clear_backend_pid_file,
     _ensure_single_instance,
+    _ensure_windows_single_instance,
     _is_pid_alive,
     _read_stale_backend_pid,
     _write_backend_pid_file,

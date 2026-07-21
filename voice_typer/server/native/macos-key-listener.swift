@@ -24,7 +24,7 @@
 //   swiftc -O macos-key-listener.swift -framework Cocoa -framework CoreGraphics \
 //          -o macos-key-listener
 //
-// SPDX-License-Identifier: project-wide
+// SPDX-License-Identifier: MIT
 // =============================================================================
 
 import Cocoa
@@ -460,6 +460,11 @@ guard keyDownMonitor != nil else {
 //     hotkey suppression, but the NSEvent monitors (flagsChanged + keyDown)
 //     still work and are sufficient to verify the binary starts correctly.
 let skipAccessibilityCheck = ProcessInfo.processInfo.environment["VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK"] == "1"
+
+if skipAccessibilityCheck {
+    // CR-143: warn about disabled key-up delivery and hotkey suppression
+    emit("WARN:SKIP_ACCESSIBILITY: VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 — CGEventTap disabled, key-up delivery and hotkey suppression inactive")
+}
 
 if !skipAccessibilityCheck {
     // Bitmask of CGEventType values the tap is interested in. We need both

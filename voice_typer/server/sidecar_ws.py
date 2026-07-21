@@ -235,7 +235,7 @@ def _make_dispatch(server: IPCServer):
     """Build a coroutine that dispatches a single WS frame.
 
     Reuses ``server._dispatch`` (the same path the TCP loop uses),
-    so the 68-command registry + _validate_dict_payload + every
+    so the 73-command registry + _validate_dict_payload + every
     handler mixin is exercised unchanged (ADR-0020 §2).
     """
     # ADR-0019 + CR-11: per-process rate limiter. Reuse the same private
@@ -338,6 +338,53 @@ def _make_dispatch(server: IPCServer):
     return dispatch
 
 
+def _enqueue_safe(outbound: asyncio.Queue, event: dict) -> None:
+    """Drop-oldest enqueue — MUST run on the event-loop thread.
+
+    CR-4: ``_push_to_ws`` is an ``event_bus`` subscriber, so it is
+    invoked from whatever thread called ``event_bus.publish()``. The
+    publishers are non-event-loop threads: transcription, hotkey, tray,
+    IPC dispatch workers (``_dispatch`` runs via
+    ``loop.run_in_executor``), and the audio-worker deferred path.
+    ``asyncio.Queue`` is explicitly NOT thread-safe — mutating its
+    internal deque + ``_getawaiter`` / ``_putawaiter`` futures from a
+    non-loop thread corrupts state. Symptoms seen pre-fix: silently
+    dropped events (transcription_final never reached the Tauri host),
+    a deadlocked writer task (``await outbound.get()`` never wakes
+    after a cross-thread ``put_nowait``), or a hard asyncio loop
+    crash killing the sidecar (→ FT-1 respawn loop).
+
+    This helper does the drop-oldest dance (``full`` / ``get_nowait``
+    / ``put_nowait``). It is marshaled onto the event-loop thread via
+    ``loop.call_soon_threadsafe`` from ``_push_to_ws``, so every
+    queue mutation happens on the loop thread and the asyncio
+    invariants are preserved.
+
+    Notes
+    -----
+    - ``call_soon_threadsafe`` is the documented asyncio API for
+      cross-thread wakeup. It schedules the callback on the loop's
+      ready queue and wakes the loop's selector if it is blocked in
+      ``select()``. This is the same primitive ``asyncio.run_coroutine_threadsafe``
+      is built on.
+    - Drop-oldest (not drop-newest) is preserved so a slow host
+      receives the most RECENT state snapshots (bubble_level,
+      transcription_final) rather than stale ones buffered behind
+      the drop. The host recovers consistency via state_changed
+      re-snapshots on reconnect.
+    """
+    if outbound.full():
+        try:
+            outbound.get_nowait()
+            log.debug("[SIDECAR-WS] outbound queue full — dropped oldest event")
+        except asyncio.QueueEmpty:
+            pass
+    try:
+        outbound.put_nowait(event)
+    except asyncio.QueueFull:
+        log.warning("[SIDECAR-WS] outbound queue still full — dropping event")
+
+
 async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     """Per-connection WS handler: auth + read/dispatch loop.
 
@@ -371,21 +418,103 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     # ``server._lock``-free atomic read-then-write — single WS server
     # task, so the race is theoretical, but the worst case is a
     # duplicate `ready` event which the host tolerates.
-    if not getattr(server, "_ready_emitted", False):
+    #
+    # CR-83: the read-then-write is now guarded by ``server._lock``
+    # (an RLock defined on IPCServer at __init__). Two concurrent
+    # first-time authentications would otherwise both see
+    # ``_ready_emitted == False`` and both publish ``ready``. The host
+    # tolerates duplicates, but the duplicate broadcast is wasted work
+    # and a minor protocol smell. The lock is also used elsewhere on
+    # the server (e.g. _send / push), so this re-uses an existing
+    # primitive rather than adding a new one.
+    with server._lock:
+        if getattr(server, "_ready_emitted", False):
+            already_emitted = True
+        else:
+            already_emitted = False
+            server._ready_emitted = True
+    if not already_emitted:
         from voice_typer.server import event_bus
 
         log.info("[SIDECAR-WS] first authenticated connection — emitting `ready` event")
         event_bus.publish({"type": "ready"})
-        server._ready_emitted = True
+
+    # CR-79: ``_push_to_ws`` is registered as an event_bus subscriber
+    # (sync API). It is invoked from WHATEVER thread ``event_bus.publish``
+    # runs on — typically a domain thread (tray, transcription,
+    # dictation_pipeline) that is NOT the asyncio loop thread.
+    # ``asyncio.Queue`` is documented as NOT thread-safe; the GIL makes
+    # immediate deque ops atomic but the ``_getters``/``_putters``
+    # future-scheduling path can miss wakeups. Capture the running loop
+    # here and store it on the server so the sync subscriber can route
+    # all queue mutations through ``loop.call_soon_threadsafe`` (which
+    # is the documented way to bridge a sync caller to an asyncio
+    # primitive from a non-loop thread).
+    #
+    # ``server._ws_loop`` is intentionally NOT read back inside
+    # ``_push_to_ws`` to handle multi-connection servers — the WS path
+    # runs ONE accept loop on ONE asyncio event loop, so all connections
+    # share the same loop. If a future refactor permits multiple loops,
+    # the closure-captured ``loop`` below is the per-connection source
+    # of truth; ``server._ws_loop`` is the cross-connection source.
+    loop = asyncio.get_running_loop()
+    server._ws_loop = loop
 
     # Subscribe server.push (which forwards event_bus.publish) to
     # this WS so server-initiated events flow back to the host.
     # The TCP path installs a single _tcp_client and writes to it
     # under self._lock; the WS path uses a per-connection asyncio
     # Queue + a writer task so we don't block the dispatch loop.
+    #
+    # CR-37: capture the running loop BEFORE registering the subscriber
+    # so ``_push_to_ws`` (which may be invoked from arbitrary threads
+    # via ``event_bus.publish`` — audio-worker, IPC dispatch threads,
+    # the GIL-bound ThreadPoolExecutor) can marshal the enqueue onto
+    # the loop thread. ``asyncio.Queue.put_nowait`` is NOT thread-safe:
+    # calling it from a non-loop thread races on the queue's internal
+    # ``maxsize`` check and can corrupt the underlying deque.
+    _ws_loop = asyncio.get_running_loop()
     outbound: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
+    # CR-30: capture the running loop so subscribers firing from
+    # non-loop threads (audio worker, transcription thread, tray
+    # thread) can enqueue thread-safely. `asyncio.Queue.put_nowait`
+    # is NOT thread-safe — the asyncio docs require all queue
+    # operations to run on the loop thread. Direct put_nowait from
+    # another thread can corrupt the queue's internal linked list,
+    # causing dropped events, stuck writer task, or RuntimeError
+    # taking down the WS connection → FT-1 respawn.
+    loop = asyncio.get_running_loop()
+
+    # CR-4: capture the running loop ONCE so _push_to_ws can marshal
+    # queue mutations onto the loop thread. asyncio.Queue is not
+    # thread-safe; ``event_bus.publish()`` is called from many
+    # non-loop threads (transcription, hotkey, tray, IPC dispatch
+    # workers, deferred audio-worker), so direct mutation of
+    # ``outbound`` from ``_push_to_ws`` corrupts the queue's internal
+    # deque + Future state. See ``_enqueue_safe`` for the full
+    # rationale.
+    loop = asyncio.get_running_loop()
 
     def _push_to_ws(event: dict) -> None:
+        """Subscriber for event_bus.publish — enqueues for the writer task.
+
+        CR-4: this subscriber is invoked synchronously in the
+        publisher's thread (``event_bus._deliver`` calls ``fn(event)``
+        directly, modulo the RT-thread deferred path). Because the
+        publisher is typically a non-event-loop thread, we MUST NOT
+        touch ``outbound`` (an ``asyncio.Queue``) here. Instead we
+        schedule ``_enqueue_safe`` on the loop thread via
+        ``call_soon_threadsafe`` — the only documented thread-safe
+        way to hand work to an asyncio loop from outside it.
+
+        ``RuntimeError`` is raised by ``call_soon_threadsafe`` when
+        the loop has been closed (process shutdown / FT-1 respawn).
+        The writer task has already been cancelled by the connection
+        ``finally`` block, so there is no consumer for the event —
+        drop silently at DEBUG level. This is the documented
+        shutdown contract; we do NOT want a traceback per published
+        event during teardown.
+        """
         """Subscriber for event_bus.publish — enqueues for the writer task."""
         # Don't let a slow host block the publisher thread (event_bus
         # is process-global). Drop the oldest pending event if the
@@ -397,6 +526,9 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
             except asyncio.QueueEmpty:
                 pass
         try:
+            loop.call_soon_threadsafe(_enqueue_safe, outbound, event)
+        except RuntimeError:
+            log.debug("[SIDECAR-WS] event dropped during shutdown — event loop closed")
             outbound.put_nowait(event)
         except asyncio.QueueFull:
             log.warning("[SIDECAR-WS] outbound queue still full — dropping event")

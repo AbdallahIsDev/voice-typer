@@ -691,8 +691,8 @@ def register_prewarm_task() -> bool:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".xml", delete=False, encoding="utf-8") as tf:
             tf.write(xml_def)
             temp_xml = tf.name
-    except OSError as exc:
-        log.error("[TASK] could not write task XML: %s", exc)
+    except OSError:
+        log.exception("[TASK] could not write task XML")
         return False
 
     try:

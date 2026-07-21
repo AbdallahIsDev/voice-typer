@@ -31,6 +31,7 @@ def _get_clipboard_text() -> str:
     """Try to read current clipboard content."""
     try:
         import pyperclip
+
         text = pyperclip.paste()
         return str(text) if text and isinstance(text, str) else ""
     except Exception:
@@ -80,6 +81,7 @@ class TemplateManager:
     def __init__(self, config_dir: Path | None = None):
         if config_dir is None:
             from voice_typer.server.config import _config_dir
+
             config_dir = _config_dir()
         self._path = config_dir / TEMPLATES_FILENAME
         self._templates: list[dict] = []
@@ -110,6 +112,7 @@ class TemplateManager:
             return
         try:
             from voice_typer.server.config import _secure_read_text
+
             raw = _secure_read_text(self._path)
             data = json.loads(raw)
             if isinstance(data, list):
@@ -128,27 +131,41 @@ class TemplateManager:
 
         NEW-SEC-008: uses the shared _secure_atomic_write which applies
         O_NOFOLLOW on POSIX to prevent symlink TOCTOU attacks.
+
+        M-62: previously this method caught *all* exceptions and
+        silently logged them, returning ``None`` to callers. That
+        meant a disk failure left the in-memory ``_templates`` list
+        (already mutated by ``add``/``update``/``delete``) out of
+        sync with what was actually on disk — the user's edit
+        appeared to succeed (no error surfaced) but the next process
+        restart would load the stale on-disk state and the edit
+        would be lost. Now we log the error AND re-raise so callers
+        can roll back their in-memory mutation and the IPC layer can
+        surface the failure to the renderer.
         """
+        from voice_typer.server.config import _secure_atomic_write
+
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        content = json.dumps(
+            {"templates": self._templates},
+            indent=2,
+            ensure_ascii=False,
+        )
         try:
-            from voice_typer.server.config import _secure_atomic_write
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            content = json.dumps(
-                {"templates": self._templates}, indent=2, ensure_ascii=False,
-            )
             _secure_atomic_write(self._path, content)
-            log.debug("[TEMPLATES] Saved %d templates", len(self._templates))
         except Exception as exc:
+            # M-62: log then re-raise so callers can roll back.
             log.error("[TEMPLATES] Failed to save: %s", exc)
-
-    # ── CRUD ─────────────────────────────────────────────────────────
-
-    @property
-    def templates(self) -> list[dict]:
-        """Return a copy of the template list."""
-        return list(self._templates)
+            raise
+        log.debug("[TEMPLATES] Saved %d templates", len(self._templates))
 
     def add(self, trigger: str, output: str, *, match_mode: str = "exact") -> dict:
-        """Add a new template. Returns the created template dict."""
+        """Add a new template. Returns the created template dict.
+
+        M-62: persists first-then-mutates with rollback. If ``_save``
+        raises, the appended entry is popped back off so the
+        in-memory state stays consistent with the on-disk state.
+        """
         template = {
             "trigger": trigger.strip(),
             "output": output,
@@ -156,26 +173,62 @@ class TemplateManager:
             "created_at": datetime.now().isoformat(),
         }
         self._templates.append(template)
-        self._save()
+        try:
+            self._save()
+        except Exception:
+            # Rollback: remove the template we just appended.
+            # Use identity check (not equality) in case the template
+            # dict happens to equal an earlier entry.
+            for i in range(len(self._templates) - 1, -1, -1):
+                if self._templates[i] is template:
+                    del self._templates[i]
+                    break
+            raise
         return template
 
     def update(self, index: int, trigger: str, output: str, *, match_mode: str = "exact") -> dict | None:
-        """Update a template by index. Returns the updated template or None."""
-        if 0 <= index < len(self._templates):
-            self._templates[index]["trigger"] = trigger.strip()
-            self._templates[index]["output"] = output
-            self._templates[index]["match_mode"] = match_mode
+        """Update a template by index. Returns the updated template or None.
+
+        M-62: snapshots the original field values and restores them
+        on save failure so the in-memory state stays consistent with
+        the on-disk state.
+        """
+        if not (0 <= index < len(self._templates)):
+            return None
+        entry = self._templates[index]
+        # Snapshot originals for rollback.
+        old_trigger = entry.get("trigger")
+        old_output = entry.get("output")
+        old_match_mode = entry.get("match_mode")
+        entry["trigger"] = trigger.strip()
+        entry["output"] = output
+        entry["match_mode"] = match_mode
+        try:
             self._save()
-            return self._templates[index]
-        return None
+        except Exception:
+            entry["trigger"] = old_trigger
+            entry["output"] = old_output
+            entry["match_mode"] = old_match_mode
+            raise
+        return entry
 
     def delete(self, index: int) -> bool:
-        """Delete a template by index."""
-        if 0 <= index < len(self._templates):
-            del self._templates[index]
+        """Delete a template by index.
+
+        M-62: snapshots the deleted entry and re-inserts it at the
+        same index on save failure so the in-memory state stays
+        consistent with the on-disk state.
+        """
+        if not (0 <= index < len(self._templates)):
+            return False
+        removed = self._templates.pop(index)
+        try:
             self._save()
-            return True
-        return False
+        except Exception:
+            # Rollback: re-insert at the original index.
+            self._templates.insert(index, removed)
+            raise
+        return True
 
     # ── Import / Export ───────────────────────────────────────────────
 
@@ -184,20 +237,33 @@ class TemplateManager:
         return json.dumps({"templates": self._templates}, indent=2, ensure_ascii=False)
 
     def import_json(self, json_str: str) -> int:
-        """Import templates from a JSON string. Returns number imported."""
+        """Import templates from a JSON string. Returns number imported.
+
+        M-62: snapshots the list before appending and restores it on
+        save failure so the in-memory state stays consistent with the
+        on-disk state.
+        """
         try:
             data = json.loads(json_str)
             templates = data if isinstance(data, list) else data.get("templates", [])
-            count = 0
+            to_add: list[dict] = []
             for t in templates:
                 if isinstance(t, dict) and "trigger" in t and "output" in t:
-                    self._templates.append(t)
-                    count += 1
-            if count:
+                    to_add.append(t)
+            if not to_add:
+                return 0
+            # Snapshot for rollback.
+            old_len = len(self._templates)
+            self._templates.extend(to_add)
+            try:
                 self._save()
-            return count
-        except Exception as exc:
-            log.error("[TEMPLATES] Import failed: %s", exc)
+            except Exception:
+                # Rollback: truncate back to the pre-import length.
+                del self._templates[old_len:]
+                raise
+            return len(to_add)
+        except Exception:
+            log.exception("[TEMPLATES] Import failed")
             return 0
 
     # ── Matching ─────────────────────────────────────────────────────
@@ -229,10 +295,7 @@ class TemplateManager:
             trigger_norm = re.sub(r"\s+", " ", trigger.strip()).lower()
             mode = t.get("match_mode", "exact")
 
-            matched = (
-                trigger_norm in normalized if mode == "contains"
-                else normalized == trigger_norm
-            )
+            matched = trigger_norm in normalized if mode == "contains" else normalized == trigger_norm
 
             if matched and len(trigger_norm) < best_len:
                 best_match = t

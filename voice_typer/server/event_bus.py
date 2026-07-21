@@ -149,17 +149,71 @@ _deferred_executor_lock = threading.Lock()
 
 
 def _get_deferred_executor() -> ThreadPoolExecutor:
-    """Lazily create the single-worker deferred-publish executor."""
+    """Lazily create the single-worker deferred-publish executor.
+
+    CR-9: previously the double-checked-locking pattern could leak a
+    ``ThreadPoolExecutor`` if two threads both entered the slow path
+    and both created a fresh executor before either acquired
+    ``_deferred_executor_lock``. (The first thread to acquire the
+    lock would install theirs; the second thread's executor was a
+    local that went out of scope — but its worker thread kept
+    running, leaking a thread + a kernel-level worker pool.)
+
+    The fix creates the executor BEFORE acquiring the lock (in the
+    slow path), then races for the global slot. The winner installs
+    theirs and returns it; the loser calls ``shutdown(wait=False)``
+    on theirs (which signals the worker thread to exit) and returns
+    the winner. This is the canonical "create-then-compare-and-swap"
+    pattern for lazy singletons guarded by a mutex.
+    """
     global _deferred_executor
+    # Fast path — no lock acquired. The global is published via the
+    # GIL-atomic pointer assignment inside the slow path below; reads
+    # here are safe under the GIL.
     if _deferred_executor is not None:
         return _deferred_executor
+    # Slow path: optimistically create our own executor BEFORE
+    # acquiring the lock, so two racing threads don't serialize on
+    # executor construction (which spawns a worker thread — ~1ms).
+    local_executor = ThreadPoolExecutor(
+        max_workers=1,
+        thread_name_prefix="event-bus-publisher",
+    )
     with _deferred_executor_lock:
         if _deferred_executor is None:
-            _deferred_executor = ThreadPoolExecutor(
-                max_workers=1,
-                thread_name_prefix="event-bus-publisher",
-            )
-    return _deferred_executor
+            # We won the race — install ours.
+            _deferred_executor = local_executor
+            return local_executor
+        # We lost the race — another thread installed theirs while we
+        # were constructing ours. Shut ours down so its worker thread
+        # doesn't leak (CR-9), then return the winner.
+        winner = _deferred_executor
+    # Shutdown OUTSIDE the lock to avoid blocking other racing callers.
+    # ``wait=False`` returns immediately; the worker thread exits on
+    # its next idle poll (it has no queued tasks — we never submitted
+    # any to our local executor).
+    local_executor.shutdown(wait=False)
+    return winner
+
+
+def shutdown_executor() -> None:
+    """Shutdown the deferred-publish executor.
+
+    CR-22: Previously the executor was a module-global singleton with no
+    explicit lifecycle management. On `restart_app()` the old executor
+    was orphaned and a new one created — leaking worker threads. On
+    normal exit the worker could block up to the default join timeout
+    (~5s) slowing shutdown.
+
+    Call this from `shutdown_controller._do_cleanup()` after the IPC
+    server stop to release the worker thread promptly.
+    """
+    global _deferred_executor
+    with _deferred_executor_lock:
+        executor = _deferred_executor
+        _deferred_executor = None
+    if executor is not None:
+        executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _is_rt_thread() -> bool:
@@ -265,3 +319,40 @@ def _subscriber_count() -> int:
     """
     with _lock:
         return len(_subscribers)
+
+
+def shutdown() -> None:
+    """M-22: shut down the deferred-publish ThreadPoolExecutor.
+
+    The single-worker ``ThreadPoolExecutor`` lazily created by
+    ``_get_deferred_executor()`` is a process-global resource that was
+    previously never explicitly shut down. On ``quit()`` / process
+    exit, the executor's worker thread (a non-daemon by default in
+    CPython's ``ThreadPoolExecutor``) keeps the interpreter alive
+    until ``concurrent.futures`` interpreter-finalization runs — and
+    if a deferred ``_deliver`` call is stuck on a slow subscriber
+    (e.g. a stalled socket.sendall to the Electron renderer), the
+    shutdown can hang for several seconds. Calling this from
+    ``ShutdownController._do_cleanup`` releases the worker promptly
+    so it doesn't contribute to shutdown latency.
+
+    Idempotent — safe to call multiple times. After this call,
+    ``_deferred_executor`` is set to ``None`` so the next RT-thread
+    ``publish`` lazily creates a fresh executor (or, if the process
+    is exiting, the ``RuntimeError`` branch in ``publish`` falls
+    back to synchronous delivery). Already-queued ``_deliver`` tasks
+    are NOT cancelled — ``shutdown(wait=False)`` lets them finish on
+    the worker thread, so in-flight events are not lost.
+    """
+    global _deferred_executor
+    with _deferred_executor_lock:
+        executor = _deferred_executor
+        _deferred_executor = None
+    if executor is not None:
+        try:
+            executor.shutdown(wait=False)
+        except Exception:
+            log.debug(
+                "[event_bus] deferred executor shutdown failed",
+                exc_info=True,
+            )
