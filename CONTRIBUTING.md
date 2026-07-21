@@ -218,7 +218,7 @@ cargo tauri build
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/migrate-runtime.json` | Least-privilege capability: scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`. **No `core:tray:*`** (the sidecar owns the tray via pystray). |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 68-command registry unchanged), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 73-command registry unchanged — CR-18 reconciliation 2026-07-19), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
 
 #### Cutover status
@@ -245,7 +245,7 @@ voice-typer/
 │   │   ├── config.py                 # SEC-002 allowlist, SEC-003 redaction
 │   │   ├── security.py               # token / URL / file-perm helpers
 │   │   ├── tray.py / tray_menu.py    # pystray tray icon + menu
-│   │   ├── recording.py              # PortAudio capture → deque
+│   │   ├── recording/                # PortAudio capture → deque (package; see docs/rw04-recording-decomposition.md)
 │   │   ├── transcription.py          # ASR dispatch (whisper/qwen/parakeet)
 │   │   ├── text_cleanup.py           # dedup, misspellings, capitalization
 │   │   ├── vocabulary.py             # user corrections (single source)
@@ -286,13 +286,9 @@ voice-typer/
 │   ├── PLATFORM_STATUS.md            # per-OS support matrix
 │   ├── home-directory.md             # ~/.voice-typer/ layout
 │   └── adr/                          # Architecture Decision Records
-│       ├── 0001-adr-process.md
-│       ├── 0002-electron-python-architecture.md
-│       ├── 0002-ipc-protocol.md
-│       ├── 0004-clipboard-security.md
-│       ├── 0005-native-hotkey-architecture.md
-│       ├── 0007-audio-filter-chain-architecture.md
-│       └── ...
+│       ├── README.md                 # ADR index — read this first
+│       ├── template.md               # boilerplate scaffold for new ADRs
+│       └── 0000-0019                 # one file per decision (see index)
 │
 ├── scripts/
 │   ├── build/                        # PyInstaller spec, icon generators
@@ -315,7 +311,7 @@ voice-typer/
 ### 4.1 Python tests
 
 ```bash
-# Full suite — verbose, with coverage gate at 60% (see pyproject.toml)
+# Full suite — verbose, with coverage gate at 65% (see pyproject.toml)
 pytest tests/ -v
 
 # Single test file / single test
@@ -589,7 +585,7 @@ of the following are updated together:
   - `@pytest.mark.real_pil` — use the real `PIL.ImageDraw` (for tests
     that render the tray icon bitmap).
 - **Coverage threshold:** 65 %, enforced by `--cov-fail-under=65` in
-  `pyproject.toml`. If your change drops coverage below 60 %, add
+  `pyproject.toml`. If your change drops coverage below 65 %, add
   tests or mark unreachable branches with `# pragma: no cover`.
 - **Property-based testing:** use `hypothesis` for parsers and pure
   functions — see `tests/test_text_cleanup_hypothesis.py` and
@@ -635,7 +631,7 @@ of the following are updated together:
   `src/renderer/src/a11y/accessibility.test.tsx` for the global a11y
   suite.
 - **Coverage:** vitest is configured in `vitest.config.ts`; aim for
-  ≥ 60 % to match the Python gate.
+  ≥ 65 % to match the Python gate.
 
 ### 7.3 Manual tests
 
@@ -836,7 +832,7 @@ A maintainer will merge your PR once:
 
 - All CI checks pass (pytest, vitest, biome, tsc, ruff, mypy,
   pre-commit).
-- Coverage does not drop below 60 %.
+- Coverage does not drop below 65 %.
 - No `SEC-*` control is bypassed without an ADR.
 - The commit history is clean (squash or rebase as needed — maintainers
   will prompt you).
@@ -844,7 +840,7 @@ A maintainer will merge your PR once:
 
 ### 8.4 Reporting bugs
 
-Use [GitHub Issues](https://github.com/abdarkahIsDev/voice-typer/issues)
+Use [GitHub Issues](https://github.com/AbdallahIsDev/voice-typer/issues)
 and include:
 
 - Voice Typer version (`python -m voice_typer --version` or the

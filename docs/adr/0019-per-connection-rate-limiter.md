@@ -2,11 +2,15 @@
 
 ## Status
 
-Accepted — implemented in `voice_typer/server/ipc_server.py` as the `_RateLimiter` class, instantiated per TCP connection in `_handle_tcp_connection`.
+Accepted — implemented in `voice_typer/server/ipc_server.py` (canonical;
+duplicate leaf copy at `voice_typer/server/ipc/rate_limiter.py` retained
+per CR-14) as the `_RateLimiter` class, instantiated per
+`IPCServer` process via `_get_rate_limiter(server)` (CR-11 fix) and
+shared across all TCP / WS connections within that process.
 
 ## Date
 
-2026-07-14
+2026-07-14 (original); 2026-07-18 (IPC-4 dual-window revision); 2026-07-19 (R4-F17 doc refresh).
 
 ## Context
 
@@ -39,44 +43,151 @@ Implement a **sliding-window per-connection rate limiter** using the `_RateLimit
 
 ### Algorithm
 
-The limiter maintains a `deque` of timestamps for recently accepted messages:
+The limiter maintains TWO independent `deque`s of timestamps for recently
+accepted messages — one for the per-second burst check, one for the
+sustained average-rate check (IPC-4 revision; see "IPC-4 Dual-Window
+Revision" below for the history of why two deques are needed):
 
 1. On each incoming message, call `allow()`.
-2. `allow()` evicts timestamps older than the window (1 second).
-3. If the deque length exceeds `_RATE_LIMIT_BURST`, reject the message.
-4. If the deque length exceeds `_RATE_LIMIT_SUSTAINED`, reject the message.
-5. Otherwise, append the current timestamp and accept the message.
+2. `allow()` evicts timestamps older than the burst window (1 second)
+   from `_burst_timestamps` and timestamps older than the sustained
+   window (10 seconds) from `_sustained_timestamps` — both evictions
+   happen under a single `threading.Lock` acquisition so the decision
+   is atomic.
+3. If `len(_burst_timestamps) >= _RATE_LIMIT_BURST`, reject the
+   message (per-second cap tripped).
+4. If `len(_sustained_timestamps) >= _RATE_LIMIT_SUSTAINED`, reject
+   the message (10-second average-rate cap tripped).
+5. Otherwise, append the current timestamp to BOTH deques and accept
+   the message.
+
+The two checks are **independent** — a client can trip burst (201 msgs
+in any 1 s) without tripping sustained (601 msgs in any 10 s), and vice
+versa. The rejected counter is incremented atomically inside `allow()`
+when it returns `False` (SEC-6 fix), so the benign race where two
+threads both decide to reject and double-count the rejection no longer
+exists.
+
+### IPC-4 Dual-Window Revision (2026-07-18)
+
+The original RELIABILITY-006-FIX-10 comment claimed "burst is the hard
+per-second cap" but the implementation used a SINGLE deque for both
+checks, with the same `window` (10 s). With `burst=200` and
+`sustained=600` over the same 10 s deque, the burst check (`>= 200`)
+ALWAYS fired first, making the sustained check (`>= 600`) unreachable
+dead code.
+
+**Pre-IPC-4 effective behavior:** only the burst check mattered. A
+slow-drip attacker sending 100 msgs/s for 10 s (1000 msgs total, well
+above the 600 sustained cap) was throttled at the 201st msg by the
+burst check, NOT at the 601st msg by the sustained check — but the
+throttle was the same either way (a `rate_limited` response). The real
+regression was that a slow-drip attacker sending 50 msgs/s (under the
+200/s burst, but 500 msgs in 10 s — also under sustained because 500 <
+600) was NOT throttled at all, when the design intent was that 60
+msgs/s average should be the sustainable ceiling.
+
+**Post-IPC-4 fix:** TWO independent deques:
+
+- `_burst_timestamps` — 1-second sliding window (`burst_window`
+  parameter, default `_RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0`). If
+  the deque reaches `burst` entries (default 200), the next message
+  is rejected. Catches fast-burst attacks (201+ msgs in any 1 s).
+- `_sustained_timestamps` — `window`-second sliding window (default
+  10 s). If the deque reaches `sustained` entries (default 600 =
+  60 msg/s avg), the next message is rejected. Catches slow-drip
+  attacks (601+ msgs in any 10 s = 60.1 msg/s avg) that never trip
+  the per-second burst.
+
+See `tests/test_ipc4_rate_limiter_dual_window.py` for the behavioral
+pin: a 100 msg/s × 7 s slow-drip attacker is now correctly throttled
+at the 601st msg by the sustained check, where pre-IPC-4 it would
+have leaked through (burst deque never reached 200 in any 1 s, so
+the single-deque `len >= 200` check never tripped either).
 
 ### Constants
 
 ```python
-_RATE_LIMIT_WINDOW_SECONDS = 1.0    # Sliding window duration
-_RATE_LIMIT_BURST = 200             # Maximum messages in a single window
-_RATE_LIMIT_SUSTAINED = 60          # Maximum sustained messages per second
+# Burst window — fast-burst attack cap (per-second).
+_RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0
+_RATE_LIMIT_BURST = 200             # Max msgs in any 1 s window
+
+# Sustained window — slow-drip attack cap (10 s average rate).
+_RATE_LIMIT_WINDOW_SECONDS = 10.0
+_RATE_LIMIT_SUSTAINED = 600         # Max msgs in any 10 s window
+                                     # (= 60 msg/s average)
 ```
 
 These limits are intentionally generous:
 - A well-behaved Electron client sends 1-5 messages per second.
-- The burst allowance (200) accommodates batch operations like loading the Settings page (which may fetch `get_config`, `get_microphones`, `get_model_catalog`, etc. in quick succession).
-- The sustained rate (60/sec) prevents high-frequency polling but allows reasonable event-driven updates.
+- The burst allowance (200/s) accommodates batch operations like
+  loading the Settings page (which may fetch `get_config`,
+  `get_microphones`, `get_model_catalog`, etc. in quick succession).
+- The sustained rate (60/sec average over 10 s) prevents high-frequency
+  polling but allows reasonable event-driven updates.
+
+The constants live in both `voice_typer/server/ipc_server.py` (the
+canonical implementation; imported by tests as
+`from voice_typer.server.ipc_server import _RATE_LIMIT_BURST`) and the
+parallel leaf copy `voice_typer/server/ipc/rate_limiter.py` (retained
+per CR-14 — the duplicate `ipc/` package was NOT deleted in this
+IMPROVE-mode run because the reviewer cycle for a package delete is too
+risky without a full test sweep). The two copies MUST stay in sync; a
+drift would surface as a test failure in
+`tests/test_ipc4_rate_limiter_dual_window.py` (which imports from
+`ipc_server`).
 
 ### Granularity
 
-Each TCP connection gets its own `_RateLimiter` instance, created in `_handle_tcp_connection()` after auth succeeds. This means:
-- A reconnect resets the rate limit counter.
-- If multiple clients connected simultaneously (not supported today, but architecturally possible), each has an independent budget.
+**CR-11 fix (2026-07-15):** the limiter is now **per-process**, not
+per-connection. A single `_RateLimiter` instance is lazily created
+and stored on the `IPCServer` instance via `_get_rate_limiter(server)`.
+All TCP reconnects and WS reconnects within the same server process
+share the same sliding-window deques, so a local attacker can no
+longer reset the budget by disconnecting and reconnecting. (The
+original per-connection design allowed a crash-looping client to
+burst 200 msgs, disconnect, reconnect, and burst again — bypassing
+the sustained cap entirely.)
+
+The lazy init is guarded by a module-level `threading.Lock`
+(`_RATE_LIMITER_INIT_LOCK`, added R4-F18) so two threads
+simultaneously hitting `_get_rate_limiter(server)` on a fresh
+server instance cannot race past the `isinstance` check and create
+two competing `_RateLimiter` instances (which would have diverged
+timestamp deques — one of the two would be orphaned and its accepted
+messages would not count toward the canonical budget).
 
 ### Response on Rejection
 
 When the rate limit is exceeded, the server sends:
 ```json
-{"type": "error", "data": {"message": "rate limit exceeded; backing off"}}
+{"type": "error", "data": {"code": "rate_limited", "message": "rate limit exceeded; backing off"}}
 ```
-The connection is NOT closed — the client is expected to back off and retry. A warning is logged at WARNING level with the cumulative rejected count.
+(IPC-5 fix: the envelope now carries a structured `code: "rate_limited"`
+field so the client can branch on code rather than parsing the message
+text; pre-IPC-5 only the `message` field was present.) The connection
+is NOT closed — the client is expected to back off and retry. A warning
+is logged at WARNING level with the cumulative rejected count.
 
 ### Thread Safety
 
-The `_RateLimiter` uses a `threading.Lock` for all timestamp deque mutations. The `allow()` method is designed for single-threaded use (each connection is handled by one thread in the accept loop), but the lock ensures correctness if the class is ever used from multiple threads.
+The `_RateLimiter` instance uses a `threading.Lock` (`self._lock`,
+acquired in `allow()`) for all timestamp-deque mutations. The
+`allow()` method is designed for single-threaded use per connection,
+but the lock ensures correctness when the same limiter is reached
+concurrently from the TCP accept thread and the WS dispatch coroutine
+(both share the per-process limiter after the CR-11 fix).
+
+The lazy-init lookup `_get_rate_limiter(server)` is guarded by a
+separate module-level lock (`_RATE_LIMITER_INIT_LOCK`, R4-F18) so
+the get-or-create sequence is atomic across threads. Without this
+second lock, two threads simultaneously hitting the helper on a
+fresh server instance could both observe `limiter is None`, both
+construct a fresh `_RateLimiter`, and one of the two would be
+orphaned (its accepted timestamps would not count toward the
+canonical budget). The init lock is held only for the brief
+get-or-create window, not for the `allow()` call itself, so it does
+not serialize dispatch.
 
 ## Consequences
 
@@ -87,7 +198,7 @@ The `_RateLimiter` uses a `threading.Lock` for all timestamp deque mutations. Th
 
 ### More difficult
 - **No client-side backoff (yet):** The Electron main process's `sendToPython()` does not currently implement backoff on "rate limit exceeded" responses. If the client hits the limit, the user sees IPC timeouts rather than graceful fallback. This is acceptable because hitting the limit indicates a bug in the client that should be fixed, not a normal operational condition.
-- **Counter resets on reconnect:** A crash-looping client that reconnects 200 times per second gets 200 fresh budgets. Mitigation: the reconnect rate is itself limited by `_tcpRetryCount` exponential backoff in the Electron client (250ms → 500ms → 1s → 2s cap). So a crash loop cannot cycle fast enough to exploit the per-connection budget reset.
+- **Per-process budget (post-CR-11):** a single misbehaving connection consumes the budget for ALL connections in the same server process. Acceptable because Voice Typer has exactly one client per process; if a future multi-client mode is added, the limiter would need to move back to per-connection (with a separate cross-connection aggregate cap to prevent the reconnect-reset bypass that CR-11 fixed).
 
 ### Risks
 - **Limits too generous:** 60 msg/s sustained is high for normal operation but within reach of a busy renderer with multiple reactive subscriptions. If a future feature adds a high-frequency IPC call (e.g., real-time waveform at 30 Hz), the sustained rate may need to be tuned. The constants are trivially adjustable.
@@ -95,8 +206,17 @@ The `_RateLimiter` uses a `threading.Lock` for all timestamp deque mutations. Th
 
 ## References
 
-- `voice_typer/server/ipc_server.py` — `_RateLimiter` class (lines 208-260), usage in `_handle_tcp_connection` (lines 977-999).
-- `tests/test_rate_limiter.py` — unit tests for the sliding-window algorithm.
+- `voice_typer/server/ipc_server.py` — `_RateLimiter` class and
+  `_get_rate_limiter(server)` lazy-init helper (canonical implementation,
+  imported by tests).
+- `voice_typer/server/ipc/rate_limiter.py` — parallel leaf copy retained
+  per CR-14; must stay in sync with `ipc_server.py`.
+- `tests/test_ipc4_rate_limiter_dual_window.py` — pins the dual-window
+  behavior (burst / sustained independence).
+- `tests/test_cr_fixes.py::TestRateLimiterPerProcess` — pins the
+  per-process (CR-11) instance-sharing behavior.
+- `tests/test_ipc5_error_envelope_parity.py` — pins the
+  `code: "rate_limited"` envelope shape on both TCP and WS paths.
 - SECURITY.md — RELIABILITY-006 documentation.
 
 *End of document.*

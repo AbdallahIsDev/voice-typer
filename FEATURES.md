@@ -40,7 +40,7 @@ Last updated: 2026-06-22
 │  │  · Single-instance lock                          │   │
 │  │  · Spawns Python backend via pythonw             │   │
 │  │  · TCP IPC bridge (port 9876)                    │   │
-│  │  · ~35 allowed IPC commands (allowlist)          │   │
+│  │  · 73 allowed IPC commands (allowlist)           │   │
 │  │  · Periodic health check (60s)                   │   │
 │  │  · Per-session auth token                        │   │
 │  │  · Event nonce verification                      │   │
@@ -270,7 +270,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |
 | 79 | Test suite (107 pytest files, 2822+ tests) | ✅ | All major subsystems covered |
 | 80 | Ruff linting + mypy type checking | ✅ | Configured in pyproject.toml |
-| 81 | IPC command allowlist | ✅ | ~35 allowed commands whitelisted in Electron main process |
+| 81 | IPC command allowlist | ✅ | 73 allowed commands whitelisted in Electron main process (CR-18 reconciliation 2026-07-19) |
 | 82 | IPC rate limiter | ✅ | Sliding window: 60 msg/s sustained, 200 burst |
 | 83 | IPC auth token | ✅ | Per-launch random 256-bit token exchanged on TCP connect |
 | 84 | Config secret redaction | ✅ | API keys replaced with `<redacted>` sentinel in IPC responses |

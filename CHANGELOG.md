@@ -41,8 +41,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 - `tests/test_permissions.py` — 31 tests for Gap 2 + Gap 3
 
 ### Modified files
-- `voice_typer/server/native_hotkeys.py` — added _on_error_callback, _on_permanent_failure_callback
-- `voice_typer/server/hotkeys.py` — rewrote _NativeBackendAdapter as 4-state machine
+- `voice_typer/server/native_hotkeys/` — added _on_error_callback, _on_permanent_failure_callback
+- `voice_typer/server/hotkeys/` — rewrote _NativeBackendAdapter as 4-state machine
 - `voice_typer/server/hotkey_dispatcher.py` — wires tray reference to adapter
 - `voice_typer/client/electron-builder.yml` — added rpm target + afterInstall/afterRemove hooks
 - `scripts/build/voice-typer.spec` — bundles Linux scripts + permissions module
@@ -91,7 +91,7 @@ Changes that affect end users (new features, bug fixes, UX improvements).
 - **Text cleanup pipeline**: duplicate removal, hallucination cleanup, misspelling correction, phrase substitution, sentence capitalization
 - **System tray icon** with minimal menu: Toggle Dictation, Open App, Models submenu, Restart, Quit
 - **Global hotkey** support: `<ctrl>+<alt>+f2`, `<ctrl>+1` through `<ctrl>+5`, and F1-F12
-- **Auto-paste** via Ctrl+V (terminal detection was removed; the docs/README claim has been corrected)
+- **Auto-paste** detects 18 known terminal process names (Windows Terminal, Warp, Alacritty, WezTerm, ConEmu, cmd, PowerShell, gnome-terminal, konsole, kitty, xterm, etc.) and sends Shift+Insert instead of Ctrl+V for those targets. For terminals not in the known list, use Ctrl+Shift+V manually.
 - **Microphone fallback chain**: same-name candidates across host APIs, ranked by reliability
 - **4-level GPU→CPU fallback** for model loading
 - **External corrections JSON** override file for custom misspelling/phrase corrections
@@ -184,5 +184,5 @@ Changes that affect contributors (architecture, dead code removal, test coverage
 
 ### Build
 
-- **npm pins fixed** — `typescript@^5.6.0`, `vite@^6.0.0`, `@types/node@^22.0.0` (were non-existent versions)
+- **npm pins fixed** — `typescript@^7.0.2`, `vite@^8.1.4`, `@types/node@^26.1.1` (were non-existent versions). The earlier draft of this changelog listed `typescript@^5.6.0`, `vite@^6.0.0`, `@types/node@^22.0.0`; those were also wrong — `electron-vite` 4 + Vite 8 require TypeScript 7.x and Node 22+ types. The pins are now aligned with the actual `voice_typer/client/package.json` and verified by `npm ci` in CI.
 - **gitignore** — `out/`, `dist/`, `*.tsbuildinfo` excluded from commits

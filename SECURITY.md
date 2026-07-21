@@ -34,12 +34,19 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **69** commands listed in
+cannot invoke arbitrary commands — only the **73** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
 `voice_typer/client/src/main/index.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
 `tests/test_security_doc_command_count.py`); update the count there if entries
 are added or removed.
+
+> The Python-side `_COMMAND_REGISTRY` in
+> `voice_typer/server/ipc_server.py` (mirrored in
+> `voice_typer/server/ipc/server.py`) registers **73** handlers — three of
+> which (`onboarding_get_model_catalog`, `onboarding_check_permissions`,
+> `tray_click`) are invoked directly from the backend tray / onboarding flow
+> and are intentionally absent from the renderer allowlist.
 
 ### Secret Redaction (SEC-003)
 
@@ -56,9 +63,44 @@ data exfiltration to attacker-controlled endpoints.
 
 ### Payload Size Limits (SEC-008, SEC-010, SEC-011)
 
-- TCP receive buffer capped at 1 MB per message (`ipc_server.py:445`, `_MAX_LINE_BYTES = 1 * 1024 * 1024`).
+- TCP receive buffer capped at 1 MB per message (`voice_typer/server/ipc_server.py:588`, `_max_line_bytes = 1 * 1024 * 1024`). The same cap is enforced in the extracted transport at `voice_typer/server/ipc/transport.py:100` (`_max_line_bytes`) and the Tauri WebSocket path enforces a 1 MiB frame cap in `voice_typer/server/sidecar_ws.py`.
 - History limit/offset bounded to prevent DoS via huge values.
 - Vocabulary payload capped at 1 MB; individual values at 1024 chars.
+
+### WS Authentication (ADR-0020, Tauri sidecar)
+
+When the Python backend runs as a Tauri sidecar (`TAURI_SIDECAR=1`), the
+TCP transport is replaced by a localhost WebSocket server implemented in
+`voice_typer/server/sidecar_ws.py`. The auth handshake mirrors the TCP
+SEC-018 model:
+
+1. **Token issuance.** The Tauri Rust host generates a 32-byte bearer
+   token (`VOICE_TYPER_IPC_TOKEN`), passes it to the Python sidecar via
+   an environment variable, and keeps a copy for its WS client.
+2. **Bind + emit.** The sidecar binds `127.0.0.1:0` (ephemeral port,
+   loopback only), then writes a single JSON line to stdout:
+   `{"event":"server_started","port":N}`. The Rust host reads the port
+   and opens a WS client to `ws://127.0.0.1:<N>`.
+3. **Auth frame.** The Rust host's first WS frame MUST be a JSON object
+   of shape `{"type":"auth","token":"<token>"}`. The sidecar's
+   `_authenticate()` (`voice_typer/server/sidecar_ws.py:177`) compares
+   the supplied token against the expected value with
+   `hmac.compare_digest` (constant-time comparison — no early-exit
+   timing leak). A 5-second auth-frame timeout (matching the TCP path's
+   PR-3-FIX-1 bound) closes unauthenticated connections before they hold
+   resources.
+4. **Reject.** On mismatch or timeout the sidecar closes the WS with
+   code `1008` (policy violation) and logs `[SIDECAR-WS] auth token
+   mismatch — rejecting`. No dispatch frames are processed until auth
+   succeeds.
+5. **Lateral boundary.** Once authenticated, the Tauri `dispatch`
+   command (in `src-tauri/capabilities/migrate-runtime.json`) scopes
+   `shell:allow-spawn` to the sidecar binary, mirroring the Electron
+   `ALLOWED_COMMANDS` lateral boundary on the TCP path.
+
+The WS server only accepts a single authenticated connection at a time;
+any second connection that completes the handshake before the first
+drops is rejected (ADR-0020 §6.4).
 
 ## Known Limitations
 

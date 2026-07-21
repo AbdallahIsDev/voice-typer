@@ -67,11 +67,33 @@ Two `typing.Protocol` classes are defined in
   consumed by `IPCServer` and its handler mixins. Members are the
   public domain objects (`config`, `history_db`, `models`,
   `recording`, `hotkeys`, `recorder`, `tray`), the private attributes
-  the handlers / IPC server reach into (`_audio_processor`,
-  `_volume_ducker`, `_ipc_server`, `_config_mutation_lock`,
-  `_shutting_down`), and the methods the service layer delegates to
+  the handlers / IPC server reach into (`_ipc_server`,
+  `_shutting_down`, `_esc_cancel_paused`, `_vocabulary_automation`,
+  `_waveform_bubble`), and the methods the service layer delegates to
   the app (`change_model`, `toggle_dictation`, `undo_last`,
-  `repaste_last`, `restart_app`, `quit_app`, `start`).
+  `repaste_last`, `restart_app`, `quit_app`, `quit`, `start`).
+
+  **TASK-2 update** (ADR 0008 §3.1): the private attributes
+  `_audio_processor`, `_volume_ducker`, and `_config_mutation_lock`
+  were REMOVED from `AppProtocol`. The IPC handler paths that used to
+  read them directly (`get_audio_status`, `apply_config`,
+  `change_model`, `set_active_backend`) now go through the
+  corresponding `ServiceProtocol` wrapper methods
+  (`ServiceProtocol.get_audio_status`,
+  `ServiceProtocol.get_volume_backend_status`,
+  `ServiceProtocol.apply_config`, `ServiceProtocol.change_model`,
+  `ServiceProtocol.set_active_backend`) which encapsulate the
+  private-attribute access inside the service layer. Handlers
+  reaching back into `_audio_processor` / `_volume_ducker` /
+  `_config_mutation_lock` directly is now a smell that this ADR
+  explicitly prohibits — the introspection test in §2.5 fails if any
+  such access is reintroduced.
+
+  **CR-59 update**: `_vocabulary_automation` and `_waveform_bubble`
+  were promoted to `AppProtocol` (typed `Any`) because four handler
+  sites currently read them via `getattr(self.app, "_X", None)`. The
+  introspection test in §2.5 was strengthened to catch that
+  string-form `getattr` access (see §2.5 below).
 - **`ServiceProtocol`** — the structural type for the `service`
   object consumed by the IPC handler mixins. This enumerates the full
   `VoiceTyperService` public method surface (status, dictation,
@@ -166,6 +188,24 @@ declared on `AppProtocol`, the introspection test fails — forcing an
 explicit decision about whether to widen the protocol (accepted
 surface growth) or refactor the handler to go through the service
 layer (preferred — the protocol surface should stay small).
+
+**String-form `getattr` bypass (CR-59)**: the original AST walk only
+inspected `ast.Attribute` nodes (i.e. direct `self.app.X` access).
+A handler could silently bypass the introspection test by writing
+`getattr(self.app, "X", None)` instead — the `ast.Attribute` walk
+doesn't see string-form attribute access, so a new private field
+read via `getattr` would not trigger drift detection. Four handler
+sites were doing exactly this (`_vocabulary_automation` ×3,
+`_waveform_bubble` ×1). `tests/test_di_providers.py` was
+strengthened with a second AST walk that inspects `ast.Call` nodes
+for `getattr(...)` calls whose first argument is `self.app` (or
+`self.service`) and whose second argument is a string literal; the
+extracted name is added to the same drift-detection set. This
+closes the bypass: a handler that writes
+`getattr(self.app, "_new_field", None)` now fails the
+introspection test until `_new_field` is either declared on
+`AppProtocol` or the handler is refactored to go through the service
+layer.
 
 ---
 

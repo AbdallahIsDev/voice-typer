@@ -9,10 +9,28 @@ set -e
 
 case "$1" in
     remove|deconfigure)
-        UNINSTALL_SCRIPT="/usr/share/voice-typer/scripts/uninstall_permissions.py"
-        if [ -f "$UNINSTALL_SCRIPT" ]; then
-            echo "[voice-typer] Removing keyboard permissions..."
+        # CR-5: Probe multiple candidate paths — Tauri v2 installs to
+        # /usr/lib/voice-typer/..., legacy Electron installs to
+        # /usr/share/voice-typer/...; both must be supported so uninstall
+        # works regardless of which installer produced the package.
+        UNINSTALL_SCRIPT=""
+        for candidate in \
+            "/usr/lib/voice-typer/resources/scripts/linux/uninstall_permissions.py" \
+            "/usr/lib/voice-typer/resources/scripts/uninstall_permissions.py" \
+            "/usr/lib/voice-typer/scripts/linux/uninstall_permissions.py" \
+            "/usr/lib/voice-typer/scripts/uninstall_permissions.py" \
+            "/usr/share/voice-typer/scripts/uninstall_permissions.py" \
+            "/usr/share/voice-typer/scripts/linux/uninstall_permissions.py"; do
+            if [ -f "$candidate" ]; then
+                UNINSTALL_SCRIPT="$candidate"
+                break
+            fi
+        done
+        if [ -n "$UNINSTALL_SCRIPT" ]; then
+            echo "[voice-typer] Removing keyboard permissions (using $UNINSTALL_SCRIPT)..."
             python3 "$UNINSTALL_SCRIPT" || true
+        else
+            echo "[voice-typer] uninstall_permissions.py not found — skipping keyboard-permission cleanup"
         fi
     ;;
     upgrade|failed-upgrade)
