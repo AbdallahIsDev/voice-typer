@@ -1,5 +1,5 @@
 /**
- * CR-061: theme preset light/dark var coverage parity test.
+ * CR-061 / PVT-001: theme preset light/dark var coverage parity test.
  *
  * Each built-in theme preset defines CSS variable overrides for both
  * light and dark colour schemes.  If the light map and dark map don't
@@ -14,21 +14,54 @@
  * ``preset.dark``.  It also asserts the union covers the full
  * ``THEME_VARIABLES`` superset declared in ``themes.ts`` so a future
  * edit that drops a var from both maps is caught.
+ *
+ * PVT-001: previously only amoled, sepia, and nord were exercised.
+ * The remaining 7 non-default/non-custom presets (dracula, solarized,
+ * tokyo-night, ayu, monokai, catppuccin, github) silently shipped
+ * with missing light-mode tokens because the parity test didn't
+ * cover them. The test now derives its fixtures from the canonical
+ * ``THEMES`` array (filtering out the no-op ``default`` and runtime-
+ * computed ``custom`` presets) so any future preset is automatically
+ * covered.
  */
 import { describe, expect, it } from "vitest";
 
-import { THEME_VARIABLES } from "@/themes";
-import { amoledTheme } from "../amoled";
-import { nordTheme } from "../nord";
-import { sepiaTheme } from "../sepia";
+import { THEME_VARIABLES, THEMES } from "@/themes";
 
-const PRESETS_UNDER_TEST = [
-	{ name: "amoled", preset: amoledTheme },
-	{ name: "sepia", preset: sepiaTheme },
-	{ name: "nord", preset: nordTheme },
-];
+// PVT-001: derive fixtures from the canonical THEMES array so every
+// non-default, non-custom preset is covered. The `default` preset is a
+// no-op (no overrides) and `custom` is computed at runtime from
+// user-supplied colours — neither carries a static light/dark map to
+// parity-test.
+const PRESETS_UNDER_TEST = THEMES.filter(
+	(t) => t.id !== "default" && t.id !== "custom",
+).map((preset) => ({ name: preset.id, preset }));
 
 describe("theme preset light/dark var coverage parity (CR-061)", () => {
+	// PVT-001: sanity guard — if a future preset is added to THEMES but
+	// excluded above by accident, this assertion fires. Update the
+	// filter explicitly when adding a no-op or runtime-computed preset.
+	it("exercises every non-default/non-custom preset (PVT-001 regression guard)", () => {
+		expect(PRESETS_UNDER_TEST.length).toBeGreaterThanOrEqual(9);
+		const exercisedIds = new Set(PRESETS_UNDER_TEST.map((p) => p.name));
+		for (const expected of [
+			"amoled",
+			"nord",
+			"dracula",
+			"sepia",
+			"monokai",
+			"ayu",
+			"github",
+			"catppuccin",
+			"tokyo-night",
+			"solarized",
+		]) {
+			expect(exercisedIds.has(expected), `missing preset ${expected}`).toBe(
+				true,
+			);
+		}
+	});
+
 	for (const { name, preset } of PRESETS_UNDER_TEST) {
 		describe(`${name} preset`, () => {
 			const lightKeys = new Set(Object.keys(preset.light));
@@ -72,6 +105,14 @@ describe("theme preset light/dark var coverage parity (CR-061)", () => {
 						`dark defines unknown var ${key} not in THEME_VARIABLES`,
 					).toBe(true);
 				}
+			});
+
+			// PVT-002: every theme must explicitly define --destructive-foreground
+			// so destructive button text is readable without relying on the
+			// stylesheet default.
+			it("defines --destructive-foreground in both light and dark (PVT-002)", () => {
+				expect(lightKeys.has("--destructive-foreground")).toBe(true);
+				expect(darkKeys.has("--destructive-foreground")).toBe(true);
 			});
 		});
 	}

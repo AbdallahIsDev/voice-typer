@@ -109,7 +109,11 @@ export function useConnection({
 								if (validated) setRecordingState(validated);
 							}
 						})
-						.catch(() => {});
+						// G4-H-22: surface get_status failures to the
+						// renderer console instead of silently swallowing
+						// them so a hung backend probe is observable in
+						// the Electron main-process log.
+						.catch((err) => console.warn("[IPC] get_status failed:", err));
 					// Send saved bubble_position to the Electron main process
 					// so it persists across restarts (main process initializes to 'top')
 					const pos = cfg?.bubble_position;
@@ -184,22 +188,55 @@ export function useConnection({
 	// detects Electron crashes; this 60s renderer→backend check
 	// detects backend crashes.  Together they provide bidirectional
 	// crash detection without config serialization churn.
+	//
+	// PVT-fix-16: the previous implementation flipped to
+	// ``"disconnected"`` after a SINGLE failed ``get_status`` call.
+	// A transient TCP hiccup (GC pause, OS scheduler delay, brief
+	// socket congestion) would mark the backend dead even though the
+	// process was still alive — the user saw a jarring "Lost
+	// connection" UI and had to click Retry. We now retry up to
+	// ``HEALTH_CHECK_MAX_RETRIES`` times with a short backoff before
+	// declaring the backend disconnected. A success at any retry
+	// tier resets the failure counter and the cycle continues.
 	useEffect(() => {
 		if (connectionStatus !== "connected") return;
 
 		let cancelled = false;
+		// Number of quick retries before declaring disconnected.
+		// 3 strikes (initial attempt + 2 retries) ≈ 1s of total
+		// tolerance for a transient flap before we surface the
+		// outage to the user.
+		const HEALTH_CHECK_MAX_RETRIES = 2;
+		const HEALTH_CHECK_RETRY_DELAY_MS = 500;
+		let retryTimer: ReturnType<typeof setTimeout> | undefined;
+		let failureCount = 0;
 
-		const interval = setInterval(async () => {
+		const probe = async (isRetry: boolean): Promise<void> => {
 			try {
 				await call("get_status");
+				failureCount = 0;
 			} catch {
-				if (!cancelled) setConnectionStatus("disconnected");
+				if (cancelled) return;
+				if (isRetry) failureCount++;
+				else failureCount = 1;
+				if (failureCount > HEALTH_CHECK_MAX_RETRIES) {
+					setConnectionStatus("disconnected");
+				} else {
+					// Schedule a quick retry so a transient flap
+					// doesn't have to wait for the next 60s tick.
+					retryTimer = setTimeout(() => {
+						probe(true);
+					}, HEALTH_CHECK_RETRY_DELAY_MS);
+				}
 			}
-		}, 60_000);
+		};
+
+		const interval = setInterval(() => probe(false), 60_000);
 
 		return () => {
 			cancelled = true;
 			clearInterval(interval);
+			if (retryTimer) clearTimeout(retryTimer);
 		};
 	}, [connectionStatus, call, setConnectionStatus]);
 
@@ -208,7 +245,7 @@ export function useConnection({
 	usePythonEvent(
 		"status_change",
 		useCallback(
-			(data) => {
+			(data): (() => void) | undefined => {
 				if (data?.status) {
 					const validated = asRecordingState(data.status);
 					if (validated) {
@@ -216,6 +253,7 @@ export function useConnection({
 						setLastError(null);
 					}
 				}
+				return undefined;
 			},
 			[setRecordingState, setLastError],
 		),
@@ -224,10 +262,11 @@ export function useConnection({
 	usePythonEvent(
 		"error",
 		useCallback(
-			(data) => {
+			(data): (() => void) | undefined => {
 				if (typeof data?.message === "string") {
 					setLastError(data.message);
 				}
+				return undefined;
 			},
 			[setLastError],
 		),
@@ -236,21 +275,66 @@ export function useConnection({
 	// ── Transient TCP recovery ───────────────────────────────────
 	usePythonEvent(
 		"reconnecting",
-		useCallback(
+		useCallback((): (() => void) | undefined => {
 			// UX-22: `"restarting"` is a member of the ConnectionStatus
 			// union (see appStore.ts), so the `as ConnectionStatus` cast
 			// was redundant dead code.
-			() => setConnectionStatus("restarting"),
-			[setConnectionStatus],
-		),
+			setConnectionStatus("restarting");
+			return undefined;
+		}, [setConnectionStatus]),
 	);
 	usePythonEvent(
 		"reconnected",
-		useCallback(() => {
+		useCallback((): (() => void) | undefined => {
 			call("get_config")
 				.then(() => setConnectionStatus("connected"))
 				.catch(() => setConnectionStatus("disconnected"));
+			return undefined;
 		}, [call, setConnectionStatus]),
+	);
+
+	// PVT-G5-060: the backend emits `state_changed` once on every
+	// client connect (see `voice_typer/server/ipc_server.py:1311-1326`)
+	// carrying the connect-time snapshot of the app state —
+	// `{ status: AppState.value, message: str }`.  Without a
+	// subscriber, this snapshot was silently dropped and the
+	// renderer had to discover the current recording state via a
+	// separate `get_status` round-trip (or wait for the next
+	// `status_change` transition, which could be indefinitely far
+	// away if the backend was idle).
+	//
+	// We treat `state_changed` as a stronger signal than
+	// `status_change`: a push from the backend means the connection
+	// is healthy, so we optimistically flip `connectionStatus` to
+	// "connected" and clear any stale `lastError`. The recording
+	// state is updated from `data.status` when it validates against
+	// the RecordingState union; unknown / missing values are
+	// discarded (defensive — the backend may add new states before
+	// the renderer ships a matching type).
+	usePythonEvent(
+		"state_changed",
+		useCallback(
+			(data): (() => void) | undefined => {
+				// A push from the backend means we have a live
+				// connection — surface that immediately.
+				setConnectionStatus("connected");
+				setLastError(null);
+
+				const rawStatus = data?.status;
+				if (typeof rawStatus === "string") {
+					const validated = asRecordingState(rawStatus);
+					if (validated) {
+						setRecordingState(validated);
+					}
+					// If `validated` is null the backend sent a
+					// state we don't recognise — leave the
+					// existing recordingState untouched so we
+					// don't clobber a valid state with garbage.
+				}
+				return undefined;
+			},
+			[setConnectionStatus, setLastError, setRecordingState],
+		),
 	);
 
 	// ── Reconnection handler (called by children on fatal errors) ─

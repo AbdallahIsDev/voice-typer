@@ -4,7 +4,21 @@
 		"dark": "Dark",
 		"system": "System",
 		"switchTitle": "{mode} mode — click to switch",
-		"switchAriaLabel": "Current theme: {mode}. Click to switch."
+		"switchAriaLabel": "Current theme: {mode}. Click to switch to {next}.",
+		"preset": {
+			"default": "Default",
+			"amoled": "Amoled",
+			"nord": "Nord",
+			"dracula": "Dracula",
+			"sepia": "Sepia",
+			"custom": "Custom",
+			"monokai": "Monokai",
+			"ayu": "Ayu",
+			"github": "GitHub",
+			"catppuccin": "Catppuccin",
+			"tokyo-night": "Tokyo Night",
+			"solarized": "Solarized"
+		}
 	},
 	"app": {
 		"name": "Voice Typer",
@@ -57,7 +71,19 @@
 		"repaste": "Re-paste",
 		"repasteAria": "Re-paste last transcription (Ctrl+Alt+V)",
 		"forceCancel": "Force cancel requested",
-		"forceCancelHint": "Taking too long? Force cancel"
+		"forceCancelHint": "Taking too long? Force cancel",
+		"forceCancelFailed": "Couldn't force-cancel the transcription",
+		"undoFailed": "Couldn't undo the last transcription",
+		"repasteFailed": "Couldn't re-paste the last transcription",
+		"errorTitle": "Recording error",
+		"retry": "Retry"
+	},
+	"dashboard": {
+		"cards": {
+			"dictations": "Dictations",
+			"chars": "Characters",
+			"duration": "Duration"
+		}
 	},
 	"common": {
 		"cancel": "Cancel",
@@ -71,7 +97,17 @@
 		"lastUpdatedMinutesAgo": "{count}m ago",
 		"lastUpdatedHoursAgo": "{count}h ago",
 		"refresh": "Refresh",
-		"refreshAria": "Refresh data"
+		"refreshAria": "Refresh data",
+		"copyPath": "Copy path",
+		"search": "Search",
+		"sort": "Sort",
+		"sortAria": "Sort order",
+		"sortNewest": "Newest first",
+		"sortOldest": "Oldest first",
+		"sortAZ": "A → Z",
+		"sortZA": "Z → A",
+		"import": "Import",
+		"importAria": "Import from file"
 	},
 	"microphone": {
 		"levelBarAria": "Microphone input level",
@@ -109,7 +145,21 @@
 		"channels": "Channels:",
 		"rateHz": "Rate:",
 		"loadFailedTitle": "Failed to load microphone data",
-		"retry": "Retry"
+		"retry": "Retry",
+		"useSystemDefault": "Use System Default",
+		"useSystemDefaultAria": "Revert to the operating system default microphone",
+		"activeMicUnavailable": "The previously selected microphone is no longer available. Falling back to the system default.",
+		"fallbackToSystemDefault": "Microphone reverted to System Default.",
+		"testDuration": "Test Duration",
+		"testDurationInfo": "How long the test recording runs (3–30 seconds).",
+		"testDurationAria": "Test duration in seconds",
+		"permissionDeniedTitle": "Microphone permission denied",
+		"permissionDeniedMessageMacos": "Voice Typer cannot access the microphone. Open System Settings → Privacy & Security → Microphone and enable Voice Typer.",
+		"permissionDeniedMessageWindows": "Voice Typer cannot access the microphone. Open Settings → Privacy & security → Microphone and allow desktop apps to access the microphone.",
+		"permissionDeniedMessageLinux": "Voice Typer cannot access the microphone. Check that no other application is holding it exclusively and that PulseAudio/PipeWire is running.",
+		"permissionDeniedMessage": "Voice Typer cannot access the microphone. Grant microphone access in your system privacy settings.",
+		"openSettings": "Open settings",
+		"openSettingsAria": "Open the operating system microphone privacy settings"
 	},
 	"vocabulary": {
 		"title": "Custom Vocabulary",
@@ -163,7 +213,16 @@
 			"productsDesc": "Brand and product names."
 		},
 		"triggerPlaceholder": "treat three, mynameis",
-		"replacementPlaceholder": "treat this, My Name Is"
+		"replacementPlaceholder": "treat this, My Name Is",
+		"allCategories": "All categories",
+		"filterByCategoryAria": "Filter by category",
+		"categoryBadgeAria": "Category: {category}",
+		"importSuccessSingular": "Imported 1 entry",
+		"importSuccessPlural": "Imported {count} entries",
+		"importFailed": "Import failed: {error}",
+		"importEmpty": "File contains no vocabulary entries",
+		"loadFailedTitle": "Failed to load vocabulary",
+		"retry": "Retry"
 	},
 	"templates": {
 		"title": "Templates",
@@ -199,7 +258,15 @@
 		"loadFailedTitle": "Failed to load templates",
 		"retry": "Retry",
 		"triggerPlaceholder": "my email",
-		"outputPlaceholder": "john.doe@example.com"
+		"outputPlaceholder": "john.doe@example.com",
+		"searchPlaceholder": "Search templates…",
+		"importSuccessSingular": "Imported 1 template",
+		"importSuccessPlural": "Imported {count} templates",
+		"importFailed": "Import failed: {error}",
+		"importEmpty": "File contains no templates",
+		"matchModeExactLabel": "Exact",
+		"matchModeContainsLabel": "Contains",
+		"matchModeAria": "Match mode: {mode}"
 	},
 	"analytics": {
 		"title": "Analytics",
@@ -231,7 +298,18 @@
 			"sat": "Sat"
 		},
 		"unknown": "Unknown",
-		"auto": "Auto"
+		"auto": "Auto",
+		"noDataTitle": "No activity yet",
+		"noDataDescription": "Press your hotkey (or Caps Lock) on the Home page to dictate — your stats will appear here.",
+		"startDictation": "Start dictation",
+		"refreshFailed": "Failed to refresh stats",
+		"dayActivityAria": "{label}: {count} transcriptions",
+		"loadingAria": "Loading dashboard",
+		"cards": {
+			"dictations": "Dictations",
+			"chars": "Characters",
+			"duration": "Duration"
+		}
 	},
 	"about": {
 		"title": "About",
@@ -272,8 +350,6 @@
 		"checkForUpdates": "Check for Updates",
 		"downloadVersion": "Download v{version}",
 		"viewChangelog": "View Changelog",
-		"helpTitle": "Help",
-		"helpDescription": "Keyboard shortcuts and documentation.",
 		"startStopDictation": "Start / Stop dictation",
 		"startStopDictationValue": "F2 (or your configured hotkey)",
 		"cancelRecording": "Cancel recording",
@@ -285,8 +361,6 @@
 		"toggleSwitches": "Toggle switches",
 		"closeDialogs": "Close dialogs",
 		"openDropdowns": "Open dropdowns",
-		"documentation": "Documentation",
-		"changelog": "Changelog",
 		"resourcesTitle": "Resources & Feedback",
 		"resourcesDescription": "Source code, issue tracker, and contribution guides.",
 		"githubRepository": "GitHub Repository",
@@ -329,7 +403,18 @@
 			"minutesAgo": "{count} min ago",
 			"hoursAgo": "{count} h ago",
 			"daysAgo": "{count} d ago"
-		}
+		},
+		"creditsTitle": "Credits & Licenses",
+		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
+		"creditsAuthorsLabel": "Authors",
+		"creditsAuthorsValue": "AbdallahIsDev and contributors",
+		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
+		"creditsFontsLabel": "Fonts",
+		"creditsFontsValue": "Geist",
+		"creditsIconsLabel": "Icons",
+		"creditsIconsValue": "Hugeicons",
+		"documentationLink": "Documentation"
 	},
 	"settings": {
 		"title": "Settings",
@@ -543,7 +628,11 @@
 			"textSizeInfoRendered": "Adjust the UI text size for better readability. Default is 14px.",
 			"textSizeAria": "Text Size",
 			"colorAria": "{label} color",
-			"hexValueAria": "{label} hex value"
+			"hexValueAria": "{label} hex value",
+			"customDropdownLabel": "Custom (use toggle below)",
+			"hexInvalid": "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c). Reverting to the previous value on blur.",
+			"contrastWarning": "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1). Increase the difference between this colour and the relevant background.",
+			"contrastWarningShort": "Contrast {ratio}:1"
 		},
 		"hotkeySection": {
 			"hotkeyTitle": "Hotkey",
@@ -614,6 +703,11 @@
 			"presetNoisyRoom": "Noisy Room (keyboard/fan/HVAC)",
 			"presetOff": "Off (raw audio)",
 			"presetCustom": "Custom (advanced)",
+			"presetAutoDescription": "Backend picks the best filter chain for the detected noise floor and hardware. Recommended for most users.",
+			"presetStudioDescription": "Light filtering for quiet, treated rooms. High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre.",
+			"presetNoisyRoomDescription": "Aggressive filtering for keyboard clatter, fans, and HVAC rumble. RNNoise + strong gate + compressor for consistent ASR accuracy.",
+			"presetOffDescription": "Bypass the entire filter chain. Use only with a clean signal — background noise will degrade transcription.",
+			"presetCustomDescription": "Hand-pick every filter and parameter. Best for advanced users with a known acoustic environment.",
 			"highPassFilter": "High-Pass Filter",
 			"highPassFilterInfo": "Remove low-frequency rumble (HVAC, traffic) below the cutoff frequency.",
 			"highPassFilterInfoSearch": "Remove low-frequency rumble.",
@@ -639,6 +733,18 @@
 			"gateCloseThresholdInfo": "Level below which the gate closes (attenuates audio). Should be 5-10dB below open threshold.",
 			"gateCloseThresholdInfoSearch": "Level below which the gate closes.",
 			"gateCloseThresholdAria": "Gate Close Threshold",
+			"gateAttack": "Gate Attack",
+			"gateAttackInfo": "How fast the gate opens when the signal rises above the open threshold. 5–25ms is typical for speech.",
+			"gateAttackInfoSearch": "How fast the gate opens.",
+			"gateAttackAria": "Gate Attack",
+			"gateHold": "Gate Hold",
+			"gateHoldInfo": "How long the gate stays open after the signal drops below the close threshold before release begins. 100–300ms prevents flicker on pauses.",
+			"gateHoldInfoSearch": "How long the gate stays open after the signal drops.",
+			"gateHoldAria": "Gate Hold",
+			"gateRelease": "Gate Release",
+			"gateReleaseInfo": "How fast the gate closes after the hold time expires. 100–200ms avoids abrupt cuts on trailing consonants.",
+			"gateReleaseInfoSearch": "How fast the gate closes after the hold time expires.",
+			"gateReleaseAria": "Gate Release",
 			"equalizer": "Equalizer",
 			"equalizerInfo": "3-band EQ: boost mid (speech intelligibility), cut low (rumble), slight high (presence). OBS-style crossover.",
 			"equalizerInfoSearch": "3-band EQ.",
@@ -667,6 +773,18 @@
 			"compressorRatioInfo": "How hard to compress. 3:1 is gentle. 10:1 is aggressive (limiter-like).",
 			"compressorRatioInfoSearch": "How hard to compress.",
 			"compressorRatioAria": "Compressor Ratio",
+			"compressorAttack": "Compressor Attack",
+			"compressorAttackInfo": "How fast compression engages when the signal exceeds the threshold. 2–10ms catches transients without pumping.",
+			"compressorAttackInfoSearch": "How fast compression engages.",
+			"compressorAttackAria": "Compressor Attack",
+			"compressorRelease": "Compressor Release",
+			"compressorReleaseInfo": "How fast compression disengages after the signal drops below the threshold. 50–150ms avoids gain breathing on trailing syllables.",
+			"compressorReleaseInfoSearch": "How fast compression disengages.",
+			"compressorReleaseAria": "Compressor Release",
+			"compressorOutputGain": "Compressor Output Gain",
+			"compressorOutputGainInfo": "Make-up gain applied after compression to restore perceived loudness. 0dB is neutral; +3–6dB compensates for typical speech compression.",
+			"compressorOutputGainInfoSearch": "Make-up gain applied after compression.",
+			"compressorOutputGainAria": "Compressor Output Gain",
 			"limiter": "Limiter",
 			"limiterInfo": "Brick-wall ceiling to prevent clipping. Catches transient clicks/pops before they reach ASR.",
 			"limiterInfoSearch": "Brick-wall ceiling to prevent clipping.",
@@ -675,10 +793,18 @@
 			"limiterCeilingInfo": "Absolute maximum output level. -6dB prevents clipping while allowing headroom.",
 			"limiterCeilingInfoSearch": "Absolute maximum output level.",
 			"limiterCeilingAria": "Limiter Ceiling",
+			"limiterRelease": "Limiter Release",
+			"limiterReleaseInfo": "How fast the limiter recovers after catching a transient. 50–100ms is typical.",
+			"limiterReleaseInfoSearch": "How fast the limiter recovers after catching a transient.",
+			"limiterReleaseAria": "Limiter Release",
 			"notchFilter": "Notch Filter (hum)",
 			"notchFilterInfo": "Remove 50/60Hz electrical mains hum. Off by default — only enable if you hear a persistent low buzz.",
 			"notchFilterInfoSearch": "Remove 50/60Hz electrical mains hum.",
-			"notchFilterAria": "Notch Filter"
+			"notchFilterAria": "Notch Filter",
+			"notchFrequency": "Notch Frequency",
+			"notchFrequencyInfo": "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains.",
+			"notchFrequencyInfoSearch": "Center frequency of the notch.",
+			"notchFrequencyAria": "Notch Frequency"
 		},
 		"aiEnhancement": {
 			"title": "AI Enhancement",
@@ -903,7 +1029,7 @@
 			"cancel": "Cancel",
 			"depsAria": "Download dependencies for {name}",
 			"deps": "Download Deps",
-			"progressAria": "Model download progress"
+			"progressAria": "Model download: {percent}% complete"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1003,6 +1129,7 @@
 		"loadingModel": "Loading model…",
 		"cancelling": "Cancelling…",
 		"moreInfo": "More info",
+		"moreInfoAbout": "More info about {label}",
 		"exportFormat": "Export format",
 		"clearSearch": "Clear search",
 		"loading": "Loading",
@@ -1029,8 +1156,10 @@
 		"zoomTextSize": "Zoom text size",
 		"punctuationTitle": "Punctuation Cheat Sheet",
 		"punctuationHint": "Say these words during dictation to insert the matching punctuation. Voice Typer recognizes these via the speech model and preserves them through text cleanup.",
+		"searchPlaceholder": "Search commands…",
+		"searchNoMatch": "No commands match \"{query}\"",
+		"openCheatSheet": "Open punctuation cheat sheet",
 		"keys": {
-			"dictation": "Caps Lock (or your hotkey)",
 			"cancel": "Esc",
 			"repaste": "Ctrl+Alt+V",
 			"toggleSidebar": "Ctrl+B",
@@ -1053,10 +1182,18 @@
 			"apostrophe": "Apostrophe",
 			"openQuote": "Open quote",
 			"closeQuote": "Close quote",
+			"hyphen": "Hyphen",
+			"dash": "Dash",
+			"ellipsis": "Ellipsis",
+			"openParen": "Open parenthesis",
+			"closeParen": "Close parenthesis",
+			"tab": "Tab",
 			"newLine": "New line",
-			"newParagraph": "New paragraph"
+			"newParagraph": "New paragraph",
+			"capital": "Capital [word]",
+			"allCaps": "All caps [word]"
 		},
-		"description": "Press Esc to close."
+		"description": "Keyboard shortcuts and voice punctuation commands."
 	},
 	"history": {
 		"title": "History",
@@ -1108,7 +1245,10 @@
 		"words": "Words",
 		"characters": "Characters",
 		"loadFailedTitle": "Failed to load history",
-		"retry": "Retry"
+		"retry": "Retry",
+		"charsSuffix": " ({count} chars)",
+		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
+		"sortLabel": "Sort"
 	},
 	"onboarding": {
 		"welcomeTitle": "Welcome to Voice Typer",
@@ -1127,14 +1267,25 @@
 		"permissionsTestLabel": "Press your hotkey to test",
 		"permissionsTestSuccess": "Hotkey detected! It works.",
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
+		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
 		"permissionsTestButton": "Test hotkey",
+		"permissionsRefresh": "Refresh permission",
+		"permissionsRefreshAria": "Re-check keyboard permission",
+		"permissionsInstructionsMacosTitle": "Accessibility Permission Required",
+		"permissionsInstructionsMacosStep1": "Open System Settings → Privacy & Security → Accessibility",
+		"permissionsInstructionsMacosStep2": "Add Voice Typer (and its key-listener helper) to the list",
+		"permissionsInstructionsMacosStep3": "Toggle the switch ON for Voice Typer",
+		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
+		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
+		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"micTitle": "Choose Your Microphone",
 		"micLevel": "Input level",
 		"micDescription": "Select the microphone you want to use for dictation. You can change this later in Settings.",
 		"micSelectAria": "Select microphone",
 		"noMics": "No microphones detected. You can set one later in Settings.",
 		"hotkeyTitle": "Choose Your Hotkey",
-		"hotkeyDescription": "Select the keyboard shortcut you'll use to start and stop dictation. F2 is the default.",
+		"hotkeyDescription": "Select the keyboard shortcut you'll use to start and stop dictation. Caps Lock is the default.",
 		"hotkeySelectAria": "Select hotkey",
 		"modelTitle": "Choose Your Model",
 		"modelDescription": "Pick a transcription model. Smaller models are faster; larger models are more accurate. The model downloads in the background after setup.",
@@ -1161,7 +1312,7 @@
 		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
 		"skipConfirmLabel": "Skip anyway",
 		"stepProgress": "Step {current} of {total}",
-		"progressAria": "Onboarding progress"
+		"progressAria": "Onboarding step {current} of {total}"
 	},
 	"titleBar": {
 		"minimize": "Minimize",
@@ -1202,7 +1353,8 @@
 		"viewAll": "View all",
 		"wordsCount": "{count} words",
 		"removeFromFavorites": "Remove from favorites",
-		"addToFavorites": "Add to favorites"
+		"addToFavorites": "Add to favorites",
+		"noRecentActivity": "No recent activity"
 	},
 	"exportFormat": {
 		"export": "Export",
@@ -1246,6 +1398,14 @@
 		"voiceDetected": "Detected ✓",
 		"voiceNotDetected": "Not detected ⚠",
 		"detectedIssues": "Detected Issues:",
+		"detectedIssueCodes": {
+			"high_noise": "High background noise",
+			"moderate_noise": "Moderate background noise",
+			"clipping": "Audio clipping detected",
+			"volume_too_low": "Volume too low — speak closer to the microphone",
+			"volume_low": "Volume is low — consider raising input gain",
+			"no_voice": "No voice detected — try speaking during the test"
+		},
 		"playEnhanced": "Play Enhanced",
 		"playOriginal": "Play Original",
 		"playRecording": "Play Recording",

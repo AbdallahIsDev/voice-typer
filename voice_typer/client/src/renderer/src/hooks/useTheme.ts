@@ -110,9 +110,37 @@ export function useTheme(
 	);
 	const [textSize, setTextSize] = useState(readLsTextSize());
 
+	// PVT-018 / FLASH-FIX: tracks whether the first
+	// ``reloadThemeFromConfig`` call has completed on this mount.
+	// Until it has, the theme-application effect below is suppressed
+	// — the pre-React ``theme-bootstrap.ts`` already applied the
+	// cached localStorage state to the DOM, so re-applying here
+	// would either be a no-op (when localStorage matches the
+	// bootstrap state, which it always does) or a visible flash
+	// (when ``reloadThemeFromConfig`` resolves with backend values
+	// that differ from the cached localStorage, triggering a
+	// state change that re-runs this effect).  By suppressing
+	// until the first reload completes, we ensure the backend
+	// confirmation produces at most ONE theme application rather
+	// than two (cached → backend).
+	//
+	// The flag is a ``useState`` (not a ref) so toggling it
+	// triggers a re-render and re-runs the theme-application
+	// effect with the now-confirmed values.
+	const [hasInitialReloadCompleted, setHasInitialReloadCompleted] =
+		useState(false);
+
 	// ── Theme detection & application ────────────────────────────
 
 	useEffect(() => {
+		// FLASH-FIX: skip until the backend has confirmed the
+		// theme state on first mount.  The bootstrap already
+		// applied the cached localStorage theme, so there's
+		// nothing to do here until ``reloadThemeFromConfig``
+		// resolves (which flips ``hasInitialReloadCompleted``
+		// to true and re-triggers this effect).
+		if (!hasInitialReloadCompleted) return;
+
 		const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
 
 		const applyTheme = (mode: string) => {
@@ -148,7 +176,7 @@ export function useTheme(
 		};
 		prefersDark.addEventListener("change", handler);
 		return () => prefersDark.removeEventListener("change", handler);
-	}, [themeMode, themePreset, customTheme]);
+	}, [themeMode, themePreset, customTheme, hasInitialReloadCompleted]);
 
 	// PLAT-017: Apply text_size as a CSS custom property so the entire UI
 	// scales proportionally. text_size=14 is the default (scale=1.0).
@@ -171,16 +199,47 @@ export function useTheme(
 	const reloadThemeFromConfig = useCallback(async () => {
 		try {
 			const cfg = await call<VoiceTyperConfig>("get_config");
-			if (cfg?.theme_mode) setThemeMode(cfg.theme_mode);
-			// Theme preset
-			if (cfg?.theme_preset) setThemePreset(cfg.theme_preset);
-			// Custom theme colours
-			if (cfg?.custom_theme) setCustomTheme(cfg.custom_theme);
-			// PLAT-017: load text_size from config for UI scaling
-			if (cfg?.text_size) setTextSize(cfg.text_size);
-			// THEME-CACHE-FIX: localStorage is synced automatically by the
-			// useEffect below that watches themeMode/themePreset/customTheme/
-			// textSize — no explicit persist needed here.
+			// FLASH-FIX: write the backend-confirmed values back
+			// to localStorage immediately so the NEXT mount
+			// starts with the authoritative state (the
+			// ``theme-bootstrap.ts`` module reads from the same
+			// keys).  Without this, a stale localStorage value
+			// could flash on every launch until the user
+			// manually changes the theme.
+			try {
+				if (cfg?.theme_mode) {
+					localStorage.setItem(LS_THEME_MODE, cfg.theme_mode);
+					setThemeMode(cfg.theme_mode);
+				}
+				if (cfg?.theme_preset) {
+					localStorage.setItem(LS_THEME_PRESET, cfg.theme_preset);
+					setThemePreset(cfg.theme_preset);
+				}
+				if (cfg?.custom_theme) {
+					localStorage.setItem(
+						LS_CUSTOM_THEME,
+						JSON.stringify(cfg.custom_theme),
+					);
+					setCustomTheme(cfg.custom_theme);
+				} else if (cfg?.theme_preset && cfg.theme_preset !== "custom") {
+					// Backend confirmed a non-custom preset — clear
+					// any stale custom-theme cache so the bootstrap
+					// doesn't try to derive custom vars from it.
+					localStorage.removeItem(LS_CUSTOM_THEME);
+				}
+				if (cfg?.text_size) {
+					localStorage.setItem(LS_TEXT_SIZE, String(cfg.text_size));
+					setTextSize(cfg.text_size);
+				}
+			} catch {
+				// localStorage may be unavailable — non-fatal.
+				// State setters below still fire so the UI
+				// reflects the backend values for this session.
+				if (cfg?.theme_mode) setThemeMode(cfg.theme_mode);
+				if (cfg?.theme_preset) setThemePreset(cfg.theme_preset);
+				if (cfg?.custom_theme) setCustomTheme(cfg.custom_theme);
+				if (cfg?.text_size) setTextSize(cfg.text_size);
+			}
 			// SOUND-FIX-REWRITE: sync the sound_feedback_enabled
 			// flag from config to localStorage on every config
 			// load.  Previously the localStorage flag was only
@@ -191,7 +250,17 @@ export function useTheme(
 			if (typeof cfg?.sound_feedback_enabled === "boolean") {
 				setSoundFeedbackEnabled(cfg.sound_feedback_enabled);
 			}
-		} catch {}
+		} catch {
+		} finally {
+			// FLASH-FIX: regardless of success/failure, flip the
+			// guard so the theme-application effect can run.
+			// On failure we keep the cached localStorage state
+			// (already applied by ``theme-bootstrap.ts``) —
+			// flipping the flag here lets the effect take over
+			// for subsequent state changes (e.g. when the user
+			// toggles the theme via the sidebar).
+			setHasInitialReloadCompleted(true);
+		}
 	}, [call]);
 
 	// Load theme from config on mount
@@ -230,8 +299,8 @@ export function useTheme(
 	usePythonEvent(
 		"config_changed",
 		useCallback(
-			(data) => {
-				if (!data) return;
+			(data): (() => void) | undefined => {
+				if (!data) return undefined;
 				// Merge into the store's config cache
 				mergeConfig(data);
 				if (typeof data.text_size === "number") {
@@ -253,6 +322,7 @@ export function useTheme(
 				if (typeof data.sound_feedback_enabled === "boolean") {
 					setSoundFeedbackEnabled(data.sound_feedback_enabled);
 				}
+				return undefined;
 			},
 			[mergeConfig],
 		),

@@ -19,12 +19,15 @@ import { isRtlLocale, setLocale } from "@/i18n/i18n";
 describe("I18N-3: RTL dir attribute", () => {
 	const originalDir =
 		typeof document !== "undefined" ? document.documentElement.dir : "";
+	const originalLang =
+		typeof document !== "undefined" ? document.documentElement.lang : "";
 
 	afterEach(() => {
 		// Restore the original dir so this test file cannot leak RTL state
 		// into sibling test files that happen to share the jsdom instance.
 		if (typeof document !== "undefined") {
 			document.documentElement.dir = originalDir;
+			document.documentElement.lang = originalLang;
 		}
 		// Reset the i18n module state to English so the next test starts
 		// from a known baseline (setLocale also clears the persisted
@@ -39,17 +42,19 @@ describe("I18N-3: RTL dir attribute", () => {
 		setLocale("en");
 	});
 
-	it("sets dir=rtl when locale is Arabic", () => {
+	it("sets dir=rtl and lang=ar when locale is Arabic", () => {
 		setLocale("ar");
 		expect(document.documentElement.dir).toBe("rtl");
+		expect(document.documentElement.lang).toBe("ar");
 		expect(isRtlLocale("ar")).toBe(true);
 	});
 
-	it("sets dir=ltr for non-RTL locales", () => {
+	it("sets dir=ltr and lang=<locale> for non-RTL locales", () => {
 		const ltrLocales = ["en", "es", "fr", "de", "ru", "zh", "hi"] as const;
 		for (const loc of ltrLocales) {
 			setLocale(loc);
 			expect(document.documentElement.dir).toBe("ltr");
+			expect(document.documentElement.lang).toBe(loc);
 			expect(isRtlLocale(loc)).toBe(false);
 		}
 	});
@@ -62,10 +67,12 @@ describe("I18N-3: RTL dir attribute", () => {
 		expect(isRtlLocale("ar")).toBe(true);
 	});
 
-	it("flips dir back to ltr when switching from ar to en", () => {
+	it("flips dir back to ltr and lang back to en when switching from ar to en", () => {
 		setLocale("ar");
 		expect(document.documentElement.dir).toBe("rtl");
+		expect(document.documentElement.lang).toBe("ar");
 		setLocale("en");
 		expect(document.documentElement.dir).toBe("ltr");
+		expect(document.documentElement.lang).toBe("en");
 	});
 });

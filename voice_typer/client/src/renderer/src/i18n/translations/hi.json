@@ -2,9 +2,23 @@
 	"theme": {
 		"light": "लाइट",
 		"dark": "डार्क",
-		"system": "System",
+		"system": "सिस्टम",
 		"switchTitle": "{mode} मोड — बदलने के लिए क्लिक करें",
-		"switchAriaLabel": "वर्तमान थीम: {mode}. बदलने के लिए क्लिक करें।"
+		"switchAriaLabel": "वर्तमान थीम: {mode}. बदलने के लिए क्लिक करें — अगला: {next}.",
+		"preset": {
+			"default": "डिफ़ॉल्ट",
+			"amoled": "एमोलेड",
+			"nord": "नॉर्ड",
+			"dracula": "ड्रैकुला",
+			"sepia": "सेपिया",
+			"custom": "कस्टम",
+			"monokai": "मोनोकाई",
+			"ayu": "आयु",
+			"github": "गिटहब",
+			"catppuccin": "कैटपुचिन",
+			"tokyo-night": "टोक्यो नाइट",
+			"solarized": "सोलराइज़्ड"
+		}
 	},
 	"app": {
 		"name": "वॉयस टाइपर",
@@ -17,9 +31,9 @@
 		"goHome": "होम पर जाएँ",
 		"lostConnectionHint": "Python बैकएंड प्रतिक्रिया नहीं दे रहा है। कृपया पुनः आरंभ करें।",
 		"connecting": {
-			"step1StartingPython": "Starting Python",
-			"step2LoadingModel": "Loading model",
-			"step3Ready": "Ready"
+			"step1StartingPython": "पायथन शुरू हो रहा है",
+			"step2LoadingModel": "मॉडल लोड हो रहा है",
+			"step3Ready": "तैयार"
 		}
 	},
 	"nav": {
@@ -57,7 +71,12 @@
 		"repaste": "पुनः पेस्ट करें",
 		"repasteAria": "अंतिम ट्रांसक्रिप्शन पुनः पेस्ट करें",
 		"forceCancel": "बलपूर्वक रद्द करें",
-		"forceCancelHint": "यदि डिक्टेशन रुक गया है, तो ठीक करने के लिए बलपूर्वक रद्द करें"
+		"forceCancelHint": "यदि डिक्टेशन रुक गया है, तो ठीक करने के लिए बलपूर्वक रद्द करें",
+		"forceCancelFailed": "ट्रांसक्रिप्शन को बलपूर्वक रद्द नहीं किया जा सका",
+		"undoFailed": "अंतिम ट्रांसक्रिप्शन को पूर्ववत नहीं किया जा सका",
+		"repasteFailed": "अंतिम ट्रांसक्रिप्शन को फिर से पेस्ट नहीं किया जा सका",
+		"errorTitle": "रिकॉर्डिंग त्रुटि",
+		"retry": "पुनः प्रयास करें"
 	},
 	"common": {
 		"cancel": "रद्द करें",
@@ -71,7 +90,17 @@
 		"lastUpdatedMinutesAgo": "{count} मिनट पहले",
 		"lastUpdatedHoursAgo": "{count} घंटे पहले",
 		"refresh": "ताज़ा करें",
-		"refreshAria": "डेटा ताज़ा करें"
+		"refreshAria": "डेटा ताज़ा करें",
+		"copyPath": "पथ कॉपी करें",
+		"search": "खोजें",
+		"sort": "क्रमबद्ध करें",
+		"sortAria": "क्रमबद्ध क्रम",
+		"sortNewest": "नया पहले",
+		"sortOldest": "पुराना पहले",
+		"sortAZ": "अ → ज्ञ",
+		"sortZA": "ज्ञ → अ",
+		"import": "आयात करें",
+		"importAria": "फ़ाइल से आयात करें"
 	},
 	"microphone": {
 		"levelBarAria": "माइक्रोफ़ोन इनपुट स्तर",
@@ -109,7 +138,21 @@
 		"channels": "चैनल:",
 		"rateHz": "दर:",
 		"loadFailedTitle": "माइक्रोफ़ोन लोड करने में विफल",
-		"retry": "पुनः प्रयास करें"
+		"retry": "पुनः प्रयास करें",
+		"useSystemDefault": "सिस्टम डिफ़ॉल्ट का उपयोग करें",
+		"useSystemDefaultAria": "ऑपरेटिंग सिस्टम के डिफ़ॉल्ट माइक्रोफ़ोन पर वापस जाएं",
+		"activeMicUnavailable": "पहले चयनित माइक्रोफ़ोन अब उपलब्ध नहीं है। सिस्टम डिफ़ॉल्ट पर वापस जा रहे हैं।",
+		"fallbackToSystemDefault": "माइक्रोफ़ोन सिस्टम डिफ़ॉल्ट पर वापस सेट किया गया।",
+		"testDuration": "परीक्षण अवधि",
+		"testDurationInfo": "परीक्षण रिकॉर्डिंग कितने समय तक चलती है (3–30 सेकंड)।",
+		"testDurationAria": "सेकंड में परीक्षण अवधि",
+		"permissionDeniedTitle": "माइक्रोफ़ोन अनुमति अस्वीकृत",
+		"permissionDeniedMessageMacos": "Voice Typer माइक्रोफ़ोन तक नहीं पहुंच सकता। सिस्टम सेटिंग्स → गोपनीयता और सुरक्षा → माइक्रोफ़ोन खोलें और Voice Typer को सक्षम करें।",
+		"permissionDeniedMessageWindows": "Voice Typer माइक्रोफ़ोन तक नहीं पहुंच सकता। सेटिंग्स → गोपनीयता और सुरक्षा → माइक्रोफ़ोन खोलें और डेस्कटॉप ऐप्स को माइक्रोफ़ोन तक पहुंचने दें।",
+		"permissionDeniedMessageLinux": "Voice Typer माइक्रोफ़ोन तक नहीं पहुंच सकता। जांचें कि कोई अन्य एप्लिकेशन इसे विशेष रूप से उपयोग नहीं कर रहा है और PulseAudio/PipeWire चल रहा है।",
+		"permissionDeniedMessage": "Voice Typer माइक्रोफ़ोन तक नहीं पहुंच सकता। अपनी सिस्टम गोपनीयता सेटिंग्स में माइक्रोफ़ोन एक्सेस दें।",
+		"openSettings": "सेटिंग्स खोलें",
+		"openSettingsAria": "ऑपरेटिंग सिस्टम की माइक्रोफ़ोन गोपनीयता सेटिंग्स खोलें"
 	},
 	"vocabulary": {
 		"title": "कस्टम शब्दावली",
@@ -163,7 +206,16 @@
 			"productsDesc": "ब्रांड और उत्पाद नाम।"
 		},
 		"triggerPlaceholder": "treat three, mynameis",
-		"replacementPlaceholder": "treat this, My Name Is"
+		"replacementPlaceholder": "treat this, My Name Is",
+		"allCategories": "सभी श्रेणियां",
+		"filterByCategoryAria": "श्रेणी के अनुसार फ़िल्टर करें",
+		"categoryBadgeAria": "Category: {category}",
+		"importSuccessSingular": "1 प्रविष्टि आयात की गई",
+		"importSuccessPlural": "{count} प्रविष्टियां आयात की गईं",
+		"importFailed": "आयात विफल: {error}",
+		"importEmpty": "फ़ाइल में कोई शब्दावली प्रविष्टियाँ नहीं हैं",
+		"loadFailedTitle": "शब्दावली लोड करने में विफल",
+		"retry": "पुनः प्रयास करें"
 	},
 	"templates": {
 		"title": "टेम्पलेट",
@@ -198,8 +250,16 @@
 		"deleteMessage": "क्या आप वाकई \"{name}\" हटाना चाहते हैं? इस क्रिया को पूर्ववत नहीं किया जा सकता।",
 		"loadFailedTitle": "टेम्पलेट लोड करने में विफल",
 		"retry": "पुनः प्रयास करें",
-		"triggerPlaceholder": "my email",
-		"outputPlaceholder": "john.doe@example.com"
+		"triggerPlaceholder": "मेरा ईमेल",
+		"outputPlaceholder": "user@example.com",
+		"searchPlaceholder": "टेम्पलेट खोजें…",
+		"importSuccessSingular": "1 टेम्पलेट आयात किया गया",
+		"importSuccessPlural": "{count} टेम्पलेट आयात किए गए",
+		"importFailed": "आयात विफल: {error}",
+		"importEmpty": "फ़ाइल में कोई टेम्पलेट नहीं है",
+		"matchModeExactLabel": "सटीक",
+		"matchModeContainsLabel": "शामिल है",
+		"matchModeAria": "Match mode: {mode}"
 	},
 	"analytics": {
 		"title": "एनालिटिक्स",
@@ -231,7 +291,13 @@
 			"sat": "शनि"
 		},
 		"unknown": "अज्ञात",
-		"auto": "Auto"
+		"auto": "स्वतः",
+		"noDataTitle": "अभी तक कोई गतिविधि नहीं",
+		"noDataDescription": "डिक्टेट करने के लिए होम पेज पर अपनी हॉटकी (या Caps Lock) दबाएं — आपके आँकड़े यहां दिखाई देंगे।",
+		"startDictation": "डिक्टेशन शुरू करें",
+		"refreshFailed": "आँकड़े ताज़ा करने में विफल",
+		"dayActivityAria": "{label}: {count} transcriptions",
+		"loadingAria": "डैशबोर्ड लोड हो रहा है"
 	},
 	"about": {
 		"title": "परिचय",
@@ -272,8 +338,6 @@
 		"checkForUpdates": "अपडेट के लिए जांचें",
 		"downloadVersion": "v{version} डाउनलोड करें",
 		"viewChangelog": "बदलाव लॉग देखें",
-		"helpTitle": "सहायता",
-		"helpDescription": "कीबोर्ड शॉर्टकट और दस्तावेज़ीकरण।",
 		"startStopDictation": "डिक्टेशन शुरू / रोकें",
 		"startStopDictationValue": "F2 (या आपका कॉन्फ़िगर किया गया हॉटकी)",
 		"cancelRecording": "रिकॉर्डिंग रद्द करें",
@@ -285,8 +349,6 @@
 		"toggleSwitches": "टॉगल स्विच",
 		"closeDialogs": "संवाद बंद करें",
 		"openDropdowns": "ड्रॉपडाउन खोलें",
-		"documentation": "दस्तावेज़ीकरण",
-		"changelog": "बदलाव लॉग",
 		"resourcesTitle": "संसाधन और प्रतिक्रिया",
 		"resourcesDescription": "सोर्स कोड, इश्यू ट्रैकर, और योगदान गाइड।",
 		"githubRepository": "GitHub रिपॉज़िटरी",
@@ -329,7 +391,18 @@
 			"minutesAgo": "{count} min ago",
 			"hoursAgo": "{count} h ago",
 			"daysAgo": "{count} d ago"
-		}
+		},
+		"creditsTitle": "Credits & Licenses",
+		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
+		"creditsAuthorsLabel": "Authors",
+		"creditsAuthorsValue": "AbdallahIsDev and contributors",
+		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
+		"creditsFontsLabel": "Fonts",
+		"creditsFontsValue": "Geist",
+		"creditsIconsLabel": "Icons",
+		"creditsIconsValue": "Hugeicons",
+		"documentationLink": "Documentation"
 	},
 	"settings": {
 		"title": "सेटिंग्स",
@@ -522,7 +595,11 @@
 			"textSizeInfoRendered": "बेहतर पठनीयता के लिए UI पाठ आकार समायोजित करें। डिफ़ॉल्ट 14px है।",
 			"textSizeAria": "पाठ आकार",
 			"colorAria": "{label} रंग",
-			"hexValueAria": "{label} हेक्स मान"
+			"hexValueAria": "{label} हेक्स मान",
+			"customDropdownLabel": "Custom (use toggle below)",
+			"hexInvalid": "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c). Reverting to the previous value on blur.",
+			"contrastWarning": "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1). Increase the difference between this colour and the relevant background.",
+			"contrastWarningShort": "Contrast {ratio}:1"
 		},
 		"hotkeySection": {
 			"hotkeyTitle": "हॉटकी",
@@ -657,7 +734,44 @@
 			"notchFilter": "नॉच फ़िल्टर (गुंजन)",
 			"notchFilterInfo": "50/60Hz विद्युत मेन्स गुंजन हटाएँ। डिफ़ॉल्ट रूप से बंद — केवल यदि आप लगातार कम गुंज सुनते हैं तब सक्षम करें।",
 			"notchFilterInfoSearch": "50/60Hz विद्युत मेन्स गुंजन हटाएँ।",
-			"notchFilterAria": "नॉच फ़िल्टर"
+			"notchFilterAria": "नॉच फ़िल्टर",
+			"presetAutoDescription": "Backend picks the best filter chain for the detected noise floor and hardware. Recommended for most users.",
+			"presetStudioDescription": "Light filtering for quiet, treated rooms. High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre.",
+			"presetNoisyRoomDescription": "Aggressive filtering for keyboard clatter, fans, and HVAC rumble. RNNoise + strong gate + compressor for consistent ASR accuracy.",
+			"presetOffDescription": "Bypass the entire filter chain. Use only with a clean signal — background noise will degrade transcription.",
+			"presetCustomDescription": "Hand-pick every filter and parameter. Best for advanced users with a known acoustic environment.",
+			"gateAttack": "Gate Attack",
+			"gateAttackInfo": "How fast the gate opens when the signal rises above the open threshold. 5–25ms is typical for speech.",
+			"gateAttackInfoSearch": "How fast the gate opens.",
+			"gateAttackAria": "Gate Attack",
+			"gateHold": "Gate Hold",
+			"gateHoldInfo": "How long the gate stays open after the signal drops below the close threshold before release begins. 100–300ms prevents flicker on pauses.",
+			"gateHoldInfoSearch": "How long the gate stays open after the signal drops.",
+			"gateHoldAria": "Gate Hold",
+			"gateRelease": "Gate Release",
+			"gateReleaseInfo": "How fast the gate closes after the hold time expires. 100–200ms avoids abrupt cuts on trailing consonants.",
+			"gateReleaseInfoSearch": "How fast the gate closes after the hold time expires.",
+			"gateReleaseAria": "Gate Release",
+			"compressorAttack": "Compressor Attack",
+			"compressorAttackInfo": "How fast compression engages when the signal exceeds the threshold. 2–10ms catches transients without pumping.",
+			"compressorAttackInfoSearch": "How fast compression engages.",
+			"compressorAttackAria": "Compressor Attack",
+			"compressorRelease": "Compressor Release",
+			"compressorReleaseInfo": "How fast compression disengages after the signal drops below the threshold. 50–150ms avoids gain breathing on trailing syllables.",
+			"compressorReleaseInfoSearch": "How fast compression disengages.",
+			"compressorReleaseAria": "Compressor Release",
+			"compressorOutputGain": "Compressor Output Gain",
+			"compressorOutputGainInfo": "Make-up gain applied after compression to restore perceived loudness. 0dB is neutral; +3–6dB compensates for typical speech compression.",
+			"compressorOutputGainInfoSearch": "Make-up gain applied after compression.",
+			"compressorOutputGainAria": "Compressor Output Gain",
+			"limiterRelease": "Limiter Release",
+			"limiterReleaseInfo": "How fast the limiter recovers after catching a transient. 50–100ms is typical.",
+			"limiterReleaseInfoSearch": "How fast the limiter recovers after catching a transient.",
+			"limiterReleaseAria": "Limiter Release",
+			"notchFrequency": "Notch Frequency",
+			"notchFrequencyInfo": "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains.",
+			"notchFrequencyInfoSearch": "Center frequency of the notch.",
+			"notchFrequencyAria": "Notch Frequency"
 		},
 		"aiEnhancement": {
 			"title": "AI संवर्द्धन",
@@ -798,7 +912,12 @@
 			"availableWithBackend": "सिस्टम कीचेन में सुरक्षित रूप से संग्रहीत (बैकएंड: {backend})।",
 			"fallback": "कीचेन बैकएंड उपलब्ध नहीं है — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।",
 			"fallbackWithReason": "कीचेन बैकएंड उपलब्ध नहीं है ({reason}) — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।"
-		}
+		},
+		"searchNoMatch": "No settings match \"{query}\"",
+		"bubbleMicButton": "Bubble Mic Button",
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"bubbleClickToToggle": "Click Bubble to Toggle",
+		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation"
 	},
 	"models": {
 		"asrTitle": "ASR मॉडल",
@@ -965,7 +1084,16 @@
 		"openaiWhisperApi": "OpenAI Whisper API सेवा",
 		"groqWhisperApi": "Groq Whisper API सेवा",
 		"deepgramApi": "Deepgram API सेवा",
-		"configureEngines": "अपने स्पीच-टू-टेक्स्ट इंजन कॉन्फ़िगर करें"
+		"configureEngines": "अपने स्पीच-टू-टेक्स्ट इंजन कॉन्फ़िगर करें",
+		"benchmark": {
+			"notImplemented": "Benchmark not yet implemented.",
+			"title": "मॉडल बेंचमार्क",
+			"description": "अपने सिस्टम पर मॉडल के प्रदर्शन की तुलना करें",
+			"runAria": "Run model benchmark",
+			"running": "चल रहा है...",
+			"run": "बेंचमार्क चलाएं"
+		},
+		"benchmarkNotImplemented": "Benchmark not yet implemented."
 	},
 	"tooltips": {
 		"toggleRecording": "वॉयस डिक्टेशन शुरू या बंद करें",
@@ -996,8 +1124,8 @@
 		"microphoneQualityPreset": "माइक्रोफ़ोन गुणवत्ता प्रीसेट",
 		"noiseSuppressionMethod": "शोर दमन विधि",
 		"importNotAvailableOutsideElectron": "Electron के बाहर आयात उपलब्ध नहीं है",
-		"opensInNewTab": "नई टैब में खुलता है",
-		"transcriptionComplete": "ट्रांसक्रिप्शन पूर्ण।"
+		"transcriptionComplete": "ट्रांसक्रिप्शन पूर्ण।",
+		"moreInfoAbout": "More info about {label}"
 	},
 	"help": {
 		"title": "कीबोर्ड शॉर्टकट",
@@ -1015,7 +1143,6 @@
 		"closeHint": "बंद करने के लिए {key} दबाएं या बाहर क्लिक करें।",
 		"zoomTextSize": "टेक्स्ट आकार",
 		"keys": {
-			"dictation": "Caps Lock (or your hotkey)",
 			"cancel": "Esc",
 			"repaste": "Ctrl+Alt+V",
 			"toggleSidebar": "Ctrl+B",
@@ -1041,9 +1168,20 @@
 			"openQuote": "खुला उद्धरण चिह्न",
 			"closeQuote": "बंद उद्धरण चिह्न",
 			"newLine": "नई पंक्ति",
-			"newParagraph": "नया पैराग्राफ"
+			"newParagraph": "नया पैराग्राफ",
+			"hyphen": "Hyphen",
+			"dash": "Dash",
+			"ellipsis": "Ellipsis",
+			"openParen": "Open parenthesis",
+			"closeParen": "Close parenthesis",
+			"tab": "Tab",
+			"capital": "Capital [word]",
+			"allCaps": "All caps [word]"
 		},
-		"description": "कीबोर्ड शॉर्टकट और विरामचिह्न सहायता पत्र।"
+		"description": "कीबोर्ड शॉर्टकट और विरामचिह्न सहायता पत्र।",
+		"searchPlaceholder": "Search commands…",
+		"searchNoMatch": "No commands match \"{query}\"",
+		"openCheatSheet": "Open punctuation cheat sheet"
 	},
 	"history": {
 		"title": "इतिहास",
@@ -1095,7 +1233,10 @@
 		"words": "शब्द",
 		"characters": "अक्षर",
 		"loadFailedTitle": "इतिहास लोड करने में विफल",
-		"retry": "पुनः प्रयास करें"
+		"retry": "पुनः प्रयास करें",
+		"charsSuffix": " ({count} chars)",
+		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
+		"sortLabel": "Sort"
 	},
 	"onboarding": {
 		"welcomeTitle": "Voice Typer में आपका स्वागत है",
@@ -1131,7 +1272,35 @@
 		"saveFailedSnack": "चयन सहेजने में विफल",
 		"skippedSnack": "सेटअप छोड़ा गया — डिफ़ॉल्ट का उपयोग कर रहे हैं",
 		"stepProgress": "चरण {total} में से {current}",
-		"progressAria": "सेटअप चरण {current} / {total}"
+		"progressAria": "सेटअप चरण {current} / {total}",
+		"step4Item": "Pick a transcription model",
+		"step5Item": "Finish and load your model",
+		"permissionsTitle": "Keyboard Monitoring Permission",
+		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
+		"permissionsLoading": "Checking permission…",
+		"permissionsNeeded": "Permission still required",
+		"permissionsOk": "Permission granted — hotkeys will work.",
+		"permissionsNoneNeeded": "No extra permission needed on this platform. Hotkeys will work out of the box.",
+		"permissionsTestLabel": "Press your hotkey to test",
+		"permissionsTestSuccess": "Hotkey detected! It works.",
+		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
+		"permissionsTestButton": "Test hotkey",
+		"micLevel": "Input level",
+		"modelMultilingual": "Multilingual",
+		"skipConfirmTitle": "Skip setup?",
+		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmLabel": "Skip anyway",
+		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
+		"permissionsRefresh": "Refresh permission",
+		"permissionsRefreshAria": "Re-check keyboard permission",
+		"permissionsInstructionsMacosTitle": "Accessibility Permission Required",
+		"permissionsInstructionsMacosStep1": "Open System Settings → Privacy & Security → Accessibility",
+		"permissionsInstructionsMacosStep2": "Add Voice Typer (and its key-listener helper) to the list",
+		"permissionsInstructionsMacosStep3": "Toggle the switch ON for Voice Typer",
+		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
+		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
+		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
 	},
 	"titleBar": {
 		"minimize": "न्यूनतम करें",
@@ -1145,7 +1314,10 @@
 		"recordingIndicatorAria": "Voice Typer रिकॉर्डिंग संकेतक",
 		"transcribingLabel": "लिखा जा रहा है",
 		"idleLabel": "Ready",
-		"recordingLabel": "REC"
+		"recordingLabel": "REC",
+		"micButtonAria": "Toggle dictation",
+		"micButtonStartAria": "Start dictation",
+		"micButtonStopAria": "Stop dictation"
 	},
 	"errorBoundary": {
 		"title": "कुछ गलत हो गया",
@@ -1169,7 +1341,8 @@
 		"viewAll": "सभी देखें",
 		"wordsCount": "{count} शब्द",
 		"removeFromFavorites": "पसंदीदा से हटाएं",
-		"addToFavorites": "पसंदीदा में जोड़ें"
+		"addToFavorites": "पसंदीदा में जोड़ें",
+		"noRecentActivity": "No recent activity"
 	},
 	"exportFormat": {
 		"export": "निर्यात",
@@ -1225,14 +1398,18 @@
 			"tooLow": "आवाज़ बहुत कम है",
 			"lowVolume": "कम वॉल्यूम पहचाना गया",
 			"waiting": "आवाज़ की प्रतीक्षा…"
+		},
+		"detectedIssueCodes": {
+			"high_noise": "High background noise",
+			"moderate_noise": "Moderate background noise",
+			"clipping": "Audio clipping detected",
+			"volume_too_low": "Volume too low — speak closer to the microphone",
+			"volume_low": "Volume is low — consider raising input gain",
+			"no_voice": "No voice detected — try speaking during the test"
 		}
 	},
 	"dashboard": {
-		"cards": {
-			"dictations": "डिक्टेशन",
-			"chars": "अक्षर",
-			"duration": "कुल अवधि"
-		}
+		"cards": {}
 	},
 	"stats": {
 		"shareImage": {
@@ -1240,12 +1417,7 @@
 			"wpm": "WPM",
 			"min": "मिनट",
 			"savedVsTyping": "टाइपिंग की तुलना में बचाया",
-			"title": "Voice Typer आँकड़े",
-			"cloudMode": "क्लाउड",
-			"offlineMode": "ऑफ़लाइन",
-			"cloudApi": "क्लाउड API",
-			"localModel": "स्थानीय मॉडल",
-			"fasterThanAvg": "औसत टाइपिस्ट से {percent}% तेज़"
+			"title": "Voice Typer आँकड़े"
 		}
 	},
 	"hotkey": {

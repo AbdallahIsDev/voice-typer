@@ -50,7 +50,9 @@ export const sepiaTheme: ThemePreset = {
 		// Borders / inputs / rings
 		"--border": "oklch(0.84 0.02 75)",
 		"--input": "oklch(0.84 0.02 75)",
-		"--ring": "oklch(0.6 0.08 50)",
+		/* PVT-044: bump L from 0.6 to 0.48 so the focus ring (combined with
+		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
+		"--ring": "oklch(0.48 0.08 50)",
 		// Destructive (CR-061: added so light matches dark coverage.)
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",

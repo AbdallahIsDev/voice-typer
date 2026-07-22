@@ -2,9 +2,23 @@
 	"theme": {
 		"light": "فاتح",
 		"dark": "داكن",
-		"system": "System",
+		"system": "النظام",
 		"switchTitle": "سمة {mode} — انقر للتبديل",
-		"switchAriaLabel": "السمة الحالية: {mode}. انقر للتبديل."
+		"switchAriaLabel": "السمة الحالية: {mode}. انقر للتبديل إلى {next}.",
+		"preset": {
+			"default": "افتراضي",
+			"amoled": "أموليد",
+			"nord": "شمالي",
+			"dracula": "دراكولا",
+			"sepia": "بني داكن",
+			"custom": "مخصص",
+			"monokai": "مونوكاي",
+			"ayu": "آيو",
+			"github": "جيت‌هاب",
+			"catppuccin": "كات‌بوتشينو",
+			"tokyo-night": "طوكيو ليلاً",
+			"solarized": "مشمس"
+		}
 	},
 	"app": {
 		"name": "Voice Typer",
@@ -17,9 +31,9 @@
 		"goHome": "الذهاب إلى الرئيسية",
 		"lostConnectionHint": "توقّف الخادم عن الاستجابة. حاول إعادة التشغيل.",
 		"connecting": {
-			"step1StartingPython": "Starting Python",
-			"step2LoadingModel": "Loading model",
-			"step3Ready": "Ready"
+			"step1StartingPython": "جارٍ تشغيل Python",
+			"step2LoadingModel": "جارٍ تحميل النموذج",
+			"step3Ready": "جاهز"
 		}
 	},
 	"nav": {
@@ -57,7 +71,14 @@
 		"repaste": "إعادة اللصق",
 		"repasteAria": "إعادة لصق آخر تدوين",
 		"forceCancel": "إلغاء إجباري",
-		"forceCancelHint": "إذا تعلّق التدوين، استخدم الإلغاء الإجباري للاستعادة"
+		"forceCancelHint": "إذا تعلّق التدوين، استخدم الإلغاء الإجباري للاستعادة",
+		"forceCancelFailed": "تعذر إلغاء الإملاء قسريًا",
+		"undoFailed": "تعذر التراجع عن آخر إملاء",
+		"repasteFailed": "تعذرت إعادة لصق آخر إملاء",
+		"errorTitle": "خطأ في التسجيل",
+		"retry": "إعادة المحاولة",
+		"entryCountSingular": "{count} إدخال",
+		"entryCountPlural": "{count} إدخالات"
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -71,7 +92,17 @@
 		"lastUpdatedMinutesAgo": "قبل {count} د",
 		"lastUpdatedHoursAgo": "قبل {count} س",
 		"refresh": "تحديث",
-		"refreshAria": "تحديث البيانات"
+		"refreshAria": "تحديث البيانات",
+		"copyPath": "نسخ المسار",
+		"search": "بحث",
+		"sort": "ترتيب",
+		"sortAria": "ترتيب الفرز",
+		"sortNewest": "الأحدث أولاً",
+		"sortOldest": "الأقدم أولاً",
+		"sortAZ": "أ → ي",
+		"sortZA": "ي → أ",
+		"import": "استيراد",
+		"importAria": "استيراد من ملف"
 	},
 	"microphone": {
 		"levelBarAria": "مستوى مدخل الميكروفون",
@@ -109,7 +140,21 @@
 		"channels": "القنوات:",
 		"rateHz": "المعدل:",
 		"loadFailedTitle": "تعذّر تحميل الميكروفونات",
-		"retry": "إعادة المحاولة"
+		"retry": "إعادة المحاولة",
+		"useSystemDefault": "استخدام إعدادات النظام الافتراضية",
+		"useSystemDefaultAria": "العودة إلى ميكروفون النظام الافتراضي",
+		"activeMicUnavailable": "الميكروفون المحدد سابقًا غير متاح. العودة إلى إعدادات النظام الافتراضية.",
+		"fallbackToSystemDefault": "تمت العودة إلى ميكروفون النظام الافتراضي.",
+		"testDuration": "مدة الاختبار",
+		"testDurationInfo": "مدة تسجيل الاختبار (3-30 ثانية).",
+		"testDurationAria": "مدة الاختبار بالثواني",
+		"permissionDeniedTitle": "تم رفض إذن الميكروفون",
+		"permissionDeniedMessageMacos": "Voice Typer لا يمكنه الوصول إلى الميكروفون. افتح إعدادات النظام → الخصوصية والأمان → الميكروفون وقم بتمكين Voice Typer.",
+		"permissionDeniedMessageWindows": "Voice Typer لا يمكنه الوصول إلى الميكروفون. افتح الإعدادات → الخصوصية والأمان → الميكروفون واسمح لتطبيقات سطح المكتب بالوصول إلى الميكروفون.",
+		"permissionDeniedMessageLinux": "Voice Typer لا يمكنه الوصول إلى الميكروفون. تأكد من أن أي تطبيق آخر لا يستخدمه حصريًا وأن PulseAudio/PipeWire يعمل.",
+		"permissionDeniedMessage": "Voice Typer لا يمكنه الوصول إلى الميكروفون. امنح إذن الوصول إلى الميكروفون في إعدادات الخصوصية بالنظام.",
+		"openSettings": "فتح الإعدادات",
+		"openSettingsAria": "فتح إعدادات خصوصية الميكروفون في نظام التشغيل"
 	},
 	"vocabulary": {
 		"title": "المفردات المخصصة",
@@ -162,8 +207,17 @@
 			"products": "منتجات",
 			"productsDesc": "أسماء العلامات التجارية والمنتجات."
 		},
-		"triggerPlaceholder": "treat three, mynameis",
-		"replacementPlaceholder": "treat this, My Name Is"
+		"triggerPlaceholder": "ثلاثة، اسمي",
+		"replacementPlaceholder": "هذا، اسمي",
+		"allCategories": "جميع التصنيفات",
+		"filterByCategoryAria": "تصفية حسب التصنيف",
+		"categoryBadgeAria": "Category: {category}",
+		"importSuccessSingular": "تم استيراد إدخال واحد",
+		"importSuccessPlural": "تم استيراد {count} إدخال",
+		"importFailed": "فشل الاستيراد: {error}",
+		"importEmpty": "الملف لا يحتوي على إدخالات مفردات",
+		"loadFailedTitle": "فشل تحميل المفردات",
+		"retry": "إعادة المحاولة"
 	},
 	"templates": {
 		"title": "القوالب",
@@ -198,8 +252,16 @@
 		"deleteMessage": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء.",
 		"loadFailedTitle": "تعذّر تحميل القوالب",
 		"retry": "إعادة المحاولة",
-		"triggerPlaceholder": "my email",
-		"outputPlaceholder": "john.doe@example.com"
+		"triggerPlaceholder": "بريدي الإلكتروني",
+		"outputPlaceholder": "example@domain.com",
+		"searchPlaceholder": "البحث في القوالب…",
+		"importSuccessSingular": "تم استيراد قالب واحد",
+		"importSuccessPlural": "تم استيراد {count} قالب",
+		"importFailed": "فشل الاستيراد: {error}",
+		"importEmpty": "الملف لا يحتوي على قوالب",
+		"matchModeExactLabel": "تام",
+		"matchModeContainsLabel": "يحتوي",
+		"matchModeAria": "Match mode: {mode}"
 	},
 	"analytics": {
 		"title": "تحليلات",
@@ -231,7 +293,13 @@
 			"sat": "سبت"
 		},
 		"unknown": "غير معروف",
-		"auto": "Auto"
+		"auto": "تلقائي",
+		"noDataTitle": "لا نشاط بعد",
+		"noDataDescription": "اضغط على المفتاح السريع (أو Caps Lock) في الصفحة الرئيسية للإملاء — ستظهر إحصائياتك هنا.",
+		"startDictation": "بدء الإملاء",
+		"refreshFailed": "فشل تحديث الإحصائيات",
+		"dayActivityAria": "{label}: {count} transcriptions",
+		"loadingAria": "جاري تحميل لوحة المعلومات"
 	},
 	"about": {
 		"title": "حول",
@@ -272,8 +340,6 @@
 		"checkForUpdates": "التحقق من التحديثات",
 		"downloadVersion": "تنزيل v{version}",
 		"viewChangelog": "عرض سجل التغييرات",
-		"helpTitle": "المساعدة",
-		"helpDescription": "اختصارات لوحة المفاتيح والتوثيق.",
 		"startStopDictation": "بدء / إيقاف الإملاء",
 		"startStopDictationValue": "F2 (أو مفتاح الاختصار المهيأ)",
 		"cancelRecording": "إلغاء التسجيل",
@@ -285,8 +351,6 @@
 		"toggleSwitches": "تبديل المفاتيح",
 		"closeDialogs": "إغلاق الحوارات",
 		"openDropdowns": "فتح القوائم المنسدلة",
-		"documentation": "التوثيق",
-		"changelog": "سجل التغييرات",
 		"resourcesTitle": "الموارد والملاحظات",
 		"resourcesDescription": "الكود المصدري ومتعقّب المشكلات وأدلة المساهمة.",
 		"githubRepository": "مستودع GitHub",
@@ -299,9 +363,9 @@
 		"updateCheckFailed": "فشل التحقق من التحديثات: {error}",
 		"toggleSidebarValue": "Ctrl+B",
 		"navigateFieldsValue": "Tab / Shift+Tab",
-		"toggleSwitchesValue": "Space",
+		"toggleSwitchesValue": "مسافة",
 		"closeDialogsValue": "Esc",
-		"openDropdownsValue": "Enter or Space",
+		"openDropdownsValue": "Enter أو مسافة",
 		"cacheTitle": "حالة الذاكرة المخبأة",
 		"cacheDescription": "الحالة الحالية لذاكرة المخبأة لنظام التشغيل للنموذج. يعمل التسخين المسبق عند التشغيل لإبقاء ملفات النموذج في الذاكرة لبدء سريع.",
 		"prewarmStatus": "حالة التسخين المسبق",
@@ -325,11 +389,22 @@
 		"prewarmLogOpened": "تم فتح سجل التسخين المسبق",
 		"prewarmLogOpenFailed": "تعذر فتح سجل التسخين المسبق",
 		"relativeTime": {
-			"lessThanMinute": "<1 min ago",
-			"minutesAgo": "{count} min ago",
-			"hoursAgo": "{count} h ago",
-			"daysAgo": "{count} d ago"
-		}
+			"lessThanMinute": "قبل أقل من دقيقة",
+			"minutesAgo": "قبل {count} دقيقة",
+			"hoursAgo": "قبل {count} ساعة",
+			"daysAgo": "قبل {count} يوم"
+		},
+		"creditsTitle": "الاعتمادات والتراخيص",
+		"creditsDescription": "Voice Typer مبني على أكتاف العمالقة.",
+		"creditsAuthorsLabel": "المؤلفون",
+		"creditsAuthorsValue": "AbdallahIsDev والمساهمون",
+		"creditsLibrariesLabel": "المكتبات الخارجية",
+		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
+		"creditsFontsLabel": "الخطوط",
+		"creditsFontsValue": "Geist",
+		"creditsIconsLabel": "الأيقونات",
+		"creditsIconsValue": "Hugeicons",
+		"documentationLink": "التوثيق"
 	},
 	"settings": {
 		"title": "الإعدادات",
@@ -528,7 +603,11 @@
 			"textSizeInfoRendered": "اضبط حجم نص الواجهة لقراءة أفضل. الافتراضي 14px.",
 			"textSizeAria": "حجم النص",
 			"colorAria": "لون {label}",
-			"hexValueAria": "قيمة سداسية عشرية لـ {label}"
+			"hexValueAria": "قيمة سداسية عشرية لـ {label}",
+			"customDropdownLabel": "مخصص (استخدم المفتاح أدناه)",
+			"hexInvalid": "لون سداسي عشري غير صالح — يجب أن يكون #rrggbb (مثل #1a2b3c). سيتم العودة إلى القيمة السابقة عند فقدان التركيز.",
+			"contrastWarning": "تباين منخفض: {ratio}:1 (WCAG AA يتطلب 4.5:1). قم بزيادة الفرق بين هذا اللون والخلفية ذات الصلة.",
+			"contrastWarningShort": "التباين {ratio}:1"
 		},
 		"hotkeySection": {
 			"hotkeyTitle": "مفتاح الاختصار",
@@ -663,7 +742,44 @@
 			"notchFilter": "فلتر الشق (طنين)",
 			"notchFilterInfo": "أزل طنين التيار الكهربائي 50/60Hz. معطّل افتراضيًا — فعّله فقط إذا سمعت طنينًا منخفضًا مستمرًا.",
 			"notchFilterInfoSearch": "أزل طنين التيار الكهربائي 50/60Hz.",
-			"notchFilterAria": "فلتر الشق"
+			"notchFilterAria": "فلتر الشق",
+			"presetAutoDescription": "الخادم الخلفي يختار أفضل سلسلة تصفية لمستوى الضوضاء المكتشف والعتاد. موصى به لمعظم المستخدمين.",
+			"presetStudioDescription": "تصفية خفيفة للغرف الهادئة والمعالجة.",
+			"presetNoisyRoomDescription": "تصفية قوية لضجيج لوحة المفاتيح والمراوح.",
+			"presetOffDescription": "تجاوز سلسلة التصفية بأكملها. استخدم فقط مع إشارة نظيفة.",
+			"presetCustomDescription": "اختيار كل مرشح ومعلمة يدوياً.",
+			"gateAttack": "هجوم البوابة",
+			"gateAttackInfo": "مدى سرعة فتح البوابة عندما يرتفع الإشارة فوق عتبة الفتح.",
+			"gateAttackInfoSearch": "مدى سرعة فتح البوابة.",
+			"gateAttackAria": "هجوم البوابة",
+			"gateHold": "احتضان البوابة",
+			"gateHoldInfo": "كم من الوقت تبقى البوابة مفتوحة بعد انخفاض الإشارة تحت عتبة الإغلاق.",
+			"gateHoldInfoSearch": "كم من الوقت تبقى البوابة مفتوحة.",
+			"gateHoldAria": "احتضان البوابة",
+			"gateRelease": "تحرير البوابة",
+			"gateReleaseInfo": "مدى سرعة إغلاق البوابة بعد انتهاء وقت الاحتضان.",
+			"gateReleaseInfoSearch": "مدى سرعة إغلاق البوابة.",
+			"gateReleaseAria": "تحرير البوابة",
+			"compressorAttack": "هجوم الضاغط",
+			"compressorAttackInfo": "مدى سرعة تفعيل الضغط عندما تتجاوز الإشارة العتبة.",
+			"compressorAttackInfoSearch": "مدى سرعة تفعيل الضغط.",
+			"compressorAttackAria": "هجوم الضاغط",
+			"compressorRelease": "تحرير الضاغط",
+			"compressorReleaseInfo": "مدى سرعة إلغاء الضغط بعد انخفاض الإشارة تحت العتبة.",
+			"compressorReleaseInfoSearch": "مدى سرعة إلغاء الضغط.",
+			"compressorReleaseAria": "تحرير الضاغط",
+			"compressorOutputGain": "كسب خرج الضاغط",
+			"compressorOutputGainInfo": "كسب التعويض المطبق بعد الضغط لاستعادة مستوى الصوت المدرك.",
+			"compressorOutputGainInfoSearch": "كسب التعويض المطبق بعد الضغط.",
+			"compressorOutputGainAria": "كسب خرج الضاغط",
+			"limiterRelease": "تحرير المحدد",
+			"limiterReleaseInfo": "مدى سرعة تعافي المحدد بعد التقاط عابر.",
+			"limiterReleaseInfoSearch": "مدى سرعة تعافي المحدد.",
+			"limiterReleaseAria": "تحرير المحدد",
+			"notchFrequency": "تردد الشق",
+			"notchFrequencyInfo": "تردد مركز الشق. 50Hz لأوروبا/آسيا، 60Hz لأمريكا الشمالية.",
+			"notchFrequencyInfoSearch": "تردد مركز الشق.",
+			"notchFrequencyAria": "تردد الشق"
 		},
 		"aiEnhancement": {
 			"title": "تحسين بالذكاء الاصطناعي",
@@ -789,8 +905,8 @@
 			"reRunWizardHint": "إعادة تشغيل معالج الإعداد لإعادة تكوين الميكروفون والاختصار والنموذج",
 			"reRunWizardToast": "تم إعادة تمكين معالج الإعداد — جارٍ التنقل إليه الآن"
 		},
-		"fastStartup": "Fast Startup (Prewarm)",
-		"fastStartupDescription": "Warm the OS file cache at boot so the speech model loads in seconds instead of 30+ seconds. Disable if you need the disk/RAM headroom for other apps. You can still warm on demand from the About page.",
+		"fastStartup": "بدء سريع (تشغيل مسبق)",
+		"fastStartupDescription": "تسخين ذاكرة التخزين المؤقت لنظام الملفات عند بدء التشغيل بحيث يتم تحميل نموذج الكلام في ثوانٍ بدلاً من 30+ ثانية. قم بتعطيله إذا كنت بحاجة إلى مساحة القرص/الذاكرة لتطبيقات أخرى. يمكنك التسخين عند الطلب من صفحة حول.",
 		"keyring": {
 			"secure": "آمن",
 			"plaintext": "نص عادي",
@@ -798,7 +914,12 @@
 			"availableWithBackend": "مخزّن بأمان في سلسلة مفاتيح النظام (الخلفية: {backend}).",
 			"fallback": "الخلفية غير متاحة — سيتم تخزين الأسرار كنص عادي مع صلاحيات 0o600.",
 			"fallbackWithReason": "الخلفية غير متاحة ({reason}) — سيتم تخزين الأسرار كنص عادي مع صلاحيات 0o600."
-		}
+		},
+		"searchNoMatch": "No settings match \"{query}\"",
+		"bubbleMicButton": "زر الميكروفون في الفقاعة",
+		"bubbleMicButtonDescription": "إظهار زر ميكروفون على الفقاعة الظاهرة دائمًا لبدء/إيقاف الإملاء بنقرة",
+		"bubbleClickToToggle": "نقر الفقاعة للتبديل",
+		"bubbleClickToToggleDescription": "عندما تكون الفقاعة ظاهرة دائمًا، النقر على زر الميكروفون يبدل الإملاء"
 	},
 	"models": {
 		"asrTitle": "نماذج ASR",
@@ -895,7 +1016,7 @@
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
 			"size": "الحجم: {size}",
-			"vram": "VRAM: ~{vram}",
+			"vram": "VRAM: ~{vram} ميجابايت",
 			"multilingual": "متعدد اللغات",
 			"englishOnly": "الإنجليزية فقط",
 			"speedSuffix": "{rating} سرعة",
@@ -965,7 +1086,16 @@
 		"openaiWhisperApi": "واجهة OpenAI Whisper API",
 		"groqWhisperApi": "واجهة Groq Whisper API",
 		"deepgramApi": "واجهة Deepgram API",
-		"configureEngines": "تكوين محركات تحويل الكلام إلى نص"
+		"configureEngines": "تكوين محركات تحويل الكلام إلى نص",
+		"benchmark": {
+			"notImplemented": "لم يتم تنفيذ المعيار بعد.",
+			"title": "معيار الأداء للنموذج",
+			"description": "قارن أداء النموذج على نظامك",
+			"runAria": "تشغيل معيار الأداء للنموذج",
+			"running": "جارٍ التشغيل...",
+			"run": "تشغيل المعيار"
+		},
+		"benchmarkNotImplemented": "Benchmark not yet implemented."
 	},
 	"tooltips": {
 		"toggleRecording": "بدء أو إيقاف الإملاء الصوتي",
@@ -996,8 +1126,8 @@
 		"microphoneQualityPreset": "إعداد جودة الميكروفون",
 		"noiseSuppressionMethod": "طريقة قمع الضوضاء",
 		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron",
-		"opensInNewTab": "يفتح في علامة تبويب جديدة",
-		"transcriptionComplete": "اكتمل التدوين."
+		"transcriptionComplete": "اكتمل التدوين.",
+		"moreInfoAbout": "More info about {label}"
 	},
 	"help": {
 		"title": "اختصارات لوحة المفاتيح",
@@ -1015,7 +1145,6 @@
 		"closeHint": "اضغط {key} أو انقر خارجًا للإغلاق.",
 		"zoomTextSize": "حجم النص",
 		"keys": {
-			"dictation": "Caps Lock (or your hotkey)",
 			"cancel": "Esc",
 			"repaste": "Ctrl+Alt+V",
 			"toggleSidebar": "Ctrl+B",
@@ -1041,9 +1170,20 @@
 			"openQuote": "علامة اقتباس مفتوحة",
 			"closeQuote": "علامة اقتباس مغلقة",
 			"newLine": "سطر جديد",
-			"newParagraph": "فقرة جديدة"
+			"newParagraph": "فقرة جديدة",
+			"hyphen": "Hyphen",
+			"dash": "Dash",
+			"ellipsis": "Ellipsis",
+			"openParen": "Open parenthesis",
+			"closeParen": "Close parenthesis",
+			"tab": "Tab",
+			"capital": "Capital [word]",
+			"allCaps": "All caps [word]"
 		},
-		"description": "اختصارات لوحة المفاتيح وورقة علامات الترقيم."
+		"description": "اختصارات لوحة المفاتيح وورقة علامات الترقيم.",
+		"searchPlaceholder": "Search commands…",
+		"searchNoMatch": "No commands match \"{query}\"",
+		"openCheatSheet": "Open punctuation cheat sheet"
 	},
 	"history": {
 		"title": "السجل",
@@ -1095,7 +1235,10 @@
 		"words": "الكلمات",
 		"characters": "الأحرف",
 		"loadFailedTitle": "تعذّر تحميل السجل",
-		"retry": "إعادة المحاولة"
+		"retry": "إعادة المحاولة",
+		"charsSuffix": " ({count} chars)",
+		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
+		"sortLabel": "Sort"
 	},
 	"onboarding": {
 		"welcomeTitle": "مرحبًا بك في Voice Typer",
@@ -1131,7 +1274,35 @@
 		"saveFailedSnack": "فشل حفظ الاختيار",
 		"skippedSnack": "تم تخطي الإعداد — استخدام الإعدادات الافتراضية",
 		"stepProgress": "الخطوة {current} من {total}",
-		"progressAria": "خطوة الإعداد {current} من {total}"
+		"progressAria": "خطوة الإعداد {current} من {total}",
+		"step4Item": "Pick a transcription model",
+		"step5Item": "Finish and load your model",
+		"permissionsTitle": "Keyboard Monitoring Permission",
+		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
+		"permissionsLoading": "Checking permission…",
+		"permissionsNeeded": "Permission still required",
+		"permissionsOk": "Permission granted — hotkeys will work.",
+		"permissionsNoneNeeded": "No extra permission needed on this platform. Hotkeys will work out of the box.",
+		"permissionsTestLabel": "Press your hotkey to test",
+		"permissionsTestSuccess": "Hotkey detected! It works.",
+		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
+		"permissionsTestButton": "Test hotkey",
+		"micLevel": "Input level",
+		"modelMultilingual": "Multilingual",
+		"skipConfirmTitle": "Skip setup?",
+		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmLabel": "Skip anyway",
+		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
+		"permissionsRefresh": "Refresh permission",
+		"permissionsRefreshAria": "Re-check keyboard permission",
+		"permissionsInstructionsMacosTitle": "Accessibility Permission Required",
+		"permissionsInstructionsMacosStep1": "Open System Settings → Privacy & Security → Accessibility",
+		"permissionsInstructionsMacosStep2": "Add Voice Typer (and its key-listener helper) to the list",
+		"permissionsInstructionsMacosStep3": "Toggle the switch ON for Voice Typer",
+		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
+		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
+		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
 	},
 	"titleBar": {
 		"minimize": "تصغير",
@@ -1145,7 +1316,10 @@
 		"recordingIndicatorAria": "مؤشر تسجيل Voice Typer",
 		"transcribingLabel": "جارٍ الكتابة",
 		"idleLabel": "Ready",
-		"recordingLabel": "REC"
+		"recordingLabel": "REC",
+		"micButtonAria": "Toggle dictation",
+		"micButtonStartAria": "Start dictation",
+		"micButtonStopAria": "Stop dictation"
 	},
 	"errorBoundary": {
 		"title": "حدث خطأ ما",
@@ -1169,7 +1343,8 @@
 		"viewAll": "عرض الكل",
 		"wordsCount": "{count} كلمة",
 		"removeFromFavorites": "إزالة من المفضلة",
-		"addToFavorites": "إضافة إلى المفضلة"
+		"addToFavorites": "إضافة إلى المفضلة",
+		"noRecentActivity": "No recent activity"
 	},
 	"exportFormat": {
 		"export": "تصدير",
@@ -1225,14 +1400,18 @@
 			"tooLow": "الصوت منخفض جدًا",
 			"lowVolume": "تم اكتشاف صوت منخفض",
 			"waiting": "في انتظار الصوت…"
+		},
+		"detectedIssueCodes": {
+			"high_noise": "High background noise",
+			"moderate_noise": "Moderate background noise",
+			"clipping": "Audio clipping detected",
+			"volume_too_low": "Volume too low — speak closer to the microphone",
+			"volume_low": "Volume is low — consider raising input gain",
+			"no_voice": "No voice detected — try speaking during the test"
 		}
 	},
 	"dashboard": {
-		"cards": {
-			"dictations": "التدوينات",
-			"chars": "الأحرف",
-			"duration": "المدة الإجمالية"
-		}
+		"cards": {}
 	},
 	"stats": {
 		"shareImage": {
@@ -1240,12 +1419,7 @@
 			"wpm": "ك/د",
 			"min": "دقيقة",
 			"savedVsTyping": "موفّر مقابل الكتابة",
-			"title": "إحصائيات Voice Typer",
-			"cloudMode": "سحابي",
-			"offlineMode": "غير متصل",
-			"cloudApi": "واجهة سحابية",
-			"localModel": "نموذج محلي",
-			"fasterThanAvg": "{percent}% أسرع من المتوسط"
+			"title": "إحصائيات Voice Typer"
 		}
 	},
 	"hotkey": {

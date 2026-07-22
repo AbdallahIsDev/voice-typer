@@ -9,6 +9,109 @@
 // explicit fallbacks for unparseable values) so a malformed CSS color
 // string never throws — it returns ``#000000`` instead.  This matches
 // the original contract in ThemeSettingsSection.tsx.
+//
+// PVT-043 / Task #20: ``contrastRatio`` (and its private
+// ``_relativeLuminance`` helper) implements the WCAG 2.1 contrast
+// ratio calculation so the custom theme editor can validate
+// foreground / background pairs against the AA (4.5:1) and AAA
+// (7:1) thresholds without pulling in a third-party a11y library.
+//
+// PVT-G5 (type-safety): the underscore-prefixed helpers
+// (``_srgbGamma``, ``_cssColorToHexViaOklch``, ``_cssColorToHexViaDOM``,
+// ``_relativeLuminance``, ``_parseHex``) are NOT exported — they are
+// internal implementation details. Only the public API (``cssColorToHex``,
+// ``contrastRatio``) is exported. External callers were checked: the
+// only consumer outside this file (``ThemeSettingsSection.tsx``) had
+// a comment referencing these names but did not import them.
+
+// ── WCAG 2.1 contrast ───────────────────────────────────────────────
+//
+// PVT-043 / Task #20: the custom theme editor needs to validate
+// foreground / background pairs against the AA (4.5:1 for normal
+// text, 3:1 for large text / UI components) and AAA (7:1 / 4.5:1)
+// thresholds. We implement the contrast ratio directly rather than
+// pulling in a third-party a11y library — the formula is small,
+// well-specified, and only depends on the sRGB → relative luminance
+// transform.
+//
+// The helpers accept ``#rgb`` / ``#rrggbb`` hex strings (the same
+// shape ``cssColorToHex`` produces for any CSS colour). Invalid input
+// is clamped to black so a malformed colour never throws.
+
+/**
+ * Parse a hex colour (``#rgb`` or ``#rrggbb``) into an ``[r, g, b]``
+ * triple of integers in ``[0, 255]``. Returns ``[0, 0, 0]`` for
+ * unparseable input so callers never have to deal with NaN / throws.
+ */
+function _parseHex(color: string): [number, number, number] {
+	const match = color.match(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/);
+	if (!match) return [0, 0, 0];
+	const hex = match[1];
+	if (hex.length === 3) {
+		return [
+			parseInt(hex[0] + hex[0], 16),
+			parseInt(hex[1] + hex[1], 16),
+			parseInt(hex[2] + hex[2], 16),
+		];
+	}
+	return [
+		parseInt(hex.slice(0, 2), 16),
+		parseInt(hex.slice(2, 4), 16),
+		parseInt(hex.slice(4, 6), 16),
+	];
+}
+
+/**
+ * Compute the WCAG 2.1 relative luminance of a hex colour.
+ *
+ * Uses the standard sRGB → linear-light transform
+ * (``c ≤ 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4``) and
+ * the Rec. 709 luma weights (``0.2126 R + 0.7152 G + 0.0722 B``).
+ *
+ * Returns ``0`` for unparseable input (treated as black) so callers
+ * can pass arbitrary user strings without try/catch.
+ */
+function _relativeLuminance(color: string): number {
+	const [r8, g8, b8] = _parseHex(color);
+	const channel = (v8: number): number => {
+		const c = v8 / 255; // to [0, 1]
+		return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+	};
+	const R = channel(r8);
+	const G = channel(g8);
+	const B = channel(b8);
+	return 0.2126 * R + 0.7152 * G + 0.0722 * B;
+}
+
+/**
+ * Compute the WCAG 2.1 contrast ratio between two hex colours.
+ *
+ * Returns a number in ``[1, 21]`` (``1:1`` = identical colours,
+ * ``21:1`` = pure black on pure white). Order doesn't matter — the
+ * formula uses the lighter luminance as the numerator.
+ *
+ * Common thresholds (callers compare against these):
+ *   - ``≥ 4.5``  ⇒ AA for normal text
+ *   - ``≥ 7``    ⇒ AAA for normal text
+ *   - ``≥ 3``    ⇒ AA for large text (≥ 18pt or 14pt bold) / UI components
+ *   - ``≥ 4.5``  ⇒ AAA for large text
+ *
+ * Examples:
+ *   - ``contrastRatio("#000000", "#ffffff")`` → ``21``
+ *   - ``contrastRatio("#ffffff", "#ffffff")`` → ``1``
+ *   - ``contrastRatio("#777777", "#ffffff")`` → ``4.48`` (≈ AA threshold)
+ *
+ * PVT-043: gives the custom theme editor a pure function for
+ * validating ``--foreground`` / ``--background`` pairs without
+ * pulling in a third-party a11y library.
+ */
+export function contrastRatio(fg: string, bg: string): number {
+	const L1 = _relativeLuminance(fg);
+	const L2 = _relativeLuminance(bg);
+	const lighter = Math.max(L1, L2);
+	const darker = Math.min(L1, L2);
+	return (lighter + 0.05) / (darker + 0.05);
+}
 
 /**
  * Apply the sRGB transfer function (gamma encoding) to a linear value
@@ -22,7 +125,7 @@
  * out-of-gamut OKLCH conversions (which can produce values slightly
  * outside [0, 1]) don't produce NaN or negative hex bytes.
  */
-export function _srgbGamma(c: number): number {
+function _srgbGamma(c: number): number {
 	c = Math.min(1, Math.max(0, c));
 	if (c <= 0.0031308) return 12.92 * c;
 	return 1.055 * c ** (1 / 2.4) - 0.055;
@@ -38,7 +141,7 @@ export function _srgbGamma(c: number): number {
  * Returns ``null`` when the input doesn't match the oklch() shape
  * (so the caller can fall through to the next strategy).
  */
-export function _cssColorToHexViaOklch(color: string): string | null {
+function _cssColorToHexViaOklch(color: string): string | null {
 	const match = color.match(/oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)/i);
 	if (!match) return null;
 
@@ -95,7 +198,7 @@ export function _cssColorToHexViaOklch(color: string): string | null {
  *     miss so the caller can fall through to the oklch parser)
  *   - the computed style doesn't match the rgb()/rgba() regex
  */
-export function _cssColorToHexViaDOM(color: string): string | null {
+function _cssColorToHexViaDOM(color: string): string | null {
 	try {
 		const temp = document.createElement("div");
 		temp.style.backgroundColor = color;

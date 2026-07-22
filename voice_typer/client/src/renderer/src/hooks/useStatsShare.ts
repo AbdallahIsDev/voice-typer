@@ -10,6 +10,36 @@ const AVG_TYPING_WPM = 40;
 const CLOUD_BACKENDS = new Set(["openai", "groq", "deepgram"]);
 
 /**
+ * Decide whether the "Share stats" button should be visible.
+ *
+ * Fix #25-3: previously the share button in Dashboard.tsx was gated on
+ * `data.todayCount > 0`, which hid the button on days when the user
+ * hadn't dictated yet BUT had past transcriptions (totalCount > 0).
+ * The share image still produces a meaningful summary in that case
+ * (lifetime stats, 7-day activity chart, streak, active days) — the
+ * only zero field is today's WPM/minutes-saved. Hiding the button
+ * silently degraded the shareable-moment UX for any user who opens
+ * the dashboard before their first dictation of the day.
+ *
+ * The button should be visible when EITHER:
+ *   - the user has dictated today (todayCount > 0), OR
+ *   - the user has historical transcriptions (totalCount > 0)
+ *
+ * This helper centralises that policy so Dashboard.tsx and Home.tsx
+ * (and any future share-aware page) don't re-implement it
+ * independently and drift out of sync.
+ *
+ * @example
+ *   const showShare = canShareStats({ todayCount: data.todayCount, totalCount: data.totalCount });
+ */
+export function canShareStats(opts: {
+	todayCount: number;
+	totalCount: number;
+}): boolean {
+	return opts.todayCount > 0 || opts.totalCount > 0;
+}
+
+/**
  * Pure function: compute shareable stats from today's data + config.
  *
  * This is intentionally a pure function (no hooks, no side effects)

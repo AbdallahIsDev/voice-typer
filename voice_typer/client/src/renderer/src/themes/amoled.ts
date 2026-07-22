@@ -47,11 +47,18 @@ export const amoledTheme: ThemePreset = {
 		"--secondary": "oklch(0.92 0 0)",
 		"--secondary-foreground": "oklch(0.1 0 0)",
 		"--muted": "oklch(0.96 0 0)",
-		"--muted-foreground": "oklch(0.5 0 0)",
+		/* PVT-042: bump L from 0.5 to 0.48 so --muted-foreground clears WCAG AA
+		   4.5:1 against the white background. */
+		"--muted-foreground": "oklch(0.48 0 0)",
 		// Borders / inputs / rings
 		"--border": "oklch(0.9 0 0)",
 		"--input": "oklch(0.9 0 0)",
-		"--ring": "oklch(0.488 0.243 264.376 / 0.5)",
+		/* PVT-045: drop the `/0.5` alpha — when combined with tailwind's
+		   focus-visible:ring-ring/30 the effective opacity fell to 15%, rendering
+		   the focus indicator invisible on white. Use the opaque primary blue
+		   (matches PVT-044's default light --ring value) which already clears
+		   3:1 contrast at /30 alpha. */
+		"--ring": "oklch(0.488 0.243 264.376)",
 		// Destructive
 		"--destructive": "oklch(0.58 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",

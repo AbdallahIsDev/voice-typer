@@ -9,6 +9,11 @@
 //
 // The t() function returns the translated string for a dot-separated key.
 // If the key is not found, it falls back to English, then returns the key itself.
+//
+// PVT-082: tChoice() provides ICU-style pluralization on top of t().
+// PVT-083: when no locale is saved in localStorage, the user's preferred
+// browser/OS language (navigator.languages) is matched against
+// SUPPORTED_LOCALES so first-run users see their language automatically.
 
 import { useSyncExternalStore } from "react";
 import ar from "./translations/ar.json";
@@ -67,15 +72,59 @@ export function getLocaleLabel(locale: Locale): string {
 	return LOCALE_LABELS[locale] ?? locale;
 }
 
+// PVT-083: detect the user's preferred browser/OS language and match it
+// against SUPPORTED_LOCALES. Returns the matched locale or "en" as the
+// fallback. Used only on first run (when no locale is saved in
+// localStorage).
+//
+// We consider both the full tag (e.g. "pt-BR") and the primary subtag
+// (e.g. "pt") so a user with browser language "zh-CN" still matches our
+// "zh" locale. We also normalise casing and ignore tags we don't ship.
+function detectBrowserLocale(): Locale {
+	try {
+		if (typeof navigator === "undefined") return "en";
+		const candidates = navigator.languages?.length
+			? navigator.languages
+			: [navigator.language];
+		for (const raw of candidates) {
+			if (!raw) continue;
+			const lower = raw.toLowerCase();
+			// Exact match (e.g. "en", "ar").
+			const exact = (SUPPORTED_LOCALES as readonly string[]).find(
+				(loc) => loc === lower,
+			);
+			if (exact) return exact as Locale;
+			// Primary subtag match (e.g. "zh-CN" → "zh").
+			const primary = lower.split("-")[0];
+			const partial = (SUPPORTED_LOCALES as readonly string[]).find(
+				(loc) => loc === primary,
+			);
+			if (partial) return partial as Locale;
+		}
+	} catch {
+		// navigator may be unavailable (SSR, sandboxed). Fall through to "en".
+	}
+	return "en";
+}
+
 // Current locale — defaults to 'en'. Can be changed via setLocale().
 // UX-015: restore from localStorage on module load so the user's
 // language choice survives app restarts.
+//
+// PVT-083: when no locale has been explicitly chosen (no localStorage
+// entry), fall back to the browser/OS language instead of forcing
+// English. This means a user whose OS is set to French sees the French
+// UI on first launch — they don't have to hunt for the language
+// selector in Settings.
 let _currentLocale: Locale = "en";
 try {
 	if (typeof localStorage !== "undefined") {
 		const saved = localStorage.getItem("voice-typer-ui-locale");
 		if (saved && (SUPPORTED_LOCALES as readonly string[]).includes(saved)) {
 			_currentLocale = saved as Locale;
+		} else {
+			// PVT-083: no saved preference — auto-detect from the browser.
+			_currentLocale = detectBrowserLocale();
 		}
 	}
 } catch {
@@ -288,4 +337,144 @@ export function t(key: string, params?: Record<string, string>): string {
 		}
 	}
 	return result;
+}
+
+// ── PVT-082: pluralization support ───────────────────────────────
+//
+// tChoice() resolves a pluralized translation key using the CLDR plural
+// rules for the current locale. The lookup order is:
+//
+//   1. Look up the locale-specific CLDR plural category for `count` via
+//      `Intl.PluralRules` (categories: "zero", "one", "two", "few",
+//      "many", "other").
+//   2. Try the catalog key `{key}_{category}` (e.g. `inbox.messages_one`,
+//      `inbox.messages_other`, `inbox.messages_few` for Slavic locales).
+//   3. Fall back to `{key}_other` (the universal CLDR fallback) if the
+//      category-specific key is missing.
+//   4. Fall back to the bare `key` (no suffix) for catalogs that haven't
+//      been pluralized yet — preserves backwards compatibility with
+//      existing single-form strings.
+//   5. Last resort: return the raw key (matching `t()` semantics).
+//
+// After resolving the catalog value, `{placeholder}` interpolation runs
+// just like `t()` — pass `{ count: "5" }` (or any other params) to
+// substitute into the resolved string. The `count` used for plural
+// selection is automatically exposed as `{count}` in the params for
+// convenience, mirroring ICU MessageFormat semantics.
+//
+// Example catalog:
+//   {
+//     "inbox": {
+//       "messages_one": "You have {count} unread message.",
+//       "messages_other": "You have {count} unread messages.",
+//       "messages_few": "Masz {count} nieprzeczytane wiadomości."  // Polish
+//     }
+//   }
+//
+// Example call:
+//   tChoice("inbox.messages", 1)         → "You have 1 unread message."
+//   tChoice("inbox.messages", 5)         → "You have 5 unread messages."
+//   tChoice("inbox.messages", 2, {name: "Alice"})
+//                                         → "You have 2 unread messages."
+//                                         (and {name} would be interpolated too)
+
+// Cache Intl.PluralRules instances per locale — constructing one is
+// expensive enough that we don't want to do it on every tChoice() call.
+const _pluralRulesCache: Map<Locale, Intl.PluralRules> = new Map();
+
+/**
+ * Get (or create) an Intl.PluralRules instance for the given locale.
+ * Returns the cached instance if available.
+ */
+function getPluralRules(locale: Locale): Intl.PluralRules {
+	let rules = _pluralRulesCache.get(locale);
+	if (!rules) {
+		try {
+			rules = new Intl.PluralRules(locale);
+		} catch {
+			// Some environments may not support Intl.PluralRules for
+			// every locale tag. Fall back to English rules, which
+			// only distinguish "one" (count === 1) from "other".
+			try {
+				rules = new Intl.PluralRules("en");
+			} catch {
+				// Last resort: a stub that always returns "other".
+				// This means pluralized keys degrade to the
+				// "_other" form, which is always valid CLDR.
+				rules = {
+					select: () => "other",
+					resolvedOptions: () => ({
+						locale: "en",
+						type: "cardinal" as const,
+						minimumIntegerDigits: 1,
+						minimumFractionDigits: 0,
+						maximumFractionDigits: 3,
+						minimumSignificantDigits: 1,
+						maximumSignificantDigits: 21,
+						roundingIncrement: 1,
+						roundingMode: "halfExpand" as const,
+						roundingPriority: "auto" as const,
+						trailingZeroDisplay: "auto" as const,
+					}),
+				} as unknown as Intl.PluralRules;
+			}
+		}
+		_pluralRulesCache.set(locale, rules);
+	}
+	return rules;
+}
+
+/**
+ * Resolve a pluralized translation key for the given count.
+ *
+ * See the PVT-082 section above for the full lookup algorithm.
+ *
+ * @param key - Dot-separated base key (e.g., "inbox.messages")
+ * @param count - The numeric count that determines the plural category
+ * @param params - Optional additional interpolation params. The count is
+ *                 automatically exposed as `{count}` (stringified) unless
+ *                 the caller overrides it.
+ * @returns The translated, interpolated string
+ */
+export function tChoice(
+	key: string,
+	count: number,
+	params?: Record<string, string>,
+): string {
+	const category = getPluralRules(_currentLocale).select(count);
+	// Build the candidate keys in fallback order:
+	//   1. {key}_{category}    (e.g. "inbox.messages_one")
+	//   2. {key}_other         (CLDR universal fallback)
+	//   3. {key}               (bare key — backwards compat)
+	const candidates = [`${key}_${category}`, `${key}_other`, key];
+
+	let resolved: string | undefined;
+	const currentMap = _translations.get(_currentLocale);
+	const enMap = _translations.get("en");
+	for (const candidate of candidates) {
+		if (currentMap?.has(candidate)) {
+			resolved = currentMap.get(candidate);
+			break;
+		}
+		if (enMap?.has(candidate)) {
+			resolved = enMap.get(candidate);
+			break;
+		}
+	}
+	if (resolved === undefined) {
+		// Nothing found — return the bare key (matches t() semantics).
+		return key;
+	}
+	// Auto-expose `count` as a stringified interpolation param unless
+	// the caller explicitly overrides it.
+	const merged: Record<string, string> = { count: String(count) };
+	if (params) {
+		for (const [k, v] of Object.entries(params)) {
+			merged[k] = v;
+		}
+	}
+	for (const [k, v] of Object.entries(merged)) {
+		resolved = resolved.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+	}
+	return resolved;
 }

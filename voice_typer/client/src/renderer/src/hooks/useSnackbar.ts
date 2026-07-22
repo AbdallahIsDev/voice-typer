@@ -21,12 +21,24 @@
 // member on the returned object; call sites must not destructure or
 // render it.  All toast UI is the global sonner ``<Toaster />``.
 //
-// CR-152 (Fix-M): this file was previously named ``useSnackbar.tsx`` but
-// contains no JSX.  It has been renamed to ``useSnackbar.ts`` to match
-// its actual content.  Vite/TypeScript resolves imports without an
-// extension, so all ``import { useSnackbar } from "@/hooks/useSnackbar"``
-// statements continue to work without modification.  The historical
-// "extension-priority conventions" comment is no longer relevant.
+// CR-152 (Fix-M) / PVT-9: this file was previously named
+// ``useSnackbar.tsx`` but contains no JSX.  The stale duplicate
+// ``.tsx`` (left on disk after the rename) was deleted by sessions 1,
+// 3, and 5 — only this ``.ts`` file now exists under
+// ``@/hooks/useSnackbar``.  Vite/TypeScript resolves imports without
+// an extension, so all ``import { useSnackbar } from "@/hooks/useSnackbar"``
+// statements continue to work without modification.
+//
+// PVT-026: toast durations are now standardised per type so that
+// transient confirmations disappear quickly while errors stay on
+// screen long enough to be read.  Per-call overrides take precedence
+// over the per-type defaults — callers that need a custom lifetime
+// (e.g. undo toasts) pass ``{ duration: ms }`` as the third argument.
+//
+//   success → 3000ms  (fleeting "saved" / "copied" pings)
+//   info    → 4000ms  (neutral context, e.g. "model loaded")
+//   warning → 6000ms  (recoverable issues, undo affordances)
+//   error   → 8000ms  (failures the user must act on)
 
 import { useCallback } from "react";
 import { toast } from "sonner";
@@ -39,22 +51,58 @@ export interface SnackbarState {
 }
 
 /**
+ * Per-type default toast durations in milliseconds.  Exported so tests
+ * and downstream hooks can reference the canonical values instead of
+ * hard-coding magic numbers.
+ */
+export const SNACKBAR_DEFAULT_DURATION_MS: Record<SnackbarType, number> = {
+	success: 3000,
+	info: 4000,
+	warning: 6000,
+	error: 8000,
+};
+
+export interface ShowSnackOptions {
+	/** Override the per-type default duration (ms). */
+	duration?: number;
+	/** Optional id — passing the same id replaces the existing toast. */
+	id?: string | number;
+}
+
+/**
+ * Resolve the effective duration for a toast of the given type,
+ * honouring an explicit per-call override when present.
+ */
+function resolveDuration(
+	type: SnackbarType,
+	options?: ShowSnackOptions,
+): number {
+	if (options?.duration !== undefined) return options.duration;
+	return SNACKBAR_DEFAULT_DURATION_MS[type];
+}
+
+/**
  * Unified snackbar hook.  All toasts are rendered by sonner's global
  * ``<Toaster />`` mounted in App.tsx.  This hook returns only
  * ``showSnack`` / ``clearSnack`` — there is no ``Snackbar`` component
  * to render (see DX-013).
- *
- * @param timeoutMs Default toast duration in milliseconds.  Sonner's
- *   default is 4000ms; we keep the legacy 3000ms default for parity.
  */
-export function useSnackbar(timeoutMs = 3000) {
+export function useSnackbar() {
 	const showSnack = useCallback(
-		(message: string, type: SnackbarType = "success") => {
+		(
+			message: string,
+			type: SnackbarType = "success",
+			options?: ShowSnackOptions,
+		) => {
 			// NEW-UX-003: delegate to sonner so there is exactly ONE toast
 			// system in the renderer.  Each ``type`` maps to the matching
 			// sonner method so the icon and color come from the global
 			// Toaster configuration in ``components/ui/sonner.tsx``.
-			const opts = { duration: timeoutMs };
+			// PVT-026: per-type default durations with per-call override.
+			const opts = {
+				duration: resolveDuration(type, options),
+				...(options?.id !== undefined ? { id: options.id } : {}),
+			};
 			switch (type) {
 				case "success":
 					toast.success(message, opts);
@@ -70,7 +118,7 @@ export function useSnackbar(timeoutMs = 3000) {
 					break;
 			}
 		},
-		[timeoutMs],
+		[],
 	);
 
 	const clearSnack = useCallback(() => {
@@ -93,8 +141,9 @@ export function useSnackbar(timeoutMs = 3000) {
  * @param undoLabel Label for the action button (default "Undo").
  * @param onUndo Called when the user clicks Undo.
  * @param type Toast type — controls icon + color.
- * @param timeoutMs Duration in ms (default 6000 — longer than a
- *   plain toast so the user has time to click Undo).
+ * @param timeoutMs Duration in ms.  Defaults to the per-type default
+ *   (6000ms for warnings) — callers that need a longer window (e.g.
+ *   destructive undos) pass an explicit ``timeoutMs``.
  */
 export function showUndoableToast(
 	message: string,
@@ -105,9 +154,10 @@ export function showUndoableToast(
 		timeoutMs?: number;
 	} = {},
 ): void {
-	const { undoLabel = "Undo", type = "warning", timeoutMs = 6000 } = options;
+	const { undoLabel = "Undo", type = "warning", timeoutMs } = options;
+	const duration = timeoutMs ?? SNACKBAR_DEFAULT_DURATION_MS[type];
 	const opts = {
-		duration: timeoutMs,
+		duration,
 		action: {
 			label: undoLabel,
 			onClick: onUndo,

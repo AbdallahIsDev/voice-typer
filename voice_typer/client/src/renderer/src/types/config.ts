@@ -56,6 +56,28 @@ export interface VoiceTyperConfig {
 
 	// Recording mode
 	recording_mode: "toggle" | "push_to_talk";
+	/**
+	 * @deprecated DEAD/UNUSED — kept in the type for backwards-compat
+	 * with config.json files that were written by older versions.
+	 *
+	 * The server (voice_typer/server/config.py:646) declares
+	 * `push_to_talk_hotkey: str = ""` ("Separate hotkey for PTT (empty
+	 * = same as toggle)") but NEVER reads it — `recording_mode ==
+	 * "push_to_talk"` always uses the main `hotkey` field (see
+	 * `voice_typer/server/config_applier.py:197` and
+	 * `voice_typer/server/service.py:1122`, which only check for the
+	 * *presence* of the key in `updates` so the hotkey listener can be
+	 * re-registered, not the value).
+	 *
+	 * On the renderer side, every test fixture sets it to `""` and NO
+	 * production component reads or writes it (see the grep audit:
+	 * only `types/config.ts` and test mocks reference it).
+	 *
+	 * Do NOT wire up a separate PTT hotkey without also:
+	 *   1. Reading this value in the server's hotkey listener.
+	 *   2. Surfacing a UI in `RecordingSettingsSection.tsx` to set it.
+	 * Until both exist, this field is a no-op.
+	 */
 	push_to_talk_hotkey: string;
 	esc_cancel_enabled: boolean;
 	repaste_hotkey: string;
@@ -109,6 +131,37 @@ export interface VoiceTyperConfig {
 	// UX-10: explicit mic-button visibility toggle. Default ON. When OFF
 	// the bubble stays non-interactive even in always_visible mode.
 	bubble_mic_button: boolean;
+
+	// PVT-068: persisted bubble position (px, relative to the active
+	// screen's top-left). When non-null, the bubble window restores to
+	// this position on next show; when null, the window falls back to
+	// the platform-default position computed from `bubble_position`
+	// ("top" / "bottom"). Both axes are stored together (either both
+	// null or both non-null) — the renderer writes them as a pair via
+	// `set_config({ bubble_x, bubble_y })`.
+	//
+	// Backend-side these are declared in `voice_typer/server/config.py`
+	// alongside `bubble_position` and survive across restarts via the
+	// normal config.json serialisation path.
+	bubble_x: number | null;
+	bubble_y: number | null;
+
+	// PVT-067: persisted bubble scale factor. Default 1.0 (no scaling).
+	// The bubble window multiplies its base DPI by this value to render
+	// a larger or smaller pill. Range is clamped by the renderer to
+	// [0.5, 2.0] before being sent to `set_config`. Optional because
+	// older config.json files (pre-PVT-067) don't include the field —
+	// absence is treated as 1.0 by both the renderer and the server.
+	bubble_scale?: number;
+
+	// PVT-034: persisted microphone-test duration (seconds). The
+	// Microphone page's "Test" button records for this many seconds
+	// before auto-stopping. Range clamped to [1, 30] by the server
+	// (`voice_typer/server/level_monitor.py:507`). Optional because
+	// older config.json files don't include the field — absence falls
+	// back to the server default of 10s (`_test_duration` in
+	// `level_monitor.py:112`).
+	test_duration_seconds?: number;
 
 	// History
 	history_retention_days: number;

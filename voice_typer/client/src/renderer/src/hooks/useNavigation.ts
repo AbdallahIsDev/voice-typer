@@ -7,10 +7,49 @@ import type { Page } from "@/types/ipc";
 // user's navigation history was lost.
 const STORAGE_KEY_NAV = "vt_nav_state";
 
+// PVT-fix-14: cap the in-memory nav history to avoid unbounded growth
+// if a user navigates hundreds of times in a single session. 50 is
+// generous (browsers cap tab history at ~50 for similar reasons) and
+// the slice preserves back/forward semantics: when the cap is hit the
+// oldest entry is dropped, the current pointer is kept pointing at the
+// same logical entry (its index shifts down by 1).
+const MAX_NAV_HISTORY = 50;
+
+/**
+ * Known valid Page values — used to validate the page restored from
+ * localStorage so a corrupted / hand-edited `vt_nav_state` cannot
+ * land an unknown string into `currentPage` and break the
+ * `renderPage()` switch (which has a `default` fallback but a bad
+ * page would still cause a "Page not found" loop on every render).
+ *
+ * Mirrors the `Page` union in `types/ipc.ts`. Kept as a runtime Set
+ * (rather than a type) so {@link loadNavState} can validate at runtime.
+ */
+const KNOWN_PAGES: ReadonlySet<string> = new Set<Page>([
+	"home",
+	"history",
+	"templates",
+	"vocabulary",
+	"models",
+	"microphone",
+	"analytics",
+	"settings",
+	"onboarding",
+	"about",
+]);
+
+function isKnownPage(value: unknown): value is Page {
+	return typeof value === "string" && KNOWN_PAGES.has(value);
+}
+
 interface NavState {
 	page: Page;
 	history: Page[];
 	index: number;
+}
+
+function defaultNavState(): NavState {
+	return { page: "home", history: ["home"], index: 0 };
 }
 
 function loadNavState(): NavState {
@@ -18,24 +57,35 @@ function loadNavState(): NavState {
 		const raw = localStorage.getItem(STORAGE_KEY_NAV);
 		if (raw) {
 			const parsed = JSON.parse(raw) as {
-				page?: Page;
-				history?: Page[];
-				index?: number;
+				page?: unknown;
+				history?: unknown;
+				index?: unknown;
 			};
+			// PVT-fix-15: validate `parsed.page` against the known Page
+			// union so a corrupted localStorage payload (e.g. a user
+			// hand-edited devtools, or a stale schema from an older
+			// build) cannot inject an unknown page value into React
+			// state. Previously any truthy `parsed.page` was accepted
+			// and cast to `Page` — surfacing as a "Page not found"
+			// loop on every render.
 			if (
-				parsed.page &&
+				isKnownPage(parsed.page) &&
 				Array.isArray(parsed.history) &&
-				typeof parsed.index === "number"
+				parsed.history.length > 0 &&
+				parsed.history.every(isKnownPage) &&
+				typeof parsed.index === "number" &&
+				parsed.index >= 0 &&
+				parsed.index < parsed.history.length
 			) {
 				return {
 					page: parsed.page,
-					history: parsed.history,
+					history: parsed.history as Page[],
 					index: parsed.index,
 				};
 			}
 		}
 	} catch {}
-	return { page: "home", history: ["home"], index: 0 };
+	return defaultNavState();
 }
 
 /**
@@ -71,15 +121,61 @@ export function useNavigation() {
 
 	const navigate = useCallback(
 		(page: Page) => {
-			navHistory.current = [
+			// PVT-fix-13: no-op when navigating to the page we're already
+			// on. Previously this still pushed a duplicate entry onto the
+			// history stack and re-saved localStorage, polluting the
+			// back/forward chain (Ctrl+Click on a sidebar entry the user
+			// was already on would add a no-op step they had to back
+			// through). The early return preserves the existing history
+			// and index exactly.
+			if (page === currentPage) return;
+
+			let nextHistory = [
 				...navHistory.current.slice(0, navIndex.current + 1),
 				page,
 			];
-			navIndex.current++;
+			let nextIndex = navIndex.current + 1;
+
+			// PVT-fix-14: cap the history so a long-lived session
+			// doesn't accumulate hundreds of entries (each one is
+			// serialized into localStorage on every navigate). Drop
+			// from the front; shift the index so the current pointer
+			// still points at the same logical entry.
+			if (nextHistory.length > MAX_NAV_HISTORY) {
+				const overflow = nextHistory.length - MAX_NAV_HISTORY;
+				nextHistory = nextHistory.slice(overflow);
+				nextIndex = Math.max(0, nextIndex - overflow);
+			}
+
+			navHistory.current = nextHistory;
+			navIndex.current = nextIndex;
 			setCurrentPage(page);
 			saveNavState(page, navHistory.current, navIndex.current);
 		},
-		[saveNavState],
+		[currentPage, saveNavState],
+	);
+
+	/**
+	 * PVT-fix-12: replace the current history entry with `page` without
+	 * pushing a new entry onto the stack. Mirrors `history.replaceState`
+	 * in the browser API. Use this for route guards that should NOT
+	 * appear in the back/forward history (e.g. the onboarding-completed
+	 * guard bouncing a user from `onboarding` → `home` shouldn't leave
+	 * a "home" entry sitting on top of the original "onboarding" entry,
+	 * otherwise the user could press Back and land back in the wizard
+	 * they just finished).
+	 *
+	 * If `page === currentPage`, this is a no-op (same rationale as
+	 * `navigate`).
+	 */
+	const replace = useCallback(
+		(page: Page) => {
+			if (page === currentPage) return;
+			navHistory.current[navIndex.current] = page;
+			setCurrentPage(page);
+			saveNavState(page, navHistory.current, navIndex.current);
+		},
+		[currentPage, saveNavState],
 	);
 
 	const goBack = useCallback(() => {
@@ -118,6 +214,7 @@ export function useNavigation() {
 	return {
 		currentPage,
 		navigate,
+		replace,
 		goBack,
 		goForward,
 		canGoBack: navIndex.current > 0,

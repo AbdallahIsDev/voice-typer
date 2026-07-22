@@ -38,6 +38,10 @@ export { initAudioContext, playSoundCue };
  * App-level hook that subscribes to recording_started / recording_stopped
  * events and plays the corresponding cue.  Mount this once at the App
  * root so it stays active regardless of which page is currently shown.
+ *
+ * PVT-fix-7: also subscribes to ``error`` events so the user gets an
+ * audible alert when the backend reports a recording/transcription
+ * failure. The error cue is a short low buzz (see ``sound-manager.ts``).
  */
 export function useSoundFeedback(): void {
 	// Eagerly initialize the AudioContext on first mount.
@@ -45,11 +49,18 @@ export function useSoundFeedback(): void {
 		initAudioContext();
 	}, []);
 
-	usePythonEvent("recording_started", () => {
+	usePythonEvent("recording_started", (): (() => void) | undefined => {
 		playSoundCue("start");
+		return undefined;
 	});
 
-	usePythonEvent("recording_stopped", () => {
+	usePythonEvent("recording_stopped", (): (() => void) | undefined => {
 		playSoundCue("stop");
+		return undefined;
+	});
+
+	usePythonEvent("error", (): (() => void) | undefined => {
+		playSoundCue("error");
+		return undefined;
 	});
 }

@@ -2,9 +2,23 @@
 	"theme": {
 		"light": "浅色",
 		"dark": "深色",
-		"system": "System",
+		"system": "系统",
 		"switchTitle": "{mode} 模式 — 点击切换",
-		"switchAriaLabel": "当前主题：{mode}。点击切换。"
+		"switchAriaLabel": "当前主题：{mode}。点击切换到 {next}。",
+		"preset": {
+			"default": "默认",
+			"amoled": "AMOLED",
+			"nord": "北欧",
+			"dracula": "德古拉",
+			"sepia": "棕褐色",
+			"custom": "自定义",
+			"monokai": "Monokai",
+			"ayu": "Ayu",
+			"github": "GitHub",
+			"catppuccin": "Catppuccin",
+			"tokyo-night": "东京之夜",
+			"solarized": "Solarized"
+		}
 	},
 	"app": {
 		"name": "Voice Typer",
@@ -17,9 +31,9 @@
 		"goHome": "返回首页",
 		"lostConnectionHint": "Python 后端已停止响应。请尝试重启。",
 		"connecting": {
-			"step1StartingPython": "Starting Python",
-			"step2LoadingModel": "Loading model",
-			"step3Ready": "Ready"
+			"step1StartingPython": "正在启动 Python",
+			"step2LoadingModel": "正在加载模型",
+			"step3Ready": "就绪"
 		}
 	},
 	"nav": {
@@ -57,7 +71,12 @@
 		"repaste": "重新粘贴",
 		"repasteAria": "重新粘贴上一次转写",
 		"forceCancel": "强制取消",
-		"forceCancelHint": "如果听写卡住，可强制取消以恢复"
+		"forceCancelHint": "如果听写卡住，可强制取消以恢复",
+		"forceCancelFailed": "无法强制取消转写",
+		"undoFailed": "无法撤销上次转写",
+		"repasteFailed": "无法重新粘贴上次转写",
+		"errorTitle": "录制错误",
+		"retry": "重试"
 	},
 	"common": {
 		"cancel": "取消",
@@ -71,7 +90,17 @@
 		"lastUpdatedMinutesAgo": "{count}分钟前",
 		"lastUpdatedHoursAgo": "{count}小时前",
 		"refresh": "刷新",
-		"refreshAria": "刷新数据"
+		"refreshAria": "刷新数据",
+		"copyPath": "复制路径",
+		"search": "搜索",
+		"sort": "排序",
+		"sortAria": "排序方式",
+		"sortNewest": "最新优先",
+		"sortOldest": "最早优先",
+		"sortAZ": "A → Z",
+		"sortZA": "Z → A",
+		"import": "导入",
+		"importAria": "从文件导入"
 	},
 	"microphone": {
 		"levelBarAria": "麦克风输入电平",
@@ -109,7 +138,21 @@
 		"channels": "声道:",
 		"rateHz": "采样率:",
 		"loadFailedTitle": "加载麦克风失败",
-		"retry": "重试"
+		"retry": "重试",
+		"useSystemDefault": "使用系统默认",
+		"useSystemDefaultAria": "恢复到操作系统的默认麦克风",
+		"activeMicUnavailable": "先前选择的麦克风不再可用。正在回退到系统默认。",
+		"fallbackToSystemDefault": "麦克风已恢复为系统默认。",
+		"testDuration": "测试时长",
+		"testDurationInfo": "测试录音的运行时长（3-30秒）。",
+		"testDurationAria": "测试时长（秒）",
+		"permissionDeniedTitle": "麦克风权限被拒绝",
+		"permissionDeniedMessageMacos": "Voice Typer 无法访问麦克风。打开系统设置 → 隐私与安全性 → 麦克风，然后启用 Voice Typer。",
+		"permissionDeniedMessageWindows": "Voice Typer 无法访问麦克风。打开设置 → 隐私和安全 → 麦克风，允许桌面应用访问麦克风。",
+		"permissionDeniedMessageLinux": "Voice Typer 无法访问麦克风。请确保没有其他应用程序独占它，并且 PulseAudio/PipeWire 正在运行。",
+		"permissionDeniedMessage": "Voice Typer 无法访问麦克风。请在系统隐私设置中授予麦克风访问权限。",
+		"openSettings": "打开设置",
+		"openSettingsAria": "打开操作系统麦克风隐私设置"
 	},
 	"vocabulary": {
 		"title": "自定义词汇",
@@ -163,7 +206,16 @@
 			"productsDesc": "品牌和产品名称。"
 		},
 		"triggerPlaceholder": "treat three, mynameis",
-		"replacementPlaceholder": "treat this, My Name Is"
+		"replacementPlaceholder": "treat this, My Name Is",
+		"allCategories": "全部分类",
+		"filterByCategoryAria": "按分类筛选",
+		"categoryBadgeAria": "Category: {category}",
+		"importSuccessSingular": "已导入 1 个条目",
+		"importSuccessPlural": "已导入 {count} 个条目",
+		"importFailed": "导入失败：{error}",
+		"importEmpty": "文件不包含词汇条目",
+		"loadFailedTitle": "加载词汇失败",
+		"retry": "重试"
 	},
 	"templates": {
 		"title": "模板",
@@ -198,8 +250,16 @@
 		"deleteMessage": "确定要删除「{name}」吗？此操作无法撤销。",
 		"loadFailedTitle": "加载模板失败",
 		"retry": "重试",
-		"triggerPlaceholder": "my email",
-		"outputPlaceholder": "john.doe@example.com"
+		"triggerPlaceholder": "我的邮箱",
+		"outputPlaceholder": "user@example.com",
+		"searchPlaceholder": "搜索模板…",
+		"importSuccessSingular": "已导入 1 个模板",
+		"importSuccessPlural": "已导入 {count} 个模板",
+		"importFailed": "导入失败：{error}",
+		"importEmpty": "文件不包含模板",
+		"matchModeExactLabel": "精确",
+		"matchModeContainsLabel": "包含",
+		"matchModeAria": "Match mode: {mode}"
 	},
 	"analytics": {
 		"title": "分析",
@@ -231,7 +291,13 @@
 			"sat": "周六"
 		},
 		"unknown": "未知",
-		"auto": "Auto"
+		"auto": "自动",
+		"noDataTitle": "暂无活动",
+		"noDataDescription": "在首页按下热键（或 Caps Lock）开始听写 — 您的统计数据将显示在此处。",
+		"startDictation": "开始听写",
+		"refreshFailed": "刷新统计失败",
+		"dayActivityAria": "{label}: {count} transcriptions",
+		"loadingAria": "正在加载仪表盘"
 	},
 	"about": {
 		"title": "关于",
@@ -272,8 +338,6 @@
 		"checkForUpdates": "检查更新",
 		"downloadVersion": "下载 v{version}",
 		"viewChangelog": "查看更新日志",
-		"helpTitle": "帮助",
-		"helpDescription": "键盘快捷键和文档。",
 		"startStopDictation": "开始 / 停止听写",
 		"startStopDictationValue": "F2（或您配置的快捷键）",
 		"cancelRecording": "取消录音",
@@ -285,8 +349,6 @@
 		"toggleSwitches": "切换开关",
 		"closeDialogs": "关闭对话框",
 		"openDropdowns": "打开下拉菜单",
-		"documentation": "文档",
-		"changelog": "更新日志",
 		"resourcesTitle": "资源与反馈",
 		"resourcesDescription": "源代码、问题跟踪器和贡献指南。",
 		"githubRepository": "GitHub 仓库",
@@ -325,11 +387,22 @@
 		"prewarmLogOpened": "已打开预热日志",
 		"prewarmLogOpenFailed": "无法打开预热日志",
 		"relativeTime": {
-			"lessThanMinute": "<1 min ago",
-			"minutesAgo": "{count} min ago",
-			"hoursAgo": "{count} h ago",
-			"daysAgo": "{count} d ago"
-		}
+			"lessThanMinute": "不到一分钟前",
+			"minutesAgo": "{count} 分钟前",
+			"hoursAgo": "{count} 小时前",
+			"daysAgo": "{count} 天前"
+		},
+		"creditsTitle": "Credits & Licenses",
+		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
+		"creditsAuthorsLabel": "Authors",
+		"creditsAuthorsValue": "AbdallahIsDev and contributors",
+		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
+		"creditsFontsLabel": "Fonts",
+		"creditsFontsValue": "Geist",
+		"creditsIconsLabel": "Icons",
+		"creditsIconsValue": "Hugeicons",
+		"documentationLink": "Documentation"
 	},
 	"settings": {
 		"title": "设置",
@@ -522,7 +595,11 @@
 			"textSizeInfoRendered": "调整界面文本大小以获得更好的可读性。默认为 14px。",
 			"textSizeAria": "文本大小",
 			"colorAria": "{label} 颜色",
-			"hexValueAria": "{label} 十六进制值"
+			"hexValueAria": "{label} 十六进制值",
+			"customDropdownLabel": "Custom (use toggle below)",
+			"hexInvalid": "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c). Reverting to the previous value on blur.",
+			"contrastWarning": "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1). Increase the difference between this colour and the relevant background.",
+			"contrastWarningShort": "Contrast {ratio}:1"
 		},
 		"hotkeySection": {
 			"hotkeyTitle": "快捷键",
@@ -657,7 +734,44 @@
 			"notchFilter": "陷波滤波器（嗡嗡声）",
 			"notchFilterInfo": "去除 50/60Hz 电力嗡嗡声。默认关闭 — 仅在听到持续低嗡声时启用。",
 			"notchFilterInfoSearch": "去除 50/60Hz 电力嗡嗡声。",
-			"notchFilterAria": "陷波滤波器"
+			"notchFilterAria": "陷波滤波器",
+			"presetAutoDescription": "Backend picks the best filter chain for the detected noise floor and hardware. Recommended for most users.",
+			"presetStudioDescription": "Light filtering for quiet, treated rooms. High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre.",
+			"presetNoisyRoomDescription": "Aggressive filtering for keyboard clatter, fans, and HVAC rumble. RNNoise + strong gate + compressor for consistent ASR accuracy.",
+			"presetOffDescription": "Bypass the entire filter chain. Use only with a clean signal — background noise will degrade transcription.",
+			"presetCustomDescription": "Hand-pick every filter and parameter. Best for advanced users with a known acoustic environment.",
+			"gateAttack": "Gate Attack",
+			"gateAttackInfo": "How fast the gate opens when the signal rises above the open threshold. 5–25ms is typical for speech.",
+			"gateAttackInfoSearch": "How fast the gate opens.",
+			"gateAttackAria": "Gate Attack",
+			"gateHold": "Gate Hold",
+			"gateHoldInfo": "How long the gate stays open after the signal drops below the close threshold before release begins. 100–300ms prevents flicker on pauses.",
+			"gateHoldInfoSearch": "How long the gate stays open after the signal drops.",
+			"gateHoldAria": "Gate Hold",
+			"gateRelease": "Gate Release",
+			"gateReleaseInfo": "How fast the gate closes after the hold time expires. 100–200ms avoids abrupt cuts on trailing consonants.",
+			"gateReleaseInfoSearch": "How fast the gate closes after the hold time expires.",
+			"gateReleaseAria": "Gate Release",
+			"compressorAttack": "Compressor Attack",
+			"compressorAttackInfo": "How fast compression engages when the signal exceeds the threshold. 2–10ms catches transients without pumping.",
+			"compressorAttackInfoSearch": "How fast compression engages.",
+			"compressorAttackAria": "Compressor Attack",
+			"compressorRelease": "Compressor Release",
+			"compressorReleaseInfo": "How fast compression disengages after the signal drops below the threshold. 50–150ms avoids gain breathing on trailing syllables.",
+			"compressorReleaseInfoSearch": "How fast compression disengages.",
+			"compressorReleaseAria": "Compressor Release",
+			"compressorOutputGain": "Compressor Output Gain",
+			"compressorOutputGainInfo": "Make-up gain applied after compression to restore perceived loudness. 0dB is neutral; +3–6dB compensates for typical speech compression.",
+			"compressorOutputGainInfoSearch": "Make-up gain applied after compression.",
+			"compressorOutputGainAria": "Compressor Output Gain",
+			"limiterRelease": "Limiter Release",
+			"limiterReleaseInfo": "How fast the limiter recovers after catching a transient. 50–100ms is typical.",
+			"limiterReleaseInfoSearch": "How fast the limiter recovers after catching a transient.",
+			"limiterReleaseAria": "Limiter Release",
+			"notchFrequency": "Notch Frequency",
+			"notchFrequencyInfo": "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains.",
+			"notchFrequencyInfoSearch": "Center frequency of the notch.",
+			"notchFrequencyAria": "Notch Frequency"
 		},
 		"aiEnhancement": {
 			"title": "AI 增强",
@@ -798,7 +912,12 @@
 			"availableWithBackend": "安全存储在系统钥匙串中（后端：{backend}）。",
 			"fallback": "钥匙串后端不可用——密钥将以明文形式存储，权限为 0o600。",
 			"fallbackWithReason": "钥匙串后端不可用（{reason}）——密钥将以明文形式存储，权限为 0o600。"
-		}
+		},
+		"searchNoMatch": "No settings match \"{query}\"",
+		"bubbleMicButton": "Bubble Mic Button",
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"bubbleClickToToggle": "Click Bubble to Toggle",
+		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation"
 	},
 	"models": {
 		"asrTitle": "ASR 模型",
@@ -965,7 +1084,16 @@
 		"openaiWhisperApi": "OpenAI Whisper API 接口",
 		"groqWhisperApi": "Groq Whisper API 接口",
 		"deepgramApi": "Deepgram API 接口",
-		"configureEngines": "配置您的语音转文字引擎"
+		"configureEngines": "配置您的语音转文字引擎",
+		"benchmark": {
+			"notImplemented": "Benchmark not yet implemented.",
+			"title": "模型基准测试",
+			"description": "在您的系统上比较模型性能",
+			"runAria": "Run model benchmark",
+			"running": "运行中...",
+			"run": "运行基准测试"
+		},
+		"benchmarkNotImplemented": "Benchmark not yet implemented."
 	},
 	"tooltips": {
 		"toggleRecording": "开始或停止语音听写",
@@ -996,8 +1124,8 @@
 		"microphoneQualityPreset": "麦克风质量预设",
 		"noiseSuppressionMethod": "降噪方法",
 		"importNotAvailableOutsideElectron": "在 Electron 外部不可用导入",
-		"opensInNewTab": "在新标签页中打开",
-		"transcriptionComplete": "转写完成。"
+		"transcriptionComplete": "转写完成。",
+		"moreInfoAbout": "More info about {label}"
 	},
 	"help": {
 		"title": "键盘快捷键",
@@ -1015,7 +1143,6 @@
 		"closeHint": "按 {key} 或点击外部以关闭。",
 		"zoomTextSize": "文本大小",
 		"keys": {
-			"dictation": "Caps Lock (or your hotkey)",
 			"cancel": "Esc",
 			"repaste": "Ctrl+Alt+V",
 			"toggleSidebar": "Ctrl+B",
@@ -1041,9 +1168,20 @@
 			"openQuote": "开引号",
 			"closeQuote": "闭引号",
 			"newLine": "换行",
-			"newParagraph": "新段落"
+			"newParagraph": "新段落",
+			"hyphen": "Hyphen",
+			"dash": "Dash",
+			"ellipsis": "Ellipsis",
+			"openParen": "Open parenthesis",
+			"closeParen": "Close parenthesis",
+			"tab": "Tab",
+			"capital": "Capital [word]",
+			"allCaps": "All caps [word]"
 		},
-		"description": "键盘快捷键和标点符号速查表。"
+		"description": "键盘快捷键和标点符号速查表。",
+		"searchPlaceholder": "Search commands…",
+		"searchNoMatch": "No commands match \"{query}\"",
+		"openCheatSheet": "Open punctuation cheat sheet"
 	},
 	"history": {
 		"title": "历史记录",
@@ -1095,7 +1233,10 @@
 		"words": "字数",
 		"characters": "字符数",
 		"loadFailedTitle": "加载历史记录失败",
-		"retry": "重试"
+		"retry": "重试",
+		"charsSuffix": " ({count} chars)",
+		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
+		"sortLabel": "Sort"
 	},
 	"onboarding": {
 		"welcomeTitle": "欢迎使用 Voice Typer",
@@ -1131,7 +1272,35 @@
 		"saveFailedSnack": "保存选择失败",
 		"skippedSnack": "已跳过设置 — 使用默认值",
 		"stepProgress": "第 {current} 步，共 {total} 步",
-		"progressAria": "设置步骤 {current}/{total}"
+		"progressAria": "设置步骤 {current}/{total}",
+		"step4Item": "Pick a transcription model",
+		"step5Item": "Finish and load your model",
+		"permissionsTitle": "Keyboard Monitoring Permission",
+		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
+		"permissionsLoading": "Checking permission…",
+		"permissionsNeeded": "Permission still required",
+		"permissionsOk": "Permission granted — hotkeys will work.",
+		"permissionsNoneNeeded": "No extra permission needed on this platform. Hotkeys will work out of the box.",
+		"permissionsTestLabel": "Press your hotkey to test",
+		"permissionsTestSuccess": "Hotkey detected! It works.",
+		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
+		"permissionsTestButton": "Test hotkey",
+		"micLevel": "Input level",
+		"modelMultilingual": "Multilingual",
+		"skipConfirmTitle": "Skip setup?",
+		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmLabel": "Skip anyway",
+		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
+		"permissionsRefresh": "Refresh permission",
+		"permissionsRefreshAria": "Re-check keyboard permission",
+		"permissionsInstructionsMacosTitle": "Accessibility Permission Required",
+		"permissionsInstructionsMacosStep1": "Open System Settings → Privacy & Security → Accessibility",
+		"permissionsInstructionsMacosStep2": "Add Voice Typer (and its key-listener helper) to the list",
+		"permissionsInstructionsMacosStep3": "Toggle the switch ON for Voice Typer",
+		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
+		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
+		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
 	},
 	"titleBar": {
 		"minimize": "最小化",
@@ -1145,7 +1314,10 @@
 		"recordingIndicatorAria": "Voice Typer 录音指示器",
 		"transcribingLabel": "转写中",
 		"idleLabel": "Ready",
-		"recordingLabel": "REC"
+		"recordingLabel": "REC",
+		"micButtonAria": "Toggle dictation",
+		"micButtonStartAria": "Start dictation",
+		"micButtonStopAria": "Stop dictation"
 	},
 	"errorBoundary": {
 		"title": "出错了",
@@ -1169,7 +1341,8 @@
 		"viewAll": "查看全部",
 		"wordsCount": "{count} 个字",
 		"removeFromFavorites": "从收藏夹移除",
-		"addToFavorites": "添加到收藏夹"
+		"addToFavorites": "添加到收藏夹",
+		"noRecentActivity": "No recent activity"
 	},
 	"exportFormat": {
 		"export": "导出",
@@ -1225,14 +1398,18 @@
 			"tooLow": "音量过低",
 			"lowVolume": "检测到音量过低",
 			"waiting": "等待人声…"
+		},
+		"detectedIssueCodes": {
+			"high_noise": "High background noise",
+			"moderate_noise": "Moderate background noise",
+			"clipping": "Audio clipping detected",
+			"volume_too_low": "Volume too low — speak closer to the microphone",
+			"volume_low": "Volume is low — consider raising input gain",
+			"no_voice": "No voice detected — try speaking during the test"
 		}
 	},
 	"dashboard": {
-		"cards": {
-			"dictations": "听写次数",
-			"chars": "字符数",
-			"duration": "总时长"
-		}
+		"cards": {}
 	},
 	"stats": {
 		"shareImage": {
@@ -1240,12 +1417,7 @@
 			"wpm": "字/分",
 			"min": "分钟",
 			"savedVsTyping": "相比手打节省",
-			"title": "Voice Typer 统计",
-			"cloudMode": "云端",
-			"offlineMode": "离线",
-			"cloudApi": "云端 API",
-			"localModel": "本地模型",
-			"fasterThanAvg": "比平均打字员快 {percent}%"
+			"title": "Voice Typer 统计"
 		}
 	},
 	"hotkey": {

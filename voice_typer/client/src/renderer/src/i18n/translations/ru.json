@@ -2,9 +2,23 @@
 	"theme": {
 		"light": "Светлая",
 		"dark": "Тёмная",
-		"system": "System",
+		"system": "Системная",
 		"switchTitle": "Режим {mode} — нажмите для переключения",
-		"switchAriaLabel": "Текущая тема: {mode}. Нажмите для переключения."
+		"switchAriaLabel": "Текущая тема: {mode}. Нажмите для переключения на {next}.",
+		"preset": {
+			"default": "Стандартная",
+			"amoled": "AMOLED",
+			"nord": "Норд",
+			"dracula": "Дракула",
+			"sepia": "Сепия",
+			"custom": "Пользовательская",
+			"monokai": "Monokai",
+			"ayu": "Ayu",
+			"github": "GitHub",
+			"catppuccin": "Catppuccin",
+			"tokyo-night": "Токийская ночь",
+			"solarized": "Solarized"
+		}
 	},
 	"app": {
 		"name": "Voice Typer",
@@ -17,9 +31,9 @@
 		"goHome": "На главную",
 		"lostConnectionHint": "Бэкенд Python перестал отвечать. Попробуйте перезапустить его.",
 		"connecting": {
-			"step1StartingPython": "Starting Python",
-			"step2LoadingModel": "Loading model",
-			"step3Ready": "Ready"
+			"step1StartingPython": "Запуск Python",
+			"step2LoadingModel": "Загрузка модели",
+			"step3Ready": "Готово"
 		}
 	},
 	"nav": {
@@ -57,7 +71,12 @@
 		"repaste": "Вставить заново",
 		"repasteAria": "Вставить последнюю транскрипцию заново",
 		"forceCancel": "Принудительно отменить",
-		"forceCancelHint": "Если диктовка зависла, принудительно отмените для восстановления"
+		"forceCancelHint": "Если диктовка зависла, принудительно отмените для восстановления",
+		"forceCancelFailed": "Не удалось принудительно отменить транскрипцию",
+		"undoFailed": "Не удалось отменить последнюю транскрипцию",
+		"repasteFailed": "Не удалось вставить заново последнюю транскрипцию",
+		"errorTitle": "Ошибка записи",
+		"retry": "Повторить"
 	},
 	"common": {
 		"cancel": "Отмена",
@@ -71,7 +90,17 @@
 		"lastUpdatedMinutesAgo": "{count} мин назад",
 		"lastUpdatedHoursAgo": "{count} ч назад",
 		"refresh": "Обновить",
-		"refreshAria": "Обновить данные"
+		"refreshAria": "Обновить данные",
+		"copyPath": "Копировать путь",
+		"search": "Поиск",
+		"sort": "Сортировать",
+		"sortAria": "Порядок сортировки",
+		"sortNewest": "Сначала новые",
+		"sortOldest": "Сначала старые",
+		"sortAZ": "А → Я",
+		"sortZA": "Я → А",
+		"import": "Импорт",
+		"importAria": "Импорт из файла"
 	},
 	"microphone": {
 		"levelBarAria": "Уровень входа микрофона",
@@ -109,7 +138,21 @@
 		"channels": "Каналы:",
 		"rateHz": "Частота:",
 		"loadFailedTitle": "Не удалось загрузить микрофоны",
-		"retry": "Повторить"
+		"retry": "Повторить",
+		"useSystemDefault": "Использовать системный по умолчанию",
+		"useSystemDefaultAria": "Вернуться к микрофону по умолчанию операционной системы",
+		"activeMicUnavailable": "Ранее выбранный микрофон больше не доступен. Возврат к системному по умолчанию.",
+		"fallbackToSystemDefault": "Микрофон возвращён к системному по умолчанию.",
+		"testDuration": "Длительность теста",
+		"testDurationInfo": "Как долго длится тестовая запись (3–30 секунд).",
+		"testDurationAria": "Длительность теста в секундах",
+		"permissionDeniedTitle": "Доступ к микрофону запрещён",
+		"permissionDeniedMessageMacos": "Voice Typer не может получить доступ к микрофону. Откройте Системные настройки → Конфиденциальность и безопасность → Микрофон и включите Voice Typer.",
+		"permissionDeniedMessageWindows": "Voice Typer не может получить доступ к микрофону. Откройте Параметры → Конфиденциальность и безопасность → Микрофон и разрешите приложениям доступ к микрофону.",
+		"permissionDeniedMessageLinux": "Voice Typer не может получить доступ к микрофону. Убедитесь, что никакое другое приложение не использует его исключительно и что PulseAudio/PipeWire работает.",
+		"permissionDeniedMessage": "Voice Typer не может получить доступ к микрофону. Предоставьте доступ к микрофону в настройках конфиденциальности вашей системы.",
+		"openSettings": "Открыть настройки",
+		"openSettingsAria": "Открыть настройки конфиденциальности микрофона операционной системы"
 	},
 	"vocabulary": {
 		"title": "Пользовательский словарь",
@@ -163,7 +206,16 @@
 			"productsDesc": "Названия брендов и продуктов."
 		},
 		"triggerPlaceholder": "treat three, mynameis",
-		"replacementPlaceholder": "treat this, My Name Is"
+		"replacementPlaceholder": "treat this, My Name Is",
+		"allCategories": "Все категории",
+		"filterByCategoryAria": "Фильтр по категории",
+		"categoryBadgeAria": "Category: {category}",
+		"importSuccessSingular": "Импортирована 1 запись",
+		"importSuccessPlural": "Импортировано {count} записей",
+		"importFailed": "Импорт не удался: {error}",
+		"importEmpty": "Файл не содержит записей словаря",
+		"loadFailedTitle": "Не удалось загрузить словарь",
+		"retry": "Повторить"
 	},
 	"templates": {
 		"title": "Шаблоны",
@@ -198,8 +250,16 @@
 		"deleteMessage": "Вы уверены, что хотите удалить «{name}»? Это действие нельзя отменить.",
 		"loadFailedTitle": "Не удалось загрузить шаблоны",
 		"retry": "Повторить",
-		"triggerPlaceholder": "my email",
-		"outputPlaceholder": "john.doe@example.com"
+		"triggerPlaceholder": "моя почта",
+		"outputPlaceholder": "user@example.com",
+		"searchPlaceholder": "Поиск шаблонов…",
+		"importSuccessSingular": "Импортирован 1 шаблон",
+		"importSuccessPlural": "Импортировано {count} шаблонов",
+		"importFailed": "Импорт не удался: {error}",
+		"importEmpty": "Файл не содержит шаблонов",
+		"matchModeExactLabel": "Точно",
+		"matchModeContainsLabel": "Содержит",
+		"matchModeAria": "Match mode: {mode}"
 	},
 	"analytics": {
 		"title": "Аналитика",
@@ -231,7 +291,13 @@
 			"sat": "Сб"
 		},
 		"unknown": "Неизвестно",
-		"auto": "Auto"
+		"auto": "Авто",
+		"noDataTitle": "Пока нет активности",
+		"noDataDescription": "Нажмите горячую клавишу (или Caps Lock) на главной странице для диктовки — ваша статистика появится здесь.",
+		"startDictation": "Начать диктовку",
+		"refreshFailed": "Не удалось обновить статистику",
+		"dayActivityAria": "{label}: {count} transcriptions",
+		"loadingAria": "Загрузка панели управления"
 	},
 	"about": {
 		"title": "О программе",
@@ -272,8 +338,6 @@
 		"checkForUpdates": "Проверить обновления",
 		"downloadVersion": "Скачать v{version}",
 		"viewChangelog": "Просмотреть журнал изменений",
-		"helpTitle": "Справка",
-		"helpDescription": "Горячие клавиши и документация.",
 		"startStopDictation": "Начать / Остановить диктовку",
 		"startStopDictationValue": "F2 (или ваша настроенная горячая клавиша)",
 		"cancelRecording": "Отменить запись",
@@ -285,8 +349,6 @@
 		"toggleSwitches": "Переключение переключателей",
 		"closeDialogs": "Закрыть диалоги",
 		"openDropdowns": "Открыть выпадающие списки",
-		"documentation": "Документация",
-		"changelog": "Журнал изменений",
 		"resourcesTitle": "Ресурсы и обратная связь",
 		"resourcesDescription": "Исходный код, трекер проблем и руководства для участников.",
 		"githubRepository": "Репозиторий GitHub",
@@ -329,7 +391,18 @@
 			"minutesAgo": "{count} min ago",
 			"hoursAgo": "{count} h ago",
 			"daysAgo": "{count} d ago"
-		}
+		},
+		"creditsTitle": "Credits & Licenses",
+		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
+		"creditsAuthorsLabel": "Authors",
+		"creditsAuthorsValue": "AbdallahIsDev and contributors",
+		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
+		"creditsFontsLabel": "Fonts",
+		"creditsFontsValue": "Geist",
+		"creditsIconsLabel": "Icons",
+		"creditsIconsValue": "Hugeicons",
+		"documentationLink": "Documentation"
 	},
 	"settings": {
 		"title": "Настройки",
@@ -522,7 +595,11 @@
 			"textSizeInfoRendered": "Настройте размер текста интерфейса для лучшей читаемости. По умолчанию 14px.",
 			"textSizeAria": "Размер текста",
 			"colorAria": "Цвет {label}",
-			"hexValueAria": "Шестнадцатеричное значение {label}"
+			"hexValueAria": "Шестнадцатеричное значение {label}",
+			"customDropdownLabel": "Custom (use toggle below)",
+			"hexInvalid": "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c). Reverting to the previous value on blur.",
+			"contrastWarning": "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1). Increase the difference between this colour and the relevant background.",
+			"contrastWarningShort": "Contrast {ratio}:1"
 		},
 		"hotkeySection": {
 			"hotkeyTitle": "Горячая клавиша",
@@ -657,7 +734,44 @@
 			"notchFilter": "Режекторный фильтр (гул)",
 			"notchFilterInfo": "Удаляет электрический гул сети 50/60 Гц. По умолчанию выключен — включайте только при постоянном низком гудении.",
 			"notchFilterInfoSearch": "Удаляет электрический гул сети 50/60 Гц.",
-			"notchFilterAria": "Режекторный фильтр"
+			"notchFilterAria": "Режекторный фильтр",
+			"presetAutoDescription": "Backend picks the best filter chain for the detected noise floor and hardware. Recommended for most users.",
+			"presetStudioDescription": "Light filtering for quiet, treated rooms. High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre.",
+			"presetNoisyRoomDescription": "Aggressive filtering for keyboard clatter, fans, and HVAC rumble. RNNoise + strong gate + compressor for consistent ASR accuracy.",
+			"presetOffDescription": "Bypass the entire filter chain. Use only with a clean signal — background noise will degrade transcription.",
+			"presetCustomDescription": "Hand-pick every filter and parameter. Best for advanced users with a known acoustic environment.",
+			"gateAttack": "Gate Attack",
+			"gateAttackInfo": "How fast the gate opens when the signal rises above the open threshold. 5–25ms is typical for speech.",
+			"gateAttackInfoSearch": "How fast the gate opens.",
+			"gateAttackAria": "Gate Attack",
+			"gateHold": "Gate Hold",
+			"gateHoldInfo": "How long the gate stays open after the signal drops below the close threshold before release begins. 100–300ms prevents flicker on pauses.",
+			"gateHoldInfoSearch": "How long the gate stays open after the signal drops.",
+			"gateHoldAria": "Gate Hold",
+			"gateRelease": "Gate Release",
+			"gateReleaseInfo": "How fast the gate closes after the hold time expires. 100–200ms avoids abrupt cuts on trailing consonants.",
+			"gateReleaseInfoSearch": "How fast the gate closes after the hold time expires.",
+			"gateReleaseAria": "Gate Release",
+			"compressorAttack": "Compressor Attack",
+			"compressorAttackInfo": "How fast compression engages when the signal exceeds the threshold. 2–10ms catches transients without pumping.",
+			"compressorAttackInfoSearch": "How fast compression engages.",
+			"compressorAttackAria": "Compressor Attack",
+			"compressorRelease": "Compressor Release",
+			"compressorReleaseInfo": "How fast compression disengages after the signal drops below the threshold. 50–150ms avoids gain breathing on trailing syllables.",
+			"compressorReleaseInfoSearch": "How fast compression disengages.",
+			"compressorReleaseAria": "Compressor Release",
+			"compressorOutputGain": "Compressor Output Gain",
+			"compressorOutputGainInfo": "Make-up gain applied after compression to restore perceived loudness. 0dB is neutral; +3–6dB compensates for typical speech compression.",
+			"compressorOutputGainInfoSearch": "Make-up gain applied after compression.",
+			"compressorOutputGainAria": "Compressor Output Gain",
+			"limiterRelease": "Limiter Release",
+			"limiterReleaseInfo": "How fast the limiter recovers after catching a transient. 50–100ms is typical.",
+			"limiterReleaseInfoSearch": "How fast the limiter recovers after catching a transient.",
+			"limiterReleaseAria": "Limiter Release",
+			"notchFrequency": "Notch Frequency",
+			"notchFrequencyInfo": "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains.",
+			"notchFrequencyInfoSearch": "Center frequency of the notch.",
+			"notchFrequencyAria": "Notch Frequency"
 		},
 		"aiEnhancement": {
 			"title": "ИИ-улучшения",
@@ -798,7 +912,12 @@
 			"availableWithBackend": "Безопасно хранится в связке ключей ОС (бэкенд: {backend}).",
 			"fallback": "Бэкенд связки ключей недоступен — секреты будут храниться в открытом виде с правами 0o600.",
 			"fallbackWithReason": "Бэкенд связки ключей недоступен ({reason}) — секреты будут храниться в открытом виде с правами 0o600."
-		}
+		},
+		"searchNoMatch": "No settings match \"{query}\"",
+		"bubbleMicButton": "Bubble Mic Button",
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"bubbleClickToToggle": "Click Bubble to Toggle",
+		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation"
 	},
 	"models": {
 		"asrTitle": "Модели ASR",
@@ -965,7 +1084,16 @@
 		"openaiWhisperApi": "API OpenAI Whisper",
 		"groqWhisperApi": "API Groq Whisper",
 		"deepgramApi": "API Deepgram",
-		"configureEngines": "Настройте ваши движки преобразования речи в текст"
+		"configureEngines": "Настройте ваши движки преобразования речи в текст",
+		"benchmark": {
+			"notImplemented": "Benchmark not yet implemented.",
+			"title": "Тест производительности модели",
+			"description": "Сравните производительность модели в вашей системе",
+			"runAria": "Run model benchmark",
+			"running": "Выполняется...",
+			"run": "Запустить тест"
+		},
+		"benchmarkNotImplemented": "Benchmark not yet implemented."
 	},
 	"tooltips": {
 		"toggleRecording": "Начать или остановить голосовую диктовку",
@@ -996,8 +1124,8 @@
 		"microphoneQualityPreset": "Предустановка качества микрофона",
 		"noiseSuppressionMethod": "Метод подавления шума",
 		"importNotAvailableOutsideElectron": "Импорт недоступен вне Electron",
-		"opensInNewTab": "Открывается в новой вкладке",
-		"transcriptionComplete": "Транскрипция завершена."
+		"transcriptionComplete": "Транскрипция завершена.",
+		"moreInfoAbout": "More info about {label}"
 	},
 	"help": {
 		"title": "Горячие клавиши",
@@ -1015,7 +1143,6 @@
 		"closeHint": "Нажмите {key} или щёлкните снаружи, чтобы закрыть.",
 		"zoomTextSize": "Размер текста",
 		"keys": {
-			"dictation": "Caps Lock (or your hotkey)",
 			"cancel": "Esc",
 			"repaste": "Ctrl+Alt+V",
 			"toggleSidebar": "Ctrl+B",
@@ -1041,9 +1168,20 @@
 			"openQuote": "Открывающая кавычка",
 			"closeQuote": "Закрывающая кавычка",
 			"newLine": "Новая строка",
-			"newParagraph": "Новый абзац"
+			"newParagraph": "Новый абзац",
+			"hyphen": "Hyphen",
+			"dash": "Dash",
+			"ellipsis": "Ellipsis",
+			"openParen": "Open parenthesis",
+			"closeParen": "Close parenthesis",
+			"tab": "Tab",
+			"capital": "Capital [word]",
+			"allCaps": "All caps [word]"
 		},
-		"description": "Горячие клавиши и шпаргалка по пунктуации."
+		"description": "Горячие клавиши и шпаргалка по пунктуации.",
+		"searchPlaceholder": "Search commands…",
+		"searchNoMatch": "No commands match \"{query}\"",
+		"openCheatSheet": "Open punctuation cheat sheet"
 	},
 	"history": {
 		"title": "История",
@@ -1095,7 +1233,10 @@
 		"words": "Слова",
 		"characters": "Символы",
 		"loadFailedTitle": "Не удалось загрузить историю",
-		"retry": "Повторить"
+		"retry": "Повторить",
+		"charsSuffix": " ({count} chars)",
+		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
+		"sortLabel": "Sort"
 	},
 	"onboarding": {
 		"welcomeTitle": "Добро пожаловать в Voice Typer",
@@ -1131,7 +1272,35 @@
 		"saveFailedSnack": "Не удалось сохранить выбор",
 		"skippedSnack": "Настройка пропущена — используются значения по умолчанию",
 		"stepProgress": "Шаг {current} из {total}",
-		"progressAria": "Шаг настройки {current} из {total}"
+		"progressAria": "Шаг настройки {current} из {total}",
+		"step4Item": "Pick a transcription model",
+		"step5Item": "Finish and load your model",
+		"permissionsTitle": "Keyboard Monitoring Permission",
+		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
+		"permissionsLoading": "Checking permission…",
+		"permissionsNeeded": "Permission still required",
+		"permissionsOk": "Permission granted — hotkeys will work.",
+		"permissionsNoneNeeded": "No extra permission needed on this platform. Hotkeys will work out of the box.",
+		"permissionsTestLabel": "Press your hotkey to test",
+		"permissionsTestSuccess": "Hotkey detected! It works.",
+		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
+		"permissionsTestButton": "Test hotkey",
+		"micLevel": "Input level",
+		"modelMultilingual": "Multilingual",
+		"skipConfirmTitle": "Skip setup?",
+		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmLabel": "Skip anyway",
+		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
+		"permissionsRefresh": "Refresh permission",
+		"permissionsRefreshAria": "Re-check keyboard permission",
+		"permissionsInstructionsMacosTitle": "Accessibility Permission Required",
+		"permissionsInstructionsMacosStep1": "Open System Settings → Privacy & Security → Accessibility",
+		"permissionsInstructionsMacosStep2": "Add Voice Typer (and its key-listener helper) to the list",
+		"permissionsInstructionsMacosStep3": "Toggle the switch ON for Voice Typer",
+		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
+		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
+		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
 	},
 	"titleBar": {
 		"minimize": "Свернуть",
@@ -1145,7 +1314,10 @@
 		"recordingIndicatorAria": "Индикатор записи Voice Typer",
 		"transcribingLabel": "Расшифровка",
 		"idleLabel": "Ready",
-		"recordingLabel": "REC"
+		"recordingLabel": "REC",
+		"micButtonAria": "Toggle dictation",
+		"micButtonStartAria": "Start dictation",
+		"micButtonStopAria": "Stop dictation"
 	},
 	"errorBoundary": {
 		"title": "Что-то пошло не так",
@@ -1169,7 +1341,8 @@
 		"viewAll": "Показать все",
 		"wordsCount": "{count} слов",
 		"removeFromFavorites": "Убрать из избранного",
-		"addToFavorites": "Добавить в избранное"
+		"addToFavorites": "Добавить в избранное",
+		"noRecentActivity": "No recent activity"
 	},
 	"exportFormat": {
 		"export": "Экспорт",
@@ -1225,14 +1398,18 @@
 			"tooLow": "Слишком тихо",
 			"lowVolume": "Обнаружен низкий уровень громкости",
 			"waiting": "Ожидание голоса…"
+		},
+		"detectedIssueCodes": {
+			"high_noise": "High background noise",
+			"moderate_noise": "Moderate background noise",
+			"clipping": "Audio clipping detected",
+			"volume_too_low": "Volume too low — speak closer to the microphone",
+			"volume_low": "Volume is low — consider raising input gain",
+			"no_voice": "No voice detected — try speaking during the test"
 		}
 	},
 	"dashboard": {
-		"cards": {
-			"dictations": "Диктовки",
-			"chars": "Символы",
-			"duration": "Общая длительность"
-		}
+		"cards": {}
 	},
 	"stats": {
 		"shareImage": {
@@ -1240,12 +1417,7 @@
 			"wpm": "Сл/мин",
 			"min": "мин",
 			"savedVsTyping": "сэкономлено vs набор",
-			"title": "Статистика Voice Typer",
-			"cloudMode": "Облако",
-			"offlineMode": "Офлайн",
-			"cloudApi": "Облачный API",
-			"localModel": "Локальная модель",
-			"fasterThanAvg": "на {percent}% быстрее среднего"
+			"title": "Статистика Voice Typer"
 		}
 	},
 	"hotkey": {

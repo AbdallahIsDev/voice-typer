@@ -50,11 +50,15 @@ export const nordTheme: ThemePreset = {
 		"--secondary": "oklch(0.92 0.006 240)",
 		"--secondary-foreground": "oklch(0.25 0.01 240)",
 		"--muted": "oklch(0.93 0.006 240)",
-		"--muted-foreground": "oklch(0.5 0.01 240)",
+		/* PVT-042: bump L from 0.5 to 0.48 so --muted-foreground clears WCAG AA
+		   4.5:1 against the near-white background. */
+		"--muted-foreground": "oklch(0.48 0.01 240)",
 		// Borders / inputs / rings
 		"--border": "oklch(0.88 0.008 240)",
 		"--input": "oklch(0.88 0.008 240)",
-		"--ring": "oklch(0.6 0.06 240)",
+		/* PVT-044: bump L from 0.6 to 0.48 so the focus ring (combined with
+		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
+		"--ring": "oklch(0.48 0.06 240)",
 		// Destructive (CR-061: added so light matches dark coverage.)
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",

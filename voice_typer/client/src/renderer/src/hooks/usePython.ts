@@ -224,9 +224,32 @@ export function usePython() {
 	return { call };
 }
 
+/**
+ * Subscribe to a Python push event of the given ``type``.
+ *
+ * The ``handler`` is called with the event ``data`` (if any) each time a
+ * matching event arrives.  It may optionally return a cleanup function
+ * (PVT-G5-019) which is invoked:
+ *
+ *   1. Before the **next** matching event's handler runs — so rapid
+ *      successive events don't accumulate stale async work (e.g. the
+ *      ``reloadHotkey`` chain in ``Home.tsx`` can cancel its in-flight
+ *      ``get_config`` via a per-invocation ``cancelled`` flag).
+ *   2. When the subscription is torn down (unmount, ``type`` change, or
+ *      bridge going away) — so resources acquired by the most recent
+ *      invocation are released.
+ *
+ * Handlers that return ``void`` (the common case) keep working unchanged:
+ * ``typeof cleanup === "function"`` guards every call site, so a missing
+ * return value is a no-op.
+ *
+ * The handler identity is mirrored into a ref so callers can pass an inline
+ * closure without re-subscribing on every render (only ``type`` and
+ * ``bridgeReady`` are effect deps).
+ */
 export function usePythonEvent(
 	type: string,
-	handler: (data?: Record<string, unknown>) => void,
+	handler: (data?: Record<string, unknown>) => (() => void) | undefined,
 ) {
 	const handlerRef = useRef(handler);
 	handlerRef.current = handler;
@@ -248,11 +271,45 @@ export function usePythonEvent(
 		const api = (window as unknown as WindowWithPython).python;
 		if (!api) return; // defensive double-check (bridgeReady mirrors window.python presence)
 
-		return api.onEvent((event) => {
+		// PVT-G5-019: capture the most recent handler-returned cleanup
+		// function so we can invoke it before the next matching event's
+		// handler runs (cancelling any in-flight async work from the
+		// previous invocation) and on unsubscribe (releasing resources
+		// acquired by the most recent invocation).
+		let currentCleanup: (() => void) | undefined | undefined;
+
+		const runCleanup = () => {
+			if (typeof currentCleanup !== "function") return;
+			const fn = currentCleanup;
+			currentCleanup = undefined;
+			try {
+				fn();
+			} catch (err) {
+				// A throwing cleanup must not break subsequent
+				// event delivery — log and continue.
+				console.error("usePythonEvent cleanup threw:", err);
+			}
+		};
+
+		const unsubscribe = api.onEvent((event) => {
 			if (event.type === type) {
-				handlerRef.current(event.data);
+				// Invoke the previous cleanup BEFORE the next
+				// handler so concurrent invocations compose
+				// correctly (e.g. stale `reloadHotkey` chains
+				// are cancelled before a new one starts).
+				runCleanup();
+				currentCleanup = handlerRef.current(event.data);
 			}
 		});
+
+		return () => {
+			// On unsubscribe (unmount / type change / bridge going
+			// away), invoke the most recent cleanup so the handler
+			// can release its resources (e.g. flip its own
+			// `cancelled` flag).
+			runCleanup();
+			unsubscribe();
+		};
 		// `bridgeReady` is included so the effect re-subscribes when
 		// `window.python` becomes available post-mount.
 	}, [type, bridgeReady]);

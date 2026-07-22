@@ -10,9 +10,9 @@
 		"goHome": "Aller à l'accueil",
 		"lostConnectionHint": "Le backend Python ne répond plus. Essayez de le redémarrer.",
 		"connecting": {
-			"step1StartingPython": "Starting Python",
-			"step2LoadingModel": "Loading model",
-			"step3Ready": "Ready"
+			"step1StartingPython": "Démarrage de Python",
+			"step2LoadingModel": "Chargement du modèle",
+			"step3Ready": "Prêt"
 		}
 	},
 	"nav": {
@@ -50,7 +50,12 @@
 		"repaste": "Recoller",
 		"repasteAria": "Recoller la dernière transcription",
 		"forceCancel": "Forcer l'annulation",
-		"forceCancelHint": "Si la dictée est bloquée, forcez l'annulation pour rétablir"
+		"forceCancelHint": "Si la dictée est bloquée, forcez l'annulation pour rétablir",
+		"forceCancelFailed": "Impossible d'annuler de force la transcription",
+		"undoFailed": "Impossible d'annuler la dernière transcription",
+		"repasteFailed": "Impossible de recoller la dernière transcription",
+		"errorTitle": "Erreur d'enregistrement",
+		"retry": "Réessayer"
 	},
 	"settings": {
 		"title": "Paramètres",
@@ -132,7 +137,11 @@
 			"textSizeInfoRendered": "Ajustez la taille du texte de l'interface pour une meilleure lisibilité. La valeur par défaut est 14px.",
 			"textSizeAria": "Taille du texte",
 			"colorAria": "Couleur {label}",
-			"hexValueAria": "Valeur hexadécimale {label}"
+			"hexValueAria": "Valeur hexadécimale {label}",
+			"customDropdownLabel": "Custom (use toggle below)",
+			"hexInvalid": "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c). Reverting to the previous value on blur.",
+			"contrastWarning": "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1). Increase the difference between this colour and the relevant background.",
+			"contrastWarningShort": "Contrast {ratio}:1"
 		},
 		"theme": "Thème",
 		"themeDescription": "Schéma de couleur de l'application",
@@ -375,7 +384,44 @@
 			"notchFilter": "Filtre coupe-bande (ronflement)",
 			"notchFilterInfo": "Supprimer le ronflement électrique 50/60Hz. Désactivé par défaut — activez-le seulement si vous entendez un bourdonnement bas persistant.",
 			"notchFilterInfoSearch": "Supprimer le ronflement électrique 50/60Hz.",
-			"notchFilterAria": "Filtre coupe-bande"
+			"notchFilterAria": "Filtre coupe-bande",
+			"presetAutoDescription": "Backend picks the best filter chain for the detected noise floor and hardware. Recommended for most users.",
+			"presetStudioDescription": "Light filtering for quiet, treated rooms. High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre.",
+			"presetNoisyRoomDescription": "Aggressive filtering for keyboard clatter, fans, and HVAC rumble. RNNoise + strong gate + compressor for consistent ASR accuracy.",
+			"presetOffDescription": "Bypass the entire filter chain. Use only with a clean signal — background noise will degrade transcription.",
+			"presetCustomDescription": "Hand-pick every filter and parameter. Best for advanced users with a known acoustic environment.",
+			"gateAttack": "Gate Attack",
+			"gateAttackInfo": "How fast the gate opens when the signal rises above the open threshold. 5–25ms is typical for speech.",
+			"gateAttackInfoSearch": "How fast the gate opens.",
+			"gateAttackAria": "Gate Attack",
+			"gateHold": "Gate Hold",
+			"gateHoldInfo": "How long the gate stays open after the signal drops below the close threshold before release begins. 100–300ms prevents flicker on pauses.",
+			"gateHoldInfoSearch": "How long the gate stays open after the signal drops.",
+			"gateHoldAria": "Gate Hold",
+			"gateRelease": "Gate Release",
+			"gateReleaseInfo": "How fast the gate closes after the hold time expires. 100–200ms avoids abrupt cuts on trailing consonants.",
+			"gateReleaseInfoSearch": "How fast the gate closes after the hold time expires.",
+			"gateReleaseAria": "Gate Release",
+			"compressorAttack": "Compressor Attack",
+			"compressorAttackInfo": "How fast compression engages when the signal exceeds the threshold. 2–10ms catches transients without pumping.",
+			"compressorAttackInfoSearch": "How fast compression engages.",
+			"compressorAttackAria": "Compressor Attack",
+			"compressorRelease": "Compressor Release",
+			"compressorReleaseInfo": "How fast compression disengages after the signal drops below the threshold. 50–150ms avoids gain breathing on trailing syllables.",
+			"compressorReleaseInfoSearch": "How fast compression disengages.",
+			"compressorReleaseAria": "Compressor Release",
+			"compressorOutputGain": "Compressor Output Gain",
+			"compressorOutputGainInfo": "Make-up gain applied after compression to restore perceived loudness. 0dB is neutral; +3–6dB compensates for typical speech compression.",
+			"compressorOutputGainInfoSearch": "Make-up gain applied after compression.",
+			"compressorOutputGainAria": "Compressor Output Gain",
+			"limiterRelease": "Limiter Release",
+			"limiterReleaseInfo": "How fast the limiter recovers after catching a transient. 50–100ms is typical.",
+			"limiterReleaseInfoSearch": "How fast the limiter recovers after catching a transient.",
+			"limiterReleaseAria": "Limiter Release",
+			"notchFrequency": "Notch Frequency",
+			"notchFrequencyInfo": "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains.",
+			"notchFrequencyInfoSearch": "Center frequency of the notch.",
+			"notchFrequencyAria": "Notch Frequency"
 		},
 		"aiEnhancement": {
 			"title": "Amélioration IA",
@@ -519,7 +565,12 @@
 			"availableWithBackend": "Stocké en toute sécurité dans le trousseau du système d'exploitation (backend : {backend}).",
 			"fallback": "Le backend du trousseau n'est pas disponible — les secrets seront stockés en texte brut avec des permissions 0o600.",
 			"fallbackWithReason": "Le backend du trousseau n'est pas disponible ({reason}) — les secrets seront stockés en texte brut avec des permissions 0o600."
-		}
+		},
+		"searchNoMatch": "No settings match \"{query}\"",
+		"bubbleMicButton": "Bubble Mic Button",
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"bubbleClickToToggle": "Click Bubble to Toggle",
+		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation"
 	},
 	"models": {
 		"asrTitle": "Modèles ASR",
@@ -686,7 +737,16 @@
 		"openaiWhisperApi": "API OpenAI Whisper",
 		"groqWhisperApi": "API Groq Whisper",
 		"deepgramApi": "API Deepgram",
-		"configureEngines": "Configurez vos moteurs de reconnaissance vocale"
+		"configureEngines": "Configurez vos moteurs de reconnaissance vocale",
+		"benchmark": {
+			"notImplemented": "Benchmark not yet implemented.",
+			"title": "Benchmark du Modèle",
+			"description": "Comparez les performances du modèle sur votre système",
+			"runAria": "Run model benchmark",
+			"running": "En cours...",
+			"run": "Lancer le Benchmark"
+		},
+		"benchmarkNotImplemented": "Benchmark not yet implemented."
 	},
 	"history": {
 		"title": "Historique",
@@ -738,7 +798,10 @@
 		"words": "Mots",
 		"characters": "Caractères",
 		"loadFailedTitle": "Échec du chargement de l'historique",
-		"retry": "Réessayer"
+		"retry": "Réessayer",
+		"charsSuffix": " ({count} chars)",
+		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
+		"sortLabel": "Sort"
 	},
 	"tooltips": {
 		"toggleRecording": "Démarrer ou arrêter la dictée vocale",
@@ -769,8 +832,8 @@
 		"microphoneQualityPreset": "Préréglage de qualité du microphone",
 		"noiseSuppressionMethod": "Méthode de suppression du bruit",
 		"importNotAvailableOutsideElectron": "Importation non disponible en dehors d'Electron",
-		"opensInNewTab": "S'ouvre dans un nouvel onglet",
-		"transcriptionComplete": "Transcription terminée."
+		"transcriptionComplete": "Transcription terminée.",
+		"moreInfoAbout": "More info about {label}"
 	},
 	"help": {
 		"title": "Raccourcis clavier",
@@ -788,7 +851,6 @@
 		"closeHint": "Appuyez sur {key} ou cliquez à l'extérieur pour fermer.",
 		"zoomTextSize": "Taille du texte du zoom",
 		"keys": {
-			"dictation": "Caps Lock (or your hotkey)",
 			"cancel": "Esc",
 			"repaste": "Ctrl+Alt+V",
 			"toggleSidebar": "Ctrl+B",
@@ -814,9 +876,20 @@
 			"openQuote": "Guillemet ouvrant",
 			"closeQuote": "Guillemet fermant",
 			"newLine": "Nouvelle ligne",
-			"newParagraph": "Nouveau paragraphe"
+			"newParagraph": "Nouveau paragraphe",
+			"hyphen": "Hyphen",
+			"dash": "Dash",
+			"ellipsis": "Ellipsis",
+			"openParen": "Open parenthesis",
+			"closeParen": "Close parenthesis",
+			"tab": "Tab",
+			"capital": "Capital [word]",
+			"allCaps": "All caps [word]"
 		},
-		"description": "Raccourcis clavier et aide-mémoire de ponctuation."
+		"description": "Raccourcis clavier et aide-mémoire de ponctuation.",
+		"searchPlaceholder": "Search commands…",
+		"searchNoMatch": "No commands match \"{query}\"",
+		"openCheatSheet": "Open punctuation cheat sheet"
 	},
 	"common": {
 		"cancel": "Annuler",
@@ -830,7 +903,17 @@
 		"lastUpdatedMinutesAgo": "il y a {count} min",
 		"lastUpdatedHoursAgo": "il y a {count} h",
 		"refresh": "Actualiser",
-		"refreshAria": "Actualiser les données"
+		"refreshAria": "Actualiser les données",
+		"copyPath": "Copier le chemin",
+		"search": "Rechercher",
+		"sort": "Trier",
+		"sortAria": "Ordre de tri",
+		"sortNewest": "Plus récents d'abord",
+		"sortOldest": "Plus anciens d'abord",
+		"sortAZ": "A → Z",
+		"sortZA": "Z → A",
+		"import": "Importer",
+		"importAria": "Importer depuis un fichier"
 	},
 	"microphone": {
 		"levelBarAria": "Niveau d'entrée du microphone",
@@ -868,7 +951,21 @@
 		"channels": "Canaux:",
 		"rateHz": "Taux:",
 		"loadFailedTitle": "Échec du chargement des microphones",
-		"retry": "Réessayer"
+		"retry": "Réessayer",
+		"useSystemDefault": "Utiliser le réglage système par défaut",
+		"useSystemDefaultAria": "Revenir au microphone par défaut du système d'exploitation",
+		"activeMicUnavailable": "Le microphone précédemment sélectionné n'est plus disponible. Retour au microphone par défaut du système.",
+		"fallbackToSystemDefault": "Microphone rétabli au réglage par défaut du système.",
+		"testDuration": "Durée du test",
+		"testDurationInfo": "Durée d'enregistrement du test (3 à 30 secondes).",
+		"testDurationAria": "Durée du test en secondes",
+		"permissionDeniedTitle": "Autorisation du microphone refusée",
+		"permissionDeniedMessageMacos": "Voice Typer ne peut pas accéder au microphone. Ouvrez Réglages Système → Confidentialité et Sécurité → Microphone et activez Voice Typer.",
+		"permissionDeniedMessageWindows": "Voice Typer ne peut pas accéder au microphone. Ouvrez Paramètres → Confidentialité et sécurité → Microphone et autorisez les applications de bureau à accéder au microphone.",
+		"permissionDeniedMessageLinux": "Voice Typer ne peut pas accéder au microphone. Vérifiez qu'aucune autre application ne l'utilise exclusivement et que PulseAudio/PipeWire fonctionne.",
+		"permissionDeniedMessage": "Voice Typer ne peut pas accéder au microphone. Accordez l'accès au microphone dans les paramètres de confidentialité de votre système.",
+		"openSettings": "Ouvrir les paramètres",
+		"openSettingsAria": "Ouvrir les paramètres de confidentialité du microphone du système d'exploitation"
 	},
 	"vocabulary": {
 		"title": "Vocabulaire personnalisé",
@@ -922,7 +1019,16 @@
 			"productsDesc": "Noms de marques et de produits."
 		},
 		"triggerPlaceholder": "treat three, mynameis",
-		"replacementPlaceholder": "treat this, My Name Is"
+		"replacementPlaceholder": "treat this, My Name Is",
+		"allCategories": "Toutes les catégories",
+		"filterByCategoryAria": "Filtrer par catégorie",
+		"categoryBadgeAria": "Category: {category}",
+		"importSuccessSingular": "1 entrée importée",
+		"importSuccessPlural": "{count} entrées importées",
+		"importFailed": "Échec de l'importation : {error}",
+		"importEmpty": "Le fichier ne contient aucune entrée de vocabulaire",
+		"loadFailedTitle": "Échec du chargement du vocabulaire",
+		"retry": "Réessayer"
 	},
 	"templates": {
 		"title": "Modèles",
@@ -957,8 +1063,16 @@
 		"deleteMessage": "Voulez-vous vraiment supprimer « {name} » ? Cette action est irréversible.",
 		"loadFailedTitle": "Échec du chargement des modèles",
 		"retry": "Réessayer",
-		"triggerPlaceholder": "my email",
-		"outputPlaceholder": "john.doe@example.com"
+		"triggerPlaceholder": "mon email",
+		"outputPlaceholder": "utilisateur@example.com",
+		"searchPlaceholder": "Rechercher des modèles…",
+		"importSuccessSingular": "1 modèle importé",
+		"importSuccessPlural": "{count} modèles importés",
+		"importFailed": "Échec de l'importation : {error}",
+		"importEmpty": "Le fichier ne contient aucun modèle",
+		"matchModeExactLabel": "Exact",
+		"matchModeContainsLabel": "Contient",
+		"matchModeAria": "Match mode: {mode}"
 	},
 	"analytics": {
 		"title": "Analytique",
@@ -990,7 +1104,13 @@
 			"sat": "Sam"
 		},
 		"unknown": "Inconnu",
-		"auto": "Automatique"
+		"auto": "Automatique",
+		"noDataTitle": "Aucune activité pour l'instant",
+		"noDataDescription": "Appuyez sur votre touche de raccourci (ou Verr Maj) sur la page d'accueil pour dicter — vos statistiques apparaîtront ici.",
+		"startDictation": "Démarrer la dictée",
+		"refreshFailed": "Échec de l'actualisation des statistiques",
+		"dayActivityAria": "{label}: {count} transcriptions",
+		"loadingAria": "Chargement du tableau de bord"
 	},
 	"about": {
 		"title": "À propos",
@@ -1031,8 +1151,6 @@
 		"checkForUpdates": "Vérifier les mises à jour",
 		"downloadVersion": "Télécharger v{version}",
 		"viewChangelog": "Voir le journal des modifications",
-		"helpTitle": "Aide",
-		"helpDescription": "Raccourcis clavier et documentation.",
 		"startStopDictation": "Démarrer / Arrêter la dictée",
 		"startStopDictationValue": "F2 (ou votre raccourci configuré)",
 		"cancelRecording": "Annuler l'enregistrement",
@@ -1044,8 +1162,6 @@
 		"toggleSwitches": "Basculer les interrupteurs",
 		"closeDialogs": "Fermer les boîtes de dialogue",
 		"openDropdowns": "Ouvrir les listes déroulantes",
-		"documentation": "Documentation en ligne",
-		"changelog": "Journal des modifications",
 		"resourcesTitle": "Ressources et commentaires",
 		"resourcesDescription": "Code source, suivi des problèmes et guides de contribution.",
 		"githubRepository": "Dépôt GitHub",
@@ -1088,7 +1204,18 @@
 			"minutesAgo": "{count} min ago",
 			"hoursAgo": "{count} h ago",
 			"daysAgo": "{count} d ago"
-		}
+		},
+		"creditsTitle": "Credits & Licenses",
+		"creditsDescription": "Voice Typer is built on the shoulders of giants.",
+		"creditsAuthorsLabel": "Authors",
+		"creditsAuthorsValue": "AbdallahIsDev and contributors",
+		"creditsLibrariesLabel": "Third-party libraries",
+		"creditsLibrariesValue": "faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
+		"creditsFontsLabel": "Fonts",
+		"creditsFontsValue": "Geist",
+		"creditsIconsLabel": "Icons",
+		"creditsIconsValue": "Hugeicons",
+		"documentationLink": "Documentation"
 	},
 	"titleBar": {
 		"minimize": "Réduire",
@@ -1102,7 +1229,10 @@
 		"recordingIndicatorAria": "Indicateur d'enregistrement Voice Typer",
 		"transcribingLabel": "Transcription en cours",
 		"idleLabel": "Ready",
-		"recordingLabel": "REC"
+		"recordingLabel": "REC",
+		"micButtonAria": "Toggle dictation",
+		"micButtonStartAria": "Start dictation",
+		"micButtonStopAria": "Stop dictation"
 	},
 	"errorBoundary": {
 		"title": "Une erreur s'est produite",
@@ -1126,7 +1256,8 @@
 		"viewAll": "Voir tout",
 		"wordsCount": "{count} mots",
 		"removeFromFavorites": "Retirer des favoris",
-		"addToFavorites": "Ajouter aux favoris"
+		"addToFavorites": "Ajouter aux favoris",
+		"noRecentActivity": "No recent activity"
 	},
 	"exportFormat": {
 		"export": "Exporter",
@@ -1154,8 +1285,22 @@
 		"light": "Clair",
 		"dark": "Sombre",
 		"switchTitle": "Mode {mode} — cliquez pour basculer",
-		"switchAriaLabel": "Thème actuel : {mode}. Cliquez pour basculer.",
-		"system": "Système"
+		"switchAriaLabel": "Thème actuel : {mode}. Cliquez pour basculer vers {next}.",
+		"system": "Système",
+		"preset": {
+			"default": "Par défaut",
+			"amoled": "AMOLED",
+			"nord": "Nord",
+			"dracula": "Dracula",
+			"sepia": "Sépia",
+			"custom": "Personnalisé",
+			"monokai": "Monokai",
+			"ayu": "Ayu",
+			"github": "GitHub",
+			"catppuccin": "Catppuccin",
+			"tokyo-night": "Tokyo Nuit",
+			"solarized": "Solarisé"
+		}
 	},
 	"onboarding": {
 		"welcomeTitle": "Bienvenue dans Voice Typer",
@@ -1191,7 +1336,35 @@
 		"saveFailedSnack": "Échec de l'enregistrement de la sélection",
 		"skippedSnack": "Configuration ignorée — utilisation des valeurs par défaut",
 		"stepProgress": "Étape {current} sur {total}",
-		"progressAria": "Étape {current} sur {total} de la configuration"
+		"progressAria": "Étape {current} sur {total} de la configuration",
+		"step4Item": "Pick a transcription model",
+		"step5Item": "Finish and load your model",
+		"permissionsTitle": "Keyboard Monitoring Permission",
+		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
+		"permissionsLoading": "Checking permission…",
+		"permissionsNeeded": "Permission still required",
+		"permissionsOk": "Permission granted — hotkeys will work.",
+		"permissionsNoneNeeded": "No extra permission needed on this platform. Hotkeys will work out of the box.",
+		"permissionsTestLabel": "Press your hotkey to test",
+		"permissionsTestSuccess": "Hotkey detected! It works.",
+		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
+		"permissionsTestButton": "Test hotkey",
+		"micLevel": "Input level",
+		"modelMultilingual": "Multilingual",
+		"skipConfirmTitle": "Skip setup?",
+		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmLabel": "Skip anyway",
+		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
+		"permissionsRefresh": "Refresh permission",
+		"permissionsRefreshAria": "Re-check keyboard permission",
+		"permissionsInstructionsMacosTitle": "Accessibility Permission Required",
+		"permissionsInstructionsMacosStep1": "Open System Settings → Privacy & Security → Accessibility",
+		"permissionsInstructionsMacosStep2": "Add Voice Typer (and its key-listener helper) to the list",
+		"permissionsInstructionsMacosStep3": "Toggle the switch ON for Voice Typer",
+		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
+		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
+		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
 	},
 	"microphoneTest": {
 		"title": "Test Complete",
@@ -1225,14 +1398,18 @@
 			"tooLow": "Volume trop faible",
 			"lowVolume": "Faible volume détecté",
 			"waiting": "En attente de voix…"
+		},
+		"detectedIssueCodes": {
+			"high_noise": "High background noise",
+			"moderate_noise": "Moderate background noise",
+			"clipping": "Audio clipping detected",
+			"volume_too_low": "Volume too low — speak closer to the microphone",
+			"volume_low": "Volume is low — consider raising input gain",
+			"no_voice": "No voice detected — try speaking during the test"
 		}
 	},
 	"dashboard": {
-		"cards": {
-			"dictations": "Dictées",
-			"chars": "Caractères",
-			"duration": "Durée totale"
-		}
+		"cards": {}
 	},
 	"stats": {
 		"shareImage": {
@@ -1240,12 +1417,7 @@
 			"wpm": "MPM",
 			"min": "min",
 			"savedVsTyping": "économisé vs frappe",
-			"title": "Statistiques Voice Typer",
-			"cloudMode": "Cloud",
-			"offlineMode": "Hors ligne",
-			"cloudApi": "API Cloud",
-			"localModel": "Modèle local",
-			"fasterThanAvg": "{percent}% plus rapide que la moyenne"
+			"title": "Statistiques Voice Typer"
 		}
 	},
 	"hotkey": {

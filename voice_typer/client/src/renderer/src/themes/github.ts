@@ -13,31 +13,44 @@ export const githubTheme: ThemePreset = {
 		"Clean, neutral greys with blue accents — the familiar look from GitHub's interface.",
 	swatch: "oklch(0.5 0.12 260)",
 	light: {
+		// Core
 		"--background": "oklch(0.99 0 0)",
 		"--foreground": "oklch(0.12 0.008 0)",
 		"--bg-subtle": "oklch(0.96 0.004 0)",
 		"--surface-hover": "oklch(0.92 0.004 0)",
 		"--surface-page": "oklch(0.99 0 0)",
+		// Text
 		"--text-primary": "oklch(0.12 0.008 0)",
 		"--text-muted": "oklch(0.5 0.006 0)",
 		"--text-secondary": "oklch(0.38 0.006 0)",
+		// Cards / popovers
 		"--card": "oklch(1 0 0)",
 		"--card-foreground": "oklch(0.12 0.008 0)",
 		"--popover": "oklch(1 0 0)",
 		"--popover-foreground": "oklch(0.12 0.008 0)",
+		// Primary / accent
 		"--primary": "oklch(0.5 0.14 260)",
 		"--primary-foreground": "oklch(0.97 0 0)",
 		"--secondary": "oklch(0.94 0.004 0)",
 		"--secondary-foreground": "oklch(0.22 0.008 0)",
+		/* PVT-042: bump L from 0.52 to 0.48 so --muted-foreground clears WCAG AA
+		   4.5:1 against the near-white background. */
 		"--muted": "oklch(0.95 0.004 0)",
-		"--muted-foreground": "oklch(0.52 0.006 0)",
+		"--muted-foreground": "oklch(0.48 0.006 0)",
 		"--accent": "oklch(0.45 0.12 260)",
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.5 0.14 260 / 0.1)",
 		"--accent-muted": "oklch(0.5 0.14 260 / 0.3)",
+		// Borders / inputs / rings
 		"--border": "oklch(0.88 0.004 0)",
 		"--input": "oklch(0.88 0.004 0)",
-		"--ring": "oklch(0.55 0.1 260)",
+		/* PVT-044: bump L from 0.55 to 0.48 so the focus ring (combined with
+		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
+		"--ring": "oklch(0.48 0.1 260)",
+		// Destructive (PVT-002: backfill --destructive-foreground.)
+		"--destructive": "oklch(0.55 0.2 30)",
+		"--destructive-foreground": "oklch(0.97 0 0)",
+		// Sidebar
 		"--sidebar": "oklch(0.96 0.004 0)",
 		"--sidebar-foreground": "oklch(0.12 0.008 0)",
 		"--sidebar-primary": "oklch(0.5 0.14 260)",
@@ -46,12 +59,13 @@ export const githubTheme: ThemePreset = {
 		"--sidebar-accent-foreground": "oklch(0.22 0.008 0)",
 		"--sidebar-border": "oklch(0.85 0.004 0)",
 		"--sidebar-ring": "oklch(0.55 0.1 260)",
-		"--destructive": "oklch(0.55 0.2 30)",
+		// Charts
 		"--chart-1": "oklch(0.55 0.14 260)",
 		"--chart-2": "oklch(0.5 0.1 200)",
 		"--chart-3": "oklch(0.5 0.12 320)",
 		"--chart-4": "oklch(0.55 0.12 160)",
 		"--chart-5": "oklch(0.6 0.14 40)",
+		// Scrollbar
 		"--scrollbar-thumb": "oklch(0.82 0.004 0)",
 		"--scrollbar-thumb-hover": "oklch(0.72 0.004 0)",
 	},
@@ -90,6 +104,9 @@ export const githubTheme: ThemePreset = {
 		"--sidebar-border": "oklch(0.18 0.006 0)",
 		"--sidebar-ring": "oklch(0.45 0.08 260)",
 		"--destructive": "oklch(0.55 0.2 30)",
+		// PVT-002: backfill --destructive-foreground so destructive button text
+		// is readable without relying on the stylesheet default.
+		"--destructive-foreground": "oklch(0.97 0 0)",
 		"--chart-1": "oklch(0.6 0.12 260)",
 		"--chart-2": "oklch(0.55 0.1 200)",
 		"--chart-3": "oklch(0.55 0.1 320)",

@@ -21,44 +21,87 @@
 // Keeping the type gave a false impression of an IPC contract that
 // didn't exist.  The dead type was deleted.
 //
-// These tests pin the deletion so a future contributor cannot silently
-// reintroduce the orphaned contract without an explicit decision
+// PVT-G5-010 (part 3): the same rationale + guard was applied to
+// ``TranscriptionPartialEvent`` — also a dead type with no publisher.
+//
+// These tests pin the deletions so a future contributor cannot silently
+// reintroduce either orphaned contract without an explicit decision
 // (which should also wire up both a publisher and a subscriber).
+//
+// PVT-G5-060 / PVT-G5-061: the acceptedTypes list + length assertion
+// were extended to cover the 19 new event types added to the union
+// (``state_changed`` + the 18 events previously flowing through
+// ``onEvent`` untyped). The length is now 27 (was 9).
 //
 // NOTE: ``types/ipc.ts`` exports ONLY TypeScript types/interfaces —
 // there are no runtime values — so the bulk of these assertions are
-// COMPILE-TIME checks.  If someone re-adds ``ModelLoadedEvent`` to
-// the ``PythonPushEvent`` union, the type-level guard in
-// ``model_loaded_not_in_union`` fails to compile and CI breaks.
+// COMPILE-TIME checks.  If someone re-adds ``ModelLoadedEvent`` or
+// ``TranscriptionPartialEvent`` to the ``PythonPushEvent`` union, the
+// type-level guards below fail to compile and CI breaks.
 
 import { describe, expect, it } from "vitest";
-import type { PythonPushEvent } from "@/types/ipc";
+import type {
+	AutostartStatus,
+	DiskInfo,
+	MicrophonePermissionResult,
+	ModelStatusEntry,
+	ModelStatusMap,
+	PermissionsResult,
+	PythonPushEvent,
+} from "@/types/ipc";
 
-describe("NEW-IPC-002: ModelLoadedEvent dead-type removal", () => {
-	it("PythonPushEvent union does NOT include a `model_loaded` variant", () => {
+describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
+	it("PythonPushEvent union does NOT include `model_loaded` or `transcription_partial` variants", () => {
 		// Build the exhaustive list of ``type`` literals that the
 		// ``PythonPushEvent`` union admits by inspecting a sample of
 		// each member.  If the union ever grows to include
-		// ``ModelLoadedEvent`` (type: "model_loaded"), this list must
-		// be updated — and the literal "model_loaded" appearing in
+		// ``ModelLoadedEvent`` (type: "model_loaded") or
+		// ``TranscriptionPartialEvent`` (type: "transcription_partial"),
+		// this list must be updated — and the literal appearing in
 		// the list below would make the assertion fail loudly.
+		//
+		// PVT-G5-060 / PVT-G5-061: the list was extended from 9 → 27
+		// entries to cover the new event types added to the union.
 		const acceptedTypes: PythonPushEvent["type"][] = [
 			"status_change",
 			"error",
-			"transcription_partial",
 			"transcription_final",
 			"recording_started",
 			"recording_stopped",
 			"config_changed",
 			"hotkey_capture_cancel",
 			"history_changed",
+			// PVT-G5-060: new — backend emits on every client connect.
+			"state_changed",
+			// PVT-G5-061: 18 previously-untyped event literals.
+			"paste_failed",
+			"download_progress",
+			"notification",
+			"vocabulary_suggestion",
+			"microphones_changed",
+			"microphone_test_complete",
+			"audio_clip",
+			"tray_menu",
+			"navigate",
+			"ready",
+			"bubble_show",
+			"bubble_hide",
+			"bubble_set_state",
+			"bubble_level",
+			"bubble_config",
+			"show_window",
+			"quit_app",
+			"relaunch_electron",
 		];
 
-		// Runtime guard: the literal must NOT appear in the accepted
+		// Runtime guard: the literals must NOT appear in the accepted
 		// list.  This catches a contributor who adds the literal to
 		// the array above AND reintroduces the type.
 		expect(acceptedTypes).not.toContain("model_loaded");
-		expect(acceptedTypes).toHaveLength(9);
+		expect(acceptedTypes).not.toContain("transcription_partial");
+		// PVT-G5-060 / PVT-G5-061: was 9, now 27
+		// (8 retained - 1 deleted transcription_partial + 19 added)
+		expect(acceptedTypes).toHaveLength(27);
 	});
 
 	it("a `{ type: 'model_loaded' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
@@ -86,5 +129,116 @@ describe("NEW-IPC-002: ModelLoadedEvent dead-type removal", () => {
 		type Guard = WouldBeModelLoaded extends PythonPushEvent ? true : false;
 		const _typeGuard: Guard = false;
 		expect(_typeGuard).toBe(false);
+	});
+
+	it("a `{ type: 'transcription_partial' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
+		// PVT-G5-010 (part 3): mirror of the model_loaded guard above
+		// for the dead ``TranscriptionPartialEvent`` type. Same
+		// mechanism: the conditional resolves to ``false`` while the
+		// union does NOT contain a ``transcription_partial`` variant.
+		type WouldBeTranscriptionPartial = {
+			type: "transcription_partial";
+			text: string;
+		};
+		type Guard = WouldBeTranscriptionPartial extends PythonPushEvent
+			? true
+			: false;
+		const _typeGuard: Guard = false;
+		expect(_typeGuard).toBe(false);
+	});
+});
+
+describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expected shape", () => {
+	// These are COMPILE-TIME guards: if a future refactor renames or
+	// removes any of the new contract types declared in
+	// ``types/ipc.ts``, the corresponding ``const _: TypeName = ...``
+	// line below fails to compile and CI catches it before the contract
+	// drifts.  The runtime ``expect`` calls just keep the test runner
+	// happy (vitest requires at least one assertion per ``it``).
+
+	it("DiskInfo has free_bytes + models_dir (TASK-24-FIX-5)", () => {
+		const sample: DiskInfo = {
+			free_bytes: 1024 ** 3,
+			models_dir: "/home/user/.voice-typer/huggingface/hub",
+		};
+		expect(sample.free_bytes).toBe(1024 ** 3);
+		expect(sample.models_dir).toContain("huggingface");
+	});
+
+	it("ModelStatusEntry has downloaded + deps_ok + optional hash_verified (TASK-24-FIX-6)", () => {
+		const ok: ModelStatusEntry = {
+			downloaded: true,
+			deps_ok: true,
+			hash_verified: "verified",
+		};
+		const legacy: ModelStatusEntry = {
+			downloaded: false,
+			deps_ok: true,
+			// hash_verified intentionally omitted — backend
+			// predates the field; absence is treated as "unknown".
+		};
+		expect(ok.hash_verified).toBe("verified");
+		expect(legacy.hash_verified).toBeUndefined();
+	});
+
+	it("ModelStatusMap is a Record<string, ModelStatusEntry>", () => {
+		const map: ModelStatusMap = {
+			"tiny.en": { downloaded: true, deps_ok: true },
+			qwen: {
+				downloaded: false,
+				deps_ok: false,
+				hash_verified: "mismatch",
+			},
+		};
+		expect(map["tiny.en"].downloaded).toBe(true);
+		expect(map.qwen.hash_verified).toBe("mismatch");
+	});
+
+	it("PermissionsResult has platform + state + needed + instructions (TASK-24-FIX-9)", () => {
+		const granted: PermissionsResult = {
+			platform: "windows",
+			state: "granted",
+			needed: false,
+			instructions: null,
+		};
+		const needsSetup: PermissionsResult = {
+			platform: "macos",
+			state: "denied",
+			needed: true,
+			instructions: {
+				title: "Accessibility Permission Required",
+				steps: ["Open System Settings…"],
+				commands: null,
+			},
+		};
+		const errored: PermissionsResult = {
+			platform: "linux",
+			state: "error",
+			needed: true,
+			instructions: null,
+		};
+		expect(granted.instructions).toBeNull();
+		expect(needsSetup.instructions?.steps).toHaveLength(1);
+		expect(errored.state).toBe("error");
+	});
+
+	it("AutostartStatus has registered + error (TASK-24-FIX-10)", () => {
+		const ok: AutostartStatus = {
+			registered: true,
+			error: null,
+		};
+		const failed: AutostartStatus = {
+			registered: false,
+			error: "osascript: user denied",
+		};
+		expect(ok.registered).toBe(true);
+		expect(failed.error).toContain("osascript");
+	});
+
+	it("MicrophonePermissionResult has state (TASK-24-FIX-11)", () => {
+		const granted: MicrophonePermissionResult = { state: "granted" };
+		const prompt: MicrophonePermissionResult = { state: "prompt" };
+		expect(granted.state).toBe("granted");
+		expect(prompt.state).toBe("prompt");
 	});
 });

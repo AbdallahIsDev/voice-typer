@@ -224,12 +224,16 @@ function getAudioContext(): AudioContext | null {
 /**
  * Synthesize and play a short audio cue via the Web Audio API.
  *
- * - "start": rising 660Hz → 880Hz sine, 130ms (recording started)
- * - "stop": falling 523Hz → 392Hz sine, 190ms (recording stopped)
+ * - "start":  rising 660Hz → 880Hz sine, 130ms (recording started)
+ * - "stop":   falling 523Hz → 392Hz sine, 190ms (recording stopped)
+ * - "error":  low 200Hz square buzz, 250ms with quick decay (recording
+ *             error / transcription failure). The square waveform gives
+ *             the harsh "buzz" character that distinguishes an error
+ *             cue from the normal start/stop tones.
  *
  * Returns true if the cue was successfully scheduled, false otherwise.
  */
-function playViaAudioContext(kind: "start" | "stop"): boolean {
+function playViaAudioContext(kind: "start" | "stop" | "error"): boolean {
 	const ctx = getAudioContext();
 	if (!ctx) return false;
 	if (ctx.state === "closed") return false;
@@ -248,6 +252,18 @@ function playViaAudioContext(kind: "start" | "stop"): boolean {
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.13);
+		} else if (kind === "error") {
+			// Short low buzz — square wave at 200Hz, 250ms, with a
+			// fast attack and a quick decay so it reads as an
+			// "alert" rather than a sustained tone.
+			osc.type = "square";
+			osc.frequency.setValueAtTime(200, now);
+			gain.gain.setValueAtTime(0.0001, now);
+			gain.gain.exponentialRampToValueAtTime(0.18, now + 0.005);
+			gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+			osc.connect(gain).connect(ctx.destination);
+			osc.start(now);
+			osc.stop(now + 0.25);
 		} else {
 			osc.frequency.setValueAtTime(523, now);
 			osc.frequency.exponentialRampToValueAtTime(392, now + 0.1);
@@ -329,10 +345,15 @@ function getFallbackAudio(): HTMLAudioElement | null {
 	return _fallbackAudio;
 }
 
-function playViaHtmlAudio(kind: "start" | "stop"): boolean {
+function playViaHtmlAudio(kind: "start" | "stop" | "error"): boolean {
 	const audio = getFallbackAudio();
 	if (!audio) return false;
 	try {
+		// PVT-fix-7: "error" kind reuses STOP_BEEP_WAV (the falling
+		// pitch reads as an "alert" cadence) rather than minting a
+		// third base64 WAV asset — the AudioContext square-wave path
+		// above is the primary error cue; this is only the fallback
+		// for environments where Web Audio is unavailable.
 		audio.src = kind === "start" ? START_BEEP_WAV : STOP_BEEP_WAV;
 		audio.volume = 0.15;
 		audio.currentTime = 0;
@@ -357,7 +378,7 @@ function playViaHtmlAudio(kind: "start" | "stop"): boolean {
 // ──────────────────────────────────────────────────────────────────────────
 
 /**
- * Play a short audio cue for recording start/stop.
+ * Play a short audio cue for recording start/stop/error.
  *
  * Gated by the ``sound_feedback_enabled`` config flag (synced to
  * localStorage via setSoundFeedbackEnabled).
@@ -369,7 +390,7 @@ function playViaHtmlAudio(kind: "start" | "stop"): boolean {
  * Safe to call from any context (renderer, tests, SSR) — silently
  * no-ops if audio is unavailable or disabled.
  */
-export function playSoundCue(kind: "start" | "stop"): void {
+export function playSoundCue(kind: "start" | "stop" | "error"): void {
 	if (!isEnabled()) return;
 
 	// Ensure the AudioContext is initialized so the gesture listener
