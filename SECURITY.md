@@ -34,19 +34,19 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **73** commands listed in
+cannot invoke arbitrary commands — only the **74** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
-`voice_typer/client/src/main/index.ts`) are forwarded to the Python backend.
+`voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
 `tests/test_security_doc_command_count.py`); update the count there if entries
 are added or removed.
 
 > The Python-side `_COMMAND_REGISTRY` in
-> `voice_typer/server/ipc_server.py` (mirrored in
-> `voice_typer/server/ipc/server.py`) registers **73** handlers — three of
-> which (`onboarding_get_model_catalog`, `onboarding_check_permissions`,
-> `tray_click`) are invoked directly from the backend tray / onboarding flow
-> and are intentionally absent from the renderer allowlist.
+> `voice_typer/server/ipc_server.py` registers **74** handlers.
+> Only `tray_click` is intentionally absent from the renderer allowlist — it is
+> a Rust-only command routed via `dispatch_inner` (the tray handler invokes it
+> directly, bypassing the allowlist gate). All other 73 commands are
+> renderer-callable.
 
 ### Secret Redaction (SEC-003)
 

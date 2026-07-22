@@ -26,7 +26,7 @@ Last updated: 2026-06-22
 | **VOICE2TYPE** | 39 | Rust | Native Win32 | Windows | SiliconFlow/Groq cloud + local Whisper |
 | **thinkur** | 23 | Swift | Native Xcode | macOS | Apple Speech Framework |
 | **MoFA-IME** | 4 | Rust | Native Rust | macOS | Whisper + Qwen GGUF (llama.cpp) |
-| **Voice Typer (ours)** | — | Python + TypeScript | Electron | Windows | faster-whisper (ctranslate2), Qwen3-ASR, Parakeet TDT v3, cloud (OpenAI/Groq/Deepgram) |
+| **Voice Typer (ours)** | — | Python + TypeScript | Electron | Win/Mac/Linux | faster-whisper (ctranslate2), Qwen3-ASR, Parakeet TDT v3, cloud (OpenAI/Groq/Deepgram) |
 
 ---
 
@@ -89,7 +89,8 @@ Last updated: 2026-06-22
 │  · Crash recovery buffer · Duck crash recovery          │
 │  · Audio quality analyzer                               │
 │  · Hallucination rejection                              │
-│  · Onboarding controller (5-step)                       │
+│  · Onboarding controller (6-step wizard)                │
+│  · Help overlay (`?`) + punctuation cheat sheet         │
 │  · Prewarm + Task Scheduler                             │
 │  · Autostart launcher (build-first)                     │
 │  · Platform adapters (autostart, mic listing, ducking)  │
@@ -218,7 +219,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 70 | Microphone | ✅ | Device list; system default; select/activate; live level meter; test start/stop; channels/rate |
 | 71 | Analytics | ✅ | Today's stats (4 cards); 7-day bar chart; quick stats (model/device/language); streaks; all-time totals |
 | 72 | Settings | ✅ | 7 sections: General, Overlay, Hotkey, Recording, Post-Processing, LLM Polishing, Audio & Recovery, Troubleshooting |
-| 73 | Onboarding | ✅ | 5-step wizard (theme, mic, hotkey, model, apply/skip); created on first run detection |
+| 73 | Onboarding | ✅ | 6-step wizard (Welcome, Microphone, Permissions, Hotkey, Model, Done); created on first run detection. The Permissions step gates advancement on macOS (Accessibility) and Linux (input group); on Windows it auto-passes. |
 
 ### Settings (configurable via UI)
 
@@ -268,12 +269,21 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 76 | Python backend bundled as pip package | ✅ | setuptools, installed via pip |
 | 77 | CI build pipeline (GitHub Actions) | ✅ | `.github/workflows/build.yml` |
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |
-| 79 | Test suite (107 pytest files, 2822+ tests) | ✅ | All major subsystems covered |
+| 79 | Test suite (~280 pytest files, ~230 vitest test files; 2800+ Python tests) | ✅ | All major subsystems covered (counts grow over time — see `pytest --collect-only` and `npm run test` for the current totals) |
 | 80 | Ruff linting + mypy type checking | ✅ | Configured in pyproject.toml |
 | 81 | IPC command allowlist | ✅ | 73 allowed commands whitelisted in Electron main process (CR-18 reconciliation 2026-07-19) |
 | 82 | IPC rate limiter | ✅ | Sliding window: 60 msg/s sustained, 200 burst |
 | 83 | IPC auth token | ✅ | Per-launch random 256-bit token exchanged on TCP connect |
 | 84 | Config secret redaction | ✅ | API keys replaced with `<redacted>` sentinel in IPC responses |
+
+---
+
+### Help Overlay & Punctuation Cheat Sheet
+
+| # | Feature | Status | Notes |
+|---|---|---|---|
+| 85 | Help overlay (`?` shortcut) | ✅ | Press `?` anywhere in the app to open a modal listing every keyboard shortcut (dictation hotkey, `Esc`, `Ctrl+Alt+V` repaste, `Ctrl+B` sidebar, `Ctrl+,` settings, `Ctrl+H` home, `Tab`/`Shift+Tab` navigate, `Space` toggle, `Enter` activate, `Ctrl+Plus`/`Ctrl+Minus` zoom, `?` open help, `Alt+Left`/`Alt+Right` navigate back/forward). Rendered by `App.tsx:showHelpOverlay` state in a `Modal`. |
+| 86 | Punctuation cheat sheet | ✅ | Embedded in the help overlay (`PunctuationCheatSheet.tsx`). Lists the spoken-form → character mappings Voice Typer recognizes: comma, period, question mark, exclamation point, semicolon, colon, apostrophe, open/close quote, new line (↵), new paragraph (¶). Source of truth: `voice_typer/server/text_cleanup.py:374`. |
 
 ---
 
@@ -289,7 +299,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | MCP integration (AI tools read transcripts) | thinkur | ❌ None |
 | Per-app writing styles / context-aware profiles | thinkur, Freestyle | ❌ None |
 | CLI flags for remote control | Handy | ❌ None |
-| Onboarding wizard UI | — | ✅ Full 5-step React wizard implemented |
+| Onboarding wizard UI | — | ✅ Full 6-step React wizard implemented (Welcome → Microphone → Permissions → Hotkey → Model → Done) |
 | Model download (real implementation) | — | ⚠️ Progress bar renders, download is simulated |
 | Model benchmark (real implementation) | — | ⚠️ Button exists, benchmark is simulated |
 | Microphone test (real audio capture) | — | ✅ Real capture via `level_monitor.start_test_recording()` which opens a live `sounddevice.InputStream` and returns recorded audio |

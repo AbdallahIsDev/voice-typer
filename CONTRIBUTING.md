@@ -42,7 +42,7 @@ locally.
 | OS | Required system packages / toolchain |
 |----|---------------------------------------|
 | **Windows 10/11** | "Desktop development with C++" workload from Visual Studio Build Tools (for compiling `pynput` keyboard hooks and the optional `windows-key-listener.c` native helper). Run `pip install -e ".[windows]"` to pull `pycaw`, `comtypes`, and `pywin32` for volume ducking and shortcut creation. |
-| **macOS 11+** | Xcode Command Line Tools (`xcode-select --install`). The `pyobjc-core`, `pyobjc-framework-CoreAudio`, and `pyobjc-framework-Cocoa` deps (declared with `sys_platform == 'darwin'` markers) require a working Clang. Grant **Accessibility** permission to the terminal (or the built app) the first time you press the hotkey — the native key listener needs it. |
+| **macOS 13+** (Ventura) | Xcode Command Line Tools (`xcode-select --install`). The `pyobjc-core`, `pyobjc-framework-CoreAudio`, and `pyobjc-framework-Cocoa` deps (declared with `sys_platform == 'darwin'` markers) require a working Clang. Grant **Accessibility** permission to the terminal (or the built app) the first time you press the hotkey — the native key listener needs it. CI runners pin to `macos-13` (Intel/x64) and `macos-14` (Apple Silicon/arm64); macOS 12 may work but is not tested. |
 | **Linux (X11 or Wayland)** | `libxdo-dev` and `libxtst-dev` (Debian/Ubuntu: `sudo apt install libxdo-dev libxtst-dev`; Fedora: `sudo dnf install xdo-devel libXtst-devel`). Add your user to the `input` group so the native key listener can read `/dev/input/event*`: `sudo usermod -aG input $USER` then log out/in. See `scripts/linux/99-voice-typer.rules` and `scripts/linux/install_permissions.py` for the packaged udev/polkit story. |
 
 > **GPU users (optional):** if you want CUDA-accelerated transcription,
@@ -175,7 +175,7 @@ The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`v
 - **Rust toolchain** — install via [rustup](https://rustup.rs/). The `src-tauri/rust-toolchain.toml` file pins the channel; `rustup` reads it automatically when you `cd src-tauri`.
 - **Tauri v2 system deps** (per-OS):
   - **Linux (X11 or Wayland)**: `webkit2gtk-4.1`, `gtk-3`, `librsvg`, `libssl-dev`, `libayatana-appindicator3-dev` (Debian/Ubuntu: `sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev`). Set `PKG_CONFIG_PATH` if `cargo check` can't find `webkit2gtk-4.1`.
-  - **macOS 11+**: Xcode Command Line Tools (already required above).
+  - **macOS 13+** (Ventura): Xcode Command Line Tools (already required above). CI pins to `macos-13` (Intel) and `macos-14` (Apple Silicon).
   - **Windows 10/11**: WebView2 runtime (preinstalled on Windows 11; Windows 10 may need the Evergreen Bootstrapper from <https://developer.microsoft.com/microsoft-edge/webview2/>) + MSVC build tools (already required above).
 - **Nuitka** (only needed for `cargo tauri build`, not for `cargo tauri dev`): see [`docs/migration/tauri-build-runbook.md`](docs/migration/tauri-build-runbook.md) for the freeze workflow.
 
@@ -213,10 +213,10 @@ cargo tauri build
 
 | Path | Purpose |
 |---|---|
-| `src-tauri/src/main.rs` | The Rust host (1,866 lines): spawns sidecar via `externalBin`, opens WS client, performs bearer-token auth, exposes a generic `dispatch` Tauri command, bridges server-initiated events to Tauri events, coalesces `bubble_level` 60Hz→30Hz, runs FT-1 supervisor with 500ms→1s→2s→4s→8s backoff (cap 5 → full-app relaunch via `AppHandle::restart()`). |
+| `src-tauri/src/main.rs` | The Rust host (~250 lines): spawns sidecar via `externalBin`, opens WS client, performs bearer-token auth, exposes a generic `dispatch` Tauri command, bridges server-initiated events to Tauri events, coalesces `bubble_level` 60Hz→30Hz, runs FT-1 supervisor with 500ms→1s→2s→4s→8s backoff (cap 5 → full-app relaunch via `AppHandle::restart()`). |
 | `src-tauri/Cargo.toml` | Tauri v2 + plugins (`shell`, `notification`, `clipboard-manager`, `single-instance`, `dialog`) + `enigo` (keystroke injection) + `tokio-tungstenite` (WS client). |
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
-| `src-tauri/capabilities/migrate-runtime.json` | Least-privilege capability: scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`. **No `core:tray:*`** (the sidecar owns the tray via pystray). |
+| `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
 | `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 73-command registry unchanged — CR-18 reconciliation 2026-07-19), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
@@ -542,11 +542,11 @@ of the following are updated together:
 
 1. **Server command registry** — add the command + its handler to
    `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py`
-   (≈ lines 1316–1415). This is what actually routes the inbound
+   (≈ lines 1911–2030). This is what actually routes the inbound
    `{"type": "…"}` message to a handler.
 2. **Electron main-process allowlist** — add the same command string to
-   `ALLOWED_COMMANDS` in `voice_typer/client/src/main/index.ts`
-   (≈ lines 532–622). The main process refuses to forward any command
+   `ALLOWED_COMMANDS` in `voice_typer/client/src/main/allowed-commands.ts`
+   (≈ lines 40–159). The main process refuses to forward any command
    not in this list to the Python backend (SEC-002 lateral boundary).
 3. **Renderer type-safe wrapper** — add the command to the
    `type`/response discriminated union in
@@ -785,7 +785,7 @@ received a value within `[_HISTORY_LIMIT_MIN, _HISTORY_LIMIT_MAX]`.
 ### 8.2 Pull Request template
 
 When opening a PR, include the following (the repo has a
-`.github/pull_request_template.md` — fill it in):
+`.github/PULL_REQUEST_TEMPLATE.md` — fill it in):
 
 ```markdown
 ## Summary
@@ -855,7 +855,7 @@ and include:
 
 ## Questions?
 
-Open an issue with the `question` label, or start a discussion in the
-`#voice-typer` channel on the project's Discord (link in README.md).
+Open an issue with the `question` label on the
+[GitHub issue tracker](https://github.com/AbdallahIsDev/voice-typer/issues).
 For security-sensitive reports, see `SECURITY.md` — do not open a
 public issue for vulnerabilities.

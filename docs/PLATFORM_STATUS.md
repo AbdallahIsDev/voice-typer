@@ -25,7 +25,7 @@ Feature × OS matrix for Voice Typer.  Last updated: 2026-06-30.
 | IPC TCP (loopback)         | ✅ | ✅ | ✅ | ✅ |
 | IPC session token auth     | ✅ | ✅ | ✅ | ✅ |
 | Config file permissions    | ⚠️ NTFS ACLs (default) | ✅ 0o600/0o700 | ✅ 0o600/0o700 | ✅ 0o600/0o700 |
-| Model download (CLI)       | ✅ `voice-typer setup` | ✅ | ✅ | ✅ |
+| Model download (CLI)       | ⚠️ No dedicated `voice-typer setup` CLI — model download is handled in-app via Settings → Models (`VoiceTyperService.download_model` IPC handler wrapping HuggingFace `snapshot_download`) or implicitly on first dictation. There is no headless CLI flag for triggering a model download. | ⚠️ Same — no dedicated CLI | ⚠️ Same — no dedicated CLI | ⚠️ Same — no dedicated CLI |
 | Model download (UI)        | ❌ Not implemented | ❌ | ❌ | ❌ |
 | Native binary build command | `scripts/build/compile_native.sh` (or `.ps1`) | `bash scripts/build/compile_native.sh` | `bash scripts/build/compile_native.sh` | `bash scripts/build/compile_native.sh` |
 
@@ -200,12 +200,14 @@ Python side of the wire protocol without spawning the real compiled binary
 ## Adding a new platform
 
 1. Add the platform to the matrix above.
-2. Implement platform-specific adapters in `voice_typer/server/platform.py`.
+2. Implement platform-specific adapters in `voice_typer/server/platform_utils.py` (detection helpers: `is_windows()` / `is_macos()` / `is_linux()`) and `voice_typer/server/server_platform/` (autostart adapters, microphone listing, desktop shortcut, volume backend factory).
 3. If the platform needs a new native key listener, add the source under
    `voice_typer/server/native/<platform>-key-listener.*` and a build case to
    `scripts/build/compile_native.sh`.
 4. Wire the binary lookup into
    `voice_typer/server/native_hotkeys.get_native_binary_path()` and a backend
-   subclass of `SubprocessHotkeyBackend` in `voice_typer/server/hotkeys.py`.
+   subclass of `SubprocessHotkeyBackend` in `voice_typer/server/hotkeys/base.py`
+   (the `hotkeys/` package — see `hotkeys/factory.py` for the backend
+   selection logic).
 5. Add `@pytest.mark.platform_specific` tests in `tests/`.
 6. Update this file with the feature×OS status.

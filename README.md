@@ -61,7 +61,7 @@ No Python, no terminal, no commands needed.
 
 ## Requirements
 
-- **Windows 10/11**, **macOS 11+**, or **Linux** (X11 or Wayland) — Voice Typer is cross-platform
+- **Windows 10/11**, **macOS 13+** (Ventura or newer), or **Linux** (X11 or Wayland) — Voice Typer is cross-platform. See [docs/PLATFORM_STATUS.md](docs/PLATFORM_STATUS.md) for the full per-OS support matrix and minimum-version rationale.
 - A microphone
 - Internet on first run (downloads the Whisper model for the selected model size)
 - **macOS only**: Accessibility permission for the native key listener (see [Troubleshooting](#troubleshooting))
@@ -261,6 +261,43 @@ The `Fn` key is only supported on macOS. On Windows and Linux it is firmware-onl
 
 Select **Custom** in the Hotkey submenu (or use Settings → Hotkey → Capture) to pick any key combination (e.g., `Ctrl+Shift+K`, `Alt+Q`, or a bare modifier like `Alt`). The app validates the format and applies it immediately.
 
+### Help Overlay (`?`)
+
+Press **`?`** anywhere in the app to open the help overlay (a small modal that lists every keyboard shortcut and a punctuation cheat sheet). The overlay is rendered by `App.tsx` (`showHelpOverlay` state) and uses the `Modal` + `PunctuationCheatSheet` components. Press **`Esc`** (or click outside) to close it.
+
+The overlay lists the active dictation hotkey plus:
+
+| Shortcut | Action |
+|---|---|
+| Dictation hotkey | Toggle dictation on/off |
+| `Esc` | Cancel active dictation |
+| Repaste hotkey (default `Ctrl+Alt+V`) | Re-paste the last transcription |
+| `Ctrl+B` | Toggle the sidebar |
+| `Ctrl+,` | Open Settings |
+| `Ctrl+H` | Go to Home |
+| `Tab` / `Shift+Tab` | Navigate focusable controls |
+| `Space` / `Enter` | Activate the focused control |
+| `Ctrl+Plus` / `Ctrl+Minus` | Zoom text size (in / out) |
+| `?` | Open this help overlay |
+| `Alt+←` / `Alt+→` | Navigate back / forward |
+
+Below the shortcut list, the **Punctuation cheat sheet** shows the spoken-form → character mappings Voice Typer recognizes (the cleanup pipeline in `voice_typer/server/text_cleanup.py` normalizes spacing around these without dropping them):
+
+| Spoken form | Inserted character |
+|---|---|
+| comma | `,` |
+| period | `.` |
+| question mark | `?` |
+| exclamation point | `!` |
+| semicolon | `;` |
+| colon | `:` |
+| apostrophe | `'` |
+| open quote / close quote | `"` |
+| new line | ↵ |
+| new paragraph | ¶ |
+
+The cheat sheet is rendered by `voice_typer/client/src/renderer/src/components/help/PunctuationCheatSheet.tsx` and the localized labels live under `help.punctuation.*` in `i18n/translations/*.json`.
+
 ### Model Selection
 
 Available models (subject to Whisper upstream naming and sizes):
@@ -328,9 +365,9 @@ Global hotkey detection on every platform uses the out-of-process native binary 
 
 ## Auto-Paste Behavior
 
-When `paste_on_stop` is enabled, the app detects whether a text input is focused (via Win32 API). Auto-paste only happens when a text field is confirmed focused. If no text input is focused, the keystroke is skipped and the text stays in your clipboard.
+When `paste_on_stop` is enabled, the app detects whether a text input is focused (via Win32 API on Windows; via the focused-window process name on macOS/Linux). Auto-paste only happens when a text field is confirmed focused. If no text input is focused, the keystroke is skipped and the text stays in your clipboard.
 
-The app sends Ctrl+V unconditionally when pasting — terminal-specific detection (Shift+Insert for Windows Terminal / Warp / Alacritty) was removed because the Win32 focus-detection API can't reliably distinguish terminal emulators from other text fields. If you're pasting into a terminal that doesn't accept Ctrl+V, press Ctrl+Shift+V or use the terminal's "Paste" menu item.
+The paste keystroke is **terminal-aware**: the app checks the focused window's process name against `_TERMINAL_PROCESS_NAMES` in `voice_typer/server/clipboard.py` (Windows Terminal, Warp, Alacritty, iTerm2, Terminal.app, gnome-terminal, konsole, xfce4-terminal, …). For terminal targets it sends **Shift+Insert** (macOS uses Cmd+V); for every other focus target it sends Ctrl+V. If you're pasting into a terminal that doesn't accept either keystroke, use the terminal's "Paste" menu item.
 
 The clipboard always gets the transcribed text when transcription succeeds. The app never pastes provisional streaming text.
 
@@ -350,7 +387,7 @@ Context-aware capitalization of "I" that skips capitalization when followed by R
 
 ### External Corrections
 
-Bundled corrections are in `voice_typer/corrections.json` (misspellings, phrase corrections, extra-word patterns).
+Bundled corrections are in `voice_typer/server/corrections.json` (misspellings, phrase corrections, extra-word patterns).
 Place a `voice-typer-corrections.json` in the config directory (or set `corrections_path` in config) to override bundled entries.
 External file format: `{"misspellings": {...}, "phrase_corrections": [["bad", "good"], ...], "extra_word_patterns": [["bad", "good"], ...]}`.
 
@@ -381,7 +418,7 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and [`docs/adr/0007-native-ho
 Voice Typer is **cross-platform** — Windows, macOS, and Linux (X11 and Wayland) are all supported. The hotkey backend, autostart adapter, and clipboard/focus backends are selected per-OS at runtime.
 
 - **Windows 10/11**: tested by the maintainer. There is no CI matrix for Win10 vs Win11 yet — contributors on either version are welcome to report issues. Several Win10-specific code paths (notably `taskkill /T /F` and the legacy `wmic` calls) have been removed; the app now uses `psutil` for process introspection on all platforms.
-- **macOS 11+**: native Swift key listener supports the Fn/Globe key. Requires Accessibility permission (see [Troubleshooting](#troubleshooting)). Autostart uses a `LaunchAgents` plist.
+- **macOS 13+** (Ventura): native Swift key listener supports the Fn/Globe key. Requires Accessibility permission (see [Troubleshooting](#troubleshooting)). Autostart uses a `LaunchAgents` plist. macOS 12 may work but is not tested; CI runners pin to `macos-13` (Intel) and `macos-14` (Apple Silicon).
 - **Linux (X11 and Wayland)**: native C key listener reads `/dev/input/event*` (evdev), which works on both X11 and Wayland. Requires the user to be in the `input` group (see [Troubleshooting](#troubleshooting)). Autostart uses a `.desktop` file in `~/.config/autostart/`.
 - Autostart uses `pythonw.exe` for background execution on Windows (no console window).
 - Global hotkey uses the out-of-process native binary on every platform; legacy `RegisterHotKey`/`GetAsyncKeyState` polling (Windows) and `pynput` (macOS/Linux X11) remain as fallbacks.
@@ -401,18 +438,18 @@ voice_typer/
 │   ├── asr_setup.py    # ASR auto-setup: GPU detection, dependency checking, weight downloading
 │   ├── asr_registry.py # Registry of ASR backends (whisper/qwen/parakeet)
 │   ├── config.py       # Configuration with platform-aware paths, validation, schema versioning
-│   ├── recording.py    # Session-based audio recording with device fallback and silence detection
+│   ├── recording/     # Session-based audio recording (package: recorder, buffer, resampling, exceptions)
 │   ├── transcription.py  # faster-whisper engine with GPU→CPU fallback chain
 │   ├── qwen_engine.py  # Optional Qwen3-ASR-0.6B backend
 │   ├── parakeet_engine.py  # Optional NVIDIA Parakeet TDT v3 backend
 │   ├── cloud_engines.py   # Cloud ASR / LLM HTTP transports
 │   ├── streaming.py    # Streaming transcription with overlapping audio windows
 │   ├── text_cleanup.py # Post-transcription cleanup (dedup, misspellings, capitalization)
-│   ├── clipboard.py    # Clipboard copy + safe auto-paste
-│   ├── hotkeys.py      # Hotkey backend abstraction (Win32 native / pynput fallback)
+│   ├── clipboard.py    # Clipboard copy + safe auto-paste (terminal-aware: Shift+Insert)
+│   ├── hotkeys/        # Hotkey backend abstraction package (Win32 native / pynput / Wayland fallback)
 │   ├── hotkey_dispatcher.py  # Owns the 3 hotkey backends (dictation / ESC / repaste)
-│   ├── ipc_server.py   # JSON-over-stdin/TCP IPC server for the Electron client
-│   ├── server_platform.py  # OS-specific autostart adapters + mic listing + desktop shortcut
+│   ├── ipc_server.py   # JSON-over-TCP IPC server for the Electron client (port 9876)
+│   ├── server_platform/  # OS-specific autostart adapters + mic listing + desktop shortcut (package)
 │   ├── tray.py         # System tray icon (pystray) + dynamic menu
 │   ├── tray_menu.py    # Tray menu builder (extracted from tray.py)
 │   ├── tray_types.py   # AppState enum + TrayController Protocol
@@ -427,8 +464,10 @@ voice_typer/
 │   ├── vad.py           # Voice activity detection
 │   ├── volume_ducker.py / volume_backends.py  # System volume ducking
 │   ├── task_scheduler.py  # Pre-warm task scheduler (Windows Task Scheduler / cron)
-│   ├── prewarm.py / prewarm_scheduler_posix.py  # Pre-warm orchestration
-│   └── corrections.json  # Bundled misspellings, phrase corrections
+│   ├── prewarm/        # Pre-warm orchestration (package: pipeline, cli, paths, cache_probe, …)
+│   ├── prewarm_scheduler_posix.py  # POSIX pre-warm scheduling (LaunchAgent / systemd user timer)
+│   ├── platform_utils.py  # Platform detection helpers (is_windows / is_macos / is_linux)
+│   └── corrections.json  # Bundled misspellings, phrase corrections (canonical path: voice_typer/server/corrections.json)
 ├── client/             # Electron frontend (TypeScript/React/Vite)
 │   ├── src/main/       # Electron main process — window lifecycle, IPC bridge
 │   ├── src/renderer/   # React renderer — pages (Home, Settings, Models, History, ...)
@@ -605,7 +644,7 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 - Self-correction detection uses a higher threshold (min 5 chars or half word length) to reduce false positives.
 - Phrase corrections preserve ALL-CAPS, Title Case, and mixed case patterns.
 - Roman numeral detection prevents false capitalization of "i" in academic/numbered contexts.
-- Bundled corrections are in `voice_typer/corrections.json`.
+- Bundled corrections are in `voice_typer/server/corrections.json`.
 - Place a `voice-typer-corrections.json` in the config directory (or set `corrections_path` in config) to override bundled entries.
 
 ### Already running

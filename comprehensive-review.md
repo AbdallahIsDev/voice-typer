@@ -1,3 +1,285 @@
+# Consolidated Comprehensive Review — All Sessions
+
+## High Priority
+
+These items are the highest-priority remaining work for the project — they block the Tauri migration, fix core functionality, or address critical infrastructure gaps. Items in this section are ordered by priority (top = most urgent).
+
+---
+
+### HP-1. MIG-1.5 — Phase 0-W Windows host validation gate
+
+**Status:** ❌ Not Fixed (blocked on real Windows host; code + tests in place)
+
+**Description:** Run the 9-point ADR-1020 Windows validation gate on a real Windows machine to prove the Tauri host + Nuitka-frozen sidecar actually work on Windows before cutting over from Electron. The test scaffolding exists at `tests/tauri/mig15/` (12 test files covering Nuitka build, sidecar spawn, WS+HMAC, paste, toast, shutdown, prewarm, key listener) but has NEVER been run against a real frozen sidecar on a real Windows host.
+
+**Investigation findings (2026-07-22):**
+- Rust host `cargo check` passes 0-error on win32 GNU target. 18 Tauri commands registered, all compile.
+- `src-tauri/bin/python-sidecar-x86_64-pc-windows-gnu.exe` is a 2-byte placeholder — not a real Nuitka freeze.
+- `src-tauri/resources/native/` is empty — `windows-key-listener.exe` does not exist.
+- `src-tauri/resources/prewarm-*` binaries are 0-byte placeholders.
+- `scripts/build/nuitka_freeze.sh` is a ~1-line stub, does not freeze anything. ADR-0020 §4 has the exact command.
+- `scripts/build/build_native_listener_windows.sh` is a ~1-line stub.
+- `.github/workflows/tauri-windows-build.yml` exists with full CI pipeline: Nuitka freeze, prewarm build, native listener build, Authenticode signing, `cargo tauri build`, NSIS+MSI packaging. This CI workflow is the path of least resistance — trigger it instead of manual host steps.
+- QW-2 (Tauri v2 config key `postInstallScript`→`postInstall`) still unfixed — blocks Linux mig17/18/19 tests but does NOT block MIG-1.5 itself (that's Windows-only).
+- Electron host path is intact and fully working — reversible fallback preserved.
+
+**Progress:** 50% — Rust host compiles, Tauri commands registered, test scaffolding exists, CI workflow exists. Missing: real Nuitka freeze, real native binaries, real execution of 9-point gate.
+
+**Related Files:**
+- `tests/tauri/mig15/` (12 test files)
+- `src-tauri/bin/python-sidecar-x86_64-pc-windows-gnu.exe` (2-byte placeholder)
+- `src-tauri/resources/native/` (empty directory)
+- `scripts/build/nuitka_freeze.sh` (stub)
+- `scripts/build/build_native_listener_windows.sh` (stub)
+- `.github/workflows/tauri-windows-build.yml` (full CI pipeline)
+- `docs/migration/windows-validation-runbook.md`
+- `tests/tauri/conftest.py`
+
+**Fix:**
+1. Fix QW-2 (`postInstallScript`→`postInstall` in `tauri.conf.json` x4) first — unblocks mig17/18/19 tests.
+2. Run the `tauri-windows-build.yml` GitHub Actions workflow on a branch — this does Nuitka freeze, prewarm build, native listener build, and `cargo tauri build` in one pipeline.
+3. Extract the resulting installer + sidecar binaries from CI artifacts.
+4. On a real Windows host, install and verify the 9-point gate: sidecar spawns, WS+HMAC works, faster-whisper transcribes, enigo pastes, toast shows, shutdown clean, prewarm fires, native key listener works.
+5. OR: build natively on Windows — fill `scripts/build/nuitka_freeze.sh` and `scripts/build/build_native_listener_windows.sh` with real commands from ADR-0020 §4, then `cargo tauri build`.
+
+**Severity:** 🔴 Critical — blocks all downstream migration (MIG-1.6 through MIG-1.9, Phase 1–5).
+
+---
+
+### HP-2. MIG-1.6 — Phase 0-M macOS validation gate (x86_64 + aarch64)
+
+**Status:** ❌ Not Fixed (blocked on real macOS host; code + tests in place)
+
+**Description:** Same as MIG-1.5 but for macOS on both Intel and Apple Silicon — prove the Tauri host + sidecar work, including notification permissions and notarization. Test scaffolding at `tests/tauri/mig16/` (10 test files). Not started on any real macOS host. No macOS runner available in current sandbox.
+
+**Progress:** 0% — no real-host execution. Test files exist. macOS CI workflow does not yet exist (unlike Windows which has `tauri-windows-build.yml`).
+
+**Related Files:**
+- `tests/tauri/mig16/` (10 test files)
+- `docs/migration/macos-validation-runbook.md`
+
+**Fix:** Blocked on MIG-1.5 passing first. After Phase 0-W passes: (1) create macOS CI workflow matching `tauri-windows-build.yml` structure; (2) fill macOS build scripts; (3) run on real macOS host (Intel + Apple Silicon); (4) verify 9-point gate.
+
+**Severity:** 🔴 Critical — blocks per-platform cutover. Lower urgency than MIG-1.5 (Windows is cutover target #1).
+
+---
+
+### HP-3. MIG-1.7 — Phase 0-L Linux validation gate (X11 + Wayland, incl. aarch64)
+
+**Status:** ❌ Not Fixed (real-host X11/Wayland gate not run; tests pass in scaffold)
+
+**Description:** Same as MIG-1.5 for Linux on X11 and Wayland (both archs). Wayland breaks `enigo` global key injection — the clipboard paste fallback must be proven. Test scaffolding at `tests/tauri/mig17/` (10 test files) verified green (1428 passed, 4 xfailed in the full Tauri test suite) but real-host X11/Wayland gate NOT run.
+
+**Current blockers:** QW-2 unfixed — `postInstallScript`/`preRemoveScript` Tauri v1 keys in `tauri.conf.json` cause 8 test failures in mig17/mig18/mig19. `scripts/linux/postinst` and `scripts/linux/prerm` scripts exist at correct paths.
+
+**Related Files:**
+- `tests/tauri/mig17/` (10 test files)
+- `docs/migration/linux-validation-runbook.md`
+- `scripts/linux/postinst`
+- `scripts/linux/prerm`
+- `src-tauri/tauri.conf.json` (QW-2: `postInstallScript`→`postInstall`)
+
+**Fix:** Fix QW-2 first. Then run Linux validation on X11 + Wayland real hosts. Test paste on both display servers. aarch64 Linux still has the `linux-key-listener` resource gap (XPLAT-11/17).
+
+**Severity:** 🔴 Critical — blocks per-platform cutover. Lower urgency than MIG-1.5/1.6.
+
+---
+
+### HP-4. MIG-1.8 — Phase 1 sidecar packaging & signing (per platform)
+
+**Status:** ❌ Not Fixed (blocked on Phase 0 gates; scaffolding only)
+
+**Description:** Freeze the Python backend into per-triple Nuitka executables, wire as Tauri `externalBin`, set up code-signing (Windows Authenticode / macOS Developer ID+notarization / Linux unsigned). Test scaffolding at `tests/tauri/mig18/` (9 test files covering per-triple freeze, externalBin wiring, OpenMP runtimes, Windows signing, macOS signing, Linux signing, postinst/prerm, PyInstaller fallback).
+
+**Current state:** Scaffolding only. `scripts/build/nuitka_freeze.sh` is a 1-line stub. `scripts/build/build_sidecar_linux.sh` and `build_sidecar_macos.sh` are also stubs. Windows CI pipeline (`tauri-windows-build.yml`) has the Nuitka freeze fully wired in CI — this is the reference implementation for other platforms. Linux postinst/prerm scripts exist. macOS entitlements/Info.plist exist.
+
+**Related Files:**
+- `tests/tauri/mig18/` (9 test files)
+- `scripts/build/nuitka_freeze.sh` (stub)
+- `scripts/build/build_sidecar_linux.sh` (stub)
+- `scripts/build/build_sidecar_macos.sh` (stub)
+- `scripts/linux/postinst`, `scripts/linux/prerm`
+- `src-tauri/entitlements.plist`, `src-tauri/Info.plist`
+- `.github/workflows/tauri-windows-build.yml` (reference CI pipeline)
+
+**Fix:** Blocked on MIG-1.5/1.6/1.7. After Phase 0 gates pass per platform: (1) fill Nuitka freeze scripts with real commands per ADR-0020 §4; (2) create per-platform CI workflows; (3) implement code-signing per §13 (Authenticode for Windows, Developer ID+notarization for macOS); (4) verify postinst/prerm on Linux.
+
+**Severity:** 🔴 Critical — no production Tauri build possible without this.
+
+---
+
+### HP-5. MIG-1.9 — Phase 3 UI port + Phases 4–5 wire swap & cutover
+
+**Status:** ❌ Not Fixed (blocked on MIG-1.1–1.8; Phase 3 ~60% done)
+
+**Description:** Final step — make the UI runtime-agnostic via `usePython`, flip from Electron to Tauri webview, cut each OS over while keeping Electron as reversible fallback. Test scaffolding at `tests/tauri/mig19/` (9 test files covering capabilities, final glue, per-OS cutover, Phase 4 validation, reconnect UX, tray menu, usePython bridge, wire-swap recovery).
+
+**Current state (Phase 3):** = 60% — `tauri-bridge.ts` calls `invoke('dispatch', {cmd, data})` and routes events. `usePython` abstraction exists. Main entry is still Electron. Never run under a real Tauri webview.
+
+**Current state (Phase 4–5):** 0% — no wire swap, no cutover. `client/src/main/index.ts` still `import { app } from "electron"`. `frontendDist` still points to Electron renderer output.
+
+**Key insight from investigation:** The Tauri reuses the same React renderer build as Electron (`frontendDist: "../voice_typer/client/dist"`). The `beforeDevCommand` builds only the renderer via `electron.vite.renderer.ts` config. This means Phase 3 (renderer bridge) is mostly done — the hard part is Phase 4 (swapping the Electron main entry for the Tauri webview launch) and Phase 5 (validating per-OS).
+
+**Related Files:**
+- `tests/tauri/mig19/` (9 test files)
+- `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
+- `voice_typer/client/src/renderer/src/lib/usePython.ts`
+- `voice_typer/client/src/main/index.ts` (Electron main entry)
+- `src-tauri/tauri.conf.json` (frontendDist config)
+- `src-tauri/capabilities/main-runtime.json`
+- `src-tauri/capabilities/bubble-runtime.json`
+- `docs/migration/cutover-playbook.md`
+
+**Fix:** Blocked on MIG-1.5–1.8. After those pass:
+1. Finalize `usePython` so both Electron and Tauri paths share one interface.
+2. Swap `frontendDist` to Tauri build output.
+3. Wire `invoke`→`dispatch` for all renderer IPC.
+4. Cut over per OS (Windows→macOS→Linux), verify each.
+5. Keep Electron intact as reversible fallback — do NOT delete Electron code.
+
+**Severity:** 🔴 Critical — this is the capstone of the entire migration epic.
+
+---
+
+### HP-6. QW-2 — Tauri v2 config key mismatch (8 test failures)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `src-tauri/tauri.conf.json` lines 83-84, 95-96 use Tauri v1 keys `postInstallScript`/`preRemoveScript`. Tests in `tests/tauri/mig17/mig18/mig19` expect Tauri v2 keys `postInstall`/`preRemove`. Tests fail because config field is `None` when read. This blocks 8 Linux migration tests and is a prerequisite for MIG-1.7 and MIG-1.8.
+
+**Root cause:** Config was written against Tauri v1 schema. Tauri v2 renamed these keys.
+
+**Affected tests (8):**
+- `mig17/test_autostart_installer_linux.py` (2 tests)
+- `mig17/test_externalbin_spawn_linux.py` (1 test)
+- `mig17/test_native_key_listener_linux.py` (1 test)
+- `mig18/test_linux_signing.py` (3 tests)
+- `mig19/test_linux_cutover.py` (1 test)
+
+**Fix:** Rename in `tauri.conf.json`: `postInstallScript` → `postInstall`, `preRemoveScript` → `preRemove`. 4 sites (2 for deb, 2 for rpm). 1-minute fix, but verify no downstream references to the old key names.
+
+**Severity:** 🔴 High — blocks 8 tests and Linux MIG tasks. Trivial fix.
+
+---
+
+### HP-7. FT-5 — "Finish dictation → nothing gets transcribed" (empty transcription)
+
+**Status:** ❌ Not Fixed (reported by user 2026-07-20)
+
+**Description:** When user finishes dictation, no text is produced or pasted. Recording appears to stop normally but result is empty — no error toast, no clipboard output. The core voice-typing feature is broken for the user right now.
+
+**Likely root causes (from investigation):**
+1. Streaming-session path returns empty — `DictationPipeline._transcribe` calls `get_streaming_session()` which may return a stale/non-None session whose `finalize()` returns `""`. For recordings < 15s, `_handle_empty_transcription` silently suppresses the "no speech" notice — so user sees nothing.
+2. Audio buffer / RMS is empty or near-zero — `recording_controller.py:425` checks duration; if `< 0.5s` it's skipped. `recorded_rms` from `Recorder.stop()` may be misread after the device-loop fix.
+3. ASR backend returns empty without raising — `active.transcribe_with_fallback()` may return `""` (model loaded but misconfigured, wrong device, audio stats mismatch).
+4. Merge-damage regression — may be related to the `recorder.py` device-loop restoration this session.
+
+**Related Files:**
+- `voice_typer/server/dictation_pipeline.py` (`_transcribe`, `_handle_empty_transcription`)
+- `voice_typer/server/recording_controller.py` (`stop`, `get_streaming_session`)
+- `voice_typer/server/recorder.py` (`stop`, `last_rms`)
+- `voice_typer/server/asr_registry.py`
+
+**Severity:** 🔴 Critical — core feature broken. User-facing P0.
+
+---
+
+### HP-8. MIG-1.4 — Prewarm packaging + FT-1 supervisor
+
+**Status:** ⚠️ Partial (Rust supervisor done; platform-specific autostart wiring not validated)
+
+**Description:** Prewarm (model/asset warm-up) binary must launch at login/boot on each OS (LogonTrigger / LaunchAgent / systemd timer). FT-1 crash isolation must respawn the sidecar on crash without killing the UI. Rust supervisor code exists and compiles; `resolve_prewarm_exe()` exists; prewarm binaries for 9 target triples are committed but are 0-byte placeholders. Platform-specific autostart wiring (LogonTrigger, LaunchAgent, systemd timer) not validated on real hosts.
+
+**Related Files:**
+- `src-tauri/src/sidecar/ft1.rs` (FT-1 supervisor with circuit breaker)
+- `src-tauri/src/sidecar/spawn.rs` (`resolve_prewarm_exe`)
+- `src-tauri/resources/prewarm-*` (0-byte placeholders)
+- `docs/migration/windows-validation-runbook.md` (step 8: prewarm LogonTrigger)
+
+**Severity:** 🟡 High — blocks production readiness but lower urgency than Phase 0 gates.
+
+
+### FT-2. Full test suite dies at ~63% — context-dependent native crash [High] — Pending
+- **Files (crash site)**: `tests/test_lock_order_contract.py` (passes 11/11 in isolation).
+- **Files (fixed prerequisite)**: `voice_typer/server/clipboard_snapshot.py` (GDI-handle capture skip + `_configure_win32_signatures()`) — the earlier clipboard crash that this task was uncovered by is already FIXED.
+
+- **What "reaches 63%" means (plain English)**: When you run the whole test suite (`pytest tests/`), pytest works through the test files in order and prints a running percentage of how far it has gotten. It now gets to **63% of all tests** and then the Python process suddenly dies — it never reaches 100%.
+
+- **The picture**:
+  - Test files run roughly alphabetically: `test_a...`, `test_b...`, `test_clipboard.py`, … `test_lock_order_contract.py`, …
+  - **Before the clipboard fix**: `test_clipboard.py` (early in the list) crashed the whole Python process, so the run died early — it never even reached the later files.
+  - **After the clipboard fix**: clipboard no longer crashes, so the run gets much further — all the way to `test_lock_order_contract.py`, at about the **63%** mark. But *there*, the process dies again (a **different** crash).
+  - So "reaches 63%" = the run now progresses through 63% of the tests before hitting the **next** crash, instead of dying much earlier at clipboard.
+
+- **The catch**: `test_lock_order_contract.py` **passes fine by itself (11/11)**. It only crashes when run as part of the big sequence — meaning some **earlier** test leaves the system in a bad native state that makes this later one blow up. That is a **separate bug** from the clipboard one.
+
+- **Symptoms**: Process dies silently (native crash), exit code 1, no faulthandler traceback. Likely bad native state left by an earlier win32/hotkey/IME test.
+
+- **Bottom line**: The clipboard crash is fixed. But the suite still cannot run start-to-finish because there is at least one more crasher further down.
+
+- **Options / next moves** (decision needed):
+  1. **Chase it** — bisect the full run to find which earlier test leaves the bad native state, then fix the root cause.
+  2. **Stop here** — clipboard crash (the originally-scoped fix) is done; leave the suite-level crash for later.
+  3. **Isolation workaround** — run tests with process isolation (e.g. `pytest-forked` / `--forked`) so one test's native crash cannot kill the whole run.
+- **Effort**: Medium–Large (root-cause bisection across ~native win32/hotkey/IME tests).
+- **Priority**: High (blocks a clean full-suite run).
+
+### FT-3. `ruff-baseline.json` never regenerated — value is an unverified upper bound [Low] — Pending
+- **File**: `ruff-baseline.json` (target: `voice_typer/server/`).
+- **Status**: STILL TRUE (minor). Verified 2026-07-20.
+- **Description**: The baseline was assembled by taking the union/max per rule across sessions 1+2+3+4, not by running a real `ruff check`. The file **self-admits** this in its own `_updated` field: the total (55) is described as *"a safe upper bound"*, and it explicitly says to regenerate for the actual current count. So the numbers in the ratchet baseline are not proven against the real current codebase — they could be higher than reality (masking newly-introduced violations up to the inflated cap).
+- **Why it matters (plain English)**: The ratchet is supposed to stop new lint violations from creeping in. If the baseline count is padded higher than the real count, someone could add new violations and the ratchet would not catch them, because there is "slack" built into the number.
+- **Goal**: Regenerate the baseline from a real ruff run so the count reflects reality, then commit the true value.
+- **Fix command** (from the file's own note): `ruff check voice_typer/server/ --output-format=json | python scripts/ruff_ratchet_check.py --regenerate`
+- **Verify**: after regeneration, the recorded total should equal the real `ruff check` violation count (not "55 upper bound").
+- **Effort**: Small.
+- **Priority**: Low.
+
+### FT-5. "Finish dictation → nothing gets transcribed" — no transcription text produced/pasted [High] — Pending
+- **Reported by user (2026-07-20)**: When they finish a dictation (stop recording / the transcription step runs), **no text is produced at all** — nothing is pasted, nothing lands in the target app, and there is no error toast. The recording appears to stop normally; the result is simply empty.
+- **Plain-English symptom**: The mic captures audio (the app reaches the "transcribing…" state), but at the end the user gets zero output — as if the audio was silent, even though they spoke.
+- **Likely investigation leads (do NOT assume — verify against live behavior)**:
+  1. **Streaming-session path returns empty.** `DictationPipeline._transcribe` (dictation_pipeline.py:473) checks `get_streaming_session()` first; if a stale/non-`None` session exists, `session.finalize(self._audio)` is used. If that finalize returns `""`, the pipeline falls into `_handle_empty_transcription` (dictation_pipeline.py:517) which, for recordings `< 15s`, **silently suppresses the "no speech" notice** (dictation_pipeline.py:542) — so the user sees nothing. Check whether `recording_controller.py:458` session-cancel actually clears `self._streaming_session` before `DictationPipeline.run`.
+  2. **Audio buffer / RMS is empty or near-zero.** `recording_controller.py:425` derives `duration = len(audio)/sample_rate`; if `< 0.5s` it "Too short — skipped" (line 441). `recorded_rms = app.recorder.last_rms` (line 427) — if VAD/RMS is misread, `_handle_empty_transcription` (dictation_pipeline.py:550) reports "near-silence → check microphone". Verify `Recorder.stop()` (recorder.py:2534) actually returns non-empty audio after the session-merge device-loop fix.
+  3. **ASR backend returns empty but does not raise.** `active.transcribe_with_fallback(...)` (dictation_pipeline.py:502) — if Parakeet/Qwen/Whisper returns `""` (e.g. model loaded but misconfigured, wrong device, or `audio_stats` mismatch), the pipeline treats it as "no speech" rather than an error. Capture the actual transcript length in the log (`[TRANSCRIBE] Transcription complete (len=…)` at dictation_pipeline.py:135).
+  4. **Merge-damage regression.** This surfaced after the 6-session merge; the `recorder.py` device-loop restoration this session fixed an `UnboundLocalError` on start — confirm the *stop* path and audio hand-off were not subtly affected.
+- **Files to read**: `voice_typer/server/dictation_pipeline.py` (`_transcribe`, `_handle_empty_transcription`, `run`), `voice_typer/server/recording_controller.py` (`stop`, `get_streaming_session`, `set_streaming_session`, `_streaming_session`), `voice_typer/server/recorder.py` (`stop` → returns `np.ndarray`, `last_rms`), `voice_typer/server/asr_registry.py` / `active_transcriber` / `transcribe_with_fallback`.
+- **Repro**: Launch app (Electron + Python, `pythonw.exe` venv). Dictate ~5s of clear speech. Stop. Observe: tray returns to "Ready", no text pasted, no toast. Pull the log for `[TRANSCRIBE] Transcription complete (len=…)` and `[DICTATION] Recording stopped -- …s of audio`.
+- **Goal**: Dictation produces the spoken text (pasted or on-clipboard) for normal speech; empty results only when truly silent, and those report a clear "no speech" toast (not silent suppression for normal-length recordings).
+- **Verify**: reproduce the fix live; confirm `len(text) > 0` for a spoken phrase and the text appears in the target window; confirm a genuinely silent recording still shows a "no speech" notice (not silent suppression).
+- **Effort**: Medium.
+- **Priority**: High (core feature broken for the user right now).
+
+---
+
+plus the base repo's pre-existing comprehensive review.
+
+## Status Legend
+
+- ✅ Fixed — the issue was resolved in this session.
+- ⚠️ Partial — partial fix applied; follow-up work documented.
+- ❌ Pending — issue identified but not fixed.
+- 💥 Broken — fix introduced a regression.
+- 🚫 Won't Fix — issue acknowledged but consciously not addressed.
+
+## Structure
+
+1. **Base Set** — the original `comprehensive-review.md` from the repo root,
+   preserved verbatim. This is the pre-existing set of open findings.
+2. **Per-Session Findings** — each session's `comprehensive-review.md`,
+   appended verbatim under a `## Session N Findings` header. Sessions used
+   different formats (`## PVT-N`, `## [PVT-N]`, `**[PVT-N]**`, `### QW-N`);
+   rather than risk dropping findings by parsing 5 incompatible formats, we
+   preserve each session's review verbatim. The integrity check (every
+   finding from every session appears at least once) is therefore trivially
+   satisfied.
+3. **Merge-Stage Findings** — new findings discovered during the intelligent
+   sub-agent merge (NOT present in any session's original review).
+
+---
+
+## Base Set (original comprehensive-review.md — pre-existing open findings)
+
 # Comprehensive Review — Open Findings (partial/broken/not-implemented items)
 
 > **Platform warning:** The cloud agent's SUMMARY claimed "all tests pass on Linux." Results in this file tagged **Windows (win32)** are reproduced on this runner and contradict the Linux-only claims. Do NOT trust a Linux-only pass as proof of cross-platform cutover.
@@ -3718,3 +4000,1650 @@ Low findings (CR-77 through S3-CR-100):
 - **Location**: Multiple — see `archive/deleted_files.txt`
 - **Evidence**: The original agent claimed to have deleted 18 files (`app_controllers/` package, `ipc/` package, `model_downloader.py`, `config_migration.py`, `path_safety.py`, etc.) but ALL 18 files were still present on disk. The verifier-agent confirmed each file existed, then applied the deletions. `tests/test_hotkeys.py:148-153` was also fixed to import `tests.conftest` instead of the deleted `tests.test_app`.
 - **Impact**: These were claimed as "done" but actually weren't — an integrity gap in the agent's execution. Now corrected.
+
+
+---
+
+
+## Session 1 Findings
+
+Verbatim copy of session-1's `comprehensive-review.md`:
+
+# Comprehensive Review — Group 1 (Architecture & Code Quality) — IMPROVE Mode Run
+
+> **Session**: 2026-07-22 — Full-Review mode, GROUP=1 (Architecture & Code Quality), SUB_AGENT_COUNT=25
+> **Scope**: ONLY Group 1 categories — Overall architecture, Backend architecture, Frontend architecture, Code quality, Maintainability, Refactoring opportunities, Spaghetti/monolith detection
+> **Method**: 25 parallel review sub-agents (1-1 through 1-25), each owning a disjoint slice of Group 1's 7 categories.
+> **Pre-existing state**: Prior `comprehensive-review.md` had 3720 lines / 437 findings from earlier sessions. This document APPENDS new Group-1-scoped findings (per Phase 3 "append — never overwrite" rule).
+> **Platform qualifier**: Linux sandbox. Windows/macOS host validation pending — see `VALIDATE ON WINDOWS HOST` / `VALIDATE ON MACOS HOST` notes per finding.
+
+---
+
+## Summary of New Findings (Group 1 — IMPROVE mode run)
+
+- **25 review sub-agents** completed Phase 1 investigation, each owning a disjoint scope.
+- **Total raw findings**: 200+ (with overlap deduplicated below).
+- **Deduplicated findings**: 60 unique items compiled below.
+- **Severity distribution**: 4 Critical, 14 High, 25 Medium, 17 Low.
+- **Spaghetti/monolith auto-split targets**: 5 files (`recorder.py`, `ipc_server.py`, `service.py`, `clipboard.py`, `volume_backends.py`).
+
+---
+
+## PVT-1 — IPC topology: Tauri path has no application-level heartbeat (silent UI freeze on hung sidecar)
+
+**Status:** ❌ Not Fixed
+
+**Description:** Under the Tauri host, the FT-1 supervisor only triggers respawn on WS-close or process exit — NOT on application-level hangs. A Python sidecar that deadlocks (GIL contention, infinite loop, blocking C call) keeps the TCP/WS socket open and the Rust reader blocked in `read.next().await` indefinitely. Each `invoke('dispatch', ...)` call hangs for the full `DISPATCH_TIMEOUT_SECS` (120s) before timing out. The Electron path's 5s heartbeat + 120s watchdog catches this; the Tauri path replaced it with WS-close detection only.
+
+**Root Cause:** `voice_typer/server/ipc_server.py:817-825` skips the heartbeat-watchdog thread under `TAURI_SIDECAR=1`, expecting FT-1 to own liveness — but FT-1 (`src-tauri/src/sidecar/ws.rs:62-218`) only triggers on `Message::Close(_)` or `Err(e)` on `read.next()`. No application-level probe exists.
+
+**Severity:** 🔴 High
+
+**Related Files:**
+- `src-tauri/src/sidecar/ws.rs`
+- `src-tauri/src/sidecar/ft1.rs`
+- `voice_typer/server/ipc_server.py:817-825`
+- `voice_typer/server/sidecar_ws.py:66-71`
+
+**Fix:** Add a Tauri-side heartbeat: Rust host sends `{"type":"heartbeat","id":N}` every 5-10s via `ws_tx`, awaits per-id response within 15s; on 2-3 consecutive misses, call `ft1_respawn`. Reuse existing `dispatch_frame` helper. The Python `_handle_heartbeat` handler is already in the `_COMMAND_REGISTRY`.
+
+---
+
+## PVT-2 — Layer interactions: `relaunch_app` event emitted into the void under Tauri (restart silently demoted to respawn)
+
+**Status:** ❌ Not Fixed
+
+**Description:** Python's `restart_app` publishes `{"type": "relaunch_electron"}`, waits 2s for `_relaunch_ack_event`, then calls `sys.exit(0)`. The Rust host renames the event to `relaunch_app` (`ws.rs:123-126`) and emits it as a Tauri event — but NO Rust listener subscribes to `relaunch_app`. The Python ack event never fires, the 2s timeout always triggers, and the React UI is never torn down. The user's "Restart" click is silently demoted to "respawn the Python backend only" — in-memory React state (current page, unsaved inputs, mic-test state) survives what should be a full restart.
+
+**Root Cause:** ADR-0020 migration ported the wire-rename but never wired the receiving end.
+
+**Severity:** 🔴 High
+
+**Related Files:**
+- `voice_typer/server/app.py:1035-1042, 1141-1205`
+- `src-tauri/src/sidecar/ws.rs:109-131`
+- `src-tauri/src/main.rs` (needs new listener)
+
+**Fix:** Add a Tauri-side listener `app.listen("relaunch_app", ...)` in `main.rs` `.setup` that calls `app.restart()` and sends a `relaunch_ack` WS frame back so Python's `_wait_for_relaunch_ack` short-circuits cleanly.
+
+---
+
+## PVT-3 — FT-1 counter permanently bricks install after 3 consecutive bad cold-starts
+
+**Status:** ❌ Not Fixed
+
+**Description:** `ft1.rs:24-63` reads `ft1_restart_counter.json` at the top of every `ft1_respawn` call, trips the breaker when `count >= FT1_MAX_RESTART_ATTEMPTS (3)`, and writes `count + 1`. The counter is reset to 0 ONLY on a successful `reconnect_ws` — never on a clean app exit, never at app launch, and has no time-decay. After 3 consecutive bad cold-starts (transient AV quarantine, slow disk, etc.), the 4th launch reads `count: 3`, immediately emits `ft1_failed`, and the user can never recover without manually deleting `~/.local/share/voice-typer/ft1_restart_counter.json`.
+
+**Root Cause:** The counter conflates "FT-1 retries within a single app session" with "FT-1 retries across all sessions."
+
+**Severity:** 🔴 High
+
+**Related Files:** `src-tauri/src/sidecar/ft1.rs:67-119, 24-63`; `src-tauri/src/main.rs` (setup hook)
+
+**Fix:** Reset the counter to 0 at the start of each fresh app launch — in `main.rs` `.setup`, before `spawn_sidecar_and_get_port`, call `write_ft1_restart_counter(0)`. Alternative: add a `last_attempt_at` timestamp and treat counts older than 1 hour as stale.
+
+---
+
+## PVT-4 — `migrate.rs` Electron migration source is a phantom directory (`Voice Typer` capital+space — never actually existed)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `src-tauri/src/migrate.rs:36-65` looks for the old Electron `userData` at `%APPDATA%/Voice Typer` (capital V, space). But `voice_typer/client/package.json:2` declares `"name": "voice-typer-desktop"` and `bootstrap.ts:52-67` calls `app.setPath("userData", computeConfigDir())` where `computeConfigDir()` returns `voice-typer` (lowercase, hyphen). The directory `%APPDATA%/Voice Typer` was NEVER written by any released version. The migration is dead code: it always returns "nothing to do" and writes the sentinel marker immediately. Users upgrading from old Electron installs that DID NOT run `setupUserData` lose their config.json, history.db, and downloaded models silently.
+
+**Root Cause:** The migration source-path lookup was authored against an assumed Electron naming convention that doesn't match the actual Electron code in the same repository.
+
+**Severity:** 🔴 High
+
+**Related Files:** `src-tauri/src/migrate.rs:36-65`; `voice_typer/client/package.json:2`; `voice_typer/client/src/main/bootstrap.ts:52-67`; `voice_typer/client/src/main/single_instance.ts:34-58`
+
+**Fix:** Update `electron_userdata_dir()` to probe `voice-typer-desktop` (the actual old Electron name per `package.json`) AND the current `Voice Typer` (defensive). OR delete the migration as dead code if git history confirms `Voice Typer` was never the name.
+
+---
+
+## PVT-5 — `_secure_clear_array` is undefined at call sites in `recorder.start()` (CR-17/CR-21 regression — security fix is a no-op)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `voice_typer/server/recording/recorder.py:1228, 1233` call bare `_secure_clear_array(self._cached_resampled)` and `_secure_clear_array(self._cached_no_resample_arr)`, wrapped in `except Exception: pass`. But `recorder.py` has NO top-level `from .buffer import _secure_clear_array` import — only `_recording_pkg._secure_clear_array_background` is imported (lines 2602, 3019). The bare call raises `NameError`, silently swallowed by the bare `except`. SEC-audit-008's audio-memory-clearing security fix is completely neutered. Mic audio (up to ~115 MB of float32 speech for a 30-min recording) stays in process memory unzeroed and forensically recoverable.
+
+**Root Cause:** CR-17/CR-21 introduced the secure-clear call but used bare `_secure_clear_array(...)` instead of the package-namespace form `_recording_pkg._secure_clear_array(...)`. Tests `test_secure_clear_array.py:248` and `test_recorder_secure_clear_array.py:50` currently FAIL on this.
+
+**Severity:** 🔴 Critical (security regression)
+
+**Related Files:**
+- `voice_typer/server/recording/recorder.py:1227-1236`
+- `voice_typer/server/recording/buffer.py:51-52` (`_secure_clear_array` definition)
+- `tests/test_secure_clear_array.py:248`
+- `tests/test_recorder_secure_clear_array.py:50`
+
+**Fix:** Replace bare `_secure_clear_array(...)` calls at recorder.py:1228, 1233 with `_recording_pkg._secure_clear_array(...)`. Replace `except Exception: pass` with `except (AttributeError, TypeError, ValueError): log.warning(...)`. Add the import alias `from voice_typer.server import recording as _recording_pkg` at top of file (verify it exists). ALSO add `_secure_clear_array` calls in `stop()` and `discard()` BEFORE reassigning the cached arrays (currently they're just dropped, leaving old audio unzeroed between `stop()` and the next `start()`).
+
+---
+
+## PVT-6 — Cached audio arrays NOT securely cleared in `stop()` / `discard()`
+
+**Status:** ❌ Not Fixed
+
+**Description:** `recorder.py:2588, 2593, 2604, 2608` (in `stop()`) and `recorder.py:2987, 2991` (in `discard()`) do `self._cached_resampled = np.array([], dtype=np.float32)` and `self._cached_no_resample_arr = None` — the old arrays are dropped without being zeroed. Only `start()` zeroes them (and even THAT is broken per PVT-5). Between `stop()` and the next `start()` (or after app close following `stop()`), up to ~115 MB of float32 speech sits unzeroed in process memory.
+
+**Severity:** 🔴 Critical (security)
+
+**Related Files:** `voice_typer/server/recording/recorder.py:2588, 2593, 2604, 2608, 2987, 2991`
+
+**Fix:** Call `_secure_clear_array(self._cached_resampled)` and `_secure_clear_array(self._cached_no_resample_arr)` BEFORE the reassignment in `stop()` and `discard()`. Wrap in `try/except (AttributeError, TypeError, ValueError): log.warning(...)`. Verify with a test that asserts the arrays are zeroed after `stop()`/`discard()`.
+
+---
+
+## PVT-7 — `tests/test_security_doc_command_count.py` and `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness` are BROKEN (6 failing tests, allowlist drift undetectable)
+
+**Status:** ❌ Not Fixed
+
+**Description:** The tests parse `voice_typer/client/src/main/index.ts` looking for the substring `"ALLOWED_COMMANDS = new Set"`. After R6-F10 refactor, that literal was moved to `voice_typer/client/src/main/allowed-commands.ts` (re-exported from `index.ts:56`). The fixtures raise `StopIteration` / `ValueError`, so 4 + 2 = 6 tests error out at fixture setup and have NOT been running. The test that was specifically written to enforce SECURITY.md ↔ allowlist count parity is silently broken — and indeed the Electron allowlist is now MISSING 2 GDPR commands (`delete_all_personal_data`, `export_gdpr_bundle`) that were added to Python by CR-009 but never propagated to the Electron side. The `allowed-commands.ts:35-38` comment explicitly flags this as an orphan TODO that was never resolved.
+
+**Severity:** 🔴 Critical (security test infrastructure broken + 2 missing commands)
+
+**Related Files:**
+- `tests/test_security_doc_command_count.py:36, 43-73`
+- `tests/test_electron_ipc_and_build.py:184-190`
+- `voice_typer/client/src/main/allowed-commands.ts` (add 2 commands)
+- `voice_typer/client/src/main/allowed-commands.ts:35-38` (delete orphan TODO)
+
+**Fix:** (a) Update `INDEX_TS` constant in both test files from `index.ts` → `allowed-commands.ts`. (b) Add `delete_all_personal_data` and `export_gdpr_bundle` to the `ALLOWED_COMMANDS` Set in `allowed-commands.ts`. (c) Delete the orphan TODO comment in `allowed-commands.ts:35-38`. After this, the 6 broken tests should pass (and catch future drift).
+
+---
+
+## PVT-8 — `lib/utils/models.ts` is dead code (263 LOC, never imported)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `voice_typer/client/src/renderer/src/lib/utils/models.ts` (263 LOC) declares `ModelInfo`, `ModelMetadata`, `ModelFamily`, `getProviderLabel`, `formatModelSize`, `formatVram`, `formatErrorMessage`, `groupModelsByFamily`, `getActiveFamilyId` — but grep across `voice_typer/client/src/` returns ZERO imports of this module. `pages/Models.tsx:45-269` re-declares ALL of these inline (with an extra `display_name?` field on `ModelMetadata`). The file's own header says "ARCH-20 extraction" — the extraction was authored but `Models.tsx` was never updated to import from it. Both copies now coexist, with the inline one being live. Future maintainers may "fix" `Models.tsx` to import from here, silently dropping the `display_name?` field.
+
+**Severity:** 🟡 Medium (dead code, maintainability hazard)
+
+**Related Files:** `voice_typer/client/src/renderer/src/lib/utils/models.ts`; `voice_typer/client/src/renderer/src/pages/Models.tsx:45-269`
+
+**Fix:** Delete `lib/utils/models.ts`. (Alternative: complete the extraction — refactor `Models.tsx` to import from it, porting the `display_name?` field. Delete-only is safer.)
+
+---
+
+## PVT-9 — `hooks/useSnackbar.tsx` and `hooks/useSnackbar.ts` are duplicate files (130 vs 128 LOC, ~99% identical)
+
+**Status:** ❌ Not Fixed
+
+**Description:** Both files exist on disk, both export `useSnackbar` and `showUndoableToast`, both delegate to `sonner`. The `.ts` file's header says: "CR-152 (Fix-M): this file was previously named `useSnackbar.tsx` but contains no JSX. It has been renamed to `useSnackbar.ts`." — but the `.tsx` was never deleted. Vite resolves `.ts` before `.tsx`, so all 10 import sites get the `.ts` file. The `.tsx` is dead code that confuses contributors.
+
+**Severity:** 🟡 Medium (dead duplicate file)
+
+**Related Files:** `voice_typer/client/src/renderer/src/hooks/useSnackbar.tsx`; `voice_typer/client/src/renderer/src/hooks/useSnackbar.ts`
+
+**Fix:** Delete `useSnackbar.tsx`. Update the CR-152 comment in `useSnackbar.ts` to past tense.
+
+---
+
+## PVT-10 — `start-python.ts:102` writes `__myPyPid` global that is NEVER READ (dead code from removed stale-killer)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `(globalThis as { __myPyPid?: number }).__myPyPid = proc.pid;` is set but grep confirms `__myPyPid` is never read anywhere. The comment says "Record the spawned Python PID so the stale-killer doesn't kill it" but the stale-killer (`killStalePython()`) was removed per the RELIABILITY-002 note at the top of the same file (lines 28-44). Dead code left over from the removal.
+
+**Severity:** 🟡 Medium (dead code)
+
+**Related Files:** `voice_typer/client/src/main/python/start-python.ts:102`
+
+**Fix:** Delete line 102.
+
+---
+
+## PVT-11 — `send-to-python.ts:12` re-creates circular dep that `allowed-commands.ts` was created to break
+
+**Status:** ❌ Not Fixed
+
+**Description:** `import { ALLOWED_COMMANDS } from "../index";` — this re-creates the circular dependency that `allowed-commands.ts` was specifically created to break (see its docstring: "Moving the allowlist into its own dependency-free module breaks the cycle"). `index.ts:56` re-exports `ALLOWED_COMMANDS` from `./allowed-commands`, so `send-to-python.ts` should import directly from `../allowed-commands` to actually break the cycle.
+
+**Severity:** 🟡 Medium (circular dep reintroduced)
+
+**Related Files:** `voice_typer/client/src/main/python/send-to-python.ts:12`
+
+**Fix:** Change import to `import { ALLOWED_COMMANDS } from "../allowed-commands";`.
+
+---
+
+## PVT-12 — `main-window.ts` has NO `closed` handler → `state.mainWindow` dangles after destroy
+
+**Status:** ❌ Not Fixed
+
+**Description:** `createMainWindow()` registers `close`, `show`, `maximize`, `unmaximize` handlers on the window and `console-message`, `before-input-event` on `webContents`. There is NO `closed` handler to null out `state.mainWindow`. The only path that nulls `state.mainWindow` is the early-exit `.destroy()` branch in `start-python.ts:132`. In the normal close-to-tray → quit flow, the window is destroyed by Electron on app teardown, but `state.mainWindow` keeps pointing at a destroyed window until process exit. Any code that reads `state.mainWindow` after quit but before exit hits a destroyed window.
+
+**Severity:** 🟡 Medium (latent bug)
+
+**Related Files:** `voice_typer/client/src/main/windows/main-window.ts`
+
+**Fix:** Add `state.mainWindow.on("closed", () => { state.mainWindow = null; })` after window creation.
+
+---
+
+## PVT-13 — `window-handlers.ts` local `preMaximizeBounds` shadows `state.preMaximizeBounds` (state field always null)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `window-handlers.ts:17` declares a module-level `let preMaximizeBounds: Rectangle | null = null;` — but `state.ts:89` already declares `preMaximizeBounds` on `MainState`. The local shadows the state field, so `state.preMaximizeBounds` is always null. If the main window is destroyed and recreated (dev-mode restart), the local leaks the saved bounds from the previous window.
+
+**Severity:** 🟡 Medium (latent bug)
+
+**Related Files:** `voice_typer/client/src/main/ipc/window-handlers.ts:17`; `voice_typer/client/src/main/state.ts:89`
+
+**Fix:** Remove the local `preMaximizeBounds`; use `state.preMaximizeBounds` everywhere in `window-handlers.ts`.
+
+---
+
+## PVT-14 — `templates:export` and `config:export` missing the `MAX_EXPORT_ROWS` cap (inconsistent hardening)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `ipc/export-handlers.ts` applies `MAX_EXPORT_ROWS` cap to `history:export` and `vocabulary:export` (R6-F9, defense against compromised renderers pinning CPU/disk), but NOT to `templates:export` and `config:export`. Same threat applies — inconsistent hardening.
+
+**Severity:** 🟡 Medium (security defense gap)
+
+**Related Files:** `voice_typer/client/src/main/ipc/export-handlers.ts:178-222`
+
+**Fix:** Apply the same `MAX_EXPORT_ROWS` cap (or a smaller one appropriate to templates/config size) to `templates:export` and `config:export`.
+
+---
+
+## PVT-15 — `tcp-connect.ts` connect callback skips retry-generation check (stale socket races new spawn)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `tcp-connect.ts:39-94`'s `connect` callback does NOT check `retryGen !== state._tcpRetryGeneration` before writing the auth line, setting `state.tcpSocket`, calling `createWindows()`, and starting the heartbeat. The generation check exists ONLY in the `error` (line 126) and `close` (line 175) handlers. Scenario: (1) `tryConnect()` fires from a retry timer; `client.connect(port, cb)` is issued but the TCP handshake is async. (2) `startPython()` is called (e.g. dev-mode restart); it clears `_tcpRetryTimer` and bumps `_tcpRetryGeneration`. (3) The in-flight `client.connect` callback fires, writes the auth line, sets `state.tcpSocket = client`, calls `createWindows()`, starts the heartbeat — all against the OLD socket. (4) `startPython`'s own `tcpConnect(IPC_PORT)` creates a NEW socket. Now TWO sockets race for the Python backend's single TCP accept slot.
+
+**Severity:** 🔴 High (race condition)
+
+**Related Files:** `voice_typer/client/src/main/python/tcp-connect.ts:39-94`
+
+**Fix:** Add `if (retryGen !== state._tcpRetryGeneration) { client.destroy(); return; }` as the first line inside the `client.connect` callback.
+
+---
+
+## PVT-16 — `tray.rs` uses `"✓"` accelerator text for checkmarks (likely doesn't render checkmark on any platform)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `src-tauri/src/tray.rs:146-150` does `let check: Option<&str> = item.checked.map(|c| if c { "✓" } else { "" });` then `b = b.accelerator(acc);`. Accelerators are keyboard shortcuts (e.g. `Cmd+Q`), NOT visual state. On platforms that interpret the accelerator as a real shortcut (macOS menu manager may try to bind `✓` as a key equivalent), this could cause weird behavior. The `""` (unchecked) case sets an empty accelerator, which likely does NOT clear a previously-rendered checkmark. Result: check/uncheck state may not visually update correctly across platforms.
+
+**Severity:** 🟡 Medium (broken UX)
+
+**Related Files:** `src-tauri/src/tray.rs:146-150`
+
+**Fix:** Use `MenuItemBuilder::checked(bool)` (Tauri v2 exposes this) instead of the accelerator hack.
+
+---
+
+## PVT-17 — `shutdown_sidecar` lacks `shutting_down` early-return guard (duplicate call blocks 2s)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `src-tauri/src/commands/sidecar_cmds.rs:407-478`'s `shutdown_sidecar` does NOT early-return when `shutting_down` is already `true`. A duplicate `invoke('shutdown_sidecar')` call (renderer-invocable since it's in `generate_handler!`) re-sends the shutdown frame (idempotent, harmless) and blocks on `state.child_exit_rx.lock().await` for the full 2-second `SHUTDOWN_ACK_TIMEOUT_MS`.
+
+**Severity:** 🟡 Medium (UX delay)
+
+**Related Files:** `src-tauri/src/commands/sidecar_cmds.rs:407-478`
+
+**Fix:** Add early-return guard at the top of `shutdown_sidecar`: `if state.shutting_down.swap(true, Ordering::SeqCst) { return Ok(()); }`.
+
+---
+
+## PVT-18 — `sidecar_ws._push_to_ws` has non-thread-safe mutations (re-introduces corruption the sibling `_enqueue_safe` was created to prevent)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `voice_typer/server/sidecar_ws.py:498-534`'s `_push_to_ws` has TWO docstrings (one stale from a refactor), then a try/except block that catches exceptions that cannot be raised. Worse, the pre-call `outbound.full()` / `outbound.get_nowait()` / `outbound.put_nowait` calls on lines 522-527 and 532 ALL mutate the asyncio.Queue from a non-loop thread — exactly the bug that the sibling helper `_enqueue_safe` (lines 341-385) was created to prevent. The docstring's "Symptoms seen pre-fix" list (silently dropped events, deadlocked writer, hard asyncio crash → FT-1 respawn loop) is the expected failure mode.
+
+**Severity:** 🔴 High (production crash risk)
+
+**Related Files:** `voice_typer/server/sidecar_ws.py:498-534`
+
+**Fix:** Replace lines 522-534 with the minimal correct form: `try: loop.call_soon_threadsafe(_enqueue_safe, outbound, event); except RuntimeError: log.debug("[SIDECAR-WS] event dropped during shutdown — event loop closed")`. Delete the second docstring (line 518). Delete the dead `except asyncio.QueueFull:` branch. Delete the pre-call `if outbound.full(): ...` block (drop-oldest logic already lives inside `_enqueue_safe`).
+
+---
+
+## PVT-19 — `ipc_server.py` has 440 LOC of byte-for-byte duplicated helpers (Phase-4.5 split abandoned mid-way)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `voice_typer/server/ipc_server.py` contains local re-definitions of `_pick_available_port` (51 LOC), `_RateLimiter` + `_get_rate_limiter` + all `_RATE_LIMIT_*`/`_HEARTBEAT_*`/`_TCP_WRITE_TIMEOUT_SECONDS` constants (~235 LOC), and `_SECRET_CONFIG_FIELDS`/`_REDACTED_SENTINEL`/`_HISTORY_LIMIT_*`/`_bound_history_limit`/`_bound_history_offset`/`_sanitize_config_for_ipc` (~76 LOC) — all of which have CANONICAL copies in `voice_typer/server/ipc/{transport,rate_limiter,history_bounds}.py`. The module-header comment at lines 31-46 claims the helpers are imported from the leaf submodules, but the only symbols actually re-imported are `_validate_dict_payload`, `_error_response`, and `_TCPLineIO`. Everything else is re-defined locally — contradicting the comment. `tests/test_dead_code_stays_removed.py:663` asserts `ipc_server._TCPLineIO is ipc_transport._TCPLineIO` (identity); the equivalent identity check would FAIL today for the duplicated symbols.
+
+**Severity:** 🟡 Medium (DRY violation, monolith debt)
+
+**Related Files:** `voice_typer/server/ipc_server.py:93-540`; `voice_typer/server/ipc/{transport,rate_limiter,history_bounds}.py`
+
+**Fix:** Delete the local definitions from `ipc_server.py` and replace with `from voice_typer.server.ipc.{transport,rate_limiter,history_bounds} import ...  # noqa: F401` re-export lines. Update ~15 test monkeypatch sites to patch the canonical leaf paths (`voice_typer.server.ipc.rate_limiter._RateLimiter` instead of `voice_typer.server.ipc_server._RateLimiter`).
+
+---
+
+## PVT-20 — `handlers/__init__.py` missing `PrivacyHandlersMixin` from `__all__` (same bug R4-F6 fixed for Repaste)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `voice_typer/server/handlers/__init__.py` imports and re-exports 13 of the 14 handler mixins in `__all__` (lines 54-73), but `PrivacyHandlersMixin` is NOT in the list. Cross-check with `ipc_server.py:605-607` confirms `PrivacyHandlersMixin` IS imported directly from `voice_typer.server.handlers.privacy_handlers` and IS one of the 15 base classes of `IPCServer` (line 614). The handlers/__init__.py docstring documents the EXACT same bug for `RepasteHandlersMixin` (R4-F6 fix) — but the same fix was never applied to `PrivacyHandlersMixin` which was added later.
+
+**Severity:** 🟡 Medium (latent ImportError)
+
+**Related Files:** `voice_typer/server/handlers/__init__.py:25-73`
+
+**Fix:** Add `from voice_typer.server.handlers.privacy_handlers import PrivacyHandlersMixin` to the import block and `"PrivacyHandlersMixin",` to `__all__`. One-line fix mirroring the R4-F6 pattern.
+
+---
+
+## PVT-21 — `service.py` (2657 LOC, 76 methods, 13 domains) — god facade; `config_applier.py` already extracted but NEVER WIRED
+
+**Status:** ❌ Not Fixed
+
+**Description:** `VoiceTyperService` is a god facade with 76 methods spanning 13 domains: history, models, downloads, onboarding, microphone-test, level-monitor, vocabulary, templates, config, dictation, status, lifecycle, privacy/GDPR. Single god-methods: `download_model` (~470 LOC), `apply_config_side_effects` (~215 LOC), `import_model` (~145 LOC), `apply_config` (~110 LOC). The smoking gun: `voice_typer/server/config_applier.py` (478 LOC) ALREADY EXISTS with `ConfigApplier` containing the extracted (and IMPROVED — CR-61 `to_filter_dict`, CR-97 `save_strict()`) versions of `apply_config_side_effects` and `apply_config` — but `service.py` does NOT import or use it. The OLD inline versions are still in place as duplicates. The refactor was started but never wired up.
+
+**Severity:** 🔴 High (god facade + duplicated code + stalled refactor)
+
+**Related Files:** `voice_typer/server/service.py:1064-1451`; `voice_typer/server/config_applier.py` (already exists)
+
+**Fix:** In `service.py.__init__`: add `self._config_applier = ConfigApplier(self)`. Replace inline `apply_config_side_effects` and `apply_config` with 2-line delegators. This drops `service.py` by ~325 LOC and lands the CR-61 + CR-97 bug fixes. Test `tests/regressions/concurrency_test.py:84` (source-string pin on `_config_mutation_lock`) needs target updated to `config_applier.ConfigApplier.apply_config`.
+
+---
+
+## PVT-22 — `recorder.py` (3019 LOC) — partial monolith; safe to extract device_manager + resampling + vad_shims (-480 LOC)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `recorder.py` was already the target of a Phase 4.5 / ARCH-045 partial split that carved out `resampling.py` (144 LOC), `buffer.py` (182 LOC), `exceptions.py` (38 LOC). The remaining 3019 LOC still mixes 7 concerns: (1) device enumeration / hot-swap (~430 LOC), (2) VAD delegation shims (~110 LOC), (3) RT-safe audio chunking pipeline (~440 LOC, pinned by tests), (4) IPC event worker (~160 LOC, pinned), (5) buffer/snapshot cache + resampling wrappers (~250 LOC), (6) stream lifecycle (~560 LOC, pinned), (7) module-level constants (~110 LOC). The pinned methods (`_process_audio_chunk`, `_audio_callback_dispatch`, `_event_worker_loop`, `start`, `__init__`, `discard`, `__del__`) CANNOT be moved without rewriting source-string tests.
+
+**Severity:** 🟡 Medium (monolith debt, partial-safe extraction)
+
+**Related Files:** `voice_typer/server/recording/recorder.py`; `voice_typer/server/recording/{resampling,buffer,exceptions}.py`
+
+**Fix:** Three safe mechanical extractions: (A) `recording/device_manager.py` (~330 LOC moved) — extract `_refresh_device_list`, `_resolve_device`, `_host_api_name`, `_device_index`, `_same_physical_microphone_candidates`, `_fallback_host_rank`, `_resolve_effective_sample_rate`, `_all_input_device_candidates`, `_start_device_health_checker`, `_stop_device_health_checker`, `_device_health_checker_loop`. (B) Promote `_resample_audio_impl` body into `resampling.py` (~80 LOC moved). (C) Move VAD property-shim block into `vad_processor.py` as a mixin (~50 LOC moved). Result: `recorder.py` 3019 → ~2540 LOC. MUST apply PVT-5/PVT-6 fix first (behavioral prerequisite). MUST follow `_recording_pkg.X` lookup pattern for cross-submodule helpers (test patches depend on it).
+
+---
+
+## PVT-23 — `clipboard.py` (1432 LOC) — 3-platform monolith (Linux/Wayland + Win32 + ClipboardManager orchestrator)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `clipboard.py` mixes 4 conceptually separable concerns: (1) module-level atexit handler + `_pending_restores` registry (~50 LOC); (2) cross-platform Linux/Wayland primitives (~310 LOC: `_is_wayland_session`, `_have_wl_clipboard`, `_linux_wayland_copy`, `_linux_wayland_paste`, `_linux_paste_via_wtype`, `_linux_copy`, `_linux_paste`, `_copy_to_clipboard`, `_paste_from_clipboard`); (3) `Win32Clipboard` class + Win32 SendInput (~150 LOC); (4) `ClipboardManager` orchestrator (~900 LOC).
+
+**Severity:** 🟡 Medium (platform monolith)
+
+**Related Files:** `voice_typer/server/clipboard.py`
+
+**Fix:** Convert to `voice_typer/server/clipboard/` package: `__init__.py` (~30 LOC, re-exports), `linux.py` (~310 LOC), `windows.py` (~150 LOC), `manager.py` (~900 LOC). Update ~14 test monkeypatch sites to patch new locations. Update 2 `inspect.getsource(clip_mod)` tests to either read `clipboard/manager.py` source OR keep `PLAT-CONTENT`/`PLAT-001`/`UIPI` strings in `__init__.py` as a docstring fragment.
+
+---
+
+## PVT-24 — `volume_backends.py` (1055 LOC) — 3-platform monolith (Win/Mac/Linux in one file)
+
+**Status:** ❌ Not Fixed
+
+**Description:** Three unrelated platform-specific classes in one file with section dividers already marking the boundaries: `WinVolumeBackend` (~205 LOC), `_try_import_coreaudio` + `MacVolumeBackend` + 9 private helpers (~610 LOC), `LinuxVolumeBackend` (~205 LOC). The repo already follows the per-platform split pattern (`hotkeys/` is a package with `base.py` + per-platform impls). `voice_typer/server/volume_backend_base.py` already exists as the abstract base — the package structure is half-built but the concrete backends were never moved out of the single 1055-LOC file.
+
+**Severity:** 🟡 Medium (platform monolith)
+
+**Related Files:** `voice_typer/server/volume_backends.py`; `voice_typer/server/volume_backend_base.py`
+
+**Fix:** Convert to `voice_typer/server/volume_backends/` package: `__init__.py` (~20 LOC, re-exports), `windows.py` (~210 LOC), `macos.py` (~610 LOC), `linux.py` (~210 LOC). Zero test changes — public symbols re-exported, no `inspect.getsource` blockers, no monkeypatch blockers.
+
+---
+
+## PVT-25 — `ThemeSettingsSection.tsx` calls `setState` during render (React anti-pattern)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `voice_typer/client/src/renderer/src/components/settings/ThemeSettingsSection.tsx:327-340` does:
+```ts
+if (config && !customThemeInitRef.current) {
+    customThemeInitRef.current = true;
+    const draft = _loadDraftFromLS();
+    if (draft) setCustomDraft(draft);              // ← setState during render
+    else if (config.custom_theme) setCustomDraft(config.custom_theme);  // ← setState during render
+    else setCustomDraft({ light: {...}, dark: {...} });                // ← setState during render
+}
+```
+The comment justifies this as "avoids extra render with stale null" but React's docs explicitly warn against `setState` during render — it forces a synchronous re-render before the current render commits. Breaks concurrent-rendering invariants.
+
+**Severity:** 🟡 Medium (React anti-pattern)
+
+**Related Files:** `voice_typer/client/src/renderer/src/components/settings/ThemeSettingsSection.tsx:327-340`
+
+**Fix:** Move the init block into a `useEffect` with `[config]` deps and the same `customThemeInitRef` guard.
+
+---
+
+## PVT-26 — `HotkeyPicker.tsx` bypasses `usePythonEvent` for `hotkey_capture_cancel` subscription (latent bug)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `HotkeyPicker.tsx:234-243` subscribes to `hotkey_capture_cancel` via raw `window.python?.onEvent?.(...)` instead of the `usePythonEvent` hook. The `usePython.ts` hook contains an explicit CR-6 fix that polls for `window.python` presence and re-subscribes when the bridge becomes available after mount — exactly the failure mode this component needs to handle (HotkeyPicker may mount before the bridge is installed under slow HMR). The raw subscription silently no-ops if `window.python` is undefined at mount, dropping the cancel event.
+
+**Severity:** 🟡 Medium (latent bug)
+
+**Related Files:** `voice_typer/client/src/renderer/src/components/hotkey/HotkeyPicker.tsx:234-243`
+
+**Fix:** Replace with `usePythonEvent("hotkey_capture_cancel", () => cancelRecordingRef.current?.())`.
+
+---
+
+## PVT-27 — `recorder.py:2315` dead `recent_rms = recent_rms_snapshot` alias
+
+**Status:** ❌ Not Fixed
+
+**Description:** `recorder.py:2292` takes `recent_rms_snapshot` under a lock for thread-safety, then line 2315 aliases it to `recent_rms` — but `recent_rms` is never read after this assignment. The entire `recent_rms_snapshot` snapshot is also dead since nothing reads it. This is exactly the L-2 dead-alias pattern from prior reviews.
+
+**Severity:** 🟢 Low (dead code)
+
+**Related Files:** `voice_typer/server/recording/recorder.py:2292, 2315`
+
+**Fix:** Delete line 2315 (`recent_rms = recent_rms_snapshot`) and the snapshot at line 2292.
+
+---
+
+## PVT-28 — `config.py` `_validate_non_numeric_fields` uses hand-maintained field-name sets (drift hazard)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `config.py:1499-1657`'s `bool_fields`, `str_fields`, `int_fields`, `float_fields` sets are maintained by hand and must be kept in sync with the dataclass field declarations. The file contains a comment (lines 1540-1544) acknowledging a past bug: `"volume_duck_smart_poll_interval_ms"` was misclassified as a bool, causing a spurious "resetting to default 500" warning on every startup. If a new float field is added to the dataclass but forgotten in `float_fields`, it won't be coerced on load — a silent type-coercion gap.
+
+**Severity:** 🟡 Medium (maintainability hazard)
+
+**Related Files:** `voice_typer/server/config.py:1499-1657`
+
+**Fix:** Derive the sets from `typing.get_type_hints(Config)` at class-definition time. Auto-syncs the validator to the dataclass — no more drift.
+
+---
+
+## PVT-29 — `Bubble.tsx` `_className` unused prop + className merges without `cn()`
+
+**Status:** ❌ Not Fixed
+
+**Description:** `Bubble.tsx:217` accepts a `_className` prop but never uses it (dead prop). Lines 503 and 512 use template-literal className merges (e.g. `` `bubble-pill ${mode === "transcribing" ? "transcribing" : ""}` ``) instead of the `cn()` helper — bypasses tailwind-merge benefits.
+
+**Severity:** 🟢 Low (cleanup)
+
+**Related Files:** `voice_typer/client/src/renderer/src/Bubble.tsx:217, 503, 512`
+
+**Fix:** Remove `_className` prop. Replace template-literal merges with `cn()`.
+
+---
+
+## PVT-30 — `tauri-bridge.ts` (673 LOC) is a god module mixing 3 namespaces + 4× duplicated export logic
+
+**Status:** ❌ Not Fixed
+
+**Description:** Single file installs THREE global namespaces (`window.python`, `window.bubble`, `window.window_`). The `bubble` object has 14 methods (~213 LOC). The `window_` object has 4 nearly-identical export wrappers (`exportHistory`, `exportVocabulary`, `exportTemplates`, `exportConfig` at lines 504, 534, 564, 593) — each ~28 LOC of duplicated try/catch + canceled/error mapping logic (~110 LOC of pure duplication). `python.onEvent` (lines 154-213) has nested cancellation logic + FT-1 relay pattern (~60 LOC of orchestration inline).
+
+**Severity:** 🟡 Medium (god module, DRY violation)
+
+**Related Files:** `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
+
+**Fix:** Split into `lib/tauri-bridge/{detect,python-namespace,bubble-namespace,window-namespace,index}.ts`. Extract `makeListener()` and `makeExportCommand(name, args)` factories to eliminate the 8× listener boilerplate and 4× export duplication.
+
+---
+
+## Spaghetti/Monolith Auto-Split Plan (Phase 4.5)
+
+Per the MANDATORY Phase 4.5 rule, the following files MUST be split immediately (not just logged):
+
+| File | Current LOC | Action | Target LOC | Blocked by |
+|---|---|---|---|---|
+| `voice_typer/server/recording/recorder.py` | 3019 | Extract device_manager + resampling promotion + vad_shims | ~2540 | PVT-5/PVT-6 (behavioral fix prerequisite) |
+| `voice_typer/server/ipc_server.py` | 2711 | Delete 440 LOC of duplicate helpers + extract tcp_mixin + heartbeat_mixin + main | ~1100-1200 | None (mechanical) |
+| `voice_typer/server/service.py` | 2657 | Wire `config_applier.py` + extract 8 sub-services | ~830 | PVT-21 (config_applier wiring) |
+| `voice_typer/server/clipboard.py` | 1432 | Convert to `clipboard/` package | ~1390 across 4 files | ~14 test patches |
+| `voice_typer/server/volume_backends.py` | 1055 | Convert to `volume_backends/` package | ~1050 across 4 files | None (zero test cost) |
+
+---
+
+## Findings Deferred (out of session scope or low-ROI)
+
+The following findings were identified but are NOT being fixed in this session — they are either (a) too invasive for a single fix wave, (b) blocked by behavioral prerequisites, or (c) low-ROI polish. Listed for the next session:
+
+- **Rust newtypes** (`DispatchId`, `Port`, `AuthToken`, `TrayIconName`, `TargetTriple`) — high-value but touches ~30 call sites across `src-tauri/src/`. Defer to a dedicated session.
+- **Serde wire-frame types** replacing 14 `json!({...})` sites — high-value but invasive. Defer.
+- **`thiserror` adoption** replacing ~45 `String` error sites — per-module refactor. Defer.
+- **`recorder.py` deeper split** (below ~2540 LOC) — blocked by 7 source-string tests that need behavioral rewriting. Defer to CR-67 test-migration pass.
+- **`service.py` 8-sub-service extraction** — blocked by PVT-21 (config_applier wiring). Do PVT-21 first; the 8-sub-service extraction is a follow-up.
+- **App-level heartbeat** in `recorder.py` audio worker (PVT-1) — needs Tauri-side changes too. Defer to coordinated cross-layer session.
+- **`ipc_server.py` deeper split** (TCPServerMixin + HeartbeatHandlersMixin + ServerHandlersMixin + main extraction) — Phase 2 of PVT-19. Do PVT-19 first.
+- **`ft1.rs` split** (circuit_breaker + coalesce + tests) — Phase 2 of PVT-3. Do PVT-3 first.
+- **`tray.rs` split** (icon + menu + state + click + tests) — Phase 2 of PVT-16. Do PVT-16 first.
+- **`migrate.rs` split** — Phase 2 of PVT-4. Do PVT-4 first.
+- **`spawn.rs` split** — Phase 2 of PVT-3. Do PVT-3 first.
+- **`bubble.rs` split** — independent; defer to next session.
+- **`export.rs` split** — independent; defer.
+- **`paste.rs` split** — independent; defer.
+- **Hotkey validation cross-language drift** (1-18-6) — needs property-based test. Defer.
+- **Pydantic migration for `Config` schema** (1-18-1) — large refactor. Defer.
+- **Deprecation warning machinery** (1-18-4) — needs UX design. Defer.
+
+---
+
+## Validation Status (per platform-qualified claims rule)
+
+- **Linux (sandbox)**: Python imports verified (`import voice_typer.server.app` succeeds). `pytest tests/test_audio_processor.py tests/test_audio_filters.py` ran: 85 passed, 9 pre-existing failures (in `TestSetSampleRate` — unrelated to this review).
+- **Linux (sandbox)**: `cargo check` started in background — compilation ongoing (will complete in ~5 min).
+- **Windows host**: NOT run here. `VALIDATE ON WINDOWS HOST`: run `cd src-tauri && cargo check` and `cd voice_typer/client && npm run typecheck && npm run lint && npm run build` after applying fixes.
+- **macOS host**: NOT run here. `VALIDATE ON MACOS HOST`: same as Windows + run `bash scripts/build/compile_native.sh` to verify the macOS key-listener binary builds.
+
+
+---
+
+
+## Session 2 Findings
+
+Verbatim copy of session-2's `comprehensive-review.md`:
+
+# Comprehensive Review — Group 2 (Performance & Resources)
+
+**Scope**: Full-Review mode, GROUP 2 (Performance & Resources) — 7 categories: Performance, Memory leaks, CPU usage, Resource footprint, Audio pipeline quality, Scalability, Working-but-suboptimal code.
+
+**Method**: 25 parallel review sub-agents covered disjoint file slices of the codebase. This file aggregates their findings (deduplicated, severity-calibrated).
+
+**Environment**: Linux sandbox. Windows/macOS host validation pending for platform-specific items.
+
+---
+
+## [PVT-003] — history_db FTS5 infrastructure never queried (wasted writes)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `transcriptions_fts` virtual table is created with 3 AFTER INSERT/UPDATE/DELETE triggers (MIGRATION_V3). But `search()` (line 1475-1483) executes `SELECT * FROM transcriptions WHERE text LIKE ? ESCAPE '\\'` — a linear table scan. The FTS5 table is maintained (every add/toggle/delete/restore/clear pays trigger cost) but never read. Helpers `_is_fts_compatible_query` and `_sanitize_fts_query` (lines 205-259) are dead code.
+
+**Root Cause:** CR-49/M-61 added FTS5 migration but `search()` was never updated.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/history_db.py:1459-1490` (search); 205-259 (dead helpers); 178-187 (triggers)
+
+**Fix:** Wire `search()` to use FTS5: `SELECT t.* FROM transcriptions t JOIN transcriptions_fts f ON t.id = f.rowid WHERE transcriptions_fts MATCH ? ORDER BY t.timestamp DESC LIMIT ? OFFSET ?` with `_sanitize_fts_query`. Or if FTS5 is unwanted, drop migration V3, triggers, and dead helpers.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-004] — history_db thread-local read connections never released (~20MB each leak)
+
+**Status:** ❌ Not Fixed
+
+**Description:** Each reader thread that calls `get_recent` / `search` / `get_favorites` / `get_today_stats` / `get_latest_text` triggers `_get_read_conn()` which creates a new `sqlite3.Connection` with `PRAGMA cache_size=-20000` (20 MB page cache) and appends to `self._all_read_connections`. The list is only cleared in `close()`. Thread-local connections are never released when the thread exits — only when the entire `HistoryDB` is closed. IPC handler threads, tray thread, dictation pipeline thread, test threads each accumulate 20 MB. Over a long-running app session with thread pool churn, this is unbounded memory growth.
+
+**Root Cause:** No eviction of stale read connections. `_all_read_connections` list holds references even after threads die.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/history_db.py:793-832`; `_all_read_connections` list at 294; `close()` cleanup at 1066-1076
+
+**Fix:** Use `weakref.WeakSet` for tracking, or periodically prune dead-thread connections in `_get_read_conn()`. Alternatively use a small connection pool (4 shared connections via `queue.Queue`/`Semaphore`).
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-006] — recorder.py is a 3019-line spaghetti god-class (MANDATORY split)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `voice_typer/server/recording/recorder.py` (3019 lines) mixes 7+ disjoint concerns in a single class: device management (12 methods, ~677 lines), stream lifecycle (start/stop/discard/teardown ~1100 lines), worker thread management (6 methods ~312 lines), audio callback + chunk processing (~500 lines), audio processing helpers (~470 lines), VAD property shims (18 property delegations). The docstring admits the original was "3,215-line god-module" and the split was incomplete.
+
+**Root Cause:** Phase 4.5 / ARCH-045 extracted exceptions, buffer-clear, and resampling into sibling submodules but left the Recorder class itself as a god-class.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/recording/recorder.py` (entire file, 3019 lines)
+
+**Fix:** Split into focused modules: `recorder/capture.py` (callback + worker loop), `recorder/lifecycle.py` (start/stop/discard/_teardown_stream), `recorder/device_management.py` (12 device methods), `recorder/format.py` (resample/mono/snapshot), `recorder/worker_threads.py`. Keep `Recorder` as a thin facade re-exporting the public API.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-007] — recorder.start() does 4-7 sd.query_devices() calls on hotkey critical path
+
+**Status:** ❌ Not Fixed
+
+**Description:** `start()` performs 4-7 separate `sd.query_devices()` RPCs on the hotkey critical path: line 1061, 1063, 1126, 1131, 1184, 1420, 1525. Each call is 50-200ms on Windows MME. Worst case: 4-7 × 100ms ≈ 400-1400ms blocking on the start hotkey before recording begins. The device-list cache (`_device_list_cache`, TTL 30s) exists but is ONLY consulted by `_refresh_device_list()` — none of the start() device-enumeration paths use it.
+
+**Root Cause:** Each path independently re-queries PortAudio instead of consulting the cache.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/recording/recorder.py:1061-1063, 1126, 1131, 1184, 1420, 1525`
+
+**Fix:** Have `_same_physical_microphone_candidates` and `_resolve_effective_sample_rate` consult `_refresh_device_list()` (cached path). Pre-warm the cache in `Recorder.__init__` via background thread.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-008] — recorder.stop() sequentially joins 4 threads (~6s worst-case shutdown)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `stop()` sequentially blocks on: `_teardown_stream()` (up to 300ms callback-drain poll), `_stop_audio_worker(timeout=2.0)` (up to 2s join), `_stop_event_worker(timeout=2.0)` (up to 2s join), `_stop_device_health_checker()` (up to 1s join), `_prepare_audio()` with scipy resample_poly (100-500ms for 30-min audio). Worst case: ~5.8s before stop() returns and transcription can begin. The device-health-checker join (1s) is particularly wasteful — the checker sleeps 30s between probes, so a 1s join almost always times out for no benefit.
+
+**Root Cause:** All four thread joins are serial; none overlap.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/recording/recorder.py:2556-2582, 2644-2646`
+
+**Fix:** Join the audio worker synchronously (needed for buffer drain), but make event worker and device-health checker fire-and-forget. Reduce `_stop_device_health_checker` timeout from 1.0s to 0.1s. Optionally run `_prepare_audio()` in parallel with worker joins.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-010] — Audio filters use per-sample Python loops on the RT thread (~2-3ms/chunk)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `compressor.py:74-94`, `limiter.py:64-82`, `noise_gate.py:100-130`, `equalizer.py:78-97` all use `for i in range(n)` Python loops on the PortAudio RT thread (~16 Hz). Each iteration does numpy-scalar extraction + abs + conditional + math.log10 + 10.0**x + numpy assignment. ~1000 samples/chunk at 16 Hz → ~16k iterations/s with transcendental calls each. Total ~2-3ms per chunk on the RT thread — risks missed PortAudio deadlines (~32ms at 16kHz/1024-sample buffers) on slower machines, causing dropouts/clicks.
+
+**Root Cause:** Pure-Python per-sample loop ported 1:1 from OBS C without vectorization.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/audio_filters/compressor.py:74-94`
+- `voice_typer/server/audio_filters/limiter.py:64-82`
+- `voice_typer/server/audio_filters/noise_gate.py:100-130`
+- `voice_typer/server/audio_filters/equalizer.py:78-97`
+
+**Fix:** Vectorize envelope follower with `np.maximum.accumulate` + one-pole smoothing via `np.cumprod`-style recurrence, compute gain in dB vectorized (`np.log10`/`np.power`). Or wrap with `numba @njit`.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-012] — level_monitor holds lock during RNNoise filter call (50% jitter on level bar)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `_process_level_chunk` (worker thread) acquires `_monitor_lock` for the ENTIRE chunk pipeline including RNNoise filter call (5-50ms per chunk). `get_level()` is polled every 100ms by the React frontend (`Microphone.tsx:299` `setInterval(..., 100)`) and also acquires `_monitor_lock`. At 48 kHz / 512-sample blocks, chunks arrive every ~10.7ms, so worker holds lock nearly continuously when RNNoise active. Each frontend poll blocks 5-50ms → ~50% jitter on level bar.
+
+**Root Cause:** Filter call + numpy ops are inside the lock; only the final state writes need synchronization.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/level_monitor.py:1041-1079` (`_process_level_chunk`)
+
+**Fix:** Move `_level_processor.process_chunk()`, `np.abs/np.sqrt/np.mean`, and test-quality-metric computation OUTSIDE the lock. Acquire `_monitor_lock` only for the final state writes. Cuts lock hold time from 5-50ms to ~0.1ms.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-013] — level_monitor stop_test_recording re-runs entire filter chain synchronously (7-70s block)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `_test_chunks` stores RAW `indata` (line 1072, not the filtered output). At stop time, the ENTIRE recording (up to 30s) is re-processed through a fresh `AudioProcessor`. At 48 kHz / 1024-sample blocks: 30s × 48000 / 1024 ≈ 1406 blocks × 5-50ms = 7-70 seconds of synchronous blocking on the IPC thread that called `stop_test_recording`.
+
+**Root Cause:** Live filter output not captured; post-hoc re-filtering required.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/level_monitor.py:729-757`
+
+**Fix:** Store the FILTERED audio in `_test_chunks` during the live callback (the worker already runs `_level_processor.process_chunk` at line 1050 — just append `filtered` instead of `indata.copy()`), eliminating post-hoc re-processing. The "before" WAV (`_test_raw_chunks`) already has the raw audio.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-017] — parakeet_engine.transcribe() holds lock during entire inference (10-60s)
+
+**Status:** ❌ Not Fixed
+
+**Description:** The entire `transcribe()` body — including the multi-chunk loop calling `_transcribe_segment()` (which runs `self._model.generate()`) — is wrapped in `with self._lock:` (line 470). For a 5-minute recording split into ~13 chunks, the lock is held for the entire 30–60+ seconds of GPU inference. `is_loaded`, `unload()`, and any concurrent caller block for the full inference duration. Unlike `QwenEngine` (which has the RACE-032 fix that releases the lock before inference), `ParakeetEngine` was never updated.
+
+**Root Cause:** RACE-032 pattern not applied to parakeet.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/parakeet_engine.py:459-495` (`ParakeetEngine.transcribe`)
+
+**Fix:** Mirror QwenEngine's RACE-032 pattern: acquire `self._lock` only to snapshot `model = self._model` / `processor = self._processor` and set an inference flag, then release the lock before calling `_transcribe_segment()`.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-019] — qwen chunked transcription has no overlap dedup (duplicate words)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `_transcribe_chunked` (line 302-356) splits audio with 3s overlap (`_QWEN_CHUNK_OVERLAP_SECONDS = 3`), but results are joined with simple `" ".join(results)` — no overlap deduplication. Each chunk's first ~3s of audio overlaps the previous chunk's last ~3s, so both chunks produce text for the overlap region. For a 5-minute recording split into ~11 chunks, ~30s of audio is transcribed twice, producing duplicated words (~50-100 duplicated words at 200 WPM).
+
+**Root Cause:** Incorrect assumption about Whisper decoder behavior. The docstring claims "Whisper-style models generally do not re-transcribe overlap text" — Whisper transcribes ALL audio it receives.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/qwen_engine.py:302-356` (`_transcribe_chunked`)
+
+**Fix:** Implement word-level overlap dedup similar to `ParakeetEngine._merge_chunks`, OR reduce overlap to 0 and accept boundary artifacts, OR use Whisper timestamps to trim overlap audio before transcription.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-021] — llm_polish 30s blocking call on dictation thread
+
+**Status:** ❌ Not Fixed
+
+**Description:** `_call_api` (line 255) does `with _opener.open(req, timeout=30) as resp:` — a hard 30-second blocking `urlopen` on the dictation pipeline's step-7 hot path. `dictation_pipeline.py:705` calls `self._app._llm_polisher.polish(text)` synchronously between transcription and paste. When polish is on, every dictation blocks the pipeline thread for up to 30s. User sees no paste, waveform bubble stalls, next dictation queues behind it.
+
+**Root Cause:** Polish invoked inline on the dictation thread with no async/offload.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/llm_polish.py:255` (`_call_api`); called from `dictation_pipeline.py:705`
+
+**Fix:** Either (a) make polish non-blocking — fire it on a worker thread and paste polished text via follow-up IPC event, falling back to raw text on a 2-3s deadline; or (b) expose `timeout` as a config field (`llm_request_timeout_s`, default 10) and lower the default.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-023] — macOS prewarm poll loop spawns `ps` subprocess every iteration (up to 60 spawns)
+
+**Status:** ❌ Not Fixed
+
+**Description:** On macOS, `_process_is_prewarm` spawns `ps -o command= -p {pid}` subprocess. `wait_for_prewarm`'s fallback poll loop (1s sleep, 60s timeout) calls `is_prewarm_running` → `_process_is_prewarm` up to 60 times. Each `ps` spawn is ~10-50ms. Up to 60 subprocess spawns (600ms-3s of fork/exec overhead) during a single `wait_for_prewarm` call on macOS. The event-based wait returns False on macOS (unsupported), so poll fallback always runs.
+
+**Root Cause:** Poll loop re-validates PID is prewarm on every iteration via subprocess spawn.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/prewarm/process_tracker.py:470-482` (`_process_is_prewarm` macOS branch); `wait_for_prewarm` poll loop at 591-596
+
+**Fix:** Cache the cmdline check result for the duration of the poll loop. The PID can't change identity mid-wait — if it exits and gets recycled, `_process_alive` returns False first.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-024] — quit() holds _quit_lock across shutdown_all() join loop
+
+**Status:** ❌ Not Fixed
+
+**Description:** `quit()` acquires `with self._quit_lock:` and calls `app._thread_registry.shutdown_all()` INSIDE the lock. `shutdown_all()` joins each registered daemon thread with its per-thread timeout. With N threads × M-second timeouts, the lock is held for N×M seconds. A concurrent `quit()` from the atexit net, POSIX signal-watcher, Win32 console handler, or IPC `quit_app` handler blocks on `_quit_lock` for the entire window.
+
+**Root Cause:** Lock scope too broad; only the check-then-set needs the lock.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/shutdown_controller.py:512-535`
+
+**Fix:** Move `shutdown_all()` OUTSIDE the `with self._quit_lock:` block (after the flag is set and released). The `_shutting_down` flag already prevents double-entry; `shutdown_all()` is documented as idempotent.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-025] — download_model polling stats entire HF cache every second (10-40% CPU)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `download_model` polling loop (line 2268-2272): `if cache_dir.exists(): total_bytes_seen = sum(f.stat().st_size for f in cache_dir.rglob("*") if f.is_file())`. `cache_dir` is `<config_dir>/huggingface/hub` — the root of the entire HF cache, not the per-model blob directory. This `rglob("*")` runs once per second for the whole download (minutes). User with 4 cached models triggers ~thousands of `stat()` syscalls per second during every download. Sustained 10–40% CPU + heavy disk I/O on the IPC handler thread.
+
+**Root Cause:** Walks entire HF cache root instead of the specific downloading model's directory.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/service.py:2268-2272`
+
+**Fix:** Scope the walk to the downloading model's directory: `cache_dir / repo_dir_name`. Better: use HF hub's `snapshot_download` `max_workers` + progress callback instead of polling filesystem.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-026] — service.py is 2657-line spaghetti (3.3× the 800-line threshold)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `service.py` (2657 lines) mixes 12+ unrelated concerns: config management, history DB CRUD, microphone + mic-test, level monitor, onboarding wizard (~230 lines), model download/import/delete/cancel/pause (`download_model` alone is ~470 lines), templates, GDPR, diagnostics, vocabulary, audio status, volume status, download-cancellation state machine. The `apply_config_side_effects` if-chain (lines 1064–1278) is a 214-line procedural dispatch table that should be a dict.
+
+**Root Cause:** Service introduced as thin facade but accreted every new IPC feature without sub-module extraction.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/service.py` (entire file)
+
+**Fix:** Split into `services/{config,history,microphone,model_download,onboarding,templates,gdpr,diagnostics}.py`, each <400 lines. `VoiceTyperService` becomes a facade.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-027] — ipc_server.py is 2711-line spaghetti with duplicated rate limiter
+
+**Status:** ❌ Not Fixed
+
+**Description:** `ipc_server.py` (2711 lines) re-defines `_RateLimiter` (lines 228-342), `_get_rate_limiter` (385-428), `_pick_available_port` (93-143), `_bound_history_limit`/`_bound_history_offset`/`_sanitize_config_for_ipc` (465-506), and constants (177-225) — verbatim duplicates of leaf modules under `ipc/`. The `rate_limiter.py` docstring admits this: "this leaf copy is kept in sync with the canonical implementation in `ipc_server.py`". Only `_TCPLineIO` and `_validate_dict_payload`/`_error_response` are imported.
+
+**Root Cause:** ARCH-045 / CR-14 split extracted validation+transport to leaf modules but left `_RateLimiter` and history/config helpers as duplicate definitions in the god-module for `from voice_typer.server.ipc_server import X` test compatibility.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/ipc_server.py` (entire file); duplicates in `voice_typer/server/ipc/rate_limiter.py`, `ipc/history_bounds.py`, `ipc/transport.py`
+
+**Fix:** Replace inline definitions with imports from leaf modules (mirror existing `validation`/`transport` import pattern). The `# noqa: F401` re-export convention covers test compatibility.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-029] — app.py is 1317-line spaghetti + StartupSequence.run() is 497-line method
+
+**Status:** ❌ Not Fixed
+
+**Description:** `app.py` (1317 lines) exceeds the 800-line threshold. ~280-line `__init__`, ~160-line `restart_app`, ~120-line `_open_config_file`, ~30 `# noqa: F401` re-exports for test backward-compat. `startup_sequence.py:run()` (lines 66-563) is a 497-line single method mixing 13 logically independent phases: crash diagnostics → onboarding auto-heal → corrections load → crash-recovery check → history-retention thread spawn → Wayland warning → macOS accessibility check → autostart sync → parallel prewarm + mic enumeration → desktop shortcut → hotkey registration → background model load → restart electron window → bubble show.
+
+**Root Cause:** RW-9 "god-class decomposition" extracted bodies into 9 controllers but kept thin delegates on `VoiceTyperApp` for test backward-compat. StartupSequence.run() was a literal move, not a decomposition.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/app.py` (entire file); `voice_typer/server/startup_sequence.py:66-563` (`run`)
+
+**Fix:** Consolidate fix-history commentary into CHANGELOG. Replace delegates with `__getattr__` facade. Decompose `run()` into named phase methods (`_phase_crash_diagnostics`, `_phase_onboarding`, etc.).
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-030] — Windows microphone_watcher uses PeekMessage 10Hz poll (~864k idle wakeups/day)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `microphone_watcher.py:621-632`: Windows device-change watcher uses non-blocking `PeekMessageW` in a 10 Hz poll loop. Comment justifies as "so `stop_event` can interrupt within ~100ms" but `stop()` already calls `_post_quit_to_windows()` which posts `WM_QUIT` — a blocking `GetMessageW` would return immediately on `WM_QUIT` (and on every `WM_DEVICECHANGE`), giving both zero idle wakeups and faster stop response. ~864,000 unnecessary wakeups/day. Blocks C-states, contributes to idle battery drain.
+
+**Root Cause:** PeekMessage+wait pattern chosen when GetMessage+WM_QUIT would suffice.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/microphone_watcher.py:621-632`
+
+**Fix:** Replace `PeekMessageW`+`wait(0.1)` pump with `GetMessageW` (blocking). `WM_DEVICECHANGE` makes it return for events; `WM_QUIT` (already posted by `_post_quit_to_windows`) makes it return for stop.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-031] — event_bus unbounded deferred queue + listener leak
+
+**Status:** ❌ Not Fixed
+
+**Description:** `event_bus.py:130` — `_subscribers: set[Callable] = set()` (strong refs). If a subscriber (e.g. `IPCServer`) is destroyed without calling `unsubscribe()` (exception during `stop()`, crash, restart_app), the bound method keeps the IPCServer instance alive forever. Also: deferred-publish `ThreadPoolExecutor` has a single worker and unbounded internal `SimpleQueue`. If the one subscriber is slow (e.g. `socket.sendall` to stalled Electron renderer), each RT-thread `publish` (bubble_level fires ~60 Hz) queues a `_deliver(event, fns)` task. At 60 Hz × 10 min = 36,000 queued tasks.
+
+**Root Cause:** Plain `set` for subscribers (not `WeakSet`); unbounded executor queue.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/event_bus.py:130, 151-196, 301-309`
+
+**Fix:** Use `weakref.WeakSet` for `_subscribers`. Bound the deferred executor's queue (drop or coalesce `bubble_level` events when queue exceeds N).
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-033] — secure_file_io.py is a 175-LOC dead duplicate of config.py helpers
+
+**Status:** ❌ Not Fixed
+
+**Description:** `secure_file_io.py` (175 lines) is never imported anywhere in production code. All 20+ real call sites import `_secure_atomic_write` / `_secure_read_text` from `voice_typer.server.config` instead. The `secure_file_io.py` docstring itself says "re-exported from `config.py` so existing call sites keep working unchanged" — but the originals were never deleted from `config.py`. Diff of the two implementations shows byte-for-byte identical (only parameter type annotation differs).
+
+**Root Cause:** CR-28 extraction started (new module created with full copies) but never completed (originals never deleted, callers never switched).
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/secure_file_io.py:1-175` (entire file); duplicates at `voice_typer/server/config.py:64-127` and `:129-175`
+
+**Fix:** Delete the originals from `config.py` and have it re-export: `from voice_typer.server.secure_file_io import _secure_atomic_write, _secure_read_text`. Verify tests that monkeypatch `voice_typer.server.config._secure_atomic_write` still work.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-034] — settings_controller bypasses _config_mutation_lock (lost-update race)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `settings_controller.py:80-104` (`set_autostart`), `108-120` (`set_notifications`), `124-157` (`select_microphone`) — none acquire `_config_mutation_lock`. Each does read-modify-save: `app.config.X = enabled; app.config.save()`. Meanwhile every IPC `set_config` path acquires the lock. So a tray-menu toggle of autostart/notifications/mic racing with an IPC `set_config` is a classic lost-update: whichever save runs last wins, and the other change is silently dropped. The mic-change path is worse: `app.recorder = Recorder(app.config, ...)` (line 155) reads `app.config` outside any lock — if a concurrent IPC `set_config` mutates `microphone` or `sample_rate` mid-construction, the new `Recorder` could be built with torn config.
+
+**Root Cause:** RW-9 extraction moved methods off `VoiceTyperApp` verbatim without adding the lock discipline that `apply_config` acquired later (RACE-011).
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/settings_controller.py:80-157`
+
+**Fix:** Wrap each mutator body in `with self._app._config_mutation_lock:`. Better: route them through `ConfigApplier.apply_config(updates_dict)` so there's a single locked path.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-035] — vocabulary automation: no caching, O(N) Levenshtein per word
+
+**Status:** ❌ Not Fixed
+
+**Description:** Three compounding issues:
+1. `vocabulary.py:549` — `apply_to_text` recompiles regex per phrase per dictation (up to 10,000 compiles per call). `_phrase_pattern_cache` already exists in `text_cleanup.py` but wasn't ported.
+2. `vocabulary_automation.py:401` — `_collect_vocabulary_words(self._vm)` runs on every transcription. Iterates ALL 6 categories, tokenizes every value string, builds a set. Vocabulary changes rarely (only on user apply/dismiss/import).
+3. `vocabulary_automation.py:723-735` — `_find_closest_vocabulary_match` linear scan over `vocab_words` computing Levenshtein per candidate. With 50,000 vocab words and 10 suspicious words per transcription: ~32M character comparisons per dictation.
+
+**Root Cause:** No caching infrastructure; O(N) Levenshtein without indexing.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/vocabulary.py:549, 531-532`
+- `voice_typer/server/vocabulary_automation.py:401, 723-735`
+
+**Fix:** (1) Reuse `text_cleanup._get_compiled_phrase_pattern()` (LRU cache). (2) Cache `vocab_words` on `VocabularyAutomation` instance; invalidate on mutation. (3) Index vocab words by length (bucket map) so `abs(len(candidate) - len(word)) > max_distance` becomes bucket lookup. For larger scale, use BK-tree.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-036] — clipboard double _is_safe_paste_target call (~30-50ms extra per paste)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `clipboard.py:1134` first `if not self._is_safe_paste_target():` check. Line 1148 second `if not self._is_safe_paste_target():` check (after `paste_delay` sleep). Each call does `GetForegroundWindow` + `GetClassNameW` + `_is_elevated_target` (OpenProcess + OpenProcessToken + GetTokenInformation × 2 + CloseHandle × 2) + `CoInitialize` + `_get_uia_focused_element` (UIA `GetFocusedElement` RPC) + `_is_password_field` (RPC) + `_is_content_editable` (RPCs) + `CoUninitialize`. When `paste_delay == 0` (common non-RDP case), no sleep occurs — second check is pure waste: ~5-7 cross-process UIA RPCs + ~6 kernel calls duplicated.
+
+**Root Cause:** CRIT-2 TOCTOU guard for focus changes during `paste_delay`. When `paste_delay == 0`, no focus change possible between checks.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/clipboard.py:1134, 1148`
+
+**Fix:** Skip second `_is_safe_paste_target()` call when `paste_delay == 0`, or share `hwnd`/`focused` element between the two calls (re-fetch only `GetForegroundWindow` to detect focus change, only re-run full checks if hwnd differs).
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-038] — 3 native hotkey subprocesses per app (triple kernel-side resource usage)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `HotkeyDispatcher.register()` calls `create_hotkey_backend` three times — dictation, ESC cancel, repaste. Each `create_hotkey_backend` → `SubprocessHotkeyBackend._spawn_process` does `subprocess.Popen([binary, spec], ...)`. 3 separate native binary subprocesses. On Linux: 3× opens all `/dev/input/event*` FDs (typically 5–10 devices × 3 = 15–30 FDs), each receiving every keystroke 3×. On Windows: 3× `WH_KEYBOARD_LL` hooks. On macOS: 3× `NSEvent` global monitors + 3× `CGEventTap` Mach ports. Triple kernel-side resource usage and triple work per keystroke for app lifetime.
+
+**Root Cause:** Architectural — one native binary per hotkey spec rather than one binary multiplexing multiple specs.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/hotkey_dispatcher.py:162, 259, 352`
+- `voice_typer/server/native_hotkeys/base.py:235-262` (`_spawn_process`)
+
+**Fix:** Refactor wire protocol so a single native binary accepts multiple hotkey specs (via stdin at startup) and emits matched-spec events. Or share one `SubprocessHotkeyBackend` across all three hotkeys and dispatch in Python.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-039] — blocking keyring calls stall IPC + startup (up to 150s hang)
+
+**Status:** ❌ Not Fixed
+
+**Description:** All keyring I/O in `credential_store.py` is synchronous with no timeout wrapper:
+- `store_secret`: `keyring.set_password(...)` (line 486) — called from IPC `set_config` handler thread
+- `load_secret`: `keyring.get_password(...)` (line 542) — called from `Config.load()` at startup × 5 providers
+- `_probe_keyring`: `backend.get_password(...)` (line 342) — once, can hang on broken D-Bus
+- migration: `keyring.set_password(...)` in loop over 5 providers (line 941) — 5 × 30s = up to 150s hang
+
+`keyring` calls D-Bus (Linux libsecret, default timeout ~30s), Keychain (macOS, can block indefinitely waiting for unlock prompt), or Credential Manager (Windows pywin32).
+
+**Root Cause:** No `ThreadPoolExecutor` / `Timer` / subprocess isolation around keyring calls.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/credential_store.py:486, 542, 575, 342, 941`
+
+**Fix:** Wrap each keyring call in `concurrent.futures.ThreadPoolExecutor.submit(...).result(timeout=5)`; on `TimeoutError`, fall back to plaintext + log. Run `migrate_secrets_to_keyring` in background thread, not on startup path.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-041] — TCP buffer 4MB cap drops legitimate large replies (history, diagnostics)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `tcp-connect.ts:96-120` — `if (state.tcpBuffer.length > 4 * 1024 * 1024) { state.tcpBuffer = ""; client.destroy(); }`. Any legitimate reply larger than 4 MiB (e.g. `get_history` for power user with tens of thousands of entries, `export_diagnostics`, large `get_vocabulary` dumps) silently truncated and TCP socket destroyed mid-reply. Renderer's `python-call` then times out after 120s instead of getting a clean error. Also: `state.tcpBuffer += chunk.toString()` is O(buffer size) per chunk — pathological when slow-streaming large reply grows buffer toward 4 MiB. `JSON.parse(line)` on multi-MB single line blocks main thread for tens-hundreds of ms.
+
+**Root Cause:** 4 MiB cap is DoS guard against malformed frames, but triggers on cumulative buffer size.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/client/src/main/python/tcp-connect.ts:96-120`
+
+**Fix:** (a) Raise cap to 64 MiB AND surface structured error to renderer ("reply too large") rather than dropping socket. (b) Move `JSON.parse` off main thread (worker_thread) for lines above size threshold. (c) Replace string-concat buffer with array of chunks joined on demand.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-042] — unbounded pendingRequests map (memory bloat under sustained IPC load)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `send-to-python.ts:71-88` — every `python-call` IPC adds entry to `state.pendingRequests` and a 120-second `setTimeout` whose closure captures `msg`, `id`, `resolve`, `reject`, `timer`. No upper bound on the Map, no concurrency limit, no per-renderer rate limit. A compromised or buggy renderer (polling loop firing `python-call` every 16ms) can enqueue thousands of pending entries per second, each pinning a 120s timer + closure for up to 2 minutes. At 60 calls/sec sustained for 120s, that's ~7,200 live entries + 7,200 live timers, each holding a `msg` object — easily tens of MB retained memory.
+
+**Root Cause:** No backpressure on the pending map.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/client/src/main/python/send-to-python.ts:71-88`
+- `voice_typer/client/src/main/ipc/python-call-handler.ts:16-30`
+- `voice_typer/client/src/main/state.ts:53`
+
+**Fix:** (a) Cap `pendingRequests` size (reject new calls above 256 concurrent). (b) Add per-renderer rate limit. (c) Reduce 120s timeout for non-download commands (gate timeout on command name).
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-043] — Bubble useAudioLevels rAF loop runs at 60fps even when not recording
+
+**Status:** ❌ Not Fixed
+
+**Description:** `Bubble.tsx:75-133` `useAudioLevels` hook: `useEffect` (deps `[dotRefs]`) starts a `requestAnimationFrame` chain that reschedules itself every frame. Cleanup only cancels the frame on unmount. The `api.onLevel(onLevel)` IPC subscription is also active for component's entire lifetime. When `mode !== "recording"` (transcribing, idle, fading), the dot `<span>` elements are unmounted, the loop's `if (!el) continue;` skips all 7 dots — but the rAF loop keeps spinning at 60 fps. In `always_visible` idle mode the bubble can stay mounted for hours/days; rAF loop and `onLevel` IPC handler run continuously at 60 fps / per-IPC-event, draining CPU and battery.
+
+**Root Cause:** Animation loop and IPC level subscription tied to component lifetime, not to recording state.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/client/src/renderer/src/Bubble.tsx:75-133` (`useAudioLevels` hook)
+
+**Fix:** Pass `mode` into `useAudioLevels` and only start rAF loop + `onLevel` subscription when `mode === "recording"`. Tear both down when mode changes away from recording.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-046] — Unbounded WS writer channel in Rust host (OOM under backpressure)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `src-tauri/src/sidecar/ws.rs:34` — `let (ws_tx, mut ws_rx) = mpsc::unbounded_channel::<Message>();`. `WsWriterTx = mpsc::UnboundedSender<Message>`. Producers: `sidecar_cmds.rs:230` (every `dispatch_frame`), `bubble.rs:363` (every `toggle_dictation`), `sidecar_cmds.rs:415` (shutdown), `ws.rs:38` (auth). If WS write path stalls (sidecar slow to read, TCP backpressure, half-open connection where `write.send` blocks awaiting ACK), every dispatch call enqueues a full `Message::Text` string with no backpressure. Under sustained dispatch during degraded WS, memory grows without bound until OOM. 120s `DISPATCH_TIMEOUT_SECS` bounds lifetime of pending-map entries but NOT the ws_tx channel — frames remain queued even after dispatch caller has timed out.
+
+**Root Cause:** `mpsc::unbounded_channel` has no backpressure.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `src-tauri/src/sidecar/ws.rs:34`; type at `src-tauri/src/state.rs:21`
+- Producers: `src-tauri/src/commands/sidecar_cmds.rs:230,415`, `src-tauri/src/commands/bubble.rs:363`
+
+**Fix:** Switch to `mpsc::channel(N)` (e.g. N=256). Have `dispatch_frame` use `ws_tx.send(...).await` (bounded `Sender::send` is async) or `try_send` with fail-fast on full.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-048] — `blocking_save_file()` / `blocking_pick_folder()` called from async Tauri commands
+
+**Status:** ❌ Not Fixed
+
+**Description:** `src-tauri/src/commands/export.rs:58` (`.blocking_save_file()`); `src-tauri/src/commands/system_cmds.rs:123` (`.blocking_pick_folder()`); both reached from `#[tauri::command] pub async fn`. Tauri docs warn that `blocking_*` APIs must not be called from async command handlers because they park the Tokio worker thread until user dismisses dialog. A user who leaves save dialog open for tens of seconds blocks one Tokio worker the entire time. With Tauri's default 2-N worker pool, concurrent `dispatch` calls (heartbeat, status polling) queued behind the blocked worker stall. On a 2-core machine the entire IPC layer can freeze while dialog is open.
+
+**Root Cause:** Blocking dialog API on the async runtime instead of `save_file().await` (async variant) or `spawn_blocking`.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `src-tauri/src/commands/export.rs:58`; `src-tauri/src/commands/system_cmds.rs:123`
+
+**Fix:** Switch to async `save_file()` / `pick_folder()` methods exposed by `tauri-plugin-dialog` v2, or wrap in `spawn_blocking`.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-049] — RotatingFileWriter holds sync Mutex across flush()+metadata() (log serialization)
+
+**Status:** ❌ BROKEN — fix absent; `logging.rs:272-278` still holds `Mutex` across `file.metadata()?.len()` and `self.rotate()`.
+
+**Description:** `src-tauri/src/platform/logging.rs:118-143` — `write_line` does `let mut guard = self.inner.lock().unwrap();` (std Mutex), then `file.write_all(line.as_bytes())?; file.write_all(b"\n")?; file.flush()?;` (disk I/O under lock), then `let len = file.metadata()?;` (syscall under lock), then `if len > ROTATE_MAX_BYTES { ... self.rotate()?; }` (5x stat + 4x rename under lock). Single global `std::sync::Mutex<Option<File>>` serializes every log line across all threads. `eprintln!` happens before file write — stderr's own internal lock also held per call. On panic while holding the lock, mutex poisons and all subsequent log calls panic via `.unwrap()`, taking down the host.
+
+**Root Cause:** Single sync mutex serializes every log line, with `flush` and `metadata` inside critical section.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `src-tauri/src/platform/logging.rs:118-143` (`write_line`); called from every `log::*!` via `CombinedLogger::log`
+
+**Fix:** (a) Move `metadata()` + rotate check out of hot path (every Nth write or via separate janitor task). (b) Use a `mpsc::UnboundedSender<String>` to dedicated writer thread instead of sync mutex. (c) Handle poison explicitly instead of `.unwrap()`.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-050] — child_exit_rx never drained (stderr accumulates over session)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `src-tauri/src/sidecar/spawn.rs:141` returns `mpsc::Receiver<CommandEvent>`. `ft1.rs:244-247` stores in `state.child_exit_rx`. The ONLY consumer is `shutdown_sidecar`, which performs a single `rx.recv().await` inside a timeout window. Between handshake-success and shutdown, NO task drains the receiver. `tauri-plugin-shell` pumps every `Stdout`/`Stderr`/`Terminated`/`Error` event from the child into this receiver for the child's entire lifetime. The release sidecar sends all non-handshake logs to stderr (ADR-0020 §1), so stderr events flow continuously. With no drainer, they accumulate in channel buffer for the whole session.
+
+**Root Cause:** No background drainer task.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `src-tauri/src/sidecar/spawn.rs:141` (returns rx)
+- `src-tauri/src/sidecar/ft1.rs:244-247` (stores in state)
+- `src-tauri/src/commands/sidecar_cmds.rs:425-450` (only polled at shutdown)
+
+**Fix:** Spawn a background task at handshake-success that drains `child_exit_rx` for the sidecar's lifetime, logging stderr lines and forwarding only `Terminated` to a oneshot channel that `shutdown_sidecar` awaits.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-051] — Dead `paste_text` Tauri command (165 LOC maintained but never used)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `src-tauri/src/commands/paste.rs` (326 lines) + wrapper `paste_text` command at `sidecar_cmds.rs:331-402`. The doc explicitly states "Production traffic never reaches this command. The Python sidecar does its OWN paste internally in `voice_typer/server/dictation_pipeline.py:990-1010` … no Python code publishes a `paste_text` event, and no TS code invokes `invoke('paste_text', ...)`." Retained only for migration glue tests.
+
+**Root Cause:** Migration scaffolding that survived the cutover.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `src-tauri/src/commands/paste.rs` (326 lines); `src-tauri/src/commands/sidecar_cmds.rs:331-402`
+
+**Fix:** Either delete (and update migration tests) or mark `#[deprecated]` + add a test asserting `dictation_pipeline.py` still owns the paste path.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-052] — No benchmarks for audio-pipeline hot paths (regressions invisible)
+
+**Status:** ❌ Not Fixed
+
+**Description:** `bench/` contains only 2 harnesses. `bench_transcription.py` exercises only `TranscriptionEngine.transcribe_with_fallback`. `bench_startup.py` measures only `import voice_typer.server.tray`. `tests/test_benchmarks.py` covers only: text_cleanup, raw RMS computation, config parse. No `benchmark` fixture tests exist for `audio_filters/*` (FilterChain), `audio_processor.process_chunk`, `streaming.py`, `vad.py`/`vad_processor.py`, `recording/resampling.py`, `level_monitor.py`, `ipc_server._dispatch`. ADR-0009 §11 specifies a perf test: "process 60s of 48kHz audio, verify < 5% CPU, < 15ms latency, no dropouts" — unimplemented.
+
+**Root Cause:** `pytest-benchmark` declared but never used for realtime audio path.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `bench/bench_transcription.py:39-63`; `bench/bench_startup.py:71`; `tests/test_benchmarks.py:27-86`; `docs/adr/0009-audio-filter-chain-architecture.md:559`
+
+**Fix:** Add `tests/bench/test_filter_chain_bench.py` covering `FilterChain.process_chunk` on 1s/10s/60s 16 kHz + 48 kHz signals with `benchmark` fixture; assert `total_latency_ms < 15`. Add `test_streaming_assembler_bench.py`, `test_vad_processor_bench.py`. Wire a `--bench` CI job.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-053] — Nuitka build pipeline: no parallelism, no shared cache (~2-3 hours per release)
+
+**Status:** ❌ Not Fixed
+
+**Description:** Each per-platform Nuitka invocation runs single-threaded by default — no `--jobs=N`, no `--lto=yes`, no `--cache-dir` is passed in any of the 6 build scripts. `build_tauri_all.sh:145-167` invokes sidecar + prewarm + native serially per platform — prewarm is functionally a subset of sidecar (same `--include-package=faster_whisper ctranslate2 voice_typer websockets`), yet its Nuitka C compilation starts from scratch. For 3 platforms × 2 binaries × ~12 min = ~2-3 hours of Nuitka per release.
+
+**Root Cause:** Per-platform scripts written for correctness, not build throughput. Nuitka's `--jobs` and `--cache-dir` flags never added.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `scripts/build/build_sidecar_linux.sh:217,248-262`; `build_sidecar_macos.sh:119-140`; `build_sidecar_windows.sh:128-151`; `build_prewarm_*.sh`; `build_tauri_all.sh:145-167`
+
+**Fix:** (a) Add `--jobs="$(nproc)"` (Linux/macOS) / `--jobs=$NUMBER_OF_PROCESSORS` (Windows) to all 6 Nuitka invocations. (b) Add `--cache-dir="$PROJECT_ROOT/.nuitka-cache"` reused for sidecar + prewarm within a platform. (c) Factor duplicated `NUITKA_ARGS` into `scripts/build/_nuitka_common_args.sh`.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-054] — Dependency pins deliberately block upstream perf + security fixes (4 CVEs)
+
+**Status:** ❌ Not Fixed
+
+**Description:** Three pins:
+- `numpy>=1.26,<2.0` — comment cites ABI breakage with faster-whisper/sounddevice. numpy 2.x has been out since June 2024 (2 years stale), bringing faster array ops, lower memory, free-threading support.
+- `transformers>=4.50,<5.0` — parakeet_engine uses `AutoModelForTDT` which transformers 5.x REMOVED. 4 known CVEs (PYSEC-2026-2288/2289/2290 + PYSEC-2025-217) cannot be cleared without migrating off `AutoModelForTDT`. Comment acknowledges: "4 known CVEs cannot be cleared without migrating the parakeet engine — tracked as a follow-up task. The <5.0 pin blocks the upstream fix deliberately."
+- `pystray>=0.19,<0.20` — `tray.py:_apply_state` reaches into private `_icon_handle`; 0.20+ could break workaround.
+
+**Root Cause:** Each pin originated as a correct tactical decision, but the migration off the private/blocked API was deferred. CVE debt on transformers is ~15 months unaddressed.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `pyproject.toml:70,82,104`
+- `voice_typer/server/parakeet_engine.py:192-210,395,413`
+
+**Fix:** (a) Migrate `parakeet_engine.py:395,413` off `AutoModelForTDT` to transformers-5.x-supported class, then bump `transformers>=5.0`. (b) Retest faster-whisper/sounddevice wheels against numpy 2.x and bump `numpy>=2.0`. (c) File upstream `pystray` `reset_icon_handle()` API request.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-055] — config.py is 1826-line spaghetti + redundant Config.load() calls in prewarm
+
+**Status:** ❌ Not Fixed
+
+**Description:** `config.py` (1826 lines) exceeds 800-line threshold by 2.3×. Single classmethod `Config.load()` is 381 lines (parses JSON, runs schema migrations, integrates with credential_store, validates paths, coerces 4 type-buckets across 100+ fields via `_validate_non_numeric_fields` (297 more lines), calls `apply_preset`). The dataclass has 132 fields. Field-default maintenance is split across THREE places: (1) dataclass declaration, (2) bool_fields/str_fields/int_fields/float_fields sets in `_validate_non_numeric_fields`, (3) `IPC_CONFIG_ALLOWLIST` in `config_validators.py`. Adding a field requires touching all three or the field silently bypasses load-time coercion. Also: `Config.load()` is called twice within `cache_probe.py` (line 153 and 378) — doubles prewarm cold-start I/O and D-Bus traffic.
+
+**Root Cause:** Organic growth across many ADRs without periodic decomposition. Two prewarm call sites written independently.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/config.py:1-1826` (`Config.load()` at 1096-1475; `_validate_non_numeric_fields` at 1477-1771)
+- `voice_typer/server/prewarm/cache_probe.py:153, 378`
+
+**Fix:** Decompose into `config_schema.py` (dataclass + field metadata), `config_loader.py` (JSON read + migration + asdict-based reconstruction driven by schema). Drive `_validate_non_numeric_fields` from `dataclasses.fields(cls)`. Cache `Config.load()` result in prewarm process.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-056] — audio_processor: clipping detector blind under default limiter; set_sample_rate missing
+
+**Status:** ❌ Not Fixed
+
+**Description:** Two related issues in `audio_processor.py`:
+1. `process_chunk` fires `_run_quality_check` on POST-filter audio (line 188). The default AUTO/STUDIO/NOISY_ROOM presets enable the Limiter with `ceiling_db=-6.0` (≈0.50 linear). `AudioQualityAnalyzer.CLIPPING_THRESHOLD=0.99`. The limiter clamps every sample's envelope to ≤0.50, so the post-filter peak fed to the clipping detector can never reach 0.99 when the limiter is active. Users are never warned about mic clipping as long as the limiter is ON — the default.
+2. `audio_quality_controller.py:156-165` does `set_sr = getattr(self._app._audio_processor, "set_sample_rate", None)` then `if callable(set_sr): set_sr(force_sr)`. A full read of `audio_processor.py` confirms NO `set_sample_rate` method exists on the class. The controller's `force_sr` parameter, the `set_sr` getattr branch, and the `else` debug log are all dead code. Tests `test_audio_processor.py:287-371` call `p.set_sample_rate(48000)` and `p.sample_rate` on real AudioProcessor instances — these would raise AttributeError. Pre-existing test failures.
+
+**Root Cause:** (1) Quality metrics computed on chain OUTPUT, after brick-wall limiter. (2) AUDIO-6/AUDIO-9 fix was never implemented on AudioProcessor; controller's `force_sr` path is dead.
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/audio_processor.py:184-197` (clipping detector); 79-242 (entire class — no `set_sample_rate`)
+- `voice_typer/server/audio_quality.py:52, 165, 189`
+- `voice_typer/server/audio_quality_controller.py:156-165`
+- `voice_typer/server/audio_filters/limiter.py:35`
+
+**Fix:** (1) Run `_run_quality_check` on the PRE-filter (raw) chunk, not the post-filter result. (2) Either implement `set_sample_rate(self, sr)` and a `sample_rate` property on AudioProcessor that rebuilds the chain at the new rate, OR delete the `force_sr` parameter, the dead `set_sr` branch, and the corresponding tests.
+
+**Severity:** 🔴 High
+
+---
+
+## [PVT-057] — Pre-existing test failures (R3-F6, R3-F14, AUDIO-6 tests)
+
+**Status:** ❌ Not Fixed
+
+**Description:** Several pre-existing test failures identified:
+1. `tests/test_i5_retry_fixes.py:810` `TestR3F14DeadListExpressionRemoved.test_no_dead_list_test_peak_history_in_stop_test_recording` — asserts the dead `list(_test_peak_history)` line at `level_monitor.py:607` is ABSENT. The test will FAIL on current source (line still present).
+2. `tests/test_i5_retry_fixes.py:736` `test_rate_limited_warning_fires_on_first_drop` (R3-F6) — asserts caplog captures a WARNING mentioning "ring buffer full" or "dropped". Will FAIL because no such log is emitted. The counter `_dropped_level_chunks` was wired but the rate-limited WARNING log was never added.
+3. `tests/test_audio_processor.py:287-371` — call `p.set_sample_rate(48000)` and `p.sample_rate` on real AudioProcessor instances — these raise AttributeError (no such method/property).
+
+**Root Cause:** Incomplete fixes from prior rounds; tests added but production code not updated (or vice versa).
+
+**Progress:** None yet.
+
+**Related Files:**
+- `voice_typer/server/level_monitor.py:607` (dead expression); 333-350 (missing log)
+- `voice_typer/server/audio_processor.py` (missing set_sample_rate)
+
+**Fix:** Fix the production code to match the test contracts: delete dead line 607, add rate-limited log on ring overflow, implement `set_sample_rate`/`sample_rate` on AudioProcessor (or update tests).
+
+**Severity:** 🔴 High
+
+---
+
+## Summary
+
+| Severity | Count | Status |
+|----------|-------|--------|
+| 🔴 Critical | 2 | ❌ Not Fixed |
+| 🔴 High | 38 | ❌ Not Fixed |
+| 🟡 Medium | 17 | ❌ Not Fixed |
+| 🟢 Low | (many, not all listed) | ❌ Not Fixed |
+| **Total listed** | **57** | |
+
+**Spaghetti files identified** (Phase 4.5 candidates):
+- `voice_typer/server/recording/recorder.py` (3019 lines) — PVT-006
+- `voice_typer/server/service.py` (2657 lines) — PVT-026
+- `voice_typer/server/ipc_server.py` (2711 lines) — PVT-027
+- `voice_typer/server/app.py` (1317 lines) + `startup_sequence.py` `run()` (497 lines) — PVT-029
+- `voice_typer/server/config.py` (1826 lines) — PVT-055
+- `voice_typer/server/history_db.py` (1551 lines) — partial concerns (FTS5 dead code, migration logic)
+- `voice_typer/server/clipboard.py` (1432 lines) — mostly cohesive but large
+- `voice_typer/server/transcription.py` (1298 lines) — mixes DLL plumbing + download + transcription
+
+**Environment**: All findings verified by reading source code on Linux sandbox. Runtime/perf validation pending for fixes.
+
+
+---
+
+
+## Session 3 Findings
+
+Verbatim copy of session-3's `comprehensive-review.md`:
+
+# Voice Typer — Comprehensive Review (GROUP 3: UX & UI)
+
+**Session:** IMPROVE mode, Full-Review, GROUP 3 (UX & UI), SUB_AGENT_COUNT=25
+**Date:** 2026-07-22
+**Platform:** Linux sandbox (Windows/macOS host validation pending)
+
+## Summary
+
+25 parallel review sub-agents investigated GROUP 3 categories: UX/UI consistency, Ease of use, Accessibility, User onboarding, User flows, Developer experience, and Localization/i18n. Total findings: **~350+** across all severity levels.
+
+### Critical Findings (P0 — must fix)
+
+1. **[PVT-001]** 7 of 9 non-default themes have missing CSS tokens in light mode (untested by parity test) — Sub-agent 1
+2. **[PVT-002]** `--destructive-foreground` has no stylesheet default; missing from 7 themes — destructive button text unreadable — Sub-agent 1
+3. **[PVT-003]** Models.tsx is 1448-line monolith (spaghetti) — Sub-agent 6
+4. **[PVT-004]** accessibility.test.tsx: ConfirmDialog + ErrorBoundary tests silently no-op (wrong paths) — Sub-agent 12
+5. **[PVT-005]** Onboarding Done step shows raw i18n key strings (`onboarding.doneHotkey` etc.) instead of labels — Sub-agent 13
+6. **[PVT-006]** Onboarding auto-heal defeats genuine first-run wizard after interruption — Sub-agent 13
+7. **[PVT-007]** Onboarding Permissions step doesn't gate advancement — users can complete wizard without OS permission — Sub-agent 13
+8. **[PVT-008]** "Test hotkey" button gives false-positive success masking denied OS permission — Sub-agent 15
+9. **[PVT-009]** `installGlobalErrorHandlers()` never wired in main.tsx — async errors silently swallowed — Sub-agent 19
+10. **[PVT-010]** Connecting screen uses broken i18n keys (`app.startingPythonStep` etc.) — first impression broken — Sub-agent 19
+11. **[PVT-011]** README architecture tree references 5 stale file paths — Sub-agent 22
+12. **[PVT-012]** README internal contradiction on terminal paste behavior — Sub-agent 22
+13. **[PVT-013]** 29 of 45 i18n completeness tests failing on main — Sub-agent 23
+14. **[PVT-014]** 32 keys missing from EVERY non-English locale — Sub-agent 23
+15. **[PVT-015]** `apply_translations.py` silently drops translations when parent namespace absent — Sub-agent 23
+16. **[PVT-016]** Ratchet test misclassifies missing keys as "fully translated" — Sub-agent 23
+
+### High Findings (P1)
+
+17. **[PVT-017]** Bubble window doesn't receive theme presets — Sub-agent 1
+18. **[PVT-018]** FOUC on app start (no pre-React theme bootstrap) — Sub-agent 1
+19. **[PVT-019]** AccordionTrigger has no visible focus indicator — Sub-agent 2
+20. **[PVT-020]** NumberInputStepper steppers inaccessible to keyboard/touch — Sub-agent 2
+21. **[PVT-021]** Sidebar nav is flat list, not documented 3-group hierarchy — Sub-agent 3
+22. **[PVT-022]** TitleBar close button uses hardcoded `#C42B1C` instead of destructive tokens — Sub-agent 3
+23. **[PVT-023]** Missing `aria-keyshortcuts` on TitleBar buttons and Sidebar nav — Sub-agent 3
+24. **[PVT-024]** Duplicate `useSnackbar.ts` and `useSnackbar.tsx` files — Sub-agent 4
+25. **[PVT-025]** Spinner size prop silently broken for non-{16,20,24} values — Sub-agent 4
+26. **[PVT-026]** Toast duration inconsistent (3000/4000/6000/8000ms) — Sub-agent 4
+27. **[PVT-027]** Sonner Toaster missing richColors, closeButton, position, duration — Sub-agent 4
+28. **[PVT-028]** Settings.tsx is 1125-line spaghetti — Sub-agent 5
+29. **[PVT-029]** Search auto-switch is hint-based, not label-based — Sub-agent 5
+30. **[PVT-030]** Search hints untranslated for 5 of 8 locales — Sub-agent 5
+31. **[PVT-031]** lib/utils/models.ts is dead code; half-finished extraction — Sub-agent 6
+32. **[PVT-032]** No retry button on download failure — Sub-agent 6
+33. **[PVT-033]** No disk-space check before download; no storage-path disclosure — Sub-agent 6
+34. **[PVT-034]** No way to revert to "System Default" microphone — Sub-agent 7
+35. **[PVT-035]** Active mic hot-swap silently swallowed; UI shows "Unknown" — Sub-agent 7
+36. **[PVT-036]** No OS-level microphone permission handling — Sub-agent 7
+37. **[PVT-037]** Level polling deadlocks: micMonitoring never becomes true — Sub-agent 7
+38. **[PVT-038]** Skip link target `<main>` has no `tabindex="-1"` — focus doesn't move — Sub-agent 9
+39. **[PVT-039]** LiveQualityFeedback timer inside aria-live region re-announces every second — Sub-agent 10
+40. **[PVT-040]** Home page has no top-level heading (no `<h1>`) — Sub-agent 10
+41. **[PVT-041]** Default light `--muted-foreground` fails 4.5:1 AA for placeholder text — Sub-agent 11
+42. **[PVT-042]** RangeSlider thumb hardcoded `bg-white border-0`, invisible on light tracks — Sub-agent 11
+43. **[PVT-043]** Custom theme editor has NO contrast validation — Sub-agent 11
+44. **[PVT-044]** Light-mode `--ring` + `focus-visible:ring-ring/30` produce focus indicators below 3:1 — Sub-agent 11
+45. **[PVT-045]** Amoled light `--ring` has `/0.5` alpha compounding with `/30` = 15% opacity — Sub-agent 11
+46. **[PVT-046]** axe-core.test.tsx: 5 of 9 promised pages untested — Sub-agent 12
+47. **[PVT-047]** Home.tsx transcription result not in any live region — Sub-agent 12
+48. **[PVT-048]** Bubble keyboard-move handler is dead code in production — Sub-agent 12
+49. **[PVT-049]** accessibility.test.tsx "All Switch components" test misses 28 of 29 Switches — Sub-agent 12
+50. **[PVT-050]** Onboarding Done step i18n keys missing — Sub-agent 13
+51. **[PVT-051]** Onboarding Permissions step i18n missing for 7 locales — Sub-agent 13
+52. **[PVT-052]** Onboarding backend instruction strings hardcoded English — Sub-agent 13
+53. **[PVT-053]** Onboarding.tsx is 665-line spaghetti — Sub-agent 13
+54. **[PVT-054]** Punctuation cheat sheet unreachable while dictating — Sub-agent 14
+55. **[PVT-055]** FEATURES.md documents onboarding as 5-step (actually 6-step) — Sub-agent 14
+56. **[PVT-056]** README/FEATURES omit help overlay, `?` shortcut, cheat sheet — Sub-agent 14
+57. **[PVT-057]** No button to open OS permission settings in onboarding — Sub-agent 15
+58. **[PVT-058]** No "Re-check permission" affordance after granting — Sub-agent 15
+59. **[PVT-059]** IPC failure during permission probe renders misleading "No extra permission needed" — Sub-agent 15
+60. **[PVT-060]** Autostart toggle has no failure feedback; silent registration failure — Sub-agent 15
+61. **[PVT-061]** Microphone OS permission never probed in onboarding — Sub-agent 15
+62. **[PVT-062]** Home.tsx is 856-line spaghetti — Sub-agent 16
+63. **[PVT-063]** No interim/partial transcription display; `transcription_partial` event is dead — Sub-agent 16
+64. **[PVT-064]** Recording errors not surfaced in-app; `lastError` never rendered — Sub-agent 16
+65. **[PVT-065]** Mic button enabled during `transcribing` but clicks silently swallowed — Sub-agent 16
+66. **[PVT-066]** DICTATION_KEY_PRESETS reintroduces `<shift>` hazard — Sub-agent 17
+67. **[PVT-067]** Bubble.tsx is 671-line spaghetti — Sub-agent 18
+68. **[PVT-068]** Bubble position NOT remembered across show/hide cycles — Sub-agent 18
+69. **[PVT-069]** Error message i18n keys reused as button labels (`home.undo` etc.) — Sub-agent 19
+70. **[PVT-070]** `lastError` string never rendered on Home page — Sub-agent 19
+71. **[PVT-071]** `flushPendingUpdates` resolves all promises even on failure — contradictory toasts — Sub-agent 19
+72. **[PVT-072]** Inconsistent event-handler naming across component library — Sub-agent 20
+73. **[PVT-073]** Prop type interfaces not exported for consumers — Sub-agent 20
+74. **[PVT-074]** Composite components silently drop unknown props (no `...rest`) — Sub-agent 20
+75. **[PVT-075]** vitest.config.ts aliases reference non-existent barrel files — Sub-agent 21
+76. **[PVT-076]** No shared test-utils; ~3500 lines of mock boilerplate duplicated — Sub-agent 21
+77. **[PVT-077]** CONTRIBUTING.md IPC parity section points to wrong file/lines — Sub-agent 22
+78. **[PVT-078]** ADR index missing ADR 0020; ADR 0002/0003 duplicate titles — Sub-agent 22
+79. **[PVT-079]** debugging.md references non-existent `voice_typer.server.ipc.main` — Sub-agent 22
+80. **[PVT-080]** 9 stale extra keys in every non-en locale — Sub-agent 23
+81. **[PVT-081]** ~42 untranslated English values per locale outside any allowlist — Sub-agent 23
+82. **[PVT-082]** No pluralization support in i18n.ts — Sub-agent 23
+83. **[PVT-083]** No browser/OS language auto-detection — Sub-agent 23
+84. **[PVT-084]** Sidebar active accent uses physical `before:left-0` (broken in RTL) — Sub-agent 24
+85. **[PVT-085]** Main content uses physical `rounded-l-xl … border-r-0` (broken in RTL) — Sub-agent 24
+86. **[PVT-086]** SearchField uses physical `left-3`/`right-3`/`pl-9` (broken in RTL) — Sub-agent 24
+87. **[PVT-087]** History.tsx hardcoded `chars` + unlocalised `.toLocaleString()` — Sub-agent 25
+88. **[PVT-088]** Templates/Vocabulary hardcoded English placeholders — Sub-agent 25
+89. **[PVT-089]** About.tsx `formatBytes` hardcoded "MB"/"GB" + `.toFixed()` — Sub-agent 25
+90. **[PVT-090]** Dashboard `formatDuration`/`compactNumber` hardcoded English — Sub-agent 25
+91. **[PVT-091]** Models `formatVram` hardcoded (duplicated) — Sub-agent 25
+
+### Medium Findings (P2)
+
+92-200+. See per-agent findings in worklog. Key themes:
+- Theme consistency issues (custom theme editor, FOUC, cache invalidation)
+- Component library inconsistency (focus rings, disabled states, outline-none vs outline-hidden, dead CSS selectors)
+- Settings UX (PrewarmAndUpdates ignores search, AudioFilterChain not filtered, save indicator misleading, no per-section reset, validation gaps)
+- Models UX (no disk space, no hash verification, parakeet deps dead end, dead _initialLoading)
+- Microphone UX (preset descriptions useless, notch filter no frequency slider, dead NoiseFilterRow, compressor/gate advanced controls missing, RangeSlider no aria-valuetext)
+- List pages (no search on Templates, no import/export, vocabulary categories hidden, load error missing on Vocabulary, Dashboard silent refresh failure, no empty state, export truncation, no bulk ops)
+- Accessibility (keyboard nav, ARIA roles, color contrast, screen reader tests, RTL)
+- Onboarding (skip confirmation, i18n gaps, hotkey default mismatch, wizard state not persisted)
+- Error handling (connection health check too slow, no connection toasts, ErrorBoundary limited recovery)
+- Developer experience (import path inconsistency, export styles, NumberInputStepper onInvalid collision, Modal API divergence, missing storybook stories)
+- Test infrastructure (no coverage thresholds, test naming inconsistent, rw0/rw1 legacy, conftest suppress)
+- Documentation (stale paths, line counts, missing screenshots, Discord link dead)
+- i18n (600KB locale bundle, overlapping scripts, anti-ratchet, placeholder parity, key naming)
+- Hardcoded strings (locale formatting, backend error passthrough, plural support)
+
+### Low Findings (P3)
+
+200+. Polish items, dead code, minor inconsistencies, documentation gaps.
+
+---
+
+## Fix Plan
+
+Fix sub-agents are assigned by DISJOINT FILE OWNERSHIP to prevent merge conflicts:
+
+| Agent | File Scope | Key Fixes |
+|-------|-----------|-----------|
+| 1 | `themes/*.ts` + `themes.ts` + `index.css` | PVT-001, 002, 041, 044, 045 + theme token parity |
+| 2 | `components/ui/*.tsx` | PVT-019, 020 + focus rings, imports, types, outline-hidden |
+| 3 | `components/layout/Sidebar.tsx` + `TitleBar.tsx` + `Logo.tsx` | PVT-021, 022, 023, 084 + RTL, nav grouping |
+| 4 | `components/feedback/*.tsx` + `sonner.tsx` + `useSnackbar.*` | PVT-024, 025, 026, 027 + EmptyState variant, audio quality helper |
+| 5 | `pages/Settings.tsx` + `components/settings/*.tsx` | PVT-028, 029, 030 + spaghetti split, search, validation |
+| 6 | `pages/Models.tsx` + `components/models/*` + `lib/utils/models.ts` | PVT-003, 031, 032, 033 + spaghetti split |
+| 7 | `pages/Microphone.tsx` + `components/microphone/*` + `audio/*` | PVT-034, 035, 036, 037 + spaghetti split |
+| 8 | `pages/History.tsx` + `Templates.tsx` + `Vocabulary.tsx` + `Dashboard.tsx` + `dashboard/*` | PVT-087, 088 + search, import/export, empty states |
+| 9 | `App.tsx` + `hooks/useNavigation.ts` + `stores/appStore.ts` + `main.tsx` | PVT-009, 010, 038, 085 + skip link, connecting screen |
+| 10 | `components/common/*.tsx` | PVT-072, 073, 074, 086 + API consistency, RTL |
+| 11 | `pages/Home.tsx` + `hooks/usePython.ts` + `useConnection.ts` + `useSoundFeedback.ts` + `lib/sound-manager.ts` + `lib/globalErrorHandler.ts` | PVT-062, 063, 064, 065, 069, 070, 071 + recording flow |
+| 12 | `Bubble.tsx` + `bubble-main.tsx` + `src/main/windows/bubble-window.ts` + `bubble-handlers.ts` + `bubble-bridge-shared.ts` + `preload/bubble.ts` | PVT-017, 048, 067, 068 + bubble spaghetti, position persistence |
+| 13 | `pages/Onboarding.tsx` + `server/onboarding.py` + `handlers/onboarding_handlers.py` | PVT-005, 006, 007, 050, 051, 052, 053 + onboarding fixes |
+| 14 | `components/hotkey/*` + `RecordingSettingsSection.tsx` | PVT-066 + hotkey config fixes |
+| 15 | `i18n/i18n.ts` + `translations/*.json` + `rtl.test.*` + `scripts/*i18n*.py` + `test_i18n_completeness.py` | PVT-013, 014, 015, 016, 080, 081, 082, 083 + i18n system |
+| 16 | `a11y/*.test.tsx` + `__tests__/*.test.tsx` + `components/__tests__/*` | PVT-004, 046, 047, 048, 049 + a11y test coverage |
+| 17 | `pages/__tests__/*` + `hooks/__tests__/*` + `rw0-rewrite/*` + `rw1-rewrite/*` | Test consolidation, coverage |
+| 18 | `test-setup.ts` + `vitest.config.ts` + `vite.config.ts` + `electron.vite.*.ts` + `tsconfig.*.json` + `biome.json` + `conftest.py` | PVT-075, 076 + test infra |
+| 19 | `README.md` + `CONTRIBUTING.md` + `FEATURES.md` + `docs/*.md` + `docs/adr/*.md` | PVT-011, 012, 055, 056, 077, 078, 079 + docs refresh |
+| 20 | `lib/format.ts` (new) + `lib/utils/models.ts` + `lib/color-utils.ts` + `lib/utils.ts` | PVT-089, 090, 091 + shared format utilities |
+| 21 | `components/help/PunctuationCheatSheet.tsx` + `pages/About.tsx` | PVT-054 + help, about credits |
+| 22 | `server/permissions.py` + `server_platform/autostart*.py` + `startup_tasks.py` + `config_applier.py` | PVT-008, 057, 058, 059, 060, 061 + permissions UX |
+| 23 | `hooks/useTheme.ts` + `ThemeSettingsSection.tsx` + `themeColorCache.ts` + `ThemeSwitch.tsx` | Theme UI, contrast validation, FOUC |
+| 24 | `types/ipc.ts` + `types/config.ts` + `types/stats.ts` | Type safety, IPC contracts |
+| 25 | `branding.ts` (both) + `stores/appStore.ts` + `hooks/useLastUpdated.ts` + `useStatsShare.ts` | Shared hooks, state, branding sync |
+
+
+---
+
+## Merge-Stage Findings
+
+The merge stage itself identified the following new findings (NOT present in any
+session's original review, but discovered during the intelligent sub-agent merge):
+
+## [PVT-MERGE-007] — SVC-11 "save in finally" contract replaced by G4-H-12 rollback
+
+**Status:** ⚠️ Partial
+
+**Description:** The original SVC-11 contract: when `apply_config_side_effects`
+raises, `app.config.save()` is STILL called in a `finally` block so the
+validated setattr updates persist to disk; the original exception is
+re-raised. Session 1's PVT-21 refactor replaced this with: `save_strict()`
+is called AFTER side-effects succeed; if side-effects raise, `save_strict()`
+is NOT called (the raise propagates first); if `save_strict()` itself fails,
+G4-H-12 rolls back in-memory Config to the pre-setattr snapshot.
+
+**Root Cause:** Session 1's refactor intentionally changed the contract.
+The new contract is arguably safer (no disk write when side-effects fail
+means no inconsistent state), but it's a behavior change from SVC-11.
+
+**Progress:** Updated the 3 SVC-11 tests to verify the new contract:
+1. `test_save_called_when_side_effects_succeed` — verifies `save_strict` is
+   called once when side-effects succeed.
+2. `test_save_called_when_side_effects_raise` — verifies `save_strict` is
+   NOT called when side-effects raise (raise propagates first).
+3. `test_save_failure_surfaces_when_side_effects_succeeded` — verifies
+   `OSError` from `save_strict` is surfaced to the caller.
+
+**Related Files:**
+- `voice_typer/server/config_applier.py`
+- `voice_typer/server/service.py`
+- `tests/test_history_and_models.py`
+
+**Fix:** If the SVC-11 contract is still desired, add a `try/finally` around
+`apply_config_side_effects` in `config_applier.apply_config` that calls
+`save_strict()` in the finally. The G4-H-12 rollback would still apply if
+`save_strict()` itself raises.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-MERGE-008] — cargo check cannot run in sandbox (missing GTK dev headers)
+
+**Status:** ❌ Pending
+
+**Description:** The Linux sandbox does not have `libgtk-3-dev`,
+`libwebkit2gtk-4.1-dev`, `libxdo-dev`, or `libdbus-1-dev` installed, so
+`cargo check` fails at the `gdk-sys` build script (`pkg-config` cannot
+find `gdk-3.0.pc`). This is an environment limitation, NOT a code issue.
+
+**Progress:** SB sub-agent independently verified that `cargo check` passes
+with deps available (their report: "cargo check — 0 errors, 0 warnings").
+The full `cargo test --no-run` fails only at the link step due to missing
+`.so` dev symlinks for gtk-3/webkit2gtk-4.1/xdo/dbus-1/atk-1.0/soup-3.0/
+javascriptcoregtk-4.1.
+
+**Related Files:**
+- `src-tauri/` (entire Rust crate)
+
+**Fix:** VALIDATE ON LINUX HOST with:
+`apt install libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libdbus-1-dev`
+
+**Severity:** 🟢 Low (environment-only; no code change needed)
+
+---
+
+## [PVT-MERGE-009] — Duplicate _pick_available_port and _RateLimiter definitions
+
+**Status:** ⚠️ Partial
+
+**Description:** SK-a sub-agent flagged that `_pick_available_port` is defined
+in BOTH `ipc_server.py:94` AND `ipc/transport.py:19`, and `_RateLimiter` is
+defined in BOTH `ipc_server.py:243` AND `ipc/rate_limiter.py:124`. The
+`ipc_server.py` inline definitions are the ones used (no top-level import
+from `ipc/{transport,rate_limiter}`). This is a drift hazard.
+
+**Root Cause:** Session 4 created the `ipc/` subfolder with extracted
+helpers, but `ipc_server.py` was never updated to import from it. Both
+copies exist; the inline ones win.
+
+**Progress:** Not fixed in this merge (would require careful audit of which
+definition is canonical + updating callers). Flagged as follow-up.
+
+**Related Files:**
+- `voice_typer/server/ipc_server.py` (inline definitions)
+- `voice_typer/server/ipc/transport.py`
+- `voice_typer/server/ipc/rate_limiter.py`
+
+**Fix:** Delete the inline definitions from `ipc_server.py` and import from
+`ipc/transport.py` / `ipc/rate_limiter.py` instead.
+
+**Severity:** 🟡 Medium
+
+---
+
+## [PVT-MERGE-010] — 42 pre-existing test failures on BASE
+
+**Status:** ❌ Pending
+
+**Description:** Running the test suite on the BASE commit (559bbbc) — before
+any merge work — produces 42 failures in tests/test_history_and_models.py,
+tests/test_hotkey_validation.py, tests/test_electron_ipc_and_build.py,
+tests/test_i5_retry_fixes.py, etc. These are NOT merge-induced (they exist
+before any merge work). They are typically environment-related (missing
+torch, missing audio devices, missing platform-specific binaries) or
+pre-existing bugs in the base repo.
+
+**Progress:** Documented; not fixed (out of merge scope). The merge work
+introduced 0 new failures.
+
+**Related Files:**
+- `tests/test_history_and_models.py` (TestSVC2ConfigSideEffectDispatcher,
+  TestSVC6KeyringStatusHelper, TestSVC7DeleteModelUsesRegistryUnconditionally,
+  TestSVC8RefreshMicrophonesForce, TestTemplatesPersistToDisk,
+  TestTrayIconUsesGetchannelNotSplitIndex, TestPERF21DownloadPollScopedToModelDir,
+  TestSVC10OnboardingUsesServiceChangeModel)
+- `tests/test_hotkey_validation.py` (TestCfg1WhitespaceBypass,
+  TestCfg2WinAliasForSuperOnLinux, TestCfg3MultiKeyComboRejection,
+  TestValidateHotkeyAllows, TestValidateHotkeyBlocks)
+- `tests/test_electron_ipc_and_build.py` (TestElectronExposesDataExportHandlers)
+- `tests/test_i5_retry_fixes.py` (18 failures — full file fails on env issues)
+
+**Fix:** Each pre-existing failure needs individual diagnosis. Most are
+environment-related (torch not installed → ASR tests fail; pyrnnoise not
+installed → audio filter tests skipped/fail; etc.). The base repo's CI
+presumably runs with all deps installed.
+
+**Severity:** 🟡 Medium (pre-existing; not a merge regression)

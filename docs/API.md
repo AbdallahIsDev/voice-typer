@@ -161,7 +161,7 @@ Python backend.
 
 ### Protocol
 
-- **Transport:** TCP on localhost (auto-assigned port)
+- **Transport:** TCP on `127.0.0.1:9876` (loopback only). The port defaults to `9876` and `_pick_available_port()` in `voice_typer/server/ipc_server.py` falls forward to `9877`, `9878`, … (up to 100 tries) if `9876` is already taken by another Voice Typer instance — in practice the default install binds `9876`. The Tauri sidecar path uses an ephemeral localhost WebSocket instead — see `voice_typer/server/sidecar_ws.py` and ADR-0020.
 - **Framing:** Newline-delimited JSON
 - **Auth:** Per-connection token. The **first** message on a connection must be a JSON `auth` object whose `token` field matches the `VOICE_TYPER_IPC_TOKEN` env var (constant-time comparison via `hmac.compare_digest`). Once the handshake succeeds, subsequent messages on that authenticated connection bypass the token check and go straight to dispatch. See `SEC-018` in `SECURITY.md` for the threat model.
 
