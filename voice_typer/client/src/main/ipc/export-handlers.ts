@@ -33,6 +33,28 @@ const VALID_FORMATS = new Set(["json", "csv"]);
 const MAX_EXPORT_ROWS = 100_000;
 
 /**
+ * PVT-14: hard cap on the number of template entries exported via
+ * `templates:export`. Templates (trigger → output pairs) are far fewer
+ * than history rows in practice (typically tens to low hundreds), so a
+ * 1k cap is generous for legitimate use while still defending against a
+ * compromised renderer pinning CPU + disk on a fabricated 10M-entry
+ * payload (same threat model as `MAX_EXPORT_ROWS`). See PVT-14 in the
+ * comprehensive review.
+ */
+const MAX_TEMPLATES_EXPORT_ROWS = 1_000;
+
+/**
+ * PVT-14: hard cap on the serialized byte size of the config blob
+ * exported via `config:export`. Config is a flat-ish dict (settings,
+ * preferences, hotkeys) and is typically a few KB; 1 MB is well above
+ * any legitimate size. The cap defends against a compromised renderer
+ * passing a fabricated multi-GB object that would pin CPU + disk during
+ * `JSON.stringify` + `fs.writeFileSync` (same threat model as
+ * `MAX_EXPORT_ROWS`). See PVT-14 in the comprehensive review.
+ */
+const MAX_CONFIG_EXPORT_BYTES = 1 * 1024 * 1024;
+
+/**
  * SEC-015: CSV formula injection defense.  Cells starting
  * with =, +, -, @, TAB, or CR are interpreted as formulas by
  * Excel/LibreOffice when the user opens the exported file.
@@ -178,6 +200,22 @@ export function registerExportHandlers(): void {
 	ipcMain.handle(
 		"templates:export",
 		async (_event, { data }: { data: unknown }) => {
+			// PVT-14: cap the entry count so a compromised renderer
+			// can't pin the CPU + disk on a fabricated 10M-entry
+			// payload (same threat model as history:export /
+			// vocabulary:export). Templates are normally a list of
+			// {trigger, output} pairs; if the renderer sends
+			// something else (an object, a primitive), we still
+			// serialize it but only after coercing arrays through
+			// the cap.
+			let templatesData: unknown = data;
+			if (Array.isArray(data)) {
+				templatesData =
+					data.length > MAX_TEMPLATES_EXPORT_ROWS
+						? data.slice(0, MAX_TEMPLATES_EXPORT_ROWS)
+						: data;
+			}
+
 			const { canceled, filePath } = await dialog.showSaveDialog({
 				title: mainT("dialog.export.templates"),
 				defaultPath: "voice-typer-templates.json",
@@ -187,7 +225,11 @@ export function registerExportHandlers(): void {
 			if (canceled || !filePath) return { success: false };
 
 			try {
-				fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+				fs.writeFileSync(
+					filePath,
+					JSON.stringify(templatesData, null, 2),
+					"utf-8",
+				);
 				return { success: true, path: filePath };
 			} catch (e: unknown) {
 				return { success: false, error: (e as Error).message };
@@ -204,6 +246,32 @@ export function registerExportHandlers(): void {
 	ipcMain.handle(
 		"config:export",
 		async (_event, { data }: { data: unknown }) => {
+			// PVT-14: cap the serialized byte size so a compromised
+			// renderer can't pin the CPU + disk on a fabricated
+			// multi-GB config object. Config is typically a few KB,
+			// so 1 MB is a generous ceiling. We stringify first to
+			// measure, then refuse the write if the blob exceeds
+			// the cap (unlike row-based caps, slicing a config
+			// object would silently drop keys and produce a
+			// misleading partial export — better to fail loud).
+			let serialized: string;
+			try {
+				serialized = JSON.stringify(data, null, 2);
+			} catch (e: unknown) {
+				return {
+					success: false,
+					error: (e as Error).message,
+				};
+			}
+			// Buffer.byteLength accounts for multi-byte UTF-8 chars
+			// correctly (string .length is UTF-16 code units).
+			if (Buffer.byteLength(serialized, "utf-8") > MAX_CONFIG_EXPORT_BYTES) {
+				return {
+					success: false,
+					error: `Config export exceeds the ${MAX_CONFIG_EXPORT_BYTES}-byte cap`,
+				};
+			}
+
 			const { canceled, filePath } = await dialog.showSaveDialog({
 				title: mainT("dialog.export.config"),
 				defaultPath: "voice-typer-config.json",
@@ -213,7 +281,7 @@ export function registerExportHandlers(): void {
 			if (canceled || !filePath) return { success: false };
 
 			try {
-				fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+				fs.writeFileSync(filePath, serialized, "utf-8");
 				return { success: true, path: filePath };
 			} catch (e: unknown) {
 				return { success: false, error: (e as Error).message };

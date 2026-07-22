@@ -9,10 +9,20 @@
  * exported object — this preserves the exact runtime semantics of the
  * original module-level `let` declarations (every reader sees the latest
  * value written by any writer).
+ *
+ * PVT-G5-FA15 (session-5 dead-code cleanup): the `preMaximizeBounds`
+ * field was removed. It used to live on `state` but is now a local
+ * module-level variable inside `ipc/window-handlers.ts` (per PVT-13 in
+ * session-1, which de-shadowed the state field). No reader/writer of
+ * `state.preMaximizeBounds` remained — only the local `preMaximizeBounds`
+ * in window-handlers.ts is used. 4 test fixtures still include
+ * `preMaximizeBounds: null` for backward-compat; they compile due to
+ * `as MainState` casts (the extra property is silently ignored at
+ * runtime). They should be cleaned up separately (P3).
  */
 import type { ChildProcess } from "node:child_process";
 import type { Socket } from "node:net";
-import type { BrowserWindow, Rectangle } from "electron";
+import type { BrowserWindow } from "electron";
 
 /**
  * Pending IPC request awaiting a response from the Python backend.
@@ -85,8 +95,6 @@ export interface MainState {
 	_relaunching: boolean;
 	/** Persists after a restart trigger until the new backend connects (for "restart cycle complete" log). */
 	_restartTriggered: boolean;
-	/** Saved bounds for window:toggle-maximize to restore on unmaximize. */
-	preMaximizeBounds: Rectangle | null;
 }
 
 export const state: MainState = {
@@ -112,5 +120,4 @@ export const state: MainState = {
 	_hadConnectedBefore: false,
 	_relaunching: false,
 	_restartTriggered: false,
-	preMaximizeBounds: null,
 };

@@ -69,7 +69,6 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		sessionNonce: "",
 		bubblePosition: "top",
 		bubbleDraggable: true,
-		bubbleDragging: false,
 		_bubblePageReady: false,
 		_hideTimeout: null,
 		_tcpRetryCount: 0,
@@ -79,7 +78,6 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		_hadConnectedBefore: false,
 		_relaunching: false,
 		_restartTriggered: false,
-		preMaximizeBounds: null,
 		...overrides,
 	} as MainState;
 }

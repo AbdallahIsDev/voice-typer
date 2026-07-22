@@ -44,6 +44,22 @@ vi.mock("electron", () => ({
 // do not need here.
 vi.mock("../single_instance", () => ({
 	computeConfigDir: () => "/tmp/vt-mock-userdata",
+	// G4-H-24: bootstrap.ts now also imports `clearElectronPidFile`
+	// and calls it inside the production exit hook. The test never
+	// exercises that hook (it injects its own `exit` mock), but the
+	// import + symbol binding still needs to resolve.
+	clearElectronPidFile: vi.fn(),
+}));
+
+// G4-H-24: bootstrap.ts now imports `stopPython` from `./python` so the
+// production exit hook can call it before `app.quit()`. The real
+// `./python` index transitively imports `./send-to-python` → `../index`
+// (the main entry, which fires Electron APIs at module-eval time). We
+// mock `./python` to short-circuit that chain — the test only needs the
+// `stopPython` symbol to exist; it never invokes it (the test injects
+// its own `exit` hook that records calls without calling stopPython).
+vi.mock("../python", () => ({
+	stopPython: vi.fn(),
 }));
 
 // Mock `./state` — bootstrap.ts only reads `state.sessionNonce` and never
@@ -187,7 +203,7 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 		const { crashLogPath } = _crashLogPaths(tmpDir);
 		// Pre-seed the active crash log with 1.1 MiB of content so
 		// the very first emit triggers a rotation.
-		const preseed = "PRESEED_" + "x".repeat(DEFAULT_CRASH_LOG_MAX_BYTES + 1024);
+		const preseed = `PRESEED_${"x".repeat(DEFAULT_CRASH_LOG_MAX_BYTES + 1024)}`;
 		fs.writeFileSync(crashLogPath, preseed);
 
 		const handlers = _installErrorHandlers({
@@ -287,7 +303,7 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 		// Pre-seed the rejection log with oversized content.
 		fs.writeFileSync(
 			rejectionLogPath,
-			"R_" + "y".repeat(DEFAULT_CRASH_LOG_MAX_BYTES + 512),
+			`R_${"y".repeat(DEFAULT_CRASH_LOG_MAX_BYTES + 512)}`,
 		);
 
 		const handlers = _installErrorHandlers({

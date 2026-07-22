@@ -23,6 +23,12 @@
  *
  * The shape of every locale entry MUST match the `en` entry (same keys).
  * TypeScript enforces this via the `MainStrings` mapped type.
+ *
+ * PVT-G5-086 (session-5 dead-code cleanup): `getMainLocale()` and the
+ * `export` modifier on the `MainLocale` type were removed — no consumer
+ * outside this module ever imported either. `MainLocale` stays as a
+ * module-local type alias so internal references (`currentLocale`,
+ * `setMainLocale`'s cast) remain typed.
  */
 
 /**
@@ -136,7 +142,7 @@ const MAIN_STRINGS = {
 	},
 } as const;
 
-export type MainLocale = keyof typeof MAIN_STRINGS;
+type MainLocale = keyof typeof MAIN_STRINGS;
 
 /** English reference keys — every locale must provide exactly these keys. */
 type MainStrings = typeof MAIN_STRINGS.en;
@@ -163,14 +169,6 @@ export function setMainLocale(locale: string): void {
 	} else {
 		currentLocale = "en";
 	}
-}
-
-/**
- * Get the locale currently used by {@link mainT}. Mainly useful for
- * diagnostics and tests.
- */
-export function getMainLocale(): MainLocale {
-	return currentLocale;
 }
 
 /**

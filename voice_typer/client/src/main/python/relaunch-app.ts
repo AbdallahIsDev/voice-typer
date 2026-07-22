@@ -55,8 +55,25 @@ export function relaunchApp(): void {
 		// Kill old Python (remove exit listener first to prevent race)
 		try {
 			if (state.pythonProcess) {
-				state.pythonProcess.removeAllListeners("exit");
-				if (!state.pythonProcess.killed) state.pythonProcess.kill("SIGTERM");
+				const proc = state.pythonProcess;
+				proc.removeAllListeners("exit");
+				if (!proc.killed) proc.kill("SIGTERM");
+				// PVT-G5-039: SIGKILL fallback — if Python
+				// doesn't exit within 3s (stuck in a C
+				// extension like torch/sounddevice),
+				// force-kill it so the old process
+				// doesn't survive and hold the
+				// VoiceTyperSingleInstance mutex.
+				const killTimer = setTimeout(() => {
+					if (!proc.killed) {
+						try {
+							proc.kill("SIGKILL");
+						} catch {
+							/* best-effort */
+						}
+					}
+				}, 3000);
+				proc.once("exit", () => clearTimeout(killTimer));
 			}
 		} catch {
 			/* best-effort */
@@ -68,6 +85,10 @@ export function relaunchApp(): void {
 			if (state.tcpSocket) state.tcpSocket.destroy();
 		} catch {}
 		state.tcpSocket = null;
+		// PVT-G5-007: reset the TCP line buffer so stale partial
+		// frames from the previous backend don't bleed into the
+		// next connection.
+		state.tcpBuffer = "";
 		state._tcpAuthed = false;
 		state.pythonReady = false;
 		state.pythonExitedEarly = false;
@@ -129,8 +150,24 @@ export function relaunchApp(): void {
 	// Kill old Python (remove exit listener first to prevent race)
 	try {
 		if (state.pythonProcess) {
-			state.pythonProcess.removeAllListeners("exit");
-			if (!state.pythonProcess.killed) state.pythonProcess.kill();
+			const proc = state.pythonProcess;
+			proc.removeAllListeners("exit");
+			if (!proc.killed) proc.kill();
+			// PVT-G5-039: SIGKILL fallback — same pattern as
+			// the dev branch above and stop-python.ts:38-43.
+			// If Python is stuck in a C extension and ignores
+			// SIGTERM, force-kill after 3s so the old process
+			// doesn't hold the single-instance mutex.
+			const killTimer = setTimeout(() => {
+				if (!proc.killed) {
+					try {
+						proc.kill("SIGKILL");
+					} catch {
+						/* best-effort */
+					}
+				}
+			}, 3000);
+			proc.once("exit", () => clearTimeout(killTimer));
 		}
 	} catch {}
 	state.pythonProcess = null;
@@ -138,6 +175,8 @@ export function relaunchApp(): void {
 		if (state.tcpSocket) state.tcpSocket.destroy();
 	} catch {}
 	state.tcpSocket = null;
+	// PVT-G5-007: reset the TCP line buffer (see dev branch above).
+	state.tcpBuffer = "";
 	state._tcpAuthed = false;
 	// R6-F6: clear the pending TCP retry timer so a stale
 	// `tryConnect()` doesn't fire during the brief exit window.

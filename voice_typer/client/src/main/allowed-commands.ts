@@ -29,13 +29,23 @@
  * to succeed; until then the renderer call will surface an "unknown
  * command" error toast (handled gracefully by Home.tsx).
  *
+ * PVT-G5-075 (session-5 security hardening): `tray_click` was
+ * previously in this Set "to match the server's `_COMMAND_REGISTRY`
+ * exactly", but the renderer NEVER invokes it — only the Rust tray
+ * menu handler (`tray.rs::on_menu_event`) does, via `dispatch_inner`
+ * which bypasses the allowlist gate. Including it here contradicted
+ * the Rust doc comment (which said it was NOT in the renderer
+ * allowlist) and created an attack surface that only a compromised
+ * renderer could reach. Removed; the server-side handler in
+ * `_COMMAND_REGISTRY` is unchanged (the Rust host still routes
+ * `tray_click` via `dispatch_inner`).
+ *
  * PRESERVES the exact command strings — do not rename, reorder, or
  * deduplicate without coordinating with the Python-side
  * `tests/test_electron_ipc_and_build.py::test_allowlist_matches_server_commands`
- * test which used to slice this substring out of `index.ts`. After
- * R6-F10 the test should look for the literal `ALLOWED_COMMANDS = new Set([`
- * substring in this file instead. See `tests/test_electron_ipc_and_build.py`
- * docstring (I7 owns the Python side — coordination note left there).
+ * test which slices the `ALLOWED_COMMANDS = new Set([` substring out
+ * of this file. See `tests/test_electron_ipc_and_build.py` docstring
+ * (I7 owns the Python side — coordination note left there).
  */
 export const ALLOWED_COMMANDS = new Set<string>([
 	"get_status",
@@ -80,13 +90,23 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"onboarding_set_model",
 	"onboarding_skip",
 	"onboarding_apply",
-	// CR-35 / CR-063: 3 commands were previously missing from this
-	// canonical allowlist (they lived only in the inline `index.ts`
-	// duplicate). Added here so the canonical allowlist matches the
-	// server's `_COMMAND_REGISTRY` exactly.
+	// CR-35 / CR-063: commands previously missing from this canonical
+	// allowlist (they lived only in the inline `index.ts` duplicate).
+	// Added here so the canonical allowlist matches the server's
+	// `_COMMAND_REGISTRY`.
+	//
+	// PVT-G5-075: `tray_click` was previously in this Set "to match
+	// the server's `_COMMAND_REGISTRY` exactly", but the renderer
+	// NEVER invokes it — only the Rust tray menu handler
+	// (`tray.rs::on_menu_event`) does, via `dispatch_inner` which
+	// bypasses the allowlist gate. Including it here contradicted
+	// the Rust doc comment (which said it was NOT in the renderer
+	// allowlist) and created an attack surface that only a
+	// compromised renderer could reach. Removed; the server-side
+	// handler in `_COMMAND_REGISTRY` is unchanged (the Rust host
+	// still routes `tray_click` via `dispatch_inner`).
 	"onboarding_check_permissions",
 	"onboarding_get_model_catalog",
-	"tray_click",
 	"onboarding_get_microphones",
 	"onboarding_get_model_options",
 	"onboarding_get_hotkey_presets",
@@ -156,4 +176,32 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"apply_vocabulary_suggestion",
 	"dismiss_vocabulary_suggestion",
 	"force_cancel_transcription",
+	// G4-M-10 (session-4) + PVT-G5-025 (session-5): GDPR Art. 17
+	// (right to erasure) + Art. 20 (right to data portability) —
+	// invoked by the Settings → Privacy page. Both are registered in
+	// the Python-side `_COMMAND_REGISTRY` (ipc_server.py:2028-2029)
+	// and implemented in `handlers/privacy_handlers.py`
+	// (`_handle_delete_all_personal_data` /
+	// `_handle_export_gdpr_bundle`). Without these entries the
+	// renderer's Privacy page calls would be silently rejected at
+	// the Electron allowlist gate — the user clicks "Delete all
+	// personal data" or "Export GDPR bundle" and nothing happens.
+	// Mirrored in the Rust host's `ALLOWED_COMMANDS` literal in
+	// `src-tauri/src/commands/sidecar_cmds.rs` (defense-in-depth —
+	// the Rust host gates the same set on its `dispatch_inner` path).
+	// Mirrors the Python `_COMMAND_REGISTRY` exactly (no camelCase
+	// mapping — the IPC bridge sends the raw command name).
+	"delete_all_personal_data",
+	"export_gdpr_bundle",
+	// G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding keyboard
+	// permission request + reset — invoked by the Onboarding page.
+	// Both are registered in the Python-side `_COMMAND_REGISTRY`
+	// (ipc_server.py) and implemented in
+	// `handlers/onboarding_handlers.py`
+	// (`_handle_onboarding_request_keyboard_permission` /
+	// `_handle_onboarding_reset`). Without these entries the
+	// renderer's Onboarding page calls would be silently rejected
+	// at the Electron allowlist gate.
+	"onboarding_request_keyboard_permission",
+	"onboarding_reset",
 ]);

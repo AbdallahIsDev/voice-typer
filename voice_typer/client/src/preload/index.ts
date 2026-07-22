@@ -108,10 +108,18 @@ contextBridge.exposeInMainWorld("window_", {
 			error?: string;
 		}>,
 	// MODEL-IMPORT: open a native folder picker for importing models.
+	// G4-H-22: return type extended with `error?: string` so the
+	// handler can surface a failure reason (Linux no-display, internal
+	// Electron error) to the renderer instead of an unhandled rejection
+	// that the SEC-021 breaker would count toward the 5-error crash-
+	// loop exit threshold. The renderer treats `{canceled: true}` and
+	// `{canceled: true, error: "..."}` identically (no-op on cancel),
+	// but can optionally show a snackbar when `error` is present.
 	openModelImportDialog: () =>
 		ipcRenderer.invoke("model:import-dialog") as Promise<{
 			canceled: boolean;
 			path?: string;
+			error?: string;
 		}>,
 	// UX-008: actually open the log folder in the OS file manager.
 	// Previously the Settings page just showed a snackbar saying
@@ -122,4 +130,29 @@ contextBridge.exposeInMainWorld("window_", {
 			path?: string;
 			error?: string;
 		}>,
+	// G4-M-71: open the ELECTRON log folder (userData dir) in the OS
+	// file manager. Distinct from `openLogs` above which opens the
+	// PYTHON backend's log dir. The Electron userData dir contains
+	// `electron-main.log`, `electron-crashes.log`,
+	// `electron-rejections.log`, and `electron-renderer-errors.log`.
+	openElectronLogs: () =>
+		ipcRenderer.invoke("window:open-electron-logs") as Promise<{
+			success: boolean;
+			path?: string;
+			error?: string;
+		}>,
+	// G4-M-69: forward a renderer-caught error to the main process
+	// for persistence in `electron-renderer-errors.log`. The main
+	// process is the only side with filesystem access (sandboxed
+	// renderer can't write to userData), so the ErrorBoundary's
+	// `componentDidCatch` routes through this IPC channel. The
+	// payload is intentionally minimal — no PII, just the kind
+	// (react-render | uncaught | unhandledrejection), the stack,
+	// and optional componentStack from React's ErrorInfo.
+	logError: (payload: {
+		kind: string;
+		stack?: string;
+		componentStack?: string;
+		message?: string;
+	}) => ipcRenderer.invoke("renderer:log-error", payload),
 });

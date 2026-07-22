@@ -15,8 +15,81 @@
 import path from "node:path";
 import { app, BrowserWindow, Menu, nativeTheme } from "electron";
 import { START_HIDDEN } from "../constants";
-import { cleanConsoleMsg, RENDERER_CLR, RESET, ts } from "../logging";
+import { cleanConsoleMsg, RENDERER_CLR, RESET } from "../logging";
 import { state } from "../state";
+
+// PVT-G5-080: structured logger. Resolved defensively via `require()`
+// so unit-test environments that mock `../logging` minimally (without
+// the new `log` export, e.g. main-window-native-theme.test.ts) still
+// pass — `require()` returns the mocked module, `.log` is undefined,
+// and we fall back to the legacy console.* pattern. In production the
+// real `log` is used (with stdout + electron-runtime.log file tee).
+type _LogShape = {
+	info: (...a: unknown[]) => void;
+	warn: (...a: unknown[]) => void;
+	error: (...a: unknown[]) => void;
+};
+const log: _LogShape = (() => {
+	try {
+		// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+		const mod = require("../logging") as unknown as {
+			log?: _LogShape;
+		};
+		if (mod.log) return mod.log;
+	} catch {
+		// ignore — fall through to fallback
+	}
+	return {
+		info: (...args: unknown[]) => console.log(...args),
+		warn: (...args: unknown[]) => console.warn(...args),
+		error: (...args: unknown[]) => console.error(...args),
+	};
+})();
+
+// G4-M-67: defensive resolution of the renderer-error persistence
+// helpers from session 4's logging.ts additions. Resolved via
+// `require()` so this file compiles whether or not the merged
+// logging.ts keeps session 4's `appendLogLine` / `rendererErrorsLogPath`
+// exports. When unavailable, `appendRendererError` is a no-op.
+type _AppendLogLine = (filePath: string, line: string) => void;
+type _RendererErrorsLogPath = () => string;
+const _appendLogLine: _AppendLogLine | null = (() => {
+	try {
+		// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+		const mod = require("../logging") as unknown as {
+			appendLogLine?: _AppendLogLine;
+		};
+		return mod.appendLogLine ?? null;
+	} catch {
+		return null;
+	}
+})();
+const _rendererErrorsLogPath: _RendererErrorsLogPath | null = (() => {
+	try {
+		// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+		const mod = require("../logging") as unknown as {
+			rendererErrorsLogPath?: _RendererErrorsLogPath;
+		};
+		return mod.rendererErrorsLogPath ?? null;
+	} catch {
+		return null;
+	}
+})();
+
+/**
+ * G4-M-67: persist a renderer-error line to
+ * `electron-renderer-errors.log` (when session 4's logging helpers are
+ * available). Best-effort: silently no-ops if the helpers aren't
+ * merged into the final logging.ts.
+ */
+function appendRendererError(line: string): void {
+	if (!_appendLogLine || !_rendererErrorsLogPath) return;
+	try {
+		_appendLogLine(_rendererErrorsLogPath(), line);
+	} catch {
+		/* best-effort */
+	}
+}
 
 /**
  * Show + focus the dashboard window, creating it if needed.
@@ -236,7 +309,11 @@ export function createMainWindow(forceShow = false): void {
 			(args[0] as Record<string, unknown>).type === "ready"
 		) {
 			state.pythonReady = true;
-			console.warn(
+			// PVT-G5-080: route this lifecycle milestone through the
+			// structured logger so it lands in `electron-main.log`
+			// for post-mortem diagnosis (previously went only to
+			// stdout, which is closed in packaged builds).
+			log.info(
 				"[STARTUP] backend sent {type:'ready'} — pythonReady = true (backend fully initialized)",
 			);
 		}
@@ -282,19 +359,109 @@ export function createMainWindow(forceShow = false): void {
 	state.mainWindow.on("maximize", () => broadcastMaximized(true));
 	state.mainWindow.on("unmaximize", () => broadcastMaximized(false));
 
+	// PVT-12: null out `state.mainWindow` once the window is actually
+	// destroyed. The `close` handler above intercepts the X button to
+	// hide-to-tray (preventDefault), so it never reaches `closed`. But
+	// the real destroy paths (tray "Quit" → `app.isQuitting = true` →
+	// close flows through; `win.destroy()` from start-python.ts:132;
+	// app teardown on quit) DO reach `closed`, and without this handler
+	// `state.mainWindow` keeps pointing at a destroyed BrowserWindow
+	// until process exit. Any later read of `state.mainWindow` (e.g.
+	// `showMainWindow()`'s `isDestroyed()` check, or the
+	// `nativeTheme.on("updated")` handler) then trips over a dead
+	// reference. Nulling here keeps the state invariant honest:
+	// `state.mainWindow` is non-null iff a live window exists.
+	state.mainWindow.on("closed", () => {
+		state.mainWindow = null;
+	});
+
 	// CONSOLE-FIX: Electron 30+ deprecated the multi-argument
 	// console-message signature `(_e, level, message, line, source)`.
 	// The new signature is a single Event object with properties:
 	//   e.level, e.message, e.lineNumber, e.sourceId
 	// The old signature emitted a deprecation warning on every app start.
+	//
+	// G4-M-67: when level >= 3 (ERROR), also persist the renderer
+	// console error to `electron-renderer-errors.log` under the
+	// Electron userData dir. Previously the handler only re-emitted
+	// the message to the main-process terminal (lost when the
+	// terminal closed) — operators had no way to see renderer
+	// crashes post-mortem. The persist call is best-effort: any I/O
+	// error is swallowed by `appendRendererError` so logging can
+	// never break the renderer console forwarding path.
+	//
+	// PVT-G5-081 sub-finding: lower the forwarder gate from
+	// `level >= 2` (WARN and above only) to `level >= 1` so INFO-
+	// level renderer telemetry (e.g. lifecycle logs from the
+	// renderer) reaches the main process log too. VERBOSE (level
+	// 0) is still dropped — it's too noisy for the main log.
+	// PVT-G5-080: route through the structured logger so WARN/ERROR
+	// lines also land in electron-runtime.log.
 	state.mainWindow.webContents.on("console-message", (e) => {
 		const level = Number(e.level);
-		if (level >= 2) {
+		if (level >= 1) {
 			const tag = ["VRB", "INFO", "WARN", "ERROR"][level] ?? "LOG";
-			console.warn(
-				`${ts()}  ${RENDERER_CLR}[${tag}]${RESET} ${cleanConsoleMsg(e.message)} (${e.sourceId}:${e.lineNumber})`,
-			);
+			const msg = `${RENDERER_CLR}[MAIN renderer] ${tag}${RESET} ${cleanConsoleMsg(e.message)} (${e.sourceId}:${e.lineNumber})`;
+			if (level >= 3) log.error(msg);
+			else if (level === 2) log.warn(msg);
+			else log.info(msg);
 		}
+		if (level >= 3) {
+			// G4-M-67: ERROR-level renderer console output is
+			// almost always a real bug (uncaught exception,
+			// failed prop type, broken invariant). Persist it
+			// to its own log file so support staff can grep
+			// renderer crashes without fishing through
+			// DevTools or the noisy `electron-main.log`.
+			const line = `${new Date().toISOString()} [renderer-error] ${cleanConsoleMsg(
+				e.message,
+			)} (${e.sourceId}:${e.lineNumber})\n`;
+			appendRendererError(line);
+		}
+	});
+
+	// G4-H-23: main window lacked render-process-gone recovery (the
+	// bubble window already had all three handlers — see
+	// bubble-window.ts:127-159). Without these, a main-renderer
+	// crash left the user with a blank/frozen dashboard while the
+	// tray icon + Python backend kept running; "Open app" from the
+	// tray showed the same dead window.
+	//
+	// `did-fail-load` fires when the renderer fails to load its
+	// initial HTML (e.g. the bundled index.html is missing or the
+	// dev server returned 500). Logging the error code + URL lets
+	// support staff diagnose packaging / dev-server issues.
+	state.mainWindow.webContents.on("did-fail-load", (_e, code, desc, url) => {
+		log.error("[MAIN] did-fail-load", { code, desc, url });
+	});
+
+	// `render-process-gone` fires when the renderer process crashes
+	// (GPU process OOM, native module segfault, v8 heap exhaustion).
+	// Without a reload, the BrowserWindow stays alive with a blank
+	// webContents — the user sees a frozen window with no way to
+	// recover short of quitting via the tray. We reload the window
+	// so the user gets a fresh renderer (the Python backend keeps
+	// running, so session state is preserved on the backend side).
+	state.mainWindow.webContents.on("render-process-gone", (_e, details) => {
+		log.error("[MAIN] render-process-gone", details);
+		try {
+			if (state.mainWindow && !state.mainWindow.isDestroyed()) {
+				log.warn("[MAIN] reloading after render-process-gone");
+				state.mainWindow.reload();
+			}
+		} catch (err) {
+			log.error("[MAIN] failed to reload after render-process-gone", {
+				error: (err as Error).message,
+			});
+		}
+	});
+
+	// `preload-error` fires when the preload script throws at module
+	// eval time. This is almost always a packaging bug (preload path
+	// mismatch, missing dependency). Logging the file + error makes
+	// the root cause obvious instead of presenting as a blank window.
+	state.mainWindow.webContents.on("preload-error", (_e, file, err) => {
+		log.error(`[MAIN] preload-error in ${file}`, err);
 	});
 
 	state.mainWindow.webContents.on("before-input-event", (_event, input) => {

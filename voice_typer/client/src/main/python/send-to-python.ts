@@ -4,12 +4,19 @@
  *
  * Extracted from `index.ts` (REF-2).
  *
- * The `ALLOWED_COMMANDS` set is imported from `../index` so that the
- * literal `ALLOWED_COMMANDS = new Set([...])` declaration continues to
- * live in `src/main/index.ts` (the Python `test_allowlist_matches_server_commands`
- * and vitest Section 13 tests slice that substring out of the source).
+ * R6-F10 (session-1): the `ALLOWED_COMMANDS` set is now imported
+ * directly from `../allowed-commands` (a dependency-free leaf module)
+ * instead of `../index`. The previous `from "../index"` import created
+ * a circular dependency (`index.ts` → `python/` → `send-to-python.ts`
+ * → `index.ts`) that forced Node's CJS resolver to evaluate `index.ts`
+ * partially before `sendToPython` was callable, producing
+ * hard-to-trace load-order bugs. The canonical declaration lives in
+ * `src/main/allowed-commands.ts` so that the Python
+ * `test_allowlist_matches_server_commands` test and the vitest Section
+ * 13 port can slice the literal `ALLOWED_COMMANDS = new Set([...])`
+ * substring from that file.
  */
-import { ALLOWED_COMMANDS } from "../index";
+import { ALLOWED_COMMANDS } from "../allowed-commands";
 import { state } from "../state";
 
 export function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
@@ -39,7 +46,8 @@ export function sendToPython(msg: Record<string, unknown>): Promise<unknown> {
 		// names exactly (cross-checked against ipc_server.py _dispatch).
 		//
 		// NOTE: the canonical ALLOWED_COMMANDS declaration lives in
-		// `src/main/index.ts` (not here) so that the Python
+		// `src/main/allowed-commands.ts` (not here, and no longer in
+		// `src/main/index.ts` since R6-F10) so that the Python
 		// `test_allowlist_matches_server_commands` test and the
 		// vitest Section 13 port can slice the literal
 		// `ALLOWED_COMMANDS = new Set([` ... `]);` substring from

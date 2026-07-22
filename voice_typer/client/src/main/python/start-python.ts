@@ -194,4 +194,26 @@ export function startPython() {
 			}
 		}
 	});
+
+	// PVT-G5-037: handle spawn failures (ENOENT — Python not on PATH,
+	// bundled exe missing, EACCES, etc.). Without this listener, Node
+	// emits the 'error' event with no listener → uncaughtException →
+	// the crash circuit breaker in bootstrap.ts trips after 5 errors.
+	// The 'exit' event then fires with a negative code, hitting the
+	// early-exit branch above and showing the misleading "single
+	// instance already running" dialog. Show a clear error instead.
+	proc.on("error", (err: NodeJS.ErrnoException) => {
+		console.error("[PYTHON] spawn failed:", err);
+		state.pythonProcess = null;
+		state.pythonExitedEarly = true;
+		try {
+			dialog.showErrorBox(
+				"Python backend not found",
+				`Voice Typer could not start its backend:\n${err.message}`,
+			);
+		} catch {
+			// dialog may not be available in headless mode
+		}
+		app.quit();
+	});
 }

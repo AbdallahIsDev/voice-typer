@@ -18,18 +18,45 @@ import { hideBubbleWindow, showBubbleWindow, showMainWindow } from "../windows";
 import { relaunchApp } from "./relaunch-app";
 import { sendToPython } from "./send-to-python";
 
-export function handleMessage(msg: Record<string, unknown>) {
+// T2-005: explicit `void` return type — `handleMessage` always returns
+// synchronously and callers (tcp-connect.ts, sidecar ws reader) ignore
+// the return value. Pinning `void` prevents a future contributor from
+// accidentally `return`-ing a Promise/value and expecting it to be
+// awaited (it isn't).
+export function handleMessage(msg: Record<string, unknown>): void {
 	if (msg.id != null) {
 		const entry = state.pendingRequests.get(msg.id as number);
 		if (entry) {
 			state.pendingRequests.delete(msg.id as number);
 			if (msg.type === "error") {
-				entry.reject(
-					new Error(
-						((msg.data as Record<string, unknown>)?.message as string) ??
-							"Unknown error",
-					),
-				);
+				const errData = (msg.data as Record<string, unknown>) ?? {};
+				const message =
+					(errData.message as string | undefined) ?? "Unknown error";
+				const err = new Error(message);
+				// PVT-G5-012 sub-finding: previously only `message` was
+				// surfaced on the rejected Error — `data.code` was discarded.
+				// The Python backend emits structured `code` values
+				// (`unknown_command`, `internal_error`, `rate_limited`,
+				// `invalid_field`, `missing_field`, `unknown_tray_item`)
+				// precisely so renderer code can branch on them. Attach
+				// `code` (and the optional `field`/`command`/`id` context
+				// fields) to the Error so consumers can do
+				// `if ((err as any).code === "rate_limited") ...` instead of
+				// pattern-matching the human-readable message string.
+				const code = errData.code as string | undefined;
+				if (code !== undefined) {
+					(err as Error & { code?: string }).code = code;
+				}
+				if (errData.field !== undefined) {
+					(err as Error & { field?: unknown }).field = errData.field;
+				}
+				if (errData.command !== undefined) {
+					(err as Error & { command?: unknown }).command = errData.command;
+				}
+				if (errData.id !== undefined) {
+					(err as Error & { id?: unknown }).id = errData.id;
+				}
+				entry.reject(err);
 			} else {
 				entry.resolve(msg.data);
 			}

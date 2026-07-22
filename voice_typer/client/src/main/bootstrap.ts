@@ -9,13 +9,26 @@
  *   4. SEC-021 uncaughtException / unhandledRejection handlers with a
  *      crash log + 5-error circuit breaker (CR-9: log rotation +
  *      REVIEW-12 alignment + REVIEW-9 sliding window).
+ *
+ * G4-H-24: the breaker's `exit` hook now (a) calls `stopPython()` +
+ * `clearElectronPidFile()` BEFORE exiting so the Python backend doesn't
+ * get orphaned with a held single-instance lock + listening port, and
+ * (b) schedules `app.quit()` first (giving Electron's `before-quit` /
+ * `will-quit` hooks a chance to fire) with a 2s `process.exit(1)`
+ * backstop in case `before-quit` hangs.
+ *
+ * PVT-G5-006 (R6-F7): same rationale applied to the inline `stopPython()`
+ * defensive call inside `onUncaught` / `onRejection` — even when a test
+ * injects an `exit` mock that bypasses `_productionExit`, the Python
+ * backend is still cleaned up before the breaker trips.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { app, dialog, session } from "electron";
 import { mainT } from "./i18n";
 import { DEFAULT_CRASH_LOG_MAX_BYTES, rotateIfNeeded } from "./logging";
-import { computeConfigDir } from "./single_instance";
+import { stopPython } from "./python";
+import { clearElectronPidFile, computeConfigDir } from "./single_instance";
 import { state } from "./state";
 
 /**
@@ -188,6 +201,15 @@ export function _crashLogPaths(userDataDir: string): {
  * tests and the next test's `process.emit("uncaughtException", ...)`
  * would fire stale handlers from the previous test.
  *
+ * G4-H-24: the production exit hook (passed in by `setupErrorHandlers`
+ * below) now calls `stopPython()` + `clearElectronPidFile()` BEFORE
+ * `app.exit(1)`, then schedules a 2s `process.exit(1)` backstop. This
+ * closes the orphan-Python bug where `process.exit(1)` (the old
+ * implementation) bypassed Electron's `before-quit` → `stopPython()`
+ * never ran → Python kept its IPC port + single-instance mutex +
+ * tray icon alive. The 2s backstop guarantees we still exit even if
+ * `app.quit()` hangs (e.g. a stuck `before-quit` handler).
+ *
  * @internal
  */
 export function _installErrorHandlers(opts: {
@@ -199,7 +221,13 @@ export function _installErrorHandlers(opts: {
 	const exit =
 		opts.exit ??
 		((code: number) => {
-			process.exit(code);
+			// G4-H-24: production exit path. The injected `exit`
+			// hook below (in `setupErrorHandlers`) replaces
+			// this default with the full `stopPython` +
+			// `clearElectronPidFile` + `app.quit` + 2s
+			// `process.exit` backstop sequence. Tests inject
+			// a plain `(code) => exitCalls.push(code)` mock.
+			app.exit(code);
 		});
 	const { crashLogPath, rejectionLogPath } = _crashLogPaths(userDataDir);
 
@@ -251,6 +279,32 @@ export function _installErrorHandlers(opts: {
 			} catch {
 				// dialog may not be available in headless mode
 			}
+			// G4-H-24: inline-call stopPython + clearElectronPidFile
+			// before exit so the breaker doesn't orphan the
+			// Python backend. Best-effort — these are wrapped in
+			// try/catch internally (see stop-python.ts and
+			// single_instance.ts), but we double-guard here so
+			// a throw in either cannot block the exit.
+			//
+			// PVT-G5-006 (R6-F7): the same defensive cleanup
+			// applies if the test injects an `exit` mock that
+			// bypasses `_productionExit` — without this call,
+			// the Python backend (microphone, global hotkeys,
+			// volume duck, single-instance mutex) would be
+			// leaked across the breaker trip.
+			try {
+				stopPython();
+			} catch (e) {
+				console.error("[VT] stopPython() failed during breaker exit:", e);
+			}
+			try {
+				clearElectronPidFile();
+			} catch (e) {
+				console.error(
+					"[VT] clearElectronPidFile() failed during breaker exit:",
+					e,
+				);
+			}
 			exit(1);
 		}
 	};
@@ -277,6 +331,24 @@ export function _installErrorHandlers(opts: {
 			} catch {
 				// dialog may not be available in headless mode
 			}
+			// G4-H-24 + PVT-G5-006: same defensive stopPython +
+			// clearElectronPidFile as the uncaughtException branch.
+			try {
+				stopPython();
+			} catch (e) {
+				console.error(
+					"[VT] stopPython() failed during breaker exit (rejection):",
+					e,
+				);
+			}
+			try {
+				clearElectronPidFile();
+			} catch (e) {
+				console.error(
+					"[VT] clearElectronPidFile() failed during breaker exit (rejection):",
+					e,
+				);
+			}
 			exit(1);
 		}
 	};
@@ -292,9 +364,64 @@ export function _installErrorHandlers(opts: {
 	};
 }
 
+/**
+ * G4-H-24: production exit hook for the SEC-021 circuit breaker.
+ *
+ * Replaces the previous `process.exit(1)` (which bypassed Electron's
+ * `before-quit` lifecycle — `stopPython()` and `clearElectronPidFile()`
+ * never ran, orphaning the Python backend with its IPC port + single-
+ * instance mutex + tray icon).
+ *
+ * Sequence:
+ *   1. `stopPython()` — sends `quit_app` over TCP, force-kills after 3s.
+ *   2. `clearElectronPidFile()` — removes `electron.pid` so the next
+ *      launch doesn't think we're still alive.
+ *   3. `app.quit()` — fires `before-quit` → `will-quit` (gives the
+ *      Python-side shutdown ack a chance to land + lets any other
+ *      `will-quit` listeners run).
+ *   4. 2s `process.exit(1)` backstop — if `app.quit()` hangs (a stuck
+ *      `before-quit` handler, a deadlock in the Python IPC ack path),
+ *      we still exit so the user isn't left with a zombie process.
+ *
+ * The hook is idempotent: if `app.quit()` succeeds and the process
+ * exits before 2s, the `setTimeout` callback never fires (Node exits
+ * the event loop). If `app.quit()` is a no-op (already quitting), the
+ * backstop still fires.
+ */
+function _productionExit(code: number): void {
+	try {
+		stopPython();
+	} catch (e) {
+		console.error("[VT] stopPython() failed during production exit:", e);
+	}
+	try {
+		clearElectronPidFile();
+	} catch (e) {
+		console.error(
+			"[VT] clearElectronPidFile() failed during production exit:",
+			e,
+		);
+	}
+	// Schedule `app.quit()` first so Electron's `before-quit` /
+	// `will-quit` hooks fire (they're the canonical shutdown path
+	// and what the rest of the app listens to).
+	try {
+		app.quit();
+	} catch (e) {
+		console.error("[VT] app.quit() failed during production exit:", e);
+	}
+	// 2s backstop: if `app.quit()` doesn't actually exit the process
+	// within 2s (e.g. a `before-quit` handler called
+	// `event.preventDefault()` or the Python shutdown ack hangs),
+	// force-exit so the user isn't left with a zombie.
+	setTimeout(() => {
+		process.exit(code);
+	}, 2000).unref();
+}
+
 function setupErrorHandlers(): void {
 	const userDataDir = app?.getPath("userData") ?? process.cwd();
-	_installErrorHandlers({ userDataDir });
+	_installErrorHandlers({ userDataDir, exit: _productionExit });
 }
 
 /**

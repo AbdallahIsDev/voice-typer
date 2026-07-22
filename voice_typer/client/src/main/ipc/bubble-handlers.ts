@@ -4,7 +4,7 @@
  * Extracted from `index.ts` (REF-2). Registers:
  *   - bubble:move-by — keyboard nudge (NEW-A11Y-006)
  *   - bubble:draggable — toggle draggability (synced to bubble renderer)
- *   - bubble:resize — fit pill content exactly
+ *   - bubble:resize — fit pill content exactly (clamped to min/max)
  *   - bubble:show-from-renderer — show from the bubble's own UI
  *   - set_bubble_position — top/bottom config (synced to bubble renderer)
  *   - bubble:ready — renderer readiness signal
@@ -13,12 +13,25 @@
  * bubble window's webContents, so a compromised main window can't
  * hijack the always-on-top bubble as a phishing overlay.
  */
-import { ipcMain } from "electron";
+import { ipcMain, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
 import { BUBBLE_CLR, RESET, ts } from "../logging";
 import { sendToPython } from "../python";
 import { state } from "../state";
 import { centerOnPrimaryDisplay, showBubbleWindow } from "../windows";
+
+// PVT fix (#11): min/max resize constraints for the bubble pill. The
+// renderer's auto-resize useLayoutEffect measures the pill content and
+// sends a `bubble:resize` IPC with the measured width/height. Without
+// clamps, a runaway measurement (e.g. a long transcription preview, a
+// CSS bug, or a compromised renderer) could shrink the bubble to 0×0
+// (disappearing pill) or grow it to cover the user's screen (phishing
+// overlay). These bounds keep the pill within a sensible pill-shaped
+// range while still accommodating the transcribing text and mic button.
+export const MIN_BUBBLE_W = 40;
+export const MIN_BUBBLE_H = 24;
+export const MAX_BUBBLE_W = 400;
+export const MAX_BUBBLE_H = 200;
 
 /**
  * SEC-016: helper that rejects IPC messages not coming from the bubble
@@ -35,26 +48,61 @@ function assertFromBubble(event: Electron.IpcMainEvent): boolean {
 	return event.senderFrame === state.bubbleWindow.webContents.mainFrame;
 }
 
+/**
+ * PVT fix (#11): clamp a requested resize to the min/max bounds.
+ * Centralised here so the same logic applies to every resize path
+ * (currently only `bubble:resize`, but a future programmatic resize
+ * would reuse it).
+ */
+function clampBubbleSize(
+	width: number,
+	height: number,
+): {
+	width: number;
+	height: number;
+} {
+	return {
+		width: Math.max(MIN_BUBBLE_W, Math.min(MAX_BUBBLE_W, Math.round(width))),
+		height: Math.max(MIN_BUBBLE_H, Math.min(MAX_BUBBLE_H, Math.round(height))),
+	};
+}
+
 export function registerBubbleHandlers(): void {
 	// NEW-A11Y-006: keyboard-based bubble repositioning for accessibility.
 	// Arrow keys move the bubble by 10px; Shift+Arrow moves by 1px (fine).
-	// The bubble renderer listens for keydown when focused and sends these.
+	// PVT-048: the renderer-side keydown handler that USED to feed this
+	// channel was dead code (the bubble window is `focusable: false`).
+	// To re-enable keyboard-move, register a main-process global hotkey
+	// (Electron globalShortcut) that sends `bubble:move-by` — see the
+	// comment in `Bubble.tsx` for details. The handler is preserved so
+	// a future global-hotkey wiring can drive it directly.
 	ipcMain.on(
 		"bubble:move-by",
 		(event, { deltaX, deltaY }: { deltaX: number; deltaY: number }) => {
 			if (!assertFromBubble(event)) return;
 			if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return;
 			const [x, y] = state.bubbleWindow.getPosition();
-			// Clamp to screen bounds so the bubble doesn't move off-screen.
-			// NOTE: preserved verbatim from the original index.ts — the inline
-			// `require("electron").screen` keeps the call untyped (the original
-			// passed (x, y) to getDisplayMatching, which expects a Rectangle;
-			// changing the call signature would be a behavior change).
-			const screen = require("electron").screen;
-			const display = screen.getDisplayMatching(x, y);
-			const bounds = display.workArea;
 			const bubbleW = state.bubbleWindow.getBounds().width;
 			const bubbleH = state.bubbleWindow.getBounds().height;
+			// T2-003: previously used the inline `require("electron").screen`
+			// (untyped `any`), and called `getDisplayMatching(x, y)` with two
+			// numbers — but Electron's `getDisplayMatching` expects a single
+			// `Rectangle` argument. The legacy call relied on Electron's
+			// tolerance (it coerced the leading-numeric positional args into
+			// a degenerate 0x0 rect, then fell back to the primary display).
+			// Replaced with a typed top-level `import { screen }` and a proper
+			// `Rectangle` so the call signature matches the API and `tsc` can
+			// verify it. The original (x, y) anchor point is preserved by
+			// passing the bubble's actual width/height in the rect so the
+			// display match is at least as accurate as before (and strictly
+			// typed) instead of the previous degenerate 0x0 match.
+			const display = screen.getDisplayMatching({
+				x,
+				y,
+				width: bubbleW,
+				height: bubbleH,
+			});
+			const bounds = display.workArea;
 			const newX = Math.max(
 				bounds.x,
 				Math.min(bounds.x + bounds.width - bubbleW, x + deltaX),
@@ -83,17 +131,23 @@ export function registerBubbleHandlers(): void {
 	// The pill content is smaller than the default 74x27 BrowserWindow.
 	// Without resizing, the transparent window area around the pill
 	// intercepts OS mouse events and blocks clicks to windows underneath.
+	//
+	// PVT fix (#11): clamp the requested width/height to MIN/MAX bounds
+	// before applying. This prevents a runaway measurement (or a
+	// compromised renderer) from shrinking the bubble to invisible or
+	// growing it to cover the screen.
 	ipcMain.on(
 		"bubble:resize",
 		(event, { width, height }: { width: number; height: number }) => {
 			if (!assertFromBubble(event)) return;
 			if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return;
 			const [x, y] = state.bubbleWindow.getPosition();
+			const clamped = clampBubbleSize(width, height);
 			state.bubbleWindow.setBounds({
 				x,
 				y,
-				width: Math.round(width),
-				height: Math.round(height),
+				width: clamped.width,
+				height: clamped.height,
 			});
 		},
 	);
@@ -128,6 +182,15 @@ export function registerBubbleHandlers(): void {
 		// page, via window.bubble.setPosition) and the bubble renderer need
 		// to sync, so it is NOT restricted to the bubble frame.  It is a
 		// benign enum ('top' | 'bottom'), not a hijack vector.
+		//
+		// NOTE (merge): session 5's PVT-068 intended to clear a saved
+		// bubble position and re-center on the active display here. The
+		// supporting helpers (`resetSavedBubblePosition` /
+		// `centerOnActiveDisplay`) were never added to
+		// `windows/bubble-window.ts` (or to `state`), so the change
+		// would not compile. We keep the base behavior (center on the
+		// primary display via `centerOnPrimaryDisplay`) until those
+		// helpers are introduced.
 		if (position === "top" || position === "bottom") {
 			state.bubblePosition = position;
 			// If the bubble window is visible, reposition it immediately.

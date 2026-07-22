@@ -9,13 +9,69 @@
  */
 import net from "node:net";
 
+import { app, dialog } from "electron";
 import { HEARTBEAT_INTERVAL_MS, IPC_TOKEN } from "../constants";
 import { state } from "../state";
 import { createWindows } from "../windows";
 import { handleMessage } from "./handle-message";
 import { sendToPython } from "./send-to-python";
 
+// PVT-G5-038: startup timeout. If Python doesn't connect within 60s
+// of the first tryConnect(), show a clear error dialog and quit.
+// This covers the case where Python spawns successfully but hangs
+// during torch import without exiting — the retry loop would otherwise
+// run forever with no window and no error. The timer is cleared on
+// successful connect. The callback also safety-checks state to avoid
+// firing after stopPython / during quit (stop-python.ts is responsible
+// for clearing the retry timer; this startup timer is independent and
+// guarded by the checks below).
+const TCP_STARTUP_TIMEOUT_MS = 60_000;
+let _tcpStartupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearTcpStartupTimeout(): void {
+	if (_tcpStartupTimeoutTimer !== null) {
+		clearTimeout(_tcpStartupTimeoutTimer);
+		_tcpStartupTimeoutTimer = null;
+	}
+}
+
 export function tcpConnect(port: number) {
+	// Start the startup timeout on the first connect attempt. If
+	// tcpConnect is called again (e.g. after a dev-mode restart),
+	// the timer is already cleared from the prior successful
+	// connect, so a fresh timer starts.
+	if (_tcpStartupTimeoutTimer === null) {
+		_tcpStartupTimeoutTimer = setTimeout(() => {
+			_tcpStartupTimeoutTimer = null;
+			// Safety checks: if Python already connected,
+			// the app is quitting, or there's no Python
+			// process, skip the error dialog.
+			if (
+				state.tcpSocket !== null ||
+				app.isQuitting ||
+				state.pythonProcess === null
+			) {
+				return;
+			}
+			console.error(
+				`[TCP] Python backend failed to start within ${
+					TCP_STARTUP_TIMEOUT_MS / 1000
+				}s`,
+			);
+			try {
+				dialog.showErrorBox(
+					"Python backend failed to start",
+					`Voice Typer could not connect to its Python backend within ${
+						TCP_STARTUP_TIMEOUT_MS / 1000
+					} seconds.\n\nPlease check the logs and try again.`,
+				);
+			} catch {
+				// dialog may not be available in headless mode
+			}
+			app.quit();
+		}, TCP_STARTUP_TIMEOUT_MS);
+	}
+
 	function tryConnect() {
 		const client = new net.Socket();
 		// CRITICAL: do NOT set `tcpSocket = client` here.  Setting it
@@ -37,6 +93,23 @@ export function tcpConnect(port: number) {
 		const retryGen = state._tcpRetryGeneration;
 
 		client.connect(port, "127.0.0.1", () => {
+			// PVT-15: if startPython() bumped the retry generation while our
+			// client.connect() handshake was in flight, destroy this stale
+			// socket and bail.  Without this guard, the stale socket would
+			// be installed as state.tcpSocket, write the auth line, call
+			// createWindows(), and start a heartbeat — all racing the fresh
+			// tcpConnect() that startPython() just issued.  The two sockets
+			// would then fight for the Python backend's single TCP accept
+			// slot.  The error/close handlers already check the generation
+			// (lines below); the connect callback is the last gap.
+			if (retryGen !== state._tcpRetryGeneration) {
+				client.destroy();
+				return;
+			}
+			// PVT-G5-038: clear the startup timeout — Python
+			// connected successfully, no need to fire the
+			// 60s error dialog.
+			clearTcpStartupTimeout();
 			state._tcpRetryCount = 0;
 			// SEC-018: send the auth message as the first line.  The Python
 			// IPC server reads this before processing any other commands.
@@ -111,8 +184,21 @@ export function tcpConnect(port: number) {
 			for (const line of lines) {
 				if (!line.trim()) continue;
 				try {
-					const msg = JSON.parse(line);
-					handleMessage(msg);
+					// PVT-G5-053: JSON.parse returns
+					// `any`; cast to `unknown` and
+					// narrow before passing to
+					// handleMessage. A non-object
+					// payload (array, primitive)
+					// would otherwise satisfy the
+					// Record<string, unknown> type
+					// but break runtime access to
+					// .type / .id / .data.
+					const msg = JSON.parse(line) as unknown;
+					if (typeof msg !== "object" || msg === null) {
+						console.warn("[TCP] non-object frame from Python, skipping");
+						continue;
+					}
+					handleMessage(msg as Record<string, unknown>);
 				} catch {
 					console.error("Invalid JSON from Python:", line);
 				}
@@ -147,6 +233,10 @@ export function tcpConnect(port: number) {
 		});
 
 		client.on("close", () => {
+			// PVT-G5-007: reset the TCP line buffer on close
+			// so stale partial frames from the previous
+			// connection don't bleed into the next one.
+			state.tcpBuffer = "";
 			if (state.tcpSocket === client) {
 				state.tcpSocket = null;
 				state._tcpAuthed = false;

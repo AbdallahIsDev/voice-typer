@@ -51,7 +51,6 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		sessionNonce: "",
 		bubblePosition: "top",
 		bubbleDraggable: true,
-		bubbleDragging: false,
 		_bubblePageReady: false,
 		_hideTimeout: null,
 		_tcpRetryCount: 0,
@@ -61,7 +60,6 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		_hadConnectedBefore: false,
 		_relaunching: false,
 		_restartTriggered: false,
-		preMaximizeBounds: null,
 		...overrides,
 	} as MainState;
 }
@@ -70,8 +68,24 @@ const mockState = makeMockState();
 vi.mock("../state", () => ({ state: mockState }));
 
 vi.mock("../i18n", () => ({ mainT: (k: string) => k }));
+// G4-H-24 + PVT-G5-006: bootstrap.ts imports `stopPython` from
+// `../python` (the index). The index re-exports `stopPython` from
+// `./python/stop-python`, but it also pulls in `./send-to-python` →
+// `../index` (the heavy main entry that fires Electron APIs at
+// module-eval time). Mocking `../python` short-circuits the whole chain
+// so the test can import `bootstrap.ts` without triggering the main
+// entry's side effects. Both the barrel and the leaf module are mocked
+// because bootstrap.ts's value import resolves through the barrel.
+vi.mock("../python", () => ({ stopPython: vi.fn() }));
 vi.mock("../python/stop-python", () => ({ stopPython: vi.fn() }));
-vi.mock("../single_instance", () => ({ computeConfigDir: () => "/mock" }));
+vi.mock("../single_instance", () => ({
+	computeConfigDir: () => "/mock",
+	// G4-H-24: bootstrap.ts also imports `clearElectronPidFile` for the
+	// production exit hook. The test never exercises that hook (it
+	// injects its own `exit` mock), but the import + symbol binding
+	// still needs to resolve.
+	clearElectronPidFile: vi.fn(),
+}));
 
 describe("R6-F7: index.ts registers app.on('will-quit', stopPython)", () => {
 	it("index.ts source contains an app.on('will-quit', ...) block that calls stopPython", () => {
@@ -79,7 +93,10 @@ describe("R6-F7: index.ts registers app.on('will-quit', stopPython)", () => {
 			path.resolve(__dirname, "../index.ts"),
 			"utf-8",
 		);
-		// The will-quit handler must exist...
+		// PVT-G5-005 (R6-F7): the will-quit handler must exist as a
+		// belt-and-suspenders shutdown hook (before-quit can be
+		// suppressed by event.preventDefault(), macOS logout paths,
+		// or tray close-to-tray on some platforms).
 		expect(src).toMatch(/app\.on\(\s*["']will-quit["']/);
 		// ...and it must call stopPython() (possibly inside a try/catch).
 		// Find the will-quit block and assert stopPython appears after it
@@ -121,11 +138,26 @@ describe("R6-F7: bootstrap.ts uncaughtException calls stopPython", () => {
 			path.resolve(__dirname, "../bootstrap.ts"),
 			"utf-8",
 		);
-		const uncaughtIdx = src.indexOf('"uncaughtException"');
-		expect(uncaughtIdx).toBeGreaterThan(-1);
-		// Find the uncaughtException block and assert stopPython is called
-		// somewhere AFTER it (within ~2000 chars of the handler body).
-		const block = src.slice(uncaughtIdx, uncaughtIdx + 2500);
+		// PVT-G5-006: locate the onUncaught handler definition
+		// (more precise than searching for the "uncaughtException"
+		// string, which also appears in JSDoc comments above the
+		// handler). Assert stopPython is called within the
+		// handler body.
+		const handlerIdx = src.indexOf("const onUncaught");
+		expect(handlerIdx).toBeGreaterThan(-1);
+		const block = src.slice(handlerIdx, handlerIdx + 2500);
+		expect(block).toContain("stopPython");
+	});
+
+	it("bootstrap.ts source calls stopPython() inside the unhandledRejection handler", () => {
+		const src = fs.readFileSync(
+			path.resolve(__dirname, "../bootstrap.ts"),
+			"utf-8",
+		);
+		// PVT-G5-006: same check for the onRejection handler.
+		const handlerIdx = src.indexOf("const onRejection");
+		expect(handlerIdx).toBeGreaterThan(-1);
+		const block = src.slice(handlerIdx, handlerIdx + 2500);
 		expect(block).toContain("stopPython");
 	});
 

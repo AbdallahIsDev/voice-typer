@@ -31,11 +31,10 @@
  *   - `app.setAppUserModelId("VoiceTyper")`.
  *   - `acquireSingleInstanceLock()` + `registerIpcHandlers()` calls.
  *   - `app.whenReady()` → `bootstrapRuntime()` + VT_BUBBLE_TEST + `startPython()`.
- *   - `app.on("before-quit" | "window-all-closed" | "activate", …)`.
+ *   - `app.on("before-quit" | "will-quit" | "window-all-closed" | "activate", …)`.
  */
 import { app } from "electron";
 import { bootstrapRuntime } from "./bootstrap";
-import { APP_NAME } from "./branding";
 import { registerIpcHandlers } from "./ipc";
 import { BUBBLE_CLR, RESET, ts } from "./logging";
 import { startPython, stopPython } from "./python";
@@ -130,6 +129,44 @@ app.on("before-quit", () => {
 	clearElectronPidFile();
 });
 
+// PVT-G5-005 (R6-F7): belt-and-suspenders `will-quit` handler.
+// `before-quit` can be suppressed (event.preventDefault(), macOS
+// logout paths, tray close-to-tray on some platforms). If it is,
+// Python cleanup relies on this second hook. We preventDefault,
+// call `stopPython()`, and allow quit to proceed after a 3s grace
+// period (matching stop-python.ts's SIGKILL timer) — or immediately
+// if Python exits first.
+//
+// A module-level flag prevents infinite re-entry: `will-quit` fires
+// after `before-quit`, and if we were to call `app.quit()` here it
+// would re-fire `before-quit` → `will-quit` → … We use `app.exit(0)`
+// instead (which bypasses both events), and the flag is an extra
+// safety net in case the quit mechanism changes in the future.
+let _willQuitStopPythonFired = false;
+app.on("will-quit", (event) => {
+	if (_willQuitStopPythonFired) {
+		return; // Already handled — allow quit to proceed.
+	}
+	_willQuitStopPythonFired = true;
+	event.preventDefault();
+	try {
+		stopPython();
+	} catch {
+		// Best-effort — don't block quit on stopPython errors.
+	}
+	// Allow quit to proceed after 3s even if Python hasn't exited.
+	// If Python exits first (graceful shutdown), quit immediately.
+	const forceExitTimer = setTimeout(() => {
+		app.exit(0);
+	}, 3000);
+	if (state.pythonProcess) {
+		state.pythonProcess.once("exit", () => {
+			clearTimeout(forceExitTimer);
+			app.exit(0);
+		});
+	}
+});
+
 // With close-to-tray, closing the dashboard window just hides it — the
 // process keeps running.  So window-all-closed only fires on a real quit
 // (last window destroyed) or on macOS when all windows are closed by the
@@ -165,8 +202,8 @@ app.on("activate", () => {
 	}
 });
 
-// APP_NAME is re-exported here to preserve the original lazy-import
-// behaviour (the original `index.ts` imported it at line 1828, just
-// before `app.whenReady()`). It's used by `./python/start-python.ts`
-// (dialog.showErrorBox) and `./bootstrap.ts` (crash dialog).
+// APP_NAME is re-exported here to preserve the public API surface
+// (PVT-G5-086: the unused direct import was removed; this re-export
+// remains so any external consumer importing from `./index` still
+// resolves `APP_NAME`).
 export { APP_NAME } from "./branding";
