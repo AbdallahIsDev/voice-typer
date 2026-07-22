@@ -330,3 +330,98 @@ def test_raises_when_config_dir_uncreatable(tmp_path: Path, monkeypatch, clean_e
     monkeypatch.setattr(logging_setup, "_migrate_from_legacy", lambda: None)
     with pytest.raises(OSError):
         logging_setup._setup_logging()
+
+
+# ─── G4-H-07: secure log file permissions ─────────────────────────────────
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX-only file mode check")
+def test_log_file_mode_is_0o600_on_posix(config_dir, clean_env, stub_side_effects):
+    """G4-H-07: ``voice-typer.log`` is created with mode 0o600 on POSIX.
+
+    The rotating log file contains dictated-text previews, exception
+    tracebacks, and hotkey registrations — it must be world-unreadable so
+    a co-located user can not ``cat`` it.  ``setup_logging`` sets the
+    process umask to 0o077 and explicitly ``os.chmod``s the file to
+    0o600 after construction (defence in depth).
+    """
+    import stat
+
+    logging_setup._setup_logging()
+    log_file = config_dir / "voice-typer.log"
+    assert log_file.exists(), "log file was not created"
+    mode = stat.S_IMODE(os.stat(log_file).st_mode)
+    assert mode == 0o600, (
+        f"G4-H-07 regression: voice-typer.log has mode {oct(mode)}, expected 0o600. "
+        "Co-located users could read dictated-text previews and exception tracebacks."
+    )
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX-only file mode check")
+def test_log_file_handler_level_gated_by_debug_default_info(config_dir, clean_env, stub_side_effects):
+    """G4-H-35: the RotatingFileHandler level is INFO by default.
+
+    Root stays at DEBUG so child loggers can emit DEBUG records — the
+    handler-level filter is what drops them at INFO in production.
+    """
+    logging_setup._setup_logging()
+    rotating = next(h for h in _vt_handlers() if isinstance(h, logging.handlers.RotatingFileHandler))
+    assert rotating.level == logging.INFO, f"default file handler level is {rotating.level}, expected INFO"
+    # Root stays at DEBUG so child loggers can emit DEBUG when env var set.
+    assert logging.getLogger("voice_typer").level == logging.DEBUG
+
+
+def test_log_file_handler_level_debug_when_voice_typer_debug(config_dir, clean_env, stub_side_effects, monkeypatch):
+    """G4-H-35: VOICE_TYPER_DEBUG=1 raises the file handler to DEBUG."""
+    monkeypatch.setenv("VOICE_TYPER_DEBUG", "1")
+    logging_setup._setup_logging()
+    rotating = next(h for h in _vt_handlers() if isinstance(h, logging.handlers.RotatingFileHandler))
+    assert rotating.level == logging.DEBUG, (
+        f"VOICE_TYPER_DEBUG=1 should raise file handler to DEBUG, got {rotating.level}"
+    )
+
+
+def test_get_log_file_path_returns_config_dir_voice_typer_log(config_dir):
+    """G4-L-19: ``get_log_file_path`` returns ``<config_dir>/voice-typer.log``.
+
+    Centralising the literal in ``log.py`` means the in-app log viewer
+    (agent 2-y) and ``setup_logging`` agree on the filename even if it
+    ever changes.
+    """
+    from voice_typer.server.log import get_log_file_path
+
+    path = get_log_file_path(config_dir)
+    assert path == config_dir / "voice-typer.log"
+    assert path.name == "voice-typer.log"
+
+
+def test_per_module_log_levels_applied_from_env(config_dir, clean_env, stub_side_effects, monkeypatch):
+    """Per-module log level overrides via VOICE_TYPER_LOG_LEVEL_MODULES env var.
+
+    Operators can crank up DEBUG on a single subsystem without enabling
+    DEBUG globally — the env var is parsed in ``setup_logging`` and
+    applied to each named logger after the root level is set.
+    """
+    monkeypatch.setenv(
+        "VOICE_TYPER_LOG_LEVEL_MODULES",
+        "voice_typer.server.dictation_pipeline=DEBUG,voice_typer.server.recording=WARNING",
+    )
+    logging_setup._setup_logging()
+    assert logging.getLogger("voice_typer.server.dictation_pipeline").level == logging.DEBUG
+    assert logging.getLogger("voice_typer.server.recording").level == logging.WARNING
+    # Root unchanged (still DEBUG).
+    assert logging.getLogger("voice_typer").level == logging.DEBUG
+
+
+def test_per_module_log_levels_ignores_invalid_entries(config_dir, clean_env, stub_side_effects, monkeypatch):
+    """Invalid entries in VOICE_TYPER_LOG_LEVEL_MODULES are silently skipped.
+
+    A typo in one entry must not break logging setup.
+    """
+    monkeypatch.setenv(
+        "VOICE_TYPER_LOG_LEVEL_MODULES",
+        "voice_typer.server.fake=BOGUS,,voice_typer.server.another=INFO",
+    )
+    # Should not raise.
+    logging_setup._setup_logging()
+    assert logging.getLogger("voice_typer.server.another").level == logging.INFO

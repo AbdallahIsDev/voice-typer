@@ -19,7 +19,6 @@ that are **never installed on the CI runner's platform**:
 | `Cocoa`               | `pyobjc-framework-Cocoa`          | macOS     | tray (pystray backend)                   |
 | `objc`                | `pyobjc-core`                     | macOS     | pyobjc runtime (rarely direct import)    |
 | `winreg`              | (stdlib, Windows-only)            | Windows   | `server/server_platform.py`, `task_scheduler.py` |
-| `webrtc_audio_processing` | `webrtc-audio-processing`     | Linux     | reserved (no current imports)            |
 
 All stubs use `Any` types because the actual implementations are
 lazy-imported inside `try / except ImportError` blocks — pyrefly only

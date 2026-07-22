@@ -56,7 +56,11 @@ from voice_typer.server import (
     _secrets,  # noqa: E402
     server_platform,  # noqa: E402
 )
-from voice_typer.server._secrets import redact_secret  # noqa: E402
+from voice_typer.server._secrets import (
+    assert_url_allowed,  # noqa: E402
+    extend_url_allowlist,  # noqa: E402
+    redact_secret,  # noqa: E402
+)
 from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 from voice_typer.server.tray import AppState  # noqa: E402
 
@@ -1019,3 +1023,244 @@ def test_sec10_helper_functions_exist():
     assert hasattr(server_platform, "_build_powershell_lnk_script")
     assert callable(server_platform._ps_single_quote)
     assert callable(server_platform._build_powershell_lnk_script)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# G4-L-06: redact_secret generic threshold lowered from 32 to 20 chars
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestG4L06RedactSecretThreshold20:
+    """G4-L-06: the generic ``[A-Za-z0-9_\\-]{N,}`` pattern threshold
+    is lowered from 32 to 20 to match ``_MIN_REDACT_LEN``.
+
+    Pre-fix, a 20-31 char bare token (e.g. a 24-char GitLab PAT, a
+    20-char GitHub PAT, a 24-char Slack legacy token) fell through
+    the generic pattern AND was already past the 20-char
+    ``_MIN_REDACT_LEN`` early-exit guard — so it was returned
+    UNREDACTED. Aligning the regex threshold with the length guard
+    closes the gap.
+    """
+
+    def test_20_char_bare_token_redacted(self):
+        """G4-L-06: a bare 20-char alphanumeric token is redacted.
+
+        Pre-fix: 20 chars passed ``_MIN_REDACT_LEN`` but the generic
+        pattern required 32+ chars, so the token survived untouched.
+        """
+        # Exactly 20 chars, no keyword prefix, no sk-/Bearer/Token.
+        token = "0123456789abcdefghij"  # 20 chars
+        assert len(token) == 20
+        redacted = redact_secret(token)
+        assert token not in redacted
+        assert "***" in redacted
+
+    def test_24_char_bare_token_redacted(self):
+        """G4-L-06: a 24-char bare token (e.g. GitLab PAT) is redacted."""
+        # 24-char pure alphanumeric token (no prefix) to ensure the
+        # generic pattern is what fires.
+        token = "0123456789abcdefghij1234"  # 24 chars
+        assert len(token) == 24
+        redacted = redact_secret(token)
+        assert token not in redacted
+        assert "***" in redacted
+
+    def test_31_char_bare_token_redacted(self):
+        """G4-L-06: a 31-char bare token (just under the old 32-char
+        threshold) is now redacted."""
+        token = "0123456789abcdefghij123456789abc"  # 31 chars
+        assert len(token) == 31
+        redacted = redact_secret(token)
+        assert token not in redacted
+        assert "***" in redacted
+
+    def test_19_char_bare_token_preserved(self):
+        """G4-L-06: a 19-char bare token is still preserved (below
+        ``_MIN_REDACT_LEN``, which is also 20).
+
+        This is the false-positive guard: short alphanumeric runs are
+        too likely to be ordinary words/IDs to redact.
+        """
+        token = "0123456789abcdefghi"  # 19 chars
+        assert len(token) == 19
+        # Note: redact_secret returns short strings unchanged when no
+        # keyword pattern fires.
+        assert redact_secret(token) == token
+
+    def test_32_char_bare_token_still_redacted(self):
+        """G4-L-06: regression — the existing 32+ char behavior still
+        works after lowering the threshold."""
+        token = "0123456789abcdef0123456789abcdef"  # 32 chars
+        assert len(token) == 32
+        redacted = redact_secret(token)
+        assert token not in redacted
+        assert "***" in redacted
+
+    def test_generic_pattern_threshold_constant_is_20(self):
+        """G4-L-06: the regex threshold in ``_KEY_PATTERNS[-1]`` is
+        ``{20,}`` (not the pre-fix ``{32,}``)."""
+        import re
+
+        # The last pattern in _KEY_PATTERNS is the generic catch-all.
+        generic_pattern = _secrets._KEY_PATTERNS[-1]
+        assert isinstance(generic_pattern, re.Pattern)
+        pattern_str = generic_pattern.pattern
+        # The pattern string is ``\b[A-Za-z0-9_\-]{20,}\b``.
+        assert "{20,}" in pattern_str, (
+            f"expected generic pattern threshold to be {{20,}} after G4-L-06; got pattern {pattern_str!r}"
+        )
+        assert "{32,}" not in pattern_str, (
+            f"the pre-fix {{32,}} threshold must NOT appear in the generic "
+            f"pattern after G4-L-06; got pattern {pattern_str!r}"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# G4-M-55: extend_url_allowlist emits WARNING-level audit log
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestG4M55ExtendUrlAllowlistAuditLog:
+    """G4-M-55: ``extend_url_allowlist`` emits a WARNING-level audit
+    log on every call so operators can trace every runtime expansion
+    of the trusted-host set back to its origin."""
+
+    def test_warning_emitted_with_hosts(self, caplog):
+        """G4-M-55: a WARNING is emitted with the hosts being added."""
+        try:
+            with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+                extend_url_allowlist(
+                    ["audit-test.example.com"],
+                    caller="test_g4_m_55_warning_emitted",
+                )
+            # The WARNING must mention the URL-Allowlist extension.
+            assert any("[URL-Allowlist]" in r.message and r.levelname == "WARNING" for r in caplog.records), (
+                f"expected WARNING-level URL-Allowlist log; got: {caplog.records!r}"
+            )
+            # The host must be in the log message.
+            assert any("audit-test.example.com" in r.message for r in caplog.records), (
+                f"host must be in the log message; got: {caplog.records!r}"
+            )
+        finally:
+            _secrets._user_extensions.discard("audit-test.example.com")
+
+    def test_warning_includes_caller(self, caplog):
+        """G4-M-55: the WARNING includes the caller identifier."""
+        try:
+            with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+                extend_url_allowlist(
+                    ["caller-test.example.com"],
+                    caller="explicit-caller-id",
+                )
+            joined = " ".join(r.message for r in caplog.records)
+            assert "explicit-caller-id" in joined, f"caller identifier must appear in the log message; got: {joined!r}"
+        finally:
+            _secrets._user_extensions.discard("caller-test.example.com")
+
+    def test_warning_auto_detects_caller_when_not_passed(self, caplog):
+        """G4-M-55: when ``caller=None``, the caller is auto-detected
+        via ``inspect.stack()`` and included in the WARNING."""
+        try:
+            with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+                # Don't pass caller — auto-detection should kick in.
+                extend_url_allowlist(["auto-caller.example.com"])
+            joined = " ".join(r.message for r in caplog.records)
+            # The auto-detected caller should include this test function
+            # name (or the test module name).
+            assert (
+                "test_warning_auto_detects_caller_when_not_passed" in joined
+                or "TestG4M55" in joined
+                or "test_sec_8_9_10_security_fixes" in joined
+            ), f"auto-detected caller must reference this test; got: {joined!r}"
+        finally:
+            _secrets._user_extensions.discard("auto-caller.example.com")
+
+    def test_warning_emitted_even_for_empty_input(self, caplog):
+        """G4-M-55: even a no-op call (empty hosts iterable) emits a
+        WARNING — operators want to see every attempt to extend the
+        allowlist, including no-ops."""
+        with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+            extend_url_allowlist([], caller="test-empty-input")
+        assert any("[URL-Allowlist]" in r.message for r in caplog.records), (
+            "even a no-op extend_url_allowlist call must emit a WARNING"
+        )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# G4-M-56: assert_url_allowed gains allow_loopback_http kwarg (default False)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestG4M56AssertUrlAllowedLoopbackOptIn:
+    """G4-M-56: ``assert_url_allowed`` gains an ``allow_loopback_http``
+    kwarg (default ``False``). Pre-fix, loopback hosts (localhost,
+    127.0.0.1, ::1) were ALWAYS exempt from the HTTPS requirement.
+    Post-fix, callers must opt in via the kwarg."""
+
+    def test_http_loopback_rejected_by_default(self):
+        """G4-M-56: ``http://localhost:11434`` is REJECTED by default
+        (``allow_loopback_http=False``). Pre-fix, it was accepted."""
+        with pytest.raises(ValueError, match="HTTPS for loopback"):
+            assert_url_allowed(
+                "http://localhost:11434/v1/chat/completions",
+                field_name="llm_api_url",
+                client_name="test",
+            )
+
+    def test_http_loopback_allowed_when_opted_in(self):
+        """G4-M-56: ``http://localhost:11434`` is ACCEPTED when the
+        caller passes ``allow_loopback_http=True``."""
+        # Should NOT raise.
+        assert_url_allowed(
+            "http://localhost:11434/v1/chat/completions",
+            field_name="llm_api_url",
+            client_name="test",
+            allow_loopback_http=True,
+        )
+
+    def test_http_127_local_allowed_when_opted_in(self):
+        """G4-M-56: ``http://127.0.0.1:8000`` is ACCEPTED when opted in."""
+        assert_url_allowed(
+            "http://127.0.0.1:8000/v1",
+            allow_loopback_http=True,
+        )
+
+    def test_http_ipv6_loopback_allowed_when_opted_in(self):
+        """G4-M-56: ``http://[::1]:8000`` is ACCEPTED when opted in."""
+        assert_url_allowed(
+            "http://[::1]:8000/v1",
+            allow_loopback_http=True,
+        )
+
+    def test_https_loopback_allowed_without_opt_in(self):
+        """G4-M-56: HTTPS to loopback is still accepted without opt-in
+        (the kwarg only gates HTTP, not HTTPS)."""
+        assert_url_allowed("https://localhost:8443/v1")
+
+    def test_https_non_loopback_allowed(self):
+        """G4-M-56: regression — HTTPS to a normal allowlisted host
+        still works without opt-in."""
+        assert_url_allowed("https://api.openai.com/v1/chat/completions")
+
+    def test_http_non_loopback_rejected_even_with_opt_in(self):
+        """G4-M-56: ``allow_loopback_http=True`` does NOT open the
+        door to HTTP for non-loopback hosts — only loopback is exempted."""
+        with pytest.raises(ValueError, match="HTTPS for non-loopback"):
+            assert_url_allowed(
+                "http://api.openai.com/v1/chat/completions",
+                allow_loopback_http=True,
+            )
+
+    def test_loopback_http_error_message_mentions_kwarg(self):
+        """G4-M-56: the error message for a rejected HTTP loopback URL
+        mentions ``allow_loopback_http=True`` so the operator knows
+        how to fix the call site."""
+        with pytest.raises(ValueError, match="allow_loopback_http=True"):
+            assert_url_allowed("http://localhost:11434/v1")
+
+    def test_default_kwarg_value_is_false(self):
+        """G4-M-56: the default value of ``allow_loopback_http`` is
+        ``False`` — callers must explicitly opt in."""
+        sig = inspect.signature(assert_url_allowed)
+        param = sig.parameters["allow_loopback_http"]
+        assert param.default is False, f"allow_loopback_http default must be False; got {param.default!r}"

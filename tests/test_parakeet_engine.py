@@ -25,6 +25,7 @@ a successful import in one test doesn't leak into the next.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -686,3 +687,316 @@ class TestSplitAudio:
                 chunks[1][:overlap_samples],
                 chunks[0][-overlap_samples:],
             )
+
+
+# ─── G4-H-04 / G4-CR-06 / G4-M-44 (Session 7 — Group 4) regression tests ──
+
+
+class TestG4H04ConsentGate:
+    """G4-H-04: ParakeetEngine.load() must gate HuggingFace downloads on
+    explicit ``config.huggingface_consent``.  Cache hits (model already
+    on disk) do NOT need consent; only the network download does.
+
+    Pre-fix: ``ParakeetEngine.load()`` called ``snapshot_download()`` with
+    NO consent check — user could trigger a ~2.5 GB download from
+    huggingface.co without consent by selecting the Parakeet backend and
+    starting a dictation.
+    """
+
+    def test_consent_false_raises_on_cache_miss(self):
+        """When ``config.huggingface_consent`` is False and the model is
+        NOT cached, ``load()`` raises ``ConsentRequiredError``."""
+        from voice_typer.server.cloud_engines import ConsentRequiredError
+
+        engine, _, _ = _make_engine_with_mocks(device="cpu")
+        # Config with consent=False (the default).
+        engine.config = type("FakeConfig", (), {"huggingface_consent": False})()
+
+        with (
+            patch.object(type(engine), "_is_cached", return_value=False),
+        ):
+            with pytest.raises(ConsentRequiredError, match="consent not given"):
+                engine.load()
+
+    def test_consent_none_raises_on_cache_miss(self):
+        """When ``config`` is None (degenerate path) and the model is
+        NOT cached, ``load()`` raises ``ConsentRequiredError`` — safe
+        default per GDPR Art. 6/13."""
+        from voice_typer.server.cloud_engines import ConsentRequiredError
+
+        engine, _, _ = _make_engine_with_mocks(device="cpu")
+        engine.config = None  # degenerate / test path
+
+        with patch.object(type(engine), "_is_cached", return_value=False):
+            with pytest.raises(ConsentRequiredError, match="consent not given"):
+                engine.load()
+
+    def test_consent_true_proceeds_to_download(self):
+        """When ``config.huggingface_consent`` is True and the model is
+        NOT cached, ``load()`` proceeds with the download (existing
+        happy path preserved)."""
+        engine, _, mock_transformers = _make_engine_with_mocks(device="cpu")
+        engine.config = type("FakeConfig", (), {"huggingface_consent": True})()
+
+        # Make _is_cached return False on the first call (cache-miss
+        # branch) and True on subsequent calls (post-download).  We
+        # also need _verify_model_integrity to return True so the
+        # unconditional integrity check passes.
+        cached_calls = [False, True, True]
+
+        def _fake_cached():
+            return cached_calls.pop(0) if cached_calls else True
+
+        with (
+            patch.object(type(engine), "_is_cached", side_effect=_fake_cached),
+            patch.object(type(engine), "_should_force_cpu", return_value=False),
+            patch(
+                "voice_typer.server.asr_setup._verify_model_integrity",
+                return_value=True,
+            ),
+            patch("huggingface_hub.snapshot_download", return_value="/fake/path"),
+        ):
+            mock_transformers.AutoProcessor.from_pretrained.return_value = MagicMock()
+            mock_transformers.AutoModelForTDT.from_pretrained.return_value = MagicMock()
+            # Disable the cache_dir block so we don't touch the real FS.
+            with patch("voice_typer.server.config._config_dir") as mock_dir:
+                # Use a non-existent path so model_dir.is_dir() is False.
+                mock_dir.return_value = Path("/nonexistent/parakeet/test")
+                result = engine.load()
+
+        assert result is True
+        assert engine.is_loaded is True
+
+    def test_cache_hit_skips_consent_gate(self):
+        """When the model IS cached, ``load()`` does NOT raise even if
+        ``config.huggingface_consent`` is False — local file access
+        doesn't need network consent."""
+        engine, _, mock_transformers = _make_engine_with_mocks(device="cpu")
+        # Config with consent=False, BUT model is cached.
+        engine.config = type("FakeConfig", (), {"huggingface_consent": False})()
+
+        with (
+            patch.object(type(engine), "_is_cached", return_value=True),
+            patch.object(type(engine), "_should_force_cpu", return_value=False),
+            patch(
+                "voice_typer.server.asr_setup._verify_model_integrity",
+                return_value=True,
+            ),
+        ):
+            mock_transformers.AutoProcessor.from_pretrained.return_value = MagicMock()
+            mock_transformers.AutoModelForTDT.from_pretrained.return_value = MagicMock()
+            # Bypass the cache_dir block.
+            with patch("voice_typer.server.config._config_dir") as mock_dir:
+                mock_dir.return_value = Path("/nonexistent/parakeet/test")
+                result = engine.load()
+
+        assert result is True
+
+
+class TestG4CR06UnconditionalIntegrityVerify:
+    """G4-CR-06: ``ParakeetEngine.load()`` must call
+    ``verify_model_integrity`` UNCONDITIONALLY on every load, not just
+    after a fresh download.  Cache hits (model already on disk) must
+    also be verified — an attacker with write access to the HF cache
+    could tamper with ``model.safetensors`` and the next load would
+    feed tampered weights to the ASR engine with no SHA-256 check.
+
+    Pre-fix: integrity verification was gated behind the cache-miss
+    branch; cache hits skipped verification entirely.
+    """
+
+    def test_cache_hit_triggers_integrity_check(self):
+        """When ``_is_cached`` returns True, ``load()`` STILL calls
+        ``_verify_model_integrity`` against the manifest."""
+        engine, _, mock_transformers = _make_engine_with_mocks(device="cpu")
+        # No config — but cache hit so consent gate is skipped.
+        engine.config = None
+
+        with (
+            patch.object(type(engine), "_is_cached", return_value=True),
+            patch.object(type(engine), "_should_force_cpu", return_value=False),
+            patch(
+                "voice_typer.server.asr_setup._verify_model_integrity",
+                return_value=True,
+            ) as mock_verify,
+        ):
+            mock_transformers.AutoProcessor.from_pretrained.return_value = MagicMock()
+            mock_transformers.AutoModelForTDT.from_pretrained.return_value = MagicMock()
+            with patch("voice_typer.server.config._config_dir") as mock_dir:
+                mock_dir.return_value = Path("/nonexistent/parakeet/test")
+                result = engine.load()
+
+        assert result is True
+        # _verify_model_integrity must have been called at least once.
+        mock_verify.assert_called()
+
+    def test_cache_hit_with_tampered_model_returns_false(self, tmp_path):
+        """When the cached model fails integrity check, ``load()``
+        returns False and cleans up the tampered cache dir."""
+        # Build a fake HF cache dir with a tampered snapshot.
+        cache_root = tmp_path / "huggingface" / "hub"
+        model_dir = cache_root / "models--nvidia--parakeet-tdt-0.6b-v3"
+        snapshot_dir = model_dir / "snapshots" / "abc123"
+        snapshot_dir.mkdir(parents=True)
+        (snapshot_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+        (snapshot_dir / "config.json").write_text('{"tampered": true}')
+
+        engine, _, _ = _make_engine_with_mocks(device="cpu")
+        engine.config = None
+
+        # _is_cached returns True (cache hit), but _verify_model_integrity
+        # returns False (tampered).
+        with (
+            patch.object(type(engine), "_is_cached", return_value=True),
+            patch(
+                "voice_typer.server.asr_setup._verify_model_integrity",
+                return_value=False,
+            ),
+            patch("voice_typer.server.config._config_dir", return_value=tmp_path),
+        ):
+            result = engine.load()
+
+        assert result is False
+        assert engine.is_loaded is False
+        # G4-CR-06 / cache cleanup: the tampered cache dir MUST have
+        # been removed so the next load() doesn't re-discover it.
+        assert not model_dir.exists(), (
+            "G4-CR-06: tampered HF cache directory must be removed after "
+            "integrity check failure so the next load() doesn't re-load "
+            "the same tampered files."
+        )
+
+
+class TestG4M44CpuFallbackNotification:
+    """G4-M-44: Parakeet CUDA→CPU fallback must emit a ONE-TIME tray
+    notification via ``event_bus.publish`` and must NOT permanently
+    set ``self.device`` to ``"cpu"`` — the next ``load()`` re-attempts
+    CUDA (per-transcription fallback, not permanent).
+
+    Pre-fix: the fallback permanently moved the model to CPU for the
+    session with no user notification.  Dictation got mysteriously
+    slower and the user had no idea why.
+    """
+
+    def test_cpu_fallback_emits_notification(self):
+        """A successful CUDA→CPU fallback publishes a notification +
+        status event via event_bus."""
+        engine, mock_torch, _ = _make_engine_with_mocks(device="cuda")
+        mock_processor = MagicMock()
+        mock_processor.return_value = MagicMock()
+        mock_processor.decode.return_value = "cpu result"
+        mock_model = MagicMock()
+        mock_model.device = "cuda"
+        mock_model.dtype = "float16"
+        engine._processor = mock_processor
+        engine._model = mock_model
+
+        published_events: list[dict] = []
+        with (
+            patch.object(engine, "transcribe", side_effect=RuntimeError("CUDA out of memory")),
+            patch.object(engine, "_transcribe_impl", return_value="cpu result"),
+            patch(
+                "voice_typer.server.event_bus.publish",
+                side_effect=lambda e: published_events.append(e),
+            ),
+        ):
+            result = engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
+
+        assert result == "cpu result"
+        # G4-M-44: notification event must have been published.
+        notif_events = [e for e in published_events if e.get("type") == "notification"]
+        assert notif_events, (
+            "G4-M-44: CUDA→CPU fallback must emit a 'notification' event "
+            "via event_bus.publish so the user knows why dictation got slower."
+        )
+        assert "GPU transcription failed" in notif_events[0]["data"]["message"]
+        # G4-M-44: status event for tray "(CPU fallback)" suffix.
+        status_events = [e for e in published_events if e.get("type") == "parakeet_cpu_fallback"]
+        assert status_events, (
+            "G4-M-44: CUDA→CPU fallback must emit a 'parakeet_cpu_fallback' "
+            "status event so tray.py can show '(CPU fallback)' suffix."
+        )
+
+    def test_cpu_fallback_notification_is_one_time(self):
+        """The notification fires ONCE per session — subsequent
+        fallbacks in the same load() cycle do NOT re-notify."""
+        engine, _, _ = _make_engine_with_mocks(device="cuda")
+        mock_processor = MagicMock()
+        mock_processor.return_value = MagicMock()
+        mock_processor.decode.return_value = "cpu result"
+        mock_model = MagicMock()
+        mock_model.device = "cuda"
+        mock_model.dtype = "float16"
+        engine._processor = mock_processor
+        engine._model = mock_model
+
+        published_events: list[dict] = []
+        with (
+            patch.object(engine, "transcribe", side_effect=RuntimeError("CUDA cublas error")),
+            patch.object(engine, "_transcribe_impl", return_value="cpu result"),
+            patch(
+                "voice_typer.server.event_bus.publish",
+                side_effect=lambda e: published_events.append(e),
+            ),
+        ):
+            engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
+            # Second call: fallback fires again but should NOT re-notify.
+            engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
+
+        notif_events = [e for e in published_events if e.get("type") == "notification"]
+        assert len(notif_events) == 1, (
+            "G4-M-44: notification must be ONE-TIME per session — "
+            f"got {len(notif_events)} notifications for 2 fallbacks."
+        )
+
+    def test_cpu_fallback_does_not_mutate_device(self):
+        """``self.device`` stays ``"cuda"`` after a CPU fallback so the
+        next ``load()`` re-attempts CUDA (per-transcription fallback)."""
+        engine, _, _ = _make_engine_with_mocks(device="cuda")
+        mock_processor = MagicMock()
+        mock_processor.return_value = MagicMock()
+        mock_processor.decode.return_value = "cpu result"
+        mock_model = MagicMock()
+        mock_model.device = "cuda"
+        mock_model.dtype = "float16"
+        engine._processor = mock_processor
+        engine._model = mock_model
+
+        with (
+            patch.object(engine, "transcribe", side_effect=RuntimeError("CUDA cudnn error")),
+            patch.object(engine, "_transcribe_impl", return_value="cpu result"),
+            patch("voice_typer.server.event_bus.publish", return_value=True),
+        ):
+            engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
+
+        assert engine.device == "cuda", (
+            "G4-M-44: self.device must stay 'cuda' after CPU fallback so "
+            "the next load() re-attempts CUDA (per-transcription fallback, "
+            "not permanent)."
+        )
+
+    def test_load_resets_notification_flag(self):
+        """``load()`` resets ``_cpu_fallback_notified`` so a fallback
+        after the next reload re-notifies the user."""
+        engine, _, _ = _make_engine_with_mocks(device="cuda")
+        # Simulate a prior fallback that already notified.
+        engine._cpu_fallback_notified = True
+
+        with (
+            patch.object(type(engine), "_is_cached", return_value=True),
+            patch.object(type(engine), "_should_force_cpu", return_value=False),
+            patch(
+                "voice_typer.server.asr_setup._verify_model_integrity",
+                return_value=True,
+            ),
+            patch("voice_typer.server.config._config_dir") as mock_dir,
+        ):
+            mock_dir.return_value = Path("/nonexistent/parakeet/test")
+            # Bypass from_pretrained — we just want the flag reset.
+            engine._model = MagicMock()
+            engine._processor = MagicMock()
+            engine.load()
+
+        assert engine._cpu_fallback_notified is False, (
+            "G4-M-44: load() must reset _cpu_fallback_notified so the next fallback re-notifies the user."
+        )

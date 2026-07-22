@@ -10,6 +10,8 @@ Electron as a subprocess and passes it the connection info via env vars
 - ``terminate_electron()`` kills the process (POSIX path mocked)
 - ``_ensure_single_instance`` writes a backend PID file on startup
 - Stale PID file is detected and cleared when the referenced process is dead
+- G4-H-02: sensitive env vars are stripped from the child env so cloud
+  API keys cannot be exfiltrated via ``/proc/<pid>/environ``.
 """
 
 from __future__ import annotations
@@ -173,6 +175,216 @@ class TestLaunchElectronFrontend:
         pid = electron_launcher.launch_electron_frontend(9999, "abc")
         assert pid == 7777
         assert captured_argv == ["/usr/bin/npm", "run", "dev"]
+
+
+# ── G4-H-02: sensitive env var stripping ─────────────────────────────────
+
+
+class TestStripSensitiveEnv:
+    """G4-H-02: ``_strip_sensitive_env`` deletes sensitive env vars before
+    the Electron child is spawned, so cloud API keys / model download
+    tokens cannot be exfiltrated via ``/proc/<pid>/environ``.
+    """
+
+    def test_strips_well_known_api_keys(self):
+        """OPENAI_API_KEY, ANTHROPIC_API_KEY, HF_TOKEN etc. are stripped."""
+        env = {
+            "OPENAI_API_KEY": "sk-...",
+            "ANTHROPIC_API_KEY": "sk-ant-...",
+            "GEMINI_API_KEY": "AI...",
+            "HF_TOKEN": "hf_...",
+            "HUGGING_FACE_HUB_TOKEN": "hf_...",
+            "DEEPGRAM_API_KEY": "...",
+            "GROQ_API_KEY": "...",
+            "PATH": "/usr/bin",
+            "HOME": "/home/user",
+        }
+        electron_launcher._strip_sensitive_env(env)
+        for key in (
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+            "HF_TOKEN",
+            "HUGGING_FACE_HUB_TOKEN",
+            "DEEPGRAM_API_KEY",
+            "GROQ_API_KEY",
+        ):
+            assert key not in env, f"{key} should have been stripped"
+        # Benign vars survive.
+        assert env["PATH"] == "/usr/bin"
+        assert env["HOME"] == "/home/user"
+
+    def test_strips_substring_matches(self):
+        """Any key containing API_KEY / SECRET / TOKEN / PASSWORD / CREDENTIAL is stripped."""
+        env = {
+            "MY_SERVICE_API_KEY": "x",
+            "DATABASE_PASSWORD": "hunter2",
+            "AWS_SECRET_ACCESS_KEY": "AKIA...",
+            "RANDOM_TOKEN_VALUE": "tok",
+            "OAUTH_CREDENTIAL": "cred",
+            "PATH": "/usr/bin",
+        }
+        electron_launcher._strip_sensitive_env(env)
+        for key in (
+            "MY_SERVICE_API_KEY",
+            "DATABASE_PASSWORD",
+            "AWS_SECRET_ACCESS_KEY",
+            "RANDOM_TOKEN_VALUE",
+            "OAUTH_CREDENTIAL",
+        ):
+            assert key not in env, f"{key} should have been stripped (substring match)"
+        assert env["PATH"] == "/usr/bin"
+
+    def test_preserves_ipc_token_trio(self):
+        """VOICE_TYPER_IPC_TOKEN / VT_IPC_TOKEN / VT_PYTHON_PORT are preserved
+        even though they contain the substring 'TOKEN'.
+        """
+        env = {
+            "VOICE_TYPER_IPC_TOKEN": "abc123",
+            "VT_IPC_TOKEN": "abc123",
+            "VT_PYTHON_PORT": "9876",
+            "PATH": "/usr/bin",
+        }
+        electron_launcher._strip_sensitive_env(env)
+        assert env["VOICE_TYPER_IPC_TOKEN"] == "abc123"
+        assert env["VT_IPC_TOKEN"] == "abc123"
+        assert env["VT_PYTHON_PORT"] == "9876"
+
+    def test_strips_case_insensitively(self):
+        """Substring match is case-insensitive (ApiKey, api_key, API_KEY all stripped)."""
+        env = {
+            "MY_SERVICE_api_key": "x",
+            "MixedCase_Api_Key": "x",
+            "UPPERCASE_API_KEY": "x",
+            "my_token_value": "x",
+            "PATH": "/usr/bin",
+        }
+        electron_launcher._strip_sensitive_env(env)
+        for key in (
+            "MY_SERVICE_api_key",
+            "MixedCase_Api_Key",
+            "UPPERCASE_API_KEY",
+            "my_token_value",
+        ):
+            assert key not in env, f"{key} should have been stripped (case-insensitive)"
+        assert env["PATH"] == "/usr/bin"
+
+    def test_empty_env_is_noop(self):
+        """An empty env dict is left unchanged."""
+        env: dict = {}
+        electron_launcher._strip_sensitive_env(env)
+        assert env == {}
+
+    def test_no_benign_vars_stripped(self):
+        """Standard OS env vars survive stripping."""
+        env = {
+            "PATH": "/usr/bin",
+            "HOME": "/home/user",
+            "USER": "user",
+            "LANG": "en_US.UTF-8",
+            "SHELL": "/bin/bash",
+            "TERM": "xterm-256color",
+            "XDG_SESSION_TYPE": "wayland",
+        }
+        electron_launcher._strip_sensitive_env(env)
+        assert env["PATH"] == "/usr/bin"
+        assert env["HOME"] == "/home/user"
+        assert env["USER"] == "user"
+        assert env["LANG"] == "en_US.UTF-8"
+        assert env["SHELL"] == "/bin/bash"
+        assert env["TERM"] == "xterm-256color"
+        assert env["XDG_SESSION_TYPE"] == "wayland"
+
+
+class TestLaunchElectronEnvStripping:
+    """G4-H-02: ``launch_electron_frontend`` strips sensitive env vars
+    before passing the env to ``subprocess.Popen``.
+    """
+
+    def _patch_for_launch(self, monkeypatch):
+        monkeypatch.setattr(
+            electron_launcher,
+            "_electron_binary",
+            lambda: "/fake/electron",
+        )
+        monkeypatch.setattr(
+            electron_launcher,
+            "_main_entry_built",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            electron_launcher,
+            "_electron_log_files",
+            lambda: {
+                "stdout": subprocess.DEVNULL,
+                "stderr": subprocess.DEVNULL,
+                "stdin": subprocess.DEVNULL,
+            },
+        )
+
+    def test_child_env_has_api_keys_stripped(self, monkeypatch):
+        """OPENAI_API_KEY etc. must NOT be present in the env passed to Popen."""
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-leak")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-leak")
+        monkeypatch.setenv("HF_TOKEN", "hf-leak")
+
+        self._patch_for_launch(monkeypatch)
+        captured_env: dict = {}
+
+        def fake_popen(argv, env=None, **kwargs):
+            captured_env.clear()
+            captured_env.update(env or {})
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        electron_launcher.launch_electron_frontend(9876, "tok")
+
+        assert "OPENAI_API_KEY" not in captured_env
+        assert "ANTHROPIC_API_KEY" not in captured_env
+        assert "HF_TOKEN" not in captured_env
+
+    def test_child_env_preserves_ipc_token_trio(self, monkeypatch):
+        """VT_PYTHON_PORT / VT_IPC_TOKEN / VOICE_TYPER_IPC_TOKEN are present
+        even when other TOKEN-matching vars are stripped.
+        """
+        monkeypatch.setenv("MY_APP_TOKEN", "should-be-stripped")
+        self._patch_for_launch(monkeypatch)
+        captured_env: dict = {}
+
+        def fake_popen(argv, env=None, **kwargs):
+            captured_env.clear()
+            captured_env.update(env or {})
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        electron_launcher.launch_electron_frontend(9876, "session-tok")
+
+        assert captured_env.get("VT_PYTHON_PORT") == "9876"
+        assert captured_env.get("VT_IPC_TOKEN") == "session-tok"
+        assert captured_env.get("VOICE_TYPER_IPC_TOKEN") == "session-tok"
+        assert "MY_APP_TOKEN" not in captured_env
+
+    def test_child_env_preserves_standard_os_vars(self, monkeypatch):
+        """PATH / HOME / LANG etc. survive stripping."""
+        self._patch_for_launch(monkeypatch)
+        captured_env: dict = {}
+
+        def fake_popen(argv, env=None, **kwargs):
+            captured_env.clear()
+            captured_env.update(env or {})
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        electron_launcher.launch_electron_frontend(9876, "tok")
+
+        assert captured_env.get("PATH") == os.environ.get("PATH")
+        assert captured_env.get("HOME") == os.environ.get("HOME")
 
 
 # ── terminate_electron ──────────────────────────────────────────────────

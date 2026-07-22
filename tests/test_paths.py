@@ -69,10 +69,7 @@ class TestHelpersReturnPathsUnderConfigDir:
         assert _paths.prewarm_log() == self.dir / "prewarm.log"
 
     def test_prewarm_launchagent_log_under_config_dir(self):
-        assert (
-            _paths.prewarm_launchagent_log()
-            == self.dir / "prewarm-launchagent.log"
-        )
+        assert _paths.prewarm_launchagent_log() == self.dir / "prewarm-launchagent.log"
 
     def test_autostart_log_under_config_dir(self):
         assert _paths.autostart_log() == self.dir / "autostart.log"
@@ -85,9 +82,7 @@ class TestHelpersReturnPathsUnderConfigDir:
             ("linux", Path("venv") / "bin" / "python"),
         ],
     )
-    def test_venv_pythonw_under_config_dir(
-        self, monkeypatch, platform: str, expected_subpath: Path
-    ):
+    def test_venv_pythonw_under_config_dir(self, monkeypatch, platform: str, expected_subpath: Path):
         """``_paths.venv_pythonw()`` returns the platform-appropriate
         venv interpreter under ``_config_dir()``."""
         monkeypatch.setattr(_paths.sys, "platform", platform)
@@ -200,16 +195,49 @@ class TestNoHardcodedVoiceTyperPaths:
         # Sanity check: the test should examine at least the modules
         # we know were refactored, otherwise the test silently passes
         # if SERVER_DIR is wrong.
+        #
+        # The required-list uses basenames that are unique across the
+        # server tree. ``prewarm.py`` and ``server_platform.py`` were
+        # reorganized into packages (``prewarm/__init__.py`` and
+        # ``server_platform/__init__.py``) — the package layout means
+        # ``rglob("*.py")`` returns ``__init__.py`` (whose basename
+        # collides across packages), so we instead anchor on a
+        # representative non-init module inside each package plus the
+        # top-level files that were the original refactor targets.
         examined_names = {p.name for p in py_files}
-        for required in (
-            "config.py", "_paths.py", "prewarm.py", "autostart_launcher.py",
-            "server_platform.py", "prewarm_scheduler_posix.py",
-            "task_scheduler.py", "duck_crash_recovery.py",
-        ):
+        examined_rel = {str(p.relative_to(SERVER_DIR)).replace("\\", "/") for p in py_files}
+        required_basenames = (
+            "config.py",
+            "_paths.py",
+            "autostart_launcher.py",
+            "prewarm_scheduler_posix.py",
+            "task_scheduler.py",
+            "duck_crash_recovery.py",
+        )
+        for required in required_basenames:
             assert required in examined_names, (
                 f"RW-7 test setup error: {required} not found under "
                 f"{SERVER_DIR} — the test cannot verify the regression "
                 "without examining the refactored modules"
+            )
+        # Package-layout sanity: ensure rglob descended into both the
+        # ``prewarm/`` and ``server_platform/`` sub-packages (the
+        # pre-refactor ``prewarm.py`` and ``server_platform.py`` were
+        # split into these packages; if rglob missed them the test
+        # would silently skip every file inside them).
+        for required_pkg_file in (
+            "prewarm/paths.py",
+            "prewarm/cache_probe.py",
+            "prewarm/logging_setup.py",
+            "server_platform/autostart.py",
+            "server_platform/autostart_macos.py",
+            "server_platform/desktop_shortcut.py",
+        ):
+            assert required_pkg_file in examined_rel, (
+                f"RW-7 test setup error: {required_pkg_file} not found "
+                f"under {SERVER_DIR} — rglob did not descend into the "
+                "prewarm/ or server_platform/ packages where the legacy "
+                "path-literal refactor lives"
             )
 
         for py_file in py_files:
@@ -228,17 +256,13 @@ class TestNoHardcodedVoiceTyperPaths:
                 if line.lstrip().startswith("#"):
                     continue
                 if _LEGACY_PATH_PATTERN.search(line):
-                    offenders.append(
-                        f"{py_file.relative_to(REPO_ROOT)}:{line_num}: "
-                        f"{line.rstrip()}"
-                    )
+                    offenders.append(f"{py_file.relative_to(REPO_ROOT)}:{line_num}: {line.rstrip()}")
         assert not offenders, (
             "RW-7 regression: hardcoded Path.home() / '.voice-typer' "
             "found in executable code. Use voice_typer.server._paths "
             "helpers instead (config_dir, pid_file, prewarm_sentinel, "
             "prewarm_log, prewarm_launchagent_log, autostart_log, "
-            "venv_pythonw, legacy_hf_cache_dir):\n"
-            + "\n".join(offenders)
+            "venv_pythonw, legacy_hf_cache_dir):\n" + "\n".join(offenders)
         )
 
     def test_config_py_still_has_legacy_migration_probe(self):
@@ -272,6 +296,4 @@ class TestNoHardcodedVoiceTyperPaths:
             "RW-7: _paths.legacy_hf_cache_dir must exist (prewarm.py "
             "delegates its BootTrigger defensive fallback to it)"
         )
-        assert _paths.legacy_hf_cache_dir() == (
-            Path.home() / ".voice-typer" / "huggingface"
-        )
+        assert _paths.legacy_hf_cache_dir() == (Path.home() / ".voice-typer" / "huggingface")

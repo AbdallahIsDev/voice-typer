@@ -16,6 +16,7 @@ The tests below cover each row of that decision matrix.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import sys
@@ -40,6 +41,26 @@ def _write_config(tmp_path: Path, payload: str) -> Path:
 def _warning_records(caplog) -> list[logging.LogRecord]:
     """Return the WARNING+ records captured from the config logger."""
     return [r for r in caplog.records if r.name == "voice_typer.server.config" and r.levelno >= logging.WARNING]
+
+
+def _loading_warning_records(caplog) -> list[logging.LogRecord]:
+    """Return only the per-field 'invalid ... resetting to default' or
+    'loading config ... Using defaults' warning records.
+
+    G4-H-10 adds a second warning ('moved corrupt config ... for forensic
+    recovery') when a corrupt config is moved aside.  Tests that assert
+    on the load-failure warning specifically should use this helper to
+    filter out the move-aside warning.
+
+    G4-M-11/M-13: per-field coercion warnings now use the format
+    'invalid <field> value ... resetting to default' rather than the
+    old generic 'loading config ... Using defaults' message.
+    """
+    return [
+        r
+        for r in _warning_records(caplog)
+        if ("loading config" in r.message and "Using defaults" in r.message) or ("resetting to default" in r.message)
+    ]
 
 
 # ── Caught: fall back to defaults + WARNING ────────────────────────────────
@@ -70,7 +91,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "JSONDecodeError" in recs[0].message
         assert str(config_file) in recs[0].message
@@ -82,7 +103,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "JSONDecodeError" in recs[0].message
         assert str(config_file) in recs[0].message
@@ -106,7 +127,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "TypeError" in recs[0].message
         assert str(config_file) in recs[0].message
@@ -126,7 +147,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         # MED-K / VALID-1: new message format names the field and value.
         assert "streaming_chunk_seconds" in recs[0].message
@@ -146,7 +167,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "streaming_chunk_seconds" in recs[0].message
         assert "None" in recs[0].message
@@ -166,7 +187,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "streaming_chunk_seconds" in recs[0].message
         assert "resetting to default" in recs[0].message
@@ -193,7 +214,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "ValueError" in recs[0].message
         assert str(config_file) in recs[0].message
@@ -218,7 +239,7 @@ class TestConfigLoadCaughtFailureModes:
             with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
                 cfg = Config.load()
             assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-            recs = _warning_records(caplog)
+            recs = _loading_warning_records(caplog)
             assert len(recs) == 1
             # PermissionError is a subclass of OSError; the log records
             # the actual subclass name so the user can see "permission
@@ -227,7 +248,15 @@ class TestConfigLoadCaughtFailureModes:
             assert str(config_file) in recs[0].message
         finally:
             # Restore permissions so pytest can clean up tmp_path.
-            config_file.chmod(0o600)
+            # G4-H-10: the corrupt config may have been moved aside to
+            # config.json.corrupt-<timestamp>; chmod that if the original
+            # is gone (best-effort cleanup).
+            try:
+                config_file.chmod(0o600)
+            except FileNotFoundError:
+                for corrupt_backup in tmp_path.glob("config.json.corrupt-*"):
+                    with contextlib.suppress(OSError):
+                        corrupt_backup.chmod(0o600)
 
     def test_disk_error_during_read_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
         """OSError mid-read (e.g. disk failure) → defaults + warning.
@@ -244,7 +273,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "OSError" in recs[0].message
         assert str(config_file) in recs[0].message
@@ -267,7 +296,7 @@ class TestConfigLoadCaughtFailureModes:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
-        recs = _warning_records(caplog)
+        recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "PermissionError" in recs[0].message
 

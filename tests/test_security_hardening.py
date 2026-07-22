@@ -28,6 +28,7 @@ class TestModelIntegritySHA256:
     def test_verify_model_integrity_valid(self, tmp_path):
         """Returns True for directory with model and config files."""
         from voice_typer.server.security import verify_model_integrity
+
         (tmp_path / "model.safetensors").write_bytes(b"\x00" * 100)
         (tmp_path / "config.json").write_text('{"model_type": "test"}')
         assert verify_model_integrity(str(tmp_path), "test/model") is True
@@ -35,24 +36,28 @@ class TestModelIntegritySHA256:
     def test_verify_model_integrity_missing_dir(self):
         """Returns False for non-existent directory."""
         from voice_typer.server.security import verify_model_integrity
+
         assert verify_model_integrity("/nonexistent/path", "test/model") is False
 
     def test_verify_model_integrity_empty_dir(self, tmp_path):
         """Returns False for directory with no model files."""
         from voice_typer.server.security import verify_model_integrity
+
         assert verify_model_integrity(str(tmp_path), "test/model") is False
 
     def test_verify_model_integrity_no_config(self, tmp_path):
         """Returns False for directory with model but no config.json."""
         from voice_typer.server.security import verify_model_integrity
+
         (tmp_path / "model.bin").write_bytes(b"\x00" * 100)
         assert verify_model_integrity(str(tmp_path), "test/model") is False
 
     def test_verify_model_integrity_empty_model_file(self, tmp_path):
         """Returns False for directory with empty model file."""
         from voice_typer.server.security import verify_model_integrity
+
         (tmp_path / "model.safetensors").write_bytes(b"")
-        (tmp_path / "config.json").write_text('{}')
+        (tmp_path / "config.json").write_text("{}")
         assert verify_model_integrity(str(tmp_path), "test/model") is False
 
     def test_compute_file_sha256(self, tmp_path):
@@ -60,6 +65,7 @@ class TestModelIntegritySHA256:
         import hashlib
 
         from voice_typer.server.security import compute_file_sha256
+
         test_file = tmp_path / "test.bin"
         content = b"hello world"
         test_file.write_bytes(content)
@@ -69,6 +75,7 @@ class TestModelIntegritySHA256:
     def test_model_hashes_manifest_exists(self):
         """SEC-audit-005: MODEL_HASHES manifest is populated with known repos."""
         from voice_typer.server.security import MODEL_HASHES
+
         assert "nvidia/parakeet-tdt-0.6b-v3" in MODEL_HASHES
         assert "Systran/faster-whisper-small.en" in MODEL_HASHES
         # Each entry must have a revision key
@@ -78,10 +85,12 @@ class TestModelIntegritySHA256:
     def test_verify_model_integrity_with_pinned_hash(self, tmp_path):
         """Returns False when pinned hash doesn't match actual file hash."""
         from voice_typer.server.security import verify_model_integrity
+
         (tmp_path / "model.safetensors").write_bytes(b"\x00" * 100)
         (tmp_path / "config.json").write_text('{"model_type": "test"}')
         # Use a repo_id that has pinned file hashes (we'll inject one)
         from voice_typer.server import security
+
         original = security.MODEL_HASHES.copy()
         try:
             security.MODEL_HASHES["test/pinned-model"] = {
@@ -96,8 +105,186 @@ class TestModelIntegritySHA256:
     def test_asr_setup_delegates_to_security(self):
         """SEC-audit-005: asr_setup._verify_model_integrity delegates to security module."""
         from voice_typer.server.asr_setup import _verify_model_integrity
+
         # The function should exist and be callable
         assert callable(_verify_model_integrity)
+
+
+# ─── G4-H-33: Qwen model integrity hard-fail (NF-R18-9 canonical path) ────
+
+
+class TestQwenModelIntegrityHardFail:
+    """G4-H-33: ``security.verify_model_integrity`` is the canonical
+    hard-fail path for local Qwen models with an empty ``files`` dict
+    in ``model_hashes.json``.
+
+    The Qwen model is loaded from a user-supplied local path (not a
+    HuggingFace repo_id), so there is NO upstream SHA pin from
+    ``snapshot_download``. The empty-files state was previously a
+    soft-pass in ``qwen_engine._verify_qwen_model_hashes`` — a
+    tampered or substituted local Qwen directory would load with NO
+    content hash verification.
+
+    The canonical hard-fail in ``security.verify_model_integrity``
+    returns False when ``manifest["revision"] == "local"`` AND
+    ``manifest["files"]`` is empty, so callers (qwen_engine, once
+    agent 2-f migrates it) refuse to load a tampered model directory.
+    """
+
+    def test_qwen_dir_with_empty_pinned_files_hard_fails(self, tmp_path):
+        """G4-H-33: a local Qwen dir with the default (empty) pinned-files
+        manifest MUST hard-fail integrity verification.
+
+        Constructs a plausible Qwen model directory (model.safetensors,
+        config.json, tokenizer.json — the typical Qwen layout) and
+        asserts that ``verify_model_integrity(dir, "qwen")`` returns
+        False because ``model_hashes.json["qwen"]`` has
+        ``"revision": "local"`` with an empty ``"files"`` dict.
+        """
+        from voice_typer.server.security import verify_model_integrity
+
+        # Construct a plausible Qwen model dir.
+        (tmp_path / "model.safetensors").write_bytes(b"\x00" * 1024)
+        (tmp_path / "config.json").write_text('{"model_type": "qwen2"}')
+        (tmp_path / "tokenizer.json").write_text("{}")
+
+        # The default model_hashes.json has ``"qwen": {"revision":
+        # "local", "files": {}}``, so the hard-fail branch MUST fire.
+        result = verify_model_integrity(str(tmp_path), "qwen")
+        assert result is False, (
+            "verify_model_integrity must hard-FAIL for a local Qwen dir "
+            "when model_hashes.json has empty 'files' (NF-R18-9). A "
+            "tampered local model has no upstream SHA pin to fall back on."
+        )
+
+    def test_qwen_dir_tampered_with_pinned_hash_mismatch(self, tmp_path):
+        """G4-H-33: a tampered local Qwen dir (pinned hash mismatch)
+        is rejected via the canonical ``verify_model_integrity`` path.
+
+        Populates the manifest with pinned hashes for the Qwen repo
+        (simulating an operator who has populated ``files`` with the
+        expected SHA-256 digests), then constructs a directory whose
+        ``model.safetensors`` content does NOT match the pinned hash.
+        Verifies that ``verify_model_integrity`` returns False.
+        """
+        import hashlib
+
+        from voice_typer.server import security
+        from voice_typer.server.security import verify_model_integrity
+
+        # Construct a plausible Qwen model dir.
+        (tmp_path / "model.safetensors").write_bytes(b"\x00" * 1024)
+        (tmp_path / "config.json").write_text('{"model_type": "qwen2"}')
+        (tmp_path / "tokenizer.json").write_text("{}")
+
+        # Compute the ACTUAL hash of model.safetensors, then pin a
+        # WRONG hash to simulate a tampered directory (the file on
+        # disk differs from what the manifest expects).
+        actual_safetensors_hash = hashlib.sha256(b"\x00" * 1024).hexdigest()
+        wrong_hash = "0" * 64  # definitely not the actual hash
+
+        # Sanity: ensure the wrong hash really is wrong.
+        assert wrong_hash != actual_safetensors_hash
+
+        original = security.MODEL_HASHES.copy()
+        try:
+            security.MODEL_HASHES["qwen"] = {
+                "revision": "local",
+                "files": {
+                    "model.safetensors": wrong_hash,
+                    "config.json": hashlib.sha256(b'{"model_type": "qwen2"}').hexdigest(),
+                    "tokenizer.json": hashlib.sha256(b"{}").hexdigest(),
+                },
+            }
+            result = verify_model_integrity(str(tmp_path), "qwen")
+            assert result is False, (
+                "verify_model_integrity must return False when a pinned "
+                "file's actual hash does not match the manifest — this is "
+                "the canonical hard-fail path for a tampered local Qwen "
+                "model directory."
+            )
+        finally:
+            security.MODEL_HASHES.clear()
+            security.MODEL_HASHES.update(original)
+
+    def test_qwen_dir_valid_with_correct_pinned_hashes(self, tmp_path):
+        """G4-H-33: a valid local Qwen dir (pinned hashes match) is
+        accepted via ``verify_model_integrity``.
+
+        Populates the manifest with the CORRECT pinned hashes for the
+        Qwen repo, then constructs a directory whose file contents
+        match. Verifies that ``verify_model_integrity`` returns True.
+        This is the positive case — operators who populate
+        ``model_hashes.json`` with real hashes can load their local
+        Qwen model.
+        """
+        import hashlib
+
+        from voice_typer.server import security
+        from voice_typer.server.security import verify_model_integrity
+
+        safetensors_content = b"\x00" * 1024
+        config_content = b'{"model_type": "qwen2"}'
+        tokenizer_content = b"{}"
+
+        (tmp_path / "model.safetensors").write_bytes(safetensors_content)
+        (tmp_path / "config.json").write_bytes(config_content)
+        (tmp_path / "tokenizer.json").write_bytes(tokenizer_content)
+
+        original = security.MODEL_HASHES.copy()
+        try:
+            security.MODEL_HASHES["qwen"] = {
+                "revision": "local",
+                "files": {
+                    "model.safetensors": hashlib.sha256(safetensors_content).hexdigest(),
+                    "config.json": hashlib.sha256(config_content).hexdigest(),
+                    "tokenizer.json": hashlib.sha256(tokenizer_content).hexdigest(),
+                },
+            }
+            result = verify_model_integrity(str(tmp_path), "qwen")
+            assert result is True, (
+                "verify_model_integrity must return True when all pinned "
+                "hashes match — this is the success path for an operator "
+                "who has populated model_hashes.json with real hashes."
+            )
+        finally:
+            security.MODEL_HASHES.clear()
+            security.MODEL_HASHES.update(original)
+
+    def test_qwen_dir_missing_pinned_file(self, tmp_path):
+        """G4-H-33: a local Qwen dir missing a pinned file is rejected.
+
+        Even when the manifest is populated with pinned hashes, if a
+        pinned file is missing from the directory, the integrity
+        check must fail (hard-fail).
+        """
+        import hashlib
+
+        from voice_typer.server import security
+        from voice_typer.server.security import verify_model_integrity
+
+        # Construct a Qwen dir missing tokenizer.json (which IS pinned).
+        (tmp_path / "model.safetensors").write_bytes(b"\x00" * 1024)
+        (tmp_path / "config.json").write_text('{"model_type": "qwen2"}')
+        # NOTE: tokenizer.json is intentionally NOT created.
+
+        original = security.MODEL_HASHES.copy()
+        try:
+            security.MODEL_HASHES["qwen"] = {
+                "revision": "local",
+                "files": {
+                    "model.safetensors": hashlib.sha256(b"\x00" * 1024).hexdigest(),
+                    "config.json": hashlib.sha256(b'{"model_type": "qwen2"}').hexdigest(),
+                    "tokenizer.json": hashlib.sha256(b"{}").hexdigest(),
+                },
+            }
+            result = verify_model_integrity(str(tmp_path), "qwen")
+            assert result is False, (
+                "verify_model_integrity must return False when a pinned file is missing from the model directory."
+            )
+        finally:
+            security.MODEL_HASHES.clear()
+            security.MODEL_HASHES.update(original)
 
 
 # ─── SEC-audit-007: Qwen Model Directory Validation ──────────────────────
@@ -109,38 +296,43 @@ class TestQwenModelDirValidation:
     def test_py_files_rejected(self, tmp_path):
         """Directories containing .py files are rejected."""
         from voice_typer.server.qwen_engine import _validate_qwen_model_dir
+
         (tmp_path / "model.safetensors").write_bytes(b"\x00" * 10)
-        (tmp_path / "config.json").write_text('{}')
+        (tmp_path / "config.json").write_text("{}")
         (tmp_path / "malicious.py").write_text("import os; os.system('rm -rf /')")
         assert _validate_qwen_model_dir(str(tmp_path)) is False
 
     def test_sh_files_rejected(self, tmp_path):
         """Directories containing .sh files are rejected."""
         from voice_typer.server.qwen_engine import _validate_qwen_model_dir
+
         (tmp_path / "model.safetensors").write_bytes(b"\x00" * 10)
-        (tmp_path / "config.json").write_text('{}')
+        (tmp_path / "config.json").write_text("{}")
         (tmp_path / "setup.sh").write_text("#!/bin/bash\necho pwned")
         assert _validate_qwen_model_dir(str(tmp_path)) is False
 
     def test_exe_files_rejected(self, tmp_path):
         """Directories containing .exe files are rejected."""
         from voice_typer.server.qwen_engine import _validate_qwen_model_dir
+
         (tmp_path / "model.safetensors").write_bytes(b"\x00" * 10)
-        (tmp_path / "config.json").write_text('{}')
+        (tmp_path / "config.json").write_text("{}")
         (tmp_path / "payload.exe").write_bytes(b"\x00" * 10)
         assert _validate_qwen_model_dir(str(tmp_path)) is False
 
     def test_safe_model_dir_accepted(self, tmp_path):
         """Directories with only allowed file types are accepted."""
         from voice_typer.server.qwen_engine import _validate_qwen_model_dir
+
         (tmp_path / "model.safetensors").write_bytes(b"\x00" * 10)
-        (tmp_path / "config.json").write_text('{}')
-        (tmp_path / "tokenizer.json").write_text('{}')
+        (tmp_path / "config.json").write_text("{}")
+        (tmp_path / "tokenizer.json").write_text("{}")
         assert _validate_qwen_model_dir(str(tmp_path)) is True
 
     def test_py_not_in_allowed_extensions(self):
         """SEC-audit-007: .py is NOT in _QWEN_ALLOWED_EXTENSIONS."""
         from voice_typer.server.qwen_engine import _QWEN_ALLOWED_EXTENSIONS
+
         assert ".py" not in _QWEN_ALLOWED_EXTENSIONS
 
 
@@ -153,10 +345,10 @@ class TestMutexLocalPrefix:
     def test_mutex_name_has_local_prefix(self):
         """SEC-001: The mutex name in app.py uses Local\\ prefix."""
         import voice_typer.server.app as app_module
+
         with open(app_module.__file__) as f:
             source = f.read()
-        assert 'Local\\\\VoiceTyperSingleInstance' in source or \
-               '"Local\\VoiceTyperSingleInstance"' in source
+        assert "Local\\\\VoiceTyperSingleInstance" in source or '"Local\\VoiceTyperSingleInstance"' in source
 
 
 # ─── SEC-002: Secure Read Text ──────────────────────────────────────────────
@@ -168,6 +360,7 @@ class TestSecureReadText:
     def test_reads_normal_file(self, tmp_path):
         """_secure_read_text can read a normal file."""
         from voice_typer.server.config import _secure_read_text
+
         test_file = tmp_path / "test.txt"
         test_file.write_text("hello world", encoding="utf-8")
         assert _secure_read_text(test_file) == "hello world"
@@ -177,6 +370,7 @@ class TestSecureReadText:
         if sys.platform == "win32":
             pytest.skip("O_NOFOLLOW not available on Windows")
         from voice_typer.server.config import _secure_read_text
+
         real_file = tmp_path / "real.txt"
         real_file.write_text("secret", encoding="utf-8")
         link = tmp_path / "link.txt"
@@ -187,6 +381,7 @@ class TestSecureReadText:
     def test_reads_with_encoding(self, tmp_path):
         """_secure_read_text respects the encoding parameter."""
         from voice_typer.server.config import _secure_read_text
+
         test_file = tmp_path / "test.txt"
         test_file.write_text("héllo wörld", encoding="utf-8")
         assert _secure_read_text(test_file, encoding="utf-8") == "héllo wörld"
@@ -201,9 +396,11 @@ class TestHallucinationLogging:
     def test_log_transcriptions_false_only_metadata(self, caplog):
         """When log_transcriptions=False, only char count is logged — no text."""
         from voice_typer.server.hallucination import log_hallucination_rejection
+
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.hallucination"):
             log_hallucination_rejection(
-                "[TEST]", "this is secret text that should not appear",
+                "[TEST]",
+                "this is secret text that should not appear",
                 reason="hallucination",
                 log_transcriptions=False,
             )
@@ -215,9 +412,11 @@ class TestHallucinationLogging:
     def test_log_transcriptions_true_shows_redacted_text(self, caplog):
         """When log_transcriptions=True, text is logged (truncated + PII-redacted)."""
         from voice_typer.server.hallucination import log_hallucination_rejection
+
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.hallucination"):
             log_hallucination_rejection(
-                "[TEST]", "this is hallucinated text",
+                "[TEST]",
+                "this is hallucinated text",
                 reason="hallucination",
                 log_transcriptions=True,
             )
@@ -227,17 +426,21 @@ class TestHallucinationLogging:
     def test_truncation_limit_is_40(self):
         """SEC-009: The default truncation limit is 40 chars, not 80."""
         from voice_typer.server.hallucination import _HALLUCINATION_LOG_MAX_CHARS
+
         assert _HALLUCINATION_LOG_MAX_CHARS == 40
 
     def test_privacy_warning_on_log_transcriptions(self, tmp_path, caplog):
         """SEC-009: Loading config with log_transcriptions=True emits a privacy warning."""
         from voice_typer.server.config import Config
+
         config_file = tmp_path / "config.json"
         config_data = {"log_transcriptions": True, "schema_version": 1}
         config_file.write_text(json.dumps(config_data), encoding="utf-8")
-        with patch("voice_typer.server.config._config_dir", return_value=tmp_path), \
-             caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
-                cfg = Config.load()
+        with (
+            patch("voice_typer.server.config._config_dir", return_value=tmp_path),
+            caplog.at_level(logging.WARNING, logger="voice_typer.server.config"),
+        ):
+            cfg = Config.load()
         assert cfg.log_transcriptions is True
         # The privacy warning should appear in the log
         assert "PII" in caplog.text or "privacy" in caplog.text.lower() or "log_transcriptions" in caplog.text
@@ -254,21 +457,25 @@ class TestCorrectionsLimits:
         # The constant is used inside the function; verify indirectly
         # by checking that the vocabulary module also defines it
         from voice_typer.server.vocabulary import MAX_CORRECTIONS_ENTRIES
+
         assert MAX_CORRECTIONS_ENTRIES == 5000
 
     def test_max_pattern_length_constant(self):
         """SEC-011: MAX_PATTERN_LENGTH is 200."""
         from voice_typer.server.vocabulary import MAX_PATTERN_LENGTH
+
         assert MAX_PATTERN_LENGTH == 200
 
     def test_max_replacement_length_constant(self):
         """SEC-011: MAX_REPLACEMENT_LENGTH is 500."""
         from voice_typer.server.vocabulary import MAX_REPLACEMENT_LENGTH
+
         assert MAX_REPLACEMENT_LENGTH == 500
 
     def test_long_pattern_rejected_in_vocabulary(self, tmp_path):
         """SEC-011: VocabularyManager.add_entry rejects patterns > MAX_PATTERN_LENGTH."""
         from voice_typer.server.vocabulary import MAX_PATTERN_LENGTH, VocabularyManager
+
         vm = VocabularyManager(config_dir=tmp_path, bundled_path=tmp_path / "noop.json")
         long_key = "x" * (MAX_PATTERN_LENGTH + 1)
         result = vm.add_entry("misspellings", long_key, "value")
@@ -277,6 +484,7 @@ class TestCorrectionsLimits:
     def test_long_replacement_rejected_in_vocabulary(self, tmp_path):
         """SEC-011: VocabularyManager.add_entry rejects replacements > MAX_REPLACEMENT_LENGTH."""
         from voice_typer.server.vocabulary import MAX_REPLACEMENT_LENGTH, VocabularyManager
+
         vm = VocabularyManager(config_dir=tmp_path, bundled_path=tmp_path / "noop.json")
         long_value = "x" * (MAX_REPLACEMENT_LENGTH + 1)
         result = vm.add_entry("misspellings", "key", long_value)
@@ -285,6 +493,7 @@ class TestCorrectionsLimits:
     def test_long_phrase_pattern_rejected(self, tmp_path):
         """SEC-011: VocabularyManager.add_phrase rejects patterns > MAX_PATTERN_LENGTH."""
         from voice_typer.server.vocabulary import MAX_PATTERN_LENGTH, VocabularyManager
+
         vm = VocabularyManager(config_dir=tmp_path, bundled_path=tmp_path / "noop.json")
         long_wrong = "x" * (MAX_PATTERN_LENGTH + 1)
         result = vm.add_phrase("phrase_corrections", long_wrong, "correct")
@@ -293,6 +502,7 @@ class TestCorrectionsLimits:
     def test_text_cleanup_drops_oversized_patterns(self, tmp_path):
         """SEC-011: _load_external_corrections drops patterns exceeding MAX_PATTERN_LENGTH."""
         from voice_typer.server.text_cleanup import _load_external_corrections
+
         # Create a corrections file with an oversized pattern
         corrections_file = tmp_path / "corrections.json"
         long_pattern = "x" * 300  # > MAX_PATTERN_LENGTH (200)
@@ -313,6 +523,7 @@ class TestCorrectionsLimits:
             _PHRASE_PATTERN_CACHE_MAXSIZE,
             _get_compiled_phrase_pattern,
         )
+
         # The cache should have a maximum size
         assert _PHRASE_PATTERN_CACHE_MAXSIZE > 0
         # The function should work for basic patterns
@@ -331,17 +542,20 @@ class TestSystemRootValidation:
         if sys.platform == "win32":
             pytest.skip("Test only applies to non-Windows platforms")
         from voice_typer.server.config import _validate_systemroot
+
         # Should not raise
         _validate_systemroot()
 
     def test_validate_systemroot_function_exists(self):
         """SEC-audit-011: _validate_systemroot function exists in config module."""
         from voice_typer.server.config import _validate_systemroot
+
         assert callable(_validate_systemroot)
 
     def test_systemroot_validation_called_in_app(self):
         """SEC-audit-011: _validate_systemroot is called in _validate_env_vars."""
         import voice_typer.server.app as app_module
+
         with open(app_module.__file__) as f:
             source = f.read()
         assert "_validate_systemroot" in source
@@ -358,6 +572,7 @@ class TestSecureFileWrites:
         if sys.platform == "win32":
             pytest.skip("POSIX-specific test")
         from voice_typer.server.config import _secure_atomic_write
+
         test_file = tmp_path / "test.json"
         _secure_atomic_write(test_file, '{"key": "value"}')
         mode = test_file.stat().st_mode
@@ -367,6 +582,7 @@ class TestSecureFileWrites:
     def test_duck_crash_recovery_uses_secure_write(self):
         """SEC-003: DuckCrashRecovery.save uses _secure_atomic_write."""
         import voice_typer.server.duck_crash_recovery as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "_secure_atomic_write" in source
@@ -374,6 +590,7 @@ class TestSecureFileWrites:
     def test_onboarding_uses_secure_write(self):
         """SEC-003: OnboardingManager.mark_complete uses _secure_atomic_write."""
         import voice_typer.server.onboarding as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "_secure_atomic_write" in source
@@ -381,6 +598,7 @@ class TestSecureFileWrites:
     def test_autostart_launcher_uses_secure_write(self):
         """SEC-003: _write_pid_file uses _secure_atomic_write."""
         import voice_typer.server.autostart_launcher as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "_secure_atomic_write" in source
@@ -388,6 +606,7 @@ class TestSecureFileWrites:
     def test_security_restart_token_uses_secure_write(self):
         """SEC-003: generate_restart_token uses _secure_atomic_write."""
         import voice_typer.server.security as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "_secure_atomic_write" in source
@@ -402,6 +621,7 @@ class TestAudioBufferZeroing:
     def test_recording_source_has_zeroing(self):
         """SEC-audit-008: recording.py contains chunk.fill(0) for buffer zeroing."""
         import voice_typer.server.recording as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "chunk.fill(0)" in source
@@ -410,6 +630,7 @@ class TestAudioBufferZeroing:
     def test_preroll_buffer_zeroing(self):
         """SEC-audit-008: preroll_buffer is also zeroed before clear."""
         import voice_typer.server.recording as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         # The preroll buffer should also be zeroed
@@ -420,9 +641,8 @@ class TestAudioBufferZeroing:
         for i, line in enumerate(lines):
             if "_preroll_buffer" in line and "clear()" in line:
                 # Look backward for fill(0)
-                context = "\n".join(lines[max(0, i - 5):i + 1])
-                assert "fill(0)" in context, \
-                    "preroll_buffer.clear() should be preceded by fill(0)"
+                context = "\n".join(lines[max(0, i - 5) : i + 1])
+                assert "fill(0)" in context, "preroll_buffer.clear() should be preceded by fill(0)"
 
 
 # ─── SEC-002: Secure read used in security-sensitive paths ────────────────
@@ -434,6 +654,7 @@ class TestSecureReadUsage:
     def test_vocabulary_loads_use_secure_read(self):
         """SEC-002: VocabularyManager._load_bundled and _load_user use _secure_read_text."""
         import voice_typer.server.vocabulary as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "_secure_read_text" in source
@@ -441,6 +662,7 @@ class TestSecureReadUsage:
     def test_text_cleanup_uses_secure_read(self):
         """SEC-002: text_cleanup._load_external_corrections uses _secure_read_text."""
         import voice_typer.server.text_cleanup as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "_secure_read_text" in source
@@ -448,6 +670,7 @@ class TestSecureReadUsage:
     def test_config_load_uses_secure_read(self):
         """SEC-002: Config.load uses _secure_read_text for config.json."""
         import voice_typer.server.config as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         # Config.load should use _secure_read_text
@@ -456,6 +679,7 @@ class TestSecureReadUsage:
     def test_duck_crash_recovery_uses_secure_read(self):
         """SEC-002: DuckCrashRecovery.load_stale uses _secure_read_text."""
         import voice_typer.server.duck_crash_recovery as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "_secure_read_text" in source
@@ -463,6 +687,7 @@ class TestSecureReadUsage:
     def test_security_verify_restart_uses_secure_read(self):
         """SEC-002: verify_restart_token uses _secure_read_text."""
         import voice_typer.server.security as mod
+
         with open(mod.__file__) as f:
             source = f.read()
         assert "_secure_read_text" in source

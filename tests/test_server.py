@@ -186,7 +186,11 @@ class TestDispatchToggleDictation:
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result["type"] == "error"
         assert result["id"] == 1
-        assert "toggle failed" in result["data"]["message"]
+        # PVT-G5-021 (CR-20): handler now uses _respond_with_error which emits
+        # a generic envelope (code=internal_error, message=internal error) to
+        # avoid leaking str(e) to the renderer.
+        assert result["data"]["code"] == "internal_error"
+        assert result["data"]["message"] == "internal error"
 
 
 class TestDispatchGetConfig:
@@ -2004,7 +2008,9 @@ class TestEndToEndHappyPath:
 
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result["type"] == "error"
-        assert "toggle failed" in result["data"]["message"]
+        # PVT-G5-021 (CR-20): generic envelope, no str(e) leak.
+        assert result["data"]["code"] == "internal_error"
+        assert result["data"]["message"] == "internal error"
 
         # Next command should still work
         result = server._dispatch({"id": 2, "type": "get_status"})
@@ -2470,7 +2476,9 @@ class TestAckShapeConsistency:
 
         result = srv._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result["type"] == "error"
-        assert result["data"] == {"message": "boom"}
+        # PVT-G5-021 (CR-20): generic envelope, no str(e) leak.
+        assert result["data"]["code"] == "internal_error"
+        assert result["data"]["message"] == "internal error"
 
 
 class TestConsoleModePushVisibility:

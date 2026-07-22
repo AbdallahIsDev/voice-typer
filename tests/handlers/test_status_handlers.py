@@ -79,7 +79,9 @@ class TestGetRmsLevel:
         fake_service.get_rms_level.side_effect = RuntimeError("recorder not started")
         resp = ipc_server._handle_get_rms_level({}, {})
         assert resp["type"] == "error"
-        assert "recorder not started" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestGetVolumeBackendStatus:

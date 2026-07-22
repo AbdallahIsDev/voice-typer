@@ -165,8 +165,11 @@ class TestVocabularyImportExport:
                 "technical_terms": {"dockr": "docker"},
             }
         )
-        count = vm.import_json(json_str, merge=True)
+        # G4-M-37: import_json now returns a tuple of
+        # (categories_imported, dropped_entries).
+        count, dropped = vm.import_json(json_str, merge=True)
         assert count >= 1
+        assert dropped == 0
 
     def test_import_json_replace(self, vm):
         json_str = json.dumps(
@@ -174,5 +177,230 @@ class TestVocabularyImportExport:
                 "technical_terms": {"dockr": "docker"},
             }
         )
-        count = vm.import_json(json_str, merge=False)
+        count, dropped = vm.import_json(json_str, merge=False)
         assert count >= 1
+        assert dropped == 0
+
+
+# ─── G4-M-37 / G4-M-38 regression tests ──────────────────────────────────────
+
+
+class TestVocabularyImportValidation:
+    """G4-M-37: import_json must validate entries before mutating state."""
+
+    def test_import_json_rejects_oversized_entries(self, vm, caplog):
+        """Entries whose key/pattern or value/replacement exceed the
+        SEC-011 length caps must be dropped with a logged warning.
+        """
+        import logging
+
+        from voice_typer.server.vocabulary import (
+            MAX_PATTERN_LENGTH,
+            MAX_REPLACEMENT_LENGTH,
+        )
+
+        long_key = "x" * (MAX_PATTERN_LENGTH + 1)
+        long_val = "y" * (MAX_REPLACEMENT_LENGTH + 1)
+        json_str = json.dumps(
+            {
+                "misspellings": {
+                    long_key: "valid",
+                    "valid_key": long_val,
+                    "good_key": "good_val",
+                }
+            }
+        )
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.vocabulary"):
+            count, dropped = vm.import_json(json_str, merge=True)
+        # 1 category was imported (misspellings had at least 1 valid entry).
+        assert count == 1
+        # 2 oversized entries were dropped (long_key + valid_key).
+        assert dropped == 2
+        miss = vm.get_category("misspellings")
+        assert isinstance(miss, dict)
+        assert "good_key" in miss
+        assert miss["good_key"] == "good_val"
+        assert long_key not in miss
+        assert "valid_key" not in miss
+        # A warning must have been logged with the dropped count.
+        assert any("Dropped" in r.getMessage() and "2" in r.getMessage() for r in caplog.records)
+
+    def test_import_json_rejects_oversized_phrase_entries(self, vm):
+        """List-based categories (phrase_corrections) must also drop
+        oversized entries (mirrors text_cleanup._load_external_corrections)."""
+        from voice_typer.server.vocabulary import MAX_PATTERN_LENGTH
+
+        long_phrase = "x" * (MAX_PATTERN_LENGTH + 1)
+        json_str = json.dumps(
+            {
+                "phrase_corrections": [
+                    [long_phrase, "ok"],
+                    ["good phrase", "good fix"],
+                ]
+            }
+        )
+        count, dropped = vm.import_json(json_str, merge=True)
+        assert count == 1
+        assert dropped == 1
+        phrases = vm.get_category("phrase_corrections")
+        assert isinstance(phrases, list)
+        # Only the valid entry is added (plus the bundled entry).
+        assert any(p == ["good phrase", "good fix"] for p in phrases)
+
+    def test_import_json_rejects_oversized_replacement(self, vm):
+        """Oversized replacements (good side) must be dropped too."""
+        from voice_typer.server.vocabulary import MAX_REPLACEMENT_LENGTH
+
+        long_val = "z" * (MAX_REPLACEMENT_LENGTH + 1)
+        json_str = json.dumps(
+            {
+                "phrase_corrections": [
+                    ["bad", long_val],
+                    ["good", "good fix"],
+                ]
+            }
+        )
+        count, dropped = vm.import_json(json_str, merge=True)
+        assert count == 1
+        assert dropped == 1
+
+    def test_import_json_rejects_category_over_cap(self, vm, monkeypatch):
+        """If ``len(existing) + len(new)`` would exceed
+        MAX_CORRECTIONS_ENTRIES, the entire category import must be
+        dropped (no partial mutation of ``self._data``)."""
+        import voice_typer.server.vocabulary as vocab_mod
+
+        # Lower the cap so the test doesn't have to build 5000 entries.
+        monkeypatch.setattr(vocab_mod, "MAX_CORRECTIONS_ENTRIES", 3)
+        # The bundled misspellings already has 2 entries (teh, recieve).
+        # Importing 2 more would put us at 4 > 3 -> entire category rejected.
+        json_str = json.dumps(
+            {
+                "misspellings": {
+                    "k1": "v1",
+                    "k2": "v2",
+                }
+            }
+        )
+        count, dropped = vm.import_json(json_str, merge=True)
+        # Category was rejected because it would exceed the cap.
+        assert count == 0
+        # 2 new entries were dropped (rejected as a batch).
+        assert dropped == 2
+        # Bundled entries are still present (no partial mutation).
+        miss = vm.get_category("misspellings")
+        assert "teh" in miss
+        assert "recieve" in miss
+
+    def test_import_json_malformed_entry_in_list_dropped(self, vm):
+        """Malformed entries in list categories (wrong shape, missing
+        fields) must be counted as dropped, not silently swallowed."""
+        json_str = json.dumps(
+            {
+                "phrase_corrections": [
+                    ["good phrase", "good fix"],
+                    ["only_one_field"],
+                    "not_a_list",
+                    {"not": "a list either"},
+                    ["another_good", "another_fix"],
+                ]
+            }
+        )
+        count, dropped = vm.import_json(json_str, merge=True)
+        assert count == 1
+        # 3 malformed entries dropped (only_one_field, not_a_list, dict).
+        assert dropped == 3
+
+
+class TestTemplatesEnforcesCaps:
+    """G4-M-38: templates.add() and templates.import_json() must enforce
+    MAX_TEMPLATES, MAX_TRIGGER_LENGTH, MAX_OUTPUT_LENGTH caps."""
+
+    def test_templates_add_enforces_max_count(self, tmp_path, monkeypatch):
+        """add() must reject new templates once MAX_TEMPLATES is reached."""
+        import voice_typer.server.templates as templates_mod
+
+        # Lower the cap so the test is fast.
+        monkeypatch.setattr(templates_mod, "MAX_TEMPLATES", 3)
+        from voice_typer.server.templates import TemplateManager
+
+        tm = TemplateManager(config_dir=tmp_path)
+        # Fill up to the cap.
+        for i in range(3):
+            result = tm.add(f"trigger{i}", f"output{i}")
+            assert result is not None, f"add #{i} should succeed"
+        # Next add must be rejected (returns None).
+        result = tm.add("overflow", "overflow output")
+        assert result is None
+        # Internal list stays at the cap.
+        assert len(tm._templates) == 3
+        # The overflow entry was NOT appended.
+        assert all(t["trigger"] != "overflow" for t in tm._templates)
+
+    def test_templates_add_rejects_oversized_trigger(self, tmp_path, monkeypatch):
+        """add() must reject triggers exceeding MAX_TRIGGER_LENGTH."""
+        import voice_typer.server.templates as templates_mod
+
+        monkeypatch.setattr(templates_mod, "MAX_TRIGGER_LENGTH", 5)
+        from voice_typer.server.templates import TemplateManager
+
+        tm = TemplateManager(config_dir=tmp_path)
+        result = tm.add("way too long trigger", "ok")
+        assert result is None
+        assert len(tm._templates) == 0
+
+    def test_templates_add_rejects_oversized_output(self, tmp_path, monkeypatch):
+        """add() must reject outputs exceeding MAX_OUTPUT_LENGTH."""
+        import voice_typer.server.templates as templates_mod
+
+        monkeypatch.setattr(templates_mod, "MAX_OUTPUT_LENGTH", 5)
+        from voice_typer.server.templates import TemplateManager
+
+        tm = TemplateManager(config_dir=tmp_path)
+        result = tm.add("ok", "way too long output text")
+        assert result is None
+        assert len(tm._templates) == 0
+
+    def test_templates_import_json_drops_oversized(self, tmp_path, monkeypatch, caplog):
+        """import_json() must drop oversized entries with a warning
+        (mirrors text_cleanup._load_external_corrections)."""
+        import logging
+
+        import voice_typer.server.templates as templates_mod
+
+        monkeypatch.setattr(templates_mod, "MAX_TRIGGER_LENGTH", 5)
+        monkeypatch.setattr(templates_mod, "MAX_OUTPUT_LENGTH", 10)
+        from voice_typer.server.templates import TemplateManager
+
+        tm = TemplateManager(config_dir=tmp_path)
+        json_str = json.dumps(
+            {
+                "templates": [
+                    {"trigger": "ok", "output": "ok"},  # valid
+                    {"trigger": "way too long trigger", "output": "ok"},  # oversized trigger
+                    {"trigger": "ok2", "output": "way too long output text"},  # oversized output
+                    {"trigger": "ok3", "output": "ok3"},  # valid
+                ]
+            }
+        )
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.templates"):
+            count = tm.import_json(json_str)
+        assert count == 2  # 2 valid templates imported
+        assert len(tm._templates) == 2
+        # A warning must have been logged about the dropped entries.
+        assert any("Dropped" in r.getMessage() for r in caplog.records)
+
+    def test_templates_import_json_truncates_at_cap(self, tmp_path, monkeypatch):
+        """import_json() must truncate the import if it would exceed
+        MAX_TEMPLATES."""
+        import voice_typer.server.templates as templates_mod
+
+        monkeypatch.setattr(templates_mod, "MAX_TEMPLATES", 3)
+        from voice_typer.server.templates import TemplateManager
+
+        tm = TemplateManager(config_dir=tmp_path)
+        json_str = json.dumps({"templates": [{"trigger": f"t{i}", "output": f"o{i}"} for i in range(5)]})
+        count = tm.import_json(json_str)
+        # Only the first 3 fit within the cap.
+        assert count == 3
+        assert len(tm._templates) == 3

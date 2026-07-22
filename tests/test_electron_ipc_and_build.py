@@ -181,7 +181,14 @@ class TestAllowlistCorrectness:
 
     @pytest.fixture
     def allowlist_entries(self):
-        idx_path = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "index.ts"
+        # PVT-G5-009: previously pointed at `index.ts`, but R6-F10 moved
+        # the canonical `ALLOWED_COMMANDS = new Set([...])` literal out of
+        # `index.ts` into its own dependency-free leaf module
+        # `allowed-commands.ts` (`index.ts:56` now just re-exports it).
+        # `src.index("ALLOWED_COMMANDS = new Set([")` was raising
+        # `ValueError: substring not found` on the stale path, erroring
+        # every test in this class without any assertion ever running.
+        idx_path = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
         src = idx_path.read_text(encoding="utf-8")
         start = src.index("ALLOWED_COMMANDS = new Set([")
         end = src.index("]);", start)
@@ -210,7 +217,16 @@ class TestAllowlistCorrectness:
         server_cmds = old_cmds | new_cmds
         orphans = allowlist_entries - server_cmds
         assert not orphans, f"Allowlist has orphan entries: {sorted(orphans)}"
-        missing = server_cmds - allowlist_entries
+        # PVT-G5-075: `tray_click` is a Rust-only command. The server
+        # registry has a `_handle_tray_click` handler (invoked by the
+        # Rust tray menu handler in `src-tauri/src/tray.rs::on_menu_event`
+        # via `dispatch_inner`, which bypasses the renderer allowlist
+        # gate). The renderer never sends `tray_click`, so it is
+        # intentionally NOT in the TS `ALLOWED_COMMANDS` Set. Exclude
+        # it from the "missing" check so the parity test does not flag
+        # it as a renderer-reachable gap.
+        rust_only_commands = {"tray_click"}
+        missing = server_cmds - allowlist_entries - rust_only_commands
         assert not missing, (
             f"Allowlist is missing server commands (renderer calls would be silently rejected): {sorted(missing)}"
         )
@@ -389,11 +405,25 @@ class TestTypeIgnoreBugsFixed:
         assert "self._backend is not None" in src
 
     def test_volume_backends_bare_type_ignore_fixed(self):
-        path = REPO_ROOT / "voice_typer" / "server" / "volume_backends.py"
-        src = path.read_text(encoding="utf-8")
-        lines = [ln for ln in src.split("\n") if "type: ignore" in ln and "import-not-found" not in ln]
-        bare_ignores = [ln for ln in lines if ln.rstrip().endswith("# type: ignore")]
-        assert not bare_ignores
+        # Session 1 (PVT-architecture refactor) split the monolithic
+        # `volume_backends.py` into a `volume_backends/` subfolder:
+        # `__init__.py`, `linux.py`, `macos.py`, `windows.py`. The test
+        # originally checked the monolithic file. Updated to scan the
+        # new subfolder instead. Falls back to the monolithic file if
+        # it exists (legacy deployments).
+        monolith = REPO_ROOT / "voice_typer" / "server" / "volume_backends.py"
+        subfolder = REPO_ROOT / "voice_typer" / "server" / "volume_backends"
+        candidates = []
+        if monolith.exists():
+            candidates.append(monolith)
+        if subfolder.is_dir():
+            candidates.extend(sorted(subfolder.glob("*.py")))
+        assert candidates, f"Neither {monolith} nor {subfolder}/*.py found — volume_backends missing"
+        for path in candidates:
+            src = path.read_text(encoding="utf-8")
+            lines = [ln for ln in src.split("\n") if "type: ignore" in ln and "import-not-found" not in ln]
+            bare_ignores = [ln for ln in lines if ln.rstrip().endswith("# type: ignore")]
+            assert not bare_ignores, f"Bare `# type: ignore` in {path}: {bare_ignores}"
 
     def test_no_malformed_type_ignore_isc(self):
         server_dir = REPO_ROOT / "voice_typer" / "server"

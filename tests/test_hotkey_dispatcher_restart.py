@@ -1,28 +1,38 @@
-"""CR-15 regression tests: HotkeyDispatcher.restart() atomicity.
+"""PVT-G5-027 regression tests: HotkeyDispatcher.restart() ordering.
 
-Verifies that ``HotkeyDispatcher.restart()`` is atomic — it brings up
-the NEW backend BEFORE stopping the OLD one. If the new backend fails
-to start (e.g. the hotkey spec is invalid, or the OS rejects it because
-another app already claimed it), the OLD backend is kept running so
-the user is never left without a working dictation hotkey.
+Verifies that ``HotkeyDispatcher.restart()`` stops the OLD backend
+BEFORE starting the NEW one (eliminating the double-backend window
+where both old and new backends fire on the same keypress → double-
+toggle on platforms that permit multiple global-hotkey registrations
+like pynput on Linux/X11 and Wayland).
+
+If the new backend fails to start (e.g. the hotkey spec is invalid,
+or the OS rejects it because another app already claimed it), the
+OLD hotkey spec is restored to ``app.config.hotkey`` and a fresh
+backend is created with the OLD spec so the user is never left
+without a working dictation hotkey. This preserves the CR-15 user-
+facing contract ("restart failure keeps the previous hotkey working")
+while eliminating the double-backend window.
 
 Three scenarios are covered:
 
 1. **Success path** — ``create_hotkey_backend`` returns a new backend
    whose ``start()`` succeeds. Assert: NEW backend assigned to
-   ``_hotkey_backend``, OLD ``stop()`` called, tray ``set_hotkey``
-   called.
+   ``_hotkey_backend``, OLD ``stop()`` called BEFORE the new backend
+   is started (no overlap), tray ``set_hotkey`` called with the new
+   spec.
 
-2. **Failure path A** — ``create_hotkey_backend`` raises (e.g. spec
-   parse error or missing native binary). Assert: OLD backend still
-   assigned to ``_hotkey_backend``, OLD ``stop()`` NOT called, tray
-   ``notify`` shown.
+2. **Failure path A** — ``create_hotkey_backend`` raises on the FIRST
+   call (for the new hotkey spec). Assert: OLD backend's ``stop()``
+   WAS called (we stop before register), the factory is called a
+   SECOND time to restore the OLD hotkey spec, the restored backend
+   is installed, ``app.config.hotkey`` is reverted to the OLD spec,
+   tray ``set_hotkey`` called with the OLD spec, tray ``notify``
+   shown naming the rejected hotkey.
 
-3. **Failure path B** — ``create_hotkey_backend`` returns a new backend
-   whose ``start()`` raises (e.g. Win32 ``RegisterHotKey`` rejected
-   because another app claimed the hotkey). Assert: OLD backend still
-   assigned to ``_hotkey_backend``, OLD ``stop()`` NOT called, tray
-   ``notify`` shown.
+3. **Failure path B** — ``create_hotkey_backend`` returns a new
+   backend whose ``start()`` raises on the FIRST call. Same
+   assertions as Failure path A (restore path is identical).
 
 These tests use a minimal mock app — they do NOT construct a real
 ``VoiceTyperApp`` (which would pull in sounddevice / faster_whisper /
@@ -87,7 +97,8 @@ def dispatcher() -> HotkeyDispatcher:
 
 
 def test_restart_success_installs_new_backend_and_stops_old(dispatcher: HotkeyDispatcher, monkeypatch):
-    """Success path: new backend created+started; OLD backend stopped."""
+    """Success path: new backend created+started; OLD backend stopped
+    BEFORE the new one is started (PVT-G5-027: no double-backend window)."""
     old_backend = MagicMock()
     old_backend.is_alive.return_value = True
     dispatcher._hotkey_backend = old_backend
@@ -96,6 +107,11 @@ def test_restart_success_installs_new_backend_and_stops_old(dispatcher: HotkeyDi
     new_backend.is_alive.return_value = True
     factory = MagicMock(return_value=new_backend)
     monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
+
+    # Record the order of stop() vs start() calls to assert no overlap.
+    call_order: list[str] = []
+    old_backend.stop.side_effect = lambda: call_order.append("old_backend.stop")
+    new_backend.start.side_effect = lambda cb: call_order.append("new_backend.start")
 
     dispatcher.restart("<f3>")
 
@@ -112,6 +128,14 @@ def test_restart_success_installs_new_backend_and_stops_old(dispatcher: HotkeyDi
 
     # OLD backend was stopped
     old_backend.stop.assert_called_once()
+
+    # PVT-G5-027: OLD backend's stop() was called BEFORE NEW backend's
+    # start() — no window where both backends are simultaneously
+    # listening on the same hotkey (would cause double-toggle on Linux
+    # pynput/Wayland where multiple registrations are permitted).
+    assert call_order == ["old_backend.stop", "new_backend.start"], (
+        f"Expected old_backend.stop BEFORE new_backend.start; got {call_order}"
+    )
 
     # Tray was notified about the new hotkey
     dispatcher._app.tray.set_hotkey.assert_called_once_with("<f3>")
@@ -140,44 +164,105 @@ def test_restart_success_with_no_old_backend_does_not_crash(dispatcher: HotkeyDi
 # ─── Failure path A: create_hotkey_backend raises ────────────────────────
 
 
-def test_restart_failure_in_factory_keeps_old_backend_alive(dispatcher: HotkeyDispatcher, monkeypatch):
-    """Failure path A: ``create_hotkey_backend`` raises (e.g. spec parse
-    error, missing native binary). OLD backend must keep running."""
+def test_restart_failure_in_factory_restores_old_hotkey_spec(dispatcher: HotkeyDispatcher, monkeypatch):
+    """PVT-G5-027 Failure path A: ``create_hotkey_backend`` raises on
+    the FIRST call (for the new hotkey spec). The OLD backend's
+    ``stop()`` MUST be called (we stop before register), and the
+    factory is called a SECOND time to restore a backend with the OLD
+    hotkey spec. ``app.config.hotkey`` is reverted to the OLD spec so
+    the user is never left without a working dictation hotkey."""
     old_backend = MagicMock()
     old_backend.is_alive.return_value = True
     dispatcher._hotkey_backend = old_backend
 
-    factory = MagicMock(side_effect=RuntimeError("invalid hotkey spec"))
+    restored_backend = MagicMock()
+    restored_backend.is_alive.return_value = True
+    # First call (for "<bad>") raises; second call (for "<f2>", the
+    # old hotkey) returns the restored backend.
+    factory = MagicMock(
+        side_effect=[RuntimeError("invalid hotkey spec"), restored_backend],
+    )
     monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     dispatcher.restart("<bad>")
 
-    # CR-15 (a): OLD backend is still assigned to _hotkey_backend
-    assert dispatcher._hotkey_backend is old_backend, (
-        "OLD backend must remain installed when restart() fails so the "
-        "user is never left without a working dictation hotkey."
-    )
+    # PVT-G5-027: OLD backend's stop() WAS called (before register)
+    old_backend.stop.assert_called_once()
 
-    # CR-15 (b): OLD backend's stop() was NOT called
-    old_backend.stop.assert_not_called()
+    # Factory was called twice: once for the new (failing) hotkey,
+    # once for the restore (with the OLD hotkey spec).
+    assert factory.call_count == 2
+    factory.assert_any_call("<bad>")
+    factory.assert_any_call("<f2>")  # old hotkey spec
 
-    # CR-15 (c): tray notification was shown (UX-002: names the hotkey)
+    # Restored backend is installed (a NEW instance — NOT old_backend,
+    # which was already stopped).
+    assert dispatcher._hotkey_backend is restored_backend
+    restored_backend.start.assert_called_once()
+
+    # Config was reverted to the OLD hotkey spec
+    assert dispatcher._app.config.hotkey == "<f2>"
+
+    # Tray hotkey label is set to the OLD (restored) spec, NOT "<bad>"
+    dispatcher._app.tray.set_hotkey.assert_called_once_with("<f2>")
+
+    # PVT-G5-027 + UX-002: tray notification was shown naming the
+    # rejected hotkey (register() shows this notification).
     notify_calls = dispatcher._app.tray.notify.call_args_list
     assert any("<bad>" in str(call) for call in notify_calls), (
         f"Expected tray notification naming the rejected hotkey '<bad>', got: {notify_calls}"
     )
 
-    # Tray hotkey label is still updated (config was set, even if registration failed)
-    dispatcher._app.tray.set_hotkey.assert_called_once_with("<bad>")
+
+def test_restart_failure_in_factory_with_failed_restore_leaves_no_backend(dispatcher: HotkeyDispatcher, monkeypatch):
+    """PVT-G5-027 Failure path A (restore also fails): if the factory
+    raises on BOTH calls (the new hotkey AND the restore attempt), the
+    user is left without a working dictation hotkey. ``app.config.hotkey``
+    is still reverted to the OLD spec so the tray label and any future
+    restart attempt use the OLD (known-good) spec. A separate ERROR
+    notification is shown so the user knows to rebind in Settings."""
+    old_backend = MagicMock()
+    old_backend.is_alive.return_value = True
+    dispatcher._hotkey_backend = old_backend
+
+    # Factory raises on EVERY call — both the initial register and the
+    # restore attempt fail.
+    factory = MagicMock(side_effect=RuntimeError("display gone"))
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
+
+    dispatcher.restart("<bad>")
+
+    # OLD backend's stop() WAS called (we stop before register).
+    old_backend.stop.assert_called_once()
+
+    # Factory was called twice (once for "<bad>", once for "<f2>")
+    assert factory.call_count == 2
+
+    # No backend installed — restore also failed.
+    assert dispatcher._hotkey_backend is None
+
+    # Config was reverted to the OLD hotkey spec
+    assert dispatcher._app.config.hotkey == "<f2>"
+
+    # Tray hotkey label is set to the OLD (restored) spec
+    dispatcher._app.tray.set_hotkey.assert_called_once_with("<f2>")
+
+    # A tray notification was shown naming the rejected hotkey
+    notify_calls = dispatcher._app.tray.notify.call_args_list
+    assert any("<bad>" in str(call) for call in notify_calls), (
+        f"Expected tray notification naming the rejected hotkey '<bad>', got: {notify_calls}"
+    )
 
 
 # ─── Failure path B: backend.start() raises ──────────────────────────────
 
 
-def test_restart_failure_in_start_keeps_old_backend_alive(dispatcher: HotkeyDispatcher, monkeypatch):
-    """Failure path B: ``create_hotkey_backend`` returns a new backend
-    whose ``start()`` raises (e.g. Win32 RegisterHotKey rejected because
-    another app claimed the hotkey). OLD backend must keep running."""
+def test_restart_failure_in_start_restores_old_hotkey_spec(dispatcher: HotkeyDispatcher, monkeypatch):
+    """PVT-G5-027 Failure path B: ``create_hotkey_backend`` returns a
+    new backend whose ``start()`` raises on the FIRST call. The OLD
+    backend's ``stop()`` MUST be called (we stop before register), and
+    the factory is called a SECOND time to restore a backend with the
+    OLD hotkey spec."""
     old_backend = MagicMock()
     old_backend.is_alive.return_value = True
     dispatcher._hotkey_backend = old_backend
@@ -185,31 +270,41 @@ def test_restart_failure_in_start_keeps_old_backend_alive(dispatcher: HotkeyDisp
     new_backend = MagicMock()
     new_backend.is_alive.return_value = True
     new_backend.start.side_effect = OSError("hotkey already claimed by another app")
-    factory = MagicMock(return_value=new_backend)
+    restored_backend = MagicMock()
+    restored_backend.is_alive.return_value = True
+    factory = MagicMock(side_effect=[new_backend, restored_backend])
     monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
     dispatcher.restart("<f5>")
 
-    # CR-15 (a): OLD backend is still assigned (NOT the broken new one)
-    assert dispatcher._hotkey_backend is old_backend, (
-        "OLD backend must remain installed when new backend's start() "
-        "fails. The new (broken) backend must NOT replace it."
-    )
+    # PVT-G5-027: OLD backend's stop() WAS called
+    old_backend.stop.assert_called_once()
 
-    # CR-15 (b): OLD backend's stop() was NOT called
-    old_backend.stop.assert_not_called()
+    # Factory was called twice: once for "<f5>" (returned the broken
+    # new_backend), once for "<f2>" (the OLD hotkey, returns the
+    # restored backend).
+    assert factory.call_count == 2
+    factory.assert_any_call("<f5>")
+    factory.assert_any_call("<f2>")
 
-    # The new (broken) backend WAS constructed and start was attempted,
-    # but it should NOT have been installed as _hotkey_backend.
+    # The broken new backend's start() was attempted (and raised)
     new_backend.start.assert_called_once()
 
-    # CR-15 (c): tray notification was shown
+    # Restored backend IS installed and its start() was called.
+    assert dispatcher._hotkey_backend is restored_backend
+    restored_backend.start.assert_called_once()
+
+    # Config was reverted to the OLD hotkey spec
+    assert dispatcher._app.config.hotkey == "<f2>"
+
+    # Tray hotkey label is set to the OLD (restored) spec
+    dispatcher._app.tray.set_hotkey.assert_called_once_with("<f2>")
+
+    # Tray notification was shown naming the rejected hotkey
     notify_calls = dispatcher._app.tray.notify.call_args_list
     assert any("<f5>" in str(call) for call in notify_calls), (
         f"Expected tray notification naming the rejected hotkey '<f5>', got: {notify_calls}"
     )
-
-    dispatcher._app.tray.set_hotkey.assert_called_once_with("<f5>")
 
 
 # ─── Failure path C: config.save() returns False ─────────────────────────
@@ -341,3 +436,59 @@ def test_register_failure_with_no_existing_backend_leaves_field_none(dispatcher:
 
     assert result is False
     assert dispatcher._hotkey_backend is None
+
+
+# ─── G4-H-17 negative: restart() must NOT restore on success path ──────
+#
+# This test was contributed by session-4 (G4-H-17) and is retained in the
+# merged tree because it is COMPATIBLE with session-5's PVT-G5-027 behavior
+# (both agree: on the success path, no restoration occurs, only one save
+# is made, and the OLD backend is stopped). The other two G4-H-17 tests
+# (``test_restart_restores_hotkey_on_register_failure`` and
+# ``test_restart_restores_hotkey_on_start_failure``) were DROPPED because
+# they assert ``old_backend.stop.assert_not_called()`` and
+# ``dispatcher._hotkey_backend is old_backend``, which directly
+# contradict PVT-G5-027's stop-before-start + restore-with-old-spec
+# behavior. The merged ``hotkey_dispatcher.py`` follows PVT-G5-027 (the
+# more robust strategy that eliminates the double-backend window on
+# Linux pynput/Wayland). See sub-agent SO report for the full conflict
+# analysis.
+
+
+def test_restart_does_not_restore_hotkey_on_success(dispatcher: HotkeyDispatcher, monkeypatch):
+    """G4-H-17 (negative test): when ``register()`` SUCCEEDS, the new
+    hotkey is kept — no restoration occurs, and ``config.save()`` is
+    called exactly once (the pre-register save). This guards against
+    the restoration logic firing spuriously on the success path.
+
+    This negative assertion is compatible with both the G4-H-17 (keep
+    OLD backend alive on failure) and PVT-G5-027 (stop OLD + restore
+    with old spec on failure) strategies, because on the SUCCESS path
+    neither strategy attempts a restoration."""
+    assert dispatcher._app.config.hotkey == "<f2>"
+    old_backend = MagicMock()
+    old_backend.is_alive.return_value = True
+    dispatcher._hotkey_backend = old_backend
+
+    dispatcher._app.config.save.reset_mock()
+    dispatcher._app.config.save.return_value = True
+
+    new_backend = MagicMock()
+    new_backend.is_alive.return_value = True
+    factory = MagicMock(return_value=new_backend)
+    monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
+
+    dispatcher.restart("<f8>")
+
+    # New hotkey is kept (not restored to <f2>).
+    assert dispatcher._app.config.hotkey == "<f8>"
+
+    # Only ONE save (the pre-register save) — no restoration save.
+    assert dispatcher._app.config.save.call_count == 1
+
+    # New backend installed, OLD stopped.
+    assert dispatcher._hotkey_backend is new_backend
+    old_backend.stop.assert_called_once()
+
+    # Tray label shows the new hotkey.
+    dispatcher._app.tray.set_hotkey.assert_called_once_with("<f8>")

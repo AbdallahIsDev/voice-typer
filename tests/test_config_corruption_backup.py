@@ -300,19 +300,30 @@ class TestCorruptConfigBackup:
         The move is best-effort — a failure is logged at DEBUG level
         and the load proceeds.  The user gets a working (defaults-
         only) app even if the backup couldn't be created.
+
+        G4-H-10 note: we monkeypatch ``pathlib.Path.replace`` at the
+        CLASS level (not the instance level) because PosixPath uses
+        ``__slots__`` which makes instance attribute assignment raise
+        ``AttributeError: 'PosixPath' object attribute 'replace' is
+        read-only``.  The class-level patch affects all Path instances
+        for the duration of the test, which is fine here because the
+        only ``Path.replace`` call during ``Config.load()`` is the
+        corrupt-config move-aside (no save happens during load).
         """
         _patch_config_dir(tmp_path, monkeypatch)
         config_file = tmp_path / "config.json"
         config_file.write_text("INVALID JSON {{{", encoding="utf-8")
 
-        # Mock Path.replace to raise OSError (simulating permission
-        # denied or cross-device rename failure).
-        original_replace = config_file.replace
+        # Mock Path.replace at the CLASS level so the corrupt-config
+        # move-aside raises OSError (simulating permission denied).
+        import pathlib
 
-        def failing_replace(target):
+        original_replace = pathlib.Path.replace
+
+        def failing_replace(self, target):
             raise OSError("simulated permission denied on rename")
 
-        monkeypatch.setattr(config_file, "replace", failing_replace)
+        monkeypatch.setattr(pathlib.Path, "replace", failing_replace)
 
         # Must NOT raise — the failure is caught and logged.
         cfg = Config.load()
@@ -465,18 +476,19 @@ class TestSaveBackupBeforeOverwrite:
         # backup.write_text to raise.  But we don't control the
         # ``backup`` Path object directly.
 
-        # Simpler approach: monkeypatch Path.write_text globally to
+        # Simpler approach: monkeypatch Path.write_bytes globally to
         # raise ONLY when the path ends with .bak.  This way the
-        # _secure_atomic_write call (which writes to .tmp, not .bak)
-        # still works.
-        original_write_text = type(config_file).write_text
+        # _secure_atomic_write call (which writes to a unique .tmp
+        # file via mkstemp, not .bak) still works.  G4-H-09 uses
+        # write_bytes (not write_text) so the backup is byte-for-byte.
+        original_write_bytes = type(config_file).write_bytes
 
-        def selective_write_text(self, data, encoding=None, errors=None):
+        def selective_write_bytes(self, data):
             if str(self).endswith(".bak"):
                 raise OSError("simulated permission denied on .bak write")
-            return original_write_text(self, data, encoding=encoding, errors=errors)
+            return original_write_bytes(self, data)
 
-        monkeypatch.setattr("pathlib.Path.write_text", selective_write_text)
+        monkeypatch.setattr("pathlib.Path.write_bytes", selective_write_bytes)
 
         # Change hotkey and save — .bak write will fail but save must proceed.
         cfg.hotkey = "<f9>"
@@ -530,7 +542,23 @@ class TestSaveBackupBeforeOverwrite:
         bak = tmp_path / "config.json.bak"
 
         # Write a config with unusual formatting (no indent, trailing newline).
-        custom_content = json.dumps({"hotkey": "<f3>"}, separators=(",", ":")) + "\n"
+        # G4-M-15 / G4-H-09 note: set schema_version=_CURRENT_SCHEMA_VERSION
+        # and secrets_migrated=True so that Config.load() does NOT trigger
+        # any migration (which would eager-save a normalized version) and
+        # does NOT trigger credential_store.migrate_secrets_to_keyring
+        # (which would also overwrite config.json with a normalized version).
+        # Without these, the on-disk bytes would be normalized before the
+        # test's cfg.save() runs, and the .bak would contain the normalized
+        # bytes rather than the original custom_content.
+        from voice_typer.server.config import _CURRENT_SCHEMA_VERSION
+
+        custom_content = (
+            json.dumps(
+                {"hotkey": "<f3>", "schema_version": _CURRENT_SCHEMA_VERSION, "secrets_migrated": True},
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
         config_file.write_text(custom_content, encoding="utf-8")
 
         # Load it and change a field, then save.
@@ -568,11 +596,17 @@ class TestSaveBackupBeforeOverwrite:
         # "older build" doesn't know about.  We can't actually add
         # unknown fields to the Config dataclass (it would reject
         # them), so we simulate by writing raw JSON with extra keys.
+        # G4-H-09 / G4-H-10 note: set secrets_migrated=True so that
+        # Config.load() does NOT trigger credential_store.migrate_secrets_to_keyring
+        # (which would overwrite config.json with a normalized version before
+        # the test's cfg.save() runs, causing the .bak to contain the normalized
+        # bytes rather than the original newer_content).
         newer_content = json.dumps(
             {
                 "hotkey": "<f3>",
                 "autostart": False,
                 "schema_version": 99,  # future version
+                "secrets_migrated": True,  # prevent credential_store overwrite
                 "future_field": "value the older build doesn't know about",
             }
         )

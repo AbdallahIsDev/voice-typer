@@ -37,6 +37,16 @@ class TestQwenEngineUnit:
         # SEC-audit-007: load() now validates the model directory and reads
         # config.json before importing qwen_asr. Use a real tmp dir with a
         # config.json so the security gates pass.
+        #
+        # G4-H-33 (Session 7 — Group 4): ``load()`` now calls
+        # ``security.verify_model_integrity(model_path, "qwen")`` instead
+        # of the deleted local ``_verify_qwen_model_hashes``.  The
+        # shared verifier hard-fails on the default ship-state manifest
+        # (``qwen`` entry has ``revision: local, files: {}``) which is
+        # the correct production behaviour but would mask the
+        # ``qwen_asr`` import / ``from_pretrained`` flow this test
+        # exercises.  Mock ``verify_model_integrity`` to return True so
+        # the test focuses on the import path, not the manifest.
         import json as _json
 
         model_dir = tmp_path / "qwen_model"
@@ -50,7 +60,13 @@ class TestQwenEngineUnit:
 
         mock_qwen_module = MagicMock()
         mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model
-        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
+        with (
+            patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}),
+            patch(
+                "voice_typer.server.security.verify_model_integrity",
+                return_value=True,
+            ),
+        ):
             engine.load()
 
         assert engine.is_loaded is True
@@ -361,6 +377,8 @@ class TestM23LoadReturnValues:
         # SEC-audit-007: load() validates the model directory and reads
         # config.json before importing qwen_asr. Use a real tmp dir with
         # a config.json so the security gates pass.
+        # G4-H-33: mock verify_model_integrity (see
+        # ``test_load_success`` for rationale).
         import json as _json
 
         model_dir = tmp_path / "qwen_model"
@@ -370,7 +388,13 @@ class TestM23LoadReturnValues:
         mock_qwen_module = MagicMock()
         mock_model = MagicMock()
         mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model
-        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
+        with (
+            patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}),
+            patch(
+                "voice_typer.server.security.verify_model_integrity",
+                return_value=True,
+            ),
+        ):
             result = engine.load()
         assert result is True
         assert engine.is_loaded is True
@@ -441,3 +465,158 @@ class TestM13HallucinationDetection:
         audio = np.zeros(16000, dtype=np.float32)
         result = engine.transcribe(audio)
         assert result == "Hello world"
+
+
+# ─── G4-H-33 (Session 7 — Group 4): regression tests ─────────────────────
+
+
+class TestG4H33QwenIntegrityHardFail:
+    """G4-H-33: ``qwen_engine._verify_qwen_model_hashes`` deleted; load()
+    now delegates to ``security.verify_model_integrity(model_path, "qwen")``
+    which hard-fails on a tampered local directory.
+
+    These tests verify:
+      1. The divergent local helper is gone (calling it raises).
+      2. A tampered local Qwen dir (missing pinned file or hash mismatch)
+         causes ``load()`` to return False instead of silently loading.
+      3. The default ship-state manifest (``revision: local, files: {}``)
+         causes ``load()`` to return False — operators MUST populate the
+         ``files`` dict with real SHA-256 hashes before a local Qwen
+         model can be loaded.  This is the NF-R18-9 hard-fail that was
+         previously dead code (the local helper soft-passed).
+    """
+
+    def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
+        from voice_typer.server.qwen_engine import QwenEngine
+
+        return QwenEngine(model_path=model_path, **kwargs)
+
+    def test_deleted_helper_raises(self):
+        """G4-H-33: the divergent local helper is gone.
+
+        Calling it raises ``RuntimeError`` pointing the caller at the
+        replacement ``security.verify_model_integrity``.  This catches
+        third-party imports that haven't been migrated.
+        """
+        from voice_typer.server.qwen_engine import _verify_qwen_model_hashes
+
+        with pytest.raises(RuntimeError, match="deleted in G4-H-33"):
+            _verify_qwen_model_hashes("/some/path")
+
+    def test_load_returns_false_for_empty_files_manifest(self, tmp_path):
+        """G4-H-33 / NF-R18-9: default ship-state manifest (``revision:
+        local, files: {}``) → ``load()`` returns False.
+
+        Pre-fix the local ``_verify_qwen_model_hashes`` SOFT-PASSED on
+        empty ``pinned_files``, defeating the hard-fail in
+        ``security.verify_model_integrity``.  Now that we delegate to
+        the shared verifier, the hard-fail is honoured — a tampered or
+        unconfigured local Qwen directory is refused.
+        """
+        import json as _json
+
+        # Build a model dir that passes the structural checks (has a
+        # model file + config.json) but would have soft-passed under
+        # the old local helper because the manifest has empty files.
+        model_dir = tmp_path / "qwen_model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_text(_json.dumps({"arch": "qwen3"}))
+        (model_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+
+        engine = self._make_engine(model_path=str(model_dir))
+
+        # Mock qwen_asr to ensure we never reach from_pretrained — the
+        # integrity gate must refuse to load BEFORE the package import.
+        mock_qwen_module = MagicMock()
+        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
+            result = engine.load()
+
+        assert result is False, (
+            "G4-H-33: load() must return False when the qwen manifest "
+            'has empty "files" dict (revision: local). Pre-fix the local '
+            "_verify_qwen_model_hashes soft-passed, defeating the "
+            "NF-R18-9 hard-fail in security.verify_model_integrity."
+        )
+        assert engine.is_loaded is False
+        # qwen_asr.Qwen3ASRModel.from_pretrained must NOT have been
+        # called — the integrity gate fires before the package import.
+        mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_not_called()
+
+    def test_load_returns_false_on_pinned_hash_mismatch(self, tmp_path, monkeypatch):
+        """G4-H-33: when the qwen manifest pins hashes and a file's
+        SHA-256 doesn't match, ``load()`` returns False (tampered model
+        refused)."""
+        import hashlib
+
+        from voice_typer.server import security
+
+        # Build a manifest that pins config.json to a known hash.
+        config_content = b'{"arch": "qwen3"}'
+        correct_hash = hashlib.sha256(config_content).hexdigest()
+
+        # Tamper: pin a WRONG hash so verify_model_integrity hard-fails.
+        fake_manifest = {
+            "qwen": {
+                "revision": "local",
+                "files": {
+                    "config.json": "0" * 64,  # wrong hash
+                },
+            }
+        }
+        monkeypatch.setattr(security, "MODEL_HASHES", fake_manifest)
+
+        model_dir = tmp_path / "qwen_model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_bytes(config_content)
+        (model_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+
+        engine = self._make_engine(model_path=str(model_dir))
+        mock_qwen_module = MagicMock()
+        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
+            result = engine.load()
+
+        assert result is False, (
+            "G4-H-33: load() must return False when a pinned file's SHA-256 doesn't match (tampered local Qwen model)."
+        )
+        assert engine.is_loaded is False
+        mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_not_called()
+
+    def test_load_succeeds_when_pinned_hashes_match(self, tmp_path, monkeypatch):
+        """G4-H-33 happy path: when the qwen manifest pins the correct
+        SHA-256 for every file, ``load()`` proceeds to from_pretrained
+        and returns True."""
+        import hashlib
+
+        from voice_typer.server import security
+
+        config_content = b'{"arch": "qwen3"}'
+        config_hash = hashlib.sha256(config_content).hexdigest()
+        weights_content = b"\x00" * 100
+        weights_hash = hashlib.sha256(weights_content).hexdigest()
+
+        fake_manifest = {
+            "qwen": {
+                "revision": "local",
+                "files": {
+                    "config.json": config_hash,
+                    "model.safetensors": weights_hash,
+                },
+            }
+        }
+        monkeypatch.setattr(security, "MODEL_HASHES", fake_manifest)
+
+        model_dir = tmp_path / "qwen_model"
+        model_dir.mkdir()
+        (model_dir / "config.json").write_bytes(config_content)
+        (model_dir / "model.safetensors").write_bytes(weights_content)
+
+        engine = self._make_engine(model_path=str(model_dir))
+        mock_qwen_module = MagicMock()
+        mock_model = MagicMock()
+        mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model
+        with patch.dict("sys.modules", {"qwen_asr": mock_qwen_module}):
+            result = engine.load()
+
+        assert result is True
+        assert engine.is_loaded is True
+        mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_called_once_with(str(model_dir))

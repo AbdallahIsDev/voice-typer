@@ -17,13 +17,19 @@ class TestApplyConfigReRegistersHotkeyForPushToTalk:
     """Hotkey is re-registered when recording_mode or hotkey changes."""
 
     def test_service_apply_config_side_effects_handles_recording_mode(self):
-        service_py = (REPO_ROOT / "voice_typer" / "server" / "service.py").read_text(encoding="utf-8")
-        assert "recording_mode" in service_py
-        assert "app.hotkeys.restart" in service_py
+        # PVT-21 (session-1) extracted apply_config_side_effects from
+        # service.py into config_applier.py. The recording_mode / hotkey
+        # re-registration logic now lives in config_applier.py.
+        config_applier_py = (REPO_ROOT / "voice_typer" / "server" / "config_applier.py").read_text(encoding="utf-8")
+        assert "recording_mode" in config_applier_py
+        assert "app.hotkeys.restart" in config_applier_py
 
     def test_service_handles_hotkey_change(self):
-        service_py = (REPO_ROOT / "voice_typer" / "server" / "service.py").read_text(encoding="utf-8")
-        assert '"hotkey" in updates' in service_py
+        # PVT-21 (session-1) extracted apply_config_side_effects from
+        # service.py into config_applier.py. The hotkey-in-updates check
+        # now lives in config_applier.py.
+        config_applier_py = (REPO_ROOT / "voice_typer" / "server" / "config_applier.py").read_text(encoding="utf-8")
+        assert '"hotkey" in updates' in config_applier_py
 
 
 class TestFallbackListenerChecksAllModifiersHeld:

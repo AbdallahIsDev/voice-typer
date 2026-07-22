@@ -398,6 +398,93 @@ class TestFullStartRunCycle:
             pytest.fail(f"start() + run() cycle raised unexpectedly: {exc}")
 
 
+# ─── PVT-G5-001: tray-unavailable fallback (Wayland / VOICE_TYPER_NO_TRAY) ──
+
+
+class TestTrayUnavailableFallback:
+    """PVT-G5-001: when the tray is unavailable (Wayland-without-SNI,
+    headless session, or ``VOICE_TYPER_NO_TRAY=1``), ``run()`` MUST
+    block the main thread on ``threading.Event`` instead of raising
+    RuntimeError. ``stop()`` MUST release the event so the main thread
+    can exit cleanly. Previously ``run()`` raised RuntimeError, which
+    propagated to ``ipc_server.main()``'s except handler →
+    ``sys.exit(EXIT_CRASH)`` — the app crashed immediately on
+    Wayland/no-dbus Linux."""
+
+    def test_run_does_not_raise_when_tray_unavailable(self, tray, monkeypatch):
+        """When ``_tray_unavailable`` is True and ``_icon`` is None,
+        ``run()`` MUST NOT raise RuntimeError. Instead it blocks on
+        ``_run_event`` (released by ``stop()``)."""
+        tray._tray_unavailable = True
+        tray._icon = None
+        # Release the event from a separate thread so run() returns
+        # instead of blocking the test forever.
+        import threading as _threading
+
+        def _release_after():
+            import time
+
+            time.sleep(0.05)
+            tray.stop()
+
+        _threading.Thread(target=_release_after, daemon=True).start()
+        # Must not raise.
+        tray.run()
+
+    def test_stop_releases_blocked_run(self, tray):
+        """``stop()`` sets ``_run_event`` so a ``run()`` blocked on
+        the event returns promptly."""
+        tray._tray_unavailable = True
+        tray._icon = None
+        import threading as _threading
+
+        run_returned = _threading.Event()
+
+        def _run_thread():
+            tray.run()
+            run_returned.set()
+
+        t = _threading.Thread(target=_run_thread, daemon=True)
+        t.start()
+        # Give run() time to enter the _run_event.wait() call.
+        time.sleep(0.05)
+        tray.stop()
+        assert run_returned.wait(timeout=1.0), "run() did not return within 1s after stop() — _run_event was not set"
+
+    def test_voice_typer_no_tray_env_var_skips_icon_creation(self, tray, monkeypatch):
+        """``VOICE_TYPER_NO_TRAY=1`` env var forces the tray-unavailable
+        path: ``_icon`` stays None, ``_tray_unavailable`` is True, and
+        ``bg_work`` is started on a daemon thread."""
+        monkeypatch.setenv("VOICE_TYPER_NO_TRAY", "1")
+        bg_called = []
+        tray.start(bg_work=lambda: bg_called.append(True))
+        assert tray._icon is None
+        assert tray._tray_unavailable is True
+        # bg_work was launched on a daemon thread — give it a moment
+        # to fire.
+        time.sleep(0.1)
+        assert bg_called == [True], f"bg_work should have been called once on the daemon thread; got {bg_called}"
+
+    def test_voice_typer_no_tray_env_var_other_value_does_not_skip(self, tray, monkeypatch):
+        """Only the literal value ``1`` triggers the skip — ``0``,
+        ``false``, ``no``, etc. fall through to normal tray creation."""
+        monkeypatch.setenv("VOICE_TYPER_NO_TRAY", "0")
+        tray.start(bg_work=None)
+        # Normal path: icon was created, _tray_unavailable is False.
+        assert tray._icon is not None
+        assert tray._tray_unavailable is False
+
+    def test_run_raises_when_start_never_called(self, tray):
+        """PVT-G5-001: the RuntimeError path is retained when ``start()``
+        was never called (``_icon`` is None AND
+        ``_tray_unavailable`` is False). This signals a programming
+        error rather than an unsupported environment."""
+        assert tray._icon is None
+        assert tray._tray_unavailable is False
+        with pytest.raises(RuntimeError, match=r"call start\(\) before run\(\)"):
+            tray.run()
+
+
 # ─── Notification safety ────────────────────────────────────────────────
 
 

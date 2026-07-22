@@ -137,6 +137,7 @@ Expected: notification appears within 1s; title + message match
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from threading import RLock
 from unittest.mock import MagicMock, patch
@@ -418,19 +419,19 @@ class TestWsRsRenamesElectronNotificationToNotification:
             "Linux banner renders blank (libnotify posts an empty summary)."
         )
 
-    def test_ws_rs_renames_relaunch_electron_to_relaunch_app(self):
-        """Belt-and-braces: the same match arm also renames
-        ``relaunch_electron`` → ``relaunch_app``. This is the other
-        half of the CR-8 rename — it's how the Python sidecar's
-        relaunch command maps to Tauri's ``app.restart()``. Verified
-        here because the same match expression that carries the
-        notification rename also carries this one; both renames MUST
-        be present together."""
+    def test_ws_rs_does_not_rename_relaunch_app(self):
+        """PVT-2 cleanup: the ``relaunch_electron`` → ``relaunch_app``
+        rename arm was REMOVED from ws.rs — the Python sidecar now
+        publishes ``relaunch_app`` directly (see ``app.py``
+        ``restart_app``), and ``main.rs`` listens for ``relaunch_app``
+        via ``app.listen("relaunch_app", ...)``. Verified here because
+        the same match expression that carries the notification alias
+        MUST NOT carry this rename anymore (regression check)."""
         src = _read(WS_RS)
-        assert '"relaunch_electron" => "relaunch_app"' in src, (
-            "ws.rs must rename 'relaunch_electron' → 'relaunch_app' in the "
-            "same match arm that handles the electron_notification alias. "
-            "Both renames MUST be present together (CR-8)."
+        assert '"relaunch_electron" => "relaunch_app"' not in src, (
+            "ws.rs must NOT rename 'relaunch_electron' → 'relaunch_app' — "
+            "the Python sidecar now publishes 'relaunch_app' directly "
+            "(PVT-2 cleanup). The rename arm must be removed."
         )
 
 
@@ -889,17 +890,23 @@ class TestSourceInspectionBeltAndBraces:
         )
 
     def test_ws_rs_has_other_arm_passthrough(self):
-        """``ws.rs`` MUST have an ``other => other`` pass-through arm
-        in the emit_name match — this is what carries the legacy
-        ``electron_notification`` event name through unchanged (so old
-        UI listeners keep working during the rolling upgrade). The
-        specific alias branch (Test 4) then re-emits it as
-        ``notification`` for new UI code."""
+        """``ws.rs`` MUST forward every event type unchanged so the
+        legacy ``electron_notification`` event name reaches the alias
+        branch (Test 4) which re-emits it as ``notification`` for new
+        UI code.
+
+        PVT-2 cleanup: the per-type ``match`` arm was REMOVED — the
+        bridge now uses ``let emit_name = event_type;`` (direct
+        assignment). This preserves the passthrough behavior (every
+        event type is forwarded under its own name) AND removes the
+        ``relaunch_electron`` → ``relaunch_app`` rename (the Python
+        sidecar now publishes ``relaunch_app`` directly)."""
         src = _read(WS_RS)
-        assert "other => other" in src, (
-            "ws.rs must have an `other => other` pass-through arm in the "
-            "emit_name match — this is what carries the legacy "
-            "'electron_notification' name through unchanged on Linux."
+        assert re.search(r"let\s+emit_name\s*=\s*event_type\s*;", src), (
+            "ws.rs must forward every event type unchanged via "
+            "`let emit_name = event_type;` (PVT-2 cleanup — the per-type "
+            "match arm was removed; this is what carries the legacy "
+            "'electron_notification' name through unchanged on Linux)."
         )
 
     def test_system_handlers_publishes_notification_event(self):

@@ -80,7 +80,7 @@ class TestOnboardingStepNavigation:
         resp = ipc_server._handle_onboarding_next_step({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
@@ -194,7 +194,7 @@ class TestOnboardingSkipAndApply:
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
@@ -308,7 +308,7 @@ class TestOnboardingGetModelCatalogHandler:
         # the handler no longer surfaces "registry corrupted" to the
         # renderer; the full traceback lands in voice-typer.log via
         # ``_respond_with_error``'s ``log.error(..., exc_info=True)``.
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
@@ -356,5 +356,5 @@ class TestOnboardingCheckPermissionsHandler:
         resp = ipc_server._handle_onboarding_check_permissions({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"

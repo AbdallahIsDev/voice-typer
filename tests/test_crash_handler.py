@@ -41,30 +41,29 @@ def _reset_crash_handler_module_state():
     ``set_crash_handler_config_dir`` leaks the cached path into the next
     test, which may assert a different path.
 
-    NOTE: the production source has BOTH ``_CONFIG_DIR_BYTES`` (the
-    module-level declaration at line 152) AND ``_config_dir_bytes``
-    (which ``set_crash_handler_config_dir`` declares via ``global``).
-    The two are NOT the same binding — a known quirk we work around by
-    resetting both.
+    G4-L-13: the production source no longer carries the dead
+    ``_CONFIG_DIR_BYTES`` / ``_config_dir_bytes`` dual binding — both
+    were removed when ``set_crash_handler_config_dir`` was simplified.
+    G4-L-14: ``_crash_written`` is reset so the VEH rate-limit flag
+    doesn't leak between tests.
+    G4-M-34: ``_python_crash_dir`` is reset so the excepthook marker
+    path doesn't leak between tests.
     """
     keys = (
         "_crash_file_path",
-        "_CONFIG_DIR_BYTES",
-        "_config_dir_bytes",  # may not exist yet — see note above
         "_PID",
         "_handler_handle",
         "_kernel32",
+        "_crash_written",
+        "_python_crash_dir",
     )
     saved = {k: getattr(crash_handler, k, _UNSET) for k in keys}
-    if hasattr(crash_handler, "_crash_file_path"):
-        crash_handler._crash_file_path = ""
-    if hasattr(crash_handler, "_CONFIG_DIR_BYTES"):
-        crash_handler._CONFIG_DIR_BYTES = b""
-    if hasattr(crash_handler, "_config_dir_bytes"):
-        crash_handler._config_dir_bytes = b""
+    crash_handler._crash_file_path = ""
     crash_handler._PID = 0
     crash_handler._handler_handle = None
     crash_handler._kernel32 = None
+    crash_handler._crash_written = False
+    crash_handler._python_crash_dir = None
     yield
     for k, v in saved.items():
         if v is _UNSET:
@@ -113,15 +112,39 @@ class TestCrashHandlerConfigDir:
         assert str(os.getpid()) in crash_handler._crash_file_path
         assert os.getpid() == crash_handler._PID
 
-    def test_set_config_dir_stores_resolved_bytes(self, tmp_path):
-        """``_config_dir_bytes`` is the UTF-8 encoding of the resolved path."""
+    def test_set_config_dir_path_uses_os_path_join(self, tmp_path):
+        """G4-L-12: the cached crash-file path uses ``os.path.join`` so
+        the path is correct on both Windows and POSIX.  The previous
+        implementation hardcoded a ``\\`` backslash, which produced an
+        invalid path on POSIX (where the VEH callback is never invoked
+        but tests still inspect the cached path)."""
+        import os.path as _osp
+
         crash_handler.set_crash_handler_config_dir(tmp_path)
-        expected = str(tmp_path.resolve()).encode("utf-8")
-        # The function writes to ``_config_dir_bytes`` (lowercase), which
-        # is a distinct binding from the module-level ``_CONFIG_DIR_BYTES``
-        # declaration (see the autouse fixture docstring for details).
-        actual = getattr(crash_handler, "_config_dir_bytes", b"")
-        assert actual == expected
+        expected_dir = str(tmp_path.resolve())
+        # The cached path is ``<config_dir>/crash_diagnostics.<PID>.txt\0``
+        # — assert it starts with the config dir + the platform separator.
+        assert crash_handler._crash_file_path.startswith(expected_dir + _osp.sep), (
+            f"G4-L-12: cached path should start with config_dir + os.sep, got: {crash_handler._crash_file_path!r}"
+        )
+        # Trailing NUL terminator preserved for CreateFileW.
+        assert crash_handler._crash_file_path.endswith("\0")
+
+    def test_set_config_dir_caches_python_crash_dir(self, tmp_path):
+        """G4-M-34: ``set_crash_handler_config_dir`` also caches the
+        config dir as ``_python_crash_dir`` so the Python excepthook
+        can write a ``python_crash.<PID>.txt`` marker."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        assert crash_handler._python_crash_dir is not None
+        assert crash_handler._python_crash_dir == tmp_path.resolve()
+
+    def test_set_config_dir_resets_crash_written_flag(self, tmp_path):
+        """G4-L-14: ``set_crash_handler_config_dir`` resets the VEH
+        rate-limit flag so a fresh process (or a re-init in tests) can
+        write a new crash record."""
+        crash_handler._crash_written = True
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        assert crash_handler._crash_written is False
 
     def test_set_config_dir_idempotent(self, tmp_path):
         """Calling twice with the same dir produces the same cached path."""
@@ -235,7 +258,15 @@ class TestCrashHandlerReportPending:
         assert not crash_file.exists()
 
     def test_deletes_crash_file_after_reading(self, tmp_path):
-        """Once a crash file is processed, it must be deleted (no duplicates)."""
+        """Once a crash file is processed, it must be moved out of the
+        config_dir root (no duplicates on next scan).
+
+        G4-M-33: the file is now *archived* (moved to
+        ``crash_diagnostics_archive/``) rather than unlinked, but the
+        observable behaviour from the caller's perspective is the same:
+        the file is no longer at its original location, so a second
+        ``report_pending_crash`` call returns None.
+        """
         crash_file = tmp_path / "crash_diagnostics.1234.txt"
         crash_file.write_text(
             "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
@@ -243,10 +274,115 @@ class TestCrashHandlerReportPending:
         )
 
         crash_handler.report_pending_crash(tmp_path)
-        assert not crash_file.exists(), "crash file must be deleted after reporting"
+        assert not crash_file.exists(), "crash file must be moved out of config_dir root after reporting"
 
-        # Second call must return None — no leftover crash file.
+        # Second call must return None — no leftover crash file at the
+        # original location.  (Archived files are not re-scanned.)
         assert crash_handler.report_pending_crash(tmp_path) is None
+
+    def test_crash_diagnostics_archived_not_deleted(self, tmp_path):
+        """G4-M-33: a processed crash_diagnostics file is moved to the
+        ``crash_diagnostics_archive/`` subdirectory rather than unlinked,
+        so the diagnostic bundle can include it later for bug reports.
+
+        Regression guard: pre-fix, ``report_pending_crash`` called
+        ``crash_file.unlink()`` in the finally block, destroying the
+        only copy of the crash record.  Post-fix, the file is moved
+        (atomically via ``rename``) into the archive directory.
+        """
+        crash_file = tmp_path / "crash_diagnostics.1234.txt"
+        crash_file.write_text(
+            "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
+            encoding="utf-8",
+        )
+
+        crash_handler.report_pending_crash(tmp_path)
+
+        # Original location is empty — file was moved, not copied.
+        assert not crash_file.exists(), "G4-M-33: crash_diagnostics file must be moved out of the config_dir root"
+
+        # Archive directory exists.
+        archive_dir = tmp_path / "crash_diagnostics_archive"
+        assert archive_dir.is_dir(), "G4-M-33: crash_diagnostics_archive/ directory must exist after processing"
+
+        # Exactly one archived file with the original name and contents.
+        archived_files = list(archive_dir.glob("crash_diagnostics.*.txt"))
+        assert len(archived_files) == 1, (
+            f"expected 1 archived crash_diagnostics file, got {len(archived_files)}: {[f.name for f in archived_files]}"
+        )
+        assert archived_files[0].name == "crash_diagnostics.1234.txt"
+        archived_content = archived_files[0].read_text(encoding="utf-8").strip()
+        assert "STATUS_ACCESS_VIOLATION" in archived_content, (
+            "G4-M-33: archived file must preserve the original crash record content"
+        )
+
+    def test_python_crash_marker_archived_and_surfaced(self, tmp_path):
+        """G4-M-34: a ``python_crash.<PID>.txt`` marker file written by
+        the Python excepthook is surfaced in the startup notification
+        summary and archived alongside VEH crash diagnostics."""
+        marker = tmp_path / "python_crash.4321.txt"
+        marker.write_text(
+            "exc_type=ValueError\nexc_value=test python crash\nthread=MainThread\ntimestamp=2026-07-22T12:34:56.789\n",
+            encoding="utf-8",
+        )
+
+        result = crash_handler.report_pending_crash(tmp_path)
+        assert result is not None
+        assert "Python crash" in result
+        assert "ValueError" in result
+        assert "test python crash" in result
+
+        # Original marker is moved out of config_dir root.
+        assert not marker.exists()
+        # Archived alongside crash_diagnostics.
+        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archived = list(archive_dir.glob("python_crash.*.txt"))
+        assert len(archived) == 1
+        assert "ValueError" in archived[0].read_text(encoding="utf-8")
+
+    def test_archive_retention_keeps_last_five(self, tmp_path):
+        """G4-M-33: the archive enforces a keep-last-5 retention policy
+        so it doesn't grow unbounded across many crashes."""
+        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir.mkdir(parents=True)
+        # Pre-populate the archive with 8 files (all older than "now").
+        import time as _time
+
+        for i in range(8):
+            f = archive_dir / f"crash_diagnostics.{1000 + i}.txt"
+            f.write_text(f"STATUS_ACCESS_VIOLATION #{i}\r\n", encoding="utf-8")
+            # Stagger mtimes so retention can pick the oldest to delete.
+            ts = _time.time() - (8 - i)
+            os.utime(f, (ts, ts))
+
+        # Now process one more crash file — should trigger retention,
+        # leaving at most 5 files in the archive.
+        new_crash = tmp_path / "crash_diagnostics.9999.txt"
+        new_crash.write_text("STATUS_ACCESS_VIOLATION: fresh crash\r\n", encoding="utf-8")
+        crash_handler.report_pending_crash(tmp_path)
+
+        archived = list(archive_dir.glob("crash_diagnostics.*.txt"))
+        assert len(archived) <= 5, f"G4-M-33: archive must keep at most 5 files; got {len(archived)}"
+        # The newest crash (just archived) must be one of the survivors.
+        names = [f.name for f in archived]
+        assert "crash_diagnostics.9999.txt" in names
+
+    def test_sweep_deletes_old_diagnostics_files(self, tmp_path):
+        """G4-M-32: crash_diagnostics files older than 30 days are
+        swept from the config_dir root as a safety net."""
+        import time as _time
+
+        # Create an old file (40 days ago).
+        old_file = tmp_path / "crash_diagnostics.5555.txt"
+        old_file.write_text("STATUS_ACCESS_VIOLATION: ancient\r\n", encoding="utf-8")
+        old_ts = _time.time() - (40 * 24 * 60 * 60)
+        os.utime(old_file, (old_ts, old_ts))
+
+        # The sweep helper directly deletes files older than 30 days.
+        crash_handler._sweep_stale_diagnostics(tmp_path)
+
+        # The old file is gone (swept).
+        assert not old_file.exists()
 
     def test_multiple_crash_files_all_reported(self, tmp_path):
         """Multiple crash files (from several crashed sessions) are all read."""

@@ -291,8 +291,16 @@ class TestStopAudioPrep:
         np.testing.assert_array_equal(snapshot, np.array([1.0, 2.0, 3.0], dtype=np.float32))
         assert len(r._buffer) == 2
 
+        # G4-H-06: stop() now securely zeroes the cached resampled array
+        # in-place via _secure_clear_caches() (which calls
+        # _secure_clear_array → arr.fill(0)).  snapshot() returns a VIEW
+        # into that cached array (NEW-PERF-003), so the view's contents
+        # are zeroed by stop().  Capture a COPY of the snapshot before
+        # stop() so we can compare the post-stop audio against the
+        # pre-stop snapshot values.
+        snapshot_copy = snapshot.copy()
         stopped = r.stop()
-        np.testing.assert_array_equal(stopped, snapshot)
+        np.testing.assert_array_equal(stopped, snapshot_copy)
 
     def test_snapshot_returns_empty_float32_when_no_buffer_exists(self):
         from voice_typer.server.recording import Recorder

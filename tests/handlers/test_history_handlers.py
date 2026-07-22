@@ -80,7 +80,7 @@ class TestGetTodayStats:
         resp = ipc_server._handle_get_today_stats({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
@@ -175,7 +175,7 @@ class TestClearHistory:
         resp = ipc_server._handle_clear_history({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 

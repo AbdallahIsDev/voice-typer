@@ -562,15 +562,20 @@ def test_paste_text_has_tauri_command_attribute(sidecar_cmds_src: str) -> None:
         "React UI can invoke it via `invoke('paste_text', ...)`."
     )
     # The function signature must be `pub async fn paste_text(...) -> Result<(), String>`.
+    # G4-H-01: an optional `window: tauri::Window` parameter is now
+    # accepted (added by the main-window guard fix — the regex keeps
+    # backwards-compat with the old two-arg signature too). The
+    # trailing `,?` allows for a trailing comma after the last
+    # parameter (Rustfmt style).
     sig_match = re.search(
-        r"pub\s+async\s+fn\s+paste_text\s*\(\s*args:\s*PasteTextArgs\s*,\s*app:\s*tauri::AppHandle\s*,?\s*\)\s*->\s*Result<\(\),\s*String>",
+        r"pub\s+async\s+fn\s+paste_text\s*\(\s*args:\s*PasteTextArgs\s*,\s*app:\s*tauri::AppHandle\s*(?:,\s*window:\s*tauri::Window\s*,?\s*)?\)\s*->\s*Result<\(\),\s*String>",
         body,
     )
     assert sig_match is not None, (
         "paste_text signature must be `pub async fn paste_text(args: "
-        "PasteTextArgs, app: tauri::AppHandle) -> Result<(), String>` so "
-        "Tauri can deserialize the args + the React UI gets a promise that "
-        "rejects on error."
+        "PasteTextArgs, app: tauri::AppHandle[, window: tauri::Window]) "
+        "-> Result<(), String>` so Tauri can deserialize the args + the "
+        "React UI gets a promise that rejects on error."
     )
 
 

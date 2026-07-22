@@ -42,7 +42,9 @@ class TestGetMicrophones:
         fake_service.get_microphones.side_effect = RuntimeError("portaudio init failed")
         resp = ipc_server._handle_get_microphones({}, {})
         assert resp["type"] == "error"
-        assert "portaudio init failed" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestRefreshMicrophones:
@@ -65,4 +67,6 @@ class TestRefreshMicrophones:
         fake_service.refresh_microphones.side_effect = RuntimeError("re-init failed")
         resp = ipc_server._handle_refresh_microphones({}, {})
         assert resp["type"] == "error"
-        assert "re-init failed" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"

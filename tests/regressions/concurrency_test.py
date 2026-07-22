@@ -73,20 +73,33 @@ class TestConfigMutationLockSharedAcrossIpc:
         # which is non-deterministic; the source-string check catches
         # both removal of the lock from the service AND reintroduction
         # of direct lock access in the handler.
+        from voice_typer.server.config_applier import ConfigApplier
         from voice_typer.server.service import VoiceTyperService
 
-        # TASK-2 (ADR 0008 §3.1): the lock acquisition moved from
+        # PVT-21 / CR-18: the lock acquisition moved from
         # config_handlers._handle_set_config into
-        # VoiceTyperService.apply_config.  The handler now calls
-        # self.service.apply_config(validated), which acquires the
-        # lock internally.  Introspect the service method (not the
-        # handler) for the lock acquisition.
-        src = inspect.getsource(VoiceTyperService.apply_config)
+        # VoiceTyperService.apply_config, which now delegates to
+        # ConfigApplier.apply_config.  The handler still calls
+        # self.service.apply_config(validated), but the lock is
+        # acquired inside ConfigApplier.apply_config.  Introspect the
+        # ConfigApplier method (the new home of the lock) for the lock
+        # acquisition.
+        src = inspect.getsource(ConfigApplier.apply_config)
         assert "_config_mutation_lock" in src, (
-            "VoiceTyperService.apply_config must acquire "
-            "_config_mutation_lock before mutating Config attributes "
-            "(ADR 0008 §3.1: the lock moved from the IPC handler to "
-            "the service layer)."
+            "ConfigApplier.apply_config (to which VoiceTyperService.apply_config "
+            "delegates per PVT-21) must acquire _config_mutation_lock before "
+            "mutating Config attributes (ADR 0008 §3.1: the lock moved from "
+            "the IPC handler to the service layer, then from the service "
+            "facade into ConfigApplier during the PVT-21 wiring)."
+        )
+        # Belt-and-suspenders: VoiceTyperService.apply_config must
+        # delegate to ConfigApplier (PVT-21 wiring), not re-implement
+        # the lock inline.
+        svc_src = inspect.getsource(VoiceTyperService.apply_config)
+        assert "_config_applier" in svc_src, (
+            "VoiceTyperService.apply_config must delegate to "
+            "self._config_applier.apply_config (PVT-21 wiring of the "
+            "extracted ConfigApplier)."
         )
         # Belt-and-suspenders: the handler must still drive the
         # config update through the service layer (not call
@@ -113,7 +126,8 @@ class TestConfigMutationLockSharedAcrossIpc:
         assert "_config_mutation_lock" not in handler_src, (
             "IPC set_config handler must NOT reference "
             "_config_mutation_lock directly (ADR 0008 §3.1) — the "
-            "lock now lives inside VoiceTyperService.apply_config."
+            "lock now lives inside ConfigApplier.apply_config "
+            "(reached via VoiceTyperService.apply_config after PVT-21)."
         )
 
 

@@ -5,8 +5,10 @@ process's ``ALLOWED_COMMANDS`` allowlist. Finding 5 noted the doc had
 stale "~35 commands" while the real allowlist had grown. This test
 parses the documented count out of SECURITY.md and asserts it matches
 the actual ``ALLOWED_COMMANDS`` ``Set`` entries in
-``voice_typer/client/src/main/index.ts``, so the doc can't silently
-drift again when commands are added or removed.
+``voice_typer/client/src/main/allowed-commands.ts`` (canonical
+declaration since R6-F10 — was previously inline in ``index.ts``),
+so the doc can't silently drift again when commands are added or
+removed.
 
 The same count is also asserted in the allowlist parity test
 (``tests/test_electron_ipc_and_build.py``), which cross-checks the
@@ -24,6 +26,11 @@ from the TS set, either (a) a command the renderer can invoke gets
 silently rejected by Rust (broken UX), or (b) a command the Rust gate
 allows but the TS gate doesn't creates an attack surface that only a
 compromised renderer can reach (security hole).
+
+PVT-G5-009: the ``INDEX_TS`` path constant was previously pointing at
+``index.ts`` (where the literal USED to live inline). R6-F10 moved the
+canonical declaration to ``allowed-commands.ts``; ``index.ts`` now only
+re-exports it. The path was updated to point at the canonical file.
 """
 
 from __future__ import annotations
@@ -33,7 +40,17 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SECURITY_MD = REPO_ROOT / "SECURITY.md"
-INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "index.ts"
+# PVT-G5-009: previously pointed at `index.ts`, but R6-F10 moved the
+# canonical `ALLOWED_COMMANDS = new Set([...])` literal out of `index.ts`
+# into its own dependency-free leaf module `allowed-commands.ts`
+# (`index.ts:56` now just re-exports it). The parity parsers below look
+# for the literal substring `"ALLOWED_COMMANDS = new Set"`, which no
+# longer exists in `index.ts` — the test was silently erroring out with
+# `StopIteration` (in `_count_allowed_commands`'s `next(...)` without a
+# default) or `ValueError: substring not found` (in the
+# `test_electron_ipc_and_build.py` fixture). Pointing at the canonical
+# file restores the cross-layer safety net.
+INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 # CR-4 (Fix-C): Rust host's allowlist literal — kept in lockstep with
 # the TS allowlist by this parity test. Both files MUST be updated in
 # the same PR when a command is added or removed.
@@ -158,7 +175,7 @@ def test_rust_allowlist_matches_ts_allowlist_count() -> None:
         f"{ts_count}. Both files MUST be updated in the same PR when a "
         f"command is added or removed. Files:\n"
         f"  - Rust: src-tauri/src/commands/sidecar_cmds.rs\n"
-        f"  - TS:   voice_typer/client/src/main/index.ts"
+        f"  - TS:   voice_typer/client/src/main/allowed-commands.ts"
     )
 
 
@@ -182,7 +199,7 @@ def test_rust_allowlist_matches_ts_allowlist_entries() -> None:
         f"same PR. Files:\n"
         f"  - Rust: src-tauri/src/commands/sidecar_cmds.rs "
         f"(allowed_commands() fn)\n"
-        f"  - TS:   voice_typer/client/src/main/index.ts "
+        f"  - TS:   voice_typer/client/src/main/allowed-commands.ts "
         f"(ALLOWED_COMMANDS = new Set([...]))"
     )
 

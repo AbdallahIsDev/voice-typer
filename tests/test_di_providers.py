@@ -541,7 +541,7 @@ class TestProtocolDrift:
             "toggle_dictation",
             "undo_last",
             "get_config",
-            "set_config",
+            # PVT-G5-024: set_config removed (dead method, IPC command removed in ERR-IPC-003).
             "get_history",
             "clear_history",
             "get_microphones",

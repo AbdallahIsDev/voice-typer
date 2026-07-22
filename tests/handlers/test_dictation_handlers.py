@@ -13,7 +13,7 @@ All three handlers delegate to the service layer and return either
 ``{type: ack}`` (toggle/undo) or ``{type: <cmd>_result, data: <result>}``
 (force_cancel).  Each has a service-raises path that produces the
 CR-20 generic WS-path error envelope
-``{type: error, data: {code: "internal_error", message: "internal error"}}``.
+``{type: error, data: {code: "server.internal_error", message: "internal error"}}``.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ class TestToggleDictation:
         resp = ipc_server._handle_toggle_dictation({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
@@ -49,7 +49,7 @@ class TestUndoLast:
         resp = ipc_server._handle_undo_last({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
@@ -74,7 +74,7 @@ class TestForceCancelTranscription:
         resp = ipc_server._handle_force_cancel_transcription({}, {})
         assert resp["type"] == "error"
         # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
-        assert resp["data"]["code"] == "internal_error"
+        assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
     def test_failure_result_is_passed_through_not_converted_to_error(self, ipc_server, fake_service):

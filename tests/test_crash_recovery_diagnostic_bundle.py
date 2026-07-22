@@ -179,3 +179,259 @@ class TestDiagnosticBundleNoPII:
         # The transcribed phrase must not appear anywhere in the bundle
         # entry (would only happen if text was re-introduced).
         assert "quick brown fox" not in crash_recovery_json
+
+    def test_bundle_redacts_all_secret_config_fields(self, recovery_dir):
+        """PVT-G5-093: all 5 ``_SECRET_CONFIG_FIELDS`` must be redacted
+        in the bundled ``config.json``.
+
+        NF-R18-1 switched the IPC path from a hardcoded tuple to the
+        canonical ``_SECRET_CONFIG_FIELDS`` frozenset in
+        ``voice_typer/server/ipc_server.py``. The pre-fix hardcoded
+        tuple missed ``cloud_api_key`` and ``groq_api_key``, leaking
+        them in cleartext into bug-report attachments.
+
+        This test pins the redaction so a future refactor that
+        re-introduces a hardcoded tuple (or accidentally removes a
+        field from ``_SECRET_CONFIG_FIELDS``) will fail loudly.
+        """
+        import json as _json
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        # Write a config.json with all 5 secret fields set to a unique,
+        # easily-greppable sentinel value. If ANY of these survives into
+        # the bundled config.json, the test fails.
+        secret_sentinel = "PVT-G5-093-SECRET-DO-NOT-LEAK-7c8f3a2b"
+        secret_fields = {
+            "cloud_api_key": secret_sentinel,
+            "openai_api_key": secret_sentinel,
+            "groq_api_key": secret_sentinel,
+            "deepgram_api_key": secret_sentinel,
+            "llm_api_key": secret_sentinel,
+        }
+        # Include a few non-secret fields too, to verify they survive
+        # the redaction pass (so we don't accidentally redact everything).
+        non_secret_fields = {
+            "model_size": "small",
+            "device": "cpu",
+            "paste_on_stop": True,
+        }
+        config_payload = {**secret_fields, **non_secret_fields}
+        (recovery_dir / "config.json").write_text(_json.dumps(config_payload), encoding="utf-8")
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None, "create_diagnostic_bundle must return a path"
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            names = zf.namelist()
+            assert "config.json" in names, f"diagnostic bundle must include a config.json entry; got: {names!r}"
+            bundled_config_raw = zf.read("config.json").decode("utf-8")
+
+        # 1. The secret sentinel MUST NOT appear anywhere in the bundled
+        #    config.json — defence in depth (covers key, value, nested
+        #    object, JSON-escaped form, etc.).
+        assert secret_sentinel not in bundled_config_raw, (
+            f"secret value leaked into bundled config.json — raw bundled config: {bundled_config_raw!r}"
+        )
+
+        # 2. Each secret field must be present (so the operator can see
+        #    that a key WAS configured) but redacted to "[REDACTED]".
+        bundled_config = _json.loads(bundled_config_raw)
+        for field in secret_fields:
+            assert field in bundled_config, (
+                f"secret field {field!r} missing from bundled config.json — "
+                f"the redaction pass should preserve the key (set to "
+                f"[REDACTED]) so support can see a key was configured. "
+                f"Bundled config: {bundled_config!r}"
+            )
+            assert bundled_config[field] == "[REDACTED]", (
+                f"secret field {field!r} not redacted in bundled config.json — got value: {bundled_config[field]!r}"
+            )
+
+        # 3. Non-secret fields must survive unredacted (so the operator
+        #    can still diagnose model_size / device / etc.).
+        for field, expected in non_secret_fields.items():
+            assert bundled_config.get(field) == expected, (
+                f"non-secret field {field!r} was altered by the redaction pass — "
+                f"expected {expected!r}, got {bundled_config.get(field)!r}. "
+                f"Bundled config: {bundled_config!r}"
+            )
+
+
+# ─── G4-M-33: archived crash_diagnostics in diagnostic bundle ──────────
+
+
+class TestDiagnosticBundleArchiveInclusion:
+    """G4-M-33: the diagnostic bundle includes archived crash_diagnostics
+    files so support engineers can see crash records in bug reports."""
+
+    def test_bundle_includes_archived_crash_diagnostics(self, recovery_dir):
+        """The bundle zip includes files from ``crash_diagnostics_archive/``."""
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        # Pre-populate the archive with a crash_diagnostics file.
+        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir.mkdir(parents=True)
+        (archive_dir / "crash_diagnostics.1234.txt").write_text(
+            "STATUS_ACCESS_VIOLATION: test crash\r\n", encoding="utf-8"
+        )
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            names = zf.namelist()
+            # The archived file must be included under a
+            # ``crash_diagnostics_archive/`` prefix.
+            archived = [n for n in names if n.startswith("crash_diagnostics_archive/")]
+            assert len(archived) >= 1, f"G4-M-33: bundle must include archived crash_diagnostics; got names: {names}"
+            # The content must be preserved.
+            content = zf.read("crash_diagnostics_archive/crash_diagnostics.1234.txt").decode("utf-8")
+            assert "STATUS_ACCESS_VIOLATION" in content
+
+    def test_bundle_includes_archived_python_crash_marker(self, recovery_dir):
+        """G4-M-34: archived python_crash marker files are also included."""
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        archive_dir = recovery_dir / "crash_diagnostics_archive"
+        archive_dir.mkdir(parents=True)
+        (archive_dir / "python_crash.5678.txt").write_text(
+            "exc_type=RuntimeError\nexc_value=test\nthread=MainThread\n",
+            encoding="utf-8",
+        )
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            names = zf.namelist()
+            archived = [n for n in names if "python_crash" in n]
+            assert len(archived) >= 1, f"G4-M-34: bundle must include archived python_crash marker; got names: {names}"
+
+    def test_bundle_without_archive_still_works(self, recovery_dir):
+        """If no archive directory exists, the bundle is still created."""
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        # No crash_diagnostics_archive/ directory.
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            names = zf.namelist()
+            # No crash_diagnostics_archive/ entries.
+            assert not any(n.startswith("crash_diagnostics_archive/") for n in names)
+
+
+# ─── G4-M-35: extended system_info ──────────────────────────────────────
+
+
+class TestDiagnosticBundleExtendedSystemInfo:
+    """G4-M-35: the system_info.txt in the bundle includes OS release,
+    display server, audio devices, app version, and redacted env vars."""
+
+    def test_system_info_includes_os_release(self, recovery_dir):
+        import platform
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            sys_info = zf.read("system_info.txt").decode("utf-8")
+
+        assert f"OS release: {platform.release()}" in sys_info
+
+    def test_system_info_includes_display_server(self, recovery_dir):
+        import os
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            sys_info = zf.read("system_info.txt").decode("utf-8")
+
+        xdg = os.environ.get("XDG_SESSION_TYPE", "<unset>")
+        wayland = os.environ.get("WAYLAND_DISPLAY", "<unset>")
+        assert f"XDG_SESSION_TYPE: {xdg}" in sys_info
+        assert f"WAYLAND_DISPLAY: {wayland}" in sys_info
+
+    def test_system_info_includes_app_version(self, recovery_dir):
+        import zipfile
+
+        import voice_typer
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            sys_info = zf.read("system_info.txt").decode("utf-8")
+
+        assert f"App version: {voice_typer.__version__}" in sys_info
+
+    def test_system_info_includes_tauri_sidecar_flag(self, recovery_dir):
+        import os
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            sys_info = zf.read("system_info.txt").decode("utf-8")
+
+        tauri = os.environ.get("TAURI_SIDECAR", "<unset>")
+        assert f"TAURI_SIDECAR: {tauri}" in sys_info
+
+    def test_system_info_includes_voice_typer_env_vars(self, recovery_dir, monkeypatch):
+        """VOICE_TYPER_* env vars are included (redacted/truncated)."""
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        monkeypatch.setenv("VOICE_TYPER_TEST_VAR", "test-value")
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            sys_info = zf.read("system_info.txt").decode("utf-8")
+
+        assert "env[VOICE_TYPER_TEST_VAR]=test-value" in sys_info
+
+    def test_system_info_path_uses_basenames_only(self, recovery_dir, monkeypatch):
+        """PATH is included as basenames only — no full path leakage."""
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        # Set a PATH with a distinctive full path component.
+        monkeypatch.setenv("PATH", "/home/secret_user/.local/bin:/usr/bin")
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            sys_info = zf.read("system_info.txt").decode("utf-8")
+
+        # The full path "/home/secret_user/.local/bin" must NOT appear.
+        assert "/home/secret_user" not in sys_info, (
+            "G4-M-35: PATH full path leaked into system_info; only basenames should appear"
+        )
+        # The basename "bin" should appear (from both /home/secret_user/.local/bin and /usr/bin).
+        assert "bin" in sys_info

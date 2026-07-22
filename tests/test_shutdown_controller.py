@@ -322,6 +322,67 @@ class TestDoCleanupIdempotency:
         # despite the recorder errors.
         fake_app.history_db.flush.assert_called_once()
 
+    def test_do_cleanup_concurrent_callers_only_one_runs_body(self, controller, fake_app):
+        """PVT-G5-026: the check-then-set on ``_cleanup_done`` must be
+        atomic under concurrent callers. Two threads calling
+        ``_do_cleanup()`` at the same time must NOT both execute the
+        cleanup body — only one wins the check-then-set race; the
+        other short-circuits.
+
+        Pre-fix, the check-then-set was unsynchronized, so two callers
+        (e.g. signal-watcher thread + atexit) could both read False,
+        both set True, and both execute the body concurrently. This
+        would double-call ``CloseHandle(_mutex_handle)`` (closing a
+        wrong handle if the kernel reused the value) and
+        ``history_db.close()`` (corrupting SQLite state).
+        """
+        import threading as _threading
+
+        # Barrier so both threads reach the check-then-set at the same
+        # time (maximizes the chance of racing if the lock guard is
+        # missing).
+        barrier = _threading.Barrier(2)
+        original_cancel = fake_app._cancel_pending_timers
+
+        def _spy_cancel():
+            # No-op; we just want to count calls.
+            pass
+
+        fake_app._cancel_pending_timers = _spy_cancel
+
+        # Replace _cancel_pending_timers with a counter that's
+        # incremented atomically.
+        call_count = [0]
+        call_lock = _threading.Lock()
+
+        def _counting_cancel():
+            with call_lock:
+                call_count[0] += 1
+
+        fake_app._cancel_pending_timers = _counting_cancel
+
+        def _call_cleanup():
+            barrier.wait()
+            controller._do_cleanup()
+
+        t1 = _threading.Thread(target=_call_cleanup)
+        t2 = _threading.Thread(target=_call_cleanup)
+        t1.start()
+        t2.start()
+        t1.join(timeout=5.0)
+        t2.join(timeout=5.0)
+
+        # PVT-G5-026: ``_cancel_pending_timers`` (the FIRST operation
+        # in the cleanup body) must have been called EXACTLY ONCE —
+        # proving only one of the two concurrent callers entered the
+        # body. Pre-fix, both could enter and call_count would be 2.
+        assert call_count[0] == 1, (
+            f"Concurrent _do_cleanup() callers must not both execute the body; "
+            f"_cancel_pending_timers was called {call_count[0]} times (expected 1)."
+        )
+        # ``_cleanup_done`` is set (the winner set it).
+        assert fake_app._cleanup_done is True
+
 
 # ── (4) _do_cleanup calls shutdown on each subsystem ───────────────────
 
@@ -373,6 +434,54 @@ class TestDoCleanupSubsystemCoverage:
     def test_calls_tray_stop(self, controller, fake_app):
         controller._do_cleanup()
         fake_app.tray.stop.assert_called_once_with()
+
+    def test_tray_stop_is_called_after_event_bus_shutdown(self, controller, fake_app, monkeypatch):
+        """PVT-G5-003: ``tray.stop()`` MUST be the LAST step in
+        ``_do_cleanup()`` (after ``event_bus.shutdown()``). Previously
+        it was step 13 of 19, which broke the pystray loop on the main
+        thread before the remaining cleanups (sd.stop, electron
+        terminate, PID file clear, CloseHandle, devnull close,
+        event_bus.shutdown) could finish — the daemon TCP worker
+        thread running ``_do_cleanup()`` was killed mid-cleanup when
+        the main thread returned.
+
+        This test records the call order of ``tray.stop()`` and
+        ``event_bus.shutdown()`` and asserts the latter precedes the
+        former, AND that ``tray.stop()`` is the LAST recorded call.
+        """
+        call_order: list[str] = []
+
+        original_tray_stop = fake_app.tray.stop
+
+        def _spy_tray_stop():
+            call_order.append("tray.stop")
+            original_tray_stop()
+
+        fake_app.tray.stop = _spy_tray_stop
+
+        # Spy on event_bus.shutdown() — patch the module-level
+        # function so the call is recorded. Don't run the real
+        # shutdown (it mutates module-global state other tests need).
+        import voice_typer.server.event_bus as _eb
+
+        def _spy_eb_shutdown():
+            call_order.append("event_bus.shutdown")
+
+        monkeypatch.setattr(_eb, "shutdown", _spy_eb_shutdown)
+
+        controller._do_cleanup()
+
+        assert "tray.stop" in call_order, "tray.stop() must be called"
+        assert "event_bus.shutdown" in call_order, "event_bus.shutdown() must be called"
+        tray_idx = call_order.index("tray.stop")
+        eb_idx = call_order.index("event_bus.shutdown")
+        assert eb_idx < tray_idx, (
+            f"PVT-G5-003: event_bus.shutdown() (at index {eb_idx}) must be "
+            f"called BEFORE tray.stop() (at index {tray_idx}); got order: {call_order}"
+        )
+        assert call_order[-1] == "tray.stop", (
+            f"PVT-G5-003: tray.stop() must be the LAST step in _do_cleanup(); got order: {call_order}"
+        )
 
     def test_calls_clear_backend_pid_file(self, controller, fake_app, monkeypatch):
         """``_do_cleanup`` must call the dynamic-lookup
@@ -470,6 +579,29 @@ class TestInstallSignalHandlers:
                 signal.signal(signal.SIGINT, original_sigint)
             with contextlib.suppress(Exception):
                 signal.signal(signal.SIGTERM, original_sigterm)
+
+    @pytest.mark.skipif(
+        not hasattr(signal, "SIGHUP"),
+        reason="SIGHUP not available on this platform (Windows)",
+    )
+    def test_registers_sighup_handler_on_posix(self, controller, monkeypatch):
+        """PVT-G5-014: ``_install_signal_handlers`` must also register
+        a SIGHUP handler on POSIX so terminal close / SSH disconnect
+        triggers graceful shutdown (default action terminates
+        immediately without running atexit handlers)."""
+        original_sighup = signal.getsignal(signal.SIGHUP)
+
+        try:
+            controller._install_signal_handlers()
+            new_sighup = signal.getsignal(signal.SIGHUP)
+            assert new_sighup is not signal.SIG_DFL, "_install_signal_handlers must register a SIGHUP handler on POSIX"
+            assert new_sighup is not signal.SIG_IGN, "_install_signal_handlers must register a SIGHUP handler on POSIX"
+            # SIGHUP shares the same handler closure as SIGINT/SIGTERM.
+            new_sigint = signal.getsignal(signal.SIGINT)
+            assert new_sighup is new_sigint, "SIGHUP should share the same handler closure as SIGINT/SIGTERM"
+        finally:
+            with contextlib.suppress(Exception):
+                signal.signal(signal.SIGHUP, original_sighup)
 
 
 # ── (6) _atexit_cleanup safety net ─────────────────────────────────────

@@ -632,9 +632,9 @@ class TestRestartAppReentryGuard:
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        assert any(msg.get("type") == "relaunch_electron" for msg in publish_calls), (
+        assert any(msg.get("type") == "relaunch_app" for msg in publish_calls), (
             "APP-1: when _shutting_down is False, restart_app must push "
-            f"the relaunch_electron event; got pushes: {publish_calls}"
+            f"the relaunch_app event; got pushes: {publish_calls}"
         )
         assert app._shutting_down is True, (
             "APP-1: when _shutting_down is False, restart_app must set it to True as part of its normal flow"

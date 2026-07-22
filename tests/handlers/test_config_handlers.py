@@ -57,10 +57,14 @@ class TestGetDefaults:
         fake_service.get_defaults.assert_called_once_with()
 
     def test_service_raises_returns_error(self, ipc_server, fake_service):
+        """G4-CR-09: a service exception in ``get_defaults`` must produce
+        the generic WS-path envelope
+        ``{code: 'server.internal_error', message: 'internal error'}``."""
         fake_service.get_defaults.side_effect = RuntimeError("defaults unavailable")
         resp = ipc_server._handle_get_defaults({}, {})
         assert resp["type"] == "error"
-        assert "defaults unavailable" in resp["data"]["message"]
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestSetConfig:

@@ -97,10 +97,14 @@ class TestExportDiagnostics:
         fake_service.export_diagnostics.assert_called_once_with()
 
     def test_service_raises_returns_error_response(self, ipc_server, fake_service):
+        """G4-CR-09: a service exception in ``export_diagnostics`` must
+        produce the generic WS-path envelope
+        ``{code: 'server.internal_error', message: 'internal error'}``."""
         fake_service.export_diagnostics.side_effect = RuntimeError("disk full")
         resp = ipc_server._handle_export_diagnostics({}, {})
         assert resp["type"] == "error"
-        assert "disk full" in resp["data"]["message"]
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestCheckAccessibility:

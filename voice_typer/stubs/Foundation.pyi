@@ -1,9 +1,8 @@
 # ruff: noqa: A001, A002, N802, N803, N816
 # PYREFLY-001: stub for the `Foundation` framework (pyobjc-framework-
-# Cocoa, macOS only). Pystray uses Cocoa/AppKit internally; the
-# voice-typer code does not import Foundation directly today, but
-# pyrefly follows transitive imports and may report `missing-import`
-# on `Foundation` when resolving the pystray backend.
+# Cocoa, macOS only). Foundation is imported directly by
+# `voice_typer/server/clipboard_snapshot.py` (NSPasteboard restore path)
+# and used transitively by pystray via Cocoa/AppKit.
 #
 # This stub declares the commonly-imported Foundation symbols so
 # pyrefly can resolve them without the pyobjc wheel installed.

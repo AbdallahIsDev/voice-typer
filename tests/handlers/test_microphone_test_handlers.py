@@ -79,7 +79,9 @@ class TestMicrophoneTestStart:
         fake_service.microphone_test_start.side_effect = RuntimeError("mic busy")
         resp = ipc_server._handle_microphone_test_start({}, {})
         assert resp["type"] == "error"
-        assert "mic busy" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestMicrophoneTestStop:

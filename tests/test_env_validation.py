@@ -44,7 +44,7 @@ _BOOL_VARS = (
 )
 _TOKEN_VARS = ("VOICE_TYPER_RESTART", "VOICE_TYPER_IPC_TOKEN")
 _PATH_VARS = ("VOICE_TYPER_CONFIG_DIR", "HF_HOME")
-_ALL_VARS = _BOOL_VARS + _TOKEN_VARS + _PATH_VARS
+_ALL_VARS = _BOOL_VARS + _TOKEN_VARS + _PATH_VARS + ("HF_ENDPOINT",)
 
 _VALID_BOOL_VALUES = ("1", "0", "true", "false", "yes", "no")
 
@@ -276,6 +276,94 @@ class TestAllVarsSet:
             monkeypatch.setenv(var, "'; rm -rf /")
         for var in _PATH_VARS:
             monkeypatch.setenv(var, "a" * 5000)
+        # G4-M-58: HF_ENDPOINT invalid value (HTTP scheme) — must be popped.
+        monkeypatch.setenv("HF_ENDPOINT", "http://evil.example.com")
         _validate_env_vars()
         for var in _ALL_VARS:
             assert var not in os.environ, f"{var} should have been removed"
+
+
+# ─── HF_ENDPOINT (G4-M-58) ─────────────────────────────────────────────
+
+
+class TestHfEndpoint:
+    """G4-M-58: ``HF_ENDPOINT`` is validated against an HTTPS+allowlist rule.
+
+    HF_ENDPOINT is consumed by the ``huggingface_hub`` library as the
+    base URL for model downloads. An attacker-controlled value could
+    redirect downloads to a malicious server that serves tampered
+    weights. The validator:
+
+      1. Requires the ``https://`` scheme (rejects ``http://``).
+      2. Validates the hostname is well-formed.
+      3. Allowlists to ``huggingface.co`` and ``hf-mirror.com``.
+
+    On failure, the env var is popped and a WARNING is logged (same
+    pattern as the ``HF_HOME`` path-safety check).
+    """
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://huggingface.co",
+            "https://huggingface.co/",
+            "https://hf-mirror.com",
+            "https://hf-mirror.com/",
+            "https://cdn.huggingface.co/some/path",
+            "https://hf-mirror.com/hub/models",
+        ],
+    )
+    def test_valid_hf_endpoint_preserved(self, monkeypatch, url):
+        monkeypatch.setenv("HF_ENDPOINT", url)
+        _validate_env_vars()
+        assert os.environ.get("HF_ENDPOINT") == url
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            # HTTP scheme — must be rejected even for allowlisted host.
+            "http://huggingface.co",
+            "http://hf-mirror.com",
+            "http://localhost:8080",
+            # Non-allowlisted host.
+            "https://evil.example.com",
+            "https://huggingface.co.evil.com",
+            "https://attacker.com/huggingface.co",
+            # Missing scheme.
+            "huggingface.co",
+            "//huggingface.co",
+            # Empty / malformed hostname.
+            "https://",
+            "https:///path-only",
+        ],
+    )
+    def test_invalid_hf_endpoint_removed(self, monkeypatch, url):
+        monkeypatch.setenv("HF_ENDPOINT", url)
+        _validate_env_vars()
+        assert "HF_ENDPOINT" not in os.environ, f"HF_ENDPOINT={url!r} should have been removed by the validator"
+
+    def test_invalid_hf_endpoint_logs_warning(self, monkeypatch, caplog):
+        monkeypatch.setenv("HF_ENDPOINT", "http://evil.example.com")
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+        matching = [r for r in caplog.records if "HF_ENDPOINT" in r.message and "rejected" in r.message]
+        assert matching, (
+            f"expected a WARNING about HF_ENDPOINT rejection; got records={[r.message for r in caplog.records]}"
+        )
+
+    def test_empty_hf_endpoint_removed(self, monkeypatch):
+        # Empty string is "set but not None" — basic pattern ^[^\0]+ fails.
+        monkeypatch.setenv("HF_ENDPOINT", "")
+        _validate_env_vars()
+        assert "HF_ENDPOINT" not in os.environ
+
+    def test_overlength_hf_endpoint_removed(self, monkeypatch):
+        monkeypatch.setenv("HF_ENDPOINT", "https://huggingface.co/" + "a" * 5000)
+        _validate_env_vars()
+        assert "HF_ENDPOINT" not in os.environ
+
+    def test_unset_hf_endpoint_is_noop(self, monkeypatch):
+        # No HF_ENDPOINT set — validator must not raise or create it.
+        monkeypatch.delenv("HF_ENDPOINT", raising=False)
+        _validate_env_vars()
+        assert "HF_ENDPOINT" not in os.environ

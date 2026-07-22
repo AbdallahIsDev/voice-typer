@@ -1098,13 +1098,32 @@ def test_ft1_respawn_inner_handles_reconnect_failure(ft1_source: str) -> None:
 def test_ft1_respawn_inner_swaps_child_handle_under_lock(ft1_source: str) -> None:
     """The new child handle must be stored under the ``state.child``
     Mutex (not via a shared mutable global) so the kill_children
-    backstop sees the latest PID after a respawn."""
-    assert "state.child.lock().unwrap()" in ft1_source, (
-        "FT-1 supervisor must store the new child handle under state.child.lock() — kill_children needs the latest PID"
+    backstop sees the latest PID after a respawn.
+
+    G4-H-27: the production lock sites in ``ft1_respawn_inner`` now use
+    the poison-safe ``mutex_lock(&state.child)`` helper (defined in
+    ``state.rs``) instead of the bare ``state.child.lock().unwrap()``
+    pattern. Both forms acquire the same Mutex; the helper just
+    downgrades poison into a recovered guard via ``unwrap_or_else(into_inner)``
+    so a panic on one lock doesn't permanently brick the FT-1 resilience
+    layer. This test accepts EITHER form so it remains green during the
+    migration (production code uses the new form; legacy test helpers
+    inside ``#[cfg(test)]`` still use the old form).
+    """
+    # The child-handle swap must acquire state.child under a Mutex —
+    # either the legacy `.lock().unwrap()` form OR the new poison-safe
+    # `mutex_lock(&...)` helper (G4-H-27).
+    assert "state.child.lock().unwrap()" in ft1_source or "mutex_lock(&state.child)" in ft1_source, (
+        "FT-1 supervisor must store the new child handle under state.child's "
+        "Mutex (legacy .lock().unwrap() or new mutex_lock helper) — kill_children "
+        "needs the latest PID"
     )
-    assert "state.token.lock().unwrap()" in ft1_source, (
-        "FT-1 supervisor must store the new token under state.token.lock() "
-        "— dispatch() reads the token to construct the auth frame"
+    # The token swap must acquire state.token under a Mutex — same
+    # dual-form acceptance as above.
+    assert "state.token.lock().unwrap()" in ft1_source or "mutex_lock(&state.token)" in ft1_source, (
+        "FT-1 supervisor must store the new token under state.token's Mutex "
+        "(legacy .lock().unwrap() or new mutex_lock helper) — dispatch() reads "
+        "the token to construct the auth frame"
     )
     assert "state.child_exit_rx.lock().await" in ft1_source, (
         "FT-1 supervisor must rotate the child_exit_rx (CR-2) so the next "
@@ -1123,13 +1142,37 @@ def test_ws_reader_emits_python_event_alias_for_backward_compat(ws_source: str) 
     )
 
 
-def test_ws_reader_renames_relaunch_electron_to_relaunch_app(ws_source: str) -> None:
-    """ADR-0020 §6.1: the WS reader must rename the legacy
-    ``relaunch_electron`` event (from old Python sidecars) to
-    ``relaunch_app`` (Tauri's app.restart() API)."""
-    assert '"relaunch_electron"' in ws_source, (
-        "WS reader must match the legacy 'relaunch_electron' event name (backward compat with old Python sidecars)"
+def test_ws_reader_does_not_rename_relaunch_app(ws_source: str) -> None:
+    """PVT-2 cleanup: the WS reader MUST NOT rename ``relaunch_electron``
+    → ``relaunch_app``. The Python sidecar now publishes ``relaunch_app``
+    directly (see ``app.py`` ``restart_app``), so the Rust bridge forwards
+    it unchanged via the direct ``let emit_name = event_type;`` pass-through.
+    ``main.rs`` listens for ``relaunch_app`` via ``app.listen("relaunch_app",
+    ...)`` (calling ``app.restart()``).
+
+    This is a regression check: re-introducing the rename arm would
+    recreate the pre-PVT-2 silent-restart bug (the renamed event was
+    emitted into the void because no listener subscribed to
+    ``relaunch_app`` pre-PVT-2)."""
+    # The rename match arm MUST NOT be present in ws.rs source.
+    rename_re = re.compile(
+        r'"relaunch_electron"\s*=>\s*"relaunch_app"',
     )
-    assert '"relaunch_app"' in ws_source, (
-        "WS reader must rename 'relaunch_electron' → 'relaunch_app' (ADR-0020 §6.1 — Tauri's app.restart() API)"
+    assert not rename_re.search(ws_source), (
+        "ws.rs MUST NOT have a `relaunch_electron` => `relaunch_app` "
+        "rename arm — the Python sidecar now publishes `relaunch_app` "
+        "directly (PVT-2 cleanup). Re-introducing the rename would "
+        "recreate the pre-PVT-2 silent-restart bug."
+    )
+    # Belt-and-braces: the literal old name MUST NOT appear as a
+    # match arm pattern in ws.rs (only in comments is OK).
+    assert '"relaunch_electron" =>' not in ws_source, (
+        "ws.rs MUST NOT match the legacy `relaunch_electron` event name "
+        "in a per-type branch (PVT-2 cleanup — the rename arm is gone)."
+    )
+    # The direct assignment proves generic fan-out (no per-type rename).
+    assert re.search(r"let\s+emit_name\s*=\s*event_type\s*;", ws_source), (
+        "ws.rs must forward every event type unchanged via "
+        "`let emit_name = event_type;` (PVT-2 cleanup — no per-type "
+        "rename arm)."
     )

@@ -46,7 +46,9 @@ class TestLevelMonitorStart:
         fake_service.level_monitor_start.side_effect = RuntimeError("already running")
         resp = ipc_server._handle_level_monitor_start({}, {})
         assert resp["type"] == "error"
-        assert "already running" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestLevelMonitorStop:

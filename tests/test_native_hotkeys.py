@@ -579,3 +579,165 @@ class TestConfigDefaults:
         from voice_typer.server import config
 
         assert config._default_hotkey_for_platform() == "<caps_lock>"
+
+
+# ─── G4-H-31: Liveness watchdog ─────────────────────────────────────────
+
+
+class TestLivenessWatchdog:
+    """G4-H-31: the native hotkey backend has a liveness watchdog that
+    tracks event timestamps and respawns the binary if it stops
+    responding."""
+
+    def test_watchdog_state_initialized(self, monkeypatch):
+        """``__init__`` initializes the watchdog state variables."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        # Watchdog state variables exist.
+        assert hasattr(b, "_last_event_received_at")
+        assert hasattr(b, "_last_pong_received_at")
+        assert hasattr(b, "_pong_supported")
+        assert hasattr(b, "_watchdog_thread")
+        assert hasattr(b, "_watchdog_stop_event")
+        assert hasattr(b, "_on_watchdog_restart_callback")
+        # Initial values.
+        assert b._last_event_received_at > 0  # set to time.time()
+        assert b._last_pong_received_at == 0.0  # no PONG yet
+        assert b._pong_supported is False
+        assert b._watchdog_thread is None  # not started until _spawn_process
+        assert b._on_watchdog_restart_callback is None
+
+    def test_handle_line_updates_last_event_received_at(self, monkeypatch):
+        """Non-PONG lines update ``_last_event_received_at``."""
+        import time
+
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        # Set an old timestamp.
+        b._last_event_received_at = 0.0
+        old_ts = b._last_event_received_at
+
+        # READY updates the timestamp.
+        b._handle_line("READY")
+        assert b._last_event_received_at > old_ts
+
+        # KEY_DOWN also updates.
+        old_ts = b._last_event_received_at
+        time.sleep(0.001)  # ensure time advances
+        b._callback = lambda: None  # stub for <caps_lock>
+        b._handle_line("KEY_DOWN:CapsLock")
+        assert b._last_event_received_at > old_ts
+
+    def test_handle_line_pong_updates_pong_timestamp(self, monkeypatch):
+        """PONG lines update ``_last_pong_received_at`` and set ``_pong_supported``."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        assert b._last_pong_received_at == 0.0
+        assert b._pong_supported is False
+
+        b._handle_line("PONG")
+
+        assert b._last_pong_received_at > 0.0
+        assert b._pong_supported is True
+
+    def test_handle_line_pong_does_not_update_event_timestamp(self, monkeypatch):
+        """PONG does NOT update ``_last_event_received_at`` (separate signal)."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        b._last_event_received_at = 1000.0  # old sentinel
+        b._last_pong_received_at = 0.0
+
+        b._handle_line("PONG")
+
+        # Event timestamp unchanged (PONG is separate).
+        assert b._last_event_received_at == 1000.0
+        # PONG timestamp updated.
+        assert b._last_pong_received_at > 0.0
+
+    def test_watchdog_constants_exist(self):
+        """G4-H-31: the watchdog interval/timeout constants are defined."""
+        from voice_typer.server.native_hotkeys import base
+
+        assert hasattr(base, "_WATCHDOG_PING_INTERVAL_SECONDS")
+        assert hasattr(base, "_WATCHDOG_PONG_TIMEOUT_SECONDS")
+        assert hasattr(base, "_WATCHDOG_RESPAWN_SECONDS")
+        # Sanity-check the values match the task spec.
+        assert base._WATCHDOG_PING_INTERVAL_SECONDS == 30.0
+        assert base._WATCHDOG_PONG_TIMEOUT_SECONDS == 5.0
+        assert base._WATCHDOG_RESPAWN_SECONDS == 60.0
+
+    def test_spawn_process_uses_stdin_pipe(self, monkeypatch, tmp_path):
+        """G4-H-31: ``_spawn_process`` opens stdin as PIPE (was DEVNULL)
+        so the watchdog can write PING to it."""
+        import subprocess
+        from unittest.mock import patch
+
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        # Create a fake binary.
+        fake_bin = tmp_path / "fake-native"
+        fake_bin.write_text("#!/bin/sh\nwhile true; do sleep 1; done\n")
+        fake_bin.chmod(0o755)
+        monkeypatch.setattr(
+            "voice_typer.server.native_hotkeys.binary_path.get_native_binary_path",
+            lambda: fake_bin,
+        )
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        captured_kwargs = {}
+        original_popen = subprocess.Popen
+
+        class FakePopen(original_popen):
+            def __init__(self, *args, **kwargs):
+                captured_kwargs.update(kwargs)
+                super().__init__(*args, **kwargs)
+
+        with patch("subprocess.Popen", FakePopen):
+            try:
+                b._spawn_process()
+            except Exception:
+                pass  # May fail on READY timeout — that's OK, we just check the Popen kwargs.
+            finally:
+                try:
+                    b.stop()
+                except Exception:
+                    pass
+
+        assert captured_kwargs.get("stdin") == subprocess.PIPE, (
+            f"G4-H-31: _spawn_process must use stdin=subprocess.PIPE so the "
+            f"watchdog can write PING; got stdin={captured_kwargs.get('stdin')!r}"
+        )

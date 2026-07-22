@@ -24,9 +24,11 @@ updating the ADR, this test fails loudly:
 4. The Rust WS bridge (``src-tauri/src/sidecar/ws.rs``) forwards every
    server-initiated event by name (no allowlist) AND emits a generic
    ``python-event`` catch-all for the ``usePython`` hook, applies the
-   two ADR §6.1 renames (``relaunch_electron`` → ``relaunch_app``,
-   ``electron_notification`` → ``notification`` alias), and coalesces
-   ``bubble_level`` to ≤30 Hz per ADR §9.
+   ADR §6.1 backward-compat ``electron_notification`` → ``notification``
+   alias (the ``relaunch_electron`` → ``relaunch_app`` rename was dropped
+   in the PVT-2 cleanup — the Python sidecar now publishes
+   ``relaunch_app`` directly and ``main.rs`` listens for it), and
+   coalesces ``bubble_level`` to ≤30 Hz per ADR §9.
 5. ``TAURI_SIDECAR=1`` env var disables the heartbeat-watchdog thread
    on the Python side (ADR-0020 §2 + §10 — replaces ADR-0018 on the
    Tauri path).
@@ -311,7 +313,11 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
 # server-initiated (channel 2) — distinct from the command/response
 # envelope (channel 1). Each is delivered as
 # ``{"type":<name>,"data":{...}}`` and re-emitted by the Rust bridge
-# as a Tauri event of the same name (modulo the two renames below).
+# as a Tauri event of the same name (modulo the backward-compat
+# ``electron_notification`` → ``notification`` alias below; the
+# ``relaunch_electron`` → ``relaunch_app`` rename was dropped in the
+# PVT-2 cleanup — the Python sidecar now publishes ``relaunch_app``
+# directly, so the bridge forwards it unchanged).
 EXPECTED_EVENTS: frozenset[str] = frozenset(
     {
         "ready",
@@ -334,7 +340,11 @@ EXPECTED_EVENTS: frozenset[str] = frozenset(
         "navigate",
         "show_window",
         "quit_app",
-        "relaunch_electron",  # renamed to "relaunch_app" by the bridge
+        # PVT-2 cleanup: the Python sidecar now publishes ``relaunch_app``
+        # directly (no rename by the Rust bridge). ``main.rs`` listens for
+        # ``relaunch_app`` via ``app.listen("relaunch_app", ...)`` and calls
+        # ``app.restart()``.
+        "relaunch_app",
     }
 )
 assert len(EXPECTED_EVENTS) == 21, (
@@ -346,9 +356,14 @@ assert len(EXPECTED_EVENTS) == 21, (
 # changes). The Rust bridge also emits a backward-compat
 # ``notification`` alias when it sees the legacy
 # ``electron_notification`` event name (CR-8 in ws.rs).
-EVENT_RENAMES: dict[str, str] = {
-    "relaunch_electron": "relaunch_app",
-}
+#
+# PVT-2 cleanup: the ``relaunch_electron`` → ``relaunch_app`` entry was
+# REMOVED — the Python sidecar now publishes ``relaunch_app`` directly,
+# so the Rust bridge forwards it unchanged. ``main.rs`` listens for the
+# renamed event directly. This dict is intentionally empty; it remains
+# as a documentation anchor for the ADR-0020 §6.1 rename policy (future
+# Rust-side renames should be added here).
+EVENT_RENAMES: dict[str, str] = {}
 EVENT_ALIASES: dict[str, tuple[str, ...]] = {
     "electron_notification": ("notification",),
 }
@@ -568,17 +583,21 @@ def test_ws_bridge_does_not_allowlist_filter_events():
     fan-out, not a per-event-type dispatcher.
 
     Source-inspect ws.rs: the only event-type-specific branches are
-    ``bubble_level`` (coalescing) and the two renames
-    (``relaunch_electron`` → ``relaunch_app``,
-    ``electron_notification`` → ``notification`` alias). All other
-    event types fall through to the generic ``other => other`` arm.
+    ``bubble_level`` (coalescing) and the ``electron_notification`` →
+    ``notification`` backward-compat alias. PVT-2 cleanup removed the
+    ``relaunch_electron`` → ``relaunch_app`` rename arm (the Python
+    sidecar now publishes ``relaunch_app`` directly). All other event
+    types are forwarded unchanged via the direct
+    ``let emit_name = event_type;`` pass-through.
     """
     src = _read_ws_rs()
-    # The match arm pattern: ``other => other`` proves fall-through.
-    assert re.search(r"other\s*=>\s*other", src), (
-        "ws.rs must use a generic `other => other` match arm so every "
-        "event type is forwarded unchanged (no allowlist). ADR-0020 "
-        "§event table."
+    # The direct assignment ``let emit_name = event_type;`` proves
+    # generic fan-out — every event type is forwarded under its own
+    # name (no per-type match arm that could drop or rename events).
+    assert re.search(r"let\s+emit_name\s*=\s*event_type\s*;", src), (
+        "ws.rs must forward every event type unchanged via "
+        "`let emit_name = event_type;` (no allowlist, no per-type "
+        "rename arm). ADR-0020 §event table."
     )
     # No hardcoded list of allowed event names that would filter.
     # (If a future change adds an allowlist, this assertion catches it.)
@@ -612,20 +631,36 @@ def test_ws_bridge_emits_python_event_catch_all():
     )
 
 
-def test_ws_bridge_applies_relaunch_electron_to_relaunch_app_rename():
-    """ADR-0020 §6.1: ``relaunch_electron`` is renamed to
-    ``relaunch_app`` on the Tauri side (Tauri uses ``app.restart()``
-    rather than Electron's ``app.relaunch()``). Payload is unchanged.
+def test_ws_bridge_does_not_rename_relaunch_app():
+    """PVT-2 cleanup: the ``relaunch_electron`` → ``relaunch_app``
+    rename arm was REMOVED from ws.rs. The Python sidecar now
+    publishes ``relaunch_app`` directly (see ``app.py``
+    ``restart_app``), and ``main.rs`` listens for it via
+    ``app.listen("relaunch_app", ...)`` (calling ``app.restart()``).
+    The Rust bridge forwards the event unchanged — no rename arm.
+
+    This is a regression check: re-introducing the rename arm would
+    silently demote the user's Restart click back to the pre-PVT-2
+    bug (the renamed event was emitted into the void because no
+    listener subscribed to ``relaunch_app`` pre-PVT-2).
     """
     src = _read_ws_rs()
-    assert '"relaunch_electron"' in src and '"relaunch_app"' in src, (
-        "ws.rs must rename `relaunch_electron` → `relaunch_app` (ADR-0020 §6.1)."
-    )
-    # The rename must be in a match arm, not just a comment.
+    # The rename match arm MUST NOT be present in ws.rs source.
     rename_re = re.compile(
         r'"relaunch_electron"\s*=>\s*"relaunch_app"',
     )
-    assert rename_re.search(src), 'ws.rs must have a match arm: "relaunch_electron" => "relaunch_app" (ADR-0020 §6.1).'
+    assert not rename_re.search(src), (
+        "ws.rs MUST NOT have a `relaunch_electron` => `relaunch_app` "
+        "rename arm — the Python sidecar now publishes `relaunch_app` "
+        "directly (PVT-2 cleanup). Re-introducing the rename would "
+        "recreate the pre-PVT-2 silent-restart bug."
+    )
+    # Belt-and-braces: the literal old name MUST NOT appear as a
+    # match arm pattern in ws.rs (only in comments is OK).
+    assert '"relaunch_electron" =>' not in src, (
+        "ws.rs MUST NOT match the legacy `relaunch_electron` event name "
+        "in a per-type branch (PVT-2 cleanup — the rename arm is gone)."
+    )
 
 
 def test_ws_bridge_emits_notification_alias_for_electron_notification():

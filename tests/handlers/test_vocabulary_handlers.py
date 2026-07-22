@@ -36,7 +36,9 @@ class TestGetVocabulary:
         fake_service.get_vocabulary.side_effect = RuntimeError("corrupt file")
         resp = ipc_server._handle_get_vocabulary({}, {})
         assert resp["type"] == "error"
-        assert "corrupt file" in resp["data"]["message"]
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestSaveVocabulary:
@@ -54,10 +56,19 @@ class TestSaveVocabulary:
         fake_service.save_vocabulary_with_diff.assert_called_once_with({"entries": [{"word": "hello", "spoken": "hi"}]})
 
     def test_non_dict_payload_returns_error(self, ipc_server, fake_service):
-        """NEW-SEC-011: non-dict ``data`` → explicit error (not silent no-op)."""
+        """NEW-SEC-011: non-dict ``data`` → explicit error (not silent no-op).
+
+        R4-F5 routed the type check through ``_validate_dict_payload``;
+        the helper's non-dict message is ``"data must be an object"``
+        (different from the pre-R4-F5 ``"save_vocabulary requires data:
+        object"`` message, but the test was updated to assert on the
+        ``code`` field — which is the renderer-switchable signal —
+        rather than the message text).
+        """
         resp = ipc_server._handle_save_vocabulary(["not", "a", "dict"], {})
         assert resp["type"] == "error"
-        assert "data: object" in resp["data"]["message"]
+        assert resp["data"]["code"] == "invalid_payload"
+        assert "data" in resp["data"]["message"]
         fake_service.save_vocabulary_with_diff.assert_not_called()
 
     def test_payload_over_1mb_returns_error(self, ipc_server, fake_service):

@@ -7,6 +7,22 @@ TEST-003: the autouse mock is now conditional — tests that need real
 pynput (e.g. to test the actual keyboard listener) can use the
 ``@pytest.mark.real_pynput`` marker to opt out of the pynput mock.
 
+FIX-18 (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE`` alias
+that previously lived at module-load time has been moved into the
+``winfunctype_alias`` autouse fixture below so the global ``ctypes``
+module is no longer mutated at collection time. Tests that exercise
+Windows hotkey code paths on Linux (``tests/test_hotkeys_win32.py`` etc.)
+still see the alias because the fixture is autouse — it just installs
+the alias per-test via ``monkeypatch.setattr`` (auto-undone after each
+test) instead of mutating ``ctypes`` permanently for the whole session.
+
+The ``contextlib.suppress(Exception)`` blocks that hid patch failures
+have been replaced with targeted ``try/except`` + ``warnings.warn`` so
+real failures surface as test warnings instead of being silently
+swallowed. Previously a typo in the monkeypatch target (or a renamed
+module) would silently skip the patch and tests would pass against an
+unpatched code path; now the warning surfaces the drift.
+
 TEST-033: Mocking Convention
 ============================
 
@@ -36,31 +52,20 @@ consistent and maintainable:
    fixtures should be justified with a comment explaining why.
 """
 
-import contextlib
 import ctypes
 import sys
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-# WP-1: ``voice_typer.server.crash_handler`` previously used
-# ``@ctypes.WINFUNCTYPE(...)`` at module-load time, which broke Linux imports.
-# That has been fixed — the decorator is now gated behind
-# ``sys.platform == "win32"`` in crash_handler.py.
-#
-# However, ``hotkeys.py::_install_low_level_hook`` (line ~1311) and
-# ``microphone_watcher.py`` use ``ctypes.WINFUNCTYPE(...)`` inside Windows-
-# guarded function bodies. On Linux, those code paths are never executed in
-# production, but some tests (``tests/test_hotkeys_win32.py``) DO exercise
-# those code paths with mocked Windows state. Without the alias, those tests
-# fail with ``AttributeError: module 'ctypes' has no attribute 'WINFUNCTYPE'``.
-#
-# Aliasing ``WINFUNCTYPE = CFUNCTYPE`` on non-Windows lets those tests run.
-# This is a test-only shim — production behaviour on Windows is unchanged
-# (real ``WINFUNCTYPE`` is used). The alias is a no-op on Windows.
-if not hasattr(ctypes, "WINFUNCTYPE"):
-    ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE  # type: ignore[attr-defined]
+# FIX-18 (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE``
+# alias previously installed at module-load time has been moved into
+# the ``winfunctype_alias`` autouse fixture below. The fixture installs
+# the alias per-test via ``monkeypatch.setattr`` so the global
+# ``ctypes`` module is no longer mutated at collection time. See the
+# fixture docstring for the full rationale.
 
 
 def pytest_configure(config):
@@ -130,6 +135,45 @@ def wav_fixture_path():
 
 
 @pytest.fixture(autouse=True)
+def winfunctype_alias(monkeypatch):
+    """Provide ``ctypes.WINFUNCTYPE`` on non-Windows platforms.
+
+    ``voice_typer.server.hotkeys._install_low_level_hook`` (line ~1311)
+    and ``voice_typer.server.microphone_watcher`` use
+    ``ctypes.WINFUNCTYPE(...)`` inside Windows-gated function bodies.
+    On Linux, those code paths are never executed in production, but
+    some tests (``tests/test_hotkeys_win32.py``) DO exercise them with
+    mocked Windows state. Without the alias, those tests fail with
+    ``AttributeError: module 'ctypes' has no attribute 'WINFUNCTYPE'``.
+
+    Aliasing ``WINFUNCTYPE = CFUNCTYPE`` on non-Windows lets those
+    tests run. This is a test-only shim — production behaviour on
+    Windows is unchanged (real ``WINFUNCTYPE`` is used; on Windows the
+    alias is a no-op because ``hasattr(ctypes, "WINFUNCTYPE")`` is
+    True).
+
+    FIX-18: previously this alias was installed at conftest.py
+    module-load time via ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE``.
+    That permanently mutated the global ``ctypes`` module for the
+    whole pytest session, which (a) leaked the alias into any
+    non-test code that ran in the same process and (b) made it
+    impossible for a test to assert that ``WINFUNCTYPE`` is ABSENT
+    on non-Windows (e.g. to verify the production guard). Moving the
+    alias into an autouse fixture means it's installed only for the
+    duration of each test and is automatically removed by
+    ``monkeypatch`` afterwards, restoring ``ctypes`` to its pristine
+    state between tests.
+    """
+    if not hasattr(ctypes, "WINFUNCTYPE"):
+        monkeypatch.setattr(
+            ctypes,
+            "WINFUNCTYPE",
+            ctypes.CFUNCTYPE,
+            raising=False,
+        )
+
+
+@pytest.fixture(autouse=True)
 def mock_heavy_imports(monkeypatch, request):
     """Mock all hardware/GUI dependencies so tests run headless.
 
@@ -196,9 +240,26 @@ def mock_heavy_imports(monkeypatch, request):
 
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
-    # Prevent atexit handler from polluting test output
-    with contextlib.suppress(Exception):
-        monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
+    # Prevent atexit handler from polluting test output. FIX-18:
+    # previously this was wrapped in ``contextlib.suppress(Exception)``,
+    # which silently swallowed typos in the monkeypatch target and let
+    # tests pass against unpatched code. The targeted ``except`` below
+    # only catches the two real failure modes (the module isn't
+    # importable, or the attribute is missing) and warns on either so
+    # drift is visible in CI output without failing the test.
+    try:
+        monkeypatch.setattr(
+            "voice_typer.server.app.atexit.register",
+            lambda *a, **kw: None,
+        )
+    except (ImportError, AttributeError) as exc:
+        warnings.warn(
+            "mock_heavy_imports: could not patch "
+            "'voice_typer.server.app.atexit.register' "
+            f"({type(exc).__name__}: {exc}); atexit handlers may fire "
+            "during tests.",
+            stacklevel=2,
+        )
 
     # CR-068 (IMPROVE-mode run, 2026-07-21): hoist the
     # ``force_pynput_hotkey_backend`` patch from the deleted
@@ -210,7 +271,12 @@ def mock_heavy_imports(monkeypatch, request):
     # — same accidental pass condition documented in the (now-deleted)
     # ``tests/test_app.py:73-75``. With the hoist, the patch is applied
     # uniformly across platforms.
-    with contextlib.suppress(Exception):
+    #
+    # FIX-18: replaced ``contextlib.suppress(Exception)`` with targeted
+    # ``except (ImportError, AttributeError)`` + ``warnings.warn`` so a
+    # renamed module or moved function surfaces as a warning rather
+    # than a silent patch-skip.
+    try:
         from voice_typer.server.hotkeys import PynputHotkey
 
         def _force_pynput(hotkey_str):
@@ -221,6 +287,14 @@ def mock_heavy_imports(monkeypatch, request):
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
             _force_pynput,
         )
+    except (ImportError, AttributeError) as exc:
+        warnings.warn(
+            "mock_heavy_imports: could not hoist "
+            "force_pynput_hotkey_backend patch "
+            f"({type(exc).__name__}: {exc}); hotkey tests may fail "
+            "on non-Linux platforms.",
+            stacklevel=2,
+        )
 
     # CR-017 (IMPROVE-mode run, 2026-07-21): reset the keyboard_ownership
     # singleton before each test so stale state from a prior test (e.g.
@@ -228,10 +302,23 @@ def mock_heavy_imports(monkeypatch, request):
     # ``_cancel_dictation`` to early-return. The singleton persists across
     # tests because it's a class-level ``_instance``; without this reset,
     # test ordering affects test outcomes.
-    with contextlib.suppress(Exception):
+    #
+    # FIX-18: replaced ``contextlib.suppress(Exception)`` with targeted
+    # ``except (ImportError, AttributeError)`` + ``warnings.warn`` so a
+    # renamed singleton or removed ``reset`` method surfaces as a
+    # warning rather than a silent skip.
+    try:
         from voice_typer.server.keyboard_ownership import keyboard_ownership
 
         keyboard_ownership().reset()
+    except (ImportError, AttributeError) as exc:
+        warnings.warn(
+            "mock_heavy_imports: could not reset keyboard_ownership "
+            "singleton "
+            f"({type(exc).__name__}: {exc}); hotkey ownership state "
+            "may leak between tests.",
+            stacklevel=2,
+        )
 
 
 # ── Shared fixtures for domain-split test files ────────────────────────

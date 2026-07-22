@@ -7,16 +7,24 @@ public contract of the module:
 - ``lazy_module()`` returns a ``_LazyModule`` and never imports on
   construction.
 - ``__getattr__`` triggers a real ``importlib.import_module`` call on
-  every access (no caching — the proxy is stateless so per-test
-  ``monkeypatch.setitem(sys.modules, ...)`` mocks are always honoured).
+  every access (no successful-module caching — the proxy is stateless
+  so per-test ``monkeypatch.setitem(sys.modules, ...)`` mocks are always
+  honoured).
 - ``__getattr__`` propagates ``ImportError`` / ``AttributeError`` — it
   never silently returns ``None``.
+- G4-M-43: ``ImportError`` is CACHED on the proxy so subsequent accesses
+  don't re-attempt ``importlib.import_module``. The cache is per-proxy
+  (a fresh proxy gets a fresh attempt) so tests that fix the import via
+  ``monkeypatch.setitem(sys.modules, name, mock)`` MUST construct a new
+  proxy rather than reusing the failed one.
 - ``__setattr__`` and ``__delattr__`` delegate to the wrapped module, so
   ``monkeypatch.setattr(proxy, attr, value)`` keeps working.
 - Accessing the private ``_module_name`` slot does NOT trigger an
   import (slot lookup happens before ``__getattr__``).
 - Multiple proxies are independent; two proxies for the same module
   share state through ``sys.modules``.
+- G4-M-43: ``probe_required_deps()`` returns the list of missing
+  modules from a probe set.
 
 All tests use ``monkeypatch`` to install lightweight ``MagicMock``
 fakes in ``sys.modules`` (or to spy on ``importlib.import_module``) —
@@ -30,7 +38,7 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server._lazy_import import _LazyModule, lazy_module
+from voice_typer.server._lazy_import import _LazyModule, lazy_module, probe_required_deps
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -331,3 +339,167 @@ def test_monkeypatch_setattr_on_proxy_then_access_works(monkeypatch, fake_module
 
     assert proxy.InputStream == "fake_stream"
     assert mock.InputStream == "fake_stream"
+
+
+# ── G4-M-43: ImportError caching ────────────────────────────────────────
+
+
+class TestImportErrorCaching:
+    """G4-M-43: ``ImportError`` is cached on the proxy so subsequent
+    accesses don't re-attempt ``importlib.import_module``.
+
+    The cache is per-proxy (a fresh proxy gets a fresh attempt) so
+    tests that fix the import via ``monkeypatch.setitem(sys.modules,
+    name, mock)`` after a failure MUST construct a new proxy rather
+    than reusing the failed one.
+    """
+
+    def test_import_error_cached_so_second_access_no_reimport(self, monkeypatch, import_spy):
+        """A second attribute access after a failed import does NOT call
+        ``importlib.import_module`` again — the cached error is re-raised.
+        """
+        call_count = {"n": 0}
+
+        def boom(name, *args, **kwargs):
+            call_count["n"] += 1
+            raise ModuleNotFoundError(f"No module named '{name}'")
+
+        monkeypatch.setattr(importlib, "import_module", boom)
+        proxy = lazy_module("nonexistent.module.xyz")
+
+        with pytest.raises(ModuleNotFoundError):
+            proxy.foo
+        with pytest.raises(ModuleNotFoundError):
+            proxy.bar
+        with pytest.raises(ModuleNotFoundError):
+            proxy.baz
+
+        # import_module called exactly once (not three times).
+        assert call_count["n"] == 1, f"import_module should be called once (cached), got {call_count['n']}"
+
+    def test_cached_error_is_same_instance(self, monkeypatch):
+        """The cached error is the SAME exception instance — re-raised
+        verbatim on every subsequent access, not a fresh copy.
+        """
+        original_error = ModuleNotFoundError("cached sentinel")
+
+        def boom(name, *args, **kwargs):
+            raise original_error
+
+        monkeypatch.setattr(importlib, "import_module", boom)
+        proxy = lazy_module("nonexistent.module.cached")
+
+        with pytest.raises(ModuleNotFoundError) as exc_info_1:
+            proxy.foo
+        with pytest.raises(ModuleNotFoundError) as exc_info_2:
+            proxy.bar
+
+        assert exc_info_1.value is original_error
+        assert exc_info_2.value is original_error
+        # Same instance both times.
+        assert exc_info_1.value is exc_info_2.value
+
+    def test_cached_error_does_not_affect_sibling_proxy(self, monkeypatch):
+        """A failed import on one proxy does NOT poison a fresh proxy for
+        the same module name — the cache is per-proxy, not per-module.
+        This lets a test that fixes the import after a failure recover
+        by constructing a new proxy.
+        """
+        # Save the real import_module so we can restore it after the
+        # first proxy fails.
+        real_import = importlib.import_module
+
+        # First proxy fails.
+        def boom(name, *args, **kwargs):
+            raise ModuleNotFoundError(f"No module named '{name}'")
+
+        monkeypatch.setattr(importlib, "import_module", boom)
+        proxy1 = lazy_module("nonexistent.module.sibling")
+        with pytest.raises(ModuleNotFoundError):
+            proxy1.foo
+
+        # Second proxy for the same name gets a fresh attempt — install
+        # a successful mock and restore the real import_module so the
+        # proxy can resolve via sys.modules.
+        mock = MagicMock()
+        mock.value = "recovered"
+        monkeypatch.setitem(sys.modules, "nonexistent.module.sibling", mock)
+        monkeypatch.setattr(importlib, "import_module", real_import)
+        proxy2 = lazy_module("nonexistent.module.sibling")
+        assert proxy2.value == "recovered"
+
+    def test_successful_import_does_not_cache_error(self, fake_module, import_spy):
+        """A successful import leaves the cached-error slot ``None`` so
+        subsequent accesses can re-resolve from ``sys.modules``.
+        """
+        name, mock = fake_module
+        mock.value = "ok"
+        proxy = lazy_module(name)
+
+        # First access succeeds.
+        assert proxy.value == "ok"
+        # Cached error slot is still None.
+        assert object.__getattribute__(proxy, "_cached_error") is None
+        # Second access still re-resolves (no error cached to re-raise).
+        assert proxy.value == "ok"
+        # import_module called twice (no short-circuit on success).
+        assert import_spy["calls"] == [name, name]
+
+
+# ── G4-M-43: probe_required_deps ────────────────────────────────────────
+
+
+class TestProbeRequiredDeps:
+    """G4-M-43: ``probe_required_deps`` returns the list of missing modules."""
+
+    def test_returns_empty_list_when_all_present(self, monkeypatch):
+        """When every module in the probe set imports successfully, returns []."""
+        # Install a MagicMock for each module name so import_module succeeds.
+        for name in ("test_probe_present_a", "test_probe_present_b"):
+            monkeypatch.setitem(sys.modules, name, MagicMock())
+
+        missing = probe_required_deps(("test_probe_present_a", "test_probe_present_b"))
+        assert missing == []
+
+    def test_returns_missing_modules_sorted(self, monkeypatch):
+        """Missing modules are returned sorted by name."""
+        # Install one present module; leave the other two missing.
+        monkeypatch.setitem(sys.modules, "test_probe_present", MagicMock())
+        # Ensure the "missing" names really are missing.
+        for name in ("test_probe_missing_zzz", "test_probe_missing_aaa"):
+            monkeypatch.delitem(sys.modules, name, raising=False)
+
+        missing = probe_required_deps(
+            (
+                "test_probe_missing_zzz",
+                "test_probe_present",
+                "test_probe_missing_aaa",
+            )
+        )
+        assert missing == ["test_probe_missing_aaa", "test_probe_missing_zzz"]
+
+    def test_default_probe_set_includes_sounddevice_and_pystray(self):
+        """The default probe set includes the heavy cold-start deps."""
+        # Don't actually probe — just check the constant.
+        from voice_typer.server._lazy_import import _REQUIRED_DEPS
+
+        assert "sounddevice" in _REQUIRED_DEPS
+        assert "pystray" in _REQUIRED_DEPS
+        # numpy is a hard dependency (audio buffers) — always required.
+        assert "numpy" in _REQUIRED_DEPS
+
+    def test_probe_with_empty_set_returns_empty_list(self):
+        """An empty probe set returns an empty list (no work to do)."""
+        assert probe_required_deps(()) == []
+
+    def test_probe_does_not_cache_results(self, monkeypatch):
+        """``probe_required_deps`` re-imports on every call so callers can
+        re-probe after the user installs a missing package.
+        """
+        # First call: module missing.
+        monkeypatch.delitem(sys.modules, "test_probe_recheck", raising=False)
+        assert probe_required_deps(("test_probe_recheck",)) == ["test_probe_recheck"]
+
+        # Second call: module now present (mock installed).
+        monkeypatch.setitem(sys.modules, "test_probe_recheck", MagicMock())
+        assert probe_required_deps(("test_probe_recheck",)) == []

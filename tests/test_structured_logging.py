@@ -183,7 +183,11 @@ def test_setup_logging_default_is_text(tmp_path: Path, monkeypatch) -> None:
 
         content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
         # Text format: a session_id bracket + level label, not JSON braces.
-        assert "[a3f1b2c4]" not in content or True  # session id assigned at runtime
+        # Text format: a session_id bracket + level label, not JSON braces.
+        # The session id is generated at runtime (uuid4 hex), so the literal
+        # ``a3f1b2c4`` placeholder will NOT be in the file — the actual
+        # 8-char session_id (matching ``[0-9a-f]{8}``) will be.
+        assert "[a3f1b2c4]" not in content
         assert "INFO" in content
         assert "[HOTKEY] RegisterHotKey succeeded" in content
         # Not JSON: the line does not start with '{'

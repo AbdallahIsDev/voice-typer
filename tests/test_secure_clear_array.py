@@ -337,3 +337,117 @@ def test_secure_clear_array_idempotent_across_sessions(iteration: int):
         rec.start()
         # After start(), the previous buffer must be zeroed.
         assert np.all(previous_audio == 0), f"iteration {i}: previous_audio must be zeroed after start()"
+
+
+# ─── 6. G4-H-06: stop() / discard() zero cached arrays in-place ────────
+
+
+def test_stop_clears_cached_arrays():
+    """G4-H-06: ``stop()`` must securely zero ``_cached_resampled`` and
+    ``_cached_no_resample_arr`` IN-PLACE before replacing them.
+
+    Pre-G4-H-06: ``stop()`` reassigned both caches to fresh empty arrays
+    / ``None`` without first zeroing the underlying numpy buffers.  The
+    cached arrays can hold up to ~30 min of 16 kHz float32 audio (~115 MB)
+    of the user's voice, so simply dropping the reference left that data
+    in process memory until the numpy allocator reused the block —
+    defeating SEC-audit-008's intent.
+
+    Post-G4-H-06: ``stop()`` calls ``_secure_clear_caches()`` which
+    invokes ``_secure_clear_array`` (``arr.fill(0)``) on each non-empty
+    cache BEFORE reassignment, so the underlying numpy buffer is zeroed
+    in-place.  This test keeps a separate reference to each cached
+    array (so we can inspect its contents after ``stop()`` replaces the
+    cache attribute) and asserts both are all-zeros post-stop.
+    """
+    rec = _make_recorder()
+
+    # Populate the caches with non-zero data and keep separate refs so
+    # we can inspect the underlying buffers after stop() reassigns the
+    # cache attributes.
+    cached_resampled = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
+    cached_no_resample = np.array([0.5, 0.6, 0.7], dtype=np.float32)
+    rec._cached_resampled = cached_resampled
+    rec._cached_no_resample_arr = cached_no_resample
+    assert np.any(cached_resampled != 0), "test setup: _cached_resampled must start non-zero"
+    assert np.any(cached_no_resample != 0), "test setup: _cached_no_resample_arr must start non-zero"
+
+    # Pretend a recording is in progress so stop() doesn't early-return
+    # at the ``if not self._recording_event.is_set()`` guard.  No real
+    # audio stream / worker thread is started, so _teardown_stream /
+    # _stop_audio_worker / _stop_event_worker are no-ops (the stream is
+    # None and the workers were never started).
+    rec._recording_event.set()
+
+    # Empty buffer → stop() takes the early-return path at
+    # ``if not self._buffer`` (the first of the two stop() code paths).
+    # ``_secure_clear_caches()`` must be called either way.
+    rec.stop()
+
+    # G4-H-06: the underlying numpy buffers must be zeroed in-place
+    # (not just dereferenced).  If ``stop()`` had only reassigned the
+    # cache attributes, these separate refs would still hold the
+    # original non-zero data.
+    assert np.all(cached_resampled == 0), (
+        "Recorder.stop() must zero _cached_resampled in-place via "
+        "_secure_clear_array before replacing it (G4-H-06 / "
+        "SEC-audit-008). Pre-fix: the cache was reassigned to a fresh "
+        "empty array but the previous session's audio lingered in the "
+        "old numpy buffer until the allocator reused it."
+    )
+    assert np.all(cached_no_resample == 0), (
+        "Recorder.stop() must zero _cached_no_resample_arr in-place via "
+        "_secure_clear_array before replacing it (G4-H-06 / "
+        "SEC-audit-008)."
+    )
+    # And the cache attributes themselves must be reset to their
+    # empty/None defaults.
+    assert rec._cached_resampled.size == 0
+    assert rec._cached_no_resample_arr is None
+
+
+def test_stop_clears_cached_arrays_on_main_path():
+    """G4-H-06 (companion): the MAIN stop() path (when ``_buffer`` is
+    non-empty and audio is concatenated) must also zero the cached
+    arrays in-place.
+
+    The first test (``test_stop_clears_cached_arrays``) exercises the
+    empty-buffer early-return path.  This test exercises the main path
+    by populating ``_buffer`` with real chunks so ``np.concatenate`` runs.
+    """
+    rec = _make_recorder()
+
+    cached_resampled = np.array([0.1, 0.2], dtype=np.float32)
+    cached_no_resample = np.array([0.3, 0.4, 0.5], dtype=np.float32)
+    rec._cached_resampled = cached_resampled
+    rec._cached_no_resample_arr = cached_no_resample
+    rec._recording_event.set()
+
+    # Populate the buffer so stop() takes the main path (concatenate +
+    # secure_clear_array_background + _secure_clear_caches).
+    rec._buffer.append(np.array([[1.0], [2.0]], dtype=np.float32))
+    rec._buffer.append(np.array([[3.0]], dtype=np.float32))
+
+    rec.stop()
+
+    assert np.all(cached_resampled == 0), "Recorder.stop() main path must zero _cached_resampled in-place (G4-H-06)."
+    assert np.all(cached_no_resample == 0), (
+        "Recorder.stop() main path must zero _cached_no_resample_arr in-place (G4-H-06)."
+    )
+
+
+def test_discard_clears_cached_arrays():
+    """G4-H-06 (companion): ``discard()`` must also zero the cached
+    arrays in-place via ``_secure_clear_caches()``."""
+    rec = _make_recorder()
+
+    cached_resampled = np.array([0.8, 0.9], dtype=np.float32)
+    cached_no_resample = np.array([0.1, 0.2, 0.3], dtype=np.float32)
+    rec._cached_resampled = cached_resampled
+    rec._cached_no_resample_arr = cached_no_resample
+
+    # discard() doesn't check _recording_event — it just clears it.
+    rec.discard()
+
+    assert np.all(cached_resampled == 0), "Recorder.discard() must zero _cached_resampled in-place (G4-H-06)."
+    assert np.all(cached_no_resample == 0), "Recorder.discard() must zero _cached_no_resample_arr in-place (G4-H-06)."

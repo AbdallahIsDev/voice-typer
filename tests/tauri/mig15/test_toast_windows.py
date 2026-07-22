@@ -323,16 +323,15 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         release cycle, then the alias is dropped.
         """
         src = _read(WS_RS)
-        # The match arm form (from ws.rs:123-126):
-        #   let emit_name = match event_type {
-        #       "relaunch_electron" => "relaunch_app",
-        #       other => other,
-        #   };
-        assert "other => other" in src, (
-            "ws.rs must have an `other => other` pass-through arm in the "
-            "emit_name match — this is what carries the legacy "
-            "'electron_notification' event name through unchanged (so old "
-            "UI listeners keep working during the rolling upgrade)."
+        # PVT-2 cleanup: the relaunch_electron → relaunch_app rename arm
+        # was REMOVED (the Python side now publishes relaunch_app directly,
+        # and main.rs has a listener for it). The match arm was replaced
+        # with a direct assignment:
+        #   let emit_name = event_type;
+        assert "let emit_name = event_type;" in src, (
+            "ws.rs must assign `let emit_name = event_type;` directly (PVT-2 "
+            "cleanup removed the relaunch_electron → relaunch_app rename arm). "
+            "The electron_notification → notification alias is handled separately."
         )
 
     def test_ws_rs_emits_specific_event_with_emit_name(self):

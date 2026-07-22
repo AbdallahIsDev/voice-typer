@@ -337,8 +337,8 @@ class TestSettingsWindowIntegration:
             app.restart_app()
 
         assert pushed, "restart_app must push at least one event"
-        assert any(m.get("type") == "relaunch_electron" for m in pushed), (
-            f"restart_app must push a relaunch_electron event; got: {pushed}"
+        assert any(m.get("type") == "relaunch_app" for m in pushed), (
+            f"restart_app must push a relaunch_app event; got: {pushed}"
         )
 
     def test_model_change_uses_config_device(self, app, monkeypatch):
