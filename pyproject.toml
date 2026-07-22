@@ -299,9 +299,20 @@ baseline = "pyrefly-baseline.json"
 # win32com.client, qwen_asr — all platform-only / optional, already in
 # `pyrefly-baseline.json`). With the baseline applied, missing-imports
 # drop to 0.
+#
+# PVT-G5-020 (sub): the hardcoded `.venv/lib/python3.12/site-packages`
+# entry was REMOVED from `search-path`. Rationale: pyrefly 1.x
+# auto-discovers the active interpreter's site-packages via
+# `sysconfig.get_paths()` when the active interpreter is a real venv
+# (and the `python-version = "3.12"` setting above pins the language
+# level).  The hard-coded relative path was fragile — it broke on
+# non-3.12 interpreters, on CI runners where the venv lives at a
+# different relative location, and on contributor machines using
+# `.venv`-less setups (uv/pipx/pip install -e .).  Only the local
+# stubs directory is kept (it ships with the repo and is the single
+# source of truth for platform-only deps that pyrefly can't probe).
 search-path = [
     "voice_typer/stubs",
-    ".venv/lib/python3.12/site-packages",
 ]
 
 # TEST-010: mutmut configuration for mutation testing.

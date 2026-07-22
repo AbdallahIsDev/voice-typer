@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 node_modules/
+.agents/
 
 # DEAD-003: Electron/Vite build outputs — never commit these.
 # They're regenerated on every `npm run build` and bloat the repo.
@@ -96,6 +97,14 @@ comprehensive-review.md
 src-tauri/bin/
 src-tauri/resources/native/
 src-tauri/resources/prewarm-*
+src-tauri/icons/icon.ico
+src-tauri/.cargo/
+cargo-check-log.txt
+src-tauri/gen/
+src-tauri/icons/
+.sessions/
+MERGE_CONTEXT_BRIEF.md
+-*
 src-tauri/icons/icon.ico
 src-tauri/.cargo/
 cargo-check-log.txt

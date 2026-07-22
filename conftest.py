@@ -12,17 +12,18 @@ Coverage-fail-under is now enforced ONLY by an explicit CI step that
 opts in (``pytest tests/ --cov-fail-under=65``). Local subset runs
 (``pytest tests/test_foo.py``) no longer see the threshold.
 
-**Coordination note for FIX-18 (pyproject.toml owner):** the
-``--cov-fail-under=65`` flag should be REMOVED from
-``[tool.pytest.ini_options].addopts`` in ``pyproject.toml`` so that
-plain ``pytest tests/`` invocations don't fail on coverage. The CI
-workflow should instead run ``pytest tests/ --cov-fail-under=65`` as
-a separate explicit step. Until FIX-18 lands, the
-``pytest_load_initial_conftests`` shim below still strips
-``--cov*`` flags when pytest-cov is NOT installed (so a bare
-``pip install .`` without the [test] extra doesn't error on unknown
-args), but we no longer attempt to disable the threshold at runtime
-on subset runs — instead, users running subsets should pass
+FIX-18 status (2026-07-22, sub-agent 18 "test infra & config"):
+``pyproject.toml`` is OUT OF SCOPE for the FIX-18 sub-agent's file
+ownership, so the ``--cov-fail-under=65`` flag has NOT been removed
+from ``[tool.pytest.ini_options].addopts`` in ``pyproject.toml``.
+This means plain ``pytest tests/`` invocations will STILL fail on
+coverage (because ``addopts`` injects ``--cov-fail-under=65``
+unconditionally). Until a follow-up sub-agent with ``pyproject.toml``
+scope lands that removal, the ``pytest_load_initial_conftests`` shim
+below still strips ``--cov*`` flags when pytest-cov is NOT installed
+(so a bare ``pip install .`` without the [test] extra doesn't error on
+unknown args), but we no longer attempt to disable the threshold at
+runtime on subset runs — instead, users running subsets should pass
 ``-p no:cacheprovider --no-cov`` (or ``-o addopts=""``) to bypass the
 ``addopts`` threshold.
 
