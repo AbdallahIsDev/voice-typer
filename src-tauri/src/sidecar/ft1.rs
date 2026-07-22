@@ -1,12 +1,21 @@
 //! FT-1 supervisor: respawn + bubble-level coalesce (ADR-0020 §9 + §10).
 
 use crate::state::SidecarState;
+// G4-H-27 (session 4): poison-safe Mutex helper. Replacing
+// `state.X.lock().unwrap()` with `mutex_lock(&state.X)` so a poisoned
+// mutex (a prior panic while holding the lock) doesn't re-panic and
+// brick the FT-1 resilience layer.
+use crate::state::lock as mutex_lock;
 use crate::sidecar::spawn::spawn_sidecar_and_get_port;
 use crate::sidecar::ws::reconnect_ws;
 use crate::util::{generate_token, FT1_BACKOFF_MS, PRE_RESTART_DELAY_MS};
+// PVT-G5-033: reuse the migration module's atomic write helper so the
+// restart counter is durable against mid-write crashes (see
+// `write_ft1_restart_counter` below).
+use crate::migrate::atomic_write_bytes;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 use tauri::Emitter;
 
@@ -18,10 +27,56 @@ use tauri::Emitter;
 /// masking a permanently-broken install (missing binary, corrupt env).
 const FT1_MAX_RESTART_ATTEMPTS: u32 = 3;
 
+/// G4-H-28: stale-count cutoff. The disk-persisted FT-1 restart
+/// counter now carries a Unix timestamp (seconds). If the timestamp
+/// is older than this many seconds, the count is treated as 0 — a
+/// stale counter from a previous session (e.g., the user had 2 FT-1
+/// failures last week) doesn't trip the circuit breaker on a single
+/// new crash. 10 minutes is long enough to catch a tight flap loop
+/// (3 crashes within 10 minutes is clearly a broken install) but
+/// short enough to not accumulate across sessions.
+const FT1_COUNTER_STALE_SECS: u64 = 10 * 60;
+
+/// G4-H-28 helper: current Unix time in seconds. Returns 0 on
+/// pre-epoch clock skew (won't happen in practice but the
+/// `duration_since` API requires handling it).
+fn now_unix_secs() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// PVT-G5-051: parse the FT-1 restart counter from a JSON value with
+/// a SATURATING cast. Previously the reader used `c as u32` after
+/// `as_u64()`, which silently truncates any u64 value above `u32::MAX`
+/// (e.g., a corrupted counter file with an absurdly large `count`
+/// field would wrap to a small number, bypassing the circuit breaker).
+/// Saturating at `u32::MAX` keeps the value well above
+/// `FT1_MAX_RESTART_ATTEMPTS` (3) so the breaker trips correctly.
+///
+/// Extracted as a `pub(crate)` helper so unit tests can verify the
+/// saturating behavior without touching the filesystem.
+pub(crate) fn parse_ft1_counter(v: &serde_json::Value) -> u32 {
+    v.get("count")
+        .and_then(|c| c.as_u64())
+        .map(|c| u32::try_from(c).unwrap_or(u32::MAX))
+        .unwrap_or(0)
+}
+
 /// CR-29: read the disk-persisted FT-1 restart counter. Returns 0 on
 /// any error (missing file, parse error, etc.) — fail-open is safer
 /// than blocking recovery on a transient disk issue.
-fn read_ft1_restart_counter(_state: &Arc<SidecarState>) -> u32 {
+///
+/// PVT-G5-087: dropped the unused `_state: &Arc<SidecarState>`
+/// parameter — the function only reads a disk file and never touches
+/// the shared state. All call sites updated.
+///
+/// G4-H-28: the counter file now carries a `ts` field (Unix seconds).
+/// If `ts` is older than `FT1_COUNTER_STALE_SECS` (10 minutes), the
+/// count is treated as 0 — a stale count from a previous session
+/// doesn't trip the circuit breaker on a single new crash.
+fn read_ft1_restart_counter() -> u32 {
     let path = match crate::platform::paths::config_dir_from_env(
         std::env::var("HOME").ok().as_deref(),
         std::env::var("APPDATA").ok().as_deref(),
@@ -37,7 +92,27 @@ fn read_ft1_restart_counter(_state: &Arc<SidecarState>) -> u32 {
                 Ok(v) => v,
                 Err(_) => return 0,
             };
-            v.get("count").and_then(|c| c.as_u64()).map(|c| c as u32).unwrap_or(0)
+            // G4-H-28: stale-count cutoff. If the timestamp is missing
+            // (legacy file from before this fix) or older than
+            // FT1_COUNTER_STALE_SECS, treat the count as 0.
+            let ts = v.get("ts").and_then(|t| t.as_u64()).unwrap_or(0);
+            if ts == 0 {
+                // No timestamp → legacy file. Assume fresh (count=0) to
+                // avoid penalizing users who upgrade mid-session.
+                return 0;
+            }
+            let now = now_unix_secs();
+            if now < ts || now - ts > FT1_COUNTER_STALE_SECS {
+                log::info!(
+                    "[FT-1] restart counter stale (ts={}, now={}, age={}s > {}s) — resetting to 0",
+                    ts,
+                    now,
+                    now.saturating_sub(ts),
+                    FT1_COUNTER_STALE_SECS
+                );
+                return 0;
+            }
+            parse_ft1_counter(&v)
         }
         Err(_) => 0,
     }
@@ -46,7 +121,34 @@ fn read_ft1_restart_counter(_state: &Arc<SidecarState>) -> u32 {
 /// CR-29: write the disk-persisted FT-1 restart counter. Best-effort
 /// — if the write fails, log and continue (the counter is a safety
 /// gate, not a correctness requirement).
-fn write_ft1_restart_counter(_state: &Arc<SidecarState>, count: u32) {
+///
+/// PVT-G5-087: dropped the unused `_state: &Arc<SidecarState>`
+/// parameter — the function only writes a disk file and never touches
+/// the shared state. All call sites updated.
+///
+/// PVT-G5-033: switched from non-atomic `std::fs::write` (truncate-
+/// then-write) to `atomic_write_bytes` (temp + fsync + rename). A
+/// crash mid-write previously could leave a partially-written
+/// counter file that fails to parse on next launch — `read_ft1_restart_counter`
+/// then returns 0, silently bypassing the circuit breaker. Atomic
+/// write guarantees the counter is either fully-old or fully-new.
+///
+/// PVT-3 (session 1): promoted from `fn` to `pub(crate) fn` so
+/// `main.rs` can reset the counter to 0 at the start of each fresh
+/// app launch (in `.setup`, before `spawn_sidecar_and_get_port`).
+/// Without that reset, 3 consecutive bad cold-starts (transient AV
+/// quarantine, slow disk, etc.) brick the install permanently — the
+/// 4th launch reads `count: 3`, trips the breaker, emits `ft1_failed`,
+/// and the user has no recovery short of manually deleting
+/// `ft1_restart_counter.json`.
+///
+/// G4-H-28 (session 4): the counter file now includes a `ts` field
+/// (Unix seconds) so `read_ft1_restart_counter` can detect + ignore
+/// stale counts from previous sessions. `write_ft1_restart_counter(0)`
+/// is called both on successful FT-1 reconnect (the existing CR-29
+/// path) AND on successful cold start (the new G4-H-28 path) so the
+/// counter doesn't accumulate stale failures across sessions.
+pub(crate) fn write_ft1_restart_counter(count: u32) {
     let path = match crate::platform::paths::config_dir_from_env(
         std::env::var("HOME").ok().as_deref(),
         std::env::var("APPDATA").ok().as_deref(),
@@ -56,8 +158,9 @@ fn write_ft1_restart_counter(_state: &Arc<SidecarState>, count: u32) {
         p if p.as_os_str().is_empty() => return,
         p => p.join("ft1_restart_counter.json"),
     };
-    let payload = json!({"count": count});
-    if let Err(e) = std::fs::write(&path, payload.to_string()) {
+    // G4-H-28: include `ts` so future reads can detect staleness.
+    let payload = json!({"count": count, "ts": now_unix_secs()});
+    if let Err(e) = atomic_write_bytes(&path, payload.to_string().as_bytes()) {
         log::warn!("[FT-1] failed to persist restart counter to {:?}: {}", path, e);
     }
 }
@@ -86,7 +189,7 @@ pub(crate) async fn ft1_respawn(
     // a `ft1_failed` event so the UI can surface the error instead of
     // silently restart-looping forever. Counter is reset on successful
     // `ft1_reconnected` event.
-    let restart_count = read_ft1_restart_counter(state);
+    let restart_count = read_ft1_restart_counter();
     if restart_count >= FT1_MAX_RESTART_ATTEMPTS {
         log::error!(
             "[FT-1] circuit breaker tripped — restart count {} >= max {}. Stopping FT-1 supervisor.",
@@ -109,13 +212,23 @@ pub(crate) async fn ft1_respawn(
     }
     // Increment counter before attempting restart — will be reset on
     // successful reconnect.
-    write_ft1_restart_counter(state, restart_count + 1);
-    // Scope the respawn body so we can clear the flag on every exit path
-    // (including the `app.restart()` paths, which are `-> !` so the
-    // clear is unreachable but harmless; the Ok() paths need it).
-    let result = ft1_respawn_inner(app, state).await;
-    state.respawn_in_progress.store(false, Ordering::SeqCst);
-    result
+    write_ft1_restart_counter(restart_count + 1);
+    // PVT-G5-031: DO NOT clear `respawn_in_progress` here unconditionally.
+    // The inner function `ft1_respawn_inner` is responsible for clearing
+    // the flag on its success path (line ~269, before `return Ok(())`)
+    // so that a fast-double-crash disconnect detected by the freshly-
+    // spawned WS reader can immediately acquire the flag and start its
+    // own respawn. The circuit-breaker path above (line ~96) clears the
+    // flag itself before returning Err. The `app.restart()` exhaustion
+    // path at the bottom of `ft1_respawn_inner` is `-> !` (never
+    // returns), so no clear is needed there.
+    //
+    // The previous unconditional clear here was a double-clear race:
+    // if the inner had ALREADY cleared the flag (success path) and a
+    // concurrent reader had already acquired it for a NEW respawn,
+    // this stale clear would clobber the new owner's flag — letting a
+    // THIRD concurrent respawn slip through the serialization gate.
+    ft1_respawn_inner(app, state).await
 }
 
 pub(crate) async fn ft1_respawn_inner(
@@ -158,7 +271,7 @@ pub(crate) async fn ft1_respawn_inner(
         // the mic handle, IPC port, and native hotkey binary child still
         // held. After 5 exhausted retries, up to 5 zombie Python sidecars
         // could accumulate. See CR-3 in comprehensive-review.md.
-        let old_child = state.child.lock().unwrap().take();
+        let old_child = mutex_lock(&state.child).take();
         if let Some(old) = old_child {
             log::info!("[FT-1] killing old sidecar before respawn");
             let _ = old.kill_tree().await;
@@ -189,7 +302,7 @@ pub(crate) async fn ft1_respawn_inner(
                 // recoverable — the OS may reap the zombie on its own
                 // once the parent exits, but we want it gone NOW so
                 // the new sidecar can re-acquire the mic).
-                let prev = state.child.lock().unwrap().take();
+                let prev = mutex_lock(&state.child).take();
                 if let Some(prev) = prev {
                     log::info!("[FT-1] killing previous sidecar handle before respawn install");
                     if let Err(e) = prev.kill_tree().await {
@@ -226,7 +339,7 @@ pub(crate) async fn ft1_respawn_inner(
                 // guard, then await the kill outside the critical
                 // section (CR-28).
                 let old_handle = {
-                    let mut child_guard = state.child.lock().unwrap();
+                    let mut child_guard = mutex_lock(&state.child);
                     let old = child_guard.take();
                     *child_guard = Some(child);
                     old
@@ -236,7 +349,7 @@ pub(crate) async fn ft1_respawn_inner(
                     let _ = old.kill_tree().await;
                 }
                 {
-                    let mut token_guard = state.token.lock().unwrap();
+                    let mut token_guard = mutex_lock(&state.token);
                     *token_guard = new_token.clone();
                 }
                 // CR-2: rotate the event receiver so the next
@@ -250,7 +363,7 @@ pub(crate) async fn ft1_respawn_inner(
                     Ok(()) => {
                         log::info!("[FT-1] respawn succeeded on attempt {}", attempt + 1);
                         // CR-29: reset the restart counter on success.
-                        write_ft1_restart_counter(state, 0);
+                        write_ft1_restart_counter(0);
                         // Emit a Tauri event so the UI can clear its
                         // "reconnecting…" banner.
                         let _ = app.emit("ft1_reconnected", json!({}));
@@ -275,7 +388,7 @@ pub(crate) async fn ft1_respawn_inner(
                         // continuing to the next retry iteration,
                         // otherwise it would be orphaned when the next
                         // iteration overwrites state.child.
-                        let orphan = state.child.lock().unwrap().take();
+                        let orphan = mutex_lock(&state.child).take();
                         if let Some(c) = orphan {
                             log::info!("[FT-1] killing respawned sidecar after WS reconnect failure");
                             let _ = c.kill_tree().await;
@@ -338,6 +451,92 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
     use tokio::sync::Mutex as AsyncMutex;
+
+    // ── PVT-G5-051: parse_ft1_counter saturating cast ──────────────
+
+    #[test]
+    fn test_parse_ft1_counter_normal_value() {
+        // A normal count value parses unchanged.
+        let v = json!({"count": 2u32});
+        assert_eq!(parse_ft1_counter(&v), 2);
+    }
+
+    #[test]
+    fn test_parse_ft1_counter_zero() {
+        // Zero is the fail-open default and the post-success reset value.
+        let v = json!({"count": 0u32});
+        assert_eq!(parse_ft1_counter(&v), 0);
+    }
+
+    #[test]
+    fn test_parse_ft1_counter_missing_count_field() {
+        // No "count" key → return 0 (fail-open).
+        let v = json!({"other": "metadata"});
+        assert_eq!(parse_ft1_counter(&v), 0);
+    }
+
+    #[test]
+    fn test_parse_ft1_counter_non_numeric_count() {
+        // A non-numeric count (string, bool, object, array) → as_u64()
+        // returns None → return 0 (fail-open).
+        assert_eq!(parse_ft1_counter(&json!({"count": "three"})), 0);
+        assert_eq!(parse_ft1_counter(&json!({"count": true})), 0);
+        assert_eq!(parse_ft1_counter(&json!({"count": [1, 2, 3]})), 0);
+        assert_eq!(parse_ft1_counter(&json!({"count": {"nested": 1}})), 0);
+        assert_eq!(parse_ft1_counter(&json!({"count": null})), 0);
+    }
+
+    #[test]
+    fn test_parse_ft1_counter_float_truncates() {
+        // `as_u64()` returns None for floats — JSON numbers are parsed
+        // as f64 by serde_json::Value, and `as_u64()` only succeeds for
+        // integer-valued numbers. A 1.5 count is malformed → return 0.
+        // (This matches the pre-PVT-G5-051 behavior — the saturating
+        // cast only kicks in for integer values that overflow u32.)
+        let v = json!({"count": 1.5f64});
+        assert_eq!(parse_ft1_counter(&v), 0);
+    }
+
+    #[test]
+    fn test_parse_ft1_counter_u32_max_passthrough() {
+        // u32::MAX exactly fits in u32 — passes through unchanged.
+        let v = json!({"count": u32::MAX as u64});
+        assert_eq!(parse_ft1_counter(&v), u32::MAX);
+    }
+
+    #[test]
+    fn test_parse_ft1_counter_saturates_above_u32_max() {
+        // PVT-G5-051 core: a corrupted counter with a u64 value above
+        // u32::MAX must SATURATE at u32::MAX (not truncate to a small
+        // number via `c as u32`, which would bypass the circuit
+        // breaker). u32::MAX >> FT1_MAX_RESTART_ATTEMPTS (3) so the
+        // breaker trips correctly.
+        let v = json!({"count": u64::from(u32::MAX) + 1});
+        assert_eq!(
+            parse_ft1_counter(&v),
+            u32::MAX,
+            "value above u32::MAX must saturate (not truncate)"
+        );
+
+        // An absurdly large value also saturates.
+        let v = json!({"count": u64::MAX});
+        assert_eq!(parse_ft1_counter(&v), u32::MAX);
+    }
+
+    #[test]
+    fn test_parse_ft1_counter_saturating_trips_circuit_breaker() {
+        // The whole point of PVT-G5-051: a corrupted counter value
+        // must NOT silently bypass the circuit breaker. Verify the
+        // saturating result is well above FT1_MAX_RESTART_ATTEMPTS.
+        let v = json!({"count": u64::MAX});
+        let parsed = parse_ft1_counter(&v);
+        assert!(
+            parsed >= FT1_MAX_RESTART_ATTEMPTS,
+            "saturated counter ({}) must trip the breaker (max={})",
+            parsed,
+            FT1_MAX_RESTART_ATTEMPTS
+        );
+    }
 
     // ── CR-13: bubble_level coalesce (ADR-0020 §9) ───────────────────
 

@@ -40,15 +40,16 @@
 //!
 //! # Module layout
 //!
-//! This file is **wiring-only** (~200 lines): app builder, plugin
+//! This file is **wiring-only** (~280 lines): app builder, plugin
 //! registration, `.setup` glue, `generate_handler!` list, and the
 //! single-instance gate. All real logic lives in focused modules:
 //!
-//! - `state` — `SidecarState`, `SidecarHandle`, `PendingMap`, `WsWriterTx`
+//! - `state` — `SidecarState`, `SidecarHandle`, `PendingMap`, `WsWriterTx`,
+//!   `shutdown_sidecar_for_exit` (PVT-G5-007)
 //! - `util` — ADR-0020 constants, `generate_token`, `hex`, `now_timestamp`
 //! - `sidecar::spawn` — spawn variants + stdout handshake (§1 + §4.1 + §14)
 //! - `sidecar::ft1` — FT-1 supervisor + bubble coalesce predicate (§9 + §10)
-//! - `sidecar::ws` — WebSocket reconnect + reader/writer tasks (§1 + §9 + §10)
+//! - `sidecar::ws` — WebSocket reconnect + reader/writer tasks + heartbeat (§1 + §9 + §10)
 //! - `commands::sidecar_cmds` — `dispatch`, `paste_text`, `shutdown_sidecar` (§6.2 + §7 + §10)
 //! - `commands::export` — `export_history`, `export_vocabulary`, CSV helpers (§6 + MIG-1.1)
 //! - `commands::bubble` — bubble window commands (§9 + MIG-1.2)
@@ -67,7 +68,10 @@ mod util;
 
 use std::sync::Arc;
 
-use tauri::{Manager, WindowEvent};
+// PVT-2 (session 1) + PVT-G5-007 (session 5): need `Listener` for
+// `app.listen("relaunch_app", ...)` and `RunEvent` for the
+// `.run(callback)` exit handler.
+use tauri::{Listener, Manager, RunEvent, WindowEvent};
 
 use commands::bubble::{
     bubble_emit_state, bubble_hide_complete, bubble_move_by, bubble_resize,
@@ -89,15 +93,29 @@ use sidecar::spawn::spawn_sidecar_and_get_port;
 use sidecar::ws::reconnect_ws;
 use state::SidecarState;
 use std::sync::Mutex;
+// PVT-G5-007: SHUTDOWN_ACK_TIMEOUT_MS bounds the force-kill backstop
+// wait in the RunEvent::Exit handler. PVT-G5-034: Ordering is used
+// for the post-spawn shutting_down re-check.
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
+// PVT-G5-007: SHUTDOWN_ACK_TIMEOUT_MS bounds the force-kill backstop
+// wait in the RunEvent::Exit handler.
+use util::SHUTDOWN_ACK_TIMEOUT_MS;
 use tokio::sync::Mutex as AsyncMutex;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64};
 
 // Re-export for the `tauri::generate_handler!` macro. The macro expects
 // the command fn names to be in scope at the call site — the `use` above
 // handles that. The state struct + atomics are needed for the `.manage()`
 // call below.
 fn main() {
+    // FA8-retry / PVT-G5-007 / PVT-G5-083: install the panic hook BEFORE
+    // the file logger so panics during logger init are still captured
+    // (the hook falls back to eprintln if the global logger isn't set
+    // yet). The hook is exported by `platform::logging` (added by
+    // FA8-retry).
+    crate::platform::logging::install_panic_hook();
+
     // ADR-0020 §11: init the rotating file logger BEFORE the Tauri
     // builder runs so early startup errors are captured. Falls back to
     // `env_logger` (stderr-only) if file init fails — non-fatal.
@@ -180,25 +198,70 @@ fn main() {
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
-            // ADR-0020 §8: log the resolved config_dir so users/devs
-            // can find their logs / history.db / models without reading
-            // code. (The same path is used by the Python sidecar via
-            // `voice_typer/server/_paths.py`.)
+            // PVT-G5-085: log only the basename — the absolute path can
+            // contain the user's home directory / username (PII leak in
+            // shared logs / crash reports). The full path is still
+            // resolved + used by the rest of the setup; we just don't
+            // emit it to the log sink.
             log::info!(
-                "[SETUP] config_dir resolved to: {}",
-                config_dir(&app_handle).display()
+                "[SETUP] config_dir resolved to: <redacted>/{}",
+                config_dir(&app_handle)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "voice-typer".into())
             );
             // ADR-0020 §8: one-time Electron userData → Tauri config_dir
             // migration, BEFORE the sidecar spawns (so the sidecar boots
             // against already-migrated data and never hits a write
             // conflict / fresh-empty init). Idempotent + non-destructive.
             migrate::migrate_electron_userdata(&app_handle);
+            // PVT-2 (session 1): Listen for the `relaunch_app` event
+            // (renamed from Python's `relaunch_electron` in
+            // sidecar/ws.rs) and trigger a full app restart. Previously
+            // this event was emitted into the void — the user's
+            // "Restart" click was silently demoted to "respawn the
+            // Python backend only" because no Rust listener subscribed
+            // to the renamed event.
+            let restart_handle = app.handle().clone();
+            app.listen("relaunch_app", move |_event| {
+                log::info!(
+                    "[RESTART] relaunch_app event received — calling app.restart()"
+                );
+                // Send a relaunch_ack WS frame back so Python's
+                // _wait_for_relaunch_ack short-circuits cleanly instead
+                // of waiting the full 2s timeout. (The ack is sent via
+                // the WS bridge's dispatch_fire_and_forget path — for
+                // now, just restart; Python's 2s timeout will fire
+                // harmlessly.)
+                restart_handle.restart();
+            });
             // ADR-0020 §6.5: create the system tray (rendered from the
             // Python sidecar's `tray_menu` events). Failure is
             // non-fatal — the app still runs without a tray.
             if let Err(e) = crate::tray::create_tray(app.handle()) {
                 log::error!("[TRAY] init failed: {}", e);
             }
+            // PVT-3 (session 1): reset the FT-1 restart counter to 0 at
+            // the start of every fresh app launch, BEFORE
+            // `spawn_sidecar_and_get_port` (which is called inside the
+            // `tauri::async_runtime::spawn` block below). The counter
+            // is incremented by `ft1_respawn` on each sidecar-restart
+            // attempt and reset to 0 only on successful `reconnect_ws`.
+            // Without this reset, 3 consecutive bad cold-starts
+            // (transient AV quarantine, slow disk, missing binary on a
+            // re-install) brick the install permanently: the 4th launch
+            // reads `count: 3`, trips the breaker in `ft1_respawn`,
+            // emits `ft1_failed`, and the user has no recovery path
+            // short of manually deleting `ft1_restart_counter.json`.
+            // Resetting here means the counter only ever counts FT-1
+            // retries WITHIN a single session — which is the original
+            // CR-29 intent.
+            //
+            // G4-H-28 (session 4): the counter now also carries a `ts`
+            // field so stale counts from prior sessions don't trip the
+            // breaker — but we still reset here so the in-session
+            // counter starts at 0 (matching the original CR-29 intent).
+            crate::sidecar::ft1::write_ft1_restart_counter(0);
             // Spawn the sidecar + WS bridge in a background tokio task.
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();
@@ -209,6 +272,24 @@ fn main() {
 
                 match spawn_sidecar_and_get_port(&app_handle, &token).await {
                     Ok((port, child, exit_rx)) => {
+                        // PVT-G5-034: re-check shutting_down AFTER spawn
+                        // returns — if the user quit the app while we
+                        // were waiting for server_started (up to 30s on
+                        // a cold start), the `RunEvent::Exit` handler
+                        // already set the flag but found no child to
+                        // kill (state.child was still None). Kill the
+                        // freshly-spawned sidecar here so it doesn't
+                        // outlive the host, then bail before installing
+                        // it into state (which would fool FT-1 into
+                        // thinking the sidecar is healthy).
+                        if state.shutting_down.load(Ordering::SeqCst) {
+                            log::info!(
+                                "[SETUP] shutting_down set during sidecar spawn — \
+                                 killing freshly-spawned sidecar"
+                            );
+                            let _ = child.kill_tree().await;
+                            return;
+                        }
                         *state.child.lock().unwrap() = Some(child);
                         // CR-2: store the sidecar's event receiver so
                         // shutdown_sidecar can poll for graceful exit.
@@ -234,10 +315,28 @@ fn main() {
             if let WindowEvent::CloseRequested { .. } = event {
                 match window.label() {
                     "main" => {
+                        // PVT-G5-032: on macOS the app stays alive when
+                        // the last window closes (standard macOS app
+                        // lifecycle — the tray / Dock keeps the process
+                        // running). Killing the sidecar here would
+                        // orphan the dictation engine while the app is
+                        // still alive in the menu bar. Only kill the
+                        // sidecar on Windows/Linux where app exit is
+                        // bound to last-window-close.
+                        if cfg!(target_os = "macos") {
+                            return;
+                        }
                         let app = window.app_handle().clone();
+                        // G4-H-01 (session 4): `shutdown_sidecar` now
+                        // takes a `window: tauri::Window` parameter
+                        // (CR-5-style main-window guard). Clone the
+                        // main window handle here so the spawned task
+                        // can pass it through the guard (the label is
+                        // "main" so the check passes).
+                        let main_window = window.clone();
                         tauri::async_runtime::spawn(async move {
                             let state: tauri::State<'_, Arc<SidecarState>> = app.state();
-                            let _ = shutdown_sidecar(app.clone(), state).await;
+                            let _ = shutdown_sidecar(app.clone(), state, main_window).await;
                         });
                     }
                     "bubble" => {
@@ -248,6 +347,49 @@ fn main() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        // PVT-G5-007 (session 5): split `.run(ctx)` into
+        // `.build(ctx)?.run(callback)` so we get a callback for
+        // `RunEvent::Exit` / `ExitRequested`. Without this, the sidecar
+        // is leaked when the host exits via `app.exit()` / quit-tray /
+        // Ctrl-C / SIGTERM — the `on_window_event` close handler only
+        // fires on user-initiated window close, NOT on these other
+        // exit paths.
+        //
+        // G4-M-65 (session 4): replace `.expect("error while running
+        // tauri application")` with a structured error handler so a
+        // tauri::Builder::build failure logs a [FATAL] line to the
+        // rotating file logger (already initialized above) AND stderr
+        // before exiting with code 1. The prior `.expect()` produced
+        // an unstructured panic message that bypassed `log::error!`
+        // entirely.
+        .build(tauri::generate_context!())
+        .unwrap_or_else(|e| {
+            eprintln!("[FATAL] tauri build failed: {e:?}");
+            log::error!("[FATAL] tauri build failed: {e:?}");
+            std::process::exit(1);
+        })
+        .run(|app_handle, event| match event {
+            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+                // Best-effort sidecar teardown. `shutdown_sidecar_for_exit`
+                // is idempotent (shutting_down swap) so it's safe to
+                // call from both ExitRequested and Exit, and also safe
+                // if the renderer's `shutdown_sidecar` command already
+                // ran. Wrapped in `block_on` + `tokio::time::timeout`
+                // so the run loop never hangs on a misbehaving sidecar
+                // (the helper self-limits to ~2s internally; the outer
+                // timeout is a safety backstop for the force-kill phase).
+                let sidecar_state = app_handle
+                    .state::<Arc<SidecarState>>()
+                    .inner()
+                    .clone();
+                tauri::async_runtime::block_on(async move {
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(SHUTDOWN_ACK_TIMEOUT_MS + 1000),
+                        crate::state::shutdown_sidecar_for_exit(&sidecar_state),
+                    )
+                    .await;
+                });
+            }
+            _ => {}
+        });
 }

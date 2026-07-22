@@ -121,12 +121,62 @@ pub(crate) async fn spawn_sidecar_release(
                         continue;
                     }
                     CommandEvent::Terminated(payload) => {
+                        // G4-M-61: kill the child before returning Err so
+                        // a sidecar that sent Terminated but didn't
+                        // actually exit doesn't leak as a zombie. The
+                        // Tauri shell-plugin child handle is single-use
+                        // after kill (consumes `child`), so we move it
+                        // out of the captured variable before the Err.
+                        // Best-effort: errors are logged but don't
+                        // replace the original spawn-failure error.
+                        //
+                        // PVT-G5-030 (session 5): also reap grandchildren
+                        // via `kill_process_tree` BEFORE `child.kill()`
+                        // so the root is still alive when we walk
+                        // `pgrep -P <pid>` (on Unix, killing the root
+                        // first would reparent the children to init and
+                        // break the descendant walk).
+                        //
+                        // NOTE: `tauri_plugin_shell::process::CommandChild::pid()`
+                        // returns `u32` directly (NOT `Option<u32>` —
+                        // unlike `tokio::process::Child::id()` in the
+                        // dev-mode path below). The shell-plugin child
+                        // always has a pid once spawned.
+                        let pid = child.pid();
+                        crate::state::kill_process_tree(pid);
+                        if let Err(kill_err) = child.kill() {
+                            log::warn!(
+                                "[SIDECAR] failed to kill child after Terminated event (best-effort): {}",
+                                kill_err
+                            );
+                        }
                         return Err(format!(
                             "sidecar terminated before server_started (code={:?})",
                             payload.code
                         ));
                     }
                     CommandEvent::Error(err) => {
+                        // G4-M-61: kill the child before returning Err.
+                        // Without this, the sidecar process leaks — the
+                        // shell-plugin CommandChild doesn't kill on Drop,
+                        // so a sidecar that errored at startup but is
+                        // still running would survive past the Err return.
+                        // Best-effort: kill errors are logged but don't
+                        // replace the original CommandEvent::Error.
+                        //
+                        // PVT-G5-030 (session 5): reap grandchildren
+                        // first.
+                        //
+                        // NOTE: same as the Terminated arm above —
+                        // `child.pid()` here is `u32`, not `Option<u32>`.
+                        let pid = child.pid();
+                        crate::state::kill_process_tree(pid);
+                        if let Err(kill_err) = child.kill() {
+                            log::warn!(
+                                "[SIDECAR] failed to kill child after CommandEvent::Error (best-effort): {}",
+                                kill_err
+                            );
+                        }
                         return Err(format!("sidecar command error: {err}"));
                     }
                     _ => continue,
@@ -154,7 +204,21 @@ pub(crate) async fn spawn_sidecar_release(
             }
         }
     }
-    let _ = child.kill();
+    let pid = child.pid();
+    // PVT-G5-030: reap grandchildren too — the bare `child.kill()` only
+    // kills the sidecar root, leaving grandchildren (native hotkey
+    // binary, model subprocesses) orphaned. Call `kill_process_tree`
+    // BEFORE `child.kill()` so the root is still alive when we walk
+    // `pgrep -P <pid>` (on Unix, killing the root first would reparent
+    // the children to init and break the descendant walk).
+    crate::state::kill_process_tree(pid);
+    // G4-M-61: log the kill error for visibility (mirrors the dev-mode
+    // path's kill-error logging below). The previous `let _ = child.kill();`
+    // silently dropped the kill error — a stuck sidecar that won't die
+    // was invisible in the log.
+    if let Err(e) = child.kill() {
+        log::warn!("[SIDECAR] failed to kill child after deadline: {}", e);
+    }
     Err(format!(
         "sidecar did not emit server_started within {}ms. stdout so far: {}",
         SERVER_STARTED_TIMEOUT_MS, stdout_buf
@@ -230,7 +294,18 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
             Err(_) => continue, // per-iteration timeout — retry until deadline
         }
     }
-    let _ = child.kill().await;
+    // PVT-G5-030: same fix as the release path — reap grandchildren
+    // before killing the root. `tokio::process::Child::id()` returns
+    // `Option<u32>` (None if the child has already been reaped).
+    let pid_opt = child.id();
+    if let Some(pid) = pid_opt {
+        crate::state::kill_process_tree(pid);
+    }
+    // G4-M-61: log the kill error for visibility (mirrors the release
+    // path's kill-error logging above).
+    if let Err(e) = child.kill().await {
+        log::warn!("[SIDECAR-DEV] failed to kill child after deadline: {}", e);
+    }
     Err(format!(
         "dev sidecar did not emit server_started within {}ms. stdout so far: {}",
         SERVER_STARTED_TIMEOUT_MS, stdout_buf

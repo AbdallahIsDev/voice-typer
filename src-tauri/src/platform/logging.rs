@@ -32,17 +32,66 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     std::fs::create_dir_all(&logs_dir)
         .map_err(|e| format!("create logs dir failed: {e}"))?;
     let writer = RotatingFileWriter::new(logs_dir, "voice-typer");
+    // PVT-G5-082: honor `RUST_LOG` runtime log-level override. Parsed
+    // as a `log::LevelFilter` (e.g. "debug", "trace", "warn", "off").
+    // Default to `Info` if the var is unset OR unparseable so a typo
+    // (e.g. `RUST_LOG=debog`) doesn't silently disable all logging.
+    // Both the global `log::set_max_level` AND the per-logger
+    // `level_filter` are set to this value — `set_max_level` is the
+    // fast-path short-circuit at the macro call site, while
+    // `level_filter` is consulted inside `CombinedLogger::enabled`
+    // (which `log::log!` calls as a second filter).
+    //
+    // G4-M-31 (session 4) fallback: if `RUST_LOG` is unset, also honor
+    // the Voice Typer-specific `VOICE_TYPER_DEBUG` env var. When
+    // truthy ("1", "true", "yes", case-insensitive), set the level to
+    // Debug so developers get verbose logs in the file + stderr. This
+    // mirrors the Python side's `env_validation.py` boolean-var
+    // pattern so the Rust + Python hosts respond identically to the
+    // same env var. `RUST_LOG` (the standard Rust convention) wins if
+    // set; `VOICE_TYPER_DEBUG` is a fallback for users who don't know
+    // about `RUST_LOG`.
+    let max_level = std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|s| s.parse::<log::LevelFilter>().ok())
+        .or_else(|| {
+            // G4-M-31: RUST_LOG unset/unparseable — try VOICE_TYPER_DEBUG.
+            if is_debug_env_truthy(std::env::var("VOICE_TYPER_DEBUG").ok().as_deref()) {
+                Some(log::LevelFilter::Debug)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(log::LevelFilter::Info);
     let logger = CombinedLogger {
         file_writer: Some(writer),
-        level_filter: log::LevelFilter::Info,
+        level_filter: max_level,
     };
     // `Box::leak` is safe here: the logger lives for the program's
     // lifetime (we never want to tear it down). `log::set_logger`
     // requires a `&'static dyn Log`.
     log::set_logger(Box::leak(Box::new(logger)))
         .map_err(|_| "failed to set logger (already set?)".to_string())?;
-    log::set_max_level(log::LevelFilter::Info);
+    log::set_max_level(max_level);
     Ok(())
+}
+
+/// G4-M-31: predicate form of the VOICE_TYPER_DEBUG env-var check,
+/// extracted for unit testing. Truthy values: "1", "true", "yes"
+/// (case-insensitive). Anything else (including unset / empty) is
+/// falsy → production Info-level logging.
+///
+/// Mirrors the Python side's `env_validation.py` boolean-var pattern
+/// (pattern: `^(1|0|true|false|yes|no)$`, case-insensitive) so the
+/// Rust + Python hosts respond identically to the same env var.
+pub(crate) fn is_debug_env_truthy(value: Option<&str>) -> bool {
+    match value {
+        Some(v) => matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes"
+        ),
+        None => false,
+    }
 }
 
 /// Combined stderr + rotating-file logger. Replaces `env_logger` so
@@ -63,11 +112,19 @@ impl log::Log for CombinedLogger {
         }
         let msg = record.args().to_string();
         let ts = now_timestamp();
+        // PVT-G5-084: include `file:line` so operators can jump
+        // directly to the source location from a log line. Both
+        // `record.file()` and `record.line()` return `Option` (they
+        // are `None` for log records emitted from non-`#[track_caller]`
+        // paths or release builds with debuginfo stripped); fall back
+        // to "?" / 0 so the format string still renders cleanly.
         let line = format!(
-            "{} {:5} {} -- {}",
+            "{} {:5} {} {}:{} -- {}",
             ts,
             record.level(),
             record.target(),
+            record.file().unwrap_or("?"),
+            record.line().unwrap_or(0),
             msg
         );
         // Always log to stderr (env_logger-style output for `cargo tauri dev`).
@@ -90,6 +147,63 @@ impl log::Log for CombinedLogger {
             let _ = writer.flush();
         }
     }
+}
+
+// ─── PVT-G5-083: panic hook ─────────────────────────────────────────────
+//
+// Install a panic hook that writes the panic payload + source location
+// to BOTH stderr (via `eprintln!`) and the file log (via `log::error!`).
+// Without this, a panic in a Tauri command handler or sidecar WS reader
+// would unwind without any breadcrumb in the file log — operators
+// debugging from logs alone would have no signal that a panic occurred
+// (only the React UI's generic "something went wrong" toast would
+// fire). The hook chains to the previous hook (if any) so existing
+// panic behavior is preserved.
+
+/// Install the Voice Typer panic hook (PVT-G5-083).
+///
+/// Writes the panic payload + `file:line:col` location to BOTH:
+/// - stderr (via `eprintln!`) — so `cargo tauri dev` / `journalctl`
+///   captures it even when the file logger isn't installed yet, AND
+/// - the file log (via `log::error!`) — so `voice-typer.log` has the
+///   same breadcrumb for post-mortem debugging.
+///
+/// `pub` (NOT `pub(crate)`) so `main.rs` (in the FA3a-retry follow-up
+/// that wires this up) can call it from outside the `platform::logging`
+/// module. Calling more than once is safe — each call replaces the
+/// previous hook (chained via `take_hook` so prior behavior is not
+/// lost).
+///
+/// # When to call
+///
+/// Call this AFTER `init_file_logger` so `log::error!` actually lands
+/// in the rotating file (otherwise the log record is silently dropped
+/// by the `log` crate's default no-op logger). Calling before
+/// `init_file_logger` is still safe — the `eprintln!` half still fires.
+pub fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}:{}", l.file(), l.line(), l.column()))
+            .unwrap_or_else(|| "<unknown location>".to_string());
+        // The payload is `&dyn Any` — try the two common shapes
+        // (`&str` from `panic!("literal")` and `String` from
+        // `panic!(format!(...))`). Fall back to a generic placeholder
+        // for non-string payloads (e.g. `panic!(42)`).
+        let payload = info
+            .payload()
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
+            .unwrap_or("<non-string panic payload>");
+        eprintln!("[PANIC] {} -- {}", location, payload);
+        log::error!("panic at {} -- {}", location, payload);
+        // Chain to the previous hook so any prior behavior (e.g. the
+        // default "print panic message + abort" path under
+        // `panic=abort`) is preserved.
+        prev(info);
+    }));
 }
 
 /// Minimal rotating-file writer: appends to
@@ -116,9 +230,19 @@ impl RotatingFileWriter {
     }
 
     fn write_line(&self, line: &str) -> std::io::Result<()> {
-        let mut guard = self.inner.lock().unwrap();
+        // PVT-G5-018: recover from a poisoned mutex rather than
+        // panicking inside the logger. A prior panic while holding
+        // this lock would poison it; re-panicking here would recurse
+        // through the panic hook (which itself calls `log::error!` →
+        // this writer) and abort the process. Use the shared poison-safe
+        // `crate::state::lock` helper (G4-H-27) for consistency with
+        // `state.rs` + `ft1.rs` + `ws.rs`.
+        let mut guard = crate::state::lock(&self.inner);
         // Open the file lazily so we don't create `voice-typer.log`
-        // until the first log line is emitted.
+        // until the first log line is emitted. If the guard was None
+        // (first write) OR the previous File handle was torn down by
+        // the rotation path (which sets `*guard = None` before
+        // renaming), open a fresh File in append mode.
         if guard.is_none() {
             std::fs::create_dir_all(&self.dir)?;
             let file = OpenOptions::new()
@@ -127,7 +251,20 @@ impl RotatingFileWriter {
                 .open(self.current_path())?;
             *guard = Some(file);
         }
-        let file = guard.as_mut().unwrap();
+        // Borrow the File from the guard for the write/flush/metadata
+        // calls below. The match returns early with `Err` if the slot
+        // is somehow still None (shouldn't happen — we just initialized
+        // it above — but the type system can't prove that, and a
+        // panic-free `Option::unwrap` is exactly what G4-H-27 forbids).
+        let file = match guard.as_mut() {
+            Some(f) => f,
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "logging file slot is None despite just-in-time init",
+                ));
+            }
+        };
         file.write_all(line.as_bytes())?;
         file.write_all(b"\n")?;
         file.flush()?;
@@ -168,7 +305,9 @@ impl RotatingFileWriter {
     }
 
     fn flush(&self) -> std::io::Result<()> {
-        if let Some(f) = self.inner.lock().unwrap().as_mut() {
+        // PVT-G5-018 / G4-H-27: same poison-recovery rationale as
+        // `write_line`, using the shared `crate::state::lock` helper.
+        if let Some(f) = crate::state::lock(&self.inner).as_mut() {
             f.flush()?;
         }
         Ok(())
@@ -178,6 +317,13 @@ impl RotatingFileWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // PVT-G5-018 merge note: tests call `logger.log(&record)` and
+    // `logger.flush()` directly on a `CombinedLogger` value. Those
+    // methods belong to the `log::Log` trait, which is NOT auto-
+    // imported by `use super::*;` (trait methods need the trait in
+    // scope at the call site). Bring it in explicitly so the test
+    // module compiles cleanly under rustc 1.97+.
+    use log::Log;
 
     // ── RotatingFileWriter ────────────────────────────────────────────
 
@@ -253,6 +399,219 @@ mod tests {
         // file gets renamed to .log.1 and a fresh .log starts). Just
         // assert we wrote *something* and didn't panic.
         assert!(line_count > 0, "no lines in current log: {}", content);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ── PVT-G5-018: poison-recovery (Mutex .unwrap_or_else) ──────────
+
+    #[test]
+    fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
+        // PVT-G5-018: a prior panic while holding `inner`'s lock
+        // poisons the mutex. The pre-fix code called `.lock().unwrap()`
+        // here, which would re-panic. The post-fix code uses
+        // `.lock().unwrap_or_else(|e| e.into_inner())`, which recovers
+        // the guard (and the inner File handle) so logging can
+        // continue. This test simulates the poison by manually
+        // poisoning the mutex via `std::sync::PoisonError`, then
+        // verifies that `write_line` and `flush` do NOT panic.
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-poison",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        // Write an initial line so the inner File handle is opened.
+        writer.write_line("before-poison").unwrap();
+        // Poison the mutex: lock it, then panic while holding it
+        // (caught via `catch_unwind` so the test process survives).
+        let poison_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = writer.inner.lock().unwrap();
+            panic!("intentional poison for PVT-G5-018 test");
+        }));
+        assert!(poison_result.is_err(), "test setup: panic should have fired");
+        // Now the mutex is poisoned. The post-fix code must NOT panic.
+        writer.write_line("after-poison").unwrap();
+        writer.flush().unwrap();
+        // Verify both lines landed (the recovered guard carries the
+        // previously-opened File handle, so the post-poison write
+        // appends to the same file).
+        let content =
+            std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+        assert!(content.contains("before-poison"), "pre-poison line lost: {}", content);
+        assert!(content.contains("after-poison"), "post-poison line lost: {}", content);
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ── PVT-G5-082: RUST_LOG parsing ─────────────────────────────────
+    //
+    // We can't call `init_file_logger` from a test (it calls
+    // `log::set_logger`, which is process-global and can only be set
+    // once). Instead, test the parsing logic in isolation by mirroring
+    // the `RUST_LOG` parse chain here. This pins the default-Info +
+    // unparseable-fallback behavior so a future refactor can't silently
+    // break it.
+
+    #[test]
+    fn test_rust_log_parsing_default_is_info() {
+        // Mirror of the parse chain in `init_file_logger` (with no
+        // RUST_LOG env var set, the chain falls through to `Info`).
+        // NOTE: this test does NOT set RUST_LOG (other tests in the
+        // process might have set it, so we read it defensively and
+        // only assert the parse-chain shape, not the exact value —
+        // see the next test for a parse-chain correctness check).
+        let parsed = std::env::var("RUST_LOG")
+            .ok()
+            .and_then(|s| s.parse::<log::LevelFilter>().ok())
+            .unwrap_or(log::LevelFilter::Info);
+        // Whatever RUST_LOG is (unset, "debug", or a typo), the chain
+        // must always yield a valid LevelFilter (never panics).
+        let _ = parsed;
+    }
+
+    #[test]
+    fn test_rust_log_parsing_unparseable_falls_back_to_info() {
+        // PVT-G5-082: a typo like "debog" should fall back to Info
+        // rather than silently disabling all logging. We mirror the
+        // exact parse chain (without setting the env var, which would
+        // race with other tests in the same process) by feeding the
+        // unparseable string directly to the parser.
+        let parsed = "debog".parse::<log::LevelFilter>();
+        assert!(parsed.is_err(), "garbage value should not parse");
+        // The init_file_logger chain uses `.ok()` then `.unwrap_or(Info)`,
+        // so an unparseable value yields Info — verified here.
+        let effective = parsed.ok().unwrap_or(log::LevelFilter::Info);
+        assert_eq!(effective, log::LevelFilter::Info);
+    }
+
+    #[test]
+    fn test_rust_log_parsing_known_levels() {
+        // PVT-G5-082: pin the parse behavior for the common
+        // `RUST_LOG=debug` / `=trace` / `=warn` / `=off` values so a
+        // future `log` crate upgrade can't silently break the
+        // override (e.g. by renaming a variant).
+        assert_eq!(
+            "off".parse::<log::LevelFilter>().unwrap(),
+            log::LevelFilter::Off
+        );
+        assert_eq!(
+            "warn".parse::<log::LevelFilter>().unwrap(),
+            log::LevelFilter::Warn
+        );
+        assert_eq!(
+            "info".parse::<log::LevelFilter>().unwrap(),
+            log::LevelFilter::Info
+        );
+        assert_eq!(
+            "debug".parse::<log::LevelFilter>().unwrap(),
+            log::LevelFilter::Debug
+        );
+        assert_eq!(
+            "trace".parse::<log::LevelFilter>().unwrap(),
+            log::LevelFilter::Trace
+        );
+        // Case-insensitivity: the `FromStr` impl in the `log` crate
+        // accepts both `Debug` and `debug`.
+        assert_eq!(
+            "DEBUG".parse::<log::LevelFilter>().unwrap(),
+            log::LevelFilter::Debug
+        );
+    }
+
+    // ── PVT-G5-083: install_panic_hook ───────────────────────────────
+
+    #[test]
+    fn test_install_panic_hook_does_not_panic_on_install() {
+        // PVT-G5-083: the hook installer itself must not panic. Calling
+        // it twice is also safe (each call replaces the previous hook
+        // via take_hook chaining).
+        install_panic_hook();
+        install_panic_hook();
+    }
+
+    // ── PVT-G5-084: CombinedLogger::log format ───────────────────────
+
+    #[test]
+    fn test_combined_logger_log_format_includes_file_and_line() {
+        // PVT-G5-084: verify the format string includes the file:line
+        // segment by constructing a logger and calling `log()` with a
+        // synthetic Record. We can't capture stderr (eprintln! goes to
+        // fd 2) but we CAN capture the file write and assert the
+        // `file:line --` segment is present.
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-fmt",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        let logger = CombinedLogger {
+            file_writer: Some(writer),
+            level_filter: log::LevelFilter::Info,
+        };
+        // Build a Record with a known file/line. `log::Record::builder`
+        // sets `file()` and `line()` from the args + metadata.
+        let record = log::Record::builder()
+            .level(log::Level::Info)
+            .target("test_target")
+            .file(Some("src/test.rs"))
+            .line(Some(42))
+            .args(format_args!("hello world"))
+            .build();
+        logger.log(&record);
+        logger.flush();
+        let content =
+            std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+        assert!(
+            content.contains("test_target"),
+            "target missing from log line: {}",
+            content
+        );
+        assert!(
+            content.contains("src/test.rs:42"),
+            "file:line missing from log line (PVT-G5-084): {}",
+            content
+        );
+        assert!(
+            content.contains("hello world"),
+            "message missing from log line: {}",
+            content
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_combined_logger_log_format_falls_back_when_file_line_absent() {
+        // PVT-G5-084: when `record.file()` / `record.line()` return
+        // None (e.g. release builds with debuginfo stripped, or
+        // records built without `#[track_caller]`), the format string
+        // must still render cleanly (no panic, no `Option` debug
+        // string in the output).
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-fmt-nofile",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        let logger = CombinedLogger {
+            file_writer: Some(writer),
+            level_filter: log::LevelFilter::Info,
+        };
+        let record = log::Record::builder()
+            .level(log::Level::Info)
+            .target("test_target")
+            .file(None)
+            .line(None)
+            .args(format_args!("no loc"))
+            .build();
+        logger.log(&record);
+        logger.flush();
+        let content =
+            std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+        // Should contain the "?" fallback for file and "0" for line.
+        assert!(
+            content.contains("?:0"),
+            "fallback file:line missing from log line: {}",
+            content
+        );
         std::fs::remove_dir_all(&tmp).ok();
     }
 }

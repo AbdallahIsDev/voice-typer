@@ -83,11 +83,17 @@ pub(crate) fn config_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
 /// - Headless CI runners (mostly affects tests, but real failure).
 ///
 /// The graceful fallback returns `<cwd>/voice-typer` (i.e. `./voice-typer`
-/// relative to the process's CWD) and logs a warning via `eprintln!`
-/// (logging may not be initialized yet at the time `config_dir` is first
-/// called — see `platform/logging.rs::init_logging`). The caller is
-/// expected to handle the resulting I/O errors (e.g. log file open
-/// fails) at the call site; this function never panics.
+/// relative to the process's CWD) and logs a warning via `log::warn!`.
+/// PVT-G5-085: previously used `eprintln!` (which bypasses the rotating
+/// file logger); switched to `log::warn!` so the warning lands in
+/// `voice-typer.log` for operators debugging missing-config-dir issues.
+/// When `config_dir_from_env` is called before `init_file_logger` (the
+/// first call from `main.rs`), the `log::warn!` is a silent no-op (the
+/// default `log` crate sink discards records when no logger is set);
+/// the subsequent runtime calls (from `config_dir(app)` after logger
+/// init) WILL emit the warning to both stderr and the file log. The
+/// caller is expected to handle the resulting I/O errors (e.g. log file
+/// open fails) at the call site; this function never panics.
 ///
 /// # CR-39: legacy `~/.voice-typer` migration + env-var override
 ///
@@ -147,7 +153,13 @@ pub(crate) fn config_dir_from_env(
         // if CWD is read-only, which is the correct behavior (better
         // than crashing during config-dir resolution).
         let base = appdata.unwrap_or_else(|| {
-            eprintln!(
+            // PVT-G5-085: switched from `eprintln!` to `log::warn!`
+            // so the warning lands in `voice-typer.log` (the rotating
+            // file logger) for operators. Note: at the very first
+            // call from `main.rs` (before `init_file_logger` runs),
+            // `log::warn!` is a silent no-op — the runtime calls
+            // through `config_dir(app)` after logger init will emit.
+            log::warn!(
                 "[paths] APPDATA env var is not set — falling back to \
                  CWD-relative config dir (./{}). This is expected for \
                  Windows service accounts / headless CI but indicates \
@@ -166,7 +178,9 @@ pub(crate) fn config_dir_from_env(
         // (rare — `launchd` always sets HOME for user sessions, but
         // a system LaunchDaemon runs without it). Falls back to CWD.
         let home = home.unwrap_or_else(|| {
-            eprintln!(
+            // PVT-G5-085: `log::warn!` (was `eprintln!`) — see the
+            // Windows branch above for the rationale.
+            log::warn!(
                 "[paths] HOME env var is not set — falling back to \
                  CWD-relative config dir (./{}). This is expected for \
                  system LaunchDaemons but indicates a missing user \
@@ -196,7 +210,9 @@ pub(crate) fn config_dir_from_env(
         // technically undefined behavior per the spec; we choose a
         // CWD-relative path rather than panicking.
         let home = home.unwrap_or_else(|| {
-            eprintln!(
+            // PVT-G5-085: `log::warn!` (was `eprintln!`) — see the
+            // Windows branch above for the rationale.
+            log::warn!(
                 "[paths] HOME env var is not set — falling back to \
                  CWD-relative config dir (./{}). This is expected for \
                  systemd user units without `Environment=HOME=...` \

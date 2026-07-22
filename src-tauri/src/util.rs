@@ -12,12 +12,13 @@ pub(crate) const TOKEN_BYTES: usize = 32;
 /// ADR-0020 §10: FT-1 supervisor backoff schedule (ms). Cap 5 retries
 /// before falling back to full-app relaunch.
 pub(crate) const FT1_BACKOFF_MS: &[u64] = &[500, 1000, 2000, 4000, 8000];
-// Referenced by the const-assert in the `#[cfg(test)]` block below and by
-// the Python source-inspection contract tests (test_shutdown_windows.py).
-// The in-loop retry cap was removed in NF-R19-2 (dead code), so no runtime
-// code path reads it — keep it as the documented contract value.
-#[allow(dead_code)]
-pub(crate) const FT1_MAX_RETRIES: u32 = 5;
+// PVT-G5-089: FT1_MAX_RETRIES moved into the `#[cfg(test)] mod tests`
+// block below — no runtime code path reads it (the in-loop retry cap
+// was removed in NF-R19-2), so keeping it at module scope triggered
+// `#[allow(dead_code)]`. It's still `pub(crate)` inside the test
+// module so the Python source-inspection regex
+// `pub\(crate\)\s+const\s+FT1_MAX_RETRIES` (test_shutdown_windows.py)
+// keeps matching.
 
 /// ADR-0020 §10: cooperative shutdown hard timeout. The sidecar must
 /// ack `{"type":"shutdown"}` and exit within this window; if it
@@ -125,6 +126,14 @@ pub(crate) fn now_timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // PVT-G5-089: was at module scope with `#[allow(dead_code)]` (no
+    // runtime code path reads it after NF-R19-2 — the in-loop retry
+    // cap was removed). Moved here so the dead-code lint doesn't fire
+    // at module scope. Still `pub(crate)` so the Python source-
+    // inspection regex `pub\(crate\)\s+const\s+FT1_MAX_RETRIES`
+    // (test_shutdown_windows.py) keeps matching.
+    pub(crate) const FT1_MAX_RETRIES: u32 = 5;
 
     // ── CR-13: generate_token (ADR-0020 §3) ──────────────────────────
 

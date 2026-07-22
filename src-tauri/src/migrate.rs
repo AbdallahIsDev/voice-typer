@@ -8,10 +8,24 @@
 //! returns after the first successful run (or when there is nothing to do),
 //! so it is cheap and safe to call on every launch.
 //!
-//! Old Electron `userData` locations (note the SPACE, unlike `voice-typer`):
-//! - Windows: `%APPDATA%/Voice Typer`
-//! - macOS:   `~/Library/Application Support/Voice Typer`
-//! - Linux:   `~/.config/Voice Typer`
+//! Old Electron `userData` locations (PVT-4 fix: probe all three in order,
+//! use the first that exists on disk):
+//!
+//! 1. `voice-typer-desktop` — Electron `package.json` `name` field (very
+//!    old Electron builds that never ran `setupUserData`, so Electron
+//!    derived its default `userData` path from the package name).
+//! 2. `voice-typer` — `bootstrap.ts:52-67` `setupUserData` override path
+//!    via `app.setPath("userData", computeConfigDir())`. This is the SAME
+//!    path Tauri now uses as its `config_dir`, so a migration from here
+//!    would be a no-op self-copy — the probe loop skips it when it equals
+//!    the Tauri target.
+//! 3. `Voice Typer` (capital+space) — defensive third probe in case some
+//!    ancient unreleased build used a human-readable capitalized name.
+//!
+//! Platform base paths:
+//! - Windows: `%APPDATA%/<name>`
+//! - macOS:   `~/Library/Application Support/<name>`
+//! - Linux:   `~/.config/<name>` (or `$XDG_CONFIG_HOME/<name>`)
 //!
 //! New Tauri config_dir: `platform::paths::config_dir(app)` (already implemented).
 //!
@@ -29,38 +43,77 @@ use std::path::{Path, PathBuf};
 
 
 
-/// Resolve the OLD Electron `userData` directory per platform.
+/// Resolve the OLD Electron `userData` directory candidates per platform.
 ///
-/// Returns `None` if the relevant env vars are missing (caller treats that
-/// as "nothing to migrate" — safe no-op, never errors).
-fn electron_userdata_dir() -> Option<PathBuf> {
+/// Returns a list of candidate paths in probe order (most-likely first).
+/// The caller probes each in turn and uses the first one that exists on
+/// disk. Returns an empty `Vec` if the platform's relevant env vars are
+/// missing (caller treats that as "nothing to migrate" — safe no-op).
+///
+/// PVT-4 fix: the previous implementation only probed `Voice Typer`
+/// (capital+space), which was NEVER the actual Electron `userData` name.
+/// `voice_typer/client/package.json:2` declares `"name": "voice-typer-desktop"`
+/// (lowercase, hyphen) and `bootstrap.ts:52-67` `setupUserData` overrides
+/// the path to `computeConfigDir()` which returns `voice-typer` (lowercase,
+/// hyphen). The old migration was dead code: it always returned "nothing
+/// to do" and wrote the sentinel marker immediately, silently losing any
+/// old Electron config that DID exist under `voice-typer-desktop`.
+fn electron_userdata_candidates() -> Vec<PathBuf> {
+    /// The three Electron `userData` directory names ever used, in probe
+    /// order. See the module-level docstring for the naming history.
+    const CANDIDATE_NAMES: &[&str] = &[
+        // 1. Very old Electron builds (no `setupUserData`): Electron
+        //    derived the default `userData` path from `package.json`
+        //    `name` = `voice-typer-desktop`.
+        "voice-typer-desktop",
+        // 2. Newer Electron builds with `setupUserData` (bootstrap.ts:52-67):
+        //    `app.setPath("userData", computeConfigDir())` → `voice-typer`.
+        //    This is the SAME path Tauri now uses as its `config_dir`, so
+        //    the caller skips it when it equals the Tauri target.
+        "voice-typer",
+        // 3. Defensive: in case some ancient unreleased build used a
+        //    human-readable capitalized name with a space.
+        "Voice Typer",
+    ];
+
     #[cfg(target_os = "windows")]
     {
-        std::env::var("APPDATA").ok().map(|a| PathBuf::from(a).join("Voice Typer"))
+        let Some(appdata) = std::env::var("APPDATA").ok() else {
+            return Vec::new();
+        };
+        let base = PathBuf::from(appdata);
+        CANDIDATE_NAMES.iter().map(|n| base.join(n)).collect()
     }
     #[cfg(target_os = "macos")]
     {
-        std::env::var("HOME")
-            .ok()
-            .map(|h| PathBuf::from(h).join("Library").join("Application Support").join("Voice Typer"))
+        let Some(home) = std::env::var("HOME").ok() else {
+            return Vec::new();
+        };
+        let base = PathBuf::from(home)
+            .join("Library")
+            .join("Application Support");
+        CANDIDATE_NAMES.iter().map(|n| base.join(n)).collect()
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
         // Linux: Electron's userData defaults to `~/.config/<name>` when
         // XDG_CONFIG_HOME is unset; honor it if present.
-        let base = std::env::var("XDG_CONFIG_HOME")
+        // CR-80 fix: collapse dead conditional (both arms returned the
+        // same value — `PathBuf::from(X).join(".config")` where X was
+        // `.` or `h`).
+        let Some(h) = std::env::var("XDG_CONFIG_HOME")
             .ok()
             .filter(|b| !b.is_empty())
             .or_else(|| std::env::var("HOME").ok())
-            // CR-80 fix: collapse dead conditional (both arms returned the
-            // same value — `PathBuf::from(X).join(".config")` where X was
-            // `.` or `h`).
-            .map(|h| PathBuf::from(h).join(".config"))?;
-        Some(base.join("Voice Typer"))
+        else {
+            return Vec::new();
+        };
+        let base = PathBuf::from(h).join(".config");
+        CANDIDATE_NAMES.iter().map(|n| base.join(n)).collect()
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
     {
-        None
+        Vec::new()
     }
 }
 
@@ -86,16 +139,42 @@ pub fn migrate_electron_userdata(app: &tauri::AppHandle) {
         return;
     }
 
-    let Some(old_dir) = electron_userdata_dir() else {
-        log::info!("[MIGRATE] nothing to do (could not resolve old userData dir)");
-        return;
-    };
-
-    // 3. If old dir does not exist, nothing to do.
-    if !old_dir.is_dir() {
-        log::info!("[MIGRATE] nothing to do (old userData dir absent: {})", old_dir.display());
+    // PVT-4 fix: probe each candidate in order; use the first that exists
+    // on disk. The `voice-typer` candidate (bootstrap.ts:52-67
+    // `setupUserData`) is the SAME path Tauri uses as its `config_dir` —
+    // if that's the first one found, migration would be a no-op self-copy
+    // (source == target), so we skip it and continue probing. If no other
+    // candidate exists, there's genuinely nothing to migrate and we bail
+    // without writing the sentinel (so next launch re-probes cheaply).
+    let candidates = electron_userdata_candidates();
+    if candidates.is_empty() {
+        log::info!("[MIGRATE] nothing to do (could not resolve old userData dir — platform env vars missing)");
         return;
     }
+
+    let mut old_dir: Option<PathBuf> = None;
+    for candidate in &candidates {
+        log::info!("[MIGRATE] probing electron userdata at: {:?}", candidate);
+        if candidate.as_path() == new_dir.as_path() {
+            log::info!(
+                "[MIGRATE]   skipping {:?} (same as Tauri config_dir target — self-copy no-op)",
+                candidate
+            );
+            continue;
+        }
+        if candidate.is_dir() {
+            old_dir = Some(candidate.clone());
+            break;
+        }
+    }
+
+    let Some(old_dir) = old_dir else {
+        log::info!(
+            "[MIGRATE] nothing to do (no candidate old userData dir exists on disk; probed {} paths)",
+            candidates.len()
+        );
+        return;
+    };
 
     log::info!(
         "[MIGRATE] starting: source={} target={}",
@@ -255,10 +334,27 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     let old_txt = std::fs::read_to_string(old).map_err(|e| e.to_string())?;
     let new_txt = std::fs::read_to_string(new).map_err(|e| e.to_string())?;
 
-    let old_val: serde_json::Value =
-        serde_json::from_str(&old_txt).unwrap_or(serde_json::Value::Null);
-    let new_val: serde_json::Value =
-        serde_json::from_str(&new_txt).unwrap_or(serde_json::Value::Null);
+    // T3-05: previously used `unwrap_or(Value::Null)` which silently
+    // swallowed parse errors. A corrupt source or target config.json
+    // would silently be treated as `null` (an empty object on merge),
+    // potentially losing the user's settings on the next migration
+    // pass. Log a warning so the failure is observable in user logs
+    // (the merge itself still proceeds fail-open — we prefer to keep
+    // whatever parses rather than abort the whole migration).
+    let old_val: serde_json::Value = match serde_json::from_str(&old_txt) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("[MIGRATE] old config.json parse failed (treating as empty): {}", e);
+            serde_json::Value::Null
+        }
+    };
+    let new_val: serde_json::Value = match serde_json::from_str(&new_txt) {
+        Ok(v) => v,
+        Err(e) => {
+            log::warn!("[MIGRATE] new config.json parse failed (treating as empty): {}", e);
+            serde_json::Value::Null
+        }
+    };
 
     // If old isn't an object, nothing useful to merge (keep target).
     let old_obj = match old_val.as_object() {
@@ -317,7 +413,16 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
 // files in the user's config dir.
 
 /// M-65: write `contents` to `path` atomically (temp + fsync + rename).
-fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
+///
+/// PVT-G5-033: promoted from `fn` to `pub(crate) fn` so the FT-1
+/// supervisor (`ft1.rs::write_ft1_restart_counter`) can reuse it for
+/// atomic persistence of the restart counter. Previously the FT-1
+/// counter used `std::fs::write` (non-atomic: truncate-then-write),
+/// which on a crash mid-write could leave a partially-written
+/// `ft1_restart_counter.json` that fails to parse — falling back to 0
+/// (the fail-open default in `read_ft1_restart_counter`), silently
+/// bypassing the circuit breaker on the next launch.
+pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
     use std::io::Write;
 
     let dir = path

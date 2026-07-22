@@ -85,11 +85,16 @@ pub(crate) fn json_to_csv(data: &Value) -> Result<String, String> {
     // that contains them; subsequent objects may add new keys at the
     // end, which keeps the header stable for the common case of
     // homogeneous records).
+    // PVT-049: use a HashSet for O(1) membership checks instead of
+    // Vec::contains (O(n) per key). Previous code was O(R·K²) for R
+    // records with K distinct keys — 4M string comparisons on a 10k-row
+    // history export with 20 keys.
     let mut keys: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
     for item in arr {
         if let Some(obj) = item.as_object() {
             for k in obj.keys() {
-                if !keys.contains(k) {
+                if seen.insert(k.clone()) {
                     keys.push(k.clone());
                 }
             }

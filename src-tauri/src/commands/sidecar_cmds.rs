@@ -12,14 +12,47 @@ use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
+// ─── G4-H-01: shared main-window guard ──────────────────────────────────
+//
+// `dispatch`, `paste_text`, and `shutdown_sidecar` are all
+// `#[tauri::command]` functions that a compromised renderer could
+// invoke over the IPC bridge. The bubble window is a sandboxed webview
+// (ADR-0020 §7 + §9 + SEC-026) that must NEVER drive the sidecar WS
+// or paste path. Tauri v2's capability system only gates plugin
+// commands, so user-defined commands need this runtime check.
+//
+// The error envelope shape mirrors the sidecar's WS error envelope
+// ({"type":"error","data":{"code":...,"message":...}}) so the
+// renderer's existing reject path treats this identically to a
+// server-side rejection.
+fn require_main_window(window: &tauri::Window) -> Result<(), String> {
+    if window.label() != "main" {
+        log::warn!(
+            "[G4-H-01] command rejected from non-main window: {}",
+            window.label()
+        );
+        let err = json!({
+            "type": "error",
+            "data": {
+                "code": "disallowed_window",
+                "message": "command only allowed from main window"
+            }
+        });
+        return Err(err.to_string());
+    }
+    Ok(())
+}
+
 // ─── CR-4: ALLOWED_COMMANDS allowlist (ADR-0015 defense-in-depth) ──────
 //
 // Mirrors the Electron renderer-side allowlist in
-// `voice_typer/client/src/main/index.ts:79-191` (SEC-019). The Tauri
-// `dispatch` command is the only path from the webview to the Python
-// sidecar over WS — without this gate, a compromised renderer (XSS in
-// the WebView, malicious extension) could invoke arbitrary server-side
-// commands by `invoke('dispatch', {cmd: 'quit_app'})` or
+// `voice_typer/client/src/main/allowed-commands.ts` (the canonical
+// declaration since R6-F10 — previously inline in `index.ts:79-191`,
+// SEC-019). The Tauri `dispatch` command is the only path from the
+// webview to the Python sidecar over WS — without this gate, a
+// compromised renderer (XSS in the WebView, malicious extension) could
+// invoke arbitrary server-side commands by
+// `invoke('dispatch', {cmd: 'quit_app'})` or
 // `invoke('dispatch', {cmd: 'set_config', data: {...}})`.
 //
 // The Electron path enforces `ALLOWED_COMMANDS` in
@@ -27,6 +60,20 @@ use tokio_tungstenite::tungstenite::Message;
 // Rust gate is the **defense-in-depth** equivalent (an attacker who
 // escapes the renderer sandbox cannot bypass it by talking to Rust
 // directly).
+//
+// PVT-G5-025: `delete_all_personal_data` and `export_gdpr_bundle` are
+// now renderer-callable (the Settings → Privacy page exposes both —
+// the renderer invokes `dispatch({cmd:'delete_all_personal_data'})`
+// and `dispatch({cmd:'export_gdpr_bundle'})`). They are present in
+// BOTH the TS allowlist (`allowed-commands.ts`) and this Rust literal
+// so the defense-in-depth gate does not reject them.
+//
+// PVT-G5-075: `tray_click` is intentionally ABSENT from this literal
+// (and from the TS allowlist) — it is a Rust-only command invoked by
+// the tray menu handler in `tray.rs::on_menu_event` via
+// `dispatch_inner`, which bypasses the allowlist gate. The renderer
+// never sends `tray_click`; including it here would create an attack
+// surface that only a compromised renderer could reach.
 //
 // KEEP IN SYNC with the TS allowlist:
 //   - The Python test `tests/test_security_doc_command_count.py` (this
@@ -48,9 +95,11 @@ static ALLOWED_COMMANDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
 pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
     ALLOWED_COMMANDS.get_or_init(|| {
         // CR-4: this list MUST mirror the Electron renderer's
-        // ALLOWED_COMMANDS in `voice_typer/client/src/main/index.ts`.
-        // The Python test `tests/test_security_doc_command_count.py`
-        // cross-checks parity (count + exact entries).
+        // ALLOWED_COMMANDS in `voice_typer/client/src/main/allowed-commands.ts`
+        // (canonical declaration since R6-F10 — was previously inline
+        // in `index.ts`). The Python test
+        // `tests/test_security_doc_command_count.py` cross-checks
+        // parity (count + exact entries).
         let cmds: &[&str] = &[
             "get_status",
             "toggle_dictation",
@@ -88,6 +137,14 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "onboarding_set_model",
             "onboarding_skip",
             "onboarding_apply",
+            // PVT-G5-008: previously missing from the Rust literal —
+            // present in the TS allowlist and in the server
+            // `_COMMAND_REGISTRY`. Without these, the Onboarding
+            // page's "Check Permissions" button (macOS/Linux mic +
+            // accessibility prompts) and "Model Catalog" call would
+            // reject with `disallowed_command` under Tauri.
+            "onboarding_check_permissions",
+            "onboarding_get_model_catalog",
             "onboarding_get_microphones",
             "onboarding_get_model_options",
             "onboarding_get_hotkey_presets",
@@ -122,6 +179,11 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "apply_vocabulary_suggestion",
             "dismiss_vocabulary_suggestion",
             "force_cancel_transcription",
+            // PVT-G5-025: GDPR Art. 17 (right to erasure) + Art. 20
+            // (right to data portability) — now renderer-callable from
+            // the Settings → Privacy page. Mirrors the TS allowlist.
+            "delete_all_personal_data",
+            "export_gdpr_bundle",
         ];
         let mut set = HashSet::with_capacity(cmds.len());
         for c in cmds {
@@ -200,12 +262,54 @@ pub(crate) async fn dispatch_inner(
 /// senders across reconnects. We also remove the pending entry on
 /// `ws_tx.send` failure (writer task has exited; the reader's drain
 /// loop is the only other remover and may not have run yet).
-pub(crate) async fn dispatch_frame(
+///
+/// PVT-G5-017: every `Err(...)` return is logged (4 sites: WS send
+/// failed, dispatch response channel closed, dispatch timeout, server
+/// error). A `log::debug!` at entry gives correlation (id + cmd) for
+/// tracing dispatch lifetimes across the WS reader/writer tasks.
+///
+/// PVT-G5-035: bail out early if `state.shutting_down` is set. After
+/// `shutdown_sidecar` sends the shutdown frame the WS may stay alive
+/// briefly (up to `SHUTDOWN_ACK_TIMEOUT_MS`); dispatches initiated in
+/// that window would send the frame but their response hits the
+/// shutdown-suppress branch in the WS reader (PVT-G5-013) and is
+/// dropped — the client then awaits the full `DISPATCH_TIMEOUT_SECS`
+/// before rejecting. Short-circuit here instead.
+///
+/// PVT-G5-036: re-check `state.ws_tx` AFTER inserting the pending
+/// entry. A reconnect racing in the window between the outer
+/// `ws_tx.lock().unwrap().clone()` and the pending insert could leave
+/// us holding a stale `ws_tx` (the old writer task has exited; the new
+/// reader has no record of this id). Detect by re-checking
+/// `state.ws_tx` under a tight critical section; if it's now `None`,
+/// drop the pending entry and reject.
+///
+/// PVT-G5-087: demoted from `pub(crate) async fn` to `async fn` — the
+/// only caller is `dispatch_inner` in this same file (the tray menu
+/// handler in `tray.rs` calls `dispatch_inner`, not `dispatch_frame`
+/// directly).
+async fn dispatch_frame(
     state: &Arc<SidecarState>,
     cmd: &str,
     data: Option<Value>,
 ) -> Result<Value, String> {
     let id = state.next_id.fetch_add(1, Ordering::SeqCst);
+    // PVT-G5-017: debug-level entry log for correlation. The WS reader
+    // logs the matching `id` on fulfillment so a slow / dropped
+    // dispatch can be traced end-to-end.
+    log::debug!("[dispatch] id={} cmd={}", id, cmd);
+
+    // PVT-G5-035: short-circuit if the host is shutting down. Avoids
+    // the orphaned-pending-then-timeout window described above.
+    if state.shutting_down.load(Ordering::SeqCst) {
+        log::warn!(
+            "[dispatch] id={} cmd={} rejected: sidecar shutting down",
+            id,
+            cmd
+        );
+        return Err("sidecar shutting down".into());
+    }
+
     let frame = json!({
         "type": cmd,
         "data": data.unwrap_or(json!({})),
@@ -215,7 +319,17 @@ pub(crate) async fn dispatch_frame(
     // CR-50: confirm `ws_tx` is Some BEFORE inserting into the pending
     // map so the early-return Err path doesn't leak a stale entry.
     let ws_tx_opt = state.ws_tx.lock().unwrap().clone();
-    let ws_tx = ws_tx_opt.ok_or_else(|| "sidecar not connected".to_string())?;
+    let ws_tx = match ws_tx_opt {
+        Some(tx) => tx,
+        None => {
+            log::warn!(
+                "[dispatch] id={} cmd={} rejected: sidecar not connected (ws_tx is None)",
+                id,
+                cmd
+            );
+            return Err("sidecar not connected".to_string());
+        }
+    };
 
     let (tx, rx) = oneshot::channel::<Value>();
     {
@@ -223,13 +337,51 @@ pub(crate) async fn dispatch_frame(
         pending.insert(id, tx);
     }
 
+    // PVT-G5-036: re-check `state.ws_tx` is still `Some` AFTER inserting
+    // the pending entry — a reconnect between the outer clone above and
+    // the insert could have left us holding a stale `ws_tx`. If the
+    // current value is `None`, the reader has exited (or is about to)
+    // and the pending entry would never be fulfilled; remove it and
+    // reject. Tight critical section: lock, check, drop the guard
+    // before awaiting the pending mutex.
+    //
+    // Note: the MutexGuard is held in its OWN block scope so the
+    // compiler can prove it is dropped BEFORE the `.await` on
+    // `state.pending.lock()` — `std::sync::MutexGuard` is `!Send`
+    // (the inner `Option<Sender<Message>>` is `Send` but not `Sync`),
+    // so holding it across an `.await` would make the surrounding
+    // future `!Send`, which Tauri's `#[tauri::command]` requires to
+    // be `Send`. The boolean `needs_cleanup` carries the result out
+    // of the lock scope so the await happens AFTER the guard is gone.
+    let needs_cleanup = {
+        let ws_tx_now = state.ws_tx.lock().unwrap();
+        ws_tx_now.is_none()
+    };
+    if needs_cleanup {
+        let mut pending = state.pending.lock().await;
+        pending.remove(&id);
+        log::warn!(
+            "[dispatch] id={} cmd={} rejected: WS disconnected mid-dispatch \
+             (orphaned pending entry removed)",
+            id,
+            cmd
+        );
+        return Err("sidecar not connected".into());
+    }
+
     // Send the frame via the WS writer channel. On send failure, remove
     // the pending entry too — the writer task has exited so the WS
     // reader's drain loop is the only other remover and it may not have
     // run yet (race window).
-    if let Err(e) = ws_tx.send(Message::Text(frame.to_string())) {
+    if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string())) {
         let mut pending = state.pending.lock().await;
         pending.remove(&id);
+        log::warn!(
+            "[dispatch] id={} cmd={} WS send failed: {} (pending entry removed)",
+            id,
+            cmd,
+            e
+        );
         return Err(format!("WS send failed: {e}"));
     }
 
@@ -251,15 +403,37 @@ pub(crate) async fn dispatch_frame(
                     .and_then(|d| d.get("message"))
                     .and_then(|m| m.as_str())
                     .unwrap_or("server error");
+                log::warn!(
+                    "[dispatch] id={} cmd={} server error [{}]: {}",
+                    id,
+                    cmd,
+                    code,
+                    msg
+                );
                 return Err(format!("server error [{}]: {}", code, msg));
             }
             Ok(response.get("data").cloned().unwrap_or(json!({})))
         }
-        Ok(Err(_)) => Err("dispatch response channel closed".into()),
+        Ok(Err(_)) => {
+            // The oneshot sender was dropped without sending — the WS
+            // reader exited (sidecar crashed / WS closed mid-response).
+            log::warn!(
+                "[dispatch] id={} cmd={} response channel closed (WS reader dropped)",
+                id,
+                cmd
+            );
+            Err("dispatch response channel closed".into())
+        }
         Err(_) => {
             // Timeout — remove the pending entry.
             let mut pending = state.pending.lock().await;
             pending.remove(&id);
+            log::error!(
+                "[dispatch] id={} cmd={} timed out after {}s (pending entry removed)",
+                id,
+                cmd,
+                DISPATCH_TIMEOUT_SECS
+            );
             Err(format!("dispatch timeout ({}s)", DISPATCH_TIMEOUT_SECS))
         }
     }
@@ -385,7 +559,14 @@ pub(crate) struct PasteTextArgs {
 pub async fn paste_text(
     args: PasteTextArgs,
     app: tauri::AppHandle,
+    window: tauri::Window,
 ) -> Result<(), String> {
+    // G4-H-01: only the main window may drive the paste path. A
+    // compromised bubble renderer (XSS in the waveform pill) must NOT
+    // be able to invoke `invoke('paste_text', {text:'...'})` to inject
+    // arbitrary text into the foreground window.
+    require_main_window(&window)?;
+
     // CR-066: the paste-text implementation is extracted to
     // `commands::paste::execute_paste` (a focused module split out per
     // ADR-0020 §6.2 + §6.3 + §6.6 — see `paste.rs` for the per-platform
@@ -407,12 +588,39 @@ pub async fn paste_text(
 pub async fn shutdown_sidecar(
     app: tauri::AppHandle,
     state: tauri::State<'_, Arc<SidecarState>>,
+    window: tauri::Window,
 ) -> Result<(), String> {
-    state.shutting_down.store(true, Ordering::SeqCst);
+    // G4-H-01: only the main window may drive the cooperative-shutdown
+    // path. A compromised bubble renderer must NOT be able to invoke
+    // `invoke('shutdown_sidecar')` to DoS the sidecar.
+    //
+    // Note: there is also a programmatic (non-IPC) caller in
+    // `main.rs`'s `on_window_event` handler that invokes
+    // `shutdown_sidecar` directly when the main window is closed —
+    // that caller passes `window.clone()` from the `"main"` arm of the
+    // `window.label()` match, so this check passes for it too.
+    require_main_window(&window)?;
+
+    // PVT-17: Early-return guard. If a previous `shutdown_sidecar`
+    // invocation already flipped `shutting_down` to true, the sidecar
+    // is already being torn down (or has been). Re-entering here would
+    // re-send the (idempotent) shutdown frame AND block on
+    // `state.child_exit_rx` for the full `SHUTDOWN_ACK_TIMEOUT_MS`
+    // (2s) — a duplicate `invoke('shutdown_sidecar')` (renderer-
+    // invocable via `generate_handler!`) thus freezes the UI for 2s.
+    // `swap` returns the previous value: if it was already `true`,
+    // short-circuit immediately.
+    if state
+        .shutting_down
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
+    {
+        log::info!("[SHUTDOWN] already in progress — duplicate call short-circuited");
+        return Ok(());
+    }
     // Send the shutdown frame.
     let frame = json!({"type": "shutdown"});
     if let Some(ws_tx) = state.ws_tx.lock().unwrap().clone() {
-        let _ = ws_tx.send(Message::Text(frame.to_string()));
+        let _ = ws_tx.try_send(Message::Text(frame.to_string()));
     }
     // CR-2: Wait up to SHUTDOWN_ACK_TIMEOUT_MS for the sidecar to exit.
     // Use the `CommandEvent` receiver captured at spawn time to detect
@@ -602,17 +810,25 @@ mod tests {
     fn test_allowed_commands_count_matches_ts_parity() {
         // CR-4: the Rust allowlist must contain EXACTLY the same number
         // of commands as the TS allowlist in
-        // `voice_typer/client/src/main/index.ts:79-191`. The Python test
+        // `voice_typer/client/src/main/allowed-commands.ts` (canonical
+        // declaration since R6-F10 — was previously inline in
+        // `index.ts:79-191`). The Python test
         // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
         // asserts the entries match exactly — this Rust-side test pins
         // the COUNT so a local `cargo test` catches a drift before the
         // Python test even runs.
+        //
+        // PVT-G5-008 / PVT-G5-025 / PVT-G5-075: count is 74 (70 prior
+        // + `onboarding_check_permissions` + `onboarding_get_model_catalog`
+        // + `delete_all_personal_data` + `export_gdpr_bundle`; `tray_click`
+        // is intentionally absent — see the doc comment on
+        // `dispatch_inner` and the `ALLOWED_COMMANDS` literal).
         assert_eq!(
             allowed_commands().len(),
-            70,
-            "ALLOWED_COMMANDS must contain exactly 70 entries (parity with TS allowlist). \
+            74,
+            "ALLOWED_COMMANDS must contain exactly 74 entries (parity with TS allowlist). \
              Got {} — update both src-tauri/src/commands/sidecar_cmds.rs and \
-             voice_typer/client/src/main/index.ts together.",
+             voice_typer/client/src/main/allowed-commands.ts together.",
             allowed_commands().len()
         );
     }
@@ -622,8 +838,8 @@ mod tests {
         let set = allowed_commands();
         assert_eq!(
             set.len(),
-            70,
-            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (70). \
+            74,
+            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (74). \
              Check the constructor log for the duplicate name.",
             set.len()
         );

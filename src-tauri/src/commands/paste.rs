@@ -206,13 +206,28 @@ async fn paste_via_clipboard_and_ctrl_v(
 #[cfg(target_os = "windows")]
 fn capture_focus_guard() -> Option<(isize, u32)> {
     use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    // SAFETY: `GetForegroundWindow` is a pure Win32 query with no
+    // pointer arguments — it returns the HWND of the window currently
+    // in the foreground, or a null HWND (`.0 == 0`) if there is no
+    // foreground window (e.g. the user is at the desktop). The null
+    // case is handled by the `if (hwnd.0 as usize) == 0` check below.
+    // No thread-safety concerns: the function is reentrant and reads
+    // kernel-side state that is always consistent.
     let hwnd = unsafe { GetForegroundWindow() };
     if (hwnd.0 as usize) == 0 {
         return None;
     }
-    // Second arg `None` → we don't care about the PID, only the
-    // thread id (returned by value). tid==0 means the call
-    // failed — treat as no foreground window.
+    // SAFETY: `GetWindowThreadProcessId(hwnd, None)` reads the thread
+    // id (and optionally the process id) of the window identified by
+    // `hwnd`. We pass `None` for the second arg so the function does
+    // NOT write a PID anywhere (the lpdwProcessId out-param is
+    // optional per the Win32 contract). `hwnd` is non-null here (we
+    // checked above) and was just returned by `GetForegroundWindow`,
+    // so it's a valid window handle for the duration of this call
+    // (foreground window changes don't invalidate existing HWNDs —
+    // they remain valid until the window is destroyed, which can't
+    // happen synchronously between these two calls). Returns 0 on
+    // failure — handled by the `tid == 0` check below.
     let tid = unsafe { GetWindowThreadProcessId(hwnd, None) };
     if tid == 0 {
         None
@@ -254,8 +269,15 @@ async fn restore_focus_or_fallback(
         Some(v) => v,
         None => return Ok(()),
     };
-    let target_hwnd = HWND(target_hwnd_raw as *mut _);
+    let target_hwnd = HWND(target_hwnd_raw as isize);
 
+    // SAFETY: `GetForegroundWindow` — same rationale as in
+    // `capture_focus_guard` above: pure query, no pointer args, null
+    // HWND handled by the equality check below (target_hwnd was
+    // captured before the paste and is also non-null by construction
+    // — `capture_focus_guard` returned `None` for null HWNDs, so the
+    // `Some((hwnd, tid))` arm that produced `target_hwnd_raw` only
+    // fires for non-null foreground windows).
     let current = unsafe { GetForegroundWindow() };
     if current == target_hwnd {
         // Focus did NOT change during paste — nothing to restore.
@@ -263,7 +285,24 @@ async fn restore_focus_or_fallback(
     }
 
     // Focus changed during paste — restore it.
+    // SAFETY: `GetCurrentThreadId` is a pure Win32 query with no
+    // arguments — it returns the thread id of the calling thread,
+    // which is always valid (we're a real OS thread spawned by Tokio).
+    // Cannot fail, cannot return 0. No soundness concerns.
     let current_thread = unsafe { GetCurrentThreadId() };
+    // SAFETY: `AttachThreadInput(current_thread, target_thread, true)`
+    // attaches the input-processing state of the two threads so focus
+    // operations (SetForegroundWindow) are not blocked by the
+    // foreground-lock-timeout. Both thread ids are valid:
+    // `current_thread` was just returned by `GetCurrentThreadId`, and
+    // `target_thread` was captured by `GetWindowThreadProcessId` for a
+    // foreground window before the paste (and is non-zero —
+    // `capture_focus_guard` returns `None` for tid==0). The Win32
+    // contract requires both ids to refer to threads in the SAME
+    // desktop; if not, the call returns 0 (UIPI / cross-desktop) and
+    // we fall through to the fallback path — no UB. The `BOOL::from(true)`
+    // sets the attach flag; passing `false` (detach) is done below in
+    // a separate call.
     let attached = unsafe {
         AttachThreadInput(
             current_thread,
@@ -275,7 +314,24 @@ async fn restore_focus_or_fallback(
         // Attach succeeded — switch foreground back to the captured
         // window, then detach (always detach, even if
         // SetForegroundWindow silently fails — never leak the attach).
+        // SAFETY: `SetForegroundWindow(target_hwnd)` switches the
+        // foreground window to `target_hwnd`. `target_hwnd` is a
+        // valid HWND (same rationale as above) — even if the window
+        // was destroyed between capture and now, the Win32 contract
+        // is that SetForegroundWindow on an invalid HWND returns 0
+        // (no UB). The attach we just performed ensures the call is
+        // not blocked by the foreground-lock-timeout. The return value
+        // is discarded (best-effort restore — we still detach below).
         let _ = unsafe { SetForegroundWindow(target_hwnd) };
+        // SAFETY: `AttachThreadInput(current_thread, target_thread,
+        // false)` is the detach call — it MUST be called with the
+        // SAME pair of thread ids as the attach above. We hold no
+        // lock between the two calls (the attach state is per-thread
+        // pair, kernel-tracked), so the detach always succeeds if the
+        // attach succeeded. `BOOL::from(false)` sets the detach flag.
+        // Even if this call were to fail (it shouldn't), the worst
+        // case is a leaked attach — which the OS cleans up when one
+        // of the threads exits. No UB.
         let _ = unsafe {
             AttachThreadInput(
                 current_thread,
@@ -298,28 +354,62 @@ async fn restore_focus_or_fallback(
         "[PASTE] AttachThreadInput returned 0 — UIPI blocked focus-restore; \
          falling back to clipboard + crash_recovery + toast"
     );
-    // Best-effort clipboard write — discard errors (we're already in a
-    // fallback path; a clipboard failure here is logged but not
-    // surfaced as a paste-text Err since we already lost the paste
-    // anyway).
-    let _ = app.clipboard().write_text(text.to_string());
+    // Best-effort clipboard write — capture the success flag so the
+    // crash_recovery event + toast body can reflect whether the text
+    // was actually saved. G4-M-59: previously the clipboard write
+    // result was discarded with `let _ = ...` and the event/toast
+    // unconditionally claimed "text_saved_to_clipboard: true" — a
+    // lie if the clipboard was locked by another process or the
+    // clipboard plugin returned an error. The user would then press
+    // Ctrl+V, paste whatever was previously on the clipboard, and
+    // the transcribed text would be permanently lost without any
+    // indication.
+    let clipboard_ok = app
+        .clipboard()
+        .write_text(text.to_string())
+        .map_err(|e| {
+            // G4-M-59: log each discarded clipboard error at warn
+            // level so it lands in the rotating log file for
+            // post-mortem diagnosis (the user-visible toast below
+            // is generic — "Text lost." — to avoid leaking clipboard
+            // contents or implementation details).
+            log::warn!(
+                "[PASTE] clipboard write failed in UIPI fallback: {}",
+                e
+            );
+            e
+        })
+        .is_ok();
     // Emit the crash_recovery event so the React UI can show its own
     // recovery UI (e.g. offer to copy the text again, or restart the
-    // sidecar).
+    // sidecar). G4-M-59: include `clipboard_ok` so the UI can branch
+    // on whether the text is recoverable via Ctrl+V.
     let _ = app.emit(
         "crash_recovery",
         json!({
             "reason": "paste_focus_restore_failed",
-            "text_saved_to_clipboard": true,
+            "text_saved_to_clipboard": clipboard_ok,
         }),
     );
-    // Post the toast. The body matches the ADR §6.3 contract verbatim
-    // so the user knows what to do.
+    // Post the toast. G4-M-59: the body now branches on
+    // `clipboard_ok` — if the clipboard write also failed, tell the
+    // user the text is lost (rather than the old "clipboard copied"
+    // message which would mislead them into expecting Ctrl+V to
+    // work).
+    let toast_body = if clipboard_ok {
+        "Paste failed — clipboard copied. Press Ctrl+V manually."
+    } else {
+        "Paste failed — clipboard write also failed. Text lost."
+    };
     let _ = app
         .notification()
         .builder()
         .title("Voice Typer")
-        .body("Paste failed — clipboard copied. Press Ctrl+V manually.")
+        .body(toast_body)
         .show();
-    Err("paste focus-restore failed (UIPI): text copied to clipboard".to_string())
+    if clipboard_ok {
+        Err("paste focus-restore failed (UIPI): text copied to clipboard".to_string())
+    } else {
+        Err("paste focus-restore failed (UIPI): clipboard write also failed, text lost".to_string())
+    }
 }

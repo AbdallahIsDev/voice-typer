@@ -23,7 +23,10 @@
 
 use serde::Deserialize;
 use std::sync::Arc;
-use tauri::menu::{IsMenuItem, MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
+use tauri::menu::{
+    CheckMenuItemBuilder, IsMenuItem, MenuBuilder, MenuItemBuilder, PredefinedMenuItem,
+    SubmenuBuilder,
+};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Listener, Manager};
 use tauri::image::Image;
@@ -123,8 +126,9 @@ fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
 }
 
 /// Build the list of `IsMenuItem` boxed items for `items`. Each entry is
-/// either a separator, a leaf `MenuItem` (with optional checkmark via
-/// the accelerator text), or a nested `Submenu`.
+/// either a separator, a leaf `MenuItem` (or `CheckMenuItem` when
+/// `checked` is `Some` — PVT-16: native checkmark, not accelerator
+/// text), or a nested `Submenu`.
 fn build_item_refs(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<Vec<Box<dyn IsMenuItem<R>>>> {
     let mut out: Vec<Box<dyn IsMenuItem<R>>> = Vec::with_capacity(items.len());
     for item in items {
@@ -143,13 +147,30 @@ fn build_item_refs(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<Vec
             out.push(Box::new(submenu));
             continue;
         }
-        let check: Option<&str> = item.checked.map(|c| if c { "✓" } else { "" });
-        let mut b = MenuItemBuilder::with_id(item.id.clone(), &item.label).enabled(!item.disabled);
-        if let Some(acc) = check {
-            b = b.accelerator(acc);
+        // PVT-16: use the native `CheckMenuItemBuilder` (Tauri v2) for
+        // items with a `checked` state instead of faking the checkmark
+        // via `.accelerator("✓")` (accelerators are keyboard shortcuts,
+        // not visual state — the old hack rendered as a literal "✓"
+        // keyboard-equivalent on macOS and as no-op accelerator text on
+        // Windows/Linux, never as a real native checkmark).
+        //
+        // `CheckMenuItem` is a distinct type from `MenuItem`, but both
+        // implement `IsMenuItem<R>` so they share the `Box<dyn
+        // IsMenuItem<R>>` slot. The `on_menu_event` handler reads
+        // `event.id()`, which is identical for both kinds, so click
+        // dispatch is unchanged.
+        if let Some(checked) = item.checked {
+            let mi = CheckMenuItemBuilder::with_id(item.id.clone(), &item.label)
+                .enabled(!item.disabled)
+                .checked(checked)
+                .build(app)?;
+            out.push(Box::new(mi));
+        } else {
+            let mi = MenuItemBuilder::with_id(item.id.clone(), &item.label)
+                .enabled(!item.disabled)
+                .build(app)?;
+            out.push(Box::new(mi));
         }
-        let mi = b.build(app)?;
-        out.push(Box::new(mi));
     }
     Ok(out)
 }
