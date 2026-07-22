@@ -16,7 +16,7 @@
 
 import { Download01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -27,6 +27,7 @@ import { compareSemver } from "@/lib/semver";
 // (kept exported there for unit-test coverage) instead of duplicating them.
 import { formatBytes, formatRelativeTime } from "@/pages/About";
 import pkg from "../../../../../package.json";
+import type { IsVisibleFn } from "./types";
 
 const APP_VERSION = pkg.version as string;
 
@@ -85,7 +86,47 @@ function Row({ label, value }: { label: string; value: ReactNode }) {
 	);
 }
 
-export default function PrewarmAndUpdates() {
+export interface PrewarmAndUpdatesProps {
+	/** Search-filter predicate. Optional — defaults to "always visible"
+	 *  so the component can render standalone (in tests, etc.). */
+	isVisible?: IsVisibleFn;
+}
+
+const ALWAYS_VISIBLE: IsVisibleFn = () => true;
+
+/** Translated row + section + action-button labels rendered by this
+ *  component. Exported so the Settings page's search auto-switch
+ *  (PVT-029) can include them in the privacy tab's label set — without
+ *  this, typing "prewarm", "cache", "version", "update", etc. wouldn't
+ *  route to the privacy tab because `getTabLabels()` only knows the
+ *  two section titles (`about.cacheTitle`, `about.updatesTitle`).
+ *
+ *  Called inside `handleSearchChange` so the labels reflect the current
+ *  locale at the moment the user types. Keep in sync with the labels
+ *  passed to `isVisible(...)` and the button text below. */
+export function getPrewarmAndUpdatesLabels(): string[] {
+	return [
+		t("about.cacheTitle"),
+		t("about.cacheDescription"),
+		t("about.prewarmStatus"),
+		t("about.lastRun"),
+		t("about.cacheHealth"),
+		t("about.prewarmElapsed"),
+		t("about.refreshCacheStatus"),
+		t("about.runPrewarmNow"),
+		t("about.viewPrewarmLog"),
+		t("about.updatesTitle"),
+		t("about.updatesDescription"),
+		t("about.installedVersion"),
+		t("about.latestRelease"),
+		t("about.checkForUpdates"),
+		t("about.viewChangelog"),
+	];
+}
+
+export default function PrewarmAndUpdates({
+	isVisible = ALWAYS_VISIBLE,
+}: PrewarmAndUpdatesProps = {}) {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 
@@ -120,6 +161,17 @@ export default function PrewarmAndUpdates() {
 	// (pythonw -m voice_typer.server.prewarm --force). After spawning,
 	// polls get_prewarm_status every 2s until prewarm_running flips to
 	// False, then refreshes the card and shows a completion toast.
+	// PVT-044: poll is cancellable via prewarmPollCancelledRef so the
+	// loop stops calling setPrewarmStatus / showSnack / IPC after the
+	// component unmounts.
+	const prewarmPollCancelledRef = useRef(false);
+	useEffect(() => {
+		// Initialize ref on mount; flip to true on unmount.
+		prewarmPollCancelledRef.current = false;
+		return () => {
+			prewarmPollCancelledRef.current = true;
+		};
+	}, []);
 	const handleRunPrewarm = async () => {
 		// Guard: don't re-warm if already hot (button should be disabled,
 		// but defend in depth).
@@ -138,9 +190,12 @@ export default function PrewarmAndUpdates() {
 				const pollDeadline = Date.now() + 120_000; // 2 min cap
 				const poll = async () => {
 					while (Date.now() < pollDeadline) {
+						if (prewarmPollCancelledRef.current) return;
 						await new Promise((r) => setTimeout(r, 2000));
+						if (prewarmPollCancelledRef.current) return;
 						try {
 							const status = await call<PrewarmStatus>("get_prewarm_status");
+							if (prewarmPollCancelledRef.current) return;
 							setPrewarmStatus(status);
 							if (!status.prewarm_running) {
 								// Prewarm finished — show completion toast
@@ -265,151 +320,202 @@ export default function PrewarmAndUpdates() {
 	return (
 		<>
 			{/* ── Cache Status (ADR-0009 Issue 3) ─────────────────────── */}
-			<SettingsSection
-				title={t("about.cacheTitle")}
-				description={t("about.cacheDescription")}
-			>
-				<Row
-					label={t("about.prewarmStatus")}
-					value={
-						prewarmStatus?.prewarm_running ? (
-							<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
-								<span className="size-1.5 animate-pulse rounded-full bg-sky-500" />
-								{t("about.cacheRunning")}
-							</span>
-						) : prewarmStatus ? (
-							<CacheStatusBadge label={prewarmStatus.cache_label} />
-						) : (
-							<span className="text-(--text-muted)">{t("about.checking")}</span>
-						)
-					}
-				/>
-				<Row
-					label={t("about.lastRun")}
-					value={
-						prewarmStatus?.last_run
-							? formatRelativeTime(prewarmStatus.last_run)
-							: prewarmStatus
-								? t("about.neverRun")
-								: t("about.checking")
-					}
-				/>
-				<Row
-					label={t("about.cacheHealth")}
-					value={
-						prewarmStatus && prewarmStatus.total_bytes > 0
-							? `${Math.round(prewarmStatus.cache_ratio * 100)}% (${formatBytes(
-									prewarmStatus.cached_bytes,
-								)} / ${formatBytes(prewarmStatus.total_bytes)})`
-							: prewarmStatus
-								? `${Math.round(prewarmStatus.cache_ratio * 100)}%`
-								: t("about.checking")
-					}
-				/>
-				<Row
-					label={t("about.prewarmElapsed")}
-					value={
-						prewarmStatus?.elapsed_s !== null &&
-						prewarmStatus?.elapsed_s !== undefined
-							? `${prewarmStatus.elapsed_s.toFixed(1)}s`
-							: prewarmStatus
-								? t("about.unknown")
-								: t("about.checking")
-					}
-				/>
-				<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={fetchPrewarmStatus}
-						disabled={prewarmLoading}
-					>
-						{prewarmLoading
-							? t("about.checking")
-							: t("about.refreshCacheStatus")}
-					</Button>
-					{/* "Run Prewarm Now" button. Disabled when cache is Hot
-						(no point re-warming), when prewarm is already
-						running, or while the run_prewarm IPC is in flight. */}
-					<Button
-						variant="default"
-						size="sm"
-						onClick={handleRunPrewarm}
-						disabled={
-							prewarmStatus?.cache_label === "hot" ||
-							prewarmStatus?.prewarm_running === true ||
-							runPrewarmLoading
-						}
-					>
-						{prewarmStatus?.prewarm_running === true || runPrewarmLoading
-							? t("about.cacheRunning")
-							: t("about.runPrewarmNow")}
-					</Button>
-					{/* "View prewarm log" button. Opens the prewarm log
-						file in the OS default text editor. */}
-					<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
-						{t("about.viewPrewarmLog")}
-					</Button>
-				</div>
-			</SettingsSection>
+			{/* Fix #4: section-level hide-when-empty check — when no row
+                                matches the active search query, hide the whole section
+                                (including its action buttons) so the tab doesn't show a
+                                lonely header above an empty body. */}
+			{[
+				t("about.prewarmStatus"),
+				t("about.lastRun"),
+				t("about.cacheHealth"),
+				t("about.prewarmElapsed"),
+			].some((l) => isVisible(l, undefined, t("about.cacheTitle"))) && (
+				<SettingsSection
+					title={t("about.cacheTitle")}
+					description={t("about.cacheDescription")}
+				>
+					{isVisible(
+						t("about.prewarmStatus"),
+						undefined,
+						t("about.cacheTitle"),
+					) && (
+						<Row
+							label={t("about.prewarmStatus")}
+							value={
+								prewarmStatus?.prewarm_running ? (
+									<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
+										<span className="size-1.5 animate-pulse rounded-full bg-sky-500" />
+										{t("about.cacheRunning")}
+									</span>
+								) : prewarmStatus ? (
+									<CacheStatusBadge label={prewarmStatus.cache_label} />
+								) : (
+									<span className="text-(--text-muted)">
+										{t("about.checking")}
+									</span>
+								)
+							}
+						/>
+					)}
+					{isVisible(t("about.lastRun"), undefined, t("about.cacheTitle")) && (
+						<Row
+							label={t("about.lastRun")}
+							value={
+								prewarmStatus?.last_run
+									? formatRelativeTime(prewarmStatus.last_run)
+									: prewarmStatus
+										? t("about.neverRun")
+										: t("about.checking")
+							}
+						/>
+					)}
+					{isVisible(
+						t("about.cacheHealth"),
+						undefined,
+						t("about.cacheTitle"),
+					) && (
+						<Row
+							label={t("about.cacheHealth")}
+							value={
+								prewarmStatus && prewarmStatus.total_bytes > 0
+									? `${Math.round(prewarmStatus.cache_ratio * 100)}% (${formatBytes(
+											prewarmStatus.cached_bytes,
+										)} / ${formatBytes(prewarmStatus.total_bytes)})`
+									: prewarmStatus
+										? `${Math.round(prewarmStatus.cache_ratio * 100)}%`
+										: t("about.checking")
+							}
+						/>
+					)}
+					{isVisible(
+						t("about.prewarmElapsed"),
+						undefined,
+						t("about.cacheTitle"),
+					) && (
+						<Row
+							label={t("about.prewarmElapsed")}
+							value={
+								prewarmStatus?.elapsed_s !== null &&
+								prewarmStatus?.elapsed_s !== undefined
+									? `${prewarmStatus.elapsed_s.toFixed(1)}s`
+									: prewarmStatus
+										? t("about.unknown")
+										: t("about.checking")
+							}
+						/>
+					)}
+					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={fetchPrewarmStatus}
+							disabled={prewarmLoading}
+						>
+							{prewarmLoading
+								? t("about.checking")
+								: t("about.refreshCacheStatus")}
+						</Button>
+						{/* "Run Prewarm Now" button. Disabled when cache is Hot
+                                                (no point re-warming), when prewarm is already
+                                                running, or while the run_prewarm IPC is in flight. */}
+						<Button
+							variant="default"
+							size="sm"
+							onClick={handleRunPrewarm}
+							disabled={
+								prewarmStatus?.cache_label === "hot" ||
+								prewarmStatus?.prewarm_running === true ||
+								runPrewarmLoading
+							}
+						>
+							{prewarmStatus?.prewarm_running === true || runPrewarmLoading
+								? t("about.cacheRunning")
+								: t("about.runPrewarmNow")}
+						</Button>
+						{/* "View prewarm log" button. Opens the prewarm log
+                                                file in the OS default text editor. */}
+						<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
+							{t("about.viewPrewarmLog")}
+						</Button>
+					</div>
+				</SettingsSection>
+			)}
 
 			{/* ── Updates (NEW-UX-023) ─────────────────────────────────── */}
-			<SettingsSection
-				title={t("about.updatesTitle")}
-				description={t("about.updatesDescription")}
-			>
-				<Row
-					label={t("about.installedVersion")}
-					value={t("about.versionValue", { version: APP_VERSION })}
-				/>
-				<Row
-					label={t("about.latestRelease")}
-					value={
-						latestVersion === null
-							? t("about.checking")
-							: compareSemver(latestVersion, APP_VERSION) > 0
-								? t("about.updateAvailable", { version: latestVersion })
-								: t("about.versionValue", { version: latestVersion })
-					}
-				/>
-				<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={handleManualCheck}
-						disabled={checkingUpdate}
-					>
-						{checkingUpdate ? t("about.checking") : t("about.checkForUpdates")}
-					</Button>
-					{latestVersion !== null &&
-						compareSemver(latestVersion, APP_VERSION) > 0 && (
-							<Button asChild variant="default" size="sm">
-								<a
-									href={RELEASES_URL}
-									target="_blank"
-									rel="noreferrer noopener"
-								>
-									<HugeiconsIcon
-										icon={Download01Icon}
-										strokeWidth={2}
-										className="h-4 w-4"
-									/>
-									{t("about.downloadVersion", { version: latestVersion })}
-								</a>
-							</Button>
-						)}
-					<Button asChild variant="ghost" size="sm">
-						<a href={RELEASES_URL} target="_blank" rel="noreferrer noopener">
-							<HugeiconsIcon
-								icon={RefreshIcon}
-								strokeWidth={2}
-								className="h-4 w-4"
-							/>
-							{t("about.viewChangelog")}
-						</a>
-					</Button>
-				</div>
-			</SettingsSection>
+			{[t("about.installedVersion"), t("about.latestRelease")].some((l) =>
+				isVisible(l, undefined, t("about.updatesTitle")),
+			) && (
+				<SettingsSection
+					title={t("about.updatesTitle")}
+					description={t("about.updatesDescription")}
+				>
+					{isVisible(
+						t("about.installedVersion"),
+						undefined,
+						t("about.updatesTitle"),
+					) && (
+						<Row
+							label={t("about.installedVersion")}
+							value={t("about.versionValue", { version: APP_VERSION })}
+						/>
+					)}
+					{isVisible(
+						t("about.latestRelease"),
+						undefined,
+						t("about.updatesTitle"),
+					) && (
+						<Row
+							label={t("about.latestRelease")}
+							value={
+								latestVersion === null
+									? t("about.checking")
+									: compareSemver(latestVersion, APP_VERSION) > 0
+										? t("about.updateAvailable", { version: latestVersion })
+										: t("about.versionValue", { version: latestVersion })
+							}
+						/>
+					)}
+					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleManualCheck}
+							disabled={checkingUpdate}
+						>
+							{checkingUpdate
+								? t("about.checking")
+								: t("about.checkForUpdates")}
+						</Button>
+						{latestVersion !== null &&
+							compareSemver(latestVersion, APP_VERSION) > 0 && (
+								<Button asChild variant="default" size="sm">
+									<a
+										href={RELEASES_URL}
+										target="_blank"
+										rel="noreferrer noopener"
+									>
+										<HugeiconsIcon
+											icon={Download01Icon}
+											strokeWidth={2}
+											className="h-4 w-4"
+										/>
+										{t("about.downloadVersion", { version: latestVersion })}
+									</a>
+								</Button>
+							)}
+						<Button asChild variant="ghost" size="sm">
+							<a href={RELEASES_URL} target="_blank" rel="noreferrer noopener">
+								<HugeiconsIcon
+									icon={RefreshIcon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								{t("about.viewChangelog")}
+							</a>
+						</Button>
+					</div>
+				</SettingsSection>
+			)}
 		</>
 	);
 }

@@ -330,60 +330,102 @@ export function getComboPresets(): { value: string; label: string }[] {
 
 /**
  * Format a pynput-format hotkey (e.g. "<ctrl>+<alt>+v") for display
- * in the UI (e.g. "Ctrl+Alt+V").
+ * in the UI (e.g. "Ctrl+Alt+V" on Windows/Linux, "⌃⌥V" on macOS).
  *
  * Returns "None" if the hotkey is empty/falsy.
+ *
+ * PVT-FIX-002: on macOS, the four primary modifiers are rendered as
+ * platform-native glyphs (⌘ Cmd, ⌃ Ctrl, ⌥ Alt/Option, ⇧ Shift) and
+ * joined WITHOUT separators — matching the macOS Human Interface
+ * Guidelines (e.g. "⌘⇧V" rather than "Cmd+Shift+V"). On Windows and
+ * Linux the existing text labels ("Ctrl", "Shift", etc.) joined with
+ * "+" are kept — that convention is what users on those platforms
+ * expect, and existing tests + snapshot files assert on it.
+ *
+ * The ``win`` / ``super`` / ``fn`` / ``globe`` modifiers are NOT
+ * mapped to glyphs on macOS because they are not native to the
+ * platform (a Mac keyboard has no Win key, and Fn/Globe are special
+ * firmware keys); their text labels are kept for clarity.
  */
 export function formatHotkey(hotkey: string): string {
 	if (!hotkey) return "None";
-	return hotkey
+	// macOS glyph table for the four primary modifiers. Applied only
+	// when the detected platform is darwin. Keys not in this map fall
+	// through to the text-label path below.
+	const MAC_MODIFIER_GLYPHS: Record<string, string> = {
+		ctrl: "\u2303", // ⌃
+		ctrl_l: "\u2303",
+		ctrl_r: "\u2303",
+		shift: "\u21E7", // ⇧
+		shift_l: "\u21E7",
+		shift_r: "\u21E7",
+		alt: "\u2325", // ⌥
+		alt_l: "\u2325",
+		alt_r: "\u2325",
+		alt_gr: "\u2325",
+		cmd: "\u2318", // ⌘
+		cmd_l: "\u2318",
+		cmd_r: "\u2318",
+	};
+	const displayMap: Record<string, string> = {
+		ctrl: "Ctrl",
+		ctrl_l: "Ctrl",
+		ctrl_r: "Ctrl",
+		shift: "Shift",
+		shift_l: "Shift",
+		shift_r: "Shift",
+		alt: "Alt",
+		alt_l: "Alt",
+		alt_r: "Alt",
+		alt_gr: "AltGr",
+		cmd: "Cmd",
+		cmd_l: "Cmd",
+		cmd_r: "Cmd",
+		win: "Win",
+		super: "Super",
+		fn: "Fn",
+		globe: "\u{1F310}",
+		space: "Space",
+		enter: "Enter",
+		tab: "Tab",
+		esc: "Esc",
+		caps_lock: "Caps Lock",
+		num_lock: "Num Lock",
+		scroll_lock: "Scroll Lock",
+		print_screen: "Print Screen",
+		pause: "Pause",
+		insert: "Insert",
+		delete: "Delete",
+		home: "Home",
+		end: "End",
+		page_up: "Page Up",
+		page_down: "Page Down",
+		up: "\u2191",
+		down: "\u2193",
+		left: "\u2190",
+		right: "\u2192",
+	};
+	const parts = hotkey
 		.split("+")
-		.map((part) => {
-			const key = part.replace(/[<>]/g, "").trim();
-			const displayMap: Record<string, string> = {
-				ctrl: "Ctrl",
-				ctrl_l: "Ctrl",
-				ctrl_r: "Ctrl",
-				shift: "Shift",
-				shift_l: "Shift",
-				shift_r: "Shift",
-				alt: "Alt",
-				alt_l: "Alt",
-				alt_r: "Alt",
-				alt_gr: "AltGr",
-				cmd: "Cmd",
-				cmd_l: "Cmd",
-				cmd_r: "Cmd",
-				win: "Win",
-				super: "Super",
-				fn: "Fn",
-				globe: "🌐",
-				space: "Space",
-				enter: "Enter",
-				tab: "Tab",
-				esc: "Esc",
-				caps_lock: "Caps Lock",
-				num_lock: "Num Lock",
-				scroll_lock: "Scroll Lock",
-				print_screen: "Print Screen",
-				pause: "Pause",
-				insert: "Insert",
-				delete: "Delete",
-				home: "Home",
-				end: "End",
-				page_up: "Page Up",
-				page_down: "Page Down",
-				up: "\u2191",
-				down: "\u2193",
-				left: "\u2190",
-				right: "\u2192",
-			};
-			if (displayMap[key]) return displayMap[key];
-			if (/^f\d{1,2}$/.test(key)) return key.toUpperCase();
-			if (key.length === 1) return key.toUpperCase();
-			return key.charAt(0).toUpperCase() + key.slice(1);
-		})
-		.join("+");
+		.map((part) => part.replace(/[<>]/g, "").trim());
+	// PVT-FIX-002: re-detect platform on every call so a stale
+	// module-level detection (e.g. from Electron UA spoofing or
+	// headless mode) doesn't produce the wrong glyphs.
+	const isMac = detectPlatform() === "darwin";
+	const formattedParts = parts.map((key) => {
+		if (isMac && MAC_MODIFIER_GLYPHS[key]) return MAC_MODIFIER_GLYPHS[key];
+		if (displayMap[key]) return displayMap[key];
+		if (/^f\d{1,2}$/.test(key)) return key.toUpperCase();
+		if (key.length === 1) return key.toUpperCase();
+		return key.charAt(0).toUpperCase() + key.slice(1);
+	});
+	// On macOS, modifier glyphs are concatenated without separators
+	// (e.g. "⌘⇧V"). On other platforms, all parts are joined with
+	// "+" (e.g. "Ctrl+Shift+V").
+	if (isMac) {
+		return formattedParts.join("");
+	}
+	return formattedParts.join("+");
 }
 
 /**

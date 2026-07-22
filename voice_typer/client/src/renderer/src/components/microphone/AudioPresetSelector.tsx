@@ -1,4 +1,4 @@
-import { FilterIcon } from "@hugeicons/core-free-icons";
+import { ArrowDown01Icon, FilterIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import {
@@ -9,6 +9,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { t } from "@/i18n/i18n";
+import { cn } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 
 /**
@@ -37,6 +38,13 @@ interface AudioPresetSelectorProps {
 	onConfigChange: (updates: Partial<VoiceTyperConfig>) => void;
 }
 
+/**
+ * Fix 6: Each preset now has a *real* description (distinct from the
+ * label). Previously the Studio / Noisy Room / Off / Custom presets all
+ * reused their own label as the description, leaving the user with no
+ * explanation of what the preset actually does. The description keys
+ * live under `settings.audioEnhancement.preset*Description` in en.json.
+ */
 function getPresetOptions(): {
 	value: AudioPreset;
 	label: string;
@@ -46,27 +54,27 @@ function getPresetOptions(): {
 		{
 			value: "auto",
 			label: t("settings.audioEnhancement.presetAuto"),
-			description: t("settings.audioEnhancement.microphoneQualityInfo"),
+			description: t("settings.audioEnhancement.presetAutoDescription"),
 		},
 		{
 			value: "studio",
 			label: t("settings.audioEnhancement.presetStudio"),
-			description: t("settings.audioEnhancement.presetStudio"),
+			description: t("settings.audioEnhancement.presetStudioDescription"),
 		},
 		{
 			value: "noisy_room",
 			label: t("settings.audioEnhancement.presetNoisyRoom"),
-			description: t("settings.audioEnhancement.presetNoisyRoom"),
+			description: t("settings.audioEnhancement.presetNoisyRoomDescription"),
 		},
 		{
 			value: "off",
 			label: t("settings.audioEnhancement.presetOff"),
-			description: t("settings.audioEnhancement.presetOff"),
+			description: t("settings.audioEnhancement.presetOffDescription"),
 		},
 		{
 			value: "custom",
 			label: t("settings.audioEnhancement.presetCustom"),
-			description: t("settings.audioEnhancement.presetCustom"),
+			description: t("settings.audioEnhancement.presetCustomDescription"),
 		},
 	];
 }
@@ -102,11 +110,22 @@ export function AudioPresetSelector({
 					/>
 					{t("settings.audioEnhancement.title")}
 				</span>
-				<span className="text-xs font-medium tracking-wide text-(--text-muted)">
+				<span className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-(--text-muted)">
 					{getPresetOptions().find((o) => o.value === preset)?.label ??
 						(preset === "custom"
 							? t("settings.audioEnhancement.presetCustom")
 							: preset.replace("_", " "))}
+					{/* Fix 12: chevron with rotation animation so users can see
+					    at a glance whether the panel is expanded. The rotation
+					    is CSS-driven (no JS state needed beyond `showAdvanced`). */}
+					<HugeiconsIcon
+						icon={ArrowDown01Icon}
+						strokeWidth={1.625}
+						className={cn(
+							"h-3.5 w-3.5 transition-transform duration-200",
+							showAdvanced && "rotate-180",
+						)}
+					/>
 				</span>
 			</button>
 

@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Bubble } from "./Bubble";
 import { ErrorBoundary } from "./components/feedback/ErrorBoundary";
+import { installGlobalErrorHandlers } from "./lib/globalErrorHandler";
 import "./index.css";
 
 // ADR-0020 §6.3 (Phase 3 UI port): install the Tauri bridge BEFORE the
@@ -10,6 +11,24 @@ import "./index.css";
 // it; this is a no-op. Must come before the `window.bubble?.signalReady`
 // call below.
 import "./lib/tauri-bridge";
+
+// PVT-G5-016 / G4-CR-10 (combined): install the global `error` and
+// `unhandledrejection` listeners BEFORE `ReactDOM.createRoot().render(...)`
+// so async errors that escape React's ErrorBoundary (e.g. unhandled promise
+// rejections in `useEffect`) are caught and logged instead of silently
+// swallowed. The bubble is an always-on-top transparent overlay — an
+// unhandled rejection that React doesn't catch would otherwise leave the
+// overlay in an undefined state, and a render-time crash without an
+// ErrorBoundary leaves a stuck invisible overlay (see P1-2c comment below).
+// The global handler is the safety net that also surfaces async-effect
+// rejections via toast + console.error (forwarded to the main-process log).
+//
+// `installGlobalErrorHandlers()` is idempotent — calling it again from
+// bubble-main.tsx is a no-op if main.tsx already installed the handlers
+// in the same renderer process (which it doesn't — each BrowserWindow
+// has its own JS context). Safe to call before
+// `window.bubble?.signalReady?.()` below.
+installGlobalErrorHandlers();
 
 // console.warn('[bubble renderer] mounting')
 

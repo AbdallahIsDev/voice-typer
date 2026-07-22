@@ -7,7 +7,7 @@ import {
 	StarIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
@@ -18,10 +18,17 @@ import ActivityList from "@/components/dashboard/ActivityList";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
+import { getLocale, t } from "@/i18n/i18n";
 import type {
 	HistoryRecord,
 	Page,
@@ -35,6 +42,61 @@ let _cachedRecords: HistoryRecord[] = [];
 let _cachedStats: TodayStats | null = null;
 
 const PAGE_SIZE = 50;
+
+/**
+ * Sort history records client-side. The backend always returns records
+ * newest-first; this lets the user re-sort the displayed list (and the
+ * exported payload) without an extra round-trip.
+ *
+ * Sort orders:
+ *  - ``newest``  — timestamp DESC (backend default; identity for an
+ *                  already-newest-first array, but we sort defensively
+ *                  in case the array was concatenated from multiple
+ *                  batches in `doExport`).
+ *  - ``oldest``  — timestamp ASC.
+ *  - ``az``      — text ASC (case-insensitive locale-aware compare).
+ *  - ``za``      — text DESC (case-insensitive locale-aware compare).
+ *
+ * Uses `getLocale()` so the A→Z / Z→A ordering respects the user's
+ * selected UI locale (e.g. accented characters sort correctly in
+ * French/Spanish).
+ */
+type HistorySortOrder = "newest" | "oldest" | "az" | "za";
+
+function sortRecords(
+	items: HistoryRecord[],
+	order: HistorySortOrder,
+): HistoryRecord[] {
+	const locale = getLocale();
+	const collator = new Intl.Collator(locale, {
+		sensitivity: "base",
+		numeric: true,
+	});
+	const sorted = [...items];
+	switch (order) {
+		case "oldest":
+			sorted.sort((a, b) => {
+				const ta = new Date(a.timestamp).getTime();
+				const tb = new Date(b.timestamp).getTime();
+				return ta - tb;
+			});
+			break;
+		case "az":
+			sorted.sort((a, b) => collator.compare(a.text ?? "", b.text ?? ""));
+			break;
+		case "za":
+			sorted.sort((a, b) => collator.compare(b.text ?? "", a.text ?? ""));
+			break;
+		default:
+			sorted.sort((a, b) => {
+				const ta = new Date(a.timestamp).getTime();
+				const tb = new Date(b.timestamp).getTime();
+				return tb - ta;
+			});
+			break;
+	}
+	return sorted;
+}
 
 interface HistoryPageProps {
 	/** Navigation callback used by the empty-state's "Start dictation" button. */
@@ -55,6 +117,10 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	const [hasMore, setHasMore] = useState(true);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [favoritesOnly, setFavoritesOnly] = useState(false);
+	// Sort order applied client-side to the records returned by the backend.
+	// The backend always returns records newest-first; the user can re-sort
+	// the displayed list (and the exported payload) via this dropdown.
+	const [sortOrder, setSortOrder] = useState<HistorySortOrder>("newest");
 	// Refs so load() and the event handler always read current filter values
 	// without being recreated on every state change (which would break the
 	// mount-only useEffect and cause duplicate subscriptions).
@@ -182,7 +248,9 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	}, [call, records.length]);
 
 	// R7-F13: extracted `debouncedRefreshFromEvent` via useCallback.
-	const debouncedRefreshFromEvent = useCallback(() => {
+	const debouncedRefreshFromEvent = useCallback(():
+		| (() => void)
+		| undefined => {
 		if (refreshTimer.current) clearTimeout(refreshTimer.current);
 		refreshTimer.current = setTimeout(async () => {
 			try {
@@ -204,6 +272,7 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 				// Silently ignore — next manual load will pick up fresh data
 			}
 		}, 500);
+		return undefined;
 	}, [call]);
 
 	usePythonEvent("transcription_final", debouncedRefreshFromEvent);
@@ -215,6 +284,13 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 	useEffect(() => {
 		return () => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
+			// PVT-045 (session 2): also clear searchTimer to prevent
+			// load() firing on an unmounted component if the user
+			// typed in the search box within 200ms of navigation.
+			if (searchTimer.current) {
+				clearTimeout(searchTimer.current);
+				searchTimer.current = null;
+			}
 		};
 	}, []);
 
@@ -324,11 +400,41 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 				return;
 			}
 			try {
-				const all = await call<HistoryRecord[]>("get_history", {
-					limit: 10000,
-				});
+				// Page through ALL records so the export is not silently
+				// truncated at an arbitrary cap.  Previously this fetched a
+				// single batch of 10000 records; if the user had more, the
+				// export was silently missing the older entries with no
+				// indication.  We now loop in PAGE_SIZE batches until the
+				// backend returns a short page, then warn the user if the
+				// total still appears capped (defensive — the loop should
+				// terminate naturally).
+				const all: HistoryRecord[] = [];
+				const EXPORT_PAGE_SIZE = 500;
+				let offset = 0;
+				// Safety cap to avoid an unbounded loop if the backend ever
+				// returns full pages forever due to a bug.  200k records is
+				// well beyond any realistic local-history size.
+				const MAX_EXPORT_RECORDS = 200_000;
+				let maybeTruncated = false;
+				while (offset < MAX_EXPORT_RECORDS) {
+					const batch = await call<HistoryRecord[]>("get_history", {
+						limit: EXPORT_PAGE_SIZE,
+						offset,
+					});
+					if (!Array.isArray(batch) || batch.length === 0) break;
+					all.push(...batch);
+					offset += batch.length;
+					if (batch.length < EXPORT_PAGE_SIZE) break;
+					if (offset >= MAX_EXPORT_RECORDS) {
+						maybeTruncated = true;
+						break;
+					}
+				}
+				// Apply the same sort order the user has selected for the
+				// displayed list so the exported file matches what they see.
+				const sorted = sortRecords(all, sortOrder);
 				const result = await (window.window_ as WindowBridge).exportHistory(
-					all as unknown as Record<string, unknown>[],
+					sorted as unknown as Record<string, unknown>[],
 					format,
 				);
 				if (result.success) {
@@ -336,13 +442,30 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 					const path = result.path ?? "";
 					const filename = path.split(/[\\/]/).pop() || "untitled";
 					toast.success(t("history.exportSaved", { filename }));
+					if (maybeTruncated) {
+						toast.warning(
+							t("history.exportTruncatedWarning", {
+								count: String(MAX_EXPORT_RECORDS),
+							}),
+						);
+					}
 				}
 			} catch (err) {
 				console.error("History export failed:", err);
 				toast.error(t("history.exportFailed"));
 			}
 		},
-		[call, records.length],
+		[call, records.length, sortOrder],
+	);
+
+	// Sorted view of the loaded records — applied client-side so the user
+	// can re-order the displayed list (and the export) without an extra
+	// backend round-trip.  Memoised so the sort only re-runs when the
+	// records array or sortOrder changes (not on every keystroke in the
+	// search field).
+	const sortedRecords = useMemo(
+		() => sortRecords(records, sortOrder),
+		[records, sortOrder],
 	);
 
 	return (
@@ -354,9 +477,19 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 						stats
 							? t("history.transcriptionsToday", {
 									count: String(stats.count),
+									// PVT-087: previously hardcoded the English
+									// word "chars" and called .toLocaleString()
+									// with no locale argument (so it used the
+									// browser default, not the user-selected
+									// UI locale).  Now we resolve the suffix
+									// template via t() so other locales can
+									// translate "chars" (and the digit
+									// grouping respects getLocale()).
 									chars:
 										stats.chars > 0
-											? ` (${stats.chars.toLocaleString()} chars)`
+											? t("history.charsSuffix", {
+													count: stats.chars.toLocaleString(getLocale()),
+												})
 											: "",
 								})
 							: t("history.noTranscriptionsToday")
@@ -419,6 +552,28 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 						/>
 						{t("history.clearAll")}
 					</Button>
+					{/* Sort dropdown — client-side re-order of the loaded
+                                            records.  Placed inline so it groups with the other
+                                            list-action buttons; the Radix Select trigger
+                                            inherits the same muted outline-button styling. */}
+					<Select
+						value={sortOrder}
+						onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
+					>
+						<SelectTrigger
+							size="sm"
+							aria-label={t("common.sortAria")}
+							className="gap-2 h-8 rounded-lg border-border px-3 text-xs text-(--text-muted) hover:text-(--text-primary)"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="newest">{t("common.sortNewest")}</SelectItem>
+							<SelectItem value="oldest">{t("common.sortOldest")}</SelectItem>
+							<SelectItem value="az">{t("common.sortAZ")}</SelectItem>
+							<SelectItem value="za">{t("common.sortZA")}</SelectItem>
+						</SelectContent>
+					</Select>
 					<div className="ml-auto">
 						<ExportFormatMenu
 							onExport={doExport}
@@ -476,25 +631,27 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 					<>
 						<ActivityList
 							// R7-F16: cap visible list at 200 items.
-							items={records.slice(0, 200)}
+							// Apply the user-selected sort order client-side
+							// (sortedRecords is memoised above).
+							items={sortedRecords.slice(0, 200)}
 							lineClamp={3}
 							onDelete={handleDelete}
 							onToggleFavorite={handleToggleFavorite}
 						/>
 
 						{/*
-							CR-054: once `records.length` reaches the 200-item
-							display cap AND the backend still reports more
-							available (`hasMore`), further "Load More" clicks
-							would be silent no-ops — `records.slice(0, 200)`
-							above hides any items past 200, so the user would
-							click Load More and see nothing change for several
-							clicks.  Replace the button with a notice pointing
-							the user at the search field to find older entries.
-							When `records.length < 200`, the Load More button is
-							still useful (it grows the visible list below the
-							cap), so we keep it.
-						*/}
+                                                        CR-054: once `records.length` reaches the 200-item
+                                                        display cap AND the backend still reports more
+                                                        available (`hasMore`), further "Load More" clicks
+                                                        would be silent no-ops — `records.slice(0, 200)`
+                                                        above hides any items past 200, so the user would
+                                                        click Load More and see nothing change for several
+                                                        clicks.  Replace the button with a notice pointing
+                                                        the user at the search field to find older entries.
+                                                        When `records.length < 200`, the Load More button is
+                                                        still useful (it grows the visible list below the
+                                                        cap), so we keep it.
+                                                */}
 						{records.length >= 200 && hasMore ? (
 							<p className="mt-4 text-center text-xs text-(--text-muted)">
 								{t("history.showingCap", {

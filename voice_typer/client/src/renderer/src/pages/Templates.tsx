@@ -6,9 +6,12 @@ import {
 	PencilEdit02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import ExportFormatMenu from "@/components/common/ExportFormatMenu";
 import { Modal, ModalFooter } from "@/components/common/Modal";
 import PageHeading from "@/components/common/PageHeading";
+import { SearchField } from "@/components/common/SearchField";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { Spinner } from "@/components/feedback/Spinner";
@@ -23,7 +26,7 @@ import {
 } from "@/components/ui/select";
 import { usePython } from "@/hooks/usePython";
 import { showUndoableToast, useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
+import { getLocale, t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
 // NEW-UX-008: Templates are persisted by the Python backend to
@@ -48,7 +51,22 @@ interface Template {
 }
 
 interface TemplateRow {
+	/**
+	 * Position of the template within the persisted list.  Used by the
+	 * edit/delete handlers to splice the right element when saving back
+	 * to the backend (the backend stores templates as a positional
+	 * array, so the index is the canonical reference for edits).
+	 */
 	index: number;
+	/**
+	 * Stable client-side UUID generated when the row is materialised
+	 * from the backend list.  Used as the React key so list re-orders
+	 * (sort, search filter, add/edit/delete) don't reuse DOM nodes
+	 * across different templates — the previous `key={row.index}`
+	 * caused input focus and animation state to leak between rows
+	 * when the list order changed (e.g. after a sort or undo restore).
+	 */
+	id: string;
 	trigger: string;
 	expansion: string;
 	match_mode: string;
@@ -178,6 +196,29 @@ async function saveTemplates(
 	}
 }
 
+/**
+ * Generate a stable UUID for a row.  Uses the Web Crypto API
+ * (`crypto.randomUUID`) which is available in Electron's renderer
+ * (Chromium) and in jsdom (Node ≥ 19).  Falls back to a
+ * `Math.random`-based pseudo-ID if `crypto.randomUUID` is unavailable
+ * (older runtimes / sandboxed tests) so the React key is still unique
+ * within the session — UUID quality doesn't matter here because the
+ * ID is never persisted, only used as a React key.
+ */
+function makeRowId(): string {
+	try {
+		if (
+			typeof crypto !== "undefined" &&
+			typeof crypto.randomUUID === "function"
+		) {
+			return crypto.randomUUID();
+		}
+	} catch {
+		// crypto may be undefined in some test environments
+	}
+	return `row-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+}
+
 function toRows(items: Template[]): TemplateRow[] {
 	return items.map((t, i) => {
 		const output = t.output ?? "";
@@ -188,6 +229,7 @@ function toRows(items: Template[]): TemplateRow[] {
 		const usedVars = VARIABLES.filter((v) => output.includes(v));
 		return {
 			index: i,
+			id: makeRowId(),
 			trigger: t.trigger ?? "",
 			expansion: output,
 			match_mode: t.match_mode ?? "exact",
@@ -226,6 +268,69 @@ function rowsToTemplates(rows: TemplateRow[]): Template[] {
 	}));
 }
 
+/**
+ * Sort template rows client-side.  Mirrors the History.tsx pattern —
+ * the backend returns templates in insertion order (oldest first),
+ * so "newest" reverses that to surface recently-added templates.
+ *
+ * Uses ``getLocale()`` for the A→Z / Z→A collation so accented
+ * characters sort correctly in French/Spanish/German etc.
+ */
+type TemplateSortOrder = "newest" | "oldest" | "az" | "za";
+
+function sortTemplateRows(
+	rows: TemplateRow[],
+	order: TemplateSortOrder,
+): TemplateRow[] {
+	const locale = getLocale();
+	const collator = new Intl.Collator(locale, {
+		sensitivity: "base",
+		numeric: true,
+	});
+	const sorted = [...rows];
+	switch (order) {
+		case "oldest":
+			// insertion order = oldest first; identity.
+			break;
+		case "az":
+			sorted.sort((a, b) => collator.compare(a.trigger ?? "", b.trigger ?? ""));
+			break;
+		case "za":
+			sorted.sort((a, b) => collator.compare(b.trigger ?? "", a.trigger ?? ""));
+			break;
+		default:
+			// Reverse insertion order so the most-recently-added template
+			// appears at the top.
+			sorted.reverse();
+			break;
+	}
+	return sorted;
+}
+
+/**
+ * Parse an imported file's text content into a Template[] array.
+ * Accepts both a bare JSON array of {trigger, output, match_mode}
+ * objects and the export shape ``{ templates: [...] }`` produced by
+ * the Vocabulary / Templates export handlers (forward-compat).
+ *
+ * Throws on malformed JSON or non-array payload so the caller can
+ * surface a toast.error with the parse failure reason.
+ */
+function parseImportedTemplates(text: string): Template[] {
+	const parsed = JSON.parse(text) as unknown;
+	const arr = Array.isArray(parsed)
+		? parsed
+		: (parsed as { templates?: unknown })?.templates;
+	if (!Array.isArray(arr)) {
+		throw new Error("File does not contain a templates array");
+	}
+	return arr.map((t: Partial<Template>) => ({
+		trigger: _sanitizeTemplateField(t.trigger),
+		output: _sanitizeTemplateField(t.output),
+		match_mode: t.match_mode === "contains" ? "contains" : "exact",
+	}));
+}
+
 export default function TemplatesPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
@@ -244,6 +349,14 @@ export default function TemplatesPage() {
 	const [trigger, setTrigger] = useState("");
 	const [expansion, setExpansion] = useState("");
 	const [matchMode, setMatchMode] = useState<"exact" | "contains">("exact");
+	// Search + sort state — applied client-side to the loaded list so the
+	// user can re-filter / re-order without an extra backend round-trip.
+	const [searchQuery, setSearchQuery] = useState("");
+	const [sortOrder, setSortOrder] = useState<TemplateSortOrder>("newest");
+	// Hidden file-input ref for the Import button.  We use a hidden
+	// ``<input type="file">`` element so the Import button can trigger
+	// the OS-native file picker without a custom preload IPC channel.
+	const importInputRef = useRef<HTMLInputElement | null>(null);
 
 	// CR-052: ref mirror of `templates` (the React-state TemplateRow[])
 	// so `saveTemplate` and the `instantDeleteTemplate` undo callback
@@ -513,6 +626,112 @@ export default function TemplatesPage() {
 
 	const handleCloseDialog = () => setShowDialog(false);
 
+	// ── Import / Export ──────────────────────────────────────────────
+	//
+	// Export: uses the optional ``window_.exportTemplates`` IPC
+	// (NEW-PRIV-007 GDPR right-to-export) when available.  Falls back
+	// to a no-op toast if the bridge is missing (e.g. running outside
+	// Electron) so the button isn't a silent dead control.
+	const doExport = useCallback(async () => {
+		try {
+			const items = rowsToTemplates(templatesRef.current);
+			const bridge = window.window_;
+			if (!bridge?.exportTemplates) {
+				toast.error(t("vocabulary.exportNotAvailable"));
+				return;
+			}
+			const result = await bridge.exportTemplates({ templates: items });
+			if (result.success) {
+				const path = result.path ?? "";
+				const filename = path.split(/[\\/]/).pop() || "untitled";
+				toast.success(t("history.exportSaved", { filename }));
+			} else {
+				toast.error(result.error || t("history.exportFailed"));
+			}
+		} catch (err) {
+			console.error("Templates export failed:", err);
+			toast.error(t("history.exportFailed"));
+		}
+	}, []);
+
+	// Import: hidden ``<input type="file">`` opens the OS-native picker.
+	// We read the file via ``File.text()`` (Chromium ≥ 76, Electron
+	// renderer), parse it via ``parseImportedTemplates`` (which accepts
+	// both bare-array and ``{templates: [...]}`` shapes), then merge
+	// with the existing list (de-duplicating by trigger+output to avoid
+	// accidental double-imports) and persist via ``saveTemplates``.
+	const handleImportFile = useCallback(
+		async (file: File | undefined | null) => {
+			if (!file) return;
+			try {
+				const text = await file.text();
+				const imported = parseImportedTemplates(text);
+				if (imported.length === 0) {
+					toast.error(t("templates.importEmpty"));
+					return;
+				}
+				const existing = rowsToTemplates(templatesRef.current);
+				// De-duplicate by ``trigger|output|match_mode`` so re-importing
+				// the same file doesn't create duplicate rows.
+				const key = (tp: Template) =>
+					`${tp.trigger}\u0000${tp.output}\u0000${tp.match_mode}`;
+				const existingKeys = new Set(existing.map(key));
+				const merged = [...existing];
+				let added = 0;
+				for (const tp of imported) {
+					if (!existingKeys.has(key(tp))) {
+						merged.push(tp);
+						existingKeys.add(key(tp));
+						added++;
+					}
+				}
+				await saveTemplates(merged, call);
+				await loadRows();
+				if (added === 1) {
+					toast.success(t("templates.importSuccessSingular"));
+				} else {
+					toast.success(
+						t("templates.importSuccessPlural", { count: String(added) }),
+					);
+				}
+			} catch (err) {
+				console.error("Templates import failed:", err);
+				toast.error(
+					t("templates.importFailed", {
+						error: err instanceof Error ? err.message : String(err),
+					}),
+				);
+			} finally {
+				// Reset the input so re-selecting the same file fires
+				// ``onChange`` again (otherwise the OS picker suppresses
+				// the event if the path is unchanged).
+				if (importInputRef.current) importInputRef.current.value = "";
+			}
+		},
+		[call, loadRows],
+	);
+
+	const handleImportClick = useCallback(() => {
+		importInputRef.current?.click();
+	}, []);
+
+	// ── Search + Sort (client-side) ─────────────────────────────────
+	//
+	// Applied via useMemo so the sort/filter only re-runs when the
+	// underlying list, search query, or sort order changes — not on
+	// every keystroke that re-renders the page.
+	const filteredSortedTemplates = useMemo(() => {
+		const q = searchQuery.trim().toLowerCase();
+		const filtered = q
+			? templates.filter(
+					(r) =>
+						r.trigger.toLowerCase().includes(q) ||
+						r.expansion.toLowerCase().includes(q),
+				)
+			: templates;
+		return sortTemplateRows(filtered, sortOrder);
+	}, [templates, searchQuery, sortOrder]);
+
 	if (loading) {
 		return (
 			<div className="flex h-full items-center justify-center">
@@ -553,26 +772,89 @@ export default function TemplatesPage() {
 					title={t("templates.title")}
 					description={t("templates.description")}
 				>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={openAddDialog}
-						aria-label={t("templates.addNewAria")}
-						// FIX: muted text/icon by default, white on hover —
-						// matches the muted style used by outline buttons
-						// elsewhere (History action row, Vocabulary add, etc.).
-						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-					>
-						<HugeiconsIcon
-							icon={Add01Icon}
-							strokeWidth={2}
-							className="h-4 w-4"
+					<div className="flex items-center gap-2">
+						{/* Import button — hidden file input + visible trigger.
+						    The input is rendered once and re-used; its value
+						    is reset after each ``onChange`` so re-selecting
+						    the same file fires the event again. */}
+						<input
+							ref={importInputRef}
+							type="file"
+							accept="application/json,.json"
+							className="sr-only"
+							onChange={(e) => {
+								const file = e.target.files?.[0];
+								handleImportFile(file);
+							}}
+							aria-hidden="true"
+							tabIndex={-1}
 						/>
-						{t("templates.addTemplate")}
-					</Button>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleImportClick}
+							aria-label={t("common.importAria")}
+							className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+						>
+							{/* Import icon omitted — label is sufficient. */}
+							{t("common.import")}
+						</Button>
+						<ExportFormatMenu
+							onExport={() => doExport()}
+							disabled={templates.length === 0}
+						/>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={openAddDialog}
+							aria-label={t("templates.addNewAria")}
+							// FIX: muted text/icon by default, white on hover —
+							// matches the muted style used by outline buttons
+							// elsewhere (History action row, Vocabulary add, etc.).
+							className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+						>
+							<HugeiconsIcon
+								icon={Add01Icon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{t("templates.addTemplate")}
+						</Button>
+					</div>
 				</PageHeading>
 
-				<div>
+				{/* Search + sort row — mirrors the History/Vocabulary pattern. */}
+				{templates.length > 0 && (
+					<div className="mt-4 flex items-center gap-2">
+						<div className="flex-1">
+							<SearchField
+								value={searchQuery}
+								onChange={setSearchQuery}
+								placeholder={t("templates.searchPlaceholder")}
+							/>
+						</div>
+						<Select
+							value={sortOrder}
+							onValueChange={(v) => setSortOrder(v as TemplateSortOrder)}
+						>
+							<SelectTrigger
+								size="sm"
+								aria-label={t("common.sortAria")}
+								className="gap-2 h-9 rounded-xl border-border px-3 text-xs text-(--text-muted) hover:text-(--text-primary)"
+							>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="newest">{t("common.sortNewest")}</SelectItem>
+								<SelectItem value="oldest">{t("common.sortOldest")}</SelectItem>
+								<SelectItem value="az">{t("common.sortAZ")}</SelectItem>
+								<SelectItem value="za">{t("common.sortZA")}</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+				)}
+
+				<div className="mt-4">
 					{templates.length === 0 ? (
 						<EmptyState
 							icon={File02Icon}
@@ -581,14 +863,28 @@ export default function TemplatesPage() {
 							actionLabel={t("templates.createFirst")}
 							onAction={openAddDialog}
 						/>
+					) : filteredSortedTemplates.length === 0 ? (
+						<EmptyState
+							icon={File02Icon}
+							title={t("templates.emptyTitle")}
+							description={t("history.noResultsDescription")}
+						/>
 					) : (
 						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
-							{templates.map((row) => {
+							{filteredSortedTemplates.map((row) => {
 								const handleEdit = () => openEditDialog(row);
 								const handleDelete = () => instantDeleteTemplate(row);
+								// Colored match-mode badge: "exact" → neutral/blue,
+								// "contains" → amber.  Uses the same color tokens
+								// as the History favorites toggle so the palette
+								// stays consistent.
+								const isContains = row.match_mode === "contains";
+								const matchModeLabel = isContains
+									? t("templates.matchModeContainsLabel")
+									: t("templates.matchModeExactLabel");
 								return (
 									<div
-										key={row.index}
+										key={row.id}
 										className="flex items-center gap-3 px-3.5 py-2.5"
 									>
 										<div className="min-w-0 flex-1">
@@ -599,9 +895,19 @@ export default function TemplatesPage() {
 												<p className="max-w-75 truncate text-xs text-(--text-muted)">
 													{row.expansion}
 												</p>
-												<span className="text-xs text-(--text-muted)">
-													{row.variables}v &middot; {row.match_mode}
-												</span>
+												<output
+													className={
+														"text-xs rounded-full px-2 py-0.5 font-medium " +
+														(isContains
+															? "bg-amber-400/15 text-amber-700 dark:text-amber-400"
+															: "bg-accent/15 text-accent")
+													}
+													aria-label={t("templates.matchModeAria", {
+														mode: matchModeLabel,
+													})}
+												>
+													{row.variables}v &middot; {matchModeLabel}
+												</output>
 												<InfoTooltip
 													text={
 														row.used_variables.length > 0
@@ -708,7 +1014,7 @@ export default function TemplatesPage() {
 							id="template-output"
 							value={expansion}
 							onChange={handleExpansionChange}
-							placeholder="john.doe@example.com"
+							placeholder={t("templates.outputPlaceholder")}
 							rows={5}
 							className={cn(
 								"w-full resize-y rounded-lg border border-border",

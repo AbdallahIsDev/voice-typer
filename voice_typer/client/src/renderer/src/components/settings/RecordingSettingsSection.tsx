@@ -6,11 +6,14 @@
 // The Dictation Key was moved here from the now-removed standalone
 // HotkeySettingsSection since it was the only setting in that section.
 
-import { memo, useCallback } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { HotkeyPicker } from "@/components/hotkey/HotkeyPicker";
-import { getComboPresets } from "@/components/hotkey/hotkey-utils";
+import {
+	getComboPresets,
+	getSingleKeyPresets,
+} from "@/components/hotkey/hotkey-utils";
 import { NumberInputStepper } from "@/components/ui/number-input-stepper";
 import {
 	SegmentedControl,
@@ -30,14 +33,32 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-// Dictation key dropdown presets: single-key modifier-only options.
-// Wrapped in angle brackets to match the combo-mode hotkey format.
-const DICTATION_KEY_PRESETS = [
-	{ value: "<caps_lock>", label: "Caps Lock" },
-	{ value: "<shift>", label: "Shift" },
-	{ value: "<ctrl>", label: "Ctrl" },
-	{ value: "<alt>", label: "Alt" },
-];
+// PVT-066 (Sub-agent 14): the dictation-key dropdown presets are now
+// derived from ``getSingleKeyPresets()`` — the SAME single source of
+// truth used elsewhere in the hotkey system. Previously this file
+// re-declared its own inline list which:
+//   1. Reintroduced the ``<shift>`` hazard (Shift is held for
+//      capitalization while typing — using it as a dictation key
+//      would fire dictation on every uppercase letter).
+//   2. Did NOT include the macOS-only Fn / Globe key (the inline
+//      list was platform-static; the getter re-detects the platform
+//      on every call).
+//
+// The ``.map`` wraps each value in angle brackets (``<value>``) so
+// the resulting preset shape matches the combo-mode hotkey format
+// the HotkeyPicker expects (e.g. ``<caps_lock>``, ``<ctrl>``).
+//
+// Computed via ``useMemo`` so the array identity is stable across
+// re-renders (HotkeyPicker's presets prop comparison doesn't thrash).
+const useDictationKeyPresets = () =>
+	useMemo(
+		() =>
+			getSingleKeyPresets().map((p) => ({
+				value: `<${p.value}>`,
+				label: p.label,
+			})),
+		[],
+	);
 
 // IMPL-C: option label keys (translated at render time so the labels
 // honour the active UI locale).
@@ -62,6 +83,9 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	updateConfigDebounced,
 	isVisible,
 }: SettingsSectionSharedProps) {
+	// PVT-066: dictation-key presets derived from the shared
+	// single-key preset list (platform-aware, no <shift> hazard).
+	const dictationKeyPresets = useDictationKeyPresets();
 	// ESC-FIX-002-LEGACY: useCallback calls MUST be before any early return
 	// per React's Rules of Hooks.
 	const handleDictationChange = useCallback(
@@ -125,6 +149,17 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		updateConfig({ sound_feedback_enabled: checked });
 		setSoundFeedbackEnabled(checked);
 	};
+
+	// Fix #9: track invalid reasons for the NumberInputStepper inputs
+	// so we can surface inline error messages and helper text. The state
+	// is set by the NumberInputStepper's `onInvalid` callback (called
+	// with "parse" | "range" | null) and read in the JSX below the input.
+	const [silenceInvalidReason, setSilenceInvalidReason] = useState<
+		"parse" | "range" | null
+	>(null);
+	const [maxRecordingInvalidReason, setMaxRecordingInvalidReason] = useState<
+		"parse" | "range" | null
+	>(null);
 
 	const t = useT();
 
@@ -212,7 +247,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							value={config.hotkey}
 							onChange={handleDictationChange}
 							mode="combo"
-							presets={DICTATION_KEY_PRESETS}
+							presets={dictationKeyPresets}
 							occupiedHotkeys={
 								config.repaste_hotkey ? [config.repaste_hotkey] : undefined
 							}
@@ -315,23 +350,33 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						label={silenceWarningLabel}
 						info={t("settings.hotkeySection.silenceWarningInfo")}
 					>
-						<div className="flex items-center gap-2">
-							<NumberInputStepper
-								min={3}
-								max={30}
-								step={1}
-								value={String(config.silence_warning_seconds)}
-								onChange={handleSilenceWarningChange}
-								className="w-20 text-center"
-								aria-label={t("settings.hotkeySection.silenceWarningAria")}
-								aria-invalid={
-									config.silence_warning_seconds < 3 ||
-									config.silence_warning_seconds > 30
-										? true
-										: undefined
-								}
-							/>
-							<span className="text-sm text-(--text-muted)">s</span>
+						<div className="flex flex-col items-end gap-1">
+							<div className="flex items-center gap-2">
+								<NumberInputStepper
+									min={3}
+									max={30}
+									step={1}
+									value={String(config.silence_warning_seconds)}
+									onChange={handleSilenceWarningChange}
+									// Fix #9: surface parse / range errors via inline
+									// message + helper text. The NumberInputStepper
+									// still sets aria-invalid internally for SR + visual.
+									onInvalid={setSilenceInvalidReason}
+									className="w-20 text-center"
+									aria-label={t("settings.hotkeySection.silenceWarningAria")}
+								/>
+								<span className="text-sm text-(--text-muted)">s</span>
+							</div>
+							{/* Helper text: valid range. Always shown so the user
+                                                                knows the bounds before they type. */}
+							<span className="text-xs text-(--text-muted)">Range: 3–30 s</span>
+							{silenceInvalidReason && (
+								<span role="alert" className="text-xs text-destructive">
+									{silenceInvalidReason === "parse"
+										? "Enter a whole number"
+										: "Must be between 3 and 30"}
+								</span>
+							)}
 						</div>
 					</SettingRow>
 
@@ -339,29 +384,39 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						label={maxRecordingTimeLabel}
 						info={t("settings.hotkeySection.maxRecordingTimeInfo")}
 					>
-						<div className="flex items-center gap-2">
-							<NumberInputStepper
-								min={5}
-								max={60}
-								step={1}
-								value={String(maxRecordingMinutes)}
-								onChange={handleMaxRecordingTimeChange}
-								className="w-20 text-center"
-								aria-label={t("settings.hotkeySection.maxRecordingTimeAria")}
-								aria-invalid={
-									maxRecordingMinutes < 5 || maxRecordingMinutes > 60
-										? true
-										: undefined
-								}
-							/>
-							<span className="text-sm text-(--text-muted)">min</span>
+						<div className="flex flex-col items-end gap-1">
+							<div className="flex items-center gap-2">
+								<NumberInputStepper
+									min={5}
+									max={60}
+									step={1}
+									value={String(maxRecordingMinutes)}
+									onChange={handleMaxRecordingTimeChange}
+									// Fix #9: surface parse / range errors via inline
+									// message + helper text.
+									onInvalid={setMaxRecordingInvalidReason}
+									className="w-20 text-center"
+									aria-label={t("settings.hotkeySection.maxRecordingTimeAria")}
+								/>
+								<span className="text-sm text-(--text-muted)">min</span>
+							</div>
+							<span className="text-xs text-(--text-muted)">
+								Range: 5–60 min
+							</span>
+							{maxRecordingInvalidReason && (
+								<span role="alert" className="text-xs text-destructive">
+									{maxRecordingInvalidReason === "parse"
+										? "Enter a whole number"
+										: "Must be between 5 and 60"}
+								</span>
+							)}
 						</div>
 					</SettingRow>
 
 					{/* RW-0: dead_air_timeout setting REMOVED. It was redundant with
-					    stop_on_silence_seconds — auto-stop already resets on every speech
-					    detection, so "silence after speech" needs no separate control.
-					    Do NOT re-add this setting. */}
+                                            stop_on_silence_seconds — auto-stop already resets on every speech
+                                            detection, so "silence after speech" needs no separate control.
+                                            Do NOT re-add this setting. */}
 				</SettingsSection>
 			)}
 		</>

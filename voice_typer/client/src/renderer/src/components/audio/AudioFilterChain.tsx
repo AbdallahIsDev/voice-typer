@@ -41,13 +41,18 @@ export interface AudioFilterChainProps {
 }
 
 /**
- * Renders the 7-row custom filter chain: high-pass, noise suppression
- * method, noise gate (with open/close thresholds), equalizer (with
- * low/mid/high), compressor (with threshold + ratio), limiter (with
- * ceiling), and notch filter.
+ * Renders the custom filter chain: high-pass, noise suppression
+ * method, noise gate (with open/close thresholds + attack/hold/release),
+ * equalizer (with low/mid/high), compressor (with threshold/ratio/
+ * attack/release/output_gain), limiter (with ceiling + release), and
+ * notch filter (with frequency).
  *
  * Each row uses `SettingRow` for layout consistency with the rest of
  * the Settings page. Sliders use `RangeSlider` for the same reason.
+ *
+ * PVT-037 / Fix 11: every RangeSlider uses `deferApply` so a drag does
+ * not flood the backend with one `set_config` IPC call per pixel — the
+ * commit happens on pointer-up / blur / key-up instead.
  *
  * All labels are translated via `t()` from `@/i18n/i18n` — the keys
  * live under `settings.audioEnhancement.*` and are shared with the
@@ -72,6 +77,12 @@ export function AudioFilterChain({
 		onConfigChange({ noise_filter_gate_open_threshold_db: v });
 	const handleGateCloseChange = (v: number) =>
 		onConfigChange({ noise_filter_gate_close_threshold_db: v });
+	const handleGateAttackChange = (v: number) =>
+		onConfigChange({ noise_filter_gate_attack_ms: v });
+	const handleGateHoldChange = (v: number) =>
+		onConfigChange({ noise_filter_gate_hold_ms: v });
+	const handleGateReleaseChange = (v: number) =>
+		onConfigChange({ noise_filter_gate_release_ms: v });
 	const handleEqToggle = (v: boolean) => onConfigChange({ noise_filter_eq: v });
 	const handleEqLowChange = (v: number) =>
 		onConfigChange({ noise_filter_eq_low_db: v });
@@ -85,12 +96,22 @@ export function AudioFilterChain({
 		onConfigChange({ noise_filter_compressor_threshold_db: v });
 	const handleCompressorRatioChange = (v: number) =>
 		onConfigChange({ noise_filter_compressor_ratio: v });
+	const handleCompressorAttackChange = (v: number) =>
+		onConfigChange({ noise_filter_compressor_attack_ms: v });
+	const handleCompressorReleaseChange = (v: number) =>
+		onConfigChange({ noise_filter_compressor_release_ms: v });
+	const handleCompressorOutputGainChange = (v: number) =>
+		onConfigChange({ noise_filter_compressor_output_gain_db: v });
 	const handleLimiterToggle = (v: boolean) =>
 		onConfigChange({ noise_filter_limiter: v });
 	const handleLimiterCeilingChange = (v: number) =>
 		onConfigChange({ noise_filter_limiter_ceiling_db: v });
+	const handleLimiterReleaseChange = (v: number) =>
+		onConfigChange({ noise_filter_limiter_release_ms: v });
 	const handleNotchToggle = (v: boolean) =>
 		onConfigChange({ noise_filter_notch: v });
+	const handleNotchFrequencyChange = (v: number) =>
+		onConfigChange({ noise_filter_notch_frequency_hz: v });
 
 	return (
 		<>
@@ -118,6 +139,7 @@ export function AudioFilterChain({
 						onChange={handleCutoffChange}
 						ariaLabel={t("settings.audioEnhancement.highPassCutoffAria")}
 						suffix="Hz"
+						deferApply
 					/>
 				</SettingRow>
 			)}
@@ -140,6 +162,10 @@ export function AudioFilterChain({
 					<SelectContent>
 						<SelectItem value="rnnoise">RNNoise</SelectItem>
 						<SelectItem value="deepfilternet">DeepFilterNet</SelectItem>
+						{/* Fix 7: Speex was documented in the info tooltip but was
+						    missing from the dropdown — selecting it required hand-
+						    editing config.json. Now it's a first-class option. */}
+						<SelectItem value="speex">Speex</SelectItem>
 						<SelectItem value="none">
 							{t("settings.audioEnhancement.noneOption")}
 						</SelectItem>
@@ -172,6 +198,7 @@ export function AudioFilterChain({
 							onChange={handleGateOpenChange}
 							ariaLabel={t("settings.audioEnhancement.gateOpenThresholdAria")}
 							suffix="dB"
+							deferApply
 						/>
 					</SettingRow>
 					<SettingRow
@@ -186,6 +213,52 @@ export function AudioFilterChain({
 							onChange={handleGateCloseChange}
 							ariaLabel={t("settings.audioEnhancement.gateCloseThresholdAria")}
 							suffix="dB"
+							deferApply
+						/>
+					</SettingRow>
+					<SettingRow
+						label={t("settings.audioEnhancement.gateAttack")}
+						info={t("settings.audioEnhancement.gateAttackInfo")}
+					>
+						<RangeSlider
+							value={config.noise_filter_gate_attack_ms ?? 25}
+							min={0}
+							max={200}
+							step={1}
+							onChange={handleGateAttackChange}
+							ariaLabel={t("settings.audioEnhancement.gateAttackAria")}
+							suffix="ms"
+							deferApply
+						/>
+					</SettingRow>
+					<SettingRow
+						label={t("settings.audioEnhancement.gateHold")}
+						info={t("settings.audioEnhancement.gateHoldInfo")}
+					>
+						<RangeSlider
+							value={config.noise_filter_gate_hold_ms ?? 200}
+							min={0}
+							max={1000}
+							step={10}
+							onChange={handleGateHoldChange}
+							ariaLabel={t("settings.audioEnhancement.gateHoldAria")}
+							suffix="ms"
+							deferApply
+						/>
+					</SettingRow>
+					<SettingRow
+						label={t("settings.audioEnhancement.gateRelease")}
+						info={t("settings.audioEnhancement.gateReleaseInfo")}
+					>
+						<RangeSlider
+							value={config.noise_filter_gate_release_ms ?? 150}
+							min={0}
+							max={1000}
+							step={5}
+							onChange={handleGateReleaseChange}
+							ariaLabel={t("settings.audioEnhancement.gateReleaseAria")}
+							suffix="ms"
+							deferApply
 						/>
 					</SettingRow>
 				</>
@@ -216,6 +289,7 @@ export function AudioFilterChain({
 							onChange={handleEqLowChange}
 							ariaLabel={t("settings.audioEnhancement.eqLowAria")}
 							suffix="dB"
+							deferApply
 						/>
 					</SettingRow>
 					<SettingRow
@@ -230,6 +304,7 @@ export function AudioFilterChain({
 							onChange={handleEqMidChange}
 							ariaLabel={t("settings.audioEnhancement.eqMidAria")}
 							suffix="dB"
+							deferApply
 						/>
 					</SettingRow>
 					<SettingRow
@@ -244,6 +319,7 @@ export function AudioFilterChain({
 							onChange={handleEqHighChange}
 							ariaLabel={t("settings.audioEnhancement.eqHighAria")}
 							suffix="dB"
+							deferApply
 						/>
 					</SettingRow>
 				</>
@@ -274,6 +350,7 @@ export function AudioFilterChain({
 							onChange={handleCompressorThresholdChange}
 							ariaLabel={t("settings.audioEnhancement.compressorThresholdAria")}
 							suffix="dB"
+							deferApply
 						/>
 					</SettingRow>
 					<SettingRow
@@ -288,6 +365,54 @@ export function AudioFilterChain({
 							onChange={handleCompressorRatioChange}
 							ariaLabel={t("settings.audioEnhancement.compressorRatioAria")}
 							suffix=":1"
+							deferApply
+						/>
+					</SettingRow>
+					<SettingRow
+						label={t("settings.audioEnhancement.compressorAttack")}
+						info={t("settings.audioEnhancement.compressorAttackInfo")}
+					>
+						<RangeSlider
+							value={config.noise_filter_compressor_attack_ms ?? 6}
+							min={0}
+							max={200}
+							step={1}
+							onChange={handleCompressorAttackChange}
+							ariaLabel={t("settings.audioEnhancement.compressorAttackAria")}
+							suffix="ms"
+							deferApply
+						/>
+					</SettingRow>
+					<SettingRow
+						label={t("settings.audioEnhancement.compressorRelease")}
+						info={t("settings.audioEnhancement.compressorReleaseInfo")}
+					>
+						<RangeSlider
+							value={config.noise_filter_compressor_release_ms ?? 60}
+							min={0}
+							max={1000}
+							step={5}
+							onChange={handleCompressorReleaseChange}
+							ariaLabel={t("settings.audioEnhancement.compressorReleaseAria")}
+							suffix="ms"
+							deferApply
+						/>
+					</SettingRow>
+					<SettingRow
+						label={t("settings.audioEnhancement.compressorOutputGain")}
+						info={t("settings.audioEnhancement.compressorOutputGainInfo")}
+					>
+						<RangeSlider
+							value={config.noise_filter_compressor_output_gain_db ?? 0}
+							min={-24}
+							max={24}
+							step={1}
+							onChange={handleCompressorOutputGainChange}
+							ariaLabel={t(
+								"settings.audioEnhancement.compressorOutputGainAria",
+							)}
+							suffix="dB"
+							deferApply
 						/>
 					</SettingRow>
 				</>
@@ -305,20 +430,38 @@ export function AudioFilterChain({
 				/>
 			</SettingRow>
 			{(config.noise_filter_limiter ?? true) && (
-				<SettingRow
-					label={t("settings.audioEnhancement.limiterCeiling")}
-					info={t("settings.audioEnhancement.limiterCeilingInfo")}
-				>
-					<RangeSlider
-						value={config.noise_filter_limiter_ceiling_db ?? -6}
-						min={-60}
-						max={0}
-						step={1}
-						onChange={handleLimiterCeilingChange}
-						ariaLabel={t("settings.audioEnhancement.limiterCeilingAria")}
-						suffix="dB"
-					/>
-				</SettingRow>
+				<>
+					<SettingRow
+						label={t("settings.audioEnhancement.limiterCeiling")}
+						info={t("settings.audioEnhancement.limiterCeilingInfo")}
+					>
+						<RangeSlider
+							value={config.noise_filter_limiter_ceiling_db ?? -6}
+							min={-60}
+							max={0}
+							step={1}
+							onChange={handleLimiterCeilingChange}
+							ariaLabel={t("settings.audioEnhancement.limiterCeilingAria")}
+							suffix="dB"
+							deferApply
+						/>
+					</SettingRow>
+					<SettingRow
+						label={t("settings.audioEnhancement.limiterRelease")}
+						info={t("settings.audioEnhancement.limiterReleaseInfo")}
+					>
+						<RangeSlider
+							value={config.noise_filter_limiter_release_ms ?? 60}
+							min={0}
+							max={1000}
+							step={5}
+							onChange={handleLimiterReleaseChange}
+							ariaLabel={t("settings.audioEnhancement.limiterReleaseAria")}
+							suffix="ms"
+							deferApply
+						/>
+					</SettingRow>
+				</>
 			)}
 
 			{/* Notch filter */}
@@ -332,6 +475,23 @@ export function AudioFilterChain({
 					aria-label={t("settings.audioEnhancement.notchFilterAria")}
 				/>
 			</SettingRow>
+			{(config.noise_filter_notch ?? false) && (
+				<SettingRow
+					label={t("settings.audioEnhancement.notchFrequency")}
+					info={t("settings.audioEnhancement.notchFrequencyInfo")}
+				>
+					<RangeSlider
+						value={config.noise_filter_notch_frequency_hz ?? 60}
+						min={50}
+						max={1000}
+						step={1}
+						onChange={handleNotchFrequencyChange}
+						ariaLabel={t("settings.audioEnhancement.notchFrequencyAria")}
+						suffix="Hz"
+						deferApply
+					/>
+				</SettingRow>
+			)}
 		</>
 	);
 }

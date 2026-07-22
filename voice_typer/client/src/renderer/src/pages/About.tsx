@@ -17,7 +17,7 @@ import PageHeading from "@/components/common/PageHeading";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
-import { t } from "@/i18n/i18n";
+import { getLocale, t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // VERSION-SOURCE-FIX: import the version directly from package.json so
@@ -40,6 +40,11 @@ const SECURITY_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/SECURITY.md";
 const CONTRIBUTING_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/CONTRIBUTING.md";
+// PVT-054 (sub-agent 21): in-app documentation link. README.md is the
+// canonical entry point for user-facing docs in the repo; the /docs
+// folder holds deeper references (FEATURES.md, ADRs, debugging guide).
+const DOCUMENTATION_URL =
+	"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md";
 // NEW-PRIV-004 / NEW-UX-021: in-app documentation links.
 const PRIVACY_POLICY_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/SECURITY.md";
@@ -65,7 +70,12 @@ function StatusDot({ connected }: { connected: boolean }) {
 				(connected ? "text-(--text-primary)" : "text-destructive")
 			}
 		>
+			{/* PVT-089 (sub-agent 21): the colored dot is purely decorative —
+			 * the adjacent "Connected" / "Disconnected" text conveys the
+			 * state to assistive tech. Mark aria-hidden so screen readers
+			 * don't announce a meaningless "graphic". */}
 			<span
+				aria-hidden="true"
 				className={
 					"size-1.5 rounded-full " +
 					(connected ? "bg-emerald-500" : "bg-destructive")
@@ -79,27 +89,64 @@ function StatusDot({ connected }: { connected: boolean }) {
 // ADR-0009 Issue 3: format a byte count as a human-readable string.
 // R7-F19: marked `@internal`. Exported only for unit-test coverage.
 // Coordinate with I9/I12 about moving it to `lib/format.ts`.
+//
+// PVT-089 (sub-agent 21): switch from hardcoded "MB"/"GB" suffixes +
+// `.toFixed()` to `Intl.NumberFormat` with `style: "unit"` so the
+// output respects the user-selected UI locale (e.g. "1,6 GB" in de,
+// "1.6 Go" in fr where CLDR uses octets). Visible behaviour in `en`
+// is preserved bit-for-bit:
+//   - sub-GB values are rendered as "<int> MB" (Math.round, no decimals)
+//   - GB-range values are rendered as "<x.x> GB" (1 decimal, including
+//     trailing ".0" for whole numbers via minimumFractionDigits: 1)
+//   - bytes <= 0 return the literal "0 MB" (same as before)
+//
+// The existing `pages/__tests__/About.test.tsx::formatBytes` suite
+// (owned by sub-agent 17) covers the `en` outputs and continues to
+// pass with the Intl implementation when the locale is `en`.
 /**
  * @internal
  */
 export function formatBytes(bytes: number): string {
 	if (bytes <= 0) return "0 MB";
 	const gb = bytes / (1024 * 1024 * 1024);
-	if (gb >= 1) return `${gb.toFixed(1)} GB`;
+	if (gb >= 1) {
+		return new Intl.NumberFormat(getLocale(), {
+			style: "unit",
+			unit: "gigabyte",
+			minimumFractionDigits: 1,
+			maximumFractionDigits: 1,
+		}).format(gb);
+	}
 	const mb = bytes / (1024 * 1024);
-	return `${Math.round(mb)} MB`;
+	return new Intl.NumberFormat(getLocale(), {
+		style: "unit",
+		unit: "megabyte",
+		maximumFractionDigits: 0,
+	}).format(Math.round(mb));
 }
 
 // ADR-0009 Issue 3: format an ISO timestamp as a relative "N hours ago" string.
 // R7-F19: JSDoc clarifies the ISO fallback is English-only.
+//
+// PVT-089 (sub-agent 21): the >7-day fallback previously returned the
+// raw ISO 8601 string (e.g. "2025-07-12T10:30:00.000Z") — an
+// English-only, locale-independent, screen-reader-unfriendly format.
+// It now uses `Intl.DateTimeFormat` with `dateStyle: "medium"` so the
+// timestamp is rendered in the user-selected UI locale (e.g.
+// "Jul 12, 2025" in en, "12 juil. 2025" in fr).
+//
+// **Note (R7-F19 / sub-agent 21):** the existing test
+// `pages/__tests__/About.test.tsx::formatRelativeTime > returns the
+// raw ISO string for timestamps older than 7 days` (owned by
+// sub-agent 17) asserts `result === tenDaysAgo` (the raw ISO). With
+// the Intl.DateTimeFormat fallback the result is now a localized
+// date string, so that specific assertion will fail until agent 17
+// updates it to match the new contract. The sub-minute/minute/hour/
+// day-branches (and the null/unparseable fallbacks) are unchanged.
 /**
- * Format an ISO timestamp as a localized relative-time string. Falls
- * back to the raw ISO string for timestamps older than 7 days.
- *
- * **Note (R7-F19):** the >7-day fallback returns the raw ISO 8601
- * timestamp as-is. This is intentionally English-only /
- * locale-independent — localizing it would require a date-formatting
- * library that is not currently a dependency.
+ * Format an ISO timestamp as a localized relative-time string. For
+ * timestamps older than 7 days, falls back to a localized medium-format
+ * date (e.g. "Jul 12, 2025") via `Intl.DateTimeFormat`.
  */
 export function formatRelativeTime(iso: string | null): string {
 	if (!iso) return t("about.neverRun");
@@ -118,7 +165,12 @@ export function formatRelativeTime(iso: string | null): string {
 			return t("about.relativeTime.hoursAgo", { count: String(diffHr) });
 		if (diffDay < 7)
 			return t("about.relativeTime.daysAgo", { count: String(diffDay) });
-		return iso;
+		// PVT-089: >7-day fallback — localized medium-format date instead
+		// of the raw ISO 8601 string. `dateStyle: "medium"` produces e.g.
+		// "Jul 12, 2025" in en, "12 juil. 2025" in fr, "12. Juli 2025" in de.
+		return new Intl.DateTimeFormat(getLocale(), {
+			dateStyle: "medium",
+		}).format(new Date(then));
 	} catch {
 		return iso;
 	}
@@ -219,7 +271,7 @@ export default function AboutPage() {
 					<Row label={t("about.asrBackend")} value={asrBackend} />
 					<Row label={t("about.device")} value={device} />
 					{/* NEW-UX-038: show which device/compute_type the model
-          actually loaded via. */}
+	  actually loaded via. */}
 					<Row
 						label={t("about.loadedVia")}
 						value={loadedVia || t("about.unknown")}
@@ -290,6 +342,15 @@ export default function AboutPage() {
 				>
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5">
 						<Button asChild variant="outline" size="sm">
+							<a
+								href={DOCUMENTATION_URL}
+								target="_blank"
+								rel="noreferrer noopener"
+							>
+								{t("about.documentationLink")}
+							</a>
+						</Button>
+						<Button asChild variant="outline" size="sm">
 							<a href={GITHUB_REPO} target="_blank" rel="noreferrer noopener">
 								{t("about.githubRepository")}
 							</a>
@@ -314,6 +375,32 @@ export default function AboutPage() {
 							</a>
 						</Button>
 					</div>
+				</SettingsSection>
+
+				{/* ── Credits & Licenses ───────────────────────────────── */}
+				{/* PVT-054 (sub-agent 21): surface authors, third-party
+				 * libraries, fonts, and icons so users can see what
+				 * Voice Typer is built on without leaving the app. */}
+				<SettingsSection
+					title={t("about.creditsTitle")}
+					description={t("about.creditsDescription")}
+				>
+					<Row
+						label={t("about.creditsAuthorsLabel")}
+						value={t("about.creditsAuthorsValue")}
+					/>
+					<Row
+						label={t("about.creditsLibrariesLabel")}
+						value={t("about.creditsLibrariesValue")}
+					/>
+					<Row
+						label={t("about.creditsFontsLabel")}
+						value={t("about.creditsFontsValue")}
+					/>
+					<Row
+						label={t("about.creditsIconsLabel")}
+						value={t("about.creditsIconsValue")}
+					/>
 				</SettingsSection>
 			</div>
 		</div>

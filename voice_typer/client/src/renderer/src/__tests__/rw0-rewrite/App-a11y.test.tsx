@@ -21,9 +21,22 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
+const { mockCall, mockPythonEvent, mockRecordingState } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
+	// PVT-fix #6 (Sub-agent 16): per-test override of `recordingState`
+	// so we can drive the App-level aria-live region through every
+	// value in the RecordingState union and assert the announced
+	// text matches the expected `t(...)` string.
+	mockRecordingState: {
+		current: "idle" as
+			| "idle"
+			| "recording"
+			| "transcribing"
+			| "loading"
+			| "cancelling"
+			| "error",
+	},
 }));
 
 vi.mock("@/hooks/usePython", () => ({
@@ -33,7 +46,7 @@ vi.mock("@/hooks/usePython", () => ({
 
 vi.mock("@/hooks/useConnection", () => ({
 	useConnection: () => ({
-		recordingState: "idle" as const,
+		recordingState: mockRecordingState.current,
 		connectionStatus: "connected" as const,
 		lastError: null,
 		handleRetryConnection: vi.fn(),
@@ -195,6 +208,10 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
+		// PVT-fix #6 (Sub-agent 16): reset the per-test
+		// recordingState override to "idle" before each test
+		// so the previous test's value doesn't leak in.
+		mockRecordingState.current = "idle";
 		localStorage.clear();
 		useAppStore.setState({
 			connectionStatus: "connected",
@@ -206,6 +223,9 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 
 	afterEach(() => {
 		cleanup();
+		// Defensive: reset back to idle so a future describe
+		// block that doesn't set the value sees idle.
+		mockRecordingState.current = "idle";
 	});
 
 	it("renders an aria-live region for recording state announcements", async () => {
@@ -221,5 +241,114 @@ describe("App aria-live region — RW-0 rewrite of test_app_has_aria_live", () =
 		// the rendered DOM has a polite aria-live region.
 		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+	});
+
+	// PVT-fix #6 (Sub-agent 16): the RW-0 test above only asserts
+	// the live region EXISTS — it never checks that the announced
+	// text actually changes when `recordingState` changes.  The
+	// App.tsx live region (see App.tsx:608-636) renders one of six
+	// i18n strings depending on the current `recordingState`:
+	//
+	//   recording     → t("a11y.recordingStarted")  = "Recording started."
+	//   transcribing  → t("a11y.transcribingAudio") = "Transcribing audio…"
+	//   idle          → t("a11y.ready")             = "Ready."
+	//   error         → t("a11y.errorOccurred")     = "Error occurred."
+	//   loading       → t("a11y.loadingModel")      = "Loading model…"
+	//   cancelling    → t("a11y.cancelling")        = "Cancelling…"
+	//
+	// Each test below mocks one `recordingState` value, renders
+	// App, and asserts the FIRST polite live region's textContent
+	// includes the expected translated string.  This catches
+	// regressions where the live region exists but renders the
+	// wrong string (or no string at all) for a given state — the
+	// most common silent failure mode for aria-live regions.
+	//
+	// The App.tsx live region is the FIRST `[aria-live="polite"]`
+	// in document order (Home's `<output aria-live="polite">` is
+	// rendered inside the mocked Home stub and so doesn't exist
+	// in this test).  We read `liveRegions[0]` accordingly.
+
+	it("announces 'Recording started.' when recordingState is 'recording'", async () => {
+		mockRecordingState.current = "recording";
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+		expect(liveRegions[0].textContent).toContain("Recording started.");
+	});
+
+	it("announces 'Transcribing audio…' when recordingState is 'transcribing'", async () => {
+		mockRecordingState.current = "transcribing";
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+		expect(liveRegions[0].textContent).toContain("Transcribing audio…");
+	});
+
+	it("announces 'Ready.' when recordingState is 'idle'", async () => {
+		mockRecordingState.current = "idle";
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+		expect(liveRegions[0].textContent).toContain("Ready.");
+	});
+
+	it("announces 'Error occurred.' when recordingState is 'error'", async () => {
+		mockRecordingState.current = "error";
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+		expect(liveRegions[0].textContent).toContain("Error occurred.");
+	});
+
+	it("announces 'Loading model…' when recordingState is 'loading'", async () => {
+		mockRecordingState.current = "loading";
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+		expect(liveRegions[0].textContent).toContain("Loading model…");
+	});
+
+	it("announces 'Cancelling…' when recordingState is 'cancelling'", async () => {
+		mockRecordingState.current = "cancelling";
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		const liveRegions = document.querySelectorAll('[aria-live="polite"]');
+		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
+		expect(liveRegions[0].textContent).toContain("Cancelling…");
 	});
 });

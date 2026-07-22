@@ -15,3 +15,152 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 	globalThis.ResizeObserver =
 		ResizeObserverStub as unknown as typeof ResizeObserver;
 }
+
+// PVT-076: collect the jsdom polyfills that previously had to be
+// re-installed inside individual test files (Bubble.test.tsx,
+// Bubble-keyboard-move.test.tsx, ux-components-behavior.test.tsx, etc.).
+// Centralising them here means new tests get a working DOM environment
+// out of the box, and the existing tests can drop their inline copies.
+
+// ── window.matchMedia ─────────────────────────────────────────────────
+// jsdom doesn't implement matchMedia. Used by useThemeSync (Bubble.tsx)
+// and by any component that probes the prefers-color-scheme media query.
+if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
+	window.matchMedia = ((query: string) => ({
+		matches: false,
+		media: query,
+		onchange: null,
+		addListener: () => {},
+		removeListener: () => {},
+		addEventListener: () => {},
+		removeEventListener: () => {},
+		dispatchEvent: () => false,
+	})) as unknown as typeof window.matchMedia;
+}
+
+// ── Element.prototype.scrollIntoView ──────────────────────────────────
+// Radix Select calls scrollIntoView on the highlighted option when the
+// dropdown opens; jsdom's stub throws "Not implemented". Without this
+// polyfill, the Vocabulary "Category select" test crashes inside
+// Radix's commitHookEffectListMount.
+if (
+	typeof Element !== "undefined" &&
+	typeof Element.prototype.scrollIntoView !== "function"
+) {
+	Element.prototype.scrollIntoView = function scrollIntoView() {
+		// no-op — jsdom doesn't actually scroll
+	};
+}
+
+// ── IntersectionObserver ──────────────────────────────────────────────
+// Used by some lazy-mount components (and by Radix primitives in
+// certain configurations) to detect when an element enters the
+// viewport. jsdom has no layout engine so we treat every element as
+// immediately intersecting.
+if (
+	typeof globalThis.IntersectionObserver === "undefined" &&
+	typeof window !== "undefined"
+) {
+	class IntersectionObserverStub {
+		readonly root: Element | Document | null = null;
+		readonly rootMargin: string = "0px";
+		readonly thresholds: ReadonlyArray<number> = [0];
+		constructor(
+			private callback: IntersectionObserverCallback,
+			// eslint-disable-next-line @typescript-eslint/no-unused-vars
+			_options?: IntersectionObserverInit,
+		) {}
+		observe(target: Element) {
+			// Immediately report the target as intersecting so any
+			// `onContentVisible` style callback fires synchronously.
+			this.callback(
+				[
+					{
+						target,
+						isIntersecting: true,
+						intersectionRatio: 1,
+						boundingClientRect: target.getBoundingClientRect(),
+						intersectionRect: target.getBoundingClientRect(),
+						rootBounds: null,
+						time: 0,
+					},
+				],
+				this as unknown as IntersectionObserver,
+			);
+		}
+		unobserve() {}
+		disconnect() {}
+		takeRecords() {
+			return [];
+		}
+	}
+	globalThis.IntersectionObserver =
+		IntersectionObserverStub as unknown as typeof IntersectionObserver;
+	if (typeof window.IntersectionObserver === "undefined") {
+		window.IntersectionObserver = globalThis.IntersectionObserver;
+	}
+}
+
+// ── PointerEvent ──────────────────────────────────────────────────────
+// jsdom's PointerEvent is incomplete in older versions and entirely
+// absent in others; some Radix primitives (Dialog, DropdownMenu) call
+// `new PointerEvent(...)` during focus management. Provide a minimal
+// subclass that inherits from MouseEvent (which jsdom DOES implement)
+// and exposes `pointerId` / `pointerType` so consumer reads don't
+// throw.
+if (
+	typeof window !== "undefined" &&
+	typeof window.PointerEvent === "undefined"
+) {
+	class PointerEventStub extends MouseEvent {
+		pointerId: number;
+		pointerType: string;
+		width: number;
+		height: number;
+		pressure: number;
+		tiltX: number;
+		tiltY: number;
+		isPrimary: boolean;
+		constructor(type: string, init: PointerEventInit = {}) {
+			super(type, init);
+			this.pointerId = init.pointerId ?? 0;
+			this.pointerType = init.pointerType ?? "";
+			this.width = init.width ?? 0;
+			this.height = init.height ?? 0;
+			this.pressure = init.pressure ?? 0;
+			this.tiltX = init.tiltX ?? 0;
+			this.tiltY = init.tiltY ?? 0;
+			this.isPrimary = init.isPrimary ?? false;
+		}
+	}
+	window.PointerEvent = PointerEventStub as unknown as typeof PointerEvent;
+	if (typeof globalThis.PointerEvent === "undefined") {
+		globalThis.PointerEvent = window.PointerEvent;
+	}
+}
+
+// ── window.bubble default stub ────────────────────────────────────────
+// Bubble.tsx subscribes to `window.bubble.onLevel` etc. at module-load
+// time. Tests that DON'T care about the bubble still indirectly import
+// components that touch `window.bubble`, so a no-op default prevents
+// "Cannot read properties of undefined" crashes during render.
+//
+// Tests that DO assert on bubble behaviour (e.g. Bubble-keyboard-move)
+// install their own mock in `beforeEach` via `installBubbleBridgeMock`
+// (see `__tests__/helpers/mocks.ts`), which OVERWRITES this default.
+if (typeof window !== "undefined") {
+	const w = window as unknown as { bubble?: unknown };
+	if (!w.bubble) {
+		w.bubble = {
+			onLevel: () => () => {},
+			onShow: () => () => {},
+			onHide: () => () => {},
+			onSetState: () => () => {},
+			onDraggable: () => () => {},
+			signalReady: () => {},
+			hideComplete: () => {},
+			resizeTo: () => {},
+			moveBy: () => {},
+		};
+	}
+}

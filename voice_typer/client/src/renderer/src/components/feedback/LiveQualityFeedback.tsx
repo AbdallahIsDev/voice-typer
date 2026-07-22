@@ -1,3 +1,4 @@
+import { getVolumeTier } from "@/components/feedback/LevelBar";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
@@ -18,11 +19,16 @@ export function LiveQualityFeedback({
 }: LiveQualityFeedbackProps) {
 	if (!isRecording) return null;
 
+	// PVT-fix #7: classify the level/peak pair through the shared
+	// ``getVolumeTier`` helper (defined in LevelBar.tsx) so the
+	// bar and the textual feedback agree on what counts as
+	// "clipping" / "healthy" / "low" / "silent".  Previously each
+	// component hard-coded its own thresholds.
+	const tier = getVolumeTier(level, peak);
+	// ``hasVoice`` is kept as a separate signal for the "voice
+	// detected" indicator dot — it gates the pulse animation
+	// independently of which quality message is shown.
 	const hasVoice = peak > 0.05;
-	const _volumeGood = level > 0.02 && level < 0.7;
-	const volumeLow = level <= 0.02 && level > 0.005;
-	const volumeVeryLow = level <= 0.005;
-	const tooLoud = peak > 0.9;
 
 	const formatTime = (s: number) => {
 		const m = Math.floor(s / 60);
@@ -37,12 +43,7 @@ export function LiveQualityFeedback({
 	// would spam the SR broadcast channel — the polite status region already
 	// announces meaningful state transitions (recording, voice detected, warnings).
 	return (
-		<div
-			className="mt-2 space-y-2"
-			role="status"
-			aria-live="polite"
-			aria-atomic="true"
-		>
+		<output className="mt-2 space-y-2" aria-live="polite" aria-atomic="true">
 			{/* Timer — visual-only; rapid updates would spam SR if live */}
 			<div className="text-center">
 				<span className="text-xs font-mono tabular-nums text-(--text-muted)">
@@ -57,9 +58,13 @@ export function LiveQualityFeedback({
 					<span
 						className={cn(
 							"w-1.5 h-1.5 rounded-full animate-pulse",
-							hasVoice
-								? "bg-green-500 shadow-[0_0_4px_rgba(34,197,94,0.6)]"
-								: "bg-(--text-muted)/30",
+							// PVT-fix #6: replace ``bg-green-500`` (hardcoded
+							// Tailwind palette green) with the theme's
+							// ``--primary`` token so the dot matches the
+							// user's chosen accent colour in every theme
+							// (Nord blue, Dracula purple, etc.) and the
+							// glow is no longer hardwired to green-500 RGB.
+							hasVoice ? "bg-primary" : "bg-(--text-muted)/30",
 						)}
 					/>
 					{hasVoice
@@ -67,29 +72,36 @@ export function LiveQualityFeedback({
 						: t("microphoneTest.qualityFeedback.waiting")}
 				</span>
 
-				{/* Quality indicator — NF-R15-11: bumped text-amber-500 → text-amber-700
-				    and text-green-500 → text-emerald-700 for WCAG AA contrast. */}
-				{hasVoice && !tooLoud && (
-					<span className="text-emerald-700 dark:text-emerald-400">
+				{/* Quality indicator — PVT-fix #6: replace the hardcoded
+                                    emerald / amber palette with CSS-variable tokens so the
+                                    feedback adapts to every theme (the previous
+                                    ``text-emerald-700 dark:text-emerald-400`` clung to a
+                                    fixed green even in themes like Dracula where the
+                                    primary accent is purple).  ``--primary`` carries the
+                                    "healthy" semantic and ``--destructive`` carries the
+                                    "warning" semantic, matching the LevelBar colour
+                                    ladder so the two UIs agree. */}
+				{tier === "good" && (
+					<span className="text-primary">
 						{t("microphoneTest.qualityFeedback.excellent")}
 					</span>
 				)}
-				{hasVoice && tooLoud && (
-					<span className="text-amber-700 dark:text-amber-400">
+				{tier === "loud" && (
+					<span className="text-destructive">
 						{t("microphoneTest.qualityFeedback.tooHigh")}
 					</span>
 				)}
-				{volumeVeryLow && !hasVoice && (
-					<span className="text-amber-700 dark:text-amber-400">
+				{tier === "silent" && (
+					<span className="text-destructive">
 						{t("microphoneTest.qualityFeedback.tooLow")}
 					</span>
 				)}
-				{volumeLow && !hasVoice && (
-					<span className="text-amber-700 dark:text-amber-400">
+				{tier === "low" && (
+					<span className="text-destructive">
 						{t("microphoneTest.qualityFeedback.lowVolume")}
 					</span>
 				)}
 			</div>
-		</div>
+		</output>
 	);
 }

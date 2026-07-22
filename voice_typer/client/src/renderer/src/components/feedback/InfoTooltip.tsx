@@ -9,10 +9,33 @@ import {
 import { t } from "@/i18n/i18n";
 
 interface InfoTooltipProps {
+	/** Tooltip body text shown on hover/focus. */
 	text: string;
+	/**
+	 * Optional label describing the field this tooltip belongs to
+	 * (e.g. "VAD aggressiveness", "Noise gate threshold"). When
+	 * provided, the trigger button's accessible name is composed as
+	 * `t("a11y.moreInfoAbout", { label: contextLabel })` — e.g.
+	 * "More info about VAD aggressiveness" — so screen-reader users
+	 * hear the field name when tabbing through multiple InfoTooltips
+	 * on the same page. When omitted, falls back to the generic
+	 * `t("a11y.moreInfo")` ("More info") used historically.
+	 *
+	 * PVT-054 (sub-agent 21): existing callers (SettingRow,
+	 * Templates.tsx) do not pass `contextLabel`, so their behaviour
+	 * is unchanged. New callers SHOULD pass it to disambiguate.
+	 */
+	contextLabel?: string;
 }
 
-export function InfoTooltip({ text }: InfoTooltipProps) {
+export function InfoTooltip({ text, contextLabel }: InfoTooltipProps) {
+	// PVT-054 (sub-agent 21): when contextLabel is provided, compose
+	// a specific aria-label so multiple InfoTooltips on the same
+	// page are distinguishable for screen-reader users. Fall back to
+	// the generic "More info" label when contextLabel is absent.
+	const ariaLabel = contextLabel
+		? t("a11y.moreInfoAbout", { label: contextLabel })
+		: t("a11y.moreInfo");
 	// NF-R15-5: use a real <button> so keyboard + screen-reader users can
 	// focus the tooltip trigger via Tab. Radix Tooltip opens on focus by
 	// default, so no custom keydown handler is needed — Enter/Space on a
@@ -26,7 +49,7 @@ export function InfoTooltip({ text }: InfoTooltipProps) {
 					<button
 						type="button"
 						className="inline-flex size-4 items-center justify-center rounded-full text-(--text-muted) shrink-0 appearance-none border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-help"
-						aria-label={t("a11y.moreInfo")}
+						aria-label={ariaLabel}
 					>
 						<svg
 							width="12"
@@ -34,8 +57,9 @@ export function InfoTooltip({ text }: InfoTooltipProps) {
 							viewBox="0 0 16 16"
 							fill="none"
 							xmlns="http://www.w3.org/2000/svg"
+							aria-hidden="true"
 						>
-							<title>{t("a11y.moreInfo")}</title>
+							<title>{ariaLabel}</title>
 							<circle
 								cx="8"
 								cy="8"

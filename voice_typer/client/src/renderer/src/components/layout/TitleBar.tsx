@@ -110,13 +110,17 @@ function TitleBarButton({
 				"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				isClose
 					? cn(
-							"hover:bg-[#C42B1C] hover:text-white",
-							"focus-visible:bg-[#C42B1C] focus-visible:text-white",
+							// PVT-022: replace hardcoded #C42B1C with the
+							// destructive design tokens so the close button
+							// follows the active theme's destructive palette
+							// (and stays readable in dark mode / custom themes).
+							"hover:bg-destructive hover:text-destructive-foreground",
+							"focus-visible:bg-destructive focus-visible:text-destructive-foreground",
 						)
-					: cn(
-							"hover:bg-black/5 dark:hover:bg-white/5",
-							"hover:text-(--text-primary)",
-						),
+					: // task-9: theme-aware hover (replaces the physical
+						// black/white pairing so custom + dark themes get a
+						// consistent hover wash).
+						cn("hover:bg-foreground/5", "hover:text-(--text-primary)"),
 			)}
 		>
 			{children}
@@ -148,7 +152,15 @@ export function TitleBar({
 			.then((v) => {
 				if (!cancelled) setLocalIsMaximized(v);
 			})
-			.catch(() => {});
+			// G4-M-XX: surface window-control IPC failures instead of
+			// swallowing them silently — empty `.catch(() => {})` made
+			// debugging why the maximize state never updated nearly
+			// impossible. The structured warn lands in dev-tools and
+			// (via the main process console-message forwarder) in
+			// ``electron-renderer-errors.log``.
+			.catch((err) =>
+				console.warn("[IPC] window control failed: isMaximized:", err),
+			);
 		const unsub = bridge.onMaximizedChanged((v) => {
 			if (!cancelled) setLocalIsMaximized(v);
 		});
@@ -161,16 +173,34 @@ export function TitleBar({
 	const isMaximized =
 		isMaximizedProp !== undefined ? isMaximizedProp : localIsMaximized;
 
-	const handleMinimize = () => bridge?.minimize().catch(() => {});
-	const handleToggleMaximize = () => bridge?.toggleMaximize().catch(() => {});
-	const handleClose = () => bridge?.close().catch(() => {});
+	const handleMinimize = () =>
+		bridge
+			?.minimize()
+			.catch((err) =>
+				console.warn("[IPC] window control failed: minimize:", err),
+			);
+	const handleToggleMaximize = () =>
+		bridge
+			?.toggleMaximize()
+			.catch((err) =>
+				console.warn("[IPC] window control failed: toggleMaximize:", err),
+			);
+	const handleClose = () =>
+		bridge
+			?.close()
+			.catch((err) => console.warn("[IPC] window control failed: close:", err));
 
 	return (
 		<div className="drag-region flex w-full shrink-0 items-center select-none h-8">
 			<button
 				type="button"
 				onClick={onToggleSidebar}
-				aria-label={t("a11y.toggleSidebar")}
+				aria-label={`${t("a11y.toggleSidebar")} (Ctrl+B)`}
+				// PVT-023: expose the keyboard shortcut via aria-keyshortcuts
+				// so AT users can discover it without inspecting the tooltip.
+				// "Control+B" matches the ARIA keyshortcuts spec format
+				// (Modifier+Key, case-significant).
+				aria-keyshortcuts="Control+B"
 				// UX-17: surface the Ctrl+B keyboard shortcut in the
 				// tooltip so users discover the keyboard alternative.
 				// On macOS the shortcut is Cmd+B; we show Ctrl+B here
@@ -178,7 +208,10 @@ export function TitleBar({
 				// users, the dominant audience for Voice Typer).
 				title={`${t("a11y.toggleSidebar")} (Ctrl+B)`}
 				className={cn(
-					"no-drag press-scale flex h-10 w-10 items-center justify-center",
+					// Fix: sidebar toggle button height matches the TitleBar
+					// h-8 so the icon stays vertically centered (was h-10
+					// w-10 which made it taller than the 32px title bar).
+					"no-drag press-scale flex h-8 w-8 items-center justify-center",
 					"text-(--text-muted)",
 					"hover:text-(--text-primary)",
 					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
@@ -202,8 +235,10 @@ export function TitleBar({
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",
-					"hover:bg-black/5 hover:text-(--text-primary)",
-					"dark:hover:bg-white/5",
+					// task-9: theme-aware hover (replaces the physical
+					// black/white pairing so custom + dark themes get a
+					// consistent hover wash).
+					"hover:bg-foreground/5 hover:text-(--text-primary)",
 					"disabled:opacity-30 disabled:cursor-not-allowed",
 					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				)}
@@ -229,8 +264,7 @@ export function TitleBar({
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",
-					"hover:bg-black/5 hover:text-(--text-primary)",
-					"dark:hover:bg-white/5",
+					"hover:bg-foreground/5 hover:text-(--text-primary)",
 					"disabled:opacity-30 disabled:cursor-not-allowed",
 					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				)}
@@ -254,12 +288,14 @@ export function TitleBar({
 				type="button"
 				onClick={onOpenHelp}
 				aria-label={t("help.openHelp")}
+				// PVT-023: expose the "?" shortcut via aria-keyshortcuts so
+				// AT users can discover that pressing "?" opens this overlay.
+				aria-keyshortcuts="?"
 				title={t("help.openHelp")}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
 					"text-(--text-muted) transition-colors duration-75",
-					"hover:bg-black/5 hover:text-(--text-primary)",
-					"dark:hover:bg-white/5",
+					"hover:bg-foreground/5 hover:text-(--text-primary)",
 					"focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none",
 				)}
 			>

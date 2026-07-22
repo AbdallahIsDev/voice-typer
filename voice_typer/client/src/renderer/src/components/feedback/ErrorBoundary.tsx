@@ -8,6 +8,37 @@
 // recover short of killing the app.
 //
 // Usage: wrap the top-level <App /> in <ErrorBoundary> in main.tsx.
+//
+// PVT-fix #11: the fallback now exposes three recovery affordances in
+// addition to the existing "Try Again" / "Reload App" buttons:
+//
+//   - "Copy error" — copies the error name, message, and component
+//     stack to the clipboard so users can paste it into a bug report
+//     without having to dig through log files.  The button label
+//     briefly flips to "Copied!" for affirmative feedback (the
+//     toast system can't be relied on here — the same render crash
+//     that triggered the boundary may have broken the toaster).
+//
+//   - "Open logs" — invokes the main process's ``window:open-logs``
+//     IPC handler so the user can attach the full log file to a
+//     support request.  Same path as Settings → Troubleshooting →
+//     Open Log Folder.
+//
+//   - "Reset settings" — escape hatch for the common case where a
+//     bad config value (e.g. a malformed theme token, an out-of-range
+//     number field) is what crashed the renderer.  Asks the Python
+//     backend to re-publish its default Config dataclass, applies it
+//     via ``set_config``, clears any renderer-side localStorage that
+//     might also be poisoned, and reloads.  This mirrors the
+//     Settings → Reset to Defaults flow but is callable from the
+//     error UI without needing the Settings page to render.
+//
+// G4-M-69: ``componentDidCatch`` forwards the caught error to the
+// main process for explicit persistence in
+// ``electron-renderer-errors.log`` (separate from the
+// ``console-message`` path so React's ``componentStack`` is
+// preserved — ``console.error`` serializes ``errorInfo`` to a string
+// and loses the structured component-tree trace).
 
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { t } from "@/i18n/i18n";
@@ -20,6 +51,10 @@ interface ErrorBoundaryProps {
 interface ErrorBoundaryState {
 	hasError: boolean;
 	error: Error | null;
+	errorInfo: ErrorInfo | null;
+	copied: boolean;
+	resetting: boolean;
+	resetFailed: boolean;
 }
 
 export class ErrorBoundary extends Component<
@@ -28,25 +63,212 @@ export class ErrorBoundary extends Component<
 > {
 	constructor(props: ErrorBoundaryProps) {
 		super(props);
-		this.state = { hasError: false, error: null };
+		this.state = {
+			hasError: false,
+			error: null,
+			errorInfo: null,
+			copied: false,
+			resetting: false,
+			resetFailed: false,
+		};
 	}
 
-	static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+	static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
 		return { hasError: true, error };
 	}
 
 	componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-		// Log to console for debugging — the renderer process's console
-		// is captured by Electron's main process and written to the log file.
+		// G4-M-69: log to console for debugging. The main-window
+		// `console-message` handler (G4-M-67) persists level>=3
+		// (ERROR) console output to `electron-renderer-errors.log`
+		// so this `console.error` automatically lands in the file
+		// — the previous comment claiming "the renderer process's
+		// console is captured by Electron's main process and
+		// written to the log file" was misleading because the
+		// console-message handler only re-emitted to the terminal
+		// (lost when the terminal closed); it did NOT persist to
+		// disk before G4-M-67.
 		console.error("[ErrorBoundary] Caught render error:", error, errorInfo);
+
+		// G4-M-69: forward the caught error to the main process
+		// for explicit persistence in `electron-renderer-errors.log`
+		// (separate from the console-message path so React's
+		// `componentStack` is preserved — the console.error above
+		// serializes `errorInfo` to a string, losing the structured
+		// component tree trace). The IPC call is fire-and-forget:
+		// if the preload doesn't expose `logError` (Tauri mode) or
+		// the main process is unreachable, the `.catch` swallow is
+		// acceptable because the console.error above already
+		// surfaced the error to the dev-tools + main-process
+		// console forwarding path.
+		try {
+			window.window_
+				?.logError?.({
+					kind: "react-render",
+					message: error.message,
+					stack: error.stack,
+					componentStack: errorInfo.componentStack ?? undefined,
+				})
+				.catch((err: unknown) => {
+					// Best-effort: never let the persistence
+					// path crash the ErrorBoundary itself.
+					console.warn("[ErrorBoundary] logError IPC failed:", err);
+				});
+		} catch (err) {
+			// Synchronous throw (e.g. `window.window_` is
+			// undefined and `?.` short-circuit didn't fire
+			// for some reason). Same swallow rationale.
+			console.warn("[ErrorBoundary] logError call failed:", err);
+		}
+
+		// Persist errorInfo in state so the "Copy error" button
+		// (PVT-fix #11) can include the React component stack in
+		// the pasted bug-report blob.
+		this.setState({ errorInfo });
 	}
 
 	handleReset = (): void => {
-		this.setState({ hasError: false, error: null });
+		this.setState({
+			hasError: false,
+			error: null,
+			errorInfo: null,
+			copied: false,
+			resetting: false,
+			resetFailed: false,
+		});
 	};
 
 	handleReload = (): void => {
 		window.location.reload();
+	};
+
+	handleCopyError = (): void => {
+		const { error, errorInfo } = this.state;
+		// Build a structured report so the pasted blob is useful to
+		// maintainers without the user having to assemble anything.
+		const lines: string[] = [];
+		if (error) {
+			lines.push(`${error.name}: ${error.message}`);
+			if (error.stack) lines.push(error.stack);
+		} else {
+			lines.push(t("errorBoundary.unknownError"));
+		}
+		if (errorInfo?.componentStack) {
+			lines.push("\nComponent stack:");
+			lines.push(String(errorInfo.componentStack));
+		}
+		const payload = lines.join("\n");
+		try {
+			// ``navigator.clipboard.writeText`` is available in all
+			// modern Chromium builds (Electron included).  Fall back
+			// to a textarea-select hack if it throws (e.g. clipboard
+			// API denied by a sandboxed context).
+			if (navigator?.clipboard?.writeText) {
+				navigator.clipboard
+					.writeText(payload)
+					.then(() => this.flashCopied())
+					.catch(() => this.copyViaTextarea(payload));
+			} else {
+				this.copyViaTextarea(payload);
+			}
+		} catch {
+			this.copyViaTextarea(payload);
+		}
+	};
+
+	copyViaTextarea = (payload: string): void => {
+		try {
+			const ta = document.createElement("textarea");
+			ta.value = payload;
+			ta.setAttribute("readonly", "");
+			ta.style.position = "absolute";
+			ta.style.left = "-9999px";
+			document.body.appendChild(ta);
+			ta.select();
+			document.execCommand("copy");
+			document.body.removeChild(ta);
+			this.flashCopied();
+		} catch {
+			// Last-resort: leave the error text on screen so the
+			// user can manually select + copy from the <pre>.
+		}
+	};
+
+	flashCopied = (): void => {
+		this.setState({ copied: true });
+		window.setTimeout(() => {
+			this.setState({ copied: false });
+		}, 2000);
+	};
+
+	handleOpenLogs = (): void => {
+		// Best-effort: invoke the main process's ``window:open-logs``
+		// IPC handler (same path as Settings → Troubleshooting).  The
+		// main process opens the OS file manager at the log folder.
+		// Errors are swallowed because there's no UI to surface them
+		// from inside a crashed renderer — the user can still copy
+		// the error text manually as a fallback.
+		try {
+			void window.window_?.openLogs?.();
+		} catch (err) {
+			console.error("[ErrorBoundary] Failed to open logs:", err);
+		}
+	};
+
+	handleResetSettings = (): void => {
+		// Escape hatch: try to reset the backend Config to defaults
+		// (which often clears whatever bad value crashed the render),
+		// then unconditionally clear renderer-side localStorage (which
+		// may also hold poisoned state like a malformed custom theme),
+		// then reload the window so the renderer re-mounts against
+		// the freshly-defaulted config.
+		this.setState({ resetting: true, resetFailed: false });
+		const tryReset = async (): Promise<void> => {
+			try {
+				const defaults = (await window.python?.call({
+					type: "get_defaults",
+				})) as Record<string, unknown> | undefined;
+				if (defaults && typeof defaults === "object") {
+					// Filter out redacted API-key sentinels so we
+					// don't overwrite the user's real keys with
+					// "<redacted>" placeholders (mirrors the
+					// Settings → Reset to Defaults flow).
+					const safe: Record<string, unknown> = {};
+					for (const [k, v] of Object.entries(defaults)) {
+						if (v === "<redacted>") continue;
+						if (
+							[
+								"schema_version",
+								"wayland_warned",
+								"onboarding_completed",
+							].includes(k)
+						)
+							continue;
+						safe[k] = v;
+					}
+					await window.python?.call({
+						type: "set_config",
+						data: safe,
+					});
+				}
+			} catch (err) {
+				console.error(
+					"[ErrorBoundary] Backend reset failed, falling back to localStorage clear + reload:",
+					err,
+				);
+				// Don't bail — the localStorage clear + reload
+				// below is still a useful escape hatch even if
+				// the Python round-trip failed.
+				this.setState({ resetFailed: true });
+			}
+			try {
+				localStorage.clear();
+			} catch {
+				// Ignore — some sandboxed contexts disable localStorage.
+			}
+			window.location.reload();
+		};
+		void tryReset();
 	};
 
 	render(): ReactNode {
@@ -54,6 +276,9 @@ export class ErrorBoundary extends Component<
 			if (this.props.fallback) {
 				return this.props.fallback;
 			}
+
+			const errorMessage =
+				this.state.error?.message ?? t("errorBoundary.unknownError");
 
 			return (
 				<div
@@ -70,9 +295,9 @@ export class ErrorBoundary extends Component<
 						</p>
 					</div>
 					<pre className="max-w-2xl overflow-auto rounded-lg border border-border bg-(--bg-subtle) p-4 text-left text-xs text-(--text-muted)">
-						{this.state.error?.message ?? t("errorBoundary.unknownError")}
+						{errorMessage}
 					</pre>
-					<div className="flex gap-2">
+					<div className="flex flex-wrap items-center justify-center gap-2">
 						<button
 							type="button"
 							onClick={this.handleReset}
@@ -87,7 +312,35 @@ export class ErrorBoundary extends Component<
 						>
 							{t("errorBoundary.reloadApp")}
 						</button>
+						<button
+							type="button"
+							onClick={this.handleCopyError}
+							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle)"
+						>
+							{this.state.copied ? "Copied!" : "Copy error"}
+						</button>
+						<button
+							type="button"
+							onClick={this.handleOpenLogs}
+							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle)"
+						>
+							Open logs
+						</button>
+						<button
+							type="button"
+							onClick={this.handleResetSettings}
+							disabled={this.state.resetting}
+							className="rounded-lg border border-destructive/60 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+							title="Reset all settings to defaults and reload — useful if a bad config value caused this crash"
+						>
+							{this.state.resetting ? "Resetting…" : "Reset settings"}
+						</button>
 					</div>
+					{this.state.resetFailed && (
+						<p className="text-xs text-destructive">
+							Backend reset failed — clearing local state and reloading anyway.
+						</p>
+					)}
 				</div>
 			);
 		}

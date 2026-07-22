@@ -3,7 +3,7 @@ import type * as React from "react";
 
 import { cn } from "#utils";
 
-interface SliderProps
+export interface SliderProps
 	extends React.ComponentProps<typeof SliderPrimitive.Root> {
 	/** Additional class name for the track element */
 	trackClassName?: string;
@@ -25,7 +25,7 @@ function Slider({
 			data-slot="slider"
 			className={cn(
 				"relative flex w-full touch-none select-none items-center",
-				"data-disabled:cursor-not-allowed data-disabled:opacity-50",
+				"data-disabled:cursor-not-allowed data-disabled:opacity-50 data-disabled:pointer-events-none",
 				className,
 			)}
 			{...props}
@@ -50,7 +50,7 @@ function Slider({
 						key={`thumb-${i}`}
 						data-slot="slider-thumb"
 						className={cn(
-							"block size-4 rounded-full border-2 border-primary bg-background shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none active:scale-105",
+							"block size-4 rounded-full border-2 border-primary bg-background shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-hidden active:scale-105",
 							thumbClassName,
 						)}
 					/>

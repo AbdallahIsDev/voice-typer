@@ -29,10 +29,10 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
+import { cn } from "#utils";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 
-interface NumberInputStepperProps
+export interface NumberInputStepperProps
 	extends Omit<
 		React.ComponentProps<typeof Input>,
 		"type" | "onChange" | "onInvalid"
@@ -165,12 +165,42 @@ function NumberInputStepper({
 	const isAtMin = min !== undefined && Number(value) <= min;
 	const isAtMax = max !== undefined && Number(value) >= max;
 
+	// PVT-020: keyboard accessibility. The stepper buttons are focusable
+	// (tabIndex={0} below) AND the input itself responds to ArrowUp / ArrowDown
+	// so keyboard-only users can increment / decrement without leaving the
+	// text field. Home/End jump to max/min for parity with native number inputs.
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent<HTMLInputElement>) => {
+			if (e.key === "ArrowUp") {
+				e.preventDefault();
+				if (!isAtMax) handleStepUp();
+			} else if (e.key === "ArrowDown") {
+				e.preventDefault();
+				if (!isAtMin) handleStepDown();
+			} else if (e.key === "Home" && max !== undefined) {
+				e.preventDefault();
+				const syntheticEvent = {
+					target: { value: String(max) },
+				} as React.ChangeEvent<HTMLInputElement>;
+				onChange?.(syntheticEvent);
+			} else if (e.key === "End" && min !== undefined) {
+				e.preventDefault();
+				const syntheticEvent = {
+					target: { value: String(min) },
+				} as React.ChangeEvent<HTMLInputElement>;
+				onChange?.(syntheticEvent);
+			}
+		},
+		[handleStepUp, handleStepDown, isAtMax, isAtMin, max, min, onChange],
+	);
+
 	return (
 		<div className="group relative overflow-hidden rounded-3xl">
 			<Input
 				type="number"
 				value={value}
 				onChange={onChange}
+				onKeyDown={handleKeyDown}
 				// UX-029: set aria-invalid so screen readers announce the
 				// error state, and so the destructive styling in the Input
 				// className (aria-invalid:border-destructive
@@ -190,17 +220,22 @@ function NumberInputStepper({
 					"absolute right-1 top-0 flex h-full w-8 flex-col",
 					"opacity-0 pointer-events-none transition-opacity duration-200",
 					"group-hover:opacity-100 group-hover:pointer-events-auto",
+					// PVT-020: reveal steppers whenever the input OR a stepper
+					// has focus, so keyboard users can see the control they're
+					// about to activate (the steppers are tabIndex={0} below).
+					"group-focus-within:opacity-100 group-focus-within:pointer-events-auto",
 				)}
 			>
 				<button
 					type="button"
-					tabIndex={-1}
+					tabIndex={0}
 					disabled={isAtMax}
 					onClick={handleStepUp}
-					aria-hidden="true"
+					aria-label="Increment"
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
+						"focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/50",
 						"disabled:opacity-30 disabled:cursor-not-allowed",
 					)}
 				>
@@ -208,13 +243,14 @@ function NumberInputStepper({
 				</button>
 				<button
 					type="button"
-					tabIndex={-1}
+					tabIndex={0}
 					disabled={isAtMin}
 					onClick={handleStepDown}
-					aria-hidden="true"
+					aria-label="Decrement"
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
+						"focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/50",
 						"disabled:opacity-30 disabled:cursor-not-allowed",
 					)}
 				>

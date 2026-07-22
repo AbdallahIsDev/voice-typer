@@ -415,6 +415,8 @@ const baseConfig: VoiceTyperConfig = {
 	vocabulary_automation_enabled: false,
 	vocabulary_auto_confidence_threshold: 0.7,
 	vocabulary_auto_apply_threshold: 0.95,
+	bubble_x: null,
+	bubble_y: null,
 };
 
 // ────────────────────────────────────────────────────────────────────

@@ -82,7 +82,40 @@ export default function ActivityList({
 		[onToggleFavorite],
 	);
 
-	if (items.length === 0) return null;
+	// Fix #16: previously returned ``null`` when ``items`` was empty,
+	// which meant a parent rendering ``<ActivityList items={[]} />``
+	// (e.g. the Home page before any dictation has happened) showed
+	// nothing at all — no heading, no "no recent activity" hint, just
+	// blank space.  We now render an inline muted message so the user
+	// knows the section exists but has no entries yet.  The message is
+	// rendered inside the same ``rounded-lg border`` container as a
+	// populated list so the visual rhythm is preserved.
+	if (items.length === 0) {
+		return (
+			<div className="w-full mt-4">
+				<div className="flex items-center justify-between w-full mb-2.5">
+					<span className="text-[12px] font-semibold text-(--text-primary)">
+						{title}
+					</span>
+					{showViewAll && onViewAll && (
+						<Button
+							onClick={onViewAll}
+							variant="link"
+							size="xs"
+							className="text-[12px] font-semibold text-(--text-muted) hover:text-(--text-primary) p-0"
+						>
+							{t("activityList.viewAll")}
+						</Button>
+					)}
+				</div>
+				<div className="rounded-lg border border-border bg-(--bg-subtle)">
+					<p className="px-3.5 py-4 text-xs text-(--text-muted) text-center">
+						{t("activityList.noRecentActivity")}
+					</p>
+				</div>
+			</div>
+		);
+	}
 
 	return (
 		<div className="w-full mt-4">

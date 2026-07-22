@@ -87,17 +87,17 @@ describe("ThemeSwitch", () => {
 			<ThemeSwitch themeMode="light" onThemeChange={vi.fn()} />,
 		);
 		expect(
-			screen.getByLabelText("Current theme: Light. Click to switch."),
+			screen.getByLabelText("Current theme: Light. Click to switch to Dark."),
 		).toBeTruthy();
 
 		rerender(<ThemeSwitch themeMode="dark" onThemeChange={vi.fn()} />);
 		expect(
-			screen.getByLabelText("Current theme: Dark. Click to switch."),
+			screen.getByLabelText("Current theme: Dark. Click to switch to System."),
 		).toBeTruthy();
 
 		rerender(<ThemeSwitch themeMode="system" onThemeChange={vi.fn()} />);
 		expect(
-			screen.getByLabelText("Current theme: System. Click to switch."),
+			screen.getByLabelText("Current theme: System. Click to switch to Light."),
 		).toBeTruthy();
 	});
 
@@ -110,7 +110,7 @@ describe("ThemeSwitch", () => {
 		// button's accessible name must remain so screen-reader users still
 		// know which mode is active.
 		expect(
-			screen.getByLabelText("Current theme: Dark. Click to switch."),
+			screen.getByLabelText("Current theme: Dark. Click to switch to System."),
 		).toBeTruthy();
 		// The button is still clickable in collapsed mode.
 		fireEvent.click(screen.getByRole("button"));

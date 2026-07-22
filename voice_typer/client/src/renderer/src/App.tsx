@@ -33,16 +33,34 @@ export default function App() {
 	const t = useT();
 
 	// ── Routing (extracted to useNavigation) ──────────────────────
-	const { currentPage, navigate, goBack, goForward, canGoBack, canGoForward } =
-		useNavigation();
+	// PVT-fix-12: `replace` mirrors `history.replaceState` — it swaps
+	// the current history entry without pushing a new one. Used by the
+	// onboarding-completed route guard below so the wizard entry is
+	// replaced (not stacked on top of) by the home entry, preventing
+	// the user from pressing Back to land back in the wizard they
+	// just finished.
+	const {
+		currentPage,
+		navigate,
+		replace,
+		goBack,
+		goForward,
+		canGoBack,
+		canGoForward,
+	} = useNavigation();
 
 	// ── Route guard: protect onboarding from completed users ─────
 	const config = useAppStore((s) => s.config);
 	useEffect(() => {
 		if (currentPage === "onboarding" && config?.onboarding_completed === true) {
-			navigate("home");
+			// PVT-fix-12: use `replace` instead of `navigate` so the
+			// "onboarding" entry is swapped for "home" in the history
+			// stack. With `navigate`, the stack would become
+			// [..., "onboarding", "home"] and pressing Back would return
+			// the user to the wizard they just completed — confusing.
+			replace("home");
 		}
-	}, [currentPage, config, navigate]);
+	}, [currentPage, config, replace]);
 
 	useSoundFeedback();
 
@@ -59,6 +77,15 @@ export default function App() {
 					tag === "select" ||
 					active?.isContentEditable === true
 				)
+					return;
+				// PVT-fix-10: if any Radix Dialog-based modal is currently
+				// open (ConfirmDialog, AlertDialog, the help overlay
+				// itself, etc.), don't pop the help overlay on top of
+				// it. Radix renders dialog content via Portal into
+				// document.body with role="dialog" + data-state="open",
+				// so a single querySelector covers every Modal/AlertDialog
+				// instance in the app.
+				if (document.querySelector('[role="dialog"][data-state="open"]'))
 					return;
 				e.preventDefault();
 				setShowHelpOverlay(true);
@@ -94,7 +121,41 @@ export default function App() {
 		if (prev !== "connected" && connectionStatus === "connected") {
 			reloadThemeFromConfig();
 		}
-	}, [connectionStatus, reloadThemeFromConfig]);
+
+		// PVT-fix-20: surface connection-state transitions as toasts
+		// so the user gets immediate visual feedback when the backend
+		// drops out, restarts, or recovers — previously the only
+		// feedback was the connecting/disconnected/restarting swap
+		// inside the main content area, which a user looking at the
+		// Home mic button could easily miss. Toasts reuse existing
+		// i18n keys (`app.lostConnection`, `app.restartingBackend`,
+		// `about.connected`) so no new translation keys are required.
+		//
+		// Transitions are tracked via the `prev` ref so each toast
+		// fires exactly once per transition (not on every re-render).
+		// The initial mount path (prev === connectionStatus ===
+		// "connecting") doesn't fire a toast — only state CHANGES do.
+		if (prev !== connectionStatus) {
+			if (connectionStatus === "disconnected") {
+				toast.error(t("app.lostConnection"), {
+					description: t("app.lostConnectionHint"),
+					duration: 6000,
+				});
+			} else if (connectionStatus === "restarting") {
+				toast.warning(t("app.restartingBackend"), {
+					description: t("app.restartingHint"),
+					duration: 4000,
+				});
+			} else if (connectionStatus === "connected" && prev !== "connecting") {
+				// Don't toast on the initial connect (prev ===
+				// "connecting") — the user just launched the app
+				// and doesn't need a "Connected!" toast. Only
+				// surface RECOVERIES from a disconnected/restarting
+				// state.
+				toast.success(t("about.connected"), { duration: 3000 });
+			}
+		}
+	}, [connectionStatus, reloadThemeFromConfig, t]);
 
 	// ── Window maximize state ─────────────────────────────────────
 	const bridge =
@@ -113,7 +174,7 @@ export default function App() {
 					document.documentElement.classList.toggle("is-maximized", v);
 				}
 			})
-			.catch(() => {});
+			.catch((err) => console.warn("[IPC] window isMaximized failed:", err));
 		const unsub = bridge.onMaximizedChanged((v) => {
 			if (!cancelled) {
 				setIsMaximized(v);
@@ -153,28 +214,43 @@ export default function App() {
 					navigate("home");
 					return;
 				}
-			}
 
-			if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
-				e.preventDefault();
-				const current = textSize ?? 14;
-				const next = Math.min(current + 1, 20);
-				if (next !== current) {
-					setTextSize(next);
-					call("set_config", { text_size: next }).catch(() => {});
+				// PVT-fix-11: zoom shortcuts (Ctrl+= / Ctrl+-) moved
+				// inside the `!typing` guard so Ctrl+=/Ctrl+- pressed
+				// while focus is inside an <input>/<textarea>/
+				// contentEditable (e.g. the Settings search field) does
+				// NOT hijack the keystroke to bump text size. The
+				// browser's native zoom remains available via Ctrl++
+				// (different key) outside the app's text-size shortcut
+				// namespace. Behaviour is otherwise preserved (same
+				// min/max bounds, same `set_config` IPC).
+				if ((e.key === "=" || e.key === "+") && !typing) {
+					e.preventDefault();
+					const current = textSize ?? 14;
+					const next = Math.min(current + 1, 20);
+					if (next !== current) {
+						setTextSize(next);
+						call("set_config", { text_size: next }).catch((err) => {
+							console.warn("[IPC] set_config failed:", err);
+							toast.error(t("errorBoundary.unknownError"));
+						});
+					}
+					return;
 				}
-				return;
-			}
 
-			if ((e.ctrlKey || e.metaKey) && e.key === "-") {
-				e.preventDefault();
-				const current = textSize ?? 14;
-				const next = Math.max(current - 1, 10);
-				if (next !== current) {
-					setTextSize(next);
-					call("set_config", { text_size: next }).catch(() => {});
+				if (e.key === "-" && !typing) {
+					e.preventDefault();
+					const current = textSize ?? 14;
+					const next = Math.max(current - 1, 10);
+					if (next !== current) {
+						setTextSize(next);
+						call("set_config", { text_size: next }).catch((err) => {
+							console.warn("[IPC] set_config failed:", err);
+							toast.error(t("errorBoundary.unknownError"));
+						});
+					}
+					return;
 				}
-				return;
 			}
 		};
 
@@ -203,10 +279,10 @@ export default function App() {
 			window.removeEventListener("keydown", keyHandler);
 			window.removeEventListener("wheel", wheelHandler);
 		};
-	}, [navigate, textSize, call, setTextSize]);
+	}, [navigate, textSize, call, setTextSize, t]);
 
 	// ── Listen for navigate events from Python ────────────────────
-	usePythonEvent("navigate", (data) => {
+	usePythonEvent("navigate", (data): (() => void) | undefined => {
 		const path = (data as Record<string, string>)?.path;
 		if (path) {
 			const page = path.replace(/^\//, "");
@@ -228,10 +304,17 @@ export default function App() {
 				console.warn(`[navigate] ignoring unknown page path: "${page}"`);
 			}
 		}
+		return undefined;
 	});
 
 	// NEW-UX-006: paste_failed toast
-	usePythonEvent("paste_failed", (data) => {
+	// PVT-fix-17: the action button label was a hardcoded English
+	// string ("Copy path") which broke i18n for non-English users.
+	// Wired through `t("common.copyPath")` so the label resolves to
+	// the active locale's translation. The key is defined in
+	// translations/en.json ("Copy path") and falls back to English
+	// for locales that haven't translated it yet.
+	usePythonEvent("paste_failed", (data): (() => void) | undefined => {
 		const payload = (data ?? {}) as {
 			message?: string;
 			recovery_path?: string | null;
@@ -249,10 +332,14 @@ export default function App() {
 				description,
 				duration: 8000,
 				action: {
-					label: "Copy path",
+					label: t("common.copyPath"),
 					onClick: () => {
 						try {
-							navigator.clipboard?.writeText(recoveryPath).catch(() => {});
+							navigator.clipboard
+								?.writeText(recoveryPath)
+								.catch((err) =>
+									console.warn("[clipboard] writeText failed:", err),
+								);
 						} catch {
 							// clipboard API may be unavailable — non-fatal.
 						}
@@ -262,15 +349,17 @@ export default function App() {
 		} else {
 			toast.warning(title, { description, duration: 8000 });
 		}
+		return undefined;
 	});
 
 	// NF-R10-5: connecting progress
 	const [connectingProgress, setConnectingProgress] = useState<number | null>(
 		null,
 	);
-	usePythonEvent("download_progress", (data) => {
+	usePythonEvent("download_progress", (data): (() => void) | undefined => {
 		const progress = (data as Record<string, unknown> | undefined)?.progress;
 		if (typeof progress === "number") setConnectingProgress(progress);
+		return undefined;
 	});
 
 	const handleToggleSidebar = () => setSidebarCollapsed((c) => !c);
@@ -348,7 +437,7 @@ export default function App() {
 		<ErrorBoundary>
 			<a
 				href="#main-content"
-				className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+				className="sr-only focus:not-sr-only focus:fixed focus:inset-s-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
 			>
 				{t("a11y.skipToMain")}
 			</a>
@@ -380,7 +469,8 @@ export default function App() {
 					<div className="flex min-w-0 flex-1 flex-col">
 						<main
 							id="main-content"
-							className="flex-1 overflow-y-auto rounded-l-xl border-border border border-r-0 border-b-0 bg-(--bg)"
+							tabIndex={-1}
+							className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none"
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{connectionStatus === "connecting" ? (
@@ -394,14 +484,14 @@ export default function App() {
 										<ol className="text-xs text-(--text-muted) max-w-md space-y-1 list-none">
 											<li>
 												{connectingProgress !== null ? "✓" : "①"}{" "}
-												{t("app.startingPythonStep")}
+												{t("app.connecting.step1StartingPython")}
 											</li>
 											<li>
 												{connectingProgress !== null &&
 												connectingProgress >= 100
 													? "✓"
 													: "②"}{" "}
-												{t("app.loadingModelStep", {
+												{t("app.connecting.step2LoadingModel", {
 													percent:
 														connectingProgress !== null &&
 														connectingProgress < 100
@@ -410,9 +500,27 @@ export default function App() {
 												})}
 											</li>
 											<li>
-												{"③"} {t("app.readyStep")}
+												{"③"} {t("app.connecting.step3Ready")}
 											</li>
 										</ol>
+										{/* PVT-fix-19: wire the existing
+                                                                                    `app.firstLaunchHint` key into the
+                                                                                    connecting UI. The key has shipped in
+                                                                                    translations/en.json since the early
+                                                                                    i18n rollout ("First launch can take
+                                                                                    30–60 seconds while we download the
+                                                                                    speech model (~466 MB for small.en)…")
+                                                                                    but was never rendered — the connecting
+                                                                                    screen only showed the 3-step progress
+                                                                                    list, leaving first-time users wondering
+                                                                                    whether the 30–60s wait was normal. The
+                                                                                    hint is shown ONLY on the `connecting`
+                                                                                    screen (not `restarting` or
+                                                                                    `disconnected`) because it specifically
+                                                                                    describes the model-download path. */}
+										<p className="text-xs text-(--text-muted) max-w-md">
+											{t("app.firstLaunchHint")}
+										</p>
 									</div>
 								</div>
 							) : connectionStatus === "restarting" ? (
@@ -437,12 +545,12 @@ export default function App() {
 								<div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
 									<div className="space-y-2">
 										<p className="text-sm font-medium text-(--text-primary)">
-											{t("app.connectionLost")}
+											{t("app.lostConnection")}
 										</p>
 										{/* NF-R10-5: show the actual error message when
-											available (e.g. "Python crashed: exit code 137")
-											so the user can act on it instead of seeing a
-											generic "lost connection" message. */}
+                                                                                        available (e.g. "Python crashed: exit code 137")
+                                                                                        so the user can act on it instead of seeing a
+                                                                                        generic "lost connection" message. */}
 										<p className="text-xs text-(--text-muted) max-w-md">
 											{lastError ?? t("app.lostConnectionHint")}
 										</p>
@@ -521,6 +629,23 @@ export default function App() {
 					{recordingState === "error" ? t("a11y.errorOccurred") : ""}
 					{recordingState === "loading" ? t("a11y.loadingModel") : ""}
 					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
+					{/* PVT-fix-9: announce connection-state transitions so
+                                            screen-reader users get the same feedback that
+                                            sighted users get from the connecting/disconnected/
+                                            restarting UI swap. Reuses existing i18n keys
+                                            (`app.lostConnection`, `app.restartingBackend`,
+                                            `about.connected`) so no new translation keys are
+                                            required. The empty-string fallback for non-matching
+                                            states keeps the region silent between transitions
+                                            (aria-atomic=true means each change re-announces the
+                                            whole region, so a stable empty string is silent). */}
+					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
+					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
+					{connectionStatus === "connected" &&
+					prevConnectionRef.current !== "connected" &&
+					prevConnectionRef.current !== "connecting"
+						? t("about.connected")
+						: ""}
 				</div>
 			</div>
 		</ErrorBoundary>

@@ -29,6 +29,42 @@ interface TestReviewPanelProps {
 	hasFiltersEnabled: boolean;
 }
 
+/**
+ * Fix 16: map backend `detected_issues` literal strings to i18n keys.
+ *
+ * The backend (`voice_typer/server/level_monitor.py`) emits a fixed set
+ * of human-readable English strings for each detected issue. Without
+ * this map, non-English users saw raw English issue text under the
+ * "Detected Issues" heading. The map covers every backend-emitted
+ * string; unknown strings fall through to the raw value (so future
+ * backend additions don't render as empty/missing).
+ */
+const DETECTED_ISSUE_LITERALS: Record<string, string> = {
+	"High background noise": "microphoneTest.detectedIssueCodes.high_noise",
+	"Moderate background noise":
+		"microphoneTest.detectedIssueCodes.moderate_noise",
+	"Audio clipping detected": "microphoneTest.detectedIssueCodes.clipping",
+	"Volume too low — speak closer to the microphone":
+		"microphoneTest.detectedIssueCodes.volume_too_low",
+	"Volume is low — consider raising input gain":
+		"microphoneTest.detectedIssueCodes.volume_low",
+	"No voice detected — try speaking during the test":
+		"microphoneTest.detectedIssueCodes.no_voice",
+};
+
+/**
+ * Translate a backend `detected_issues` literal into the user's locale.
+ * Falls back to the raw string when the literal is not in the known map
+ * (e.g. a newer backend emits a code we haven't catalogued yet) — this
+ * preserves whatever information the backend did send rather than
+ * dropping it silently.
+ */
+function translateDetectedIssue(raw: string): string {
+	const key = DETECTED_ISSUE_LITERALS[raw];
+	if (key) return t(key);
+	return raw;
+}
+
 function _QualityScore({ value, max }: { value: number; max: number }) {
 	const pct = (value / max) * 100;
 	const color =
@@ -196,12 +232,15 @@ export function TestReviewPanel({
 							<span className="font-medium text-amber-500">
 								{t("microphoneTest.detectedIssues")}
 							</span>
-							{quality.detected_issues.map((issue) => (
-								<div key={issue} className="flex items-center gap-1">
-									<span className="text-amber-500">•</span>
-									<span>{issue}</span>
-								</div>
-							))}
+							{quality.detected_issues.map((issue) => {
+								const translated = translateDetectedIssue(issue);
+								return (
+									<div key={issue} className="flex items-center gap-1">
+										<span className="text-amber-500">•</span>
+										<span>{translated}</span>
+									</div>
+								);
+							})}
 						</div>
 					)}
 				</>

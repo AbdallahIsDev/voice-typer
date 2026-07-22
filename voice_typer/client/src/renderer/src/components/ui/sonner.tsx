@@ -65,6 +65,31 @@ const Toaster = ({ ...props }: ToasterProps) => {
 	return (
 		<Sonner
 			theme={theme}
+			// PVT-027: pin a canonical configuration so every toast
+			// looks the same regardless of where it was raised.
+			//   - richColors: sonner's semantic palette (green for
+			//     success, red for error, amber for warning, blue
+			//     for info) layered on top of our CSS-variable
+			//     tokens — gives toasts an at-a-glance type signal
+			//     without us hand-tinting each variant.
+			//   - closeButton: lets users dismiss a sticky toast
+			//     (errors stay 8s; some users want them gone now)
+			//     without waiting for the timer or hunting for the
+			//     action button.
+			//   - position="bottom-right": matches the OS notification
+			//     corner on every desktop OS we ship (Windows
+			//     bottom-right, macOS top-right but bottom-right is
+			//     the de-facto Electron convention and avoids the
+			//     title bar).
+			//   - duration={4000}: fallback for toasts raised via
+			//     ``toast.*`` directly (bypassing ``useSnackbar``).
+			//     The hook applies its own per-type durations
+			//     (success=3000, info=4000, warning=6000, error=8000)
+			//     which override this default.
+			richColors
+			closeButton
+			position="bottom-right"
+			duration={4000}
 			className="toaster group"
 			icons={{
 				success: (
@@ -111,11 +136,6 @@ const Toaster = ({ ...props }: ToasterProps) => {
 					"--border-radius": "var(--radius)",
 				} as React.CSSProperties
 			}
-			toastOptions={{
-				classNames: {
-					toast: "cn-toast",
-				},
-			}}
 			{...props}
 		/>
 	);

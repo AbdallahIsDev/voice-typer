@@ -3,12 +3,14 @@ import {
 	Mic02Icon,
 	MicOff01Icon,
 	PlayIcon,
+	Settings03Icon,
 	StopIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
+import { RangeSlider } from "@/components/common/RangeSlider";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { LevelBar } from "@/components/feedback/LevelBar";
 import { LiveQualityFeedback } from "@/components/feedback/LiveQualityFeedback";
@@ -173,7 +175,30 @@ export default function MicrophonePage() {
 	);
 	const [level, setLevel] = useState(0);
 	const [peak, setPeak] = useState(0);
-	const [micMonitoring, setMicMonitoring] = useState(false);
+	// PVT-037 (Fix 4): initialize micMonitoring to `true` so the level
+	// polling loop in the mount effect actually fires its first
+	// `microphone_test_get_level` call. Previously this started at
+	// `false`, and since the only thing that flips it to `true` is the
+	// polling loop seeing `active: true` in the response — which never
+	// happened because the loop never ran — the page deadlocked with a
+	// frozen "Monitoring…" indicator and zero level bar. The mount
+	// effect calls `level_monitor_start` unconditionally, so assuming
+	// monitoring is active until the backend tells us otherwise is
+	// correct.
+	const [micMonitoring, setMicMonitoring] = useState(true);
+	// Fix 15: user-configurable test recording duration (3–30s). The
+	// prior implementation hard-coded `duration: 10` in the
+	// `microphone_test_start` call, which was invisible to the user
+	// and not adjustable for slow readers / different test phrases.
+	const [testDurationSec, setTestDurationSec] = useState(10);
+	// PVT-036 (Fix 3): OS-level microphone permission state. Probed
+	// via `navigator.permissions.query({name: "microphone"})` on
+	// mount. When "denied", we render a destructive banner with
+	// platform-specific guidance + a deep-link button to the OS
+	// privacy settings.
+	const [micPermission, setMicPermission] = useState<
+		"granted" | "denied" | "prompt" | "unknown"
+	>("unknown");
 
 	// ADR 0007: Audio preset + filter state lives in `config` directly.
 	// No local duplicate — the AudioPresetSelector reads from / writes
@@ -192,6 +217,13 @@ export default function MicrophonePage() {
 	const playingRef = useRef(false);
 	const stopTestRef = useRef<() => Promise<void>>(async () => {});
 	const stoppingRef = useRef(false);
+	// PVT-035 (Fix 2): ref-to-latest-selectMicrophone so the
+	// `microphones_changed` event handler (subscribed before
+	// `selectMicrophone` is defined in the component body) can invoke
+	// the latest closure without re-subscribing on every render.
+	const selectMicrophoneRef = useRef<(micId: string | null) => Promise<void>>(
+		async () => {},
+	);
 
 	/** Optimistic config update: writes through to backend + local cache. */
 	const updateConfig = useCallback(
@@ -202,44 +234,113 @@ export default function MicrophonePage() {
 				_cachedConfig = next;
 				return next;
 			});
-			call("set_config", updates).catch(() => {});
+			call("set_config", updates).catch((err) => {
+				console.warn("[IPC] microphone command failed: set_config:", err);
+			});
 		},
 		[call],
 	);
 
-	const loadData = useCallback(async () => {
-		setLoading(true);
-		// NF-R10-2: clear any prior load error before retrying so
-		// the EmptyState swaps back to the spinner during the retry
-		// attempt.
-		setLoadError(null);
-		try {
-			const [mics, cfg] = await Promise.all([
-				call<MicrophoneDevice[]>("get_microphones"),
-				call<VoiceTyperConfig>("get_config"),
-			]);
-			_cachedMicrophones = Array.isArray(mics) ? mics : [];
-			_cachedConfig = cfg;
-			setMicrophones(_cachedMicrophones);
-			setConfig(cfg);
-		} catch (err) {
-			console.error("Failed to load microphone data:", err);
-			// NF-R10-2: capture the error message so the render
-			// path can show a retry EmptyState instead of an
-			// ambiguous empty list.
-			setLoadError(
-				err instanceof Error ? err.message : "Failed to load microphone data",
-			);
-		} finally {
-			setLoading(false);
-			// F4: bump the "last updated" timestamp after each load attempt.
-			markUpdated();
-		}
-	}, [call, markUpdated]);
+	// PVT-G5-054 (session 5): ``isCancelled`` is consulted after every
+	// ``await`` so an unmounted component (or a stale invocation
+	// superseded by a newer ``loadData`` call) does not have its
+	// in-flight ``setX`` calls land on a dead or stale React state. The
+	// default ``() => false`` keeps existing callers (the
+	// ``microphones_changed`` hot-swap handler, ``handleManualRefresh``)
+	// working without changes.
+	const loadData = useCallback(
+		async (isCancelled: () => boolean = () => false) => {
+			setLoading(true);
+			// NF-R10-2: clear any prior load error before retrying so
+			// the EmptyState swaps back to the spinner during the retry
+			// attempt.
+			setLoadError(null);
+			try {
+				const [mics, cfg] = await Promise.all([
+					call<MicrophoneDevice[]>("get_microphones"),
+					call<VoiceTyperConfig>("get_config"),
+				]);
+				if (isCancelled()) return;
+				_cachedMicrophones = Array.isArray(mics) ? mics : [];
+				_cachedConfig = cfg;
+				// PVT-G5-054 (session 5): don't touch state if we were cancelled.
+				if (!isCancelled()) {
+					setMicrophones(_cachedMicrophones);
+					setConfig(cfg);
+				}
+			} catch (err) {
+				console.error("Failed to load microphone data:", err);
+				// NF-R10-2: capture the error message so the render
+				// path can show a retry EmptyState instead of an
+				// ambiguous empty list.
+				if (!isCancelled()) {
+					setLoadError(
+						err instanceof Error
+							? err.message
+							: "Failed to load microphone data",
+					);
+				}
+			} finally {
+				if (!isCancelled()) setLoading(false);
+				// F4: bump the "last updated" timestamp after each load attempt.
+				markUpdated();
+			}
+		},
+		[call, markUpdated],
+	);
 
+	// PVT-G5-054 (session 5): guard the mount-time load against
+	// setState-after-unmount (and against superseding calls from
+	// handleManualRefresh or the microphones_changed hot-swap handler)
+	// via a local ``cancelled`` flag captured by the ``() => cancelled``
+	// closure passed into ``loadData``.
 	useEffect(() => {
-		loadData();
+		let cancelled = false;
+		loadData(() => cancelled);
+		return () => {
+			cancelled = true;
+		};
 	}, [loadData]);
+
+	// PVT-036 (Fix 3): probe the OS-level microphone permission state on
+	// mount. `navigator.permissions.query({name: "microphone"})` is the
+	// standard Chromium API; it works in Electron's renderer and in
+	// Tauri's WebView2 (Windows) / WKWebView (macOS) when the host
+	// exposes it. On Linux Tauri (WebKitGTK) it typically rejects; we
+	// catch and treat the result as "unknown" (no banner shown —
+	// better to be silent than to show a false-positive "permission
+	// denied" banner).
+	useEffect(() => {
+		let cancelled = false;
+		const probe = async () => {
+			try {
+				// Some TypeScript DOM lib versions don't include
+				// "microphone" in the PermissionName union. Cast to
+				// the wider string type so the call compiles without
+				// mutating the global lib typings.
+				const name = "microphone" as PermissionName;
+				const status = await navigator.permissions.query({ name });
+				if (cancelled) return;
+				const state = status.state as "granted" | "denied" | "prompt";
+				setMicPermission(state);
+				// Listen for changes (e.g. user grants permission from
+				// the OS settings dialog while the app is open).
+				status.onchange = () => {
+					if (cancelled) return;
+					setMicPermission(
+						(status.state as "granted" | "denied" | "prompt") ?? "unknown",
+					);
+				};
+			} catch {
+				if (cancelled) return;
+				setMicPermission("unknown");
+			}
+		};
+		void probe();
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
 	// F4: manual refresh handler for the LastUpdatedIndicator button.
 	// Wraps `loadData()` so we can flip a `refreshing` flag for the
@@ -267,7 +368,11 @@ export default function MicrophonePage() {
 	useEffect(() => {
 		const micId = config?.microphone ?? null;
 		call<{ success: boolean }>("level_monitor_start", { mic_id: micId }).catch(
-			() => {},
+			(err) =>
+				console.warn(
+					"[IPC] microphone command failed: level_monitor_start:",
+					err,
+				),
 		);
 
 		levelIntervalRef.current = setInterval(async () => {
@@ -313,17 +418,23 @@ export default function MicrophonePage() {
 			if (typeof document !== "undefined") {
 				document.removeEventListener("visibilitychange", handleVisibility);
 			}
-			call("level_monitor_stop").catch(() => {});
+			call("level_monitor_stop").catch((err) =>
+				console.warn(
+					"[IPC] microphone command failed: level_monitor_stop:",
+					err,
+				),
+			);
 		};
 	}, [call, config?.microphone]);
 
 	usePythonEvent(
 		"microphone_test_complete",
 		useCallback(
-			(_data: unknown) => {
+			(_data: unknown): (() => void) | undefined => {
 				if (testRunning && !stoppingRef.current) {
 					stopTestRef.current();
 				}
+				return undefined;
 			},
 			[testRunning],
 		),
@@ -338,17 +449,46 @@ export default function MicrophonePage() {
 	// keeps `_cachedConfig` fresh too. Both re-run loadData() so the cache
 	// AND the visible UI update — the "Last updated" indicator is only the
 	// safety net, not the sole invalidation path.
+	//
+	// PVT-035 (Fix 2): hot-swap detection. After loadData() refreshes the
+	// microphone list, if the currently-selected microphone (config.microphone)
+	// is no longer present in the new list, we:
+	//   1. show a warning snackbar explaining what happened, and
+	//   2. auto-fall back to the system default (selectMicrophone(null)).
+	// Previously the active mic card would silently render "Unknown" and
+	// the user had no idea why their mic stopped working (USB disconnect,
+	// Bluetooth headset power-off, hot-plug reorder, etc.).
 	usePythonEvent(
 		"microphones_changed",
-		useCallback(() => {
-			void loadData();
-		}, [loadData]),
+		useCallback((): (() => void) | undefined => {
+			void (async () => {
+				const previousMicId = _cachedConfig?.microphone ?? null;
+				await loadData();
+				// `_cachedMicrophones` is updated synchronously by loadData()
+				// before this point — read it directly so we don't depend on
+				// the next React commit cycle.
+				const stillPresent =
+					previousMicId === null ||
+					_cachedMicrophones.some(
+						(m) => (m.id ?? String(m.index)) === previousMicId,
+					);
+				if (!stillPresent) {
+					showSnack(t("microphone.activeMicUnavailable"), "warning");
+					// Auto-fallback to system default. selectMicrophone(null)
+					// already handles stopping any active test, clearing the
+					// config, and showing a confirmation snackbar.
+					await selectMicrophoneRef.current(null);
+				}
+			})();
+			return undefined;
+		}, [loadData, showSnack]),
 	);
 
 	usePythonEvent(
 		"config_changed",
-		useCallback(() => {
+		useCallback((): (() => void) | undefined => {
 			void loadData();
+			return undefined;
 		}, [loadData]),
 	);
 
@@ -362,8 +502,24 @@ export default function MicrophonePage() {
 				clearInterval(elapsedTimerRef.current);
 				elapsedTimerRef.current = null;
 			}
+			// PVT-045 (session 2): pause any playing test audio to prevent
+			// background playback after navigation. Also clears the audioRef
+			// so onended/onerror don't fire setState on an unmounted component.
+			if (audioRef.current) {
+				try {
+					audioRef.current.pause();
+				} catch {
+					/* noop */
+				}
+				audioRef.current = null;
+			}
 			if (testRunning && !stoppingRef.current) {
-				call("microphone_test_cancel").catch(() => {});
+				call("microphone_test_cancel").catch((err) =>
+					console.warn(
+						"[IPC] microphone command failed: microphone_test_cancel:",
+						err,
+					),
+				);
 			}
 		};
 	}, [call, testRunning]);
@@ -419,7 +575,12 @@ export default function MicrophonePage() {
 			setLevel(0);
 			setPeak(0);
 			setMicMonitoring(false);
-			call("level_monitor_start", { mic_id: micId }).catch(() => {});
+			call("level_monitor_start", { mic_id: micId }).catch((err) =>
+				console.warn(
+					"[IPC] microphone command failed: level_monitor_start:",
+					err,
+				),
+			);
 			const label =
 				micId === null
 					? t("microphone.systemDefault")
@@ -473,7 +634,7 @@ export default function MicrophonePage() {
 				sample_rate: number;
 			}>("microphone_test_start", {
 				mic_id: micId,
-				duration: 10,
+				duration: testDurationSec,
 				filters: buildTestFilters(config),
 			});
 
@@ -483,12 +644,12 @@ export default function MicrophonePage() {
 			}
 
 			setTestRunning(true);
-			setTestCountdown(Math.ceil(result.duration || 10));
+			setTestCountdown(Math.ceil(result.duration || testDurationSec));
 
 			// Timer countdown
 			if (testTimerRef.current) clearInterval(testTimerRef.current);
 			const startTime = Date.now();
-			const totalDurationMs = (result.duration || 10) * 1000;
+			const totalDurationMs = (result.duration || testDurationSec) * 1000;
 			const checkInterval = setInterval(() => {
 				const elapsed = Date.now() - startTime;
 				const remaining = Math.max(
@@ -570,6 +731,11 @@ export default function MicrophonePage() {
 	};
 
 	stopTestRef.current = stopTest;
+	// PVT-035 (Fix 2): keep selectMicrophoneRef in sync so the
+	// `microphones_changed` handler (subscribed earlier in the body)
+	// can invoke the latest closure without re-subscribing on every
+	// render. This mirrors the stopTestRef pattern above.
+	selectMicrophoneRef.current = selectMicrophone;
 
 	const playAudio = (base64: string, isEnhanced: boolean) => {
 		if (!base64) return;
@@ -682,6 +848,91 @@ export default function MicrophonePage() {
 			</div>
 
 			<div className="space-y-6">
+				{/* PVT-036 (Fix 3): OS-level microphone permission
+                                    banner. Shown only when the renderer can prove
+                                    the OS has denied access (status.state === "denied").
+                                    "prompt" / "unknown" do not render the banner —
+                                    "prompt" is the user's first-run chance to grant,
+                                    "unknown" means the API is unavailable (e.g. Linux
+                                    WebKitGTK) and a false-positive banner would be
+                                    worse than silence. */}
+				{micPermission === "denied" && (
+					<div
+						role="alert"
+						className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 space-y-2"
+					>
+						<div className="flex items-start gap-2">
+							<HugeiconsIcon
+								icon={AlertCircleIcon}
+								strokeWidth={1.625}
+								className="h-4 w-4 shrink-0 mt-0.5 text-destructive"
+							/>
+							<div className="flex-1 space-y-1">
+								<p className="text-sm font-semibold text-destructive">
+									{t("microphone.permissionDeniedTitle")}
+								</p>
+								<p className="text-xs text-(--text-primary)">
+									{(() => {
+										const ua =
+											typeof navigator !== "undefined"
+												? navigator.userAgent.toLowerCase()
+												: "";
+										if (ua.includes("mac"))
+											return t("microphone.permissionDeniedMessageMacos");
+										if (ua.includes("win"))
+											return t("microphone.permissionDeniedMessageWindows");
+										if (ua.includes("linux"))
+											return t("microphone.permissionDeniedMessageLinux");
+										return t("microphone.permissionDeniedMessage");
+									})()}
+								</p>
+							</div>
+						</div>
+						{(() => {
+							const ua =
+								typeof navigator !== "undefined"
+									? navigator.userAgent.toLowerCase()
+									: "";
+							// macOS and Windows expose a deep-link URL scheme
+							// to the OS privacy settings. Linux has no
+							// equivalent standard, so we omit the button.
+							if (ua.includes("mac")) {
+								return (
+									<a
+										href="x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+										aria-label={t("microphone.openSettingsAria")}
+										className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+									>
+										<HugeiconsIcon
+											icon={Settings03Icon}
+											strokeWidth={1.625}
+											className="h-3.5 w-3.5"
+										/>
+										{t("microphone.openSettings")}
+									</a>
+								);
+							}
+							if (ua.includes("win")) {
+								return (
+									<a
+										href="ms-settings:privacy-microphone"
+										aria-label={t("microphone.openSettingsAria")}
+										className="inline-flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
+									>
+										<HugeiconsIcon
+											icon={Settings03Icon}
+											strokeWidth={1.625}
+											className="h-3.5 w-3.5"
+										/>
+										{t("microphone.openSettings")}
+									</a>
+								);
+							}
+							return null;
+						})()}
+					</div>
+				)}
+
 				{/* Active Microphone Card */}
 				<div
 					className={cn(
@@ -726,7 +977,7 @@ export default function MicrophonePage() {
 						peak={peak}
 						isRecording={testRunning}
 						elapsedSeconds={testElapsed}
-						totalSeconds={10}
+						totalSeconds={testDurationSec}
 					/>
 
 					{/* Test controls */}
@@ -736,7 +987,7 @@ export default function MicrophonePage() {
 								variant="default"
 								size="sm"
 								className="gap-2"
-								disabled={playingRef.current}
+								disabled={playingEnhanced || playingOriginal}
 								onClick={startTest}
 							>
 								<HugeiconsIcon
@@ -796,6 +1047,34 @@ export default function MicrophonePage() {
 						)}
 					</div>
 
+					{/* Fix 15: test duration slider (3–30s). The
+                                            `deferApply` prop batches the drag into a
+                                            single `set_config` call on pointer-up so we
+                                            don't flood the backend while sliding. Hidden
+                                            during an active test to avoid mid-test
+                                            duration changes (which the running test
+                                            ignores anyway). */}
+					{!testRunning && (
+						<div className="mt-3 flex items-center gap-3">
+							<label
+								htmlFor="mic-test-duration"
+								className="text-xs font-medium text-(--text-muted) shrink-0"
+							>
+								{t("microphone.testDuration")}
+							</label>
+							<RangeSlider
+								value={testDurationSec}
+								min={3}
+								max={30}
+								step={1}
+								onChange={setTestDurationSec}
+								ariaLabel={t("microphone.testDurationAria")}
+								suffix="s"
+								deferApply
+							/>
+						</div>
+					)}
+
 					{/* Filter invalidation notice */}
 					{filtersSinceLastTest && filtersChangedSinceTest && !testRunning && (
 						<div className="mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-500">
@@ -850,6 +1129,41 @@ export default function MicrophonePage() {
 							{t("microphone.otherMicrophones")}
 						</p>
 						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+							{/* PVT-034 (Fix 1): "Use System Default" button —
+                                                            the only way (other than refreshing and hoping)
+                                                            to revert from a named microphone back to the OS
+                                                            default. Disabled while a test is running so the
+                                                            user can't swap mics mid-recording. */}
+							<div
+								className={cn(
+									"flex items-center gap-3 px-3.5 py-2.5",
+									testRunning && "opacity-50 pointer-events-none",
+								)}
+							>
+								<HugeiconsIcon
+									icon={Mic02Icon}
+									strokeWidth={2}
+									className="h-4 w-4 shrink-0 text-(--text-muted)"
+								/>
+								<div className="flex flex-col flex-1 min-w-0 gap-1">
+									<p className="text-sm font-medium text-(--text-primary)">
+										{t("microphone.systemDefault")}
+									</p>
+									<p className="text-xs text-(--text-muted)">
+										{t("microphone.systemDefaultDesc")}
+									</p>
+								</div>
+								<Button
+									variant={isSystemDefault ? "default" : "outline"}
+									size="sm"
+									className="shrink-0"
+									disabled={isSystemDefault || testRunning}
+									aria-label={t("microphone.useSystemDefaultAria")}
+									onClick={() => void selectMicrophone(null)}
+								>
+									{t("microphone.use")}
+								</Button>
+							</div>
 							{otherMicrophones.length === 0 ? (
 								<div className="px-3.5 py-3 text-xs text-(--text-muted)">
 									{t("microphone.noOtherMicrophones")}

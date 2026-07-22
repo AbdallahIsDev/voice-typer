@@ -56,6 +56,76 @@ function _isModifier(p: string): boolean {
 	return _MODIFIER_KEYS_SET.has(p);
 }
 
+/**
+ * PVT-FIX-006: format a pynput hotkey string for inclusion in an error
+ * message so the user can see EXACTLY which combo was rejected.
+ *
+ * Implemented locally (rather than importing ``formatHotkey`` from
+ * ``hotkey-utils.ts``) because ``hotkey-utils.ts`` imports from this
+ * module — re-importing it here would create a circular dependency.
+ * This formatter is intentionally simple and platform-agnostic: it
+ * strips angle brackets, capitalizes the first letter of each part,
+ * uppercases single letters/digits, and joins with "+".
+ *
+ * Example: ``"<ctrl>+<alt>+<tab>"`` → ``"Ctrl+Alt+Tab"``.
+ */
+function _formatForMessage(hotkey: string): string {
+	if (!hotkey) return "";
+	return hotkey
+		.split("+")
+		.map((part) => part.replace(/[<>]/g, "").trim())
+		.filter(Boolean)
+		.map((part) => {
+			const lower = part.toLowerCase();
+			// Special-case a few common names so the message
+			// matches the rest of the UI's wording.
+			const SPECIAL: Record<string, string> = {
+				ctrl: "Ctrl",
+				ctrl_l: "Ctrl",
+				ctrl_r: "Ctrl",
+				shift: "Shift",
+				shift_l: "Shift",
+				shift_r: "Shift",
+				alt: "Alt",
+				alt_l: "Alt",
+				alt_r: "Alt",
+				alt_gr: "AltGr",
+				cmd: "Cmd",
+				cmd_l: "Cmd",
+				cmd_r: "Cmd",
+				win: "Win",
+				super: "Super",
+				fn: "Fn",
+				globe: "Globe",
+				space: "Space",
+				enter: "Enter",
+				tab: "Tab",
+				esc: "Esc",
+				caps_lock: "Caps Lock",
+				num_lock: "Num Lock",
+				scroll_lock: "Scroll Lock",
+				print_screen: "Print Screen",
+				pause: "Pause",
+				insert: "Insert",
+				delete: "Delete",
+				home: "Home",
+				end: "End",
+				page_up: "Page Up",
+				page_down: "Page Down",
+				up: "Up",
+				down: "Down",
+				left: "Left",
+				right: "Right",
+				backspace: "Backspace",
+			};
+			if (SPECIAL[lower]) return SPECIAL[lower];
+			if (/^f\d{1,2}$/.test(lower)) return lower.toUpperCase();
+			if (lower.length === 1) return lower.toUpperCase();
+			return part.charAt(0).toUpperCase() + part.slice(1);
+		})
+		.join("+");
+}
+
 export interface ValidationResult {
 	valid: boolean;
 	/** Human-readable reason when valid is false. */
@@ -198,16 +268,23 @@ export function validateHotkey(
 			(r) => normalizeHotkey(r) === normalizeHotkey(normalized),
 		)
 	) {
+		// PVT-FIX-006: include the conflicting combo in the message
+		// so the user sees exactly which shortcut is reserved.
+		const label = _formatForMessage(normalized);
 		return {
 			valid: false,
-			reason:
-				"Reserved — conflicts with operating system or common app shortcuts",
+			reason: `"${label}" is reserved — it conflicts with operating system or common app shortcuts`,
 		};
 	}
 
 	// 3. Per-platform reserved.
 	if (isReserved(hotkey, platform)) {
-		return { valid: false, reason: "Reserved by operating system" };
+		// PVT-FIX-006: include the conflicting combo in the message.
+		const label = _formatForMessage(hotkey);
+		return {
+			valid: false,
+			reason: `"${label}" is reserved by the operating system`,
+		};
 	}
 
 	// Helper: classify parts.
@@ -240,10 +317,11 @@ export function validateHotkey(
 	if (parts.length >= 2 && nonMods.length > 0) {
 		const lastKey = parts[parts.length - 1];
 		if (isModifier(lastKey)) {
+			// PVT-FIX-006: include the conflicting combo.
+			const label = _formatForMessage(hotkey);
 			return {
 				valid: false,
-				reason:
-					"Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+				reason: `"${label}" must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)`,
 			};
 		}
 	}
@@ -258,9 +336,11 @@ export function validateHotkey(
 	// Super+Tab) — all other Super combos are allowed.
 	const hasWin = parts.some((p) => p === "win" || p === "super");
 	if (hasWin && platform === "win32") {
+		// PVT-FIX-006: include the conflicting combo.
+		const label = _formatForMessage(hotkey);
 		return {
 			valid: false,
-			reason: "Windows key combinations are reserved by the OS shell",
+			reason: `"${label}" is reserved by the Windows OS shell`,
 		};
 	}
 
@@ -284,9 +364,11 @@ export function validateHotkey(
 		const hasAlt = parts.some((p) => p.startsWith("alt"));
 		const hasShift = parts.some((p) => p.startsWith("shift"));
 		if (hasAlt && hasShift && nonMods.length === 0) {
+			// PVT-FIX-006: include the conflicting combo.
+			const label = _formatForMessage(hotkey);
 			return {
 				valid: false,
-				reason: "Alt+Shift is reserved by Windows for language switching",
+				reason: `"${label}" is reserved by Windows for language switching`,
 			};
 		}
 	}

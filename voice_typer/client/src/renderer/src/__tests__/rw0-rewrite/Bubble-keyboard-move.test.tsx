@@ -15,8 +15,42 @@
  *
  * The corresponding Python tests are skipped via `@pytest.mark.skip`
  * with a pointer back to this file.  They are NOT deleted.
+ *
+ * PVT-048 (Sub-agent 16): the original RW-0 vitest tests below
+ * asserted the renderer-side `window.addEventListener("keydown", ...)`
+ * handler in `Bubble.tsx` was called on arrow keys.  That handler was
+ * DEAD CODE in production because the bubble BrowserWindow is created
+ * with `focusable: false` (see
+ * `voice_typer/client/src/main/windows/bubble-window.ts`), so the
+ * renderer never receives keyboard focus and window-level `keydown`
+ * events never fire in the shipped app.  Agent 12 (PVT-048 + PVT-067)
+ * removed the handler from `Bubble.tsx` entirely; the proper
+ * re-implementation is a MAIN-PROCESS global hotkey that sends
+ * `bubble:move-by` IPC (see the comment block at the top of the new
+ * `Bubble.tsx` for the full migration plan).
+ *
+ * The original 7 vitest tests are kept below as `it.skip` placeholders
+ * so the test names still appear in the runner output as a historical
+ * record of what the RW-0 rewrite covered.  Two NEW test blocks
+ * replace them:
+ *
+ *   1. `PVT-048: Bubble keyboard-move is dead code in production`
+ *      — scans `bubble-window.ts` and asserts `focusable: false` is
+ *        still set, prints a loud warning, and verifies `Bubble.tsx`
+ *        carries the dead-code comment block.  This guards against a
+ *        future refactor that flips `focusable` to `true` without
+ *        also re-adding the keyboard-move handler.
+ *
+ *   2. `Item 7: Bubble renders sr-only 'Transcription complete.'`
+ *      — mounts the Bubble in idle mode and asserts the sr-only span
+ *        containing `t("a11y.transcriptionComplete")` is rendered to
+ *        the DOM, so screen-reader users hear the completion
+ *        announcement when the bubble transitions from
+ *        transcribing → idle.
  */
-import { act, cleanup, render } from "@testing-library/react";
+import fs from "node:fs";
+import path from "node:path";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Bubble } from "@/Bubble";
@@ -98,7 +132,19 @@ function dispatchArrowKey(key: string, opts: { shiftKey?: boolean } = {}) {
 	});
 }
 
-describe("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_by", () => {
+// PVT-048 (Sub-agent 16): the original RW-0 tests below are SKIPPED
+// because agent 12 (PVT-048 + PVT-067) removed the renderer-side
+// `window.addEventListener("keydown", ...)` handler from `Bubble.tsx`.
+// The handler was dead code in production (the bubble BrowserWindow is
+// `focusable: false`, so renderer keydown events never fire in the
+// shipped app).  The proper re-implementation is a MAIN-PROCESS
+// global hotkey that sends `bubble:move-by` IPC — see the comment
+// block at the top of the new `Bubble.tsx` for the full migration
+// plan.  The test names are preserved as `it.skip` placeholders so the
+// RW-0 coverage map stays readable; flip them back to `it` only if a
+// renderer-side keyboard-move handler is re-introduced (and verify
+// `focusable: false` is also flipped in `bubble-window.ts`).
+describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_by (SKIPPED: handler removed in PVT-048)", () => {
 	it("calls moveBy with negative deltaX on ArrowLeft", () => {
 		render(<Bubble />);
 		mockBubble.moveBy.mockClear();
@@ -162,7 +208,7 @@ describe("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_by", (
 	});
 });
 
-describe("Bubble draggable gate — RW-0 rewrite of test_bubble_respects_draggable_gate", () => {
+describe.skip("Bubble draggable gate — RW-0 rewrite of test_bubble_respects_draggable_gate (SKIPPED: handler removed in PVT-048)", () => {
 	it("does NOT call moveBy when draggable is false", () => {
 		render(<Bubble />);
 		mockBubble.moveBy.mockClear();
@@ -197,5 +243,163 @@ describe("Bubble draggable gate — RW-0 rewrite of test_bubble_respects_draggab
 		act(() => onDraggableCb?.(true));
 		dispatchArrowKey("ArrowLeft");
 		expect(mockBubble.moveBy).toHaveBeenCalledTimes(1);
+	});
+});
+
+// PVT-048 (Sub-agent 16): the keyboard-move handler tested above was
+// DEAD CODE in production.  The bubble BrowserWindow is created with
+// `focusable: false` (see
+// `voice_typer/client/src/main/windows/bubble-window.ts`), so the
+// renderer never receives keyboard focus and window-level `keydown`
+// events never fire in the shipped app.  Agent 12 (PVT-048 + PVT-067)
+// removed the handler from `Bubble.tsx` entirely; the proper
+// re-implementation is a MAIN-PROCESS global hotkey that sends
+// `bubble:move-by` IPC.
+//
+// This test scans `bubble-window.ts` and asserts that `focusable: false`
+// is still set.  If a future refactor flips it to `true` (or removes
+// the option), this test will FAIL — at which point a renderer-side
+// keyboard-move handler becomes reachable in production and the
+// dead-code comment block at the top of `Bubble.tsx` is no longer
+// accurate.  The test also prints a warning to make the dead-code
+// status loud in test output.
+describe("PVT-048: Bubble keyboard-move is dead code in production (focusable: false)", () => {
+	const bubbleWindowPath = path.resolve(
+		__dirname,
+		"..",
+		"..",
+		"..",
+		"..",
+		"..",
+		"src",
+		"main",
+		"windows",
+		"bubble-window.ts",
+	);
+
+	it("bubble-window.ts still sets `focusable: false` (keyboard-move handler is dead code)", () => {
+		// The path above resolves to
+		//   voice_typer/client/src/main/windows/bubble-window.ts
+		// (five ".." segments climb from
+		// __tests__/rw0-rewrite/ back to voice_typer/client/,
+		// then descend into src/main/windows/).
+		const src = fs.readFileSync(bubbleWindowPath, "utf-8");
+
+		// Look for the literal `focusable: false` BrowserWindow
+		// option.  We allow whitespace around the colon and
+		// tolerate it appearing on either side of a comment.
+		const hasFocusableFalse = /focusable\s*:\s*false\b/.test(src);
+
+		// Print a loud warning so the dead-code status is
+		// visible in test output, not buried in a passing
+		// assertion.  When this test starts FAILING (because
+		// someone flipped focusable to true), the warning
+		// message below explains exactly what to do: verify
+		// the keyboard-move handler doesn't steal arrow keys
+		// from the user's active app, then update the
+		// dead-code comment in Bubble.tsx.
+		if (hasFocusableFalse) {
+			// eslint-disable-next-line no-console
+			console.warn(
+				"[PVT-048] Bubble BrowserWindow is created with `focusable: false` — " +
+					"the renderer-side keyboard arrow-move handler has been REMOVED from " +
+					"Bubble.tsx (PVT-048 + PVT-067 fix by agent 12).  Keyboard-move is " +
+					"DEAD in production; to re-implement it correctly, register a MAIN-PROCESS " +
+					"global hotkey (Electron globalShortcut.register or X11 grab) that sends " +
+					"bubble:move-by IPC to the main process (the handler already exists in " +
+					"main/ipc/bubble-handlers.ts).  Do NOT re-add a window keydown handler " +
+					"unless `focusable: false` is also flipped.",
+			);
+		}
+
+		expect(hasFocusableFalse).toBe(true);
+	});
+
+	it("Bubble.tsx documents the keyboard-move handler as dead code (PVT-048 comment block)", () => {
+		// Companion assertion: Bubble.tsx itself must carry a
+		// comment block explaining WHY the keyboard-move handler
+		// was removed and HOW to re-implement it correctly.  This
+		// guards against a refactor that removes the comment
+		// (leaving future readers confused about why the handler
+		// doesn't exist).
+		const bubblePath = path.resolve(__dirname, "..", "..", "Bubble.tsx");
+		const src = fs.readFileSync(bubblePath, "utf-8");
+
+		// The comment block at the top of the new Bubble.tsx
+		// explicitly mentions `focusable: false` and
+		// `bubble-window.ts` and the global-hotkey migration path.
+		expect(src).toMatch(/focusable:\s*false/i);
+		expect(src).toContain("bubble-window.ts");
+		// The comment must point at the main-process IPC handler
+		// as the correct re-implementation target.
+		expect(src).toContain("bubble:move-by");
+	});
+});
+
+// Item 7 (Sub-agent 16): when the Bubble transitions from
+// "transcribing" → "idle" (always_visible mode), it renders an
+// sr-only `<span>` containing the i18n string "Transcription
+// complete." (t("a11y.transcriptionComplete")) so screen-reader
+// users hear the completion announcement.  Without this span, AT
+// users would only know a transcription is happening (the
+// "Transcribing…" label) but never hear when it's done — the
+// visible bubble simply fades out, which is invisible to non-sighted
+// users.
+//
+// This test mounts the Bubble in idle mode and asserts the sr-only
+// span exists and contains the expected English text.  The Bubble's
+// `<output aria-live="polite">` wrapper means the sr-only span's
+// text is also announced to AT when the bubble transitions to idle.
+describe("Item 7: Bubble renders sr-only 'Transcription complete.' announcement in idle mode", () => {
+	beforeEach(() => {
+		mockBubble = makeMockBubble();
+		(window as unknown as Record<string, unknown>).bubble = mockBubble;
+
+		Object.defineProperty(window, "matchMedia", {
+			value: vi.fn().mockImplementation((query: string) => ({
+				matches: false,
+				media: query,
+				onchange: null,
+				addListener: vi.fn(),
+				removeListener: vi.fn(),
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				dispatchEvent: vi.fn(),
+			})),
+			writable: true,
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+		delete (window as unknown as Record<string, unknown>).bubble;
+	});
+
+	it("renders an sr-only span with 'Transcription complete.' when mode is idle", () => {
+		render(<Bubble />);
+
+		// Drive the Bubble into idle mode via the onSetState
+		// callback captured at mount.  The Bubble subscribes to
+		// `window.bubble.onSetState` and updates its internal
+		// `mode` state accordingly (via the useBubbleStateMachine
+		// hook in bubble-components.tsx).
+		const onSetStateCb = mockBubble.onSetState.mock.calls[0]?.[0] as
+			| ((state: string) => void)
+			| undefined;
+		expect(onSetStateCb).toBeTruthy();
+		act(() => onSetStateCb?.("idle"));
+
+		// The sr-only span lives inside the Bubble's
+		// `<output aria-live="polite">` wrapper, so its text
+		// is announced to AT.  We assert the literal English
+		// text (the default locale's translation of
+		// `a11y.transcriptionComplete`).
+		const srOnly = screen.getByText("Transcription complete.");
+		expect(srOnly).toBeTruthy();
+
+		// The span must have the `sr-only` class so it's
+		// invisible to sighted users but read by screen
+		// readers.
+		expect(srOnly.className).toContain("sr-only");
 	});
 });

@@ -1,71 +1,57 @@
-import {
-	Book02Icon,
-	Bug02Icon,
-	File02Icon,
-	InformationCircleIcon,
-	RefreshIcon,
-	Tick02Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
-import { SettingsSection } from "@/components/common/SettingsSection";
 import { Spinner } from "@/components/feedback/Spinner";
 import { AiEnhancementSettingsSection } from "@/components/settings/AiEnhancementSettingsSection";
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
 import { ModelSettingsSection } from "@/components/settings/ModelSettingsSection";
-import PrewarmAndUpdates from "@/components/settings/PrewarmAndUpdates";
+import PrewarmAndUpdates, {
+	getPrewarmAndUpdatesLabels,
+} from "@/components/settings/PrewarmAndUpdates";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
+import { SettingsSaveIndicator } from "@/components/settings/SettingsSaveIndicator";
+import {
+	getTabLabels,
+	type SettingsTab,
+} from "@/components/settings/settingsTabLabels";
 import { ThemeSettingsSection } from "@/components/settings/ThemeSettingsSection";
-import { Button } from "@/components/ui/button";
+import { TroubleshootingSettingsSection } from "@/components/settings/TroubleshootingSettingsSection";
+import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
-// NEW-TS-004: use the shared useSnackbar hook instead of re-implementing
-// the useState + setTimeout + JSX pattern inline.  Previously this page
-// had its own ``showSnack`` function with a setTimeout that wasn't
-// cleared on unmount (a leak risk if the page unmounted mid-toast).
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
-import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
-// Module-level cache — persists across page navigations so settings render
-// instantly on re-visit instead of showing a loading spinner.
-let _cachedConfig: VoiceTyperConfig | null = null;
+const LS_KEY = "voice-typer-settings-tab";
 
-/** Settings tab identifiers used by the SegmentedControl and search-to-tab
- *  auto-switch feature.  Defined at module level so SEARCH_TAB_HINTS can
- *  reference it. */
-type SettingsTab = "appearance" | "general" | "aiAudio" | "privacy";
-
-/**
- * F-5: Keyword-to-tab mapping for the search auto-switch feature.
- * Each tab has lowercase keywords that uniquely identify it.
- * Keywords are now loaded from i18n so non-English locales can provide
- * translated search keywords (e.g. Spanish "tema" → appearance tab).
- */
-function getSearchTabHints(): Record<SettingsTab, string[]> {
-	return {
-		appearance: t("settings.searchHints.appearance").split(", "),
-		general: t("settings.searchHints.general").split(", "),
-		aiAudio: t("settings.searchHints.aiAudio").split(", "),
-		privacy: t("settings.searchHints.privacy").split(", "),
-	};
+function getSavedTab(): SettingsTab {
+	try {
+		const saved = localStorage.getItem(LS_KEY);
+		if (
+			saved === "appearance" ||
+			saved === "general" ||
+			saved === "aiAudio" ||
+			saved === "privacy"
+		) {
+			return saved;
+		}
+	} catch {
+		// localStorage may be unavailable (SSR, sandboxed)
+	}
+	return "general";
 }
 
 interface SettingsPageProps {
 	themeMode?: VoiceTyperConfig["theme_mode"];
 	onThemeChange?: (mode: VoiceTyperConfig["theme_mode"]) => void;
-	// NEW-UX-025: navigation callback so the Troubleshooting section can
-	// route the user to the About page (which has full diagnostics).
-	// NEW-TS-ERR-R2-001: typed as `Page` (not `string`).
 	onNavigate?: (page: Page) => void;
 }
 
@@ -74,89 +60,26 @@ export default function SettingsPage({
 	onThemeChange,
 	onNavigate,
 }: SettingsPageProps) {
+	const {
+		config,
+		saving,
+		pending,
+		saved,
+		updateConfig,
+		updateConfigDebounced,
+		loadConfig,
+		mergeExternalConfig,
+	} = useSettingsConfig();
 	const { call } = usePython();
-	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
-	const [saving, setSaving] = useState(false);
-	// Task 17-B-FIX-2: `saved` tracks the inline "Saved ✓" success
-	// indicator that appears for 2 seconds after a successful
-	// `set_config` roundtrip.  It replaces the previous invisible
-	// `text-[10px] text-(--text-muted)/40` "Auto-save" label, which
-	// violated WCAG 2.1 SC 1.4.4 (minimum 12px) and SC 1.4.3 (the /40
-	// opacity gave ~1.5:1 contrast — well below the 4.5:1 minimum) and
-	// had no success state at all.  The indicator is now `text-xs`
-	// (12px), full-opacity, and announced to screen readers via the
-	// surrounding `aria-live="polite"` region.
-	const [saved, setSaved] = useState(false);
-	const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const { showSnack } = useSnackbar();
 	const [showResetDialog, setShowResetDialog] = useState(false);
-	// F11-FIX (b-review Finding 11): Settings was the only one of the six
-	// cached pages without a visible staleness safety net. Add the shared
-	// `LastUpdatedIndicator` the other pages use, plus a manual refresh that
-	// re-fetches config (this page's load path) and bumps the timestamp.
 	const { agoLabel, markUpdated } = useLastUpdated();
 	const [refreshing, setRefreshing] = useState(false);
-	// UX-028: search/filter state for settings
 	const [settingsFilter, setSettingsFilter] = useState("");
-
-	// UX-18: render-phase counter for the empty-state sentinel. Reset to 0
-	// at the top of every render and bumped by ``_filter_settings`` on
-	// each positive match. Read in a layout effect to derive
-	// ``hasAnyVisibleRow`` without modifying the section components.
+	// UX-18: render-phase counter for the empty-state sentinel.
 	const visibleMatchCountRef = useRef(0);
-
-	// SEARCH-SWITCH: when the user types a search query, check if it
-	// matches a hint keyword for a tab other than the current one. If so,
-	// auto-switch to that tab so the matching results are visible.
-	const handleSearchChange = useCallback((value: string) => {
-		setSettingsFilter(value);
-
-		const q = value.toLowerCase().trim();
-		if (!q || q.length < 2) return; // Too short — would match hints across
-		// multiple tabs and cause jarring auto-switching as the user types.
-
-		// Score each tab by counting how many hint keywords match.
-		let bestTab: SettingsTab | null = null;
-		let bestScore = 0;
-
-		for (const [tab, hints] of Object.entries(getSearchTabHints())) {
-			const score = hints.filter(
-				(hint) => hint.includes(q) || q.includes(hint),
-			).length;
-			if (score > bestScore) {
-				bestScore = score;
-				bestTab = tab as SettingsTab;
-			}
-		}
-
-		// Only switch if we found a clear winner and it's not already active.
-		if (bestTab && bestScore > 0) {
-			setActiveTab(bestTab);
-		}
-	}, []);
-	// NEW: settings tab navigation — groups related sections into tabs.
-	// Persisted in localStorage so the active tab survives page navigation.
-	const LS_KEY = "voice-typer-settings-tab";
-	const getSavedTab = (): SettingsTab => {
-		try {
-			const saved = localStorage.getItem(LS_KEY);
-			if (
-				saved === "appearance" ||
-				saved === "general" ||
-				saved === "aiAudio" ||
-				saved === "privacy"
-			) {
-				return saved;
-			}
-		} catch {
-			// localStorage may be unavailable (SSR, sandboxed)
-		}
-		return "general";
-	};
+	const [hasAnyVisibleRow, setHasAnyVisibleRow] = useState(true);
 	const [activeTab, setActiveTab] = useState<SettingsTab>(getSavedTab);
-
-	// NEW-UX-SCROLL: preserve scroll position when switching tabs so the
-	// user doesn't start from the top every time they switch sections.
-	// Tracks scrollTop per tab and restores it after the new tab renders.
 	const scrollPositionsRef = useRef<Record<SettingsTab, number>>({
 		appearance: 0,
 		general: 0,
@@ -165,21 +88,47 @@ export default function SettingsPage({
 	});
 	const prevTabRef = useRef(activeTab);
 
+	// PVT-029: label-based search auto-switch. Score each tab by counting
+	// label matches and switch to the highest-scoring one. Requires
+	// q.length >= 2 to avoid jarring switches as the user types.
+	//
+	// Fix #2: supplement the privacy tab labels with PrewarmAndUpdates
+	// row labels (e.g. "Prewarm cache status", "Installed version",
+	// "Latest release") so the auto-switch routes queries like "prewarm",
+	// "cache", "version", "update" to the privacy tab where the
+	// PrewarmAndUpdates component lives. The labels are translated at the
+	// moment the user types via getPrewarmAndUpdatesLabels().
+	const handleSearchChange = useCallback((value: string) => {
+		setSettingsFilter(value);
+		const q = value.toLowerCase().trim();
+		if (!q || q.length < 2) return;
+		let bestTab: SettingsTab | null = null;
+		let bestScore = 0;
+		const tabLabels = getTabLabels();
+		tabLabels.privacy = [...tabLabels.privacy, ...getPrewarmAndUpdatesLabels()];
+		for (const [tab, labels] of Object.entries(tabLabels)) {
+			const score = labels.filter(
+				(label) =>
+					label.toLowerCase().includes(q) || q.includes(label.toLowerCase()),
+			).length;
+			if (score > bestScore) {
+				bestScore = score;
+				bestTab = tab as SettingsTab;
+			}
+		}
+		if (bestTab && bestScore > 0) setActiveTab(bestTab);
+	}, []);
+
 	const handleTabChange = useCallback(
 		(tab: SettingsTab) => {
-			// Save current scroll position before switching
 			const mainEl = document.getElementById("main-content");
-			if (mainEl) {
-				scrollPositionsRef.current[activeTab] = mainEl.scrollTop;
-			}
+			if (mainEl) scrollPositionsRef.current[activeTab] = mainEl.scrollTop;
 			setActiveTab(tab);
 		},
 		[activeTab],
 	);
 
-	// Restore scroll position after the new tab's content has rendered.
-	// Uses requestAnimationFrame to wait for the DOM to settle after
-	// the conditional sections mount/unmount.
+	// Restore scroll position when the active tab changes.
 	useEffect(() => {
 		if (prevTabRef.current !== activeTab) {
 			prevTabRef.current = activeTab;
@@ -187,15 +136,12 @@ export default function SettingsPage({
 			if (saved > 0) {
 				requestAnimationFrame(() => {
 					const mainEl = document.getElementById("main-content");
-					if (mainEl) {
-						mainEl.scrollTop = saved;
-					}
+					if (mainEl) mainEl.scrollTop = saved;
 				});
 			}
 		}
 	}, [activeTab]);
 
-	// Persist tab changes to localStorage so the choice survives navigation.
 	useEffect(() => {
 		try {
 			localStorage.setItem(LS_KEY, activeTab);
@@ -204,67 +150,27 @@ export default function SettingsPage({
 		}
 	}, [activeTab]);
 
-	// NEW-TS-004: use the shared useSnackbar hook.  The hook manages the
-	// timer ref and clears it on unmount, fixing the leak risk of the
-	// previous inline setTimeout (which wasn't cleared if the page
-	// unmounted mid-toast).
-	const { showSnack } = useSnackbar();
-
-	// PERF-002: batch config writes — single set_config call per
-	// debounce window.
-	//
-	// The previous implementation called `call("set_config", updates)`
-	// immediately inside `updateConfig`, so any code path that fired
-	// multiple `updateConfig` calls in quick succession (rapid slider
-	// drags, multiple toggles in one handler, debounced text inputs
-	// firing close together) produced one IPC write per call.  The
-	// backend's `set_config` already accepts a partial dict (see
-	// IPC_CONFIG_ALLOWLIST), so we accumulate updates in
-	// `pendingUpdatesRef` and flush them in a single `set_config` call
-	// via a microtask.  A `lastSavedConfigRef` lets us diff the pending
-	// updates against the last persisted snapshot so no-op writes
-	// (e.g. a slider dragged back to its original value) are skipped
-	// entirely.
-	const lastSavedConfigRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
-	const pendingUpdatesRef = useRef<Partial<VoiceTyperConfig>>({});
-	const flushScheduledRef = useRef(false);
-	const flushPromiseResolversRef = useRef<Array<() => void>>([]);
-	// Ref mirror of `flushPendingUpdates` so the unmount cleanup (which
-	// has empty deps to avoid re-subscribing on every render) can call
-	// the latest closure.  Updated in a dedicated effect below.
-	const flushPendingUpdatesRef = useRef<() => Promise<void>>(async () => {});
-	// PERF-MEMO-001: ref mirror of `config` so `updateConfig` and
-	// `updateConfigDebounced` can read the latest config WITHOUT
-	// depending on it in their useCallback deps.  Previously, both
-	// callbacks had `config` in their deps, which meant they were
-	// recreated on every config change — defeating the React.memo
-	// wrappers on child sections (RecordingSettingsSection,
-	// GeneralSettingsSection, etc.) and causing unnecessary
-	// re-renders across the entire Settings page on every keystroke.
-	// Now the callbacks have stable identity (empty deps) and read
-	// the latest config from this ref.
-	const configRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
+	// Skip the initial fetch when the module-level cache is populated —
+	// re-renders instantly from cache instead of flashing a spinner.
 	useEffect(() => {
-		configRef.current = config;
-	}, [config]);
+		if (!config) loadConfig();
+	}, [config, loadConfig]);
 
-	const loadConfig = useCallback(async () => {
-		try {
-			const result = await call<VoiceTyperConfig>("get_config");
-			_cachedConfig = result;
-			// PERF-002: seed the diff baseline so the initial
-			// snapshot doesn't get re-saved as a "change".
-			lastSavedConfigRef.current = result;
-			setConfig(result);
-		} catch (err) {
-			console.error("Failed to load config:", err);
-		}
-	}, [call]);
+	// Live config sync — merge external `config_changed` pushes (e.g.
+	// Ctrl+MouseWheel zoom, sidebar ThemeSwitch) into local state.
+	usePythonEvent(
+		"config_changed",
+		useCallback(
+			(data): (() => void) | undefined => {
+				if (!data) return undefined;
+				mergeExternalConfig(data as Partial<VoiceTyperConfig>);
+				markUpdated();
+				return undefined;
+			},
+			[mergeExternalConfig, markUpdated],
+		),
+	);
 
-	// F11-FIX (b-review Finding 11): manual refresh for the staleness
-	// indicator. Re-fetches config (the page's normal load path) and bumps
-	// the "last updated" timestamp. Kept separate from the config_changed
-	// listener so the user can force a refresh at any time.
 	const handleManualRefresh = useCallback(async () => {
 		setRefreshing(true);
 		try {
@@ -274,360 +180,15 @@ export default function SettingsPage({
 		}
 	}, [loadConfig]);
 
-	// Skip initial fetch when module-level cache is populated —
-	// re-renders instantly from cache instead of flashing a spinner
-	// on every page navigation. The fetch still runs on first visit
-	// (when _cachedConfig is null).
-	useEffect(() => {
-		if (!_cachedConfig) {
-			loadConfig();
-		}
-	}, [loadConfig]);
-
-	// PERF-002: flush the pending-updates buffer to the backend in a
-	// single `set_config` call.  Snapshotted from `pendingUpdatesRef`
-	// and diffed against `lastSavedConfigRef` so unchanged keys are
-	// skipped.  All `updateConfig` Promises that contributed to this
-	// flush are resolved (or rejected) together.
-	const flushPendingUpdates = useCallback(async () => {
-		// Snapshot and clear the pending state BEFORE awaiting so
-		// any `updateConfig` call that arrives while the IPC is in
-		// flight accumulates into a fresh buffer for the next flush.
-		const updates = pendingUpdatesRef.current;
-		pendingUpdatesRef.current = {};
-		const resolvers = flushPromiseResolversRef.current;
-		flushPromiseResolversRef.current = [];
-		flushScheduledRef.current = false;
-
-		const resolveAll = () => {
-			for (const resolve of resolvers) resolve();
-		};
-
-		const lastSaved = lastSavedConfigRef.current;
-		if (!lastSaved) {
-			// Config not loaded yet — can't compute a diff.  Drop
-			// the updates (the caller already applied them to
-			// local state, so a subsequent loadConfig will
-			// re-fetch and reconcile).
-			resolveAll();
-			return;
-		}
-
-		// Shallow-compare each pending key against the last saved
-		// snapshot.  `Object.is` distinguishes NaN, +/-0, and
-		// reference-unequal objects (e.g. a freshly-built
-		// `custom_theme` dict even if its contents match).
-		const lastSavedRecord = lastSaved as unknown as Record<string, unknown>;
-		const diff: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(updates)) {
-			if (!Object.is(lastSavedRecord[key], value)) {
-				diff[key] = value;
-			}
-		}
-
-		if (Object.keys(diff).length === 0) {
-			// Nothing actually changed since the last save —
-			// skip the IPC call entirely.
-			resolveAll();
-			return;
-		}
-
-		try {
-			await call("set_config", diff);
-			// Merge the persisted diff into the baseline so the
-			// next flush only sends keys that changed since
-			// this flush.  We spread the local `lastSaved`
-			// snapshot (captured before the await) rather than
-			// re-reading `lastSavedConfigRef.current` — the ref
-			// is typed as `VoiceTyperConfig | null` and TS
-			// can't prove it's still non-null after the await.
-			// Using the snapshot is safe: any concurrent flush
-			// that updated the ref during our await would only
-			// cause the next flush to re-send its keys
-			// (redundant but idempotent at the backend).
-			lastSavedConfigRef.current = {
-				...lastSaved,
-				...(diff as Partial<VoiceTyperConfig>),
-			};
-
-			// If the custom theme was successfully saved to the backend,
-			// clear the localStorage draft — it's now safely persisted.
-			// (Draft helpers live in ThemeSettingsSection now; the
-			// backend-confirmed save still implies the draft can be
-			// discarded. The section re-loads its own draft from LS on
-			// the next mount, so we don't need to clear it here — the
-			// section's own _clearDraftLS() call inside its onCheckedChange
-			// handler already covers the "disable custom theme" path.)
-
-			// NEW-UX-014 / NEW-UX-035: show a "Saved" toast so the user
-			// knows their change was persisted.  Previously this was a
-			// comment-only "intent" with no actual call — the success
-			// path was completely silent.  Every toggle/select/radio in
-			// Settings now confirms the save via this toast.
-			//
-			// We don't show a toast for every keystroke (those go through
-			// updateConfigDebounced which is debounced).  This path is
-			// only hit by explicit toggle/select changes, so toasting
-			// here is appropriate.
-			showSnack(t("settings.savedToast"), "success");
-
-			// Task 17-B-FIX-2: also surface the success state via the
-			// inline "Saved ✓" indicator (the accessible, full-opacity
-			// 3-state indicator that replaces the previously invisible
-			// `text-[10px] text-(--text-muted)/40` "Auto-save" label).
-			// This fires on every successful flush — including debounced
-			// text-input saves — because the inline indicator is the
-			// primary feedback channel for those (toasts would be
-			// spammy for keystroke-driven saves).  We do NOT modify the
-			// existing showSnack calls above; toast frequency is a
-			// separate concern.
-			//
-			// `setSaved(true)` runs in the success branch of the
-			// try/catch, so the only path that flips `saved` on is the
-			// one where `set_config` resolved without throwing.  The
-			// `finally` block below runs `setSaving(false)` immediately
-			// after, so React 18 batches both updates into a single
-			// re-render where `saving=false` AND `saved=true` — the
-			// indicator swaps directly from "Saving…" to "Saved ✓".
-			if (savedTimeoutRef.current) {
-				clearTimeout(savedTimeoutRef.current);
-			}
-			setSaved(true);
-			savedTimeoutRef.current = setTimeout(() => {
-				setSaved(false);
-				savedTimeoutRef.current = null;
-			}, 2000);
-		} catch (err) {
-			console.error("Failed to update config:", err);
-			await loadConfig();
-			// NEW-UX-014: also surface failures so the user knows.
-			showSnack(t("settings.saveFailedToast"), "error");
-		} finally {
-			setSaving(false);
-			resolveAll();
-		}
-	}, [call, loadConfig, showSnack]);
-
-	// Keep the ref mirror in sync with the latest `flushPendingUpdates`
-	// closure so the unmount cleanup can call it without re-subscribing
-	// on every render.
-	useEffect(() => {
-		flushPendingUpdatesRef.current = flushPendingUpdates;
-	}, [flushPendingUpdates]);
-
-	const updateConfig = useCallback(
-		async (updates: Partial<VoiceTyperConfig>) => {
-			// PERF-MEMO-001: read from configRef instead of
-			// depending on `config` in deps — keeps the
-			// callback identity stable so React.memo children
-			// don't re-render on every config change.
-			const currentConfig = configRef.current;
-			if (!currentConfig) return;
-			setSaving(true);
-			// Update local state immediately for responsive UI.
-			const newConfig = { ...currentConfig, ...updates };
-			_cachedConfig = newConfig;
-			setConfig(newConfig);
-
-			// D1-FIX (b-review Finding 1): synchronously mirror the
-			// update into the Zustand appStore's config snapshot so
-			// any consumer reading `useAppStore(s => s.config)` sees
-			// the new value on the very next render.  Previously this
-			// page only updated its OWN local `config` state and
-			// queued an async `set_config` IPC; the appStore only
-			// learned about the change later, via the `config_changed`
-			// push event handled in useTheme.ts.  That async gap was
-			// exploited by App.tsx's route guard
-			// (`if (currentPage === "onboarding" && config?.onboarding_completed === true) navigate("home")`):
-			// after the "Re-run setup wizard" button called
-			// `updateConfig({ onboarding_completed: false })` then
-			// `onNavigate("onboarding")`, the route guard fired on the
-			// NEXT render, saw the stale `true` value still in the
-			// appStore, and bounced the user straight back to home —
-			// the onboarding wizard was never shown.
-			//
-			// `mergeConfig` is the store's existing partial-merge API
-			// (see appStore.ts:68-71 / appStore.test.ts:105-130); it
-			// preserves all other keys.  Calling it here is a no-op
-			// if the store snapshot is null (the useTheme hook will
-			// populate it from get_config on connect).  We read
-			// `useAppStore.getState()` (not the hook subscription) so
-			// this callback's deps stay empty — PERF-MEMO-001.
-			useAppStore.getState().mergeConfig(updates);
-
-			// PERF-002: batch config writes — accumulate updates
-			// in `pendingUpdatesRef` and schedule a single
-			// microtask flush.  Multiple `updateConfig` calls in
-			// the same synchronous block (or in successive
-			// `updateConfigDebounced` timer callbacks) collapse
-			// into one `set_config` IPC call.
-			pendingUpdatesRef.current = {
-				...pendingUpdatesRef.current,
-				...updates,
-			};
-
-			// Preserve `await updateConfig(...)` semantics: the
-			// returned Promise resolves after the flush
-			// completes (or fails).  `resetToDefaults` relies on
-			// this to know when the backend write is done.
-			const flushPromise = new Promise<void>((resolve) => {
-				flushPromiseResolversRef.current.push(resolve);
-			});
-
-			if (!flushScheduledRef.current) {
-				flushScheduledRef.current = true;
-				// queueMicrotask rather than setTimeout(0)
-				// so the flush runs in the same macrotask
-				// as the caller — no perceptible delay, and
-				// fake-timer tests can flush it with a
-				// single `await Promise.resolve()`.
-				queueMicrotask(() => {
-					void flushPendingUpdatesRef.current();
-				});
-			}
-
-			await flushPromise;
-		},
-		[], // PERF-MEMO-001: stable identity — reads from refs
-	);
-
-	// UX-007: debounced update for text inputs that fire on every keystroke.
-	// Keeps a local draft in component state; commits via updateConfig after
-	// 500ms of idle.  Prevents 11 IPC roundtrips when typing "gpt-4o-mini".
-	const debouncedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>(
-		{},
-	);
-	const updateConfigDebounced = useCallback(
-		(key: keyof VoiceTyperConfig, value: unknown, delayMs = 500) => {
-			// PERF-MEMO-001: read from configRef instead of
-			// depending on `config` in deps — keeps the
-			// callback identity stable.
-			const currentConfig = configRef.current;
-			// Update local state immediately for responsive UI
-			if (currentConfig) {
-				const newConfig = { ...currentConfig, [key]: value };
-				_cachedConfig = newConfig;
-				setConfig(newConfig);
-			}
-			// Clear any pending timer for this key
-			if (debouncedTimers.current[key as string]) {
-				clearTimeout(debouncedTimers.current[key as string]);
-			}
-			// Schedule the IPC commit
-			debouncedTimers.current[key as string] = setTimeout(() => {
-				updateConfig({ [key]: value } as Partial<VoiceTyperConfig>);
-				delete debouncedTimers.current[key as string];
-			}, delayMs);
-		},
-		[updateConfig], // PERF-MEMO-001: updateConfig is now stable (empty deps)
-	);
-
-	// ── Live config sync (external changes) ───────────────────────────
-	// When a config field is changed from OUTSIDE the Settings page
-	// (e.g. Ctrl+MouseWheel zoom in App.tsx toggles text_size, or
-	// the sidebar ThemeSwitch changes theme_mode), the Python backend
-	// emits a config_changed event.  This listener merges those updates
-	// into the Settings page's local config state so sliders, selects,
-	// and switches reflect the current value.
-	//
-	// Without this, the slider stays frozen at the mount-time value
-	// even though the backend and the CSS --font-scale var have already
-	// updated — the user sees one thing but the slider shows another.
-	usePythonEvent(
-		"config_changed",
-		useCallback(
-			(data) => {
-				if (!data) return;
-				setConfig((prev) => {
-					if (!prev) return prev;
-					const merged = { ...prev, ...data } as VoiceTyperConfig;
-					_cachedConfig = merged;
-					return merged;
-				});
-				// Sync the diff baseline so the next flush doesn't
-				// re-send values the backend already has.
-				if (lastSavedConfigRef.current) {
-					lastSavedConfigRef.current = {
-						...lastSavedConfigRef.current,
-						...data,
-					} as VoiceTyperConfig;
-				}
-				// F11-FIX (b-review Finding 11): refresh the staleness
-				// indicator so it doesn't keep claiming a stale time after a
-				// config update from another path.
-				markUpdated();
-			},
-			[markUpdated], // stable — uses functional setConfig + refs only
-		),
-	);
-
-	// Cleanup pending debounced timers on unmount.  We intentionally read
-	// .current at cleanup time (not effect-run time) so ALL timers added
-	// during the component's lifetime are cleared.
-	useEffect(() => {
-		return () => {
-			// PERF-002: flush any pending updates so changes made
-			// just before navigation aren't lost.  Fire-and-forget
-			// — we can't await in a cleanup function, but the IPC
-			// call will still execute in the background.
-			if (Object.keys(pendingUpdatesRef.current).length > 0) {
-				void flushPendingUpdatesRef.current();
-			}
-			Object.values(debouncedTimers.current).forEach(clearTimeout);
-			// Task 17-B-FIX-2: clear the "Saved ✓" auto-hide timer
-			// so we don't fire a setState on an unmounted component
-			// if the user navigates away within the 2-second window.
-			if (savedTimeoutRef.current) {
-				clearTimeout(savedTimeoutRef.current);
-				savedTimeoutRef.current = null;
-			}
-		};
-	}, []);
-
-	const viewLogs = async () => {
-		// UX-008: actually open the log folder via the main process.
-		// Previously this just showed a snackbar without opening anything.
-		try {
-			const result = await window.window_?.openLogs?.();
-			if (result?.success) {
-				showSnack(t("settings.logFolderOpened"), "success");
-			} else {
-				showSnack(
-					result?.error || t("settings.couldNotOpenLogFolder"),
-					"error",
-				);
-			}
-		} catch (err) {
-			console.error("Failed to open logs:", err);
-			showSnack(t("settings.couldNotOpenLogFolder"), "error");
-		}
-	};
-
 	const resetToDefaults = async () => {
 		if (!config) return;
 		setShowResetDialog(false);
-		// UX-018: fetch defaults from the Python backend instead of
-		// hardcoding 22+ field values here (which silently drift from
-		// the Config dataclass).  The backend returns a sanitized dict
-		// (API keys redacted) which we send back via set_config.
 		try {
-			const defaults = await call("get_defaults");
+			const defaults = await call<Record<string, unknown>>("get_defaults");
 			if (defaults && typeof defaults === "object") {
-				// Filter out the redacted sentinels and any non-allowlisted
-				// keys before sending back via set_config.
 				const safeDefaults: Record<string, unknown> = {};
-				for (const [key, value] of Object.entries(
-					defaults as Record<string, unknown>,
-				)) {
-					// Skip redacted API keys — we don't want to overwrite the
-					// user's real keys with "<redacted>".
+				for (const [key, value] of Object.entries(defaults)) {
 					if (value === "<redacted>") continue;
-					// Skip schema_version and internal state fields.
-					// NEW-UX-019: onboarding_completed is intentionally preserved
-					// — resetting it would force the user to redo the 5-step
-					// wizard every time they reset settings, which is bad UX.
-					// The wizard can be re-triggered manually via the tray menu
-					// if needed.
 					if (
 						[
 							"schema_version",
@@ -649,43 +210,48 @@ export default function SettingsPage({
 		}
 	};
 
-	// Local wrapper around the App-level onThemeChange that also keeps the
-	// Settings page's local config state in sync so the Color Scheme Select
-	// doesn't revert while the App-level debounced save is in flight.
-	// ThemeSettingsSection calls this via its `onThemeChange` prop.
+	// Local wrapper around App-level onThemeChange so the Color Scheme
+	// Select doesn't revert while the App-level debounced save is in flight.
 	const handleThemeChangeLocal = useCallback(
 		(mode: VoiceTyperConfig["theme_mode"]) => {
-			setConfig((prev) => (prev ? { ...prev, theme_mode: mode } : prev));
-			if (_cachedConfig) _cachedConfig = { ..._cachedConfig, theme_mode: mode };
+			mergeExternalConfig({ theme_mode: mode } as Partial<VoiceTyperConfig>);
 			onThemeChange?.(mode);
 		},
-		[onThemeChange],
+		[mergeExternalConfig, onThemeChange],
 	);
 
-	// UX-18: sentinel for the empty-state banner. After every render pass
-	// (including children's renders, which call ``_filter_settings``),
-	// check whether ANY row matched. If not AND the user has typed a
-	// non-empty query, show the "No settings match" banner. The effect
-	// has no deps so it runs after every render — the inner ``if`` guards
-	// against infinite loops by only dispatching when the value actually
-	// changes.
-	//
-	// NOTE: these hooks MUST be declared BEFORE the `if (!config) return`
-	// early-return below — the Rules of Hooks require hooks to be called
-	// in the same order on every render, and an early return before a
-	// hook breaks that guarantee.
-	const [hasAnyVisibleRow, setHasAnyVisibleRow] = useState(true);
+	// UX-18: empty-state sentinel — recompute on every render and push
+	// the boolean into state when it changes.
 	useEffect(() => {
 		const next = visibleMatchCountRef.current > 0;
 		setHasAnyVisibleRow((prev) => (prev === next ? prev : next));
 	});
-
-	// UX-18: when the query is cleared, force the sentinel back to true
-	// immediately so the empty-state banner doesn't briefly persist while
-	// the children re-render with the empty filter.
 	useEffect(() => {
 		if (!settingsFilter.trim()) setHasAnyVisibleRow(true);
 	}, [settingsFilter]);
+
+	// Fix #1: filter predicate — wrapped in useCallback with
+	// [settingsFilter] deps so memoized section children don't re-render
+	// unless the query actually changes. Bumps a render-phase counter on
+	// every positive match; the layout effect above reads the counter to
+	// derive `hasAnyVisibleRow`. NOTE: declared BEFORE the `if (!config)`
+	// early return so React's Rules of Hooks are satisfied (useCallback
+	// is a hook and must be called unconditionally on every render).
+	visibleMatchCountRef.current = 0;
+	const _filter_settings = useCallback(
+		(label: string, info?: string, sectionTitle?: string): boolean => {
+			if (!settingsFilter.trim()) return true;
+			const q = settingsFilter.toLowerCase();
+			const match =
+				label.toLowerCase().includes(q) ||
+				info?.toLowerCase().includes(q) ||
+				sectionTitle?.toLowerCase().includes(q) ||
+				false;
+			if (match) visibleMatchCountRef.current++;
+			return match;
+		},
+		[settingsFilter],
+	);
 
 	if (!config) {
 		return (
@@ -698,51 +264,33 @@ export default function SettingsPage({
 		);
 	}
 
-	// UX-028: filter settings sections by label/description/section-title.
-	// Passed to each section component as the `isVisible` prop so the
-	// sections can do their own per-row visibility checks (and section-level
-	// hide-when-empty checks) without duplicating the filter logic.
-	//
-	// FIX (Task ID 6 / Settings Search): the previous implementation only
-	// matched the row's label/info, so searching for a section name like
-	// "overlay" or "appearance" returned no results. We now ALSO match the
-	// section title (passed by each section component as the third
-	// argument — derived dynamically from the same literal that feeds the
-	// ``<SettingsSection title="…">`` prop, never hardcoded here).
-	//
-	// UX-18: the function ALSO bumps a render-phase counter
-	// (``visibleMatchCountRef``) every time it returns true. The counter
-	// is reset at the top of every render and read in the layout effect
-	// above to derive ``hasAnyVisibleRow`` — the sentinel that drives
-	// the "No settings match '{query}'" empty state. This lets us lift
-	// per-section visibility into a single page-level signal WITHOUT
-	// modifying the section components (which receive ``isVisible`` as
-	// an opaque predicate and have no idea the page is tracking matches).
-	visibleMatchCountRef.current = 0;
-	const _filter_settings = (
-		label: string,
-		info?: string,
-		sectionTitle?: string,
-	): boolean => {
-		if (!settingsFilter.trim()) return true;
-		const q = settingsFilter.toLowerCase();
-		const match =
-			label.toLowerCase().includes(q) ||
-			info?.toLowerCase().includes(q) ||
-			sectionTitle?.toLowerCase().includes(q) ||
-			false;
-		if (match) visibleMatchCountRef.current++;
-		return match;
+	const showEmptyBanner = settingsFilter.trim() !== "" && !hasAnyVisibleRow;
+
+	const sectionProps = {
+		config,
+		updateConfig,
+		updateConfigDebounced,
+		isVisible: _filter_settings,
 	};
 
+	const renderTabPanel = (tab: SettingsTab, children: ReactNode) => (
+		<div
+			role="tabpanel"
+			id={`panel-${tab}`}
+			aria-labelledby={`tab-${tab}`}
+			className="space-y-8 focus-visible:outline-none"
+		>
+			{children}
+		</div>
+	);
+
 	return (
-		<div className="min-h-full">
-			{/* Fixed settings tab navigation at the very top of the viewport.
-                            Uses variant="tabs" — no container background/border/rounded,
-                            full-width bar with content constrained to max-w-2xl. */}
-			<div className="sticky top-0 left-0 right-0 z-40 bg-(--bg-subtle) border-b border-border py-1.5">
-				<div className="mx-auto w-full max-w-2xl px-6">
-					{" "}
+		<div className="flex min-h-full flex-col">
+			{/* Sticky header: tabs + search (Fix #3 — SearchField
+				moved inside the sticky header below the tab bar
+				so it stays visible while scrolling settings). */}
+			<div className="sticky top-0 left-0 right-0 z-40 bg-(--bg-subtle) border-b border-border">
+				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
 					<SegmentedControl<SettingsTab>
 						variant="tabs"
 						options={[
@@ -757,28 +305,26 @@ export default function SettingsPage({
 						indicatorClassName="bg-input/50"
 						labelClassName="flex-1 text-center"
 						className="w-full"
-						// CR-53 / CR-19-F2: pass explicit id-derivers so the
-						// wrapping role="tabpanel" elements below can use the
-						// SAME id strings for aria-labelledby / id, completing
-						// the WAI-ARIA Tabs contract (tab ↔ panel association).
-						// CR-19-F2: id scheme is `tab-${tabId}` / `panel-${tabId}`
-						// (no `settings-` prefix) so the rendered DOM matches the
-						// WAI-ARIA Tabs pattern's documented id convention.
 						getTabId={(v: SettingsTab) => `tab-${v}`}
 						getPanelId={(v: SettingsTab) => `panel-${v}`}
 					/>
+					<div className="flex items-center gap-3 pb-2 pt-1">
+						<div className="flex-1">
+							<SearchField
+								value={settingsFilter}
+								onChange={handleSearchChange}
+								placeholder={t("settings.searchPlaceholder")}
+								ariaLabel={t("settings.searchPlaceholder")}
+							/>
+						</div>
+					</div>
 				</div>
 			</div>
-			<div className="mx-auto max-w-2xl space-y-8 px-6 pt-6 pb-6">
-				{/* Header */}
+			<div className="mx-auto w-full max-w-2xl flex-1 space-y-8 px-6 pt-6 pb-6">
 				<PageHeading
 					title={t("settings.title")}
 					description={t("settings.description")}
 				/>
-
-				{/* F11-FIX (b-review Finding 11): "Last updated" indicator +
-                                    manual refresh — Settings was the only one of the six cached
-                                    pages without this visible staleness safety net. */}
 				<div className="flex justify-end pb-2">
 					<LastUpdatedIndicator
 						agoLabel={agoLabel}
@@ -787,329 +333,95 @@ export default function SettingsPage({
 					/>
 				</div>
 
-				{/* UX-028: Settings search/filter — also auto-switches to the
-                                relevant tab when the query matches a hint keyword. */}
-				<SearchField
-					value={settingsFilter}
-					onChange={handleSearchChange}
-					placeholder={t("settings.searchPlaceholder")}
-					// M-51: explicit aria-label so screen readers announce
-					// "Search settings, edit field" instead of generic "edit
-					// field". Uses the existing translation key (the
-					// settings.searchAria key was referenced in the audit
-					// but doesn't exist in en.json — the placeholder string
-					// is semantically equivalent for accessibility).
-					ariaLabel={t("settings.searchPlaceholder")}
-				/>
-
-				{/* UX-18: empty-state banner — shown when the user has typed a
-                                    non-empty query that matches no row on the active tab. The
-                                    sentinel (``hasAnyVisibleRow``) is computed by lifting the
-                                    per-section visibility calls via ``_filter_settings`` (see
-                                    the ref counter above). When no row matches, every section
-                                    component's section-level hide-when-empty check removes it,
-                                    leaving a blank tab — this banner fills that void with a
-                                    friendly message so the user knows the search ran but found
-                                    nothing. */}
-				{settingsFilter.trim() && !hasAnyVisibleRow && (
+				{/* Fix #12: empty-state banner with Clear filter button using
+					the existing searchNoMatch / noResultsMessage / a11y.clearSearch
+					i18n keys. `searchNoMatch` preserves the original "{query}"
+					interpolation so screen readers + sighted users see what they
+					searched for; `noResultsMessage` adds the actionable hint
+					("Try a different search term or clear the filter..."); the
+					button gives a one-click escape hatch. */}
+				{showEmptyBanner && (
 					<output
 						aria-live="polite"
-						className="block rounded-lg border border-dashed border-border bg-(--bg-subtle) px-6 py-10 text-center"
+						className="block rounded-lg border border-dashed border-border bg-(--bg-subtle) px-6 py-10 text-center space-y-3"
 					>
 						<p className="text-sm font-medium text-(--text-primary)">
 							{t("settings.searchNoMatch", { query: settingsFilter.trim() })}
 						</p>
+						<p className="text-sm text-(--text-muted)">
+							{t("settings.noResultsMessage")}
+						</p>
+						<button
+							type="button"
+							onClick={() => setSettingsFilter("")}
+							className="inline-flex items-center justify-center rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none"
+						>
+							{t("a11y.clearSearch")}
+						</button>
 					</output>
 				)}
 
-				{/* ── TAB: Appearance (theme mode, preset, custom picker, text size) ───── */}
-				{activeTab === "appearance" && (
-					<div
-						role="tabpanel"
-						id="panel-appearance"
-						aria-labelledby="tab-appearance"
-						// The HTML element div is non-interactive. Do not use tabIndex.
-						className="space-y-8 focus-visible:outline-none"
-					>
+				{activeTab === "appearance" &&
+					renderTabPanel(
+						"appearance",
 						<ThemeSettingsSection
-							config={config}
-							updateConfig={updateConfig}
-							updateConfigDebounced={updateConfigDebounced}
-							isVisible={_filter_settings}
+							{...sectionProps}
 							themeModeProp={themeModeProp}
 							onThemeChange={handleThemeChangeLocal}
-						/>
-					</div>
-				)}
-
-				{/* ── TAB: General (autostart, UI lang, notifications, tray, bubble, hotkey) ── */}
-				{activeTab === "general" && (
-					<div
-						role="tabpanel"
-						id="panel-general"
-						aria-labelledby="tab-general"
-						className="space-y-8 focus-visible:outline-none"
-					>
-						<GeneralSettingsSection
-							config={config}
-							updateConfig={updateConfig}
-							updateConfigDebounced={updateConfigDebounced}
-							isVisible={_filter_settings}
-						/>
-						<RecordingSettingsSection
-							config={config}
-							updateConfig={updateConfig}
-							updateConfigDebounced={updateConfigDebounced}
-							isVisible={_filter_settings}
-						/>
-					</div>
-				)}
-
-				{/* ── TAB: AI & Audio (model, audio enhancement, AI enhancement) ────────── */}
-				{activeTab === "aiAudio" && (
-					<div
-						role="tabpanel"
-						id="panel-aiAudio"
-						aria-labelledby="tab-aiAudio"
-						className="space-y-8 focus-visible:outline-none"
-					>
-						<ModelSettingsSection
-							config={config}
-							updateConfig={updateConfig}
-							updateConfigDebounced={updateConfigDebounced}
-							isVisible={_filter_settings}
-						/>
-						<AudioSettingsSection
-							config={config}
-							updateConfig={updateConfig}
-							updateConfigDebounced={updateConfigDebounced}
-							isVisible={_filter_settings}
-						/>
-						<AiEnhancementSettingsSection
-							config={config}
-							updateConfig={updateConfig}
-							updateConfigDebounced={updateConfigDebounced}
-							isVisible={_filter_settings}
-						/>
-					</div>
-				)}
-
-				{/* ── TAB: Privacy (privacy & recovery, troubleshooting) ───────────────── */}
-				{activeTab === "privacy" && (
-					<div
-						role="tabpanel"
-						id="panel-privacy"
-						aria-labelledby="tab-privacy"
-						className="space-y-8 focus-visible:outline-none"
-					>
-						<PrivacySettingsSection
-							config={config}
-							updateConfig={updateConfig}
-							updateConfigDebounced={updateConfigDebounced}
-							isVisible={_filter_settings}
-						/>
-						{/* CR-050: previously the Troubleshooting section +
-						    PrewarmAndUpdates were wrapped in a nested
-						    duplicate role="tabpanel" <div>. The outer
-						    panel already provides the WAI-ARIA contract;
-						    the inner wrapper was redundant and produced
-						    a duplicate tabpanel in the accessibility
-						    tree. */}
-						{/* ── Troubleshooting ──────────────────────────── */}
-						{/* NEW-UX-025: previously only had "View Logs" (which lied —
-                                                                it opened the log FOLDER, not a log viewer) and "Reset to
-                                                                Defaults" (destructive, no undo).  We now also surface:
-                                                                                - Diagnostics link (opens the About page's diagnostics
-                                                                                                section which has version, ASR backend, device, etc.)
-                                                                                - Help / FAQ link
-                                                                                - Report a Bug link
-                                                                And clarify the "View Logs" label. */}
-						{(_filter_settings(
-							t("settings.troubleshooting.title"),
-							t("settings.troubleshooting.description"),
-							t("settings.troubleshooting.title"),
-						) ||
-							[
-								t("settings.troubleshooting.openLogFolder"),
-								t("settings.troubleshooting.diagnostics"),
-								t("settings.troubleshooting.helpFaq"),
-								t("settings.troubleshooting.reportBug"),
-								t("settings.troubleshooting.reRunWizard"),
-								t("settings.troubleshooting.resetToDefaults"),
-							].some((label) =>
-								_filter_settings(
-									label,
-									undefined,
-									t("settings.troubleshooting.title"),
-								),
-							)) && (
-							<SettingsSection
-								title={t("settings.troubleshooting.title")}
-								description={t("settings.troubleshooting.description")}
-							>
-								<div className="px-3.5 py-3.5 flex flex-wrap gap-3">
-									<Button
-										variant="outline"
-										className="gap-2"
-										onClick={viewLogs}
-										aria-label={t("settings.troubleshooting.openLogFolderAria")}
-										title={t("settings.troubleshooting.openLogFolderHint")}
-									>
-										<HugeiconsIcon
-											icon={File02Icon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{t("settings.troubleshooting.openLogFolder")}
-									</Button>
-									<Button
-										variant="outline"
-										className="gap-2"
-										onClick={() => onNavigate?.("about")}
-										aria-label={t("settings.troubleshooting.diagnosticsAria")}
-										title={t("settings.troubleshooting.diagnosticsHint")}
-									>
-										<HugeiconsIcon
-											icon={InformationCircleIcon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{t("settings.troubleshooting.diagnostics")}
-									</Button>
-									<Button
-										variant="outline"
-										className="gap-2"
-										onClick={() =>
-											window.open(
-												"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
-												"_blank",
-												"noopener,noreferrer",
-											)
-										}
-										aria-label={t("settings.troubleshooting.openDocsAria")}
-										title={t("settings.troubleshooting.openDocsHint")}
-									>
-										<HugeiconsIcon
-											icon={Book02Icon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{t("settings.troubleshooting.helpFaq")}
-									</Button>
-									<Button
-										variant="outline"
-										className="gap-2"
-										onClick={() =>
-											window.open(
-												"https://github.com/AbdallahIsDev/voice-typer/issues",
-												"_blank",
-												"noopener,noreferrer",
-											)
-										}
-										aria-label={t("settings.troubleshooting.reportBugAria")}
-										title={t("settings.troubleshooting.reportBugHint")}
-									>
-										<HugeiconsIcon
-											icon={Bug02Icon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{t("settings.troubleshooting.reportBug")}
-									</Button>
-									{/* F-6: Re-run setup wizard */}
-									<Button
-										variant="outline"
-										className="gap-2"
-										onClick={async () => {
-											await updateConfig({
-												onboarding_completed: false,
-											});
-											showSnack(
-												t("settings.troubleshooting.reRunWizardToast"),
-												"success",
-											);
-											onNavigate?.("onboarding");
-										}}
-										aria-label={t("settings.troubleshooting.reRunWizardAria")}
-										title={t("settings.troubleshooting.reRunWizardHint")}
-									>
-										<HugeiconsIcon
-											icon={RefreshIcon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{t("settings.troubleshooting.reRunWizard")}
-									</Button>
-									<Button
-										variant="destructive"
-										className="gap-2"
-										onClick={() => setShowResetDialog(true)}
-										aria-label={t(
-											"settings.troubleshooting.resetToDefaultsAria",
-										)}
-										title={t("settings.troubleshooting.resetToDefaultsHint")}
-									>
-										<HugeiconsIcon
-											icon={RefreshIcon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{t("settings.troubleshooting.resetToDefaults")}
-									</Button>
-								</div>
-							</SettingsSection>
-						)}
-						{/* ── Prewarm cache + Updates (restored from the About
-                                                page slim-down; see PrewarmAndUpdates.tsx). ── */}
-						<PrewarmAndUpdates />
-					</div>
-				)}
-
-				{/* Task 17-B-FIX-2: 3-state save indicator (replaces the
-                                        previously-invisible `text-[10px] text-(--text-muted)/40`
-                                        "Auto-save" label).
-                                                • saving  → "Saving…" with the existing amber pulse dot
-                                                • saved   → "Saved ✓" with a green Tick02Icon, shown for
-                                                                        2 s after a successful set_config roundtrip
-                                                • idle    → very dim "All changes saved"
-                                        WCAG 2.1 SC 1.4.4 (text resize): `text-xs` = 12px (was 10px).
-                                        WCAG 2.1 SC 1.4.3 (contrast): full opacity — no `/40` (was ~1.5:1).
-                                        WCAG 2.1 SC 4.1.3 (status messages): `aria-live="polite"` so
-                                        screen readers announce "Saving…" / "Saved" without stealing
-                                        focus.  `aria-atomic="true"` ensures the whole string is
-                                        announced on each change (not just the diff). */}
-				<p
-					className="-mt-6 mb-0 text-xs text-right"
-					aria-live="polite"
-					aria-atomic="true"
-				>
-					{saving ? (
-						<span className="inline-flex items-center gap-1 text-(--text-secondary)">
-							<span
-								className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400"
-								aria-hidden="true"
-							/>
-							{t("settings.saving")}
-						</span>
-					) : saved ? (
-						<span className="inline-flex items-center gap-1 text-(--text-secondary) animate-fade-in">
-							<HugeiconsIcon
-								icon={Tick02Icon}
-								strokeWidth={2.5}
-								className="h-3 w-3 text-emerald-500"
-								aria-hidden="true"
-							/>
-							{t("settings.savedToast")}
-						</span>
-					) : (
-						<span className="inline-flex items-center gap-1 text-(--text-muted)">
-							{t("settings.allChangesSaved")}
-						</span>
+						/>,
 					)}
-				</p>
+
+				{activeTab === "general" &&
+					renderTabPanel(
+						"general",
+						<>
+							<GeneralSettingsSection {...sectionProps} />
+							<RecordingSettingsSection {...sectionProps} />
+						</>,
+					)}
+
+				{activeTab === "aiAudio" &&
+					renderTabPanel(
+						"aiAudio",
+						<>
+							<ModelSettingsSection {...sectionProps} />
+							<AudioSettingsSection {...sectionProps} />
+							<AiEnhancementSettingsSection {...sectionProps} />
+						</>,
+					)}
+
+				{activeTab === "privacy" &&
+					renderTabPanel(
+						"privacy",
+						<>
+							<PrivacySettingsSection {...sectionProps} />
+							<TroubleshootingSettingsSection
+								isVisible={_filter_settings}
+								updateConfig={updateConfig}
+								onNavigate={onNavigate}
+								onResetClick={() => setShowResetDialog(true)}
+							/>
+							<PrewarmAndUpdates isVisible={_filter_settings} />
+						</>,
+					)}
 			</div>
 
-			{/* Reset Confirmation Dialog — uses shared ConfirmDialog (F-8) */}
+			{/* Fix #4: sticky-bottom save indicator — stays pinned to
+				the bottom of the viewport while scrolling so
+				the user always sees the pending/saving/saved
+				state. Mirrors the sticky-top header (z-40,
+				bg-(--bg-subtle), border-border) for visual
+				rhythm. */}
+			<div className="sticky bottom-0 left-0 right-0 z-40 border-t border-border bg-(--bg-subtle)">
+				<div className="mx-auto flex w-full max-w-2xl justify-end px-6 py-2">
+					<SettingsSaveIndicator
+						saving={saving}
+						pending={pending}
+						saved={saved}
+					/>
+				</div>
+			</div>
+
 			<ConfirmDialog
 				open={showResetDialog}
 				title={t("settings.troubleshooting.resetToDefaults")}

@@ -1,20 +1,17 @@
 import { Mic02Icon, TextIcon, Time02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { getLocale, t } from "@/i18n/i18n";
+import { t } from "@/i18n/i18n";
+import { compactNumber } from "@/lib/format";
 import type { TodayStats } from "@/types/ipc";
 
+// PVT-090 / Task #17: ``formatCompactNumber`` was previously defined
+// inline here (with the "K+" suffix on remainder) AND separately in
+// Dashboard.tsx (with just "K").  Both have been replaced by the
+// shared ``compactNumber`` in ``lib/format.ts``.  The StatCards
+// legacy behaviour (K+ on remainder, locale-aware sub-1000 grouping)
+// is preserved by passing ``{ plusSuffix: true, localeAware: true }``.
 function formatCompactNumber(n: number): string {
-	if (n >= 1000) {
-		const k = n / 1000;
-		const display = Math.floor(k * 10) / 10;
-		const suffix = n % 1000 > 0 ? "K+" : "K";
-		if (display === Math.floor(display))
-			return `${Math.floor(display)}${suffix}`;
-		return `${display}${suffix}`;
-	}
-	// CR-46: respect the user-selected UI locale for number formatting
-	// (e.g. "1.234" in de vs "1,234" in en).
-	return n.toLocaleString(getLocale());
+	return compactNumber(n, { plusSuffix: true, localeAware: true });
 }
 
 function formatDuration(seconds: number): string {

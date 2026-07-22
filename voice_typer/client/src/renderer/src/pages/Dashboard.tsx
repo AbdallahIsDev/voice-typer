@@ -4,23 +4,26 @@ import {
 	Calendar01Icon,
 	File02Icon,
 	LayoutGridIcon,
+	Mic02Icon,
 	Share08Icon,
 	SpeechToTextIcon,
 	Time02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
 import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
-import { Spinner } from "@/components/feedback/Spinner";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Button } from "@/components/ui/button.tsx";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
 import { getLocale, t } from "@/i18n/i18n";
+import { compactNumber } from "@/lib/format";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, Page, TodayStats } from "@/types/ipc";
 
@@ -60,15 +63,11 @@ function formatDuration(seconds: number): string {
 	return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-/** Format number compactly (e.g., 1234 → "1.2K") */
-function compactNumber(n: number): string {
-	if (n >= 1000) {
-		const k = n / 1000;
-		const display = Math.floor(k * 10) / 10;
-		return `${display}K`;
-	}
-	return String(n);
-}
+// PVT-090 / Task #17: ``compactNumber`` is now imported from the shared
+// ``lib/format.ts`` module so Dashboard and StatCards use the same
+// locale-aware implementation.  The previous local copy hardcoded
+// English suffixes and called ``String(n)`` for sub-1000 values,
+// ignoring the user-selected UI locale.
 
 /** Determine the max bar height based on data range. */
 function barHeight(count: number, max: number): number {
@@ -297,8 +296,17 @@ export default function DashboardPage({
 			_cachedData = newData;
 			setData(newData);
 			setConfigRaw(cfg ?? null);
-		} catch {
-			// Silently ignore — next load picks up fresh data
+		} catch (err) {
+			// Fix #9: surface refresh failures to the user instead of
+			// silently swallowing them.  The previous implementation
+			// caught and ignored ALL errors, so a backend disconnect
+			// during a background refresh (e.g. transcription_final
+			// trigger) left the user staring at stale data with no
+			// indication that the refresh failed.  We now show a
+			// toast.error so the user knows to retry manually via the
+			// LastUpdatedIndicator refresh button.
+			console.error("Dashboard refresh failed:", err);
+			toast.error(t("analytics.refreshFailed"));
 		} finally {
 			// F4: bump the "last updated" timestamp after each refresh
 			// attempt (success or failure) so the indicator stays accurate.
@@ -329,9 +337,10 @@ export default function DashboardPage({
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	usePythonEvent(
 		"transcription_final",
-		useCallback(() => {
+		useCallback((): (() => void) | undefined => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
 			refreshTimer.current = setTimeout(refreshData, 500);
+			return undefined;
 		}, [refreshData]),
 	);
 
@@ -341,9 +350,10 @@ export default function DashboardPage({
 	// Mirrors the transcription_final refresh below.
 	usePythonEvent(
 		"history_changed",
-		useCallback(() => {
+		useCallback((): (() => void) | undefined => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
 			refreshTimer.current = setTimeout(refreshData, 500);
+			return undefined;
 		}, [refreshData]),
 	);
 
@@ -358,12 +368,88 @@ export default function DashboardPage({
 	}, [loadData]);
 
 	// ── Loading State ────────────────────────────────────────────────
+	//
+	// Fix #19: skeleton loading state.  The previous implementation
+	// rendered a bare full-page Spinner when there was no cached data,
+	// which caused a layout shift when the real data arrived (the
+	// spinner was centred in the viewport; the real content renders
+	// top-aligned with the 4-stat grid).  The skeleton mirrors the
+	// final layout (heading + 4 stat cards + 7-day chart placeholder)
+	// so the transition from "loading" to "loaded" is visually stable.
+	// The skeleton is only shown on the FIRST load (when ``!data``) —
+	// subsequent refreshes keep the previous data visible while the
+	// new data loads (the ``refreshing`` flag drives the
+	// LastUpdatedIndicator spinner instead).
 
 	if (!data) {
 		return (
-			<div className="flex h-full items-center justify-center">
-				<Spinner />
-			</div>
+			<section
+				className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-28 pb-6"
+				aria-label={t("analytics.loadingAria")}
+				aria-busy="true"
+			>
+				{/* Heading skeleton */}
+				<div className="space-y-2 pb-2">
+					<div className="h-6 w-40 animate-pulse rounded bg-(--bg-subtle)" />
+					<div className="h-4 w-64 animate-pulse rounded bg-(--bg-subtle)" />
+				</div>
+				<div className="flex justify-end pb-2">
+					<div className="h-4 w-24 animate-pulse rounded bg-(--bg-subtle)" />
+				</div>
+				{/* 4 stat-card skeleton */}
+				<div className="grid grid-cols-4 gap-3 mt-6">
+					{[0, 1, 2, 3].map((i) => (
+						<div
+							key={`stat-skel-${i}`}
+							className="rounded-xl border border-border bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2"
+						>
+							<div className="h-4 w-4 animate-pulse rounded bg-(--bg-subtle)" />
+							<div className="h-6 w-12 animate-pulse rounded bg-(--bg-subtle)" />
+							<div className="h-3 w-16 animate-pulse rounded bg-(--bg-subtle)" />
+						</div>
+					))}
+				</div>
+				{/* 7-day chart skeleton */}
+				<div className="rounded-xl border border-border bg-(--bg-subtle) p-5 mt-8">
+					<div className="flex items-center justify-between mb-5">
+						<div className="space-y-1.5">
+							<div className="h-4 w-32 animate-pulse rounded bg-(--bg-subtle)" />
+							<div className="h-3 w-40 animate-pulse rounded bg-(--bg-subtle)" />
+						</div>
+						<div className="h-4 w-4 animate-pulse rounded bg-(--bg-subtle)" />
+					</div>
+					<div className="flex items-end justify-between gap-2 h-20">
+						{[0, 1, 2, 3, 4, 5, 6].map((i) => (
+							<div
+								key={`bar-skel-${i}`}
+								className="flex flex-1 flex-col items-center gap-2"
+							>
+								<div className="h-3 w-6 animate-pulse rounded bg-(--bg-subtle)" />
+								<div
+									className="w-full max-w-10 animate-pulse rounded-sm bg-(--bg-subtle)"
+									style={{ height: `${20 + ((i * 7) % 40)}px` }}
+								/>
+								<div className="h-3 w-6 animate-pulse rounded bg-(--bg-subtle)" />
+							</div>
+						))}
+					</div>
+				</div>
+				{/* Quick-info row skeleton */}
+				<div className="grid grid-cols-3 gap-3 mt-8">
+					{[0, 1, 2].map((i) => (
+						<div
+							key={`qi-skel-${i}`}
+							className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3"
+						>
+							<div className="h-8 w-8 animate-pulse rounded-lg bg-(--bg-subtle)" />
+							<div className="flex-1 space-y-1.5">
+								<div className="h-3 w-12 animate-pulse rounded bg-(--bg-subtle)" />
+								<div className="h-4 w-20 animate-pulse rounded bg-(--bg-subtle)" />
+							</div>
+						</div>
+					))}
+				</div>
+			</section>
 		);
 	}
 
@@ -371,6 +457,13 @@ export default function DashboardPage({
 
 	const d = data;
 	const maxCount = Math.max(1, ...d.dailyActivity.map((a) => a.count));
+
+	// Fix #10: first-run empty state.  When the user has zero total
+	// transcriptions (e.g. fresh install, never dictated), the dashboard
+	// would otherwise show four zero stat cards + an empty 7-day chart
+	// with no explanation.  We surface an EmptyState with a CTA to start
+	// dictation instead — matching the History page's pattern.
+	const isFirstRun = d.totalCount === 0;
 
 	const handleShare = () => shareAsImage("voice-typer-stats");
 
@@ -401,8 +494,8 @@ export default function DashboardPage({
 			</PageHeading>
 
 			{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-                            refresh button. The module-level `_cachedData` survives page
-                            navigations, so we surface staleness here. */}
+			    refresh button. The module-level `_cachedData` survives page
+			    navigations, so we surface staleness here. */}
 			<div className="flex justify-end pb-2">
 				<LastUpdatedIndicator
 					agoLabel={agoLabel}
@@ -411,124 +504,160 @@ export default function DashboardPage({
 				/>
 			</div>
 
-			<div className="space-y-8">
-				{/* ── Today's Stats Grid ──────────────────────────────────── */}
-				<div className="grid grid-cols-4 gap-3">
-					<DashboardStatCard
-						label={t("analytics.dictationsToday")}
-						value={String(d.todayCount)}
-						icon={SpeechToTextIcon}
-						sublabel={t("analytics.charsValue", {
-							count: d.todayChars.toLocaleString(getLocale()),
-						})}
-					/>
-					<DashboardStatCard
-						label={t("analytics.recordingTime")}
-						value={formatDuration(d.todayDuration)}
-						icon={Time02Icon}
-						sublabel={t("analytics.today")}
-					/>
-					<DashboardStatCard
-						label={t("analytics.recentTotal")}
-						value={compactNumber(d.totalCount)}
-						icon={File02Icon}
-						sublabel={t("analytics.charsValue", {
-							count: d.totalChars.toLocaleString(getLocale()),
-						})}
-					/>
-					<DashboardStatCard
-						label={t("analytics.activeDays")}
-						value={String(d.activeDays)}
-						icon={Calendar01Icon}
-						sublabel={
-							d.currentStreak > 0
-								? t("analytics.dayStreak", { count: String(d.currentStreak) })
-								: t("analytics.noStreak")
-						}
-					/>
-				</div>
-
-				{/* ── 7-Day Activity Bar Chart ──────────────────────────────── */}
-				<div className="rounded-xl border border-border bg-(--bg-subtle) p-5">
-					<div className="flex items-center justify-between mb-5">
-						<div className="space-y-0.5">
-							<h2 className="font-sans text-sm font-semibold text-(--text-primary)">
-								{t("analytics.sevenDayActivity")}
-							</h2>
-							<p className="text-xs text-(--text-muted)">
-								{t("analytics.transcriptionsPerDay")}
-							</p>
-						</div>
-						<HugeiconsIcon
-							icon={Activity03Icon}
-							strokeWidth={1.625}
-							className="h-4 w-4 text-(--text-muted)"
+			{/* Fix #10: first-run empty state.  When the user has never
+			    dictated (totalCount === 0), show an EmptyState with a CTA
+			    to start dictation instead of four zero-value stat cards
+			    and an empty 7-day chart.  The CTA navigates to the Home
+			    page via the ``onNavigate`` prop (matches the History
+			    page's empty-state pattern). */}
+			{isFirstRun ? (
+				<EmptyState
+					icon={Mic02Icon}
+					title={t("analytics.noDataTitle")}
+					description={t("analytics.noDataDescription")}
+					actionLabel={_onNavigate ? t("analytics.startDictation") : undefined}
+					actionIcon={SpeechToTextIcon}
+					onAction={_onNavigate ? () => _onNavigate("home") : undefined}
+				/>
+			) : (
+				<div className="space-y-8">
+					{/* ── Today's Stats Grid ──────────────────────────────────── */}
+					<div className="grid grid-cols-4 gap-3">
+						<DashboardStatCard
+							label={t("analytics.dictationsToday")}
+							value={String(d.todayCount)}
+							icon={SpeechToTextIcon}
+							sublabel={t("analytics.charsValue", {
+								count: d.todayChars.toLocaleString(getLocale()),
+							})}
+						/>
+						<DashboardStatCard
+							label={t("analytics.recordingTime")}
+							value={formatDuration(d.todayDuration)}
+							icon={Time02Icon}
+							sublabel={t("analytics.today")}
+						/>
+						<DashboardStatCard
+							label={t("analytics.recentTotal")}
+							value={compactNumber(d.totalCount)}
+							icon={File02Icon}
+							sublabel={t("analytics.charsValue", {
+								count: d.totalChars.toLocaleString(getLocale()),
+							})}
+						/>
+						<DashboardStatCard
+							label={t("analytics.activeDays")}
+							value={String(d.activeDays)}
+							icon={Calendar01Icon}
+							sublabel={
+								d.currentStreak > 0
+									? t("analytics.dayStreak", { count: String(d.currentStreak) })
+									: t("analytics.noStreak")
+							}
 						/>
 					</div>
-					<div className="flex items-end justify-between gap-2 h-20">
-						{d.dailyActivity.map((day) => (
-							<div
-								key={day.date}
-								className="flex flex-1 flex-col items-center gap-2"
-							>
-								<span className="text-xs text-(--text-muted) font-medium tabular-nums">
-									{day.count}
-								</span>
-								<div
-									className="w-full max-w-10 rounded-sm bg-accent/60 transition-all duration-300"
-									style={{ height: `${barHeight(day.count, maxCount)}px` }}
-									title={
-										day.count === 1
-											? t("analytics.dayCountTooltipSingular", {
-													label: day.label,
-													count: String(day.count),
-												})
-											: t("analytics.dayCountTooltipPlural", {
-													label: day.label,
-													count: String(day.count),
-												})
-									}
-								/>
-								<span className="text-[11px] text-(--text-muted)">
-									{day.dayName}
-								</span>
+
+					{/* ── 7-Day Activity Bar Chart ──────────────────────────────── */}
+					<div className="rounded-xl border border-border bg-(--bg-subtle) p-5">
+						<div className="flex items-center justify-between mb-5">
+							<div className="space-y-0.5">
+								<h2 className="font-sans text-sm font-semibold text-(--text-primary)">
+									{t("analytics.sevenDayActivity")}
+								</h2>
+								<p className="text-xs text-(--text-muted)">
+									{t("analytics.transcriptionsPerDay")}
+								</p>
 							</div>
-						))}
+							<HugeiconsIcon
+								icon={Activity03Icon}
+								strokeWidth={1.625}
+								className="h-4 w-4 text-(--text-muted)"
+							/>
+						</div>
+						<div className="flex items-end justify-between gap-2 h-20">
+							{d.dailyActivity.map((day) => {
+								// Fix #18: wrap each bar in a <button> so the
+								// 7-day chart is keyboard-accessible.  Each
+								// bar gets an aria-label with the day label +
+								// transcription count so screen readers
+								// announce "Mon: 5 transcriptions" instead of
+								// the raw count.  The button has no onClick
+								// handler (the bar is informational, not
+								// actionable) but is still focusable so AT
+								// users can navigate to it; the title
+								// attribute preserves the mouse hover tooltip.
+								const ariaLabel = t("analytics.dayActivityAria", {
+									label: day.label,
+									count: String(day.count),
+								});
+								return (
+									<div
+										key={day.date}
+										className="flex flex-1 flex-col items-center gap-2"
+									>
+										<span className="text-xs text-(--text-muted) font-medium tabular-nums">
+											{day.count}
+										</span>
+										<button
+											type="button"
+											aria-label={ariaLabel}
+											title={
+												day.count === 1
+													? t("analytics.dayCountTooltipSingular", {
+															label: day.label,
+															count: String(day.count),
+														})
+													: t("analytics.dayCountTooltipPlural", {
+															label: day.label,
+															count: String(day.count),
+														})
+											}
+											className="w-full max-w-10 rounded-sm bg-accent/60 transition-all duration-300 hover:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-1 focus-visible:ring-offset-(--bg-subtle) cursor-default"
+											style={{ height: `${barHeight(day.count, maxCount)}px` }}
+											tabIndex={0}
+										/>
+										<span className="text-[11px] text-(--text-muted)">
+											{day.dayName}
+										</span>
+									</div>
+								);
+							})}
+						</div>
 					</div>
-				</div>
 
-				{/* ── Quick Stats Bar ──────────────────────────────────────── */}
-				<div className="grid grid-cols-3 gap-3">
-					<QuickInfoCard
-						icon={AiBrain03Icon}
-						label={t("analytics.model")}
-						value={d.model}
-					/>
-					<QuickInfoCard
-						icon={LayoutGridIcon}
-						label={t("analytics.device")}
-						value={d.device.toUpperCase()}
-					/>
-					<QuickInfoCard
-						icon={Activity03Icon}
-						label={t("analytics.language")}
-						value={d.language}
-					/>
-				</div>
+					{/* ── Quick Stats Bar ──────────────────────────────────────── */}
+					<div className="grid grid-cols-3 gap-3">
+						<QuickInfoCard
+							icon={AiBrain03Icon}
+							label={t("analytics.model")}
+							value={d.model}
+						/>
+						<QuickInfoCard
+							icon={LayoutGridIcon}
+							label={t("analytics.device")}
+							value={d.device.toUpperCase()}
+						/>
+						<QuickInfoCard
+							icon={Activity03Icon}
+							label={t("analytics.language")}
+							value={d.language}
+						/>
+					</div>
 
-				{/* Data path */}
-				<p className="text-xs text-(--text-muted) text-center pb-4">
-					{t("analytics.dataPath")}
-				</p>
-			</div>
+					{/* Data path */}
+					<p className="text-xs text-(--text-muted) text-center pb-4">
+						{t("analytics.dataPath")}
+					</p>
+				</div>
+			)}
 
 			{/* ── Hidden share image capture target ──────────────── */}
 			{/* EXPORT-FIX: removed clipPath:inset(50%) —
-                            html-to-image copied it onto the cloned node and
-                            clipped the PNG to 0×0. See Home.tsx for full
-                            rationale. The toPng style override (clipPath:none)
-                            is the primary defense; removing clipPath here
-                            eliminates the footgun. */}
+			    html-to-image copied it onto the cloned node and
+			    clipped the PNG to 0×0. See Home.tsx for full
+			    rationale. The toPng style override (clipPath:none)
+			    is the primary defense; removing clipPath here
+			    eliminates the footgun. */}
 			<div
 				ref={imageRef}
 				aria-hidden

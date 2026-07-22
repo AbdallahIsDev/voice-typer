@@ -42,6 +42,19 @@ export function ThemeSwitch({
 		THEME_CYCLE.find((item) => item.mode === themeMode) ?? THEME_CYCLE[0];
 	const label = t(current.labelKey);
 
+	// PVT-043 / A11Y-ARIA-2: include the NEXT mode in the aria-label
+	// so screen-reader users know what clicking will do, not just
+	// what the current state is.  Previously the aria-label was
+	// ``"Current theme: Dark. Click to switch."`` — ambiguous about
+	// the result of the click.  Now: ``"Current theme: Dark. Click
+	// to switch to System."`` etc.
+	const nextLabel = t(
+		(
+			THEME_CYCLE.find((item) => item.mode === nextMode(themeMode)) ??
+			THEME_CYCLE[0]
+		).labelKey,
+	);
+
 	const handleClick = useCallback(() => {
 		onThemeChange(nextMode(themeMode));
 	}, [themeMode, onThemeChange]);
@@ -60,7 +73,10 @@ export function ThemeSwitch({
 				collapsed ? "h-7 w-7 justify-center gap-0" : "h-7 px-2.5 gap-2",
 			)}
 			title={t("theme.switchTitle", { mode: label })}
-			aria-label={t("theme.switchAriaLabel", { mode: label })}
+			aria-label={t("theme.switchAriaLabel", {
+				mode: label,
+				next: nextLabel,
+			})}
 		>
 			<HugeiconsIcon
 				icon={current.icon}

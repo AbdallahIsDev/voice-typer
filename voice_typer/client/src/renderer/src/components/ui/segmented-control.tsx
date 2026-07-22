@@ -332,10 +332,10 @@ export function SegmentedControl<T extends string>({
 							aria-selected={active}
 							onClick={handleRadioChange}
 							className={cn(
-								"relative z-10 cursor-pointer font-normal outline-none transition-colors duration-150",
+								"relative z-10 cursor-pointer font-normal outline-hidden transition-colors duration-150",
 								"select-none whitespace-nowrap inline-flex items-center justify-center",
 								// A11Y-1: visible focus indicator for keyboard users.
-								"focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-none",
+								"focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:outline-hidden",
 								"rounded-none px-3 py-2 text-[13px] font-medium",
 								labelClassName,
 								active && "text-(--text-primary)",
@@ -363,13 +363,13 @@ export function SegmentedControl<T extends string>({
 						ref={getLabelRef(opt.value)}
 						title={opt.title}
 						className={cn(
-							"relative z-10 cursor-pointer font-normal outline-none transition-colors duration-150",
+							"relative z-10 cursor-pointer font-normal outline-hidden transition-colors duration-150",
 							"select-none whitespace-nowrap inline-flex items-center justify-center",
 							// A11Y-1: visible focus indicator on the wrapping label so keyboard
 							// users see which segmented-control option has focus (the inner
 							// <input type="radio" class="sr-only"> owns the focus, so we use
 							// has-[:focus-visible] to style the parent label).
-							"has-focus-visible:ring-2 has-focus-visible:ring-ring/50 has-focus-visible:outline-none",
+							"has-focus-visible:ring-2 has-focus-visible:ring-ring/50 has-focus-visible:outline-hidden",
 							variant === "default" &&
 								"rounded-full px-2 py-1 text-[11px] tracking-wider",
 							labelClassName,

@@ -83,13 +83,27 @@
 	--secondary: oklch(0.967 0.001 286.375);
 	--secondary-foreground: oklch(0.21 0.006 285.885);
 	--muted: oklch(0.967 0.001 286.375);
-	--muted-foreground: oklch(0.552 0.016 285.938);
+	/* PVT-041: bump light-mode --muted-foreground from oklch(0.552 0.016 285.938)
+	   (~4.0:1 contrast on white) to oklch(0.48 0.016 285.938) (~4.6:1) to clear
+	   WCAG AA 4.5:1 for placeholder/helper text. Dark mode is unaffected — its
+	   --muted-foreground already has strong contrast against the dark bg. */
+	--muted-foreground: oklch(0.48 0.016 285.938);
 	--accent: oklch(0.967 0.001 286.375);
 	--accent-foreground: oklch(0.21 0.006 285.885);
+	/* PVT-002: --destructive-foreground had no stylesheet default — destructive
+	   button text was unreadable when themes didn't override it. Add an explicit
+	   default here that matches the near-white foreground used by all themes. */
 	--destructive: oklch(0.55 0.25 27);
+	--destructive-foreground: oklch(0.97 0 0);
 	--border: oklch(0.92 0.004 286.32);
 	--input: oklch(0.92 0.004 286.32);
-	--ring: oklch(0.705 0.015 286.067);
+	/* PVT-044: light-mode --ring was oklch(0.705 0.015 286.067) (light grey) which,
+	   combined with focus-visible:ring-ring/30, produced focus indicators below
+	   WCAG 1.4.11's 3:1 minimum. Switch to the primary blue
+	   (oklch(0.488 0.243 264.376)) which has ~4.5:1 contrast against white —
+	   enough headroom to remain visible even when /30 alpha is applied by
+	   tailwind variants. */
+	--ring: oklch(0.488 0.243 264.376);
 	--chart-1: oklch(0.809 0.105 251.813);
 	--chart-2: oklch(0.623 0.214 259.815);
 	--chart-3: oklch(0.546 0.245 262.881);
@@ -121,7 +135,12 @@
 	--muted-foreground: oklch(0.705 0.015 286.067);
 	--accent: oklch(0.274 0.006 286.033);
 	--accent-foreground: oklch(0.985 0 0);
+	/* PVT-002: --destructive-foreground has no stylesheet default in .dark either.
+	   Add an explicit near-white default to match the light scheme and ensure
+	   destructive button text is readable in dark mode when a theme doesn't
+	   override it. */
 	--destructive: oklch(0.55 0.25 27);
+	--destructive-foreground: oklch(0.97 0 0);
 	--border: oklab(100% 0 -0.00011 / 0.05);
 	--input: oklch(1 0 0 / 15%);
 	--ring: oklch(0.552 0.016 285.938);
@@ -142,41 +161,41 @@
 
 :root {
 	/* PROD-18: Text color convention.
-           
-           The renderer exposes three text-color CSS variables that are
-           easily confused. Use them according to semantic intent, NOT by
-           raw contrast value:
-           
-           --text-primary   for headings, page titles, and any content the
-                            user MUST read (nav labels of the current page,
-                            the main CTA label, dialog titles).
-           --text-secondary for body copy, form labels, table cells — text
-                            that the user reads but is not the dominant
-                            focus of the screen.
-           --text-muted     for hints, metadata, timestamps, helper text
-                            under inputs, placeholder text. Anything the
-                            user can skip without losing the gist of the
-                            screen.
-           
-           Do NOT pick a variable based on "I want it lighter" — pick
-           based on the role the text plays. If a role is ambiguous, prefer
-           --text-secondary (the body default) and only demote to
-           --text-muted when the text is genuinely optional.
-           
-           Note: this comment documents the convention. Existing usages
-           are NOT audited or bulk-replaced; new code should follow this
-           convention, and touched files should be brought in line as a
-           follow-up. */
+	   
+	   The renderer exposes three text-color CSS variables that are
+	   easily confused. Use them according to semantic intent, NOT by
+	   raw contrast value:
+	   
+	   --text-primary   for headings, page titles, and any content the
+			    user MUST read (nav labels of the current page,
+			    the main CTA label, dialog titles).
+	   --text-secondary for body copy, form labels, table cells — text
+			    that the user reads but is not the dominant
+			    focus of the screen.
+	   --text-muted     for hints, metadata, timestamps, helper text
+			    under inputs, placeholder text. Anything the
+			    user can skip without losing the gist of the
+			    screen.
+	   
+	   Do NOT pick a variable based on "I want it lighter" — pick
+	   based on the role the text plays. If a role is ambiguous, prefer
+	   --text-secondary (the body default) and only demote to
+	   --text-muted when the text is genuinely optional.
+	   
+	   Note: this comment documents the convention. Existing usages
+	   are NOT audited or bulk-replaced; new code should follow this
+	   convention, and touched files should be brought in line as a
+	   follow-up. */
 	--bg: var(--background);
 	--bg-subtle: oklch(0.97 0 0);
 	--surface-page: var(--background);
 	--surface-hover: oklch(0.93 0 0);
 	--text-primary: var(--foreground);
 	/* A11Y-8: bump light-mode --text-muted from var(--muted-foreground)
-           (oklch(0.552 0.016 285.938), ~4.0:1 contrast on white) to
-           oklch(0.48 0 0) (~4.6:1 contrast on white) to clear WCAG AA 4.5:1.
-           Dark mode is unaffected — its var(--muted-foreground) already
-           has strong contrast against the dark background. */
+	   (oklch(0.552 0.016 285.938), ~4.0:1 contrast on white) to
+	   oklch(0.48 0 0) (~4.6:1 contrast on white) to clear WCAG AA 4.5:1.
+	   Dark mode is unaffected — its var(--muted-foreground) already
+	   has strong contrast against the dark background. */
 	--text-muted: oklch(0.48 0 0);
 	--text-secondary: oklch(0.45 0 0);
 	--accent: var(--primary);
@@ -238,14 +257,14 @@
 	}
 
 	/* PROD-1: removed the `button[data-slot="button"] { border-radius:
-           var(--radius-md) }` rule that was overriding shadcn's cva-driven
-           `rounded-4xl` on every Button in the app. The cva in
-           components/ui/button.tsx already controls border-radius (default
-           `rounded-4xl`); adding a CSS override here forced a different
-           radius for every variant/size and prevented per-instance
-           overrides via className. If a smaller radius is genuinely
-           desired, change `rounded-4xl` to `rounded-md` directly in
-           button.tsx — do NOT reintroduce a global selector override. */
+	   var(--radius-md) }` rule that was overriding shadcn's cva-driven
+	   `rounded-4xl` on every Button in the app. The cva in
+	   components/ui/button.tsx already controls border-radius (default
+	   `rounded-4xl`); adding a CSS override here forced a different
+	   radius for every variant/size and prevented per-instance
+	   overrides via className. If a smaller radius is genuinely
+	   desired, change `rounded-4xl` to `rounded-md` directly in
+	   button.tsx — do NOT reintroduce a global selector override. */
 
 	button:not(:disabled),
 	label,
