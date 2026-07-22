@@ -30,14 +30,18 @@ automation state — it returns the matched suggestion (or an error
 message) and leaves the action to the caller, preserving the original
 behavioral split (``apply`` and ``dismiss`` are separate IPC commands
 on the wire).
+
+PVT-G5-071 (FA16, 2026-07-19): inline validation-error responses now
+route through :func:`_error_response` with explicit ``code`` values
+(``not_initialized`` / ``invalid_payload`` / ``invalid_field`` /
+``not_found``) so clients can branch on ``code`` rather than
+pattern-matching the message text. The catch-all ``except Exception``
+blocks call :meth:`HandlerBase._respond_with_error` (CR-20 generic
+WS-path envelope — no ``str(e)`` leak).
 """
 
-import logging
-
-from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.ipc.validation import _error_response
-
-log = logging.getLogger("voice_typer.server.ipc_server")
 
 
 def _find_pending_suggestion(automation, data):
@@ -103,8 +107,23 @@ def _find_pending_suggestion(automation, data):
     return None, "suggestion not found in pending list"
 
 
-class VocabularyAutomationHandlersMixin(HandlerMixinBase):
-    """Mixin: vocabulary-automation IPC handlers."""
+# PVT-G5-071: map ``_find_pending_suggestion``'s error messages to
+# structured ``code`` values so the renderer can branch on ``code``
+# rather than pattern-matching the message text. Used by both the
+# ``apply`` and ``dismiss`` handlers.
+_SUGGESTION_ERROR_CODES = {
+    "original and corrected must be strings": "invalid_field",
+    "suggestion not found in pending list": "not_found",
+}
+
+
+class VocabularyAutomationHandlersMixin(HandlerBase):
+    """Mixin: vocabulary-automation IPC handlers.
+
+    CR-20: this mixin's ``except Exception`` catch-alls call
+    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+    no ``str(e)`` leak).
+    """
 
     def _handle_get_vocabulary_suggestions(self, data, resp) -> dict | None:
         """Handle the ``get_vocabulary_suggestions`` IPC command.
@@ -126,9 +145,9 @@ class VocabularyAutomationHandlersMixin(HandlerMixinBase):
             resp["data"] = {
                 "suggestions": [s.to_dict() for s in pending],
             }
-        except Exception as e:
-            log.error("[IPC] get_vocabulary_suggestions failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_vocabulary_suggestions")
         return resp
 
     def _handle_apply_vocabulary_suggestion(self, data, resp) -> dict | None:
@@ -143,9 +162,14 @@ class VocabularyAutomationHandlersMixin(HandlerMixinBase):
         try:
             automation = getattr(self.app, "_vocabulary_automation", None)
             if automation is None:
-                resp["type"] = "error"
-                resp["data"] = {"message": "vocabulary automation is not initialized"}
-                return resp
+                # PVT-G5-071: stamp the structured ``code`` so the
+                # renderer can branch on ``not_initialized`` rather
+                # than pattern-matching the message text.
+                return _error_response(
+                    resp,
+                    "vocabulary automation is not initialized",
+                    code="not_initialized",
+                )
 
             # R4-F4: delegate validation + lookup to the shared helper.
             target, error_message = _find_pending_suggestion(automation, data)
@@ -157,12 +181,23 @@ class VocabularyAutomationHandlersMixin(HandlerMixinBase):
                 # by prepending the command name so existing tests that
                 # assert "data: object" in resp["data"]["message"] keep
                 # passing.
-                resp["type"] = "error"
+                #
+                # PVT-G5-071: route through ``_error_response`` with
+                # a structured ``code`` (``invalid_payload`` for the
+                # non-dict path; ``invalid_field`` / ``not_found`` for
+                # the lookup-failure paths — see
+                # ``_SUGGESTION_ERROR_CODES``).
                 if error_message == "requires data: object":
-                    resp["data"] = {"message": f"apply_vocabulary_suggestion {error_message}"}
-                else:
-                    resp["data"] = {"message": error_message}
-                return resp
+                    return _error_response(
+                        resp,
+                        f"apply_vocabulary_suggestion {error_message}",
+                        code="invalid_payload",
+                    )
+                return _error_response(
+                    resp,
+                    error_message,
+                    code=_SUGGESTION_ERROR_CODES.get(error_message, "handler_error"),
+                )
 
             automation.apply_suggestion(target)
             resp["type"] = "ack"
@@ -171,9 +206,9 @@ class VocabularyAutomationHandlersMixin(HandlerMixinBase):
                 "original": target.original,
                 "corrected": target.corrected,
             }
-        except Exception as e:
-            log.error("[IPC] apply_vocabulary_suggestion failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "apply_vocabulary_suggestion")
         return resp
 
     def _handle_dismiss_vocabulary_suggestion(self, data, resp) -> dict | None:
@@ -186,19 +221,31 @@ class VocabularyAutomationHandlersMixin(HandlerMixinBase):
         try:
             automation = getattr(self.app, "_vocabulary_automation", None)
             if automation is None:
-                resp["type"] = "error"
-                resp["data"] = {"message": "vocabulary automation is not initialized"}
-                return resp
+                # PVT-G5-071: stamp the structured ``code`` (same as
+                # the apply path above).
+                return _error_response(
+                    resp,
+                    "vocabulary automation is not initialized",
+                    code="not_initialized",
+                )
 
             # R4-F4: delegate validation + lookup to the shared helper.
             target, error_message = _find_pending_suggestion(automation, data)
             if target is None:
-                resp["type"] = "error"
+                # PVT-G5-071: same code-mapping logic as the apply
+                # handler above — see the comment there for the
+                # handler-specific message-prefix preservation.
                 if error_message == "requires data: object":
-                    resp["data"] = {"message": f"dismiss_vocabulary_suggestion {error_message}"}
-                else:
-                    resp["data"] = {"message": error_message}
-                return resp
+                    return _error_response(
+                        resp,
+                        f"dismiss_vocabulary_suggestion {error_message}",
+                        code="invalid_payload",
+                    )
+                return _error_response(
+                    resp,
+                    error_message,
+                    code=_SUGGESTION_ERROR_CODES.get(error_message, "handler_error"),
+                )
 
             automation.dismiss_suggestion(target)
             resp["type"] = "ack"
@@ -207,7 +254,7 @@ class VocabularyAutomationHandlersMixin(HandlerMixinBase):
                 "original": target.original,
                 "corrected": target.corrected,
             }
-        except Exception as e:
-            log.error("[IPC] dismiss_vocabulary_suggestion failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "dismiss_vocabulary_suggestion")
         return resp

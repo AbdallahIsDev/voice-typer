@@ -28,6 +28,7 @@ calls ``prewarm._lower_io_priority()`` directly).
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import logging.handlers
 import os
@@ -38,7 +39,7 @@ from voice_typer.server.platform_utils import is_linux, is_windows
 log = logging.getLogger("voice_typer.server.prewarm")
 
 
-def _setup_logging() -> None:
+def _setup_logging(*, debug: bool = False) -> None:
     """Minimal logging — prewarm runs detached, so log to the app log file.
 
     Uses the shared :func:`log.setup_logging` so the format is
@@ -53,6 +54,14 @@ def _setup_logging() -> None:
     Prewarm messages still flow to the shared ``voice-typer.log`` as well
     (via the handler added by ``log.setup_logging``), so the main log
     remains the complete record.
+
+    Parameters
+    ----------
+    debug:
+        G4-M-29: when ``True``, the prewarm handler emits DEBUG-level
+        records (matches the main handler's ``debug`` gating).  When
+        ``False`` (default), sits at INFO so production runs do not
+        flood ``prewarm.log`` with high-frequency model-warming traces.
     """
     from voice_typer.server import _paths
     from voice_typer.server.log import setup_logging as _setup_logging_shared
@@ -60,8 +69,17 @@ def _setup_logging() -> None:
     # RW-7: use the platform-aware config dir helper instead of the
     # previous hardcoded Path.home() / ".voice-typer".
     log_dir = _paths.config_dir()
+    # G4-H-07: tighten the process umask while creating prewarm.log so
+    # it is world-unreadable on POSIX (mirrors the main setup_logging
+    # umask wrap).  Restored in ``finally`` so the change does not leak.
+    _old_umask = os.umask(0o077)
     try:
-        _setup_logging_shared(log_dir)
+        _setup_logging_shared(log_dir, debug=debug)
+        # G4-H-07: chmod the config dir 0o700 on POSIX so co-located
+        # users cannot read it (best-effort — silently no-op on Windows).
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(log_dir, 0o700)
 
         prewarm_log = log_dir / "prewarm.log"
         # CR-42 fix: align prewarm.log handler with the main voice-typer.log
@@ -87,20 +105,56 @@ def _setup_logging() -> None:
             encoding="utf-8",
             errors="backslashreplace",
         )
+        # G4-H-07: lock down prewarm.log (0o600 — only the owning user
+        # can read it).  Best-effort on POSIX; silently no-op on Windows
+        # where the umask already enforced 0o600 at creation time.
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(prewarm_log, 0o600)
         prewarm_handler.setFormatter(_FileFormatter())
         prewarm_handler.addFilter(logging.Filter("voice_typer.server.prewarm"))
         prewarm_handler.addFilter(_SessionFilter())
         prewarm_handler.addFilter(PIIRedactionFilter())
         prewarm_handler.addFilter(_BubbleLevelExclusionFilter())
-        prewarm_handler.setLevel(logging.DEBUG)
+        # G4-M-29: gate the prewarm handler on the ``debug`` flag so
+        # production runs do not flood prewarm.log with DEBUG noise from
+        # the model-warming pipeline (was hardcoded DEBUG).
+        prewarm_handler.setLevel(logging.DEBUG if debug else logging.INFO)
         logging.getLogger("voice_typer").addHandler(prewarm_handler)
-    except Exception:
-        # Fall back to bare stderr so the script is still usable standalone.
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(asctime)s [%(levelname)s] %(message)s",
-            stream=sys.stderr,
+    except Exception as _setup_exc:
+        # G4-M-30: replace the bare ``logging.basicConfig`` fallback
+        # (which used a divergent format string and had no PII
+        # redaction) with a minimal ``_FileFormatter``-using
+        # ``StreamHandler`` that also carries ``PIIRedactionFilter``.
+        # Keeps the format consistent with the main log file and
+        # prevents PII from leaking through the fallback path.
+        log.warning(
+            "[PREWARM] shared logging setup failed — using minimal fallback: %s",
+            _setup_exc,
         )
+        _fallback_handler = logging.StreamHandler(sys.stderr)
+        _fallback_handler.setLevel(logging.INFO)
+        try:
+            from voice_typer.server.log import _FileFormatter
+            from voice_typer.server.security import PIIRedactionFilter
+
+            _fallback_handler.setFormatter(_FileFormatter())
+            _fallback_handler.addFilter(PIIRedactionFilter())
+        except Exception as _fmt_exc:
+            # Last-ditch: bare StreamHandler without formatter/filter
+            # is still better than nothing (e.g. circular import on
+            # cold start).  Logged at WARNING so the operator can see
+            # why the format diverged.
+            log.warning(
+                "[PREWARM] could not attach _FileFormatter/PIIRedactionFilter to fallback: %s",
+                _fmt_exc,
+            )
+        _root = logging.getLogger()
+        if not any(isinstance(h, logging.StreamHandler) for h in _root.handlers):
+            _root.addHandler(_fallback_handler)
+        _root.setLevel(logging.INFO)
+    finally:
+        os.umask(_old_umask)
 
 
 # ─── Guards ──────────────────────────────────────────────────────────────

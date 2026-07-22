@@ -5,16 +5,21 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-import logging
-
-from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
-log = logging.getLogger("voice_typer.server.ipc_server")
 
+class VocabularyHandlersMixin(HandlerBase):
+    """Mixin: vocabulary IPC handlers (get_vocabulary / save_vocabulary).
 
-class VocabularyHandlersMixin(HandlerMixinBase):
-    """Mixin: vocabulary IPC handlers (get_vocabulary / save_vocabulary)."""
+    CR-20: this mixin's ``except Exception`` catch-alls call
+    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+    no ``str(e)`` leak). The per-value length-cap validation errors
+    still route through :func:`_error_response` with an explicit
+    ``code="payload_too_large"`` field (PVT-G5-071) so clients can
+    branch on the code rather than pattern-matching the message text.
+    """
 
     def _handle_get_vocabulary(self, data, resp) -> dict | None:
         """Handle the ``get_vocabulary`` IPC command."""
@@ -23,9 +28,9 @@ class VocabularyHandlersMixin(HandlerMixinBase):
             result = self.service.get_vocabulary()
             resp["type"] = "vocabulary"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] get_vocabulary failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_vocabulary")
         return resp
 
     def _handle_save_vocabulary(self, data, resp) -> dict | None:
@@ -80,30 +85,36 @@ class VocabularyHandlersMixin(HandlerMixinBase):
             # place; the message format ("vocabulary value too long in
             # <cat>.<key>") is preserved for the
             # ``test_value_over_1024_chars_returns_error`` contract.
+            #
+            # PVT-G5-071: the inline envelope is routed through
+            # ``_error_response`` with ``code="payload_too_large"`` so
+            # the renderer can branch on the code (matches the
+            # ``max_payload_bytes`` envelope the helper emits for the
+            # whole-payload size check above).
             _max_value_len = 1024
             for cat, entries in data.items():
                 if isinstance(entries, dict):
                     for k, v in entries.items():
                         if isinstance(v, str) and len(v) > _max_value_len:
-                            resp["type"] = "error"
-                            resp["data"] = {
-                                "message": (f"vocabulary value too long in {cat}.{k} ({len(v)} > {_max_value_len})")
-                            }
-                            return resp
+                            return _error_response(
+                                resp,
+                                f"vocabulary value too long in {cat}.{k} ({len(v)} > {_max_value_len})",
+                                code="payload_too_large",
+                            )
                 elif isinstance(entries, list):
                     for entry in entries:
                         if isinstance(entry, (list, tuple)):
                             for v in entry:
                                 if isinstance(v, str) and len(v) > _max_value_len:
-                                    resp["type"] = "error"
-                                    resp["data"] = {
-                                        "message": (f"vocabulary value too long in {cat} ({len(v)} > {_max_value_len})")
-                                    }
-                                    return resp
+                                    return _error_response(
+                                        resp,
+                                        f"vocabulary value too long in {cat} ({len(v)} > {_max_value_len})",
+                                        code="payload_too_large",
+                                    )
             result = self.service.save_vocabulary_with_diff(data)
             resp["type"] = "ack"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] save_vocabulary failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "save_vocabulary")
         return resp

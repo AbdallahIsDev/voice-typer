@@ -363,18 +363,12 @@ class VolumeDucker:
             return False
 
         # v2.3: stop the smart-duck background monitor before touching
-        # state.  We do this in two phases to avoid a deadlock:
-        #
-        # 1. Signal the monitor to stop (thread-safe Event.set(), no
-        #    lock needed).  This wakes the monitor's _monitor_stop.wait()
-        #    immediately.
-        # 2. Release the lock (we don't hold it yet — but we acquire it
-        #    AFTER the join so the monitor can acquire it to check state
-        #    and exit cleanly).
-        #
-        # We must NOT hold self._lock during thread.join() because the
-        # monitor loop acquires self._lock to check _saved_state before
-        # exiting.  Holding the lock during join would deadlock.
+        # state.  G4-M-19: _stop_smart_duck_monitor() is now non-blocking
+        # (signals the Event, clears _monitor_thread, returns without
+        # joining). The monitor thread is a daemon and will exit on its
+        # own within one poll iteration (~poll_ms). We acquire self._lock
+        # AFTER the signal so the monitor can acquire it to check
+        # _saved_state and exit cleanly.
         self._stop_smart_duck_monitor()
 
         with self._lock:
@@ -524,42 +518,49 @@ class VolumeDucker:
         self._monitor_thread = t
 
     def _stop_smart_duck_monitor(self) -> None:
-        """Signal the background monitor to stop and wait briefly for it.
+        """Signal the background monitor to stop WITHOUT joining.
 
-        Called from :meth:`restore` and :meth:`set_smart_duck_enabled`
-        (when disabling).  Safe to call when no monitor is running.
-        Waits up to ``poll_interval_ms + 1000ms`` for the thread to
-        exit so we don't race with a poll that's in flight.
+        G4-M-19: previously this method joined the monitor thread with a
+        timeout of ``poll_ms + 1000ms``. When called from
+        :meth:`set_smart_duck_enabled` (via ``config_applier`` while
+        holding ``_config_mutation_lock``), that join blocked all IPC
+        ``set_config`` calls for up to 6 seconds (at the 5000ms poll
+        cap) — freezing the Settings UI on a volume-duck toggle.
 
-        Thread-safe: captures the thread reference locally before
-        joining, so a concurrent call from another thread doesn't
-        race with us setting ``self._monitor_thread = None``.
+        The fix is non-blocking: signal the ``_monitor_stop`` Event,
+        clear the ``_monitor_thread`` reference, and return immediately.
+        The monitor thread is a daemon, so it will exit on its own
+        within one poll iteration (``poll_ms``) when it sees the Event
+        is set.
+
+        Clearing ``_monitor_thread`` makes :attr:`is_monitor_running`
+        return False immediately (so the UI reflects the stop without
+        waiting for the thread to wind down). We do NOT clear
+        ``_monitor_stop`` itself — :meth:`_start_smart_duck_monitor`
+        clears it before starting a new thread, and clearing it here
+        could cancel the stop signal for a winding-down thread (the
+        thread reads ``_monitor_stop`` fresh on each poll iteration).
+
+        Safe to call when no monitor is running (early-return on None).
         """
         # Capture the thread reference locally — another thread may
-        # call _stop_smart_duck_monitor() concurrently and set
-        # self._monitor_thread = None between our None-check and our
-        # .join()/.is_alive() call.
+        # call _stop_smart_duck_monitor() concurrently.
         thread = self._monitor_thread
         if thread is None:
             return
+        # Signal the monitor to stop. The monitor's poll loop sleeps in
+        # _monitor_stop.wait(poll_ms) increments, so the Event.set()
+        # wakes it immediately — worst-case exit latency is one
+        # is_speaker_active() call (~50ms on Linux, ~500ms on macOS).
         self._monitor_stop.set()
-        # Wait for the thread to exit.  The poll loop sleeps in
-        # _monitor_stop.wait(poll_ms) increments, so the worst-case
-        # wait is poll_ms + the time for one is_speaker_active() call.
-        # On macOS that's ~500ms (osascript); we cap the join at
-        # poll_ms + 1000ms to avoid blocking shutdown indefinitely.
-        join_timeout = (self._smart_duck_poll_ms / 1000.0) + 1.0
-        thread.join(timeout=join_timeout)
-        if thread.is_alive():
-            log.warning(
-                "[VOLUME] smart-duck monitor did not stop in %.1fs — it will exit when the next poll completes",
-                join_timeout,
-            )
-        # Only clear self._monitor_thread if it still points at OUR
-        # thread — a concurrent duck() may have started a new monitor
-        # by now, and we don't want to clobber it.
-        if self._monitor_thread is thread:
-            self._monitor_thread = None
+        # G4-M-19: clear _monitor_thread so is_monitor_running returns
+        # False immediately (non-blocking). The thread is a daemon and
+        # will exit on its own; we do NOT join (joining would block the
+        # caller, potentially while holding _config_mutation_lock).
+        # NOTE: do NOT clear _monitor_stop — _start_smart_duck_monitor
+        # clears it before starting a new thread. Clearing it here would
+        # cancel the stop signal for the winding-down thread.
+        self._monitor_thread = None
 
     def _smart_duck_monitor_loop(self, fade_ms: int, per_session: bool) -> None:
         """Background thread: poll is_speaker_active() and retroactively duck.

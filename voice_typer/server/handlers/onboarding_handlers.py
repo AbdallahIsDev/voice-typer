@@ -18,6 +18,26 @@ class OnboardingHandlersMixin(HandlerBase):
     migrated to :meth:`HandlerBase._respond_with_error` for the
     catch-all ``except Exception`` path. See
         ``voice_typer/server/handlers/_base.py`` for the migration plan.
+
+    PVT-G5-095 (FA16, 2026-07-19): five of the onboarding handlers
+    (``onboarding_set_microphone``, ``onboarding_set_hotkey``,
+    ``onboarding_set_model``, ``onboarding_skip``, ``onboarding_apply``)
+    delegate the ack-vs-error decision to whether the service's return
+    dict contains an ``"error"`` key::
+
+        resp["type"] = "ack" if "error" not in result else "error"
+
+    This is an implicit contract between the handler and the service
+    layer. ``ServiceProtocol`` (in ``voice_typer/server/providers.py``)
+    documents it: ``service.onboarding_set_*`` / ``service.onboarding_skip``
+    / ``service.onboarding_apply`` return ``{"error": "<message>"}`` on
+    failure and ``{...}`` (no ``"error"`` key) on success. If the
+    service ever renames ``"error"`` to ``"code"`` or stops including
+    ``"error"`` on failure, the handler will silently report ``ack``
+    for failures. The contract is documented inline at each call site
+    below; a future refactor should switch the service to raising
+    exceptions on failure (preferred per PVT-G5-095) so the catch-all
+    ``except Exception`` envelope covers the failure path uniformly.
     """
 
     # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
@@ -43,9 +63,25 @@ class OnboardingHandlersMixin(HandlerBase):
         return resp
 
     def _handle_onboarding_start(self, data, resp) -> dict | None:
-        """Handle the ``onboarding_start`` IPC command."""
+        """Handle the ``onboarding_start`` IPC command.
+
+        PVT-006: also writes the ``.onboarding_started`` marker so
+        ``startup_sequence.py``'s auto-heal logic can distinguish a
+        genuine in-progress first-run wizard from a stale state. See
+        :meth:`OnboardingController.mark_started` for the full rationale.
+        The marker write is best-effort — if it fails, the worst case
+        is the pre-fix auto-heal behavior (current production behavior).
+        """
         try:
             result = self.service.onboarding_start()
+            # PVT-006: mark the wizard as started so auto-heal doesn't
+            # clobber an in-progress first-run flow on restart.
+            try:
+                from voice_typer.server.onboarding import OnboardingController
+
+                OnboardingController().mark_started()
+            except Exception:
+                pass  # Best-effort — marker creation is non-critical.
             resp["type"] = "onboarding_step"
             resp["data"] = result
         except Exception as exc:
@@ -110,6 +146,11 @@ class OnboardingHandlersMixin(HandlerBase):
                 return error
             assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_microphone(validated["mic_id"])
+            # PVT-G5-095 / Contract: ``service.onboarding_set_microphone``
+            # returns ``{"error": "<message>"}`` on failure (e.g. mic
+            # not found) and ``{...}`` (no ``"error"`` key) on success.
+            # The handler delegates the ack-vs-error decision to that
+            # key. See the class docstring for the full contract.
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -118,18 +159,29 @@ class OnboardingHandlersMixin(HandlerBase):
         return resp
 
     def _handle_onboarding_set_hotkey(self, data, resp) -> dict | None:
-        """Handle the ``onboarding_set_hotkey`` IPC command."""
+        """Handle the ``onboarding_set_hotkey`` IPC command.
+
+        PVT-017: the default hotkey is ``<caps_lock>`` (matching
+        :attr:`OnboardingController.selected_hotkey` and the first entry
+        of :attr:`OnboardingController.HOTKEY_PRESETS`). Previously the
+        default was ``<f2>``, which silently overrode the backend's
+        Caps Lock default when the renderer sent no explicit value.
+        """
         try:
             validated, error = _validate_dict_payload(
                 data,
                 {
-                    "hotkey": {"type": str, "required": False, "default": "<f2>"},
+                    "hotkey": {"type": str, "required": False, "default": "<caps_lock>"},
                 },
             )
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_hotkey(validated["hotkey"])
+            # PVT-G5-095 / Contract: ``service.onboarding_set_hotkey``
+            # returns ``{"error": "<message>"}`` on failure (e.g. hotkey
+            # reserved by the OS) and ``{...}`` (no ``"error"`` key) on
+            # success. See the class docstring for the full contract.
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -150,6 +202,10 @@ class OnboardingHandlersMixin(HandlerBase):
                 return error
             assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_model(validated["model"])
+            # PVT-G5-095 / Contract: ``service.onboarding_set_model``
+            # returns ``{"error": "<message>"}`` on failure (e.g. model
+            # not available) and ``{...}`` (no ``"error"`` key) on
+            # success. See the class docstring for the full contract.
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -161,6 +217,10 @@ class OnboardingHandlersMixin(HandlerBase):
         """Handle the ``onboarding_skip`` IPC command."""
         try:
             result = self.service.onboarding_skip()
+            # PVT-G5-095 / Contract: ``service.onboarding_skip`` returns
+            # ``{"error": "<message>"}`` on failure and ``{...}`` (no
+            # ``"error"`` key) on success. See the class docstring for
+            # the full contract.
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -172,6 +232,10 @@ class OnboardingHandlersMixin(HandlerBase):
         """Handle the ``onboarding_apply`` IPC command."""
         try:
             result = self.service.onboarding_apply()
+            # PVT-G5-095 / Contract: ``service.onboarding_apply`` returns
+            # ``{"error": "<message>"}`` on failure (e.g. config write
+            # error) and ``{...}`` (no ``"error"`` key) on success. See
+            # the class docstring for the full contract.
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -240,6 +304,10 @@ class OnboardingHandlersMixin(HandlerBase):
         Permissions step can render the right setup walkthrough
         (macOS Accessibility / Linux ``input`` group + udev rule).
 
+        PVT-052: the ``instructions`` dict now carries i18n *keys*
+        (``title_key`` / ``steps_keys``) instead of literal English
+        strings. The renderer resolves them via ``t(key)``.
+
         Does NOT delegate to ``self.service`` — the permission probe
         lives in :mod:`voice_typer.server.permissions` (via
         :meth:`OnboardingController.check_permissions`) and is shared
@@ -254,4 +322,59 @@ class OnboardingHandlersMixin(HandlerBase):
         except Exception as exc:
             # CR-20: generic WS-path envelope.
             self._respond_with_error(resp, exc, "onboarding_check_permissions")
+        return resp
+
+    def _handle_onboarding_request_keyboard_permission(self, data, resp) -> dict | None:
+        """Handle the ``onboarding_request_keyboard_permission`` IPC command.
+
+        PVT-057 / Fix 18: opens the OS permission UI so the user can
+        grant the keyboard-monitoring permission without leaving the
+        wizard. Delegates to
+        :func:`voice_typer.server.permissions.request_keyboard_permission`,
+        which deep-links to System Settings → Accessibility on macOS
+        and runs ``pkexec install_permissions.py`` on Linux.
+
+        NOTE: this handler must be registered in the
+        ``_COMMAND_REGISTRY`` in :mod:`voice_typer.server.ipc_server`
+        (owned by another agent's scope) before the renderer can invoke
+        it. Until then, calls to this IPC return ``unknown_command``.
+        The handler is in place so registration is a one-line change::
+
+            "onboarding_request_keyboard_permission": "_handle_onboarding_request_keyboard_permission",
+        """
+        try:
+            from voice_typer.server.permissions import request_keyboard_permission
+
+            request_keyboard_permission()
+            resp["type"] = "ack"
+            resp["data"] = {"ok": True}
+        except Exception as exc:
+            self._respond_with_error(
+                resp,
+                exc,
+                "onboarding_request_keyboard_permission",
+            )
+        return resp
+
+    def _handle_onboarding_reset(self, data, resp) -> dict | None:
+        """Handle the ``onboarding_reset`` IPC command (PVT-006).
+
+        Clears both the ``.onboarding_complete`` and ``.onboarding_started``
+        markers so the wizard reappears on next launch. Intended for a
+        future "re-run onboarding" affordance in Settings and for tests.
+
+        NOTE: like ``onboarding_request_keyboard_permission``, this must
+        be registered in ``_COMMAND_REGISTRY`` before the renderer can
+        invoke it. Registration is a one-line change::
+
+            "onboarding_reset": "_handle_onboarding_reset",
+        """
+        try:
+            from voice_typer.server.onboarding import OnboardingController
+
+            OnboardingController().reset()
+            resp["type"] = "ack"
+            resp["data"] = {"ok": True}
+        except Exception as exc:
+            self._respond_with_error(resp, exc, "onboarding_reset")
         return resp

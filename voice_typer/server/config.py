@@ -25,12 +25,18 @@ import json
 import logging
 import os
 import sys
+import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path, PureWindowsPath
-from typing import Any
+from typing import Literal
 
-from voice_typer.server.config_validators import ALLOWED_USER_MODELS
+from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey
 from voice_typer.server.platform_utils import is_macos, is_windows
+from voice_typer.server.secure_file_io import (  # noqa: F401 — backward-compat re-export
+    _secure_atomic_write,
+    _secure_read_text,
+)
 
 log = logging.getLogger("voice_typer.server.config")
 
@@ -59,153 +65,6 @@ def _default_hotkey_for_platform() -> str:
       present on laptop keyboards without an Fn combo).
     """
     return "<caps_lock>"
-
-
-def _secure_atomic_write(path: Path, content: str) -> None:
-    """Write content to ``path`` atomically and securely.
-
-    NEW-SEC-008: prevents symlink-TOCTOU attacks by:
-    1. Writing to a temp file in the same directory (so os.replace
-       is atomic on the same filesystem).
-    2. On POSIX, using ``os.open(tmp, O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)``
-       for the temp file. ``O_EXCL`` prevents a pre-created temp file
-       from being hijacked; ``O_NOFOLLOW`` refuses to follow symlinks.
-    3. On POSIX, tightening the target directory to 0o700 before the
-       write so the temp file is not world-readable.
-    4. Using ``os.replace(tmp, target)`` which is atomic on POSIX
-       and does NOT follow symlinks on the target (it replaces the
-       directory entry).
-
-    SEC-007: file mode 0o600 ensures API keys in config.json are not
-    world-readable on multi-user POSIX systems.
-
-    Parameters
-    ----------
-    path : Path
-        Target file path.
-    content : str
-        Content to write (UTF-8 encoded).
-    """
-    tmp_path = None
-    try:
-        # Create temp file in same directory for atomic rename
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
-        if not is_windows():
-            # POSIX: use O_NOFOLLOW to prevent symlink attacks on the
-            # temp file itself, and O_EXCL to prevent a pre-created
-            # temp file from being hijacked.
-            fd = os.open(
-                str(tmp_path),
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                0o600,
-            )
-            try:
-                with os.fdopen(fd, "w", encoding="utf-8") as f:
-                    f.write(content)
-                    f.flush()
-                    os.fsync(f.fileno())
-            except Exception:
-                with contextlib.suppress(OSError):
-                    os.close(fd)
-                raise
-        else:
-            # Windows: O_NOFOLLOW not available, but NTFS ACLs under
-            # %APPDATA% are per-user. Use standard open + fsync.
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                f.write(content)
-                f.flush()
-                os.fsync(f.fileno())
-        # os.replace is atomic and does NOT follow symlinks on the
-        # target — it replaces the directory entry itself.
-        os.replace(str(tmp_path), str(path))
-    except Exception:
-        # Clean up temp file on failure
-        if tmp_path is not None:
-            with contextlib.suppress(OSError):
-                tmp_path.unlink()
-        raise
-
-
-def _secure_read_text(path: Path, *, encoding: str = "utf-8") -> str:
-    """SEC-002: Read text from a file securely, refusing to follow symlinks.
-
-    On POSIX, opens the file with ``os.O_RDONLY | os.O_NOFOLLOW`` to
-    prevent symlink-TOCTOU attacks. If ``path`` is a symlink, the open
-    call raises ``OSError`` with ``errno=ELOOP`` (or ``EINVAL`` on some
-    kernels). On Windows, checks for reparse points before reading.
-
-    After opening, uses ``os.fstat()`` to verify the inode so that a
-    race between the open and the read is detectable (the file could be
-    replaced by a symlink or different file in the window between
-    ``open()`` and ``read()`` — on Linux this is extremely unlikely
-    due to O_NOFOLLOW, but the inode check provides defense in depth).
-
-    Parameters
-    ----------
-    path : Path
-        File to read.
-    encoding : str
-        Text encoding (default UTF-8).
-
-    Returns
-    -------
-    str
-        File contents as a string.
-
-    Raises
-    ------
-    OSError
-        If the file is a symlink (POSIX) or cannot be opened.
-    ValueError
-        If the inode changed between open and read (TOCTOU detected).
-    """
-    if not is_windows():
-        # POSIX: O_NOFOLLOW refuses to follow symlinks
-        fd = os.open(str(path), os.O_RDONLY | os.O_NOFOLLOW)
-        try:
-            # SEC-002: Record the inode after opening to detect TOCTOU replacement
-            stat_before = os.fstat(fd)
-            f = os.fdopen(fd, "r", encoding=encoding)
-            try:
-                content = f.read()
-                # SEC-002: Re-stat the fd to verify inode hasn't changed
-                # Must do this before f.close() since close() releases the fd
-                stat_after = os.fstat(fd)
-                if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
-                    raise ValueError(f"SEC-002: inode changed during read of {path} — possible TOCTOU attack")
-            finally:
-                f.close()
-            return content
-        except Exception:
-            with contextlib.suppress(OSError):
-                os.close(fd)
-            raise
-    else:
-        # Windows: check for reparse points (symlinks/junctions) before reading
-        # NTFS reparse points have the FILE_ATTRIBUTE_REPARSE_POINT bit set.
-        try:
-            # `st_file_attributes` is a Windows-only attribute on
-            # `os.stat_result`. Use ``getattr`` with a default of 0 so
-            # the type-checker doesn't reject the access on the
-            # cross-platform `stat_result` type (which doesn't declare
-            # this attribute). On non-Windows platforms the attribute
-            # is absent at runtime and ``getattr`` returns 0, so the
-            # reparse-point check is a no-op (correct behavior —
-            # reparse points are a Windows-only NTFS concept).
-            stat_result = os.lstat(str(path)) if hasattr(os, "lstat") else None
-            attrs = getattr(stat_result, "st_file_attributes", 0) or 0
-            if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
-                raise OSError(f"SEC-002: refusing to follow reparse point: {path}")
-        except (AttributeError, OSError):
-            pass  # lstat not available or file doesn't exist; open() will catch it
-        with open(path, encoding=encoding) as f:
-            # SEC-002: verify inode on Windows too (using os.fstat on the fileno)
-            stat_before = os.fstat(f.fileno())
-            content = f.read()
-            stat_after = os.fstat(f.fileno())
-            if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
-                raise ValueError(f"SEC-002: inode changed during read of {path} — possible TOCTOU attack")
-            return content
 
 
 def _validate_path_safety(path: Path, parent: Path) -> Path:
@@ -505,43 +364,191 @@ def _migrate_from_legacy():
     log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
 
 
-_CURRENT_SCHEMA_VERSION = 2
+# G4-H-11: cross-process lock for Config.save().
+_CONFIG_LOCK_TIMEOUT_SECONDS = 5
+
+
+@contextlib.contextmanager
+def _acquire_config_lock(timeout: float | None = None):
+    """G4-H-11: acquire an exclusive cross-process lock on config.json.lock.
+
+    Mirrors credential_store._acquire_migration_lock.  POSIX uses
+    fcntl.flock(LOCK_EX) polled with LOCK_NB to enforce the timeout.
+    Windows uses msvcrt.locking(LK_LOCK) retried in a loop.  On
+    timeout, raises TimeoutError (caught by Config.save() which
+    returns False).
+    """
+    import os as _os
+
+    if timeout is None:
+        timeout = _CONFIG_LOCK_TIMEOUT_SECONDS
+
+    lock_file = _config_dir() / "config.json.lock"
+    try:
+        _config_dir().mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
+
+    if not is_windows():
+        import errno
+        import fcntl
+
+        try:
+            fd = _os.open(str(lock_file), _os.O_CREAT | _os.O_RDWR, 0o600)
+        except OSError as e:
+            log.debug("[CONFIG] could not create lock file %s (%s) -- proceeding without lock", lock_file, e)
+            yield
+            return
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as e:
+                    if e.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                        if time.monotonic() >= deadline:
+                            _os.close(fd)
+                            raise TimeoutError(
+                                f"Config.save() could not acquire config.json.lock "
+                                f"within {timeout}s -- another process is holding the lock."
+                            )
+                        time.sleep(0.05)
+                        continue
+                    log.debug("[CONFIG] flock failed (%s) -- proceeding without lock", e)
+                    _os.close(fd)
+                    yield
+                    return
+            try:
+                yield
+            finally:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                except OSError:
+                    pass
+                _os.close(fd)
+        except TimeoutError:
+            raise
+        except Exception:
+            with contextlib.suppress(OSError):
+                _os.close(fd)
+            raise
+    else:
+        import msvcrt
+
+        try:
+            fd = _os.open(str(lock_file), _os.O_CREAT | _os.O_RDWR)
+        except OSError as e:
+            log.debug("[CONFIG] could not create lock file %s (%s) -- proceeding without lock", lock_file, e)
+            yield
+            return
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                try:
+                    msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                    break
+                except OSError:
+                    if time.monotonic() >= deadline:
+                        _os.close(fd)
+                        raise TimeoutError(
+                            f"Config.save() could not acquire config.json.lock "
+                            f"within {timeout}s -- another process is holding the lock."
+                        )
+                    time.sleep(0.05)
+            try:
+                yield
+            finally:
+                try:
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                except OSError:
+                    pass
+                _os.close(fd)
+        except TimeoutError:
+            raise
+        except Exception:
+            with contextlib.suppress(OSError):
+                _os.close(fd)
+            raise
+
+
+_CURRENT_SCHEMA_VERSION = 3
 
 # NEW-DEAD-018: _MIGRATIONS infrastructure for schema version migrations.
-# ADR 0007: v2 migrates old audio preset names and deprecated fields.
-_MIGRATIONS: dict[int, Any] = {}
+# G4-L-22: v3 prunes deprecated dead-code keys.
+# T1-F3: typed as ``dict[int, Callable[[dict], dict]]`` so static
+# checkers can verify that every registered migration is a function
+# taking a config dict and returning a (possibly mutated) config dict.
+_MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
 
 
 def _migrate_to_v2(data: dict) -> dict:
-    """Migrate config from schema v1 to v2 (ADR 0007 — filter chain).
+    """Migrate config from schema v1 to v2 (ADR 0007 -- filter chain).
 
-    Changes:
-    - Rename audio_preset "recommended" → "auto", "none" → "off"
-    - If noise_filter_enabled was False, set audio_preset="off"
-    - If noise_filter_rnnoise was True and no method set, set method="rnnoise"
-    - Old noise_filter_gate_threshold (linear) is left in place; the new
-      gate uses open/close dB thresholds with OBS-style defaults.
-    - normalize_audio / normalize_target_peak left in place (ignored at runtime).
+    G4-M-13: each rename logs at INFO.
+    G4-L-23: warnings appended to data["_load_warnings"].
+    G4-M-16: preset_existed captured BEFORE the rename block.
     """
-    # Rename old preset names
+    data.setdefault("_load_warnings", [])
+    preset_existed = "audio_preset" in data
+
     preset = data.get("audio_preset", "auto")
     if preset == "recommended":
+        log.info("[CONFIG] migrating schema v1 -> v2: renaming audio_preset 'recommended' -> 'auto'")
+        data["_load_warnings"].append("audio_preset 'recommended' renamed to 'auto' (schema v2 migration)")
         data["audio_preset"] = "auto"
     elif preset == "none":
+        log.info("[CONFIG] migrating schema v1 -> v2: renaming audio_preset 'none' -> 'off'")
+        data["_load_warnings"].append("audio_preset 'none' renamed to 'off' (schema v2 migration)")
         data["audio_preset"] = "off"
 
-    # If noise_filter_enabled was False, switch to "off" preset
-    if data.get("noise_filter_enabled") is False and "audio_preset" not in data:
+    if data.get("noise_filter_enabled") is False and not preset_existed:
+        log.info("[CONFIG] migrating schema v1 -> v2: noise_filter_enabled=False -> setting audio_preset='off'")
+        data["_load_warnings"].append(
+            "audio_preset set to 'off' because noise_filter_enabled was False (schema v2 migration)"
+        )
         data["audio_preset"] = "off"
 
-    # If RNNoise was explicitly enabled, ensure method is set
     if data.get("noise_filter_rnnoise") is True and "noise_suppression_method" not in data:
+        log.info(
+            "[CONFIG] migrating schema v1 -> v2: noise_filter_rnnoise=True -> setting noise_suppression_method='rnnoise'"
+        )
+        data["_load_warnings"].append(
+            "noise_suppression_method set to 'rnnoise' because noise_filter_rnnoise was True (schema v2 migration)"
+        )
         data["noise_suppression_method"] = "rnnoise"
 
     return data
 
 
+def _migrate_to_v3(data: dict) -> dict:
+    """Migrate config from schema v2 to v3 (G4-L-22 -- prune deprecated fields).
+
+    ADR 0007 deprecated several fields that the filter chain no longer
+    reads.  v3 explicitly pop()s them from the on-disk dict.
+    """
+    data.setdefault("_load_warnings", [])
+    deprecated_keys = (
+        "silence_rms_threshold",
+        "silence_peak_threshold",
+        "normalize_audio",
+        "normalize_target_peak",
+        "volume_duck_per_session",
+        "volume_duck_smart",
+        "noise_filter_enabled",
+        "noise_filter_gate_threshold",
+        "noise_filter_post_capture",
+    )
+    for key in deprecated_keys:
+        if key in data:
+            log.info("[CONFIG] migrating schema v2 -> v3: pruning deprecated key %r", key)
+            data["_load_warnings"].append(f"deprecated key {key!r} pruned (schema v3 migration)")
+            data.pop(key)
+    return data
+
+
 _MIGRATIONS[2] = _migrate_to_v2
+_MIGRATIONS[3] = _migrate_to_v3
 
 
 @dataclass
@@ -617,7 +624,12 @@ class Config:
     fast_startup: bool = True
 
     # ASR backend selection
-    asr_backend: str = "whisper"  # "whisper", "qwen", or "parakeet"
+    # PVT-G5-067: ``Literal[...]`` instead of bare ``str`` so static
+    # checkers catch typos and the IPC validator can cross-check the
+    # allowed values against the type annotation.  ``Literal`` is a
+    # subtype of ``str``, so existing string assignments and JSON
+    # round-tripping remain backward-compatible.
+    asr_backend: Literal["whisper", "qwen", "parakeet"] = "whisper"
     qwen_model_path: str | None = None  # local path to Qwen3-ASR weights
     parakeet_model_path: str | None = None  # local override for Parakeet weights (None = HF cache)
 
@@ -642,7 +654,7 @@ class Config:
     # ─── P1 Features ───────────────────────────────────────────────
 
     # Push-to-talk mode (hold to record, release to stop)
-    recording_mode: str = "toggle"  # "toggle" or "push_to_talk"
+    recording_mode: Literal["toggle", "push_to_talk"] = "toggle"
     push_to_talk_hotkey: str = ""  # Separate hotkey for PTT (empty = same as toggle)
 
     # ESC to cancel at any stage
@@ -747,10 +759,11 @@ class Config:
     # Bubble screen position (top / bottom).  Default "bottom" — the
     # recording bubble sits at bottom-center, out of the way of most
     # app title bars and camera notches.
-    bubble_position: str = "bottom"
+    bubble_position: Literal["top", "bottom"] = "bottom"
 
     # Bubble behavior: show on record, or always visible
-    bubble_behavior: str = "show_on_record"  # "show_on_record" or "always_visible"
+    # PVT-G5-067: ``Literal[...]`` for static-type narrowing.
+    bubble_behavior: Literal["show_on_record", "always_visible"] = "show_on_record"
 
     # Whether the bubble can be dragged by the user
     bubble_draggable: bool = True
@@ -783,13 +796,29 @@ class Config:
     onboarding_failed: bool = False
 
     # Tray icon left-click behavior
-    tray_left_click_action: str = "open_app"  # "open_app" or "toggle_dictation"
+    # PVT-G5-067: ``Literal[...]`` for static-type narrowing.
+    tray_left_click_action: Literal["open_app", "toggle_dictation"] = "open_app"
 
     # UX-008: Theme mode (system/light/dark)
-    theme_mode: str = "system"
+    # PVT-G5-067: ``Literal[...]`` for static-type narrowing.
+    theme_mode: Literal["system", "light", "dark"] = "system"
     # Theme preset — a built-in colour scheme applied on top of the
     # current theme_mode. "default" means no overrides.
-    theme_preset: str = "default"
+    # PVT-G5-067: ``Literal[...]`` enumerates the built-in presets.
+    theme_preset: Literal[
+        "default",
+        "amoled",
+        "nord",
+        "dracula",
+        "sepia",
+        "solarized",
+        "monokai",
+        "ayu",
+        "github",
+        "catppuccin",
+        "tokyo-night",
+        "custom",
+    ] = "default"
     # User-customised theme colours (only used when theme_preset == "custom").
     # Stored as nested dict: {"light": {var: val, ...}, "dark": {var: val, ...}}
     custom_theme: dict | None = None
@@ -886,7 +915,19 @@ class Config:
     # The preset is applied at startup (Config.load) and on explicit
     # set_config. See voice_typer/server/audio_presets.py for the
     # single source of truth.
-    audio_preset: str = "auto"
+    # PVT-G5-067: ``Literal[...]`` includes legacy values
+    # ("recommended", "none") so a stale config.json loaded BEFORE
+    # the v2 migration renames them is still statically typed; the
+    # migration then rewrites them to "auto"/"off".
+    audio_preset: Literal[
+        "auto",
+        "studio",
+        "noisy_room",
+        "off",
+        "custom",
+        "none",
+        "recommended",
+    ] = "auto"
 
     # ─── Noise filtering (ADR 0007 — filter chain) ───────────────────
     # Each filter has an enable flag + parameters. The filter chain
@@ -907,8 +948,13 @@ class Config:
     noise_filter_post_capture: bool = True  # DEPRECATED — post-capture removed per ADR 0007
 
     # ADR 0007 §5.1: New filter chain fields
-    # Noise suppressor backend selection
-    noise_suppression_method: str = "rnnoise"  # "rnnoise" | "deepfilternet" | "speex" | "none"
+    # Noise suppressor backend selection.
+    # PVT-G5-067: ``Literal[...]`` matches ``NOISE_SUPPRESSION_METHODS``
+    # in ``config_validators.py`` (the authoritative allowlist). The
+    # historical ``"speex"`` option was never implemented — there is
+    # no speex backend in ``audio_filters/noise_suppressor.py`` — and
+    # is intentionally omitted so static type-checkers reject it.
+    noise_suppression_method: Literal["rnnoise", "deepfilternet", "none"] = "rnnoise"
 
     # NoiseGate (OBS-style, replaces single threshold)
     noise_filter_gate_open_threshold_db: float = -26.0
@@ -1020,50 +1066,70 @@ class Config:
         Linux without ``gnome-keyring-daemon`` aren't blocked.
         """
         try:
-            path = _config_dir()
-            path.mkdir(parents=True, exist_ok=True)
-            if not is_windows():
-                try:
-                    os.chmod(path, 0o700)
-                except OSError as e:
-                    log.warning("[CONFIG] Failed to chmod config dir: %s", e)
-            config_file = path / "config.json"
-            data = asdict(self)
-            # RW-01: route API key fields through credential_store.
-            # See module docstring in credential_store.py for the full
-            # design. We only call store_secret when keyring is
-            # available, to avoid double-writes (store_secret itself
-            # falls back to writing config.json on keyring failure,
-            # which would race with our _secure_atomic_write below).
-            try:
-                from voice_typer.server import credential_store
-
-                if credential_store.is_keyring_available():
-                    for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
-                        value = data.get(field_name, "")
-                        if value and not value.startswith(credential_store.KEYRING_REF_PREFIX):
-                            # Real value in memory — push to keyring, then
-                            # replace the on-disk field with a reference.
-                            credential_store.store_secret(provider, value)
-                            data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
-                        # If value is empty or already a reference token,
-                        # leave it as-is (the redacted IPC view in
-                        # _sanitize_config_for_ipc will hide it anyway).
-                # else: keyring unavailable — leave plaintext in `data`;
-                # _secure_atomic_write enforces 0o600 on POSIX.
-            except Exception as e:
-                # Don't let credential_store issues break config save —
-                # fall through to writing whatever we have in `data`.
-                log.warning(
-                    "[CONFIG] credential_store routing failed: %s — writing config with current api_key values",
-                    e,
-                )
-            content = json.dumps(data, indent=2)
-            _secure_atomic_write(config_file, content)
-            return True
+            with _acquire_config_lock():
+                return self._save_locked()
+        except TimeoutError as e:
+            log.warning("[CONFIG] %s", e)
+            return False
         except (OSError, PermissionError) as e:
             log.error("[CONFIG] Failed to save config: %s", e)
             return False
+
+    def _save_locked(self) -> bool:
+        """Body of :meth:`save` -- assumes the cross-process lock is held.
+
+        G4-H-09: best-effort single-slot backup of the existing
+        config.json BEFORE we overwrite it.  The backup preserves
+        the EXACT bytes that were on disk (byte-for-byte) so the user
+        can manually recover dropped fields after a downgrade save.
+        """
+        path = _config_dir()
+        path.mkdir(parents=True, exist_ok=True)
+        if not is_windows():
+            try:
+                os.chmod(path, 0o700)
+            except OSError as e:
+                log.warning("[CONFIG] Failed to chmod config dir: %s", e)
+        config_file = path / "config.json"
+        data = asdict(self)
+        # RW-01: route API key fields through credential_store.
+        try:
+            from voice_typer.server import credential_store
+
+            if credential_store.is_keyring_available():
+                for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
+                    value = data.get(field_name, "")
+                    if value and not value.startswith(credential_store.KEYRING_REF_PREFIX):
+                        credential_store.store_secret(provider, value)
+                        data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
+        except Exception as e:
+            log.warning(
+                "[CONFIG] credential_store routing failed: %s — writing config with current api_key values",
+                e,
+            )
+        content = json.dumps(data, indent=2)
+        content_bytes = content.encode("utf-8")
+
+        # G4-H-09: best-effort backup before overwrite.
+        if config_file.exists():
+            try:
+                existing_bytes = config_file.read_bytes()
+                if existing_bytes != content_bytes:
+                    bak_path = path / "config.json.bak"
+                    bak_path.write_bytes(existing_bytes)
+                    if not is_windows():
+                        try:
+                            os.chmod(bak_path, 0o600)
+                        except OSError as e:
+                            log.debug("[CONFIG] Failed to chmod config.json.bak: %s", e)
+            except OSError as e:
+                log.debug(
+                    "[CONFIG] Failed to back up existing config.json to config.json.bak: %s",
+                    e,
+                )
+
+        _secure_atomic_write(config_file, content)
+        return True
 
     def save_strict(self) -> None:
         """PERSIST-1 (MED-N): save config to disk; raise on failure.
@@ -1142,10 +1208,23 @@ class Config:
                 # AttributeError, which we deliberately let propagate.
                 if not isinstance(parsed, dict):
                     raise TypeError(f"config root must be a JSON object, got {type(parsed).__name__}")
+                # G4-M-14: log a WARNING if the on-disk config contains
+                # keys this build doesn't recognize.  These keys are
+                # silently dropped by the filter below.
+                unknown_keys = set(parsed) - set(cls.__dataclass_fields__)
+                if unknown_keys:
+                    log.warning(
+                        "[CONFIG] dropped %d unknown key(s) from %s: %s",
+                        len(unknown_keys),
+                        config_file,
+                        ", ".join(sorted(unknown_keys)),
+                    )
                 data = {k: v for k, v in parsed.items() if k in cls.__dataclass_fields__}
 
                 # M3: Schema versioning and migration
                 loaded_version = data.get("schema_version", 0)
+                # G4-M-15: track whether any migration ran.
+                migrations_ran = False
                 # SCHEMA-2 (MED-J): if the on-disk schema_version is
                 # NEWER than this build supports, log a warning so the
                 # user knows some fields may be dropped (we filter
@@ -1178,9 +1257,55 @@ class Config:
                         for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
                             migrator = _MIGRATIONS.get(version)
                             if migrator is not None:
-                                data = migrator(data)
+                                # G4-M-13: log the migration BEFORE
+                                # calling the migrator.
+                                log.info(
+                                    "[CONFIG] migrating schema v%d -> v%d",
+                                    max(loaded_version, version - 1),
+                                    version,
+                                )
+                                # G4-CR-07: wrap each migrator in
+                                # try/except so a buggy migrator doesn't
+                                # brick the user's config permanently.
+                                # KEEP the partially-migrated data and
+                                # continue with the next migrator.
+                                try:
+                                    data = migrator(data)
+                                    migrations_ran = True
+                                except Exception as migrator_exc:
+                                    log.error(
+                                        "[CONFIG] migrator v%d raised %s: %s -- "
+                                        "keeping partially-migrated data and continuing",
+                                        version,
+                                        type(migrator_exc).__name__,
+                                        migrator_exc,
+                                    )
+                                    data.setdefault("_load_warnings", []).append(
+                                        f"schema migration v{version} raised "
+                                        f"{type(migrator_exc).__name__}: {migrator_exc} -- "
+                                        "partially-migrated data kept"
+                                    )
+                                    migrations_ran = True
                     final_schema_version = _CURRENT_SCHEMA_VERSION
                 data["schema_version"] = final_schema_version
+
+                # G4-CR-07: best-effort backup of config.json BEFORE
+                # any migration runs.  shutil.copy2 is used (not
+                # Path.replace) so the original config.json stays in
+                # place -- the load must NOT modify the on-disk file
+                # mid-load.
+                if isinstance(loaded_version, int) and loaded_version < _CURRENT_SCHEMA_VERSION:
+                    pre_bak = config_file.parent / f"config.json.pre-migration-v{loaded_version}.bak"
+                    try:
+                        import shutil
+
+                        shutil.copy2(config_file, pre_bak)
+                    except OSError as e:
+                        log.debug(
+                            "[CONFIG] failed to back up config.json to %s before migration: %s",
+                            pre_bak,
+                            e,
+                        )
 
                 # Config fields were renamed (no migration needed):
                 # VALID-1 (MED-K): each inline float()/int() coercion is
@@ -1428,6 +1553,37 @@ class Config:
 
                 # H1: Validate non-numeric fields before construction
                 data = cls._validate_non_numeric_fields(data)
+
+                # G4-H-13: validate hotkeys against the reserved-shortcut
+                # denylist (mirrors the IPC set_config validation).
+                # Config.load() previously bypassed this check -- a
+                # stale or hand-edited config with "hotkey": "<ctrl>+<c>"
+                # would steal Ctrl+C from every app on startup.  On
+                # validation failure we reset the offending hotkey to
+                # the platform default (<caps_lock>) and append a
+                # warning to _load_warnings.
+                default_hotkey = _default_hotkey_for_platform()
+                for hotkey_field in ("hotkey", "push_to_talk_hotkey", "repaste_hotkey"):
+                    value = data.get(hotkey_field)
+                    # An empty push_to_talk_hotkey means "same as
+                    # toggle" -- skip empty strings.
+                    if not isinstance(value, str) or value == "":
+                        continue
+                    err = _validate_hotkey(value)
+                    if err is not None:
+                        log.warning(
+                            "[CONFIG] %s=%r rejected by hotkey validator (%s) -- resetting to platform default %r",
+                            hotkey_field,
+                            value,
+                            err,
+                            default_hotkey,
+                        )
+                        data.setdefault("_load_warnings", []).append(
+                            f"Config field {hotkey_field!r}={value!r} rejected by "
+                            f"hotkey validator ({err}) -- reset to {default_hotkey!r}"
+                        )
+                        data[hotkey_field] = default_hotkey
+
                 # NEW-CQ-016: extract load warnings before construction
                 # (cls(**data) would fail on the _load_warnings key)
                 load_warnings = data.pop("_load_warnings", [])
@@ -1436,16 +1592,7 @@ class Config:
                 instance.last_load_warnings = load_warnings
 
                 # AUDIO-PRESET-LOAD-FIX: apply the audio preset's filter
-                # toggles on every load so that the individual
-                # ``noise_filter_*`` fields are always consistent with
-                # ``audio_preset``, even if the JSON is stale (e.g., the
-                # preset was saved but the side-effect toggles were not,
-                # a bug fixed in ``config_handlers.py``).  Without this,
-                # a config file with ``audio_preset: "off"`` but all
-                # ``noise_filter_highpass: True`` (the dataclass default)
-                # would build a filter chain with all filters ON on
-                # startup, making the preset appear to reset to Auto
-                # despite the UI showing Off.
+                # toggles on every load.
                 try:
                     from voice_typer.server.audio_presets import apply_preset
 
@@ -1453,23 +1600,45 @@ class Config:
                 except Exception:
                     log.debug("[CONFIG] apply_preset on load failed", exc_info=True)
 
+                # G4-M-15: persist the bumped schema_version eagerly so
+                # the next launch doesn't re-run the same migrations
+                # (and re-trigger any bugs in a migrator that already
+                # raised).  The save() is best-effort.
+                if migrations_ran:
+                    try:
+                        instance.save()
+                    except Exception:
+                        log.debug("[CONFIG] eager post-migration save failed", exc_info=True)
+
                 return instance
             except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
-                # RW-9: enumerated failure modes — see the docstring
-                # above for the rationale.  The warning includes the
-                # exception class name (failure-mode indicator) and the
-                # config file path so the user can see *which* file is
-                # corrupt and *why* the app fell back to defaults.
-                # Unexpected exceptions (KeyError, AttributeError,
-                # MemoryError, KeyboardInterrupt, SystemExit) are NOT
-                # caught here — they propagate so genuine bugs and
-                # system-level failures are visible.
+                # RW-9: enumerated failure modes -- see the docstring.
                 log.warning(
                     "[CONFIG] %s loading config %s: %s. Using defaults.",
                     type(e).__name__,
                     config_file,
                     e,
                 )
+                # G4-H-10: best-effort move the corrupt config aside so
+                # the user can recover their settings manually from the
+                # .corrupt-<timestamp> backup.  Without this, the next
+                # Config.save() would atomically overwrite the corrupt
+                # file with defaults, destroying any chance of forensic
+                # recovery.  Path.replace is atomic.  Best-effort.
+                try:
+                    corrupt_backup = config_file.parent / f"config.json.corrupt-{int(time.time())}"
+                    config_file.replace(corrupt_backup)
+                    log.warning(
+                        "[CONFIG] moved corrupt config %s -> %s for forensic recovery",
+                        config_file,
+                        corrupt_backup,
+                    )
+                except OSError as move_exc:
+                    log.debug(
+                        "[CONFIG] could not move corrupt config %s aside: %s",
+                        config_file,
+                        move_exc,
+                    )
                 return cls()
         return cls()
 
@@ -1567,6 +1736,13 @@ class Config:
             # one-time plaintext → keyring migration in
             # credential_store.migrate_secrets_to_keyring().
             "secrets_migrated",
+            # G4-M-11: missing bool fields that legacy config.json files
+            # may have stored as "true"/"false" strings or 0/1 ints.
+            "use_silero_vad",
+            "normalize_audio",
+            "warn_elevated_paste",
+            "warn_password_paste",
+            "clipboard_save_restore",
         }
         str_fields = {
             "hotkey",
@@ -1681,7 +1857,7 @@ class Config:
                 warnings.append(msg)
                 data[field_name] = default_val
 
-        optional_str_fields = {"parakeet_model_path", "qwen_model_path"}
+        optional_str_fields = {"parakeet_model_path", "qwen_model_path", "microphone"}
 
         for field_name in str_fields:
             if field_name not in data:

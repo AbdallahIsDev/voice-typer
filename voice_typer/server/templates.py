@@ -24,6 +24,12 @@ log = logging.getLogger(__name__)
 
 TEMPLATES_FILENAME = "voice-typer-templates.json"
 
+# G4-M-38: SEC-011-style caps for templates to prevent resource
+# exhaustion. Mirror vocabulary.MAX_CORRECTIONS_ENTRIES pattern.
+MAX_TEMPLATES = 1000
+MAX_TRIGGER_LENGTH = 200
+MAX_OUTPUT_LENGTH = 2000
+
 # ─── Variable substitution ─────────────────────────────────────────────
 
 
@@ -153,22 +159,54 @@ class TemplateManager:
         )
         try:
             _secure_atomic_write(self._path, content)
-        except Exception as exc:
+        except Exception:
             # M-62: log then re-raise so callers can roll back.
-            log.error("[TEMPLATES] Failed to save: %s", exc)
+            # G4-H-38: use log.exception so the traceback is captured
+            # automatically via sys.exc_info().
+            log.exception("[TEMPLATES] Failed to save")
             raise
         log.debug("[TEMPLATES] Saved %d templates", len(self._templates))
 
-    def add(self, trigger: str, output: str, *, match_mode: str = "exact") -> dict:
-        """Add a new template. Returns the created template dict.
+    def add(self, trigger: str, output: str, *, match_mode: str = "exact") -> dict | None:
+        """Add a new template. Returns the created template dict, or
+        ``None`` if rejected.
+
+        G4-M-38: enforces SEC-011-style caps:
+          - Per-field length cap: ``MAX_TRIGGER_LENGTH``,
+            ``MAX_OUTPUT_LENGTH``. Oversized entries are rejected with
+            a logged warning.
+          - Total count cap: ``MAX_TEMPLATES``. Once the cap is reached
+            the new template is dropped (rejected with a warning).
 
         M-62: persists first-then-mutates with rollback. If ``_save``
         raises, the appended entry is popped back off so the
         in-memory state stays consistent with the on-disk state.
         """
+        trigger_stripped = trigger.strip() if isinstance(trigger, str) else str(trigger).strip()
+        output_str = output if isinstance(output, str) else str(output)
+        if len(trigger_stripped) > MAX_TRIGGER_LENGTH:
+            log.warning(
+                "[TEMPLATES] Trigger exceeds MAX_TRIGGER_LENGTH (%d > %d), rejecting",
+                len(trigger_stripped),
+                MAX_TRIGGER_LENGTH,
+            )
+            return None
+        if len(output_str) > MAX_OUTPUT_LENGTH:
+            log.warning(
+                "[TEMPLATES] Output exceeds MAX_OUTPUT_LENGTH (%d > %d), rejecting",
+                len(output_str),
+                MAX_OUTPUT_LENGTH,
+            )
+            return None
+        if len(self._templates) >= MAX_TEMPLATES:
+            log.warning(
+                "[TEMPLATES] Template count at MAX_TEMPLATES cap (%d), rejecting new template",
+                MAX_TEMPLATES,
+            )
+            return None
         template = {
-            "trigger": trigger.strip(),
-            "output": output,
+            "trigger": trigger_stripped,
+            "output": output_str,
             "match_mode": match_mode,  # "exact" or "contains"
             "created_at": datetime.now().isoformat(),
         }
@@ -239,6 +277,14 @@ class TemplateManager:
     def import_json(self, json_str: str) -> int:
         """Import templates from a JSON string. Returns number imported.
 
+        G4-M-38: enforces SEC-011-style caps:
+          - Drops templates whose trigger exceeds
+            ``MAX_TRIGGER_LENGTH`` or output exceeds
+            ``MAX_OUTPUT_LENGTH`` (mirrors
+            ``text_cleanup._load_external_corrections``).
+          - Truncates the import if it would exceed ``MAX_TEMPLATES``.
+          - Logs a single warning summarising the dropped count.
+
         M-62: snapshots the list before appending and restores it on
         save failure so the in-memory state stays consistent with the
         on-disk state.
@@ -247,9 +293,45 @@ class TemplateManager:
             data = json.loads(json_str)
             templates = data if isinstance(data, list) else data.get("templates", [])
             to_add: list[dict] = []
+            dropped = 0
             for t in templates:
-                if isinstance(t, dict) and "trigger" in t and "output" in t:
-                    to_add.append(t)
+                if not isinstance(t, dict) or "trigger" not in t or "output" not in t:
+                    continue
+                trigger_raw = t.get("trigger", "")
+                output_raw = t.get("output", "")
+                trigger_str = trigger_raw if isinstance(trigger_raw, str) else str(trigger_raw)
+                output_str = output_raw if isinstance(output_raw, str) else str(output_raw)
+                # Use the stripped length for the trigger cap to match
+                # the add() behavior (which strips before storing).
+                if len(trigger_str.strip()) > MAX_TRIGGER_LENGTH:
+                    dropped += 1
+                    continue
+                if len(output_str) > MAX_OUTPUT_LENGTH:
+                    dropped += 1
+                    continue
+                to_add.append(t)
+            if dropped:
+                log.warning(
+                    "[TEMPLATES] Dropped %d templates from import (oversized)",
+                    dropped,
+                )
+            # Total-count cap: truncate to fit within MAX_TEMPLATES.
+            current = len(self._templates)
+            available = MAX_TEMPLATES - current
+            if available <= 0:
+                log.warning(
+                    "[TEMPLATES] Template count at MAX_TEMPLATES cap (%d), dropping all %d imported templates",
+                    MAX_TEMPLATES,
+                    len(to_add),
+                )
+                return 0
+            if len(to_add) > available:
+                log.warning(
+                    "[TEMPLATES] Import exceeds MAX_TEMPLATES cap, truncating %d -> %d",
+                    len(to_add),
+                    available,
+                )
+                to_add = to_add[:available]
             if not to_add:
                 return 0
             # Snapshot for rollback.

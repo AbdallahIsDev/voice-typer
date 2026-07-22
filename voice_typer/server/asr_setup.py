@@ -36,6 +36,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ def wait_while_paused(timeout_s: float = 1.0) -> bool:
 # sync requirement with ``model_hashes.json`` — pinned files in the
 # manifest MUST be a subset of these allow-patterns, otherwise
 # ``verify_model_integrity()`` hard-fails on every download.
-from voice_typer.server._model_integrity import ALLOW_PATTERNS as _HF_ALLOW_PATTERNS
+from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _HF_ALLOW_PATTERNS
 
 # NEW-DEAD-027: removed the module-level ``_CONFIG_DIR`` cache.
 # It was a one-line indirection over ``config._config_dir()`` that
@@ -201,9 +202,52 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> bool:
     return verify_model_integrity(local_dir, repo_id)
 
 
+def _cleanup_failed_cache(repo_id: str) -> None:
+    """G4-CR-06 / cache cleanup: best-effort delete a tampered HF cache dir.
+
+    Called from ``download_parakeet_weights`` when
+    ``verify_model_integrity()`` returns False (either on the cache-hit
+    path or after a fresh download).  Removes the
+    ``models--<org>--<repo>`` directory under
+    ``<config_dir>/huggingface/hub/`` so the next call doesn't
+    re-discover the tampered snapshot.
+
+    Best-effort: logs but does not raise if the cleanup itself fails
+    (e.g. file is locked on Windows, permission denied on POSIX).  The
+    integrity hard-fail (``return (False, "integrity_check_failed")``)
+    is the security gate; this cleanup is just hygiene.
+    """
+    import shutil
+
+    try:
+        from voice_typer.server.config import _config_dir
+
+        cache_root = _config_dir() / "huggingface" / "hub"
+    except Exception as exc:
+        log.debug("[ASR_SETUP] could not resolve config dir for cache cleanup: %s", exc)
+        return
+
+    model_dir = cache_root / f"models--{repo_id.replace('/', '--')}"
+    if not model_dir.exists():
+        return
+    try:
+        shutil.rmtree(model_dir)
+        log.warning(
+            "[ASR_SETUP] Removed tampered HF cache directory %s after integrity check failure.",
+            model_dir,
+        )
+    except OSError as exc:
+        log.warning(
+            "[ASR_SETUP] Could not remove tampered HF cache directory %s: %s. Manual cleanup recommended.",
+            model_dir,
+            exc,
+        )
+
+
 def download_parakeet_weights(
     progress_callback: Callable[[str], None] | None = None,
-) -> bool:
+    config: Any = None,
+) -> tuple[bool, str]:
     """Download Parakeet TDT v3 model weights via huggingface_hub.
 
     PROD-004: wraps snapshot_download in retry loop with exponential
@@ -211,20 +255,66 @@ def download_parakeet_weights(
 
     PROD-005: checks disk space before attempting download.
 
+    G4-H-04 (Session 7 — Group 4): defense-in-depth consent gate.
+    When ``config`` is provided, ``config.huggingface_consent`` MUST be
+    True before any HuggingFace network call.  The IPC handler in
+    ``service.py::_require_huggingface_consent`` already gates on
+    consent; this in-function check is the belt-and-suspenders guard
+    against future refactors that bypass the IPC layer.  When
+    ``config`` is ``None`` (legacy / test path), the gate is SKIPPED —
+    the caller is presumed to have already verified consent.
+
+    G4-M-46 (Session 7 — Group 4): the return type is now
+    ``tuple[bool, str]``.  The string is a short reason code that the
+    caller (``service.py::download_model``) maps to a specific tray
+    notification:
+      - ``"huggingface_consent_false"`` — consent gate blocked download.
+      - ``"huggingface_hub_missing"`` — ``huggingface_hub`` import failed.
+      - ``"disk_space_insufficient"`` — canonical disk-space check raised.
+      - ``"download_retry_exhausted"`` — all ``_MAX_DOWNLOAD_RETRIES``
+        attempts failed.
+      - ``"integrity_check_failed"`` — post-download
+        ``verify_model_integrity()`` returned False (tampered or
+        corrupted download).  The offending ``models--<repo>`` directory
+        is removed so the next call re-downloads fresh.
+    Success returns ``(True, "")``.
+
     Args:
         progress_callback: Optional callable(message: str) for progress updates.
+        config: Optional Config object — when provided, the consent
+            gate is enforced.
 
     Returns:
-        True if download succeeded or weights already cached, False otherwise.
+        ``(success, reason)`` — see above.
     """
+    # G4-H-04: defense-in-depth consent gate.  Only enforce when
+    # ``config`` is provided — legacy callers that don't pass config
+    # are presumed to have already verified consent upstream (the IPC
+    # handler does this).  This preserves backward compatibility with
+    # existing tests and the bare ``download_parakeet_weights()`` call
+    # in ``service.py`` (to be updated in coordination with the
+    # service.py owner).
+    if config is not None:
+        consent = bool(getattr(config, "huggingface_consent", False))
+        if not consent:
+            log.warning("[ASR_SETUP] HuggingFace consent not given — refusing to download Parakeet weights.")
+            if progress_callback:
+                progress_callback("HuggingFace consent required before downloading Parakeet model.")
+            return (False, "huggingface_consent_false")
+
     ensure_hf_env()
     try:
         from huggingface_hub import snapshot_download
     except ImportError:
-        log.error("[ASR_SETUP] huggingface_hub not available for Parakeet download")
+        # PVT-G5-042 (session-5): append the install command so the user
+        # can recover without filing a bug or grepping pyproject.toml.
+        log.error(
+            "[ASR_SETUP] huggingface_hub not available for Parakeet download "
+            "(install with: pip install huggingface_hub)"
+        )
         if progress_callback:
             progress_callback("huggingface_hub not installed, cannot download weights")
-        return False
+        return (False, "huggingface_hub_missing")
 
     repo_id = "nvidia/parakeet-tdt-0.6b-v3"
 
@@ -251,9 +341,13 @@ def download_parakeet_weights(
             log.info("[ASR_SETUP] %s", msg)
             if progress_callback:
                 progress_callback(msg)
-            return True
+            return (True, "")
         else:
             log.warning("[ASR_SETUP] Cached model failed integrity check, re-downloading")
+            # G4-CR-06 / cache cleanup on verify failure: remove the
+            # offending cache dir so the re-download doesn't get the
+            # same tampered files served from local cache.
+            _cleanup_failed_cache(repo_id)
     except Exception as exc:
         # CR-92: previously a bare ``except Exception: pass``.
         # Corrupted HF cache (partial download, broken lock file,
@@ -290,7 +384,7 @@ def download_parakeet_weights(
         log.error("[ASR_SETUP] %s", msg)
         if progress_callback:
             progress_callback(msg)
-        return False
+        return (False, "disk_space_insufficient")
     except Exception as e:
         # PROD-005: If the canonical check can't be imported, log and
         # proceed. The model download itself will fail naturally if
@@ -332,16 +426,20 @@ def download_parakeet_weights(
         )
         if progress_callback:
             progress_callback(f"Download failed after {_MAX_DOWNLOAD_RETRIES} attempts: {e}")
-        return False
+        return (False, "download_retry_exhausted")
 
     # PROD-006: Verify model integrity after download
     if not _verify_model_integrity(repo_id, local_dir):
         log.error("[ASR_SETUP] Model integrity check failed after download")
         if progress_callback:
             progress_callback("Download completed but integrity check failed")
-        return False
+        # G4-CR-06 / cache cleanup on verify failure: remove the
+        # offending cache dir so the next call doesn't re-discover the
+        # tampered snapshot.
+        _cleanup_failed_cache(repo_id)
+        return (False, "integrity_check_failed")
     msg = "Parakeet model download complete"
     log.info("[ASR_SETUP] %s", msg)
     if progress_callback:
         progress_callback(msg)
-    return True
+    return (True, "")

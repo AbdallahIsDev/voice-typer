@@ -35,10 +35,24 @@ import ctypes.wintypes
 import logging
 import os
 import sys
+import threading
+import time
 from ctypes import wintypes
+from datetime import datetime
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# G4-M-32 / G4-M-33: archive + retention constants for crash diagnostics.
+_CRASH_DIAGNOSTICS_ARCHIVE = "crash_diagnostics_archive"
+_ARCHIVE_RETENTION_KEEP = 5
+# G4-M-32: sweep policy for stale ``crash_diagnostics.*.txt`` files left
+# in the config_dir root (e.g. from a prior version, or from a move that
+# failed).  Keep at most ``_MAX_ACTIVE_FILES`` files and delete any older
+# than ``_MAX_AGE_DAYS`` days.
+_MAX_ACTIVE_FILES = 10
+_MAX_AGE_DAYS = 30
+_MAX_AGE_SECONDS = _MAX_AGE_DAYS * 24 * 60 * 60
 
 # ── Windows constants ────────────────────────────────────────────────
 
@@ -149,8 +163,18 @@ _NAME_UNKNOWN = b"Unknown fatal exception."
 # Stored as a Python str so we can pass it to CreateFileW via c_wchar_p
 # (which correctly marshals the internal UTF-16 buffer)
 _crash_file_path: str = ""
-_CONFIG_DIR_BYTES: bytes = b""
 _PID: int = 0
+
+# G4-M-34: config_dir used by ``_crash_excepthook`` to write the
+# ``python_crash.<PID>.txt`` marker file.  Set in
+# ``set_crash_handler_config_dir``.
+_python_crash_dir: Path | None = None
+
+# G4-L-14: rate-limit flag for the VEH callback.  Set to True after a
+# successful ``_write_to_file`` call so cascading exceptions don't write
+# multiple crash records (which can corrupt the file or fill the disk).
+# Reset to False in ``set_crash_handler_config_dir`` so tests work.
+_crash_written: bool = False
 
 # Lookup table for hex digit encoding (pre-computed)
 _HEX_CHARS = b"0123456789ABCDEF"
@@ -327,7 +351,18 @@ def _vectored_handler_impl(exception_pointers) -> int:
 
     Always returns EXCEPTION_CONTINUE_SEARCH so the OS proceeds with
     normal termination.
+
+    G4-L-14: a module-level ``_crash_written`` flag rate-limits the
+    callback so cascading exceptions (e.g. an access violation triggered
+    while handling an earlier access violation) cannot write multiple
+    crash records — the second invocation returns early.
     """
+    # G4-L-14: ``global`` MUST be declared before any use of the name
+    # (read OR write) inside the function body, otherwise Python raises
+    # SyntaxError: name '_crash_written' is used prior to global
+    # declaration. Placed at the very top of the function so the read
+    # at the rate-limit check below is legal.
+    global _crash_written
     # Read the exception code from the EXCEPTION_RECORD.
     # NOTE: exception_pointers.contents.ExceptionRecord.contents creates
     # a Python ctypes wrapper object on the heap.  This is the ONLY heap
@@ -343,6 +378,13 @@ def _vectored_handler_impl(exception_pointers) -> int:
         return EXCEPTION_CONTINUE_SEARCH
 
     if exc_code not in _CRASH_CODES:
+        return EXCEPTION_CONTINUE_SEARCH
+
+    # G4-L-14: rate-limit — don't write multiple crash records under
+    # cascading exceptions.  Once we've written one record, subsequent
+    # VEH callbacks (which the OS may deliver as the exception dispatcher
+    # unwinds) return early so we don't corrupt or duplicate the file.
+    if _crash_written:
         return EXCEPTION_CONTINUE_SEARCH
 
     _ensure_kernel32()
@@ -428,6 +470,11 @@ def _vectored_handler_impl(exception_pointers) -> int:
     # This is an acceptable limitation — see the module docstring.
     if _crash_file_path:
         _write_to_file(_crash_file_path, buf[:pos])
+        # G4-L-14: mark as written so cascading VEH callbacks don't
+        # write a second record.  ``global`` is declared at the top of
+        # this function (above) so the assignment here updates the
+        # module-level flag.
+        _crash_written = True
 
     return EXCEPTION_CONTINUE_SEARCH
 
@@ -511,31 +558,158 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
     with a null terminator (\0) for CreateFileW.  Stored as a str
     so we can pass it via c_wchar_p (which correctly marshals the
     internal UTF-16 buffer as LPCWSTR).
+
+    G4-L-12: the path is built via ``os.path.join`` (was a hardcoded
+    ``\\`` backslash, which broke on POSIX where the VEH callback is
+    never invoked but the cached path is still asserted on by tests).
+
+    G4-L-13: removed the dead ``_config_dir_bytes`` / ``_CONFIG_DIR_BYTES``
+    dual binding — only ``_crash_file_path`` is used downstream.
+
+    G4-M-34: also caches the config dir for ``_crash_excepthook`` so the
+    Python-level excepthook can write a ``python_crash.<PID>.txt`` marker.
+
+    G4-L-14: resets ``_crash_written`` so each test (and each process)
+    starts with a clean rate-limit flag.
     """
-    global _config_dir_bytes, _crash_file_path, _PID
+    global _crash_file_path, _PID, _python_crash_dir, _crash_written
     try:
-        _config_dir_bytes = str(config_dir.resolve()).encode("utf-8")
+        resolved = Path(config_dir).resolve()
         _PID = os.getpid()
-        dir_str = _config_dir_bytes.decode("utf-8")
-        # Store as Python str with null terminator for CreateFileW
-        _crash_file_path = f"{dir_str}\\crash_diagnostics.{_PID}.txt\0"
+        # G4-L-12: use os.path.join instead of a hardcoded backslash so
+        # the cached path is correct on both Windows and POSIX (POSIX
+        # never invokes the VEH callback, but tests still inspect the
+        # cached path).  Preserve the trailing NUL terminator required
+        # by CreateFileW.
+        _crash_file_path = os.path.join(str(resolved), f"crash_diagnostics.{_PID}.txt") + "\0"
+        _python_crash_dir = resolved
+        # G4-L-14: reset the rate-limit flag so a fresh process (or a
+        # re-init in tests) can write a new crash record.
+        _crash_written = False
     except Exception as exc:
         log.debug("[CRASH] Failed to cache config dir: %s", exc)
         _crash_file_path = ""
+        _python_crash_dir = None
+        _crash_written = False
+
+
+def _archive_crash_file(file_path: Path, config_dir: Path) -> None:
+    """G4-M-33: move a crash diagnostics / python_crash file to the archive.
+
+    The archive lives at ``<config_dir>/crash_diagnostics_archive/`` and
+    is created with ``0o700`` perms on POSIX so the archived crash
+    records (which may include exception addresses, thread IDs, etc.)
+    are not world-readable.
+
+    After moving, applies the G4-M-33 retention policy (keep last
+    ``_ARCHIVE_RETENTION_KEEP`` files in the archive, delete older).
+    """
+    archive_dir = Path(config_dir) / _CRASH_DIAGNOSTICS_ARCHIVE
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    # G4-M-33: tighten archive dir perms on POSIX so crash records
+    # (which contain process internals) are not world-readable.
+    if sys.platform != "win32":
+        with contextlib.suppress(OSError):
+            os.chmod(archive_dir, 0o700)
+    target = archive_dir / file_path.name
+    # If the target already exists (e.g. a previous archive had the
+    # same PID), disambiguate by appending a monotonic timestamp.
+    if target.exists():
+        stem = file_path.stem
+        suffix = file_path.suffix
+        target = archive_dir / f"{stem}.{int(time.time() * 1000)}{suffix}"
+    file_path.rename(target)
+    log.info("[CRASH] Archived diagnostics file: %s -> %s", file_path.name, target.name)
+    _enforce_archive_retention(archive_dir)
+
+
+def _enforce_archive_retention(archive_dir: Path) -> None:
+    """G4-M-33: keep only the last ``_ARCHIVE_RETENTION_KEEP`` files.
+
+    Files are sorted by mtime (newest first); older files beyond the
+    retention cap are deleted.  All errors are suppressed (best-effort).
+    """
+    try:
+        files = sorted(
+            archive_dir.glob("*"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        return
+    for stale in files[_ARCHIVE_RETENTION_KEEP:]:
+        with contextlib.suppress(Exception):
+            stale.unlink()
+
+
+def _sweep_stale_diagnostics(config_dir: Path) -> None:
+    """G4-M-32: sweep stale crash diagnostics from the config_dir root.
+
+    After ``report_pending_crash`` moves all current files into the
+    archive, the config_dir root should normally be empty of
+    ``crash_diagnostics.*.txt`` / ``python_crash.*.txt`` files.  This
+    sweep is a safety net for files that were left behind by an older
+    version (pre-archiving) or by a failed move.
+
+    Policy:
+      * Delete any file older than ``_MAX_AGE_DAYS`` days (mtime).
+      * If more than ``_MAX_ACTIVE_FILES`` files remain, delete the oldest
+        beyond the cap.
+    """
+    try:
+        diagnostics_dir = Path(config_dir).resolve()
+        if not diagnostics_dir.is_dir():
+            return
+        files = list(diagnostics_dir.glob("crash_diagnostics.*.txt"))
+        files.extend(diagnostics_dir.glob("python_crash.*.txt"))
+        if not files:
+            return
+        now = time.time()
+        # First pass: delete files older than the mtime cutoff.
+        for f in files:
+            try:
+                if now - f.stat().st_mtime > _MAX_AGE_SECONDS:
+                    f.unlink()
+            except Exception as exc:
+                log.debug("[CRASH] sweep: failed to delete stale %s: %s", f, exc)
+        # Second pass: enforce the count cap on the remaining files.
+        try:
+            remaining = sorted(
+                (f for f in files if f.exists()),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        except Exception:
+            return
+        for stale in remaining[_MAX_ACTIVE_FILES:]:
+            with contextlib.suppress(Exception):
+                stale.unlink()
+    except Exception as exc:
+        log.debug("[CRASH] sweep: failed: %s", exc)
 
 
 def report_pending_crash(config_dir: Path) -> str | None:
     """Check for leftover crash diagnostics from a previous session.
 
-    Scans the config directory for ``crash_diagnostics.*.txt`` files
-    written by the VEH callback when a previous process crashed silently
-    (heap corruption, access violation, etc.).
+    Scans the config directory for:
+      * ``crash_diagnostics.*.txt`` files written by the VEH callback
+        when a previous process crashed silently (heap corruption,
+        access violation, etc.).
+      * ``python_crash.*.txt`` marker files written by
+        ``_crash_excepthook`` when an unhandled Python exception
+        terminated the previous process.
 
     If any are found:
       1. Logs the full contents at ``WARNING`` level to ``voice-typer.log``
-      2. Deletes the diagnostics file
+      2. Moves the file to ``<config_dir>/crash_diagnostics_archive/``
+         (G4-M-33) instead of deleting it, so the diagnostic bundle
+         can include it later.
       3. Returns a human-readable summary for the caller to surface
-         (e.g., as a tray notification)
+         (e.g., as a tray notification).
+
+    After processing, applies the G4-M-32 sweep (30-day mtime cutoff +
+    keep last 10) to the config_dir root as a safety net for files left
+    behind by failed moves or older versions.
 
     Returns ``None`` if no crash diagnostics were found.
     """
@@ -545,9 +719,13 @@ def report_pending_crash(config_dir: Path) -> str | None:
         diagnostics_dir = Path(config_dir).resolve()
         if not diagnostics_dir.is_dir():
             return None
-        # Collect all crash diagnostics files matching the pattern
+        # Collect all crash diagnostics files matching the pattern.
+        # G4-M-34: also collect python_crash.*.txt marker files written
+        # by the Python excepthook so they are surfaced in the same
+        # startup notification.
         crash_files = sorted(diagnostics_dir.glob("crash_diagnostics.*.txt"))
-        if not crash_files:
+        python_crash_files = sorted(diagnostics_dir.glob("python_crash.*.txt"))
+        if not crash_files and not python_crash_files:
             return None
     except Exception as exc:
         log.debug("[CRASH] Failed to scan for diagnostics files: %s", exc)
@@ -604,15 +782,70 @@ def report_pending_crash(config_dir: Path) -> str | None:
                         "Previous session ended unexpectedly. Likely cause: low memory or low disk space."
                     )
         except Exception as exc:
-            log.warning("[CRASH] Failed to read diagnostics file %s: %s", crash_file, exc)
+            # PVT-G5-046 (session-5): use ``crash_file.name`` (not the
+            # full ``crash_file`` Path) so the log doesn't include the
+            # user's home directory path.
+            log.warning("[CRASH] Failed to read diagnostics file %s: %s", crash_file.name, exc)
         finally:
-            # Always delete the diagnostics file after processing,
-            # even if reading failed, to prevent duplicate reporting.
+            # G4-M-33: move the file to the archive instead of unlinking,
+            # so the diagnostic bundle can include it later.  Moving
+            # (rather than deleting) also preserves the file for forensic
+            # review if the user files a bug report.
             try:
-                crash_file.unlink()
-                log.info("[CRASH] Deleted diagnostics file: %s", crash_file.name)
+                _archive_crash_file(crash_file, diagnostics_dir)
             except Exception as exc:
-                log.debug("[CRASH] Failed to delete diagnostics file %s: %s", crash_file, exc)
+                log.debug("[CRASH] Failed to archive diagnostics file %s: %s", crash_file.name, exc)
+
+    # G4-M-34: process python_crash marker files written by the
+    # Python-level excepthook.  These capture unhandled Python
+    # exceptions (e.g. in daemon threads) that would otherwise only
+    # appear on stderr.
+    for py_crash_file in python_crash_files:
+        try:
+            content = py_crash_file.read_text(encoding="utf-8").strip()
+            if not content:
+                log.debug(
+                    "[CRASH] Found empty python_crash file %s — cleaning up",
+                    py_crash_file.name,
+                )
+                continue
+            log.warning("[CRASH] === Previous session crashed (Python exception)! ===")
+            for line in content.splitlines():
+                line = line.strip()
+                if line:
+                    log.warning("[CRASH] %s", line)
+            # Build a concise summary from the key=value lines.
+            fields: dict[str, str] = {}
+            for line in content.splitlines():
+                if "=" in line:
+                    key, _, value = line.partition("=")
+                    fields[key.strip()] = value.strip()
+            exc_type = fields.get("exc_type", "UnknownException")
+            exc_value = fields.get("exc_value", "")
+            thread_name = fields.get("thread", "?")
+            timestamp = fields.get("timestamp", "?")
+            summary_parts.append(
+                f"Python crash: {exc_type}: {exc_value} "
+                f"(thread={thread_name}, at={timestamp}). "
+                "Likely cause: an unhandled Python exception in the main "
+                "thread or a daemon thread."
+            )
+        except Exception as exc:
+            log.warning("[CRASH] Failed to read python_crash file %s: %s", py_crash_file.name, exc)
+        finally:
+            # G4-M-34: archive python_crash files in the same archive
+            # directory so they're included in the diagnostic bundle.
+            try:
+                _archive_crash_file(py_crash_file, diagnostics_dir)
+            except Exception as exc:
+                log.debug("[CRASH] Failed to archive python_crash file %s: %s", py_crash_file.name, exc)
+
+    # G4-M-32: sweep the config_dir root for any stale diagnostics
+    # files (e.g. left behind by a failed move or by an older version
+    # that unlinked instead of archiving).  Applies a 30-day mtime
+    # cutoff and a keep-last-10 cap.
+    with contextlib.suppress(Exception):
+        _sweep_stale_diagnostics(diagnostics_dir)
 
     if not summary_parts:
         return None
@@ -685,12 +918,42 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
     Logs the exception to the voice-typer logger before chaining to
     the original hook.  Catches Python-level crashes (e.g., unhandled
     exceptions in threads) that would otherwise only appear on stderr.
+
+    G4-M-34: also writes a ``python_crash.<PID>.txt`` marker file to
+    the config_dir so the next session's ``report_pending_crash`` can
+    surface the crash in the startup notification (alongside VEH
+    crash diagnostics).  The marker contains the exception type,
+    value, thread name, and timestamp — enough to diagnose the crash
+    without re-running with a debugger attached.
     """
     with contextlib.suppress(Exception):
         log.critical(
             "[CRASH] Unhandled Python exception",
             exc_info=(exc_type, exc_value, exc_tb),
         )
+    # G4-M-34: write a python_crash.<PID>.txt marker so the next
+    # session's report_pending_crash can surface it.  Best-effort —
+    # the hook must never raise (it runs during interpreter shutdown
+    # for unhandled exceptions, where any failure masks the original
+    # error).  Thread-safe: the PID suffix makes collisions extremely
+    # unlikely, and the worst case is a single overwritten file.
+    if _python_crash_dir is not None:
+        with contextlib.suppress(Exception):
+            marker_path = _python_crash_dir / f"python_crash.{os.getpid()}.txt"
+            thread_name = threading.current_thread().name
+            timestamp = datetime.now().isoformat()
+            # CR-98: truncate exc_value to 200 chars so exception messages
+            # that contain user speech (e.g. ``ValueError("cannot process: "
+            # + transcribed_text)``) don't leak into the persistent crash
+            # archive. The full traceback is already in the log file.
+            _safe_value = str(exc_value)[:200] if exc_value is not None else "None"
+            content = (
+                f"exc_type={exc_type.__name__ if exc_type is not None else 'Unknown'}\n"
+                f"exc_value={_safe_value}\n"
+                f"thread={thread_name}\n"
+                f"timestamp={timestamp}\n"
+            )
+            marker_path.write_text(content, encoding="utf-8")
     if _original_excepthook is not None and _original_excepthook is not _crash_excepthook:
         with contextlib.suppress(Exception):
             _original_excepthook(exc_type, exc_value, exc_tb)

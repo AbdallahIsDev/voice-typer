@@ -822,9 +822,17 @@ class WindowsNativeHotkey(HotkeyBackend):
             # hMod must be NULL for a low-level hook (it runs in this process).
             handle = self._user32.SetWindowsHookExW(_WHC_KEYBOARD_LL, self._hook_proc, 0, 0)
             if not handle:
+                # PVT-G5-043: previously this log line claimed "(GetLastError)"
+                # but never fetched the error code. Mirror the RegisterHotKey
+                # pattern at line 198-205 — fetch immediately and include both
+                # decimal and hex so the user can look up the Win32 error.
+                err = self._kernel32.GetLastError()
+                self._last_error = err
                 log.warning(
-                    "[HOTKEY] SetWindowsHookExW(WH_KEYBOARD_LL) failed "
-                    "(GetLastError) — falling back to RegisterHotKey/polling"
+                    "[HOTKEY] SetWindowsHookExW(WH_KEYBOARD_LL) failed, "
+                    "GetLastError=%d (0x%X) — falling back to RegisterHotKey/polling",
+                    err,
+                    err,
                 )
                 self._hook_proc = None
                 return False
@@ -1228,7 +1236,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         # Only consult the cache when the last result was False. A
         # cached True would leak into the next press cycle (see the
         # docstring) — when the last result was True, always re-scan.
-        if not self._last_nonmod_pressed and now - self._last_nonmod_check_time < 0.005:
+        if not self._last_nonmod_pressed and now - self._last_nonmod_check_time < 0.05:
             return False
         result = self._any_non_modifier_key_pressed(modifier_vks)
         self._last_nonmod_pressed = result

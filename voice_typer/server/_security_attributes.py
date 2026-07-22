@@ -237,10 +237,17 @@ def _create_restrictive_security_attributes():
             return sa
         finally:
             kernel32.CloseHandle(token)
-    except Exception:
-        # If we can't build a restrictive DACL, return None and fall back
-        # to default per-user security attributes (NOT a NULL DACL — see
-        # the CR-003 note in the module docstring).
+    except Exception as exc:
+        # PVT-G5-044: previously this swallowed the exception silently.
+        # The fallback (default per-user DACL) is documented as safe, but
+        # the failure itself was invisible — a regression of the CR-001/CR-002
+        # struct-offset kind (which made ``SetEntriesInAclW`` always fail)
+        # would be undetectable. Log at WARNING so operators notice.
+        log.warning(
+            "[SECURITY] Restrictive DACL construction failed: %s — falling back to default per-user DACL",
+            exc,
+            exc_info=True,
+        )
         return None
 
 

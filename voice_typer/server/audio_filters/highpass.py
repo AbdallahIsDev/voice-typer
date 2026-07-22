@@ -51,7 +51,15 @@ class HighPassFilter(AudioFilter):
             # while giving the static analyzer the precise shape it needs.
             result = butter(4, cutoff / nyq, btype="high")
             b, a = cast("tuple[np.ndarray, np.ndarray]", result)
-            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float64)
+            # PVT-011: cast coefficients + state to float32 once at init.
+            # Previously kept as float64 (from butter()), which forced a
+            # per-chunk astype(np.float64, copy=False) in process() —
+            # ALWAYS a copy (dtype mismatch) = 128 KB/s of float64
+            # allocation on the RT thread. float32 is sufficient for
+            # order-4 IIR at 16 kHz (no audible precision loss).
+            b = b.astype(np.float32)
+            a = a.astype(np.float32)
+            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float32)
             # Anti-denormal: add epsilon to first state element.
             zi[0] = ANTIDENORMAL_EPSILON
             self._state = (b, a, zi)
@@ -67,15 +75,23 @@ class HighPassFilter(AudioFilter):
 
         b, a, zi = self._state
         original_shape = audio.shape
-        flat = np.ravel(audio).astype(np.float64, copy=False)
+        # PVT-011: process in float32 (coefficients are float32 from init).
+        # No per-chunk astype upcast — saves 128 KB/s of float64 allocation.
+        flat = np.ravel(audio).astype(np.float32, copy=False)
         filtered, zi = lfilter(b, a, flat, zi=zi)
         self._state = (b, a, zi)
-        return filtered.astype(np.float32, copy=False).reshape(original_shape)
+        return filtered.reshape(original_shape)
 
     def reset(self) -> None:
         if self._state is not None:
-            b, a, _ = self._state
-            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float64)
+            b, a, zi = self._state
+            # G4-L-05: zero the existing IIR state BEFORE replacing it
+            # so carry-over samples (which encode filter memory of the
+            # previous audio) are securely cleared rather than left in
+            # process memory until the numpy allocator reuses the block.
+            if zi.size > 0:
+                zi.fill(0)
+            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float32)
             zi[0] = ANTIDENORMAL_EPSILON
             self._state = (b, a, zi)
 

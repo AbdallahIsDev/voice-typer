@@ -103,6 +103,24 @@ class HotkeyDispatcher:
         """
         app = self._app
         hotkey_str = app.config.hotkey
+
+        # G4-H-13 (partial, session-4): validate the configured hotkey
+        # before attempting to register it. Config.load() bypasses the
+        # denylist, so a stale/hand-edited config could contain an
+        # OS-reserved shortcut. On rejection, fall back to the platform
+        # default so the user is never left without a working hotkey.
+        from voice_typer.server.config_validators import _validate_hotkey
+
+        validation_error = _validate_hotkey(hotkey_str)
+        if validation_error is not None:
+            log.warning(
+                "[HOTKEY] configured hotkey %r rejected (%s) — falling back to default <caps_lock>",
+                hotkey_str,
+                validation_error,
+            )
+            hotkey_str = "<caps_lock>"  # platform default (see config._default_hotkey_for_platform)
+            app.config.hotkey = hotkey_str
+
         log.info("[HOTKEY] Registering: %r -> toggle_dictation", hotkey_str)
 
         success = False
@@ -359,22 +377,30 @@ class HotkeyDispatcher:
         """Re-register the global hotkey after settings change.
 
         CR-105: validate hotkey before mutating config.
-        CR-15 (atomic restart): the NEW backend is brought up BEFORE
-        the OLD one is stopped. If ``register()`` fails (e.g. the new
-        hotkey spec is invalid, or the OS rejects it because another
-        app already claimed it), the OLD backend is kept running so
-        the user is never left without a working dictation hotkey.
 
-        Atomicity is provided by :meth:`register` itself: it assigns
-        ``self._hotkey_backend = new_backend`` only AFTER ``start()``
-        succeeds, leaving the OLD backend in place on failure, and
-        returns ``True``/``False`` to signal the outcome. This method
-        uses that return value to decide whether to stop the OLD
-        backend.
+        PVT-G5-027: stop the OLD backend BEFORE starting the NEW one.
+        Previously ``register()`` brought up the new backend first and
+        the old backend was only stopped AFTER ``register()`` returned
+        success — leaving a window where BOTH backends were running on
+        platforms that permit multiple global-hotkey registrations
+        (pynput on Linux/X11, Wayland). Both fired the dictation
+        callback on the same keypress → double-toggle. Stopping the
+        old backend first eliminates the window.
+
+        Fallback restore on failure: if ``register()`` fails (e.g. the
+        new hotkey spec is invalid or the OS rejects it because
+        another app claimed it), the OLD backend's hotkey spec is
+        restored to ``app.config.hotkey`` and a fresh backend is
+        created with the OLD spec so the user is never left without a
+        working dictation hotkey. This preserves the CR-15 user-facing
+        contract ("restart failure keeps the previous hotkey working")
+        while eliminating the double-backend window.
 
         UX-002: on failure, ``register()`` already shows the tray
         notification naming the rejected hotkey; we don't duplicate
-        it here.
+        it here. If fallback restore ALSO fails, the user is left
+        without a hotkey and a separate ERROR-level log line is
+        emitted so operators can diagnose.
         """
         app = self._app
         from voice_typer.server.config_validators import _validate_hotkey
@@ -388,6 +414,12 @@ class HotkeyDispatcher:
                     f"Hotkey {hotkey} is not valid: {validation_error}. Keeping the previous hotkey.",
                 )
             return
+        # PVT-G5-027: capture the OLD hotkey spec BEFORE mutating
+        # config so we can restore it (and recreate a backend with
+        # the OLD spec) if register() fails.
+        old_hotkey_str = app.config.hotkey
+        old_backend = self._hotkey_backend
+
         app.config.hotkey = hotkey
         if not app.config.save():
             log.warning("[HOTKEY] config.save() returned False — hotkey change may not persist")
@@ -396,7 +428,18 @@ class HotkeyDispatcher:
                 "Failed to save hotkey to disk. Check disk space or permissions.",
             )
 
-        old_backend = self._hotkey_backend
+        # PVT-G5-027: stop the OLD backend BEFORE calling register()
+        # so there is no window where both old and new backends are
+        # running. The OLD backend's listener thread is joined (best-
+        # effort) so its callback can no longer fire on the old spec.
+        # ``self._hotkey_backend`` is cleared so register() starts
+        # from a clean slate; on success it installs the new backend.
+        if old_backend is not None:
+            try:
+                old_backend.stop()
+            except Exception:
+                log.exception("[HOTKEY] Failed to stop previous backend before restart")
+            self._hotkey_backend = None
 
         # register() atomically installs a NEW backend on success
         # (assigning self._hotkey_backend = new_backend AFTER start()
@@ -405,19 +448,41 @@ class HotkeyDispatcher:
         register_ok = self.register()
 
         if register_ok:
-            # register() installed a new backend — stop the old one.
-            if old_backend is not None:
-                try:
-                    old_backend.stop()
-                except Exception:
-                    log.exception("[HOTKEY] Failed to stop previous backend")
+            # register() installed a new backend — old backend already
+            # stopped above. Nothing more to do.
+            pass
         else:
-            # register() failed and left the OLD backend in place.
-            # Do NOT stop it — the user keeps the working hotkey.
-            log.warning(
-                "[HOTKEY] restart did not install a new backend — keeping old backend running (old=%s)",
-                type(old_backend).__name__ if old_backend is not None else None,
-            )
+            # register() failed. The OLD backend was already stopped,
+            # so we must restore it by re-creating a backend with the
+            # OLD hotkey spec. Revert config so subsequent calls (and
+            # the tray.set_hotkey below) reflect the OLD spec.
+            if old_backend is not None:
+                log.warning(
+                    "[HOTKEY] restart failed; restoring previous hotkey %r",
+                    old_hotkey_str,
+                )
+                app.config.hotkey = old_hotkey_str
+                with contextlib.suppress(Exception):
+                    app.config.save()
+                try:
+                    self._hotkey_backend = self._create_and_start_main_backend(old_hotkey_str)
+                except Exception:
+                    log.exception(
+                        "[HOTKEY] Failed to restore previous backend (hotkey=%r) — "
+                        "user is left without a dictation hotkey",
+                        old_hotkey_str,
+                    )
+                    with contextlib.suppress(Exception):
+                        app.tray.notify(
+                            APP_NAME,
+                            f"Could not restore the previous hotkey {old_hotkey_str}. "
+                            "Open Settings to rebind a hotkey.",
+                        )
+            else:
+                # No OLD backend to restore — register() failure leaves
+                # _hotkey_backend as None (first-time registration that
+                # failed). register() already showed the tray notify.
+                log.warning("[HOTKEY] restart did not install a new backend — no previous backend to restore")
 
         app.tray.set_hotkey(app.config.hotkey)
 

@@ -178,16 +178,23 @@ def _warm_imports() -> None:
             active_backend,
         )
 
-    # Always touch the faster-whisper path. Cheap (ctranslate2 is much
-    # smaller than torch) and ensures the whisper fallback branch is warm
-    # for both whisper users (primary) and parakeet/qwen users (fallback).
+    # PVT-022: Page in faster_whisper + ctranslate2 bytes WITHOUT executing
+    # them. Previously this did `import faster_whisper` which executes the
+    # module (and its ctranslate2 C++ dependency) — 1-3s of CPU for C++
+    # static init that the prewarm process pays and then throws away
+    # (the app re-executes faster_whisper in its own process anyway).
+    # `_warm_package_files` pages in the file bytes via sequential reads,
+    # matching the torch/transformers approach used above.
     try:
         t0 = time.perf_counter()
-        import faster_whisper  # noqa: F401
-
-        log.info("[PREWARM] import faster_whisper: %.2fs", time.perf_counter() - t0)
+        _warm_package_files("faster_whisper")
+        _warm_package_files("ctranslate2")
+        log.info(
+            "[PREWARM] warmed faster_whisper + ctranslate2 bytes: %.2fs",
+            time.perf_counter() - t0,
+        )
     except Exception as exc:
-        log.debug("[PREWARM] faster_whisper not importable (skipping): %s", exc)
+        log.debug("[PREWARM] faster_whisper/ctranslate2 not warmable (skipping): %s", exc)
 
 
 def _resolve_hf_cache_dir() -> Path:

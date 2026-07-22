@@ -75,6 +75,47 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+def _run_with_timeout(description: str, func, timeout: float = 5.0):
+    """PVT-G5-057: run *func* in a worker thread with a hard timeout.
+
+    Returns whatever ``func()`` returned, or ``None`` if it did not
+    finish within *timeout* seconds (in which case a warning is logged
+    and the worker thread continues running in the background — Python
+    does not support thread cancellation, so we leak a daemon thread
+    rather than block shutdown indefinitely). Re-raises any exception
+    raised by ``func()`` so the caller's existing try/except still
+    applies.
+
+    The worker thread is daemon-marked so it doesn't block interpreter
+    exit if it really is stuck.
+    """
+    result_holder: dict = {}
+
+    def _worker() -> None:
+        try:
+            result_holder["value"] = func()
+        except BaseException as exc:  # noqa: BLE001 — re-raised below
+            result_holder["error"] = exc
+
+    t = threading.Thread(
+        target=_worker,
+        daemon=True,
+        name=f"cleanup-{description}",
+    )
+    t.start()
+    t.join(timeout=timeout)
+    if t.is_alive():
+        log.warning(
+            "[SHUTDOWN] %s did not finish in %.1fs — continuing (worker thread leaked as daemon)",
+            description,
+            timeout,
+        )
+        return None
+    if "error" in result_holder:
+        raise result_holder["error"]
+    return result_holder.get("value")
+
+
 class ShutdownController:
     """Owns the shutdown / cleanup lifecycle of ``VoiceTyperApp``.
 
@@ -186,15 +227,86 @@ class ShutdownController:
         meant it was completely DISABLED when ``restart_app()`` set
         ``_shutting_down = True``, so the safety net couldn't pick up
         the slack. Extracting the shared body here fixes both bugs.
+
+        G4-H-30: ``_do_cleanup`` ALSO drains / cancels the WS dispatch
+        pool BEFORE tearing down the recorder / history DB / crash
+        recovery writer. The pool is stored on the IPC server instance
+        as ``_ws_dispatch_pool`` (created lazily by
+        ``sidecar_ws._make_dispatch``). ``pool.shutdown(wait=False,
+        cancel_futures=True)`` immediately cancels queued (not-yet-
+        started) dispatch tasks and signals in-flight tasks to exit
+        (they observe the cancel via their own cooperative-shutdown
+        checks). Without this drain, a long-running handler (e.g.
+        ``download_model``) races teardown and can half-flush the
+        history DB or leak a partial crash-recovery snapshot.
         """
         app = self._app
-        # Idempotency guard — once cleanup has run, subsequent calls
-        # are no-ops. This is the hard safety that lets
-        # _atexit_cleanup() call us unconditionally after
-        # quit()/restart_app() already ran.
-        if getattr(app, "_cleanup_done", False):
-            return
-        app._cleanup_done = True
+        # PVT-G5-026: guard the check-then-set on ``_cleanup_done`` with
+        # ``_quit_lock``. Previously the check-then-set was not atomic —
+        # two callers (signal-watcher thread + atexit) could both read
+        # False, both set True, and both execute the cleanup body
+        # concurrently. ``_quit_lock`` is released by ``quit()`` BEFORE
+        # delegating to ``_do_cleanup()`` (see the comment in
+        # ``quit()``), so acquiring it here does NOT deadlock with
+        # ``quit()``. ``_atexit_cleanup()`` does not hold the lock when
+        # it calls ``_do_cleanup()`` either. The lock is non-reentrant
+        # by design; if a future caller invokes ``_do_cleanup()`` while
+        # already holding ``_quit_lock``, that would deadlock — but
+        # the only two callers (``quit()`` and ``_atexit_cleanup()``)
+        # both release the lock first.
+        with self._quit_lock:
+            if getattr(app, "_cleanup_done", False):
+                return
+            app._cleanup_done = True
+
+        # PVT-G5-004 (partial): stop the IPC server EARLY so inbound
+        # requests can't resurrect torn-down subsystems. FA2 is adding
+        # a ``_shutting_down`` guard inside ``IPCServer._dispatch()``
+        # to reject handlers mid-shutdown; this stop() call closes the
+        # listening socket + worker pool so no NEW connections are
+        # accepted either. Best-effort — failures here don't prevent
+        # the rest of cleanup from running.
+        try:
+            ipc_server = getattr(app, "_ipc_server", None)
+            if ipc_server is not None:
+                _run_with_timeout(
+                    "ipc_server.stop",
+                    ipc_server.stop,
+                    timeout=5.0,
+                )
+        except Exception:
+            log.debug("[CLEANUP] ipc_server.stop() failed", exc_info=True)
+
+        # G4-H-30: drain / cancel in-flight WS dispatch requests BEFORE
+        # any subsystem teardown. ``_shutting_down`` is already True
+        # (set by ``quit()`` before calling this method), so the
+        # ``sidecar_ws._make_dispatch`` ``dispatch`` coroutine is
+        # already rejecting NEW requests with
+        # ``{"code": "server.shutting_down"}``. This call cancels the
+        # in-flight requests that were accepted BEFORE the flag flipped
+        # — they're the ones that race teardown. ``cancel_futures=True``
+        # cancels queued-but-not-started tasks immediately; in-flight
+        # tasks get a ``concurrent.futures.CancelledError`` on the next
+        # ``await`` checkpoint (handlers that don't await remain
+        # uncancellable, but those are by definition short and finish
+        # on their own).
+        #
+        # Defensive: ``app._ipc_server`` may be None (server never
+        # started — e.g. the atexit safety net fires before
+        # ``main()`` reaches ``build_ipc_server``) or a MagicMock (test
+        # doubles). ``getattr(..., None)`` handles both: ``None`` has
+        # no ``_ws_dispatch_pool`` attribute (returns None), and
+        # ``MagicMock`` returns a child mock (which lacks the
+        # ``shutdown`` method we need — guarded by the
+        # ``hasattr(pool, "shutdown")`` check).
+        try:
+            ipc_server = getattr(app, "_ipc_server", None)
+            ws_pool = getattr(ipc_server, "_ws_dispatch_pool", None)
+            if ws_pool is not None and hasattr(ws_pool, "shutdown"):
+                ws_pool.shutdown(wait=False, cancel_futures=True)
+                log.debug("[SHUTDOWN] WS dispatch pool shut down (cancel_futures=True)")
+        except Exception:
+            log.debug("[SHUTDOWN] WS dispatch pool shutdown failed", exc_info=True)
 
         # Cancel all pending timers
         try:
@@ -227,14 +339,25 @@ class ShutdownController:
         # recorder.stop() fully closes the PortAudio stream (stop + close),
         # while discard() just clears the recording flag. Use stop() first
         # for a clean shutdown, then discard() as fallback if stop() fails.
+        # PVT-G5-057: wrap in timeout — PortAudio's stop() can hang on
+        # some backends (notably WASAPI on Windows when the device is
+        # gone). 5s matches the daemon-thread join convention.
         try:
             if app.recorder is not None and app.recorder.recording:
                 try:
-                    app.recorder.stop()
+                    _run_with_timeout(
+                        "recorder.stop",
+                        app.recorder.stop,
+                        timeout=5.0,
+                    )
                 except Exception as e:
                     log.warning("[SHUTDOWN] recorder.stop() failed: %s, trying discard()", e)
                     try:
-                        app.recorder.discard()
+                        _run_with_timeout(
+                            "recorder.discard",
+                            app.recorder.discard,
+                            timeout=5.0,
+                        )
                     except Exception as e2:
                         log.warning("[SHUTDOWN] recorder.discard() also failed: %s", e2)
         except Exception:
@@ -244,9 +367,14 @@ class ShutdownController:
         # thread exits cleanly before the process tears down. Best-effort
         # — the thread is a daemon and would die on process exit anyway,
         # but explicit stop() avoids a 2s join race during GC.
+        # PVT-G5-057: 5s timeout.
         try:
             if app.recorder is not None:
-                app.recorder.shutdown_mic_watcher()
+                _run_with_timeout(
+                    "recorder.shutdown_mic_watcher",
+                    app.recorder.shutdown_mic_watcher,
+                    timeout=5.0,
+                )
         except Exception as e:
             log.debug("[SHUTDOWN] mic watcher shutdown failed: %s", e)
 
@@ -258,10 +386,15 @@ class ShutdownController:
         # survive until the OS tears the process down. Best-effort —
         # stop_monitoring() is itself idempotent (it short-circuits
         # when ``_monitor_active`` is already False).
+        # PVT-G5-057: 5s timeout.
         try:
             from voice_typer.server import level_monitor
 
-            level_monitor.stop_monitoring()
+            _run_with_timeout(
+                "level_monitor.stop_monitoring",
+                level_monitor.stop_monitoring,
+                timeout=5.0,
+            )
         except Exception:
             log.warning(
                 "[SHUTDOWN] level_monitor.stop_monitoring failed",
@@ -271,8 +404,14 @@ class ShutdownController:
         # Restore volume if we were ducked when the app quit.
         # Without this, a quit-during-recording leaves volume stuck low.
         # Use fade_ms=0 for instant restore — the app is exiting.
+        # PVT-G5-057: 5s timeout — some platform volume backends block
+        # on IPC to the OS audio server.
         try:
-            app._restore_volume(fade_ms=0)
+            _run_with_timeout(
+                "restore_volume",
+                lambda: app._restore_volume(fade_ms=0),
+                timeout=5.0,
+            )
         except Exception:
             log.debug("[CLEANUP] volume restore failed", exc_info=True)
 
@@ -292,6 +431,8 @@ class ShutdownController:
 
         # ARCH-REFAC-003: access HotkeyDispatcher directly (was a
         # @property delegate previously).
+        # PVT-G5-057: each backend stop() wrapped in 5s timeout —
+        # pynput/Win32 RegisterHotKey teardown can block on OS calls.
         try:
             _hk_info = (
                 f"dictation={app.hotkeys._hotkey_backend.hotkey_str if app.hotkeys._hotkey_backend else 'none'}, "
@@ -301,19 +442,31 @@ class ShutdownController:
             log.info("[HOTKEY] Stopping hotkey listeners (%s)", _hk_info)
 
             if app.hotkeys._hotkey_backend:
-                app.hotkeys._hotkey_backend.stop()
+                _run_with_timeout(
+                    "hotkey_backend.stop",
+                    app.hotkeys._hotkey_backend.stop,
+                    timeout=5.0,
+                )
 
             # RELIABILITY-003: also stop ESC cancel and repaste hotkey
             # backends so their RegisterHotKey / GlobalHotKeys registrations
             # are released before the next instance tries to claim them.
             if app.hotkeys._esc_backend:
                 try:
-                    app.hotkeys._esc_backend.stop()
+                    _run_with_timeout(
+                        "esc_backend.stop",
+                        app.hotkeys._esc_backend.stop,
+                        timeout=5.0,
+                    )
                 except Exception as e:
                     log.warning("[SHUTDOWN] ESC backend stop failed: %s", e)
             if app.hotkeys._repaste_backend:
                 try:
-                    app.hotkeys._repaste_backend.stop()
+                    _run_with_timeout(
+                        "repaste_backend.stop",
+                        app.hotkeys._repaste_backend.stop,
+                        timeout=5.0,
+                    )
                 except Exception as e:
                     log.warning("[SHUTDOWN] repaste backend stop failed: %s", e)
 
@@ -325,10 +478,16 @@ class ShutdownController:
         # before the process exits, so the latest state is persisted.
         # Short timeout — if the disk is genuinely slow we'd rather
         # exit and lose the in-flight snapshot than hang the shutdown.
+        # PVT-G5-057: ``flush(timeout=2.0)`` already takes a timeout
+        # arg; wrap ``shutdown()`` in a 5s timeout helper for parity.
         try:
             if app._crash_recovery is not None:
                 app._crash_recovery.flush(timeout=2.0)
-                app._crash_recovery.shutdown()
+                _run_with_timeout(
+                    "crash_recovery.shutdown",
+                    app._crash_recovery.shutdown,
+                    timeout=5.0,
+                )
         except Exception as e:
             log.warning("[SHUTDOWN] crash recovery flush failed: %s", e)
 
@@ -343,10 +502,20 @@ class ShutdownController:
         # is joined and SQLite connections are closed cleanly. flush()
         # already drained the queue, so the writer join in close() should
         # be fast.
+        # PVT-G5-057: 10s for flush (may drain many pending INSERTs);
+        # 5s for close (joins the writer thread).
         try:
             if app.history_db is not None:
-                app.history_db.flush()
-                app.history_db.close()
+                _run_with_timeout(
+                    "history_db.flush",
+                    app.history_db.flush,
+                    timeout=10.0,
+                )
+                _run_with_timeout(
+                    "history_db.close",
+                    app.history_db.close,
+                    timeout=5.0,
+                )
         except Exception as e:
             log.warning("[SHUTDOWN] history DB flush/close failed: %s", e)
 
@@ -354,26 +523,28 @@ class ShutdownController:
         # try to push to a torn-down IPC server during shutdown.
         # RW-9 Phase 7: the worker / queue / stop_event now live on
         # WaveformBubbleWiring; delegate to its stop() helper.
+        # PVT-G5-057: 5s timeout.
         try:
-            app.waveform_wiring.stop()
+            _run_with_timeout(
+                "waveform_wiring.stop",
+                app.waveform_wiring.stop,
+                timeout=5.0,
+            )
         except Exception as e:
             log.debug("[SHUTDOWN] bubble level worker stop failed: %s", e)
-
-        # Break the pystray event loop. Wrapped in try-except for
-        # idempotency — a second call after the tray is already
-        # stopped may raise, and we must not propagate.
-        try:
-            app.tray.stop()
-        except Exception:
-            log.debug("[CLEANUP] tray.stop() failed", exc_info=True)
 
         # PROD-003: Safety net — stop any remaining PortAudio streams.
         # If recorder.stop() above failed or an audio callback leaked
         # a stream, this ensures sounddevice doesn't hold the microphone.
+        # PVT-G5-057: 5s timeout.
         try:
             import sounddevice as sd
 
-            sd.stop()
+            _run_with_timeout(
+                "sounddevice.stop",
+                sd.stop,
+                timeout=5.0,
+            )
         except Exception:
             log.debug("[CLEANUP] sd.stop() failed", exc_info=True)
 
@@ -444,7 +615,7 @@ class ShutdownController:
 
         # M-22: shut down the event_bus deferred-publish executor.
         # This is the LAST module-level cleanup because earlier steps
-        # (tray.stop, bubble worker stop, recorder stop) can each
+        # (bubble worker stop, recorder stop, hotkey stop) can each
         # publish events via event_bus.publish, and an RT-thread
         # publish defers to this executor. Shutting it down here
         # ensures no deferred _deliver tasks outlive the subsystems
@@ -453,12 +624,41 @@ class ShutdownController:
         # under the _do_cleanup double-call guard. Already-queued
         # tasks finish on the worker thread (shutdown(wait=False)
         # doesn't cancel them), so in-flight events are not lost.
+        # PVT-G5-057: 5s timeout — the executor's worker thread should
+        # be idle by this point (subsystems that publish are torn down),
+        # but a stuck subscriber could keep it busy.
         try:
             from voice_typer.server import event_bus as _event_bus
 
-            _event_bus.shutdown()
+            _run_with_timeout(
+                "event_bus.shutdown",
+                _event_bus.shutdown,
+                timeout=5.0,
+            )
         except Exception:
             log.debug("[CLEANUP] event_bus.shutdown failed", exc_info=True)
+
+        # PVT-G5-003: ``tray.stop()`` MUST be the LAST step in
+        # ``_do_cleanup()``. Previously it was step 13 of 19, which
+        # broke the pystray loop on the main thread (blocked in
+        # ``tray.run()`` via ``ipc_server.main()``) before the
+        # remaining cleanups (sd.stop, electron terminate, PID file
+        # clear, CloseHandle, devnull close, event_bus.shutdown) could
+        # finish. The daemon TCP worker thread running ``_do_cleanup()``
+        # was killed mid-cleanup when the main thread returned. Moving
+        # ``tray.stop()`` to the end ensures the main thread stays
+        # alive (blocked in ``tray.run()``) until every other cleanup
+        # has completed. Idempotent — wrapped in try-except so a second
+        # call after the tray is already stopped doesn't propagate.
+        # PVT-G5-057: 5s timeout.
+        try:
+            _run_with_timeout(
+                "tray.stop",
+                app.tray.stop,
+                timeout=5.0,
+            )
+        except Exception:
+            log.debug("[CLEANUP] tray.stop() failed", exc_info=True)
 
     # ─── Quit ──────────────────────────────────────────────────────────
 
@@ -667,7 +867,17 @@ class ShutdownController:
             self._shutdown_signum = signum
             self._shutdown_signal_event.set()
 
-        for sig in (signal.SIGINT, signal.SIGTERM):
+        # PVT-G5-014: also register SIGHUP on POSIX so terminal close
+        # / SSH disconnect triggers graceful shutdown (default action
+        # would terminate immediately without running atexit). Filtered
+        # via ``hasattr`` because Windows doesn't define SIGHUP. The
+        # ``contextlib.suppress`` already handles the case where the
+        # signal can't be installed (e.g. not in the main thread).
+        _posix_signals = [signal.SIGINT, signal.SIGTERM]
+        _sighup = getattr(signal, "SIGHUP", None)
+        if _sighup is not None:
+            _posix_signals.append(_sighup)
+        for sig in _posix_signals:
             with contextlib.suppress(OSError, ValueError):
                 # SIGTERM not available on Windows; signal.signal can
                 # raise if not in the main thread

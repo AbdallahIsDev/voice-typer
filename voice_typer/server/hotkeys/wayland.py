@@ -192,9 +192,17 @@ class WaylandHotkey(HotkeyBackend):
                     conn.close()
             except TimeoutError:
                 continue
-            except OSError:
+            except OSError as exc:
+                # PVT-G5-091: previously this lost the OSError detail
+                # entirely. Include ``exc`` + ``exc_info=True`` so the
+                # operator can see errno / strerror (e.g. EBADF vs.
+                # ECONNABORTED vs. EMFILE).
                 if self._alive:
-                    log.warning("[HOTKEY-WAYLAND] Socket accept error")
+                    log.warning(
+                        "[HOTKEY-WAYLAND] Socket accept error: %s",
+                        exc,
+                        exc_info=True,
+                    )
                 break
 
     def _start_pynput_fallback(self) -> None:

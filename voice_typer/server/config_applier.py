@@ -22,10 +22,23 @@ near-identical dicts lived in ``service.py`` with divergent defaults
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
 from typing import Any
 
 log = logging.getLogger(__name__)
+
+
+def _json_dumps_sorted(obj: Any) -> str:
+    """Stable JSON serialization for state comparison (G4-L-20 dirty-check).
+
+    Serializes ``obj`` with ``sort_keys=True`` and ``default=str`` so
+    that two semantically-equal dicts with different key orders compare
+    equal. Used by :meth:`ConfigApplier.apply_config` to detect no-op
+    updates (where the post-setattr Config state matches the
+    pre-setattr state) and skip the ``save_strict()`` call.
+    """
+    return json.dumps(obj, sort_keys=True, default=str)
 
 
 # CR-61: canonical audio-filter dict keys.  ADR 0007 §5 lists 8 filter
@@ -129,7 +142,7 @@ class ConfigApplier:
 
     # ── Side-effects (CR-18 extraction / CR-65) ────────────────────
 
-    def apply_config_side_effects(self, updates: dict) -> None:
+    def apply_config_side_effects(self, updates: dict) -> dict:
         """Apply side effects after config changes.
 
         ARCH-005: Centralizes the post-config-update hooks that were
@@ -141,9 +154,32 @@ class ConfigApplier:
         verbatim so no behaviour change is introduced in this pass.
         A future refactor can replace the if-chain with a registered
         ``ConfigSideEffect`` protocol + handler list (CR-65 step 2).
+
+        PVT-060 (session-3): returns a status dict so the caller
+        (``apply_config`` → ``set_config`` IPC handler) can propagate
+        autostart/prewarm registration results to the renderer. The
+        dict shape is::
+
+            {
+                "autostart_status": {"registered": bool, "error": str | None} | None,
+                "prewarm_status":   {"registered": bool, "error": str | None} | None,
+            }
+
+        A field is ``None`` when the corresponding config key wasn't in
+        ``updates`` (no sync was attempted). The renderer reads
+        ``autostart_status.error`` to surface "Autostart registration
+        failed: <reason>" instead of silently failing.
         """
         app = self._app
         config = app.config
+
+        # PVT-060: accumulate side-effect statuses for the renderer.
+        # Each entry is None (no sync attempted) or a dict with
+        # ``registered`` + ``error`` keys.
+        side_effect_status: dict[str, dict | None] = {
+            "autostart_status": None,
+            "prewarm_status": None,
+        }
 
         # Sync autostart if autostart setting changed
         if "autostart" in updates:
@@ -153,9 +189,10 @@ class ConfigApplier:
                 # target startup_tasks (and tests monkeypatch startup_tasks).
                 from voice_typer.server import startup_tasks
 
-                startup_tasks.sync_autostart(app)
+                side_effect_status["autostart_status"] = startup_tasks.sync_autostart(app)
             except Exception as e:
                 log.warning("Failed to sync autostart: %s", e)
+                side_effect_status["autostart_status"] = {"registered": False, "error": str(e)}
 
         # PW-3: Sync the prewarm scheduled task when fast_startup changes.
         # When the user toggles fast_startup in Settings → General, the
@@ -167,13 +204,14 @@ class ConfigApplier:
             try:
                 from voice_typer.server import startup_tasks
 
-                startup_tasks.sync_prewarm_task(app)
+                side_effect_status["prewarm_status"] = startup_tasks.sync_prewarm_task(app)
                 log.info(
                     "[SERVICE] Prewarm task synced after fast_startup change (fast_startup=%s)",
                     bool(updates.get("fast_startup")),
                 )
             except Exception as e:
                 log.warning("Failed to sync prewarm task: %s", e)
+                side_effect_status["prewarm_status"] = {"registered": False, "error": str(e)}
 
         # Register/unregister ESC hotkey
         if "esc_cancel_enabled" in updates:
@@ -195,6 +233,19 @@ class ConfigApplier:
         # NEW-UX-027: re-register the dictation hotkey when recording_mode
         # or hotkey changes.
         if "recording_mode" in updates or "hotkey" in updates or "push_to_talk_hotkey" in updates:
+            # G4-H-17: snapshot the previous hotkey so we can restore it
+            # if ``app.hotkeys.restart()`` raises. ``restart()`` sets
+            # ``config.hotkey = <new>`` before calling ``register()`` —
+            # if ``register()`` then fails (or restart itself raises),
+            # the on-disk config retains the broken hotkey. We restore
+            # the previous value and re-save so the next launch reads a
+            # working hotkey.
+            #
+            # (Agent 2-k owns the parallel fix inside
+            # ``hotkey_dispatcher.restart()`` itself — restore the
+            # config.hotkey value when ``register()`` returns False.
+            # This block covers the case where ``restart()`` raises.)
+            old_hotkey = getattr(config, "hotkey", None)
             try:
                 app.hotkeys.restart(getattr(config, "hotkey", "<f2>"))
                 log.info(
@@ -203,6 +254,24 @@ class ConfigApplier:
                 )
             except Exception as e:
                 log.warning("Failed to re-register hotkey after mode change: %s", e)
+                # G4-H-17: restore previous hotkey + re-save so a
+                # failed restart doesn't leave the on-disk config with
+                # a broken hotkey value.
+                if old_hotkey is not None:
+                    try:
+                        config.hotkey = old_hotkey
+                        save_fn = getattr(config, "save", None)
+                        if callable(save_fn):
+                            save_fn()
+                        log.info(
+                            "[SERVICE] Restored hotkey to %r after restart failure",
+                            old_hotkey,
+                        )
+                    except Exception:
+                        log.warning(
+                            "[SERVICE] Failed to restore hotkey after restart failure",
+                            exc_info=True,
+                        )
 
         # BUGFIX: tray_left_click_action was never handled — the tray
         # hardcoded "Toggle Dictation" as the left-click default, so the
@@ -237,14 +306,25 @@ class ConfigApplier:
                         if hasattr(app, "_waveform_bubble"):
                             app._waveform_bubble.show()
                     except Exception:
-                        pass
+                        # PVT-G5-047 (session-5): previously `except Exception: pass`
+                        # — silent failure meant "always visible" toggle
+                        # did nothing if the bubble was in a bad state.
+                        log.debug(
+                            "[SERVICE] Failed to show waveform bubble after bubble_behavior change",
+                            exc_info=True,
+                        )
                 elif behavior == "show_on_record":
                     # Hide bubble immediately when switching away from always_visible
                     try:
                         if hasattr(app, "_waveform_bubble") and app._waveform_bubble.visible:
                             app._waveform_bubble.hide()
                     except Exception:
-                        pass
+                        # PVT-G5-047: same as above — log at debug so the
+                        # failure is at least visible in -vv mode.
+                        log.debug(
+                            "[SERVICE] Failed to hide waveform bubble after bubble_behavior change",
+                            exc_info=True,
+                        )
                 log.info("[SERVICE] Bubble behavior updated to: %s", behavior)
             except Exception as e:
                 log.warning("Failed to update bubble behavior: %s", e)
@@ -252,8 +332,26 @@ class ConfigApplier:
         # BUGFIX: volume_duck_smart changes were not applied until restart.
         if "volume_duck_smart" in updates:
             try:
-                if hasattr(app, "_volume_ducker"):
-                    app._volume_ducker.set_smart_duck_enabled(bool(updates["volume_duck_smart"]))
+                ducker = getattr(app, "_volume_ducker", None)
+                if ducker is not None:
+                    new_enabled = bool(updates["volume_duck_smart"])
+                    # G4-M-19: set_smart_duck_enabled() may block for up
+                    # to ~1s on macOS (it calls _stop_smart_duck_monitor
+                    # which joins a background thread with a 1s timeout).
+                    # Running it inside the config-mutation lock (held by
+                    # apply_config) blocks all concurrent set_config IPC
+                    # calls for that duration. Move the call to a daemon
+                    # thread so the lock is released immediately; the
+                    # boolean update is a single attribute assignment so
+                    # the race window is negligible (microseconds).
+                    import threading as _threading
+
+                    _threading.Thread(
+                        target=ducker.set_smart_duck_enabled,
+                        args=(new_enabled,),
+                        name="smart-duck-toggle",
+                        daemon=True,
+                    ).start()
             except Exception as e:
                 log.warning("Failed to update smart duck: %s", e)
 
@@ -349,9 +447,16 @@ class ConfigApplier:
             except Exception as e:
                 log.warning("Failed to sync level bar processor: %s", e)
 
+        # PVT-060 (session-3): return the accumulated side-effect
+        # statuses so :meth:`apply_config` can propagate them to the
+        # ``set_config`` IPC response. The renderer reads
+        # ``autostart_status.error`` / ``prewarm_status.error`` to
+        # surface registration failures.
+        return side_effect_status
+
     # ── apply_config (CR-18 extraction) ────────────────────────────
 
-    def apply_config(self, updates: dict) -> None:
+    def apply_config(self, updates: dict) -> dict:
         """Apply validated config updates atomically.
 
         ADR 0008 §3.1: wraps the config-mutation lock + setattr +
@@ -403,8 +508,44 @@ class ConfigApplier:
             Validated config updates dict (allowlisted keys only).
             The caller is responsible for validating the payload —
             typically via :func:`voice_typer.server.config.validate_config_update`.
+
+        Returns
+        -------
+        dict
+            PVT-060 (session-3): side-effect status dict with the
+            shape ``{"autostart_status": dict | None, "prewarm_status": dict | None}``.
+            The ``set_config`` IPC handler propagates this to the
+            renderer so it can surface "Autostart registration failed:
+            <reason>" instead of silently failing. A field is ``None``
+            when the corresponding config key wasn't in ``updates``.
         """
         app = self._app
+        # PVT-060 (session-3): capture the side-effect status dict for
+        # return. The ``with`` block below may raise (e.g. ``save_strict``
+        # raises RuntimeError on disk-write failure) — in that case we
+        # still want to return whatever side-effect status was captured
+        # before the raise, so the renderer can surface the autostart/
+        # prewarm status alongside the save error. Initialize to all-
+        # None so the return shape is stable even on early-raise.
+        side_effect_status: dict[str, dict | None] = {
+            "autostart_status": None,
+            "prewarm_status": None,
+        }
+        # G4-L-20 + G4-H-12: snapshot pre-setattr Config state. Used for
+        # both the dirty-check (skip ``save_strict()`` if state is
+        # unchanged — G4-L-20) and for rollback on ``save_strict()``
+        # failure (restore snapshot + re-run side-effects with original
+        # values so live state matches disk — G4-H-12).
+        from dataclasses import asdict as _asdict
+
+        try:
+            pre_state_dict = _asdict(app.config)
+        except Exception:
+            # Snapshot failed (e.g. Config is a MagicMock in tests).
+            # Skip the dirty-check and rollback paths — they require a
+            # real dataclass instance to introspect.
+            pre_state_dict = None
+
         with app._config_mutation_lock:
             # RW-01: pre-route api_key fields through credential_store.
             # We do this BEFORE setattr so that even if save() is
@@ -432,8 +573,31 @@ class ConfigApplier:
                     "falling back to plain setattr (secret will be in config.json)",
                     exc,
                 )
-            for k, v in updates.items():
-                setattr(app.config, k, v)
+            # G4-L-24: wrap the setattr loop in try/except. On exception,
+            # restore pre-loop values for the keys we already set, then
+            # re-raise so the caller sees the original error.
+            _MISSING = object()
+            set_keys: list[tuple[str, Any]] = []
+            try:
+                for k, v in updates.items():
+                    old_value = getattr(app.config, k, _MISSING)
+                    set_keys.append((k, old_value))
+                    setattr(app.config, k, v)
+            except Exception:
+                # Restore pre-loop values for keys we already set, in
+                # reverse order so a partial setattr chain doesn't
+                # compound the corruption.
+                for k, old_value in reversed(set_keys):
+                    try:
+                        if old_value is not _MISSING:
+                            setattr(app.config, k, old_value)
+                    except Exception:
+                        log.warning(
+                            "[SERVICE] G4-L-24: failed to restore config key %s during setattr rollback",
+                            k,
+                            exc_info=True,
+                        )
+                raise
             # Drop the cached LLMPolisher when any llm_* config changes so the
             # next polish request rebuilds it with the new api_key/url/model/
             # preset. The polisher is constructed lazily in
@@ -443,14 +607,67 @@ class ConfigApplier:
                 with contextlib.suppress(Exception):
                     app._llm_polisher = None
             # Apply side effects inside the lock so Config mutations
-            # from the preset are visible to save().
-            self.apply_config_side_effects(updates)
+            # from the preset are visible to save(). PVT-060 (session-3):
+            # capture the returned status dict for propagation to the IPC
+            # response.
+            side_effect_status = self.apply_config_side_effects(updates)
             # CR-97: surface disk-write failures instead of silently
             # swallowing them.  ``save_strict`` raises RuntimeError
             # if ``save()`` returned False; the IPC handler is
             # expected to catch this and return an error envelope
             # instead of ``ack``.
-            app.config.save_strict()
+            #
+            # G4-L-20: dirty-check — if the post-setattr state equals
+            # the pre-setattr state (e.g. the user submitted an empty
+            # update or all values were already the same), skip the
+            # save_strict() call entirely. This avoids an unnecessary
+            # disk write + atomic-rename dance for no-op updates.
+            try:
+                post_state_dict = _asdict(app.config)
+            except Exception:
+                post_state_dict = None
+            state_unchanged = (
+                pre_state_dict is not None
+                and post_state_dict is not None
+                and _json_dumps_sorted(pre_state_dict) == _json_dumps_sorted(post_state_dict)
+            )
+            if state_unchanged:
+                log.debug("[SERVICE] G4-L-20: apply_config detected no state change — skipping save_strict()")
+            else:
+                try:
+                    app.config.save_strict()
+                except Exception:
+                    # G4-H-12: save_strict failed (disk write error,
+                    # permission denied, etc.). The in-memory Config now
+                    # carries the new values while disk holds the old.
+                    # Restore the snapshot under the same lock so the
+                    # in-memory state matches disk again, then re-run
+                    # apply_config_side_effects with the ORIGINAL values
+                    # so live side-effects (hotkey registration, audio
+                    # filter rebuild, etc.) match the restored config.
+                    if pre_state_dict is not None:
+                        for k, v in pre_state_dict.items():
+                            try:
+                                setattr(app.config, k, v)
+                            except Exception:
+                                log.warning(
+                                    "[SERVICE] G4-H-12: failed to restore config key %s during save_strict rollback",
+                                    k,
+                                    exc_info=True,
+                                )
+                        # Build an "old updates" dict (only the keys
+                        # the caller asked to change) so the side-effects
+                        # re-run with the values that are now live.
+                        old_updates = {k: v for k, v in pre_state_dict.items() if k in updates}
+                        if old_updates:
+                            try:
+                                self.apply_config_side_effects(old_updates)
+                            except Exception:
+                                log.warning(
+                                    "[SERVICE] G4-H-12: failed to re-run side-effects during save_strict rollback",
+                                    exc_info=True,
+                                )
+                    raise
 
             # ADR-0010 §8.3b: propagate clipboard config changes to the
             # live ClipboardManager (DP7). Without this, runtime changes
@@ -467,11 +684,27 @@ class ConfigApplier:
                 "paste_on_stop",
             }
             if clipboard_keys & set(updates.keys()):
-                with contextlib.suppress(Exception):
+                # PVT-G5-047 (session-5): previously
+                # ``contextlib.suppress(Exception)`` — silent failure
+                # meant runtime changes to clipboard_save_restore /
+                # clipboard_restore_delay_ms / paste_on_stop silently
+                # did not apply until restart. ADR-0010 §8.3b
+                # specifically calls out that refresh is needed for
+                # runtime changes; suppressing defeated the purpose.
+                # Log at WARNING so the operator knows to restart for
+                # the config change to take effect.
+                try:
                     app.clipboard.refresh_config(app.config)
+                except Exception as exc:
+                    log.warning(
+                        "[SERVICE] clipboard.refresh_config failed: %s — "
+                        "clipboard config changes will not take effect until restart",
+                        exc,
+                    )
         # ARCH-043: invalidate the tray menu cache so the next menu
         # build picks up the new config values.
         try:
             app.tray.invalidate_menu_cache()
         except Exception:
             log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
+        return side_effect_status

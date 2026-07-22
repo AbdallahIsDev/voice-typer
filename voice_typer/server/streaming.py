@@ -439,6 +439,7 @@ class StreamingTranscriptionSession:
         sample_rate: int,
         poll_interval_seconds: float = 0.25,
         thread_registry=None,
+        local_engine=None,
     ):
         self.recorder = recorder
         self.transcriber = transcriber
@@ -469,6 +470,15 @@ class StreamingTranscriptionSession:
         # behavior is unchanged — the worker is still tracked locally
         # via ``self._thread`` and stopped by ``cancel()`` / ``finalize()``.
         self._thread_registry = thread_registry
+        # G4-H-18: optional local engine forwarded to
+        # ``transcriber.transcribe_with_fallback`` at finalize time so
+        # the cloud→local fallback path actually fires when the active
+        # transcriber is a CloudEngine and the cloud provider is
+        # unreachable.  ``None`` (the default, including all existing
+        # unit tests) preserves the previous behavior — the kwarg is
+        # accepted by every backend's ``transcribe_with_fallback`` and
+        # ignored by backends that don't need it (Whisper/Parakeet/Qwen).
+        self._local_engine = local_engine
 
     @property
     def confirmed_text(self) -> str:
@@ -562,11 +572,17 @@ class StreamingTranscriptionSession:
         self._finalizing = True
         # ARCH-025: finalize genuinely needs to wait for the worker so
         # the assembler state is consistent. Pass blocking=True.
+        # PVT-014: cancel(blocking=True) already joins the worker for up
+        # to 10s. The previous second `_stopped_event.wait(timeout=10.0)`
+        # only fired when the first join already failed — adding up to
+        # 10s of UI-thread freeze cannot help a stuck thread exit.
+        # Replaced with a short 1.0s defensive wait (covers the rare
+        # race where cancel's join returns but the thread hasn't yet
+        # set _stopped_event).
         self.cancel(blocking=True)
-        # H14: If thread still alive after cancel, wait for stopped event
         thread = self._thread
         if thread is not None and thread.is_alive():
-            self._stopped_event.wait(timeout=10.0)
+            self._stopped_event.wait(timeout=1.0)
         return self._finalize_impl(full_audio)
 
     def process_available_audio_once(self) -> bool:
@@ -615,9 +631,13 @@ class StreamingTranscriptionSession:
             snapshot_last_committed_time = self.assembler.last_committed_time
 
         if not snapshot_committed_text:
-            return self.transcriber.transcribe_with_fallback(full_audio)
+            # G4-H-18: forward the optional local_engine (cloud→local
+            # fallback) wired at session construction time.
+            return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
         if self._fallback_required:
-            return self.transcriber.transcribe_with_fallback(full_audio)
+            # G4-H-18: forward the optional local_engine (cloud→local
+            # fallback) wired at session construction time.
+            return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
 
         # PERF-NEW-022: if the streaming thread's last committed word is
         # within 1.5s of the end of the audio, skip the final tail re-
@@ -656,7 +676,9 @@ class StreamingTranscriptionSession:
             return self.assembler.committed_text
         except Exception as exc:
             log.exception("[STREAMING] Final tail merge failed: %s", exc)
-            return self.transcriber.transcribe_with_fallback(full_audio)
+            # G4-H-18: forward the optional local_engine (cloud→local
+            # fallback) wired at session construction time.
+            return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
 
     def _run(self):
         try:

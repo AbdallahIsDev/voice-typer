@@ -58,7 +58,7 @@ class Equalizer(AudioFilter):
             return audio
 
         original_shape = audio.shape
-        samples = np.ravel(audio).astype(np.float64, copy=False)
+        samples = np.ravel(audio).astype(np.float32, copy=False)
         n = len(samples)
 
         lf = self._lf

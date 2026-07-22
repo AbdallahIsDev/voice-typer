@@ -107,7 +107,7 @@ def _redact_text(text: str) -> str:
        in the output rather than the more aggressive ``***`` mask
        produced by :func:`redact_secret`.
     2. :func:`redact_secret` is then applied to catch API keys and
-       bearer tokens (``Bearer …``, ``Token …``, ``sk-…``, 32+ char
+       bearer tokens (``Bearer …``, ``Token …``, ``sk-…``, 20+ char
        bare tokens).  It is a no-op for strings shorter than 20
        characters, so short log lines are untouched.
     3. :func:`redact_url` strips ``user:pass@`` userinfo from URLs.
@@ -132,15 +132,36 @@ class PIIRedactionFilter(logging.Filter):
 
     Patterns redacted:
       - Email addresses → ``[EMAIL]``
-      - Phone numbers (US-style) → ``[PHONE]``
+      - Phone numbers (US-style 7-digit) → ``[PHONE]``
+      - Phone numbers (international, E.164-ish) → ``[PHONE]``
+        (G4-M-26: covers ``+1 (415) 555-2671``, ``+44 20 7946 0958``,
+        ``+86 10 1234 5678``; requires at least 7 trailing digits)
+      - IBAN (international bank account number) → ``[IBAN]``
+        (G4-M-26: ``GB82WEST12345698765432``,
+        ``DE89370400440532013000``; 2-letter country + 2 check digits
+        + 10-30 BBAN chars)
       - SSN-like patterns → ``[SSN]``
       - Credit-card-like patterns → ``[CC]``
       - API keys / bearer tokens (``Bearer …``, ``Token …``, ``sk-…``,
-        32+ char bare tokens) → ``<prefix>***`` or ``***``
+        20+ char bare tokens) → ``<prefix>***`` or ``***``
         (via :func:`voice_typer.server._secrets.redact_secret`)
       - URL-embedded credentials (``user:pass@host``) → credentials
         stripped, host preserved
         (via :func:`voice_typer.server._secrets.redact_url`)
+
+    G4-M-26 limitations (NOT redacted — too high a false-positive rate
+    on ordinary numeric text):
+
+      - **US ABA routing numbers** (9-digit ``021000021`` form): the
+        pattern is just 9 digits with no country prefix or check-digit
+        structure; matching it would redact every 9-digit order ID,
+        zip+4 extension, and timestamp fragment in operator logs.
+        Operators who need routing-number redaction should add it
+        explicitly at the call site (e.g. via a per-message
+        ``re.sub`` before logging).
+
+      - **Generic 9-20 digit numbers** (potential account / customer
+        IDs): same false-positive concern.
 
     RW-6: in addition to the formatted log message, the filter also
     pre-formats and redacts the traceback when ``record.exc_info`` is
@@ -157,8 +178,25 @@ class PIIRedactionFilter(logging.Filter):
     _PATTERNS: list[tuple[re.Pattern[str], str]] = [
         # Email addresses
         (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"), "[EMAIL]"),
-        # Phone numbers (various formats)
+        # IBAN (international bank account number): 2-letter country
+        # code, 2 check digits, then 10-30 BBAN chars (alnum).
+        # Examples: ``GB82WEST12345698765432``, ``DE89370400440532013000``.
+        # G4-M-26: covers all 80+ IBAN-using jurisdictions; the
+        # country-code + check-digit prefix keeps false positives
+        # negligible. MUST run before phone patterns so the digit
+        # portion of an IBAN isn't mis-matched as a phone number.
+        (re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"), "[IBAN]"),
+        # Phone numbers (US-style: 555-123-4567, 5551234567, 555.123.4567)
         (re.compile(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"), "[PHONE]"),
+        # International phone numbers (E.164-ish and common domestic
+        # formats with country code): ``+1 (415) 555-2671``,
+        # ``+44 20 7946 0958``, ``+86 10 1234 5678``.
+        # G4-M-26: added because the US-only pattern above missed the
+        # common ``+<country-code> <subscriber>`` form used by every
+        # non-US locale. The regex requires a ``+`` prefix to
+        # distinguish from bare digit sequences (e.g. US ABA routing
+        # numbers, zip codes) that happen to match the digit count.
+        (re.compile(r"\+\d{1,3}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b"), "[PHONE]"),
         # SSN-like patterns
         (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
         # Credit card-like patterns
@@ -203,9 +241,17 @@ def redact_pii(text: str) -> str:
 
     Patterns redacted:
       - Email addresses → [EMAIL]
-      - Phone numbers (US-style) → [PHONE]
+      - Phone numbers (US-style 7-digit) → [PHONE]
+      - Phone numbers (international, E.164-ish) → [PHONE]
+        (G4-M-26: ``+1 (415) 555-2671``, ``+44 20 7946 0958``)
+      - IBAN (international bank account number) → [IBAN]
+        (G4-M-26: ``GB82WEST12345698765432``)
       - SSN-like patterns → [SSN]
       - Credit-card-like patterns → [CC]
+
+    G4-M-26 limitations (NOT matched): US ABA routing numbers
+    (9-digit form, too high a false-positive rate on ordinary numeric
+    text — see ``PIIRedactionFilter`` docstring for details).
 
     Parameters
     ----------
@@ -520,3 +566,71 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
 # The single canonical implementation is ``redact_pii(text)`` (above)
 # and the ``PIIRedactionFilter`` class (also above) which uses the same
 # compiled patterns. Use one of those two APIs for any new call site.
+
+
+# ─── G4-H-03: PIIRedactionFilter on logging.lastResort ────────────────────
+#
+# By default Python's logging module uses a "last resort" handler — a
+# StreamHandler writing to ``sys.stderr`` at WARNING level — when a
+# logger has no handlers configured anywhere in its ancestor chain.
+# Third-party libraries (``keyring``, ``urllib3``, ``websockets``,
+# ``asyncio``) typically do NOT call ``basicConfig`` or attach their
+# own handlers, so their WARNING/ERROR output flows through
+# ``logging.lastResort`` directly to stderr.
+#
+# Pre-G4-H-03, ``logging.lastResort`` had NO PII-redaction filter
+# attached. A buggy keyring backend that logged a credential value, or
+# a urllib3 exception whose message echoed a request URL with an API
+# key in the query string, would land in stderr (and any captured
+# stderr buffer) unredacted — defeating the SEC-009 / RW-6 redaction
+# that protects the rotating-file handler.
+#
+# The fix: replace ``logging.lastResort`` with a ``StreamHandler``
+# carrying the same ``PIIRedactionFilter`` used by the file/console
+# handlers in :func:`voice_typer.server.log.setup_logging`. This way
+# third-party logger output is subject to the same PII / secret
+# scrubbing as Voice Typer's own loggers.
+#
+# The function is idempotent and safe to call multiple times: it
+# always replaces ``lastResort`` with a fresh handler (no duplicate
+# filters accumulate). It runs at module import time so the protection
+# is in place as soon as :mod:`voice_typer.server.security` is loaded,
+# which happens early in app startup via the logging-setup import
+# chain.
+
+
+def install_lastresort_pii_filter() -> logging.Handler:
+    """G4-H-03: install PIIRedactionFilter on ``logging.lastResort``.
+
+    Replaces Python's default last-resort handler (a bare
+    :class:`logging.StreamHandler` writing to ``sys.stderr`` at
+    WARNING level) with an equivalent handler that carries a
+    :class:`PIIRedactionFilter`. This ensures third-party logger
+    output (``keyring``, ``urllib3``, ``websockets``) is PII-redacted
+    before reaching stderr, closing the gap documented in G4-H-03.
+
+    Returns
+    -------
+    logging.Handler
+        The new last-resort handler (also assigned to
+        ``logging.lastResort``).
+
+    Notes
+    -----
+    Idempotent. Safe to call multiple times — each call replaces the
+    prior handler rather than stacking filters.
+    """
+    handler = logging.StreamHandler()
+    handler.setLevel(logging.WARNING)
+    handler.addFilter(PIIRedactionFilter())
+    logging.lastResort = handler
+    return handler
+
+
+# Install at import time so the protection is in place as soon as the
+# security module is loaded — typically during
+# :func:`voice_typer.server.log.setup_logging`, which runs early in
+# app startup. Tests that want to assert the install happened can
+# re-invoke ``install_lastresort_pii_filter()`` or just inspect
+# ``logging.lastResort.filters`` directly.
+install_lastresort_pii_filter()

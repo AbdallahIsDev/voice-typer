@@ -355,7 +355,21 @@ class ModelManager:
             else:
                 if self._app._shutting_down:
                     return
-                log.warning("[STARTUP] All backends failed to load")
+                # PVT-G5-042 (session-5): list which backends were attempted
+                # so the user (and support) can see exactly what failed,
+                # plus a remediation hint. ``available_backends`` returns
+                # the registered backend names; ``active_name`` is the one
+                # that was selected as primary.
+                _attempted = ", ".join(self._registry.available_backends()) or "(none registered)"
+                _primary = getattr(self._app.config, "asr_backend", "unknown")
+                log.warning(
+                    "[STARTUP] All backends failed to load "
+                    "(primary=%s, attempted=[%s]). "
+                    "Recovery: press F2 to retry, or change the backend "
+                    "in Settings → Models.",
+                    _primary,
+                    _attempted,
+                )
                 self._app.tray.set_state(AppState.ERROR, "Model load failed -- press F2 to retry")
 
         except Exception:
@@ -432,7 +446,11 @@ class ModelManager:
         try:
             self._app.config.save()
         except Exception:
-            log.warning("failed to persist fallback config", exc_info=True)
+            # PVT-G5-076 (session-5): previously missing the ``[MODEL]``
+            # topic prefix used by every other log call in this module.
+            # Adding it keeps the log topic-consistent so log filters /
+            # greps work.
+            log.warning("[MODEL] failed to persist fallback config", exc_info=True)
         existing = self._registry.get("whisper")
         if existing is None:
             self._registry.create(
@@ -619,7 +637,16 @@ class ModelManager:
             else:
                 raise RuntimeError("All backends failed to load")
         except Exception as e:
-            log.exception("[MODEL] Load FAILED")
+            # PVT-G5-042 (session-5): include the model name and backend
+            # info so the failure is actionable — the user can see which
+            # backend and model size failed and retry / switch via Settings.
+            _failed_backend = getattr(self._app.config, "asr_backend", "unknown")
+            _failed_model = getattr(self._app.config, "model_size", "unknown")
+            log.exception(
+                "[MODEL] Load FAILED (backend=%s, model=%s)",
+                _failed_backend,
+                _failed_model,
+            )
             self._app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
             if notify_on_failure:
                 self._app.tray.notify(
@@ -673,18 +700,42 @@ class ModelManager:
         # CR-77: outer = _config_mutation_lock (app-level, governs config
         # setattr + save); inner = _model_change_lock (ModelManager-level,
         # guards the unload/reload cycle).  See method docstring.
-        with self._app._config_mutation_lock, self._model_change_lock:
-            self._change_model_impl(model_size)
+        #
+        # G4-H-16: _config_mutation_lock is acquired ONLY for the brief
+        # setattr + save + unload/unregister/clear-field phase. The heavy
+        # engine construction (_ensure_engine — may import torch) and
+        # load (load_active — 5-30s on cold boot) run under
+        # _model_change_lock alone so concurrent IPC set_config calls
+        # aren't blocked for the duration of the model load.
+        with self._model_change_lock:
+            # Phase 1: setattr + save + unload-old under config lock.
+            with self._app._config_mutation_lock:
+                new_backend, old_backend, deferred = self._change_model_setattr_phase(model_size)
+                if deferred:
+                    # Recording in progress — config saved, deferred
+                    # flag set, notification shown. Skip the load.
+                    return
+                # Unload + unregister + clear legacy fields.
+                self._change_model_unload_phase(new_backend, old_backend)
+            # _config_mutation_lock released here. _model_change_lock
+            # still held — concurrent IPC set_config calls can proceed.
+            # Phase 2: construct + load the new engine OUTSIDE the
+            # config lock (per G4-H-16).
+            self._change_model_load_phase(new_backend)
 
-    def _change_model_impl(self, model_size: str) -> None:
-        """Actual implementation of :meth:`change_model` (locks acquired by caller).
+    def _change_model_setattr_phase(self, model_size: str) -> tuple[str, str, bool]:
+        """Phase 1a: determine backend, setattr + save config.
 
-        Split out so ``change_model`` can wrap the entire body in
-        ``with self._app._config_mutation_lock:`` (outer) and
-        ``with self._model_change_lock:`` (inner) without re-indenting
-        ~80 LOC.  CR-77: the caller MUST hold both locks.
+        Returns ``(new_backend, old_backend, deferred)``. ``deferred`` is True when
+        the model change was queued via ``_pending_model_change``
+        because a recording is in progress — the caller should skip
+        the load phase. ``old_backend`` is captured BEFORE the setattr
+        overwrites ``config.asr_backend`` so the unload phase can use
+        the correct value.
+
+        Caller MUST hold both ``_config_mutation_lock`` and
+        ``_model_change_lock``.
         """
-        # Determine backend from model name
         if model_size == "parakeet":
             new_backend = "parakeet"
         elif model_size == "qwen":
@@ -722,8 +773,27 @@ class ModelManager:
                 APP_NAME,
                 f"Model will change to {model_size} after current recording",
             )
-            return
+            return new_backend, old_backend, True
+        return new_backend, old_backend, False
 
+    def _change_model_unload_phase(self, new_backend: str, old_backend: str) -> None:
+        """Phase 1b: unload + unregister + clear legacy fields for the OLD backend.
+
+        Caller MUST hold both ``_config_mutation_lock`` and
+        ``_model_change_lock``. ``new_backend`` is the target backend.
+        ``old_backend`` is the backend that was active BEFORE the setattr
+        phase overwrote ``config.asr_backend`` — captured by the caller
+        in ``_change_model_setattr_phase`` and passed in here so we don't
+        accidentally read the post-setattr value (which would always
+        equal ``new_backend``).
+
+        Note: we ALWAYS unload + unregister, even when
+        ``old_backend == new_backend``. This is required for whisper,
+        where ``model_size`` may have changed and a fresh
+        ``TranscriptionEngine`` must be constructed with the new
+        ``model_size`` kwarg. Skipping the unload (the G4-H-16
+        optimization) broke ``test_model_change_uses_config_device``.
+        """
         # Unload old backend via registry
         self._sync_registry_from_fields()
         self._registry.unload(old_backend)
@@ -745,9 +815,14 @@ class ModelManager:
                 self.transcriber.unload()
             self.transcriber = None
 
+    def _change_model_load_phase(self, new_backend: str) -> None:
+        """Phase 2: construct + load the new engine.
+
+        Caller MUST hold ``_model_change_lock``. Must NOT hold
+        ``_config_mutation_lock`` (per G4-H-16).
+        """
         # Create new engine object via registry.create()
         self._ensure_engine(new_backend)
-
         # Sync registry and load
         self._sync_registry_from_fields()
 
@@ -757,12 +832,11 @@ class ModelManager:
         try:
             success = self._registry.load_active(progress_callback=on_progress)
             if success:
-                # HIGH-19 / MODEL-1: PERF-015 LRU eviction was dead code
-                # — _evict_lru_model and touch_model were defined but
-                # never called from production paths.  Touch the freshly-
-                # loaded backend so it's tracked, then evict the LRU
-                # model if more than _MAX_LOADED_MODELS are now loaded.
-                # Guarded so a tracking failure doesn't break the load.
+                # HIGH-19 / MODEL-1: PERF-015 LRU eviction — touch the
+                # freshly-loaded backend so it's tracked, then evict
+                # the LRU model if more than _MAX_LOADED_MODELS are
+                # now loaded. Guarded so a tracking failure doesn't
+                # break the load.
                 try:
                     self.touch_model(new_backend)
                     self._evict_lru_model()
@@ -784,6 +858,140 @@ class ModelManager:
         except Exception as exc:
             log.exception("[MODEL] Model load failed: %s", exc)
             self._app.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
+
+    # G4-CR-08: set_active_backend — switch ASR backend WITHOUT changing
+    # model_size. Mirrors change_model's unload/reload cycle but only
+    # swaps the backend. The model_size field is left untouched so
+    # Whisper's model selection (which depends on model_size) is
+    # preserved across backend switches. For parakeet/qwen, model_size
+    # is informational (their engines ignore it).
+    def set_active_backend(self, backend: str) -> None:
+        """Switch the active ASR backend WITHOUT changing ``model_size``.
+
+        G4-CR-08: previously ``Service.set_active_backend`` delegated to
+        ``self._app.models.set_active_backend(backend)`` but
+        :class:`ModelManager` never defined that method — the IPC
+        ``set_config`` handler caught the ``AttributeError`` and logged
+        a warning, returning ``ack`` to the renderer while the actual
+        backend swap never happened. Old backends stayed loaded (GPU
+        + RAM) until LRU eviction.
+
+        This implementation mirrors :meth:`change_model`'s
+        unload/reload cycle but skips the ``model_size`` mutation:
+
+        1. Acquire ``_config_mutation_lock`` + ``_model_change_lock``.
+        2. If ``backend == config.asr_backend``, no-op return.
+        3. Unload the OLD backend's engine (if loaded) so its GPU/RAM
+           is released immediately, not via LRU eviction later.
+        4. Set ``config.asr_backend = backend`` and persist via
+           ``config.save()``.
+        5. Pre-construct the new backend via ``_ensure_engine`` (no
+           load yet — just constructs the engine object).
+        6. Release ``_config_mutation_lock`` (per G4-H-16).
+        7. Load the new backend via ``_registry.load_active`` under
+           ``_model_change_lock`` alone.
+
+        Parameters
+        ----------
+        backend :
+            One of ``"whisper"``, ``"qwen"``, ``"parakeet"``. Any other
+            value raises :class:`ValueError`.
+        """
+        if backend not in ("whisper", "qwen", "parakeet"):
+            raise ValueError(
+                f"set_active_backend: unknown backend {backend!r}. Expected one of: 'whisper', 'qwen', 'parakeet'."
+            )
+        # G4-H-16: outer = _model_change_lock (held throughout the
+        # unload+construct+load cycle). Inner = _config_mutation_lock
+        # (acquired only for setattr + save + the quick unload phase).
+        with self._model_change_lock:
+            with self._app._config_mutation_lock:
+                old_backend = self._app.config.asr_backend
+                if old_backend == backend:
+                    # No-op — backend already active.
+                    return
+                log.info(
+                    "[MODEL] Switching active backend: %s -> %s (model_size=%s unchanged)",
+                    old_backend,
+                    backend,
+                    self._app.config.model_size,
+                )
+                # Unload old backend via the shared helper. Pass
+                # ``backend`` as ``new_backend`` and the captured
+                # ``old_backend`` so the helper sees "different
+                # backends" and performs the unload.
+                self._change_model_unload_phase(backend, old_backend)
+                # Set config + persist
+                self._app.config.asr_backend = backend
+                if not self._app.config.save():
+                    log.warning("[MODEL] config.save() returned False during set_active_backend")
+                # Pre-construct new backend (no load yet).
+                self._ensure_engine(backend)
+                self._sync_registry_from_fields()
+            # _config_mutation_lock released. _model_change_lock still held.
+            # Load the new backend.
+
+            def on_progress(msg: str):
+                self._app.tray.set_state(AppState.LOADING, msg)
+
+            try:
+                success = self._registry.load_active(progress_callback=on_progress)
+                if success:
+                    try:
+                        self.touch_model(self._registry.active_name)
+                        self._evict_lru_model()
+                    except Exception:
+                        log.warning(
+                            "[PERF-015] LRU tracking failed (non-fatal)",
+                            exc_info=True,
+                        )
+                    active = self._registry.get_active()
+                    name = self._registry.active_name
+                    if name == "whisper" and active is not None:
+                        self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
+                    else:
+                        self._app.tray.set_state(AppState.IDLE, f"Ready -- {name.title()} ASR")
+                    self._app.tray.invalidate_menu_cache()
+                else:
+                    log.warning(
+                        "[MODEL] %s backend failed to load during set_active_backend",
+                        backend.title(),
+                    )
+                    self._app.tray.set_state(
+                        AppState.ERROR,
+                        f"{backend.title()} backend failed to load",
+                    )
+            except Exception as exc:
+                log.exception("[MODEL] set_active_backend load failed: %s", exc)
+                self._app.tray.set_state(AppState.ERROR, f"Backend failed: {exc}")
+
+    def _change_model_impl(self, model_size: str) -> None:
+        """Actual implementation of :meth:`change_model` (locks acquired by caller).
+
+        .. deprecated::
+            Since G4-H-16, :meth:`change_model` is split into three
+            phase helpers (``_change_model_setattr_phase``,
+            ``_change_model_unload_phase``, ``_change_model_load_phase``)
+            so the heavy load can run outside ``_config_mutation_lock``.
+            This shim exists for backward-compat with any caller that
+            still calls ``_change_model_impl`` directly. It re-acquires
+            the config lock around the load phase to preserve the legacy
+            behavior (the new change_model releases it before load).
+
+        Split out so ``change_model`` can wrap the entire body in
+        ``with self._app._config_mutation_lock:`` (outer) and
+        ``with self._model_change_lock:`` (inner) without re-indenting
+        ~80 LOC.  CR-77: the caller MUST hold both locks.
+        """
+        # Legacy callers expect the full cycle under both locks.
+        # Delegate to the new phase helpers but re-acquire the config
+        # lock around the load phase to preserve legacy behavior.
+        with self._app._config_mutation_lock:
+            new_backend, deferred = self._change_model_setattr_phase(model_size)
+            if deferred:
+                return
+            self._change_model_unload_phase(new_backend)
+            self._change_model_load_phase(new_backend)
 
     # ERR-003: apply a deferred model change captured during an active
     # recording. Called from _start_dictation before the new recording

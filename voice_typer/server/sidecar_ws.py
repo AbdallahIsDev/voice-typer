@@ -248,7 +248,34 @@ def _make_dispatch(server: IPCServer):
     # A local attacker can no longer reset the 200-message burst budget
     # by dropping the WS and reconnecting — the 10s sliding window
     # continues to evict old timestamps across reconnects.
+    # G4-H-30: dedicated ThreadPoolExecutor for WS dispatch so
+    # ``_do_cleanup`` can drain / cancel in-flight dispatch requests
+    # BEFORE tearing down the recorder / history DB / crash-recovery
+    # writer. Previously ``loop.run_in_executor(None, server._dispatch,
+    # msg)`` used the asyncio loop's default executor, which has no
+    # handle the shutdown path can reach — a long-running handler
+    # (e.g. ``download_model``) would race teardown, half-flush the
+    # history DB, and leak a partially-written crash-recovery snapshot.
+    #
+    # Stored on the server instance (not the closure) so
+    # ``ShutdownController._do_cleanup`` can reach it via
+    # ``app._ipc_server._ws_dispatch_pool``. Lazily created on first
+    # dispatch (the WS path may never be entered if the server runs in
+    # TCP / standalone mode). Idempotent: the second call to
+    # ``_get_ws_dispatch_pool`` returns the existing pool.
+    from concurrent.futures import ThreadPoolExecutor
+
     from voice_typer.server.ipc_server import _get_rate_limiter
+
+    ws_dispatch_pool = getattr(server, "_ws_dispatch_pool", None)
+    if ws_dispatch_pool is None:
+        ws_dispatch_pool = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="sidecar-ws-dispatch",
+        )
+        # ``setattr`` on a real IPCServer stores the attribute; on a
+        # MagicMock test double it overrides the auto-vivified child.
+        server._ws_dispatch_pool = ws_dispatch_pool  # type: ignore[attr-defined]
 
     async def dispatch(msg: dict, websocket) -> dict | None:
         msg_type = msg.get("type")
@@ -256,6 +283,26 @@ def _make_dispatch(server: IPCServer):
             return {
                 "type": "error",
                 "data": {"code": "invalid_payload", "message": "missing 'type'"},
+            }
+
+        # G4-H-30: cooperative shutdown gate. Once ``app._shutting_down``
+        # is True (set by ``ShutdownController.quit()`` before
+        # ``_do_cleanup()`` runs), reject every new dispatch request
+        # with a structured ``server.shutting_down`` error code so the
+        # host can re-queue / surface a graceful "backend is exiting"
+        # message instead of starting a long-running handler (e.g.
+        # ``download_model``) that would race teardown. The
+        # ``shutdown`` message itself is exempt — the host sends it to
+        # TRIGGER shutdown, and we ack it below before any cleanup
+        # runs.
+        if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False) is True:
+            log.debug("[SIDECAR-WS] rejecting %s — server shutting down", msg_type)
+            return {
+                "type": "error",
+                "data": {
+                    "code": "server.shutting_down",
+                    "message": "server is shutting down; please retry later",
+                },
             }
 
         # ADR-0020 §10: cooperative shutdown.
@@ -289,7 +336,16 @@ def _make_dispatch(server: IPCServer):
         # .allow() returns a bool (no retry-after); the host backs off
         # via FT-1 backoff on repeated rate-limit hits.
         rate_limiter = _get_rate_limiter(server)
-        if not rate_limiter.allow():
+        #
+        # G4-M-09: pass ``command=msg_type`` so the per-command cost map
+        # (``COMMAND_COSTS``) is applied — e.g. ``download_model``
+        # consumes 50 of the 200 burst units, so a buggy client can fire
+        # at most 4 expensive commands per second before the 5th is
+        # rejected. Cheap commands (``heartbeat``, ``get_status``) keep
+        # the pre-G4-M-09 cost-1 behavior. The legacy
+        # ``rate_limiter.allow()`` form (no ``command`` kwarg) is still
+        # supported and treats the call as cost 1.
+        if not rate_limiter.allow(command=msg_type):
             # SEC-6: allow() already increments _rejected atomically when
             # it returns False — the separate .reject() call was removed
             # to eliminate the benign race where two threads could both
@@ -308,7 +364,12 @@ def _make_dispatch(server: IPCServer):
         # (e.g. download_model) doesn't block the WS reader.
         loop = asyncio.get_running_loop()
         try:
-            result = await loop.run_in_executor(None, server._dispatch, msg)
+            # G4-H-30: use the dedicated ``_ws_dispatch_pool`` (not the
+            # asyncio default executor) so ``ShutdownController._do_cleanup``
+            # can ``pool.shutdown(wait=False, cancel_futures=True)`` to
+            # drain / cancel in-flight handlers before recorder / history
+            # DB / crash-recovery teardown.
+            result = await loop.run_in_executor(ws_dispatch_pool, server._dispatch, msg)
         except Exception:
             log.exception("[SIDECAR-WS] _dispatch raised")
             # IPC-5 (2026-07-18): the error envelope now matches the
@@ -498,14 +559,26 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     def _push_to_ws(event: dict) -> None:
         """Subscriber for event_bus.publish — enqueues for the writer task.
 
-        CR-4: this subscriber is invoked synchronously in the
+        CR-4 / PVT-G5-002: this subscriber is invoked synchronously in the
         publisher's thread (``event_bus._deliver`` calls ``fn(event)``
         directly, modulo the RT-thread deferred path). Because the
         publisher is typically a non-event-loop thread, we MUST NOT
-        touch ``outbound`` (an ``asyncio.Queue``) here. Instead we
-        schedule ``_enqueue_safe`` on the loop thread via
-        ``call_soon_threadsafe`` — the only documented thread-safe
-        way to hand work to an asyncio loop from outside it.
+        touch ``outbound`` (an ``asyncio.Queue``) here — ``asyncio.Queue``
+        is documented as NOT thread-safe and direct mutation from a
+        non-loop thread corrupts the queue's internal deque + Future
+        state. Instead we schedule ``_enqueue_safe`` on the loop thread
+        via ``call_soon_threadsafe`` — the only documented thread-safe
+        way to hand work to an asyncio loop from outside it. The
+        drop-oldest dance (``full`` / ``get_nowait`` / ``put_nowait``)
+        lives in ``_enqueue_safe`` and runs entirely on the loop thread.
+
+        PVT-028: removed the pre-marshaling queue-overflow check and
+        the ``put_nowait`` fallback. They touched the asyncio.Queue from
+        the publisher's thread — exactly the corruption ``_enqueue_safe``
+        was created to prevent. ``_enqueue_safe`` already does the
+        drop-oldest dance ON the loop thread. Also removed the dead
+        ``except asyncio.QueueFull`` clause (``call_soon_threadsafe``
+        never raises QueueFull).
 
         ``RuntimeError`` is raised by ``call_soon_threadsafe`` when
         the loop has been closed (process shutdown / FT-1 respawn).
@@ -515,23 +588,10 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
         shutdown contract; we do NOT want a traceback per published
         event during teardown.
         """
-        """Subscriber for event_bus.publish — enqueues for the writer task."""
-        # Don't let a slow host block the publisher thread (event_bus
-        # is process-global). Drop the oldest pending event if the
-        # queue is full — the host will recover via state snapshots.
-        if outbound.full():
-            try:
-                outbound.get_nowait()
-                log.debug("[SIDECAR-WS] outbound queue full — dropped oldest event")
-            except asyncio.QueueEmpty:
-                pass
         try:
             loop.call_soon_threadsafe(_enqueue_safe, outbound, event)
         except RuntimeError:
             log.debug("[SIDECAR-WS] event dropped during shutdown — event loop closed")
-            outbound.put_nowait(event)
-        except asyncio.QueueFull:
-            log.warning("[SIDECAR-WS] outbound queue still full — dropping event")
 
     from voice_typer.server import event_bus
 

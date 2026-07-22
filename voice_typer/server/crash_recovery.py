@@ -14,15 +14,23 @@ thread with a bounded queue: callers enqueue a save request and
 return immediately; the worker thread serializes the writes.
 """
 
+import atexit
 import contextlib
 import json
 import logging
 import os
 import queue
 import threading
+import weakref
 from pathlib import Path
 from typing import Any
 
+# G4-M-36: import _secure_atomic_write at module load time so
+# ``_save_sync`` doesn't need to lazily import it during interpreter
+# shutdown (where the import machinery can fail, dropping the final
+# recovery state).  ``config`` doesn't import ``crash_recovery``, so
+# this is safe from circular-import issues.
+from voice_typer.server.config import _secure_atomic_write
 from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
@@ -85,6 +93,24 @@ class CrashRecovery:
         self._thread_registry = thread_registry
         self._load()
         self._start_save_thread()
+        # G4-M-36: register an atexit handler so the final recovery
+        # state is persisted even if the caller forgets to call
+        # ``shutdown()`` / ``flush()`` (e.g. interpreter killed by
+        # SIGTERM, normal process exit without explicit teardown).
+        # The handler holds a weak reference so a GC'd CrashRecovery
+        # doesn't keep itself alive via the atexit registry.
+        self_ref = weakref.ref(self)
+
+        def _atexit_save() -> None:
+            cr = self_ref()
+            if cr is None:
+                return
+            try:
+                cr._save_sync()
+            except Exception:
+                pass  # atexit must never raise
+
+        atexit.register(_atexit_save)
 
     # ── Persistence ──────────────────────────────────────────────────
 
@@ -140,11 +166,16 @@ class CrashRecovery:
         fallback callers don't race on the file.  ``_lock`` is still
         acquired only for the in-memory snapshot so reads of
         ``_entries`` aren't blocked during I/O.
+
+        G4-M-36: ``_secure_atomic_write`` is now imported at module
+        load time (top of file) rather than lazily here.  This avoids
+        the ``ImportError`` that occurred during interpreter shutdown
+        when the import machinery was partially dismantled — the
+        lazy import would silently fail and the final recovery state
+        would be lost.
         """
         with self._save_lock:
             try:
-                from voice_typer.server.config import _secure_atomic_write
-
                 self._path.parent.mkdir(parents=True, exist_ok=True)
                 if not is_windows():
                     try:
@@ -510,8 +541,20 @@ class CrashRecovery:
         bundle_name = f"voice-typer-diagnostics-{timestamp}.zip"
         bundle_path = config_dir / bundle_name
 
+        # PVT-G5-078 (session-5): write the zip to a sibling .tmp file
+        # first, then atomically ``os.replace`` it to the final name.
+        # Pre-fix, ``zipfile.ZipFile(str(bundle_path), "w", ...)``
+        # opened the final path directly — if the process crashed
+        # mid-write (or the disk filled, or the user Ctrl-C'd the
+        # export), a partial zip would be left in the config dir. A
+        # user attaching that partial zip to a bug report would confuse
+        # support (zip is corrupt, no error visible). The atomic rename
+        # ensures the final path only ever exists as a complete, valid
+        # zip.
+        tmp_bundle_path = bundle_path.with_suffix(".zip.tmp")
+
         try:
-            with zipfile.ZipFile(str(bundle_path), "w", zipfile.ZIP_DEFLATED) as zf:
+            with zipfile.ZipFile(str(tmp_bundle_path), "w", zipfile.ZIP_DEFLATED) as zf:
                 # 1. Log file
                 log_path = config_dir / "voice-typer.log"
                 if log_path.exists():
@@ -561,6 +604,97 @@ class CrashRecovery:
                     f"Architecture: {platform.machine()}",
                     f"Processor: {platform.processor()}",
                 ]
+                # G4-M-35: extend system_info with OS release, distro,
+                # display server, audio devices, app version, and a
+                # redacted env-var allowlist so support engineers can
+                # diagnose platform-specific issues (Wayland stalls,
+                # missing audio devices, sidecar mode, etc.) without
+                # asking the user to run ``--status`` manually.
+                sys_info.append(f"OS release: {platform.release()}")
+                # distro.id() — Linux-only, lazy import (not available
+                # on macOS/Windows by default; the ``distro`` package
+                # is a soft dependency).
+                if sys.platform.startswith("linux"):
+                    try:
+                        import distro
+
+                        sys_info.append(f"Distro ID: {distro.id()}")
+                        sys_info.append(f"Distro version: {distro.version()}")
+                    except ImportError:
+                        sys_info.append("Distro ID: <distro package not installed>")
+                    except Exception as exc:
+                        sys_info.append(f"Distro ID error: {exc}")
+                # Display server — distinguishes X11 vs Wayland sessions
+                # (matters for clipboard, hotkeys, and tray quirks).
+                sys_info.append(f"XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE', '<unset>')}")
+                sys_info.append(f"WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY', '<unset>')}")
+                # Audio devices — hostapi + name + max_input_channels +
+                # default_samplerate only (no PII: device names are
+                # hardware identifiers, not user data).  Lazy import
+                # because sounddevice pulls in PortAudio.
+                try:
+                    import sounddevice
+
+                    devices = sounddevice.query_devices()
+                    sys_info.append(f"Audio devices (count): {len(devices)}")
+                    for idx, dev in enumerate(devices):
+                        # Each device is a dict; guard against malformed entries.
+                        if not isinstance(dev, dict):
+                            continue
+                        hostapi = dev.get("hostapi", "?")
+                        name = dev.get("name", "?")
+                        max_in = dev.get("max_input_channels", 0)
+                        sr = dev.get("default_samplerate", "?")
+                        # Only include input-capable devices (mics).
+                        # Output-only devices aren't relevant for ASR.
+                        if max_in and max_in > 0:
+                            sys_info.append(
+                                f"  [input] hostapi={hostapi} name={name!r} "
+                                f"max_input_channels={max_in} "
+                                f"default_samplerate={sr}"
+                            )
+                except ImportError:
+                    sys_info.append("Audio devices: <sounddevice not installed>")
+                except Exception as exc:
+                    sys_info.append(f"Audio devices error: {exc}")
+                # G4-M-35: app version from the ``voice_typer`` package
+                # (exposed via PEP 562 in ``voice_typer/__init__.py``).
+                # We use ``voice_typer.__version__`` directly rather than
+                # ``branding.__version__`` to avoid modifying
+                # ``branding.py`` (owned by another agent).  The version
+                # is resolved lazily on first access via
+                # ``importlib.metadata.version``.
+                try:
+                    import voice_typer
+
+                    sys_info.append(f"App version: {voice_typer.__version__}")
+                except Exception as exc:
+                    sys_info.append(f"App version error: {exc}")
+                # TAURI_SIDECAR env flag — distinguishes the bundled
+                # sidecar process from a standalone Python invocation.
+                sys_info.append(f"TAURI_SIDECAR: {os.environ.get('TAURI_SIDECAR', '<unset>')}")
+                # Redacted env-var allowlist: VOICE_TYPER_* values are
+                # included verbatim (they're app-controlled, no PII);
+                # PATH is included as basenames only so we can see what
+                # tool directories are on PATH without leaking the
+                # user's home directory path.
+                for key in sorted(os.environ):
+                    if key.startswith("VOICE_TYPER_"):
+                        value = os.environ[key]
+                        # Truncate very long values to keep the bundle
+                        # manageable (e.g. VOICE_TYPER_NATIVE_DIR is short,
+                        # but a hypothetical future var could be long).
+                        if len(value) > 200:
+                            value = value[:200] + "...(truncated)"
+                        sys_info.append(f"env[{key}]={value}")
+                path_value = os.environ.get("PATH", "")
+                if path_value:
+                    # PATH basename only: split by os.pathsep, take
+                    # basename of each component.  This reveals the
+                    # directory names (e.g. ``bin``, ``sbin``) without
+                    # leaking the user's home directory path.
+                    path_parts = [os.path.basename(p) for p in path_value.split(os.pathsep) if p]
+                    sys_info.append(f"env[PATH] (basenames)={os.pathsep.join(path_parts)}")
                 # GPU info
                 try:
                     import torch
@@ -677,8 +811,42 @@ class CrashRecovery:
                         ),
                     )
 
+                # 7. Crash diagnostics archive (G4-M-33)
+                # ``crash_handler.report_pending_crash`` archives each
+                # processed crash_diagnostics / python_crash file to
+                # ``<config_dir>/crash_diagnostics_archive/`` instead of
+                # unlinking it, so the diagnostic bundle can include it
+                # here.  Each archived file is added under a
+                # ``crash_diagnostics_archive/`` prefix in the zip so
+                # support engineers can locate it easily.
+                archive_dir = config_dir / "crash_diagnostics_archive"
+                if archive_dir.is_dir():
+                    for archived_file in sorted(archive_dir.glob("*")):
+                        if not archived_file.is_file():
+                            continue
+                        with contextlib.suppress(Exception):
+                            zf.write(
+                                str(archived_file),
+                                f"crash_diagnostics_archive/{archived_file.name}",
+                            )
+
+            # PVT-G5-078 (session-5): atomic rename — only do this if
+            # the tmp file was successfully written. If the
+            # ``with zipfile.ZipFile`` block above raised, we never get
+            # here and the tmp file (if any) is left for the next export
+            # to overwrite. Use ``os.replace`` for atomicity (POSIX
+            # rename(2) is atomic; Windows ReplaceFile is too on NTFS).
+            os.replace(str(tmp_bundle_path), str(bundle_path))
             log.info("[RECOVERY] Diagnostic bundle created: %s", bundle_path)
             return str(bundle_path)
         except Exception as exc:
+            # PVT-G5-078 (session-5): clean up the partial tmp file on
+            # failure so it doesn't accumulate across failed exports.
+            # Best-effort.
+            try:
+                if tmp_bundle_path.exists():
+                    tmp_bundle_path.unlink()
+            except OSError:
+                pass
             log.error("[RECOVERY] Failed to create diagnostic bundle: %s", exc)
             return None

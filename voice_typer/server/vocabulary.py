@@ -220,7 +220,9 @@ class VocabularyManager:
                     )
             except OSError as exc:
                 final_exc = exc
-                log.error("[VOCAB] Failed to save user vocabulary: %s", exc)
+                # G4-H-38: use log.exception so the traceback is
+                # captured automatically via sys.exc_info().
+                log.exception("[VOCAB] Failed to save user vocabulary")
                 break
         # M-63: surface the failure to callers so they can roll back
         # any in-memory mutation they made before calling us.
@@ -256,15 +258,19 @@ class VocabularyManager:
                             max_retries,
                             exc,
                         )
-                except OSError as exc:
-                    log.error("[VOCAB] Failed to save user vocabulary: %s", exc)
+                except OSError:
+                    # G4-H-38: use log.exception so the traceback is
+                    # captured automatically via sys.exc_info().
+                    log.exception("[VOCAB] Failed to save user vocabulary")
                     break
             # Note: we deliberately do NOT re-raise — the existing
             # contract is that _save_user is best-effort and failures
             # are logged. Callers that need to know about failures
             # should check the log.
-        except Exception as exc:
-            log.error("[VOCAB] Failed to save: %s", exc)
+        except Exception:
+            # G4-H-38: use log.exception so the traceback is captured
+            # automatically via sys.exc_info().
+            log.exception("[VOCAB] Failed to save")
 
     # ── Read access ──────────────────────────────────────────────────
 
@@ -441,11 +447,21 @@ class VocabularyManager:
         """Export all vocabulary as JSON string."""
         return json.dumps(self._data, indent=2, ensure_ascii=False)
 
-    def import_json(self, json_str: str, *, merge: bool = True) -> int:
+    def import_json(self, json_str: str, *, merge: bool = True) -> tuple[int, int]:
         """Import vocabulary from a JSON string.
 
         If merge=True, extends existing entries. If False, replaces.
-        Returns number of categories imported.
+        Returns a tuple ``(categories_imported, dropped_entries)``.
+
+        G4-M-37: validates each category BEFORE mutating ``self._data``:
+          - Drops entries whose key/pattern exceeds
+            ``MAX_PATTERN_LENGTH`` or whose value/replacement exceeds
+            ``MAX_REPLACEMENT_LENGTH`` (mirrors
+            ``text_cleanup._load_external_corrections``).
+          - Drops the entire category import if
+            ``len(existing) + len(new)`` (merge=True) or ``len(new)``
+            (merge=False) would exceed ``MAX_CORRECTIONS_ENTRIES``.
+          - Logs a single warning summarising the dropped count.
 
         M-63: snapshots the entire ``_data`` dict before mutating and
         restores it on save failure so the in-memory state stays
@@ -458,6 +474,99 @@ class VocabularyManager:
         try:
             data = json.loads(json_str)
             data = self._normalize_data(data)
+
+            # G4-M-37: pre-validate every category before mutating
+            # ``self._data``. We drop oversized entries and reject
+            # entire categories that would exceed
+            # MAX_CORRECTIONS_ENTRIES so the in-memory state stays
+            # within the SEC-011 resource limits even when the
+            # imported JSON is hostile.
+            dropped = 0
+            validated: dict[str, Any] = {}
+            for cat in CATEGORIES:
+                if cat not in data or data[cat] is None:
+                    continue
+                raw = data[cat]
+                if cat in ("misspellings", "technical_terms", "names", "products"):
+                    if not isinstance(raw, dict):
+                        continue
+                    filtered: dict[str, str] = {}
+                    for k, v in raw.items():
+                        k_str = k if isinstance(k, str) else str(k)
+                        v_str = v if isinstance(v, str) else str(v)
+                        if len(k_str) > MAX_PATTERN_LENGTH:
+                            dropped += 1
+                            continue
+                        if len(v_str) > MAX_REPLACEMENT_LENGTH:
+                            dropped += 1
+                            continue
+                        filtered[k_str] = v_str
+                    existing_cat = self._data.get(cat)
+                    existing_len = len(existing_cat) if isinstance(existing_cat, dict) else 0
+                    new_len = len(filtered)
+                    would_be = existing_len + new_len if merge else new_len
+                    if would_be > MAX_CORRECTIONS_ENTRIES:
+                        log.warning(
+                            "[VOCAB] Category %s would exceed MAX_CORRECTIONS_ENTRIES "
+                            "(existing=%d, new=%d, cap=%d), dropping %d entries from import",
+                            cat,
+                            existing_len,
+                            new_len,
+                            MAX_CORRECTIONS_ENTRIES,
+                            new_len,
+                        )
+                        dropped += new_len
+                        continue
+                    # G4-M-37: only register non-empty categories so the
+                    # returned ``count`` reflects categories that actually
+                    # received new entries (empty placeholders from
+                    # _normalize_data defaults would otherwise inflate it).
+                    if filtered:
+                        validated[cat] = filtered
+                else:
+                    # List-based category (phrase_corrections, extra_word_patterns).
+                    if not isinstance(raw, list):
+                        continue
+                    filtered_list: list[list[str]] = []
+                    for entry in raw:
+                        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+                            dropped += 1
+                            continue
+                        bad, good = entry[0], entry[1]
+                        bad_str = bad if isinstance(bad, str) else str(bad)
+                        good_str = good if isinstance(good, str) else str(good)
+                        if len(bad_str) > MAX_PATTERN_LENGTH or len(good_str) > MAX_REPLACEMENT_LENGTH:
+                            dropped += 1
+                            continue
+                        filtered_list.append([bad_str, good_str])
+                    existing_cat = self._data.get(cat)
+                    existing_len = len(existing_cat) if isinstance(existing_cat, list) else 0
+                    new_len = len(filtered_list)
+                    would_be = existing_len + new_len if merge else new_len
+                    if would_be > MAX_CORRECTIONS_ENTRIES:
+                        log.warning(
+                            "[VOCAB] Category %s would exceed MAX_CORRECTIONS_ENTRIES "
+                            "(existing=%d, new=%d, cap=%d), dropping %d entries from import",
+                            cat,
+                            existing_len,
+                            new_len,
+                            MAX_CORRECTIONS_ENTRIES,
+                            new_len,
+                        )
+                        dropped += new_len
+                        continue
+                    # G4-M-37: only register non-empty categories so the
+                    # returned ``count`` reflects categories that actually
+                    # received new entries.
+                    if filtered_list:
+                        validated[cat] = filtered_list
+
+            if dropped:
+                log.warning(
+                    "[VOCAB] Dropped %d entries from import (oversized or over-cap)",
+                    dropped,
+                )
+
             count = 0
             with self._lock:
                 # M-63: snapshot for rollback. Shallow-copy the
@@ -473,23 +582,23 @@ class VocabularyManager:
                     else:
                         snapshot[cat] = val
                 for cat in CATEGORIES:
-                    if cat not in data or data[cat] is None:
+                    if cat not in validated:
                         continue
                     if merge:
                         if cat in ("misspellings", "technical_terms", "names", "products"):
                             if not isinstance(self._data.get(cat), dict):
                                 self._data[cat] = {}
                             cat_dict = self._data[cat]
-                            if isinstance(cat_dict, dict) and isinstance(data[cat], dict):
-                                cat_dict.update(data[cat])
+                            if isinstance(cat_dict, dict) and isinstance(validated[cat], dict):
+                                cat_dict.update(validated[cat])
                         else:
                             if not isinstance(self._data.get(cat), list):
                                 self._data[cat] = []
                             cat_list = self._data[cat]
-                            if isinstance(cat_list, list) and isinstance(data[cat], list):
-                                cat_list.extend(data[cat])
+                            if isinstance(cat_list, list) and isinstance(validated[cat], list):
+                                cat_list.extend(validated[cat])
                     else:
-                        self._data[cat] = data[cat]
+                        self._data[cat] = validated[cat]
                     count += 1
             if count:
                 try:
@@ -500,10 +609,10 @@ class VocabularyManager:
                         self._data.clear()
                         self._data.update(snapshot)
                     raise
-            return count
+            return count, dropped
         except Exception:
             log.exception("[VOCAB] Import failed")
-            return 0
+            return 0, 0
 
     # ── Apply vocabulary to text ─────────────────────────────────────
 

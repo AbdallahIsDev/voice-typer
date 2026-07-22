@@ -31,37 +31,45 @@ handlers here are thin envelopes that:
    user exactly which files were deleted/exported and which failed
    (e.g. a file locked by another process).
 
-Registration in ``_COMMAND_REGISTRY`` is owned by Fix-A — see the
-``# TODO Fix-A`` note at the bottom of this file. The handler method
-names follow the ``_handle_<cmd>`` convention so the registry lookup
-(``getattr(self, handler_name)``) finds them via the normal MRO.
+Registration in ``_COMMAND_REGISTRY`` is already done at
+``voice_typer/server/ipc_server.py`` (entries for
+``delete_all_personal_data`` and ``export_gdpr_bundle``); the
+handler method names follow the ``_handle_<cmd>`` convention so the
+registry lookup (``getattr(self, handler_name)``) finds them via the
+normal MRO. ``ServiceProtocol`` in ``voice_typer/server/providers.py``
+also declares both service methods.
 
-CR-20 (NOT YET MIGRATED): this mixin is NOT one of the four
-representative handlers migrated to
-:meth:`HandlerBase._respond_with_error`. Its ``except Exception``
-blocks still emit ``str(e)`` directly. Migrate incrementally — see
+CR-20 / G4-CR-09 (MIGRATED): this mixin's ``except Exception`` catch-alls
+call :meth:`HandlerBase._respond_with_error`, which emits the generic
+WS-path error envelope (``{"code": "internal_error", "message":
+"internal error"}``) and logs the traceback server-side. No
+``str(e)`` is ever sent to the renderer — see
 ``voice_typer/server/handlers/_base.py`` for the migration plan.
+
+G4 (GDPR-specific): ``PermissionError`` / ``OSError`` raised by the
+service (when one or more user-data files are locked by another
+process) is mapped to the structured ``code: "server.file_locked"``
+envelope via :func:`_error_response` so the renderer can show
+"these files are locked: <list>" with a retry CTA.
 """
 
-from typing import Any
-
+from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
 
-class PrivacyHandlersMixin:
-    """Mixin: privacy / GDPR IPC handlers (delete_all_personal_data / export_gdpr_bundle)."""
+class PrivacyHandlersMixin(HandlerBase):
+    """Mixin: privacy / GDPR IPC handlers (delete_all_personal_data / export_gdpr_bundle).
 
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
+    Inherits ``service`` / ``app`` / ``_send`` annotations from
+    :class:`HandlerMixinBase` (via :class:`HandlerBase`) and the
+    :meth:`_respond_with_error` helper for the catch-all ``Exception``
+    path (CR-20 / G4-CR-09).
+
+    Per-command known-error paths (e.g. file-locked on GDPR delete)
+    use :func:`_error_response` with an explicit namespaced ``code``
+    so the renderer can show the user a targeted message.
+    """
 
     def _handle_delete_all_personal_data(self, data, resp) -> dict | None:
         """Handle the ``delete_all_personal_data`` IPC command (CR-87).
@@ -112,11 +120,30 @@ class PrivacyHandlersMixin:
             result = self.service.delete_all_personal_data()
             resp["type"] = "delete_all_personal_data_result"
             resp["data"] = result
-        except Exception as e:
-            # CR-20 TODO: migrate to ``self._respond_with_error``.
-            log.error("[IPC] delete_all_personal_data failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except (PermissionError, OSError) as exc:
+            # G4-CR-09 / GDPR-specific: the service's
+            # ``delete_all_personal_data`` raises ``PermissionError`` /
+            # ``OSError`` when one or more user-data files are locked
+            # by another process (e.g. the crash_diagnostics.txt file
+            # is held open by a still-running crash reporter). The
+            # service-side result already enumerates the locked files
+            # in its ``failed`` dict — we surface a structured
+            # ``code: "server.file_locked"`` envelope so the renderer
+            # can show "these files are locked: <list>" with a retry
+            # CTA instead of the generic "internal error" toast.
+            log.warning(
+                "[IPC] delete_all_personal_data: one or more files locked: %s",
+                exc,
+                exc_info=True,
+            )
+            _error_response(
+                resp,
+                "one or more files are locked by another process",
+                code="server.file_locked",
+            )
+        except Exception as exc:
+            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "delete_all_personal_data")
         return resp
 
     def _handle_export_gdpr_bundle(self, data, resp) -> dict | None:
@@ -162,31 +189,29 @@ class PrivacyHandlersMixin:
             result = self.service.export_gdpr_bundle()
             resp["type"] = "export_gdpr_bundle_result"
             resp["data"] = result
-        except Exception as e:
-            # CR-20 TODO: migrate to ``self._respond_with_error``.
-            log.error("[IPC] export_gdpr_bundle failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": str(e)}
+        except (PermissionError, OSError) as exc:
+            # G4-CR-09 / GDPR-specific: same file-locked envelope as
+            # ``_handle_delete_all_personal_data``. The export path
+            # reads every user-data file into a ZIP; if any file is
+            # locked by another process, the read fails with
+            # ``PermissionError`` / ``OSError``. Surface the structured
+            # ``code: "server.file_locked"`` envelope so the renderer
+            # can prompt the user to close the locking process and
+            # retry.
+            log.warning(
+                "[IPC] export_gdpr_bundle: one or more files locked: %s",
+                exc,
+                exc_info=True,
+            )
+            _error_response(
+                resp,
+                "one or more files are locked by another process",
+                code="server.file_locked",
+            )
+        except Exception as exc:
+            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "export_gdpr_bundle")
         return resp
 
-
-# TODO Fix-A: register these handlers in ``_COMMAND_REGISTRY`` (in
-# ``voice_typer/server/ipc_server.py`` or ``ipc/server.py`` —
-# whichever file owns the canonical registry after the CR-1
-# deduplication). Add the two entries:
-#
-#     "delete_all_personal_data": "_handle_delete_all_personal_data",
-#     "export_gdpr_bundle":       "_handle_export_gdpr_bundle",
-#
-# Also add the corresponding command names to the renderer's
-# ALLOWED_COMMANDS allowlist in ``client/src/main/index.ts`` so the
-# Tauri Rust host's allowlist check passes (see ADR-0015).
-#
-# Also add the two methods to ``ServiceProtocol`` in
-# ``voice_typer/server/providers.py`` (owned by Fix-K) so the AST
-# introspection test in ``tests/test_di_providers.py`` passes:
-#
-#     def delete_all_personal_data(self) -> dict: ...
-#     def export_gdpr_bundle(self) -> dict: ...
 
 __all__ = ["PrivacyHandlersMixin"]

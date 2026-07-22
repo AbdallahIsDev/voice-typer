@@ -52,6 +52,44 @@ ad-hoc:
   values (used by ``duration_ms`` in ``show_electron_notification``).
 """
 
+# G4-M-22: canonical namespaced error-code registry.
+#
+# Every ``code`` field stamped on an IPC error envelope SHOULD come
+# from this set. The registry is the single source of truth so the
+# renderer's ``usePython.ts`` switch statement can be generated /
+# audited against it.
+#
+# Naming convention:
+# - ``client.*`` — the request was malformed / invalid / unauthorized.
+#   The renderer can fix the request and retry (e.g. highlight the
+#   invalid field, prompt the user for the missing value).
+# - ``server.*`` — the server could not process a well-formed request.
+#   The renderer surfaces a generic "something went wrong" message and
+#   logs the detail for support.
+#
+# Legacy non-namespaced codes (``invalid_field``, ``missing_field``,
+# ``invalid_payload``, ``rate_limited``, ``internal_error``) are NOT
+# listed here — they continue to be emitted by the validation helper
+# and the rate limiter for backward compatibility, but new code should
+# use the namespaced form. The renderer must accept both forms (treat
+# the legacy form as an alias).
+ERROR_CODES: frozenset[str] = frozenset(
+    {
+        # Client-originated errors (4xx analog).
+        "client.invalid_field",
+        "client.missing_field",
+        "client.invalid_payload",
+        "client.rate_limited",
+        "client.path_not_allowed",
+        "client.not_found",
+        # Server-originated errors (5xx analog).
+        "server.internal_error",
+        "server.handler_error",
+        "server.file_locked",
+        "server.model_switch_failed",
+    }
+)
+
 
 def _validate_dict_payload(data, schema):
     """Validate IPC ``data`` against a declarative *schema*.
@@ -189,7 +227,7 @@ def _validate_dict_payload(data, schema):
     return validated, None
 
 
-def _error_response(resp: dict, message: str, *, code: str = "handler_error") -> dict:
+def _error_response(resp: dict, message: str, *, code: str = "server.handler_error") -> dict:
     """Stamp an error envelope on ``resp`` and return it.
 
     R13-F3: standardizes the catch-all ``except Exception`` envelope
@@ -205,7 +243,8 @@ def _error_response(resp: dict, message: str, *, code: str = "handler_error") ->
     error path (validation, dispatch safety net, rate limiter) sets.
     Clients branching on ``code`` silently fell through to a generic
     "unknown error" path for handler exceptions. The helper stamps
-    ``code: "handler_error"`` and a sanitized message (the caller is
+    ``code: "server.handler_error"`` (G4-M-22 namespaced form; was
+    ``"handler_error"`` pre-G4-M-22) and a sanitized message (the caller is
     responsible for logging the full exception server-side at ERROR
     with ``exc_info=True``).
 
@@ -218,7 +257,8 @@ def _error_response(resp: dict, message: str, *, code: str = "handler_error") ->
         The client-facing message. Should be sanitized (no Python
         internals, no PII). The caller decides what's safe to expose.
     code : str, optional
-        The error code. Defaults to ``"handler_error"`` — the standard
+        The error code. Defaults to ``"server.handler_error"`` (G4-M-22 namespaced form; was
+        ``"handler_error"`` pre-G4-M-22) — the standard
         for an unexpected exception caught by a handler's catch-all.
         Override for known-error paths that still want the helper's
         envelope shape (e.g. ``"not_initialized"``).
@@ -233,4 +273,4 @@ def _error_response(resp: dict, message: str, *, code: str = "handler_error") ->
     return resp
 
 
-__all__ = ["_validate_dict_payload", "_error_response"]
+__all__ = ["_validate_dict_payload", "_error_response", "ERROR_CODES"]

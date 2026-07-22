@@ -22,6 +22,16 @@ instance capturing:
 - ``is_distilled`` — ``True`` for distil-* models
 - ``speed_rating`` — ``"fast"`` / ``"medium"`` / ``"slow"``
 - ``accuracy_rating`` — ``"low"`` / ``"medium"`` / ``"high"``
+- ``network_behavior`` (G4-M-40) — one of ``"local-only"``,
+  ``"downloads-on-first-use-consent-gated"``,
+  ``"downloads-on-first-use-no-consent"``, or ``"cloud-per-call"``.
+  Declares what network activity the model requires so the UI / privacy
+  surface can show "downloads on first use (consent gated)" vs.
+  "local-only" vs. "cloud per call" honestly.  Whisper + distil variants
+  are consent-gated HF downloads; parakeet downloads without explicit
+  consent (documented honestly per G4-H-04 — this is a known issue to
+  fix in a follow-up); qwen is local-only (user supplies the model
+  path); cloud providers (not in this registry) are per-call.
 
 The registry is consulted by:
 
@@ -61,6 +71,13 @@ class ModelMetadata:
     is_distilled: bool = False
     speed_rating: str = "medium"  # "fast", "medium", "slow"
     accuracy_rating: str = "high"  # "low", "medium", "high"
+    # G4-M-40: declares what network activity the model requires, so the
+    # UI/privacy surface can show "downloads on first use (consent gated)"
+    # vs. "local-only" vs. "cloud per call" honestly.  Default
+    # ``"local-only"`` is the safest assumption — entries that DO
+    # download must override explicitly so the catalog cannot silently
+    # misrepresent a download as offline.
+    network_behavior: str = "local-only"
 
     def to_dict(self) -> dict:
         """Serialize to a JSON-safe dict for IPC transport.
@@ -88,6 +105,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=False,
         supported_languages=["en"],
         description="Fastest English-only model. Low accuracy, good for testing.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-tiny.en",
         speed_rating="fast",
         accuracy_rating="low",
@@ -100,6 +118,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Fastest multilingual model. Low accuracy, good for testing.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-tiny",
         speed_rating="fast",
         accuracy_rating="low",
@@ -112,6 +131,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=False,
         supported_languages=["en"],
         description="Fast English-only model. Reasonable accuracy for short dictation.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-base.en",
         speed_rating="fast",
         accuracy_rating="medium",
@@ -124,6 +144,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Fast multilingual model. Reasonable accuracy for short dictation.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-base",
         speed_rating="fast",
         accuracy_rating="medium",
@@ -136,6 +157,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=False,
         supported_languages=["en"],
         description="Balanced English-only model. Recommended default for English.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-small.en",
         speed_rating="medium",
         accuracy_rating="high",
@@ -148,6 +170,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Balanced multilingual model. Good accuracy for most languages.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-small",
         speed_rating="medium",
         accuracy_rating="high",
@@ -160,6 +183,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=False,
         supported_languages=["en"],
         description="High-accuracy English-only model. Slower; benefits from GPU.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-medium.en",
         speed_rating="slow",
         accuracy_rating="high",
@@ -172,6 +196,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="High-accuracy multilingual model. Slower; benefits from GPU.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-medium",
         speed_rating="slow",
         accuracy_rating="high",
@@ -184,6 +209,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Original large-v1 model. Superseded by large-v3; kept for reproducibility.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-large-v1",
         speed_rating="slow",
         accuracy_rating="high",
@@ -196,6 +222,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Large-v2 model. Superseded by large-v3; kept for reproducibility.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-large-v2",
         speed_rating="slow",
         accuracy_rating="high",
@@ -208,6 +235,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Highest-accuracy Whisper model. Slow on CPU; GPU strongly recommended.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-large-v3",
         speed_rating="slow",
         accuracy_rating="high",
@@ -220,11 +248,11 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Alias for the latest large model (currently large-v3).",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-large",
         speed_rating="slow",
         accuracy_rating="high",
     ),
-
     # ── Turbo (NEW-MODEL-001) ─────────────────────────────────────
     # ``large-v3-turbo`` is OpenAI's 2024 fast multilingual model:
     # near-large-v3 accuracy at ~8x speed.  ``turbo`` is an alias
@@ -237,6 +265,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Turbo model — near-large-v3 accuracy at 8x speed. Recommended for most users.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-large-v3-turbo",
         speed_rating="fast",
         accuracy_rating="high",
@@ -249,11 +278,11 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Alias for large-v3-turbo. Same model, friendlier name.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-whisper-large-v3-turbo",
         speed_rating="fast",
         accuracy_rating="high",
     ),
-
     # ── Distil-Whisper variants (NEW-MODEL-001) ──────────────────
     # Distilled models from the Distil-Whisper project: 2-4x faster
     # inference, ~50% smaller, slightly lower accuracy.  Use when
@@ -266,6 +295,7 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="Distilled large-v3. ~2x faster, ~50% smaller; minor accuracy loss.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-distil-whisper-large-v3",
         is_distilled=True,
         speed_rating="fast",
@@ -279,12 +309,12 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=False,
         supported_languages=["en"],
         description="Distilled English-only medium. Fast and compact; great for laptops.",
+        network_behavior="downloads-on-first-use-consent-gated",
         repo_id="Systran/faster-distil-whisper-medium.en",
         is_distilled=True,
         speed_rating="fast",
         accuracy_rating="medium",
     ),
-
     # ── Parakeet (by NVIDIA) ──────────────────────────────────────
     # ARCH-007: added to registry so get_model_status() can resolve the
     # repo_id and check HF cache download status. Previously the model
@@ -299,24 +329,33 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         multilingual=True,
         supported_languages=None,
         description="NVIDIA Parakeet TDT 0.6b — high-accuracy ASR model.",
+        network_behavior="downloads-on-first-use-no-consent",
         repo_id="nvidia/parakeet-tdt-0.6b-v3",
         speed_rating="fast",
         accuracy_rating="high",
     ),
-
     # ── Qwen (by Alibaba) ─────────────────────────────────────────
     # ARCH-007: added to registry for status consistency. Qwen uses a
-    # different download mechanism (auto-downloads from HuggingFace on
-    # first use), so repo_id is informational. The download status is
-    # checked via config.qwen_model_path or _check_qwen_deps().
+    # different download mechanism — the user must manually configure
+    # ``qwen_model_path`` in Settings (pointing at a local snapshot of
+    # ``Qwen/Qwen3-ASR-1.7B``). The repo_id below is informational
+    # only; it is NOT auto-fetched. ``_check_qwen_deps()`` verifies
+    # the configured path exists locally before the engine loads.
+    #
+    # G4-M-40 / G4-H-04: previously the description claimed
+    # "Auto-downloaded on first use", which was inaccurate — the
+    # engine does not auto-download. Corrected to "Requires manual
+    # model path setup in Settings" so the user is not misled into
+    # expecting a transparent first-use download.
     "qwen": ModelMetadata(
         name="qwen",
-        download_size_mb=0,  # auto-downloaded, size varies
+        download_size_mb=0,  # local-only — size depends on user-supplied snapshot
         required_vram_mb=4096,
         backend="qwen",
         multilingual=True,
         supported_languages=None,
-        description="Alibaba Qwen3-ASR-1.7B — multilingual ASR. Auto-downloaded on first use.",
+        description="Alibaba Qwen3-ASR-1.7B — multilingual ASR. Requires manual model path setup in Settings.",
+        network_behavior="local-only",
         repo_id="Qwen/Qwen-Audio",
         speed_rating="medium",
         accuracy_rating="high",

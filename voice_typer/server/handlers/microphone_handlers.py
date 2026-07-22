@@ -5,25 +5,25 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-import logging
-
-from voice_typer.server.handlers._base import HandlerMixinBase
-from voice_typer.server.ipc.validation import _error_response
-
-log = logging.getLogger("voice_typer.server.ipc_server")
+from voice_typer.server.handlers._base import HandlerBase
 
 
-class MicrophoneHandlersMixin(HandlerMixinBase):
-    """Mixin: microphone-listing IPC handlers (get_microphones / refresh_microphones)."""
+class MicrophoneHandlersMixin(HandlerBase):
+    """Mixin: microphone-listing IPC handlers (get_microphones / refresh_microphones).
+
+    CR-20: this mixin's ``except Exception`` catch-alls call
+    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+    no ``str(e)`` leak).
+    """
 
     def _handle_get_microphones(self, data, resp) -> dict | None:
         """Handle the ``get_microphones`` IPC command."""
         try:
             resp["type"] = "microphones"
             resp["data"] = self.service.get_microphones()
-        except Exception as e:
-            log.error("[IPC] get_microphones failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_microphones")
         return resp
 
     def _handle_refresh_microphones(self, data, resp) -> dict | None:
@@ -35,7 +35,7 @@ class MicrophoneHandlersMixin(HandlerMixinBase):
             mics = self.service.refresh_microphones()
             resp["type"] = "microphones"
             resp["data"] = mics
-        except Exception as e:
-            log.error("[IPC] refresh_microphones failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "refresh_microphones")
         return resp

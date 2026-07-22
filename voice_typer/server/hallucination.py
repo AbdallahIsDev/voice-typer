@@ -154,6 +154,14 @@ def log_hallucination_rejection(
         safe_text = redact_pii(text)[:_HALLUCINATION_LOG_MAX_CHARS]
     except Exception:
         # If PII redaction fails, fall back to truncation only.
+        # PVT-G5-091: previously a silent fallback — log at DEBUG so a
+        # non-trivial redaction-engine failure (e.g. security module
+        # import error, regex bug) is at least visible in the log file
+        # without spamming at WARNING/ERROR level on every hallucination.
+        log.debug(
+            "PII redaction failed in log_hallucination_rejection; falling back to truncation only",
+            exc_info=True,
+        )
         safe_text = text[:_HALLUCINATION_LOG_MAX_CHARS]
 
     log.warning(

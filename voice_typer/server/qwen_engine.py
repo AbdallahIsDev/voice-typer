@@ -124,18 +124,41 @@ class QwenEngine:
                 )
                 return False
 
-            # SEC-audit-007: SHA-256 manifest verification of model directory
-            # contents before calling from_pretrained(). Compares each
-            # file's hash against a known-good manifest if available, or
-            # logs hashes for future audit if no manifest exists.
+            # SEC-audit-007 / G4-H-33 (Session 7 — Group 4): SHA-256
+            # manifest verification of model directory contents before
+            # calling from_pretrained().  We now delegate to the shared
+            # ``security.verify_model_integrity()`` instead of the
+            # divergent local ``_verify_qwen_model_hashes`` helper.
             #
-            # The return value is now CHECKED: if pinned hashes are
-            # present and any mismatches, load() aborts with False
-            # instead of proceeding to from_pretrained(). Previously the
-            # return value was discarded (bare call), so a tampered
-            # model would still load — only a log warning was emitted.
+            # Root cause of G4-H-33: ``security.verify_model_integrity``
+            # hard-fails for local models with an empty ``pinned_files``
+            # dict (NF-R18-9 — a local model has no upstream SHA pin,
+            # so the empty-files soft-pass would let a tampered
+            # directory load unchecked).  But ``qwen_engine.py``'s own
+            # ``_verify_qwen_model_hashes`` SOFT-PASSED on empty
+            # ``pinned_files``, so the hard-fail branch in
+            # ``security.py`` was dead code for the Qwen path.  A
+            # tampered local Qwen model directory would load with NO
+            # content hash verification.
+            #
+            # The fix: delete the divergent helper and call
+            # ``security.verify_model_integrity(model_path, "qwen")``
+            # directly so the NF-R18-9 hard-fail is honoured.  When
+            # ``model_hashes.json``'s ``"qwen"`` entry has empty
+            # ``files`` (the default ship state), ``load()`` returns
+            # False — operators MUST populate the ``files`` dict with
+            # the expected SHA-256 hashes before a local Qwen model
+            # can be loaded.
+            #
+            # The return value is CHECKED: if pinned hashes are present
+            # and any mismatches, load() aborts with False instead of
+            # proceeding to from_pretrained().  Previously the return
+            # value was discarded (bare call), so a tampered model
+            # would still load — only a log warning was emitted.
             try:
-                if not _verify_qwen_model_hashes(self.model_path):
+                from voice_typer.server.security import verify_model_integrity
+
+                if not verify_model_integrity(self.model_path, "qwen"):
                     log.error(
                         "[QWEN] Model hash verification FAILED for %s — refusing to load tampered or corrupted model",
                         self.model_path,
@@ -535,149 +558,26 @@ def _validate_qwen_model_dir(model_path: str) -> bool:
 
 
 def _verify_qwen_model_hashes(model_path: str) -> bool:
-    """SEC-audit-007: SHA-256 manifest verification of Qwen model directory.
+    """DELETED in G4-H-33 (Session 7 — Group 4).
 
-    Compares each file's SHA-256 hash against a known-good manifest
-    (from the security module's MODEL_HASHES).  If no hashes are
-    pinned for the Qwen model, logs the computed hashes for future
-    audit and returns True (soft pass — the directory validation
-    in ``_validate_qwen_model_dir`` is the hard gate).
+    Previously this was a divergent SHA-256 manifest verifier that
+    SOFT-PASSED on empty ``pinned_files`` — but
+    ``security.verify_model_integrity`` hard-fails in that case
+    (NF-R18-9).  The soft-pass made the security module's hard-fail
+    branch dead code for the Qwen path, so a tampered local Qwen model
+    directory would load with NO content hash verification.
 
-    Parameters
-    ----------
-    model_path : str
-        Path to the Qwen model directory.
+    The fix in G4-H-33 deletes this helper and replaces its call site
+    in ``QwenEngine.load()`` with a direct call to
+    ``voice_typer.server.security.verify_model_integrity(model_path,
+    "qwen")``, so the NF-R18-9 hard-fail is honoured.
 
-    Returns
-    -------
-    bool
-        True if all pinned hashes match (or no hashes are pinned),
-        False if any pinned hash mismatches.
+    This stub is retained only so third-party imports (e.g. old tests
+    in sibling repos that haven't been updated yet) get a clear
+    ``RuntimeError`` instead of a silent ``NameError``.  New code MUST
+    use ``security.verify_model_integrity`` directly.
     """
-    from voice_typer.server.security import MODEL_HASHES, compute_file_sha256
-
-    path = Path(model_path)
-    if not path.is_dir():
-        return False
-
-    # Look for Qwen model hashes in the manifest.
-    # The Qwen model is loaded from a local path, not a HuggingFace
-    # repo_id, so we check for a "qwen" key or the model path.
-    manifest = MODEL_HASHES.get("qwen", {})
-    pinned_files = manifest.get("files", {})
-
-    if not pinned_files:
-        # No pinned hashes — compute and log hashes at INFO level for audit.
-        # This is a soft pass; the directory validation above is the
-        # hard gate that prevents loading unexpected file types.
-        # Operators can copy the logged hashes into model_hashes.json
-        # under the "qwen" entry's "files" dict to enable enforcement.
-        # SEC-audit-005: emit a WARNING (not just INFO) so operators
-        # notice that Qwen integrity verification is effectively a
-        # no-op. Pre-fix the empty-files state was invisible at default
-        # log levels — operators had no way to know their model_hashes.json
-        # was empty for the Qwen entry.
-        log.warning(
-            "[QWEN] Model integrity check is a NO-OP for %s — "
-            'model_hashes.json has empty "files" dict for the qwen entry. '
-            "Computed hashes are logged below; copy them into "
-            'model_hashes.json under the "qwen" entry\'s "files" field '
-            "to enable enforcement on the next run.",
-            model_path,
-        )
-        # CR-96: previously the inner ``except Exception: pass`` silently
-        # skipped unreadable files (e.g. ``chmod 000`` on a tampered
-        # model file) and returned True — meaning "integrity OK". A
-        # tampered local Qwen model that has had its file permissions
-        # removed would pass integrity verification. Now we:
-        #   (1) count unreadable files,
-        #   (2) log a WARNING per unreadable file (with the relative path
-        #       so the operator can fix the permissions), and
-        #   (3) return False if ANY of the unreadable files are "expected
-        #       model files" (``.safetensors`` / ``.bin`` / ``config.json``)
-        #       — those are load-bearing files and a tampered local
-        #       model that can't be read is a strong signal of foul
-        #       play. Non-load-bearing files (``tokenizer.json`` etc.)
-        #       are still skipped with a WARNING but don't fail the
-        #       check, matching the prior soft-pass stance.
-        unreadable_count = 0
-        load_bearing_unreadable = False
-        try:
-            for entry in path.rglob("*"):
-                if not entry.is_file():
-                    continue
-                try:
-                    h = compute_file_sha256(entry)
-                    rel = entry.relative_to(path).as_posix()
-                    log.info("[QWEN]   %s: sha256=%s", rel, h)
-                except Exception as file_exc:
-                    unreadable_count += 1
-                    rel = entry.relative_to(path).as_posix()
-                    log.warning(
-                        "[QWEN]   could not hash %s (unreadable): %s",
-                        rel,
-                        file_exc,
-                    )
-                    # Detect load-bearing files by suffix / basename.
-                    # ``config.json`` is the basename; ``.safetensors``
-                    # and ``.bin`` are suffixes (model weight files).
-                    if rel == "config.json" or rel.endswith(".safetensors") or rel.endswith(".bin"):
-                        load_bearing_unreadable = True
-        except Exception:
-            # Outer rglob itself failed (e.g. directory vanished mid-
-            # iteration). Log and fall through — we can't enumerate, so
-            # we can't say integrity is OK either. Treat it the same as
-            # a load-bearing-unreadable case and fail.
-            log.warning(
-                "[QWEN] could not enumerate model directory %s for hash audit",
-                model_path,
-                exc_info=True,
-            )
-            return False
-        if unreadable_count > 0:
-            log.warning(
-                "[QWEN] Model integrity soft-pass: %d file(s) could not be "
-                "hashed in %s (see preceding WARNING entries for paths).",
-                unreadable_count,
-                model_path,
-            )
-        if load_bearing_unreadable:
-            log.error(
-                "[QWEN] Model integrity check FAILED for %s — at least one "
-                "load-bearing model file (.safetensors / .bin / config.json) "
-                "was unreadable. This is a strong signal of tampering or "
-                "corrupted file permissions; refusing to verify.",
-                model_path,
-            )
-            return False
-        return True
-
-    # Verify each pinned file
-    for filename, expected_hash in pinned_files.items():
-        file_path = path / filename
-        if not file_path.exists():
-            log.warning(
-                "[QWEN] Model integrity: pinned file %s missing in %s",
-                filename,
-                model_path,
-            )
-            return False
-        try:
-            actual_hash = compute_file_sha256(file_path)
-            import hmac
-
-            if not hmac.compare_digest(actual_hash, expected_hash):
-                log.warning(
-                    "[QWEN] Model integrity: hash mismatch for %s in %s (expected %s..., got %s...)",
-                    filename,
-                    model_path,
-                    expected_hash[:16],
-                    actual_hash[:16],
-                )
-                return False
-        except Exception as exc:
-            log.warning("[QWEN] Failed to hash %s: %s", filename, exc)
-            return False
-
-    log.info("[QWEN] Model hash verification passed for %s", model_path)
-    return True
+    raise RuntimeError(
+        "_verify_qwen_model_hashes was deleted in G4-H-33 — "
+        "use voice_typer.server.security.verify_model_integrity(path, 'qwen') instead."
+    )

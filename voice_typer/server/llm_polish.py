@@ -180,7 +180,16 @@ class LLMPolisher:
         if not self.api_key:
             return False, "API key not configured"
         try:
-            assert_url_allowed(self.api_url, field_name="llm_api_url", client_name="llm_polish")
+            # G4-M-56: opt in to allow_loopback_http=True because this
+            # caller sends user-supplied text to a user-configured
+            # endpoint, and the user may legitimately point it at a
+            # local HTTP server (Ollama, vLLM, LM Studio, etc.).
+            assert_url_allowed(
+                self.api_url,
+                field_name="llm_api_url",
+                client_name="llm_polish",
+                allow_loopback_http=True,
+            )
         except ValueError as exc:
             return False, str(exc)
         try:
@@ -209,7 +218,14 @@ class LLMPolisher:
         the original (un-redacted) text is what's returned to the
         user for pasting.
         """
-        assert_url_allowed(self.api_url, field_name="llm_api_url", client_name="llm_polish")
+        # G4-M-56: opt in to allow_loopback_http=True — see the
+        # test_connection path above for the rationale.
+        assert_url_allowed(
+            self.api_url,
+            field_name="llm_api_url",
+            client_name="llm_polish",
+            allow_loopback_http=True,
+        )
 
         # CR-10: redact PII from the user-content text before API send.
         # ``redact_pii`` is the same helper used by the log redaction

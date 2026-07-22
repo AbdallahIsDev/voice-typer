@@ -78,6 +78,87 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 _opener = build_opener(HTTPSHandler(), _NoRedirectHandler())
 
 
+# G4-H-18 / G4-INVALIDATION: module-level cache of live CloudEngine
+# instances, keyed by provider.  Populated by callers that construct
+# long-lived CloudEngine objects (e.g. the model manager / cloud-engine
+# factory) via :func:`register_cached_cloud_engine`.  Consumers that
+# need to invalidate a cached engine after the user's credentials or
+# consent are revoked (e.g. ``delete_all_personal_data``) call
+# :func:`clear_cached_engine` / :func:`clear_all_cached_engines` to
+# release the cached instance so the next transcription creates a fresh
+# engine with no stale API key / consent state.
+_CACHED_ENGINES: "dict[str, CloudEngine]" = {}
+_CACHED_ENGINES_LOCK = threading.Lock()
+
+
+def register_cached_cloud_engine(provider: str, engine: "CloudEngine") -> None:
+    """Register a CloudEngine instance in the module-level cache.
+
+    G4-INVALIDATION: callers that construct a long-lived CloudEngine
+    SHOULD register the instance here so that :func:`clear_cached_engine`
+    / :func:`clear_all_cached_engines` can release it when the user's
+    credentials or consent are revoked.  Pass ``None`` to clear a single
+    provider without touching the others (equivalent to
+    :func:`clear_cached_engine`).
+    """
+    with _CACHED_ENGINES_LOCK:
+        if engine is None:
+            _CACHED_ENGINES.pop(provider, None)
+        else:
+            _CACHED_ENGINES[provider] = engine
+
+
+def get_cached_cloud_engine(provider: str) -> "CloudEngine | None":
+    """Return the cached CloudEngine for ``provider`` (or ``None``)."""
+    with _CACHED_ENGINES_LOCK:
+        return _CACHED_ENGINES.get(provider)
+
+
+def clear_cached_engine(provider: str) -> bool:
+    """Release the cached CloudEngine instance for ``provider``.
+
+    G4-INVALIDATION: called from ``delete_all_personal_data`` (and
+    similar credential-revocation paths) to ensure that a stale
+    CloudEngine — still holding the user's previous API key, consent
+    flag, or session state — is not reused after the user has revoked
+    their credentials.
+
+    Calls ``engine.unload()`` on the released instance (best-effort).
+    Returns ``True`` if a cached engine was present and released;
+    ``False`` if the cache held no entry for ``provider``.
+    """
+    with _CACHED_ENGINES_LOCK:
+        engine = _CACHED_ENGINES.pop(provider, None)
+    if engine is None:
+        return False
+    try:
+        engine.unload()
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning(
+            "[CLOUD] clear_cached_engine(%s): engine.unload() failed: %s",
+            provider,
+            exc,
+        )
+    log.info("[CLOUD] clear_cached_engine(%s): released cached engine", provider)
+    return True
+
+
+def clear_all_cached_engines() -> int:
+    """Release ALL cached CloudEngine instances.
+
+    G4-INVALIDATION: convenience helper for ``delete_all_personal_data``
+    — iterates every cached provider and releases each via
+    :func:`clear_cached_engine`.  Returns the number of engines released.
+    """
+    with _CACHED_ENGINES_LOCK:
+        providers = list(_CACHED_ENGINES.keys())
+    released = 0
+    for provider in providers:
+        if clear_cached_engine(provider):
+            released += 1
+    return released
+
+
 class ConsentRequiredError(RuntimeError):
     """NEW-PRIV-006: raised when a cloud engine is asked to transcribe
     audio but the user hasn't granted consent for that provider.
@@ -286,6 +367,7 @@ class CloudEngine:
         model: str | None = None,
         language: str = "en",
         consent_given: bool = False,
+        local_engine_factory: "callable | None" = None,
     ):
         self.provider = provider
         self.api_key = api_key
@@ -301,6 +383,18 @@ class CloudEngine:
         self.model_name = model or defaults.get("model", "")
 
         self._loaded = True  # Cloud engines don't need local model loading
+
+        # G4-H-18: optional factory that constructs the local whisper
+        # engine lazily on fallback.  Decouples the cloud engine from
+        # the model registry / app object so that ``transcribe_with_fallback``
+        # can fire the local fallback path even when the caller did not
+        # explicitly pass ``local_engine=`` (e.g. the streaming session
+        # which only knows about the active transcriber).  The factory
+        # is invoked at most once per fallback attempt; if it returns
+        # ``None`` (no local engine available — e.g. cold start with
+        # whisper backend not yet registered), the fallback is skipped
+        # and the original cloud error is re-raised.
+        self._local_engine_factory = local_engine_factory
 
     # ── TranscriberProtocol ──────────────────────────────────────────
 
@@ -346,6 +440,17 @@ class CloudEngine:
         instead of raising.  This gives a best-effort result even
         when the cloud is temporarily unreachable.
 
+        G4-H-18: when ``local_engine`` is NOT explicitly passed but the
+        engine was constructed with a ``local_engine_factory`` callable,
+        the factory is invoked lazily to construct the local whisper
+        engine on demand.  This decouples the cloud engine from the
+        model registry / app object: callers that don't know about
+        the local whisper backend (e.g. the streaming session) still
+        get the cloud→local fallback as long as the factory was wired
+        at construction time.  If the factory returns ``None`` (e.g.
+        cold start with whisper not yet registered), the fallback is
+        skipped and the original cloud error is re-raised.
+
         NEW-PERF-010 (a-review Finding 8): ``audio_stats`` is accepted
         for signature parity with the three local engines
         (Whisper/Parakeet/Qwen) so ``DictationPipeline._transcribe``
@@ -360,16 +465,34 @@ class CloudEngine:
         try:
             return self.transcribe(audio)
         except Exception as cloud_err:
-            if local_engine is not None:
+            # G4-H-18: prefer the explicitly-passed local_engine; fall
+            # back to the factory if one was wired at construction time.
+            resolved_local_engine = local_engine
+            if resolved_local_engine is None and self._local_engine_factory is not None:
+                try:
+                    resolved_local_engine = self._local_engine_factory()
+                except Exception as factory_err:
+                    log.warning(
+                        "[CLOUD] %s local_engine_factory raised; skipping fallback: %s",
+                        self.provider,
+                        factory_err,
+                    )
+                    resolved_local_engine = None
+            if resolved_local_engine is not None:
+                # PVT-G5-041: include exc_info so the cloud failure
+                # traceback is captured for debugging.
                 log.warning(
                     "[CLOUD] %s failed, falling back to local engine: %s",
                     self.provider,
                     cloud_err,
+                    exc_info=True,
                 )
                 try:
-                    return local_engine.transcribe(audio, audio_stats=audio_stats)
+                    return resolved_local_engine.transcribe(audio, audio_stats=audio_stats)
                 except Exception as local_err:
-                    log.error("[CLOUD] Local fallback also failed: %s", local_err)
+                    # PVT-G5-041: include exc_info so the local fallback
+                    # failure traceback is captured for debugging.
+                    log.error("[CLOUD] Local fallback also failed: %s", local_err, exc_info=True)
                     raise RuntimeError(f"Cloud ({self.provider}) and local fallback both failed") from cloud_err
             raise
 
@@ -414,21 +537,18 @@ class CloudEngine:
         # Defense-in-depth: SEC-002 already validates URL scheme at
         # set_config time, but assert again here in case the value
         # was loaded from disk (Config.load) or set programmatically.
-        assert_url_allowed(self.api_url, field_name="cloud_api_url", client_name=f"cloud/{self.provider}")
+        # G4-M-56: opt in to allow_loopback_http=True because this
+        # caller sends user audio to a user-configured endpoint, and
+        # the user may legitimately point it at a local HTTP server
+        # (Ollama, vLLM, LM Studio, etc.).
+        assert_url_allowed(
+            self.api_url,
+            field_name="cloud_api_url",
+            client_name=f"cloud/{self.provider}",
+            allow_loopback_http=True,
+        )
 
         boundary = "----VoiceTyperBoundary7MA4YWxkTrZu0gW"
-        body = self._build_multipart_body(wav_bytes, filename, boundary)
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            # PERF-NEW-019: pass Content-Length explicitly so urllib
-            # uses a single write instead of chunked encoding. The
-            # _StreamingMultipartBody.__len__ returns the total length.
-            "Content-Length": str(len(body)),
-        }
-
-        req = Request(self.api_url, data=body, headers=headers, method="POST")
 
         # PERF-NEW-010: retry with exponential backoff.
         # CR-47/CR-48: HTTPError is a subclass of URLError, so it must be
@@ -437,9 +557,25 @@ class CloudEngine:
         # config change — and burns API quota. 429 (Too Many Requests) is
         # the one 4xx that is retryable: the server explicitly tells us
         # when to retry via the Retry-After header.
+        # PVT-020: rebuild `body` and `req` INSIDE the retry loop.
+        # `_StreamingMultipartBody.read()` advances internal state with
+        # no `reset()` method — reusing the same body across retries
+        # sent a truncated/empty multipart with stale Content-Length,
+        # producing confusing 400/malformed-multipart errors that hid
+        # the real network failure.
         max_retries = 3
         retried_429 = False
         for attempt in range(max_retries):
+            body = self._build_multipart_body(wav_bytes, filename, boundary)
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+                # PERF-NEW-019: pass Content-Length explicitly so urllib
+                # uses a single write instead of chunked encoding. The
+                # _StreamingMultipartBody.__len__ returns the total length.
+                "Content-Length": str(len(body)),
+            }
+            req = Request(self.api_url, data=body, headers=headers, method="POST")
             try:
                 with _opener.open(req, timeout=30) as resp:
                     # SEC-030: cap response body at 50 MB to prevent
@@ -476,11 +612,14 @@ class CloudEngine:
                 # provider typically indicates a sustained outage that
                 # won't clear in 2s of backoff).
                 safe_msg = redact_secret(redact_url(str(exc)))
+                # PVT-G5-041: include exc_info so the HTTPError traceback
+                # is captured for debugging.
                 log.error(
                     "[CLOUD] %s HTTP %d error (not retried): %s",
                     self.provider,
                     exc.code,
                     safe_msg,
+                    exc_info=True,
                 )
                 raise RuntimeError(f"{self.provider} API error (HTTP {exc.code})") from exc
             except URLError as exc:
@@ -502,11 +641,21 @@ class CloudEngine:
                     _time.sleep(backoff)
                 else:
                     safe_msg = redact_secret(redact_url(str(exc)))
-                    log.error("[CLOUD] %s API error after %d attempts: %s", self.provider, max_retries, safe_msg)
+                    # PVT-G5-041: include exc_info so the final URLError
+                    # traceback is captured for debugging.
+                    log.error(
+                        "[CLOUD] %s API error after %d attempts: %s",
+                        self.provider,
+                        max_retries,
+                        safe_msg,
+                        exc_info=True,
+                    )
                     raise RuntimeError(f"{self.provider} API error") from exc
             except Exception as exc:
                 safe_msg = redact_secret(str(exc))
-                log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg)
+                # PVT-G5-041: include exc_info so the unexpected-exception
+                # traceback is captured for debugging.
+                log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg, exc_info=True)
                 # NEW-UX-029: include the underlying error in the user-facing
                 # message so the user can tell if it's a network issue vs an
                 # API error. Pre-fix this was a generic "request failed" with
@@ -531,7 +680,14 @@ class CloudEngine:
         PERF-NEW-010: exponential backoff retry (3 attempts) for
         transient network errors, matching the OpenAI-compatible path.
         """
-        assert_url_allowed(self.api_url, field_name="cloud_api_url", client_name="cloud/deepgram")
+        # G4-M-56: opt in to allow_loopback_http=True — see the
+        # OpenAI-compatible transcribe path above for the rationale.
+        assert_url_allowed(
+            self.api_url,
+            field_name="cloud_api_url",
+            client_name="cloud/deepgram",
+            allow_loopback_http=True,
+        )
 
         headers = {
             "Authorization": f"Token {self.api_key}",
@@ -595,10 +751,13 @@ class CloudEngine:
                     _time.sleep(wait)
                     continue
                 safe_msg = redact_secret(redact_url(str(exc)))
+                # PVT-G5-041: include exc_info so the Deepgram HTTPError
+                # traceback is captured for debugging.
                 log.error(
                     "[CLOUD] Deepgram HTTP %d error (not retried): %s",
                     exc.code,
                     safe_msg,
+                    exc_info=True,
                 )
                 raise RuntimeError(f"Deepgram API error (HTTP {exc.code})") from exc
             except URLError as exc:
@@ -617,11 +776,15 @@ class CloudEngine:
                     _time.sleep(backoff)
                 else:
                     safe_msg = redact_secret(redact_url(str(exc)))
-                    log.error("[CLOUD] Deepgram API error after %d attempts: %s", max_retries, safe_msg)
+                    # PVT-G5-041: include exc_info so the final Deepgram
+                    # URLError traceback is captured for debugging.
+                    log.error("[CLOUD] Deepgram API error after %d attempts: %s", max_retries, safe_msg, exc_info=True)
                     raise RuntimeError("Deepgram API error") from exc
             except Exception as exc:
                 safe_msg = redact_secret(str(exc))
-                log.error("[CLOUD] Deepgram request failed: %s", safe_msg)
+                # PVT-G5-041: include exc_info so the unexpected Deepgram
+                # exception traceback is captured for debugging.
+                log.error("[CLOUD] Deepgram request failed: %s", safe_msg, exc_info=True)
                 raise RuntimeError("Deepgram request failed") from exc
         # Should not reach here, but just in case
         raise RuntimeError(f"Deepgram request failed after {max_retries} attempts")
@@ -704,10 +867,13 @@ class CloudEngine:
             return False, "API key not configured"
 
         try:
+            # G4-M-56: opt in to allow_loopback_http=True — see the
+            # OpenAI-compatible transcribe path for the rationale.
             assert_url_allowed(
                 self.api_url,
                 field_name="cloud_api_url",
                 client_name=f"cloud/{self.provider}",
+                allow_loopback_http=True,
             )
         except ValueError as exc:
             return False, str(exc)

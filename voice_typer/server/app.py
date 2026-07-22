@@ -60,9 +60,6 @@ from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 from voice_typer.server.recording import Recorder
 from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 from voice_typer.server.security import (
-    consume_restart_token as _consume_restart_token,
-)
-from voice_typer.server.security import (
     generate_restart_token as _generate_restart_token,
 )
 from voice_typer.server.security import (
@@ -1032,14 +1029,19 @@ class VoiceTyperApp:
         # Python process never actually exited (SystemExit was caught
         # by wrap_callback without tray.stop() breaking the loop).
         #
-        # 1. Push relaunch_electron BEFORE marking _shutting_down.
+        # 1. Push relaunch_app BEFORE marking _shutting_down.
+        # PVT-2 cleanup (this change): the published event name is now
+        # ``relaunch_app`` directly (no longer ``relaunch_electron``).
+        # The Rust WS bridge no longer renames it (the rename arm in
+        # ws.rs was dropped); main.rs listens for ``relaunch_app`` and
+        # calls ``app.restart()``.
         from voice_typer.server import event_bus
 
         try:
-            event_bus.publish({"type": "relaunch_electron"})
-            log.info("[RESTART] relaunch_electron pushed to Electron via TCP")
+            event_bus.publish({"type": "relaunch_app"})
+            log.info("[RESTART] relaunch_app pushed to host via event_bus")
         except Exception as e:
-            log.warning("[RESTART] failed to push relaunch_electron: %s", e)
+            log.warning("[RESTART] failed to push relaunch_app: %s", e)
 
         # 2. NOW mark as shutting down, restore volume, and wait (event-driven)
         #    for Electron to process the relaunch event before we close the

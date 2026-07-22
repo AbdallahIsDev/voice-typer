@@ -6,17 +6,24 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-import logging
-
-from voice_typer.server.handlers._base import HandlerMixinBase
+from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import _error_response
 from voice_typer.server.platform_utils import is_windows
 
-log = logging.getLogger("voice_typer.server.ipc_server")
 
+class StatusHandlersMixin(HandlerBase):
+    """Mixin: status-query IPC handlers (get_status / get_audio_status / ...).
 
-class StatusHandlersMixin(HandlerMixinBase):
-    """Mixin: status-query IPC handlers (get_status / get_audio_status / ...)."""
+    CR-20: this mixin's ``except Exception`` catch-alls call
+    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+    no ``str(e)`` leak). Specific ``FileNotFoundError`` / ``OSError``
+    catch branches keep their descriptive messages (which are safe —
+    no Python internals / PII) but now route through
+    :func:`_error_response` with an explicit ``code`` field
+    (PVT-G5-071) so clients can branch on the code rather than
+    pattern-matching the message text.
+    """
 
     def _handle_get_status(self, data, resp) -> dict | None:
         """Handle the ``get_status`` IPC command."""
@@ -41,9 +48,9 @@ class StatusHandlersMixin(HandlerMixinBase):
             result = self.service.get_rms_level()
             resp["type"] = "rms_level"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] get_rms_level failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_rms_level")
         return resp
 
     def _handle_get_volume_backend_status(self, data, resp) -> dict | None:
@@ -55,9 +62,9 @@ class StatusHandlersMixin(HandlerMixinBase):
             status["is_windows"] = is_windows()
             resp["type"] = "volume_backend_status"
             resp["data"] = status
-        except Exception as e:
-            log.error("[IPC] get_volume_backend_status failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_volume_backend_status")
         return resp
 
     def _handle_get_audio_status(self, data, resp) -> dict | None:
@@ -69,9 +76,9 @@ class StatusHandlersMixin(HandlerMixinBase):
         try:
             resp["type"] = "audio_status"
             resp["data"] = self.service.get_audio_status()
-        except Exception as e:
-            log.error("[IPC] get_audio_status failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_audio_status")
         return resp
 
     def _handle_get_model_status(self, data, resp) -> dict | None:
@@ -83,9 +90,9 @@ class StatusHandlersMixin(HandlerMixinBase):
             status = self.service.get_model_status()
             resp["type"] = "model_status"
             resp["data"] = status
-        except Exception as e:
-            log.error("[IPC] get_model_status failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_model_status")
         return resp
 
     def _handle_get_prewarm_status(self, data, resp) -> dict | None:
@@ -102,9 +109,9 @@ class StatusHandlersMixin(HandlerMixinBase):
 
             resp["type"] = "prewarm_status"
             resp["data"] = get_prewarm_status()
-        except Exception as e:
-            log.error("[IPC] get_prewarm_status failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "get_prewarm_status")
         return resp
 
     def _handle_run_prewarm(self, data, resp) -> dict | None:
@@ -180,16 +187,32 @@ class StatusHandlersMixin(HandlerMixinBase):
             resp["type"] = "prewarm_started"
             resp["data"] = {"started": True, "pid": proc.pid}
         except FileNotFoundError as e:
+            # PVT-G5-071: specific-exception branch — keep the
+            # descriptive message (no Python internals / PII — the
+            # exception text only echoes the interpreter path the
+            # app itself resolved) but stamp a structured ``code`` so
+            # the renderer can branch on ``not_found`` rather than
+            # pattern-matching the message text.
             log.error("[IPC] run_prewarm: interpreter not found: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": f"Python interpreter not found: {e}"}
+            return _error_response(
+                resp,
+                f"Python interpreter not found: {e}",
+                code="not_found",
+            )
         except OSError as e:
+            # PVT-G5-071: ``OSError`` from ``subprocess.Popen`` carries
+            # no Python internals in ``str(e)`` (it's typically
+            # "[Errno 13] Permission denied: …"), but route through
+            # ``_error_response`` for envelope-shape consistency.
             log.error("[IPC] run_prewarm: spawn failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": f"Failed to start prewarm: {e}"}
-        except Exception as e:
-            log.error("[IPC] run_prewarm failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+            return _error_response(
+                resp,
+                f"Failed to start prewarm: {e}",
+                code="handler_error",
+            )
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "run_prewarm")
         return resp
 
     def _handle_open_prewarm_log(self, data, resp) -> dict | None:
@@ -284,14 +307,29 @@ class StatusHandlersMixin(HandlerMixinBase):
             resp["type"] = "prewarm_log"
             resp["data"] = {"opened": True, "path": str(log_file)}
         except FileNotFoundError as e:
+            # PVT-G5-071: specific-exception branch — keep the
+            # descriptive message (no Python internals / PII — the
+            # exception text only echoes the editor binary path the
+            # app itself chose) but stamp a structured ``code`` so
+            # the renderer can branch on ``not_found``.
             log.error("[IPC] open_prewarm_log: editor not found: %s", e)
-            resp["type"] = "error"
-            resp["data"] = {"message": f"No editor available to open the log: {e}"}
+            return _error_response(
+                resp,
+                f"No editor available to open the log: {e}",
+                code="not_found",
+            )
         except OSError as e:
+            # PVT-G5-071: ``OSError`` from the editor ``Popen`` —
+            # route through ``_error_response`` for envelope-shape
+            # consistency (the ``str(e)`` is typically
+            # "[Errno 13] Permission denied: …" — no Python internals).
             log.error("[IPC] open_prewarm_log: open failed: %s", e, exc_info=True)
-            resp["type"] = "error"
-            resp["data"] = {"message": f"Failed to open log: {e}"}
-        except Exception as e:
-            log.error("[IPC] open_prewarm_log failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+            return _error_response(
+                resp,
+                f"Failed to open log: {e}",
+                code="handler_error",
+            )
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "open_prewarm_log")
         return resp

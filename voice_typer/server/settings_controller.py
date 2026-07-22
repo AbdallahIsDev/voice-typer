@@ -82,6 +82,9 @@ class SettingsController:
 
         Persists the change to disk and updates the tray UI. On failure,
         notifies the user via the tray (best-effort).
+
+        G4-H-15: wrapped in ``_config_mutation_lock`` for atomicity
+        w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
         """
         # Look up the platform helpers from the app module at call time so
         # tests that monkeypatch voice_typer.server.app.{enable_autostart,
@@ -89,19 +92,20 @@ class SettingsController:
         from voice_typer.server import app as _app_module
 
         app = self._app
-        try:
-            if enabled:
-                _app_module.enable_autostart()
-            else:
-                _app_module.disable_autostart()
-            app.config.autostart = enabled
-            if not app.config.save():
-                log.warning("[CONFIG] Failed to save autostart setting to disk")
-            app.tray.set_autostart_enabled(enabled)
-            log.info("[CONFIG] Autostart set to %s", enabled)
-        except Exception as e:
-            log.exception("[CONFIG] Failed to set autostart")
-            app.tray.notify(APP_NAME, f"Could not change autostart setting.\n{e}")
+        with app._config_mutation_lock:
+            try:
+                if enabled:
+                    _app_module.enable_autostart()
+                else:
+                    _app_module.disable_autostart()
+                app.config.autostart = enabled
+                if not app.config.save():
+                    log.warning("[CONFIG] Failed to save autostart setting to disk")
+                app.tray.set_autostart_enabled(enabled)
+                log.info("[CONFIG] Autostart set to %s", enabled)
+            except Exception as e:
+                log.exception("[CONFIG] Failed to set autostart")
+                app.tray.notify(APP_NAME, f"Could not change autostart setting.\n{e}")
 
     # ── Notifications ──────────────────────────────────────────────────
 
@@ -111,13 +115,17 @@ class SettingsController:
         Persists ``show_notifications`` to disk and updates the tray UI
         (``tray.set_notifications_enabled`` gates all future ``notify()``
         calls so a toggle takes effect immediately).
+
+        G4-H-15: wrapped in ``_config_mutation_lock`` for atomicity
+        w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
         """
         app = self._app
-        app.config.show_notifications = enabled
-        if not app.config.save():
-            log.warning("[CONFIG] Failed to save notifications setting to disk")
-        app.tray.set_notifications_enabled(enabled)
-        log.info("[CONFIG] Notifications set to %s", enabled)
+        with app._config_mutation_lock:
+            app.config.show_notifications = enabled
+            if not app.config.save():
+                log.warning("[CONFIG] Failed to save notifications setting to disk")
+            app.tray.set_notifications_enabled(enabled)
+            log.info("[CONFIG] Notifications set to %s", enabled)
 
     # ── Microphone ────────────────────────────────────────────────────
 
@@ -130,28 +138,32 @@ class SettingsController:
         truncate the in-flight audio). Otherwise the ``Recorder`` is
         recreated with the new ``config.microphone`` so PortAudio opens
         the correct input device on the next ``start()``.
+
+        G4-H-15: wrapped in ``_config_mutation_lock`` for atomicity
+        w.r.t. IPC ``set_config`` mutations (RLock, re-entry safe).
         """
         app = self._app
-        app.config.microphone = mic_name
-        if not app.config.save():
-            log.warning("[CONFIG] Failed to save microphone selection to disk")
-            app.tray.notify(
-                APP_NAME,
-                "Failed to save microphone selection. Check disk space or permissions.",
-            )
-        label = mic_name if mic_name else "System Default"
+        with app._config_mutation_lock:
+            app.config.microphone = mic_name
+            if not app.config.save():
+                log.warning("[CONFIG] Failed to save microphone selection to disk")
+                app.tray.notify(
+                    APP_NAME,
+                    "Failed to save microphone selection. Check disk space or permissions.",
+                )
+            label = mic_name if mic_name else "System Default"
 
-        if app.recorder.recording:
-            log.info("[CONFIG] Microphone changed to %s; applying after active recording", label)
-            app.tray.notify(APP_NAME, f"Microphone next recording: {label}")
-            return
+            if app.recorder.recording:
+                log.info("[CONFIG] Microphone changed to %s; applying after active recording", label)
+                app.tray.notify(APP_NAME, f"Microphone next recording: {label}")
+                return
 
-        # Re-create with new mic. NOTE: this intentionally does NOT pass
-        # ``thread_registry`` (mirrors the pre-refactor behaviour on
-        # ``VoiceTyperApp._select_microphone``). The new ``Recorder``
-        # inherits the global thread registry via its own default; the
-        # original ``__init__``'s explicit ``thread_registry=`` is for the
-        # primary instance only.
-        app.recorder = Recorder(app.config, audio_processor=app._audio_processor)  # re-create with new mic
-        log.info("[CONFIG] Microphone changed to: %s", label)
-        app.tray.notify(APP_NAME, f"Microphone: {label}")
+            # Re-create with new mic. NOTE: this intentionally does NOT pass
+            # ``thread_registry`` (mirrors the pre-refactor behaviour on
+            # ``VoiceTyperApp._select_microphone``). The new ``Recorder``
+            # inherits the global thread registry via its own default; the
+            # original ``__init__``'s explicit ``thread_registry=`` is for the
+            # primary instance only.
+            app.recorder = Recorder(app.config, audio_processor=app._audio_processor)  # re-create with new mic
+            log.info("[CONFIG] Microphone changed to: %s", label)
+            app.tray.notify(APP_NAME, f"Microphone: {label}")

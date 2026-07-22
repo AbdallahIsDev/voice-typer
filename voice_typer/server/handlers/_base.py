@@ -15,7 +15,7 @@ This module is the result of merging two independent improvements:
   That violated the WS-path error-envelope contract documented in
   ``docs/architecture/error-envelope-contract.md`` and implemented by
   the dispatcher's outer ``except Exception`` in
-  ``voice_typer/server/ipc/server.py:911-947`` — which deliberately
+  ``voice_typer/server/ipc_server.py`` — which deliberately
   emits a GENERIC envelope::
 
       {"type": "error",
@@ -105,24 +105,25 @@ class HandlerBase(HandlerMixinBase):
     pure-validation handlers) inherit directly from
     :class:`HandlerMixinBase` to keep their MRO minimal.
 
-    Migration status (CR-20, partial):
+    Migration status (CR-20, complete):
 
     The original review (CR-20) found ~50 copies of the leaky pattern
-    across all 13 handler mixins. As of this commit, the following four
-    "representative" mixins have been migrated to ``_respond_with_error``:
-
-    * ``model_handlers.py``
-    * ``dictation_handlers.py``
-    * ``history_handlers.py``
-    * ``onboarding_handlers.py``
-
-    The remaining mixins (``config``, ``status``, ``microphone``,
-    ``microphone_test``, ``level_monitor``, ``templates``,
-    ``vocabulary``, ``vocabulary_automation``, ``system``, ``repaste``)
-    still emit ``str(e)`` and are tagged with a ``# CR-20 TODO`` comment
-    where the pattern occurs. Migrate them incrementally — the helper is
-    safe to call from any handler because it has no state of its own and
-    only mutates the caller's ``resp`` dict in place.
+    across all 14 handler mixins. As of PVT-G5-021 (FA16, 2026-07-19),
+    ALL 14 handler mixins (``config``, ``dictation``, ``history``,
+    ``level_monitor``, ``microphone``, ``microphone_test``, ``model``,
+    ``onboarding``, ``privacy``, ``repaste``, ``status``, ``system``,
+    ``templates``, ``vocabulary``, ``vocabulary_automation``) inherit
+    from :class:`HandlerBase` and route their catch-all
+    ``except Exception`` blocks through ``_respond_with_error`` — no
+    ``str(e)`` is ever sent to the renderer. The three-way
+    error-envelope drift documented in PVT-G5-070 is eliminated:
+    every handler catch-all now emits the same
+    ``{"code": "internal_error", "message": "internal error"}``
+    envelope as the dispatcher's outer ``except Exception``.
+    Per-command VALIDATION errors (``missing_field``,
+    ``invalid_payload``, ``payload_too_large``, etc.) remain the
+    handler's responsibility and continue to route through
+    :func:`_error_response` with explicit ``code`` values (PVT-G5-071).
     """
 
     def _respond_with_error(self, resp: dict, exc: BaseException, cmd_name: str) -> dict:
@@ -157,12 +158,12 @@ class HandlerBase(HandlerMixinBase):
         Notes
         -----
         This method matches the dispatcher's outer ``except Exception``
-        envelope at ``voice_typer/server/ipc/server.py:937-943``
-        verbatim — same ``type``, same ``data.code``, same
-        ``data.message`` — so the renderer cannot tell whether the
-        exception was caught inside the handler or propagated to the
-        dispatcher. This is intentional: it removes the information
-        channel that the old ``str(e)`` leak created.
+        envelope at ``voice_typer/server/ipc_server.py`` verbatim —
+        same ``type``, same ``data.code``, same ``data.message`` — so
+        the renderer cannot tell whether the exception was caught
+        inside the handler or propagated to the dispatcher. This is
+        intentional: it removes the information channel that the old
+        ``str(e)`` leak created.
 
         Per-command validation errors (``missing_field``,
         ``invalid_payload``, ``payload_too_large``, etc.) are NOT

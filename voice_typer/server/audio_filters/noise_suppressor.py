@@ -219,6 +219,15 @@ class NoiseSuppressor(AudioFilter):
         return result.astype(np.float32, copy=False).reshape(original_shape)
 
     def reset(self) -> None:
+        # G4-L-05: zero the existing state array BEFORE replacing it
+        # so partial-frame samples (which can hold ~10ms of the user's
+        # voice between process() calls) are securely cleared rather
+        # than left in process memory until the numpy allocator reuses
+        # the block.  ``self._carry`` is reassigned to a fresh empty
+        # array immediately after, but the OLD array's contents are
+        # zeroed first by reference.
+        if self._carry.size > 0:
+            self._carry.fill(0)
         self._carry = np.array([], dtype=np.float32)
 
     @property

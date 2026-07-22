@@ -39,6 +39,13 @@ class OnboardingController:
             config_dir = _config_dir()
         self._config_dir = config_dir
         self._marker_path = config_dir / ".onboarding_complete"
+        # PVT-006: a second marker tracks that the wizard has *started*
+        # rendering (as opposed to "completed"). ``startup_sequence.py``'s
+        # auto-heal logic should ONLY fire when this marker is absent —
+        # if the wizard has started, the user is genuinely in first-run
+        # flow and auto-healing would clobber their in-progress selections.
+        # See the docstring on :meth:`mark_started` for the full rationale.
+        self._started_marker_path = config_dir / ".onboarding_started"
         self._current_step = 0
         # UX-4 / UX-27: bumped from 5 → 6 to add a platform-conditional
         # Permissions step between Microphone (index 1) and Hotkey
@@ -105,9 +112,85 @@ class OnboardingController:
                 self._marker_path,
                 json.dumps({"completed": True, "version": 1}),
             )
+            # PVT-006: the started marker is no longer needed once the
+            # wizard completes — remove it so a future first-run (after a
+            # :meth:`reset` call) starts with a clean slate.
+            self._started_marker_path.unlink(missing_ok=True)
             log.info("[ONBOARDING] Marked as complete")
         except Exception:
             log.exception("[ONBOARDING] Failed to mark complete")
+
+    def mark_started(self) -> None:
+        """Mark that the onboarding wizard has started rendering.
+
+        PVT-006: ``startup_sequence.py``'s auto-heal logic (see lines
+        143-183 of that module) fires when ``config.json`` exists on
+        disk but ``onboarding_completed`` is ``False`` and the
+        ``.onboarding_complete`` marker is missing. The intent is to
+        fix a stale state where the marker was lost/deleted but the
+        user had already completed onboarding.
+
+        The bug: the auto-heal can't distinguish "stale state from a
+        previous install" from "genuine first-run wizard that's
+        currently in progress." If the user launches the app, the
+        wizard starts, saves a default ``config.json``, and the user
+        is mid-way through the wizard when the app restarts (crash,
+        force-quit, system reboot), auto-heal fires and marks
+        onboarding complete — silently dropping the user's
+        in-progress selections.
+
+        The fix: this marker is created as soon as the wizard renders
+        (via the ``onboarding_start`` IPC handler — see
+        :meth:`voice_typer.server.handlers.onboarding_handlers.OnboardingHandlersMixin._handle_onboarding_start`).
+        ``startup_sequence.py`` should be updated to check for this
+        marker and skip auto-heal when it exists::
+
+            if onboarding.is_first_run():
+                config_file = _config_dir() / "config.json"
+                started_marker = _config_dir() / ".onboarding_started"
+                if config_file.exists() and not started_marker.exists():
+                    # auto-heal (stale state)
+                    ...
+                else:
+                    # genuine first run — save default config
+                    ...
+
+        NOTE: ``startup_sequence.py`` is owned by another agent
+        (Agent 22's scope per the comprehensive-review fix plan). This
+        method + the ``onboarding_start`` IPC handler wiring are the
+        renderer/controller-side prerequisites; the startup_sequence.py
+        gate is the remaining piece.
+        """
+        try:
+            self._config_dir.mkdir(parents=True, exist_ok=True)
+            from voice_typer.server.config import _secure_atomic_write
+
+            _secure_atomic_write(
+                self._started_marker_path,
+                json.dumps({"started": True, "version": 1}),
+            )
+        except Exception:
+            # Best-effort — marker creation is non-critical. If it
+            # fails, the worst case is the pre-fix auto-heal behavior
+            # (which is the current production behavior anyway).
+            log.debug("[ONBOARDING] Failed to write started marker", exc_info=True)
+
+    def reset(self) -> None:
+        """Reset onboarding state so the wizard shows again on next launch.
+
+        PVT-006: deletes both the ``.onboarding_complete`` and
+        ``.onboarding_started`` markers. Used by tests and by a future
+        "re-run onboarding" affordance in Settings. Does NOT modify
+        ``config.json`` — the caller is responsible for flipping
+        ``config.onboarding_completed`` to ``False`` if they want
+        :meth:`is_first_run` to return ``True`` on the next launch.
+        """
+        for path in (self._marker_path, self._started_marker_path):
+            try:
+                path.unlink(missing_ok=True)
+            except Exception:
+                log.debug("[ONBOARDING] Failed to remove marker %s", path, exc_info=True)
+        log.info("[ONBOARDING] Reset (markers removed)")
 
     # ─── Step navigation ─────────────────────────────────────────────
 
@@ -235,12 +318,23 @@ class OnboardingController:
         - ``needed``: bool — True iff the platform requires a
           permission and the user hasn't granted it yet
         - ``instructions``: ``None`` on Windows / unknown platforms;
-          a dict with ``title``, ``steps`` (list[str]), and
-          ``commands`` (list[str] | None) on macOS / Linux when
-          permission is needed
+          a dict with ``title_key`` (str), ``steps_keys`` (list[str]),
+          and ``commands`` (list[str] | None) on macOS / Linux when
+          permission is needed. The key strings are dotted i18n keys
+          (e.g. ``"onboarding.permissionsInstructionsMacosTitle"``)
+          that the renderer resolves via ``t(key)``.
 
         The renderer uses this in the Permissions step to show a
         platform-specific setup walkthrough.
+
+        PVT-052: the ``instructions`` dict now carries i18n *keys*
+        (``title_key`` / ``steps_keys``) instead of literal English
+        strings. The renderer resolves them via ``t(key)`` so the
+        walkthrough is fully localized. ``commands`` remains literal
+        (shell commands are not translatable). The renderer supports
+        both the new key-based shape and the legacy literal shape
+        (``title`` / ``steps``) for backward compatibility with older
+        backends and test mocks.
         """
         # Import the platform helpers from ``permissions`` (which
         # re-exports them from ``platform_utils``) so tests can
@@ -264,11 +358,11 @@ class OnboardingController:
             needed = state != PermissionState.GRANTED
             instructions = (
                 {
-                    "title": "Accessibility Permission Required",
-                    "steps": [
-                        "Open System Settings → Privacy & Security → Accessibility",
-                        "Add Voice Typer (and its key-listener helper) to the list",
-                        "Toggle the switch ON for Voice Typer",
+                    "title_key": "onboarding.permissionsInstructionsMacosTitle",
+                    "steps_keys": [
+                        "onboarding.permissionsInstructionsMacosStep1",
+                        "onboarding.permissionsInstructionsMacosStep2",
+                        "onboarding.permissionsInstructionsMacosStep3",
                     ],
                     "commands": None,
                 }
@@ -286,11 +380,11 @@ class OnboardingController:
             # manually without pkexec).
             instructions = (
                 {
-                    "title": "Input Group + udev Rule Required",
-                    "steps": [
-                        "Add yourself to the 'input' group",
-                        "Install the udev rule granting group-read on /dev/input/event*",
-                        "Log out and back in (or reboot) for the group change to take effect",
+                    "title_key": "onboarding.permissionsInstructionsLinuxTitle",
+                    "steps_keys": [
+                        "onboarding.permissionsInstructionsLinuxStep1",
+                        "onboarding.permissionsInstructionsLinuxStep2",
+                        "onboarding.permissionsInstructionsLinuxStep3",
                     ],
                     "commands": [
                         "sudo usermod -aG input $USER",

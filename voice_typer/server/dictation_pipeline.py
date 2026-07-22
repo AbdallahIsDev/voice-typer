@@ -21,6 +21,7 @@ import numpy as np
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.clipboard import ClipboardCopyError
+from voice_typer.server.cloud_engines import CloudEngine
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -34,6 +35,13 @@ def _friendly_transcription_error(exc: BaseException) -> str:
     """Return a user-friendly message describing a transcription failure."""
     msg = str(exc).lower()
     name = type(exc).__name__
+    # Walk the __cause__ chain — cloud_engines.py wraps errors with
+    # raise RuntimeError(...) from exc, hiding the original type.
+    names = {name}
+    c = exc.__cause__
+    while c is not None:
+        names.add(type(c).__name__)
+        c = c.__cause__
     # GPU / CUDA errors
     if "out of memory" in msg or "cuda" in msg and "memory" in msg:
         return "The GPU ran out of memory while transcribing. Try a smaller model."
@@ -47,12 +55,40 @@ def _friendly_transcription_error(exc: BaseException) -> str:
     # Audio errors
     if "audio" in msg and ("empty" in msg or "no speech" in msg):
         return "No speech was detected in the recording."
-    if name in {"ConnectionError", "TimeoutError", "URLError"}:
+    if names & {"ConnectionError", "TimeoutError", "URLError"}:
         return "A network error occurred while contacting the transcription service."
     # Permission errors
-    if name in {"PermissionError"}:
+    if "PermissionError" in names:
         return "A file permission error occurred. Check that the app can write to its data directory."
     return f"Transcription failed ({name}). See the log file for technical details."
+
+
+def _lookup_local_whisper(app: Any) -> Any:
+    """G4-H-18: look up the local Whisper engine from the app's model registry.
+
+    Returns ``None`` when the app has no ``models`` attribute, the models
+    object exposes no ``registry``, or the registry has no ``whisper``
+    backend registered (cold start, or the user explicitly unloaded whisper).
+
+    Used by :meth:`DictationPipeline._transcribe` to wire the local
+    Whisper engine as the fallback for a CloudEngine, so that
+    ``CloudEngine.transcribe_with_fallback`` actually has a local engine
+    to fall back to when the cloud provider is unreachable.
+    """
+    try:
+        models = getattr(app, "models", None)
+    except Exception:  # pragma: no cover — defensive
+        return None
+    if models is None:
+        return None
+    registry = getattr(models, "registry", None)
+    if registry is None:
+        return None
+    try:
+        return registry.get("whisper")
+    except Exception:  # pragma: no cover — defensive
+        log.debug("[PIPELINE] _lookup_local_whisper: registry.get raised", exc_info=True)
+        return None
 
 
 class DictationPipeline:
@@ -71,6 +107,10 @@ class DictationPipeline:
         self._recorded_rms = 0.0
         self._device_info = ""
         self._watchdog = None
+        # PVT-016: throttle _check_resources to once per 60s. The values
+        # change slowly and are only needed for post-crash triage.
+        self._last_resources_check_ts: float = 0.0
+        self._resources_check_interval: float = 60.0
         # NEW-PERF-010: pre-computed (rms, peak, silence_pct) from
         # Recorder.stop(), passed through to the transcription engine
         # so it doesn't recompute the same stats on the same audio.
@@ -119,7 +159,11 @@ class DictationPipeline:
 
             # PRE-FLIGHT: resource health check — provides diagnostic
             # context (RAM, disk, GPU) if a heap corruption crash occurs.
-            self._check_resources()
+            # PVT-016: throttle to once every 60s. The values change slowly
+            # and are only needed for post-crash triage, not per-utterance
+            # decisions. Previously ran every utterance (~2-5ms of system/
+            # driver calls each).
+            self._check_resources_throttled()
 
             # PERF-FIX-001: per-stage timing instrumentation.
             # Stage durations are collected and logged as a single
@@ -333,10 +377,17 @@ class DictationPipeline:
                 )
                 with contextlib.suppress(Exception):
                     self._app.recording._transcription_thread = None
+            # PVT-015: Downgrade from full gc.collect() to gc.collect(0).
+            # Full GC scans the entire Python heap (gen 0+1+2) — with a
+            # loaded Whisper model (500MB-3GB of tensors → millions of
+            # wrapper objects), a full pass takes 50-500ms, paid on every
+            # single transcription cycle. Generation-0 only (~1-5ms)
+            # catches the per-cycle allocations (audio buffers, segment
+            # lists, IPC dicts) without scanning long-lived model objects.
             with contextlib.suppress(Exception):
                 import gc
 
-                gc.collect()
+                gc.collect(0)
             log.debug("[TRANSCRIBE] busy reset to False (cycle=%s)", self._cycle_id)
             # RW-13: clear the correlation id published at the top of run().
             # This runs in the finally block so it executes on both the
@@ -350,6 +401,22 @@ class DictationPipeline:
                 reset_correlation_id(_corr_token)
 
     # ── Pipeline steps ────────────────────────────────────────────
+
+    def _check_resources_throttled(self) -> None:
+        """PVT-016: Throttled wrapper around _check_resources.
+
+        Runs the actual check at most once per `_resources_check_interval`
+        seconds (default 60s). The values change slowly and are only
+        needed for post-crash triage, not per-utterance decisions.
+        Previously ran every utterance (~2-5ms of system/driver calls).
+        """
+        import time as _time
+
+        now = _time.monotonic()
+        if now - self._last_resources_check_ts < self._resources_check_interval:
+            return
+        self._last_resources_check_ts = now
+        self._check_resources()
 
     def _check_resources(self) -> None:
         """Pre-flight health check before transcription.
@@ -542,7 +609,24 @@ class DictationPipeline:
             # (Whisper/Parakeet/Qwen/Cloud) now accept ``audio_stats``
             # as a keyword argument, so the fallback is no longer
             # needed.
-            text = active.transcribe_with_fallback(self._audio, audio_stats=self._audio_stats)
+            #
+            # G4-H-18: when the active backend is a CloudEngine, look
+            # up the local whisper engine from the model registry and
+            # pass it as ``local_engine=``.  This makes the cloud→local
+            # fallback path actually fire when the cloud provider is
+            # unreachable — previously the ``local_engine=`` parameter
+            # existed but NO caller passed it, so the fallback was dead
+            # code (transcription failed outright when the cloud was
+            # down).  When the active backend is already a local engine
+            # (Whisper/Parakeet/Qwen), ``local_engine`` is left as None.
+            local_engine = None
+            if isinstance(active, CloudEngine):
+                local_engine = _lookup_local_whisper(self._app)
+            text = active.transcribe_with_fallback(
+                self._audio,
+                audio_stats=self._audio_stats,
+                local_engine=local_engine,
+            )
 
         # PERF-015 / HIGH-19: refresh the LRU timestamp for the active backend
         # so it isn't evicted as least-recently-used after a successful
@@ -734,6 +818,9 @@ class DictationPipeline:
             return enhance_transcription(text, self._app.config)
         except Exception:
             log.warning("[AI_ENHANCE] Enhancement failed", exc_info=True)
+            from voice_typer.server import event_bus
+
+            event_bus.publish({"type": "llm_polish_failed"})
             return text
 
     def _analyze_vocabulary(self, text: str) -> None:
@@ -926,18 +1013,26 @@ class DictationPipeline:
             )
 
         if self._app.config.log_transcriptions:
-            # SEC-009: run transcription text through ``redact_pii()``
-            # before logging so emails, phone numbers, SSNs, and credit-
-            # card-like patterns are masked even when the user has opted
-            # into verbose transcription logging. Pre-fix this used the
-            # raw text, which would land PII in the log file.
-            # ``PIIRedactionFilter`` already redacts log records at the
-            # logging.Handler level, but defence-in-depth: redact here
-            # too so a future change to the filter can't accidentally
-            # expose PII from this high-volume logging path.
-            from voice_typer.server.security import redact_pii
+            # G4-H-08: previously the first 200 characters of the
+            # transcription text were logged after running through
+            # ``redact_pii()``.  ``redact_pii()`` only masks four
+            # patterns (email / US-phone / SSN / credit-card-like) —
+            # medical dictation, financial narratives, addresses, and
+            # names passed through verbatim.  For a voice-typing tool
+            # this is the primary PII surface.
+            #
+            # We now log a non-reversible 12-char SHA-256 prefix of
+            # the transcription text.  This preserves log-line
+            # correlation (the same transcription produces the same
+            # hash, so ``[TRANSCRIBE] Transcription: hash=abc… len=123``
+            # can be matched against the downstream ``[HISTORY] insert``
+            # log line for the same cycle) without leaking any content.
+            # ``len(text)`` is also logged so operators can spot
+            # suspiciously short / long transcriptions.
+            import hashlib
 
-            log.info("[TRANSCRIBE] Transcription: %s", redact_pii(text[:200]))
+            text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+            log.info("[TRANSCRIBE] Transcription: hash=%s len=%d", text_hash, len(text))
         else:
             log.info("[TRANSCRIBE] Transcription: %d chars", len(text))
 

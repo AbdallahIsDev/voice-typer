@@ -51,6 +51,40 @@ def _log():
 # ``None`` = not yet computed.
 _WE_ELEVATED: bool | None = None
 
+# PVT-G5-045 (session-5): per-paste security checks fail open (return
+# False). Logging every failure at WARNING would spam the log at paste
+# rate; logging at DEBUG without deduplication would still emit one
+# record per paste. Use module-level "first-occurrence" flags so the
+# operator gets one WARNING-equivalent record per failure mode per
+# session — enough to notice the regression without flooding the log.
+_PASTE_SAFETY_WARNED: set[str] = set()
+
+
+def _warn_paste_safety_once(key: str, fn_name: str, exc: BaseException) -> None:
+    """Emit a one-shot DEBUG log for a per-paste safety-check failure.
+
+    The first time ``key`` is seen in this process we also bump it to
+    WARNING so the operator notices; subsequent failures of the same
+    kind are logged at DEBUG (with traceback) for forensic value without
+    spamming the log at paste rate.
+    """
+    if key not in _PASTE_SAFETY_WARNED:
+        _PASTE_SAFETY_WARNED.add(key)
+        _log().warning(
+            "[CLIPBOARD] %s failed: %s — failing open (paste allowed); "
+            "further occurrences of this failure will be logged at DEBUG",
+            fn_name,
+            exc,
+            exc_info=True,
+        )
+    else:
+        _log().debug(
+            "[CLIPBOARD] %s failed: %s — failing open (paste allowed)",
+            fn_name,
+            exc,
+            exc_info=True,
+        )
+
 
 def _get_we_elevated() -> bool:
     """CLIP-6: Return whether THIS process is running elevated.
@@ -91,7 +125,16 @@ def _get_we_elevated() -> bool:
             _WE_ELEVATED = bool(ctypes.cast(our_buf, ctypes.POINTER(wintypes.DWORD))[0])
         finally:
             kernel32.CloseHandle(our_token)
-    except Exception:
+    except Exception as exc:
+        # PVT-G5-045 (session-5): cached and called once per process, so
+        # a plain WARNING (no dedup) is appropriate — operators get
+        # exactly one record per session if the Win32 token query path
+        # is broken.
+        _log().warning(
+            "[CLIPBOARD] _get_we_elevated failed: %s — failing open (paste allowed)",
+            exc,
+            exc_info=True,
+        )
         _WE_ELEVATED = False
     return _WE_ELEVATED
 
@@ -487,4 +530,343 @@ def _is_content_editable(focused: Any = None) -> bool:
     except ImportError:
         return False
     except Exception:
+        return False
+
+
+# ─── G4-H-05: macOS/Linux password field detection ────────────────────
+#
+# PLAT-014 was Windows-only — on macOS/Linux, ``_is_safe_paste_target``
+# returned ``True`` unconditionally, allowing dictated text to be pasted
+# into password fields, SSH passphrase prompts, credit-card forms, etc.
+#
+# G4-H-05 closes that gap by querying the platform-native accessibility
+# APIs:
+#
+#   * macOS: Accessibility API via pyobjc (AppKit + ApplicationServices).
+#     A focused UI element with ``AXIsSecure=True`` or role
+#     ``AXSecureTextField`` is treated as a password field.
+#
+#   * Linux: AT-SPI2 via pyatspi. A focused accessible with role
+#     ``ATSPI_ROLE_PASSWORD_TEXT`` is treated as a password field.
+#
+# Both helpers use LAZY imports (the codebase pattern) so a missing
+# pyobjc/pyatspi on a non-target platform does not break startup. If the
+# platform library is unavailable, the helper logs a WARNING (once, to
+# avoid log spam) and returns False — the caller then falls back to the
+# legacy fail-open behavior of allowing paste. The docstrings document
+# this residual risk.
+#
+# Residual risk: SIGKILL or a hard crash mid-paste still leaks dictated
+# text into the focused field — this fix only gates the paste keystroke
+# itself, not the clipboard content. The clipboard snapshot/restore
+# lifecycle (ADR-0010 §5) limits the clipboard-side exposure to the
+# configured restore delay (default 150 ms).
+
+
+# Once-only warning guards so missing platform libs don't spam the log
+# on every paste. The first paste logs a WARNING; subsequent pastes log
+# at DEBUG. Reset to False (via test fixtures) by re-importing the
+# module.
+_PYOBJC_UNAVAILABLE_WARNED: bool = False
+_PYATSPI_UNAVAILABLE_WARNED: bool = False
+
+
+def reset_platform_unavailable_warnings() -> None:
+    """Reset the once-only warning guards (test helper).
+
+    Production code never calls this — the guards are intentionally
+    sticky so a noisy startup doesn't flood the log. Tests that want
+    to assert the WARNING is emitted on the first call can call this
+    between cases.
+    """
+    global _PYOBJC_UNAVAILABLE_WARNED, _PYATSPI_UNAVAILABLE_WARNED
+    _PYOBJC_UNAVAILABLE_WARNED = False
+    _PYATSPI_UNAVAILABLE_WARNED = False
+
+
+def _is_password_field_macos() -> bool:
+    """G4-H-05: Detect macOS password fields via the Accessibility API.
+
+    Uses ``pyobjc`` (``AppKit.NSWorkspace`` + ``ApplicationServices``)
+    to query the focused UI element of the frontmost application:
+
+      1. ``NSWorkspace.sharedWorkspace().frontmostApplication()`` →
+         the frontmost ``NSRunningApplication``.
+      2. ``AXUIElementCreateApplication(pid)`` → the AXUIElement for
+         that app.
+      3. ``AXUIElementCopyAttributeValue(app, "AXFocusedUIElement")``
+         → the focused UI element.
+      4. Check the element's ``AXRole`` (``AXSecureTextField`` ⇒
+         password field) and the ``AXIsSecure`` attribute (``True`` ⇒
+         password field, covers custom controls).
+
+    Returns ``True`` if a password field is detected (paste should be
+    blocked), ``False`` otherwise.
+
+    Lazy import: if ``pyobjc`` is not installed (Linux/Windows hosts
+    or a headless macOS without the AppKit bridge), logs a WARNING
+    (once) and returns ``False`` — the caller falls back to the
+    legacy fail-open behavior of allowing paste. Residual risk:
+    dictated text can still be pasted into macOS password fields
+    until ``pyobjc`` is installed.
+
+    Exceptions from the AX API (broken accessibility permission, app
+    doesn't expose AX tree, etc.) are caught and logged at DEBUG —
+    fail-open to avoid blocking legitimate dictation when the AX
+    infrastructure is degraded.
+    """
+    global _PYOBJC_UNAVAILABLE_WARNED
+    try:
+        import AppKit  # noqa: F401
+        import ApplicationServices  # noqa: F401
+    except ImportError:
+        if not _PYOBJC_UNAVAILABLE_WARNED:
+            _log().warning(
+                "[CLIPBOARD] pyobjc (ApplicationServices/AppKit) not installed — "
+                "macOS password field detection disabled. Install pyobjc "
+                "(pip install pyobjc-framework-ApplicationServices "
+                "pyobjc-framework-Cocoa) to enable password field protection. "
+                "Falling back to fail-open (paste allowed)."
+            )
+            _PYOBJC_UNAVAILABLE_WARNED = True
+        else:
+            _log().debug("[CLIPBOARD] pyobjc not installed — macOS password field check skipped (already warned)")
+        return False
+
+    try:
+        workspace = AppKit.NSWorkspace.sharedWorkspace()
+        if workspace is None:
+            return False
+        front_app = workspace.frontmostApplication()
+        if front_app is None:
+            return False
+        try:
+            pid = front_app.processIdentifier()
+        except Exception:
+            return False
+        if pid is None or pid <= 0:
+            return False
+
+        app_elem = ApplicationServices.AXUIElementCreateApplication(pid)
+        if app_elem is None:
+            return False
+
+        # Get the focused UI element within the app.
+        # AXUIElementCopyAttributeValue signature:
+        #   (element, attribute, value out) -> OSStatus
+        # pyobjc returns (OSStatus, value) tuple for the out-param.
+        try:
+            focused_result = ApplicationServices.AXUIElementCopyAttributeValue(app_elem, "AXFocusedUIElement", None)
+        except Exception:
+            return False
+        if not focused_result or not isinstance(focused_result, tuple):
+            return False
+        if len(focused_result) < 2 or focused_result[0] != 0:
+            return False
+        focused = focused_result[1]
+        if focused is None:
+            return False
+
+        # Check role: "AXSecureTextField" is the canonical macOS
+        # password text field role.
+        try:
+            role_result = ApplicationServices.AXUIElementCopyAttributeValue(focused, "AXRole", None)
+        except Exception:
+            role_result = None
+        if (
+            role_result
+            and isinstance(role_result, tuple)
+            and len(role_result) >= 2
+            and role_result[0] == 0
+            and role_result[1] == "AXSecureTextField"
+        ):
+            _log().warning(
+                "[CLIPBOARD] macOS password field detected (AXSecureTextField) — "
+                "dictation into password fields is disabled for security"
+            )
+            return True
+
+        # Also check the AXIsSecure attribute (covers custom controls
+        # that hide password input behind a non-standard role).
+        try:
+            secure_result = ApplicationServices.AXUIElementCopyAttributeValue(focused, "AXIsSecure", None)
+        except Exception:
+            secure_result = None
+        if (
+            secure_result
+            and isinstance(secure_result, tuple)
+            and len(secure_result) >= 2
+            and secure_result[0] == 0
+            and bool(secure_result[1])
+        ):
+            _log().warning(
+                "[CLIPBOARD] macOS password field detected (AXIsSecure=True) — "
+                "dictation into password fields is disabled for security"
+            )
+            return True
+
+        return False
+    except Exception as exc:
+        _log().debug(
+            "[CLIPBOARD] macOS AX password check failed: %s — failing open",
+            exc,
+        )
+        return False
+
+
+def _find_focused_atspi_accessible(desktop: Any, max_depth: int = 10) -> Any:
+    """Walk the AT-SPI tree to find the focused accessible.
+
+    The AT-SPI spec says the ``ATSPI_STATE_FOCUSED`` state is set on
+    the actual UI element receiving keyboard input — NOT on its
+    ancestors (which may have ``ATSPI_STATE_ACTIVE`` / ``SHOWING`` but
+    not ``FOCUSED``). This helper does a depth-first traversal of the
+    tree, returning the first accessible found with ``FOCUSED`` set.
+
+    A depth limit prevents infinite loops on malformed accessibility
+    trees (e.g. an app that reports itself as its own parent) and
+    bounds the worst-case traversal time on huge trees (some apps
+    expose thousands of accessibles).
+
+    Returns ``None`` when no focused accessible is found within the
+    depth limit, or when the AT-SPI tree is malformed.
+    """
+    if desktop is None or max_depth <= 0:
+        return None
+
+    # First check the root itself (defensive — desktop itself is never
+    # FOCUSED in practice, but if a future caller passes a sub-tree
+    # root, this catches the case where the root IS the focused leaf).
+    try:
+        root_state = desktop.getState()
+    except Exception:
+        root_state = None
+    if root_state is not None:
+        try:
+            if root_state.contains(_PYATSPI_STATE_FOCUSED):
+                return desktop
+        except Exception:
+            pass
+
+    # Depth-first traversal: at each level, recurse into the first
+    # child whose subtree contains a focused accessible. We cap the
+    # total recursion depth at ``max_depth`` to bound worst-case time.
+    try:
+        child_count = desktop.childCount
+    except Exception:
+        return None
+    for i in range(child_count):
+        try:
+            child = desktop.getChildAtIndex(i)
+        except Exception:
+            continue
+        if child is None:
+            continue
+        result = _find_focused_atspi_accessible(child, max_depth - 1)
+        if result is not None:
+            return result
+    return None
+
+
+# Cached reference to ``pyatspi.STATE_FOCUSED`` so we don't re-resolve
+# the attribute on every tree-walk iteration. Populated on first call
+# to ``_is_password_field_linux``. ``None`` means "not yet resolved"
+# (which is also the value when pyatspi is unavailable).
+_PYATSPI_STATE_FOCUSED: Any = None
+
+
+def _is_password_field_linux() -> bool:
+    """G4-H-05: Detect Linux password fields via AT-SPI2.
+
+    Uses ``pyatspi`` to query the focused accessible. The traversal:
+
+      1. ``pyatspi.Registry.getDesktop(0)`` → the AT-SPI desktop.
+      2. Walk down through children that have
+         ``ATSPI_STATE_FOCUSED`` set, descending until no child has
+         the focused state. The leaf at that point is the focused
+         UI element.
+      3. If the leaf's role is ``ATSPI_ROLE_PASSWORD_TEXT``, treat
+         it as a password field.
+
+    Returns ``True`` if a password field is detected (paste should be
+    blocked), ``False`` otherwise.
+
+    Lazy import: if ``pyatspi`` is not installed (Linux hosts without
+    the AT-SPI2 Python bindings, or non-Linux platforms), logs a
+    WARNING (once) and returns ``False`` — the caller falls back to
+    the legacy fail-open behavior of allowing paste. Residual risk:
+    dictated text can still be pasted into Linux password fields
+    until ``pyatspi`` is installed (``pip install pyatspi`` or
+    ``apt install python3-pyatspi``).
+
+    Exceptions from AT-SPI2 (no desktop bus, broken registry, app
+    that doesn't expose an accessible tree) are caught and logged at
+    DEBUG — fail-open to avoid blocking legitimate dictation when
+    the AT-SPI2 infrastructure is degraded (e.g. raw framebuffer
+    apps, headless sessions).
+    """
+    global _PYATSPI_UNAVAILABLE_WARNED, _PYATSPI_STATE_FOCUSED
+    try:
+        import pyatspi
+    except ImportError:
+        if not _PYATSPI_UNAVAILABLE_WARNED:
+            _log().warning(
+                "[CLIPBOARD] pyatspi not installed — Linux password field "
+                "detection disabled. Install pyatspi (pip install pyatspi) "
+                "or your distro's equivalent (apt install python3-pyatspi) "
+                "to enable password field protection. Falling back to "
+                "fail-open (paste allowed)."
+            )
+            _PYATSPI_UNAVAILABLE_WARNED = True
+        else:
+            _log().debug("[CLIPBOARD] pyatspi not installed — Linux password field check skipped (already warned)")
+        return False
+
+    # Resolve and cache the STATE_FOCUSED constant once.
+    if _PYATSPI_STATE_FOCUSED is None:
+        try:
+            _PYATSPI_STATE_FOCUSED = pyatspi.STATE_FOCUSED
+        except AttributeError:
+            # Defensive: older pyatspi versions may expose it differently.
+            try:
+                _PYATSPI_STATE_FOCUSED = pyatspi.STATE_FOCUSED
+            except Exception:
+                _PYATSPI_STATE_FOCUSED = 1 << 10  # fallback value
+    state_focused = _PYATSPI_STATE_FOCUSED
+
+    try:
+        try:
+            desktop = pyatspi.Registry.getDesktop(0)
+        except Exception:
+            return False
+        if desktop is None:
+            return False
+
+        focused = _find_focused_atspi_accessible(desktop, max_depth=10)
+        if focused is None:
+            return False
+
+        try:
+            role = focused.getRole()
+        except Exception:
+            return False
+
+        try:
+            password_role = pyatspi.ROLE_PASSWORD_TEXT
+        except AttributeError:
+            password_role = None
+        if password_role is not None and role == password_role:
+            _log().warning(
+                "[CLIPBOARD] Linux password field detected "
+                "(ATSPI_ROLE_PASSWORD_TEXT) — dictation into password "
+                "fields is disabled for security"
+            )
+            return True
+
+        return False
+    except Exception as exc:
+        _log().debug(
+            "[CLIPBOARD] Linux AT-SPI2 password check failed: %s — failing open",
+            exc,
+        )
         return False

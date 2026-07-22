@@ -157,11 +157,23 @@ class FilterChain:
             return sum(f.latency_ms for f in self._filters)
 
     def swap(self, new_filters: list[AudioFilter]) -> None:
-        """Atomically swap the filter list. Used for live config rebuilds."""
+        """Atomically swap the filter list. Used for live config rebuilds.
+
+        G4-L-05: ``reset()`` is called on each OLD filter BEFORE the
+        filter list is replaced.  Post-G4-L-05, each filter's ``reset()``
+        zeroes its state array (IIR ``zi`` / RNNoise carry) in-place via
+        ``ndarray.fill(0)``, so the previous session's audio residual is
+        securely cleared while we still hold the old filter references.
+        Doing this BEFORE the swap (rather than after, as the original
+        code did) makes the secure-clear guarantee explicit.
+        """
         with self._lock:
             old = self._filters
+            # G4-L-05: zero state on old filters BEFORE replacing the
+            # list.  ``reset()`` is wrapped in ``contextlib.suppress``
+            # because a single buggy filter's reset() must not break
+            # the swap (the new chain still needs to take effect).
+            for f in old:
+                with contextlib.suppress(Exception):
+                    f.reset()
             self._filters = list(new_filters)
-        # Reset old filters outside the lock (no-op for stateless)
-        for f in old:
-            with contextlib.suppress(Exception):
-                f.reset()

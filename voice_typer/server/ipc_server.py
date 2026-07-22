@@ -49,6 +49,7 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
     _validate_dict_payload,
 )
 from voice_typer.server.keyboard_ownership import keyboard_ownership
+from voice_typer.server.log_rate_limit import log_rate_limited
 
 log = logging.getLogger("voice_typer.server.ipc_server")
 
@@ -179,6 +180,20 @@ _RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0
 _RATE_LIMIT_BURST = 200
 _RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
 
+# G4-M-09: per-command cost map. See voice_typer/server/ipc/rate_limiter.py
+# for the full rationale. Replicated here (rather than imported) so the
+# canonical ipc_server module remains self-contained for the
+# ``from voice_typer.server.ipc_server import _RateLimiter`` test
+# import path. Kept in sync with the ipc/rate_limiter.py copy.
+COMMAND_COSTS: dict[str, int] = {
+    "download_model": 50,
+    "import_model": 20,
+    "export_gdpr_bundle": 20,
+    "delete_all_personal_data": 20,
+    "heartbeat": 1,
+}
+DEFAULT_COST = 1
+
 # NEW-CONC-003: write timeout for TCP sendall.  A stalled Electron
 # renderer (e.g. GC pause, dev-tools inspection, or a busy main thread)
 # can stop draining its TCP receive buffer.  Without a timeout, sendall
@@ -263,16 +278,27 @@ class _RateLimiter:
         # IPC-4: TWO independent deques. The burst deque uses a 1s
         # window (configurable via ``burst_window``); the sustained
         # deque uses the ``window`` parameter (default 10s).
-        self._burst_timestamps: deque[float] = deque()
-        self._sustained_timestamps: deque[float] = deque()
+        # G4-M-09: each entry is now a ``(timestamp, cost)`` tuple
+        # rather than a bare timestamp, so the per-command cost map
+        # can be summed against the burst/sustained budgets. ``cost=1``
+        # for unknown commands preserves the pre-G4-M-09 behavior
+        # (each call counts as 1 unit).
+        self._burst_timestamps: deque[tuple[float, int]] = deque()
+        self._sustained_timestamps: deque[tuple[float, int]] = deque()
         self._rejected: int = 0
         self._lock = threading.Lock()
 
-    def allow(self, *, now: float | None = None) -> bool:
+    def allow(self, *, command: str = "", now: float | None = None) -> bool:
         """Return True if the message should be accepted.
 
         Parameters
         ----------
+        command : str
+            The IPC command name (``msg.get("type")``). Used to look up
+            the per-command cost in :data:`COMMAND_COSTS`. Unknown
+            commands default to :data:`DEFAULT_COST` (1). Defaults to
+            ``""`` so legacy callers (which don't pass ``command``)
+            keep the pre-G4-M-09 cost-1 behavior.
         now : float, optional
             Current monotonic time.  If omitted, ``time.monotonic()``
             is used.  Passing ``now`` explicitly makes the limiter
@@ -292,18 +318,37 @@ class _RateLimiter:
         sustained (601 msgs in 10s), and vice versa. Both deques are
         evicted and checked under the same lock acquisition so the
         decision is atomic.
+
+        G4-M-09: the cost-weighted check is
+        ``current_window_total + cost > limit`` — equivalent to the
+        pre-G4-M-09 ``len(deque) >= limit`` check when ``cost == 1``
+        (because each entry contributes 1 to the total). With
+        ``cost == 50`` (e.g. ``download_model``), the limit is
+        reached after 4 calls instead of 200.
         """
         ts = now if now is not None else time.monotonic()
+        cost = COMMAND_COSTS.get(command, DEFAULT_COST)
+        # Defensive: a misconfigured COMMAND_COSTS entry or a future
+        # caller passing a negative cost must not corrupt the budget.
+        # Clamp to at least 1 so the limiter is always strict-ish.
+        if cost < 1:
+            cost = 1
         burst_cutoff = ts - self._burst_window
         sustained_cutoff = ts - self._window
         with self._lock:
             # Evict expired timestamps from both deques.
-            while self._burst_timestamps and self._burst_timestamps[0] < burst_cutoff:
+            while self._burst_timestamps and self._burst_timestamps[0][0] < burst_cutoff:
                 self._burst_timestamps.popleft()
-            while self._sustained_timestamps and self._sustained_timestamps[0] < sustained_cutoff:
+            while self._sustained_timestamps and self._sustained_timestamps[0][0] < sustained_cutoff:
                 self._sustained_timestamps.popleft()
+            # G4-M-09: sum the per-entry costs (not just the entry
+            # count) so an expensive command consumes more of the
+            # budget per call. ``cost == 1`` reduces this to the
+            # pre-G4-M-09 count-based check.
+            burst_total = sum(c for _, c in self._burst_timestamps)
+            sustained_total = sum(c for _, c in self._sustained_timestamps)
             # IPC-4: burst check (1s window, hard per-second cap).
-            if len(self._burst_timestamps) >= self._burst:
+            if burst_total + cost > self._burst:
                 self._rejected += 1
                 return False
             # IPC-4: sustained check (10s window, avg-rate cap).
@@ -311,11 +356,11 @@ class _RateLimiter:
             # sends >200 msgs/s but exceeds 600 msgs in 10s is caught
             # here, where the prior single-deque impl would have
             # missed them (burst fired first at 200).
-            if len(self._sustained_timestamps) >= self._sustained:
+            if sustained_total + cost > self._sustained:
                 self._rejected += 1
                 return False
-            self._burst_timestamps.append(ts)
-            self._sustained_timestamps.append(ts)
+            self._burst_timestamps.append((ts, cost))
+            self._sustained_timestamps.append((ts, cost))
             return True
 
     @property
@@ -1353,7 +1398,48 @@ class IPCServer(
                 line = line.strip()
                 if not line:
                     continue
-                if not rate_limiter.allow():
+                # PVT-G5-012: parse JSON BEFORE the rate-limit check so
+                # the request ``id`` (when present) is available for the
+                # rate-limit error response — clients using id-based
+                # JSON-RPC-style correlation can then match the rejection
+                # back to the originating request. Previously the check
+                # fired on the raw line BEFORE ``json.loads``, so the
+                # rate-limit error response carried no ``id``.
+                try:
+                    msg = json.loads(line)
+                except json.JSONDecodeError:
+                    # IPC-5 (2026-07-18): the error envelope now
+                    # includes a ``code: "invalid_payload"`` field to
+                    # match the WS path so the client can distinguish
+                    # invalid JSON from rate-limit and dispatch errors.
+                    # PVT-G5-011: pass the LOCAL ``client`` (captured at
+                    # the top of the dispatch loop) so a concurrent
+                    # fast-auth reconnect that reassigns ``self._tcp_client``
+                    # doesn't redirect this error to the wrong socket.
+                    # PVT-G5-012: ``id`` is unavailable here (json.loads
+                    # failed before we could parse it) — match the WS path
+                    # which also omits ``id`` on invalid_payload.
+                    self._send(
+                        {
+                            "type": "error",
+                            "data": {
+                                "code": "invalid_payload",
+                                "message": "invalid JSON",
+                            },
+                        },
+                        _client=client,
+                    )
+                    continue
+                # G4-M-09: pass ``command=msg_type`` so the per-command
+                # cost map (``COMMAND_COSTS``) is applied — e.g.
+                # ``download_model`` consumes 50 of the 200 burst units,
+                # so a buggy client can fire at most 4 expensive commands
+                # per second before the 5th is rejected. Cheap commands
+                # (``heartbeat``, ``get_status``) keep the cost-1 behavior.
+                # The legacy ``rate_limiter.allow()`` form (no ``command``
+                # kwarg) is still supported and treats the call as cost 1.
+                msg_type = msg.get("type") if isinstance(msg, dict) else ""
+                if not rate_limiter.allow(command=msg_type):
                     # SEC-6: ``allow()`` increments the rejected counter
                     # atomically when it returns False — no separate
                     # ``reject()`` call needed (and calling it would
@@ -1367,35 +1453,25 @@ class IPCServer(
                     # without substring-matching the message text. The
                     # ADR-0020 §2 envelope contract is
                     # ``{"type":"error","data":{"code":<str>,"message":<str>}}``.
-                    self._send(
-                        {
-                            "type": "error",
-                            "data": {
-                                "code": "rate_limited",
-                                "message": "rate limit exceeded; backing off",
-                            },
-                        }
-                    )
+                    # PVT-G5-011: pass the LOCAL ``client`` so the error
+                    # reaches the originating socket, not a concurrently-
+                    # reconnected ``self._tcp_client``.
+                    # PVT-G5-012: include ``id`` (when present in the
+                    # parsed msg) so the client can correlate the
+                    # rejection to the originating request.
+                    rate_err: dict[str, object] = {
+                        "type": "error",
+                        "data": {
+                            "code": "rate_limited",
+                            "message": "rate limit exceeded; backing off",
+                        },
+                    }
+                    if isinstance(msg, dict) and "id" in msg:
+                        rate_err["id"] = msg["id"]
+                    self._send(rate_err, _client=client)
                     log.warning(
                         "[TCP] rate limit hit (%d rejected)",
                         rate_limiter.rejected_count,
-                    )
-                    continue
-                try:
-                    msg = json.loads(line)
-                except json.JSONDecodeError:
-                    # IPC-5 (2026-07-18): the error envelope now
-                    # includes a ``code: "invalid_payload"`` field to
-                    # match the WS path so the client can distinguish
-                    # invalid JSON from rate-limit and dispatch errors.
-                    self._send(
-                        {
-                            "type": "error",
-                            "data": {
-                                "code": "invalid_payload",
-                                "message": "invalid JSON",
-                            },
-                        }
                     )
                     continue
                 # ERR-018: isolate handler exceptions from socket I/O
@@ -1439,6 +1515,9 @@ class IPCServer(
                     # and the Rust dispatch() command both read `code`
                     # with a `"unknown"` fallback, so this is backward-
                     # compatible but now consistent.
+                    # PVT-G5-011: pass the LOCAL ``client`` so the error
+                    # reaches the originating socket, not a concurrently-
+                    # reconnected ``self._tcp_client``.
                     err: dict[str, object] = {
                         "type": "error",
                         "data": {
@@ -1448,10 +1527,13 @@ class IPCServer(
                     }
                     if isinstance(msg, dict) and "id" in msg:
                         err["id"] = msg["id"]
-                    self._send(err)
+                    self._send(err, _client=client)
                     continue
                 if result is not None:
-                    self._send(result)
+                    # PVT-G5-011: route the dispatch response to the LOCAL
+                    # client that issued the request, not the (possibly
+                    # reassigned) ``self._tcp_client``.
+                    self._send(result, _client=client)
         except OSError:
             # Routine socket close / EOF: the client disconnected.
             log.debug("[TCP] client connection closed")
@@ -1842,6 +1924,27 @@ class IPCServer(
         The handler bodies are identical to the old elif blocks -- this
         is a mechanical refactor with zero behavior change.
         """
+        # PVT-G5-004: cooperative shutdown gate. When the app is shutting
+        # down (``app._shutting_down is True``), reject all NEW dispatch
+        # requests with a structured ``shutting_down`` error so the client
+        # can stop retrying and tear down cleanly. ``is True`` (rather than
+        # a truthiness check) mirrors the existing ``_send`` shutdown-
+        # suppress gate (line ~2166) so MagicMock-based test fixtures —
+        # which expose ``_shutting_down`` as a child mock that is truthy
+        # but not ``is True`` — keep exercising the dispatch path instead
+        # of short-circuiting here.
+        if getattr(self.app, "_shutting_down", False) is True:
+            err: dict[str, object] = {
+                "type": "error",
+                "data": {
+                    "code": "shutting_down",
+                    "message": "server is shutting down",
+                },
+            }
+            if isinstance(msg, dict) and "id" in msg:
+                err["id"] = msg["id"]
+            return err
+
         cmd = msg.get("type")
         data = msg.get("data")
         resp = {"id": msg.get("id")} if "id" in msg else {}
@@ -1966,6 +2069,13 @@ class IPCServer(
         # (macOS Accessibility / Linux input group + udev rule) used by
         # the Permissions step.
         "onboarding_check_permissions": "_handle_onboarding_check_permissions",
+        # Onboarding keyboard-permission request + wizard reset.
+        # The handlers live in ``handlers/onboarding_handlers.py`` and
+        # were wired up here per the SK sub-agent's _COMMAND_REGISTRY
+        # cross-area note. Without this registration the renderer's
+        # invoke calls returned ``unknown_command``.
+        "onboarding_request_keyboard_permission": "_handle_onboarding_request_keyboard_permission",
+        "onboarding_reset": "_handle_onboarding_reset",
         "microphone_test_start": "_handle_microphone_test_start",
         "microphone_test_stop": "_handle_microphone_test_stop",
         "microphone_test_cancel": "_handle_microphone_test_cancel",
@@ -2090,7 +2200,7 @@ class IPCServer(
         """Send an unsolicited event (no ``id`` field)."""
         self._send(msg)
 
-    def _send(self, msg: dict | None, _out=None) -> None:
+    def _send(self, msg: dict | None, _out=None, _client=None) -> None:
         """Serialize *msg* and write it to the active transport.
 
         NEW-IPC-014 / NEW-CONC-001 / NEW-CONC-003: previously the entire
@@ -2107,11 +2217,20 @@ class IPCServer(
 
         The fix splits the work:
         1. Under the lock: snapshot the current client / mode / pending
-           list.  This is the only state that needs mutual exclusion.
+           list.  This is the only section that needs mutual exclusion.
         2. Outside the lock: serialize the message, perform the actual
            ``sendall`` (with a write timeout — NEW-CONC-003), and drain
            the pending list.  A slow client can no longer block other
            dispatchers.
+
+        PVT-G5-011: the optional ``_client`` parameter lets a TCP
+        dispatch loop write its response to the LOCAL client it
+        authenticated (captured at the top of the loop) rather than
+        ``self._tcp_client`` — which may have been reassigned to a
+        newer connection by a concurrent fast-auth client (SEC-8 race).
+        Defaults to ``None`` (fall back to ``self._tcp_client``) so the
+        push-event path (``server.push()``) and existing call sites are
+        backward-compatible.
         """
         if msg is None:
             return
@@ -2120,7 +2239,11 @@ class IPCServer(
         # (no I/O) and is the only section that needs mutual exclusion.
         with self._lock:
             out = _out
-            tcp_client = self._tcp_client
+            # PVT-G5-011: prefer the caller-provided local client (the
+            # one this dispatch loop authenticated) over ``self._tcp_client``
+            # (which a concurrent fast-auth reconnect may have replaced).
+            # ``_client`` defaults to ``None`` for the push-event path.
+            tcp_client = _client if _client is not None else self._tcp_client
             tcp_mode = self._tcp_mode
             # Snapshot and clear the pending list atomically.  Anything
             # pushed between this snapshot and the actual send will be
@@ -2150,11 +2273,15 @@ class IPCServer(
             # worker, state-changed hooks, hotkey-backend teardown) would
             # hit a half-closed socket and raise ``[WinError 10053]```.
             #
-            # CRITICAL-CRITICAL: the ``relaunch_electron`` event is the
+            # CRITICAL-CRITICAL: the ``relaunch_app`` event is the
             # EXCEPTION.  This event MUST be delivered even during
             # shutdown because it's the signal from restart_app() that
-            # tells Electron to call app.relaunch() + app.exit(0) before
+            # tells the host (Tauri ``app.restart()`` / Electron
+            # ``app.relaunch() + app.exit(0)``) to relaunch before
             # the Python process exits.  Without it, the restart hangs.
+            # PVT-2 cleanup: the published event name is ``relaunch_app``
+            # (no longer ``relaunch_electron``); the Rust WS bridge no
+            # longer renames it.
             #
             # ``is True`` (rather than a truthiness check) is intentional:
             # the real ``VoiceTyperApp`` sets ``_shutting_down = True``
@@ -2175,13 +2302,19 @@ class IPCServer(
             # content-bearing. High-frequency events (bubble_level, audio_level)
             # are still suppressed.
             _shutdown_allowlist = (
-                "relaunch_electron",
+                "relaunch_app",
                 "quit_app",
                 "transcription_final",
                 "transcription_partial",
                 "vocabulary_suggestion",
             )
-            if _is_shutting_down and msg_type not in _shutdown_allowlist:
+            # PVT-G5-013: dispatch responses (which carry an ``id`` field)
+            # MUST be exempted from the shutdown suppress — otherwise the
+            # client waits forever for a response to an in-flight request
+            # that the server has already processed. Only push events
+            # (no ``id``) are suppressed; they are replayed via state
+            # snapshots on reconnect.
+            if _is_shutting_down and "id" not in msg and msg_type not in _shutdown_allowlist:
                 with self._lock:
                     if self._tcp_client is tcp_client:
                         with contextlib.suppress(Exception):
@@ -2302,17 +2435,44 @@ class IPCServer(
         # log; everything else goes to INFO so the user can
         # see state changes, errors, etc.
         if msg_type in ("bubble_level", "waveform"):
-            log.debug("[IPC] no client; dropping high-freq %s event", msg_type)
+            # G4-M-28: bubble_level / waveform are emitted at 15-50 Hz
+            # by the audio worker; even DEBUG-level flooding here can
+            # saturate a slow disk's log buffer. Rate-limit to every
+            # 100th occurrence (matches the ipc-no-client-drop INFO
+            # gate below) so a sustained no-client condition during
+            # recording doesn't drown the log.
+            log_rate_limited(
+                log,
+                logging.DEBUG,
+                "[IPC] no client; dropping high-freq %s event",
+                msg_type,
+                key="ipc-no-client-drop-high-freq",
+                every_n=100,
+            )
         else:
             # CR-8: never log the message body — push events include
             # transcription text (``transcription_partial`` /
             # ``transcription_final``) which is user PII.  Log only the
             # type and a size hint so the operator can see drop rate
             # without leaking dictated content to the log file.
-            log.info(
+            #
+            # G4-M-28: a disconnected Electron client during a
+            # transcription (mic still recording, hotkeys still firing)
+            # produces a steady stream of push events. The previous
+            # unconditional ``log.info`` per drop could emit thousands
+            # of lines per minute — saturating the rotating log handler
+            # and obscuring genuine errors. Rate-limit to the 1st and
+            # every 100th occurrence; suppressed occurrences go to
+            # DEBUG with a "(suppressed occurrence N)" suffix so they
+            # remain visible when debug-level logging is enabled.
+            log_rate_limited(
+                log,
+                logging.INFO,
                 "[IPC] no client; dropping %s event (size=%d)",
                 msg_type,
                 len(str(msg)),
+                key="ipc-no-client-drop",
+                every_n=100,
             )
 
 
@@ -2499,14 +2659,30 @@ def main() -> None:
             import traceback
 
             from voice_typer.server.config import _secure_atomic_write
+            from voice_typer.server.security import _redact_text
 
             buf = io.StringIO()
             buf.write(f"Voice Typer startup failed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             buf.write(f"sys.executable: {sys.executable}\n")
-            buf.write(f"sys.argv: {sys.argv}\n")
+            # G4-M-27: redact secret-bearing argv entries before dumping.
+            # ``sys.argv`` may carry ``--ipc-token sk-…`` or env-style
+            # ``KEY=value`` pairs that include API keys / bearer tokens.
+            # The PIIRedactionFilter attached to the rotating log handler
+            # would scrub these in normal log lines, but this diagnostic
+            # file is written via _secure_atomic_write — bypassing the
+            # logging filter. Pipe each argv entry through ``_redact_text``
+            # so secrets are masked the same way they would be in a log
+            # record.
+            redacted_argv = [_redact_text(str(arg)) for arg in sys.argv]
+            buf.write(f"sys.argv: {redacted_argv}\n")
             traceback.print_exc(file=buf)
+            # G4-M-27: redact the traceback text too. ``traceback.print_exc``
+            # can include ``str(exception)`` which may carry a URL with
+            # ``?key=sk-…`` or an env-var dump from a buggy handler —
+            # piping through ``_redact_text`` mirrors the PIIRedactionFilter
+            # behavior that the rotating file log applies to ``log.exception``.
             diag_path = _config_dir() / "startup-error.log"
-            _secure_atomic_write(diag_path, buf.getvalue())
+            _secure_atomic_write(diag_path, _redact_text(buf.getvalue()))
             log.error("[FATAL] Diagnostic written to %s", diag_path)
         except Exception as write_exc:
             # CR-40: last-resort — try stderr then a temp file so the
@@ -2517,8 +2693,26 @@ def main() -> None:
                 import tempfile
                 from pathlib import Path
 
+                # G4-M-27: the /tmp fallback must be (a) PII-redacted
+                # (same as the config-dir path) and (b) owner-only.
+                # ``Path.write_text`` creates the file with the process
+                # umask (typically 0o644) — world-readable, which leaks
+                # the redacted-but-still-sensitive traceback (paths,
+                # library versions, possibly partial secrets that
+                # ``_redact_text`` missed) to any local user.
+                # ``os.open(O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)``
+                # + ``os.fdopen`` creates the file atomically with
+                # owner-only permissions; ``O_EXCL`` prevents silently
+                # clobbering an existing file (a symlink attack vector).
+                redacted_payload = _redact_text(buf.getvalue())
                 tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
-                tmp.write_text(buf.getvalue(), encoding="utf-8")
+                fd = os.open(
+                    str(tmp),
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                )
+                with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as f:
+                    f.write(redacted_payload)
                 log.error(
                     "[FATAL] Could not write %s; wrote to %s instead (write error: %s)",
                     diag_path,
@@ -2662,6 +2856,7 @@ def main() -> None:
             import traceback
 
             from voice_typer.server.config import _secure_atomic_write
+            from voice_typer.server.security import _redact_text
 
             buf = io.StringIO()
             buf.write(f"\n--- app.start() failed at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
@@ -2676,7 +2871,14 @@ def main() -> None:
             # entry mirrors the construction-failure path above (line
             # ~2445) and keeps the file a useful "what just happened"
             # diagnostic instead of a multi-MB append-only log.
-            _secure_atomic_write(diag_path, buf.getvalue())
+            #
+            # G4-M-27: pipe through ``_redact_text`` (same as the
+            # construction-failure path) so secrets in the traceback —
+            # e.g. ``ConnectionError("?key=sk-…")`` — are masked
+            # before the file is written. The PIIRedactionFilter on
+            # the rotating log handler scrubs ``log.exception`` lines,
+            # but this diagnostic file bypasses the logging filter.
+            _secure_atomic_write(diag_path, _redact_text(buf.getvalue()))
             log.error("[FATAL] Diagnostic written to %s", diag_path)
         except Exception as write_exc:
             # CR-40: last-resort — try stderr then a temp file so the
@@ -2687,8 +2889,22 @@ def main() -> None:
                 import tempfile
                 from pathlib import Path
 
+                # G4-M-27: mirror the construction-failure /tmp fallback:
+                # PII-redact the payload AND create the file with
+                # ``os.open(O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)``
+                # + ``os.fdopen`` so the file is owner-only. The
+                # previous ``tmp.write_text`` call created the file
+                # with the process umask (typically 0o644), leaking
+                # the traceback to any local user.
+                redacted_payload = _redact_text(buf.getvalue())
                 tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
-                tmp.write_text(buf.getvalue(), encoding="utf-8")
+                fd = os.open(
+                    str(tmp),
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                )
+                with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as f:
+                    f.write(redacted_payload)
                 log.error(
                     "[FATAL] Could not write %s; wrote to %s instead (write error: %s)",
                     diag_path,

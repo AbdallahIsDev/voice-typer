@@ -307,6 +307,9 @@ class _ColorFormatter(logging.Formatter):
     Design
     ------
     - Timestamp dimmed to recede visually
+    - Per-process ``[session_id]`` bracket dimmed (SGR 2) so it is
+      available for correlation but does not compete with the level
+      colour or message body.
     - INFO level label omitted (redundant on ~every line)
     - WARN / ERR / FATAL full-line coloured with level label
     - Lines with ``[TOPIC]`` prefix coloured by topic
@@ -314,6 +317,7 @@ class _ColorFormatter(logging.Formatter):
     """
 
     _DIM = "38;5;242"  # grey
+    _DIM_ATTR = "2"  # SGR 2 = faint/dim attribute (ECMA-48)
     # LOG-COLOR-FIX: WARN was 38;5;214 (orange #FFAF00) which
     # 256→16-color quantization on Windows conhost maps to bright-red,
     # making WARN look red and ERROR look yellow by comparison — the
@@ -337,20 +341,28 @@ class _ColorFormatter(logging.Formatter):
             ts = ts[1:]
         msg = record.getMessage()
         topic, _ = _extract_topic(msg)
-        # NOTE (2026-07-20): the per-process ``[hex session_id]`` label was
-        # removed from rendered output by user request. The ``session_id``
-        # attribute is still injected on every record by ``_SessionFilter``
-        # and remains available to structured consumers (e.g. the JSON
-        # formatter field, if re-enabled), but it is no longer printed in
-        # the human-readable text streams. Do NOT re-add the ``[{session_id}]``
-        # bracket to these format strings.
+        # G4-CR-12: the per-process ``[hex session_id]`` bracket is rendered
+        # on every line so operators can correlate log entries across
+        # process restarts and disambiguate interleaved lines from
+        # concurrent backends.  The bracket is dimmed (SGR 2) so it
+        # recedes visually and does not compete with the level colour or
+        # message body.  When ``_SessionFilter`` has not yet run (early
+        # startup, third-party loggers that bypass the voice_typer
+        # logger) the bracket renders ``[--------]`` so the line still
+        # has a well-formed correlation field.
+        session_id = getattr(record, "session_id", "") or "--------"
+        bracket = f"\033[{self._DIM_ATTR}m[{session_id}]\033[0m"
 
         if record.levelno >= logging.WARNING:
             c = self._LVL_COLOR.get(record.levelno, "0")
             sym = self._LVL_SYM.get(record.levelno, "????")
-            return f"\033[{c}m{ts}  {sym} {msg}\033[0m"
+            # Full-line colour: emit colour, ts, dim bracket (SGR 22
+            # restores normal intensity so the level symbol + message
+            # stay in the level colour), then reset.
+            return f"\033[{c}m{ts}  \033[{self._DIM_ATTR}m[{session_id}]\033[22m  {sym} {msg}\033[0m"
 
-        # INFO — dim timestamp, no level label, message coloured by topic
+        # INFO — dim timestamp, dim session_id bracket, no level label,
+        # message coloured by topic.
         prefix = f"\033[{self._DIM}m{ts}\033[0m"
         tc = _TOPIC_COLOR.get(topic) if topic else None
         if tc is None and not topic:
@@ -358,7 +370,7 @@ class _ColorFormatter(logging.Formatter):
             if inferred:
                 tc = _TOPIC_COLOR.get(inferred)
         body = f"\033[{tc}m{msg}\033[0m" if tc else msg
-        return f"{prefix}  {body}"
+        return f"{prefix}  {bracket}  {body}"
 
 
 class _FileFormatter(logging.Formatter):
@@ -370,16 +382,27 @@ class _FileFormatter(logging.Formatter):
 
     Format::
 
-        2026-06-28 18:36:22  INFO   [HOTKEY] RegisterHotKey succeeded
-        2026-06-28 18:36:22  WARN   [ENV] Invalid value ...
-        2026-06-28 18:36:22  ERROR  [RECORDING] Stream finished unexpectedly
+        2026-06-28 18:36:22  [a3f1b2c4]  [MainThread]  INFO   [voice_typer.server.app]  [HOTKEY] RegisterHotKey succeeded
+        2026-06-28 18:36:22  [a3f1b2c4]  [MainThread]  WARN   [voice_typer.server.app]  [ENV] Invalid value ...
+        2026-06-28 18:36:22  [a3f1b2c4]  [TranscribeThread]  ERROR  [voice_typer.server.dictation_pipeline]  [RECORDING] Stream finished unexpectedly
 
-    NOTE (2026-07-20): the per-process ``[hex session_id]`` bracket was
-    removed from rendered output by user request. The ``session_id``
-    attribute is still injected on every record by ``_SessionFilter``
-    (kept for structured/JSON consumers), but it is no longer printed
-    in the human-readable text streams. Do NOT re-add ``[{session_id}]``
-    to the format string below.
+    Fields (left to right):
+
+    - ``ts``                 — ``YYYY-MM-DD  HH:MM:SS`` timestamp
+    - ``[session_id]``       — 8-char per-process hex ID rendered by
+      ``_SessionFilter`` (``[--------]`` placeholder when the filter
+      has not run, e.g. third-party loggers that bypass ``voice_typer``).
+      Lets operators correlate log entries across process restarts and
+      disambiguate interleaved lines from concurrent backends.
+    - ``[threadName]``       — name of the emitting thread (always
+      present; ``MainThread`` for the default case).
+    - ``[taskName]``         — Python 3.12+ asyncio task name, emitted
+      only when set (omitted for synchronous call sites).
+    - ``label``              — level label (``DEBUG`` / ``INFO `` /
+      ``WARN `` / ``ERROR`` / ``FATAL``), aligned to 5 chars.
+    - ``[component]``        — module/logger name (``record.component``
+      when ``_SessionFilter`` injected it, else ``record.name``).
+    - ``msg``                — the redacted log message.
 
     Level labels are aligned so lines scroll cleanly:
     - ``DEBUG``   (5 chars)
@@ -401,7 +424,27 @@ class _FileFormatter(logging.Formatter):
         ts = self.formatTime(record, "%Y-%m-%d  %H:%M:%S")
         msg = record.getMessage()
         label = self._LVL_LABEL.get(record.levelno, "INFO ")
-        return f"{ts}  {label}  {msg}"
+        # G4-CR-12: render the per-process session_id bracket so operators
+        # can correlate log lines across process restarts.  ``--------``
+        # placeholder when ``_SessionFilter`` has not injected the attribute
+        # (third-party loggers, early startup, unit-test records built by
+        # hand) — empty brackets look like a bug.
+        session_id = getattr(record, "session_id", "") or "--------"
+        # G4-L-16: render the component (module/logger name) so operators
+        # can tell which subsystem produced a line without parsing the
+        # message text.  Defaults to ``record.name`` for records that
+        # bypass ``_SessionFilter``.
+        component = getattr(record, "component", record.name)
+        # G4-L-15: render the emitting thread name so threaded pipelines
+        # (transcription thread, prewarm pipeline, IPC workers) can be
+        # distinguished in the log.  ``taskName`` (Python 3.12+) is
+        # emitted inline when an asyncio task is in scope.
+        thread_name = getattr(record, "threadName", "") or ""
+        task_bracket = ""
+        task_name = getattr(record, "taskName", None)
+        if task_name:
+            task_bracket = f"  [{task_name}]"
+        return f"{ts}  [{session_id}]  [{thread_name}]{task_bracket}  {label}  [{component}]  {msg}"
 
 
 class _JsonFormatter(logging.Formatter):
@@ -415,8 +458,11 @@ class _JsonFormatter(logging.Formatter):
           "ts": "2026-07-15 12:34:56",
           "level": "INFO",
           "component": "voice_typer.server.recording",
-          "topic": "RECORDING",        # present only if a [TOPIC] prefix exists
-          "correlation_id": "#7",       # present only when a correlation id is in scope
+          "session_id": "a3f1b2c4",     # 8-char per-process hex ID ("" if _SessionFilter has not run)
+          "thread": "MainThread",        # name of the emitting thread
+          "task": "transcribe-cycle",    # Python 3.12+ asyncio task name, present only when set
+          "topic": "RECORDING",          # present only if a [TOPIC] prefix exists
+          "correlation_id": "#7",         # present only when a correlation id is in scope
           "message": "Microphone opened (rate=16000)"
         }
 
@@ -428,6 +474,15 @@ class _JsonFormatter(logging.Formatter):
       output is already PII-scrubbed — the same guarantee as the text
       formatters.  No secret can reach the JSON line that couldn't reach
       the text line.
+    - ``session_id`` is read from ``record.session_id`` (injected by
+      ``_SessionFilter``) and is always present in the payload — empty
+      string when the filter has not run, so aggregators can query
+      ``session_id != ""`` to find correlated lines without
+      ``KeyError``-prone ``.get()`` fallbacks.  G4-CR-13.
+    - ``thread`` is the emitting thread name (always present).
+      ``task`` is the Python 3.12+ asyncio task name, omitted entirely
+      when not in scope (synchronous call sites) so the common case
+      stays compact.  G4-L-15.
     - ``correlation_id`` is read from the :func:`get_correlation_id`
       contextvar, not from the record, so handlers that set it (IPC
       dispatch, dictation pipeline) don't need to thread it onto every
@@ -450,8 +505,21 @@ class _JsonFormatter(logging.Formatter):
             "ts": self.formatTime(record, "%Y-%m-%d  %H:%M:%S"),
             "level": record.levelname,
             "component": getattr(record, "component", record.name),
+            # G4-CR-13: emit ``session_id`` so JSON aggregators can group
+            # lines by process session (empty string when ``_SessionFilter``
+            # has not run — present-but-empty keeps the schema flat).
+            "session_id": getattr(record, "session_id", ""),
+            # G4-L-15: emit the emitting thread name so threaded pipelines
+            # (transcription thread, prewarm pipeline, IPC workers) can be
+            # distinguished in structured consumers.
+            "thread": getattr(record, "threadName", ""),
             "message": record.getMessage(),
         }
+        # Python 3.12+ asyncio task name — omitted when not in scope so
+        # synchronous call sites keep the payload compact.
+        task_name = getattr(record, "taskName", None)
+        if task_name:
+            payload["task"] = task_name
         # Topic prefix (e.g. "[HOTKEY]") — purely structural convenience.
         topic, _ = _extract_topic(str(payload["message"]))
         if topic:
@@ -465,6 +533,60 @@ class _JsonFormatter(logging.Formatter):
 
 
 # ── One-time setup ────────────────────────────────────────────────────
+
+
+def _apply_per_module_log_levels() -> None:
+    """Apply per-module log level overrides from ``VOICE_TYPER_LOG_LEVEL_MODULES``.
+
+    Format::
+
+        VOICE_TYPER_LOG_LEVEL_MODULES="module.path=LEVEL,another.module=LEVEL"
+
+    where ``LEVEL`` is a ``logging`` level name (``DEBUG``, ``INFO``,
+    ``WARNING``, ``ERROR``, ``CRITICAL``).  Invalid entries are silently
+    skipped (best-effort) so a typo in one entry does not break logging
+    setup.  Lets operators crank up DEBUG on a single subsystem (e.g.
+    ``voice_typer.server.dictation_pipeline``) without enabling DEBUG
+    globally and flooding the rotating file with high-frequency events
+    from unrelated subsystems.
+    """
+    raw = os.environ.get("VOICE_TYPER_LOG_LEVEL_MODULES", "")
+    if not raw:
+        return
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry or "=" not in entry:
+            continue
+        name, _, level_str = entry.partition("=")
+        name = name.strip()
+        level_str = level_str.strip().upper()
+        if not name or not level_str:
+            continue
+        level = getattr(logging, level_str, None)
+        if not isinstance(level, int):
+            continue
+        logging.getLogger(name).setLevel(level)
+
+
+def _ensure_last_resort_redacted(pii_filter: logging.Filter) -> None:
+    """G4-M-27 (partial): ensure the global ``lastResort`` handler carries ``PIIRedactionFilter``.
+
+    Third-party loggers (``keyring``, ``urllib3``, ``websockets``)
+    propagate to the root logger; when the root logger has no handlers
+    the ``lastResort`` ``_StderrHandler`` fires.  Without
+    ``PIIRedactionFilter`` attached, any secret those libraries log
+    (e.g. a buggy keyring backend logging the secret value) bypasses
+    the redaction pipeline and lands in stderr verbatim.  Attach the
+    filter idempotently so repeated ``setup_logging`` calls do not
+    double-attach.
+    """
+    last_resort = getattr(logging, "lastResort", None)
+    if last_resort is None:
+        return
+    # Idempotent: skip if a PIIRedactionFilter is already attached.
+    if any(type(f).__name__ == "PIIRedactionFilter" for f in last_resort.filters):
+        return
+    last_resort.addFilter(pii_filter)
 
 
 def setup_logging(
@@ -484,7 +606,10 @@ def setup_logging(
     config_dir:
         Directory where the rotating log file will be created.
     debug:
-        If ``True``, the stderr handler shows DEBUG-level messages.
+        If ``True``, the stderr handler AND the rotating file handler
+        emit DEBUG-level messages (G4-H-35).  When ``False`` both
+        handlers sit at INFO so production runs do not churn through
+        5 MiB x 5 of DEBUG noise.
     quiet:
         If ``True``, the file handler is set to WARNING level
         (reduces telemetry noise for enterprise deployments).
@@ -498,143 +623,215 @@ def setup_logging(
     """
     global _session_id
 
-    # ── 1. Redirect stdio for pythonw.exe ──────────────────────────
-    if sys.stderr is None:
-        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115 — must outlive setup_logging()
-        _devnull_files.append(sys.stderr)
-    if sys.stdout is None:
-        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115 — must outlive setup_logging()
-        _devnull_files.append(sys.stdout)
-    if sys.stdin is None:
-        sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 — must outlive setup_logging()
-        _devnull_files.append(sys.stdin)
+    # G4-H-07: tighten the process umask to 0o077 while creating log
+    # files so they are world-unreadable on POSIX even if the parent dir
+    # perms are loose.  ``mkdir`` + ``RotatingFileHandler`` consult the
+    # umask when computing the on-disk mode, so 0o077 yields 0o700 dirs
+    # and 0o600 files.  Restored in ``finally`` so the umask change
+    # does not leak to subprocesses spawned after setup_logging returns.
+    _old_umask = os.umask(0o077)
+    try:
+        # ── 1. Redirect stdio for pythonw.exe ──────────────────────
+        if sys.stderr is None:
+            sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115 — must outlive setup_logging()
+            _devnull_files.append(sys.stderr)
+        if sys.stdout is None:
+            sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115 — must outlive setup_logging()
+            _devnull_files.append(sys.stdout)
+        if sys.stdin is None:
+            sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 — must outlive setup_logging()
+            _devnull_files.append(sys.stdin)
 
-    # ── 2. Generate session ID ─────────────────────────────────────
-    _session_id = uuid.uuid4().hex[:8]
+        # ── 2. Generate session ID ─────────────────────────────────────
+        _session_id = uuid.uuid4().hex[:8]
 
-    # ── 3. Rotating file handler (PROD-016) ────────────────────────
-    config_dir.mkdir(parents=True, exist_ok=True)
-    log_file = config_dir / "voice-typer.log"
+        # ── 3. Rotating file handler (PROD-016) ────────────────────────
+        config_dir.mkdir(parents=True, exist_ok=True)
+        # G4-H-07: lock down the config dir itself so co-located users
+        # cannot ``cat`` the log file even if the per-file chmod is missed
+        # (defence in depth — both this and the per-file chmod below are
+        # best-effort on Windows where POSIX perms do not apply).
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(config_dir, 0o700)
+        log_file = config_dir / "voice-typer.log"
 
-    # RW-13: structured JSON logging is opt-in via VOICE_TYPER_LOG_JSON.
-    # When enabled, the file (and console, below) use _JsonFormatter so
-    # aggregation tools get one JSON object per line.  The PIIRedactionFilter
-    # still runs first (attached below), so JSON output is redacted exactly
-    # like the text output.  Human-readable text remains the default.
-    json_mode = _json_logging_enabled()
-    _file_formatter = _JsonFormatter() if json_mode else _FileFormatter()
+        # RW-13: structured JSON logging is opt-in via VOICE_TYPER_LOG_JSON.
+        # When enabled, the file (and console, below) use _JsonFormatter so
+        # aggregation tools get one JSON object per line.  The PIIRedactionFilter
+        # still runs first (attached below), so JSON output is redacted exactly
+        # like the text output.  Human-readable text remains the default.
+        json_mode = _json_logging_enabled()
+        _file_formatter = _JsonFormatter() if json_mode else _FileFormatter()
 
-    # HOTKEY-CRASH: use ``errors='backslashreplace'`` so Unicode
-    # characters that can't be encoded in the system locale (cp1252
-    # on Windows, e.g. → → right arrow) are escaped as \\uXXXX
-    # instead of being silently replaced with the � replacement
-    # character.  Without this, valuable diagnostic symbols like
-    # arrows, em-dashes, and smart quotes become unreadable trash
-    # in the log file.
-    handler = logging.handlers.RotatingFileHandler(
-        log_file,
-        # ADR-0020 §11: 5 MiB per file, keep 5 backups (was 1 MiB × 2).
-        maxBytes=5 * 1024 * 1024,
-        backupCount=5,
-        encoding="utf-8",
-        errors="backslashreplace",
-    )
-    # ADR-0020 §11: keep high-frequency ``bubble_level`` events out of
-    # the rotating file log. They are ~60 Hz RMS/peak pushes (ADR-0020
-    # §9 coalesces to ≤30 Hz on the host) and carry no diagnostic
-    # value in the file — they only exist for the live waveform bubble.
-    # The console/stderr path is unchanged. The filter drops any record
-    # whose message mentions "bubble_level" (the exact marker used by
-    # IPCServer._send's high-frequency drop log and the bubble event
-    # type), so the file stays small and readable.
-    handler.addFilter(_BubbleLevelExclusionFilter())
-    handler.setFormatter(_file_formatter)
+        # HOTKEY-CRASH: use ``errors='backslashreplace'`` so Unicode
+        # characters that can't be encoded in the system locale (cp1252
+        # on Windows, e.g. → → right arrow) are escaped as \\uXXXX
+        # instead of being silently replaced with the � replacement
+        # character.  Without this, valuable diagnostic symbols like
+        # arrows, em-dashes, and smart quotes become unreadable trash
+        # in the log file.
+        handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            # ADR-0020 §11: 5 MiB per file, keep 5 backups (was 1 MiB × 2).
+            maxBytes=5 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8",
+            errors="backslashreplace",
+        )
+        # G4-H-07: lock down the log file itself (0o600 — only the
+        # owning user can read dictated-text previews, exception
+        # tracebacks, and hotkey registrations).  Best-effort on POSIX;
+        # silently no-op on Windows where the umask already enforced
+        # 0o600 at creation time via the ``os.umask(0o077)`` above.
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(log_file, 0o600)
+        # G4-H-35: gate the file handler on the ``debug`` flag so
+        # production runs do not churn through 5 MiB × 5 of DEBUG noise.
+        # Root stays at DEBUG so child loggers can still emit DEBUG
+        # records when ``VOICE_TYPER_DEBUG=1`` is set — the handler
+        # filter is what actually drops them at INFO level.
+        handler.setLevel(logging.DEBUG if debug else logging.INFO)
+        # ADR-0020 §11: keep high-frequency ``bubble_level`` events out of
+        # the rotating file log. They are ~60 Hz RMS/peak pushes (ADR-0020
+        # §9 coalesces to ≤30 Hz on the host) and carry no diagnostic
+        # value in the file — they only exist for the live waveform bubble.
+        # The console/stderr path is unchanged. The filter drops any record
+        # whose message mentions "bubble_level" (the exact marker used by
+        # IPCServer._send's high-frequency drop log and the bubble event
+        # type), so the file stays small and readable.
+        handler.addFilter(_BubbleLevelExclusionFilter())
+        handler.setFormatter(_file_formatter)
 
-    # PII / API-key redaction — imported lazily to avoid circular imports
-    # and to keep the security module's import order clean.
-    # RW-6: the filter is attached to BOTH the ``voice_typer`` logger
-    # (so records logged directly to it are redacted before any handler
-    # sees them) AND to each handler (so records logged to *child*
-    # loggers like ``voice_typer.server.app`` — which do not trigger
-    # the parent logger's filters per Python's logging semantics — are
-    # also redacted).  Attaching to the handler is what makes the
-    # redaction actually fire for the vast majority of call sites,
-    # which use ``logging.getLogger(__name__)`` directly and therefore
-    # log to ``voice_typer.server.<module>``.  The filter is idempotent
-    # (redacting an already-redacted message is a no-op), so
-    # double-filtering records that hit both the logger and handler
-    # filters is harmless.
-    from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter
+        # PII / API-key redaction — imported lazily to avoid circular imports
+        # and to keep the security module's import order clean.
+        # RW-6: the filter is attached to BOTH the ``voice_typer`` logger
+        # (so records logged directly to it are redacted before any handler
+        # sees them) AND to each handler (so records logged to *child*
+        # loggers like ``voice_typer.server.app`` — which do not trigger
+        # the parent logger's filters per Python's logging semantics — are
+        # also redacted).  Attaching to the handler is what makes the
+        # redaction actually fire for the vast majority of call sites,
+        # which use ``logging.getLogger(__name__)`` directly and therefore
+        # log to ``voice_typer.server.<module>``.  The filter is idempotent
+        # (redacting an already-redacted message is a no-op), so
+        # double-filtering records that hit both the logger and handler
+        # filters is harmless.
+        from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter
 
-    _pii_filter = _PIIRedactionFilter()
-    handler.addFilter(_pii_filter)
-    # a-review Finding 5: attach ``_SessionFilter`` to the file handler
-    # too — not just the ``voice_typer`` logger — so the session_id is
-    # injected for records logged to *child* loggers (e.g.
-    # ``voice_typer.server.app``) which do NOT trigger the parent
-    # logger's filters per Python's logging semantics (``callHandlers``
-    # invokes handler filters, not ancestor-logger filters).  The
-    # filter is idempotent (``hasattr`` guard), so double-filtering a
-    # record that already hit the logger-level filter is harmless.
-    _session_filter = _SessionFilter()
-    handler.addFilter(_session_filter)
+        _pii_filter = _PIIRedactionFilter()
+        handler.addFilter(_pii_filter)
+        # a-review Finding 5: attach ``_SessionFilter`` to the file handler
+        # too — not just the ``voice_typer`` logger — so the session_id is
+        # injected for records logged to *child* loggers (e.g.
+        # ``voice_typer.server.app``) which do NOT trigger the parent
+        # logger's filters per Python's logging semantics (``callHandlers``
+        # invokes handler filters, not ancestor-logger filters).  The
+        # filter is idempotent (``hasattr`` guard), so double-filtering a
+        # record that already hit the logger-level filter is harmless.
+        _session_filter = _SessionFilter()
+        handler.addFilter(_session_filter)
 
-    root = logging.getLogger("voice_typer")
-    # Avoid duplicate handlers if setup is called multiple times.
-    if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
-        root.addHandler(handler)
-    root.addFilter(_SessionFilter())
-    root.addFilter(_pii_filter)
+        root = logging.getLogger("voice_typer")
+        # Avoid duplicate handlers if setup is called multiple times.
+        if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
+            root.addHandler(handler)
+        root.addFilter(_SessionFilter())
+        root.addFilter(_pii_filter)
 
-    root.setLevel(logging.DEBUG)
+        root.setLevel(logging.DEBUG)
 
-    # PROD-020: quiet mode for enterprise deployments
-    if quiet:
-        root.setLevel(logging.WARNING)
+        # PROD-020: quiet mode for enterprise deployments
+        if quiet:
+            root.setLevel(logging.WARNING)
 
-    # ── 4. Fix stderr encoding for Unicode ─────────────────────────
-    if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
-        with contextlib.suppress(OSError):
-            sys.stderr.reconfigure(errors="backslashreplace")
+        # Per-module log level overrides (env: VOICE_TYPER_LOG_LEVEL_MODULES).
+        # Applied AFTER root level set so they take precedence over the root
+        # default — operators can crank DEBUG on a single subsystem without
+        # enabling DEBUG globally.
+        _apply_per_module_log_levels()
 
-    # ── 5. Coloured stderr (terminal or --port mode) ───────────────
-    # P1-1.1: always flush after each emit so terminal log lines appear
-    # in real-time.  The bare logging.StreamHandler only flushes on
-    # close (or when its internal buffer hits a high-water mark), so
-    # startup logs from a standalone VoiceTyper run could sit in the
-    # buffer for seconds before being flushed — making the app look
-    # like it's hanging silently.  _FlushingStreamHandler.emit() calls
-    # self.flush() after every record.
-    do_color = sys.stderr.isatty() or port_mode
-    if sys.stderr is not None and do_color:
-        stream = _FlushingStreamHandler()
-        stream.setLevel(logging.DEBUG if debug else logging.INFO)
-        # RW-13: in JSON mode the console also emits structured records
-        # (no ANSI colouring — JSON consumers parse the line, not the
-        # rendering).  The PII filter still runs below, so console JSON
-        # output is redacted too.
-        stream.setFormatter(_JsonFormatter() if json_mode else _ColorFormatter())
-        # RW-6: attach the same PII / API-key redaction filter to the
-        # console handler so secrets don't leak to the terminal either.
-        stream.addFilter(_pii_filter)
-        # a-review Finding 5: same reasoning as the file handler — attach
-        # ``_SessionFilter`` to the stream handler too so console output
-        # also carries the session_id bracket for records from child
-        # loggers.
-        stream.addFilter(_SessionFilter())
-        # Avoid duplicate StreamHandlers if setup is called multiple times.
-        # Use _FlushingStreamHandler as the dedup key so legacy tests that
-        # check for "any StreamHandler" (isinstance check below) still pass.
-        if not any(isinstance(h, _FlushingStreamHandler) for h in root.handlers):
-            root.addHandler(stream)
-        # Silence noisy third-party loggers (LOG-006).
-        for lib in ("transformers", "torch", "huggingface_hub"):
-            lib_logger = logging.getLogger(lib)
-            lib_logger.setLevel(logging.WARNING)
-            lib_logger.handlers.clear()
-            lib_logger.propagate = True
+        # G4-M-27 (partial): ensure the global ``lastResort`` handler also
+        # carries PIIRedactionFilter so third-party loggers (keyring,
+        # urllib3, websockets) that bypass voice_typer's handlers do not
+        # leak secrets via the fallback stderr path.
+        _ensure_last_resort_redacted(_pii_filter)
 
-    return _session_id
+        # ── 4. Fix stderr encoding for Unicode ─────────────────────────
+        if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+            with contextlib.suppress(OSError):
+                sys.stderr.reconfigure(errors="backslashreplace")
+
+        # ── 5. Coloured stderr (terminal or --port mode) ───────────────
+        # P1-1.1: always flush after each emit so terminal log lines appear
+        # in real-time.  The bare logging.StreamHandler only flushes on
+        # close (or when its internal buffer hits a high-water mark), so
+        # startup logs from a standalone VoiceTyper run could sit in the
+        # buffer for seconds before being flushed — making the app look
+        # like it's hanging silently.  _FlushingStreamHandler.emit() calls
+        # self.flush() after every record.
+        do_color = sys.stderr.isatty() or port_mode
+        if sys.stderr is not None and do_color:
+            stream = _FlushingStreamHandler()
+            stream.setLevel(logging.DEBUG if debug else logging.INFO)
+            # RW-13: in JSON mode the console also emits structured records
+            # (no ANSI colouring — JSON consumers parse the line, not the
+            # rendering).  The PII filter still runs below, so console JSON
+            # output is redacted too.
+            stream.setFormatter(_JsonFormatter() if json_mode else _ColorFormatter())
+            # RW-6: attach the same PII / API-key redaction filter to the
+            # console handler so secrets don't leak to the terminal either.
+            stream.addFilter(_pii_filter)
+            # a-review Finding 5: same reasoning as the file handler — attach
+            # ``_SessionFilter`` to the stream handler too so console output
+            # also carries the session_id bracket for records from child
+            # loggers.
+            stream.addFilter(_SessionFilter())
+            # Avoid duplicate StreamHandlers if setup is called multiple times.
+            # Use _FlushingStreamHandler as the dedup key so legacy tests that
+            # check for "any StreamHandler" (isinstance check below) still pass.
+            if not any(isinstance(h, _FlushingStreamHandler) for h in root.handlers):
+                root.addHandler(stream)
+            # Silence noisy third-party loggers (LOG-006).
+            for lib in ("transformers", "torch", "huggingface_hub"):
+                lib_logger = logging.getLogger(lib)
+                lib_logger.setLevel(logging.WARNING)
+                lib_logger.handlers.clear()
+                lib_logger.propagate = True
+
+        return _session_id
+    finally:
+        os.umask(_old_umask)
+
+
+def get_log_file_path(config_dir: Path | None = None) -> Path:
+    """Return the absolute path to ``voice-typer.log``.
+
+    G4-L-19: used by agent 2-y for the in-app log viewer (``View Main
+    Log`` button alongside ``Open Log Folder``).  Centralising the
+    literal here means the viewer and ``setup_logging`` agree on the
+    filename even if it ever changes.
+
+    Parameters
+    ----------
+    config_dir:
+        Optional override (e.g. tests pointing at ``tmp_path``).  When
+        ``None``, the canonical config dir is resolved via
+        :func:`voice_typer.server._paths.config_dir` (lazy import to
+        avoid circular imports at module load time).
+
+    Returns
+    -------
+    Path
+        ``<config_dir>/voice-typer.log``.  The path may not yet exist
+        on disk — callers should check ``.exists()`` before opening.
+    """
+    if config_dir is None:
+        from voice_typer.server import _paths
+
+        config_dir = _paths.config_dir()
+    return config_dir / "voice-typer.log"
 
 
 class _FlushingStreamHandler(logging.StreamHandler):

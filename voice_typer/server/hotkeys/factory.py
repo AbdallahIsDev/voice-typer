@@ -76,8 +76,16 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
                 hotkey_str,
             )
             return _NativeBackendAdapter(native)
-    except Exception:
-        log.exception("[HOTKEY] Failed to create native backend; falling back to legacy")
+    except Exception as exc:
+        # PVT-G5-081: native-backend unavailability is an EXPECTED fallback
+        # (e.g. running from a source checkout without the prebuilt binary).
+        # ``log.exception`` emits ERROR + full traceback, which makes this
+        # routine path look like a crash in the unified log. Downgrade to
+        # INFO and preserve just the exception summary.
+        log.info(
+            "[HOTKEY] Native backend unavailable (%s); falling back to legacy",
+            exc,
+        )
 
     if is_windows():
         # FIX-HOTKEY-ARCHITECTURE: this is the polling fallback. It's

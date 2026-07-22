@@ -215,6 +215,48 @@ def _download_with_retry(
     raise last_exc
 
 
+def _cleanup_failed_whisper_cache(repo_id: str) -> None:
+    """G4-CR-06 / cache cleanup: best-effort delete a tampered Whisper HF cache dir.
+
+    Called from ``TranscriptionEngine._pre_download_model`` when
+    ``verify_model_integrity()`` returns False (either on the cache-hit
+    path or after a fresh download).  Removes the
+    ``models--<org>--<repo>`` directory under
+    ``<config_dir>/huggingface/hub/`` so the next call doesn't
+    re-discover the tampered snapshot.
+
+    Best-effort: logs but does not raise if the cleanup itself fails
+    (e.g. file is locked on Windows, permission denied on POSIX).  The
+    integrity hard-fail (``raise RuntimeError`` / fall-through to
+    re-download) is the security gate; this cleanup is just hygiene.
+    """
+    import shutil
+
+    try:
+        from voice_typer.server.config import _config_dir
+
+        cache_root = _config_dir() / "huggingface" / "hub"
+    except Exception as exc:
+        log.debug("[MODEL] could not resolve config dir for cache cleanup: %s", exc)
+        return
+
+    model_dir = cache_root / f"models--{repo_id.replace('/', '--')}"
+    if not model_dir.exists():
+        return
+    try:
+        shutil.rmtree(model_dir)
+        log.warning(
+            "[MODEL] Removed tampered HF cache directory %s after integrity check failure.",
+            model_dir,
+        )
+    except OSError as exc:
+        log.warning(
+            "[MODEL] Could not remove tampered HF cache directory %s: %s. Manual cleanup recommended.",
+            model_dir,
+            exc,
+        )
+
+
 def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
     """PROD-005: Check available disk space before model download.
 
@@ -789,32 +831,60 @@ class TranscriptionEngine:
 
             whisper_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
-            # SEC-audit-005: Allowlist of file patterns permitted in downloads
-            _whisper_allow_patterns = [
-                "*.safetensors",
-                "*.bin",
-                "config.json",
-                "tokenizer.json",
-                "tokenizer_config.json",
-                "special_tokens_map.json",
-                "preprocessor_config.json",
-                "feature_extractor_config.json",
-                "generation_config.json",
-                "model.safetensors.index.json",
-                "*.model",
-            ]
+            # G4-M-39 (Session 7 — Group 4): use the shared
+            # ``ALLOW_PATTERNS_WHISPER`` list from ``_model_integrity``
+            # instead of an inline duplicate.  Whisper-family repos ship
+            # ``model.bin`` (CTranslate2 native format) which is kept
+            # here — CTranslate2 loads it without going through
+            # ``torch.load`` (the pickle RCE vector), so the ``*.bin``
+            # risk is bounded to "wrong weights → bad transcription"
+            # rather than "arbitrary code execution".  The Parakeet path
+            # (``parakeet_engine.py`` / ``asr_setup.py``) uses the
+            # ``ALLOW_PATTERNS_PARAKEET`` list which omits ``*.bin``
+            # because Parakeet ships ``model.safetensors`` only.
+            from voice_typer.server._model_integrity import ALLOW_PATTERNS_WHISPER
+
+            _whisper_allow_patterns = ALLOW_PATTERNS_WHISPER
 
             if progress_callback:
                 progress_callback(f"Checking model cache for '{model_size}'...")
+            # G4-CR-06 (Session 7 — Group 4): verify integrity on cache
+            # HIT too.  The previous code only verified after a fresh
+            # download; a cache hit (model already on disk) skipped
+            # verification entirely — an attacker with write access to
+            # the HF cache could tamper with ``model.bin`` and the next
+            # load would feed tampered weights to WhisperModel with no
+            # SHA-256 check.  We now probe the cache, and if the probe
+            # succeeds, run ``verify_model_integrity`` against the
+            # pinned ``MODEL_HASHES`` manifest.  On failure we remove
+            # the tampered cache and fall through to the re-download
+            # path (do NOT return).
             try:
-                snapshot_download(
+                local_dir = snapshot_download(
                     repo_id=repo_id,
                     revision=whisper_revision,
                     allow_patterns=_whisper_allow_patterns,
                     local_files_only=True,
                 )
-                log.info("[MODEL] Model '%s' already cached", model_size)
-                return
+                # Cache hit — verify integrity before trusting local files.
+                from voice_typer.server.security import verify_model_integrity
+
+                if not verify_model_integrity(local_dir, repo_id):
+                    log.error(
+                        "[MODEL] Cached model '%s' failed integrity check (cache hit path) — "
+                        "removing tampered cache and re-downloading.",
+                        model_size,
+                    )
+                    if progress_callback:
+                        progress_callback("Cached model failed integrity check; re-downloading.")
+                    # G4-CR-06 / cache cleanup on verify failure: remove
+                    # the offending cache dir so the re-download doesn't
+                    # get the same tampered files served from local cache.
+                    _cleanup_failed_whisper_cache(repo_id)
+                    # Fall through to the download path (do NOT return).
+                else:
+                    log.info("[MODEL] Model '%s' already cached (integrity verified)", model_size)
+                    return
             except Exception:
                 log.debug("[MODEL] HF cache probe failed — will attempt download", exc_info=True)
 
@@ -878,6 +948,10 @@ class TranscriptionEngine:
                 )
                 if progress_callback:
                     progress_callback("Download completed but integrity check failed")
+                # G4-CR-06 / cache cleanup on verify failure: remove
+                # the offending cache dir so the next load doesn't
+                # re-discover the tampered snapshot.
+                _cleanup_failed_whisper_cache(repo_id)
                 raise RuntimeError(f"Model integrity verification failed for {repo_id}")
             log.info("[MODEL] Model '%s' download complete", model_size)
         except ImportError:

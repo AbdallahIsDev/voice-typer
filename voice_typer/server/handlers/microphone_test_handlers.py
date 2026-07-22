@@ -5,16 +5,17 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-import logging
-
-from voice_typer.server.handlers._base import HandlerMixinBase
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
-
-log = logging.getLogger("voice_typer.server.ipc_server")
+from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.ipc.validation import _validate_dict_payload
 
 
-class MicrophoneTestHandlersMixin(HandlerMixinBase):
-    """Mixin: microphone-test IPC handlers (start / stop / cancel / status / get_level)."""
+class MicrophoneTestHandlersMixin(HandlerBase):
+    """Mixin: microphone-test IPC handlers (start / stop / cancel / status / get_level).
+
+    CR-20: this mixin's ``except Exception`` catch-alls call
+    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+    no ``str(e)`` leak).
+    """
 
     def _handle_microphone_test_start(self, data, resp) -> dict | None:
         """Handle the ``microphone_test_start`` IPC command."""
@@ -56,9 +57,9 @@ class MicrophoneTestHandlersMixin(HandlerMixinBase):
             result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
             resp["type"] = "microphone_test_result"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] microphone_test_start failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "microphone_test_start")
         return resp
 
     def _handle_microphone_test_stop(self, data, resp) -> dict | None:
@@ -67,9 +68,9 @@ class MicrophoneTestHandlersMixin(HandlerMixinBase):
             result = self.service.microphone_test_stop()
             resp["type"] = "microphone_test_result"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] microphone_test_stop failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "microphone_test_stop")
         return resp
 
     def _handle_microphone_test_cancel(self, data, resp) -> dict | None:
@@ -78,9 +79,9 @@ class MicrophoneTestHandlersMixin(HandlerMixinBase):
             result = self.service.microphone_test_cancel()
             resp["type"] = "microphone_test_result"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] microphone_test_cancel failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "microphone_test_cancel")
         return resp
 
     def _handle_microphone_test_status(self, data, resp) -> dict | None:
@@ -89,9 +90,9 @@ class MicrophoneTestHandlersMixin(HandlerMixinBase):
             result = self.service.microphone_test_status()
             resp["type"] = "microphone_test_status"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] microphone_test_status failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "microphone_test_status")
         return resp
 
     def _handle_microphone_test_get_level(self, data, resp) -> dict | None:
@@ -100,7 +101,7 @@ class MicrophoneTestHandlersMixin(HandlerMixinBase):
             result = self.service.microphone_test_get_level()
             resp["type"] = "microphone_test_level"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] microphone_test_get_level failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "microphone_test_get_level")
         return resp

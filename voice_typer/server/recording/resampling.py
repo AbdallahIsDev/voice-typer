@@ -5,6 +5,13 @@ god-module.  Owns the cached ``_resample_poly`` binding, the cached
 import-error state, the preloader thread, and the locks that guard
 them.
 
+PVT-22 (Phase 4.5 follow-up) — also owns the ``resample_audio()``
+helper (promoted from ``Recorder._resample_audio_impl``) that runs the
+scipy → linear-interp → raise fallback chain. ``Recorder`` keeps a
+1-line delegator method (``_resample_audio_impl``) so existing
+internal call sites (``_resample_chunk`` / ``_prepare_audio``) and
+any subclass overrides keep working unchanged.
+
 The mutable globals ``_resample_poly``, ``_resample_poly_error``,
 ``_resample_poly_error_time``, ``_scipy_preloader_thread`` are
 accessed by tests via ``voice_typer.server.recording.X`` (both reads
@@ -12,15 +19,40 @@ and writes).  The package ``__init__.py`` routes those accesses
 through to this submodule via a custom module ``__getattr__`` /
 ``__setattr__`` so that test writes propagate to the production code
 defined here.
+
+Patch-path compatibility
+------------------------
+``resample_audio()`` calls ``_get_resample_poly()`` via the
+``_recording_pkg`` package namespace (NOT a direct ``_get_resample_poly()``
+call) so test patches of the form
+``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", lambda: fake)``
+keep affecting production code defined here. The
+``_recording_pkg`` alias is bound at module top below — the late
+attribute lookup happens at call time, so the partially-initialized
+package state at import time is not an issue (same pattern as
+:mod:`.recorder`).
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 
-from .exceptions import ResampleUnavailableError
+import numpy as np
+
+from voice_typer.server import recording as _recording_pkg
+
+from .exceptions import ResampleError, ResampleUnavailableError
+
+# Patch-path bridge: route lookups of ``_get_resample_poly`` through the
+# package namespace so test patches of the form
+# ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
+# keep affecting production code defined here.  The package ``__init__.py``
+# re-exports ``_get_resample_poly`` from this submodule; we look it up at
+# call time rather than binding at import time so the patch takes effect.
+# (Same pattern as :mod:`.recorder`.)
 
 # All submodules use the package-level logger so log records propagate
 # to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in
@@ -142,3 +174,110 @@ def _get_resample_poly():
             raise typed from exc
         _resample_poly = resample_poly
         return _resample_poly
+
+
+def resample_audio(
+    audio: np.ndarray,
+    effective_sr: int,
+    target_sr: int,
+    *,
+    log_resample: bool = False,
+    log: logging.Logger | None = None,
+) -> np.ndarray:
+    """Shared resampling logic for ``_resample_chunk`` and ``_prepare_audio``.
+
+    PVT-22 / Phase 4.5 — promoted from ``Recorder._resample_audio_impl``
+    (the body is unchanged). ``Recorder._resample_audio_impl`` is now a
+    1-line delegator that calls this function so existing internal call
+    sites and any subclass overrides keep working unchanged.
+
+    PERF-NEW-027: previously the scipy → linear interp → raise
+    fallback chain was duplicated between the two methods. This
+    helper centralizes it so bug fixes (ERR-012, ERR-001, ARCH-033)
+    only need to be applied once.
+
+    ERR-012: narrows exceptions to ``(ValueError, OSError, TypeError)``
+    so genuine bugs (``AttributeError``, ``MemoryError``) propagate
+    instead of being silently masked as "resampling failed".
+
+    Patch-path compatibility: calls ``_get_resample_poly()`` via the
+    ``_recording_pkg`` package namespace (NOT a direct call) so test
+    patches of the form
+    ``monkeypatch.setattr("voice_typer.server.recording._get_resample_poly", ...)``
+    keep affecting this code. See the module docstring §Patch-path.
+    """
+    if log is None:
+        log = logging.getLogger("voice_typer.server.recording")
+    orig_len = len(audio)
+    resampled = False
+    last_error: Exception | None = None
+    try:
+        resample_poly = _recording_pkg._get_resample_poly()
+        gcd = math.gcd(effective_sr, target_sr)
+        up = target_sr // gcd
+        down = effective_sr // gcd
+        audio = resample_poly(audio, up, down).astype(np.float32)
+        if log_resample:
+            log.info(
+                "[RECORDING] Resampled %d Hz -> %d Hz (%d -> %d samples)",
+                effective_sr,
+                target_sr,
+                orig_len,
+                len(audio),
+            )
+        resampled = True
+    except ResampleUnavailableError as exc:
+        # ARCH-033: scipy missing — fall through to linear interp.
+        last_error = exc
+        if log_resample:
+            log.warning("[RECORDING] scipy not available, using linear interp resampling")
+    except (ValueError, OSError, TypeError) as exc:
+        # ERR-012: narrow to expected scipy/numpy failure modes.
+        # AttributeError / MemoryError / etc. propagate.
+        last_error = exc
+        if log_resample:
+            log.error("[RECORDING] scipy resample_poly failed: %s", exc)
+
+    if not resampled:
+        try:
+            # PERF-017: numpy linear interpolation fallback — used when
+            # scipy is unavailable. When scipy IS available, the
+            # resample_poly path above is preferred (higher quality,
+            # anti-aliasing). This fallback produces acceptable results
+            # for speech audio at common sample rates (44.1k→16k, 48k→16k).
+            ratio = target_sr / effective_sr
+            new_len = int(len(audio) * ratio)
+            indices = np.linspace(0, len(audio) - 1, new_len)
+
+            audio = np.interp(
+                indices,
+                np.arange(len(audio)),
+                audio,
+            ).astype(np.float32)
+            if log_resample:
+                log.info(
+                    "[RECORDING] Resampled (linear interp) %d Hz -> %d Hz (%d -> %d samples)",
+                    effective_sr,
+                    target_sr,
+                    orig_len,
+                    len(audio),
+                )
+            resampled = True
+        except (ValueError, OSError, TypeError) as exc:
+            # ERR-012: narrow here too.
+            last_error = exc
+            if log_resample:
+                log.error(
+                    "[RECORDING] All resampling failed: %s. Audio at %d Hz cannot be used by Whisper.",
+                    exc,
+                    effective_sr,
+                )
+
+    if not resampled:
+        # ERR-001: previously returned the native-rate audio here,
+        # which silently produced garbage transcriptions. Raise so
+        # the streaming / final paths can decide how to recover.
+        raise ResampleError(
+            f"Cannot resample audio from {effective_sr} Hz to {target_sr} Hz (last error: {last_error!r})"
+        )
+    return audio

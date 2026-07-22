@@ -51,26 +51,73 @@ _APP_SERVICES_LIB: Any | None = None
 _APP_SERVICES_LIB_LOADED: bool = False
 
 
-def sync_autostart(app: Any) -> None:
-    """Ensure ``config.autostart`` matches the actual platform autostart state."""
+def sync_autostart(app: Any) -> dict:
+    """Ensure ``config.autostart`` matches the actual platform autostart state.
+
+    PVT-060: returns a result dict ``{"registered": bool, "error": str | None}``
+    so the caller (``ConfigApplier.apply_config_side_effects``) can
+    propagate the autostart status to the ``set_config`` IPC response.
+    The renderer reads ``autostart_status.registered`` /
+    ``autostart_status.error`` to surface "Autostart registration
+    failed: <reason>" instead of silently failing.
+
+    The dict shape matches :func:`voice_typer.server.server_platform
+    .enable_autostart_ex` so the renderer can use the same field names
+    whether the status came from a config-change sync or a direct
+    ``enable_autostart`` IPC call.
+
+    Note: this function still calls the bool-returning
+    ``app.enable_autostart`` / ``app.disable_autostart`` (not the rich
+    ``enable_autostart_ex``) so existing tests that monkeypatch
+    ``voice_typer.server.app.enable_autostart`` continue to take
+    effect. The error string is therefore only populated when the
+    bool function raises (defensive — the production ``enable_autostart``
+    catches exceptions internally and returns False, so ``error`` will
+    typically be ``None`` even on failure). A future refactor that
+    routes through ``enable_autostart_ex`` directly will populate
+    ``error`` with the real failure reason.
+    """
     # Look up the platform helpers from the app module at call time so
     # tests that monkeypatch voice_typer.server.app.{is_autostart_enabled,
     # enable_autostart, disable_autostart} still take effect.
     from voice_typer.server import app as _app_module
 
+    result: dict = {"registered": False, "error": None}
     try:
         actual = _app_module.is_autostart_enabled()
         if app.config.autostart and not actual:
             log.info("[CONFIG] Config says autostart=true but it is disabled -- enabling")
-            _app_module.enable_autostart()
+            registered = _app_module.enable_autostart()
+            # PVT-060: capture the post-enable state. enable_autostart()
+            # returns True on success; on failure (exception caught
+            # internally) it returns False — we surface that as
+            # registered=False, error=None (the error is logged inside
+            # enable_autostart_ex).
+            result = {
+                "registered": bool(registered),
+                "error": None,
+            }
         elif not app.config.autostart and actual:
             log.info("[CONFIG] Config says autostart=false but it is enabled -- disabling")
-            _app_module.disable_autostart()
+            removed = _app_module.disable_autostart()
+            # ``registered`` in the result dict reflects "is the
+            # autostart entry now in the desired state?". After a
+            # successful disable, the entry is NO LONGER registered,
+            # so ``registered = removed`` (True if disable succeeded).
+            result = {
+                "registered": bool(removed),
+                "error": None,
+            }
+        else:
+            # Already in sync — report the current state.
+            result = {"registered": bool(actual), "error": None}
     except Exception as e:
         log.warning("[CONFIG] Autostart sync failed: %s", e)
+        result = {"registered": False, "error": str(e)}
+    return result
 
 
-def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> None:
+def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> dict:
     """Ensure the OS prewarm scheduled task matches the user's fast_startup setting.
 
     PW-3: when ``app.config.fast_startup`` is False, the prewarm task is
@@ -83,20 +130,31 @@ def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> None:
 
     RACE-020: accepts an optional shutdown_event so the task can
     abort early if the app is quitting during startup.
+
+    PVT-060/PW-3: returns a result dict
+    ``{"registered": bool, "error": str | None}`` so the caller
+    (``ConfigApplier.apply_config_side_effects``) can propagate the
+    prewarm status to the ``set_config`` IPC response. The renderer
+    reads ``prewarm_status.registered`` / ``prewarm_status.error`` to
+    surface "Prewarm task registration failed: <reason>".
     """
     if not task_scheduler.is_supported():
-        return
+        # Non-Windows platforms don't have a prewarm scheduled task —
+        # report a no-op success so the renderer doesn't show a
+        # spurious error on Linux/macOS.
+        return {"registered": False, "error": None}
     if shutdown_event is not None and shutdown_event.is_set():
-        return
+        return {"registered": False, "error": None}
     try:
         fast_startup = bool(getattr(app.config, "fast_startup", True))
         registered = task_scheduler.is_prewarm_registered()
         if shutdown_event is not None and shutdown_event.is_set():
-            return
+            return {"registered": bool(registered), "error": None}
         if fast_startup:
             if not registered:
                 log.info("[CONFIG] Registering prewarm scheduled task")
                 task_scheduler.register_prewarm_task()
+                registered = True
         else:
             # PW-3: user disabled prewarm — unregister the OS task so
             # it stops firing silently. Idempotent: if not registered,
@@ -104,8 +162,11 @@ def sync_prewarm_task(app: Any, shutdown_event: Any | None = None) -> None:
             if registered:
                 log.info("[CONFIG] fast_startup disabled — unregistering prewarm scheduled task")
                 task_scheduler.unregister_prewarm_task()
+                registered = False
+        return {"registered": bool(registered), "error": None}
     except Exception as e:
         log.warning("[CONFIG] Prewarm task sync failed: %s", e)
+        return {"registered": False, "error": str(e)}
 
 
 def ensure_desktop_shortcut(app: Any) -> None:
@@ -331,3 +392,69 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
             )
         except Exception:
             log.debug("[STARTUP] could not register A11yPulse with ThreadRegistry", exc_info=True)
+
+
+# ─── Onboarding reset (PVT-012 / re-run setup wizard) ─────────────────────
+
+
+def reset_onboarding_complete(config_dir: Path | None = None) -> dict:
+    """PVT-012 — delete the ``.onboarding_complete`` marker so the wizard
+    re-runs on next launch.
+
+    This is the backend primitive for the "Re-run setup wizard"
+    affordance in Settings → Advanced. The renderer calls a future
+    ``onboarding_reset`` IPC handler which delegates to this function;
+    on next app launch, :meth:`OnboardingController.is_first_run`
+    returns True (because the marker is gone) and the wizard re-appears.
+
+    NOTE: this function is defined here (in ``startup_tasks.py``) rather
+    than as a method on :class:`OnboardingController` because the file
+    scope of this fix sub-agent does not include ``onboarding.py``.
+    When ``onboarding.py`` is updated to add the
+    :meth:`OnboardingController.reset` method, that method should
+    delegate to this function so the marker-deletion logic has a single
+    source of truth.
+
+    Parameters
+    ----------
+    config_dir:
+        Optional override for the config directory (defaults to the
+        canonical :func:`voice_typer.server.config._config_dir`).
+        Used by tests to point at a tmp_path.
+
+    Returns
+    -------
+    dict
+        ``{"reset": bool, "error": str | None}`` where ``reset`` is
+        True if the marker was deleted (or already absent — idempotent).
+        The renderer surfaces ``error`` if the deletion failed (e.g.
+        permission denied on the marker file).
+    """
+    try:
+        if config_dir is None:
+            from voice_typer.server.config import _config_dir
+
+            config_dir = _config_dir()
+        marker = Path(config_dir) / ".onboarding_complete"
+        if marker.exists():
+            marker.unlink()
+            log.info("[ONBOARDING] Reset onboarding marker: %s", marker)
+        else:
+            log.info("[ONBOARDING] Reset onboarding marker (already absent): %s", marker)
+        # Also clear the ``onboarding_completed`` flag in config.json so
+        # ``OnboardingController.is_first_run`` returns True even if the
+        # marker file is recreated by a stale save.
+        try:
+            from voice_typer.server.config import Config
+
+            cfg = Config.load()
+            if getattr(cfg, "onboarding_completed", False):
+                cfg.onboarding_completed = False
+                cfg.save()
+                log.info("[ONBOARDING] Cleared onboarding_completed flag in config.json")
+        except Exception:
+            log.debug("[ONBOARDING] could not clear onboarding_completed in config.json", exc_info=True)
+        return {"reset": True, "error": None}
+    except Exception as exc:
+        log.exception("[ONBOARDING] Failed to reset onboarding marker")
+        return {"reset": False, "error": str(exc)}

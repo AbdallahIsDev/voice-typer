@@ -120,6 +120,18 @@ def get_tray_locale() -> str:
     return _tray_locale
 
 
+def register_tray_labels(locale: str, labels: dict[str, str]) -> None:
+    """TRAY-008: Register translated labels for a tray locale.
+
+    Delegates to ``i18n.register_locale()``. Called by the
+    ``set_tray_locale`` IPC handler when the renderer pushes
+    translated tray-menu strings for a locale.
+    """
+    from voice_typer.server.i18n import register_locale
+
+    register_locale(locale, labels)
+
+
 def _(key: str) -> str:
     """TRAY-008: Return the localized tray label for the given key.
 
@@ -158,15 +170,40 @@ class TrayIcon:
         # ARCH-045: set to True if pystray.Icon() raised OSError at start()
         # so callers can decide to skip tray-related operations.
         self._tray_unavailable: bool = False
+        # PVT-G5-001: when the tray is unavailable (Wayland-without-SNI,
+        # headless session, or VOICE_TYPER_NO_TRAY=1), ``run()`` blocks
+        # the main thread on this Event instead of entering the pystray
+        # event loop. ``stop()`` sets the event so ``run()`` returns and
+        # the main thread can exit cleanly. Mirrors the
+        # ``icon.stop()`` -> ``icon.run()`` return contract on the
+        # pystray path.
+        self._run_event: threading.Event = threading.Event()
         self._state = AppState.IDLE
         self._message = ""
         self._notifications_enabled = True
         # NEW-CQ-008: _microphones cache removed — was write-only
         self._autostart_enabled = False
+        # SK-b: parakeet_engine emits ``{"type": "parakeet_cpu_fallback"}``
+        # when GPU transcription fails and it falls back to CPU. We
+        # subscribe to that event (see ``_on_parakeet_cpu_fallback``) so
+        # the tray tooltip can show a "(CPU fallback)" suffix — the
+        # user can see at a glance why transcription is slower. The
+        # user-facing toast is published separately by parakeet_engine
+        # as a ``"notification"`` event, so we do NOT duplicate the
+        # notification here.
+        self._cpu_fallback_active: bool = False
 
-        # TRAY-015: Periodic update check state
-        self._update_check_timer: threading.Timer | None = None
-        self._check_updates: bool = getattr(config, "check_updates", True) if config else True
+        # G4-M-57: TRAY-015 update-checker dead code removed. The
+        # previous ``_update_check_timer`` / ``_check_updates`` fields
+        # and the ``start_update_checker`` / ``_do_update_check`` /
+        # ``_schedule_update_check`` methods have been deleted — the
+        # offline-first app does not phone home for updates, and the
+        # feature had a broken disable toggle (the timer kept running
+        # even when ``check_updates`` was False because the reschedule
+        # call in the ``finally`` block ignored the flag). If update
+        # checks are ever reintroduced, they MUST go through an explicit
+        # consent gate (``check_updates: bool = False`` in Config with
+        # an in-app opt-in dialog) and live in a dedicated module.
 
         # Pre-run state queue — flushed once pystray event loop is live
         self._pending_states: list[tuple[AppState, str]] = []
@@ -351,8 +388,57 @@ class TrayIcon:
         detect this case proactively and skip tray creation rather
         than letting pystray hang on ``icon.run()``.  The app remains
         usable via hotkey + IPC + Electron window.
+
+        PVT-G5-001: honor the ``VOICE_TYPER_NO_TRAY=1`` environment
+        variable to force the tray-unavailable path. Useful for
+        headless CI, embedded deployments, and users who explicitly
+        want the app to run without a tray icon (the hotkey + IPC
+        server still work). Mirrors the Wayland-without-SNI fallback:
+        we set ``_tray_unavailable = True`` and start ``bg_work`` on a
+        daemon thread, then ``run()`` blocks the main thread on a
+        ``threading.Event`` instead of entering the pystray event
+        loop.
         """
         self._bg_work_fn = bg_work
+
+        # SK-b: subscribe to ``parakeet_cpu_fallback`` events so the
+        # tray can surface a "(CPU fallback)" status suffix. Idempotent
+        # (set semantics) — safe to call multiple times. Subscribed
+        # BEFORE the early-return paths below so the unavailable-path
+        # tray still observes the event (the tooltip suffix is a no-op
+        # when ``_icon`` is None, but the subscription is harmless and
+        # keeps the wiring consistent across paths).
+        try:
+            from voice_typer.server import event_bus as _event_bus
+
+            _event_bus.subscribe(self._on_parakeet_cpu_fallback)
+        except Exception:
+            log.debug(
+                "[TRAY] could not subscribe to parakeet_cpu_fallback event",
+                exc_info=True,
+            )
+
+        # PVT-G5-001: explicit opt-out via env var. The user (or the
+        # test harness) sets ``VOICE_TYPER_NO_TRAY=1`` to skip tray
+        # creation entirely. This mirrors the Wayland-without-SNI path
+        # below: the app remains usable via hotkey + IPC + Electron
+        # window, and ``run()`` blocks on a ``threading.Event`` rather
+        # than raising RuntimeError.
+        import os
+
+        if os.environ.get("VOICE_TYPER_NO_TRAY") == "1":
+            log.info(
+                "[TRAY] VOICE_TYPER_NO_TRAY=1 set — skipping tray icon creation. "
+                "The app remains usable via the global hotkey and the Electron window."
+            )
+            self._icon = None
+            self._tray_unavailable = True
+            if self._bg_work_fn:
+                # RACE-008: daemon=True — see comment at the canonical
+                # bg_thread spawn site in the Wayland branch below.
+                self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
+                self._bg_thread.start()
+            return
 
         # NEW-XPLAT-002: Linux Wayland without StatusNotifierItem.
         # pystray's GTK backend hangs forever on `icon.run()` when
@@ -431,7 +517,40 @@ class TrayIcon:
         log.info("[TRAY] Tray icon created, background work started")
 
     def run(self) -> None:
-        """Block the main thread with pystray's event loop."""
+        """Block the main thread with pystray's event loop.
+
+        PVT-G5-001: when the tray is unavailable (Wayland-without-SNI,
+        headless session, or ``VOICE_TYPER_NO_TRAY=1``), block on
+        ``self._run_event`` instead of raising RuntimeError. The event
+        is set by ``stop()`` so the main thread can exit cleanly. This
+        keeps the app usable on platforms where pystray cannot run
+        (the hotkey + IPC server + Electron window still work). The
+        RuntimeError path is retained only when ``start()`` was never
+        called (``_icon`` is None AND ``_tray_unavailable`` is False),
+        which signals a programming error rather than an unsupported
+        environment.
+        """
+        # PVT-G5-001: tray-unavailable path — block on the Event
+        # instead of raising. This is the contract every caller of
+        # ``tray.run()`` (notably ``app.py:VoiceTyperApp.start``)
+        # relies on to keep the main thread alive while the IPC server
+        # + hotkey backends run on daemon threads.
+        if self._tray_unavailable and self._icon is None:
+            # Flush queued state/notifications so callers that set
+            # state before run() (e.g. app.start sets AppState.LOADING)
+            # don't lose them. Best-effort — no icon means most
+            # state/notify calls are no-ops, but the queue flush keeps
+            # the queue from growing unbounded.
+            with self._queue_lock:
+                self._pending_states.clear()
+                self._pending_notifications.clear()
+            log.info(
+                "[TRAY] Tray unavailable — main thread blocking on Event "
+                "(stop() will release). Hotkey + IPC server still active."
+            )
+            self._run_event.wait()
+            return
+
         if self._icon is None:
             raise RuntimeError("call start() before run()")
 
@@ -450,10 +569,38 @@ class TrayIcon:
         self._icon.run()
 
     def stop(self) -> None:
-        """Stop the tray icon and exit the event loop."""
+        """Stop the tray icon and exit the event loop.
+
+        PVT-G5-001: also release ``_run_event`` so the
+        tray-unavailable ``run()`` path unblocks. Idempotent — safe to
+        call when no icon exists (the Wayland/no-tray path) or when
+        ``stop()`` has already been called.
+        """
         if self._icon:
             self._icon.stop()
             self._icon = None
+        # PVT-G5-001: release the main thread blocked in run() on the
+        # tray-unavailable path. No-op if run() is on the pystray path
+        # (the Event is never waited on there) or if stop() is called
+        # before run() (the Event is already cleared; setting it is
+        # harmless because run() will see _tray_unavailable and wait,
+        # but the next stop() will release it).
+        self._run_event.set()
+
+        # SK-b: unsubscribe the parakeet_cpu_fallback handler so a
+        # stopped tray doesn't keep receiving engine events. Safe to
+        # call with a callback that was never registered (no-op via
+        # ``set.discard``).
+        try:
+            from voice_typer.server import event_bus as _event_bus
+
+            _event_bus.unsubscribe(self._on_parakeet_cpu_fallback)
+        except Exception:
+            log.debug(
+                "[TRAY] could not unsubscribe parakeet_cpu_fallback event",
+                exc_info=True,
+            )
+
         log.info("[SHUTDOWN] Tray icon stopped")
 
     def notify(self, title: str, message: str) -> None:
@@ -499,6 +646,12 @@ class TrayIcon:
             title += f" — {message}"
         elif state != AppState.IDLE:
             title += f" — {state.value}"
+        # SK-b: append "(CPU fallback)" suffix when parakeet_engine has
+        # fallen back from CUDA to CPU. Published via the
+        # ``parakeet_cpu_fallback`` event; see
+        # ``_on_parakeet_cpu_fallback``.
+        if self._cpu_fallback_active:
+            title += " (CPU fallback)"
         # TRAY-022: Include model name and hotkey in tooltip
         if self._config:
             model = getattr(self._config, "model_size", "")
@@ -508,6 +661,40 @@ class TrayIcon:
         if hotkey:
             title += f" ({hotkey})"
         self._icon.title = title
+
+    def _on_parakeet_cpu_fallback(self, event: dict) -> None:
+        """SK-b: handle ``parakeet_cpu_fallback`` events from parakeet_engine.
+
+        parakeet_engine publishes ``{"type": "parakeet_cpu_fallback",
+        "data": {"device": "cpu", "reason": "..."}}`` when GPU
+        transcription fails and it falls back to CPU. We mark
+        ``_cpu_fallback_active`` so the next ``_apply_state`` call
+        appends a "(CPU fallback)" suffix to the tooltip — the user can
+        see at a glance why transcription is slower. The user-facing
+        toast is already published separately as a ``"notification"``
+        event by parakeet_engine, so we do NOT duplicate the
+        notification here.
+
+        Defensive: ignores malformed payloads (non-dict, missing
+        ``type``). The event_bus subscriber contract is "callback gets
+        a dict"; we still validate to be safe against a misbehaving
+        publisher.
+        """
+        if not isinstance(event, dict):
+            return
+        if event.get("type") != "parakeet_cpu_fallback":
+            return
+        self._cpu_fallback_active = True
+        # Re-apply the current state so the tooltip updates immediately
+        # with the "(CPU fallback)" suffix. Best-effort — if the icon
+        # is None (tray-unavailable path) ``_apply_state`` is a no-op.
+        try:
+            self._apply_state(self._state, self._message)
+        except Exception:
+            log.debug(
+                "[TRAY] could not apply CPU-fallback state to tray icon",
+                exc_info=True,
+            )
 
     def notify_safety(self, title: str, message: str) -> None:
         """Show a notification that bypasses the notification toggle.
@@ -571,6 +758,8 @@ class TrayIcon:
                 self._icon._update_menu()
             except Exception:
                 log.debug("[TRAY] _icon._update_menu() failed", exc_info=True)
+        # ADR-0020 §6.5: push serialized menu to Tauri sidecar host.
+        self._maybe_publish_tray_menu()
 
     def _build_menu(self) -> tuple:
         """Build the minimal tray menu with Models submenu.
@@ -736,62 +925,23 @@ class TrayIcon:
         """
         self._controller.quit_app()
 
-    # ─── TRAY-015: Periodic update check ────────────────────────────────
-
-    def start_update_checker(self) -> None:
-        """TRAY-015: Start a periodic update check (once per day).
-
-        Compares the current version against the latest GitHub release.
-        If a new version is available, shows a notification.
-        Does NOT auto-download — just notifies. Config option
-        ``check_updates`` (default True) controls whether this runs.
-        """
-        if not self._check_updates:
-            return
-        self._schedule_update_check()
-
-    def _schedule_update_check(self) -> None:
-        """Schedule the next update check (24 hours from now)."""
-        if self._update_check_timer:
-            self._update_check_timer.cancel()
-        self._update_check_timer = threading.Timer(
-            86400.0,  # 24 hours
-            self._do_update_check,
-        )
-        self._update_check_timer.daemon = True
-        self._update_check_timer.start()
-
-    def _do_update_check(self) -> None:
-        """Check GitHub for the latest release and notify if newer.
-
-        S-10: ``resp.read()`` with no size cap could exhaust memory if
-        the server returns a huge response.  ``_read_capped`` from
-        ``cloud_engines`` caps the read at 10 MB.
-        """
-        try:
-            import json as _json
-            import urllib.request
-
-            from voice_typer.server.cloud_engines import _read_capped
-
-            url = "https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest"
-            req = urllib.request.Request(url, headers={"User-Agent": "voice-typer"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = _json.loads(_read_capped(resp, max_bytes=10 * 1024 * 1024))
-            latest_tag = data.get("tag_name", "").lstrip("v")
-            if not latest_tag:
-                return
-            try:
-                from voice_typer import __version__ as current
-            except ImportError:
-                current = "1.0.0"
-            if latest_tag != current:
-                self.notify(
-                    _("update_available"),
-                    f"{APP_NAME} {latest_tag} is available (you have {current})",
-                )
-        except Exception as e:
-            log.debug("[TRAY] Update check failed: %s", e)
-        finally:
-            # Schedule next check regardless of success/failure
-            self._schedule_update_check()
+    # G4-M-57: TRAY-015 periodic update checker removed.
+    #
+    # The previous implementation (``start_update_checker`` /
+    # ``_do_update_check`` / ``_schedule_update_check`` /
+    # ``_update_check_timer`` field) was dead code with a broken
+    # disable toggle — the ``finally`` block in ``_do_update_check``
+    # called ``_schedule_update_check`` unconditionally, so once the
+    # timer was started it kept re-arming every 24 hours even when
+    # ``check_updates`` was False. It also phoned home to GitHub
+    # (api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest)
+    # on every run, which violates the offline-first promise and leaks
+    # the user's IP + User-Agent to GitHub on every check.
+    #
+    # The whole feature is deleted. If update checks are ever
+    # reintroduced, they MUST:
+    #   1. Default to OFF (``check_updates: bool = False`` in Config).
+    #   2. Be gated by an explicit in-app consent dialog.
+    #   3. Live in a dedicated ``update_checker.py`` module so the tray
+    #      stays focused on icon/menu state.
+    #   4. Respect the ``check_updates`` flag at every reschedule.

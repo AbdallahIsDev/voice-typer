@@ -24,6 +24,7 @@ function object at import time.
 import signal
 import subprocess
 import threading
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
@@ -44,6 +45,18 @@ is_linux = lambda: _native_hotkeys_pkg.is_linux()
 MAX_RESTART_ATTEMPTS = 5
 RESTART_DELAY_BASE_SECONDS = 1.0  # 1, 2, 4, 8, 16s backoff
 READY_TIMEOUT_SECONDS = 5.0
+
+# G4-H-31: liveness watchdog constants.
+#   * ``_WATCHDOG_PING_INTERVAL_SECONDS`` — how often the watchdog
+#     writes ``PING\n`` to the binary's stdin.
+#   * ``_WATCHDOG_PONG_TIMEOUT_SECONDS`` — how long the watchdog waits
+#     for a ``PONG\n`` response before considering it missing.
+#   * ``_WATCHDOG_RESPAWN_SECONDS`` — if no event AND no PONG has been
+#     received in this window, the binary is considered hung and the
+#     watchdog respawns it via ``stop()`` + ``start()``.
+_WATCHDOG_PING_INTERVAL_SECONDS = 30.0
+_WATCHDOG_PONG_TIMEOUT_SECONDS = 5.0
+_WATCHDOG_RESPAWN_SECONDS = 60.0
 
 
 # ─── Base class ────────────────────────────────────────────────────────────
@@ -106,6 +119,39 @@ class SubprocessHotkeyBackend(ABC):
         self._on_permanent_failure_callback: Callable[[], None] | None = None
         # CR-143: optional callback for WARN: lines.
         self._on_warn_callback: Callable[[str], None] | None = None
+        # G4-H-31: liveness watchdog state.  ``last_event_received_at``
+        # is updated in ``_handle_line`` on every recognised wire-protocol
+        # event (READY, KEY_DOWN, MOD_DOWN, PONG, etc.).  ``last_pong_received_at``
+        # is updated only when a ``PONG`` line is received.  The watchdog
+        # thread reads these timestamps to decide whether the binary is
+        # hung and needs to be respawned.
+        self._last_event_received_at: float = time.time()
+        self._last_pong_received_at: float = 0.0
+        # G4-H-31: ``_pong_supported`` is set to True the first time a
+        # ``PONG`` line is received.  Until we've seen at least one PONG,
+        # we don't know whether the binary supports the PING/PONG
+        # protocol — respawning based on "no PONG" would be a false
+        # positive for binaries that don't implement the protocol (which
+        # would cause an infinite respawn loop on idle).  Once we've
+        # seen a PONG, we know the binary supports the protocol and the
+        # watchdog can safely respawn on PONG absence.
+        self._pong_supported: bool = False
+        # G4-H-31: watchdog thread + its own stop event.  The watchdog
+        # uses a separate stop event so it can be torn down independently
+        # of the reader thread (the reader's ``_stop_event`` is shared,
+        # but the watchdog needs to survive long enough to be joined in
+        # ``stop()`` after the reader has exited).
+        self._watchdog_thread: threading.Thread | None = None
+        self._watchdog_stop_event = threading.Event()
+        # G4-H-31: optional callback for watchdog restart notifications.
+        # Wired by the adapter to surface a tray notification when the
+        # watchdog respawns the binary.  Defaults to None (no-op) so
+        # tests that don't care about tray notifications aren't affected.
+        self._on_watchdog_restart_callback: Callable[[str], None] | None = None
+        # G4-H-31: callback used by ``start()`` — stashed so the watchdog
+        # can call ``self.start(self._callback)`` to respawn without
+        # needing the caller to pass the callback again.
+        self._callback: Callable[[], None] | None = None
 
     # ── HotkeyBackend interface (compatible with hotkeys.HotkeyBackend) ──
 
@@ -169,6 +215,16 @@ class SubprocessHotkeyBackend(ABC):
             return
         log.info("[NATIVE-HOTKEY] Stopping %s backend", self.platform_name)
         self._stop_event.set()
+
+        # G4-H-31: signal the watchdog to exit BEFORE we kill the
+        # process so it doesn't try to write PING to a dead stdin or
+        # race the reader thread's restart logic.  The watchdog is a
+        # daemon thread, so even if the join times out it won't block
+        # process exit.
+        self._watchdog_stop_event.set()
+        if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
+            self._watchdog_thread.join(timeout=1.0)
+            self._watchdog_thread = None
 
         if self._process is not None:
             try:
@@ -240,7 +296,14 @@ class SubprocessHotkeyBackend(ABC):
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
+                # G4-H-31: change stdin from DEVNULL to PIPE so the
+                # liveness watchdog can write ``PING\n`` to the binary's
+                # stdin.  The binary is expected to respond with ``PONG\n``;
+                # if it doesn't implement the PING/PONG protocol, the
+                # watchdog's ``_pong_supported`` flag stays False and
+                # respawn-on-PONG-absence is suppressed (see
+                # ``_watchdog_loop`` for the rationale).
+                stdin=subprocess.PIPE,
                 # No console window on Windows
                 creationflags=(
                     subprocess.CREATE_NO_WINDOW if is_windows() and hasattr(subprocess, "CREATE_NO_WINDOW") else 0
@@ -253,6 +316,14 @@ class SubprocessHotkeyBackend(ABC):
             self._error_message = f"Failed to spawn {self.platform_name} binary: {exc}"
             raise RuntimeError(self._error_message) from exc
 
+        # G4-H-31: reset the liveness timestamps so the freshly-spawned
+        # binary gets a full 60s grace period before the watchdog
+        # considers it hung.  ``_pong_supported`` is NOT reset here —
+        # once we've seen a PONG from any spawn of this binary, we know
+        # it supports the protocol and future spawns should too.
+        self._last_event_received_at = time.time()
+        self._last_pong_received_at = 0.0
+
         # Start the reader thread
         self._reader_thread = threading.Thread(
             target=self._reader_loop,
@@ -260,6 +331,21 @@ class SubprocessHotkeyBackend(ABC):
             daemon=True,
         )
         self._reader_thread.start()
+
+        # G4-H-31: start (or restart) the liveness watchdog thread.
+        # The watchdog writes ``PING\n`` to the binary's stdin every
+        # 30s and respawns the binary if it stops responding.  We use
+        # a dedicated ``_watchdog_stop_event`` (separate from
+        # ``_stop_event``) so the watchdog can be torn down
+        # independently in ``stop()`` after the reader has exited.
+        if self._watchdog_thread is None or not self._watchdog_thread.is_alive():
+            self._watchdog_stop_event.clear()
+            self._watchdog_thread = threading.Thread(
+                target=self._watchdog_loop,
+                name=f"{self.platform_name}-hotkey-watchdog",
+                daemon=True,
+            )
+            self._watchdog_thread.start()
 
     def _reader_loop(self) -> None:
         """Read lines from the binary's stdout and dispatch.
@@ -362,7 +448,34 @@ class SubprocessHotkeyBackend(ABC):
                 )
 
     def _handle_line(self, line: str) -> None:
-        """Parse one wire-protocol line and dispatch to the hotkey matcher."""
+        """Parse one wire-protocol line and dispatch to the hotkey matcher.
+
+        G4-H-31: every recognised line (except ``PONG``) updates
+        ``_last_event_received_at`` so the liveness watchdog can tell
+        whether the binary is producing output.  ``PONG`` is tracked
+        separately via ``_last_pong_received_at`` so the watchdog can
+        distinguish "binary is alive and responding to PING" from
+        "binary is alive but ignoring PING" (the latter is a strong
+        signal of a stuck event loop).
+        """
+        # G4-H-31: PONG is tracked separately from generic events so the
+        # watchdog can apply the "no event AND no PONG" respawn rule.
+        if line == "PONG":
+            self._last_pong_received_at = time.time()
+            # Latch ``_pong_supported`` on the first PONG so we know
+            # the binary implements the PING/PONG protocol — from then
+            # on, PONG absence is a reliable hung-binary signal.
+            self._pong_supported = True
+            log.debug("[NATIVE-HOTKEY] %s binary sent PONG", self.platform_name)
+            return
+
+        # G4-H-31: update the general "last event received" timestamp
+        # for every other recognised line.  This includes READY,
+        # ERROR:, WARN:, and all key/modifier events.  Unrecognised
+        # lines also update the timestamp (any output means the binary
+        # is alive).
+        self._last_event_received_at = time.time()
+
         if line == "READY":
             self._ready_event.set()
             # CR-007: reset the per-backend restart counter on successful
@@ -438,6 +551,129 @@ class SubprocessHotkeyBackend(ABC):
             return
 
         log.debug("[NATIVE-HOTKEY] Unrecognized line from %s: %r", self.platform_name, line)
+
+    # ── Liveness watchdog (G4-H-31) ────────────────────────────────────
+
+    def _watchdog_loop(self) -> None:
+        """G4-H-31: liveness watchdog for the native hotkey binary.
+
+        Runs in a dedicated daemon thread.  Every ``_WATCHDOG_PING_INTERVAL_SECONDS``
+        (30s) it writes ``PING\n`` to the binary's stdin and expects a
+        ``PONG\n`` response within ``_WATCHDOG_PONG_TIMEOUT_SECONDS`` (5s).
+        If no event AND no PONG has been received in
+        ``_WATCHDOG_RESPAWN_SECONDS`` (60s), the binary is considered
+        hung and the watchdog respawns it via ``stop()`` + ``start()``.
+
+        Safety: until the binary has sent at least one PONG
+        (``_pong_supported`` is False), the watchdog does NOT respawn
+        on PONG absence — this prevents false-positive respawns for
+        binaries that don't implement the PING/PONG protocol (which
+        would otherwise respawn every 60s of idleness).  Once a PONG
+        is observed, the binary is known to support the protocol and
+        PONG absence becomes a reliable hung-binary signal.
+
+        Tray notifications: if ``_on_watchdog_restart_callback`` is
+        set (by the adapter), it's invoked with a human-readable
+        message on each restart so the user is informed that their
+        hotkey backend was unresponsive and has been restarted.
+        """
+        while not self._watchdog_stop_event.is_set():
+            # Sleep for the PING interval, interruptible by stop().
+            if self._watchdog_stop_event.wait(timeout=_WATCHDOG_PING_INTERVAL_SECONDS):
+                return  # stop() was called
+            if self._stop_event.is_set():
+                return  # backend is shutting down
+            # Only send PING if the process is alive.  If it's dead,
+            # the reader thread's restart logic will handle it.
+            if self._process is None or self._process.poll() is not None:
+                continue
+            # Write PING\n to the binary's stdin (best-effort).
+            try:
+                stdin = self._process.stdin
+                if stdin is not None:
+                    stdin.write(b"PING\n")
+                    stdin.flush()
+            except (BrokenPipeError, OSError):
+                # Process died between the poll() check and the write.
+                # The reader thread will pick this up on the next loop.
+                pass
+            except Exception:
+                log.debug(
+                    "[NATIVE-HOTKEY] %s watchdog: failed to write PING",
+                    self.platform_name,
+                    exc_info=True,
+                )
+
+            # Wait briefly for a PONG response.  The actual PONG
+            # handling happens in ``_handle_line`` on the reader
+            # thread; we just sleep here so the watchdog doesn't
+            # busy-loop.  The PONG timeout is enforced by the
+            # respawn check below (which uses ``_last_pong_received_at``).
+            if self._watchdog_stop_event.wait(timeout=_WATCHDOG_PONG_TIMEOUT_SECONDS):
+                return
+            if self._stop_event.is_set():
+                return
+
+            # G4-H-31: respawn check — "no event AND no PONG for 60s".
+            # Only enforce PONG absence if the binary is known to
+            # support the PING/PONG protocol (``_pong_supported``).
+            # Otherwise, an idle binary that doesn't implement PONG
+            # would be respawned every 60s, which is a regression.
+            now = time.time()
+            event_stale = now - self._last_event_received_at > _WATCHDOG_RESPAWN_SECONDS
+            pong_stale = self._pong_supported and (now - self._last_pong_received_at > _WATCHDOG_RESPAWN_SECONDS)
+            if not (event_stale and pong_stale):
+                continue
+
+            # Binary is hung — respawn via stop() + start().
+            log.warning(
+                "[NATIVE-HOTKEY] %s binary unresponsive (no events for %.1fs, no PONG for %.1fs); respawning",
+                self.platform_name,
+                now - self._last_event_received_at,
+                (now - self._last_pong_received_at) if self._last_pong_received_at > 0 else float("inf"),
+            )
+            # Tray notification (if wired by the adapter).
+            if self._on_watchdog_restart_callback is not None:
+                try:
+                    self._on_watchdog_restart_callback(
+                        f"Native {self.platform_name} hotkey binary was unresponsive and has been restarted."
+                    )
+                except Exception:
+                    log.exception(
+                        "[NATIVE-HOTKEY] _on_watchdog_restart_callback raised in %s backend",
+                        self.platform_name,
+                    )
+            # Respawn.  ``stop()`` sets ``_stop_event`` (which kills
+            # the reader thread and would re-enter ``stop()`` as a
+            # no-op) and ``_watchdog_stop_event`` (which would kill
+            # THIS thread).  We therefore clear ``_watchdog_stop_event``
+            # BEFORE calling ``start()`` so the new spawn can start a
+            # fresh watchdog.  The OLD watchdog (this thread) exits
+            # after ``start()`` returns to avoid having two watchdogs.
+            try:
+                # Stash the callback so we can re-start after stop().
+                cb = self._callback
+                if cb is None:
+                    log.error(
+                        "[NATIVE-HOTKEY] %s watchdog: cannot respawn — no callback stashed",
+                        self.platform_name,
+                    )
+                    return
+                self.stop()
+                # ``stop()`` set ``_watchdog_stop_event`` — clear it
+                # so the new watchdog (spawned by ``start()`` via
+                # ``_spawn_process``) can run.
+                self._watchdog_stop_event.clear()
+                self.start(cb)
+            except Exception:
+                log.exception(
+                    "[NATIVE-HOTKEY] %s watchdog: respawn failed",
+                    self.platform_name,
+                )
+                return
+            # The new spawn started a new watchdog thread; this old
+            # watchdog must exit to avoid double-monitoring.
+            return
 
     # ── Hotkey matching ─────────────────────────────────────────────────
 

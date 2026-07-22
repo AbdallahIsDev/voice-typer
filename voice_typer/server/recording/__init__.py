@@ -103,7 +103,9 @@ for several names ``X``:
       # % 100 == 0: re-log with exc_info every 100th occurrence
       # traceback suppressed: log message for intermediate occurrences
       # np.dot(flat, flat): vectorized RMS computation (AUDIO-007)
-      # rms_callback(chunk_rms, chunk_peak, filtered): 3-arg callback signature
+      # rms_callback(chunk_rms, chunk_peak): 2-arg callback signature
+      #   (G4-L-04: the 3rd ``filtered`` arg was removed — no consumer
+      #    used it after BUBBLE-FIX-4.1 disabled the VAD gate)
 """
 
 from __future__ import annotations
@@ -152,6 +154,9 @@ from .buffer import (  # noqa: E402
     _secure_clear_array,
     _secure_clear_array_background,
 )
+from .device_manager import (  # noqa: E402 — PVT-22 / Phase 4.5 split
+    DeviceManager,
+)
 from .exceptions import (  # noqa: E402
     ResampleError,
     ResampleUnavailable,
@@ -186,6 +191,7 @@ from .resampling import (  # noqa: E402
     _get_resample_poly,
     _preload_resample_poly,
     _start_scipy_preloader,
+    resample_audio,
 )
 
 # NOTE: the mutable globals ``_resample_poly``, ``_resample_poly_error``,
@@ -221,6 +227,8 @@ __all__ = [
     "_XRUN_ALERT_PERIOD",
     "_XRUN_ALERT_THRESHOLD",
     "_XRUN_WINDOW_MAXLEN",
+    # device_manager (PVT-22 / Phase 4.5 split)
+    "DeviceManager",
     # exceptions
     "ResampleError",
     "ResampleUnavailable",
@@ -238,6 +246,7 @@ __all__ = [
     "_get_resample_poly",
     "_preload_resample_poly",
     "_start_scipy_preloader",
+    "resample_audio",
     # vad (re-exported for backward compatibility)
     "VadState",
     "VadProcessor",
@@ -278,7 +287,9 @@ __all__ = [
 #   % 100 == 0                  # re-log with exc_info every 100th occurrence
 #   "traceback suppressed"      # log message for intermediate occurrences
 #   np.dot(flat, flat)          # vectorized RMS computation (AUDIO-007)
-#   rms_callback(chunk_rms, chunk_peak, filtered)  # 3-arg callback signature
+#   rms_callback(chunk_rms, chunk_peak)  # 2-arg callback signature
+#   (G4-L-04: the 3rd ``filtered`` arg was removed — no consumer
+#    used it after BUBBLE-FIX-4.1 disabled the VAD gate)
 #
 # SEC-audit-008 / buffer-zeroing echo: tests in
 # tests/test_security_hardening.py::TestAudioBufferZeroing open

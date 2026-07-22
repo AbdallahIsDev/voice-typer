@@ -206,6 +206,14 @@ def _electron_log_files() -> dict:
         log_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = log_dir / "electron-stdout.log"
         stderr_path = log_dir / "electron-stderr.log"
+        # PVT-G5-077: size-bounded rotation. ``voice-typer.log`` uses a
+        # 5 MiB × 5 RotatingFileHandler; the Electron stdout/stderr logs
+        # were append-only and never rotated, so a chatty Electron build
+        # could grow them unbounded. Mirror the 5 MiB cap and keep one
+        # backup (``.1``) — Electron crash logs are typically only
+        # useful for the most recent crash, so one backup is enough.
+        _rotate_if_oversized(stdout_path)
+        _rotate_if_oversized(stderr_path)
         # "a" mode so logs accumulate across launches; line-buffered so
         # the user sees output in near-real-time when tailing.
         stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
@@ -225,6 +233,48 @@ def _electron_log_files() -> dict:
             "stderr": subprocess.DEVNULL,
             "stdin": subprocess.DEVNULL,
         }
+
+
+# PVT-G5-077: rotation threshold mirroring ``voice-typer.log``'s 5 MiB
+# cap (see ``voice_typer/server/log.py:537``). One backup keeps the most
+# recent crashed session around without growing the logs dir unbounded.
+_ELECTRON_LOG_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _rotate_if_oversized(path: Path) -> None:
+    """Rename ``path`` to ``path.with_suffix('.1')`` if it exceeds the cap.
+
+    Best-effort: any failure (permission, race with another process
+    rotating) is logged at DEBUG and swallowed — the caller proceeds to
+    open the file in append mode, which is still correct (just larger
+    than the cap for one more cycle).
+    """
+    try:
+        if not path.exists():
+            return
+        if path.stat().st_size <= _ELECTRON_LOG_MAX_BYTES:
+            return
+        backup = path.with_suffix(path.suffix + ".1")
+        # ``Path.rename`` overwrites on POSIX; on Windows it raises if
+        # the destination exists, so unlink first (best-effort).
+        try:
+            if backup.exists():
+                backup.unlink()
+        except OSError:
+            pass
+        path.rename(backup)
+        log.debug(
+            "[ELECTRON_BUILD] Rotated %s (> %d bytes) to %s",
+            path.name,
+            _ELECTRON_LOG_MAX_BYTES,
+            backup.name,
+        )
+    except Exception as exc:
+        log.debug(
+            "[ELECTRON_BUILD] Rotation check failed for %s: %s",
+            path,
+            exc,
+        )
 
 
 def _build_electron() -> bool:

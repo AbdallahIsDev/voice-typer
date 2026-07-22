@@ -559,12 +559,24 @@ def load_secret(provider: str) -> str | None:
     return _read_plaintext_fallback(provider)
 
 
-def delete_secret(provider: str) -> None:
+def delete_secret(provider: str, config: Any = None) -> None:
     """Delete a secret from both keyring and config.json.
 
     Never raises. Errors are logged at debug level (this is best-effort
     cleanup — a failure to delete from a broken keyring is not fatal,
     since the keyring is presumably already inaccessible).
+
+    G4-L-08: ``config`` is an optional in-memory :class:`Config`
+    dataclass instance. When provided, the corresponding
+    ``<provider>_api_key`` attribute (see
+    :data:`PROVIDER_TO_CONFIG_FIELD`) is reset to ``""`` so the running
+    process stops seeing the old value. Without this, callers like the
+    GDPR Art. 17 ``delete_all_personal_data`` handler would erase the
+    on-disk / keychain secret but leave the in-memory ``Config``
+    attribute holding the plaintext value — meaning cloud engines and
+    LLM polishers continue to use the "deleted" key until the process
+    restarts. ``config`` is optional so existing callers (which only
+    clear the on-disk store) keep working unchanged.
     """
     # Try keyring first
     try:
@@ -596,11 +608,75 @@ def delete_secret(provider: str) -> None:
     try:
         _write_plaintext_fallback(provider, "")
     except Exception as e:
-        log.debug(
-            "[CREDENTIAL_STORE] config.json clear for provider=%s failed: %s",
+        # PVT-G5-046 (session-5): a failure here means the plaintext
+        # credential is STILL on disk — the opposite of what the user
+        # requested. This MUST be visible at default log levels (not
+        # debug) so the user knows to manually clean up config.json.
+        # Keyring-delete failures above remain at debug (best-effort
+        # cleanup of an already-inaccessible backend is non-fatal).
+        log.warning(
+            "[CREDENTIAL_STORE] credential for provider=%s may still be in config.json — manual cleanup required: %s",
             provider,
             _redact_sensitive(str(e)),
         )
+
+    # G4-L-08: also clear the in-memory Config attribute (when provided)
+    # so the running process stops seeing the old value. ``setattr`` on
+    # a dataclass field is safe — the field is a plain ``str``. We wrap
+    # it in try/except because ``config`` may be a ``MagicMock`` in
+    # tests (where setattr silently no-ops on real attrs but we still
+    # want the call to be observable for assertions) or a partial
+    # object missing the attribute.
+    if config is not None:
+        field = PROVIDER_TO_CONFIG_FIELD.get(provider)
+        if field is not None:
+            try:
+                setattr(config, field, "")
+            except Exception as e:
+                log.debug(
+                    "[CREDENTIAL_STORE] in-memory Config clear for provider=%s (field=%s) failed: %s",
+                    provider,
+                    field,
+                    _redact_sensitive(str(e)),
+                )
+
+
+def clear_in_memory_secrets(config: Any) -> int:
+    """Zero every API-key attribute on the in-memory :class:`Config`.
+
+    G4-CR-05: GDPR Art. 17 ``delete_all_personal_data`` calls this
+    after iterating :func:`delete_secret` over every provider so the
+    running Python process stops holding the plaintext API keys in
+    memory. Without this, the keys survive the GDPR delete in the
+    ``Config`` dataclass and continue to be used by ``cloud_engines``,
+    ``llm_polish`` and ``dictation_pipeline`` until the process
+    restarts.
+
+    Iterates :data:`PROVIDER_TO_CONFIG_FIELD` and ``setattr``s each
+    field to ``""``. Returns the number of fields that were cleared
+    (always ``len(PROVIDER_TO_CONFIG_FIELD)`` on success — the count
+    is returned so callers can log a meaningful "cleared N secrets"
+    line and so a future regression that drops a provider from the
+    map is visible in tests).
+
+    Never raises — wraps each ``setattr`` in try/except so a single
+    broken field (e.g. a frozen dataclass, an exotic ``__setattr__``
+    override) doesn't abort the rest. Failures are logged at debug
+    level (best-effort cleanup).
+    """
+    cleared = 0
+    for provider, field in PROVIDER_TO_CONFIG_FIELD.items():
+        try:
+            setattr(config, field, "")
+            cleared += 1
+        except Exception as e:
+            log.debug(
+                "[CREDENTIAL_STORE] clear_in_memory_secrets: setattr(%s, '') failed for provider=%s: %s",
+                field,
+                provider,
+                _redact_sensitive(str(e)),
+            )
+    return cleared
 
 
 # ── Plaintext fallback (config.json) ────────────────────────────────────
@@ -989,6 +1065,7 @@ __all__ = [
     "KEYRING_SERVICE_NAME",
     "PROVIDER_TO_CONFIG_FIELD",
     "CONFIG_FIELD_TO_PROVIDER",
+    "clear_in_memory_secrets",
     "delete_secret",
     "get_keyring_status",
     "is_keyring_available",

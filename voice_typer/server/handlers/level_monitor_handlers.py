@@ -5,16 +5,17 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-import logging
-
-from voice_typer.server.handlers._base import HandlerMixinBase
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
-
-log = logging.getLogger("voice_typer.server.ipc_server")
+from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.ipc.validation import _validate_dict_payload
 
 
-class LevelMonitorHandlersMixin(HandlerMixinBase):
-    """Mixin: level-monitor IPC handlers (start / stop / status)."""
+class LevelMonitorHandlersMixin(HandlerBase):
+    """Mixin: level-monitor IPC handlers (start / stop / status).
+
+    CR-20: this mixin's ``except Exception`` catch-alls call
+    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+    no ``str(e)`` leak).
+    """
 
     def _handle_level_monitor_start(self, data, resp) -> dict | None:
         """Handle the ``level_monitor_start`` IPC command."""
@@ -44,9 +45,9 @@ class LevelMonitorHandlersMixin(HandlerMixinBase):
             result = self.service.level_monitor_start(mic_id=mic_id)
             resp["type"] = "level_monitor_status"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] level_monitor_start failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "level_monitor_start")
         return resp
 
     def _handle_level_monitor_stop(self, data, resp) -> dict | None:
@@ -55,9 +56,9 @@ class LevelMonitorHandlersMixin(HandlerMixinBase):
             result = self.service.level_monitor_stop()
             resp["type"] = "level_monitor_status"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] level_monitor_stop failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "level_monitor_stop")
         return resp
 
     def _handle_level_monitor_status(self, data, resp) -> dict | None:
@@ -66,7 +67,7 @@ class LevelMonitorHandlersMixin(HandlerMixinBase):
             result = self.service.level_monitor_status()
             resp["type"] = "level_monitor_status"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] level_monitor_status failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "level_monitor_status")
         return resp

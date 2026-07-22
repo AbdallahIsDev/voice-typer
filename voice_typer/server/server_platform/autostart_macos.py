@@ -76,6 +76,43 @@ def _enable_autostart_macos() -> bool:
     # autostart_launcher.py resolve to the wrong place.
     working_dir = str(Path.home())
 
+    # PVT-010/macOS-VENV-AUTOSTART: for parity with Linux + Windows,
+    # probe whether a system Python (if we're in a venv) can import
+    # ``voice_typer.server.autostart_launcher`` before swapping. macOS
+    # users typically run from a Homebrew Python or a system Python —
+    # not a venv — so the swap is usually skipped. But dev-mode users
+    # who ``uv venv && source .venv/bin/activate`` would otherwise
+    # have their LaunchAgent point at the venv Python, which breaks
+    # if the venv is deleted. The probe is the same as Linux/Windows
+    # (``_system_python_can_import_launcher``), imported lazily to
+    # avoid a circular import.
+    python_exe = sys.executable
+    if sys.prefix != sys.base_prefix:
+        import shutil
+
+        system_python = shutil.which("python3")
+        if system_python:
+            from voice_typer.server.server_platform.autostart import (
+                _system_python_can_import_launcher,
+            )
+
+            if _system_python_can_import_launcher(system_python):
+                log.info(
+                    "[AUTOSTART] Running inside venv (%s); using system Python for macOS plist: %s",
+                    python_exe,
+                    system_python,
+                )
+                python_exe = system_python
+            else:
+                log.warning(
+                    "[AUTOSTART] Running inside venv (%s) but system Python "
+                    "cannot import voice_typer.server.autostart_launcher "
+                    "(probe failed). Keeping venv Python for the macOS "
+                    "LaunchAgent — autostart will break if the venv is "
+                    "deleted, but works for the current user.",
+                    python_exe,
+                )
+
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -84,7 +121,7 @@ def _enable_autostart_macos() -> bool:
     <string>com.voicetyper</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{escape(sys.executable)}</string>
+        <string>{escape(python_exe)}</string>
         <string>{escape(str(launcher))}</string>
     </array>
     <key>RunAtLoad</key>

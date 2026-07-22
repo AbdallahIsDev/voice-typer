@@ -160,7 +160,7 @@ _MIGRATION_V2 = """
 #     failure (e.g. disk full) doesn't leave the FTS table half-populated
 #     AND the schema_meta version bumped.
 #
-# M-61: the entire migration runs inside an explicit BEGIN / COMMIT.
+# G4-CR-03: the entire migration runs inside an explicit BEGIN / COMMIT.
 # Previously each migration statement ran in its own implicit
 # transaction (Python sqlite3 autocommit-off semantics), so a crash
 # mid-migration could leave the schema half-migrated with the version
@@ -352,16 +352,40 @@ class HistoryDB:
           - On ``_SHUTDOWN_SENTINEL``, drain remaining items and exit.
           - On a normal item, call the closure with the write
             connection and set the future's result/exception.
+
+        G4-CR-03: ``_init_db_schema`` may set ``self._init_error`` and
+        return early without raising (e.g. migration failure rolled
+        back). In that case we must NOT enter the main write loop —
+        the schema is in an inconsistent state and writes would fail
+        or corrupt data further. Close the connection and exit so
+        callers see the failure via ``_init_error`` / ``health_check``.
         """
+        conn: sqlite3.Connection | None = None
         try:
             conn = self._open_write_conn()
             self._check_wal_mode(conn)
-            self._init_db_schema(conn)
+            # G4-M-03: _init_db_schema may return a fresh connection
+            # if corruption was detected and the DB was recreated.
+            conn = self._init_db_schema(conn)
         except BaseException as e:  # noqa: BLE001 — surface to __init__
             self._init_error = e
             self._writer_ready.set()
+            if conn is not None:
+                with contextlib.suppress(sqlite3.Error):
+                    conn.close()
             return
         self._writer_ready.set()
+        # G4-CR-03: if schema init set _init_error (e.g. migration
+        # failure), don't enter the main write loop. The DB is in an
+        # inconsistent state; writes would fail or compound the damage.
+        if self._init_error is not None:
+            log.error(
+                "[HISTORY_DB] Skipping writer loop — schema init failed: %s",
+                self._init_error,
+            )
+            with contextlib.suppress(sqlite3.Error):
+                conn.close()
+            return
 
         last_checkpoint = time.monotonic()
         while True:
@@ -394,7 +418,17 @@ class HistoryDB:
                 with contextlib.suppress(sqlite3.Error):
                     conn.rollback()
                 if future is not None:
-                    future.set_exception(e)
+                    # PVT-005 (session-2): Suppress InvalidStateError on
+                    # set_exception. If the future was already resolved
+                    # (e.g. by a prior duplicate-enqueue race in
+                    # _drop_oldest_for_overflow, or by a coding bug),
+                    # set_exception raises InvalidStateError which would
+                    # propagate out of this except block and KILL the
+                    # writer thread permanently. That converts a single
+                    # write failure into permanent data loss for all
+                    # subsequent writes until app restart.
+                    with contextlib.suppress(concurrent.futures.InvalidStateError):
+                        future.set_exception(e)
                 else:
                     # Fire-and-forget write failed — log so it's visible.
                     log.error("[HISTORY_DB] Fire-and-forget write failed: %s", e)
@@ -523,6 +557,9 @@ class HistoryDB:
             (antivirus, external CLI). In-process contention is
             impossible because there's only one writer thread.
           - ``cache_size=-20000`` — 20 MB page cache.
+          - ``secure_delete=ON`` — G4-M-04: overwrite deleted rows
+            with zeros so dictated text is not recoverable from free
+            pages.
 
         SEC-007: on POSIX, tightens the DB file and its parent
         directory to 0o600 / 0o700 so transcription history is not
@@ -548,6 +585,18 @@ class HistoryDB:
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA cache_size=-20000")  # 20 MB
+        # G4-M-04: secure_delete=ON overwrites deleted rows with zeros
+        # before freeing the page, so dictated text is not recoverable
+        # from free pages by an attacker with filesystem access. This
+        # complements the GDPR delete path (which unlinks the DB file
+        # entirely) by ensuring that in-place deletes (clear_all,
+        # apply_retention, delete by id) don't leave plaintext in free
+        # pages that could be carved out with a hex editor. Tradeoff:
+        # deletes are slightly slower (extra I/O to zero the page).
+        # Acceptable for transcription history where privacy outweighs
+        # throughput. Note: this PRAGMA is database-persistent — once
+        # set, it applies to all connections on this DB file.
+        conn.execute("PRAGMA secure_delete=ON")
         conn.row_factory = sqlite3.Row
         # SEC-007: chmod the DB file (and sidecar files if present).
         if not is_windows():
@@ -595,13 +644,40 @@ class HistoryDB:
                 self.db_path,
             )
 
-    def _init_db_schema(self, conn: sqlite3.Connection) -> None:
+    def _init_db_schema(
+        self,
+        conn: sqlite3.Connection,
+        _is_recovery: bool = False,
+    ) -> sqlite3.Connection:
         """Initialize the database schema and run migrations.
 
         IMPL-A: previously this method called ``self._get_conn()``;
         now it takes the writer's connection as a parameter so it can
-        run on the writer thread. The schema/migration logic itself
-        is unchanged.
+        run on the writer thread.
+
+        G4-CR-02: after each successful migration iteration, the
+        schema version is persisted via ``INSERT OR REPLACE INTO
+        schema_meta``. Previously the version was read but never
+        written, so migrations re-ran on every launch (the V3 FTS5
+        backfill re-scanned every row each startup).
+
+        G4-CR-03: each migration is wrapped in an explicit
+        ``BEGIN; … COMMIT;`` transaction (via ``executescript``). On
+        ``sqlite3.Error``, the transaction is rolled back and
+        ``self._init_error`` is set so the writer thread surfaces the
+        failure to ``__init__`` and skips the main write loop. The
+        per-statement try/except that previously swallowed errors
+        (allowing a partial migration to leave the schema
+        half-migrated) is removed — a partial migration now fails
+        loudly and rolls back ALL changes (including DDL ALTERs,
+        which SQLite would otherwise auto-commit between statements).
+
+        G4-M-03: at the end of a successful init, ``PRAGMA
+        quick_check`` is run. If the result is anything other than
+        ``("ok",)``, the corrupt DB is renamed to
+        ``history.db.corrupt-<timestamp>`` and a fresh DB is created.
+        The ``_is_recovery`` flag prevents infinite recursion if the
+        fresh DB also fails the integrity check.
 
         FIX (preserved from prior version): schema/metadata BEFORE
         indexes that depend on migrated columns. The original code ran
@@ -610,6 +686,10 @@ class HistoryDB:
         the 'favorite' column, CREATE INDEX would fail with "no such
         column: favorite". Fix: create the table first, then run
         schema versioning + migrations, then create indexes.
+
+        Returns the connection to use (may be a fresh one if
+        corruption was detected and the DB was recreated). Callers
+        must use the returned connection, not the one they passed in.
         """
         cursor = conn.cursor()
 
@@ -642,127 +722,103 @@ class HistoryDB:
         row = cursor.fetchone()
         current_version = int(row[0]) if row else 1
 
-        # Run migrations BEFORE creating indexes that depend on
-        # migrated columns.
-        cursor.execute("PRAGMA table_info(transcriptions)")
-        existing_columns = {row[1] for row in cursor.fetchall()}
-
-        # CR-49 / M-61 (session-1) + CR-32 / R2-F3 (session-3) combined:
-        # the migration loop handles two distinct migration shapes:
+        # G4-CR-02/G4-CR-03: run each migration in an explicit
+        # ``BEGIN; … COMMIT;`` transaction via ``executescript``.
+        # ``executescript`` is used for BOTH migration shapes:
         #
         # 1. Trigger-bearing migrations (e.g. _MIGRATION_V3 with
-        #    `CREATE TRIGGER ... BEGIN ... END;`) CANNOT be naively
-        #    split on `;` — the inner statement terminators inside
-        #    BEGIN/END would be misinterpreted as end-of-statement.
-        #    These are detected and routed through ``executescript``,
-        #    which parses the SQL script as a whole. The script's own
-        #    BEGIN/COMMIT defines the atomicity boundary (so a mid-
-        #    migration crash can't leave the schema half-migrated).
+        #    ``CREATE TRIGGER ... BEGIN ... END;``) carry their own
+        #    ``BEGIN;…COMMIT;`` and CANNOT be naively split on ``;``
+        #    (the inner statement terminators inside BEGIN/END would
+        #    be misinterpreted as end-of-statement).
         #
         # 2. Plain ALTER/CREATE migrations (e.g. _MIGRATION_V2) are
-        #    split on `;` and executed per-statement. CR-32 adds
-        #    defensive per-statement try/except: "column already
-        #    exists" / "duplicate column" is benign (log + continue),
-        #    any other sqlite3.Error is logged and the migration
-        #    continues to the next statement (matching HEAD's
-        #    behavior — the version bump only happens if the loop
-        #    completes, and the next launch retries from the
-        #    pre-migration version if a statement failed).
+        #    wrapped in ``BEGIN;…COMMIT;`` so the whole migration is
+        #    atomic. Without the wrapper, SQLite's DDL auto-commit
+        #    behavior would persist each ALTER individually — a
+        #    mid-migration failure would leave the schema
+        #    half-migrated with no way to roll back the already-
+        #    committed ALTERs.
         #
-        # Note: CR-32's outer BEGIN/COMMIT/ROLLBACK wrapper was
-        # intentionally NOT adopted because it is incompatible with
-        # ``executescript`` (which implicitly commits any pending
-        # transaction before running). The version bump is gated on
-        # the loop completing without an unrecoverable error, which
-        # achieves CR-32's goal (don't bump version on partial
-        # migration) without the executescript incompatibility.
+        # On ``sqlite3.Error``: rollback the transaction, set
+        # ``_init_error``, and return early. The version is NOT
+        # bumped — the next launch retries from the pre-migration
+        # version. The per-statement try/except that previously
+        # swallowed errors (CR-32) is removed because it allowed
+        # partial migrations to silently corrupt the schema.
         for version in range(current_version + 1, _CURRENT_SCHEMA_VERSION + 1):
             migration_sql = _MIGRATIONS.get(version)
             if not migration_sql:
                 continue
 
-            # CR-49 / M-61: detect trigger-bearing migrations and use
-            # executescript for atomic application.
-            needs_executescript = "CREATE TRIGGER" in migration_sql.upper() or "BEGIN;" in migration_sql.upper()
-            if needs_executescript:
-                try:
-                    cursor.executescript(migration_sql)
+            try:
+                # Wrap plain migrations (no embedded BEGIN;) in an
+                # explicit transaction. Migrations that already carry
+                # their own BEGIN;…COMMIT; (e.g. _MIGRATION_V3) are
+                # passed through unchanged.
+                needs_wrapper = "BEGIN;" not in migration_sql.upper()
+                if needs_wrapper:
+                    wrapped_sql = "BEGIN;\n" + migration_sql + "\nCOMMIT;\n"
+                else:
+                    wrapped_sql = migration_sql
+                cursor.executescript(wrapped_sql)
+                # G4-CR-02: persist the version after each successful
+                # migration iteration so the next launch doesn't
+                # re-run it. ``INSERT OR REPLACE`` handles both the
+                # initial insert and subsequent updates.
+                cursor.execute(
+                    "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
+                    (str(version),),
+                )
+                conn.commit()
+                log.info(
+                    "[HISTORY_DB] Migrated schema to version %d (transactional, version persisted)",
+                    version,
+                )
+            except sqlite3.Error as e:
+                # G4-CR-03: rollback any partial migration. The
+                # version is NOT bumped — the next launch retries.
+                # Surface the error to ``__init__`` via ``_init_error``
+                # so the writer thread skips the main write loop.
+                #
+                # G4-CR-02 compat: if the error is "duplicate column
+                # name" (columns already exist from a prior partial
+                # migration that didn't persist the version), treat
+                # the migration as effectively complete — the columns
+                # are there, the intent is satisfied. Bump the version
+                # so the next launch doesn't retry.
+                err_msg = str(e).lower()
+                if "duplicate column name" in err_msg:
                     log.info(
-                        "[HISTORY_DB] Applied migration v%d (executescript, atomic BEGIN/COMMIT)",
+                        "[HISTORY_DB] Migration v%d: columns already "
+                        "exist (duplicate column name) — treating as "
+                        "complete and persisting version",
                         version,
                     )
-                except sqlite3.Error as e:
-                    log.warning(
-                        "[HISTORY_DB] Migration v%d (executescript) failed: %s "
-                        "(version NOT bumped; next launch will retry)",
-                        version,
-                        e,
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
+                        (str(version),),
                     )
-                    # Skip the version bump — the next launch retries.
-                    # Continue to the next migration only if it's
-                    # independent; in practice V3 is the last migration
-                    # so this is the loop's last iteration.
+                    conn.commit()
                     continue
-                log.info("[HISTORY_DB] Migrated schema to version %d", version)
-                continue
-
-            # Plain migration: split on `;` and execute per-statement
-            # with CR-32's defensive try/except.
-            for stmt in migration_sql.strip().split(";"):
-                stmt = stmt.strip()
-                if not stmt:
-                    continue
-                # Skip ALTER TABLE ADD COLUMN if column already exists.
-                # Must extract the column name (word after ADD COLUMN),
-                # not the last token.
-                if stmt.upper().startswith("ALTER TABLE") and "ADD COLUMN" in stmt.upper():
-                    idx = stmt.upper().find("ADD COLUMN")
-                    if idx >= 0:
-                        parts_after = stmt[idx + 10 :].lstrip().split()
-                        col_name = parts_after[0] if parts_after else ""
-                        if col_name in existing_columns:
-                            log.info(
-                                "[HISTORY_DB] Skipping migration statement (column already exists): %s",
-                                stmt[:60],
-                            )
-                            continue
-                try:
-                    cursor.execute(stmt)
-                    log.info(
-                        "[HISTORY_DB] Applied migration: %s...",
-                        stmt[:60],
-                    )
-                except sqlite3.Error as e:
-                    # CR-32: "column already exists" / "duplicate
-                    # column" is benign (defensive — the pre-check
-                    # above should have skipped these, but race
-                    # conditions or external writers could still hit
-                    # it). Any other failure is logged; the version
-                    # bump at the end of the loop is NOT gated on
-                    # individual statement success (matching HEAD's
-                    # behavior), but the next launch will detect the
-                    # missing column via PRAGMA table_info and retry.
-                    msg = str(e).lower()
-                    if "duplicate column" in msg or "already exists" in msg:
-                        log.info(
-                            "[HISTORY_DB] Migration statement skipped (column already exists): %s",
-                            stmt[:60],
-                        )
-                        continue
-                    log.warning(
-                        "[HISTORY_DB] Migration statement failed: %s "
-                        "(continuing — version bump may be skipped on next "
-                        "launch if the column is still missing)",
-                        e,
-                    )
-            log.info("[HISTORY_DB] Migrated schema to version %d", version)
+                with contextlib.suppress(sqlite3.Error):
+                    conn.rollback()
+                log.error(
+                    "[HISTORY_DB] Migration v%d failed: %s "
+                    "(version NOT bumped; transaction rolled back; "
+                    "_init_error set)",
+                    version,
+                    e,
+                )
+                self._init_error = e
+                return conn
 
         # Create indexes AFTER migration so 'favorite' column exists.
-        # CR-32: refresh existing_columns post-migration and guard
-        # idx_favorite creation so a rolled-back / partial migration
-        # does not crash the whole init. The index on timestamp is
-        # safe to create unconditionally — 'timestamp' is in the
-        # original CREATE TABLE.
+        # G4-CR-03: refresh existing_columns post-migration and guard
+        # idx_favorite creation so a rolled-back migration (which
+        # returns early above) doesn't crash the whole init. The
+        # index on timestamp is safe to create unconditionally —
+        # 'timestamp' is in the original CREATE TABLE.
         cursor.execute("PRAGMA table_info(transcriptions)")
         existing_columns = {row[1] for row in cursor.fetchall()}
         cursor.execute("""
@@ -780,11 +836,87 @@ class HistoryDB:
                 "column missing (migration was rolled back or not yet "
                 "applied). Next launch will retry.",
             )
+
+        # G4-M-03: integrity check at the end of schema init. Skip
+        # on recovery to prevent infinite recursion if the fresh DB
+        # also fails the check (in which case _init_error is set on
+        # the second failure and the writer exits).
+        if not _is_recovery:
+            new_conn = self._maybe_recover_from_corruption(conn)
+            if new_conn is not None:
+                # Corruption detected and a fresh DB was created.
+                # Re-run schema init on the fresh connection.
+                return self._init_db_schema(new_conn, _is_recovery=True)
+
         log.info(
             "[HISTORY] History database initialized: %s (schema v%d)",
             self.db_path,
             _CURRENT_SCHEMA_VERSION,
         )
+        return conn
+
+    def _maybe_recover_from_corruption(
+        self,
+        conn: sqlite3.Connection,
+    ) -> sqlite3.Connection | None:
+        """G4-M-03: run ``PRAGMA quick_check``; if the result is
+        anything other than ``("ok",)``, rename the corrupt DB file
+        (and its WAL/SHM sidecars) to ``history.db.corrupt-<timestamp>``
+        and return a fresh connection on a new (empty) DB file.
+
+        Returns ``None`` if the DB is healthy. Returns a new
+        connection if corruption was detected and recovery succeeded.
+        Sets ``self._init_error`` and returns ``None`` if recovery
+        failed (e.g. the rename or reopen raised).
+
+        The caller is responsible for re-running schema init on the
+        returned connection (the fresh DB has no tables yet).
+        """
+        try:
+            rows = conn.execute("PRAGMA quick_check").fetchall()
+        except sqlite3.Error as e:
+            log.error(
+                "[HISTORY_DB] PRAGMA quick_check raised: %s (treating as corruption and attempting recovery)",
+                e,
+            )
+            # Fall through to the recovery path — we can't verify
+            # integrity, so assume the worst and rename.
+            rows = [("quick_check raised", str(e))]
+
+        if len(rows) == 1 and rows[0][0] == "ok":
+            return None  # healthy
+
+        log.error(
+            "[HISTORY_DB] Integrity check failed: %s. Renaming corrupt DB and creating a fresh one.",
+            rows,
+        )
+        # Close the corrupt connection so we can rename the file.
+        # Suppress errors — the connection may already be in a bad
+        # state.
+        with contextlib.suppress(sqlite3.Error):
+            conn.close()
+        # Rename the corrupt DB and its WAL/SHM sidecar files.
+        timestamp = int(time.time())
+        corrupt_suffix = f".corrupt-{timestamp}"
+        corrupt_main = self.db_path.with_name(self.db_path.name + corrupt_suffix)
+        for sidecar in ("", "-wal", "-shm"):
+            src = self.db_path.with_name(self.db_path.name + sidecar)
+            if src.exists():
+                dst = corrupt_main.with_name(corrupt_main.name + sidecar)
+                with contextlib.suppress(OSError):
+                    src.rename(dst)
+        log.warning(
+            "[HISTORY_DB] Renamed corrupt DB to %s",
+            corrupt_main,
+        )
+        # Open a fresh connection on a new (empty) DB file.
+        try:
+            new_conn = self._open_write_conn()
+            self._check_wal_mode(new_conn)
+            return new_conn
+        except sqlite3.Error as e:
+            self._init_error = e
+            return None
 
     # ──────────────────────────────────────────────────────────────
     # Read connections
@@ -859,9 +991,22 @@ class HistoryDB:
         try:
             dropped = self._queue.get_nowait()
         except queue.Empty:
-            # Queue drained between put_nowait and now; just retry the put.
-            with contextlib.suppress(queue.Full):
-                self._queue.put_nowait((lambda _conn: None, current_future))
+            # PVT-005 (session-2): Queue drained between put_nowait and
+            # now. Previously this branch enqueued a no-op lambda bound
+            # to the caller's own ``future`` — but the caller
+            # (``_submit_write``) then retries ``put_nowait((fn, future))``,
+            # so the queue held TWO items sharing the same future. The
+            # writer executed the lambda first → ``future.set_result(None)``
+            # succeeded; then executed ``fn`` → ``future.set_result(result)``
+            # raised InvalidStateError; the except handler then tried
+            # ``future.set_exception(e)`` → also raised InvalidStateError
+            # (not suppressed before PVT-005) → killed the writer thread
+            # permanently. Silent data loss + dead writer.
+            #
+            # Fix: do NOT enqueue anything here. Just return and let the
+            # caller's retry handle the put. The caller's future is
+            # untouched and will be resolved by the real ``fn`` when the
+            # writer picks it up.
             return
         if dropped is _SHUTDOWN_SENTINEL:
             # Put the sentinel back; drop the new write instead.
@@ -1236,6 +1381,14 @@ class HistoryDB:
         readers see progress. The previous single-transaction DELETE
         held the write lock for the full scan.
 
+        G4-M-05: after the chunked DELETE completes, ``VACUUM`` runs
+        in the writer thread to reclaim the freed pages so the DB file
+        shrinks. Without this, ``clear_all`` leaves the file at its
+        pre-clear size (SQLite keeps free pages for reuse) and the
+        user's dictated text remains recoverable from the file via
+        forensic tools even after a "clear all" — a privacy concern
+        for the GDPR delete path.
+
         ERR-013: see ``delete`` for ``raise_on_error`` semantics.
         """
         try:
@@ -1251,6 +1404,23 @@ class HistoryDB:
                     if batch_deleted == 0:
                         break
                     conn.commit()  # release write lock between batches
+                # Final commit to close any open transaction started
+                # by the last DELETE (which matched 0 rows but still
+                # auto-opened a transaction in Python's sqlite3 module).
+                # VACUUM requires no open transaction.
+                conn.commit()
+                # G4-M-05: VACUUM reclaims the freed pages so the DB
+                # file shrinks and deleted text is not recoverable
+                # from free pages. Runs inside the writer thread so
+                # it serializes with other writes. VACUUM requires
+                # exclusive access — readers will block briefly.
+                try:
+                    conn.execute("VACUUM")
+                    log.info("[HISTORY_DB] VACUUM completed after clear_all")
+                except sqlite3.Error as e:
+                    # VACUUM failure is non-fatal — the rows are
+                    # already deleted; only space reclamation failed.
+                    log.warning("[HISTORY_DB] VACUUM after clear_all failed: %s", e)
                 log.info("[HISTORY] Cleared all transcriptions")
                 return True
 
@@ -1316,6 +1486,12 @@ class HistoryDB:
         IMPL-A: runs inside the writer thread. Chunked deletes (100
         rows per batch, commit per batch) prevent the WAL from growing
         unboundedly and let external readers see progress.
+
+        G4-M-05: after the retention sweep, ``VACUUM`` runs only if
+        more than 20% of rows were deleted — this avoids the VACUUM
+        cost (which requires exclusive access and briefly blocks
+        readers) for small sweeps while still reclaiming space after
+        large purges.
         """
         # DEAD-012: wire retention_count as fallback for max_entries
         effective_max = max_entries or retention_count
@@ -1325,6 +1501,12 @@ class HistoryDB:
             def _do_retention(conn: sqlite3.Connection) -> int:
                 nonlocal deleted
                 cursor = conn.cursor()
+
+                # G4-M-05: capture initial count to decide whether
+                # to VACUUM. Computed before any deletes so the
+                # ratio reflects the true scope of the sweep.
+                cursor.execute("SELECT COUNT(*) FROM transcriptions")
+                initial_count = cursor.fetchone()[0]
 
                 if retention_days > 0:
                     cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
@@ -1367,6 +1549,31 @@ class HistoryDB:
                             break
                         deleted += batch_deleted
                         conn.commit()  # release write lock between batches
+
+                # Close any open transaction before VACUUM (the last
+                # DELETE with 0 rows still auto-opened a transaction).
+                conn.commit()
+
+                # G4-M-05: VACUUM only if >20% of rows were deleted.
+                # This avoids the VACUUM cost for small sweeps (e.g.
+                # daily retention that deletes a handful of rows)
+                # while still reclaiming space after large purges.
+                if deleted > 0 and initial_count > 0:
+                    ratio = deleted / initial_count
+                    if ratio > 0.20:
+                        try:
+                            conn.execute("VACUUM")
+                            log.info(
+                                "[HISTORY_DB] VACUUM completed after retention (deleted %d/%d rows, %.0f%%)",
+                                deleted,
+                                initial_count,
+                                ratio * 100,
+                            )
+                        except sqlite3.Error as e:
+                            log.warning(
+                                "[HISTORY_DB] VACUUM after retention failed: %s",
+                                e,
+                            )
 
                 if deleted:
                     log.info(
@@ -1549,3 +1756,101 @@ class HistoryDB:
             if raise_on_error:
                 raise HistoryDBError(str(e)) from e
             return {"count": 0, "chars": 0, "word_count": 0, "duration": 0}
+
+    # ──────────────────────────────────────────────────────────────
+    # Maintenance & diagnostics
+    # ──────────────────────────────────────────────────────────────
+
+    def checkpoint(self, truncate: bool = True) -> bool:
+        """G4-M-06: run ``PRAGMA wal_checkpoint(TRUNCATE)`` (or
+        ``RESTART``) on the writer thread.
+
+        Used by GDPR delete/export paths to ensure all WAL content is
+        checkpointed back to the main DB file before file-level
+        operations (e.g. ``os.unlink`` of ``history.db``). Without
+        this, dictated text remains recoverable from the
+        ``history.db-wal`` sidecar file even after the main DB file
+        is deleted — see G4-CR-04.
+
+        Parameters
+        ----------
+        truncate : bool
+            If ``True`` (default), run ``wal_checkpoint(TRUNCATE)``
+            which checkpoints all frames back to the main DB file and
+            then truncates the WAL file to zero size. This is the
+            mode callers want before unlinking the DB file. If
+            ``False``, run ``wal_checkpoint(RESTART)`` which
+            checkpoints but leaves the WAL in a restartable state
+            (useful before a clean shutdown that will resume writing).
+
+        Returns
+        -------
+        ``True`` if the checkpoint completed without error, ``False``
+        otherwise (writer unavailable, checkpoint failed). The
+        caller (e.g. GDPR delete) should treat ``False`` as "WAL may
+        still contain data; do not unlink until next attempt".
+        """
+        try:
+
+            def _do_checkpoint(conn: sqlite3.Connection) -> bool:
+                mode = "TRUNCATE" if truncate else "RESTART"
+                try:
+                    # wal_checkpoint returns (busy, log, checkpointed)
+                    # where busy=0 means no writer was active. We don't
+                    # retry on busy=1 because the writer thread IS the
+                    # only writer; a busy result here means an external
+                    # process holds the lock, which the caller can't
+                    # resolve by retrying.
+                    result = conn.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+                    if result is not None:
+                        log.debug(
+                            "[HISTORY_DB] wal_checkpoint(%s): busy=%s, log=%s, checkpointed=%s",
+                            mode,
+                            result[0] if len(result) > 0 else "?",
+                            result[1] if len(result) > 1 else "?",
+                            result[2] if len(result) > 2 else "?",
+                        )
+                    return True
+                except sqlite3.Error as e:
+                    log.warning(
+                        "[HISTORY_DB] wal_checkpoint(%s) failed: %s",
+                        mode,
+                        e,
+                    )
+                    return False
+
+            result = self._submit_write(_do_checkpoint, wait=True)
+            if result is None:
+                # Writer shut down — can't checkpoint.
+                return False
+            return bool(result)
+        except HistoryDBError as e:
+            log.error("[HISTORY] Writer unavailable for checkpoint: %s", e)
+            return False
+        except Exception as e:
+            log.error("[HISTORY] Failed to checkpoint: %s", e)
+            return False
+
+    def health_check(self) -> dict:
+        """G4-DI-10: return a health status dict for diagnostics.
+
+        Returns
+        -------
+        ``{"ok": bool, "error": str | None}``
+
+        - ``ok`` is ``True`` only if the writer thread is alive AND
+          ``_init_error`` is ``None`` (no schema init failure). This
+          is the minimum viable health signal: a dead writer or a
+          failed migration means writes will silently fail.
+        - ``error`` is a human-readable string describing the
+          failure, or ``None`` if healthy.
+
+        Callers (e.g. the IPC ``get_diagnostics`` handler) can expose
+        this to the renderer so the user sees a clear "history DB is
+        unavailable" message instead of silently-failed writes.
+        """
+        if self._init_error is not None:
+            return {"ok": False, "error": str(self._init_error)}
+        if not self._writer_thread.is_alive():
+            return {"ok": False, "error": "history DB writer thread is not alive"}
+        return {"ok": True, "error": None}

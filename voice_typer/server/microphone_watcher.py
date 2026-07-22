@@ -61,6 +61,28 @@ class MicrophoneDeviceWatcher:
         Seconds between ``/dev/snd`` directory polls on Linux.
         Defaults to 1.0s. Exposed as a parameter so tests can pass a
         smaller value for fast, deterministic verification.
+
+    G4-M-41 — active-mic-lost detection
+    -----------------------------------
+    The watcher also exposes an OPTIONAL active-mic-lost hook so
+    ``RecordingController`` can be notified when the microphone backing
+    an in-flight recording is unplugged.  Three methods register the
+    hook (all default to no-op if unset, preserving backward
+    compatibility):
+
+    - :meth:`set_active_mic_id` — set/clear the currently-active mic id
+      (call with the mic id when a recording starts, ``None`` when it
+      stops).
+    - :meth:`set_on_active_mic_lost` — register the zero-arg callback
+      to fire when the active mic disappears from the device list.
+      The controller's implementation should cancel the recording and
+      emit a tray notification.
+    - :meth:`set_device_id_provider` — register a callable returning
+      the current list of available mic ids.  Used by the watcher to
+      detect "active mic gone" after a device-change event.
+
+    The check runs inside :meth:`_invoke_callback` AFTER the cache-
+    invalidation callback, so the provider sees a fresh device list.
     """
 
     def __init__(
@@ -80,6 +102,18 @@ class MicrophoneDeviceWatcher:
         # import time, so importing this module never triggers a
         # pyobjc import.
         self._coreaudio_watcher: Any | None = None
+        # G4-M-41: active-mic-lost detection.  ``RecordingController``
+        # registers an ``_on_active_mic_lost`` callback (and the current
+        # ``_active_mic_id`` plus a ``_device_id_provider`` callable)
+        # during setup so that, when a device-change event fires AND the
+        # active mic is no longer in the freshly-queried device list, the
+        # watcher can tell the controller to cancel the in-flight
+        # recording (instead of letting it stall on a dead input).
+        # All three default to ``None`` — the watcher is fully
+        # backward-compatible if no caller registers them.
+        self._active_mic_id: Any | None = None
+        self._on_active_mic_lost: Callable[[], None] | None = None
+        self._device_id_provider: Callable[[], list[Any]] | None = None
 
     # ── platform detection ────────────────────────────────────────────
 
@@ -678,6 +712,18 @@ class MicrophoneDeviceWatcher:
         prevents a burst of WM_DEVICECHANGE messages (e.g. 18
         duplicates of DBT_DEVNODES_CHANGED in 1 second) from
         invalidating the device cache 18 times in rapid succession.
+
+        G4-M-41: after the cache-invalidation callback runs, the watcher
+        also checks whether the active recording's mic_id is still
+        present in the current device list (queried via the
+        ``_device_id_provider`` registered by ``RecordingController``).
+        If the active mic is gone, the ``_on_active_mic_lost`` callback
+        fires so the controller can cancel the recording and emit a
+        tray notification.  This check runs even if ``_on_change``
+        raised — the recording must still be cancelled if its mic
+        disappeared.  All three of ``_active_mic_id``,
+        ``_on_active_mic_lost``, and ``_device_id_provider`` must be
+        set for the check to run; otherwise it is a no-op.
         """
         import time
 
@@ -698,3 +744,94 @@ class MicrophoneDeviceWatcher:
                 "[MIC-WATCHER] Invalidation callback raised",
                 exc_info=True,
             )
+        # G4-M-41: even if _on_change raised, the device list may have
+        # changed in a way that removed the active mic — check anyway.
+        self._check_active_mic_lost()
+
+    # ── active-mic-lost detection (G4-M-41) ──────────────────────────
+
+    def set_active_mic_id(self, mic_id: Any) -> None:
+        """Set the mic_id of the currently-active recording (or clear it).
+
+        Called by ``RecordingController`` when a recording starts (with
+        the mic_id it selected) and again with ``None`` when the
+        recording stops / is cancelled.  When the watcher detects a
+        device-list change and the registered ``_device_id_provider``
+        no longer returns ``mic_id``, the ``_on_active_mic_lost``
+        callback fires.
+
+        Passing ``None`` disables the check until the next recording
+        starts — the watcher never fires ``_on_active_mic_lost`` while
+        no recording is active.
+        """
+        self._active_mic_id = mic_id
+
+    def set_on_active_mic_lost(self, callback: Callable[[], None]) -> None:
+        """Register the callback to invoke when the active mic disappears.
+
+        ``RecordingController`` should call this during setup::
+
+            watcher.set_on_active_mic_lost(self._on_mic_lost)
+
+        The callback receives no arguments; its implementation should
+        call ``self.cancel()`` (or ``self.stop()`` with a
+        "mic disconnected" message) and emit a tray notification.
+        The callback is invoked from the watcher thread, so it must be
+        thread-safe.  Exceptions raised by the callback are logged and
+        swallowed (they must not kill the watcher thread).
+        """
+        self._on_active_mic_lost = callback
+
+    def set_device_id_provider(self, provider: Callable[[], list[Any]]) -> None:
+        """Register a callable that returns the current list of mic IDs.
+
+        ``RecordingController`` should call this during setup::
+
+            watcher.set_device_id_provider(
+                lambda: [m["id"] for m in self._recorder.list_microphones()]
+            )
+
+        The provider is invoked once per device-change event (after the
+        cache-invalidation callback runs) so the watcher can decide
+        whether the active mic is still in the freshly-queried device
+        list.  It must return a list/iterable of IDs in the same format
+        as the ``mic_id`` passed to :meth:`set_active_mic_id` — the
+        watcher uses ``in`` for membership, so IDs must be hashable.
+        Exceptions raised by the provider are logged and swallowed.
+        """
+        self._device_id_provider = provider
+
+    def _check_active_mic_lost(self) -> None:
+        """Fire ``_on_active_mic_lost`` if the active mic is gone.
+
+        No-op unless all three of ``_active_mic_id``,
+        ``_on_active_mic_lost``, and ``_device_id_provider`` are set.
+        This is intentional: the watcher is fully backward-compatible
+        with callers that never register the active-mic-lost hooks
+        (e.g. tests that only exercise the device-cache invalidation
+        path).
+        """
+        if self._active_mic_id is None or self._on_active_mic_lost is None or self._device_id_provider is None:
+            return
+        try:
+            current_ids = list(self._device_id_provider())
+        except Exception:
+            log.warning(
+                "[MIC-WATCHER] device_id_provider raised; skipping active-mic-lost check this cycle",
+                exc_info=True,
+            )
+            return
+        if self._active_mic_id not in current_ids:
+            log.info(
+                "[MIC-WATCHER] Active mic %r no longer in device list "
+                "(%d devices available) — firing on_active_mic_lost",
+                self._active_mic_id,
+                len(current_ids),
+            )
+            try:
+                self._on_active_mic_lost()
+            except Exception:
+                log.warning(
+                    "[MIC-WATCHER] on_active_mic_lost callback raised",
+                    exc_info=True,
+                )

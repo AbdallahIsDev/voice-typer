@@ -452,7 +452,21 @@ class StartupSequence:
         )
 
         def _startup_parallel_work() -> None:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            # PVT-G5-015: ``ThreadPoolExecutor.__exit__`` calls
+            # ``shutdown(wait=True)``, which blocks until ALL submitted
+            # tasks complete. ``fut.result(timeout=10)`` raises
+            # ``TimeoutError`` after 10s but the underlying task
+            # continues (notably ``sync_prewarm_task`` ->
+            # ``task_scheduler._schtasks`` with ``timeout=30`` against
+            # a hung Windows Task Scheduler service). The ``with``
+            # block's ``__exit__`` then blocks for the remaining ~20s.
+            # Fix: explicitly manage the pool lifecycle and call
+            # ``shutdown(wait=False, cancel_futures=True)`` in a
+            # ``finally`` block so the pool is released immediately
+            # after the timeout fires, regardless of whether the
+            # underlying tasks have finished.
+            pool = concurrent.futures.ThreadPoolExecutor(max_workers=2)
+            try:
                 # RW-9 Phase 2: invoke startup_tasks directly. The
                 # ``app._sync_prewarm_task`` / ``app._load_microphones``
                 # delegates were removed; callers now target startup_tasks.
@@ -465,6 +479,17 @@ class StartupSequence:
                         fut.result(timeout=10)
                     except Exception as exc:
                         log.warning("[STARTUP] %s task failed: %s", label, exc)
+            finally:
+                # PVT-G5-015: do NOT wait for the pool's worker threads
+                # to finish — they may be stuck inside ``subprocess.run``
+                # (``schtasks`` with a 30s timeout) which would block
+                # the main startup thread for the remaining ~20s after
+                # the ``fut.result(timeout=10)`` already gave up.
+                # ``cancel_futures=True`` cancels not-yet-started tasks;
+                # in-flight tasks continue on the worker thread (which
+                # is a daemon by default in ThreadPoolExecutor) so they
+                # don't block process exit either.
+                pool.shutdown(wait=False, cancel_futures=True)
             # PERF-FIX-2: the 30s ``sd.query_devices()`` device-change
             # poller (``_start_device_change_poller``) was removed from
             # startup because it is fully redundant with the

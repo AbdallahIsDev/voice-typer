@@ -151,6 +151,17 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     _autostart_command() for the full rationale).
 
     PLAT-VENV: Uses system Python if running inside a virtualenv.
+
+    PVT-010/WINDOWS-VENV-AUTOSTART: previously the code swapped to the
+    system Python unconditionally when running in a venv, WITHOUT
+    checking whether the system Python can actually import
+    ``voice_typer.server.autostart_launcher``. If the user installed
+    Voice Typer only inside the venv, the autostart task would use the
+    system Python — which would fail at login with
+    ``ModuleNotFoundError`` and silently never start the app. We now
+    probe the system Python before swapping; if the probe fails, we
+    keep the venv Python (and log a warning) so the autostart entry
+    works for the current user.
     """
     from voice_typer.server.task_scheduler import _APP_AUTOSTART_DELAY_SECONDS
 
@@ -160,14 +171,31 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
     pythonw = Path(sys.executable).parent / "pythonw.exe"
     python_bin = str(pythonw) if pythonw.exists() else sys.executable
 
-    # PLAT-VENV: detect virtualenv and use system Python instead
+    # PLAT-VENV: detect virtualenv and use system Python instead.
+    # PVT-010: probe whether the system Python can import
+    # voice_typer.server.autostart_launcher BEFORE swapping — if the
+    # venv is the only place voice_typer is installed, the system
+    # Python would fail at login.
     if sys.prefix != sys.base_prefix:
         import shutil
 
-        base_python = "python3" if sys.platform != "win32" else "python.exe"
-        system_python = shutil.which(base_python)
+        system_python = shutil.which("python.exe")
         if system_python:
-            python_bin = system_python
+            from voice_typer.server.server_platform.autostart import (
+                _system_python_can_import_launcher,
+            )
+
+            if _system_python_can_import_launcher(system_python):
+                python_bin = system_python
+            else:
+                log.warning(
+                    "[AUTOSTART] Running inside venv (%s) but system Python "
+                    "cannot import voice_typer.server.autostart_launcher "
+                    "(probe failed). Keeping venv Python for the Windows "
+                    "Task Scheduler entry — autostart will break if the "
+                    "venv is deleted, but works for the current user.",
+                    sys.executable,
+                )
     args = f'"{launcher}" --hidden --delay {delay_str}'
     return python_bin, args
 

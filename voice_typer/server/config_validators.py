@@ -53,6 +53,36 @@ ALLOWED_USER_MODELS = {
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# G4-M-12: canonical noise-suppression backend enum.
+#
+# Previously this enum was duplicated in three places that had already
+# drifted out of sync:
+#   - ``config.py:911`` dataclass field comment advertised
+#     ``"rnnoise" | "deepfilternet" | "speex" | "none"`` (``"speex"`` was
+#     never implemented — there is no speex backend in
+#     ``audio_filters/noise_suppressor.py``).
+#   - ``config_validators.py:768`` IPC validator used
+#     ``{"rnnoise", "deepfilternet", "none"}`` (correct set, but inlined
+#     as a literal — easy to drift).
+#   - ``audio_filters/noise_suppressor.py`` runtime fallback only
+#     dispatched on ``"rnnoise"`` / ``"deepfilternet"`` / ``"none"``
+#     (matches the IPC validator but not the dataclass comment).
+#
+# The canonical set is now defined ONCE here and re-exported via the
+# wildcard ``from .config_validators import *`` in ``config.py``.
+# ``audio_filters/noise_suppressor.py`` imports the constant directly
+# (its agent — 2-g — is coordinated to swap its inlined literal for
+# the imported constant and to drop the ``"speex"`` mention from its
+# docstring). ``config.py`` agent 2-a is coordinated to drop
+# ``"speex"`` from the dataclass comment at line 911.
+#
+# Use ``frozenset`` so callers can't accidentally mutate the canonical
+# enum (an ``in`` check is the only supported operation).
+# ──────────────────────────────────────────────────────────────────────────
+NOISE_SUPPRESSION_METHODS: frozenset[str] = frozenset({"rnnoise", "deepfilternet", "none"})
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # SEC-002: IPC `set_config` allowlist
 #
 # The IPC `set_config` command previously used `hasattr(config, k) +
@@ -127,7 +157,11 @@ def _make_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if len(v) > max_len:
-            return f"exceeds maximum length {max_len}"
+            # PVT-G5-071 (session-5): include the actual length so the
+            # operator can see how badly the cap was blown (e.g. a 50 KB
+            # hotkey string vs. one that's 1 char over). Don't include
+            # the value itself — string fields can hold API keys / PII.
+            return f"exceeds maximum length {max_len}, got length {len(v)}"
         # CR-26: Reject C0 control characters and DEL (0x7f) to prevent
         # log poisoning, header injection, and config.json truncation.
         for ch in v:
@@ -146,7 +180,10 @@ def _make_optional_str_validator(max_len: int = _MAX_STRING_LEN) -> ValidatorFn:
         if not _is_str(v):
             return f"must be a string or null, got {type(v).__name__}"
         if len(v) > max_len:
-            return f"exceeds maximum length {max_len}"
+            # PVT-G5-071 (session-5): include actual length (see
+            # _make_str_validator for the rationale on why we don't
+            # include the value).
+            return f"exceeds maximum length {max_len}, got length {len(v)}"
         # CR-26: Reject C0 control characters and DEL (0x7f).
         for ch in v:
             o = ord(ch)
@@ -168,7 +205,10 @@ def _make_int_validator(*, lo: int, hi: int) -> ValidatorFn:
         if not _is_int_not_bool(v):
             return f"must be an integer, got {type(v).__name__}"
         if v < lo or v > hi:
-            return f"must be in [{lo}, {hi}]"
+            # PVT-G5-071 (session-5): include the actual value — ints
+            # are non-PII and the value is essential for diagnosing
+            # off-by-one / unit bugs.
+            return f"must be in [{lo}, {hi}], got {v}"
         return None
 
     return _validate
@@ -179,7 +219,9 @@ def _make_float_validator(*, lo: float, hi: float) -> ValidatorFn:
         if not _is_float_or_int_not_bool(v):
             return f"must be a number, got {type(v).__name__}"
         if v < lo or v > hi:
-            return f"must be in [{lo}, {hi}]"
+            # PVT-G5-071 (session-5): include the actual value — floats
+            # are non-PII.
+            return f"must be in [{lo}, {hi}], got {v}"
         return None
 
     return _validate
@@ -190,7 +232,11 @@ def _make_enum_validator(allowed: set) -> ValidatorFn:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if v not in allowed:
-            return f"must be one of {sorted(allowed)}"
+            # PVT-G5-071 (session-5): include the actual value via
+            # ``{v!r}`` so the operator can see exactly what was
+            # rejected (including any whitespace / case mismatch).
+            # Enum values are short option strings, not PII.
+            return f"must be one of {sorted(allowed)}, got {v!r}"
         return None
 
     return _validate
@@ -202,7 +248,10 @@ def _make_custom_theme_validator() -> ValidatorFn:
 
     def _validate(v: object) -> str | None:
         if not isinstance(v, dict):
-            return "must be a dict"
+            # PVT-G5-071 (session-5): include the actual type (mirror
+            # line 128's pattern). The value itself could be a long
+            # string, so we use type name rather than the value.
+            return f"must be a dict, got {type(v).__name__}"
         for mode in ("light", "dark"):
             mode_dict = v.get(mode)
             if not isinstance(mode_dict, dict):
@@ -260,7 +309,10 @@ def _make_url_validator(
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
         if len(v) > max_len:
-            return f"exceeds maximum length {max_len}"
+            # PVT-G5-071 (session-5): include actual length (URL fields
+            # can hold API keys via query strings, so don't include the
+            # value itself).
+            return f"exceeds maximum length {max_len}, got length {len(v)}"
         if v == "":
             if allow_empty:
                 return None
@@ -741,6 +793,15 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "volume_duck_fade_ms": (int, _make_int_validator(lo=0, hi=1000)),
     "volume_duck_smart_poll_interval_ms": (int, _make_int_validator(lo=50, hi=5000)),
     # ── Audio enhancement preset (ADR 0007) ───────────────────────────
+    # G4-M-12 (partial): legacy aliases ``"none"`` and ``"recommended"``
+    # are NO LONGER accepted by the IPC ``set_config`` validator. The
+    # ``_migrate_to_v2`` schema migration in ``config.py`` (run inside
+    # ``Config.load()``) still rewrites them to ``"off"`` and ``"auto"``
+    # respectively for existing on-disk configs, so a stale
+    # ``config.json`` written by an older app version keeps loading —
+    # but the renderer can no longer introduce them via IPC. Agent 2-a
+    # owns the load-side migration and is coordinated to emit a
+    # deprecation log when the migration rewrites either legacy value.
     "audio_preset": (
         str,
         _make_enum_validator(
@@ -750,8 +811,6 @@ IPC_CONFIG_ALLOWLIST: dict = {
                 "noisy_room",
                 "off",
                 "custom",
-                "none",
-                "recommended",
             }
         ),
     ),
@@ -765,7 +824,12 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "noise_filter_gate": (bool, _bool_validator),
     "noise_filter_gate_hold_ms": (float, _make_float_validator(lo=0.0, hi=1000.0)),
     # ADR 0007 §5.1: New filter chain fields
-    "noise_suppression_method": (str, _make_enum_validator({"rnnoise", "deepfilternet", "none"})),
+    # G4-M-12: enum literal is now sourced from the shared
+    # ``NOISE_SUPPRESSION_METHODS`` constant defined above so the IPC
+    # validator, the dataclass comment in ``config.py``, and the
+    # runtime fallback in ``audio_filters/noise_suppressor.py`` all
+    # agree on the canonical set.
+    "noise_suppression_method": (str, _make_enum_validator(NOISE_SUPPRESSION_METHODS)),
     "noise_filter_gate_open_threshold_db": (float, _make_float_validator(lo=-96.0, hi=0.0)),
     "noise_filter_gate_close_threshold_db": (float, _make_float_validator(lo=-96.0, hi=0.0)),
     "noise_filter_gate_attack_ms": (float, _make_float_validator(lo=0.0, hi=10000.0)),
@@ -869,6 +933,69 @@ def validate_config_update(data: dict) -> tuple[dict, list]:
     return validated, errors
 
 
+def validate_config(cfg) -> list[str]:
+    """Validate an already-loaded :class:`Config` instance against
+    :data:`IPC_CONFIG_ALLOWLIST`.
+
+    G4-M-12 (Task 2-x): the IPC ``set_config`` validator
+    (:func:`validate_config_update`) only sees the *delta* a renderer
+    pushes; it never re-checks the *whole* config that lives on disk
+    after migration / manual edits / scripted writes. A migrated
+    config can therefore hold values that the IPC validator would
+    reject (e.g. a ``noise_suppression_method`` value of ``"speex"``
+    left over from a hand-edited file before the enum was tightened,
+    or a future ``audio_preset`` legacy alias surviving a botched
+    migration). Until now there was no single choke-point that
+    cross-checked the loaded config against the same rules the IPC
+    layer enforces.
+
+    This function is that choke-point. Agent 2-a is coordinated (via
+    the worklog) to call it at the end of ``Config.load()`` and append
+    any returned error strings to ``Config.last_load_warnings`` so the
+    UI can surface "your config has invalid values" instead of
+    silently running with a malformed state.
+
+    Parameters
+    ----------
+    cfg
+        A :class:`Config` dataclass instance (duck-typed — only
+        ``getattr`` is used, so any object exposing the allowlisted
+        fields as attributes works for testing).
+
+    Returns
+    -------
+    list[str]
+        A list of human-readable error strings, one per invalid
+        field. Empty list means the config is valid. Each entry is
+        formatted as ``"<field_name>: <error>"`` so the caller can
+        display them line-by-line.
+
+    Notes
+    -----
+    - Fields absent from ``cfg`` (``getattr`` returns ``None`` or
+      raises ``AttributeError``) are SKIPPED — this function does not
+      require every allowlisted field to be present on the object.
+      This matches the IPC semantics where the renderer may push a
+      partial update.
+    - The validators are the SAME ones used by
+      :func:`validate_config_update`, so the two paths can't drift.
+    """
+    errors: list[str] = []
+    for key, (_field_type, validator) in IPC_CONFIG_ALLOWLIST.items():
+        try:
+            value = getattr(cfg, key)
+        except AttributeError:
+            # Field isn't present on the object — treat as "not set"
+            # and skip (mirrors the IPC validator's None handling).
+            continue
+        if value is None:
+            continue
+        err = validator(value)
+        if err:
+            errors.append(f"{key}: {err}")
+    return errors
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # ARCH-REFAC-001: explicit ``__all__`` so the wildcard re-export in
 # ``config.py`` (``from .config_validators import *``) brings through
@@ -878,6 +1005,7 @@ def validate_config_update(data: dict) -> tuple[dict, list]:
 __all__ = [
     # Constants
     "ALLOWED_USER_MODELS",
+    "NOISE_SUPPRESSION_METHODS",
     "_MAX_STRING_LEN",
     "_MAX_API_KEY_LEN",
     # Type aliases
@@ -910,6 +1038,7 @@ __all__ = [
     # Public API
     "IPC_CONFIG_ALLOWLIST",
     "validate_config_update",
+    "validate_config",
     # ARCH-14: extracted hotkey validation stage helpers (CR-29 / CR-22:
     # reconciled with actual function names — the prior list referenced
     # 9 nonexistent symbols that caused F822 × 9 hard-fail in CI).

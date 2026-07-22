@@ -85,7 +85,7 @@ _PARAKERT_WEIGHTS_MB = 2400
 # sync requirement with ``model_hashes.json`` — pinned files in the
 # manifest MUST be a subset of these allow-patterns, otherwise
 # ``verify_model_integrity()`` hard-fails on every download.
-from voice_typer.server._model_integrity import ALLOW_PATTERNS as _PARAKEET_ALLOW_PATTERNS
+from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _PARAKEET_ALLOW_PATTERNS
 
 # SEC-audit-005: Pin to a specific revision for reproducibility.
 # Use the centralized MODEL_HASHES manifest from security.py.
@@ -122,6 +122,50 @@ _MAX_BOUNDARY_SKIP_WORDS = 2
 _OVERLAP_DEDUP_WINDOW = 3
 
 
+def _cleanup_hf_cache_dir(model_dir: "Any") -> None:
+    """G4-CR-06 / cache cleanup: best-effort delete a tampered HF cache dir.
+
+    Called from ``ParakeetEngine.load()`` and
+    ``asr_setup.download_parakeet_weights`` when
+    ``verify_model_integrity()`` returns False.  Removes the
+    ``models--<org>--<repo>`` directory (the HuggingFace Hub cache root
+    for a single repo) so the next ``load()`` doesn't re-discover the
+    tampered snapshot.
+
+    Best-effort: logs but does not raise if the cleanup itself fails
+    (e.g. file is locked on Windows, permission denied on POSIX).  The
+    integrity hard-fail (``return False`` / ``RuntimeError`` in the
+    caller) is the security gate; this cleanup is just hygiene so a
+    retry doesn't silently re-load the same tampered files.
+
+    Parameters
+    ----------
+    model_dir : Path or str
+        The ``models--<org>--<repo>`` directory under
+        ``<config_dir>/huggingface/hub/``.
+    """
+    import shutil
+    from pathlib import Path
+
+    path = Path(model_dir)
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path)
+        log.warning(
+            "[PARAKEET] Removed tampered HF cache directory %s after integrity check failure.",
+            path,
+        )
+    except OSError as exc:
+        # Best-effort: don't raise.  The integrity hard-fail above is
+        # the security gate; the cleanup is just hygiene.
+        log.warning(
+            "[PARAKEET] Could not remove tampered HF cache directory %s: %s. Manual cleanup recommended.",
+            path,
+            exc,
+        )
+
+
 class ParakeetEngine:
     """Wraps NVIDIA Parakeet TDT v3 ASR model via Transformers.
 
@@ -145,9 +189,19 @@ class ParakeetEngine:
         self,
         device: str = "cuda",
         language: str = "en",
+        config: Any = None,
     ):
         self.device = device
         self.language = language
+        # G4-H-04 (Session 7 — Group 4): optional Config reference
+        # consulted by ``load()`` to gate HuggingFace downloads on
+        # explicit user consent (``config.huggingface_consent``).
+        # ``None`` is treated as "consent not given" (safe default per
+        # GDPR Art. 6/13).  The registry / model_manager passes the
+        # live Config when constructing the engine so the gate is
+        # enforced in production; tests can omit it to exercise the
+        # cache-hit / already-loaded fast paths.
+        self.config = config
         # TASK-10: instance-level model handles are populated by load()
         # and read by transcribe(). Typed as Any so attribute accesses
         # (.device, .dtype, .generate, .decode) type-check without
@@ -155,6 +209,12 @@ class ParakeetEngine:
         # that transcribe() already performs at entry.
         self._model: Any = None
         self._processor: Any = None
+        # G4-M-44: one-time tray notification flag for CUDA→CPU
+        # transcription fallback.  Reset to ``False`` on every
+        # successful ``load()`` so a fallback after the next reload
+        # re-notifies the user (the user may have restarted their GPU
+        # driver / freed VRAM in the meantime).
+        self._cpu_fallback_notified: bool = False
         self._lock = threading.RLock()
         self._ensure_hf_env()
 
@@ -168,7 +228,11 @@ class ParakeetEngine:
             ensure_hf_env()
             cls._hf_home_set = True
         except Exception:
-            pass
+            # PVT-G5-040: previously a silent ``except: pass``. Log at
+            # DEBUG (non-fatal — the engine still works without HF env
+            # tweaks) and include exc_info so a non-trivial failure is
+            # visible in the log file when debugging.
+            log.debug("[PARAKEET] ensure_hf_env failed (non-fatal)", exc_info=True)
 
     @classmethod
     def _ensure_imports(cls):
@@ -243,7 +307,10 @@ class ParakeetEngine:
                 )
                 return True
         except Exception:
-            pass
+            # PVT-G5-040: previously a silent ``except: pass``. Disk
+            # space check is best-effort — failure here just means we
+            # won't pre-emptively force CPU, which is non-fatal.
+            log.debug("[PARAKEET] _should_force_cpu disk space check failed (non-fatal)", exc_info=True)
         return False
 
     @staticmethod
@@ -263,7 +330,10 @@ class ParakeetEngine:
                 if entry.is_dir() and (entry / "model.safetensors").exists():
                     return True
         except OSError:
-            pass
+            # PVT-G5-040: previously a silent ``except OSError: pass``.
+            # A transient FS error (e.g. snapshot dir deleted between
+            # is_dir() and iterdir()) shouldn't crash the cache probe.
+            log.debug("[PARAKEET] _is_cached snapshot iterdir failed (non-fatal)", exc_info=True)
         return False
 
     # ── TranscriberProtocol ──────────────────────────────────────────
@@ -292,6 +362,14 @@ class ParakeetEngine:
             if self._model is not None:
                 return True
 
+            # G4-M-44: reset the one-time CPU-fallback notification flag
+            # on every fresh ``load()``.  A fallback that fired during a
+            # previous transcription session must not silently suppress
+            # the next session's notification — the user may have
+            # restarted their GPU driver or freed VRAM in the meantime,
+            # so the next fallback is fresh information worth surfacing.
+            self._cpu_fallback_notified = False
+
             # Quick cache check — avoids calling snapshot_download entirely
             # when model is already on disk.
             _cache_t0 = time.perf_counter()
@@ -302,6 +380,35 @@ class ParakeetEngine:
                 time.perf_counter() - _cache_t0,
             )
             if not _cached:
+                # G4-H-04 (Session 7 — Group 4): HuggingFace downloads
+                # reveal the user's IP to a US-headquartered third party
+                # and pull ~2.5 GB over the network.  Require explicit
+                # ``huggingface_consent`` before any network call,
+                # mirroring ``transcription.py::_pre_download_model``
+                # (lines ~821-849) and
+                # ``service.py::_require_huggingface_consent``.  When
+                # ``self.config`` is ``None`` (degenerate / test path),
+                # treat consent as NOT given — safe default per GDPR
+                # Art. 6/13.  ``ConsentRequiredError`` is the typed
+                # exception the IPC layer ``isinstance``-checks to
+                # surface a consent dialog instead of a generic error
+                # toast.
+                cfg = self.config
+                consent = False if cfg is None else bool(getattr(cfg, "huggingface_consent", False))
+                if not consent:
+                    log.warning(
+                        "[PARAKEET] HuggingFace consent not given — refusing to download %s. "
+                        "The renderer should show a consent dialog.",
+                        _PARAKERT_MODEL_ID,
+                    )
+                    if progress_callback:
+                        progress_callback("HuggingFace consent required before downloading Parakeet model.")
+                    from voice_typer.server.cloud_engines import ConsentRequiredError
+
+                    raise ConsentRequiredError(
+                        f"HuggingFace consent not given — refusing to download {_PARAKERT_MODEL_ID}."
+                    )
+
                 try:
                     from huggingface_hub import snapshot_download
 
@@ -322,42 +429,82 @@ class ParakeetEngine:
                     return False
 
                 if not self._is_cached():
-                    log.error("[PARAKEET] Model not found in cache after download")
+                    # PVT-G5-042: include the expected cache path so the
+                    # operator can investigate (e.g. check permissions,
+                    # disk space, or HF cache state) without filing a bug.
+                    from voice_typer.server.config import _config_dir
+
+                    _miss_cache_root = _config_dir() / "huggingface" / "hub"
+                    _miss_model_dir = _miss_cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
+                    log.error(
+                        "[PARAKEET] Model not found in cache after download (expected at %s)",
+                        _miss_model_dir,
+                    )
                     if progress_callback:
                         progress_callback("Model not found in cache after download")
                     return False
 
-                # SEC-audit-005: Verify model integrity after download
-                from voice_typer.server.asr_setup import _verify_model_integrity
-                from voice_typer.server.config import _config_dir
+            # G4-CR-06 (Session 7 — Group 4): verify model integrity
+            # UNCONDITIONALLY on every load.  The previous code only
+            # verified when the cache-miss / download branch ran, so a
+            # cache hit (model already on disk) skipped verification
+            # entirely — an attacker with write access to the HF cache
+            # could tamper with ``model.safetensors`` and the next load
+            # would feed tampered weights to the ASR engine with no
+            # SHA-256 check.  The ~1-3s SHA-256 cost is acceptable vs
+            # the 5-50s ``from_pretrained`` load time.
+            #
+            # The verify path is the same regardless of cache-hit or
+            # post-download: enumerate snapshot dirs and call
+            # ``_verify_model_integrity`` against the manifest.  On
+            # failure we hard-fail (return False) and remove the
+            # offending ``models--<repo>`` directory so the next
+            # ``load()`` doesn't re-discover the tampered snapshot.
+            from voice_typer.server.asr_setup import _verify_model_integrity
+            from voice_typer.server.config import _config_dir
 
-                cache_root = _config_dir() / "huggingface" / "hub"
-                model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
-                if model_dir.is_dir():
-                    verified = False
-                    try:
-                        for snapshot in (model_dir / "snapshots").iterdir():
-                            if snapshot.is_dir() and _verify_model_integrity(_PARAKERT_MODEL_ID, str(snapshot)):
-                                verified = True
-                                break
-                    except OSError:
-                        pass
-                    if not verified:
-                        # CRIT-4 / SEC-1: hard-fail when integrity check
-                        # fails — do NOT fall through to load the model
-                        # anyway.  The previous code only logged a
-                        # ``warning`` and continued, which combined with
-                        # CRIT-5 (manifest pinning files the allow-list
-                        # omits) meant every Parakeet download triggered
-                        # this branch and loaded the model regardless —
-                        # net effect: zero supply-chain protection.
-                        # Mirrors the hard-fail semantics in
-                        # ``asr_setup.download_parakeet_weights`` (lines
-                        # 316-320).
-                        log.error("[PARAKEET] Model integrity check failed after download. Refusing to load.")
-                        if progress_callback:
-                            progress_callback("Model integrity check failed; refusing to load tampered model.")
-                        return False
+            cache_root = _config_dir() / "huggingface" / "hub"
+            model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
+            if model_dir.is_dir():
+                verified = False
+                verify_exc: Exception | None = None
+                try:
+                    for snapshot in (model_dir / "snapshots").iterdir():
+                        if snapshot.is_dir() and _verify_model_integrity(_PARAKERT_MODEL_ID, str(snapshot)):
+                            verified = True
+                            break
+                except OSError as exc:
+                    verify_exc = exc
+                if not verified:
+                    # CRIT-4 / SEC-1 / G4-CR-06: hard-fail when
+                    # integrity check fails — do NOT fall through to
+                    # load the model anyway.  The previous code only
+                    # logged a ``warning`` and continued, which combined
+                    # with CRIT-5 (manifest pinning files the allow-list
+                    # omits) meant every Parakeet download triggered
+                    # this branch and loaded the model regardless —
+                    # net effect: zero supply-chain protection.
+                    # Mirrors the hard-fail semantics in
+                    # ``asr_setup.download_parakeet_weights``.
+                    log.error(
+                        "[PARAKEET] Model integrity check failed%s for %s at %s. "
+                        "Refusing to load tampered model. To fix: rm -rf %s",
+                        f" (OSError: {verify_exc})" if verify_exc else "",
+                        _PARAKERT_MODEL_ID,
+                        model_dir,
+                        model_dir,
+                    )
+                    if progress_callback:
+                        progress_callback("Model integrity check failed; refusing to load tampered or corrupted model.")
+                    # G4-CR-06 / cache cleanup on verify failure:
+                    # remove the offending ``models--<repo>`` directory
+                    # so the next ``load()`` doesn't re-discover the
+                    # tampered snapshot.  Best-effort: log but don't
+                    # raise if the cleanup itself fails (e.g. file is
+                    # locked on Windows) — the integrity hard-fail is
+                    # the security gate, the cleanup is just hygiene.
+                    _cleanup_hf_cache_dir(model_dir)
+                    return False
 
             # Load model from cache
             try:
@@ -709,7 +856,9 @@ class ParakeetEngine:
             except Exception as exc:
                 err_str = str(exc).lower()
                 if self.device == "cuda" and ("cuda" in err_str or "cublas" in err_str or "cudnn" in err_str):
-                    log.warning("[PARAKEET] CUDA error, retrying on CPU: %s", exc)
+                    # PVT-G5-041: include exc_info so the CUDA failure
+                    # traceback is captured for debugging.
+                    log.warning("[PARAKEET] CUDA error, retrying on CPU: %s", exc, exc_info=True)
                     try:
                         # HIGH-18 / PERF-REL-1: pin dtype=float32 when
                         # moving the model to CPU.  The previous bare
@@ -719,9 +868,61 @@ class ParakeetEngine:
                         # so the "fallback" was effectively unusable.
                         self._model.to(device="cpu", dtype=self._torch.float32)
                         text = self._transcribe_impl(audio)
+                        # G4-M-44 (Session 7 — Group 4): the CUDA→CPU
+                        # fallback succeeded.  Emit a ONE-TIME tray
+                        # notification so the user knows why their
+                        # dictation got slower, and publish a status
+                        # event so the tray icon can show "(CPU
+                        # fallback)".  ``self.device`` is NOT mutated
+                        # here — it stays ``"cuda"`` so the next
+                        # ``load()`` re-attempts CUDA (per-transcription
+                        # fallback, not permanent).  The
+                        # ``_cpu_fallback_notified`` flag is reset to
+                        # ``False`` at the top of ``load()`` so a
+                        # fallback after the next reload re-notifies.
+                        # Coordinate with agent 2-r for tray.py: the
+                        # ``"type": "parakeet_cpu_fallback"`` event is
+                        # the contract for the tray "(CPU fallback)"
+                        # status suffix; the ``"notification"`` event
+                        # surfaces the user-facing toast.
+                        if not self._cpu_fallback_notified:
+                            self._cpu_fallback_notified = True
+                            try:
+                                from voice_typer.server import event_bus
+
+                                event_bus.publish(
+                                    {
+                                        "type": "notification",
+                                        "data": {
+                                            "title": "Voice Typer",
+                                            "message": (
+                                                "GPU transcription failed — switched to CPU. "
+                                                "Transcription will be slower until restart."
+                                            ),
+                                            "duration_ms": 10000,
+                                        },
+                                    }
+                                )
+                                event_bus.publish(
+                                    {
+                                        "type": "parakeet_cpu_fallback",
+                                        "data": {"device": "cpu", "reason": str(exc)[:200]},
+                                    }
+                                )
+                            except Exception as notify_exc:
+                                log.debug(
+                                    "[PARAKEET] could not publish CPU-fallback notification: %s",
+                                    notify_exc,
+                                )
                         return text
                     except Exception as cpu_exc:
-                        log.error("[PARAKEET] CPU fallback also failed: %s", cpu_exc)
+                        # PVT-G5-041: use ``log.exception`` instead of
+                        # ``log.error(..., exc_info=True)`` to satisfy the
+                        # ``test_log_exception_no_exc_arg`` regression
+                        # test that flags ``log.error(..., exc_info=True)``
+                        # in this file. ``log.exception`` is semantically
+                        # equivalent (auto-captures the active exception).
+                        log.exception("[PARAKEET] CPU fallback also failed")
                         raise TranscriptionBackendError(
                             f"Parakeet GPU transcription failed ({exc}) and CPU fallback also failed ({cpu_exc})"
                         ) from cpu_exc

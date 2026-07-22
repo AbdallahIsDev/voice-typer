@@ -116,6 +116,7 @@ import logging
 import threading
 import typing
 from concurrent.futures import ThreadPoolExecutor
+from typing import Protocol, runtime_checkable
 
 log = logging.getLogger("voice_typer.server.event_bus")
 
@@ -356,3 +357,185 @@ def shutdown() -> None:
                 "[event_bus] deferred executor shutdown failed",
                 exc_info=True,
             )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# G4-M-18: ConfigChangeListener protocol + typed config-change channel.
+#
+# ``config_applier.apply_config_side_effects`` is currently a ~200-line
+# if-chain that dispatches each changed config field to the relevant
+# module's setter (volume_ducker.set_smart_duck_enabled,
+# ai_enhancement.set_enabled, recording.set_*, etc.). Adding a new
+# config-reactive module means editing the chain AND the test file —
+# a fragility that G4-M-18 calls out as Medium severity.
+#
+# This block provides the SUBSCRIPTION INFRASTRUCTURE only: the
+# :class:`ConfigChangeListener` protocol, ``subscribe_config_changes``,
+# ``unsubscribe_config_changes``, and the internal
+# ``_publish_config_change`` fan-out function. Agent 2-j owns
+# ``config_applier.py`` and is coordinated (via the worklog) to wire
+# ``_publish_config_change(updates)`` into the post-apply fan-out
+# WITHOUT removing the existing if-chain in the same PR — the if-chain
+# becomes a transitional fallback while subscribers migrate, then is
+# deleted in a follow-up.
+#
+# Design notes:
+# - The protocol is ``runtime_checkable`` so existing modules that
+#   already expose ``on_config_changed`` can be registered without
+#   inheriting from a base class — duck typing is preserved.
+# - The subscriber set is SEPARATE from the generic
+#   ``event_bus._subscribers`` set so a misconfigured caller that
+#   publishes a normal UI event (e.g. ``bubble_level``) can't
+#   accidentally trigger every config-change listener.
+# - Fan-out is synchronous and runs on the publisher's thread. Config
+#   changes are low-frequency (~1/sec max during a Settings drag)
+#   and the listeners are fast (set a flag, flip a toggle). The
+#   PERF-2 RT-thread deferral is NOT applied here because no RT
+#   thread ever publishes a config change.
+# - Listener exceptions are isolated (logged at DEBUG, skipped) so
+#   one misbehaving listener doesn't block the others — matches the
+#   semantics of the generic ``publish`` path.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@runtime_checkable
+class ConfigChangeListener(Protocol):
+    """Protocol for modules that react to ``Config`` mutations.
+
+    A listener exposes a single method:
+
+    .. py:method:: on_config_changed(updates)
+
+        Called by :func:`_publish_config_change` after
+        ``config_applier.apply_config`` has committed the validated
+        updates to the :class:`Config` instance.
+
+        :param updates: a flat ``{field_name: new_value}`` dict
+            containing every field that was changed in this apply
+            cycle. The values are the post-validation, post-``setattr``
+            values — listeners can read them directly off the dict
+            without re-fetching from the Config object. Listeners MUST
+            NOT mutate the dict (it is shared across all listeners).
+        :type updates: dict
+
+    Implementations should be idempotent: the same ``updates`` dict
+    may be published more than once during a single drag interaction
+    (the renderer debounces ``set_config`` IPC calls but doesn't
+    deduplicate identical values). A listener that toggles a heavy
+    resource on/off should diff against its own cached "last applied"
+    state and no-op when nothing actually changed.
+
+    Future config-reactive modules should implement this protocol and
+    register via :func:`subscribe_config_changes` rather than adding
+    a new branch to the ``apply_config_side_effects`` if-chain.
+    """
+
+    def on_config_changed(self, updates: dict) -> None: ...
+
+
+# Separate subscriber set + lock so config-change fan-out is isolated
+# from the generic event-bus publish path. Using the same
+# ``_subscribers`` set would risk a config listener being invoked by
+# an unrelated ``bubble_level`` event if a caller fat-fingered the
+# event dict's ``type`` field.
+_config_change_listeners: set[ConfigChangeListener] = set()
+_config_change_lock = threading.RLock()
+
+
+def subscribe_config_changes(listener: ConfigChangeListener) -> None:
+    """Register *listener* to receive every config-change fan-out.
+
+    Calling with ``None`` is a no-op (mirrors :func:`subscribe`'s
+    None-handling). Duplicate listeners are stored only once (set
+    semantics, mirroring :func:`subscribe`). Safe to call from any
+    thread.
+
+    The listener is registered by identity (``__hash__`` /
+    ``__eq__``) — for a stateful listener that needs to be
+    unregistered later, hold a reference to the instance and pass
+    the SAME instance to :func:`unsubscribe_config_changes`.
+    """
+    if listener is None:
+        return
+    with _config_change_lock:
+        _config_change_listeners.add(listener)
+
+
+def unsubscribe_config_changes(listener: ConfigChangeListener) -> None:
+    """Unregister *listener* from config-change fan-out.
+
+    Safe to call with a listener that was never registered (no-op).
+    Safe to call with ``None`` (no-op). Safe to call from any thread.
+    """
+    if listener is None:
+        return
+    with _config_change_lock:
+        _config_change_listeners.discard(listener)
+
+
+def _publish_config_change(updates: dict) -> bool:
+    """Fan out *updates* to every registered :class:`ConfigChangeListener`.
+
+    Called by ``config_applier.apply_config`` (agent 2-j owns that
+    file — coordination note in the worklog) AFTER the validated
+    updates have been ``setattr``'d onto the :class:`Config`
+    instance. This is the future replacement for the
+    ``apply_config_side_effects`` if-chain; the if-chain remains as a
+    transitional fallback until every config-reactive module has
+    migrated to a listener.
+
+    Parameters
+    ----------
+    updates
+        A flat ``{field_name: new_value}`` dict of every field that
+        was changed in this apply cycle. The dict is shared across
+        all listeners — they MUST NOT mutate it.
+
+    Returns
+    -------
+    bool
+        ``True`` if at least one listener accepted the event
+        (returned without raising).  ``False`` if there are no
+        listeners or every listener raised. Mirrors the semantics of
+        :func:`publish`.
+
+    Notes
+    -----
+    - Synchronous: listeners are called in the publisher's thread.
+      Config changes are low-frequency so this is fine; do NOT add
+      PERF-2-style deferral here (RT threads never publish config
+      changes).
+    - Listener exception isolation: a listener that raises is logged
+      at DEBUG level (with ``exc_info``) and skipped. Other
+      listeners still receive the event. Matches the generic
+      ``publish`` semantics.
+    - The listener list is snapshotted under the lock before
+      iteration so a listener that (un)subscribes itself or another
+      listener during fan-out does not raise ``RuntimeError: Set
+      changed size during iteration``.
+    """
+    with _config_change_lock:
+        listeners = list(_config_change_listeners)
+    if not listeners:
+        return False
+    delivered = False
+    for listener in listeners:
+        try:
+            listener.on_config_changed(updates)
+            delivered = True
+        except Exception:
+            log.debug(
+                "[event_bus] config-change listener raised",
+                exc_info=True,
+            )
+    return delivered
+
+
+def _config_change_listener_count() -> int:
+    """Return the current number of config-change listeners (tests only).
+
+    Not part of the public API; exposed for assertions in
+    ``tests/test_event_bus.py`` and for diagnostic logging.
+    """
+    with _config_change_lock:
+        return len(_config_change_listeners)

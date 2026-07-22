@@ -152,6 +152,19 @@ def _autostart_command() -> str:
     # sys.prefix != sys.base_prefix detects virtualenv/venv.
     # PyInstaller builds have sys.prefix == sys.base_prefix so this
     # only affects development setups.
+    #
+    # PVT-010/LINUX-VENV-AUTOSTART: previously the code swapped to the
+    # system Python unconditionally when running in a venv, WITHOUT
+    # checking whether the system Python can actually import
+    # ``voice_typer.server.autostart_launcher``. If the user installed
+    # Voice Typer only inside the venv (the common dev-mode case), the
+    # autostart entry would use the system Python — which would fail
+    # at login with ``ModuleNotFoundError: No module named
+    # 'voice_typer'`` and silently never start the app. We now probe
+    # the system Python with ``python3 -c "import
+    # voice_typer.server.autostart_launcher"`` BEFORE swapping; if the
+    # probe fails, we keep the venv Python (and log a warning) so the
+    # autostart entry at least works for the current user.
     python_exe = sys.executable
     if sys.prefix != sys.base_prefix:
         # We're inside a virtualenv — try to find the system Python
@@ -159,7 +172,7 @@ def _autostart_command() -> str:
 
         base_python = "python3" if sys.platform != "win32" else "python.exe"
         system_python = shutil.which(base_python)
-        if system_python:
+        if system_python and _system_python_can_import_launcher(system_python):
             log.info(
                 "[AUTOSTART] Running inside venv (%s); using system Python: %s",
                 python_exe,
@@ -169,12 +182,48 @@ def _autostart_command() -> str:
             args = [system_python if a == python_exe else a for a in args]
         else:
             log.warning(
-                "[AUTOSTART] Running inside venv (%s) and system Python not "
-                "found on PATH. Using venv Python — autostart may break if "
-                "the venv is deleted.",
+                "[AUTOSTART] Running inside venv (%s) but system Python "
+                "cannot import voice_typer.server.autostart_launcher "
+                "(probe failed). Keeping venv Python — autostart will "
+                "break if the venv is deleted, but works for the "
+                "current user.",
                 python_exe,
             )
     return " ".join(_desktop_quote(arg) for arg in args)
+
+
+def _system_python_can_import_launcher(system_python: str) -> bool:
+    """PVT-010 — probe whether the system Python can import the launcher.
+
+    Runs ``<system_python> -c "import voice_typer.server.autostart_launcher"``
+    with a short timeout. Returns True if the import succeeds (exit
+    code 0), False otherwise. Failures (timeout, non-zero exit,
+    OSError) return False so the caller falls back to keeping the
+    venv Python.
+
+    The probe is wrapped in ``subprocess.run`` with ``capture_output=True``
+    so the import's stderr (e.g. ``ModuleNotFoundError``) doesn't leak
+    into the autostart log.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            [system_python, "-c", "import voice_typer.server.autostart_launcher"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5.0,
+            check=False,
+        )
+        return result.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        log.debug(
+            "[AUTOSTART] _system_python_can_import_launcher(%s) failed",
+            system_python,
+            exc_info=True,
+        )
+        return False
 
 
 # ─── Install-path hash suffix (PLAT-RUN) ─────────────────────────────
@@ -218,29 +267,92 @@ def get_autostart_dir() -> Path:
 
 
 def enable_autostart() -> bool:
-    try:
-        if _pkg.SYSTEM == "win32":
-            return _pkg._enable_autostart_windows()
-        elif _pkg.SYSTEM == "darwin":
-            return _pkg._enable_autostart_macos()
-        else:
-            return _pkg._enable_autostart_linux()
-    except Exception as e:
-        log.error("[CONFIG] Failed to enable autostart: %s", e)
-        return False
+    """Public autostart facade — returns True on success.
+
+    PVT-060: this function is preserved as a bool-returning shim for
+    backwards compatibility (existing tests and call sites assert
+    ``enable_autostart() is True`` / ``is False``). New callers that
+    need the failure reason should use :func:`enable_autostart_ex`,
+    which returns ``{"registered": bool, "error": str | None}``.
+    """
+    return enable_autostart_ex()["registered"]
 
 
 def disable_autostart() -> bool:
+    """Public autostart facade — returns True on success.
+
+    PVT-060: see :func:`enable_autostart` for the bool-vs-dict rationale.
+    New callers should use :func:`disable_autostart_ex`.
+    """
+    return disable_autostart_ex()["registered"]
+
+
+def enable_autostart_ex() -> dict:
+    """PVT-060 — rich-result variant of :func:`enable_autostart`.
+
+    Returns
+    -------
+    dict
+        ``{"registered": bool, "error": str | None}`` where:
+
+        - ``registered``: True if the OS autostart entry was successfully
+          registered (matches the bool return of :func:`enable_autostart`).
+        - ``error``: ``None`` on success, or a short string explaining
+          why registration failed (e.g. "HKCU Run key write failed:
+          PermissionError"). Propagated through
+          :func:`voice_typer.server.startup_tasks.sync_autostart`
+          → :meth:`ConfigApplier.apply_config_side_effects`
+          → ``set_config`` IPC response as ``autostart_status.error``
+          so the renderer can surface "Autostart registration failed:
+          <reason>" instead of silently failing.
+    """
     try:
         if _pkg.SYSTEM == "win32":
-            return _pkg._disable_autostart_windows()
+            registered = _pkg._enable_autostart_windows()
         elif _pkg.SYSTEM == "darwin":
-            return _pkg._disable_autostart_macos()
+            registered = _pkg._enable_autostart_macos()
         else:
-            return _pkg._disable_autostart_linux()
-    except Exception as e:
-        log.error("[CONFIG] Failed to disable autostart: %s", e)
-        return False
+            registered = _pkg._enable_autostart_linux()
+        return {"registered": bool(registered), "error": None}
+    except Exception as exc:
+        log.error("[CONFIG] Failed to enable autostart: %s", exc)
+        return {"registered": False, "error": str(exc)}
+
+
+def disable_autostart_ex() -> dict:
+    """PVT-060 — rich-result variant of :func:`disable_autostart`.
+
+    Returns
+    -------
+    dict
+        ``{"registered": bool, "error": str | None}`` where:
+
+        - ``registered``: True if the OS autostart entry was successfully
+          REMOVED. (Note: ``registered=False`` here means "still
+          registered" — i.e. the disable call failed. The key name
+          matches :func:`enable_autostart_ex` so the renderer can use
+          the same field for both.)
+        - ``error``: ``None`` on success, or a short string explaining
+          why removal failed.
+    """
+    try:
+        if _pkg.SYSTEM == "win32":
+            removed = _pkg._disable_autostart_windows()
+        elif _pkg.SYSTEM == "darwin":
+            removed = _pkg._disable_autostart_macos()
+        else:
+            removed = _pkg._disable_autostart_linux()
+        # ``removed`` is True if the entry was removed (or already
+        # absent). ``registered`` (in the result dict) is True if the
+        # disable operation succeeded — i.e. the entry is NO LONGER
+        # registered. We invert the semantic: ``registered = removed``
+        # means "disable succeeded, so is_autostart_enabled() will now
+        # return False". The renderer reads ``registered`` as "is the
+        # autostart entry currently in the desired state?".
+        return {"registered": bool(removed), "error": None}
+    except Exception as exc:
+        log.error("[CONFIG] Failed to disable autostart: %s", exc)
+        return {"registered": False, "error": str(exc)}
 
 
 def is_autostart_enabled() -> bool:

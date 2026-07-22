@@ -30,6 +30,14 @@ proxy.  Every attribute access re-resolves the module from
 Both ``getattr`` and ``setattr`` are delegated, so tests that do
 ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` keep working
 without modification.
+
+G4-M-43: ``ImportError`` is cached on the proxy so a missing dependency
+is reported once (with a clear error) rather than re-attempted on every
+attribute access — re-attempting can mask the root cause with a flood
+of identical tracebacks and waste CPU on every call site. The cached
+error is per-proxy (not per-module), so a different proxy for the same
+module name still gets a fresh attempt — this lets tests inject a
+failing import for one proxy while a sibling proxy resolves normally.
 """
 
 from __future__ import annotations
@@ -41,28 +49,56 @@ from typing import Any
 class _LazyModule:
     """Transparent proxy that defers ``import <name>`` to first use.
 
-    The proxy is intentionally stateless apart from the module name: it
-    never caches the resolved module, so attribute access always
-    reflects the current contents of ``sys.modules``.  This makes it
-    safe to share a single proxy across tests with independent mocks.
+    The proxy caches the most recent ``ImportError`` (G4-M-43) so that
+    a missing dependency is reported once with a clear traceback rather
+    than re-attempted on every attribute access. The successful module
+    is NOT cached — the proxy re-resolves from ``sys.modules`` on every
+    access so per-test ``monkeypatch`` mocks are always honoured (see
+    the module docstring for the test-safety rationale).
     """
 
-    __slots__ = ("_module_name",)
+    __slots__ = ("_module_name", "_cached_error")
 
     def __init__(self, module_name: str) -> None:
         # Bypass our own __setattr__ (which delegates to the wrapped
-        # module) when storing the name on the proxy itself.
+        # module) when storing state on the proxy itself.
         object.__setattr__(self, "_module_name", module_name)
+        # G4-M-43: cache the most recent ImportError so a missing
+        # dependency is reported once, not on every attribute access.
+        # ``None`` means "no error cached — caller may attempt import".
+        object.__setattr__(self, "_cached_error", None)
 
     def _resolve(self):
+        # G4-M-43: if a previous attempt raised ImportError, re-raise
+        # the cached error instead of re-attempting ``import_module``.
+        # This prevents a flood of identical tracebacks when a missing
+        # dependency is accessed from many call sites, and avoids the
+        # CPU cost of repeated failed imports. The cache is reset only
+        # by constructing a new proxy (per-proxy, not per-module), so
+        # tests that fix the import via ``monkeypatch.setitem(sys.modules,
+        # name, mock)`` after a failure MUST construct a fresh proxy
+        # rather than reusing the cached one — see
+        # ``test_cached_error_does_not_resurface_after_sys_modules_fix``
+        # in ``tests/test__lazy_import.py`` for the documented escape
+        # hatch.
+        cached_error = object.__getattribute__(self, "_cached_error")
+        if cached_error is not None:
+            raise cached_error
         # import_module checks sys.modules first, so this is cheap after
         # the first real import and picks up test-injected mocks.
-        return importlib.import_module(object.__getattribute__(self, "_module_name"))
+        module_name = object.__getattribute__(self, "_module_name")
+        try:
+            return importlib.import_module(module_name)
+        except ImportError as exc:
+            # G4-M-43: cache the error so subsequent accesses don't
+            # re-attempt the (likely still-failing) import.
+            object.__setattr__(self, "_cached_error", exc)
+            raise
 
     def __getattr__(self, name: str) -> Any:
         # __getattr__ is only called when normal lookup fails — i.e. for
-        # anything that isn't _module_name or a class attribute.  Every
-        # wrapped-module attribute goes through here.
+        # anything that isn't _module_name, _cached_error, or a class
+        # attribute.  Every wrapped-module attribute goes through here.
         return getattr(self._resolve(), name)
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -89,3 +125,51 @@ def lazy_module(name: str) -> _LazyModule:
     first attribute access.
     """
     return _LazyModule(name)
+
+
+# G4-M-43: list of modules the voice-typer server requires for normal
+# operation. ``probe_required_deps()`` returns the subset that cannot be
+# imported so the caller (typically a startup diagnostic or tray
+# notification) can surface a clear "install these packages" message
+# before the user triggers a feature that depends on them.
+_REQUIRED_DEPS = (
+    "sounddevice",  # recording
+    "pystray",  # tray icon
+    "numpy",  # audio buffers
+    "websocket",  # sidecar WS (Tauri mode)
+)
+
+
+def probe_required_deps(modules: tuple[str, ...] = _REQUIRED_DEPS) -> list[str]:
+    """G4-M-43: probe a list of module names and return the missing ones.
+
+    Returns a sorted list of module names that raised ``ImportError``
+    when imported via :func:`importlib.import_module`. An empty list
+    means all required dependencies are available.
+
+    This is a startup diagnostic — it should be called once at boot
+    (e.g. from ``app.start`` or a dedicated startup-check IPC handler)
+    so the user sees a clear "missing dependencies: X, Y, Z" message
+    rather than a cryptic traceback when they first press the dictation
+    hotkey. The function is safe to call from any thread; it does not
+    cache results (each call re-imports) so callers can re-probe after
+    the user installs a package.
+
+    Parameters
+    ----------
+    modules:
+        The module names to probe. Defaults to
+        :data:`_REQUIRED_DEPS` (sounddevice, pystray, numpy, websocket).
+
+    Returns
+    -------
+    list[str]
+        Sorted list of module names that could NOT be imported.
+    """
+    missing: list[str] = []
+    for name in modules:
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            missing.append(name)
+    return sorted(missing)

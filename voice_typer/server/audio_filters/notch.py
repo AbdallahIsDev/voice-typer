@@ -59,7 +59,10 @@ class NotchFilter(AudioFilter):
             w0 = freq / nyq
             q = 30.0  # narrow notch (~3Hz wide)
             b, a = iirnotch(w0, q)
-            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float64)
+            # PVT-011: cast to float32 once at init (see highpass.py for rationale)
+            b = b.astype(np.float32)
+            a = a.astype(np.float32)
+            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float32)
             self._state = (b, a, zi)
             log.debug("[NOTCH] ready: freq=%.0f Hz, Q=30, sr=%d", freq, self._sample_rate)
         except Exception as exc:
@@ -73,15 +76,23 @@ class NotchFilter(AudioFilter):
 
         b, a, zi = self._state
         original_shape = audio.shape
-        flat = np.ravel(audio).astype(np.float64, copy=False)
+        # PVT-011: process in float32 (coefficients are float32 from init)
+        flat = np.ravel(audio).astype(np.float32, copy=False)
         filtered, zi = lfilter(b, a, flat, zi=zi)
         self._state = (b, a, zi)
-        return filtered.astype(np.float32, copy=False).reshape(original_shape)
+        return filtered.reshape(original_shape)
 
     def reset(self) -> None:
         if self._state is not None:
-            b, a, _ = self._state
-            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float64)
+            b, a, zi = self._state
+            # G4-L-05: zero the existing IIR state BEFORE replacing it
+            # (mirrors HighPassFilter.reset).  The notch filter's carry
+            # state is small (1 sample) but still encodes a residual of
+            # the previous audio, so zero it for symmetry with the
+            # highpass path and the same SEC-audit-008 guarantee.
+            if zi.size > 0:
+                zi.fill(0)
+            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float32)
             # ANTIDENORMAL (Round 0 forward-port): re-apply epsilon to
             # the first state element (mirrors HighPassFilter.reset).
             # Without this, reset() leaves the IIR state at exact zero,

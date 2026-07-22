@@ -14,12 +14,17 @@ state of their own.
 zero behavior change, no new public API, no IPC protocol change.
 
 Importing this package has no side effects beyond defining the mixin
-classes.  The mixins themselves import module-level helpers (``log``,
-``_push_event_now``, ``_bound_history_limit`` …) from
-:mod:`voice_typer.server.ipc_server` at module load time; those helpers
-are defined *before* the ``IPCServer`` class body in ``ipc_server.py``,
-so the circular import is safe (Python resolves it via the partially
-initialized module that is already in ``sys.modules``).
+classes.  The mixins import their helpers directly from the canonical
+``ipc/`` leaf submodules (``voice_typer.server.ipc.validation`` for
+``_validate_dict_payload`` / ``_error_response``,
+``voice_typer.server.ipc.history_bounds`` for ``_bound_history_limit``
+/ ``_bound_history_offset`` / ``_sanitize_config_for_ipc``) and from
+``voice_typer.server.handlers._base`` / ``handlers._log`` for the
+shared base class and logger — they do NOT import from
+:mod:`voice_typer.server.ipc_server`, so there is no circular import
+to break.  (A ``sys.modules`` canonical-name shim that used to live in
+``ipc_server.py`` was removed in PVT-21, 2026-07-22, after this import
+pattern was confirmed.)
 """
 
 from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin
@@ -34,6 +39,16 @@ from voice_typer.server.handlers.microphone_test_handlers import (
 )
 from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
 from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin
+
+# PVT-G5-022 (FA16, 2026-07-19): ``PrivacyHandlersMixin`` was defined
+# in ``privacy_handlers.py`` (CR-87 / CR-88) and imported by
+# ``ipc_server.py`` at module load time, but was missing from this
+# package's ``__all__`` re-export list — same defect class as the
+# R4-F6 ``RepasteHandlersMixin`` fix below. External callers doing
+# ``from voice_typer.server.handlers import PrivacyHandlersMixin``
+# would have hit ``ImportError``. Adding it here makes the package
+# re-export match the actual set of mixin classes.
+from voice_typer.server.handlers.privacy_handlers import PrivacyHandlersMixin
 
 # R4-F6 (IMPROVE-mode run, 2026-07-19): ``RepasteHandlersMixin`` was
 # defined in ``repaste_handlers.py`` (UX-23) and imported by
@@ -65,6 +80,11 @@ __all__ = [
     "ModelHandlersMixin",
     "SystemHandlersMixin",
     "VocabularyAutomationHandlersMixin",
+    # PVT-G5-022: ``PrivacyHandlersMixin`` (CR-87 / CR-88) is part of
+    # the package re-export surface — it was previously defined in
+    # ``privacy_handlers.py`` and imported by ``ipc_server.py`` but
+    # missing from ``__all__`` (same defect class as R4-F6).
+    "PrivacyHandlersMixin",
     # R4-F6: ``RepasteHandlersMixin`` (UX-23) is part of the package
     # re-export surface — it was previously defined in
     # ``repaste_handlers.py`` and imported by ``ipc_server.py`` but

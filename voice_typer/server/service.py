@@ -14,10 +14,18 @@ import logging
 import secrets
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, TypedDict, Union
 
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.config_applier import ConfigApplier
+
+if TYPE_CHECKING:
+    # T1-F9: imported only under ``TYPE_CHECKING`` so the annotation
+    # ``-> "TemplateManager"`` on :meth:`_template_manager` resolves at
+    # type-check time without forcing a runtime import (and a possible
+    # cycle) of :mod:`voice_typer.server.templates`.
+    from voice_typer.server.templates import TemplateManager
 
 log = logging.getLogger(__name__)
 
@@ -25,6 +33,70 @@ log = logging.getLogger(__name__)
 # renderer polls ~every 2s; a 5s TTL cuts filesystem syscall rate ~60% with
 # no user-visible staleness (cache is invalidated on download/delete).
 _MODEL_STATUS_CACHE_TTL_S = 5.0
+
+
+# ── PVT-G5-066: TypedDicts for the most critical ``dict`` returns ──
+# These replace bare ``dict`` annotations so static type checkers (and
+# IDE autocomplete) can verify the shape of the response payloads that
+# flow from the service layer to the IPC layer (and ultimately to the
+# renderer).  The remaining ~47 service methods that still return bare
+# ``dict`` are widened to ``dict[str, object]`` as a mechanical
+# improvement (callers must opt into per-key typing by defining their
+# own TypedDicts when they need stronger guarantees).
+
+
+class StatusResponse(TypedDict):
+    """Response shape of :meth:`VoiceTyperService.get_status`."""
+
+    status: str
+    xruns_since_start: int
+    loaded_via: str
+
+
+class DownloadSuccess(TypedDict):
+    """Successful :meth:`VoiceTyperService.download_model` result."""
+
+    success: bool  # always True
+    model: str
+
+
+class DownloadCancelled(TypedDict):
+    """``download_model`` result when the user cancelled the transfer."""
+
+    success: bool  # always False
+    cancelled: bool  # always True
+    message: str
+
+
+class DownloadConsentRequired(TypedDict):
+    """``download_model`` result when HuggingFace consent is missing."""
+
+    success: bool  # always False
+    error: str
+    consent_required: bool  # always True
+    model: str
+
+
+class DownloadError(TypedDict):
+    """Generic ``download_model`` failure (unknown model / exception)."""
+
+    success: bool  # always False
+    error: str
+
+
+DownloadResult = Union[
+    DownloadSuccess,
+    DownloadCancelled,
+    DownloadConsentRequired,
+    DownloadError,
+]
+
+
+class ForceCancelResult(TypedDict):
+    """Response shape of :meth:`VoiceTyperService.force_cancel_transcription`."""
+
+    success: bool
+    message: str
 
 
 def _apply_audio_preset(preset: str) -> dict:
@@ -93,6 +165,14 @@ class VoiceTyperService:
 
     def __init__(self, app) -> None:
         self._app = app
+        # PVT-21 / CR-18: delegate config side-effects + apply_config to
+        # the extracted ConfigApplier (CR-61 to_filter_dict + CR-97
+        # save_strict()). The previous inline copies were never wired up.
+        # ConfigApplier is the single owner of the config-mutation lock
+        # acquisition + rollback logic (G4-L-20/G4-H-12/G4-L-24) so the
+        # regression test ``tests/regressions/concurrency_test.py`` can
+        # introspect ``ConfigApplier.apply_config`` for the lock.
+        self._config_applier = ConfigApplier(self)
         # HIGH-8 / SERVICE-1: per-download cancellation events guarded by
         # a lock, so concurrent ``download_model`` IPC calls (via the
         # ThreadPoolExecutor) don't overwrite each other's event. The
@@ -110,7 +190,10 @@ class VoiceTyperService:
         # directly as a test seam. Production code uses the per-download
         # dict above; ``cancel_model_download`` checks this attribute as
         # a fallback so the legacy test seam continues to work.
-        self._download_cancel_event: Any = None
+        # T1-F10: typed as ``threading.Event | None`` (was ``Any``) so
+        # static checkers can verify the ``.is_set()`` / ``.set()``
+        # calls in ``cancel_model_download`` against the real Event API.
+        self._download_cancel_event: threading.Event | None = None
         # PERF-FIX-1: short-TTL cache (5s) for refresh_microphones so
         # rapid refresh clicks don't re-query PortAudio each time.
         self._microphones_cache: list = []
@@ -174,7 +257,7 @@ class VoiceTyperService:
 
     # ── Status ──────────────────────────────────────────────────
 
-    def get_status(self) -> dict:
+    def get_status(self) -> StatusResponse:
         """Return the current app state plus audio-quality telemetry.
 
         ERR-021: previously returned only the tray state string. The
@@ -221,7 +304,7 @@ class VoiceTyperService:
 
     # ── Force cancel transcription (PR-2 Finding #3) ─────────────
 
-    def force_cancel_transcription(self) -> dict:
+    def force_cancel_transcription(self) -> ForceCancelResult:
         """Force-cancel a stuck transcription.
 
         PR-2 Finding #3: invokes ``_force_recover_from_stuck_transcription``
@@ -241,7 +324,7 @@ class VoiceTyperService:
 
     # ── Config ──────────────────────────────────────────────────
 
-    def get_config(self) -> dict:
+    def get_config(self) -> dict[str, object]:
         """Return the sanitized config (API keys redacted).
 
         RW-01: also includes a ``keyring_status`` field describing the
@@ -270,7 +353,7 @@ class VoiceTyperService:
             }
         return sanitized
 
-    def get_defaults(self) -> dict:
+    def get_defaults(self) -> dict[str, object]:
         """Return default config values (sanitized).
 
         RW-01: includes the same ``keyring_status`` field as
@@ -295,15 +378,33 @@ class VoiceTyperService:
             }
         return sanitized
 
-    def set_config(self, updates: dict) -> tuple[dict, list]:
-        """Validate and apply config updates. Returns (validated, errors)."""
-        from voice_typer.server.config import validate_config_update
-
-        return validate_config_update(updates)
-
-    def save_config(self) -> bool:
-        """Persist config to disk."""
-        return self._app.config.save()
+    # PVT-G5-024 (High, partial): ``set_config`` and ``save_config``
+    # were REMOVED from this service layer.
+    #
+    # Rationale:
+    #   - ``set_config`` (validated-config helper) had 0 production
+    #     callers — the IPC ``set_config`` command is implemented in
+    #     ``handlers/config_handlers.py::_handle_set_config``, which
+    #     calls ``config.validate_config_update`` directly and then
+    #     delegates to ``service.apply_config`` (NOT this method).
+    #   - ``save_config`` (``self._app.config.save()`` wrapper) had 0
+    #     production callers; the IPC ``save_config`` command was
+    #     removed in ERR-IPC-003.  ``Config.save()`` is now invoked
+    #     inside ``service.apply_config`` under the config-mutation
+    #     lock so disk writes can't race.
+    #
+    # Callers should use:
+    #   - ``config.validate_config_update(updates)`` directly for
+    #     validation, OR
+    #   - ``service.apply_config(updates)`` for the full atomic
+    #     validate→mutate→side-effects→save→tray-invalidate flow.
+    #
+    # Tests that pinned the old methods (notably
+    # ``tests/fixtures/ipc_test_helpers.py:155`` which assigns
+    # ``service.set_config.return_value = ...`` on a MagicMock, and
+    # ``tests/test_di_providers.py:544`` which asserts ``set_config``
+    # is declared on ``ServiceProtocol``) need follow-up updates —
+    # see the FA11-retry return summary.
 
     # ── History ─────────────────────────────────────────────────
 
@@ -323,7 +424,7 @@ class VoiceTyperService:
         """
         return self._app.history_db.search(query, limit, offset, raise_on_error=True)
 
-    def get_today_stats(self) -> dict:
+    def get_today_stats(self) -> dict[str, object]:
         """Return today's transcription statistics.
 
         ERR-013: raise_on_error=True — see ``get_history``.
@@ -416,7 +517,7 @@ class VoiceTyperService:
             return self._app._microphones
 
     # AUDIO-RMS: IPC endpoint for real-time RMS level.
-    def get_rms_level(self) -> dict:
+    def get_rms_level(self) -> dict[str, object]:
         """AUDIO-RMS: Return the current RMS level from the recorder.
 
         Returns dict with 'rms' (float, 0.0 if not recording) and
@@ -436,7 +537,7 @@ class VoiceTyperService:
 
     def microphone_test_start(
         self, mic_id: str | None = None, duration: float = 10.0, filters: dict | None = None
-    ) -> dict:
+    ) -> dict[str, object]:
         """Start a microphone test recording.
 
         Args:
@@ -451,7 +552,7 @@ class VoiceTyperService:
 
         return start_test(mic_id=mic_id, duration=duration, filters=filters)
 
-    def microphone_test_stop(self) -> dict:
+    def microphone_test_stop(self) -> dict[str, object]:
         """Stop the microphone test and return audio data as base64 WAV.
 
         Also attempts to auto-transcribe the recorded audio (best-effort)
@@ -510,19 +611,19 @@ class VoiceTyperService:
 
         return result
 
-    def microphone_test_cancel(self) -> dict:
+    def microphone_test_cancel(self) -> dict[str, object]:
         """Cancel a running microphone test without returning audio."""
         from voice_typer.server.level_monitor import cancel_test_recording as cancel_test
 
         return cancel_test()
 
-    def microphone_test_status(self) -> dict:
+    def microphone_test_status(self) -> dict[str, object]:
         """Check if a microphone test is currently active."""
         from voice_typer.server.level_monitor import is_test_active
 
         return {"active": is_test_active()}
 
-    def microphone_test_get_level(self) -> dict:
+    def microphone_test_get_level(self) -> dict[str, object]:
         """Get the current real-time audio level.
 
         Both the test and the level monitor use the same single PortAudio
@@ -535,7 +636,7 @@ class VoiceTyperService:
 
         return get_level()
 
-    def level_monitor_start(self, mic_id: str | None = None) -> dict:
+    def level_monitor_start(self, mic_id: str | None = None) -> dict[str, object]:
         """Start continuous audio level monitoring.
 
         Also initialises the audio processor for the live level bar
@@ -570,13 +671,13 @@ class VoiceTyperService:
             pass
         return result
 
-    def level_monitor_stop(self) -> dict:
+    def level_monitor_stop(self) -> dict[str, object]:
         """Stop continuous audio level monitoring."""
         from voice_typer.server.level_monitor import stop_monitoring
 
         return stop_monitoring()
 
-    def level_monitor_status(self) -> dict:
+    def level_monitor_status(self) -> dict[str, object]:
         """Check if continuous level monitoring is active."""
         from voice_typer.server.level_monitor import is_monitoring
 
@@ -609,7 +710,7 @@ class VoiceTyperService:
     # ``%APPDATA%\voice-typer`` on Windows).  This file survives
     # Electron userData resets and reinstalls.
 
-    def _template_manager(self):
+    def _template_manager(self) -> "TemplateManager":
         """Lazily obtain (or create) the app's TemplateManager."""
         app = self._app
         tm = getattr(app, "_template_manager", None)
@@ -688,7 +789,7 @@ class VoiceTyperService:
 
     # ── Volume / Model status (ARCH-005) ────────────────────────
 
-    def get_volume_backend_status(self) -> dict:
+    def get_volume_backend_status(self) -> dict[str, object]:
         """Return the volume ducking backend status."""
         ducker = getattr(self._app, "_volume_ducker", None)
         if ducker is None:
@@ -719,7 +820,7 @@ class VoiceTyperService:
                 "reason": str(exc),
             }
 
-    def get_model_status(self) -> dict:
+    def get_model_status(self) -> dict[str, object]:
         """Return the model download/dependency status for each ASR backend.
 
         PERF-10 / SVC-9: results are cached for ``_MODEL_STATUS_CACHE_TTL_S``
@@ -741,7 +842,7 @@ class VoiceTyperService:
             self._model_status_cache_ts = now
         return status
 
-    def _compute_model_status(self) -> dict:
+    def _compute_model_status(self) -> dict[str, object]:
         """Compute the model status from the filesystem (no caching).
 
         PERF-10 / SVC-9: extracted from :meth:`get_model_status` so the
@@ -811,7 +912,7 @@ class VoiceTyperService:
             self._model_status_cache = None
             self._model_status_cache_ts = 0.0
 
-    def delete_model(self, model_name: str) -> dict:
+    def delete_model(self, model_name: str) -> dict[str, object]:
         """Delete a downloaded model from the HuggingFace cache.
 
         LOG-001: logs success/failure with model name and repo ID.
@@ -899,7 +1000,7 @@ class VoiceTyperService:
             log.warning("[SERVICE] delete_model failed: %s", exc)
             return {"success": False, "message": redact_secret(redact_url(str(exc)))}
 
-    def test_llm_connection(self) -> dict:
+    def test_llm_connection(self) -> dict[str, object]:
         """Test the LLM polish API connection.
 
         NEW-DEAD-015: ``LLMPolisher.test_connection`` was previously
@@ -985,7 +1086,7 @@ class VoiceTyperService:
 
     # ── Vocabulary (ARCH-005) ───────────────────────────────────
 
-    def get_vocabulary(self) -> dict:
+    def get_vocabulary(self) -> dict[str, object]:
         """Return the current vocabulary entries.
 
         ERR-IPC-005 (fix): previously called ``vm.list_entries()`` which
@@ -1006,7 +1107,7 @@ class VoiceTyperService:
         data["_user_file"] = str(vm._user_path) if hasattr(vm, "_user_path") else None
         return data
 
-    def save_vocabulary_with_diff(self, data: dict) -> dict:
+    def save_vocabulary_with_diff(self, data: dict) -> dict[str, object]:
         """Save vocabulary with bundled diff logic.
 
         ARCH-005: Moved from ipc_server.py.  Only saves user customizations
@@ -1061,232 +1162,18 @@ class VoiceTyperService:
 
     # ── Config side effects (ARCH-005) ──────────────────────────
 
-    def apply_config_side_effects(self, updates: dict) -> None:
-        """Apply side effects after config changes.
+    def apply_config_side_effects(self, updates: dict) -> dict:
+        """Apply side effects after config changes. Delegates to ConfigApplier (CR-61 + CR-97, PVT-21).
 
-        ARCH-005: Centralizes the post-config-update hooks that were
-        previously scattered across ipc_server.py.
+        Returns
+        -------
+        dict
+            PVT-060 (session-3): side-effect status dict from
+            :meth:`ConfigApplier.apply_config_side_effects` (shape
+            ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
+            Callers that previously discarded the return value still work.
         """
-        app = self._app
-        config = app.config
-
-        # Sync autostart if autostart setting changed
-        if "autostart" in updates:
-            try:
-                # RW-9 Phase 2: invoke startup_tasks directly. The
-                # ``app._sync_autostart`` delegate was removed; callers now
-                # target startup_tasks (and tests monkeypatch startup_tasks).
-                from voice_typer.server import startup_tasks
-
-                startup_tasks.sync_autostart(app)
-            except Exception as e:
-                log.warning("Failed to sync autostart: %s", e)
-
-        # PW-3: Sync the prewarm scheduled task when fast_startup changes.
-        # When the user toggles fast_startup in Settings → General, the
-        # OS-level scheduled task must be registered (True) or
-        # unregistered (False) immediately — otherwise the task fires
-        # silently at next logon and exits with EXIT_DISABLED, or fails
-        # to fire when the user re-enables it.
-        if "fast_startup" in updates:
-            try:
-                from voice_typer.server import startup_tasks
-
-                startup_tasks.sync_prewarm_task(app)
-                log.info(
-                    "[SERVICE] Prewarm task synced after fast_startup change (fast_startup=%s)",
-                    bool(updates.get("fast_startup")),
-                )
-            except Exception as e:
-                log.warning("Failed to sync prewarm task: %s", e)
-
-        # Register/unregister ESC hotkey
-        if "esc_cancel_enabled" in updates:
-            try:
-                if updates["esc_cancel_enabled"]:
-                    app.hotkeys.register_esc()
-                else:
-                    app.hotkeys.unregister_esc()
-            except Exception as e:
-                log.warning("Failed to sync ESC hotkey: %s", e)
-
-        # Register/unregister repaste hotkey
-        if "repaste_hotkey" in updates or "repaste_enabled" in updates:
-            try:
-                app.hotkeys.register_repaste()
-            except Exception as e:
-                log.warning("Failed to sync repaste hotkey: %s", e)
-
-        # NEW-UX-027: re-register the dictation hotkey when recording_mode
-        # or hotkey changes.
-        if "recording_mode" in updates or "hotkey" in updates or "push_to_talk_hotkey" in updates:
-            try:
-                app.hotkeys.restart(getattr(config, "hotkey", "<f2>"))
-                log.info(
-                    "[SERVICE] Re-registered hotkey after recording_mode/hotkey change (mode=%s)",
-                    getattr(config, "recording_mode", "toggle"),
-                )
-            except Exception as e:
-                log.warning("Failed to re-register hotkey after mode change: %s", e)
-
-        # BUGFIX: tray_left_click_action was never handled — the tray
-        # hardcoded "Toggle Dictation" as the left-click default, so the
-        # Settings page choice was completely ignored.
-        if "tray_left_click_action" in updates:
-            try:
-                app.tray.invalidate_menu_cache()
-                log.info(
-                    "[SERVICE] Tray left-click action updated to: %s",
-                    updates["tray_left_click_action"],
-                )
-            except Exception as e:
-                log.warning("Failed to update tray left-click action: %s", e)
-
-        # BUGFIX: show_notifications changes were not applied until restart.
-        if "show_notifications" in updates:
-            try:
-                app.tray.set_notifications_enabled(bool(updates["show_notifications"]))
-                log.info(
-                    "[SERVICE] Notifications %s",
-                    "enabled" if updates["show_notifications"] else "disabled",
-                )
-            except Exception as e:
-                log.warning("Failed to update notifications: %s", e)
-
-        # BUGFIX: bubble_behavior changes were not applied until restart.
-        if "bubble_behavior" in updates:
-            try:
-                behavior = updates["bubble_behavior"]
-                if behavior == "always_visible":
-                    try:
-                        if hasattr(app, "_waveform_bubble"):
-                            app._waveform_bubble.show()
-                    except Exception:
-                        pass
-                elif behavior == "show_on_record":
-                    # Hide bubble immediately when switching away from always_visible
-                    try:
-                        if hasattr(app, "_waveform_bubble") and app._waveform_bubble.visible:
-                            app._waveform_bubble.hide()
-                    except Exception:
-                        pass
-                log.info("[SERVICE] Bubble behavior updated to: %s", behavior)
-            except Exception as e:
-                log.warning("Failed to update bubble behavior: %s", e)
-
-        # BUGFIX: volume_duck_smart changes were not applied until restart.
-        if "volume_duck_smart" in updates:
-            try:
-                if hasattr(app, "_volume_ducker"):
-                    app._volume_ducker.set_smart_duck_enabled(bool(updates["volume_duck_smart"]))
-            except Exception as e:
-                log.warning("Failed to update smart duck: %s", e)
-
-        # BUGFIX: volume_duck_smart_poll_interval_ms changes not applied until restart.
-        if "volume_duck_smart_poll_interval_ms" in updates:
-            try:
-                if hasattr(app, "_volume_ducker"):
-                    app._volume_ducker.set_smart_duck_poll_interval(int(updates["volume_duck_smart_poll_interval_ms"]))
-            except Exception as e:
-                log.warning("Failed to update smart duck poll interval: %s", e)
-
-        # Apply the audio enhancement preset: map preset name to filter toggles.
-        if "audio_preset" in updates:
-            try:
-                preset = updates["audio_preset"]
-                preset_filters = _apply_audio_preset(preset)
-                # Set individual filter toggles from the preset
-                for k, v in preset_filters.items():
-                    setattr(config, k, v)
-                # Sync the legacy noise_filter_enabled flag so downstream
-                # checks (e.g. update_level_processor) correctly disable
-                # the processor when preset is "off". The preset's filter
-                # toggles are all False, but noise_filter_enabled was not
-                # part of the preset dict — it stays True, causing the
-                # level monitor to create an AudioProcessor even when no
-                # filters are active, which masks low-level sounds.
-                config.noise_filter_enabled = preset != "off"
-                log.info("[SERVICE] Applied audio preset '%s': %s", preset, preset_filters)
-            except Exception as e:
-                log.warning("Failed to apply audio preset: %s", e)
-
-        # ADR 0007 §6.1: Rebuild the dictation AudioProcessor's filter
-        # chain when any noise_filter_* / audio_preset / noise_suppression_method
-        # config field changes. This fixes the bug where Settings UI
-        # changes didn't take effect in dictation until app restart.
-        # All filter-chain-related config keys (old + new per ADR 0007 §5).
-        filter_chain_keys = {
-            # Preset
-            "audio_preset",
-            # Individual filter toggles
-            "noise_filter_enabled",
-            "noise_filter_highpass",
-            "noise_filter_gate",
-            "noise_filter_rnnoise",
-            "noise_filter_post_capture",
-            "noise_filter_eq",
-            "noise_filter_compressor",
-            "noise_filter_limiter",
-            "noise_filter_notch",
-            # Noise suppressor backend
-            "noise_suppression_method",
-            # Filter parameters
-            "noise_filter_highpass_cutoff_hz",
-            "noise_filter_gate_hold_ms",
-            "noise_filter_gate_open_threshold_db",
-            "noise_filter_gate_close_threshold_db",
-            "noise_filter_gate_attack_ms",
-            "noise_filter_gate_release_ms",
-            "noise_filter_eq_low_db",
-            "noise_filter_eq_mid_db",
-            "noise_filter_eq_high_db",
-            "noise_filter_compressor_threshold_db",
-            "noise_filter_compressor_ratio",
-            "noise_filter_compressor_attack_ms",
-            "noise_filter_compressor_release_ms",
-            "noise_filter_compressor_output_gain_db",
-            "noise_filter_limiter_ceiling_db",
-            "noise_filter_limiter_release_ms",
-            "noise_filter_notch_frequency_hz",
-        }
-        if filter_chain_keys & set(updates.keys()):
-            # ADR 0007: rebuild the dictation processor (the main fix).
-            try:
-                if hasattr(app, "_rebuild_audio_processor"):
-                    app._rebuild_audio_processor()
-            except Exception as e:
-                log.warning("Failed to rebuild dictation audio processor: %s", e)
-
-            # Also sync the live level bar + mic test processors so
-            # they reflect the new filters immediately.
-            try:
-                from voice_typer.server.level_monitor import (
-                    update_level_processor,
-                    update_test_filters,
-                )
-
-                filters_dict = {
-                    "noise_filter_enabled": getattr(config, "noise_filter_enabled", True),
-                    "noise_filter_highpass": getattr(config, "noise_filter_highpass", True),
-                    "noise_filter_gate": getattr(config, "noise_filter_gate", True),
-                    "noise_filter_rnnoise": getattr(config, "noise_filter_rnnoise", True),
-                    "noise_filter_post_capture": getattr(config, "noise_filter_post_capture", True),
-                }
-                update_level_processor(filters_dict)
-                update_test_filters(filters_dict)
-            except Exception as e:
-                log.warning("Failed to sync level bar processor: %s", e)
-
-    # ── ADR 0008 §3.1: service-layer wrappers for private-attr access ──
-    #
-    # ARCH-REFAC-004 / TASK-2: the IPC handlers under
-    # ``voice_typer/server/handlers/`` previously reached into
-    # ``self.app._audio_processor``, ``self.app._config_mutation_lock``,
-    # ``self.app.change_model``, and ``self.app.models.set_active_backend``
-    # directly.  ADR 0008 §3.1 requires handlers to go through the
-    # service layer; the methods below provide that path so the
-    # handlers no longer tunnel through ``AppProtocol``'s private
-    # attributes.
+        return self._config_applier.apply_config_side_effects(updates)
 
     def get_audio_status(self) -> dict:
         """Return the audio filter chain status (ADR 0007).
@@ -1339,118 +1226,18 @@ class VoiceTyperService:
         """
         self._app.models.set_active_backend(backend)
 
-    def apply_config(self, updates: dict) -> None:
-        """Apply validated config updates atomically.
+    def apply_config(self, updates: dict) -> dict:
+        """Apply validated config updates atomically. Delegates to ConfigApplier (CR-61 + CR-97, PVT-21).
 
-        ADR 0008 §3.1: wraps the config-mutation lock + setattr +
-        side-effects + save + tray-cache invalidation sequence so the
-        IPC ``set_config`` handler doesn't access
-        ``self.app._config_mutation_lock``, ``self.app.config``, or
-        ``self.app.tray.invalidate_menu_cache()`` directly.
-
-        RACE-011: holds the app's config-mutation lock for the full
-        read-modify-save sequence so a concurrent ``set_config`` IPC
-        call can't interleave attribute writes with this update.
-
-        AUDIO-PRESET-SAVE-FIX: runs :meth:`apply_config_side_effects`
-        INSIDE the lock and saves AFTER it, so that any side-effect
-        mutations (e.g. ``noise_filter_*`` toggles from the audio
-        preset) are persisted to disk.  The previous order (save
-        first, then apply side effects outside the lock) meant that
-        when the user set ``audio_preset: "off"``, only the preset
-        name was saved; the individual ``noise_filter_*`` toggles
-        were NOT persisted.
-
-        ARCH-043: invalidates the tray menu cache after the save so
-        the next menu build picks up the new config values (model
-        size, hotkey, etc.).
-
-        RW-01: API key fields (``openai_api_key`` / ``groq_api_key`` /
-        ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
-        are routed through ``credential_store.store_secret()`` BEFORE
-        ``setattr(app.config, ...)`` so the secret lands in the OS
-        keychain (with plaintext fallback). The in-memory Config
-        attribute is then set to the real value so cloud_engines /
-        llm_polish can use it. The subsequent ``app.config.save()``
-        writes only a ``keyring://<provider>`` reference token to
-        config.json (when keyring is available) — see
-        ``Config.save()`` for the on-disk format.
-
-        Parameters
-        ----------
-        updates :
-            Validated config updates dict (allowlisted keys only).
-            The caller is responsible for validating the payload —
-            typically via :func:`voice_typer.server.config.validate_config_update`.
+        Returns
+        -------
+        dict
+            PVT-060 (session-3): side-effect status dict from
+            :meth:`ConfigApplier.apply_config` (shape
+            ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
+            Callers that previously discarded the return value still work.
         """
-        app = self._app
-        with app._config_mutation_lock:
-            # RW-01: pre-route api_key fields through credential_store.
-            # We do this BEFORE setattr so that even if save() is
-            # never called (e.g. apply_config_side_effects raises),
-            # the secret is already persisted to the keychain. The
-            # in-memory attribute is then set to the real value.
-            try:
-                from voice_typer.server import credential_store
-
-                for k, v in list(updates.items()):
-                    provider = credential_store.CONFIG_FIELD_TO_PROVIDER.get(k)
-                    if provider is None:
-                        continue
-                    # store_secret never raises — it falls back to
-                    # plaintext in config.json on keyring failure.
-                    credential_store.store_secret(provider, v)
-                    # The in-memory attribute carries the real value
-                    # (NOT the keyring:// reference) so cloud_engines /
-                    # llm_polish / dictation_pipeline can use it. The
-                    # subsequent save() will replace the on-disk value
-                    # with a reference token (when keyring is available).
-            except Exception as exc:
-                log.warning(
-                    "[SERVICE] RW-01: credential_store pre-route failed: %s — "
-                    "falling back to plain setattr (secret will be in config.json)",
-                    exc,
-                )
-            for k, v in updates.items():
-                setattr(app.config, k, v)
-            # Drop the cached LLMPolisher when any llm_* config changes so the
-            # next polish request rebuilds it with the new api_key/url/model/
-            # preset. The polisher is constructed lazily in
-            # DictationPipeline._apply_llm_polish from these fields; without
-            # invalidation it would keep using stale credentials/settings.
-            if any(k.startswith("llm_") for k in updates):
-                with contextlib.suppress(Exception):
-                    app._llm_polisher = None
-            # Apply side effects inside the lock so Config mutations
-            # from the preset are visible to save().
-            self.apply_config_side_effects(updates)
-            app.config.save()
-
-            # ADR-0010 §8.3b: propagate clipboard config changes to the
-            # live ClipboardManager (DP7). Without this, runtime changes
-            # to ``clipboard_save_restore`` / ``clipboard_restore_delay_ms``
-            # / ``paste_on_stop`` would not take effect until app restart.
-            # The keys are only present in ``updates`` because they passed
-            # validation (see §2.11 — both keys are in
-            # ``IPC_CONFIG_ALLOWLIST``). Run inside the lock so
-            # ``refresh_config`` reads a consistent, persisted config
-            # snapshot, not a torn one from a concurrent IPC update.
-            clipboard_keys = {
-                "clipboard_save_restore",
-                "clipboard_restore_delay_ms",
-                "paste_on_stop",
-            }
-            if clipboard_keys & set(updates.keys()):
-                with contextlib.suppress(Exception):
-                    app.clipboard.refresh_config(app.config)
-        # ARCH-043: invalidate the tray menu cache so the next menu
-        # build picks up the new config values.
-        try:
-            app.tray.invalidate_menu_cache()
-        except Exception:
-            log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
-
-    # ── Onboarding (#8) ─────────────────────────────────────────────
+        return self._config_applier.apply_config(updates)
 
     def onboarding_is_first_run(self) -> dict:
         """Check if this is the first run (onboarding needed)."""
@@ -1972,7 +1759,7 @@ class VoiceTyperService:
             }
         return None
 
-    def download_model(self, model_name: str) -> dict:
+    def download_model(self, model_name: str) -> DownloadResult:
         """Download a model weight file via HuggingFace.
 
         UX-005: Downloads the specified model (tiny.en, small.en, medium.en,
@@ -2495,8 +2282,21 @@ class VoiceTyperService:
 
     # Hardcoded list of personal-data file names (not glob patterns)
     # to delete / export.  Glob patterns are handled separately below.
+    #
+    # G4-CR-04: ``history.db-wal`` and ``history.db-shm`` are SQLite's
+    # WAL (Write-Ahead Log) sidecar files.  In WAL journal mode
+    # (HistoryDB's default — see ``history_db._open_write_conn``),
+    # recent writes (transcription text) live in ``history.db-wal``
+    # and are only merged into ``history.db`` on checkpoint.  Empirically,
+    # unlinking ``history.db`` while leaving ``history.db-wal`` behind
+    # leaves dictated plaintext recoverable from the WAL — a GDPR Art. 17
+    # violation.  We list all three here AND ``delete_all_personal_data``
+    # additionally calls ``hdb.checkpoint(truncate=True)`` +
+    # ``hdb.close()`` before unlinking so the WAL is empty when removed.
     _GDPR_PERSONAL_FILES: tuple = (
         "history.db",
+        "history.db-wal",
+        "history.db-shm",
         "voice-typer-recovery.json",
         "config.json",
         "voice-typer-corrections.json",
@@ -2516,8 +2316,36 @@ class VoiceTyperService:
         Delete every personal-data artifact the app owns (history DB,
         crash-recovery buffer, config + secrets, corrections /
         vocabulary / templates, runtime log, mic-test recordings,
-        crash dumps).  Model weights are explicitly preserved — they
-        are not personal data (CR-87 spec).
+        crash dumps, archived crash diagnostics).  Model weights are
+        explicitly preserved — they are not personal data (CR-87 spec).
+
+        G4-CR-04: SQLite WAL sidecars (``history.db-wal`` /
+        ``history.db-shm``) are unlinked alongside ``history.db``,
+        and ``hdb.checkpoint(truncate=True)`` + ``hdb.close()`` are
+        called BEFORE the unlink so the writer thread releases its
+        file descriptor and the WAL is empty when removed.  Without
+        this, dictated plaintext remains recoverable from the WAL by
+        any process with filesystem access.
+
+        G4-CR-05: After file deletion, also iterates
+        ``credential_store.PROVIDER_TO_CONFIG_FIELD`` and calls
+        ``credential_store.delete_secret(provider, config=app.config)``
+        for each provider (openai / groq / deepgram / cloud / llm) —
+        removing the entry from the OS keychain (with plaintext
+        fallback for headless Linux), clearing the on-disk reference
+        token in config.json, AND zeroing the in-memory ``Config``
+        attribute.  Finally calls
+        ``credential_store.clear_in_memory_secrets(app.config)`` as
+        a belt-and-suspenders pass, and invalidates the cached
+        ``LLMPolisher`` (``app._llm_polisher = None``) so the next
+        polish request rebuilds with empty credentials rather than
+        reusing a cached client bound to the now-deleted key.
+
+        G4-M-33: ``crash_diagnostics_archive/`` (where the crash
+        handler moves processed crash dumps — see agent 2-p's
+        crash_handler change) is also recursively removed.  Without
+        this, archived crash dumps (which may contain memory
+        snapshots) survive the GDPR delete.
 
         Returns::
 
@@ -2532,13 +2360,66 @@ class VoiceTyperService:
         treated as success — there's nothing to erase, but the user's
         right to erasure is satisfied.
         """
+        import shutil
+
+        from voice_typer.server import credential_store
         from voice_typer.server.config import _config_dir
 
         config_dir = _config_dir()
         erased: list = []
         failed: dict = {}
 
+        # ── G4-CR-04: checkpoint + close the live HistoryDB writer
+        # BEFORE unlinking so the WAL is empty when removed and the
+        # writer thread releases its file descriptor (Windows refuses
+        # to unlink an open file).  Wrapped in try/except so a failure
+        # here doesn't abort the GDPR delete — the file unlink loop
+        # below will still try to remove the files (and report any
+        # PermissionError in ``failed``).  ``checkpoint`` is added by
+        # agent 2-b; if the method is missing on this build we skip
+        # gracefully (the WAL sidecar unlink below still clears stale
+        # WAL contents, but dictated plaintext written since the last
+        # passive checkpoint may be recoverable in that case).
+        hdb = getattr(self._app, "history_db", None)
+        if hdb is not None:
+            try:
+                checkpoint_fn = getattr(hdb, "checkpoint", None)
+                if callable(checkpoint_fn):
+                    try:
+                        checkpoint_fn(truncate=True)
+                    except TypeError:
+                        # Method exists but doesn't accept truncate= kwarg
+                        # (older signature) — try positional.
+                        try:
+                            checkpoint_fn(True)
+                        except Exception:
+                            log.debug(
+                                "[SERVICE] GDPR delete: hdb.checkpoint(True) failed",
+                                exc_info=True,
+                            )
+                    except Exception:
+                        log.debug(
+                            "[SERVICE] GDPR delete: hdb.checkpoint(truncate=True) failed",
+                            exc_info=True,
+                        )
+            except Exception:
+                log.debug(
+                    "[SERVICE] GDPR delete: hdb.checkpoint access failed",
+                    exc_info=True,
+                )
+            try:
+                hdb.close()
+            except Exception:
+                log.debug(
+                    "[SERVICE] GDPR delete: hdb.close() before unlink failed",
+                    exc_info=True,
+                )
+
         # 1. Hardcoded personal-data files.
+        # G4-CR-04: wrap unlink in try/except PermissionError so a
+        # locked file (Windows: file open in another process; POSIX:
+        # EBUSY on rare mount points) is reported in ``failed`` rather
+        # than aborting the whole GDPR delete.
         for name in self._GDPR_PERSONAL_FILES:
             path = config_dir / name
             if not path.exists():
@@ -2546,6 +2427,8 @@ class VoiceTyperService:
             try:
                 path.unlink()
                 erased.append(str(path))
+            except PermissionError as exc:
+                failed[str(path)] = f"{type(exc).__name__}: {exc}"
             except Exception as exc:
                 failed[str(path)] = f"{type(exc).__name__}: {exc}"
 
@@ -2556,24 +2439,97 @@ class VoiceTyperService:
                 try:
                     path.unlink()
                     erased.append(str(path))
+                except PermissionError as exc:
+                    failed[str(path)] = f"{type(exc).__name__}: {exc}"
                 except Exception as exc:
                     failed[str(path)] = f"{type(exc).__name__}: {exc}"
 
-        # 3. Best-effort: if the app exposes a live ``history_db``,
-        # call its ``clear_all()`` so any in-memory caches are flushed
-        # (the on-disk file was already unlinked above; this prevents
-        # a re-flush from rewriting it).  Wrapped in try/except so a
-        # failure here doesn't fail the whole GDPR delete (the file is
-        # already gone, which is what the user wanted).
-        try:
-            hdb = getattr(self._app, "history_db", None)
-            if hdb is not None and hasattr(hdb, "clear_all"):
-                hdb.clear_all()
-        except Exception:
-            log.debug("[SERVICE] history_db.clear_all() during GDPR delete failed", exc_info=True)
+        # ── G4-M-33: remove archived crash diagnostics (agent 2-p's
+        # crash_handler moves processed dumps here instead of unlinking
+        # them so the diagnostic bundle can include them).  Best-effort:
+        # if the directory doesn't exist (fresh install, or older build
+        # that hasn't picked up 2-p's change yet), this is a no-op.  If
+        # shutil.rmtree hits a PermissionError on a child file, the
+        # directory path is added to ``failed`` rather than aborting.
+        archive_dir = config_dir / "crash_diagnostics_archive"
+        if archive_dir.exists():
+            try:
+                shutil.rmtree(archive_dir)
+                erased.append(str(archive_dir))
+            except PermissionError as exc:
+                failed[str(archive_dir)] = f"{type(exc).__name__}: {exc}"
+            except Exception as exc:
+                failed[str(archive_dir)] = f"{type(exc).__name__}: {exc}"
+
+        # ── G4-CR-05: clear OS keychain entries + in-memory Config
+        # attributes for every provider.  ``delete_secret`` is
+        # best-effort (never raises) — it removes the keychain entry,
+        # clears the on-disk reference token in config.json, AND (when
+        # ``config=`` is passed) zeros the in-memory attribute.  We pass
+        # ``config=app.config`` so all three stores are cleared in one
+        # call per provider.  Failures (e.g. keyring backend broken)
+        # are logged inside ``delete_secret``; we surface them in
+        # ``failed`` so the renderer can show the user which providers
+        # could not be cleared from the keychain.
+        app = self._app
+        app_config = getattr(app, "config", None)
+        for provider in credential_store.PROVIDER_TO_CONFIG_FIELD:
+            try:
+                credential_store.delete_secret(provider, config=app_config)
+            except Exception as exc:
+                key = f"keychain:{provider}"
+                failed[key] = f"{type(exc).__name__}: {exc}"
+
+        # Belt-and-suspenders: zero every api_key attribute on the
+        # in-memory Config (covers any provider whose delete_secret
+        # call above didn't get to setattr, e.g. because of an early
+        # return inside delete_secret — currently impossible, but
+        # defense in depth).
+        if app_config is not None:
+            try:
+                credential_store.clear_in_memory_secrets(app_config)
+            except Exception as exc:
+                failed["in_memory_config"] = f"{type(exc).__name__}: {exc}"
+
+        # Invalidate the cached LLMPolisher / CloudEngine instances so
+        # the next request rebuilds them with the (now-empty) API key
+        # rather than reusing a client bound to the deleted credential.
+        # ``apply_config`` already does this when an ``llm_*`` field
+        # changes, but the GDPR delete path bypasses ``apply_config``
+        # (it deletes the on-disk file directly), so we invalidate here
+        # explicitly.  ``contextlib.suppress`` because the attribute
+        # may not exist on fresh installs / test mocks.
+        with contextlib.suppress(Exception):
+            app._llm_polisher = None
+        with contextlib.suppress(Exception):
+            app._cloud_engine = None
+
+        # ── G4-CR-04: re-create the live HistoryDB instance so the app
+        # can keep accepting dictations after the GDPR delete.  The
+        # writer thread was shut down by ``hdb.close()`` above; without
+        # re-creation, the next ``add_transcription`` call would raise
+        # (or silently drop the write) because the writer queue is
+        # closed.  We construct a fresh ``HistoryDB`` at the default
+        # path (``<config_dir>/history.db``) — HistoryDB.__init__ will
+        # re-create the file with a fresh schema on first write.  Best-
+        # effort: if construction fails (e.g. disk full, permissions),
+        # log and leave ``app.history_db`` as the closed instance — the
+        # user will see a "history DB unavailable" warning on the next
+        # dictation, but the GDPR delete itself succeeded.
+        if hdb is not None:
+            try:
+                from voice_typer.server.history_db import HistoryDB
+
+                new_hdb = HistoryDB()
+                app.history_db = new_hdb  # type: ignore[attr-defined]
+            except Exception:
+                log.debug(
+                    "[SERVICE] GDPR delete: could not re-create HistoryDB after erase",
+                    exc_info=True,
+                )
 
         log.info(
-            "[SERVICE] GDPR Art. 17 delete: erased %d file(s), %d failure(s)",
+            "[SERVICE] GDPR Art. 17 delete: erased %d file(s)/dir(s), %d failure(s)",
             len(erased),
             len(failed),
         )
@@ -2581,6 +2537,137 @@ class VoiceTyperService:
         if failed:
             result["failed"] = failed
         return result
+
+    def reset_config_to_defaults(self, *, preserve_api_keys: bool = True) -> dict:
+        """G4-L-25: factory-reset the in-memory + on-disk config to defaults.
+
+        Snapshots the current ``config.json`` to ``config.json.bak``
+        (so the user can recover their settings if they clicked
+        "Reset to defaults" by mistake), then constructs a fresh
+        :class:`Config` (all defaults) and — by default — preserves
+        the 5 API-key fields (``openai_api_key`` / ``groq_api_key`` /
+        ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
+        from the pre-reset config so the user doesn't have to re-enter
+        their keys after a reset.  Set ``preserve_api_keys=False`` to
+        also wipe API keys (rare; the GDPR delete path is the right
+        tool for that — it also clears the keychain).
+
+        This method does NOT touch:
+
+          * ``history.db`` (transcription history — GDPR Art. 17
+            delete is a separate, intentional action).
+          * ``voice-typer-corrections.json`` / ``vocabulary.json`` /
+            ``templates.json`` (user customizations — preserved across
+            a factory reset).
+          * ``voice-typer.log`` (runtime log — rotated normally).
+          * OS keychain entries (only the in-memory + on-disk config
+            are reset).
+
+        Acquires ``app._config_mutation_lock`` so a concurrent
+        ``set_config`` IPC call can't interleave attribute writes
+        with the reset.  Calls ``Config.save_strict()`` so a disk
+        failure is surfaced as a ``RuntimeError`` rather than a
+        silent success.  Invalidates the cached ``LLMPolisher`` so
+        the next polish request rebuilds with the reset config.
+
+        Agent 2-j wires the IPC handler that calls this method
+        (``config_handlers.reset_config_to_defaults``).
+
+        Returns::
+
+            {"success": bool,
+             "backup_path": "/path/to/config.json.bak"}
+
+        On backup or save failure, returns::
+
+            {"success": False, "message": "..."}
+        """
+        import shutil
+
+        from voice_typer.server import credential_store
+        from voice_typer.server.config import Config, _config_dir
+
+        app = self._app
+        with app._config_mutation_lock:
+            config_dir = _config_dir()
+            config_file = config_dir / "config.json"
+            backup_path = config_dir / "config.json.bak"
+
+            # 1. Snapshot current config.json → config.json.bak.
+            # Best-effort: if config.json doesn't exist (fresh
+            # install), skip the backup.  If the backup write fails
+            # (disk full, permissions), return failure — we don't
+            # want to reset without a recovery path.
+            if config_file.exists():
+                try:
+                    shutil.copy2(config_file, backup_path)
+                except OSError as exc:
+                    log.error("[SERVICE] reset_config_to_defaults: backup failed: %s", exc)
+                    return {
+                        "success": False,
+                        "message": "failed to back up current config (see log)",
+                    }
+
+            # 2. Snapshot the API-key fields from the live Config
+            # (these hold the REAL values, not the keyring://
+            # reference tokens — see ``Config.load``).  We preserve
+            # them so the user doesn't have to re-enter their keys
+            # after a factory reset.
+            preserved_keys: dict[str, str] = {}
+            old_config = getattr(app, "config", None)
+            if preserve_api_keys and old_config is not None:
+                for field in credential_store.PROVIDER_TO_CONFIG_FIELD.values():
+                    try:
+                        value = getattr(old_config, field, "")
+                    except Exception:
+                        value = ""
+                    if value:
+                        preserved_keys[field] = value
+
+            # 3. Construct a fresh Config (all defaults).
+            new_config = Config()
+
+            # 4. Re-apply preserved API keys.
+            for field, value in preserved_keys.items():
+                try:
+                    setattr(new_config, field, value)
+                except Exception:
+                    log.debug(
+                        "[SERVICE] reset_config_to_defaults: could not restore %s",
+                        field,
+                        exc_info=True,
+                    )
+
+            # 5. Save to disk (raises on failure — see Config.save_strict).
+            try:
+                # Swap the in-memory Config BEFORE save so save() reads
+                # the new defaults (and routes preserved API keys
+                # through credential_store if keyring is available).
+                app.config = new_config
+                new_config.save_strict()
+            except Exception as exc:
+                log.error("[SERVICE] reset_config_to_defaults: save_strict failed: %s", exc)
+                return {
+                    "success": False,
+                    "message": "failed to persist reset config to disk (see log)",
+                }
+
+            # 6. Invalidate cached LLMPolisher / CloudEngine so the
+            # next request rebuilds with the reset config.
+            with contextlib.suppress(Exception):
+                app._llm_polisher = None
+            with contextlib.suppress(Exception):
+                app._cloud_engine = None
+
+            log.info(
+                "[SERVICE] reset_config_to_defaults: reset to defaults, backup at %s, preserved %d API key(s)",
+                backup_path,
+                len(preserved_keys),
+            )
+            return {
+                "success": True,
+                "backup_path": str(backup_path) if backup_path.exists() else "",
+            }
 
     def export_gdpr_bundle(self) -> dict:
         """GDPR Art. 20 — right to data portability.
@@ -2592,6 +2679,21 @@ class VoiceTyperService:
         :meth:`export_diagnostics` (which redacts PII for a support
         ticket bundle), this export is the user's OWN data verbatim —
         no redaction.  Model weights are excluded (not personal data).
+
+        G4-M-46: before zipping ``history.db``, calls
+        ``hdb.checkpoint(truncate=True)`` on the live HistoryDB
+        writer so the WAL is merged into the main DB file.  Without
+        this, the exported ``history.db`` is unparseable — SQLite
+        refuses to open a WAL-mode DB whose ``-wal`` sidecar is
+        absent, and the WAL sidecar is NOT included in the zip (it
+        would be stale by the time the user unzips the export on
+        another machine).
+
+        G4-L-26: after creating the zip, rotates
+        ``gdpr-export-*.zip`` files in the config dir — keeps the
+        most recent 5 (by mtime), unlinks older ones.  Without
+        rotation, repeated GDPR exports accumulate unboundedly (each
+        is 1-50 MB depending on history size).
 
         Returns::
 
@@ -2614,6 +2716,32 @@ class VoiceTyperService:
         config_dir = _config_dir()
         timestamp = _time.strftime("%Y%m%d-%H%M%S")
         zip_path = config_dir / f"gdpr-export-{timestamp}.zip"
+
+        # ── G4-M-46: checkpoint the live HistoryDB writer BEFORE
+        # zipping ``history.db`` so the WAL is merged into the main DB.
+        # Without this, the exported ``history.db`` is unparseable:
+        # SQLite opens WAL-mode DBs by first reading ``history.db-wal``
+        # to apply pending transactions, and the WAL sidecar is not
+        # included in the export (it's a transient file).  Checkpoint
+        # + truncate ensures all dictated text is in ``history.db``
+        # proper and the WAL is empty.  Best-effort: if the writer is
+        # not running (fresh install, or ``checkpoint`` method missing
+        # on this build — agent 2-b is adding it), we skip gracefully.
+        hdb = getattr(self._app, "history_db", None)
+        if hdb is not None:
+            checkpoint_fn = getattr(hdb, "checkpoint", None)
+            if callable(checkpoint_fn):
+                try:
+                    try:
+                        checkpoint_fn(truncate=True)
+                    except TypeError:
+                        # Older signature without truncate= kwarg.
+                        checkpoint_fn(True)
+                except Exception:
+                    log.debug(
+                        "[SERVICE] GDPR export: hdb.checkpoint(truncate=True) failed",
+                        exc_info=True,
+                    )
 
         try:
             with _zipfile.ZipFile(zip_path, "w", _zipfile.ZIP_DEFLATED) as zf:
@@ -2648,6 +2776,39 @@ class VoiceTyperService:
                 "success": False,
                 "message": redact_secret(redact_url(str(exc))),
             }
+
+        # ── G4-L-26: rotate ``gdpr-export-*.zip`` — keep most recent
+        # 5 (by mtime), unlink older.  Without rotation, repeated
+        # exports accumulate unboundedly.  We sort by mtime descending
+        # and unlink everything past the 5th.  Best-effort: a
+        # PermissionError on unlink is logged but does not fail the
+        # export (the new zip was already written successfully).
+        try:
+            exports = sorted(
+                config_dir.glob("gdpr-export-*.zip"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for stale in exports[5:]:
+                try:
+                    stale.unlink()
+                except PermissionError as exc:
+                    log.debug(
+                        "[SERVICE] GDPR export rotation: could not unlink %s: %s",
+                        stale,
+                        exc,
+                    )
+                except Exception as exc:
+                    log.debug(
+                        "[SERVICE] GDPR export rotation: could not unlink %s: %s",
+                        stale,
+                        exc,
+                    )
+        except Exception:
+            log.debug(
+                "[SERVICE] GDPR export rotation: glob/stat failed",
+                exc_info=True,
+            )
 
         log.info(
             "[SERVICE] GDPR Art. 20 export: wrote %s (%d bytes)",

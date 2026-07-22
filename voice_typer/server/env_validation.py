@@ -109,3 +109,138 @@ def _validate_env_vars() -> None:
                 exc,
             )
             os.environ.pop("HF_HOME", None)
+
+    # G4-M-58: Validate HF_ENDPOINT if set. HF_ENDPOINT is consumed by
+    # the ``huggingface_hub`` library as the base URL for model
+    # downloads (used to redirect to mirrors like hf-mirror.com for
+    # users in regions where huggingface.co is blocked or slow). An
+    # attacker-controlled HF_ENDPOINT could redirect model downloads to
+    # a malicious server that serves tampered weights, so we:
+    #   1. Require HTTPS (reject http:// scheme).
+    #   2. Validate the hostname is well-formed.
+    #   3. Allowlist to huggingface.co and hf-mirror.com (the two
+    #      officially supported endpoints).
+    # On validation failure, log a WARNING and pop the env var so
+    # downstream consumers never see the unsafe value (same pattern as
+    # HF_HOME above).
+    hf_endpoint = os.environ.get("HF_ENDPOINT")
+    if hf_endpoint is not None:
+        if not _path_pattern.match(hf_endpoint) or len(hf_endpoint) > 4096:
+            log.warning(
+                "[ENV] Invalid value for HF_ENDPOINT=%r -- expected valid URL. Resetting to empty.",
+                hf_endpoint,
+            )
+            os.environ.pop("HF_ENDPOINT", None)
+        else:
+            _validate_hf_endpoint(hf_endpoint)
+
+
+# G4-M-58: Allowlist of hostnames that HF_ENDPOINT may point to.
+# ``huggingface.co`` is the official upstream; ``hf-mirror.com`` is the
+# widely-used community mirror for users in regions where the official
+# endpoint is blocked or slow. Any other hostname is rejected because
+# model downloads would land on an attacker-controlled server.
+_ALLOWED_HF_ENDPOINT_HOSTS = frozenset(
+    {
+        "huggingface.co",
+        "hf-mirror.com",
+    }
+)
+
+
+def _validate_hf_endpoint(raw: str) -> None:
+    """G4-M-58: validate and (if unsafe) pop ``HF_ENDPOINT`` from ``os.environ``.
+
+    Parameters
+    ----------
+    raw:
+        The raw value of the ``HF_ENDPOINT`` env var (already
+        basic-pattern-checked by the caller — non-empty, no NUL bytes,
+        length ≤ 4096).
+
+    Validation rules:
+      1. The URL MUST use the ``https://`` scheme. ``http://`` (even
+         ``http://localhost``) is rejected because model-download
+         traffic would travel in plaintext and a MitM could swap the
+         weights.
+      2. The hostname MUST be well-formed (parseable by
+         :class:`urllib.parse.urlparse` with a non-empty ``hostname``).
+      3. The hostname MUST be in :data:`_ALLOWED_HF_ENDPOINT_HOSTS`
+         (``huggingface.co`` or ``hf-mirror.com``). Subdomains
+         (e.g. ``cdn.huggingface.co``) are also accepted — the check
+         uses ``endswith`` against the suffix ``.<host>``.
+
+    On any failure, the env var is removed via ``os.environ.pop`` and a
+    WARNING is logged (same pattern as the ``HF_HOME`` path-safety
+    check above). The function never raises.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(raw)
+    scheme = (parsed.scheme or "").lower()
+    hostname = parsed.hostname
+    if scheme != "https":
+        log.warning(
+            "[ENV] HF_ENDPOINT=%r rejected — must use https:// scheme "
+            "(got %r). Discarding to prevent plaintext model downloads.",
+            raw,
+            scheme or "<empty>",
+        )
+        os.environ.pop("HF_ENDPOINT", None)
+        return
+    if not hostname:
+        log.warning(
+            "[ENV] HF_ENDPOINT=%r rejected — could not parse hostname. Discarding to prevent download redirection.",
+            raw,
+        )
+        os.environ.pop("HF_ENDPOINT", None)
+        return
+    hostname_lower = hostname.lower()
+    allowed = any(
+        hostname_lower == allowed_host or hostname_lower.endswith("." + allowed_host)
+        for allowed_host in _ALLOWED_HF_ENDPOINT_HOSTS
+    )
+    if not allowed:
+        log.warning(
+            "[ENV] HF_ENDPOINT=%r rejected — hostname %r is not in the "
+            "allowlist %s. Discarding to prevent download redirection "
+            "to an attacker-controlled server.",
+            raw,
+            hostname_lower,
+            sorted(_ALLOWED_HF_ENDPOINT_HOSTS),
+        )
+        os.environ.pop("HF_ENDPOINT", None)
+        return
+    log.debug(
+        "[ENV] HF_ENDPOINT=%r accepted (host=%s, scheme=https).",
+        raw,
+        hostname_lower,
+    )
+
+
+# Sidecar env-var contract — set by Rust host in src-tauri/src/sidecar/spawn.rs:79-84
+_EXPECTED_SIDECAR_ENV = {
+    "TAURI_SIDECAR": "1",
+    "VOICE_TYPER_IPC_TOKEN": "<non-empty>",
+    "VOICE_TYPER_NATIVE_DIR": "<non-empty path>",
+    "VOICE_TYPER_PREWARM_EXE": "<non-empty path>",
+}
+
+
+def _validate_sidecar_env() -> None:
+    """Log warnings for expected-but-unset sidecar env vars.
+
+    Per sub-agent 1-2 Finding I: each module independently reads its env vars
+    with os.environ.get(...), with no shared validator. A future change to
+    spawn.rs that drops an env var would silently degrade Python-side
+    behavior with no startup warning.
+    """
+    if os.environ.get("TAURI_SIDECAR") != "1":
+        return  # Not a sidecar — skip validation
+
+    for var, expected in _EXPECTED_SIDECAR_ENV.items():
+        actual = os.environ.get(var)
+        if actual is None:
+            log.warning("[SIDECAR-ENV] expected env var %s is unset (expected %s)", var, expected)
+        elif expected == "<non-empty>" and not actual:
+            log.warning("[SIDECAR-ENV] env var %s is empty (expected non-empty)", var)

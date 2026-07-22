@@ -40,12 +40,11 @@ import hashlib
 import json
 import logging
 import os
-
-log = logging.getLogger(__name__)
-
 import platform
 import sys
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 # Legacy (non-arch-suffixed) names, kept as a backward-compat fallback
 # for bundles that still ship the old single-arch binary under the
@@ -401,12 +400,108 @@ def verify_native_binary(path: Path, expected_sha256: str) -> bool:
 
 
 def _is_trusted_path_override() -> bool:
-    return bool(os.environ.get("VOICE_TYPER_NATIVE_BINARY")) or bool(os.environ.get("VOICE_TYPER_NATIVE_DIR"))
+    """G4-L-09 + G4-H-34: Return True only when BOTH conditions hold:
+
+      1. The user has explicitly set the trusted-path confirmation env
+         var ``VOICE_TYPER_NATIVE_TRUST=1``. This is a paired
+         confirmation required in addition to the binary/dir env vars
+         so that an attacker with env-var write access cannot silently
+         disable the checksum gate by merely setting
+         ``VOICE_TYPER_NATIVE_BINARY``.
+      2. The user has set ``VOICE_TYPER_NATIVE_BINARY`` OR
+         ``VOICE_TYPER_NATIVE_DIR`` (the actual override path/dir).
+
+    The bypass is logged at WARNING (G4-L-09 — previously DEBUG which
+    was invisible at default log levels, making the silent checksum
+    bypass unauditable in production).
+    """
+    has_trust_flag = os.environ.get("VOICE_TYPER_NATIVE_TRUST") == "1"
+    has_path_override = bool(os.environ.get("VOICE_TYPER_NATIVE_BINARY")) or bool(
+        os.environ.get("VOICE_TYPER_NATIVE_DIR")
+    )
+    return has_trust_flag and has_path_override
+
+
+def _env_specified_paths() -> list[Path]:
+    """G4-H-34: Return the list of paths the user explicitly trust-listed
+    via ``VOICE_TYPER_NATIVE_BINARY`` / ``VOICE_TYPER_NATIVE_DIR``.
+
+    Used by :func:`verify_native_binary_or_skip` to confirm that the
+    discovered binary actually lives under an env-specified location
+    (rather than being discovered via fallback search after the env
+    override was set). This closes the G4-H-34 hole where setting
+    ``VOICE_TYPER_NATIVE_BINARY=/nonexistent`` disabled verification
+    for ANY binary found via fallback search.
+
+    Returns an empty list if neither env var is set.
+    """
+    paths: list[Path] = []
+    binary_env = os.environ.get("VOICE_TYPER_NATIVE_BINARY")
+    if binary_env:
+        paths.append(Path(binary_env))
+    dir_env = os.environ.get("VOICE_TYPER_NATIVE_DIR")
+    if dir_env:
+        paths.append(Path(dir_env))
+    return paths
+
+
+def _path_matches_env_override(path: Path) -> bool:
+    """G4-H-34: Return True if ``path`` equals or lives under one of the
+    env-specified paths from :func:`_env_specified_paths`.
+
+    The check is path-prefix-based: a discovered path
+    ``/opt/vt/native/linux-key-listener-x86_64`` matches an env override
+    ``VOICE_TYPER_NATIVE_DIR=/opt/vt/native`` (the binary lives under
+    the env dir). A discovered path
+    ``/opt/vt/native/linux-key-listener-x86_64`` also matches an env
+    override ``VOICE_TYPER_NATIVE_BINARY=/opt/vt/native/linux-key-listener-x86_64``
+    (the binary equals the env path).
+    """
+    env_paths = _env_specified_paths()
+    if not env_paths:
+        return False
+    resolved = path.resolve()
+    for env_path in env_paths:
+        env_resolved = env_path.resolve()
+        # Exact match (VOICE_TYPER_NATIVE_BINARY case).
+        if resolved == env_resolved:
+            return True
+        # Parent-dir match (VOICE_TYPER_NATIVE_DIR case): the discovered
+        # binary lives directly inside the env dir. Use Path.is_relative_to
+        # (Python 3.9+) which handles the parent/child relationship
+        # correctly without string-prefix pitfalls (e.g. /opt/vt/native2
+        # would NOT match /opt/vt/native).
+        try:
+            if resolved.is_relative_to(env_resolved):
+                return True
+        except AttributeError:
+            # Python <3.9 fallback — not expected on 3.12, but defensive.
+            try:
+                resolved.relative_to(env_resolved)
+                return True
+            except ValueError:
+                pass
+    return False
 
 
 def verify_native_binary_or_skip(path: Path) -> bool:
-    if _is_trusted_path_override():
-        log.debug("[NATIVE-BINARY] Skipping checksum for %s — trusted override", path)
+    # G4-L-09 + G4-H-34: trusted-path override now requires BOTH:
+    #   1. ``VOICE_TYPER_NATIVE_TRUST=1`` (paired confirmation env var).
+    #   2. The discovered ``path`` actually lives under (or equals) one
+    #      of the env-specified paths. Setting the env vars alone no
+    #      longer disables verification for binaries discovered via
+    #      fallback search.
+    if _is_trusted_path_override() and _path_matches_env_override(path):
+        # G4-L-09: elevated from DEBUG to WARNING so the bypass is
+        # auditable at default log levels. The bypass is a security-
+        # relevant event — operators SHOULD see it in the log without
+        # having to enable DEBUG logging.
+        log.warning(
+            "[NATIVE-BINARY] Skipping checksum for %s — trusted-path "
+            "override active (VOICE_TYPER_NATIVE_TRUST=1 + path matches "
+            "env-specified location).",
+            path,
+        )
         return True
     expected = get_expected_sha256(path.name)
     if expected is None:

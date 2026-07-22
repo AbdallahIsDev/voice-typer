@@ -42,6 +42,39 @@ _RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0
 _RATE_LIMIT_BURST = 200
 _RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
 
+# ── G4-M-09: per-command cost map ────────────────────────────────────────
+#
+# Previously the rate limiter treated every dispatched command as a
+# single "unit" against the burst (200/s) and sustained (600/10s) caps.
+# That's fine for cheap commands like ``heartbeat`` or ``get_status``,
+# but expensive commands — large model downloads, GDPR bundle exports,
+# full personal-data wipes — can saturate the dispatcher thread pool
+# and the disk long after the rate-limit window has slid past. A buggy
+# or hostile client could trigger dozens of concurrent
+# ``download_model`` invocations within the burst window.
+#
+# The cost map assigns each known command a "weight" against the same
+# burst/sustained budgets. ``download_model`` consumes 50 of the 200
+# burst units — so a client can fire at most 4 ``download_model``
+# requests in any 1s window before the 5th is rejected. ``heartbeat``
+# is explicitly listed at cost 1 so future changes to ``DEFAULT_COST``
+# don't silently change the heartbeat's rate-limit characteristics
+# (heartbeats fire every 5s and must NEVER trip the burst cap).
+#
+# Looked up in :meth:`_RateLimiter.allow` via ``COMMAND_COSTS.get(
+# command, DEFAULT_COST)``. Unknown commands get ``DEFAULT_COST = 1``
+# (preserves backward compatibility with the count-based limiter: a
+# caller that does not pass ``command`` is treated as cost 1, identical
+# to the pre-G4-M-09 behavior).
+COMMAND_COSTS: dict[str, int] = {
+    "download_model": 50,
+    "import_model": 20,
+    "export_gdpr_bundle": 20,
+    "delete_all_personal_data": 20,
+    "heartbeat": 1,
+}
+DEFAULT_COST = 1
+
 # NEW-CONC-003: write timeout for TCP sendall.  A stalled Electron
 # renderer (e.g. GC pause, dev-tools inspection, or a busy main thread)
 # can stop draining its TCP receive buffer.  Without a timeout, sendall
@@ -126,16 +159,27 @@ class _RateLimiter:
         # IPC-4: TWO independent deques. The burst deque uses a 1s
         # window (configurable via ``burst_window``); the sustained
         # deque uses the ``window`` parameter (default 10s).
-        self._burst_timestamps: deque[float] = deque()
-        self._sustained_timestamps: deque[float] = deque()
+        # G4-M-09: each entry is now a ``(timestamp, cost)`` tuple
+        # rather than a bare timestamp, so the per-command cost map
+        # can be summed against the burst/sustained budgets. ``cost=1``
+        # for unknown commands preserves the pre-G4-M-09 behavior
+        # (each call counts as 1 unit).
+        self._burst_timestamps: deque[tuple[float, int]] = deque()
+        self._sustained_timestamps: deque[tuple[float, int]] = deque()
         self._rejected: int = 0
         self._lock = threading.Lock()
 
-    def allow(self, *, now: float | None = None) -> bool:
+    def allow(self, *, command: str = "", now: float | None = None) -> bool:
         """Return True if the message should be accepted.
 
         Parameters
         ----------
+        command : str
+            The IPC command name (``msg.get("type")``). Used to look up
+            the per-command cost in :data:`COMMAND_COSTS`. Unknown
+            commands default to :data:`DEFAULT_COST` (1). Defaults to
+            ``""`` so legacy callers (which don't pass ``command``)
+            keep the pre-G4-M-09 cost-1 behavior.
         now : float, optional
             Current monotonic time.  If omitted, ``time.monotonic()``
             is used.  Passing ``now`` explicitly makes the limiter
@@ -155,18 +199,37 @@ class _RateLimiter:
         sustained (601 msgs in 10s), and vice versa. Both deques are
         evicted and checked under the same lock acquisition so the
         decision is atomic.
+
+        G4-M-09: the cost-weighted check is
+        ``current_window_total + cost > limit`` — equivalent to the
+        pre-G4-M-09 ``len(deque) >= limit`` check when ``cost == 1``
+        (because each entry contributes 1 to the total). With
+        ``cost == 50`` (e.g. ``download_model``), the limit is
+        reached after 4 calls instead of 200.
         """
         ts = now if now is not None else time.monotonic()
+        cost = COMMAND_COSTS.get(command, DEFAULT_COST)
+        # Defensive: a misconfigured COMMAND_COSTS entry or a future
+        # caller passing a negative cost must not corrupt the budget.
+        # Clamp to at least 1 so the limiter is always strict-ish.
+        if cost < 1:
+            cost = 1
         burst_cutoff = ts - self._burst_window
         sustained_cutoff = ts - self._window
         with self._lock:
             # Evict expired timestamps from both deques.
-            while self._burst_timestamps and self._burst_timestamps[0] < burst_cutoff:
+            while self._burst_timestamps and self._burst_timestamps[0][0] < burst_cutoff:
                 self._burst_timestamps.popleft()
-            while self._sustained_timestamps and self._sustained_timestamps[0] < sustained_cutoff:
+            while self._sustained_timestamps and self._sustained_timestamps[0][0] < sustained_cutoff:
                 self._sustained_timestamps.popleft()
+            # G4-M-09: sum the per-entry costs (not just the entry
+            # count) so an expensive command consumes more of the
+            # budget per call. ``cost == 1`` reduces this to the
+            # pre-G4-M-09 count-based check.
+            burst_total = sum(c for _, c in self._burst_timestamps)
+            sustained_total = sum(c for _, c in self._sustained_timestamps)
             # IPC-4: burst check (1s window, hard per-second cap).
-            if len(self._burst_timestamps) >= self._burst:
+            if burst_total + cost > self._burst:
                 self._rejected += 1
                 return False
             # IPC-4: sustained check (10s window, avg-rate cap).
@@ -174,11 +237,11 @@ class _RateLimiter:
             # sends >200 msgs/s but exceeds 600 msgs in 10s is caught
             # here, where the prior single-deque impl would have
             # missed them (burst fired first at 200).
-            if len(self._sustained_timestamps) >= self._sustained:
+            if sustained_total + cost > self._sustained:
                 self._rejected += 1
                 return False
-            self._burst_timestamps.append(ts)
-            self._sustained_timestamps.append(ts)
+            self._burst_timestamps.append((ts, cost))
+            self._sustained_timestamps.append((ts, cost))
             return True
 
     @property
@@ -306,6 +369,8 @@ __all__ = [
     "_RATE_LIMIT_BURST_WINDOW_SECONDS",
     "_RATE_LIMIT_BURST",
     "_RATE_LIMIT_SUSTAINED",
+    "COMMAND_COSTS",
+    "DEFAULT_COST",
     "_TCP_WRITE_TIMEOUT_SECONDS",
     "_HEARTBEAT_INTERVAL_SECONDS",
     "_HEARTBEAT_TIMEOUT_SECONDS",

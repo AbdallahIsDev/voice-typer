@@ -55,6 +55,87 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger(__name__)
 
 
+# G4-H-02: env-var names that are ALWAYS stripped from the Electron
+# child's environment, regardless of pattern matching. These are the
+# well-known cloud-provider API keys / model download tokens that the
+# Python backend NEVER reads from env (it uses the keyring instead).
+# Listed explicitly so a typo in a future key name doesn't slip past the
+# substring markers below.
+_SENSITIVE_ENV_NAMES = frozenset(
+    {
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "HF_TOKEN",
+        "HUGGING_FACE_HUB_TOKEN",
+        "DEEPGRAM_API_KEY",
+        "GROQ_API_KEY",
+    }
+)
+
+# G4-H-02: substring markers for sensitive env-var names. Any key whose
+# UPPER-cased name contains one of these substrings is stripped from the
+# child env (with the exception of the IPC token trio, which is restored
+# AFTER stripping). The markers catch the common SaaS API-key / OS
+# secret conventions (OPENAI_API_KEY, *_SECRET, *_TOKEN, *_PASSWORD,
+# *_CREDENTIAL) without flagging benign vars (PATH, HOME, LANG,
+# VT_PYTHON_PORT, etc.).
+_SENSITIVE_ENV_MARKERS = (
+    "API_KEY",
+    "SECRET",
+    "TOKEN",
+    "PASSWORD",
+    "CREDENTIAL",
+)
+
+# G4-H-02: env-var names that are ALWAYS preserved even if they match a
+# sensitive marker (because the Electron child needs them to talk back
+# to the Python backend). The IPC token is the ONLY token the child
+# needs; it is restored AFTER stripping in launch_electron_frontend.
+_PRESERVED_ENV_NAMES = frozenset(
+    {
+        "VOICE_TYPER_IPC_TOKEN",
+        "VT_IPC_TOKEN",
+        "VT_PYTHON_PORT",
+    }
+)
+
+
+def _strip_sensitive_env(env: dict) -> None:
+    """G4-H-02: delete sensitive env vars from ``env`` in place.
+
+    Strips:
+      - The explicit ``_SENSITIVE_ENV_NAMES`` list
+        (OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, HF_TOKEN,
+        HUGGING_FACE_HUB_TOKEN, DEEPGRAM_API_KEY, GROQ_API_KEY).
+      - Any key whose upper-cased name contains one of
+        ``_SENSITIVE_ENV_MARKERS`` (API_KEY / SECRET / TOKEN / PASSWORD
+        / CREDENTIAL) — except the IPC token trio in
+        ``_PRESERVED_ENV_NAMES`` which is needed by the child.
+
+    The Python server reads NO API keys from env (cloud keys come from
+    the keyring), so the Electron child has no legitimate need for
+    them. Stripping prevents exfiltration via ``/proc/<pid>/environ``
+    if the renderer is ever compromised.
+
+    Parameters
+    ----------
+    env:
+        The environment dict passed to :class:`subprocess.Popen`. It is
+        mutated in place; nothing is returned.
+    """
+    keys = list(env.keys())
+    for key in keys:
+        if key in _PRESERVED_ENV_NAMES:
+            continue
+        if key in _SENSITIVE_ENV_NAMES:
+            env.pop(key, None)
+            continue
+        upper = key.upper()
+        if any(marker in upper for marker in _SENSITIVE_ENV_MARKERS):
+            env.pop(key, None)
+
+
 def is_spawned_by_electron() -> bool:
     """Return True if this Python process was spawned by Electron.
 
@@ -101,26 +182,29 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     -------
     The child PID on success, or None on failure.
     """
-    # NEW-PRIV-003: intentional — same-app restart needs the same env.
-    # The child here is the Voice Typer Electron frontend itself (not a
-    # less-trusted process). It needs API keys (e.g. OPENAI_API_KEY for
-    # cloud polish, HF_TOKEN for model downloads) and PATH to resolve
-    # native modules. Stripping the env would break the app's own
-    # functionality. The risk model would only change if we ever spawn a
-    # DIFFERENT, less-trusted binary here — at which point we'd need an
-    # explicit env allowlist. See docs/privacy/gdpr-export.md for the
-    # data-flow inventory.
+    # G4-H-02: Strip sensitive env vars the Electron child does not need.
+    # The Python server reads NO API keys from env (cloud keys come from
+    # the keyring). The IPC token trio (VOICE_TYPER_IPC_TOKEN /
+    # VT_IPC_TOKEN / VT_PYTHON_PORT) and standard OS vars (PATH, HOME,
+    # LANG, etc.) are kept; everything matching the sensitive-key
+    # markers (``API_KEY`` / ``SECRET`` / ``TOKEN`` / ``PASSWORD`` /
+    # ``CREDENTIAL``) is deleted so it cannot leak into the child's
+    # ``/proc/<pid>/environ`` and be exfiltrated by a compromised
+    # renderer. This converts the previous ``_log_sensitive_env_keys``
+    # audit log into an enforcement point.
     env = dict(os.environ)
+    _strip_sensitive_env(env)
     env["VT_PYTHON_PORT"] = str(port)
     env["VT_IPC_TOKEN"] = token
     # Also set VOICE_TYPER_IPC_TOKEN so the backend's TCP auth check
     # (which reads this env var) sees the same value we told Electron
-    # to send.
+    # to send. The IPC token is restored AFTER stripping so it is
+    # guaranteed to be present in the child env.
     env["VOICE_TYPER_IPC_TOKEN"] = token
-    # NEW-PRIV-003: surface (without values) any sensitive env keys the
-    # child will inherit, so a future leak in a downstream log is
-    # auditable. Only KEY NAMES are logged — values are never printed.
-    _log_sensitive_env_keys(env, context="electron_launcher.launch_electron_frontend")
+    # G4-H-02: surface (without values) any sensitive env keys the
+    # parent had, so a future leak in a downstream log is auditable.
+    # Only KEY NAMES are logged — values are never printed.
+    _log_sensitive_env_keys(dict(os.environ), context="electron_launcher.launch_electron_frontend")
 
     spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
     spawn_kwargs.update(_electron_log_files())

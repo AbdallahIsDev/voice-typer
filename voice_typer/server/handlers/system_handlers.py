@@ -7,19 +7,38 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import contextlib
-import logging
 
 from voice_typer.server import event_bus
 from voice_typer.server.branding import APP_NAME
-from voice_typer.server.handlers._base import HandlerMixinBase
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
+from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.handlers._log import log
+from voice_typer.server.ipc.validation import _validate_dict_payload
 from voice_typer.server.platform_utils import is_macos
 
-log = logging.getLogger("voice_typer.server.ipc_server")
 
+class SystemHandlersMixin(HandlerBase):
+    """Mixin: system-level IPC handlers (restart / quit / diagnostics / accessibility / ...).
 
-class SystemHandlersMixin(HandlerMixinBase):
-    """Mixin: system-level IPC handlers (restart / quit / diagnostics / accessibility / ...)."""
+    CR-20 / G4-CR-09: this mixin's ``except Exception`` catch-alls call
+    :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
+    no ``str(e)`` leak). Per-command validation errors (``invalid_field``,
+    ``invalid_payload``) remain explicit envelopes the renderer switches on.
+    The ``restart_app`` / ``quit_app`` handlers swallow their catch-all
+    silently because the ack has already been sent to the client by the
+    time the service raises — the error cannot be recovered from the IPC thread.
+
+    G4-M-21 (``_handle_check_accessibility``): distinguishes
+    ``subprocess.TimeoutExpired`` / ``FileNotFoundError`` from the
+    generic ``granted=False`` path so the renderer can show a "click
+    here to retry" CTA when the check fails for environmental reasons
+    (vs. "open System Settings" CTA when the user has not granted
+    permission).
+
+    G4-M-08 (``_handle_show_electron_notification``): ``max_value_len``
+    rules on ``title`` (256) and ``message`` (4096) so a misbehaving
+    caller can't push a multi-MB notification body that the OS
+    notification API would silently truncate or refuse to display.
+    """
 
     def _handle_restart_app(self, data, resp) -> dict | None:
         """Handle the ``restart_app`` IPC command."""
@@ -56,20 +75,41 @@ class SystemHandlersMixin(HandlerMixinBase):
             result = self.service.export_diagnostics()
             resp["type"] = "diagnostics_result"
             resp["data"] = result
-        except Exception as e:
-            log.error("[IPC] export_diagnostics failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "export_diagnostics")
         return resp
 
     def _handle_check_accessibility(self, data, resp) -> dict | None:
-        """Handle the ``check_accessibility`` IPC command."""
-        # PLAT-030: macOS Accessibility permission check.
-        # Returns {"granted": bool, "platform": "macos"|"windows"|"linux"}.
-        # On non-macOS platforms, always returns granted=True (no
-        # accessibility permission required). The Electron UI uses
-        # this to show a persistent warning banner on macOS when
-        # the permission is missing, and to gate the onboarding
-        # wizard's "Grant Accessibility" step.
+        """Handle the ``check_accessibility`` IPC command.
+
+        PLAT-030: macOS Accessibility permission check.
+        Returns ``{"granted": bool, "platform": "macos"|"windows"|"linux"}``.
+        On non-macOS platforms, always returns granted=True (no
+        accessibility permission required). The Electron UI uses
+        this to show a persistent warning banner on macOS when
+        the permission is missing, and to gate the onboarding
+        wizard's "Grant Accessibility" step.
+
+        G4-M-21 (session-7): the previous implementation collapsed every
+        failure mode (subprocess timeout, missing ``osascript`` binary,
+        ctypes ``LoadLibrary`` failure) into a generic ``granted: False``
+        response — indistinguishable from "user has not granted the
+        permission". The renderer had no way to tell the user "we couldn't
+        run the check, click here to retry" vs. "you have not granted
+        permission, click here to open System Settings". We now:
+
+        * catch ``subprocess.TimeoutExpired`` and ``FileNotFoundError``
+          distinctly (the two failure modes that occur in practice when
+          macOS's ``osascript`` binary is missing or the system is
+          unresponsive under load);
+        * log at WARNING (not ERROR) because these are recoverable
+          environmental issues, not server bugs;
+        * return ``{"granted": False, "platform": "darwin",
+          "reason": "check_failed"}`` so the renderer can show a
+          "click here to retry" CTA instead of the "open System
+          Settings" CTA.
+        """
         try:
             import sys as _sys
 
@@ -96,16 +136,44 @@ class SystemHandlersMixin(HandlerMixinBase):
                             timeout=3,
                         )
                         granted = result.returncode == 0 and "true" in result.stdout.lower()
-                    except Exception:
-                        granted = False
+                    except _sp.TimeoutExpired:
+                        # G4-M-21: osascript hung — environmental issue
+                        # (system unresponsive), not a server bug. Log
+                        # at WARNING and surface a ``check_failed`` reason
+                        # so the renderer can show a retry CTA.
+                        log.warning(
+                            "[IPC] check_accessibility: osascript timed out after 3s — system may be unresponsive"
+                        )
+                        resp["type"] = "accessibility_status"
+                        resp["data"] = {
+                            "granted": False,
+                            "platform": "darwin",
+                            "reason": "check_failed",
+                        }
+                        return resp
+                    except FileNotFoundError:
+                        # G4-M-21: ``osascript`` binary missing — rare
+                        # but possible on a stripped-down macOS install
+                        # or a broken OS upgrade. Log at WARNING and
+                        # surface ``check_failed``.
+                        log.warning(
+                            "[IPC] check_accessibility: osascript binary not found — cannot run accessibility check"
+                        )
+                        resp["type"] = "accessibility_status"
+                        resp["data"] = {
+                            "granted": False,
+                            "platform": "darwin",
+                            "reason": "check_failed",
+                        }
+                        return resp
             resp["type"] = "accessibility_status"
             resp["data"] = {
                 "granted": granted,
                 "platform": _sys.platform,
             }
-        except Exception as e:
-            log.error("[IPC] check_accessibility failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "check_accessibility")
         return resp
 
     def _handle_set_tray_locale(self, data, resp) -> dict | None:
@@ -145,9 +213,9 @@ class SystemHandlersMixin(HandlerMixinBase):
                 self.app.tray.invalidate_menu_cache()
             resp["type"] = "ack"
             resp["data"] = {"locale": get_tray_locale()}
-        except Exception as e:
-            log.error("[IPC] set_tray_locale failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "set_tray_locale")
         return resp
 
     def _handle_set_esc_cancel_paused(self, data, resp) -> dict | None:
@@ -209,9 +277,9 @@ class SystemHandlersMixin(HandlerMixinBase):
             )
             resp["type"] = "ack"
             resp["data"] = {"paused": paused}
-        except Exception as e:
-            log.error("[IPC] set_esc_cancel_paused failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "set_esc_cancel_paused")
         return resp
 
     def _handle_show_electron_notification(self, data, resp) -> dict | None:
@@ -268,6 +336,15 @@ class SystemHandlersMixin(HandlerMixinBase):
             fails the type check. Pre-coercing ``None`` to the
             default keeps the existing "missing or null → default"
             contract without adding a ``none_to_default`` rule.
+
+        G4-M-08 (session-7): added ``max_value_len`` rules on
+        ``title`` (256 chars) and ``message`` (4096 chars) so a
+        misbehaving caller (or a renderer bug) can't push a 1 MB
+        notification body that the OS notification API would
+        either truncate silently or refuse to display. The caps
+        match the OS notification API's practical limits on both
+        macOS (``UNNotificationContent.title`` / ``body``) and
+        Windows (``ToastNotification`` XML payload).
         """
         try:
             # R4-F5: pre-check the bool subclass exclusion for
@@ -305,11 +382,30 @@ class SystemHandlersMixin(HandlerMixinBase):
             # ``duration_ms`` clamp through ``_validate_dict_payload``.
             # The helper's ``clamp_range`` rule replaces the inline
             # ``max(0, min(int(duration_ms), 24*60*60*1000))`` coercion.
+            #
+            # G4-M-08 (session-7): added ``max_value_len`` rules on
+            # ``title`` (256 chars) and ``message`` (4096 chars) so a
+            # misbehaving caller (or a renderer bug) can't push a 1 MB
+            # notification body that the OS notification API would
+            # either truncate silently or refuse to display. The caps
+            # match the OS notification API's practical limits on both
+            # macOS (``UNNotificationContent.title`` / ``body``) and
+            # Windows (``ToastNotification`` XML payload).
             validated, error = _validate_dict_payload(
                 data,
                 {
-                    "title": {"type": str, "required": False, "default": APP_NAME},
-                    "message": {"type": str, "required": False, "default": ""},
+                    "title": {
+                        "type": str,
+                        "required": False,
+                        "default": APP_NAME,
+                        "max_value_len": 256,
+                    },
+                    "message": {
+                        "type": str,
+                        "required": False,
+                        "default": "",
+                        "max_value_len": 4096,
+                    },
                     "duration_ms": {
                         "type": (int, float),
                         "required": False,
@@ -356,7 +452,7 @@ class SystemHandlersMixin(HandlerMixinBase):
                 }
             )
             resp["type"] = "ack"
-        except Exception as e:
-            log.error("[IPC] show_electron_notification failed: %s", e, exc_info=True)
-            _error_response(resp, str(e))
+        except Exception as exc:
+            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            self._respond_with_error(resp, exc, "show_electron_notification")
         return resp
