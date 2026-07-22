@@ -30,7 +30,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.use": "استخدام",
         "models.errors.unknown": "خطأ غير معروف",
         "models.snack.parakeetDepsRequired": "التبعيات المطلوبة لـ Parakeet. حمّلها أولاً.",
-        "models.snack.notDownloaded": "النموذج \"{name}\" غير محمّل بعد. حمّله أولاً.",
+        "models.snack.notDownloaded": 'النموذج "{name}" غير محمّل بعد. حمّله أولاً.',
         "models.snack.usingModel": "استخدام النموذج: {name}",
         "models.snack.downloaded": "تم تحميل {name} بنجاح",
         "models.snack.downloadFailedName": "فشل تحميل {name}",
@@ -82,7 +82,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.download.deps": "تحميل التبعيات",
         "models.card.parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
         "models.card.size": "الحجم: {size}",
-        "models.card.vram": "VRAM: ~{mb} ميجابايت",
+        "models.card.vram": "VRAM: ~{vram} ميجابايت",
         "models.card.multilingual": "متعدد اللغات",
         "models.card.englishOnly": "الإنجليزية فقط",
         "models.card.speedSuffix": "{rating} سرعة",
@@ -107,7 +107,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.cloud.consentNotGrantedStatus": "لم يتم منح الموافقة — سيرفض هذا المزود التفريغ.",
         "models.cloud.consentAria": "منح موافقة إرسال الصوت لـ {provider}",
         "models.deleteDialog.title": "حذف النموذج",
-        "models.deleteDialog.message": "هل أنت متأكد أنك تريد حذف \"{name}\"؟ لا يمكن التراجع عن هذا الإجراء.",
+        "models.deleteDialog.message": 'هل أنت متأكد أنك تريد حذف "{name}"؟ لا يمكن التراجع عن هذا الإجراء.',
         "history.undo": "تراجع",
         "history.clearAllAria": "مسح كل السجل",
     },
@@ -142,7 +142,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.use": "Usar",
         "models.errors.unknown": "Error desconocido",
         "models.snack.parakeetDepsRequired": "Se requieren dependencias para Parakeet. Descarga primero.",
-        "models.snack.notDownloaded": "El modelo \"{name}\" no se ha descargado aún. Descárgalo primero.",
+        "models.snack.notDownloaded": 'El modelo "{name}" no se ha descargado aún. Descárgalo primero.',
         "models.snack.usingModel": "Usando modelo: {name}",
         "models.snack.downloaded": "{name} descargado correctamente",
         "models.snack.downloadFailedName": "Error al descargar {name}",
@@ -152,8 +152,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.snack.deleteFailed": "Error al eliminar",
         "models.snack.deleteFailedError": "Error al eliminar: {error}",
         "models.snack.apiKeySaved": "Clave API de {provider} guardada",
-        "models.snack.consentGranted": "Consentimiento otorgado para {provider} — el audio se enviará a este"
-        "proveedor.",
+        "models.snack.consentGranted": "Consentimiento otorgado para {provider} — el audio se enviará a esteproveedor.",
         "models.snack.consentRevoked": "Consentimiento revocado para {provider} — el audio NO se enviará.",
         "models.snack.hfConsentGranted": "Consentimiento otorgado — las descargas de modelos desde HuggingFace"
         "continuarán.",
@@ -198,7 +197,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.download.deps": "Descargar Deps",
         "models.card.parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
         "models.card.size": "Tamaño: {size}",
-        "models.card.vram": "VRAM: ~{mb} MB",
+        "models.card.vram": "VRAM: ~{vram} MB",
         "models.card.multilingual": "Multilingüe",
         "models.card.englishOnly": "Solo inglés",
         "models.card.speedSuffix": "{rating} velocidad",
@@ -225,7 +224,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "models.cloud.consentNotGrantedStatus": "Consentimiento no otorgado — este proveedor se negará a transcribir.",
         "models.cloud.consentAria": "Otorgar consentimiento de transmisión de audio para {provider}",
         "models.deleteDialog.title": "Eliminar Modelo",
-        "models.deleteDialog.message": "¿Estás seguro de que quieres eliminar \"{name}\"? Esta acción no se puede"
+        "models.deleteDialog.message": '¿Estás seguro de que quieres eliminar "{name}"? Esta acción no se puede'
         "deshacer.",
         "history.undo": "Deshacer",
         "history.clearAllAria": "Borrar todo el historial",
@@ -345,13 +344,36 @@ def save_json(path: Path, data: dict) -> None:
 
 
 def set_nested(data: dict, dot_key: str, value: str) -> bool:
-    """Set a nested value using dot notation. Returns True if set."""
+    """Set a nested value using dot notation. Returns True if set.
+
+    Intermediate dictionaries are created automatically via ``setdefault`` so
+    that translations for keys whose parent namespace doesn't yet exist in the
+    locale file (e.g. a brand-new ``models.download.progressAria`` when the
+    locale only has ``models.download.resume``) are no longer silently
+    dropped. If a non-dict scalar is in the way, the function logs a warning
+    and returns False instead of clobbering it — that would be a real
+    data-loss bug worth surfacing loudly.
+    """
     parts = dot_key.split(".")
     obj = data
     for part in parts[:-1]:
-        if part not in obj or not isinstance(obj[part], dict):
+        existing = obj.get(part)
+        if existing is None:
+            obj = obj.setdefault(part, {})
+        elif isinstance(existing, dict):
+            obj = existing
+        else:
+            # A scalar value is occupying a path segment we need to descend
+            # into. This is almost always a bug (a key was promoted from a
+            # scalar to a nested object in en.json but the locale still has
+            # the old scalar). Surface it instead of silently dropping the
+            # translation.
+            print(
+                f"  WARNING: cannot set {dot_key!r} — path segment {part!r} "
+                f"is a scalar ({existing!r}), not a dict. Translation skipped.",
+                flush=True,
+            )
             return False
-        obj = obj[part]
     final_key = parts[-1]
     obj[final_key] = value
     return True

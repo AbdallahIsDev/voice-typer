@@ -26,24 +26,28 @@ import sys
 def run_f2():
     """CQ-016: Delegate to scripts/diagnostics/diagnose_f2.py."""
     from scripts.diagnostics.diagnose_f2 import main
+
     main()
 
 
 def run_cublas():
     """CQ-016: Delegate to scripts/diagnostics/cublas_fallback.py."""
     from scripts.diagnostics.cublas_fallback import main
+
     main()
 
 
 def run_runtime():
     """CQ-016: Delegate to scripts/diagnostics/runtime_proof.py."""
     from scripts.diagnostics.runtime_proof import main
+
     main()
 
 
 def run_test_runner():
     """CQ-016: Delegate to scripts/diagnostics/runtime_test_runner.py."""
     from scripts.diagnostics.runtime_test_runner import main
+
     main()
 
 
@@ -95,6 +99,7 @@ def export_diagnostics() -> str:
     # Find the config directory
     try:
         from voice_typer.server.config import _config_dir
+
         config_dir = _config_dir()
     except Exception:
         config_dir = Path(os.path.expanduser("~")) / ".voice-typer"
@@ -115,6 +120,7 @@ def export_diagnostics() -> str:
         # GPU / CUDA info
         try:
             import torch
+
             sys_info["cuda_available"] = torch.cuda.is_available()
             if torch.cuda.is_available():
                 sys_info["cuda_version"] = torch.version.cuda
@@ -129,6 +135,7 @@ def export_diagnostics() -> str:
         # ctranslate2 info
         try:
             import ctranslate2
+
             sys_info["ctranslate2_version"] = ctranslate2.__version__
             sys_info["cuda_device_count"] = ctranslate2.get_cuda_device_count()
         except ImportError:
@@ -139,13 +146,12 @@ def export_diagnostics() -> str:
         # App version
         try:
             from importlib.metadata import version as get_version
+
             sys_info["app_version"] = get_version("voice-typer")
         except Exception:
             sys_info["app_version"] = "unknown"
 
-        (tmpdir_path / "system_info.json").write_text(
-            json.dumps(sys_info, indent=2), encoding="utf-8"
-        )
+        (tmpdir_path / "system_info.json").write_text(json.dumps(sys_info, indent=2), encoding="utf-8")
 
         # 2. Config (redacted)
         config_file = config_dir / "config.json"
@@ -153,21 +159,36 @@ def export_diagnostics() -> str:
             try:
                 config_text = config_file.read_text(encoding="utf-8")
                 config_data = json.loads(config_text)
-                # Redact sensitive fields
-                _redact_keys = {
-                    "llm_api_key", "openai_api_key", "api_key",
-                    "deepgram_api_key", "assemblyai_api_key",
-                }
+                # PVT-G5-048: use the canonical _SECRET_CONFIG_FIELDS
+                # frozenset from ipc_server.py (single source of truth).
+                # Previously this was a hardcoded set that had drifted
+                # and omitted ``cloud_api_key`` and ``groq_api_key`` —
+                # users running ``python scripts/diagnostics.py export``
+                # with those keys set would leak them in cleartext into
+                # the zip's config_redacted.json.
+                try:
+                    from voice_typer.server.ipc_server import (
+                        _SECRET_CONFIG_FIELDS as _redact_keys,
+                    )
+                except Exception:
+                    # Fallback: copy of the canonical frozenset. Keep in
+                    # sync with voice_typer/server/ipc_server.py — that
+                    # module is the canonical source.
+                    _redact_keys = frozenset(
+                        {
+                            "cloud_api_key",
+                            "openai_api_key",
+                            "groq_api_key",
+                            "deepgram_api_key",
+                            "llm_api_key",
+                        }
+                    )
                 for key in _redact_keys:
                     if key in config_data and config_data[key]:
                         config_data[key] = "***REDACTED***"
-                (tmpdir_path / "config_redacted.json").write_text(
-                    json.dumps(config_data, indent=2), encoding="utf-8"
-                )
+                (tmpdir_path / "config_redacted.json").write_text(json.dumps(config_data, indent=2), encoding="utf-8")
             except Exception as exc:
-                (tmpdir_path / "config_redacted.json").write_text(
-                    f"Error reading config: {exc}", encoding="utf-8"
-                )
+                (tmpdir_path / "config_redacted.json").write_text(f"Error reading config: {exc}", encoding="utf-8")
 
         # 3. Log file (if exists)
         log_file = config_dir / "voice-typer.log"
@@ -179,20 +200,17 @@ def export_diagnostics() -> str:
                     with open(log_file, encoding="utf-8", errors="replace") as f:
                         f.seek(log_size - 1024 * 1024)
                         f.readline()  # skip partial first line
-                        (tmpdir_path / "voice-typer.log").write_text(
-                            f.read(), encoding="utf-8"
-                        )
+                        (tmpdir_path / "voice-typer.log").write_text(f.read(), encoding="utf-8")
                 else:
                     shutil.copy2(log_file, tmpdir_path / "voice-typer.log")
             except Exception as exc:
-                (tmpdir_path / "voice-typer.log").write_text(
-                    f"Error reading log: {exc}", encoding="utf-8"
-                )
+                (tmpdir_path / "voice-typer.log").write_text(f"Error reading log: {exc}", encoding="utf-8")
 
         # 4. Model info
         model_info: dict = {}
         try:
             from huggingface_hub import scan_cache_dir
+
             cache = scan_cache_dir()
             model_info["cached_repos"] = [
                 {
@@ -205,9 +223,7 @@ def export_diagnostics() -> str:
             model_info["huggingface_hub"] = "not installed"
         except Exception as exc:
             model_info["cache_error"] = str(exc)
-        (tmpdir_path / "model_info.json").write_text(
-            json.dumps(model_info, indent=2), encoding="utf-8"
-        )
+        (tmpdir_path / "model_info.json").write_text(json.dumps(model_info, indent=2), encoding="utf-8")
 
         # 5. Create zip
         zip_path = Path.cwd() / zip_filename
