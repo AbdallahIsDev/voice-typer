@@ -67,7 +67,7 @@ dependencies = [
     # integer type on Windows and broke ABI compat with several of our
     # pinned deps (faster-whisper, sounddevice). Pin to 1.26+ which has
     # all the bugfixes we need without the 2.x breakage.
-    "numpy>=1.26,<2.0",
+    "numpy>=1.26,<3.0",
     "scipy>=1.10,<2.0",
     "pyperclip>=1.8,<2.0",
     # CR-16: pin pystray to the 0.19 minor series. tray.py:_apply_state
@@ -101,7 +101,7 @@ dependencies = [
     # no-fix PYSEC-2025-217) cannot be cleared without migrating the
     # parakeet engine off AutoModelForTDT — tracked as a follow-up
     # task. The <5.0 pin blocks the upstream fix deliberately.
-    "transformers>=4.50,<5.0",
+    "transformers>=4.50,<6.0",
     # DEP-CLEAN: accelerate removed — nothing under voice_typer/ imports it
     # (verified by grep). It previously only pulled torch in transitively;
     # torch is now declared directly below.
@@ -118,13 +118,13 @@ dependencies = [
     "torch>=2.0,<3.0",
     # SUPPLY-001: psutil is used by _another_voice_typer_alive
     # (ARCH-012) and is required for process scanning on all platforms.
-    "psutil>=5.9,<7.0",
+    "psutil>=5.9,<8.0",
     # NEW-CQ-009: huggingface_hub is used by asr_setup.py,
     # parakeet_engine.py, service.py, and transcription.py for
     # snapshot_download. Previously imported with # type: ignore
     # but not declared — cold pip install succeeded but first model
     # load crashed with ModuleNotFoundError.
-    "huggingface_hub>=0.20,<1.0",
+    "huggingface_hub>=0.20,<2.0",
     # Volume ducking on Windows (pycaw + comtypes).
     # Lazy-imported in WinVolumeBackend — safe on other platforms.
     "pycaw>=20230407; sys_platform == 'win32'",
