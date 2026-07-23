@@ -21,6 +21,7 @@
 #
 # Tauri v2 limitation: as of Tauri 2.x, the bundle config supports
 # Tauri v2 uses `postInstall` and `preRemove` (NOT `postInstallScript` / `preRemoveScript` which were Tauri v1 keys, and NOT `postRemoveScript`).
+# See https://v2.tauri.app/reference/config/#debconfig for the authoritative Tauri v2 config schema.
 # This %postun script is therefore NOT automatically wired into the .rpm
 # by Tauri's bundler. To enable it, the .rpm must be post-processed
 # (e.g. via `rpmrebuild` or a custom spec file in CI) to add this file
