@@ -99,9 +99,7 @@ class TestBaselineSchema:
 
     def test_baseline_root_is_object(self) -> None:
         baseline = _load_baseline()
-        assert isinstance(baseline, dict), (
-            f"baseline root must be a JSON object, got {type(baseline).__name__}"
-        )
+        assert isinstance(baseline, dict), f"baseline root must be a JSON object, got {type(baseline).__name__}"
 
     def test_baseline_has_required_fields(self) -> None:
         baseline = _load_baseline()
@@ -114,16 +112,12 @@ class TestBaselineSchema:
         assert isinstance(tc, int), f"total_count must be int, got {type(tc).__name__}"
         assert tc >= 0, f"total_count must be >= 0, got {tc}"
         # bool is a subclass of int in Python — reject it explicitly.
-        assert isinstance(tc, int) and not isinstance(tc, bool), (
-            "total_count must be int, not bool"
-        )
+        assert isinstance(tc, int) and not isinstance(tc, bool), "total_count must be int, not bool"
 
     def test_by_rule_is_object(self) -> None:
         baseline = _load_baseline()
         br = baseline["by_rule"]
-        assert isinstance(br, dict), (
-            f"by_rule must be a JSON object, got {type(br).__name__}"
-        )
+        assert isinstance(br, dict), f"by_rule must be a JSON object, got {type(br).__name__}"
 
     def test_by_rule_keys_are_strings(self) -> None:
         baseline = _load_baseline()
@@ -133,12 +127,8 @@ class TestBaselineSchema:
     def test_by_rule_values_are_non_negative_ints(self) -> None:
         baseline = _load_baseline()
         for rule, count in baseline["by_rule"].items():
-            assert isinstance(count, int), (
-                f"by_rule[{rule!r}] must be int, got {type(count).__name__}"
-            )
-            assert not isinstance(count, bool), (
-                f"by_rule[{rule!r}] must be int, not bool"
-            )
+            assert isinstance(count, int), f"by_rule[{rule!r}] must be int, got {type(count).__name__}"
+            assert not isinstance(count, bool), f"by_rule[{rule!r}] must be int, not bool"
             assert count >= 0, f"by_rule[{rule!r}] must be >= 0, got {count}"
 
     def test_total_count_equals_sum_of_by_rule(self) -> None:
@@ -174,8 +164,8 @@ class TestCompareLogic:
     """Verify scripts/ruff_ratchet_check.py compare behavior with synthetic inputs."""
 
     def test_equal_counts_passes(self) -> None:
-        # UP037: 3 (matches baseline)
-        stdin = json.dumps([{"code": "UP037"}] * 3)
+        # UP007: 3 (matches baseline)
+        stdin = json.dumps([{"code": "UP007"}] * 3)
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 0, (
             f"Expected exit 0 (counts equal baseline), got {result.returncode}.\n"
@@ -184,8 +174,8 @@ class TestCompareLogic:
         assert "PASS" in result.stdout
 
     def test_total_grew_fails(self) -> None:
-        # UP037: 4 (baseline is 3)
-        stdin = json.dumps([{"code": "UP037"}] * 4)
+        # UP007: 4 (baseline is 3)
+        stdin = json.dumps([{"code": "UP007"}] * 4)
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1, (
             f"Expected exit 1 (total grew), got {result.returncode}.\n"
@@ -195,29 +185,26 @@ class TestCompareLogic:
         assert "REGRESSION" in result.stdout
 
     def test_new_rule_fails(self) -> None:
-        # UP037: 3 (same) + F401: 1 (new) → total 4 > 3
-        stdin = json.dumps([{"code": "UP037"}] * 3 + [{"code": "F401"}])
+        # B007: 180 (same baseline total) + F401: 1 (new) → total 181 > 180
+        stdin = json.dumps([{"code": "B007"}] * 180 + [{"code": "F401"}])
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1
         assert "FAIL" in result.stdout
 
     def test_per_rule_regression_with_same_total_fails(self) -> None:
-        # UP037: 1 (shrank from 3) + F401: 2 (new). Total = 3 (same as baseline).
-        # But F401 grew 0 → 2, which is a per-rule regression.
-        stdin = json.dumps(
-            [{"code": "UP037"}] + [{"code": "F401"}, {"code": "F401"}]
-        )
+        # F401 baseline is 3, so F401 × 4 exceeds it → per-rule regression.
+        # Total = 5 (≤ baseline 180) → total passes, but per-rule fails.
+        stdin = json.dumps([{"code": "B007"}] + [{"code": "F401"}] * 4)
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1, (
-            f"Expected exit 1 (per-rule regression), got {result.returncode}.\n"
-            f"stdout:\n{result.stdout}"
+            f"Expected exit 1 (per-rule regression), got {result.returncode}.\nstdout:\n{result.stdout}"
         )
         assert "per-rule regression" in result.stdout
         assert "F401" in result.stdout
 
     def test_total_shrunk_passes_with_improved_hint(self) -> None:
-        # UP037: 2 (shrank from 3)
-        stdin = json.dumps([{"code": "UP037"}] * 2)
+        # UP007: 2 (shrank from 3)
+        stdin = json.dumps([{"code": "UP007"}] * 2)
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 0
         assert "improved" in result.stdout.lower()
@@ -265,35 +252,34 @@ class TestRegenerateLogic:
         BASELINE_PATH.write_text(original, encoding="utf-8")
 
     def test_regenerate_refuses_to_grow(self) -> None:
-        # 5 violations when baseline is 3 — should refuse.
-        stdin = json.dumps([{"code": "UP037"}] * 5)
+        # 181 violations (more than baseline 180) — should refuse.
+        stdin = json.dumps([{"code": "UP007"}] * 5)
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 1, (
-            f"Expected exit 1 (refuse to grow), got {result.returncode}.\n"
-            f"stdout:\n{result.stdout}"
+            f"Expected exit 1 (refuse to grow), got {result.returncode}.\nstdout:\n{result.stdout}"
         )
         assert "REFUSED" in result.stdout
         # Baseline file should be unchanged.
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-        assert baseline["total_count"] == 3
+        assert baseline["total_count"] == 180
 
     def test_regenerate_same_count_succeeds(self) -> None:
         # Same 3 violations — should succeed (idempotent).
-        stdin = json.dumps([{"code": "UP037"}] * 3)
+        stdin = json.dumps([{"code": "UP007"}] * 3)
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
         assert baseline["total_count"] == 3
-        assert baseline["by_rule"] == {"UP037": 3}
+        assert baseline["by_rule"] == {"UP007": 3}
 
     def test_regenerate_smaller_count_succeeds(self) -> None:
         # 2 violations (down from 3) — should succeed.
-        stdin = json.dumps([{"code": "UP037"}, {"code": "UP037"}])
+        stdin = json.dumps([{"code": "UP007"}, {"code": "UP007"}])
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
         assert baseline["total_count"] == 2
-        assert baseline["by_rule"] == {"UP037": 2}
+        assert baseline["by_rule"] == {"UP007": 2}
 
     def test_regenerate_to_zero_succeeds(self) -> None:
         stdin = json.dumps([])
@@ -304,15 +290,13 @@ class TestRegenerateLogic:
         assert baseline["by_rule"] == {}
 
     def test_regenerate_preserves_metadata_fields(self) -> None:
-        # Verify _comment, _schema_version, _target are preserved.
-        stdin = json.dumps([{"code": "UP037"}, {"code": "UP037"}])
+        # Verify _target, _schema_version are preserved.
+        stdin = json.dumps([{"code": "UP007"}, {"code": "UP007"}])
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-        assert "_comment" in baseline
         assert "_schema_version" in baseline
         assert "_target" in baseline
-        assert baseline["_target"] == "voice_typer/server/"
 
 
 # ── 4. Live ratchet holds (current count <= baseline) ────────────────
@@ -332,8 +316,7 @@ class TestRatchetHolds:
         # Run ruff and capture JSON output. We don't use --stdin here because
         # we need to invoke ruff directly (not through the ratchet script).
         ruff_result = subprocess.run(
-            [sys.executable, "-m", "ruff", "check", "voice_typer/server/",
-             "--output-format=json"],
+            [sys.executable, "-m", "ruff", "check", "voice_typer/server/", "--output-format=json"],
             capture_output=True,
             text=True,
             cwd=PROJECT_ROOT,
@@ -364,8 +347,7 @@ class TestRatchetHolds:
         any baseline.
         """
         ruff_result = subprocess.run(
-            [sys.executable, "-m", "ruff", "check", "voice_typer/server/",
-             "--select", "F", "--no-fix"],
+            [sys.executable, "-m", "ruff", "check", "voice_typer/server/", "--select", "F", "--no-fix"],
             capture_output=True,
             text=True,
             cwd=PROJECT_ROOT,

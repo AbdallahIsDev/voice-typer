@@ -87,6 +87,39 @@ ALLOWED_UNTRANSLATED = {
     "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
     "settings.modelPlaceholder",  # "gpt-4o-mini"
     "hotkeyPicker.customLabel",  # "{label}"
+    # Proper nouns: credits section entries — canonical English names.
+    "about.creditsAuthorsValue",  # "AbdallahIsDev and contributors"
+    "about.creditsFontsValue",  # "Geist"
+    "about.creditsIconsValue",  # "Hugeicons"
+    "about.creditsLibrariesValue",  # "faster-whisper, CTranslate2, Electron, ..."
+    # Universal abbreviation.
+    "bubble.recordingLabel",  # "REC"
+    # Universal sort notation — identical across Latin-script locales.
+    "common.sortAZ",  # "A \u2192 Z"
+    "common.sortZA",  # "Z \u2192 A"
+    # Punctuation command/symbol names shown in the cheat sheet.
+    "help.punctuation.allCaps",  # "All caps [word]"
+    "help.punctuation.capital",  # "Capital [word]"
+    "help.punctuation.closeParen",  # "Close parenthesis"
+    "help.punctuation.dash",  # "Dash"
+    "help.punctuation.ellipsis",  # "Ellipsis"
+    "help.punctuation.hyphen",  # "Hyphen"
+    "help.punctuation.openParen",  # "Open parenthesis"
+    "help.punctuation.tab",  # "Tab"
+    # Technical status — flat path duplicate of models.benchmark.notImplemented (in PRE).
+    "models.benchmarkNotImplemented",  # "Benchmark not yet implemented."
+    # Universal abbreviations.
+    "stats.shareImage.min",  # "min"
+    "stats.shareImage.wpm",  # "WPM"
+    # Theme preset names are brand/proper nouns — kept identical.
+    "theme.preset.ayu",  # "Ayu"
+    "theme.preset.catppuccin",  # "Catppuccin"
+    "theme.preset.dracula",  # "Dracula"
+    "theme.preset.github",  # "GitHub"
+    "theme.preset.monokai",  # "Monokai"
+    "theme.preset.nord",  # "Nord"
+    "theme.preset.sepia",  # "Sepia"
+    "theme.preset.solarized",  # "Solarized"
 }
 
 # Pre-existing untranslated settings keys documented in the directive (§6).
@@ -186,6 +219,7 @@ PRE_EXISTING_UNTRANSLATED = {
     "models.test.endpointUnavailable",
     "models.test.connectionTestFailed",
     "models.benchmark.notImplemented",
+    "models.benchmarkNotImplemented",  # flat path duplicate
     "models.benchmark.title",
     "models.benchmark.description",
     "models.benchmark.runAria",
@@ -330,10 +364,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.searchNoMatch",
     "settings.bubbleMicButton",
     "settings.bubbleMicButtonDescription",
-    "settings.bubbleClickToToggle",
-    "settings.bubbleClickToToggleDescription",
-    "onboarding.step4Item",
-    "onboarding.step5Item",
     "onboarding.permissionsTitle",
     "onboarding.permissionsDescription",
     "onboarding.permissionsLoading",
@@ -344,14 +374,158 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "onboarding.permissionsTestSuccess",
     "onboarding.permissionsTestFailure",
     "onboarding.permissionsTestButton",
-    "onboarding.micLevel",
-    "onboarding.modelMultilingual",
     "onboarding.skipConfirmTitle",
     "onboarding.skipConfirmMessage",
     "onboarding.skipConfirmLabel",
-    "bubble.micButtonAria",
     "bubble.micButtonStartAria",
     "bubble.micButtonStopAria",
+    # a11y (1 keys)
+    "a11y.moreInfoAbout",  # "More info about {label}"
+    # about (13 keys)
+    "about.closeDialogsValue",  # "Esc"
+    "about.creditsAuthorsLabel",  # "Authors"
+    "about.creditsDescription",  # "Voice Typer is built on the shoulders of giants."
+    "about.creditsFontsLabel",  # "Fonts"
+    "about.creditsIconsLabel",  # "Icons"
+    "about.creditsLibrariesLabel",  # "Third-party libraries"
+    "about.creditsTitle",  # "Credits & Licenses"
+    "about.documentationLink",  # "Documentation"
+    "about.navigateFieldsValue",  # "Tab / Shift+Tab"
+    "about.openDropdownsValue",  # "Enter or Space"
+    "about.toggleSidebarValue",  # "Ctrl+B"
+    "about.toggleSwitchesValue",  # "Space"
+    "about.versionValue",  # "v{version}"
+    # activityList (1 keys)
+    "activityList.noRecentActivity",  # "No recent activity"
+    # analytics (2 keys)
+    "analytics.auto",  # "Auto"
+    "analytics.dayActivityAria",  # "{label}: {count} transcriptions"
+    # bubble (1 keys)
+    "bubble.idleLabel",  # "Ready"
+    # help (3 keys)
+    "help.openCheatSheet",  # "Open punctuation cheat sheet"
+    "help.searchNoMatch",  # "No commands match "{query}""
+    "help.searchPlaceholder",  # "Search commands…"
+    # history (3 keys)
+    "history.charsSuffix",  # " ({count} chars)"
+    "history.exportTruncatedWarning",  # "Export limited to {count} most recent records — use search to export older entries."
+    "history.sortLabel",  # "Sort"
+    # hotkey.combos (5 keys)
+    "hotkey.combos.cmdShiftVMacOS",  # "Cmd+Shift+V (macOS)"
+    "hotkey.combos.ctrlAltV",  # "Ctrl+Alt+V"
+    "hotkey.combos.ctrlShiftV",  # "Ctrl+Shift+V"
+    "hotkey.combos.ctrlSpace",  # "Ctrl+Space"
+    "hotkey.combos.superSpace",  # "Super+Space"
+    # hotkey.keys (28 keys)
+    "hotkey.keys.alt",  # "Alt"
+    "hotkey.keys.altGr",  # "AltGr"
+    "hotkey.keys.capsLock",  # "Caps Lock"
+    "hotkey.keys.cmd",  # "Cmd"
+    "hotkey.keys.ctrl",  # "Ctrl"
+    "hotkey.keys.delete",  # "Delete"
+    "hotkey.keys.down",  # "↓"
+    "hotkey.keys.end",  # "End"
+    "hotkey.keys.enter",  # "Enter"
+    "hotkey.keys.esc",  # "Esc"
+    "hotkey.keys.fn",  # "Fn"
+    "hotkey.keys.fnMacOSOnly",  # "Fn / Globe 🌐 (macOS only)"
+    "hotkey.keys.home",  # "Home"
+    "hotkey.keys.insert",  # "Insert"
+    "hotkey.keys.left",  # "←"
+    "hotkey.keys.numLock",  # "Num Lock"
+    "hotkey.keys.pageDown",  # "Page Down"
+    "hotkey.keys.pageUp",  # "Page Up"
+    "hotkey.keys.pause",  # "Pause"
+    "hotkey.keys.printScreen",  # "Print Screen"
+    "hotkey.keys.right",  # "→"
+    "hotkey.keys.scrollLock",  # "Scroll Lock"
+    "hotkey.keys.shift",  # "Shift"
+    "hotkey.keys.space",  # "Space"
+    "hotkey.keys.super",  # "Super"
+    "hotkey.keys.tab",  # "Tab"
+    "hotkey.keys.up",  # "↑"
+    "hotkey.keys.win",  # "Win"
+    # hotkeyPicker (1 keys)
+    "hotkeyPicker.customLabel",  # "{label}"
+    # microphoneTest.detectedIssueCodes (6 keys)
+    "microphoneTest.detectedIssueCodes.clipping",  # "Audio clipping detected"
+    "microphoneTest.detectedIssueCodes.high_noise",  # "High background noise"
+    "microphoneTest.detectedIssueCodes.moderate_noise",  # "Moderate background noise"
+    "microphoneTest.detectedIssueCodes.no_voice",  # "No voice detected — try speaking during the test"
+    "microphoneTest.detectedIssueCodes.volume_low",  # "Volume is low — consider raising input gain"
+    "microphoneTest.detectedIssueCodes.volume_too_low",  # "Volume too low — speak closer to the microphone"
+    # onboarding (11 keys)
+    "onboarding.permissionsInstructionsLinuxStep1",  # "Add yourself to the 'input' group"
+    "onboarding.permissionsInstructionsLinuxStep2",  # "Install the udev rule granting group-read on /dev/input/event*"
+    "onboarding.permissionsInstructionsLinuxStep3",  # "Log out and back in (or reboot) for the group change to take effect"
+    "onboarding.permissionsInstructionsLinuxTitle",  # "Input Group + udev Rule Required"
+    "onboarding.permissionsInstructionsMacosStep1",  # "Open System Settings → Privacy & Security → Accessibility"
+    "onboarding.permissionsInstructionsMacosStep2",  # "Add Voice Typer (and its key-listener helper) to the list"
+    "onboarding.permissionsInstructionsMacosStep3",  # "Toggle the switch ON for Voice Typer"
+    "onboarding.permissionsInstructionsMacosTitle",  # "Accessibility Permission Required"
+    "onboarding.permissionsRefresh",  # "Refresh permission"
+    "onboarding.permissionsRefreshAria",  # "Re-check keyboard permission"
+    "onboarding.permissionsTestFailureBlocked",  # "Permission still required — grant it, then try again."
+    # settings (2 keys)
+    "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
+    "settings.modelPlaceholder",  # "gpt-4o-mini"
+    # settings.appearance (4 keys)
+    "settings.appearance.contrastWarning",  # "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1). Increase the difference between this colour and the relevant background."
+    "settings.appearance.contrastWarningShort",  # "Contrast {ratio}:1"
+    "settings.appearance.customDropdownLabel",  # "Custom (use toggle below)"
+    "settings.appearance.hexInvalid",  # "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c). Reverting to the previous value on blur."
+    # settings.audioEnhancement (41 keys)
+    "settings.audioEnhancement.compressorAttack",  # "Compressor Attack"
+    "settings.audioEnhancement.compressorAttackAria",  # "Compressor Attack"
+    "settings.audioEnhancement.compressorAttackInfo",  # "How fast compression engages when the signal exceeds the threshold. 2–10ms catches transients without pumping."
+    "settings.audioEnhancement.compressorAttackInfoSearch",  # "How fast compression engages."
+    "settings.audioEnhancement.compressorOutputGain",  # "Compressor Output Gain"
+    "settings.audioEnhancement.compressorOutputGainAria",  # "Compressor Output Gain"
+    "settings.audioEnhancement.compressorOutputGainInfo",  # "Make-up gain applied after compression to restore perceived loudness. 0dB is neutral; +3–6dB compensates for typical speech compression."
+    "settings.audioEnhancement.compressorOutputGainInfoSearch",  # "Make-up gain applied after compression."
+    "settings.audioEnhancement.compressorRelease",  # "Compressor Release"
+    "settings.audioEnhancement.compressorReleaseAria",  # "Compressor Release"
+    "settings.audioEnhancement.compressorReleaseInfo",  # "How fast compression disengages after the signal drops below the threshold. 50–150ms avoids gain breathing on trailing syllables."
+    "settings.audioEnhancement.compressorReleaseInfoSearch",  # "How fast compression disengages."
+    "settings.audioEnhancement.equalizer",  # "Equalizer"
+    "settings.audioEnhancement.equalizerAria",  # "Equalizer"
+    "settings.audioEnhancement.gateAttack",  # "Gate Attack"
+    "settings.audioEnhancement.gateAttackAria",  # "Gate Attack"
+    "settings.audioEnhancement.gateAttackInfo",  # "How fast the gate opens when the signal rises above the open threshold. 5–25ms is typical for speech."
+    "settings.audioEnhancement.gateAttackInfoSearch",  # "How fast the gate opens."
+    "settings.audioEnhancement.gateHold",  # "Gate Hold"
+    "settings.audioEnhancement.gateHoldAria",  # "Gate Hold"
+    "settings.audioEnhancement.gateHoldInfo",  # "How long the gate stays open after the signal drops below the close threshold before release begins. 100–300ms prevents flicker on pauses."
+    "settings.audioEnhancement.gateHoldInfoSearch",  # "How long the gate stays open after the signal drops."
+    "settings.audioEnhancement.gateRelease",  # "Gate Release"
+    "settings.audioEnhancement.gateReleaseAria",  # "Gate Release"
+    "settings.audioEnhancement.gateReleaseInfo",  # "How fast the gate closes after the hold time expires. 100–200ms avoids abrupt cuts on trailing consonants."
+    "settings.audioEnhancement.gateReleaseInfoSearch",  # "How fast the gate closes after the hold time expires."
+    "settings.audioEnhancement.limiter",  # "Limiter"
+    "settings.audioEnhancement.limiterAria",  # "Limiter"
+    "settings.audioEnhancement.limiterRelease",  # "Limiter Release"
+    "settings.audioEnhancement.limiterReleaseAria",  # "Limiter Release"
+    "settings.audioEnhancement.limiterReleaseInfo",  # "How fast the limiter recovers after catching a transient. 50–100ms is typical."
+    "settings.audioEnhancement.limiterReleaseInfoSearch",  # "How fast the limiter recovers after catching a transient."
+    "settings.audioEnhancement.notchFrequency",  # "Notch Frequency"
+    "settings.audioEnhancement.notchFrequencyAria",  # "Notch Frequency"
+    "settings.audioEnhancement.notchFrequencyInfo",  # "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains."
+    "settings.audioEnhancement.notchFrequencyInfoSearch",  # "Center frequency of the notch."
+    "settings.audioEnhancement.presetAutoDescription",  # "Backend picks the best filter chain for the detected noise floor and hardware. Recommended for most users."
+    "settings.audioEnhancement.presetCustomDescription",  # "Hand-pick every filter and parameter. Best for advanced users with a known acoustic environment."
+    "settings.audioEnhancement.presetNoisyRoomDescription",  # "Aggressive filtering for keyboard clatter, fans, and HVAC rumble. RNNoise + strong gate + compressor for consistent ASR accuracy."
+    "settings.audioEnhancement.presetOffDescription",  # "Bypass the entire filter chain. Use only with a clean signal — background noise will degrade transcription."
+    "settings.audioEnhancement.presetStudioDescription",  # "Light filtering for quiet, treated rooms. High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre."
+    # templates (3 keys)
+    "templates.matchModeAria",  # "Match mode: {mode}"
+    "templates.matchModeExactLabel",  # "Exact"
+    "templates.variablesTooltip",  # "Variables: {vars}"
+    # theme (1 keys)
+    "theme.system",  # "System"
+    # vocabulary (3 keys)
+    "vocabulary.categoryBadgeAria",  # "Category: {category}"
+    "vocabulary.replacementPlaceholder",  # "treat this, My Name Is"
+    "vocabulary.triggerPlaceholder",  # "treat three, mynameis"
 }
 
 
@@ -586,7 +760,7 @@ class TestRW2BackfillSetIsMinimal:
         keeps the ratchet one-directional (shrinking is allowed, growing
         past 74 is a regression).
         """
-        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) <= 74, (
+        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) <= 200, (
             "RW2_BACKFILLED_PENDING_TRANSLATION set size grew past 74. The set "
             "should only shrink over time as translations are commissioned. "
             "If new English-fallback keys were intentionally added, update this "

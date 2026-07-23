@@ -526,7 +526,7 @@ class TestCfg3MultiKeyComboRejection:
             "<ctrl>+<alt>+<v>",
             "<shift>+<f5>",
             "<ctrl>+<f1>",
-            "<ctrl>+<alt>+<f2>",
+            "<ctrl>+<alt>+<f9>",
             "<ctrl>+<shift>",  # zero non-modifiers (modifier-only combo)
             "<alt>+<shift>",  # zero non-modifiers
         ],

@@ -264,6 +264,8 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     lines = src.split("\n")
     secure_clear_block: list[str] = []
     in_block = False
+    seen_except_count = 0
+    seen_body_after_second_except = False
     for line in lines:
         if "_secure_clear_array(" in line:
             in_block = True
@@ -271,11 +273,25 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
             continue
         if in_block:
             secure_clear_block.append(line)
-            # Stop after we've seen the second ``except ...: pass`` clause
-            # (one for _cached_resampled, one for _cached_no_resample_arr).
-            if line.strip() == "pass" and sum(1 for l in secure_clear_block if l.strip().startswith("except ")) == 2:
+            # Stop after we've seen the body of the second ``except ...:``
+            # clause (one for _cached_resampled, one for
+            # _cached_no_resample_arr).  The body may be ``pass`` (the
+            # original CR-21 form) or — per the project's
+            # "no ``except: pass``" rule — a real handler such as
+            # ``log.warning(...)``.  Either way, the first non-empty,
+            # non-``except`` line after the 2nd ``except`` marks the end
+            # of the secure-clear block.
+            if line.strip().startswith("except "):
+                seen_except_count += 1
+            elif seen_except_count == 2 and line.strip():
+                seen_body_after_second_except = True
                 break
     block_src = "\n".join(secure_clear_block)
+    assert seen_body_after_second_except, (
+        "Could not locate the end of the secure-clear block (expected to "
+        "find the body line after the second ``except`` clause). "
+        f"Collected block:\n{block_src}"
+    )
     assert block_src.count("except ") == 2, (
         f"expected exactly two `except` clauses in the secure-clear block, got:\n{block_src}"
     )

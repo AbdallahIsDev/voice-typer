@@ -30,9 +30,9 @@ _mock_pystray.MenuItem = MagicMock
 _mock_pystray.Icon = MagicMock
 sys.modules.setdefault("pystray", _mock_pystray)
 
-from voice_typer.server import (
-    event_bus,  # noqa: E402 -- B-1 FIX-12: tests use event_bus._subscribers/_lock directly
-    ipc_server,  # noqa: E402
+from voice_typer.server import (  # noqa: E402 -- B-1 FIX-12: tests use event_bus._subscribers/_lock directly
+    event_bus,
+    ipc_server,
 )
 from voice_typer.server.ipc_server import (  # noqa: E402
     _TCP_WRITE_TIMEOUT_SECONDS,
@@ -54,6 +54,9 @@ class MockConfig:
         self._saved = False
 
     def save(self):
+        self._saved = True
+
+    def save_strict(self):
         self._saved = True
 
     def __getattr__(self, name):

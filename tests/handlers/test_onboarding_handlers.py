@@ -17,7 +17,7 @@ Status handlers (return their own ``onboarding_*`` type):
 
 Set-style handlers (validate a single field, return ``{type: ack|error, data: <result>}``):
 - ``_handle_onboarding_set_microphone`` — validates ``mic_id: str`` (required).
-- ``_handle_onboarding_set_hotkey`` — validates ``hotkey: str`` (default ``<f2>``).
+- ``_handle_onboarding_set_hotkey`` — validates ``hotkey: str`` (default ``<caps_lock>``).
 - ``_handle_onboarding_set_model`` — validates ``model: str`` (default ``small.en``).
 
 Decision handlers (return ack or error based on whether the service
@@ -124,7 +124,7 @@ class TestOnboardingSetMicrophone:
 
 
 class TestOnboardingSetHotkey:
-    """``_handle_onboarding_set_hotkey`` — validates ``hotkey`` (default ``<f2>``)."""
+    """``_handle_onboarding_set_hotkey`` — validates ``hotkey`` (default ``<caps_lock>``)."""
 
     def test_happy_path_with_explicit_hotkey(self, ipc_server, fake_service):
         fake_service.onboarding_set_hotkey.return_value = {"ok": True}
@@ -132,12 +132,12 @@ class TestOnboardingSetHotkey:
         assert resp["type"] == "ack"
         fake_service.onboarding_set_hotkey.assert_called_once_with("<f4>")
 
-    def test_missing_hotkey_uses_default_f2(self, ipc_server, fake_service):
-        """Empty payload → default hotkey ``<f2>`` is used (required=False)."""
+    def test_missing_hotkey_uses_default_caps_lock(self, ipc_server, fake_service):
+        """Empty payload → default hotkey ``<caps_lock>`` is used (required=False)."""
         fake_service.onboarding_set_hotkey.return_value = {"ok": True}
         resp = ipc_server._handle_onboarding_set_hotkey({}, {})
         assert resp["type"] == "ack"
-        fake_service.onboarding_set_hotkey.assert_called_once_with("<f2>")
+        fake_service.onboarding_set_hotkey.assert_called_once_with("<caps_lock>")
 
     def test_non_string_hotkey_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_hotkey({"hotkey": 99}, {})
