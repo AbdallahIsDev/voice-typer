@@ -7,6 +7,7 @@
 #   actions/upload-artifact@v5       — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/download-artifact@v5    — Node 24 runtime (v4 = Node 20, deprecated)
 #   astral-sh/setup-uv@v6            — Node 24 runtime (v3 = Node 20, deprecated)
+#   dtolnay/rust-toolchain@v1         — Node 24 runtime (@stable = untagged, may resolve to Node 20)
 # See build.yml header for full rationale + breaking-change analysis.
 # =============================================================================
 
@@ -74,7 +75,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Rust + targets
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@v1
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
@@ -166,7 +167,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Rust + targets
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@v1
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
@@ -259,7 +260,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install Rust + universal targets
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@v1
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 

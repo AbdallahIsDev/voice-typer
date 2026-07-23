@@ -7,6 +7,7 @@
 #   actions/upload-artifact@v5         — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/attest-build-provenance@v4 — Node 24 runtime (v1 = Node 16, deprecated)
 #   astral-sh/setup-uv@v6              — Node 24 runtime (v3 = Node 20, deprecated)
+#   dtolnay/rust-toolchain@v1           — Node 24 runtime (@stable = untagged, may resolve to Node 20)
 # See build.yml header for full rationale + breaking-change analysis.
 # -----------------------------------------------------------------------------
 # Tauri Windows Build (ADR-0020 Phase 0-W / Phase 1-W packaging).
@@ -113,7 +114,7 @@ jobs:
           cache-dependency-glob: "**/pyproject.toml"
 
       - name: Install Rust toolchain (${{ env.RUST_TARGET }})
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@v1
         with:
           targets: ${{ env.RUST_TARGET }}
 
@@ -144,6 +145,7 @@ jobs:
       - name: Install Python dev deps (uv)
         shell: pwsh
         run: |
+          $env:UV_LINK_MODE = "copy"
           uv pip install --system ".[dev,test]"
           uv pip install --system nuitka==2.5.4 zstandard ordered-set
           pip list
@@ -183,10 +185,12 @@ jobs:
           # Add PYBS to GITHUB_ENV so subsequent steps can use it.
           echo "PYBS=C:\tools\pybs\python" >> $env:GITHUB_ENV
           # Install the project + Nuitka into the PYBS env (the env that
-          # actually gets frozen).
-          C:\tools\pybs\python\python.exe -m pip install --upgrade pip
-          C:\tools\pybs\python\python.exe -m pip install nuitka==2.5.4 zstandard ordered-set
-          C:\tools\pybs\python\python.exe -m pip install -e ".[dev,test]"
+          # actually gets frozen). --no-warn-script-location suppresses
+          # pip noise about Scripts/ not being on PATH (PYBS python is
+          # invoked by full path, not via PATH).
+          C:\tools\pybs\python\python.exe -m pip install --upgrade --no-warn-script-location pip
+          C:\tools\pybs\python\python.exe -m pip install --no-warn-script-location nuitka==2.5.4 zstandard ordered-set
+          C:\tools\pybs\python\python.exe -m pip install --no-warn-script-location -e ".[dev,test]"
           C:\tools\pybs\python\python.exe -c "import faster_whisper, ctranslate2; print('ctranslate2', ctranslate2.__version__)"
 
       - name: Build the sidecar with Nuitka (ADR-0020 §4.2)
@@ -203,7 +207,7 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
-              --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
+              --include-data-dir="$SITE\ctranslate2\lib=ctranslate2/lib" `
               --windows-disable-console `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp" `
               --output-filename=python-sidecar-x86_64-pc-windows-msvc.exe `
@@ -229,7 +233,7 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
-              --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
+              --include-data-dir="$SITE\ctranslate2\lib=ctranslate2/lib" `
               --windows-disable-console `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" `
               --output-filename=prewarm-x86_64-pc-windows-msvc.exe `

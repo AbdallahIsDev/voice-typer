@@ -6,6 +6,7 @@
 #   actions/setup-node@v7      — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/upload-artifact@v5 — Node 24 runtime (v4 = Node 20, deprecated)
 #   astral-sh/setup-uv@v6     — Node 24 runtime (v3 = Node 20, deprecated)
+#   dtolnay/rust-toolchain@v1  — Node 24 runtime (@stable = untagged, may resolve to Node 20)
 # See build.yml header for full rationale + breaking-change analysis.
 # =============================================================================
 
@@ -111,7 +112,7 @@ jobs:
           cache-dependency-glob: "**/pyproject.toml"
 
       - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@v1
         with:
           targets: ${{ env.BUILD_ARCH == 'aarch64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
 
