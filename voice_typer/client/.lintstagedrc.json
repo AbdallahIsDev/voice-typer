@@ -5,5 +5,5 @@
 	"*.jsx": ["biome check --write"],
 	"*.json": ["biome check --write"],
 	"*.css": ["biome check --write"],
-	"*.py": ["ruff check --fix", "ruff format"]
+	"*.mjs": ["biome check --write"]
 }

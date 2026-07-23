@@ -7,6 +7,13 @@
 		"esModuleInterop": true,
 		"outDir": "./out",
 		"strict": true,
+		// XS-63: enable no-unused / no-implicit-* strict flags so dead
+		// code surfaces at compile time. Mirrors tsconfig.web.json so
+		// the two project-refs stay in sync on the strictness surface.
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": true,
 		"target": "ESNext",
 		"skipLibCheck": true
 	},

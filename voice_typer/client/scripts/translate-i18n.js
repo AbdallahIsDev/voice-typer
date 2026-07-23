@@ -51,11 +51,10 @@ const enFlat = getKeys(en, "");
 
 const translations = {};
 
-// Load existing partial translations from our previous partial file
-try {
-	const partial = require("./translate-i18n-partial.js");
-	Object.assign(translations, partial.translations);
-} catch {}
+// XS-103: removed the dead `require("./translate-i18n-partial.js")` block —
+// the partial file never existed (the catch swallowed MODULE_NOT_FOUND),
+// so the assignment was a no-op. Re-add only if a partial-translation
+// loader is actually introduced.
 
 // ── Arabic ──────────────────────────────────────────────────────────
 translations.ar = translations.ar || {};

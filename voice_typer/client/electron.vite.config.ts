@@ -64,6 +64,13 @@ export default defineConfig(({ command }) => ({
 			// the .asar). Vite emits sourcemaps for the dev server
 			// automatically; this flag controls production emission.
 			sourcemap: command === "serve",
+			// XS-67: raise the chunk-size warning limit from Vite's
+			// default 500 KB to 600 KB so the renderer bundle's
+			// larger chunks (radix-ui, hugeicons) don't print a noisy
+			// warning on every build. The 1.4 MB tauri-bridge chunk
+			// still warns — investigating why a bridge module pulls
+			// in 1.4 MB of shared deps is deeper work (Remaining).
+			chunkSizeWarningLimit: 600,
 			rollupOptions: {
 				input: {
 					index: resolve(__dirname, "src/renderer/index.html"),

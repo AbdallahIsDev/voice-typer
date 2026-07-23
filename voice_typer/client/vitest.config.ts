@@ -43,14 +43,37 @@ export default defineConfig({
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],
+			// XS-69: vitest 4.x dropped the `all: true` option (the v8
+			// provider reports only files actually executed during the
+			// test run — untested files are not retroactively added to
+			// the denominator as they were under the istanbul provider).
+			// To get "all files in scope" coverage we'd need to switch
+			// to the istanbul provider (`provider: "istanbul"` +
+			// `@vitest/coverage-istanbul`), which is a separate task.
+			// The expanded `include` glob below at least guarantees that
+			// every executed file matching the patterns is counted
+			// (rather than only files reached via test imports).
 			include: [
 				"src/renderer/src/**/*.{ts,tsx}",
 				"src/main/**/*.ts",
 				"src/preload/**/*.ts",
+				// csp-plugin.ts lives at the client root (not under src/) but is
+				// exercised via main-process tests + production build. Include it
+				// explicitly so its branches count toward the threshold.
+				"csp-plugin.ts",
 			],
 			exclude: [
 				"**/*.test.{ts,tsx}",
 				"**/*.spec.{ts,tsx}",
+				// Storybook stories are visual fixtures, not unit-testable code.
+				"**/*.stories.tsx",
+				// Test helpers / fixtures are imported only by tests; counting
+				// them against production coverage would penalize the threshold
+				// for code that never ships.
+				"**/__tests__/helpers/**",
+				// The vitest setup file wires jsdom polyfills; it runs before
+				// every test but is not production code.
+				"**/test-setup.ts",
 				// Type-only / declaration files have no runtime to cover.
 				"**/*.d.ts",
 				// Bundle entrypoints are exercised end-to-end via
