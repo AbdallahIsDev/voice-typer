@@ -46,6 +46,7 @@ function Slider({
 				{ length: (props.value ?? props.defaultValue ?? [0]).length },
 				(_, i) => (
 					<SliderPrimitive.Thumb
+						// XS-64: restored biome-ignore — the rule fires under `preset: "recommended"`. Slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb.
 						// biome-ignore lint/suspicious/noArrayIndexKey: slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb rendering.
 						key={`thumb-${i}`}
 						data-slot="slider-thumb"

@@ -20,12 +20,13 @@ import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Button } from "@/components/ui/button.tsx";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
+import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
 import { getLocale, t } from "@/i18n/i18n";
 import { compactNumber } from "@/lib/format";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { HistoryRecord, Page, TodayStats } from "@/types/ipc";
+import type { HistoryRecord, TodayStats } from "@/types/ipc";
 
 // ── Module-level cache ────────────────────────────────────────────
 let _cachedData: DashboardData | null = null;
@@ -228,13 +229,14 @@ function computeStreaks(records: HistoryRecord[]): {
 
 // ── Page Component ────────────────────────────────────────────────
 
-interface DashboardPageProps {
-	onNavigate?: (page: Page) => void;
-}
-
-export default function DashboardPage({
-	onNavigate: _onNavigate,
-}: DashboardPageProps) {
+// NOTE: App.tsx prop passing will be removed by EC-FIX-13.
+// EC-FIX-14 (BACKLOG-004): DashboardPage now obtains `navigate` via the
+// useNavigation hook directly, eliminating the `onNavigate` prop drill
+// from App.tsx.
+export default function DashboardPage() {
+	// EC-FIX-14: obtain `navigate` directly from the navigation hook
+	// instead of receiving it as an `onNavigate` prop from App.tsx.
+	const { navigate } = useNavigation();
 	const { call } = usePython();
 	const [data, setData] = useState<DashboardData | null>(_cachedData);
 	// R7-F18: removed dead `const [, setLoading] = useState(true)`.
@@ -494,8 +496,8 @@ export default function DashboardPage({
 			</PageHeading>
 
 			{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-			    refresh button. The module-level `_cachedData` survives page
-			    navigations, so we surface staleness here. */}
+                            refresh button. The module-level `_cachedData` survives page
+                            navigations, so we surface staleness here. */}
 			<div className="flex justify-end pb-2">
 				<LastUpdatedIndicator
 					agoLabel={agoLabel}
@@ -505,19 +507,18 @@ export default function DashboardPage({
 			</div>
 
 			{/* Fix #10: first-run empty state.  When the user has never
-			    dictated (totalCount === 0), show an EmptyState with a CTA
-			    to start dictation instead of four zero-value stat cards
-			    and an empty 7-day chart.  The CTA navigates to the Home
-			    page via the ``onNavigate`` prop (matches the History
-			    page's empty-state pattern). */}
+                            dictated (totalCount === 0), show an EmptyState with a CTA
+                            to start dictation instead of four zero-value stat cards
+                            and an empty 7-day chart.  The CTA navigates to the Home
+                            page (matches the History page's empty-state pattern). */}
 			{isFirstRun ? (
 				<EmptyState
 					icon={Mic02Icon}
 					title={t("analytics.noDataTitle")}
 					description={t("analytics.noDataDescription")}
-					actionLabel={_onNavigate ? t("analytics.startDictation") : undefined}
+					actionLabel={t("analytics.startDictation")}
 					actionIcon={SpeechToTextIcon}
-					onAction={_onNavigate ? () => _onNavigate("home") : undefined}
+					onAction={() => navigate("home")}
 				/>
 			) : (
 				<div className="space-y-8">
@@ -653,11 +654,11 @@ export default function DashboardPage({
 
 			{/* ── Hidden share image capture target ──────────────── */}
 			{/* EXPORT-FIX: removed clipPath:inset(50%) —
-			    html-to-image copied it onto the cloned node and
-			    clipped the PNG to 0×0. See Home.tsx for full
-			    rationale. The toPng style override (clipPath:none)
-			    is the primary defense; removing clipPath here
-			    eliminates the footgun. */}
+                            html-to-image copied it onto the cloned node and
+                            clipped the PNG to 0×0. See Home.tsx for full
+                            rationale. The toPng style override (clipPath:none)
+                            is the primary defense; removing clipPath here
+                            eliminates the footgun. */}
 			<div
 				ref={imageRef}
 				aria-hidden

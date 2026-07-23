@@ -67,7 +67,6 @@ if (
 		readonly thresholds: ReadonlyArray<number> = [0];
 		constructor(
 			private callback: IntersectionObserverCallback,
-			// eslint-disable-next-line @typescript-eslint/no-unused-vars
 			_options?: IntersectionObserverInit,
 		) {}
 		observe(target: Element) {

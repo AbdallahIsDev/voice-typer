@@ -121,16 +121,27 @@ export function rotateIfNeeded(
 	filePath: string,
 	maxSize: number = DEFAULT_CRASH_LOG_MAX_BYTES,
 ): void {
+	// XV-154: check the cache first — only stat the real file on
+	// cache miss.
+	const cachedSize = _getCachedFileSize(filePath);
 	let size: number;
-	try {
-		size = fs.statSync(filePath).size;
-	} catch {
-		// File does not exist yet (ENOENT, the expected case on the
-		// first crash) or is unreadable (EACCES, EBUSY). Either way
-		// there is nothing to rotate — let the caller try the append.
+	if (cachedSize !== null) {
+		size = cachedSize;
+	} else {
+		try {
+			size = fs.statSync(filePath).size;
+		} catch {
+			// File does not exist yet (ENOENT, the expected case on the
+			// first crash) or is unreadable (EACCES, EBUSY). Either way
+			// there is nothing to rotate — let the caller try the append.
+			return;
+		}
+	}
+	if (size <= maxSize) {
+		// Cache the size for next time (avoids re-stat on the next append).
+		_setCachedFileSize(filePath, size);
 		return;
 	}
-	if (size <= maxSize) return;
 	const backup = `${filePath}.1`;
 	try {
 		// POSIX `rename` overwrites the destination; Windows `rename`
@@ -146,6 +157,9 @@ export function rotateIfNeeded(
 			if (code !== "ENOENT") throw e;
 		}
 		fs.renameSync(filePath, backup);
+		// XV-154: after rotation, reset the cache so the next call
+		// stats the active (new) file.
+		_clearCachedFileSize(filePath);
 	} catch {
 		// Best-effort: rotation failed (disk full, permission, race).
 		// Continue — the caller will still attempt the append. The
@@ -180,6 +194,47 @@ export function ts(): string {
 	const m = String(d.getMinutes()).padStart(2, "0");
 	const s = String(d.getSeconds()).padStart(2, "0");
 	return `${DIM}${h}:${m}:${s}${RESET}`;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// XV-154: _fileSizeCache memoizes statSync results so appendLogLine
+// doesn't call fs.statSync on every write — only on cache miss. The
+// cache is bumped (updated) after every successful append so the
+// next call can skip stat. Rotations reset the cache entry to 0.
+// ────────────────────────────────────────────────────────────────────
+
+/** @internal module-level cache keyed by absolute log-file path. */
+const _fileSizeCache = new Map<string, number>();
+
+/**
+ * XV-154: reset the file-size cache. Exported for tests so each
+ * test starts with a clean cache state.
+ */
+export function _resetFileSizeCacheForTest(): void {
+	_fileSizeCache.clear();
+}
+
+/**
+ * Read the cached file size for `filePath`. Returns `null` on cache
+ * miss (caller should stat the real file).
+ */
+function _getCachedFileSize(filePath: string): number | null {
+	const cached = _fileSizeCache.get(filePath);
+	return cached !== undefined ? cached : null;
+}
+
+/**
+ * Update the cached file size for `filePath` after a successful append.
+ */
+function _setCachedFileSize(filePath: string, size: number): void {
+	_fileSizeCache.set(filePath, size);
+}
+
+/**
+ * Remove an entry from the cache (used by rotateIfNeeded after rotation).
+ */
+function _clearCachedFileSize(filePath: string): void {
+	_fileSizeCache.delete(filePath);
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -267,6 +322,13 @@ export function appendLogLine(
 	try {
 		rotateIfNeeded(filePath, maxBytes);
 		fs.appendFileSync(filePath, line, { encoding: "utf-8" });
+		// XV-154: bump the cache after a successful append so the
+		// next call doesn't need to stat. Cache the NEW file size
+		// (previous cached size + line bytes).
+		const prevSize = _getCachedFileSize(filePath);
+		if (prevSize !== null) {
+			_setCachedFileSize(filePath, prevSize + Buffer.byteLength(line, "utf-8"));
+		}
 	} catch {
 		// Best-effort: disk full, permission denied, parent dir
 		// missing, etc. Swallow — the caller's code path is more
@@ -339,21 +401,6 @@ export type LogShape = {
 };
 
 /**
- * Test-only override for the runtime log file path. When set (even to
- * `null`), {@link getRuntimeLogPath} returns this value verbatim
- * instead of resolving `<userData>/electron-runtime.log` via Electron's
- * `app.getPath`. Pass `null` to disable file logging for the duration
- * of a test (file writes silently no-op).
- *
- * Not part of the public API; exported only for test isolation.
- */
-let _runtimeLogPathOverride: string | null | undefined;
-
-export function _setRuntimeLogPathForTest(p: string | null): void {
-	_runtimeLogPathOverride = p;
-}
-
-/**
  * Resolve the path to `electron-runtime.log`. Lazy-`require`s
  * `electron` so this module can be imported in non-Electron contexts
  * (vitest unit tests that exercise `rotateIfNeeded` directly) without
@@ -361,11 +408,12 @@ export function _setRuntimeLogPathForTest(p: string | null): void {
  * returns `null` if Electron is unavailable, in which case
  * {@link mainRuntimeLogger.write} silently no-ops.
  *
- * Returns the override set by {@link _setRuntimeLogPathForTest} when
- * one is in effect.
+ * XS-66: the previous `_runtimeLogPathOverride` + `_setRuntimeLogPathForTest`
+ * test-override pair was removed — no test imported it. Tests that need to
+ * assert against the file-tee path now mock `electron`'s `app.getPath` (as
+ * `bootstrap.test.ts` already does).
  */
 function getRuntimeLogPath(): string | null {
-	if (_runtimeLogPathOverride !== undefined) return _runtimeLogPathOverride;
 	try {
 		// Lazy require so unit tests that import this module
 		// (e.g. bootstrap.test.ts) don't need to mock Electron

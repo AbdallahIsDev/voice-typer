@@ -24,6 +24,9 @@
  *   - `scripts/check_branding.py` is the canonical CI gate that
  *     catches hardcoded "Voice Typer" strings outside these three
  *     files. Run it locally with `python scripts/check_branding.py`.
+ *
+ * XS-66: the previous `export const APP_DESCRIPTION` was removed —
+ * it was exported but never imported anywhere (only APP_NAME has
+ * consumers). Re-add only when a renderer module actually needs it.
  */
 export const APP_NAME = "Voice Typer";
-export const APP_DESCRIPTION = "Background voice-to-text utility";

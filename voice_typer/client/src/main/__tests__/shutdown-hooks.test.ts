@@ -189,7 +189,6 @@ describe("R6-F7: bootstrap.ts uncaughtException calls stopPython", () => {
 
 	it("bootstrapRuntime registers the uncaughtException + unhandledRejection handlers", async () => {
 		const onSpy = vi.spyOn(process, "on");
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const restore: Array<() => void> = [];
 		// Avoid clobbering the real process listeners — capture only.
 		const originalOn = process.on.bind(process);

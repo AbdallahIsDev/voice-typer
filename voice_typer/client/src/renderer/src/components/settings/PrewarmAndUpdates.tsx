@@ -77,6 +77,17 @@ function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
 }
 
 // Small label/value row matching the visual rhythm of SettingsSection.
+//
+// XA-3-5: this intentionally duplicates the `SettingRow` primitive rather
+// than reusing it. `SettingRow` is designed for interactive controls — it
+// emphasises the LABEL (text-primary, font-medium) and renders the control
+// (child) at default weight. For the read-only status rows in this
+// component (Prewarm Status, Last Run, Cache Health, Installed Version,
+// Latest Release) we want the opposite emphasis: a MUTED label and a
+// PROMINENT value. Reusing SettingRow here would visually flatten the
+// status rhythm and make "Hot" cache badges look like editable controls.
+// Keep this local primitive until the design system grows a
+// `StatusRow`/`ReadonlyRow` variant; do not delete in a cleanup pass.
 function Row({ label, value }: { label: string; value: ReactNode }) {
 	return (
 		<div className="flex items-center justify-between gap-4 px-3.5 py-2.5">
@@ -321,9 +332,9 @@ export default function PrewarmAndUpdates({
 		<>
 			{/* ── Cache Status (ADR-0009 Issue 3) ─────────────────────── */}
 			{/* Fix #4: section-level hide-when-empty check — when no row
-                                matches the active search query, hide the whole section
-                                (including its action buttons) so the tab doesn't show a
-                                lonely header above an empty body. */}
+				matches the active search query, hide the whole section
+				(including its action buttons) so the tab doesn't show a
+				lonely header above an empty body. */}
 			{[
 				t("about.prewarmStatus"),
 				t("about.lastRun"),
@@ -416,8 +427,8 @@ export default function PrewarmAndUpdates({
 								: t("about.refreshCacheStatus")}
 						</Button>
 						{/* "Run Prewarm Now" button. Disabled when cache is Hot
-                                                (no point re-warming), when prewarm is already
-                                                running, or while the run_prewarm IPC is in flight. */}
+						(no point re-warming), when prewarm is already
+						running, or while the run_prewarm IPC is in flight. */}
 						<Button
 							variant="default"
 							size="sm"
@@ -433,7 +444,7 @@ export default function PrewarmAndUpdates({
 								: t("about.runPrewarmNow")}
 						</Button>
 						{/* "View prewarm log" button. Opens the prewarm log
-                                                file in the OS default text editor. */}
+						file in the OS default text editor. */}
 						<Button variant="ghost" size="sm" onClick={handleViewPrewarmLog}>
 							{t("about.viewPrewarmLog")}
 						</Button>

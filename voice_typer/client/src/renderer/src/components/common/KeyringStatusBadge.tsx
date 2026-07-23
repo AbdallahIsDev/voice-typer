@@ -63,7 +63,15 @@ export function KeyringStatusBadge({
 									? `${buttonBaseClass} text-emerald-600 dark:text-emerald-400 rounded-full`
 									: `${buttonBaseClass} gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300`
 							}
-							aria-label={tooltipText}
+							// XA-8-M3: don't duplicate the tooltip text as aria-label (SR users
+							// would hear it twice — once on the button, once when the tooltip
+							// opens on focus). In non-compact mode the visible "Secure" text
+							// provides the accessible name. In compact mode (icon-only) we
+							// expose a short generic label so the button still has an
+							// accessible name.
+							aria-label={
+								compact ? t("settings.keyring.statusLabel") : undefined
+							}
 						>
 							<HugeiconsIcon
 								icon={LockKeyIcon}
@@ -96,7 +104,9 @@ export function KeyringStatusBadge({
 								? `${buttonBaseClass} text-amber-600 dark:text-amber-400 rounded-full`
 								: `${buttonBaseClass} gap-1.5 rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300`
 						}
-						aria-label={tooltipText}
+						// XA-8-M3: see available branch above for the rationale on
+						// dropping the tooltipText aria-label.
+						aria-label={compact ? t("settings.keyring.statusLabel") : undefined}
 					>
 						<HugeiconsIcon
 							icon={Alert02Icon}

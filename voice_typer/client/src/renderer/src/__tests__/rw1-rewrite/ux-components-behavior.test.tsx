@@ -112,14 +112,19 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
 }
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
+const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
+	mockNavigate: vi.fn(),
 }));
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
+}));
+
+vi.mock("@/hooks/useNavigation", () => ({
+	useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 vi.mock("@hugeicons/react", () => ({
@@ -657,17 +662,10 @@ describe("Settings onNavigate prop — RW-1 rewrite of Page-type tests", () => {
 		cleanup();
 	});
 
-	it("accepts a (page: Page) => void callback and forwards the literal 'about' to it", async () => {
+	it("calls navigate('about') when the Diagnostics button is clicked", async () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
 
-		// The onNavigate prop is typed `(page: Page) => void`.  This
-		// assignment type-checks only because SettingsPageProps
-		// declares onNavigate with that exact signature — if a future
-		// refactor narrows or widens it, the assignment fails to
-		// compile.  This is the TypeScript-level invariant the Python
-		// string-pattern tests were trying to lock down.
-		const onNavigate: (page: Page) => void = vi.fn();
-		render(<SettingsPage onNavigate={onNavigate} />);
+		render(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
@@ -690,7 +688,7 @@ describe("Settings onNavigate prop — RW-1 rewrite of Page-type tests", () => {
 		);
 		fireEvent.click(diagBtn);
 
-		expect(onNavigate).toHaveBeenCalledWith("about");
+		expect(mockNavigate).toHaveBeenCalledWith("about");
 	});
 });
 

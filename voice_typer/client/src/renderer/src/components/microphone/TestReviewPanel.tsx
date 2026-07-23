@@ -65,34 +65,6 @@ function translateDetectedIssue(raw: string): string {
 	return raw;
 }
 
-function _QualityScore({ value, max }: { value: number; max: number }) {
-	const pct = (value / max) * 100;
-	const color =
-		pct >= 80 ? "bg-green-500" : pct >= 50 ? "bg-amber-500" : "bg-red-500";
-	return (
-		<div className="flex items-center gap-2">
-			{/* NF-R15-8: expose as a progressbar to assistive tech so SR users
-			    can hear the score without parsing the visual bar. */}
-			<div
-				className="h-1.5 w-24 rounded-full bg-border overflow-hidden"
-				role="progressbar"
-				aria-label={t("microphoneTest.estimatedQuality")}
-				aria-valuemin={0}
-				aria-valuemax={max}
-				aria-valuenow={value}
-			>
-				<div
-					className={`h-full rounded-full transition-all ${color}`}
-					style={{ width: `${pct}%` }}
-				/>
-			</div>
-			<span className="text-xs tabular-nums text-(--text-muted) w-8 text-right">
-				{value}/{max}
-			</span>
-		</div>
-	);
-}
-
 export function TestReviewPanel({
 	durationMs,
 	quality,

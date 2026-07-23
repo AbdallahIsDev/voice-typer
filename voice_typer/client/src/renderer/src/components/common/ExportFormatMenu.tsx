@@ -47,23 +47,11 @@ export default function ExportFormatMenu({
 					{t("exportFormat.export")}
 				</Button>
 			</DropdownMenuTrigger>
-			<DropdownMenuContent
-				align="end"
-				aria-label={t("a11y.exportFormat")}
-				// Preserve the pre-migration visual style (right-aligned,
-				// narrow, rounded-xl popover on the subtle background).
-				className="w-30 min-w-0 overflow-hidden rounded-xl border border-border bg-(--bg-subtle) p-0 shadow-lg ring-0"
-			>
-				<DropdownMenuItem
-					onSelect={() => onExport("json")}
-					className="w-full rounded-none px-3 py-2 text-left text-xs text-(--text-primary) transition-colors hover:bg-(--surface-hover) focus:bg-(--surface-hover) focus:text-(--text-primary)"
-				>
+			<DropdownMenuContent align="end" aria-label={t("a11y.exportFormat")}>
+				<DropdownMenuItem onSelect={() => onExport("json")}>
 					{t("exportFormat.json")}
 				</DropdownMenuItem>
-				<DropdownMenuItem
-					onSelect={() => onExport("csv")}
-					className="w-full rounded-none px-3 py-2 text-left text-xs text-(--text-primary) transition-colors hover:bg-(--surface-hover) focus:bg-(--surface-hover) focus:text-(--text-primary)"
-				>
+				<DropdownMenuItem onSelect={() => onExport("csv")}>
 					{t("exportFormat.csv")}
 				</DropdownMenuItem>
 			</DropdownMenuContent>

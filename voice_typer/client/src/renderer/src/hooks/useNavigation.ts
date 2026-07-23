@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isKnownPage } from "@/router/routes";
 import type { Page } from "@/types/ipc";
 
 // NEW-UX-041: persist the current page + nav history to localStorage
@@ -15,32 +16,13 @@ const STORAGE_KEY_NAV = "vt_nav_state";
 // same logical entry (its index shifts down by 1).
 const MAX_NAV_HISTORY = 50;
 
-/**
- * Known valid Page values — used to validate the page restored from
- * localStorage so a corrupted / hand-edited `vt_nav_state` cannot
- * land an unknown string into `currentPage` and break the
- * `renderPage()` switch (which has a `default` fallback but a bad
- * page would still cause a "Page not found" loop on every render).
- *
- * Mirrors the `Page` union in `types/ipc.ts`. Kept as a runtime Set
- * (rather than a type) so {@link loadNavState} can validate at runtime.
- */
-const KNOWN_PAGES: ReadonlySet<string> = new Set<Page>([
-	"home",
-	"history",
-	"templates",
-	"vocabulary",
-	"models",
-	"microphone",
-	"analytics",
-	"settings",
-	"onboarding",
-	"about",
-]);
-
-function isKnownPage(value: unknown): value is Page {
-	return typeof value === "string" && KNOWN_PAGES.has(value);
-}
+// EC-FIX-13: the runtime page registry — the set of known page names
+// and the `isKnownPage` type guard — now lives in `router/routes.ts`
+// (single source of truth, mirrored from the `Page` union in
+// `types/ipc.ts`). Previously this file maintained its own
+// `KNOWN_PAGES` Set, which was one of four parallel copies of the
+// page registry and had to be hand-kept in sync with the type union.
+// See `router/routes.ts` for the rationale.
 
 interface NavState {
 	page: Page;

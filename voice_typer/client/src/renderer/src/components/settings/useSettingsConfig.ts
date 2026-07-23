@@ -31,13 +31,6 @@ import type { VoiceTyperConfig } from "@/types/config";
 // render instantly on re-visit instead of showing a loading spinner.
 let _cachedConfig: VoiceTyperConfig | null = null;
 
-/** Reset the module-level cache. Used by tests so each case starts
- *  with a clean slate (mirrors the previous inline `_cachedConfig`
- *  behaviour where `vi.resetModules()` would clear it). */
-export function __resetCachedConfigForTests(): void {
-	_cachedConfig = null;
-}
-
 export interface UseSettingsConfigResult {
 	config: VoiceTyperConfig | null;
 	saving: boolean;

@@ -16,7 +16,8 @@ import {
 	InformationCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo } from "react";
+import { memo, useState } from "react";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
@@ -37,6 +38,14 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	const { showSnack } = useSnackbar();
 
 	const t = useT();
+
+	// XA-4-13: confirmation dialog state for "Agree to All" — granting all
+	// 6 consents at once is a significant privacy decision (enables cloud
+	// transcription, LLM polishing, HuggingFace downloads, voice-biometric
+	// processing) so we surface a destructive-variant ConfirmDialog before
+	// actually persisting the change. The user can still revoke individual
+	// consents via the toggles below.
+	const [showAgreeConfirm, setShowAgreeConfirm] = useState(false);
 
 	if (!config) return <SettingsSkeleton rows={3} />;
 
@@ -61,7 +70,14 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	const handleLlmPolishConsentChange = (checked: boolean) =>
 		updateConfig({ llm_polish_consent: checked });
 
+	// XA-4-13: opening the ConfirmDialog instead of granting all 6 consents
+	// immediately. The actual updateConfig call happens in
+	// `handleConfirmAgreeToAll` (below) once the user confirms.
 	const handleAgreeToAll = () => {
+		setShowAgreeConfirm(true);
+	};
+	const handleConfirmAgreeToAll = () => {
+		setShowAgreeConfirm(false);
 		updateConfig({
 			huggingface_consent: true,
 			voice_biometric_consent: true,
@@ -152,32 +168,32 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 			{privacyVisible && (
 				<>
 					{/* NEW-PRIV-005/006/009: centralized consent management.
-                                All four consent flags live in the Python Config and are
-                                enforced by the backend (HuggingFace download refusal,
-                                CloudEngine ConsentRequiredError, etc.).  This section
-                                gives the user a single place to view and revoke any
-                                consent they've previously granted.  Initial grant
-                                happens contextually (HuggingFace banner on Models page,
-                                per-provider toggles on Models page) — this section is
-                                primarily for review/revocation.
+				All four consent flags live in the Python Config and are
+				enforced by the backend (HuggingFace download refusal,
+				CloudEngine ConsentRequiredError, etc.).  This section
+				gives the user a single place to view and revoke any
+				consent they've previously granted.  Initial grant
+				happens contextually (HuggingFace banner on Models page,
+				per-provider toggles on Models page) — this section is
+				primarily for review/revocation.
 
-                                PRIV-AGREE-ALL (fix-quit-and-privacy): an "Agree to All"
-                                affordance at the top lets the user enable every consent
-                                flag at once without clicking six toggles.  Defaults stay
-                                False (privacy-by-default); the button is purely a UX
-                                convenience, not an implicit grant.  Individual toggles
-                                below remain for granular control / revocation. */}
+				PRIV-AGREE-ALL (fix-quit-and-privacy): an "Agree to All"
+				affordance at the top lets the user enable every consent
+				flag at once without clicking six toggles.  Defaults stay
+				False (privacy-by-default); the button is purely a UX
+				convenience, not an implicit grant.  Individual toggles
+				below remain for granular control / revocation. */}
 					<SettingsSection
 						title={privacyTitle}
 						description={t("settings.privacy.privacyDescription")}
 					>
 						{/* PRIV-AGREE-ALL: header banner + Agree to All button.
-                                        Explains what "agreeing" means in plain language so
-                                        the user can make an informed decision before
-                                        clicking.  The banner sits inside the same
-                                        bordered container as the toggles (visually grouped
-                                        with them) but uses a slightly different background
-                                        to distinguish it from per-flag rows. */}
+					Explains what "agreeing" means in plain language so
+					the user can make an informed decision before
+					clicking.  The banner sits inside the same
+					bordered container as the toggles (visually grouped
+					with them) but uses a slightly different background
+					to distinguish it from per-flag rows. */}
 						<div className="px-3.5 py-3.5 space-y-3 bg-(--bg-subtle)/60">
 							<div className="flex items-start gap-2">
 								<HugeiconsIcon
@@ -314,11 +330,11 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 						</SettingRow>
 
 						{/* NEW-PRIV-007: GDPR right-to-export (Art. 15/20).
-                                        Previously only history + vocabulary were exportable.
-                                        Templates and config are also user data and must be
-                                        exportable on request.  The handlers live in
-                                        main/index.ts (templates:export, config:export) and
-                                        are exposed via the preload bridge. */}
+					Previously only history + vocabulary were exportable.
+					Templates and config are also user data and must be
+					exportable on request.  The handlers live in
+					main/index.ts (templates:export, config:export) and
+					are exposed via the preload bridge. */}
 						<SettingRow
 							label={exportAllDataLabel}
 							info={t("settings.privacy.exportAllDataInfo")}
@@ -421,6 +437,27 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 					</SettingsSection>
 				</>
 			)}
+
+			{/* XA-4-13: confirmation dialog for "Agree to All". Discloses the
+				scope of the action (which 6 consents will be granted and what
+				each enables) so the user can make an informed decision before
+				clicking. Uses variant="destructive" because granting all cloud
+				+ biometric consents at once is a non-reversible-at-runtime
+				privacy action (revocation requires toggling each one off).
+				TODO: i18n — add settings.privacy.agreeConfirmTitle +
+				agreeConfirmMessage keys to en.json + all 7 other locale
+				files (XA-FIX-1 wave). Until then we ship the English
+				literals here so non-English users still see the dialog. */}
+			<ConfirmDialog
+				open={showAgreeConfirm}
+				title="Grant all 6 consents?"
+				message="This enables HuggingFace downloads, cloud transcription (OpenAI / Groq / Deepgram), and LLM text polishing all at once. You can revoke any consent individually below."
+				confirmLabel={t("settings.privacy.agreeToAll")}
+				cancelLabel={t("common.cancel")}
+				variant="destructive"
+				onConfirm={handleConfirmAgreeToAll}
+				onCancel={() => setShowAgreeConfirm(false)}
+			/>
 		</>
 	);
 });

@@ -62,6 +62,15 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		// structurally `{type: string, data: ...}` while
 		// `PythonPushEvent` is a discriminated union with literal `type`
 		// members — the runtime shape is identical.
+		//
+		// EC-FIX-7 will add `ReconnectingEvent` and `ReconnectedEvent` to
+		// the `PythonPushEvent` union (rule #26 — every IPC message must
+		// have matching send/receive type definitions). Once those types
+		// land, the FT-1 casts below can be removed (see TODOs on each
+		// handler). The `as unknown as PythonPushEvent` cast on the
+		// `python-event` channel itself stays — the Rust host forwards
+		// arbitrary server events whose `type` field may not be in the
+		// union (e.g. legacy / unknown events).
 		onEvent: (callback) => {
 			const mainListener = makeListener<PythonPushEvent>(
 				(handler) =>
@@ -73,20 +82,35 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 			const ft1Relaunching = makeListener<PythonPushEvent>(
 				(handler) =>
 					tauri.event.listen("ft1_relaunching", () => {
-						handler({
+						// TODO: remove cast once ReconnectingEvent / ReconnectedEvent
+						// are added to the PythonPushEvent union (EC-FIX-7). EC-FIX-7
+						// will widen the union to include
+						// `{ type: "reconnecting"; data: { reason: string } }`, at
+						// which point this object literal will type-check directly.
+						// Until then, the runtime shape is correct (useConnection.ts
+						// subscribes to "reconnecting" by string key) — only the
+						// static type is too narrow. The `as unknown as` cast is
+						// load-bearing for compilation; do NOT remove without EC-FIX-7.
+						const event = {
 							type: "reconnecting",
 							data: { reason: "ft1_relaunching" },
-						} as unknown as PythonPushEvent);
+						} as unknown as PythonPushEvent;
+						handler(event);
 					}),
 				callback,
 			);
 			const ft1Reconnected = makeListener<PythonPushEvent>(
 				(handler) =>
 					tauri.event.listen("ft1_reconnected", () => {
-						handler({
+						// TODO: remove cast once ReconnectingEvent / ReconnectedEvent
+						// are added to the PythonPushEvent union (EC-FIX-7). See the
+						// matching TODO on the `ft1_relaunching` handler above for
+						// the full rationale.
+						const event = {
 							type: "reconnected",
 							data: { reason: "ft1_reconnected" },
-						} as unknown as PythonPushEvent);
+						} as unknown as PythonPushEvent;
+						handler(event);
 					}),
 				callback,
 			);

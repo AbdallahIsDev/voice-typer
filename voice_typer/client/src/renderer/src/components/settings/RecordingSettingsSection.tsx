@@ -333,8 +333,8 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					</SettingRow>
 
 					{/* NEW-UX-029: Audio cue on record start/stop for accessibility
-                                        and confirmation.  Especially useful for blind users who
-                                        can't see the visual indicator change. */}
+					and confirmation.  Especially useful for blind users who
+					can't see the visual indicator change. */}
 					<SettingRow
 						label={soundFeedbackLabel}
 						info={t("settings.hotkeySection.soundFeedbackInfo")}
@@ -368,13 +368,23 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								<span className="text-sm text-(--text-muted)">s</span>
 							</div>
 							{/* Helper text: valid range. Always shown so the user
-                                                                knows the bounds before they type. */}
-							<span className="text-xs text-(--text-muted)">Range: 3–30 s</span>
+								knows the bounds before they type. */}
+							{/* XA-4-5: i18n the range hint + inline parse/range errors
+								(previously hardcoded English literals). */}
+							<span className="text-xs text-(--text-muted)">
+								{t("settings.hotkeySection.rangeHintSeconds", {
+									min: "3",
+									max: "30",
+								})}
+							</span>
 							{silenceInvalidReason && (
 								<span role="alert" className="text-xs text-destructive">
 									{silenceInvalidReason === "parse"
-										? "Enter a whole number"
-										: "Must be between 3 and 30"}
+										? t("settings.hotkeySection.parseError")
+										: t("settings.hotkeySection.rangeErrorSeconds", {
+												min: "3",
+												max: "30",
+											})}
 								</span>
 							)}
 						</div>
@@ -400,23 +410,31 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 								/>
 								<span className="text-sm text-(--text-muted)">min</span>
 							</div>
+							{/* XA-4-5: i18n the range hint + inline parse/range errors
+								(previously hardcoded English literals). */}
 							<span className="text-xs text-(--text-muted)">
-								Range: 5–60 min
+								{t("settings.hotkeySection.rangeHintMinutes", {
+									min: "5",
+									max: "60",
+								})}
 							</span>
 							{maxRecordingInvalidReason && (
 								<span role="alert" className="text-xs text-destructive">
 									{maxRecordingInvalidReason === "parse"
-										? "Enter a whole number"
-										: "Must be between 5 and 60"}
+										? t("settings.hotkeySection.parseError")
+										: t("settings.hotkeySection.rangeErrorMinutes", {
+												min: "5",
+												max: "60",
+											})}
 								</span>
 							)}
 						</div>
 					</SettingRow>
 
 					{/* RW-0: dead_air_timeout setting REMOVED. It was redundant with
-                                            stop_on_silence_seconds — auto-stop already resets on every speech
-                                            detection, so "silence after speech" needs no separate control.
-                                            Do NOT re-add this setting. */}
+					    stop_on_silence_seconds — auto-stop already resets on every speech
+					    detection, so "silence after speech" needs no separate control.
+					    Do NOT re-add this setting. */}
 				</SettingsSection>
 			)}
 		</>

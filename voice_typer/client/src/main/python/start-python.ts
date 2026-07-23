@@ -151,7 +151,7 @@ export function startPython() {
 		} else {
 			// Exit code 0 = clean restart requested by the user via the
 			// tray "Restart" menu item.  Python's restart_app() sends a
-			// "relaunch_electron" event (handled in handleMessage above)
+			// "relaunch_app" event (handled in handleMessage above)
 			// and then exits cleanly via sys.exit(0).
 			//
 			// We respond by relaunching the ENTIRE Electron process
@@ -169,7 +169,7 @@ export function startPython() {
 			// cascading "Error: Timeout" and "Python socket closed"
 			// errors the user observed.
 			//
-			// If the "relaunch_electron" event was already received and
+			// If the "relaunch_app" event was already received and
 			// relaunchApp() was called, _relaunching is true and we skip
 			// the duplicate call (relaunchApp is idempotent).  This branch
 			// is the FALLBACK for the race where the event was lost (TCP
@@ -179,7 +179,7 @@ export function startPython() {
 			// `app.isQuitting` — the tray "Quit" path sends
 			// `quit_app` to Python, which then exits with code 0.
 			// Without this check, the clean-exit branch would
-			// treat the tray Quit as a lost "relaunch_electron"
+			// treat the tray Quit as a lost "relaunch_app"
 			// event and trigger an unwanted full app relaunch
 			// instead of letting the user-initiated quit
 			// complete.  The `app.isQuitting` flag is set in

@@ -16,6 +16,7 @@
 // `onResetClick` to request the dialog.
 
 import {
+	ArrowTurnBackwardIcon,
 	Book02Icon,
 	Bug02Icon,
 	File02Icon,
@@ -53,13 +54,8 @@ export const TroubleshootingSettingsSection = memo(
 		onNavigate,
 		onResetClick,
 	}: TroubleshootingSettingsSectionProps) {
-		const { call: _call } = usePython();
+		const { call } = usePython();
 		const { showSnack } = useSnackbar();
-		// `_call` is currently unused — kept in scope so future diagnostics
-		// (e.g. an "Run diagnostics" button that hits an IPC) can use it
-		// without re-plumbing the hook. Marked void to satisfy the
-		// `no-unused-vars` rule without stripping the hook entirely.
-		void _call;
 
 		// Resolve translated strings once per render so the search-visible
 		// predicate and the rendered labels share the same values.
@@ -110,7 +106,18 @@ export const TroubleshootingSettingsSection = memo(
 		// `onboarding_completed` to false (so App.tsx's route guard lets the
 		// user land on the wizard page) then navigate. The toast confirms
 		// the action.
+		//
+		// XA-11-6: also call the `onboarding_reset` IPC so the backend clears
+		// its `.onboarding_started` marker (otherwise the auto-heal in
+		// `startup_sequence.py` would treat onboarding as already-complete
+		// and skip the wizard). Previously this IPC handler + its
+		// `reset_onboarding_complete` Python function were dead code.
 		const handleReRunWizard = async () => {
+			try {
+				await call("onboarding_reset");
+			} catch (err) {
+				console.warn("onboarding_reset IPC failed (non-fatal):", err);
+			}
 			await updateConfig({ onboarding_completed: false });
 			showSnack(t("settings.troubleshooting.reRunWizardToast"), "success");
 			onNavigate?.("onboarding");
@@ -195,26 +202,31 @@ export const TroubleshootingSettingsSection = memo(
 						title={t("settings.troubleshooting.reRunWizardHint")}
 					>
 						<HugeiconsIcon
-							icon={RefreshIcon}
+							icon={ArrowTurnBackwardIcon}
 							strokeWidth={2}
 							className="h-4 w-4"
 						/>
 						{reRunWizardLabel}
 					</Button>
-					<Button
-						variant="destructive"
-						className="gap-2"
-						onClick={onResetClick}
-						aria-label={t("settings.troubleshooting.resetToDefaultsAria")}
-						title={t("settings.troubleshooting.resetToDefaultsHint")}
-					>
-						<HugeiconsIcon
-							icon={RefreshIcon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-						{resetToDefaultsLabel}
-					</Button>
+					{/* XA-4-9: visually separate the destructive Reset to Defaults
+						button from the 5 non-destructive buttons above with a
+						top border + padding so users don't click it by accident. */}
+					<div className="mt-4 border-t border-border pt-3">
+						<Button
+							variant="destructive"
+							className="gap-2"
+							onClick={onResetClick}
+							aria-label={t("settings.troubleshooting.resetToDefaultsAria")}
+							title={t("settings.troubleshooting.resetToDefaultsHint")}
+						>
+							<HugeiconsIcon
+								icon={RefreshIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{resetToDefaultsLabel}
+						</Button>
+					</div>
 				</div>
 			</SettingsSection>
 		);

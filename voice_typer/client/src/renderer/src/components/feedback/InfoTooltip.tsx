@@ -59,7 +59,6 @@ export function InfoTooltip({ text, contextLabel }: InfoTooltipProps) {
 							xmlns="http://www.w3.org/2000/svg"
 							aria-hidden="true"
 						>
-							<title>{ariaLabel}</title>
 							<circle
 								cx="8"
 								cy="8"

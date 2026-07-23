@@ -395,7 +395,7 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 
 	it("History page (empty): no axe violations", async () => {
 		const HistoryPage = (await import("@/pages/History")).default;
-		const { container } = render(<HistoryPage onNavigate={vi.fn()} />);
+		const { container } = render(<HistoryPage />);
 		await expectNoAxeViolations(container);
 	});
 
@@ -415,9 +415,7 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 
 	it("Home page (idle): no axe violations", async () => {
 		const HomePage = (await import("@/pages/Home")).default;
-		const { container } = render(
-			<HomePage recordingState="idle" lastError={null} />,
-		);
+		const { container } = render(<HomePage />);
 		await expectNoAxeViolations(container);
 	});
 

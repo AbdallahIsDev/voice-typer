@@ -76,10 +76,51 @@ export interface StatusChangeEvent {
 // collide with the global DOM `ErrorEvent` used by `addEventListener`
 // in `globalErrorHandler.ts` — that file does not import this type and
 // resolves `ErrorEvent` to the lib.dom.d.ts declaration.
+//
+// EC-FIX-7 (addresses [EC-10]): narrowed `code` from bare `string` to the
+// `ErrorCodes` union below. The namespaced forms (`server.*`, `client.*`)
+// are the forward contract; the legacy aliases are still emitted by some
+// backend paths (see `voice_typer/server/handlers/_base.py:178`,
+// `voice_typer/server/ipc_server.py:1186,1547`, and
+// `voice_typer/server/sidecar_ws.py:316,404`) and must remain valid here
+// until the migration to namespaced forms is completed (tracked by
+// [EC-10] / EC-FIX-9 in the backend).
+export type ErrorCodes =
+	| "client.invalid_field"
+	| "client.missing_field"
+	| "client.invalid_payload"
+	| "client.rate_limited"
+	| "client.path_not_allowed"
+	| "client.not_found"
+	| "client.auth_failed"
+	| "server.internal_error"
+	| "server.handler_error"
+	| "server.file_locked"
+	| "server.model_switch_failed"
+	| "server.shutting_down"
+	| "server.unknown_command"
+	| "server.unknown_tray_item"
+	// Legacy aliases (still emitted by some paths for backward compat)
+	| "internal_error"
+	| "shutting_down"
+	| "unknown_command"
+	| "unknown_tray_item"
+	| "auth_failed"
+	| "rate_limited"
+	| "invalid_payload"
+	| "invalid_field"
+	| "missing_field"
+	| "not_initialized"
+	| "payload_too_large"
+	| "handler_error"
+	| "sidecar_disconnected"
+	| "disallowed_command"
+	| "disallowed_window";
+
 export interface ErrorEvent {
 	type: "error";
 	data: {
-		code: string;
+		code: ErrorCodes;
 		message: string;
 		field?: string;
 		command?: string;
@@ -313,12 +354,67 @@ export interface QuitAppEvent {
 }
 
 /** Tray "Restart" — Python's `restart_app()` pushes this BEFORE calling
- *  `sys.exit(0)`. Routed by `handle-message.ts:78` → `relaunchApp()`. */
+ *  `sys.exit(0)`. Routed by `handle-message.ts:78` → `relaunchApp()`.
+ *
+ *  EC-FIX-7 (addresses [EC-3]): the wire event was renamed from
+ *  `relaunch_electron` to `relaunch_app` on the Python+Tauri sides in
+ *  PVT-2. The renderer type now models `relaunch_app` as the canonical
+ *  event. The legacy `RelaunchElectronEvent` (below) is retained for
+ *  backward compat with older Python backends that still emit
+ *  `relaunch_electron`; both are members of the `PythonPushEvent` union
+ *  so the renderer accepts either during the transition. */
+export interface RelaunchAppEvent {
+	type: "relaunch_app";
+	data: Record<string, unknown>;
+}
+
+/** @deprecated Use `RelaunchAppEvent`. Kept for backward compat with older
+ *  Python backends that still emit `relaunch_electron`. Do NOT add new
+ *  emitters — the canonical event name is `relaunch_app` (see [EC-3]). */
 export interface RelaunchElectronEvent {
 	type: "relaunch_electron";
 	data: Record<string, unknown>;
 }
 
+// ── FT-1 (resilient sidecar) lifecycle events ──────────────────────
+//
+// EC-FIX-7 (addresses [EC-14]): these events are NOT emitted by the Python
+// backend — they are synthesized by the host bridge (Tauri Rust
+// `src-tauri/src/sidecar/ft1.rs` or Electron main) when the transport
+// layer detects a disconnect and enters the FT-1 reconnect loop. They
+// are members of `PythonPushEvent` so renderer code can subscribe via
+// `usePythonEvent("reconnecting", ...)` without an `as unknown as
+// PythonPushEvent` cast (the unsafe cast was a rule #26 violation —
+// every IPC message must have a matching type definition).
+//
+// `reason` values currently emitted:
+//   - "tcp_disconnected" — the TCP socket closed unexpectedly
+//   - "ws_closed"        — the WebSocket closed with a non-1000 code
+//   - "heartbeat_timeout" — no PONG within the deadline
+//   - "reconnect_ok"     — (reconnected only) the new socket is live
+
+/** Pushed when the host bridge starts a reconnect attempt after a
+ *  transport drop. Consumed by `hooks/useConnection.ts:277`. */
+export interface ReconnectingEvent {
+	type: "reconnecting";
+	data: { reason: string };
+}
+
+/** Pushed when the host bridge successfully reconnected to the Python
+ *  backend. Consumed by `hooks/useConnection.ts:287`. */
+export interface ReconnectedEvent {
+	type: "reconnected";
+	data: { reason: string };
+}
+
+// NOTE: `usePythonEvent`'s `type` param (declared in
+// `hooks/usePython.ts`, owned by EC-FIX-20) should be narrowed to
+// `PythonPushEvent["type"]` so a typo like `usePythonEvent("past_failed", ...)`
+// fails at compile time instead of silently never firing. Currently the
+// `type` param is `string`, which lets any typo through and was the root
+// cause of the FT-1 unsafe `as unknown as PythonPushEvent` casts noted in
+// [EC-14]. This file cannot perform that narrowing itself (the hook lives
+// in another sub-agent's file scope); it only exposes the union.
 export type PythonPushEvent =
 	| StatusChangeEvent
 	| ErrorEvent
@@ -346,7 +442,10 @@ export type PythonPushEvent =
 	| BubbleConfigEvent
 	| ShowWindowEvent
 	| QuitAppEvent
-	| RelaunchElectronEvent;
+	| RelaunchAppEvent
+	| RelaunchElectronEvent
+	| ReconnectingEvent
+	| ReconnectedEvent;
 
 // ── Auth frame (PVT-G5-063) ────────────────────────────────────────
 //

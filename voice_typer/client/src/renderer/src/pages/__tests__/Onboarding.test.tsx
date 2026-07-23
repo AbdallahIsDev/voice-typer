@@ -218,7 +218,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 
 	it("falls back to defaults when get_config fails (older backend)", async () => {
 		// Mock get_config to reject; the wizard should still load
-		// and fall back to the hardcoded defaults (<f2>, small.en).
+		// and fall back to the hardcoded defaults (<caps_lock>, small.en).
 		let currentStep = 0;
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
@@ -289,7 +289,11 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
 		});
 		const summaryText = container.textContent ?? "";
-		expect(summaryText).toContain("F2");
+		// XA-11-5: default hotkey is `<caps_lock>` (not `<f2>`), so the
+		// Done-step summary should display the uppercase-normalized form.
+		// The renderer strips only `<`/`>` (not the underscore), so the
+		// displayed token is `CAPS_LOCK` rather than `CAPS LOCK`.
+		expect(summaryText).toContain("CAPS_LOCK");
 		expect(summaryText).toContain("small.en");
 	});
 });

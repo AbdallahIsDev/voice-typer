@@ -24,7 +24,9 @@ function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
 	try {
 		const v = localStorage.getItem(LS_THEME_MODE);
 		if (v === "light" || v === "dark" || v === "system") return v;
-	} catch {}
+	} catch {
+		// localStorage read failure — using default
+	}
 	return "system";
 }
 
@@ -46,7 +48,9 @@ function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
 			v === "custom"
 		)
 			return v;
-	} catch {}
+	} catch {
+		// localStorage read failure — using default
+	}
 	return "default";
 }
 
@@ -64,7 +68,9 @@ function readLsCustomTheme(): CustomThemeData | null {
 				return parsed as CustomThemeData;
 			}
 		}
-	} catch {}
+	} catch {
+		// localStorage parse failure — using default
+	}
 	return null;
 }
 
@@ -75,7 +81,9 @@ function readLsTextSize(): number {
 			const n = Number.parseInt(v, 10);
 			if (Number.isFinite(n) && n >= 10 && n <= 20) return n;
 		}
-	} catch {}
+	} catch {
+		// localStorage read failure — using default
+	}
 	return 14;
 }
 
@@ -231,10 +239,11 @@ export function useTheme(
 					localStorage.setItem(LS_TEXT_SIZE, String(cfg.text_size));
 					setTextSize(cfg.text_size);
 				}
-			} catch {
+			} catch (e) {
 				// localStorage may be unavailable — non-fatal.
 				// State setters below still fire so the UI
 				// reflects the backend values for this session.
+				console.warn("[useTheme] localStorage cache write failed:", e);
 				if (cfg?.theme_mode) setThemeMode(cfg.theme_mode);
 				if (cfg?.theme_preset) setThemePreset(cfg.theme_preset);
 				if (cfg?.custom_theme) setCustomTheme(cfg.custom_theme);
@@ -250,7 +259,8 @@ export function useTheme(
 			if (typeof cfg?.sound_feedback_enabled === "boolean") {
 				setSoundFeedbackEnabled(cfg.sound_feedback_enabled);
 			}
-		} catch {
+		} catch (e) {
+			console.warn("[useTheme] get_config failed:", e);
 		} finally {
 			// FLASH-FIX: regardless of success/failure, flip the
 			// guard so the theme-application effect can run.
@@ -285,8 +295,9 @@ export function useTheme(
 				localStorage.removeItem(LS_CUSTOM_THEME);
 			}
 			localStorage.setItem(LS_TEXT_SIZE, String(textSize));
-		} catch {
+		} catch (e) {
 			// localStorage may be unavailable
+			console.warn("[useTheme] localStorage sync failed:", e);
 		}
 	}, [themeMode, themePreset, customTheme, textSize]);
 
@@ -359,8 +370,9 @@ export function useTheme(
 			// process exits.
 			try {
 				void call("set_config", { theme_mode: mode });
-			} catch {
+			} catch (e) {
 				// Theme is local-only if backend unavailable
+				console.warn("[useTheme] set_config (flush) failed:", e);
 			}
 		}
 	}, [call]);
@@ -378,8 +390,9 @@ export function useTheme(
 				pendingThemeModeRef.current = null;
 				try {
 					await call("set_config", { theme_mode: mode });
-				} catch {
+				} catch (e) {
 					// Theme is local-only if backend unavailable
+					console.warn("[useTheme] set_config (debounced) failed:", e);
 				}
 			}, 300);
 		},

@@ -270,6 +270,18 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 									} catch {
 										// IPC may not be available during startup
 									}
+									// TODO: push locale to main process via IPC (XA-18-1) —
+									//   `setMainLocale()` in the Electron main process is
+									//   currently dead code: `MAIN_STRINGS` has all 8
+									//   locales translated but `currentLocale` is stuck at
+									//   "en", so native dialogs (file pickers, error
+									//   boxes, tray submenus) always render in English.
+									//   The old `i18n:set-locale` IPC handler was removed
+									//   during the IPC consolidation; restoring it (or
+									//   piggy-backing on the `set_tray_locale` dispatch
+									//   above) is the simplest fix. The backend wiring
+									//   is out of scope for this agent — track in
+									//   XA-FIX-12 / XA-18-1.
 								}}
 							>
 								<SelectTrigger className="w-44" aria-label={APP_LANGUAGE_LABEL}>

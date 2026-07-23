@@ -80,7 +80,7 @@ describe("Home transcription_final listener — RW-0 rewrite of test_only_one_tr
 
 	it("registers exactly one usePythonEvent listener for transcription_final", async () => {
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home recordingState="idle" lastError={null} />);
+		render(<Home />);
 
 		// The Python invariant: Home.tsx source contains
 		// exactly one occurrence of
@@ -99,18 +99,14 @@ describe("Home transcription_final listener — RW-0 rewrite of test_only_one_tr
 		// a regression where StrictMode or a manual remount
 		// accidentally double-subscribes.
 		const { default: Home } = await import("@/pages/Home");
-		const { unmount: unmount1 } = render(
-			<Home recordingState="idle" lastError={null} />,
-		);
+		const { unmount: unmount1 } = render(<Home />);
 		const tfAfterMount1 = mockPythonEvent.mock.calls.filter(
 			(args) => args[0] === "transcription_final",
 		).length;
 		expect(tfAfterMount1).toBe(1);
 
 		unmount1();
-		const { unmount: unmount2 } = render(
-			<Home recordingState="idle" lastError={null} />,
-		);
+		const { unmount: unmount2 } = render(<Home />);
 		const tfAfterMount2 = mockPythonEvent.mock.calls.filter(
 			(args) => args[0] === "transcription_final",
 		).length;
@@ -120,7 +116,7 @@ describe("Home transcription_final listener — RW-0 rewrite of test_only_one_tr
 
 	it("does not register the listener with a typo'd event name", async () => {
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home recordingState="idle" lastError={null} />);
+		render(<Home />);
 
 		// Defensive: catch a regression where the event name
 		// is silently misspelled (e.g. "transcription_finale"

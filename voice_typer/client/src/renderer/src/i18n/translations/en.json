@@ -34,7 +34,9 @@
 			"step1StartingPython": "Starting Python",
 			"step2LoadingModel": "Loading model",
 			"step3Ready": "Ready"
-		}
+		},
+		"pageNotFoundTitle": "Page not found",
+		"pageNotFoundDescription": "Unknown page: {page}"
 	},
 	"nav": {
 		"home": "Home",
@@ -45,7 +47,12 @@
 		"models": "Models",
 		"microphone": "Microphone",
 		"settings": "Settings",
-		"about": "About"
+		"about": "About",
+		"group": {
+			"main": "Main",
+			"power": "Power features",
+			"system": "System"
+		}
 	},
 	"home": {
 		"ready": "READY",
@@ -76,7 +83,9 @@
 		"undoFailed": "Couldn't undo the last transcription",
 		"repasteFailed": "Couldn't re-paste the last transcription",
 		"errorTitle": "Recording error",
-		"retry": "Retry"
+		"retry": "Retry",
+		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"toggleFailed": "Failed to toggle dictation. Please check your connection."
 	},
 	"dashboard": {
 		"cards": {
@@ -99,7 +108,7 @@
 		"refresh": "Refresh",
 		"refreshAria": "Refresh data",
 		"copyPath": "Copy path",
-		"search": "Search",
+		"search": "Search...",
 		"sort": "Sort",
 		"sortAria": "Sort order",
 		"sortNewest": "Newest first",
@@ -107,7 +116,9 @@
 		"sortAZ": "A → Z",
 		"sortZA": "Z → A",
 		"import": "Import",
-		"importAria": "Import from file"
+		"importAria": "Import from file",
+		"lastUpdatedWithValue": "Last updated: {value}",
+		"close": "Close"
 	},
 	"microphone": {
 		"levelBarAria": "Microphone input level",
@@ -159,7 +170,14 @@
 		"permissionDeniedMessageLinux": "Voice Typer cannot access the microphone. Check that no other application is holding it exclusively and that PulseAudio/PipeWire is running.",
 		"permissionDeniedMessage": "Voice Typer cannot access the microphone. Grant microphone access in your system privacy settings.",
 		"openSettings": "Open settings",
-		"openSettingsAria": "Open the operating system microphone privacy settings"
+		"openSettingsAria": "Open the operating system microphone privacy settings",
+		"loading": "Loading microphones…",
+		"stopPlaybackFirst": "Stop audio playback before starting a new test",
+		"test": {
+			"qualityGood": "Good",
+			"qualityOk": "OK",
+			"qualityPoor": "Poor"
+		}
 	},
 	"vocabulary": {
 		"title": "Custom Vocabulary",
@@ -222,7 +240,8 @@
 		"importFailed": "Import failed: {error}",
 		"importEmpty": "File contains no vocabulary entries",
 		"loadFailedTitle": "Failed to load vocabulary",
-		"retry": "Retry"
+		"retry": "Retry",
+		"loading": "Loading vocabulary…"
 	},
 	"templates": {
 		"title": "Templates",
@@ -266,7 +285,8 @@
 		"importEmpty": "File contains no templates",
 		"matchModeExactLabel": "Exact",
 		"matchModeContainsLabel": "Contains",
-		"matchModeAria": "Match mode: {mode}"
+		"matchModeAria": "Match mode: {mode}",
+		"loading": "Loading templates…"
 	},
 	"analytics": {
 		"title": "Analytics",
@@ -414,7 +434,8 @@
 		"creditsFontsValue": "Geist",
 		"creditsIconsLabel": "Icons",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation"
+		"documentationLink": "Documentation",
+		"loading": "Loading…"
 	},
 	"settings": {
 		"title": "Settings",
@@ -572,7 +593,8 @@
 			"available": "Stored securely in your OS keychain.",
 			"availableWithBackend": "Stored securely in your OS keychain (backend: {backend}).",
 			"fallback": "Keyring backend not available — secrets will be stored in plaintext with 0o600 permissions.",
-			"fallbackWithReason": "Keyring backend not available ({reason}) — secrets will be stored in plaintext with 0o600 permissions."
+			"fallbackWithReason": "Keyring backend not available ({reason}) — secrets will be stored in plaintext with 0o600 permissions.",
+			"statusLabel": "Keyring status"
 		},
 		"apiUrl": "API URL",
 		"apiUrlInfo": "The endpoint URL for the AI language model service.",
@@ -674,7 +696,12 @@
 			"maxRecordingTimeAria": "Max Recording Time Minutes",
 			"stopOnSilence": "Stop on Silence",
 			"stopOnSilenceInfo": "Automatically stop recording after this many seconds of silence.",
-			"stopOnSilenceAria": "Stop on Silence Seconds"
+			"stopOnSilenceAria": "Stop on Silence Seconds",
+			"rangeHintSeconds": "Range: {min}–{max} s",
+			"rangeHintMinutes": "Range: {min}–{max} min",
+			"parseError": "Enter a whole number",
+			"rangeErrorSeconds": "Must be between {min} and {max}",
+			"rangeErrorMinutes": "Must be between {min} and {max}"
 		},
 		"audioEnhancement": {
 			"title": "Audio Enhancement",
@@ -927,7 +954,8 @@
 			"reRunWizardAria": "Re-run setup wizard",
 			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
 			"reRunWizardToast": "Setup wizard re-enabled — navigating there now"
-		}
+		},
+		"pending": "Pending…"
 	},
 	"models": {
 		"asrTitle": "ASR Models",
@@ -974,7 +1002,8 @@
 			"resumeFailed": "Failed to resume: {error}",
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
-			"cancelFailed": "Failed to cancel: {error}"
+			"cancelFailed": "Failed to cancel: {error}",
+			"parakeetDepsInstalled": "Parakeet dependencies installed successfully."
 		},
 		"test": {
 			"needApiKey": "Please enter an API key first",
@@ -995,7 +1024,8 @@
 			"active": "Active",
 			"downloaded": "Downloaded",
 			"depsRequired": "Dependencies required",
-			"available": "Available"
+			"available": "Available",
+			"insufficientDisk": "Insufficient disk space"
 		},
 		"import": {
 			"title": "Import Model",
@@ -1027,7 +1057,8 @@
 			"cancel": "Cancel",
 			"depsAria": "Download dependencies for {name}",
 			"deps": "Download Deps",
-			"progressAria": "Model download: {percent}% complete"
+			"progressAria": "Model download: {percent}% complete",
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1091,7 +1122,12 @@
 		"consentGranted": "Consent granted — model downloads from HuggingFace will proceed.",
 		"consentRevoked": "Consent revoked — model downloads from HuggingFace are blocked.",
 		"benchmarkNotImplemented": "Benchmark not yet implemented.",
-		"speed": "Speed",
+		"speed": {
+			"fastest": "Fastest",
+			"fast": "Fast",
+			"slow": "Slow",
+			"variable": "Variable"
+		},
 		"size": "Size",
 		"language": "Language",
 		"fastest": "Fastest",
@@ -1103,7 +1139,15 @@
 		"openaiWhisperApi": "OpenAI Whisper API",
 		"groqWhisperApi": "Groq Whisper API",
 		"deepgramApi": "Deepgram API",
-		"configureEngines": "Configure your speech-to-text engines"
+		"configureEngines": "Configure your speech-to-text engines",
+		"openFolderFailed": "Open folder failed",
+		"openFolder": "Open models folder",
+		"openFolderAria": "Open the models directory in your file manager",
+		"disk": {
+			"lowSpaceTitle": "Low disk space",
+			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model."
+		},
+		"loading": "Loading models…"
 	},
 	"tooltips": {
 		"toggleRecording": "Start or stop voice dictation",
@@ -1135,7 +1179,8 @@
 		"decrease": "Decrease",
 		"microphoneQualityPreset": "Microphone Quality Preset",
 		"noiseSuppressionMethod": "Noise Suppression Method",
-		"importNotAvailableOutsideElectron": "Import not available outside Electron"
+		"importNotAvailableOutsideElectron": "Import not available outside Electron",
+		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
 	},
 	"help": {
 		"title": "Keyboard Shortcuts",
@@ -1306,7 +1351,11 @@
 		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
 		"skipConfirmLabel": "Skip anyway",
 		"stepProgress": "Step {current} of {total}",
-		"progressAria": "Onboarding step {current} of {total}"
+		"progressAria": "Onboarding step {current} of {total}",
+		"step4Item": "Choose your model",
+		"step5Item": "Start dictating",
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"modelOption": "{description} — {size} ({speed})"
 	},
 	"titleBar": {
 		"minimize": "Minimize",
@@ -1314,7 +1363,9 @@
 		"restore": "Restore",
 		"close": "Close",
 		"back": "Back (or mouse back button)",
-		"forward": "Forward (or mouse forward button)"
+		"forward": "Forward (or mouse forward button)",
+		"backWithShortcut": "Back ({shortcut})",
+		"forwardWithShortcut": "Forward ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer recording indicator",
@@ -1329,7 +1380,16 @@
 		"description": "The app encountered an unexpected error. Your data is safe.",
 		"unknownError": "Unknown error",
 		"tryAgain": "Try Again",
-		"reloadApp": "Reload App"
+		"reloadApp": "Reload App",
+		"copyError": "Copy error",
+		"copied": "Copied!",
+		"openLogs": "Open logs",
+		"resetSettings": "Reset settings",
+		"resetting": "Resetting…",
+		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
+		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
+		"componentStackLabel": "Component stack:",
+		"reportBug": "Report this bug"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "Press a key",
@@ -1339,7 +1399,12 @@
 		"cancelRecordingAria": "Cancel recording — {label}",
 		"recordNewAria": "Record new hotkey — {label}",
 		"presetHotkeysAria": "Preset hotkeys — {label}",
-		"assignHint": "Press a key to assign, or press Esc to cancel"
+		"assignHint": "Press a key to assign, or press Esc to cancel",
+		"clearAria": "Clear hotkey — {label}",
+		"clearTitle": "Clear hotkey",
+		"holdingPrefix": "Holding: {modifiers}",
+		"defaultAriaLabel": "Hotkey picker",
+		"secondsRemainingSuffix": "({count}s)"
 	},
 	"activityList": {
 		"failedToCopy": "Failed to copy",
@@ -1456,7 +1521,25 @@
 			"up": "↑",
 			"down": "↓",
 			"left": "←",
-			"right": "→"
+			"right": "→",
+			"ctrl_l": "Ctrl",
+			"ctrl_r": "Ctrl",
+			"shift_l": "Shift",
+			"shift_r": "Shift",
+			"alt_l": "Alt",
+			"alt_r": "Alt",
+			"alt_gr": "AltGr",
+			"cmd_l": "Cmd",
+			"cmd_r": "Cmd",
+			"meta": "Super",
+			"return": "Enter",
+			"escape": "Esc",
+			"caps_lock": "Caps Lock",
+			"num_lock": "Num Lock",
+			"scroll_lock": "Scroll Lock",
+			"print_screen": "Print Screen",
+			"page_up": "Page Up",
+			"page_down": "Page Down"
 		},
 		"combos": {
 			"ctrlShiftV": "Ctrl+Shift+V",
@@ -1464,6 +1547,38 @@
 			"ctrlSpace": "Ctrl+Space",
 			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
 			"superSpace": "Super+Space"
+		},
+		"errors": {
+			"empty": "Hotkey is empty",
+			"invalid": "Invalid hotkey",
+			"noKeys": "Hotkey has no keys",
+			"singleKeyOnly": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
+			"fnMacOnly": "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.",
+			"comboMustEndNonModifier": "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+			"fnMacOnlyShort": "Fn key is only supported on macOS."
+		},
+		"none": "None",
+		"presets": {
+			"single": {
+				"caps_lock": "Caps Lock",
+				"alt": "Alt",
+				"ctrl": "Ctrl",
+				"fn": "Fn / Globe 🌐 (macOS only)"
+			},
+			"combo": {
+				"ctrlShiftV": "Ctrl+Shift+V",
+				"ctrlAltV": "Ctrl+Alt+V",
+				"ctrlSpace": "Ctrl+Space",
+				"cmdShiftV": "Cmd+Shift+V (macOS)",
+				"superSpace": "Super+Space"
+			}
+		}
+	},
+	"format": {
+		"duration": {
+			"minuteShort": "m",
+			"hourShort": "h",
+			"secondShort": "s"
 		}
 	}
 }

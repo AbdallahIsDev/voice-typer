@@ -319,14 +319,14 @@ export function Sidebar({
 													// inactive, accent when active) so
 													// activating an item doesn't cause a
 													// layout shift.
-													"border-l-2",
+													"border-s-2",
 													collapsed ? "px-2" : "px-3",
 													isActive
 														? cn(
 																// task-5: soft accent background
 																// (replaces the old solid --bg)
 																// for a less heavy active state.
-																"border-l-accent bg-(--accent-soft) hover:bg-(--accent-soft)",
+																"border-s-transparent bg-(--accent-soft) hover:bg-(--accent-soft)",
 																"text-(--text-primary) font-medium",
 																// PVT-084: use the logical
 																// `start-0` (not physical `left-0`)
@@ -335,7 +335,7 @@ export function Sidebar({
 																"relative before:absolute before:inset-s-0 before:top-1/2 before:-translate-y-1/2 before:h-5 before:w-0.5 before:rounded-full before:bg-accent",
 															)
 														: cn(
-																"border-l-transparent",
+																"border-s-transparent",
 																// task-9: theme-aware hover
 																// (replaces physical black/white
 																// pairing so custom + dark themes

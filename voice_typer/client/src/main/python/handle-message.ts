@@ -7,7 +7,7 @@
  *   - Replies (carry `id`): resolve/reject the matching entry in
  *     `pendingRequests` (set by `sendToPython`).
  *   - Push events (no `id`): bubble show/hide/set-state/level, show_window,
- *     quit_app, relaunch_electron.  Each is routed to the appropriate
+ *     quit_app, relaunch_app.  Each is routed to the appropriate
  *     BrowserWindow via `webContents.send("python-event", msg)` (with
  *     SEC-017 filtering so transcription/history never leak to the bubble).
  */
@@ -102,7 +102,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 			// Tray "Quit": Python is about to force-exit.  Close Electron too
 			// so the user isn't left with a window that has no backend.
 			app.quit();
-		} else if (msg.type === "relaunch_electron") {
+		} else if (msg.type === "relaunch_app") {
 			// Tray "Restart": Python's restart_app() pushes this event
 			// BEFORE calling sys.exit(0).  It signals that a full
 			// application restart is in flight.  We respond by
@@ -115,7 +115,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 				? "already relaunching"
 				: "triggering relaunch";
 			console.warn(
-				`[RESTART] received relaunch_electron from Python (${_relaunchDbg})`,
+				`[RESTART] received relaunch_app from Python (${_relaunchDbg})`,
 			);
 			// PERF-005: ack receipt BEFORE relaunchApp() tears down the
 			// renderer/socket, so restart_app() can drop its fixed 300ms

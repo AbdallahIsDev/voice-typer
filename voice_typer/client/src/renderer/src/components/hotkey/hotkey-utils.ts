@@ -216,23 +216,6 @@ export function getModifierCodeMap(isMac: boolean): Record<string, string> {
 }
 
 /**
- * Deprecated alias for {@link getModifierCodeMap} evaluated at module
- * load time with the host's detected platform.
- *
- * CR-058: kept for backwards-compat with any caller that imports
- * ``MODIFIER_CODE_TO_PYNPUT`` directly. New code should call
- * ``getModifierCodeMap(isMac)`` (or ``getModifierCodeMap(IS_MAC)``)
- * so the map is always computed against the current platform —
- * module-level constants are evaluated once at import time and become
- * stale if the platform changes (rare, but possible in Electron with
- * UA spoofing or headless mode).
- *
- * @deprecated Use {@link getModifierCodeMap} instead.
- */
-export const MODIFIER_CODE_TO_PYNPUT: Record<string, string> =
-	getModifierCodeMap(IS_MAC);
-
-/**
  * Single-key presets — only keys that are safe to use alone as a
  * dictation trigger.
  *

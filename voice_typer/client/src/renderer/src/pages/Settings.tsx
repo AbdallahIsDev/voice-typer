@@ -24,11 +24,12 @@ import { TroubleshootingSettingsSection } from "@/components/settings/Troublesho
 import { useSettingsConfig } from "@/components/settings/useSettingsConfig";
 import { SegmentedControl } from "@/components/ui/segmented-control";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
+import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
+import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { Page } from "@/types/ipc";
 
 const LS_KEY = "voice-typer-settings-tab";
 
@@ -49,17 +50,11 @@ function getSavedTab(): SettingsTab {
 	return "general";
 }
 
-interface SettingsPageProps {
-	themeMode?: VoiceTyperConfig["theme_mode"];
-	onThemeChange?: (mode: VoiceTyperConfig["theme_mode"]) => void;
-	onNavigate?: (page: Page) => void;
-}
-
-export default function SettingsPage({
-	themeMode: themeModeProp,
-	onThemeChange,
-	onNavigate,
-}: SettingsPageProps) {
+// NOTE: App.tsx prop passing will be removed by EC-FIX-13.
+// EC-FIX-14 (BACKLOG-004): SettingsPage now obtains `navigate` via
+// useNavigation and theme state via useTheme directly, eliminating the
+// `onNavigate` / `themeMode` / `onThemeChange` prop drills from App.tsx.
+export default function SettingsPage() {
 	const {
 		config,
 		saving,
@@ -71,6 +66,16 @@ export default function SettingsPage({
 		mergeExternalConfig,
 	} = useSettingsConfig();
 	const { call } = usePython();
+	// EC-FIX-14: subscribe to the theme hook directly instead of
+	// receiving themeMode / onThemeChange as props from App.tsx. The
+	// hook is the canonical source of theme state; calling it here
+	// (in addition to App.tsx) is safe because theme state is
+	// synchronised across instances via the config_changed event
+	// subscription and localStorage cache (see useTheme.ts).
+	const { themeMode: themeModeProp, handleThemeChange } = useTheme(call);
+	// EC-FIX-14: obtain `navigate` directly from the navigation hook
+	// instead of receiving it as an `onNavigate` prop from App.tsx.
+	const { navigate } = useNavigation();
 	const { showSnack } = useSnackbar();
 	const [showResetDialog, setShowResetDialog] = useState(false);
 	const { agoLabel, markUpdated } = useLastUpdated();
@@ -210,14 +215,16 @@ export default function SettingsPage({
 		}
 	};
 
-	// Local wrapper around App-level onThemeChange so the Color Scheme
-	// Select doesn't revert while the App-level debounced save is in flight.
+	// Local wrapper around the useTheme handleThemeChange so the Color
+	// Scheme Select doesn't revert while the debounced save is in flight.
+	// EC-FIX-14: `onThemeChange` is now obtained from the useTheme hook
+	// directly (no longer a prop from App.tsx).
 	const handleThemeChangeLocal = useCallback(
 		(mode: VoiceTyperConfig["theme_mode"]) => {
 			mergeExternalConfig({ theme_mode: mode } as Partial<VoiceTyperConfig>);
-			onThemeChange?.(mode);
+			handleThemeChange(mode);
 		},
-		[mergeExternalConfig, onThemeChange],
+		[mergeExternalConfig, handleThemeChange],
 	);
 
 	// UX-18: empty-state sentinel — recompute on every render and push
@@ -287,8 +294,8 @@ export default function SettingsPage({
 	return (
 		<div className="flex min-h-full flex-col">
 			{/* Sticky header: tabs + search (Fix #3 — SearchField
-				moved inside the sticky header below the tab bar
-				so it stays visible while scrolling settings). */}
+                                moved inside the sticky header below the tab bar
+                                so it stays visible while scrolling settings). */}
 			<div className="sticky top-0 left-0 right-0 z-40 bg-(--bg-subtle) border-b border-border">
 				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
 					<SegmentedControl<SettingsTab>
@@ -334,12 +341,12 @@ export default function SettingsPage({
 				</div>
 
 				{/* Fix #12: empty-state banner with Clear filter button using
-					the existing searchNoMatch / noResultsMessage / a11y.clearSearch
-					i18n keys. `searchNoMatch` preserves the original "{query}"
-					interpolation so screen readers + sighted users see what they
-					searched for; `noResultsMessage` adds the actionable hint
-					("Try a different search term or clear the filter..."); the
-					button gives a one-click escape hatch. */}
+                                        the existing searchNoMatch / noResultsMessage / a11y.clearSearch
+                                        i18n keys. `searchNoMatch` preserves the original "{query}"
+                                        interpolation so screen readers + sighted users see what they
+                                        searched for; `noResultsMessage` adds the actionable hint
+                                        ("Try a different search term or clear the filter..."); the
+                                        button gives a one-click escape hatch. */}
 				{showEmptyBanner && (
 					<output
 						aria-live="polite"
@@ -398,7 +405,7 @@ export default function SettingsPage({
 							<TroubleshootingSettingsSection
 								isVisible={_filter_settings}
 								updateConfig={updateConfig}
-								onNavigate={onNavigate}
+								onNavigate={navigate}
 								onResetClick={() => setShowResetDialog(true)}
 							/>
 							<PrewarmAndUpdates isVisible={_filter_settings} />
@@ -407,11 +414,11 @@ export default function SettingsPage({
 			</div>
 
 			{/* Fix #4: sticky-bottom save indicator — stays pinned to
-				the bottom of the viewport while scrolling so
-				the user always sees the pending/saving/saved
-				state. Mirrors the sticky-top header (z-40,
-				bg-(--bg-subtle), border-border) for visual
-				rhythm. */}
+                                the bottom of the viewport while scrolling so
+                                the user always sees the pending/saving/saved
+                                state. Mirrors the sticky-top header (z-40,
+                                bg-(--bg-subtle), border-border) for visual
+                                rhythm. */}
 			<div className="sticky bottom-0 left-0 right-0 z-40 border-t border-border bg-(--bg-subtle)">
 				<div className="mx-auto flex w-full max-w-2xl justify-end px-6 py-2">
 					<SettingsSaveIndicator

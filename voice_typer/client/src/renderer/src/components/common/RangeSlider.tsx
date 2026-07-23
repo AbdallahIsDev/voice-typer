@@ -110,7 +110,7 @@ export function RangeSlider({
 				disabled={disabled}
 				className="w-24 py-3"
 				trackClassName="h-2"
-				thumbClassName="w-6 bg-white shadow-md border-0"
+				thumbClassName="w-6 bg-background shadow-md border-0"
 			/>
 			<span className="text-sm text-(--text-muted) w-14 tabular-nums">
 				{renderedValue}

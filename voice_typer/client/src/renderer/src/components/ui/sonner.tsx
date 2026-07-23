@@ -10,6 +10,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
 import { Toaster as Sonner, type ToasterProps } from "sonner";
+import { getLocale, isRtlLocale } from "@/i18n/i18n";
 
 /**
  * Resolve the current theme for the Sonner toaster.
@@ -76,11 +77,11 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			//     (errors stay 8s; some users want them gone now)
 			//     without waiting for the timer or hunting for the
 			//     action button.
-			//   - position="bottom-right": matches the OS notification
-			//     corner on every desktop OS we ship (Windows
-			//     bottom-right, macOS top-right but bottom-right is
-			//     the de-facto Electron convention and avoids the
-			//     title bar).
+			//   - position: bottom-right in LTR locales, bottom-left in
+			//     RTL locales (Arabic/Hebrew) so the toaster sits in the
+			//     visually-far corner from the reading start. Note: this
+			//     is computed once at mount; sonner doesn't react to
+			//     runtime locale changes (XA-20-11).
 			//   - duration={4000}: fallback for toasts raised via
 			//     ``toast.*`` directly (bypassing ``useSnackbar``).
 			//     The hook applies its own per-type durations
@@ -88,7 +89,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			//     which override this default.
 			richColors
 			closeButton
-			position="bottom-right"
+			position={isRtlLocale(getLocale()) ? "bottom-left" : "bottom-right"}
 			duration={4000}
 			className="toaster group"
 			icons={{

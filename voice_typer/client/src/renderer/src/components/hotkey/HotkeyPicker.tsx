@@ -13,9 +13,9 @@ import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import {
 	formatHotkeyLabel,
+	getModifierCodeMap,
 	IS_MAC,
 	KEY_CODE_TO_PYNPUT,
-	MODIFIER_CODE_TO_PYNPUT,
 	validateHotkey,
 } from "./hotkey-utils";
 
@@ -644,7 +644,14 @@ export function HotkeyPicker({
 			e.stopPropagation();
 
 			// Detect modifier keys by e.code (layout-independent).
-			const modifierCode = MODIFIER_CODE_TO_PYNPUT[e.code];
+			// EC-FIX-10 / EC-24: cache the per-platform modifier
+			// map once per handler instead of importing the
+			// deprecated module-level ``MODIFIER_CODE_TO_PYNPUT``
+			// constant. The map is tiny (8 entries) and IS_MAC
+			// is a module-load constant, so this is allocation-
+			// cheap and always reflects the current platform.
+			const modifierCodeMap = getModifierCodeMap(IS_MAC);
+			const modifierCode = modifierCodeMap[e.code];
 			if (modifierCode) {
 				// HOTKEY-MULTIKEY-001: accumulate the modifier into both
 				// the held set (for release detection) and the session
@@ -746,7 +753,7 @@ export function HotkeyPicker({
 				return;
 			}
 
-			const modifierCode = MODIFIER_CODE_TO_PYNPUT[e.code];
+			const modifierCode = getModifierCodeMap(IS_MAC)[e.code];
 			if (modifierCode) {
 				// Modifier key release — remove from held set.
 				heldModifiersRef.current.delete(modifierCode);

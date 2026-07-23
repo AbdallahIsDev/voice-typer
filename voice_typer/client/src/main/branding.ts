@@ -23,12 +23,9 @@
  *     would need to import branding.py and read the TS files at
  *     runtime (extend `scripts/check_branding.py` if needed).
  *
- * PVT-G5-086 (session-5 dead-code cleanup): `APP_DESCRIPTION` is no
- * longer `export`-ed. It is unused outside this module — the only
- * consumer of branding.ts (main/index.ts) imports `APP_NAME` only.
- * Kept as a module-local `const` so the value remains co-located with
- * `APP_NAME` for future symmetry with branding.py / renderer branding.ts
- * (which still export it for their own consumers).
+ * XS-66: the previous module-local `const _APP_DESCRIPTION` was removed —
+ * it was declared but never read. The renderer's `branding.ts` still
+ * exports its own `APP_DESCRIPTION` for its renderer-side consumers;
+ * the main process has no consumer (its only export here is APP_NAME).
  */
 export const APP_NAME = "Voice Typer";
-const _APP_DESCRIPTION = "Background voice-to-text utility";

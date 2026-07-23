@@ -24,6 +24,7 @@ export function SettingsSkeleton({
 		<output className={`space-y-3 ${className}`} aria-label={t("a11y.loading")}>
 			{Array.from({ length: rows }, (_, i) => (
 				<div
+					// XS-64: restored biome-ignore — the rule fires under `preset: "recommended"` (the previous `recommended: true` was deprecated and silently skipped enforcement). Skeleton rows are static, identical, and never reorder; index is the only stable key.
 					// biome-ignore lint/suspicious/noArrayIndexKey: skeleton rows are static and identical; index is the only stable key
 					key={`row-${rows}-${i}`}
 					className="flex items-center justify-between gap-4 px-3.5 py-2.5"

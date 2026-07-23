@@ -29,9 +29,11 @@
 //   • `python-namespace.ts` — `createPythonNamespace(tauri): PythonBridge`
 //                              (call dispatch + onEvent subscription with
 //                              FT-1 relay).
-//   • `bubble-namespace.ts` — `createBubbleNamespace(tauri): BubbleWindowBubble`
+//   • `bubble-namespace.ts` — `createBubbleNamespace(tauri, windowLabel?):
+//                              MainRendererBubble | BubbleWindowBubble`
 //                              (audio level stream + 6 mutators + 5 event
-//                              hooks).
+//                              hooks; bubble-window-only methods gated by
+//                              `windowLabel` — EC-FIX-6 / EC-13).
 //   • `window-namespace.ts` — `createWindowNamespace(tauri): WindowBridge`
 //                              (window controls + 4 export commands via
 //                              the `makeExportCommand(cmd)` factory +
@@ -110,8 +112,24 @@ export function installTauriBridge(): void {
 	}
 
 	const tauri = getTauri();
+	// EC-FIX-6 / EC-13 (SEC-026 regression): pass the current Tauri
+	// window label to `createBubbleNamespace` so the main renderer
+	// (label "main") gets only the `MainRendererBubble` subset (no
+	// `onSetState` / `onConfig` / `resizeTo` / `toggleDictation` —
+	// matches `preload/index.ts`). The bubble window (label "bubble")
+	// gets the full `BubbleWindowBubble`. The minimal `TauriGlobal`
+	// type in `detect.ts` doesn't declare `label` on the
+	// `getCurrentWindow()` return, so we cast here. Tauri v2's `Window`
+	// object always exposes `label` as a public field set from
+	// `tauri.conf.json`.
+	const tauriWindow = tauri.window.getCurrentWindow() as unknown as {
+		label?: string;
+	};
+	const windowLabel: "main" | "bubble" =
+		tauriWindow.label === "bubble" ? "bubble" : "main";
+
 	window.python = createPythonNamespace(tauri);
-	window.bubble = createBubbleNamespace(tauri);
+	window.bubble = createBubbleNamespace(tauri, windowLabel);
 	window.window_ = createWindowNamespace(tauri);
 }
 

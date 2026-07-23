@@ -22,6 +22,10 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("electron", () => ({
+	app: {
+		getPath: vi.fn(() => "/tmp/vt-mock-userdata"),
+		isPackaged: false,
+	},
 	dialog: { showOpenDialog: mocks.dialogShowOpenDialog },
 	ipcMain: { handle: mocks.ipcHandle },
 	shell: { openPath: mocks.shellOpenPath },

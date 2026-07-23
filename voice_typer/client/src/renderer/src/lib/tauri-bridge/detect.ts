@@ -20,9 +20,11 @@
 // All three pieces are pure (no `window` mutation) so they can be unit
 // tested without polluting the global jsdom `window`.
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- Tauri's global
- * API surface is untyped in our TS context (we deliberately avoid
- * pulling in @tauri-apps/api as a dep to keep the bundle lean). We
+/* XS-88: the previous `eslint-disable @typescript-eslint/no-explicit-any`
+ * directive was removed — the project uses biome (ESLint is not installed)
+ * and the file uses `unknown` casts (no `any`), so the directive was stale.
+ * Tauri's global API surface is untyped in our TS context (we deliberately
+ * avoid pulling in @tauri-apps/api as a dep to keep the bundle lean). We
  * declare a minimal structural type below. */
 
 // ─── Minimal Tauri v2 global API type ─────────────────────────────────

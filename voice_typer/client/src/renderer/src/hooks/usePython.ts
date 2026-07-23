@@ -91,6 +91,18 @@ function withCommandTimeout<T>(promise: Promise<T>, cmd: string): Promise<T> {
 // effect to re-run when `window.python` becomes available, so the
 // subscription is created lazily on first bridge availability.
 function subscribeBridgeReady(callback: () => void): () => void {
+	// XV-159: short-circuit when the bridge is already installed at
+	// subscribe time. `useSyncExternalStore` calls `subscribe` once per
+	// component instance, so without this guard each mounted consumer
+	// (`usePythonEvent` callers) would spin up its own 100ms polling
+	// interval even though `window.python` is already present. In the
+	// normal production path the preload/bridge install runs before
+	// React mounts, so this short-circuit eliminates all 12+ polling
+	// intervals that would otherwise tick forever (the snapshot never
+	// flips back to `false`, so `clearInterval` only fires on unmount).
+	// Returning a no-op cleanup matches the contract: subscribers must
+	// return an unsubscribe function.
+	if (getBridgeReadySnapshot()) return () => {};
 	// Poll every 100ms until window.python is available, then stop.
 	// The interval self-clears on first detection to avoid leaking a
 	// timer once the bridge is installed.

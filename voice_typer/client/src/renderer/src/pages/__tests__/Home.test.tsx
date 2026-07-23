@@ -16,14 +16,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Hoist the mock call/event handlers so they're available inside the
 // vi.mock factory (which is hoisted to the top of the file by vitest
 // and runs before any other code).
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
+const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
+	mockNavigate: vi.fn(),
 }));
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
+}));
+
+vi.mock("@/hooks/useNavigation", () => ({
+	useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 vi.mock("@hugeicons/react", () => ({
@@ -62,8 +67,6 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	};
 });
 
-import type { Page } from "@/types/ipc";
-
 describe("Home page", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
@@ -84,7 +87,7 @@ describe("Home page", () => {
 		// to verify the initial render is non-empty.
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home recordingState="idle" lastError={null} />);
+		render(<Home />);
 
 		// The status pill renders "READY" for the idle state.
 		expect(screen.getByText("READY")).toBeTruthy();
@@ -97,7 +100,7 @@ describe("Home page", () => {
 		// so the spinner sections stay mounted.
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home recordingState="idle" lastError={null} />);
+		render(<Home />);
 
 		// The stats spinner section exposes an aria-label.
 		expect(screen.getByLabelText("Loading today's stats")).toBeTruthy();
@@ -114,7 +117,7 @@ describe("Home page", () => {
 		// the cached stats before we assert.
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		render(<Home recordingState="idle" lastError={null} />);
+		render(<Home />);
 
 		// StatCards renders three labelled cards.
 		expect(screen.getByText("Voice Dictations")).toBeTruthy();
@@ -126,7 +129,7 @@ describe("Home page", () => {
 		expect(screen.queryByLabelText("Loading today's stats")).toBeNull();
 	});
 
-	it("calls onNavigate('history') when the View all button is clicked", async () => {
+	it("navigates to 'history' when the View all button is clicked", async () => {
 		// Pre-populate the recent-records cache so ActivityList renders
 		// with a "View all" button.
 		const recent = [
@@ -146,15 +149,12 @@ describe("Home page", () => {
 		localStorage.setItem("vt_home_recent_cache", JSON.stringify(recent));
 		mockCall.mockImplementation(() => new Promise(() => {}));
 		const { default: Home } = await import("@/pages/Home");
-		const onNavigate = vi.fn<(page: Page) => void>();
-		render(
-			<Home recordingState="idle" lastError={null} onNavigate={onNavigate} />,
-		);
+		render(<Home />);
 
 		// The "View all" button is rendered by ActivityList.
 		const viewAllButton = screen.getByText("View all");
 		fireEvent.click(viewAllButton);
-		expect(onNavigate).toHaveBeenCalledTimes(1);
-		expect(onNavigate).toHaveBeenCalledWith("history");
+		expect(mockNavigate).toHaveBeenCalledTimes(1);
+		expect(mockNavigate).toHaveBeenCalledWith("history");
 	});
 });

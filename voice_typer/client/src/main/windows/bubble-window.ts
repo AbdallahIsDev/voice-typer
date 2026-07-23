@@ -266,7 +266,9 @@ export function createBubbleWindow(): BrowserWindow {
 		if (!foregroundFullscreen) {
 			win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 		}
-	} catch {}
+	} catch {
+		// best-effort — window may be destroyed mid-call
+	}
 
 	win.webContents.on("did-fail-load", (_e, code, desc, url) => {
 		// PVT-G5-080: failure — log.error.
@@ -399,14 +401,18 @@ export function showBubbleWindow(): void {
 
 	try {
 		win.setAlwaysOnTop(true, "screen-saver");
-	} catch {}
+	} catch {
+		// best-effort — window may be destroyed mid-call
+	}
 	// SEC-025: conditionally enable visibleOnFullScreen based on
 	// foreground fullscreen state.
 	try {
 		if (!isForegroundFullscreen()) {
 			win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 		}
-	} catch {}
+	} catch {
+		// best-effort — window may be destroyed mid-call
+	}
 
 	try {
 		if (!win.isVisible()) {
@@ -423,10 +429,14 @@ export function showBubbleWindow(): void {
 	}
 	try {
 		win.moveTop();
-	} catch {}
+	} catch {
+		// best-effort — window may be destroyed mid-call
+	}
 	try {
 		win.setAlwaysOnTop(true, "screen-saver");
-	} catch {}
+	} catch {
+		// best-effort — window may be destroyed mid-call
+	}
 
 	setImmediate(() => {
 		if (!win || win.isDestroyed()) return;
@@ -437,13 +447,19 @@ export function showBubbleWindow(): void {
 			);
 			try {
 				win.show();
-			} catch {}
+			} catch {
+				// best-effort — window may be destroyed mid-call
+			}
 			try {
 				win.moveTop();
-			} catch {}
+			} catch {
+				// best-effort — window may be destroyed mid-call
+			}
 			try {
 				win.setAlwaysOnTop(true, "screen-saver");
-			} catch {}
+			} catch {
+				// best-effort — window may be destroyed mid-call
+			}
 		}
 	});
 }

@@ -15,19 +15,16 @@ import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
+import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 // SOUND-FIX-004 / RW-10: sound feedback moved to App-level useSoundFeedback
 // hook so cues play on every page (delegates to @/lib/sound-manager).
 import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
-import type {
-	HistoryRecord,
-	Page,
-	RecordingState,
-	TodayStats,
-} from "@/types/ipc";
+import type { HistoryRecord, RecordingState, TodayStats } from "@/types/ipc";
 
 // Module-level cache — persists across page navigations AND app restarts
 // (localStorage) so the homepage renders instantly on re-visit instead of
@@ -134,12 +131,11 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
 	return state;
 }
 
-interface HomeProps {
-	recordingState: RecordingState;
-	lastError: string | null;
-	onNavigate?: (page: Page) => void;
-}
-
+// NOTE: App.tsx prop passing will be removed by EC-FIX-13.
+// EC-FIX-14 (BACKLOG-004): Home now subscribes to recordingState /
+// lastError via the appStore and obtains `navigate` via the
+// useNavigation hook directly, eliminating prop drilling from App.
+//
 // ── Extracted subcomponents (PVT-062) ─────────────────────────────────
 //
 // PVT-fix-10: removed `aria-live="polite"` from this `<output>` — the
@@ -351,6 +347,7 @@ function useFirstRecordingCelebration(
 		try {
 			if (localStorage.getItem(FIRST_RECORD_CELEBRATED_KEY) === "1") return;
 		} catch {
+			// localStorage unavailable — treat as not-celebrated.
 			return;
 		}
 		try {
@@ -366,17 +363,21 @@ function useFirstRecordingCelebration(
 					// localStorage unavailable — non-fatal.
 				}
 			}
-		} catch {
+		} catch (e) {
 			// Non-critical — skip celebration if history fetch fails.
+			console.warn("[Home] first-recording get_history failed:", e);
 		}
 	}, [call]);
 }
 
-export default function Home({
-	recordingState,
-	lastError,
-	onNavigate,
-}: HomeProps) {
+export default function Home() {
+	// EC-FIX-14 (BACKLOG-004): subscribe to the store directly instead
+	// of receiving recordingState / lastError as props from App.tsx.
+	const recordingState = useAppStore((s) => s.recordingState);
+	const lastError = useAppStore((s) => s.lastError);
+	// EC-FIX-14: obtain `navigate` directly from the navigation hook
+	// instead of receiving it as an `onNavigate` prop from App.tsx.
+	const { navigate } = useNavigation();
 	const { call } = usePython();
 	const celebrateFirstRecording = useFirstRecordingCelebration(call);
 
@@ -439,8 +440,12 @@ export default function Home({
 					persistStats(newStats);
 					setStats(newStats);
 				}
-			} catch {
+			} catch (e) {
 				// Silently ignore — next manual load picks up fresh data.
+				console.warn(
+					"[Home] event refresh (get_history/get_today_stats) failed:",
+					e,
+				);
 			}
 		}, 500);
 		return undefined;
@@ -455,7 +460,9 @@ export default function Home({
 				if (!cancelled) setCfg(cfg);
 				if (cancelled) return;
 				setHotkey(normalizeHotkey(cfg?.hotkey ?? "<f2>"));
-			} catch {}
+			} catch (e) {
+				console.warn("[Home] initial get_config failed:", e);
+			}
 			try {
 				const s = await call<TodayStats>("get_today_stats");
 				if (cancelled) return;
@@ -463,14 +470,18 @@ export default function Home({
 					persistStats(s);
 					setStats(s);
 				}
-			} catch {}
+			} catch (e) {
+				console.warn("[Home] initial get_today_stats failed:", e);
+			}
 			try {
 				const h = await call<HistoryRecord[]>("get_history", { limit: 4 });
 				if (cancelled) return;
 				const recs = h ?? [];
 				persistRecent(recs);
 				setRecent(recs);
-			} catch {}
+			} catch (e) {
+				console.warn("[Home] initial get_history failed:", e);
+			}
 			if (!cancelled) {
 				setInitialLoading(false);
 				markUpdated();
@@ -536,7 +547,9 @@ export default function Home({
 				const cfg = await call<VoiceTyperConfig>("get_config");
 				if (cancelled) return;
 				setHotkey(normalizeHotkey(cfg?.hotkey ?? "<f2>"));
-			} catch {}
+			} catch (e) {
+				console.warn("[Home] status_change reloadHotkey get_config failed:", e);
+			}
 		};
 		reloadHotkey();
 		return () => {
@@ -832,7 +845,7 @@ export default function Home({
 					lineClamp={2}
 					title={t("home.recentActivity")}
 					showViewAll
-					onViewAll={() => onNavigate?.("history")}
+					onViewAll={() => navigate("history")}
 				/>
 			) : (
 				initialLoading && (

@@ -50,6 +50,7 @@ export function EmptyState({
 	const actionGlyph = isError ? Alert02Icon : displayIcon;
 	return (
 		<div
+			role={isError ? "alert" : "status"}
 			className={cn(
 				"flex flex-col items-center justify-center gap-4 py-16",
 				// Error variant: tinted ring + soft destructive wash so

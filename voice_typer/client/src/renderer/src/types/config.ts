@@ -57,10 +57,11 @@ export interface VoiceTyperConfig {
 	// Recording mode
 	recording_mode: "toggle" | "push_to_talk";
 	/**
-	 * @deprecated DEAD/UNUSED — kept in the type for backwards-compat
-	 * with config.json files that were written by older versions.
+	 * @deprecated EC-FIX-10 / EC-24: made optional to reflect reality.
 	 *
-	 * The server (voice_typer/server/config.py:646) declares
+	 * Kept in the type for config-file backwards-compat only — older
+	 * `config.json` files written by previous versions may include
+	 * this key. The server (voice_typer/server/config.py:646) declares
 	 * `push_to_talk_hotkey: str = ""` ("Separate hotkey for PTT (empty
 	 * = same as toggle)") but NEVER reads it — `recording_mode ==
 	 * "push_to_talk"` always uses the main `hotkey` field (see
@@ -69,16 +70,21 @@ export interface VoiceTyperConfig {
 	 * *presence* of the key in `updates` so the hotkey listener can be
 	 * re-registered, not the value).
 	 *
-	 * On the renderer side, every test fixture sets it to `""` and NO
-	 * production component reads or writes it (see the grep audit:
-	 * only `types/config.ts` and test mocks reference it).
+	 * Rules of engagement (EC-FIX-10):
+	 *   - The server MUST NOT read this value (it is a write-only
+	 *     back-compat field on the wire).
+	 *   - The renderer MUST NOT write this value (no production
+	 *     component sets it; only test fixtures do, for type
+	 *     completeness).
+	 *   - The field is kept OPTIONAL so new code can omit it entirely
+	 *     without breaking the type contract.
 	 *
 	 * Do NOT wire up a separate PTT hotkey without also:
 	 *   1. Reading this value in the server's hotkey listener.
 	 *   2. Surfacing a UI in `RecordingSettingsSection.tsx` to set it.
 	 * Until both exist, this field is a no-op.
 	 */
-	push_to_talk_hotkey: string;
+	push_to_talk_hotkey?: string;
 	esc_cancel_enabled: boolean;
 	repaste_hotkey: string;
 	auto_punctuation: boolean;

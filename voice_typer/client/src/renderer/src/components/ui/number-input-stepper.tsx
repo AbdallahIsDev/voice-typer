@@ -31,6 +31,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { cn } from "#utils";
 import { Input } from "@/components/ui/input";
+import { t } from "@/i18n/i18n";
 
 export interface NumberInputStepperProps
 	extends Omit<
@@ -231,12 +232,12 @@ function NumberInputStepper({
 					tabIndex={0}
 					disabled={isAtMax}
 					onClick={handleStepUp}
-					aria-label="Increment"
+					aria-label={t("a11y.increase")}
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
-						"focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/50",
-						"disabled:opacity-30 disabled:cursor-not-allowed",
+						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring/30",
+						"disabled:opacity-50 disabled:cursor-not-allowed",
 					)}
 				>
 					<ArrowUpIcon />
@@ -246,12 +247,12 @@ function NumberInputStepper({
 					tabIndex={0}
 					disabled={isAtMin}
 					onClick={handleStepDown}
-					aria-label="Decrement"
+					aria-label={t("a11y.decrease")}
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
-						"focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring/50",
-						"disabled:opacity-30 disabled:cursor-not-allowed",
+						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring/30",
+						"disabled:opacity-50 disabled:cursor-not-allowed",
 					)}
 				>
 					<ArrowDownIcon />

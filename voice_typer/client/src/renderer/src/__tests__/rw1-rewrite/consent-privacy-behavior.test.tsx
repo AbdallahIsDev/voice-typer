@@ -74,14 +74,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // vi.mock factories are hoisted by vitest and execute before any
 // module-level const/let, so any value the factory closes over must be
 // allocated via vi.hoisted().
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
+const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
+	mockNavigate: vi.fn(),
 }));
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
+}));
+
+vi.mock("@/hooks/useNavigation", () => ({
+	useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
@@ -547,16 +552,11 @@ describe("Settings page — Troubleshooting section (RW-1 port)", () => {
 		).toBeTruthy();
 	});
 
-	it("invokes the onNavigate prop when the Diagnostics button is clicked", async () => {
-		// Python invariant (test_settings_has_on_navigate_prop):
-		//   "onNavigate" in src
-		//
-		// Behavioral: the Settings page accepts an onNavigate
-		// callback prop, and clicking the "Diagnostics" button
-		// invokes it with the "about" page identifier (so the
+	it("invokes navigate when the Diagnostics button is clicked", async () => {
+		// Behavioral: clicking the "Diagnostics" button in Settings
+		// calls navigate("about") via useNavigation hook (so the
 		// user is routed to the About page where the full
 		// diagnostics panel lives).
-		const onNavigate = vi.fn();
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(makeConfig());
 			if (type === "set_config") return Promise.resolve({ success: true });
@@ -564,7 +564,7 @@ describe("Settings page — Troubleshooting section (RW-1 port)", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage onNavigate={onNavigate} />);
+		render(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
@@ -577,7 +577,7 @@ describe("Settings page — Troubleshooting section (RW-1 port)", () => {
 		fireEvent.click(diagnosticsBtn);
 
 		await waitFor(() => {
-			expect(onNavigate).toHaveBeenCalledWith("about");
+			expect(mockNavigate).toHaveBeenCalledWith("about");
 		});
 	});
 });

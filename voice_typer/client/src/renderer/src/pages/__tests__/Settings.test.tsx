@@ -26,14 +26,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Hoist the mock call/event handlers so they're available inside the
 // vi.mock factory (which is hoisted to the top of the file by vitest
 // and runs before any other code).
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
+const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
+	mockNavigate: vi.fn(),
 }));
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
 	usePythonEvent: mockPythonEvent,
+}));
+
+vi.mock("@/hooks/useNavigation", () => ({
+	useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 vi.mock("@hugeicons/react", () => ({
@@ -458,8 +463,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		expect(useAppStore.getState().config?.onboarding_completed).toBe(true);
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		const onNavigate = vi.fn();
-		render(<SettingsPage onNavigate={onNavigate} />);
+		render(<SettingsPage />);
 
 		// Wait for the page to load (the tab labels are always visible).
 		await waitFor(() => {
@@ -482,11 +486,11 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		fireEvent.click(wizardButton);
 
 		// The click handler is async (awaits updateConfig which awaits
-		// the microtask flush).  Wait for onNavigate to be called —
+		// the microtask flush).  Wait for navigate to be called —
 		// that's the LAST statement in the click handler, so by the
 		// time it fires the mergeConfig call has already executed.
 		await waitFor(() => {
-			expect(onNavigate).toHaveBeenCalledWith("onboarding");
+			expect(mockNavigate).toHaveBeenCalledWith("onboarding");
 		});
 
 		// D1-FIX assertion: the appStore snapshot must reflect

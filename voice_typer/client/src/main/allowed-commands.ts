@@ -154,7 +154,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// thread calls app.quit() if 3 consecutive
 	// heartbeats are missed.
 	"heartbeat",
-	// PERF-005: ack that Electron received+is processing relaunch_electron
+	// PERF-005: ack that Electron received+is processing relaunch_ack
 	"relaunch_ack",
 	// UX-23 (renderer bits): repaste_last is a server-side app method
 	// (service.repaste_last / app.repaste_last) currently wired to a

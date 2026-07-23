@@ -25,9 +25,10 @@ import OnboardingPage from "@/pages/Onboarding";
 import SettingsPage from "@/pages/Settings";
 import TemplatesPage from "@/pages/Templates";
 import VocabularyPage from "@/pages/Vocabulary";
+import { isKnownPage } from "@/router/routes";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { Page, WindowBridge } from "@/types/ipc";
+import type { WindowBridge } from "@/types/ipc";
 
 export default function App() {
 	const t = useT();
@@ -282,24 +283,22 @@ export default function App() {
 	}, [navigate, textSize, call, setTextSize, t]);
 
 	// ── Listen for navigate events from Python ────────────────────
+	// EC-FIX-13: page validation uses the single route table in
+	// `router/routes.ts` via `isKnownPage`. Previously this had a
+	// hand-maintained `pageMap` that had drifted out of sync with the
+	// `Page` union — it was missing `onboarding`, so a backend
+	// `navigate` event with `path: "onboarding"` (e.g. from the tray
+	// menu's "Open onboarding" item) hit the else branch and was
+	// silently dropped with a spurious console warning. Routing through
+	// `isKnownPage` makes the route table the single source of truth:
+	// any page in the `Page` union that has a `ROUTES` entry is
+	// reachable here automatically.
 	usePythonEvent("navigate", (data): (() => void) | undefined => {
 		const path = (data as Record<string, string>)?.path;
 		if (path) {
 			const page = path.replace(/^\//, "");
-			const pageMap: Record<string, Page> = {
-				models: "models",
-				home: "home",
-				settings: "settings",
-				history: "history",
-				templates: "templates",
-				vocabulary: "vocabulary",
-				microphone: "microphone",
-				analytics: "analytics",
-				about: "about",
-			};
-			const target = pageMap[page];
-			if (target) {
-				navigate(target);
+			if (isKnownPage(page)) {
+				navigate(page);
 			} else {
 				console.warn(`[navigate] ignoring unknown page path: "${page}"`);
 			}
@@ -382,17 +381,16 @@ export default function App() {
 	const repasteLabel = formatHotkey(config?.repaste_hotkey ?? "<ctrl>+<alt>+v");
 
 	const renderPage = () => {
+		// Route table: see router/routes.ts for the single source of page names.
+		// This switch maps each `Page` literal to its component — legitimate
+		// routing logic (which component renders for which page), not a
+		// duplicate of the page registry. The set of valid page names lives
+		// in `ROUTES` (router/routes.ts); this switch only chooses the view.
 		switch (currentPage) {
 			case "home":
-				return (
-					<Home
-						recordingState={recordingState}
-						lastError={lastError}
-						onNavigate={navigate}
-					/>
-				);
+				return <Home />;
 			case "history":
-				return <HistoryPage onNavigate={navigate} />;
+				return <HistoryPage />;
 			case "templates":
 				return <TemplatesPage />;
 			case "vocabulary":
@@ -402,15 +400,9 @@ export default function App() {
 			case "microphone":
 				return <MicrophonePage />;
 			case "analytics":
-				return <DashboardPage onNavigate={navigate} />;
+				return <DashboardPage />;
 			case "settings":
-				return (
-					<SettingsPage
-						themeMode={themeMode}
-						onThemeChange={handleThemeChange}
-						onNavigate={navigate}
-					/>
-				);
+				return <SettingsPage />;
 			case "about":
 				return <AboutPage />;
 			case "onboarding":

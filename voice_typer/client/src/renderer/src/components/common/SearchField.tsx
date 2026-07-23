@@ -38,28 +38,33 @@ export function SearchField({
 	const handleClear = () => onChange("");
 
 	return (
-		<div className="relative">
+		// XA-8-M5: wrap the field in a `role="search"` landmark so SR users
+		// can navigate to it via the "search" landmark shortcut. biome
+		// suggests the `<search>` element instead; we keep `<div role="search">`
+		// for explicit compatibility with older AT that doesn't recognize `<search>`.
+		// biome-ignore lint/a11y/useSemanticElements: see comment above — keeping role="search" for AT compatibility.
+		<div role="search" className="relative">
 			<HugeiconsIcon
 				icon={Search01Icon}
 				strokeWidth={1.625}
 				// M-51: decorative — the input's aria-label
 				// provides the accessible name.
 				aria-hidden="true"
-				className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none"
+				className="absolute inset-s-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none"
 			/>
 			<Input
 				value={value}
 				onChange={handleChange}
 				placeholder={placeholder}
 				aria-label={resolvedAriaLabel}
-				className="pl-9 rounded-xl bg-(--bg-subtle) border-border"
+				className="ps-9 rounded-xl bg-(--bg-subtle) border-border"
 			/>
 			{value && (
 				<button
 					type="button"
 					onClick={handleClear}
 					aria-label={t("a11y.clearSearch")}
-					className="absolute right-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary) focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none"
+					className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
 				>
 					<HugeiconsIcon
 						icon={Cancel01Icon}

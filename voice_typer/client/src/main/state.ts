@@ -77,8 +77,6 @@ export interface MainState {
 	bubblePosition: "top" | "bottom";
 	/** Config-driven toggle for whether the bubble pill is draggable. Synced to the bubble renderer. */
 	bubbleDraggable: boolean;
-	/** Set true when the bubble renderer reports `bubble:ready`. Reset on window close. */
-	_bubblePageReady: boolean;
 	/** Pending hide-animation timeout for the bubble (cancelled on rapid re-show). */
 	_hideTimeout: ReturnType<typeof setTimeout> | null;
 	/** tryConnect() retry counter (for log messaging + exponential backoff). */
@@ -95,6 +93,10 @@ export interface MainState {
 	_relaunching: boolean;
 	/** Persists after a restart trigger until the new backend connects (for "restart cycle complete" log). */
 	_restartTriggered: boolean;
+	/** True once the bubble renderer signals it has mounted and is ready for events. */
+	_bubblePageReady: boolean;
+	/** Idempotency guard for stopPython (XV-157): true while a stop is in flight. */
+	_stopPythonCalled: boolean;
 }
 
 export const state: MainState = {
@@ -111,7 +113,6 @@ export const state: MainState = {
 	sessionNonce: "",
 	bubblePosition: "top",
 	bubbleDraggable: true,
-	_bubblePageReady: false,
 	_hideTimeout: null,
 	_tcpRetryCount: 0,
 	_tcpRetryGeneration: 0,
@@ -120,4 +121,6 @@ export const state: MainState = {
 	_hadConnectedBefore: false,
 	_relaunching: false,
 	_restartTriggered: false,
+	_bubblePageReady: false,
+	_stopPythonCalled: false,
 };

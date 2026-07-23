@@ -184,5 +184,69 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 				return { canceled: true };
 			}
 		},
+
+		// G4-M-71 (Tauri parity, EC-FIX-6 / EC-13): under Electron the
+		// preload's `openElectronLogs` opens the userData dir
+		// (containing `electron-main.log` / `electron-renderer-errors.log`
+		// etc.) via `window:open-electron-logs`. The Tauri host
+		// currently has only ONE log-folder command — `open_logs`
+		// (which opens the Python backend's log dir). We alias
+		// `openElectronLogs` to `open_logs` here so the Settings page's
+		// "View logs" affordance works on both runtimes (the renderer
+		// call site uses `window.window_?.openElectronLogs?.()` with
+		// `?.` so a missing method is a no-op). When the Rust host
+		// grows a dedicated `open_app_logs` / `open_electron_logs`
+		// command (TODO — see EC-13), swap the command name here.
+		// Return shape matches the Electron preload's
+		// `openElectronLogs` exactly (`{success, path?, error?}`).
+		openElectronLogs: async () => {
+			try {
+				const result = await tauri.core.invoke<{
+					success: boolean;
+					path?: string;
+					error?: string;
+				}>("open_logs");
+				return {
+					success: Boolean(result?.success),
+					path: result?.path,
+					error: result?.error,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+
+		// G4-M-69 (Tauri parity, EC-FIX-6 / EC-13): forward a
+		// renderer-caught error (e.g. React's `componentDidCatch` in
+		// `ErrorBoundary.tsx`) to the Rust host for persistence.
+		// Under Electron this routes via `renderer:log-error` IPC and
+		// the main process appends to `electron-renderer-errors.log`.
+		// The Rust command `renderer_log_error` is NOT YET
+		// IMPLEMENTED — the `.catch(() => {})` swallow is
+		// intentional and matches the ErrorBoundary's own
+		// `logError(...).catch(...)` swallow pattern: the
+		// `console.error("[ErrorBoundary] Caught render error:", ...)`
+		// call has ALREADY surfaced the error to the dev-tools +
+		// main-process console-forwarding path, so a missing /
+		// failing persistence command must never crash the
+		// ErrorBoundary itself.
+		//
+		// TODO: implement `renderer_log_error` Rust command to
+		// persist renderer errors under Tauri (see EC-13). Once
+		// implemented, this call will start persisting to disk
+		// automatically — no renderer code change required.
+		logError: (payload) =>
+			tauri.core.invoke<void>("renderer_log_error", payload).catch(() => {
+				// Best-effort: never let the persistence path
+				// crash the ErrorBoundary. The
+				// `console.error` in `componentDidCatch` already
+				// surfaced the error to the dev-tools +
+				// main-process console forwarding path, so a
+				// missing / failing Rust command is invisible
+				// to the user (intentional — see comment above).
+			}),
 	};
 }

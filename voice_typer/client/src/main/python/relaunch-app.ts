@@ -11,7 +11,7 @@
  * This eliminates all cross-process state coordination races that
  * the old "Python-only restart" design suffered from.
  *
- * Idempotent: if called twice (e.g. once from the "relaunch_electron"
+ * Idempotent: if called twice (e.g. once from the "relaunch_app"
  * TCP event handler and once from the pythonProcess exit handler), the
  * second call is a no-op because `_relaunching` is already true.
  *
@@ -83,7 +83,9 @@ export function relaunchApp(): void {
 		// Clean up TCP + state
 		try {
 			if (state.tcpSocket) state.tcpSocket.destroy();
-		} catch {}
+		} catch {
+			// best-effort cleanup — ignore errors
+		}
 		state.tcpSocket = null;
 		// PVT-G5-007: reset the TCP line buffer so stale partial
 		// frames from the previous backend don't bleed into the
@@ -127,7 +129,9 @@ export function relaunchApp(): void {
 					);
 				}
 			}
-		} catch {}
+		} catch {
+			// best-effort cleanup — ignore errors
+		}
 
 		startPython();
 		state._relaunching = false;
@@ -169,11 +173,15 @@ export function relaunchApp(): void {
 			}, 3000);
 			proc.once("exit", () => clearTimeout(killTimer));
 		}
-	} catch {}
+	} catch {
+		// best-effort cleanup — ignore errors
+	}
 	state.pythonProcess = null;
 	try {
 		if (state.tcpSocket) state.tcpSocket.destroy();
-	} catch {}
+	} catch {
+		// best-effort cleanup — ignore errors
+	}
 	state.tcpSocket = null;
 	// PVT-G5-007: reset the TCP line buffer (see dev branch above).
 	state.tcpBuffer = "";

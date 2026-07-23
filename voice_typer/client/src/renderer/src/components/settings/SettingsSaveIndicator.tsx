@@ -58,7 +58,7 @@ export function SettingsSaveIndicator({
 						className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-sky-400"
 						aria-hidden="true"
 					/>
-					Pending…
+					{t("settings.pending")}
 				</span>
 			) : saved ? (
 				<span className="inline-flex items-center gap-1 text-(--text-secondary) animate-fade-in">

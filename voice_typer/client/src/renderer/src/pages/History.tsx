@@ -26,15 +26,11 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
+import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { getLocale, t } from "@/i18n/i18n";
-import type {
-	HistoryRecord,
-	Page,
-	TodayStats,
-	WindowBridge,
-} from "@/types/ipc";
+import type { HistoryRecord, TodayStats, WindowBridge } from "@/types/ipc";
 
 // Module-level cache — persists across page navigations so the records list
 // and stats render instantly on re-visit instead of showing a spinner.
@@ -98,12 +94,14 @@ function sortRecords(
 	return sorted;
 }
 
-interface HistoryPageProps {
-	/** Navigation callback used by the empty-state's "Start dictation" button. */
-	onNavigate?: (page: Page) => void;
-}
-
-export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
+// NOTE: App.tsx prop passing will be removed by EC-FIX-13.
+// EC-FIX-14 (BACKLOG-004): HistoryPage now obtains `navigate` via the
+// useNavigation hook directly, eliminating the `onNavigate` prop drill
+// from App.tsx.
+export default function HistoryPage() {
+	// EC-FIX-14: obtain `navigate` directly from the navigation hook
+	// instead of receiving it as an `onNavigate` prop from App.tsx.
+	const { navigate } = useNavigation();
 	const { call } = usePython();
 	const [records, setRecords] = useState<HistoryRecord[]>(_cachedRecords);
 	const [stats, setStats] = useState<TodayStats | null>(_cachedStats);
@@ -616,14 +614,14 @@ export default function HistoryPage({ onNavigate }: HistoryPageProps = {}) {
 									: t("history.noTranscriptionsDescription")
 						}
 						actionLabel={
-							!searchQuery && !favoritesOnly && onNavigate
+							!searchQuery && !favoritesOnly
 								? t("history.startDictation")
 								: undefined
 						}
 						actionIcon={Mic02Icon}
 						onAction={
-							!searchQuery && !favoritesOnly && onNavigate
-								? () => onNavigate("home")
+							!searchQuery && !favoritesOnly
+								? () => navigate("home")
 								: undefined
 						}
 					/>

@@ -130,12 +130,18 @@ export function useStatsShare() {
 		// and toPng captured a 0×0 region. Log the dimensions so we
 		// can verify the element is actually rendered before capture.
 		const rect = el.getBoundingClientRect();
-		console.info("[StatsShare] capturing element:", {
-			offsetWidth: el.offsetWidth,
-			offsetHeight: el.offsetHeight,
-			rectWidth: rect.width,
-			rectHeight: rect.height,
-		});
+		// XS-65: dev-only diagnostic — the previous build shipped these
+		// console.info calls in production, where they leaked user-data
+		// shape (offsetWidth, etc.) to the renderer DevTools console of
+		// anyone running the packaged app.
+		if (import.meta.env.DEV) {
+			console.info("[StatsShare] capturing element:", {
+				offsetWidth: el.offsetWidth,
+				offsetHeight: el.offsetHeight,
+				rectWidth: rect.width,
+				rectHeight: rect.height,
+			});
+		}
 		if (el.offsetWidth === 0 || el.offsetHeight === 0) {
 			console.error(
 				"[StatsShare] target has zero size — image will be blank. " +
@@ -188,12 +194,15 @@ export function useStatsShare() {
 				},
 			});
 
-			console.info("[StatsShare] capture succeeded:", {
-				dataUrlLength: dataUrl.length,
-				dataUrlPrefix: dataUrl.slice(0, 50),
-				filename: `${filename}.png`,
-				dimensions: `${el.offsetWidth}x${el.offsetHeight}`,
-			});
+			// XS-65: dev-only success diagnostic.
+			if (import.meta.env.DEV) {
+				console.info("[StatsShare] capture succeeded:", {
+					dataUrlLength: dataUrl.length,
+					dataUrlPrefix: dataUrl.slice(0, 50),
+					filename: `${filename}.png`,
+					dimensions: `${el.offsetWidth}x${el.offsetHeight}`,
+				});
+			}
 
 			// Trigger download via anchor element
 			const link = document.createElement("a");
@@ -203,11 +212,14 @@ export function useStatsShare() {
 			link.click();
 			document.body.removeChild(link);
 
-			console.info(
-				`[StatsShare] image saved: ${filename}.png ` +
-					`(${el.offsetWidth}x${el.offsetHeight}px, ` +
-					`${Math.round((dataUrl.length * 0.75) / 1024)}KB)`,
-			);
+			// XS-65: dev-only post-download diagnostic.
+			if (import.meta.env.DEV) {
+				console.info(
+					`[StatsShare] image saved: ${filename}.png ` +
+						`(${el.offsetWidth}x${el.offsetHeight}px, ` +
+						`${Math.round((dataUrl.length * 0.75) / 1024)}KB)`,
+				);
+			}
 		} catch (err) {
 			console.error("[StatsShare] toPng threw:", err);
 		}
