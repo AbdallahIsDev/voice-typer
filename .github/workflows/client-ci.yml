@@ -35,10 +35,10 @@ jobs:
         working-directory: voice_typer/client
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
           # If a newer LTS is available, bump this comment AND the version below together.
