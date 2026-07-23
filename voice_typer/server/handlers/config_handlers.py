@@ -153,7 +153,15 @@ class ConfigHandlersMixin(HandlerBase):
                         # partial-success envelope. CR-76: include the
                         # operation input in the log so operators can
                         # see which model_size failed without having to
-                        # cross-reference the IPC payload.
+                        # cross-reference the IPC payload. The full
+                        # exception text is logged server-side only — it
+                        # is NOT echoed in ``model_errors`` to avoid
+                        # leaking server internals (CUDA error strings,
+                        # HF repo IDs, internal module names, file
+                        # paths) to the renderer. The renderer switches
+                        # on ``code: "model_switch_failed"`` to surface
+                        # the partial-success toast; the field/value
+                        # pair tells it which setting failed.
                         log.error(
                             "[IPC] change_model(model_size=%s) failed: %s",
                             validated["model_size"],
@@ -165,7 +173,6 @@ class ConfigHandlersMixin(HandlerBase):
                                 "code": "model_switch_failed",
                                 "field": "model_size",
                                 "value": validated["model_size"],
-                                "error": str(e),
                             }
                         )
                 if "asr_backend" in validated and validated["asr_backend"] != getattr(
@@ -176,6 +183,9 @@ class ConfigHandlersMixin(HandlerBase):
                         applied.append("asr_backend")
                     except Exception as e:
                         # G4-M-20: same partial-success pattern as above.
+                        # str(e) is logged server-side but not sent to
+                        # the renderer (see the change_model branch
+                        # above for the rationale).
                         log.error(
                             "[IPC] set_active_backend(asr_backend=%s) failed: %s",
                             validated["asr_backend"],
@@ -187,7 +197,6 @@ class ConfigHandlersMixin(HandlerBase):
                                 "code": "model_switch_failed",
                                 "field": "asr_backend",
                                 "value": validated["asr_backend"],
-                                "error": str(e),
                             }
                         )
                 # Apply only allowlisted, validated values.

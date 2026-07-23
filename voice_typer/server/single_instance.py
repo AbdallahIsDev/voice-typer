@@ -72,9 +72,15 @@ def _backend_pid_file() -> Path:
     ``_write_backend_pid_file`` / ``_clear_backend_pid_file`` /
     ``_read_stale_backend_pid`` (which all call this helper).
     """
-    from voice_typer.server.app import _config_dir
+    # Resolve lazily via ``voice_typer.server.app`` (NOT via the
+    # module-level ``_config_dir`` re-exported above) so monkeypatching
+    # ``voice_typer.server.app._config_dir`` in tests takes effect at
+    # call time.  Importing the module (rather than the name) avoids an
+    # F811 redefinition warning against the module-level binding while
+    # preserving the lazy-lookup semantics documented above.
+    from voice_typer.server import app as _app_module
 
-    return _config_dir() / "backend.pid"
+    return _app_module._config_dir() / "backend.pid"
 
 
 def _write_backend_pid_file() -> None:

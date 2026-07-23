@@ -822,7 +822,9 @@ def _is_password_field_linux() -> bool:
             _log().debug("[CLIPBOARD] pyatspi not installed — Linux password field check skipped (already warned)")
         return False
 
-    # Resolve and cache the STATE_FOCUSED constant once.
+    # Resolve and cache the STATE_FOCUSED constant once.  The cached
+    # module-level global is read directly by ``_find_focused_atspi_accessible``
+    # during the tree walk below — no local binding is needed here.
     if _PYATSPI_STATE_FOCUSED is None:
         try:
             _PYATSPI_STATE_FOCUSED = pyatspi.STATE_FOCUSED
@@ -832,7 +834,6 @@ def _is_password_field_linux() -> bool:
                 _PYATSPI_STATE_FOCUSED = pyatspi.STATE_FOCUSED
             except Exception:
                 _PYATSPI_STATE_FOCUSED = 1 << 10  # fallback value
-    state_focused = _PYATSPI_STATE_FOCUSED
 
     try:
         try:

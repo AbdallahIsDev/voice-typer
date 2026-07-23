@@ -64,11 +64,24 @@ the WS and reconnecting.
 
 Heartbeat
 ---------
-ADR-0018's heartbeat watchdog is DISABLED on the Tauri path via the
-``TAURI_SIDECAR=1`` env var (see ``ipc_server.py``). The Rust
-supervisor detects sidecar death via WS-close / process exit and
-runs FT-1 respawn (ADR-0020 §10), replacing the 120-second
-heartbeat-timeout watchdog.
+ADR-0018's Python-side heartbeat watchdog is DISABLED on the Tauri
+path via the ``TAURI_SIDECAR=1`` env var (see ``ipc_server.py``).
+Liveness is instead owned by the Rust host, which combines two
+detection mechanisms:
+
+1. **Transport-level**: WS-close or process exit triggers FT-1
+   respawn (ADR-0020 §10).
+2. **Application-level**: the Rust host dispatches a ``heartbeat``
+   command every 10s (handled here in Python by
+   ``_handle_heartbeat``, registered in ``_COMMAND_REGISTRY``). On
+   3 consecutive misses (≥30s of unresponsiveness — socket open but
+   no response, e.g. GIL contention / infinite loop / blocking C
+   call), the Rust host triggers FT-1 respawn. This catches sidecar
+   hangs that keep the TCP/WS socket open but don't respond to
+   dispatches — a scenario the WS-close-only detection misses.
+
+Together these replace the Electron path's 120-second-heartbeat-
+timeout watchdog with a faster, more accurate liveness probe.
 """
 
 from __future__ import annotations

@@ -20,7 +20,7 @@ from typing import Any
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
 
 class ModelHandlersMixin(HandlerBase):
@@ -222,10 +222,21 @@ class ModelHandlersMixin(HandlerBase):
 
                 dir_path = _validate_import_path(dir_path)
             except ValueError as exc:
+                # Per-command validation error: the ValueError raised by
+                # ``_validate_import_path`` carries a sanitized,
+                # app-defined message (no Python internals, no PII
+                # beyond the user-supplied path). Route through
+                # ``_error_response`` to stamp a structured ``code`` so
+                # the renderer can branch on ``client.path_not_allowed``
+                # rather than pattern-matching the message text. The
+                # message is still echoed because it carries the
+                # user-supplied path that was rejected.
                 log.warning("[IPC] import_model path rejected: %s", exc)
-                resp["type"] = "error"
-                resp["data"] = {"message": str(exc)}
-                return resp
+                return _error_response(
+                    resp,
+                    str(exc),
+                    code="client.path_not_allowed",
+                )
 
             import os
 

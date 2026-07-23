@@ -114,6 +114,22 @@ class AsrBackendRegistry:
             # ``RuntimeError: dictionary changed size during iteration``.
             for b in list(self._backends.values()):
                 if b is not None:
+                    # Diagnostic: callers downstream (the dictation
+                    # pipeline) will invoke ``transcribe_with_fallback``
+                    # on this backend, which can return an empty string
+                    # silently when the model isn't actually loaded —
+                    # the user sees "finish dictation → nothing
+                    # transcribed" with no error. Surface a warning
+                    # here so this failure mode is traceable from the
+                    # log file (the engine's own load() failure path
+                    # may have logged at DEBUG/INFO, easily missed).
+                    if not self._is_ready(b):
+                        log.warning(
+                            "[ASR_REGISTRY] returning unloaded backend %s "
+                            "(is_loaded=False) as last-resort active — "
+                            "transcription may return empty silently",
+                            name,
+                        )
                     return b
         return None
 

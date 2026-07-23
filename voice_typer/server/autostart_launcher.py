@@ -6,12 +6,34 @@ Desktop / Start Menu entries.
 
 Architecture
 ------------
-The launcher uses a **build-first** strategy: if the Electron app has been
-built (``out/main/index.js`` exists), it runs ``electron .`` directly —
-no Vite dev server, no HMR watcher, just the compiled production bundles.
-If the build output is missing, it runs ``npm run build`` first, then
-``electron .``.  ``npm run dev`` is used ONLY as a last-resort fallback
-when the build fails or when the user explicitly passes ``--dev``.
+The launcher supports two production shapes:
+
+- **Tauri** (post-cutover): a native binary (``voice-typer-tauri``)
+  built from ``src-tauri/Cargo.toml``. The launcher detects the
+  Tauri binary at well-known install paths (or via the
+  ``VT_TAURI_BINARY`` env override) and spawns it directly. Tauri's
+  ``tauri-plugin-single-instance`` plugin handles focus / fresh-start
+  deduplication, so the launcher does not need a separate lean binary
+  for the focus path (unlike Electron).
+
+- **Electron** (legacy / dev): the launcher uses a **build-first**
+  strategy: if the Electron app has been built (``out/main/index.js``
+  exists), it runs ``electron .`` directly — no Vite dev server, no
+  HMR watcher, just the compiled production bundles. If the build
+  output is missing, it runs ``npm run build`` first, then
+  ``electron .``. ``npm run dev`` is used ONLY as a last-resort
+  fallback when the build fails or when the user explicitly passes
+  ``--dev``.
+
+Tauri mode takes precedence over the Electron paths when a Tauri
+binary is found at a known install path AND the Electron dev binary
+(``node_modules/electron/dist/electron``) is NOT present locally —
+i.e. production Tauri installs (which don't ship the
+``node_modules/`` tree). Dev checkouts that DO ship Electron keep
+using the Electron path so developers can exercise the Electron
+build. The ``VT_TAURI_AUTOSTART=1`` env var forces Tauri mode
+regardless of the local Electron tree (used by the autostart
+registration when it knows it is registering under a Tauri install).
 
 This means the app starts faster and uses less memory in normal use;
 the Vite dev server is exclusively for development.
@@ -28,16 +50,16 @@ Cross-platform behaviour
 Idempotency
 -----------
 Before launching, the script checks whether the IPC port (9876) is
-already listening.  If so, an Electron backend is already running (e.g.
-the user logged in twice, or a previous launcher is still alive) and the
-script exits silently — no double launch, no mutex conflict.
+already listening.  If so, a backend is already running (e.g.
+the user logged in twice, or a previous launcher is still alive) and
+the script exits silently — no double launch, no mutex conflict.
 
 PID tracking
 ------------
 Writes its own PID and the spawned child's PID to
-``~/.voice-typer/autostart.pid`` so Electron's ``killStalePython()``
+``~/.voice-typer/autostart.pid`` so the host's ``killStalePython()``
 reaper and other tooling can discover and clean up the autostarted
-session when the user starts Electron manually.
+session when the user starts the app manually.
 
 Usage
 -----
@@ -217,6 +239,152 @@ def _client_dir_exists() -> bool:
     return CLIENT_DIR.is_dir() and (CLIENT_DIR / "package.json").exists()
 
 
+def _tauri_binary() -> str | None:
+    """Return the path to the installed Voice Typer Tauri binary, or ``None``.
+
+    The Tauri cutover ships a native binary (built from
+    ``src-tauri/Cargo.toml`` → ``voice-typer-tauri``) instead of the
+    Electron ``node_modules/`` tree. This helper locates that binary
+    so the autostart launcher can spawn it directly at login — without
+    it, the launcher would try ``electron .`` against a missing
+    ``node_modules/`` and autostart-at-login would silently break.
+
+    Lookup order:
+
+    1. ``VT_TAURI_BINARY`` env var — explicit override used by
+       installers / users that place the binary at a non-standard path.
+    2. Well-known install paths per OS:
+
+       - **Linux**: ``/usr/bin/voice-typer-tauri``,
+         ``/usr/local/bin/voice-typer-tauri``,
+         ``~/.local/bin/voice-typer-tauri`` (the .deb / .rpm install
+         target, mirrored by the freedesktop ``.desktop`` template's
+         ``Exec=voice-typer-tauri`` line).
+       - **macOS**: ``/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri``
+         and the user-local ``~/Applications/…`` counterpart. The
+         bundle name comes from ``productName`` ("Voice Typer") while
+         the inner executable is the Cargo binary name
+         (``voice-typer-tauri``).
+       - **Windows**: ``%PROGRAMFILES%\\Voice Typer\\voice-typer-tauri.exe``
+         and ``%LOCALAPPDATA%\\Programs\\Voice Typer\\voice-typer-tauri.exe``
+         (the NSIS installer target).
+
+    On POSIX the candidate must additionally be executable
+    (``os.access(..., X_OK)``) — a stale non-executable file at one of
+    these paths shouldn't fool us into thinking Tauri is installed.
+
+    Returns ``None`` in dev checkouts and CI environments where the
+    Tauri binary hasn't been installed system-wide; the launcher then
+    falls back to the legacy Electron path.
+    """
+    env_path = os.environ.get("VT_TAURI_BINARY")
+    if env_path and Path(env_path).is_file():
+        return env_path
+
+    candidates: list[Path] = []
+    if sys.platform == "win32":
+        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        candidates.append(Path(program_files) / "Voice Typer" / "voice-typer-tauri.exe")
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            candidates.append(Path(local_appdata) / "Programs" / "Voice Typer" / "voice-typer-tauri.exe")
+    elif sys.platform == "darwin":
+        candidates.append(Path("/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri"))
+        candidates.append(Path.home() / "Applications" / "Voice Typer.app" / "Contents" / "MacOS" / "voice-typer-tauri")
+    else:  # Linux / other POSIX
+        candidates.append(Path("/usr/bin/voice-typer-tauri"))
+        candidates.append(Path("/usr/local/bin/voice-typer-tauri"))
+        candidates.append(Path.home() / ".local" / "bin" / "voice-typer-tauri")
+
+    for cand in candidates:
+        if not cand.is_file():
+            continue
+        if sys.platform != "win32" and not os.access(cand, os.X_OK):
+            continue
+        return str(cand)
+    return None
+
+
+def _is_tauri_mode() -> bool:
+    """Return ``True`` if the launcher should spawn the Tauri binary.
+
+    Tauri mode is active when ANY of the following holds:
+
+    - ``VOICE_TYPER_TAURI=1`` (or the legacy alias ``VT_TAURI_AUTOSTART=1``)
+      is set in the env (explicit opt-in by the Tauri Rust host before
+      spawning the Python sidecar, or by the autostart registration
+      when registering the launcher entry under a Tauri install), OR
+    - the basename of ``sys.executable`` contains ``voice-typer-tauri``
+      (we are already running inside the Tauri sidecar process), OR
+    - a Tauri binary is found at a known install path AND the Electron
+      dev binary (``node_modules/electron/dist/electron``) is NOT
+      present locally.
+
+    The third condition ensures dev checkouts that DO ship a local
+    Electron ``node_modules`` tree keep using the Electron path even
+    when the user has also installed the Tauri binary system-wide —
+    the developer's intent is to exercise the Electron build, not the
+    installed Tauri binary. In production Tauri installs (no
+    ``node_modules/`` shipped), the Tauri binary wins.
+    """
+    if os.environ.get("VOICE_TYPER_TAURI") == "1":
+        return True
+    if os.environ.get("VT_TAURI_AUTOSTART") == "1":
+        return True
+    # CR-44: also detect Tauri mode from sys.executable basename —
+    # the Tauri Rust host renames the Python sidecar executable to
+    # ``voice-typer-tauri`` when freezing, so this is a reliable signal
+    # that we are running inside a Tauri install.
+    exe_basename = os.path.basename(sys.executable).lower()
+    if "voice-typer-tauri" in exe_basename:
+        return True
+    if _tauri_binary() is None:
+        return False
+    # Tauri binary exists; prefer it only when the local Electron
+    # dev binary is absent (production Tauri install).
+    return _electron_binary() is None
+
+
+def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | None:
+    """Spawn the Tauri host binary (``voice-typer-tauri``) with ``VT_START_HIDDEN`` if *hidden*.
+
+    The Tauri app's ``tauri-plugin-single-instance`` plugin (declared
+    in ``src-tauri/tauri.conf.json``) handles the focus / fresh-start
+    distinction itself: a second spawn of the same binary causes the
+    first instance to be focused and the second to exit. So unlike the
+    Electron path (which spawns a LEAN electron with ``VT_FOCUS_ONLY=1``
+    to trigger ``requestSingleInstanceLock``), here we always spawn the
+    full Tauri binary — the single-instance plugin does the rest.
+
+    Returns the child process on success, or ``None`` on failure (the
+    caller logs and exits 1 — no silent Electron fallback per CR-44).
+    """
+    env = dict(os.environ)
+    if hidden:
+        env["VT_START_HIDDEN"] = "1"
+    # NEW-PRIV-003: same-app restart — full env intentionally inherited
+    # (see _launch_electron_built for rationale). Only sensitive KEY
+    # NAMES are logged for audit; values are never printed.
+    _log_sensitive_env_keys(env, context="autostart_launcher._spawn_tauri_host")
+    try:
+        child = subprocess.Popen([binary], env=env)
+        log.info(
+            "[AUTOSTART] spawned tauri app %s (child pid=%s, hidden=%s)",
+            binary,
+            getattr(child, "pid", "?"),
+            hidden,
+        )
+        return child
+    except Exception:
+        log.exception("[AUTOSTART] tauri spawn failed: %s", binary)
+        return None
+
+
+# Backward-compat alias — older test imports use the previous name.
+# Both names refer to the same function object.
+_launch_tauri_app = _spawn_tauri_host
+
+
 def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen | None:
     """Launch the pre-built Electron app with ``electron .``.
 
@@ -322,18 +490,52 @@ def _ensure_built_and_launch(hidden: bool = False) -> bool:
 
 
 def _focus_running_app() -> bool:
-    """Wake an already-running Electron instance via its single-instance lock.
+    """Wake an already-running instance via its single-instance lock.
 
-    Spawns a LEAN second ``electron .`` process.  That process:
+    Electron path: spawns a LEAN second ``electron .`` process.  That
+    process:
       1. loads the prebuilt main bundle,
       2. calls requestSingleInstanceLock() → returns false,
       3. quits, which is what triggers the FIRST instance's
          ``second-instance`` event → it shows + focuses the dashboard.
 
+    Tauri path: spawns the Tauri binary itself.  Tauri's
+    ``tauri-plugin-single-instance`` plugin (declared in
+    ``src-tauri/tauri.conf.json``) detects the duplicate instance,
+    focuses the first, and quits the second — same effect as the
+    Electron lean-spawn pattern, but without a separate lean binary.
+
     This is the cheap path (~100ms, no Vite, no extra ports) for "user
     clicked Start Menu while app is already in the background."  Returns
-    True if the lean electron was spawned, False if it couldn't be.
+    True if the focus probe was spawned, False if it couldn't be.
     """
+    # Tauri focus path: spawn the Tauri binary — the single-instance
+    # plugin handles the focus + second-instance-quit dance.
+    tauri_mode = _is_tauri_mode()
+    if tauri_mode:
+        binary = _tauri_binary()
+        if not binary:
+            log.info("[AUTOSTART] tauri focus: binary missing; cannot focus existing instance")
+            return False
+        env = dict(os.environ)
+        env["VT_FOCUS_ONLY"] = "1"
+        # NEW-PRIV-003: same-app restart — full env intentionally
+        # inherited (see _launch_electron_built for rationale). Only
+        # sensitive KEY NAMES are logged for audit; values are never
+        # printed.
+        _log_sensitive_env_keys(env, context="autostart_launcher._focus_running_app")
+        try:
+            child = subprocess.Popen([binary], env=env)
+            log.info(
+                "[AUTOSTART] spawned tauri focus probe (pid=%s)",
+                getattr(child, "pid", "?"),
+            )
+            return True
+        except Exception:
+            log.exception("[AUTOSTART] failed to spawn tauri focus probe")
+            return False
+
+    # Legacy Electron focus path.
     exe = _electron_binary()
     if not exe or not _main_entry_built():
         # No lean binary available — caller falls back to npm run dev,
@@ -367,6 +569,7 @@ def _focus_running_app() -> bool:
         return True
     except Exception:
         log.exception("[AUTOSTART] failed to spawn lean electron for focus")
+        _close_log_files(spawn_kwargs)
         return False
 
 
@@ -452,10 +655,20 @@ def launch() -> int:
 
     Decision tree, checked in order:
 
-    1. **Already running** (port 9876 open): focus via single-instance lock
-       (lean ``electron .``, ~100ms, no Vite or Python).
+    1. **Already running** (port 9876 open): focus via single-instance
+       lock. On Tauri that means spawning the Tauri binary (its
+       ``tauri-plugin-single-instance`` plugin focuses the first
+       instance); on Electron that means spawning a lean
+       ``electron .`` with ``VT_FOCUS_ONLY=1``.
 
-    2. **Fresh start, build-first**:
+    2. **Fresh start, Tauri mode** (Tauri binary found at a known
+       install path AND no local Electron ``node_modules`` tree):
+       spawn the Tauri binary directly. The Tauri cutover removed the
+       Electron ``node_modules/`` tree from production installs, so the
+       legacy ``electron .`` / ``npm run dev`` paths would silently
+       fail — this branch keeps autostart-at-login working.
+
+    3. **Fresh start, Electron mode** (dev checkout or legacy install):
        a. Build the Electron app if needed (``npm run build`` → ``electron .``).
        b. If ``--dev`` is passed OR the build path fails, fall back to
           ``npm run dev`` as a last resort.
@@ -523,7 +736,34 @@ def launch() -> int:
         time.sleep(0.5)
         return 0
 
-    # 2) Fresh start.
+    # Tauri mode takes precedence over the Electron build/dev paths so
+    # autostart-at-login keeps working after the Tauri cutover (the
+    # Electron ``node_modules/`` tree is not shipped in production
+    # Tauri installs, so the legacy ``electron .`` / ``npm run dev``
+    # paths would silently fail).
+    if _is_tauri_mode():
+        binary = _tauri_binary()
+        if binary:
+            log.info("[AUTOSTART] Tauri mode: spawning %s", binary)
+            child = _spawn_tauri_host(binary, hidden=hidden)
+            if child is not None:
+                _write_pid_file(os.getpid(), getattr(child, "pid", None))
+                time.sleep(2)
+                log.info("[AUTOSTART] launcher exiting; tauri child continues detached")
+                return 0
+            # CR-44: no silent Electron fallback — if the Tauri spawn
+            # fails, exit 1 so the user sees a non-zero exit code and
+            # can diagnose, rather than silently launching a stale
+            # Electron dev binary that may not exist.
+            log.error("[AUTOSTART] Tauri spawn failed; exiting 1 (no Electron fallback)")
+            return 1
+        # CR-44: Tauri mode detected but no binary resolvable — also
+        # exit 1 with a clear log message rather than silently falling
+        # back to a stale Electron path.
+        log.error("[AUTOSTART] Tauri mode detected but no binary resolvable; exiting 1 (no Electron fallback)")
+        return 1
+
+    # 2) Fresh start — legacy Electron path.
     if not _client_dir_exists():
         log.error(
             "[AUTOSTART] client directory not found at %s — cannot launch",
@@ -531,7 +771,7 @@ def launch() -> int:
         )
         return 1
 
-    # 2a) Build-first: build if needed, then launch with electron .
+    # 3a) Build-first: build if needed, then launch with electron .
     if not force_dev:
         log.info("[AUTOSTART] Trying build-first path...")
         if _ensure_built_and_launch(hidden=hidden):
@@ -540,7 +780,7 @@ def launch() -> int:
             return 0
         log.warning("[AUTOSTART] Build-first path failed — falling back to dev mode")
 
-    # 2b) Last-resort: npm run dev (Vite dev server).
+    # 3b) Last-resort: npm run dev (Vite dev server).
     log.info("[AUTOSTART] Starting dev mode (npm run dev)...")
     child = _spawn_npm_run_dev(hidden=hidden)
     if child is None:

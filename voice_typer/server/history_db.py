@@ -290,8 +290,16 @@ class HistoryDB:
         # Thread-local read-only connections (one per reader thread).
         self._read_local = threading.local()
         # Track ALL read connections across threads so close() + __del__
-        # can clean them up, preventing ResourceWarning on GC.
-        self._all_read_connections: list[sqlite3.Connection] = []
+        # can clean them up, preventing ResourceWarning on GC. Each
+        # entry is a ``(thread_ident, connection)`` tuple — the
+        # thread_ident lets ``_prune_dead_read_connections_locked``
+        # detect when the owning thread has exited and close its
+        # connection (releasing the ~20 MB SQLite page cache) instead
+        # of letting it leak for the lifetime of the HistoryDB. Without
+        # this pruning, IPC handler threads, tray thread, dictation
+        # pipeline thread, and test threads would each accumulate a
+        # 20 MB read connection that's never released until close().
+        self._all_read_connections: list[tuple[int, sqlite3.Connection]] = []
         self._connections_lock = threading.Lock()
         # Write queue: items are (callable, future) tuples, or the
         # _SHUTDOWN_SENTINEL to ask the writer to exit. ``future`` is
@@ -935,6 +943,19 @@ class HistoryDB:
         SEC-007: on POSIX, tightens the DB file and its parent
         directory to 0o600 / 0o700 so transcription history is not
         world-readable.
+
+        Memory management: each read connection carries a 20 MB SQLite
+        page cache (``PRAGMA cache_size=-20000``). When the owning
+        thread exits, its ``threading.local()`` storage is GC'd but
+        the connection itself stays alive (held by
+        ``_all_read_connections``) until ``close()`` runs. To avoid
+        unbounded memory growth across long-running app sessions with
+        thread pool churn, ``_prune_dead_read_connections_locked`` is
+        called on each new-connection creation: it walks the list,
+        closes connections whose owning thread has exited, and drops
+        them from the list. The pruning is O(n) but runs only on
+        first-call-per-thread (not on every read), so the amortized
+        cost is negligible.
         """
         if not hasattr(self._read_local, "conn") or self._read_local.conn is None:
             if not is_windows():
@@ -960,8 +981,59 @@ class HistoryDB:
             conn.row_factory = sqlite3.Row
             self._read_local.conn = conn
             with self._connections_lock:
-                self._all_read_connections.append(conn)
+                self._all_read_connections.append((threading.get_ident(), conn))
+                # Opportunistic GC: close connections whose owning
+                # thread has exited. This is the only place we prune
+                # (we don't run a background reaper), so we run it on
+                # every new-connection creation to keep the list
+                # bounded. The check is cheap (one threading.enumerate()
+                # call + a list filter).
+                self._prune_dead_read_connections_locked()
         return self._read_local.conn
+
+    def _prune_dead_read_connections_locked(self) -> None:
+        """Close read connections whose owning thread has exited.
+
+        Must be called with ``self._connections_lock`` held. Walks
+        ``_all_read_connections`` and closes any connection whose
+        ``thread_ident`` is not in the set of currently-alive threads
+        (per ``threading.enumerate``). The current thread's ident is
+        always treated as live (we're running on it). This bounds
+        memory growth: without pruning, each dead reader thread's
+        20 MB page cache would persist until ``close()`` ran.
+
+        Note: threads created via C extensions (not via
+        ``threading.Thread``) won't appear in ``threading.enumerate()``,
+        so their connections won't be pruned. This is acceptable —
+        Voice Typer's reader threads (IPC handlers, tray, dictation
+        pipeline, tests) are all ``threading.Thread`` instances.
+        """
+        if not self._all_read_connections:
+            return
+        # Build the set of alive thread idents. threading.enumerate()
+        # returns Thread objects for all non-daemon threads and all
+        # daemon threads created via the threading module. A thread
+        # that has just exited may still appear here for a brief
+        # window, but the next pruning pass will catch it.
+        alive_idents = {t.ident for t in threading.enumerate() if t.is_alive()}
+        # The current thread is always alive (we're running on it).
+        alive_idents.add(threading.get_ident())
+        kept: list[tuple[int, sqlite3.Connection]] = []
+        for ident, conn in self._all_read_connections:
+            if ident in alive_idents:
+                kept.append((ident, conn))
+            else:
+                with contextlib.suppress(sqlite3.Error):
+                    conn.close()
+                # Drop a debug log so operators can see the pruning
+                # in action (helpful for diagnosing memory issues in
+                # long-running sessions). Use debug (not info) to
+                # avoid spamming the log under normal churn.
+                log.debug(
+                    "[HISTORY_DB] Pruned dead-thread read connection (thread_ident=%s); released ~20 MB page cache.",
+                    ident,
+                )
+        self._all_read_connections = kept
 
     def _get_conn(self) -> sqlite3.Connection:
         """Backwards-compat alias for ``_get_read_conn``.
@@ -1153,7 +1225,7 @@ class HistoryDB:
         if self._shutdown.is_set():
             # Already closed — just make sure read conns are gone.
             with self._connections_lock:
-                for conn in self._all_read_connections:
+                for _ident, conn in self._all_read_connections:
                     with contextlib.suppress(sqlite3.Error):
                         conn.close()
                 self._all_read_connections.clear()
@@ -1214,8 +1286,11 @@ class HistoryDB:
                 self._read_local.conn.close()
             self._read_local.conn = None
         # Then close all other read connections tracked across threads.
+        # Each entry is a ``(thread_ident, connection)`` tuple; we
+        # unpack to close the connection regardless of which thread
+        # originally owned it (close() can be called from any thread).
         with self._connections_lock:
-            for conn in self._all_read_connections:
+            for _ident, conn in self._all_read_connections:
                 with contextlib.suppress(sqlite3.Error):
                     conn.close()
             self._all_read_connections.clear()
@@ -1674,20 +1749,50 @@ class HistoryDB:
         """Search transcriptions by text with offset-based pagination.
 
         ERR-013: see ``get_recent`` for ``raise_on_error`` semantics.
+
+        FTS5 is used for any query that yields at least one tokenizable
+        character (``_is_fts_compatible_query``). For empty queries and
+        queries consisting solely of separator characters (e.g. ``%`` or
+        ``_``), we fall back to the pre-CR-49 LIKE path so literal
+        wildcards still match — preserving the contract pinned by
+        ``test_search_treats_like_wildcards_as_literals`` and
+        ``test_empty_query_returns_all_rows``. ``_sanitize_fts_query``
+        wraps each whitespace-separated token in double quotes so the
+        user's input is treated as a literal phrase rather than FTS5
+        MATCH syntax (e.g. ``foo*`` matches the literal token ``foo*``,
+        not a prefix query).
         """
         try:
             conn = self._get_read_conn()
             cursor = conn.cursor()
-            pattern = _prepare_like_search_pattern(query)
-            cursor.execute(
-                """
-                SELECT * FROM transcriptions
-                WHERE text LIKE ? ESCAPE '\\'
-                ORDER BY timestamp DESC
-                LIMIT ? OFFSET ?
-            """,
-                (pattern, limit, offset),
-            )
+            capped = query[:_MAX_SEARCH_QUERY_CHARS]
+            if capped and _is_fts_compatible_query(capped):
+                fts_query = _sanitize_fts_query(capped)
+                cursor.execute(
+                    """
+                    SELECT t.* FROM transcriptions t
+                    JOIN transcriptions_fts AS f ON f.rowid = t.id
+                    WHERE transcriptions_fts MATCH ?
+                    ORDER BY t.timestamp DESC
+                    LIMIT ? OFFSET ?
+                """,
+                    (fts_query, limit, offset),
+                )
+            else:
+                # LIKE fallback: empty queries (pattern "%%" matches
+                # everything) and separator-only queries (literal ``%``
+                # / ``_`` lookups) cannot be served by the FTS5
+                # tokenizer and need the linear-scan path.
+                pattern = _prepare_like_search_pattern(query)
+                cursor.execute(
+                    """
+                    SELECT * FROM transcriptions
+                    WHERE text LIKE ? ESCAPE '\\'
+                    ORDER BY timestamp DESC
+                    LIMIT ? OFFSET ?
+                """,
+                    (pattern, limit, offset),
+                )
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:

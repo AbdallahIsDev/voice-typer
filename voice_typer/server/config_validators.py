@@ -485,10 +485,26 @@ def _check_universal_reserved(normalized: str) -> str | None:
 
 
 def _check_platform_reserved(normalized: str, platform: str) -> str | None:
-    """Stage 3: per-platform OS-reserved shortcuts."""
+    """Stage 3: per-platform OS-reserved shortcuts.
+
+    On Linux the physical Windows key is reported as ``super`` by
+    pynput / evdev, but a user (or a buggy renderer) may send ``<win>``
+    instead. ``<win>`` and ``<super>`` are distinct tokens in the
+    canonical parser (see ``hotkey_spec.py``), so an exact string match
+    against the Linux reserved list (which uses ``<super>+<key>``)
+    silently lets ``<win>+<l>`` through even though ``<super>+<l>`` is
+    reserved (lock screen). Normalize ``<win>`` to ``<super>`` on Linux
+    ONLY — Windows keeps its blanket Win+block (stage 5) and macOS
+    doesn't use either name (its system modifier is ``cmd``).
+    """
     reserved = _RESERVED_HOTKEYS.get(platform, set())
+    if not reserved:
+        return None
+    lookup = normalized
+    if platform == "linux":
+        lookup = normalized.replace("<win>", "<super>")
     for r in reserved:
-        if r == normalized:
+        if r == lookup:
             return f"reserved by operating system ({platform})"
     return None
 
@@ -507,8 +523,34 @@ def _check_single_alphanumeric(parts: list[str]) -> str | None:
     return None
 
 
+def _check_multi_non_modifier(parts: list[str]) -> str | None:
+    """Stage 5: reject combos with more than one non-modifier key.
+
+    A global hotkey listener (pynput, the Windows low-level hook
+    ``WH_KEYBOARD_LL``, the macOS ``CGEventTap``) registers a single
+    non-modifier key plus zero-or-more modifiers. A combo like
+    ``<a>+<b>`` would either fail to register, fire spuriously when
+    either key is pressed alone, or require the user to press both keys
+    simultaneously in a way that's indistinguishable from typing.
+
+    This stage runs BEFORE the Ctrl+letter / Shift+letter blanket
+    rules so a structurally invalid combo like ``<ctrl>+<a>+<b>``
+    (which would otherwise match the Ctrl+A reserved-shortcut rule) is
+    rejected with the structural error rather than the
+    reserved-shortcut error.
+    """
+    non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
+    if len(non_mods) > 1:
+        return (
+            f"hotkey has {len(non_mods)} non-modifier keys — "
+            "at most one non-modifier key is supported (global hotkey "
+            "listeners register a single non-modifier plus modifiers)"
+        )
+    return None
+
+
 def _check_os_shell_combos(parts: list[str], platform: str) -> str | None:
-    """Stage 5: Win+* / Super+* (Windows shell) and Cmd+<letter> (macOS).
+    """Stage 6: Win+* / Super+* (Windows shell) and Cmd+<letter> (macOS).
 
     The Win/Super blanket block applies only on Windows (where the Win
     key is heavily reserved by the OS shell). On Linux, Super combos are
@@ -528,7 +570,7 @@ def _check_os_shell_combos(parts: list[str], platform: str) -> str | None:
 
 
 def _check_alt_shift(parts: list[str], platform: str) -> str | None:
-    """Stage 6: Alt+Shift block (Windows language switching)."""
+    """Stage 7: Alt+Shift block (Windows language switching)."""
     if platform == "win32":
         non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
         has_alt = any(p.startswith("alt") for p in parts)
@@ -539,7 +581,7 @@ def _check_alt_shift(parts: list[str], platform: str) -> str | None:
 
 
 def _check_ctrl_letter(parts: list[str]) -> str | None:
-    """Stage 7: Ctrl+<common-letter> block (Copy/Paste/Undo/Save/etc.).
+    """Stage 8: Ctrl+<common-letter> block (Copy/Paste/Undo/Save/etc.).
 
     Only applies to PURE Ctrl+<letter> — if another modifier is present
     (e.g. Ctrl+Alt+U), the combo is allowed because it doesn't conflict
@@ -557,7 +599,7 @@ def _check_ctrl_letter(parts: list[str]) -> str | None:
 
 
 def _check_shift_letter(parts: list[str]) -> str | None:
-    """Stage 8: Shift+<letter> block (interferes with capitalization).
+    """Stage 9: Shift+<letter> block (interferes with capitalization).
 
     Only applies to PURE Shift+<letter> — if another modifier is present,
     the combo is allowed (e.g. Ctrl+Shift+Z = redo in many apps).
@@ -584,7 +626,7 @@ def _validate_hotkey(value: object) -> str | None:
     shortcuts like ``<alt>+<tab>`` and conflict-prone combos like
     ``<ctrl>+<c>``.
 
-    ARCH-14: the 8 validation stages below are extracted into small
+    ARCH-14: the 9 validation stages below are extracted into small
     ``_check_*`` helpers so the orchestrator stays readable. Each helper
     returns an error string or ``None``; the first non-``None`` wins,
     preserving the original short-circuit ordering exactly.
@@ -596,13 +638,19 @@ def _validate_hotkey(value: object) -> str | None:
     if not parts:
         return "hotkey has no keys"
 
-    normalized = value.lower()
+    # Strip leading/trailing whitespace BEFORE lowercasing so a padded
+    # reserved hotkey like ``"  <alt>+<tab>  "`` matches the denylist
+    # (the denylist entries are stored without padding). The parser
+    # already strips whitespace between tokens, so internal whitespace
+    # is unaffected.
+    normalized = value.strip().lower()
 
     # Stages run in priority order; the first rejection wins.
     for check in (
         lambda: _check_universal_reserved(normalized),
         lambda: _check_platform_reserved(normalized, _platform_key()),
         lambda: _check_single_alphanumeric(parts),
+        lambda: _check_multi_non_modifier(parts),
         lambda: _check_os_shell_combos(parts, _platform_key()),
         lambda: _check_alt_shift(parts, _platform_key()),
         lambda: _check_ctrl_letter(parts),
@@ -1045,6 +1093,8 @@ __all__ = [
     "_check_basic_shape",
     "_check_universal_reserved",
     "_check_platform_reserved",
+    "_check_single_alphanumeric",
+    "_check_multi_non_modifier",
     "_check_os_shell_combos",
     "_check_alt_shift",
     "_check_ctrl_letter",
