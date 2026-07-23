@@ -192,8 +192,10 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
+              # --include-dll is NOT available in Nuitka 2.5.4 (added in later versions).
+              # --include-data-dir above already bundles the entire ctranslate2/lib directory
+              # which includes ctranslate2.dll, so --include-dll is redundant.
               --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
-              --include-dll="$SITE\ctranslate2\lib\ctranslate2.dll" `
               --windows-disable-console `
               --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\onefile-tmp" `
               --output-filename=python-sidecar-x86_64-pc-windows-msvc.exe `
@@ -219,8 +221,10 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
+              # --include-dll is NOT available in Nuitka 2.5.4 (added in later versions).
+              # --include-data-dir above already bundles the entire ctranslate2/lib directory
+              # which includes ctranslate2.dll, so --include-dll is redundant.
               --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
-              --include-dll="$SITE\ctranslate2\lib\ctranslate2.dll" `
               --windows-disable-console `
               --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\prewarm-onefile-tmp" `
               --output-filename=prewarm-x86_64-pc-windows-msvc.exe `
