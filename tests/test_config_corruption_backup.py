@@ -318,8 +318,6 @@ class TestCorruptConfigBackup:
         # move-aside raises OSError (simulating permission denied).
         import pathlib
 
-        original_replace = pathlib.Path.replace
-
         def failing_replace(self, target):
             raise OSError("simulated permission denied on rename")
 
@@ -399,7 +397,7 @@ class TestSaveBackupBeforeOverwrite:
         ``.bak`` files on idempotent re-saves.
         """
         _patch_config_dir(tmp_path, monkeypatch)
-        config_file = tmp_path / "config.json"
+        tmp_path / "config.json"
         bak = tmp_path / "config.json.bak"
 
         cfg = Config(hotkey="<f5>")

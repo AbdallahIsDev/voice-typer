@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import inspect
 import os
-import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

@@ -8,6 +8,7 @@
 #   actions/download-artifact@v5    — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/attest-build-provenance@v4 — Node 24 runtime; wraps actions/attest (v1 = Node 16, deprecated)
 #   astral-sh/setup-uv@v6            — Node 24 runtime (v3 = Node 20, deprecated)
+#   mikepenz/action-junit-report@v6   — Node 24 runtime (v4 = Node 20, deprecated)
 # Breaking changes already verified safe for this repo:
 #   - setup-node@v6+ auto-caches via packageManager field → not used here (explicit `cache: npm`)
 #   - setup-python@v7 removed `pip-install` input → not used in any workflow
@@ -266,7 +267,7 @@ jobs:
       # the report still publishes when the pytest step above fails.
       - name: Test results
         if: always()
-        uses: mikepenz/action-junit-report@v4
+        uses: mikepenz/action-junit-report@v6
         with:
           check_name: Test results
           report_paths: pytest-results.xml

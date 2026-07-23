@@ -606,7 +606,7 @@ async def test_rate_limiter_is_shared_across_connections():
     per-process — which is the correct/secure behavior. This test
     verifies the shared behavior.)
     """
-    sw = _import_sidecar_ws()
+    _import_sidecar_ws()
     server = _make_fake_server()
 
     # _make_dispatch does NOT create the limiter eagerly — it's created
@@ -676,7 +676,7 @@ def test_no_platform_branch_in_auth_path():
     ]
 
     for pattern, description in forbidden_patterns:
-        matches = re.findall(pattern, source)
+        re.findall(pattern, source)
         # Allow occurrences in docstrings/comments — only fail if the
         # pattern appears in actual code. We approximate "in code" by
         # checking it appears on a line that isn't a comment and isn't

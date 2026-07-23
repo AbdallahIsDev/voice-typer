@@ -143,7 +143,7 @@ class TestConfigLoadCaughtFailureModes:
         logged so the user knows which field was bad.
         """
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        config_file = _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": "abc"}))
+        _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": "abc"}))
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
@@ -163,7 +163,7 @@ class TestConfigLoadCaughtFailureModes:
         this reset the ENTIRE config; now only the bad field is reset.
         """
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        config_file = _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": None}))
+        _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": None}))
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY

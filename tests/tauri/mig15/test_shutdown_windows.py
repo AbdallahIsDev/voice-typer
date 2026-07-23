@@ -696,7 +696,7 @@ class TestPythonShutdownHandler:
     async def test_shutdown_logs_release_mic_message(self, caplog):
         """The handler logs `[SIDECAR-WS] shutdown received — releasing
         mic and exiting` so runbook §6.6 can grep the sidecar log."""
-        sw = _import_sidecar_ws()
+        _import_sidecar_ws()
         with caplog.at_level("INFO", logger="voice_typer.server.sidecar_ws"):
             dispatch, _server = self._make_dispatch()
             await dispatch({"type": "shutdown"}, websocket=MagicMock())
@@ -771,7 +771,7 @@ class TestPythonShutdownHandler:
         were blocked on quit(), a slow mic release could push the ack
         past the host's 2s force-kill deadline.
         """
-        sw = _import_sidecar_ws()
+        _import_sidecar_ws()
         quit_started = threading.Event()
         quit_can_finish = threading.Event()
 
@@ -843,7 +843,7 @@ class TestPythonShutdownHandler:
         ADR-0020 §10 + §9: shutdown is a control frame, not a dispatch
         frame — it must bypass the ADR-0019 rate limiter.
         """
-        sw = _import_sidecar_ws()
+        _import_sidecar_ws()
         dispatch, server = self._make_dispatch()
         # Wire a rate limiter that always rejects — if the shutdown
         # branch hits it, the test will see an error envelope instead

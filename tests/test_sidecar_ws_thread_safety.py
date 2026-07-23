@@ -339,7 +339,7 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
 
         N_THREADS = 8
         N_PER_THREAD = 500  # 4000 total >> 256 maxsize → heavy overflow
-        TOTAL = N_THREADS * N_PER_THREAD
+        N_THREADS * N_PER_THREAD
 
         barrier = threading.Barrier(N_THREADS)
 

@@ -762,7 +762,7 @@ async def test_rate_limiter_is_shared_across_connections():
     reconnect-based burst-reset attack. The X11 / Wayland distinction
     is irrelevant: both expose the loopback WS identically.
     """
-    sw = _import_sidecar_ws()
+    _import_sidecar_ws()
     server = _make_fake_server()
 
     # _make_dispatch does NOT create the limiter eagerly — it's created

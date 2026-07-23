@@ -152,7 +152,6 @@ async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
 
     # Track ready emissions via event_bus.publish spy.
     published: list[dict] = []
-    original_publish = event_bus.publish
 
     def spy(event: dict) -> None:
         published.append(event)

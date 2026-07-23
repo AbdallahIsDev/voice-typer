@@ -51,12 +51,8 @@ class TestXV81RateLimiterRunningTotals:
 
         rl = _RateLimiter()
         # The new fields must exist and start at 0.
-        assert hasattr(rl, "_burst_total"), (
-            "XV-81: _RateLimiter must have a _burst_total int field."
-        )
-        assert hasattr(rl, "_sustained_total"), (
-            "XV-81: _RateLimiter must have a _sustained_total int field."
-        )
+        assert hasattr(rl, "_burst_total"), "XV-81: _RateLimiter must have a _burst_total int field."
+        assert hasattr(rl, "_sustained_total"), "XV-81: _RateLimiter must have a _sustained_total int field."
         assert rl._burst_total == 0
         assert rl._sustained_total == 0
 
@@ -74,9 +70,7 @@ class TestXV81RateLimiterRunningTotals:
             "_sustained_timestamps) on every call — use the running total."
         )
         # The new fast-path reads must appear.
-        assert "self._burst_total" in src, (
-            "XV-81: allow() must reference self._burst_total (the running total)."
-        )
+        assert "self._burst_total" in src, "XV-81: allow() must reference self._burst_total (the running total)."
         assert "self._sustained_total" in src, (
             "XV-81: allow() must reference self._sustained_total (the running total)."
         )
@@ -99,8 +93,7 @@ class TestXV81RateLimiterRunningTotals:
             "after appends — the running total must stay in sync with the deque."
         )
         assert rl._sustained_total == expected_sustained, (
-            f"XV-81: _sustained_total={rl._sustained_total} != sum="
-            f"{expected_sustained} after appends."
+            f"XV-81: _sustained_total={rl._sustained_total} != sum={expected_sustained} after appends."
         )
 
     def test_running_total_matches_sum_after_eviction(self):
@@ -117,12 +110,10 @@ class TestXV81RateLimiterRunningTotals:
         expected_burst = sum(c for _, c in rl._burst_timestamps)
         expected_sustained = sum(c for _, c in rl._sustained_timestamps)
         assert rl._burst_total == expected_burst, (
-            f"XV-81: _burst_total drifted after eviction: "
-            f"{rl._burst_total} != {expected_burst}."
+            f"XV-81: _burst_total drifted after eviction: {rl._burst_total} != {expected_burst}."
         )
         assert rl._sustained_total == expected_sustained, (
-            f"XV-81: _sustained_total drifted after eviction: "
-            f"{rl._sustained_total} != {expected_sustained}."
+            f"XV-81: _sustained_total drifted after eviction: {rl._sustained_total} != {expected_sustained}."
         )
         # The burst deque should have only the t=2.0 entry (cost 1).
         assert rl._burst_total == 1
@@ -148,12 +139,8 @@ class TestXV81RateLimiterRunningTotals:
         rl.allow(now=100.0)
         # After allow(), the totals were clamped to 0 and then
         # incremented by 1 (the new append).
-        assert rl._burst_total >= 0, (
-            "XV-81: _burst_total must never go negative (clamp at 0)."
-        )
-        assert rl._sustained_total >= 0, (
-            "XV-81: _sustained_total must never go negative (clamp at 0)."
-        )
+        assert rl._burst_total >= 0, "XV-81: _burst_total must never go negative (clamp at 0)."
+        assert rl._sustained_total >= 0, "XV-81: _sustained_total must never go negative (clamp at 0)."
 
 
 # ── XV-82: pending snapshot only when tcp_client is not None ───────────
@@ -173,8 +160,7 @@ class TestXV82PendingSnapshotGatedOnTcpClient:
         # Find the snapshot line and verify it's preceded (in the lock
         # block) by the tcp_client gate.
         assert "if tcp_client is not None:" in src, (
-            "XV-82: _send must gate the _pending_tcp snapshot on "
-            "'if tcp_client is not None:'."
+            "XV-82: _send must gate the _pending_tcp snapshot on 'if tcp_client is not None:'."
         )
         # The re-merge in the tcp_mode branch must be GONE.
         assert "self._pending_tcp.extend(pending)" not in src, (
@@ -272,8 +258,7 @@ class TestXV83CompactJsonSerialization:
             "\\uXXXX."
         )
         assert 'separators=(",", ":")' in src, (
-            "XV-83: _send must use separators=(',', ':') to strip the "
-            "default whitespace and shrink the wire format."
+            "XV-83: _send must use separators=(',', ':') to strip the default whitespace and shrink the wire format."
         )
 
     def test_send_produces_compact_json(self):
@@ -325,19 +310,12 @@ class TestXV83CompactJsonSerialization:
             # The wire format must contain the raw CJK chars (not
             # \\u4f60\\u597d...).
             assert "你好世界" in line, (
-                "XV-83: ensure_ascii=False must keep CJK chars as-is in "
-                f"the wire format. Got: {line!r}"
+                f"XV-83: ensure_ascii=False must keep CJK chars as-is in the wire format. Got: {line!r}"
             )
             # The compact separators must NOT insert whitespace after
             # the comma or colon.
-            assert '", "' not in line, (
-                "XV-83: separators=(',', ':') must not leave whitespace "
-                "after the comma."
-            )
-            assert '": "' not in line, (
-                "XV-83: separators=(',', ':') must not leave whitespace "
-                "after the colon."
-            )
+            assert '", "' not in line, "XV-83: separators=(',', ':') must not leave whitespace after the comma."
+            assert '": "' not in line, "XV-83: separators=(',', ':') must not leave whitespace after the colon."
         finally:
             with _ctxlib.suppress(Exception):
                 cli.close()
@@ -365,18 +343,15 @@ class TestXV84WriterEncodesOnce:
         src = inspect.getsource(sidecar_ws._handle_connection)
         # The new encode-once pattern.
         assert 'raw_bytes = json.dumps(event, ensure_ascii=False).encode("utf-8")' in src, (
-            "XV-84: _writer must encode ONCE to raw_bytes via "
-            "json.dumps(event, ensure_ascii=False).encode('utf-8')."
+            "XV-84: _writer must encode ONCE to raw_bytes via json.dumps(event, ensure_ascii=False).encode('utf-8')."
         )
         # The old re-encode pattern must be GONE.
-        assert "len(raw.encode(\"utf-8\"))" not in src, (
-            "XV-84: _writer must NOT re-encode via len(raw.encode('utf-8')) "
-            "— encode once and reuse the buffer."
+        assert 'len(raw.encode("utf-8"))' not in src, (
+            "XV-84: _writer must NOT re-encode via len(raw.encode('utf-8')) — encode once and reuse the buffer."
         )
         # The send must use the bytes buffer, not a str.
         assert "await websocket.send(raw_bytes)" in src, (
-            "XV-84: _writer must await websocket.send(raw_bytes) (bytes), "
-            "not websocket.send(raw) (str)."
+            "XV-84: _writer must await websocket.send(raw_bytes) (bytes), not websocket.send(raw) (str)."
         )
 
 
@@ -392,12 +367,8 @@ class TestXV85ValidationHoistsJsonAndCaches:
         from voice_typer.server.ipc import validation
 
         # ``json`` must be a module-level name (not imported per-call).
-        assert hasattr(validation, "json"), (
-            "XV-85: validation module must import json at module top."
-        )
-        assert validation.json is json, (
-            "XV-85: validation.json must be the stdlib json module."
-        )
+        assert hasattr(validation, "json"), "XV-85: validation module must import json at module top."
+        assert validation.json is json, "XV-85: validation.json must be the stdlib json module."
 
     def test_validate_source_does_not_inline_import(self):
         from voice_typer.server.ipc.validation import _validate_dict_payload
@@ -405,8 +376,7 @@ class TestXV85ValidationHoistsJsonAndCaches:
         src = inspect.getsource(_validate_dict_payload)
         # The per-call import must be GONE.
         assert "import json as _json_mod" not in src, (
-            "XV-85: _validate_dict_payload must NOT do 'import json as "
-            "_json_mod' per call — hoist to module top."
+            "XV-85: _validate_dict_payload must NOT do 'import json as _json_mod' per call — hoist to module top."
         )
 
     def test_cache_constants_exist(self):
@@ -424,8 +394,7 @@ class TestXV85ValidationHoistsJsonAndCaches:
         assert validation._MAX_PAYLOAD_BYTES_CACHE_MAX > 0
         # The cache must be bounded — verify the cap is reasonable.
         assert validation._MAX_PAYLOAD_BYTES_CACHE_MAX <= 4096, (
-            "XV-85: _MAX_PAYLOAD_BYTES_CACHE_MAX must be bounded to "
-            "prevent unbounded growth from per-call schemas."
+            "XV-85: _MAX_PAYLOAD_BYTES_CACHE_MAX must be bounded to prevent unbounded growth from per-call schemas."
         )
 
     def test_cache_hits_on_second_call_with_same_schema(self):
@@ -527,7 +496,7 @@ class TestXV86TransportBuffering:
             "concept)."
         )
         # The old buffering=1 must be GONE.
-        assert 'buffering=1' not in src, (
+        assert "buffering=1" not in src, (
             "XV-86: _TCPLineIO must NOT use buffering=1 (line buffering) "
             "for the read side — use io.DEFAULT_BUFFER_SIZE."
         )
@@ -535,9 +504,7 @@ class TestXV86TransportBuffering:
     def test_module_imports_io(self):
         from voice_typer.server.ipc import transport
 
-        assert hasattr(transport, "io"), (
-            "XV-86: transport module must import io at module top."
-        )
+        assert hasattr(transport, "io"), "XV-86: transport module must import io at module top."
         assert transport.io is io
 
     def test_makefile_called_with_default_buffer_size(self):
@@ -604,34 +571,30 @@ class TestXV87RateLimiterResolvedOnce:
         )
         # The closure-captured rate_limiter must be referenced.
         assert "rate_limiter.allow" in dispatch_body, (
-            "XV-87: dispatch() must reference the closure-captured "
-            "rate_limiter.allow(command=...)."
+            "XV-87: dispatch() must reference the closure-captured rate_limiter.allow(command=...)."
         )
 
     def test_dispatch_uses_same_limiter_across_calls(self):
         """Two dispatch() calls on the same _make_dispatch-derived
         closure must use the SAME rate_limiter instance — verifying
         the closure capture (not a per-call lookup)."""
-        from voice_typer.server import sidecar_ws
-
         # Build a fake server with a real _RateLimiter instance so we
         # can verify identity across calls. Using a MagicMock server
         # would auto-vivify _ws_dispatch_pool, so we use a minimal
         # class with explicit attributes.
         from concurrent.futures import ThreadPoolExecutor
 
+        from voice_typer.server import sidecar_ws
         from voice_typer.server.ipc_server import _get_rate_limiter
 
         class FakeServer:
             pass
 
         server = FakeServer()
-        server._ws_dispatch_pool = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="test-xv87"
-        )
+        server._ws_dispatch_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="test-xv87")
         # Resolve the limiter the same way _make_dispatch does — once.
         limiter_before = _get_rate_limiter(server)
-        dispatch = sidecar_ws._make_dispatch(server)
+        sidecar_ws._make_dispatch(server)
         # Resolve again — must be the same instance (already cached on
         # the server by _make_dispatch).
         limiter_after = _get_rate_limiter(server)

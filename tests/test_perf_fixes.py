@@ -24,14 +24,11 @@ Covers GROUP-2 fixes that the comprehensive review labelled XV-1 .. XV-6:
 from __future__ import annotations
 
 import inspect
-import socket
-import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 
 # ── XV-1: deps probes use find_spec ───────────────────────────────────
 
@@ -73,9 +70,7 @@ class TestXV1DepsProbesUseFindSpec:
             "XV-1: _check_qwen_deps must use importlib.util.find_spec "
             "(not import_module) to avoid executing qwen_asr's top-level code."
         )
-        assert "import_module(" not in src, (
-            "XV-1 regression: _check_qwen_deps still calls import_module(...)."
-        )
+        assert "import_module(" not in src, "XV-1 regression: _check_qwen_deps still calls import_module(...)."
 
     def test_parakeet_deps_returns_bool(self, tmp_config_dir):
         """``_check_parakeet_deps`` must return a ``bool`` (the contract
@@ -191,8 +186,7 @@ class TestXV2DownloadPollScopedToModelDir:
             "before walking it."
         )
         assert 'model_dir.rglob("*")' in src, (
-            "XV-2: progress polling must walk model_dir (the per-repo "
-            "subdir), not the whole cache_dir."
+            "XV-2: progress polling must walk model_dir (the per-repo subdir), not the whole cache_dir."
         )
 
 
@@ -259,8 +253,7 @@ class TestXV5MicrophonesCacheEmptyList:
             "instead of re-querying PortAudio when the cache is empty."
         )
         assert call_count["n"] == 0, (
-            "XV-5: list_microphones must NOT be called when the cache "
-            "(even if empty) is fresh."
+            "XV-5: list_microphones must NOT be called when the cache (even if empty) is fresh."
         )
 
     def test_non_empty_list_still_served_from_cache(self, tmp_config_dir, monkeypatch):
@@ -299,10 +292,7 @@ class TestXV5MicrophonesCacheEmptyList:
             "truthiness) so an empty cached list is still served from cache."
         )
         # The old buggy form must NOT appear in actual code lines.
-        code_lines = [
-            line for line in src.splitlines()
-            if line.lstrip() and not line.lstrip().startswith("#")
-        ]
+        code_lines = [line for line in src.splitlines() if line.lstrip() and not line.lstrip().startswith("#")]
         code_only = "\n".join(code_lines)
         assert "if self._microphones_cache and " not in code_only, (
             "XV-5 regression: refresh_microphones still uses bare-truthiness "
@@ -340,10 +330,7 @@ class TestXV6WaitForIpcReady:
 
         result = al._wait_for_ipc_ready(deadline_s=5.0)
         assert result is True
-        assert sleep_calls == [], (
-            "XV-6: must not sleep when the port is already open on the "
-            "first poll."
-        )
+        assert sleep_calls == [], "XV-6: must not sleep when the port is already open on the first poll."
 
     def test_returns_false_on_deadline_when_port_closed(self, monkeypatch):
         """When the IPC port never opens, the poll must run for at most
@@ -358,7 +345,6 @@ class TestXV6WaitForIpcReady:
         # Use a tiny deadline + patch monotonic so we don't actually
         # wait 5 s.
         start = [time.monotonic()]
-        real_monotonic = time.monotonic
 
         # Drive monotonic forward artificially to expire the deadline
         # after a couple of polls.
@@ -372,8 +358,7 @@ class TestXV6WaitForIpcReady:
 
         result = al._wait_for_ipc_ready(deadline_s=1.0, poll_interval_s=0.25)
         assert result is False, (
-            "XV-6: must return False (not raise) when the IPC port never "
-            "becomes ready within the deadline."
+            "XV-6: must return False (not raise) when the IPC port never becomes ready within the deadline."
         )
 
     def test_uses_port_from_pid_file_when_present(self, monkeypatch):
@@ -382,18 +367,13 @@ class TestXV6WaitForIpcReady:
         from voice_typer.server import autostart_launcher as al
 
         captured_ports = []
-        monkeypatch.setattr(
-            al, "_is_port_open", lambda h, p: captured_ports.append(p) or True
-        )
+        monkeypatch.setattr(al, "_is_port_open", lambda h, p: captured_ports.append(p) or True)
         monkeypatch.setattr(al, "_read_ipc_port_from_pid_file", lambda: 12345)
         monkeypatch.setattr(al.time, "sleep", lambda s: None)
 
         result = al._wait_for_ipc_ready(deadline_s=1.0)
         assert result is True
-        assert 12345 in captured_ports, (
-            "XV-6: must use the port from the PID file (12345), not the "
-            "default IPC_PORT."
-        )
+        assert 12345 in captured_ports, "XV-6: must use the port from the PID file (12345), not the default IPC_PORT."
 
     def test_falls_back_to_default_port_when_pid_file_missing(self, monkeypatch):
         """When the PID file is missing/unreadable, the poll falls back
@@ -401,9 +381,7 @@ class TestXV6WaitForIpcReady:
         from voice_typer.server import autostart_launcher as al
 
         captured_ports = []
-        monkeypatch.setattr(
-            al, "_is_port_open", lambda h, p: captured_ports.append(p) or True
-        )
+        monkeypatch.setattr(al, "_is_port_open", lambda h, p: captured_ports.append(p) or True)
         monkeypatch.setattr(al, "_read_ipc_port_from_pid_file", lambda: None)
         monkeypatch.setattr(al.time, "sleep", lambda s: None)
 
@@ -431,9 +409,7 @@ class TestXV6WaitForIpcReady:
         result = al._wait_for_ipc_ready(deadline_s=10.0, poll_interval_s=0.25)
         assert result is True
         # Exactly 3 polls: 2 failed + 1 succeeded.
-        assert call_idx["n"] == 3, (
-            f"XV-6: expected 3 polls (2 fail + 1 succeed), got {call_idx['n']}"
-        )
+        assert call_idx["n"] == 3, f"XV-6: expected 3 polls (2 fail + 1 succeed), got {call_idx['n']}"
 
 
 class TestXV6NoFixedSleepTwoInLaunch:
@@ -459,13 +435,11 @@ class TestXV6NoFixedSleepTwoInLaunch:
             code_lines.append(line)
         code_only = "\n".join(code_lines)
         assert "time.sleep(2)" not in code_only, (
-            "XV-6 regression: launch() still contains a fixed "
-            "time.sleep(2) — must use _wait_for_ipc_ready() instead."
+            "XV-6 regression: launch() still contains a fixed time.sleep(2) — must use _wait_for_ipc_ready() instead."
         )
         # And the new helper must be called at least once.
         assert "_wait_for_ipc_ready()" in code_only, (
-            "XV-6: launch() must call _wait_for_ipc_ready() at the "
-            "spawn-success sites."
+            "XV-6: launch() must call _wait_for_ipc_ready() at the spawn-success sites."
         )
 
 
@@ -478,10 +452,7 @@ class TestXV4NumpyDeadImportRemoved:
 
     def test_app_module_does_not_import_numpy(self):
         """Source guard: no ``import numpy`` line at module top."""
-        app_path = (
-            Path(__file__).resolve().parent.parent
-            / "voice_typer" / "server" / "app.py"
-        )
+        app_path = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "app.py"
         src = app_path.read_text()
         # Check the top-level import statements only (first ~60 lines
         # covers the import block). We accept ``import numpy`` inside
@@ -489,9 +460,7 @@ class TestXV4NumpyDeadImportRemoved:
         for line in src.splitlines()[:60]:
             stripped = line.lstrip()
             if stripped.startswith("import numpy") or stripped.startswith("from numpy"):
-                pytest.fail(
-                    f"XV-4: app.py still imports numpy at module top: {line!r}"
-                )
+                pytest.fail(f"XV-4: app.py still imports numpy at module top: {line!r}")
 
     def test_app_module_imports_cleanly(self):
         """Sanity: app.py must still import successfully after the dead
@@ -513,8 +482,7 @@ class TestXV4NumpyDeadImportRemoved:
             # reference, we want to fail loudly.
             if "voice_typer/server/app.py" in str(exc):
                 pytest.fail(
-                    f"XV-4: app.py failed to import after numpy removal "
-                    f"(likely a missed ``np`` reference): {exc}"
+                    f"XV-4: app.py failed to import after numpy removal (likely a missed ``np`` reference): {exc}"
                 )
             pytest.skip(
                 f"XV-4 sanity check skipped — downstream import error "

@@ -38,9 +38,6 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
-
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
@@ -91,9 +88,7 @@ class TestXV1DepsProbesUseFindSpec:
 
         src = inspect.getsource(VoiceTyperService._check_qwen_deps)
         assert "importlib.util.find_spec" in src
-        assert "import_module(" not in src, (
-            "XV-1 regression: _check_qwen_deps still calls import_module(...)."
-        )
+        assert "import_module(" not in src, "XV-1 regression: _check_qwen_deps still calls import_module(...)."
 
     def test_parakeet_deps_does_not_execute_torch(self, tmp_config_dir, monkeypatch):
         """The probe must call ``find_spec("torch")`` and return True
@@ -103,9 +98,7 @@ class TestXV1DepsProbesUseFindSpec:
 
         svc = _make_service(tmp_config_dir)
         # Ensure torch is not already imported (it may be in some envs).
-        monkeypatch.setattr(
-            importlib.util, "find_spec", lambda name: MagicMock() if name == "torch" else None
-        )
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: MagicMock() if name == "torch" else None)
         # Sentinel: if anything imports torch, sys.modules will gain it.
         before = "torch" in sys.modules
         result = svc._check_parakeet_deps()
@@ -114,8 +107,7 @@ class TestXV1DepsProbesUseFindSpec:
         # The probe must not have caused torch to be imported (it
         # wasn't before, and it isn't after).
         assert not (not before and after), (
-            "XV-1: _check_parakeet_deps imported torch into sys.modules — "
-            "find_spec must NOT execute the module body."
+            "XV-1: _check_parakeet_deps imported torch into sys.modules — find_spec must NOT execute the module body."
         )
 
     def test_parakeet_deps_true_when_spec_present(self, tmp_config_dir, monkeypatch):
@@ -136,9 +128,7 @@ class TestXV1DepsProbesUseFindSpec:
 
     def test_qwen_deps_true_when_spec_present(self, tmp_config_dir, monkeypatch):
         svc = _make_service(tmp_config_dir)
-        monkeypatch.setattr(
-            importlib.util, "find_spec", lambda name: MagicMock() if name == "qwen_asr" else None
-        )
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: MagicMock() if name == "qwen_asr" else None)
         assert svc._check_qwen_deps() is True
 
     def test_qwen_deps_false_when_spec_missing(self, tmp_config_dir, monkeypatch):
@@ -152,16 +142,13 @@ class TestXV1DepsProbesUseFindSpec:
         import sys
 
         svc = _make_service(tmp_config_dir)
-        monkeypatch.setattr(
-            importlib.util, "find_spec", lambda name: MagicMock() if name == "qwen_asr" else None
-        )
+        monkeypatch.setattr(importlib.util, "find_spec", lambda name: MagicMock() if name == "qwen_asr" else None)
         before = "qwen_asr" in sys.modules
         result = svc._check_qwen_deps()
         after = "qwen_asr" in sys.modules
         assert result is True
         assert not (not before and after), (
-            "XV-1: _check_qwen_deps imported qwen_asr into sys.modules — "
-            "find_spec must NOT execute the module body."
+            "XV-1: _check_qwen_deps imported qwen_asr into sys.modules — find_spec must NOT execute the module body."
         )
 
 
@@ -185,13 +172,11 @@ class TestXV2DownloadPollScopedToModelDir:
             "before walking it."
         )
         assert 'model_dir.rglob("*")' in src, (
-            "XV-2: progress polling must walk model_dir (the per-repo "
-            "subdir), not the whole cache_dir."
+            "XV-2: progress polling must walk model_dir (the per-repo subdir), not the whole cache_dir."
         )
         # The old wide-scan form must NOT appear in the polling block.
         assert 'cache_dir.rglob("*")' not in src, (
-            "XV-2 regression: download_model still walks the entire "
-            "cache_dir tree via cache_dir.rglob('*')."
+            "XV-2 regression: download_model still walks the entire cache_dir tree via cache_dir.rglob('*')."
         )
 
     def test_poll_does_not_stat_unrelated_repos(self, tmp_config_dir, monkeypatch):
@@ -206,7 +191,6 @@ class TestXV2DownloadPollScopedToModelDir:
         cancellation plumbing, event bus, tray-models cache) so the
         test is hermetic — no network, no torch, no real audio.
         """
-        from voice_typer.server import service as svc_mod
 
         # Build a fake HF hub cache with TWO repos:
         #   models--unrelated--other  (already fully downloaded)
@@ -357,11 +341,7 @@ class TestXV5MicrophonesCacheEmptyList:
         )
         # Strip comments before checking the old buggy form isn't present
         # in actual code lines.
-        code_lines = [
-            line
-            for line in src.splitlines()
-            if line.lstrip() and not line.lstrip().startswith("#")
-        ]
+        code_lines = [line for line in src.splitlines() if line.lstrip() and not line.lstrip().startswith("#")]
         code_only = "\n".join(code_lines)
         assert "if self._microphones_cache and " not in code_only, (
             "XV-5 regression: refresh_microphones still uses bare-truthiness "
@@ -393,8 +373,7 @@ class TestXV5MicrophonesCacheEmptyList:
             "instead of re-querying PortAudio when the cache is empty."
         )
         assert call_count["n"] == 0, (
-            "XV-5: list_microphones must NOT be called when the cache "
-            "(even if empty) is fresh."
+            "XV-5: list_microphones must NOT be called when the cache (even if empty) is fresh."
         )
 
     def test_non_empty_list_still_served_from_cache(self, tmp_config_dir, monkeypatch):
@@ -442,7 +421,6 @@ class TestXV5MicrophonesCacheEmptyList:
         result = svc.refresh_microphones()
         assert result == real_mics
         assert call_count["n"] == 1, (
-            "XV-5: the first refresh_microphones call (cache is None) "
-            "must query PortAudio exactly once."
+            "XV-5: the first refresh_microphones call (cache is None) must query PortAudio exactly once."
         )
         assert svc._microphones_cache == real_mics

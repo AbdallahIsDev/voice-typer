@@ -25,8 +25,6 @@ import threading
 import time
 from unittest.mock import MagicMock
 
-import pytest
-
 
 def _make_minimal_controller():
     """Build a RecordingController with only the attributes the
@@ -118,13 +116,9 @@ class TestSilenceAutoStopDispatch:
         while time.monotonic() < deadline and not ran_on:
             time.sleep(0.005)
 
-        assert len(ran_on) == 1, (
-            f"XV-134: _stop_dictation should have run on a background thread, "
-            f"got {ran_on}"
-        )
+        assert len(ran_on) == 1, f"XV-134: _stop_dictation should have run on a background thread, got {ran_on}"
         assert ran_on[0] is not threading.current_thread(), (
-            "XV-134: _stop_dictation must NOT run on the audio callback thread "
-            "(would deadlock on Recorder._lock)"
+            "XV-134: _stop_dictation must NOT run on the audio callback thread (would deadlock on Recorder._lock)"
         )
         assert ran_on[0].daemon, "deferred thread should be daemon=True"
 
@@ -144,8 +138,7 @@ class TestSilenceAutoStopDispatch:
 
         assert len(notify_on) == 1
         assert notify_on[0] is threading.current_thread(), (
-            "on_silence_auto_stop should notify on the calling thread for "
-            "immediate user feedback"
+            "on_silence_auto_stop should notify on the calling thread for immediate user feedback"
         )
 
 

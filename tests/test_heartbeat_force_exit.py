@@ -85,7 +85,6 @@ def test_force_exit_thread_scheduled_after_quit(server: IPCServer) -> None:
     # Capture threads created inside _check_heartbeat_timeout.
     created_threads: list[threading.Thread] = []
     original_thread_init = threading.Thread.__init__
-    original_thread_start = threading.Thread.start
 
     def capturing_init(self, *args, **kwargs):
         original_thread_init(self, *args, **kwargs)

@@ -552,7 +552,7 @@ class TestG4H33QwenIntegrityHardFail:
 
         # Build a manifest that pins config.json to a known hash.
         config_content = b'{"arch": "qwen3"}'
-        correct_hash = hashlib.sha256(config_content).hexdigest()
+        hashlib.sha256(config_content).hexdigest()
 
         # Tamper: pin a WRONG hash so verify_model_integrity hard-fails.
         fake_manifest = {

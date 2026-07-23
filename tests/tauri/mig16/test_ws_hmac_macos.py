@@ -682,7 +682,7 @@ async def test_rate_limiter_is_shared_across_connections():
     WS is reachable by any local process — the shared limiter prevents
     a reconnect-based burst-reset attack.
     """
-    sw = _import_sidecar_ws()
+    _import_sidecar_ws()
     server = _make_fake_server()
 
     # _make_dispatch does NOT create the limiter eagerly — it's created

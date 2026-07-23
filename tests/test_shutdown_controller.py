@@ -332,7 +332,6 @@ class TestDoCleanupIdempotency:
         # time (maximizes the chance of racing if the lock guard is
         # missing).
         barrier = _threading.Barrier(2)
-        original_cancel = fake_app._cancel_pending_timers
 
         def _spy_cancel():
             # No-op; we just want to count calls.

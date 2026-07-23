@@ -482,7 +482,7 @@ class TestSignalHandlerRegistration:
             # Patch os.kill + signal.signal to no-ops.
             with (
                 patch.object(clip_mod.os, "kill") as mock_kill,
-                patch.object(clip_mod, "_signal_restore_handler", wraps=clip_mod._signal_restore_handler) as wrapped,
+                patch.object(clip_mod, "_signal_restore_handler", wraps=clip_mod._signal_restore_handler),
             ):
                 # Re-import the inner logic by calling the handler directly.
                 # We need to suppress the re-raise: patch the signal

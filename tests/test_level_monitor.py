@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -155,8 +155,7 @@ class TestXV54OnlyRawChunksPopulated:
         )
         # XV-54: _test_chunks should NOT be appended to by the worker.
         assert len(lm._test_chunks) == 0, (
-            f"XV-54: worker should NOT append to _test_chunks (only _test_raw_chunks); "
-            f"got len={len(lm._test_chunks)}"
+            f"XV-54: worker should NOT append to _test_chunks (only _test_raw_chunks); got len={len(lm._test_chunks)}"
         )
 
         lm.cancel_test_recording()
@@ -247,9 +246,7 @@ class TestXV54OnlyRawChunksPopulated:
         assert len(lm._test_chunks) == 0  # NOT populated by the worker
         # Total chunks stored: 5 (was 10 before XV-54).
         total = len(lm._test_raw_chunks) + len(lm._test_chunks)
-        assert total == 5, (
-            f"XV-54: total chunks stored should be 5 (one copy each); got {total}"
-        )
+        assert total == 5, f"XV-54: total chunks stored should be 5 (one copy each); got {total}"
 
         lm.cancel_test_recording()
         lm.stop_monitoring()
@@ -461,8 +458,7 @@ class TestXV55HeavyWorkOutsideLock:
             # First-chunk smoothing: level = 0 * 0.6 + 0.25 * 0.4 = 0.1.
             # Allow some tolerance for timing / multiple chunks processed.
             assert 0 < lm._monitor_level < 0.3, (
-                f"level={lm._monitor_level} should reflect the FILTERED audio "
-                f"(~0.1-0.25), not the raw 0.5"
+                f"level={lm._monitor_level} should reflect the FILTERED audio (~0.1-0.25), not the raw 0.5"
             )
         finally:
             lm.stop_monitoring()
@@ -556,8 +552,7 @@ class TestXV55HeavyWorkOutsideLock:
             # main thread isn't holding it.
             time.sleep(0.02)  # let the filter check the lock state
             assert not filter_in_progress.is_set(), (
-                "XV-55: _monitor_lock was held during the slow filter call — "
-                "heavy work must run OUTSIDE the lock"
+                "XV-55: _monitor_lock was held during the slow filter call — heavy work must run OUTSIDE the lock"
             )
 
             # Wait for the worker to finish.
@@ -667,8 +662,7 @@ class TestXV58DroppedChunksLogging:
         # The worker should have logged the drop count.
         drop_warnings = [r for r in caplog.records if "dropped" in r.message.lower()]
         assert len(drop_warnings) >= 1, (
-            f"XV-58: worker should log dropped chunks; got records: "
-            f"{[r.message for r in caplog.records]}"
+            f"XV-58: worker should log dropped chunks; got records: {[r.message for r in caplog.records]}"
         )
         # The log message should contain the drop count (7).
         assert "7" in drop_warnings[0].message, (
@@ -676,8 +670,7 @@ class TestXV58DroppedChunksLogging:
         )
         # XV-58: counter should be reset to 0 after logging.
         assert lm._dropped_level_chunks == 0, (
-            f"XV-58: _dropped_level_chunks should be reset to 0 after logging; "
-            f"got {lm._dropped_level_chunks}"
+            f"XV-58: _dropped_level_chunks should be reset to 0 after logging; got {lm._dropped_level_chunks}"
         )
 
         # Clean up.
@@ -702,13 +695,11 @@ class TestXV58DroppedChunksLogging:
         # XV-58: no log should be emitted (within the 5s throttle window).
         drop_warnings = [r for r in caplog.records if "dropped" in r.message.lower()]
         assert len(drop_warnings) == 0, (
-            f"XV-58: worker should NOT log within 5s throttle window; got: "
-            f"{[r.message for r in drop_warnings]}"
+            f"XV-58: worker should NOT log within 5s throttle window; got: {[r.message for r in drop_warnings]}"
         )
         # Counter should NOT be reset (no log emitted).
         assert lm._dropped_level_chunks == 5, (
-            f"XV-58: _dropped_level_chunks should NOT be reset within throttle "
-            f"window; got {lm._dropped_level_chunks}"
+            f"XV-58: _dropped_level_chunks should NOT be reset within throttle window; got {lm._dropped_level_chunks}"
         )
 
         lm._level_worker_stop_event.clear()
@@ -730,15 +721,12 @@ class TestXV58DroppedChunksLogging:
 
         drop_warnings = [r for r in caplog.records if "dropped" in r.message.lower()]
         assert len(drop_warnings) == 0, (
-            f"XV-58: worker should NOT log when _dropped_level_chunks=0; got: "
-            f"{[r.message for r in drop_warnings]}"
+            f"XV-58: worker should NOT log when _dropped_level_chunks=0; got: {[r.message for r in drop_warnings]}"
         )
 
         lm._level_worker_stop_event.clear()
 
-    def test_dropped_chunks_counter_incremented_on_ring_buffer_overflow(
-        self, monkeypatch
-    ):
+    def test_dropped_chunks_counter_incremented_on_ring_buffer_overflow(self, monkeypatch):
         """XV-58: the PortAudio callback increments ``_dropped_level_chunks``
         when the ring buffer is full.
 

@@ -29,7 +29,6 @@ satisfies the surface ``ShutdownController._do_cleanup`` touches.
 
 from __future__ import annotations
 
-import contextlib
 import os
 import sys
 import threading
@@ -42,7 +41,6 @@ import pytest
 # clipboard_target_safety circular-import breakage in a parallel
 # agent's WIP doesn't block these tests.
 from voice_typer.server.shutdown_controller import ShutdownController
-
 
 # ── Override the autouse ``mock_heavy_imports`` conftest fixture ───────
 #
@@ -286,8 +284,7 @@ class TestXV7ParallelTeardownBatch:
         eb_idx = call_order.index("event_bus.shutdown")
         tray_idx = call_order.index("tray.stop")
         assert eb_idx < tray_idx, (
-            f"XV-7: event_bus.shutdown (at {eb_idx}) must run BEFORE "
-            f"tray.stop (at {tray_idx}); got order: {call_order}"
+            f"XV-7: event_bus.shutdown (at {eb_idx}) must run BEFORE tray.stop (at {tray_idx}); got order: {call_order}"
         )
 
 
@@ -347,13 +344,10 @@ class TestXV8ElectronTerminationTimeout:
         # clear DID happen (the wrapper returned None, then the next
         # line ran). Verify.
         assert fake_app._electron_pid is None, (
-            "_teardown_electron must clear _electron_pid after the "
-            "terminate_electron call (even on timeout)"
+            "_teardown_electron must clear _electron_pid after the terminate_electron call (even on timeout)"
         )
 
-    def test_legacy_tray_window_path_uses_sigkill_escalation_on_posix(
-        self, controller, fake_app, monkeypatch
-    ):
+    def test_legacy_tray_window_path_uses_sigkill_escalation_on_posix(self, controller, fake_app, monkeypatch):
         """XV-8: when ``_electron_pid`` is None, the legacy
         tray_window path sends SIGTERM, waits 2 s, then SIGKILL on
         POSIX. We mock ``os.kill`` and ``os.waitpid`` to verify both
@@ -374,7 +368,6 @@ class TestXV8ElectronTerminationTimeout:
         # (0, 0) (process still running) so the SIGKILL escalation
         # fires.
         signals_sent: list[int] = []
-        original_kill = os.kill
 
         def _mock_kill(pid, sig):
             signals_sent.append(sig)
@@ -400,24 +393,19 @@ class TestXV8ElectronTerminationTimeout:
 
         # Must have sent SIGTERM first, then SIGKILL.
         import signal as _sig
-        assert _sig.SIGTERM in signals_sent, (
-            f"XV-8: legacy tray_window path must send SIGTERM; got {signals_sent}"
-        )
+
+        assert _sig.SIGTERM in signals_sent, f"XV-8: legacy tray_window path must send SIGTERM; got {signals_sent}"
         assert _sig.SIGKILL in signals_sent, (
-            f"XV-8: legacy tray_window path must escalate to SIGKILL after 2s; "
-            f"got {signals_sent}"
+            f"XV-8: legacy tray_window path must escalate to SIGKILL after 2s; got {signals_sent}"
         )
         # SIGTERM must come before SIGKILL.
         term_idx = signals_sent.index(_sig.SIGTERM)
         kill_idx = signals_sent.index(_sig.SIGKILL)
         assert term_idx < kill_idx, (
-            f"XV-8: SIGTERM (at {term_idx}) must precede SIGKILL (at {kill_idx}); "
-            f"got order: {signals_sent}"
+            f"XV-8: SIGTERM (at {term_idx}) must precede SIGKILL (at {kill_idx}); got order: {signals_sent}"
         )
         # Total elapsed should be ~2 s (the SIGTERM wait deadline) + slack.
-        assert 1.5 < elapsed < 6.0, (
-            f"XV-8: SIGKILL escalation should fire after ~2s; took {elapsed:.2f}s"
-        )
+        assert 1.5 < elapsed < 6.0, f"XV-8: SIGKILL escalation should fire after ~2s; took {elapsed:.2f}s"
 
 
 # ── XV-10: tray.stop() timeout fallback ────────────────────────────────
@@ -428,9 +416,7 @@ class TestXV10TrayStopTimeoutFallback:
     thread, the cleanup thread calls ``os._exit(0)`` to unblock the
     main thread (parked in pystray's ``run()`` loop)."""
 
-    def test_os_exit_called_when_tray_stop_times_out_on_non_main_thread(
-        self, controller, fake_app, monkeypatch
-    ):
+    def test_os_exit_called_when_tray_stop_times_out_on_non_main_thread(self, controller, fake_app, monkeypatch):
         """When ``tray.stop()`` blocks past the 5 s timeout AND the
         current thread is NOT the main thread, ``_do_cleanup`` must
         call ``os._exit(0)``. We mock ``os._exit`` so the process
@@ -499,9 +485,7 @@ class TestXV10TrayStopTimeoutFallback:
             f"times out on a non-main thread; got exit_calls={exit_calls}"
         )
 
-    def test_no_os_exit_when_tray_stop_completes_on_main_thread(
-        self, controller, fake_app, monkeypatch
-    ):
+    def test_no_os_exit_when_tray_stop_completes_on_main_thread(self, controller, fake_app, monkeypatch):
         """XV-10: when ``tray.stop()`` completes normally AND we're on
         the main thread, ``_do_cleanup`` must NOT call ``os._exit``.
         The normal quit() path will call ``sys.exit(0)`` afterwards."""
@@ -518,9 +502,7 @@ class TestXV10TrayStopTimeoutFallback:
         )
         fake_app.tray.stop.assert_called_once_with()
 
-    def test_no_os_exit_when_tray_stop_times_out_on_main_thread(
-        self, controller, fake_app, monkeypatch
-    ):
+    def test_no_os_exit_when_tray_stop_times_out_on_main_thread(self, controller, fake_app, monkeypatch):
         """XV-10: when ``tray.stop()`` times out BUT we're on the main
         thread, ``_do_cleanup`` must NOT call ``os._exit`` — the main
         thread's ``quit()`` will call ``sys.exit(0)`` afterwards. We

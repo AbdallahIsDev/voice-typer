@@ -906,7 +906,7 @@ class TestPythonShutdownHandler:
     async def test_shutdown_logs_release_mic_message(self, caplog):
         """The handler logs `[SIDECAR-WS] shutdown received — releasing
         mic and exiting` so runbook §6.5 can grep the sidecar log."""
-        sw = _import_sidecar_ws()
+        _import_sidecar_ws()
         with caplog.at_level("INFO", logger="voice_typer.server.sidecar_ws"):
             dispatch, _server = self._make_dispatch()
             await dispatch({"type": "shutdown"}, websocket=MagicMock())
