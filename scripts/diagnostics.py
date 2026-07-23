@@ -20,7 +20,9 @@ Usage:
     python scripts/diagnostics.py export
 """
 
+import shutil
 import sys
+from pathlib import Path
 
 
 def run_f2():
@@ -65,11 +67,42 @@ COMMANDS = {
 }
 
 
+def _collect_log_tail(
+    src: Path,
+    dest_dir: Path,
+    dest_name: str,
+    max_bytes: int = 1024 * 1024,
+) -> None:
+    """Copy ``src`` into ``dest_dir/dest_name``, keeping only the last ``max_bytes``.
+
+    Silently skips when ``src`` doesn't exist (callers pass paths that are
+    only sometimes present, e.g. rotated logs). On read error, writes a
+    placeholder file so the diagnostic bundle still records that the log
+    was present but unreadable (matches the previous single-log behavior).
+    """
+    if not src.exists():
+        return
+    dest = dest_dir / dest_name
+    try:
+        log_size = src.stat().st_size
+        if log_size > max_bytes:
+            with open(src, encoding="utf-8", errors="replace") as f:
+                f.seek(log_size - max_bytes)
+                f.readline()  # skip partial first line
+                dest.write_text(f.read(), encoding="utf-8")
+        else:
+            shutil.copy2(src, dest)
+    except Exception as exc:
+        dest.write_text(f"Error reading log {src}: {exc}", encoding="utf-8")
+
+
 def export_diagnostics() -> str:
     """PROD-010: Collect diagnostic info and save as a timestamped zip file.
 
     Collects:
-      - voice-typer.log (if it exists)
+      - voice-typer.log (Python host log, if it exists)
+      - rust-voice-typer.log[.N] (Rust/Tauri host log + rotated variants,
+        if they exist — lives under ``<config_dir>/logs/``)
       - config.json (with API keys redacted)
       - System info (OS, GPU, CUDA version, Python version)
       - Model info (which models are downloaded)
@@ -87,10 +120,8 @@ def export_diagnostics() -> str:
     import json
     import os
     import platform
-    import shutil
     import tempfile
     from datetime import datetime, timezone
-    from pathlib import Path
     from zipfile import ZIP_DEFLATED, ZipFile
 
     timestamp = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -190,21 +221,25 @@ def export_diagnostics() -> str:
             except Exception as exc:
                 (tmpdir_path / "config_redacted.json").write_text(f"Error reading config: {exc}", encoding="utf-8")
 
-        # 3. Log file (if exists)
-        log_file = config_dir / "voice-typer.log"
-        if log_file.exists():
-            try:
-                # Copy only the last 1MB to avoid huge files
-                log_size = log_file.stat().st_size
-                if log_size > 1024 * 1024:
-                    with open(log_file, encoding="utf-8", errors="replace") as f:
-                        f.seek(log_size - 1024 * 1024)
-                        f.readline()  # skip partial first line
-                        (tmpdir_path / "voice-typer.log").write_text(f.read(), encoding="utf-8")
-                else:
-                    shutil.copy2(log_file, tmpdir_path / "voice-typer.log")
-            except Exception as exc:
-                (tmpdir_path / "voice-typer.log").write_text(f"Error reading log: {exc}", encoding="utf-8")
+        # 3. Log files (Python + Rust host).
+        # S6-CR-13: Previously only the Python log
+        # (``config_dir/voice-typer.log``) was collected. The Rust/Tauri
+        # host writes to ``config_dir/logs/voice-typer.log`` (rotated to
+        # ``.log.1`` … ``.log.4`` — see ``src-tauri/src/platform/logging.rs``
+        # ``RotatingFileWriter``). Collect both so bug-report bundles
+        # include the full cross-language log picture. The Python log
+        # keeps its original ``voice-typer.log`` name; Rust logs are
+        # prefixed ``rust-`` so they're trivially distinguishable in the
+        # zip without a directory prefix.
+        _collect_log_tail(config_dir / "voice-typer.log", tmpdir_path, "voice-typer.log")
+        rust_logs_dir = config_dir / "logs"
+        if rust_logs_dir.is_dir():
+            # ``voice-typer.log`` (current) + ``voice-typer.log.N`` (rotated).
+            # ``glob`` returns matches in arbitrary order; the destination
+            # name embeds the suffix so ordering doesn't matter.
+            for rust_log in rust_logs_dir.glob("voice-typer.log*"):
+                suffix = rust_log.name.removeprefix("voice-typer.log")
+                _collect_log_tail(rust_log, tmpdir_path, f"rust-voice-typer.log{suffix}")
 
         # 4. Model info
         model_info: dict = {}
