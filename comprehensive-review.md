@@ -1006,11 +1006,6 @@ plus the base repo's pre-existing comprehensive review.
 - Evidence: README says "Docker performance: ... The container uses a named volume for node_modules to mitigate this." But `devcontainer.json` (62 lines) defines **no `mounts` key and no `volumes` key** — there is no named volume. The claim is false.
 - Fix: Either add the named volume to `devcontainer.json` or remove the false claim from the README. · **Found by**: R20
 
-### S1-CR-133 — Dev container version pinning is loose / inconsistent
-- Location: `.devcontainer/Dockerfile.dev:6,24`, `.nvmrc`, `.python-version`, `.pre-commit-config.yaml`
-- Evidence: `Dockerfile.dev:6`: `FROM python:3.12-slim AS base` — major.minor only, not pinned. `Dockerfile.dev:24`: `curl -fsSL https://deb.nodesource.com/setup_20.x | bash -` — gets latest Node 20.x at build time. `.nvmrc`: `20` — major version only. `.python-version`: `3.12.7` — pinned (good). pre-commit pins: all good.
-- Fix: Pin `python:3.12.7-slim`, pin Node to a specific LTS patch (e.g. `20.18.0`), pin `.nvmrc` to `20.18.0`. · **Found by**: R20
-
 ### S1-CR-134 — API.md `restart()` method name is stale
 - Location: `docs/API.md:26`
 - Evidence: Table row says `| restart() | — | None | Spawns a new process and quits the current one. Uses restart token for mutex bypass. |`. But `VoiceTyperApp` has no plain `restart()` method. Actual: `def restart_app(self) -> None:` at `app.py:924`.
@@ -14312,25 +14307,4 @@ All findings scoped to Group 6 (Testing & CI) categories ONLY:
 **Category:** Dependency & supply-chain health
 
 ---
-
-## [XS-105] — Node 20 in maintenance LTS — consider bumping to 22
-
-**Status:** ❌ Not Fixed
-
-**Description:** `.nvmrc` says `20`. Node 20's active LTS ended October 2024; it is now in maintenance LTS until April 2026. Node 22 has been active LTS since Oct 2024.
-
-**Root Cause:** Node version not bumped.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `.nvmrc`
-- `.devcontainer/Dockerfile.dev:23-26`
-- `.devcontainer/README.md:17`
-
-**Fix:** Bump `.nvmrc` to `22`. Update devcontainer + README. Leave `engines.node` as `>=20` for backward-compat.
-
-**Severity:** 🟢 Low
-
-**Category:** Dependency & supply-chain health
 

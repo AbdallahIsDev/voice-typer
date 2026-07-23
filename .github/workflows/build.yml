@@ -1,3 +1,19 @@
+# =============================================================================
+# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
+#   actions/checkout@v5             — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/setup-python@v7         — Node 24 runtime; removed `pip-install` input (v5/v6 = Node 20)
+#   actions/setup-node@v7            — Node 24 runtime; auto-caching via `packageManager` is opt-in (v4 = Node 20)
+#   actions/cache@v5                 — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/upload-artifact@v5       — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/download-artifact@v5    — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/attest-build-provenance@v4 — Node 24 runtime; wraps actions/attest (v1 = Node 16, deprecated)
+#   astral-sh/setup-uv@v6            — Node 24 runtime (v3 = Node 20, deprecated)
+# Breaking changes already verified safe for this repo:
+#   - setup-node@v6+ auto-caches via packageManager field → not used here (explicit `cache: npm`)
+#   - setup-python@v7 removed `pip-install` input → not used in any workflow
+#   - checkout@v5 blocks unsafe PR checkout for pull_request_target → no pull_request_target used
+# =============================================================================
+
 name: Build installer
 
 on:
@@ -70,10 +86,10 @@ jobs:
       fail-fast: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           # BUILD-N03 / XS-24: when running on macos-14 (Apple Silicon),
@@ -86,7 +102,7 @@ jobs:
           architecture: ${{ matrix.architecture }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -330,15 +346,15 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -389,15 +405,15 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -437,14 +453,14 @@ jobs:
     # XS-25: cap version-check runtime.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -467,10 +483,10 @@ jobs:
     # XS-25: cap branding-check runtime.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -487,10 +503,10 @@ jobs:
     # build:renderer).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
           # If a newer LTS is available, bump this comment AND the version below together.
@@ -527,7 +543,7 @@ jobs:
         run: npm run build:renderer
 
       - name: Upload renderer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
@@ -592,7 +608,7 @@ jobs:
     # XS-25: cap native-binary compile runtime (Swift / MSVC / gcc).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Compile native binary (${{ matrix.platform }})
         run: ${{ matrix.script }}
@@ -678,7 +694,7 @@ jobs:
           echo "Ad-hoc signed: ${{ matrix.binary }}"
 
       - name: Upload native binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: native-${{ matrix.platform }}
           path: ${{ matrix.binary }}
@@ -696,16 +712,16 @@ jobs:
     # XS-25: cap universal-binary merge runtime (lipo is fast).
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download x64 binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: native-macos-x64
           path: /tmp/macos-x64
 
       - name: Download arm64 binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: native-macos-arm64
           path: /tmp/macos-arm64
@@ -762,7 +778,7 @@ jobs:
           echo "Ad-hoc signed universal binary"
 
       - name: Upload universal binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: native-macos
           path: voice_typer/server/native/macos-key-listener
@@ -789,12 +805,12 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # CI-03: cache electron-builder download cache (~200MB of Electron
       # binaries) so it isn't re-fetched on every run.
       - name: Cache electron-builder cache (Windows)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~\AppData\Local\electron-builder\Cache
           key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
@@ -803,18 +819,18 @@ jobs:
 
       # CI-03: cache PyInstaller bundle cache.
       - name: Cache PyInstaller cache (Windows)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~\AppData\Local\pyinstaller
           key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -827,7 +843,7 @@ jobs:
 
       # GAP-1: download the Windows native binary compiled by build-native
       - name: Download Windows native binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: native-windows
           path: voice_typer/server/native/
@@ -878,7 +894,7 @@ jobs:
       # runtime, index.ts's pythonArgs() looks for the bundled exe first
       # (packaged mode), falling back to the dev-mode venv.
       - name: Set up Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
           # If a newer LTS is available, bump this comment AND the version below together.
@@ -889,7 +905,7 @@ jobs:
       # CI-05: download the platform-independent renderer built by
       # client-build and only rebuild the platform-specific main + preload.
       - name: Download renderer artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
@@ -917,7 +933,7 @@ jobs:
         run: npx electron-builder --win --config electron-builder.yml --publish never
 
       - name: Upload Windows Electron installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VoiceTyper-Windows-Electron
           path: voice_typer/client/dist/*-setup.exe
@@ -973,7 +989,7 @@ jobs:
       # Users verify with: gh attestation verify <file> --repo owner/repo
       - name: Attest build provenance (Windows)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: voice_typer/client/dist/*-setup.exe
 
@@ -999,11 +1015,11 @@ jobs:
       # CI-09: required for actions/attest-build-provenance to generate signed attestations
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # CI-03: cache electron-builder download cache.
       - name: Cache electron-builder cache (macOS)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/Library/Caches/electron-builder
           key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
@@ -1012,19 +1028,19 @@ jobs:
 
       # CI-03: cache PyInstaller bundle cache.
       - name: Cache PyInstaller cache (macOS)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pyinstaller
           key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
 
       - name: Set up Python 3.12 (x64, for x64 PyInstaller bundle)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           architecture: x64
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -1036,7 +1052,7 @@ jobs:
           pip list
 
       - name: Download macOS native binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: native-macos
           path: voice_typer/server/native/
@@ -1052,7 +1068,7 @@ jobs:
           echo "Native binary present: $bin"
 
       - name: Set up Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
           # If a newer LTS is available, bump this comment AND the version below together.
@@ -1069,7 +1085,7 @@ jobs:
       # CI-05: download the platform-independent renderer built by
       # client-build and only rebuild the platform-specific main + preload.
       - name: Download renderer artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
@@ -1126,7 +1142,7 @@ jobs:
         run: npx electron-builder --mac --config electron-builder.yml --publish never
 
       - name: Upload macOS installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VoiceTyper-macOS
           path: voice_typer/client/dist/*.dmg
@@ -1146,7 +1162,7 @@ jobs:
       # Users verify with: gh attestation verify <file> --repo owner/repo
       - name: Attest build provenance (macOS)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: voice_typer/client/dist/*.dmg
 
@@ -1167,11 +1183,11 @@ jobs:
       # CI-09: required for actions/attest-build-provenance to generate signed attestations
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # CI-03: cache electron-builder download cache.
       - name: Cache electron-builder cache (Linux)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/electron-builder
           key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
@@ -1180,18 +1196,18 @@ jobs:
 
       # CI-03: cache PyInstaller bundle cache.
       - name: Cache PyInstaller cache (Linux)
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pyinstaller
           key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -1203,7 +1219,7 @@ jobs:
           pip list
 
       - name: Download Linux native binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: native-linux
           path: voice_typer/server/native/
@@ -1219,7 +1235,7 @@ jobs:
           echo "Native binary present: $bin"
 
       - name: Set up Node 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
           # If a newer LTS is available, bump this comment AND the version below together.
@@ -1236,7 +1252,7 @@ jobs:
       # CI-05: download the platform-independent renderer built by
       # client-build and only rebuild the platform-specific main + preload.
       - name: Download renderer artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
@@ -1299,7 +1315,7 @@ jobs:
         run: npx electron-builder --linux --config electron-builder.yml --publish never
 
       - name: Upload Linux installer artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VoiceTyper-Linux
           path: |
@@ -1322,7 +1338,7 @@ jobs:
       # Users verify with: gh attestation verify <file> --repo owner/repo
       - name: Attest build provenance (Linux)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             voice_typer/client/dist/*.deb

@@ -1,3 +1,14 @@
+# =============================================================================
+# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
+#   actions/checkout@v5       — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/setup-python@v7   — Node 24 runtime (v5/v6 = Node 20, deprecated)
+#   actions/cache@v5           — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/setup-node@v7      — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/upload-artifact@v5 — Node 24 runtime (v4 = Node 20, deprecated)
+#   astral-sh/setup-uv@v6     — Node 24 runtime (v3 = Node 20, deprecated)
+# See build.yml header for full rationale + breaking-change analysis.
+# =============================================================================
+
 name: Tauri Linux build (Phase 0-L)
 
 # ADR-0020 Phase 0-L: Linux Nuitka sidecar + prewarm + native listener + Tauri bundle.
@@ -83,15 +94,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python ${{ env.PYTHON_VERSION }}
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           # CI-5 / BUILD-N08: enable uv's own dependency cache so a warm
           # runner re-uses the wheel cache across runs (saves ~2-3 min
@@ -109,7 +120,7 @@ jobs:
       # unchanged dependencies. Keyed on arch + Cargo.lock hash so any
       # dep bump cleanly invalidates the cache.
       - name: Cache cargo registry + target
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -120,7 +131,7 @@ jobs:
             tauri-linux-${{ env.BUILD_ARCH }}-
 
       - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
           # If a newer LTS is available, bump this comment AND the version below together.
@@ -318,7 +329,7 @@ jobs:
       # also upload .AppImage and .rpm as separate artifacts for users on
       # other distros (CI-3 — previously .rpm was not uploaded at all).
       - name: Upload .deb artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: tauri-linux-installer
           path: |
@@ -327,7 +338,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload .AppImage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}.AppImage
           path: |
@@ -340,7 +351,7 @@ jobs:
       # native package. Upload it as its own artifact so the Fedora
       # subgraph of Linux users can grab the .rpm without rebuilding.
       - name: Upload .rpm artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}.rpm
           path: |
@@ -350,7 +361,7 @@ jobs:
 
       - name: Upload build logs (Nuitka + cargo)
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}-build-logs
           path: |

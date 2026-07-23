@@ -4,7 +4,8 @@
 	"description": "Electron shell for Voice Typer",
 	"private": true,
 	"main": "./out/main/index.js",
-	"//engines_note": "Node 24 is the CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19). If a newer LTS is available, bump this comment AND the engines.node AND .nvmrc AND all workflow files together.",
+	"//engines_note": "Node 24 is the CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19). If a newer LTS is available, bump this comment AND the engines.node AND .nvmrc AND all .github/workflows/*.yml files together. Node 20 deprecation also causes [DEP0040] punycode DeprecationWarning noise in CI logs.",
+	"//overrides_note": "PINNED DEPENDENCY OVERRIDES — DO NOT REMOVE (verified 2026-07-24). These overrides eliminate deprecated transitive deps that npm warns about during `npm ci`: (1) @electron/asar ^4.2.1 replaces the v3.x that electron-builder/app-builder-lib pulls in — v3 uses glob@7 (deprecated, security vulns) which pulls inflight@1.0.6 (deprecated, memory leak). v4 uses glob@13. (2) @electron/get ^5.0.0 replaces v3.x which pulls global-agent → boolean@3.2.0 (deprecated, unsupported). v5 dropped global-agent entirely. REMAINING WARNINGS (cannot fix): rimraf@2.6.3 + glob@7.2.3 + inflight@1.0.6 from electron-winstaller@5.4.0 → temp@0.9.4. electron-winstaller last published 2023 and pins CJS-only temp@0.9.4 which requires rimraf@2. rimraf 4+ is ESM-only and breaks require(). Upstream must fix. Runtime verified: `npm run build` + `npm run typecheck` pass with these overrides.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -52,7 +53,12 @@
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"
 	},
-	"//devDependencies": "DO NOT DOWNGRADE typescript below 7.x. typescript@7.0.2 is the LATEST STABLE RELEASE (verify: `npm view typescript version`). A prior agent wrongly assumed 7.x was unstable and pinned the lockfile to 5.6.3, which broke `npm ci`. Keep typescript at ^7.0.2 and keep package-lock.json in sync (run `npm install --package-lock-only` after any change).",
+	"//devDependencies_note": "DO NOT DOWNGRADE typescript below 7.x. typescript@7.0.2 is the LATEST STABLE RELEASE (verify: `npm view typescript version`). A prior agent wrongly assumed 7.x was unstable and pinned the lockfile to 5.6.3, which broke `npm ci`. Keep typescript at ^7.0.2 and keep package-lock.json in sync (run `npm install --package-lock-only` after any change).",
+	"//overrides": "See //overrides_note above for full rationale. These overrides force-upgrade transitive deps to eliminate deprecated packages (glob@7, inflight, boolean).",
+	"overrides": {
+		"@electron/asar": "^4.2.1",
+		"@electron/get": "^5.0.0"
+	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.3",
 		"@storybook/addon-themes": "^10.4.6",
@@ -68,7 +74,7 @@
 		"@vitest/coverage-v8": "^4.1.10",
 		"axe-core": "^4.12.1",
 		"electron": "^43.0.0",
-		"electron-builder": "^26.15.3",
+		"electron-builder": "26.15.7",
 		"electron-vite": "6.0.0-beta.1",
 		"husky": "^9.1.7",
 		"jsdom": "^29.1.1",

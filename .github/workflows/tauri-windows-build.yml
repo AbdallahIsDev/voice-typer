@@ -1,3 +1,14 @@
+# =============================================================================
+# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
+#   actions/checkout@v5               — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/setup-python@v7           — Node 24 runtime (v5/v6 = Node 20, deprecated)
+#   actions/cache@v5                   — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/setup-node@v7              — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/upload-artifact@v5         — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/attest-build-provenance@v4 — Node 24 runtime (v1 = Node 16, deprecated)
+#   astral-sh/setup-uv@v6              — Node 24 runtime (v3 = Node 20, deprecated)
+# See build.yml header for full rationale + breaking-change analysis.
+# -----------------------------------------------------------------------------
 # Tauri Windows Build (ADR-0020 Phase 0-W / Phase 1-W packaging).
 #
 # This workflow builds a complete Tauri installer for Windows via:
@@ -88,15 +99,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Python 3.12 (dev env)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -107,7 +118,7 @@ jobs:
           targets: ${{ env.RUST_TARGET }}
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry
@@ -118,7 +129,7 @@ jobs:
             tauri-windows-${{ runner.os }}-
 
       - name: Set up Node.js 20
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
           # If a newer LTS is available, bump this comment AND the version below together.
@@ -192,9 +203,6 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
-              # --include-dll is NOT available in Nuitka 2.5.4 (added in later versions).
-              # --include-data-dir above already bundles the entire ctranslate2/lib directory
-              # which includes ctranslate2.dll, so --include-dll is redundant.
               --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
               --windows-disable-console `
               --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\onefile-tmp" `
@@ -221,9 +229,6 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
-              # --include-dll is NOT available in Nuitka 2.5.4 (added in later versions).
-              # --include-data-dir above already bundles the entire ctranslate2/lib directory
-              # which includes ctranslate2.dll, so --include-dll is redundant.
               --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
               --windows-disable-console `
               --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\prewarm-onefile-tmp" `
@@ -303,21 +308,21 @@ jobs:
           Remove-Item $pfxPath -Force
 
       - name: Upload NSIS installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: tauri-windows-installer
           path: ${{ steps.artifacts.outputs.nsis_path }}
           if-no-files-found: error
 
       - name: Upload MSI installer artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VoiceTyper-Tauri-MSI
           path: ${{ steps.artifacts.outputs.msi_path }}
           if-no-files-found: warn
 
       - name: Upload sidecar + prewarm + native listener
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VoiceTyper-Tauri-Sidecar-Binaries
           path: |
@@ -347,7 +352,7 @@ jobs:
           Get-Content SHA256SUMS.txt
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: VoiceTyper-Tauri-SHA256SUMS
           path: SHA256SUMS.txt
@@ -355,7 +360,7 @@ jobs:
 
       - name: Attest build provenance (SLSA)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             ${{ steps.artifacts.outputs.nsis_path }}

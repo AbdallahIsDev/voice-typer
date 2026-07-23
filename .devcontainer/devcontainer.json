@@ -1,7 +1,7 @@
 // BUILD-N17: Dev container for VS Code Remote - Containers / GitHub Codespaces.
 // Reproduces the project's Python + Node toolchain so contributors
 // don't need to install anything locally. Uses the official Python
-// image and layers Node 20 on top.
+// image and layers Node 24 on top.
 {
   "name": "Voice Typer Dev",
   "build": {
