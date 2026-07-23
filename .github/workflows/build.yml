@@ -70,7 +70,7 @@ jobs:
       fail-fast: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
@@ -330,7 +330,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -389,7 +389,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -437,7 +437,7 @@ jobs:
     # XS-25: cap version-check runtime.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -467,7 +467,7 @@ jobs:
     # XS-25: cap branding-check runtime.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -487,7 +487,7 @@ jobs:
     # build:renderer).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Node 20
         uses: actions/setup-node@v4
@@ -590,7 +590,7 @@ jobs:
     # XS-25: cap native-binary compile runtime (Swift / MSVC / gcc).
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Compile native binary (${{ matrix.platform }})
         run: ${{ matrix.script }}
@@ -694,7 +694,7 @@ jobs:
     # XS-25: cap universal-binary merge runtime (lipo is fast).
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download x64 binary
         uses: actions/download-artifact@v4
@@ -787,7 +787,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # CI-03: cache electron-builder download cache (~200MB of Electron
       # binaries) so it isn't re-fetched on every run.
@@ -995,7 +995,7 @@ jobs:
       # CI-09: required for actions/attest-build-provenance to generate signed attestations
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # CI-03: cache electron-builder download cache.
       - name: Cache electron-builder cache (macOS)
@@ -1161,7 +1161,7 @@ jobs:
       # CI-09: required for actions/attest-build-provenance to generate signed attestations
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # CI-03: cache electron-builder download cache.
       - name: Cache electron-builder cache (Linux)
