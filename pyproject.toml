@@ -139,6 +139,28 @@ dependencies = [
     # explicit dep here so a fresh ``pip install voice-typer`` on
     # macOS gets a working tray out of the box.
     "pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin'",
+    # microphone_watcher_coreaudio.py imports CFRunLoopRun / CFRunLoopStop
+    # / CFRunLoopGetCurrent from CoreFoundation for the event-driven
+    # CoreAudio device-list listener. pyobjc-framework-CoreAudio declares
+    # the CoreAudio symbols but NOT the CoreFoundation symbols — they
+    # ship in a separate framework binding. Without this dep, the watcher
+    # raises ImportError at start() on a fresh `pip install voice-typer`
+    # on macOS and the recorder silently falls back to 1 Hz polling
+    # (recording.py's 30 s TTL cache remains the ultimate backstop, but
+    # device hot-plug events are delayed by up to 1 s instead of being
+    # instant). The ImportError message at microphone_watcher_coreaudio
+    # .py:103-106 literally tells users to `pip install pyobjc-framework
+    # -CoreFoundation` — but it was missing from both the main deps and
+    # the [macos] extra.
+    "pyobjc-framework-CoreFoundation>=9.0; sys_platform == 'darwin'",
+    # permissions.py:734 imports AXIsProcessTrustedWithOptions from
+    # ApplicationServices for the pre-flight accessibility-trust probe.
+    # Without this dep, the try/except ImportError at permissions.py
+    # silently falls back to PermissionState.UNKNOWN — the user is never
+    # told accessibility permission is missing until the native hotkey
+    # listener fails at runtime. Adding the explicit dep makes the probe
+    # actually work on a fresh `pip install voice-typer[macos]`.
+    "pyobjc-framework-ApplicationServices>=9.0; sys_platform == 'darwin'",
     # ADR 0007: RNNoise is now a default dependency (was optional).
     # BSD-licensed, ~2MB, <1ms per frame. Required for the NoiseSuppressor
     # filter in the audio filter chain.
@@ -207,7 +229,18 @@ windows = [
     "pywin32>=306; sys_platform == 'win32'",
 ]
 # macOS volume ducking — kept as alias for explicit pip install .[macos]
-macos = ["pyobjc-core>=9.0", "pyobjc-framework-CoreAudio>=9.0"]
+# Mirrors the macOS pyobjc deps declared in [project].dependencies above
+# (pyobjc-core, pyobjc-framework-CoreAudio, pyobjc-framework-Cocoa,
+# pyobjc-framework-CoreFoundation, pyobjc-framework-ApplicationServices).
+# CoreFoundation is needed by microphone_watcher_coreaudio.py's CFRunLoop;
+# ApplicationServices is needed by permissions.py's AXIsProcessTrustedWithOptions.
+macos = [
+    "pyobjc-core>=9.0",
+    "pyobjc-framework-CoreAudio>=9.0",
+    "pyobjc-framework-Cocoa>=9.0",
+    "pyobjc-framework-CoreFoundation>=9.0",
+    "pyobjc-framework-ApplicationServices>=9.0",
+]
 # DEP-DEP-1: dbus-python is soft-guard-imported in tray.py (Linux Wayland
 # StatusNotifierItem detection) but was undeclared. It stays OPTIONAL, not
 # a core dep: dbus-python ships as sdist-only on PyPI and needs system
@@ -450,6 +483,8 @@ module = [
     "pycaw.*",
     "comtypes.*",
     "CoreAudio.*",
+    "CoreFoundation.*",
+    "ApplicationServices.*",
     "Foundation.*",
     "AppKit.*",
     "ctypes.*",
