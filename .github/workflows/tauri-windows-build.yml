@@ -147,10 +147,17 @@ jobs:
           $url = "https://github.com/astral-sh/python-build-standalone/releases/download/$date/$archive"
           Write-Host "Downloading $url"
           Invoke-WebRequest -Uri $url -OutFile $archive
-          # Verify SHA-256 against the release's SHA256SUMS.txt
-          $sumsUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$date/SHA256SUMS.txt"
-          Invoke-WebRequest -Uri $sumsUrl -OutFile SHA256SUMS.txt
-          $expected = (Select-String -Path SHA256SUMS.txt -Pattern $archive).Line.Split(' ')[0]
+          # The python-build-standalone releases do NOT have a SHA256SUMS.txt aggregate.
+          # Instead, each individual asset has its own .sha256 file adjacent to it:
+          #   asset:   cpython-3.12.8+20241219-x86_64-pc-windows-msvc-install_only.tar.gz
+          #   checksum: cpython-3.12.8+20241219-x86_64-pc-windows-msvc-install_only.tar.gz.sha256
+          # See https://github.com/astral-sh/python-build-standalone/releases/expanded_assets/{tag}
+          # for the list of all assets and their .sha256 companions.
+          $shaUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$date/$archive.sha256"
+          Write-Host "Downloading checksum: $shaUrl"
+          Invoke-WebRequest -Uri $shaUrl -OutFile "$archive.sha256"
+          # The .sha256 file contains: "<sha256>  <filename>"
+          $expected = (Get-Content "$archive.sha256" -Raw).Split(' ', 2)[0].Trim().ToLower()
           $actual = (Get-FileHash -Algorithm SHA256 -Path $archive).Hash.ToLower()
           if ($expected -ne $actual) {
             Write-Error "SHA-256 mismatch for $archive`nexpected=$expected`nactual=$actual"
