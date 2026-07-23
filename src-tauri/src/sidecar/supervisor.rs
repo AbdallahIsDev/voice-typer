@@ -1,4 +1,5 @@
-//! FT-1 supervisor: respawn + bubble-level coalesce (ADR-0020 §9 + §10).
+//! Sidecar supervisor: respawn + bubble-level coalesce (ADR-0020 §9 + §10).
+//! Renamed from `ft1.rs` — the old name was an opaque internal task ID.
 
 use crate::state::SidecarState;
 // G4-H-27 (session 4): poison-safe Mutex helper. Replacing

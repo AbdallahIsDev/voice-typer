@@ -48,7 +48,7 @@
 //!   `shutdown_sidecar_for_exit` (PVT-G5-007)
 //! - `util` — ADR-0020 constants, `generate_token`, `hex`, `now_timestamp`
 //! - `sidecar::spawn` — spawn variants + stdout handshake (§1 + §4.1 + §14)
-//! - `sidecar::ft1` — FT-1 supervisor + bubble coalesce predicate (§9 + §10)
+//! - `sidecar::supervisor` — FT-1 supervisor + bubble coalesce predicate (§9 + §10)
 //! - `sidecar::ws` — WebSocket reconnect + reader/writer tasks + heartbeat (§1 + §9 + §10)
 //! - `commands::sidecar_cmds` — `dispatch`, `paste_text`, `shutdown_sidecar` (§6.2 + §7 + §10)
 //! - `commands::export` — `export_history`, `export_vocabulary`, CSV helpers (§6 + MIG-1.1)
@@ -93,7 +93,7 @@ use commands::sidecar_cmds::{dispatch, paste_text, shutdown_sidecar};
 use commands::system_cmds::{export_config, export_templates, open_logs, open_model_import_dialog};
 use platform::logging::init_file_logger;
 use platform::paths::config_dir;
-use sidecar::ft1::ft1_respawn;
+use sidecar::supervisor::ft1_respawn;
 use sidecar::spawn::spawn_sidecar_and_get_port;
 use sidecar::ws::reconnect_ws;
 use state::SidecarState;
@@ -314,7 +314,7 @@ fn main() {
             // field so stale counts from prior sessions don't trip the
             // breaker — but we still reset here so the in-session
             // counter starts at 0 (matching the original CR-29 intent).
-            crate::sidecar::ft1::write_ft1_restart_counter(0);
+            crate::sidecar::supervisor::write_ft1_restart_counter(0);
             // Spawn the sidecar + WS bridge in a background tokio task.
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();

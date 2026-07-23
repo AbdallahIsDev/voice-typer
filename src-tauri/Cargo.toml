@@ -49,7 +49,7 @@ tauri-plugin-dialog = "2"
 enigo = "0.2"
 
 # ADR-0020 §1 + §10: WebSocket client + tokio runtime
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "process"] }
 tokio-tungstenite = { version = "0.24", features = ["connect"] }
 futures-util = "0.3"
 
@@ -75,8 +75,12 @@ env_logger = "0.11"
 # the `windows` crate is NOT pulled into Linux/macOS builds (keeps the
 # dependency graph clean for the non-Windows MIG-1.6 / MIG-1.7 spikes).
 # Features: `Win32_UI_WindowsAndMessaging` (foreground/window APIs),
-# `Win32_Foundation` (`HWND`, `BOOL`), `Win32_System_Threading`
-# (`GetCurrentThreadId`).
+# `Win32_Foundation` (`HWND` — wraps `*mut c_void`, NOT isize),
+# `Win32_System_Threading` (`AttachThreadInput`, `GetCurrentThreadId`).
+# NOTE: `BOOL` is NOT re-exported from `Win32_Foundation` in windows-rs
+# 0.61+ — it moved to `windows_core::BOOL`. However `AttachThreadInput`
+# actually takes a plain Rust `bool` in 0.61.3+, so pass `true`/`false`
+# directly, never `BOOL::from(...)`.
 # NOTE: if the version selected here conflicts with whatever Tauri v2's
 # transitive `windows` requirement resolves to, `cargo check` on the
 # Windows host will surface the resolution failure — bump the major.minor

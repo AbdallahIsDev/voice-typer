@@ -17,17 +17,29 @@ use crate::commands::sidecar_cmds::{dispatch_inner, DispatchArgs};
 use crate::state::SidecarState;
 // G4-H-27 (session 4): poison-safe Mutex helper for the cleanup block.
 use crate::state::lock as mutex_lock;
-use crate::sidecar::ft1::{bubble_coalesce_should_emit, ft1_respawn};
+use crate::sidecar::supervisor::{bubble_coalesce_should_emit, ft1_respawn};
 use crate::util::{BUBBLE_LEVEL_COALESCE_HZ, MAX_FRAME_BYTES};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use futures_util::{FutureExt, SinkExt, StreamExt};
+use futures_util::{
+    stream::{SplitSink, SplitStream},
+    FutureExt, SinkExt, StreamExt,
+};
 use serde_json::{json, Value};
 use tauri::Emitter;
 use tokio::sync::mpsc;
-use tokio_tungstenite::{connect_async_with_config, tungstenite::Message};
+use tokio_tungstenite::{
+    connect_async_with_config, tungstenite::Message, MaybeTlsStream, WebSocketStream,
+};
+
+// XZ-11: type alias for the WebSocket stream returned by
+// `connect_async_with_config`. Used by the `ws_connect`, `wait_for_auth_ok`,
+// `spawn_writer_task`, and `spawn_reader_task` helpers so the split
+// sink/stream halves can be passed between them without restating the
+// full generic signature everywhere.
+type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
 // ─── G4-H-32: server-initiated event-type allowlist ──────────────────────
 //
@@ -151,16 +163,32 @@ fn trigger_ft1_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState
     });
 }
 
-pub(crate) async fn reconnect_ws(
-    app: &tauri::AppHandle,
-    state: &Arc<SidecarState>,
+// ─── XZ-11: phase helpers extracted from `reconnect_ws` ──────────────────
+//
+// `reconnect_ws` was a 585-line god function (Finding EC-18) covering
+// five distinct phases: (1) WS connect with timeout, (2) writer
+// channel + auth-frame queue + writer task spawn, (3) auth handshake
+// (wait for `auth_ok` / `ready`), (4) reader task spawn with
+// catch_unwind cleanup, (5) heartbeat task spawn. Each phase is now
+// a focused helper; `reconnect_ws` is a thin orchestrator that calls
+// them in order. Behavior is preserved EXACTLY — same error strings,
+// same retry/backoff semantics, same logging, same panic-safety
+// wrappers, same FT-1 trigger pattern.
+
+/// XZ-11 (was inline in `reconnect_ws`): TCP-connect to the sidecar's
+/// WS endpoint and complete the WS handshake with a bounded timeout
+/// (G4-M-64). Enforces the ADR-0020 §10 1 MiB frame cap via
+/// `WebSocketConfig`. Returns the split sink/stream halves so the
+/// caller can hand them off to the writer and reader tasks.
+///
+/// A hung sidecar that accepts the TCP connection but never completes
+/// the WS handshake would otherwise stall FT-1 forever (the previous
+/// `connect_async_with_config` call had no timeout). The timeout is
+/// mapped to a descriptive error so the FT-1 backoff schedule logs
+/// something actionable.
+async fn ws_connect(
     port: u16,
-    token: &str,
-) -> Result<(), String> {
-    // PVT-G5-088: the parameter was previously named `_app` (underscore
-    // prefix implies unused), but it IS used below at `app.clone()` for
-    // the reader/writer tasks. Renamed to `app` to reflect actual use
-    // and silence the misleading-underscore lint.
+) -> Result<(SplitSink<WsStream, Message>, SplitStream<WsStream>), String> {
     let url = format!("ws://127.0.0.1:{}", port);
     // ADR-0020 §10: enforce 1 MiB WS frame cap.
     let ws_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
@@ -168,11 +196,6 @@ pub(crate) async fn reconnect_ws(
         max_frame_size: Some(MAX_FRAME_BYTES),
         ..Default::default()
     };
-    // G4-M-64: bound the connect attempt. A hung sidecar that accepts
-    // the TCP connection but never completes the WS handshake would
-    // otherwise stall FT-1 forever (the previous `connect_async_with_config`
-    // call had no timeout). Map the timeout to a descriptive error so
-    // the FT-1 backoff schedule logs something actionable.
     let connect_result = tokio::time::timeout(
         Duration::from_secs(WS_CONNECT_TIMEOUT_SECS),
         connect_async_with_config(&url, Some(ws_config), false),
@@ -188,30 +211,37 @@ pub(crate) async fn reconnect_ws(
             ));
         }
     };
-    let (write, mut read) = ws.split();
+    Ok(ws.split())
+}
 
-    // Set up the WS writer channel + reader task.
-    //
-    // PVT-G5-059: previously `mpsc::unbounded_channel::<Message>()`.
-    // An unbounded channel provides NO backpressure — a runaway
-    // renderer (or a stuck WS writer task) could enqueue unbounded
-    // frames, each holding a `Message::Text(String)` of up to
-    // MAX_FRAME_BYTES (1 MiB), eventually OOM-killing the host.
-    // Switched to a bounded channel of capacity 256: large enough to
-    // absorb brief bursts (e.g. config + state + bubble-init frames at
-    // sidecar startup), small enough to fail-fast on a stuck writer.
-    //
-    // IMPORTANT API CHANGE: this changes the channel type from
-    // `UnboundedSender<Message>` to `Sender<Message>`. The type alias
-    // `WsWriterTx` in `state.rs` (line ~21) must change from
-    // `mpsc::UnboundedSender<Message>` to `mpsc::Sender<Message>`, AND
-    // the call sites in `commands/bubble.rs` (line ~363) and
-    // `commands/sidecar_cmds.rs` (lines ~336, ~549) must change
-    // `ws_tx.send(...)` to `ws_tx.try_send(...)` with error handling
-    // for `TrySendError::Full` / `TrySendError::Closed`. Those files
-    // are OUTSIDE this sub-agent's scope — see the return summary for
-    // coordination instructions.
-    let (ws_tx, mut ws_rx) = mpsc::channel::<Message>(256);
+/// XZ-11 (was inline in `reconnect_ws`): set up the WS writer channel
+/// and queue the auth frame on it. Returns the receiver for the writer
+/// task to drain.
+///
+/// PVT-G5-059: previously `mpsc::unbounded_channel::<Message>()`.
+/// An unbounded channel provides NO backpressure — a runaway
+/// renderer (or a stuck WS writer task) could enqueue unbounded
+/// frames, each holding a `Message::Text(String)` of up to
+/// MAX_FRAME_BYTES (1 MiB), eventually OOM-killing the host.
+/// Switched to a bounded channel of capacity 256: large enough to
+/// absorb brief bursts (e.g. config + state + bubble-init frames at
+/// sidecar startup), small enough to fail-fast on a stuck writer.
+///
+/// IMPORTANT API CHANGE: this changes the channel type from
+/// `UnboundedSender<Message>` to `Sender<Message>`. The type alias
+/// `WsWriterTx` in `state.rs` (line ~21) must change from
+/// `mpsc::UnboundedSender<Message>` to `mpsc::Sender<Message>`, AND
+/// the call sites in `commands/bubble.rs` (line ~363) and
+/// `commands/sidecar_cmds.rs` (lines ~336, ~549) must change
+/// `ws_tx.send(...)` to `ws_tx.try_send(...)` with error handling
+/// for `TrySendError::Full` / `TrySendError::Closed`. Those files
+/// are OUTSIDE this sub-agent's scope — see the return summary for
+/// coordination instructions.
+fn queue_auth_and_store_ws_tx(
+    state: &Arc<SidecarState>,
+    token: &str,
+) -> Result<mpsc::Receiver<Message>, String> {
+    let (ws_tx, ws_rx) = mpsc::channel::<Message>(256);
     // Send the auth frame via the channel so the writer task sends it.
     let auth = json!({"type": "auth", "token": token});
     // PVT-G5-059: use `try_send` (bounded channel) instead of `send`
@@ -238,19 +268,21 @@ pub(crate) async fn reconnect_ws(
         let mut ws_tx_guard = mutex_lock(&state.ws_tx);
         *ws_tx_guard = Some(ws_tx);
     }
-    let state_clone = state.clone();
-    let app_handle = app.clone();
+    Ok(ws_rx)
+}
 
-    // Writer task: drain ws_rx → write.send.
-    //
-    // G4-H-26: wrap the writer body in `AssertUnwindSafe(...).catch_unwind()`
-    // so a panic inside `write.send()` (e.g. a tungstenite internal
-    // invariant violation) doesn't tear down the task without cleanup.
-    // The writer has no post-panic cleanup beyond dropping `write`
-    // (which `catch_unwind` does automatically as the wrapped future
-    // unwinds), but the `catch_unwind` future still resolves normally
-    // so the outer `tokio::spawn` future completes cleanly instead of
-    // propagating the panic to the runtime.
+/// XZ-11 (was inline in `reconnect_ws`): spawn the WS writer task.
+///
+/// Drains `ws_rx` into `write.send`. The body is wrapped in
+/// `AssertUnwindSafe(...).catch_unwind()` (G4-H-26) so a panic inside
+/// `write.send()` (e.g. a tungstenite internal invariant violation)
+/// doesn't tear down the task without cleanup. The writer has no
+/// post-panic cleanup beyond dropping `write` (which `catch_unwind`
+/// does automatically as the wrapped future unwinds), but the
+/// `catch_unwind` future still resolves normally so the outer
+/// `tokio::spawn` future completes cleanly instead of propagating the
+/// panic to the runtime.
+fn spawn_writer_task(write: SplitSink<WsStream, Message>, mut ws_rx: mpsc::Receiver<Message>) {
     tokio::spawn(async move {
         let result = AssertUnwindSafe(async move {
             let mut write = write;
@@ -269,26 +301,38 @@ pub(crate) async fn reconnect_ws(
             );
         }
     });
+}
 
-    // G4-L-02: wait for the `auth_ok` frame (with a 3s timeout) before
-    // starting the dispatch/event reader loop. The Python sidecar's
-    // `_handle_connection` flow is: (1) accept WS, (2) call
-    // `_authenticate` (validates the auth frame we just sent), (3) on
-    // success, emit `{"type":"ready"}` and start the dispatch loop.
-    //
-    // NOTE: the current Python sidecar does NOT send an explicit
-    // `auth_ok` frame — it emits `ready` on success and closes the
-    // connection on auth failure. We accept EITHER `auth_ok` (future
-    // contract) OR `ready` (current contract) as the auth-success
-    // signal. On `auth_failed`, stream close, or timeout, we clear
-    // `ws_tx` (which causes the writer task above to exit when its
-    // channel drains) and trigger FT-1 respawn.
-    //
-    // This is a best-effort improvement: if the server sends neither
-    // `auth_ok` nor `ready` within the timeout but the connection is
-    // actually fine, we tear it down and let FT-1 try again. The
-    // 3s timeout is generous enough that a healthy sidecar should
-    // always respond within it.
+/// XZ-11 (was inline in `reconnect_ws`): wait for the `auth_ok` frame
+/// (with a 3s timeout) before handing the read stream off to the
+/// reader task. On success returns `read` so the caller can pass it
+/// to `spawn_reader_task`. On any failure (timeout, stream close,
+/// error, invalid frame, `auth_failed`) calls
+/// `cleanup_and_trigger_ft1_respawn` and returns `Err`.
+///
+/// G4-L-02: the Python sidecar's `_handle_connection` flow is:
+/// (1) accept WS, (2) call `_authenticate` (validates the auth frame
+/// we just sent), (3) on success, emit `{"type":"ready"}` and start
+/// the dispatch loop.
+///
+/// NOTE: the current Python sidecar does NOT send an explicit
+/// `auth_ok` frame — it emits `ready` on success and closes the
+/// connection on auth failure. We accept EITHER `auth_ok` (future
+/// contract) OR `ready` (current contract) as the auth-success
+/// signal. On `auth_failed`, stream close, or timeout, we clear
+/// `ws_tx` (which causes the writer task above to exit when its
+/// channel drains) and trigger FT-1 respawn.
+///
+/// This is a best-effort improvement: if the server sends neither
+/// `auth_ok` nor `ready` within the timeout but the connection is
+/// actually fine, we tear it down and let FT-1 try again. The
+/// 3s timeout is generous enough that a healthy sidecar should
+/// always respond within it.
+async fn wait_for_auth_ok(
+    app: &tauri::AppHandle,
+    state: &Arc<SidecarState>,
+    mut read: SplitStream<WsStream>,
+) -> Result<SplitStream<WsStream>, String> {
     let auth_result = tokio::time::timeout(
         Duration::from_secs(WS_AUTH_OK_TIMEOUT_SECS),
         read.next(),
@@ -301,21 +345,21 @@ pub(crate) async fn reconnect_ws(
                  triggering FT-1",
                 WS_AUTH_OK_TIMEOUT_SECS
             );
-            cleanup_and_trigger_ft1_respawn(&app_handle, &state_clone);
-            return Err(format!(
+            cleanup_and_trigger_ft1_respawn(app, state);
+            Err(format!(
                 "WS auth timed out after {}s",
                 WS_AUTH_OK_TIMEOUT_SECS
-            ));
+            ))
         }
         Ok(None) => {
             log::error!("[WS-AUTH] stream closed before auth_ok/ready");
-            cleanup_and_trigger_ft1_respawn(&app_handle, &state_clone);
-            return Err("WS stream closed during auth".to_string());
+            cleanup_and_trigger_ft1_respawn(app, state);
+            Err("WS stream closed during auth".to_string())
         }
         Ok(Some(Err(e))) => {
             log::error!("[WS-AUTH] error reading auth_ok/ready: {}", e);
-            cleanup_and_trigger_ft1_respawn(&app_handle, &state_clone);
-            return Err(format!("WS auth read error: {}", e));
+            cleanup_and_trigger_ft1_respawn(app, state);
+            Err(format!("WS auth read error: {}", e))
         }
         Ok(Some(Ok(msg))) => {
             let text = match msg {
@@ -329,9 +373,7 @@ pub(crate) async fn reconnect_ws(
                             log::warn!(
                                 "[WS-AUTH] unexpected binary frame during auth"
                             );
-                            cleanup_and_trigger_ft1_respawn(
-                                &app_handle, &state_clone,
-                            );
+                            cleanup_and_trigger_ft1_respawn(app, state);
                             return Err(
                                 "WS auth received non-UTF8 binary".to_string()
                             );
@@ -340,14 +382,14 @@ pub(crate) async fn reconnect_ws(
                 }
                 Message::Close(_) => {
                     log::warn!("[WS-AUTH] server closed during auth");
-                    cleanup_and_trigger_ft1_respawn(&app_handle, &state_clone);
+                    cleanup_and_trigger_ft1_respawn(app, state);
                     return Err("WS closed during auth".to_string());
                 }
                 _ => {
                     log::warn!(
                         "[WS-AUTH] unexpected frame type (ping/pong) during auth"
                     );
-                    cleanup_and_trigger_ft1_respawn(&app_handle, &state_clone);
+                    cleanup_and_trigger_ft1_respawn(app, state);
                     return Err("WS auth unexpected frame type".to_string());
                 }
             };
@@ -358,14 +400,14 @@ pub(crate) async fn reconnect_ws(
                         "[WS-AUTH] invalid JSON in auth response: {}",
                         text
                     );
-                    cleanup_and_trigger_ft1_respawn(&app_handle, &state_clone);
+                    cleanup_and_trigger_ft1_respawn(app, state);
                     return Err(format!("WS auth invalid JSON: {}", text));
                 }
             };
             let t = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
             if t == "auth_failed" {
                 log::error!("[WS-AUTH] auth_failed received from server");
-                cleanup_and_trigger_ft1_respawn(&app_handle, &state_clone);
+                cleanup_and_trigger_ft1_respawn(app, state);
                 return Err("WS auth rejected by server".to_string());
             }
             // Accept either `auth_ok` (future contract) or `ready`
@@ -386,8 +428,8 @@ pub(crate) async fn reconnect_ws(
                      re-emitting as Tauri event"
                 );
                 let payload = v.get("data").cloned().unwrap_or(json!({}));
-                let _ = app_handle.emit("ready", payload.clone());
-                let _ = app_handle.emit(
+                let _ = app.emit("ready", payload.clone());
+                let _ = app.emit(
                     "python-event",
                     json!({"type": "ready", "data": payload}),
                 );
@@ -404,13 +446,34 @@ pub(crate) async fn reconnect_ws(
                 // 2. Any other frame type at auth time is a protocol
                 //    violation worth logging but not blocking.
             }
+            Ok(read)
         }
     }
+}
 
-    // Reader task: parse incoming frames, fulfill pending dispatch
-    // requests by id, emit Tauri events for server-initiated events.
-    let app_for_reader = app_handle.clone();
-    let state_for_reader = state_clone.clone();
+/// XZ-11 (was inline in `reconnect_ws`): spawn the WS reader task.
+///
+/// Parses incoming frames, fulfills pending dispatch requests by id,
+/// emits Tauri events for server-initiated events. The body is wrapped
+/// in `AssertUnwindSafe(...).catch_unwind()` (G4-H-26) so a panic
+/// inside `read.next()` / `serde_json::from_str` / `app.emit()` /
+/// `bubble_coalesce_should_emit()` / the `last_bubble_payload.take()`
+/// line doesn't tear down the task without running cleanup. Without
+/// this wrapper, a panic would propagate to the tokio runtime, which
+/// logs the panic and drops the task — leaving `ws_tx` set (new
+/// dispatch calls would queue onto a dead channel forever) and
+/// pending dispatch requests hanging until their 120s timeout. With
+/// the wrapper, the panic is caught, logged at ERROR, and the
+/// cleanup block below runs identically to the normal-exit path
+/// (drain pending, clear ws_tx, emit `ft1_relaunching`, spawn
+/// FT-1 respawn).
+fn spawn_reader_task(
+    app: tauri::AppHandle,
+    state: Arc<SidecarState>,
+    mut read: SplitStream<WsStream>,
+) {
+    let app_for_reader = app.clone();
+    let state_for_reader = state.clone();
     // G4-H-26: clone handles for the cleanup block, which runs OUTSIDE
     // the `catch_unwind` wrapper so it runs even if the reader body
     // panics. The originals are moved INTO the `AssertUnwindSafe`
@@ -418,19 +481,6 @@ pub(crate) async fn reconnect_ws(
     let app_for_cleanup = app_for_reader.clone();
     let state_for_cleanup = state_for_reader.clone();
     tokio::spawn(async move {
-        // G4-H-26: wrap the reader body in `AssertUnwindSafe(...).catch_unwind()`
-        // so a panic inside `read.next()` / `serde_json::from_str` /
-        // `app_for_reader.emit()` / `bubble_coalesce_should_emit()` /
-        // the `last_bubble_payload.take()` line doesn't tear down the
-        // task without running cleanup. Without this wrapper, a panic
-        // would propagate to the tokio runtime, which logs the panic
-        // and drops the task — leaving `ws_tx` set (new dispatch calls
-        // would queue onto a dead channel forever) and pending
-        // dispatch requests hanging until their 120s timeout. With the
-        // wrapper, the panic is caught, logged at ERROR, and the
-        // cleanup block below runs identically to the normal-exit path
-        // (drain pending, clear ws_tx, emit `ft1_relaunching`, spawn
-        // FT-1 respawn).
         let result = AssertUnwindSafe(async move {
             let mut last_bubble_level: Option<Instant> = None;
             #[allow(unused_assignments)]
@@ -634,32 +684,35 @@ pub(crate) async fn reconnect_ws(
             );
         }
     });
+}
 
-    // PVT-1: Tauri-side heartbeat — detects application-level sidecar
-    // hangs (GIL contention, infinite loop, blocking C call) that keep
-    // the WS socket open but don't respond to dispatches. Without this,
-    // the FT-1 supervisor only triggers on WS-close/process exit, so a
-    // hung sidecar leaves the UI frozen for the full 120s dispatch
-    // timeout on EVERY `invoke('dispatch', ...)` call.
-    //
-    // Every 10s we send a `heartbeat` dispatch (the Python sidecar's
-    // `_handle_heartbeat` is already registered in `_COMMAND_REGISTRY`
-    // — see `voice_typer/server/ipc_server.py:2013`). We wrap the call
-    // in a 15s timeout — `dispatch_frame`'s own 120s timeout is too
-    // long for a liveness probe. On 3 consecutive misses (≥30s of
-    // unresponsiveness) we trigger FT-1 respawn via the same
-    // `std::thread::spawn` + `block_on` bridge used by the WS reader
-    // above (the FT-1 supervisor's `reconnect_ws` future is `!Send` —
-    // tokio-tungstenite holds a `!Send` across an await — so it can't
-    // be awaited from a `tokio::spawn` directly).
-    //
-    // The 15s outer timeout may leak a pending entry inside
-    // `dispatch_frame` until its internal 120s timeout fires, but the
-    // FT-1 respawn triggered at miss #3 kills the sidecar, which drops
-    // the TCP socket, which makes the WS reader's drain loop clear all
-    // pending entries. So the leak is bounded and self-healing.
-    let heartbeat_app = app_handle.clone();
-    let heartbeat_state = state_clone.clone();
+/// XZ-11 (was inline in `reconnect_ws`): spawn the Tauri-side heartbeat
+/// task (PVT-1).
+///
+/// Detects application-level sidecar hangs (GIL contention, infinite
+/// loop, blocking C call) that keep the WS socket open but don't
+/// respond to dispatches. Without this, the FT-1 supervisor only
+/// triggers on WS-close/process exit, so a hung sidecar leaves the
+/// UI frozen for the full 120s dispatch timeout on EVERY
+/// `invoke('dispatch', ...)` call.
+///
+/// Every 10s we send a `heartbeat` dispatch (the Python sidecar's
+/// `_handle_heartbeat` is already registered in `_COMMAND_REGISTRY`
+/// — see `voice_typer/server/ipc_server.py:2013`). We wrap the call
+/// in a 15s timeout — `dispatch_frame`'s own 120s timeout is too
+/// long for a liveness probe. On 3 consecutive misses (≥30s of
+/// unresponsiveness) we trigger FT-1 respawn via the same
+/// `std::thread::spawn` + `block_on` bridge used by the WS reader
+/// above (the FT-1 supervisor's `reconnect_ws` future is `!Send` —
+/// tokio-tungstenite holds a `!Send` across an await — so it can't
+/// be awaited from a `tokio::spawn` directly).
+///
+/// The 15s outer timeout may leak a pending entry inside
+/// `dispatch_frame` until its internal 120s timeout fires, but the
+/// FT-1 respawn triggered at miss #3 kills the sidecar, which drops
+/// the TCP socket, which makes the WS reader's drain loop clear all
+/// pending entries. So the leak is bounded and self-healing.
+fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<SidecarState>) {
     tauri::async_runtime::spawn(async move {
         let mut missed: u32 = 0;
         let mut interval = tokio::time::interval(Duration::from_secs(10));
@@ -733,7 +786,35 @@ pub(crate) async fn reconnect_ws(
             }
         }
     });
+}
 
+// XZ-11: thin orchestrator extracted from the original 585-line
+// `reconnect_ws` god function (Finding EC-18). The five phases —
+// WS connect, writer channel + auth frame + writer task spawn,
+// auth handshake, reader task spawn, heartbeat task spawn — are now
+// focused helpers above. This function calls them in sequence,
+// propagating errors via `?`. Behavior is preserved EXACTLY: same
+// error strings, same retry/backoff semantics (which live in the
+// FT-1 supervisor that calls this), same logging, same panic-safety
+// wrappers, same FT-1 trigger pattern.
+pub(crate) async fn reconnect_ws(
+    app: &tauri::AppHandle,
+    state: &Arc<SidecarState>,
+    port: u16,
+    token: &str,
+) -> Result<(), String> {
+    // PVT-G5-088: the parameter was previously named `_app` (underscore
+    // prefix implies unused), but it IS used below at `app.clone()` for
+    // the reader/writer tasks. Renamed to `app` to reflect actual use
+    // and silence the misleading-underscore lint.
+    let (write, read) = ws_connect(port).await?;
+    let ws_rx = queue_auth_and_store_ws_tx(state, token)?;
+    spawn_writer_task(write, ws_rx);
+    let state_clone = state.clone();
+    let app_handle = app.clone();
+    let read = wait_for_auth_ok(&app_handle, &state_clone, read).await?;
+    spawn_reader_task(app_handle.clone(), state_clone.clone(), read);
+    spawn_heartbeat_task(app_handle, state_clone);
     Ok(())
 }
 

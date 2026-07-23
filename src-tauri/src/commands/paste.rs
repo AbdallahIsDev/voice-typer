@@ -269,7 +269,9 @@ async fn restore_focus_or_fallback(
         Some(v) => v,
         None => return Ok(()),
     };
-    let target_hwnd = HWND(target_hwnd_raw as isize);
+    // HWND wraps *mut c_void in windows-rs 0.61.3+ (NOT isize).
+    // Casting a captured isize back requires `as *mut c_void`.
+    let target_hwnd = HWND(target_hwnd_raw as *mut core::ffi::c_void);
 
     // SAFETY: `GetForegroundWindow` — same rationale as in
     // `capture_focus_guard` above: pure query, no pointer args, null
@@ -300,15 +302,16 @@ async fn restore_focus_or_fallback(
     // `capture_focus_guard` returns `None` for tid==0). The Win32
     // contract requires both ids to refer to threads in the SAME
     // desktop; if not, the call returns 0 (UIPI / cross-desktop) and
-    // we fall through to the fallback path — no UB. The `BOOL::from(true)`
-    // sets the attach flag; passing `false` (detach) is done below in
-    // a separate call.
+    // we fall through to the fallback path — no UB. Passing `true`
+    // attaches the input queues; passing `false` (detach) is done
+    // below in a separate call.
+    // NOTE: AttachThreadInput takes `bool` in windows-rs 0.61.3+
+    // (NOT `windows_core::BOOL`). Do NOT change `true` to
+    // `BOOL::from(true)` — that type is not re-exported from
+    // `Win32_Foundation` in this version. The wrapper handles
+    // bool→BOOL conversion internally with `.into()`.
     let attached = unsafe {
-        AttachThreadInput(
-            current_thread,
-            target_thread,
-            windows::Win32::Foundation::BOOL::from(true),
-        )
+        AttachThreadInput(current_thread, target_thread, true)
     };
     if attached.as_bool() {
         // Attach succeeded — switch foreground back to the captured
@@ -328,16 +331,14 @@ async fn restore_focus_or_fallback(
         // SAME pair of thread ids as the attach above. We hold no
         // lock between the two calls (the attach state is per-thread
         // pair, kernel-tracked), so the detach always succeeds if the
-        // attach succeeded. `BOOL::from(false)` sets the detach flag.
+        // attach succeeded. Passing `false` sets the detach flag
+        // (windows-rs 0.61.3+: AttachThreadInput takes `bool`, not
+        // `BOOL` — see attach call above for details).
         // Even if this call were to fail (it shouldn't), the worst
         // case is a leaked attach — which the OS cleans up when one
         // of the threads exits. No UB.
         let _ = unsafe {
-            AttachThreadInput(
-                current_thread,
-                target_thread,
-                windows::Win32::Foundation::BOOL::from(false),
-            )
+            AttachThreadInput(current_thread, target_thread, false)
         };
         log::info!(
             "[PASTE] focus-restore: AttachThreadInput + SetForegroundWindow succeeded"
