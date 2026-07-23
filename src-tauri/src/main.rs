@@ -72,6 +72,11 @@ use std::sync::Arc;
 // `app.listen("relaunch_app", ...)` and `RunEvent` for the
 // `.run(callback)` exit handler.
 use tauri::{Listener, Manager, RunEvent, WindowEvent};
+// PVT-2 completion: the relaunch_app listener sends a `relaunch_ack`
+// WS frame back to Python so `_wait_for_relaunch_ack` short-circuits
+// cleanly. `Message` is the WS frame type; `json!` builds the frame.
+use tokio_tungstenite::tungstenite::Message as WsMessage;
+use serde_json::json;
 
 use commands::bubble::{
     bubble_emit_state, bubble_hide_complete, bubble_move_by, bubble_resize,
@@ -222,17 +227,66 @@ fn main() {
             // "Restart" click was silently demoted to "respawn the
             // Python backend only" because no Rust listener subscribed
             // to the renamed event.
+            //
+            // PVT-2 completion (this change): the listener now ALSO
+            // sends a `relaunch_ack` WS frame back to the Python
+            // sidecar BEFORE calling `app.restart()`. Without this ack,
+            // Python's `restart_app` blocks for the full 2s timeout in
+            // `_wait_for_relaunch_ack` before calling `sys.exit(0)` —
+            // delaying the actual restart by 2s and leaving the React
+            // UI in a half-torn-down state (in-memory state survives
+            // what should be a full restart). The ack is fire-and-
+            // forget: we enqueue the WS frame directly via `try_send`
+            // (no pending-entry insert) because Python's
+            // `_handle_relaunch_ack` returns None — no response is
+            // sent back. A short sleep gives the WS writer task time
+            // to flush the frame to the socket before `app.restart()`
+            // tears down the process.
             let restart_handle = app.handle().clone();
             app.listen("relaunch_app", move |_event| {
                 log::info!(
-                    "[RESTART] relaunch_app event received — calling app.restart()"
+                    "[RESTART] relaunch_app event received — sending relaunch_ack + calling app.restart()"
                 );
-                // Send a relaunch_ack WS frame back so Python's
-                // _wait_for_relaunch_ack short-circuits cleanly instead
-                // of waiting the full 2s timeout. (The ack is sent via
-                // the WS bridge's dispatch_fire_and_forget path — for
-                // now, just restart; Python's 2s timeout will fire
-                // harmlessly.)
+                // Best-effort relaunch_ack: lock ws_tx, clone the
+                // Sender, drop the guard, then try_send the frame.
+                // `try_send` is non-blocking (bounded channel) and
+                // safe to call from the Tauri event-loop thread.
+                let state: tauri::State<'_, Arc<SidecarState>> =
+                    restart_handle.state();
+                let state_inner = state.inner().clone();
+                let ws_tx_opt = state_inner.ws_tx.lock().unwrap().clone();
+                if let Some(ws_tx) = ws_tx_opt {
+                    let id = state_inner.next_id.fetch_add(1, Ordering::SeqCst);
+                    let frame = json!({
+                        "type": "relaunch_ack",
+                        "data": {},
+                        "id": id,
+                    });
+                    match ws_tx.try_send(WsMessage::Text(frame.to_string())) {
+                        Ok(_) => log::info!(
+                            "[RESTART] relaunch_ack WS frame sent (id={})",
+                            id
+                        ),
+                        Err(e) => log::warn!(
+                            "[RESTART] failed to send relaunch_ack WS frame (id={}): {} — Python will wait 2s timeout",
+                            id,
+                            e
+                        ),
+                    }
+                } else {
+                    log::warn!(
+                        "[RESTART] ws_tx is None — cannot send relaunch_ack; Python will wait 2s timeout"
+                    );
+                }
+                // Brief yield to let the WS writer task flush the ack
+                // frame before app.restart() tears down the process.
+                // try_send enqueues on the bounded channel instantly;
+                // the writer task (tokio::spawn'd in reconnect_ws)
+                // needs only a few microseconds to send it on the
+                // socket. 10ms is generous; even on a loaded host the
+                // writer task schedules within 1ms.
+                std::thread::sleep(std::time::Duration::from_millis(10));
+                log::info!("[RESTART] calling app.restart()");
                 restart_handle.restart();
             });
             // ADR-0020 §6.5: create the system tray (rendered from the

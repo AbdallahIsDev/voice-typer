@@ -3,11 +3,11 @@
     "resources": [
       "resources/prewarm-aarch64-unknown-linux-gnu",
       "resources/native/linux-key-listener",
-      "resources/scripts/linux/install_permissions.py",
-      "resources/scripts/linux/uninstall_permissions.py",
-      "resources/scripts/linux/99-voice-typer.rules",
-      "resources/scripts/linux/00-voice-typer-capslock.conf",
-      "resources/scripts/linux/voice-typer.polkit"
+      "resources/linux-scripts/install_permissions.py",
+      "resources/linux-scripts/uninstall_permissions.py",
+      "resources/linux-scripts/99-voice-typer.rules",
+      "resources/linux-scripts/00-voice-typer-capslock.conf",
+      "resources/linux-scripts/voice-typer.polkit"
     ]
   }
 }

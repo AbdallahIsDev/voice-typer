@@ -67,7 +67,12 @@
       "resources/prewarm-x86_64-apple-darwin",
       "resources/prewarm-aarch64-apple-darwin",
       "resources/prewarm-x86_64-unknown-linux-gnu",
-      "resources/prewarm-aarch64-unknown-linux-gnu"
+      "resources/prewarm-aarch64-unknown-linux-gnu",
+      "resources/linux-scripts/install_permissions.py",
+      "resources/linux-scripts/uninstall_permissions.py",
+      "resources/linux-scripts/99-voice-typer.rules",
+      "resources/linux-scripts/00-voice-typer-capslock.conf",
+      "resources/linux-scripts/voice-typer.polkit"
     ],
     "linux": {
       "deb": {
@@ -80,8 +85,8 @@
           "xclip"
         ],
         "desktopTemplate": "voice-typer.desktop.template",
-        "postInstall": "../../scripts/linux/postinst",
-        "preRemove": "../../scripts/linux/prerm"
+        "postInstallScript": "../../scripts/linux/postinst",
+        "preRemoveScript": "../../scripts/linux/prerm"
       },
       "rpm": {
         "depends": [
@@ -92,8 +97,8 @@
           "wl-clipboard",
           "xclip"
         ],
-        "postInstall": "../../scripts/linux/postinst.rpm",
-        "preRemove": "../../scripts/linux/prerm.rpm"
+        "postInstallScript": "../../scripts/linux/postinst.rpm",
+        "preRemoveScript": "../../scripts/linux/prerm.rpm"
       }
     },
     "macOS": {

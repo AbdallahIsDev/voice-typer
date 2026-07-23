@@ -50,7 +50,7 @@ use tokio_tungstenite::{connect_async_with_config, tungstenite::Message};
 const ALLOWED_EVENT_TYPES: &[&str] = &[
     // ── G4-H-32 spec list (verbatim) ──
     "status_change", "bubble_level", "notification", "relaunch_app",
-    "tray_menu", "ft1_relaunching", "ft1_reconnected", "crash_recovery",
+    "tray_menu", "tray_state", "ft1_relaunching", "ft1_reconnected", "crash_recovery",
     "transcription_partial", "transcription_final", "transcription_interim",
     "recording_state", "vocabulary_suggestion", "model_download_progress",
     "audio_status", "server_started",

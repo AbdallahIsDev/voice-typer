@@ -184,6 +184,17 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // the Settings → Privacy page. Mirrors the TS allowlist.
             "delete_all_personal_data",
             "export_gdpr_bundle",
+            // Onboarding keyboard-permission request + reset — invoked
+            // by the renderer's Onboarding page. Both are registered in
+            // the Python-side `_COMMAND_REGISTRY` and implemented in
+            // `handlers/onboarding_handlers.py`. Without these entries
+            // in the Rust allowlist, the renderer's Onboarding page
+            // calls would be rejected by the defense-in-depth gate
+            // (`disallowed_command`) under Tauri even though they
+            // succeed under Electron. Mirrors the TS allowlist (CR-4
+            // parity — keep both files in sync).
+            "onboarding_request_keyboard_permission",
+            "onboarding_reset",
         ];
         let mut set = HashSet::with_capacity(cmds.len());
         for c in cmds {
@@ -818,15 +829,17 @@ mod tests {
         // the COUNT so a local `cargo test` catches a drift before the
         // Python test even runs.
         //
-        // PVT-G5-008 / PVT-G5-025 / PVT-G5-075: count is 74 (70 prior
+        // PVT-G5-008 / PVT-G5-025 / PVT-G5-075: count is 76 (70 prior
         // + `onboarding_check_permissions` + `onboarding_get_model_catalog`
-        // + `delete_all_personal_data` + `export_gdpr_bundle`; `tray_click`
+        // + `delete_all_personal_data` + `export_gdpr_bundle`
+        // + `onboarding_request_keyboard_permission` + `onboarding_reset`
+        // (added session 1K); `tray_click`
         // is intentionally absent — see the doc comment on
         // `dispatch_inner` and the `ALLOWED_COMMANDS` literal).
         assert_eq!(
             allowed_commands().len(),
-            74,
-            "ALLOWED_COMMANDS must contain exactly 74 entries (parity with TS allowlist). \
+            76,
+            "ALLOWED_COMMANDS must contain exactly 76 entries (parity with TS allowlist). \
              Got {} — update both src-tauri/src/commands/sidecar_cmds.rs and \
              voice_typer/client/src/main/allowed-commands.ts together.",
             allowed_commands().len()
@@ -838,8 +851,8 @@ mod tests {
         let set = allowed_commands();
         assert_eq!(
             set.len(),
-            74,
-            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (74). \
+            76,
+            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (76). \
              Check the constructor log for the duplicate name.",
             set.len()
         );
