@@ -205,7 +205,7 @@ jobs:
               --include-package=websockets `
               --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
               --windows-disable-console `
-              --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\onefile-tmp" `
+              --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp" `
               --output-filename=python-sidecar-x86_64-pc-windows-msvc.exe `
               --output-dir=src-tauri\bin `
               voice_typer\server\ipc_server.py
@@ -231,7 +231,7 @@ jobs:
               --include-package=websockets `
               --include-data-dir="$SITE\ctranslate2\lib=$SITE\ctranslate2\lib" `
               --windows-disable-console `
-              --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\prewarm-onefile-tmp" `
+              --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" `
               --output-filename=prewarm-x86_64-pc-windows-msvc.exe `
               --output-dir=src-tauri\resources `
               voice_typer\server\prewarm\__main__.py
