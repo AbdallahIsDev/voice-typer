@@ -431,7 +431,7 @@ jobs:
 
   # NEW-CI-002: version sync check
   version-check:
-    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
+    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     # CI-10: pinned to match build-linux runner
     runs-on: ubuntu-22.04
     # XS-25: cap version-check runtime.
@@ -461,7 +461,7 @@ jobs:
 
   # BRAND-001: branding consistency check
   branding-check:
-    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
+    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     # CI-10: pinned to match build-linux runner
     runs-on: ubuntu-22.04
     # XS-25: cap branding-check runtime.
@@ -480,7 +480,7 @@ jobs:
 
   # BUILD-N08: client-build job
   client-build:
-    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
+    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     # CI-10: pinned to match build-linux runner
     runs-on: ubuntu-22.04
     # XS-25: cap client-build runtime (npm ci + typecheck + lint + test +
@@ -546,7 +546,7 @@ jobs:
   # `build-macos-universal` merged two identical arm64 slices and
   # silently produced a single-arch "universal" binary.
   build-native:
-    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
+    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check]
     strategy:
       matrix:
@@ -690,7 +690,7 @@ jobs:
   # (one per architecture) and matches Apple's universal-binary
   # convention for native helper tools.
   build-macos-universal:
-    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
+    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [build-native]
     runs-on: macos-14
     # XS-25: cap universal-binary merge runtime (lipo is fast).
@@ -771,7 +771,7 @@ jobs:
   # GAP-1: build-windows (renamed from "build"). Downloads the Windows
   # native binary from build-native, runs PyInstaller + Inno Setup.
   build-windows:
-    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
+    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check, build-native]
     runs-on: windows-2022
     # XS-25: cap Windows build runtime (PyInstaller + electron-builder
@@ -985,7 +985,7 @@ jobs:
   # x64 bundle is produced by an x64 Python interpreter installed below
   # (runs under Rosetta), so the .dmg still supports Intel Macs.
   build-macos:
-    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
+    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check, build-macos-universal]
     runs-on: macos-14
     # XS-25: cap macOS build runtime (PyInstaller + electron-builder .dmg).
@@ -1153,7 +1153,7 @@ jobs:
   # GAP-1: build-linux. Downloads the Linux native binary, runs
   # PyInstaller + electron-builder for .deb / .rpm / AppImage.
   build-linux:
-    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
+    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check, build-native]
     runs-on: ubuntu-22.04
     # XS-25: cap Linux build runtime (PyInstaller + electron-builder .deb/.rpm/AppImage).
