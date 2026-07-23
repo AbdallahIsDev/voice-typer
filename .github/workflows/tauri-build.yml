@@ -117,6 +117,10 @@ jobs:
     needs: [build-windows, build-macos, build-linux]
     if: always()
     runs-on: ubuntu-22.04
+    # XS-28: cap the aggregator — it only does 3 artifact downloads + a find
+    # + a re-upload. 10 min is plenty; without a cap a hung download-artifact
+    # could burn the default 360 min on a stalled run.
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:

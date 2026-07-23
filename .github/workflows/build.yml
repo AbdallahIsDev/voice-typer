@@ -2,6 +2,8 @@ name: Build installer
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -30,9 +32,22 @@ concurrency:
   group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || format('release-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# XS-54: top-level permissions default — least-privilege. Per-job
+# overrides widen where needed (release jobs need contents: write,
+# pip-audit-weekly / slow-tests need issues: write).
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   test:
+    # XS-REVIEW: skip the full test matrix on weekly schedule runs —
+    # only pip-audit-weekly should run on schedule.
+    if: github.event_name != 'schedule'
     runs-on: ${{ matrix.os }}
+    # XS-25: cap test job runtime — a hung pytest leg should not consume a
+    # runner for 6h (the GitHub default).
+    timeout-minutes: 30
     strategy:
       # CI-02: PRs run a reduced matrix (one Python per OS) to save CI
       # minutes; the full 4×3 matrix runs on push (branches/tags) where we
@@ -42,11 +57,16 @@ jobs:
       # remaining use of macos-13 — port it to macos-14 with
       # `architecture: x64` so the x86_64-only tests (win32 ABI parity,
       # ctypes.windll, pywin32 stub paths) keep running on an Intel
-      # Python interpreter under Rosetta 2 on the arm64 host. Apple
-      # Silicon-native tests are covered by the macos-14 default
-      # (arm64) runner in the push matrix entry below.
+      # Python interpreter under Rosetta 2 on the arm64 host.
+      # XS-24: the PR matrix keeps `architecture: x64` on the macOS-14
+      # entry to preserve Intel-parity coverage. The PUSH matrix no
+      # longer forces x64 globally — each OS uses its native arch
+      # (macOS-14 → arm64, ubuntu/windows → x64), so Apple Silicon now
+      # gets native-arm64 Python coverage on push runs. Previously the
+      # global `architecture:["x64"]` overrode macOS-14 to Rosetta x64
+      # on every push run too, contradicting the old comment.
       matrix:
-        ${{ github.event_name == 'pull_request' && fromJson('{"include":[{"os":"ubuntu-22.04","python-version":"3.12"},{"os":"windows-2022","python-version":"3.13"},{"os":"macos-14","python-version":"3.13","architecture":"x64"}]}') || fromJson('{"os":["windows-2022","ubuntu-22.04","macos-14"],"python-version":["3.10","3.11","3.12","3.13"],"architecture":["x64"]}') }}
+        ${{ github.event_name == 'pull_request' && fromJson('{"include":[{"os":"ubuntu-22.04","python-version":"3.12"},{"os":"windows-2022","python-version":"3.13"},{"os":"macos-14","python-version":"3.13","architecture":"x64"}]}') || fromJson('{"os":["windows-2022","ubuntu-22.04","macos-14"],"python-version":["3.10","3.11","3.12","3.13"]}') }}
       fail-fast: false
 
     steps:
@@ -56,11 +76,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          # BUILD-N03: when running on macos-14 (Apple Silicon),
-          # setup-python defaults to arm64. The macOS matrix entry
-          # explicitly sets architecture=x64 to keep testing the Intel
-          # interpreter (Rosetta 2 on the runner). Other OSes leave the
-          # value unset so the host arch is used.
+          # BUILD-N03 / XS-24: when running on macos-14 (Apple Silicon),
+          # setup-python defaults to arm64. The PR matrix's macOS-14
+          # entry explicitly sets architecture=x64 to keep testing the
+          # Intel interpreter (Rosetta 2 on the runner). The push matrix
+          # no longer carries an `architecture` key, so matrix.architecture
+          # evaluates to '' there → setup-python uses each OS's native
+          # arch (macOS-14 → arm64, ubuntu/windows → x64).
           architecture: ${{ matrix.architecture }}
 
       - name: Install uv
@@ -74,6 +96,10 @@ jobs:
           uv pip install --system ".[test]"
           # NEW-CI-001: install lint + audit tools.
           uv pip install --system ruff pip-audit
+          # XS-84: pytest-xdist enables `-n auto --dist=loadgroup` in
+          # the pytest invocation below — parallelises the 331-file
+          # suite across cores for ~2-3x CI speedup per matrix leg.
+          uv pip install --system pytest-xdist
           pip list
 
       # ── RW-11: ruff ratchet ────────────────────────────────────────
@@ -147,17 +173,17 @@ jobs:
       # locally via `pyrefly check` (uses project-includes in
       # pyproject.toml).
       #
-      # PYREFLY-HARD-GATE: error count driven from 143 → 0.
-      # pyrefly is now a hard gate — failures here will block the PR.
-      # DOC-7 / CR-074 / CR-188: the baseline file
-      # (`pyrefly-baseline.json`) is currently EMPTY ("errors": []) —
-      # the pre-CR-074 74-entry baseline was stale (line numbers +
-      # names no longer matched current code) and has been reset on
-      # 2026-07-21. The audit will catch growth from 0.
+      # XS-1: pyrefly 1.1.1's `check` command exits 0 even when it
+      # reports unsuppressed type errors, so the previous bare
+      # `pyrefly check voice_typer/` invocation was theatre (116 type
+      # errors silently passed on every PR). We now parse the JSON
+      # output and exit 1 if any errors are reported, making this a
+      # REAL gate. The pyrefly-baseline.json audit step below still
+      # catches growth in the suppressed-error baseline.
       - name: Run pyrefly type check
         run: |
           uv pip install --system pyrefly
-          pyrefly check voice_typer/
+          pyrefly check voice_typer/ --output-format=json | python -c "import sys,json; d=json.load(sys.stdin); sys.exit(1 if d.get('errors') else 0)"
 
       # S-12: pyrefly baseline audit.  The baseline file tracks
       # intentionally-suppressed platform-specific false positives.
@@ -204,9 +230,31 @@ jobs:
           fi
 
       - name: Run tests with coverage
+        # XS-9: --cov-fail-under=65 moved here from pyproject.toml addopts
+        # so local subset runs (e.g. `pytest tests/test_foo.py`) no
+        # longer trigger the coverage threshold (the conftest.py
+        # --cov-strip shim was dead code that gave a false sense of
+        # robustness — see XS-9).
+        # XS-84: -n auto --dist=loadgroup parallelises via pytest-xdist.
+        # XS-85: --junitxml emits pytest-results.xml consumed by the
+        # mikepenz/action-junit-report step below for PR annotations.
         run: |
-          python -m pytest tests/ -v --tb=short -q \
-            --cov=voice_typer --cov-report=xml --cov-report=term-missing
+          python -m pytest tests/ -n auto --dist=loadgroup -v --tb=short -q \
+            --cov=voice_typer --cov-fail-under=65 \
+            --cov-report=xml --cov-report=term-missing \
+            --junitxml=pytest-results.xml
+
+      # XS-85: publish test results as PR annotations so a single
+      # failing test among 331 files is surfaced directly on the diff
+      # instead of buried in -v --tb=short log output. `if: always()` so
+      # the report still publishes when the pytest step above fails.
+      - name: Test results
+        if: always()
+        uses: mikepenz/action-junit-report@v4
+        with:
+          check_name: Test results
+          report_paths: pytest-results.xml
+          require_tests: true
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
@@ -214,6 +262,17 @@ jobs:
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
+
+      # XS-86: coverage ratchet. The fixed --cov-fail-under=65 floor
+      # only catches catastrophic drops below 65%; this step catches
+      # silent erosion (e.g. 70% → 65.01%). Compares the current total
+      # coverage % against coverage-baseline.json and fails if current <
+      # baseline (epsilon 0.01% for float jitter). Run only on the
+      # ubuntu×3.12 leg (the canonical leg for Codecov upload) to avoid
+      # matrix fan-out cost and per-OS coverage variance noise.
+      - name: Coverage ratchet check
+        if: matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
+        run: python scripts/coverage_ratchet_check.py
 
       # S-2: pip-audit two-tier policy.
       #
@@ -237,24 +296,26 @@ jobs:
       #   - "block everything" (removing continue-on-error without a
       #     triaged ignore list would break CI on every upstream CVE)
       #
-      # CI-01: the per-PR gate no longer hard-fails. New vulnerabilities are
-      # surfaced as a warning annotation (and triaged weekly by
-      # pip-audit-weekly), so an unrelated upstream CVE does not block a PR.
-      # Accepted findings are listed below with a justification comment; add
-      # a new `--ignore-vuln <GHSA>` line here once a CVE is reviewed and
-      # deliberately accepted.
-      - name: pip-audit (warn on findings; full block handled weekly)
-        continue-on-error: true
+      # CI-01 / XS-56: the per-PR gate now HARD-FAILS on any finding.
+      # The previous `continue-on-error: true` meant vulnerabilities NEVER
+      # failed the build — pure security theatre. Accepted findings MUST
+      # be listed below as `--ignore-vuln <GHSA>` with a justification
+      # comment above each. The weekly pip-audit-weekly job re-runs the
+      # full audit (no ignore list) and posts a reminder issue if new
+      # findings appear, so triaged-and-accepted CVEs don't slip through.
+      #
+      # Remaining Work: as of 2026-07-21 the accepted-findings list below
+      # is EMPTY. If `pip-audit --strict` reports a finding on the next
+      # CI run, triage it: either pin/upgrade the affected dep to clear
+      # the CVE, OR add a `--ignore-vuln <GHSA>` line with a tracking
+      # issue number in a justification comment.
+      - name: pip-audit (fail on findings; weekly sweep handled separately)
         run: |
           # Accepted findings: add `--ignore-vuln <GHSA>` lines here with a
           # justification comment above each. Example:
           #   # requests: low-severity redirect issue, no fix available yet (tracked in #NNN)
           #   --ignore-vuln GHSA-xxxx-xxxx-xxxx
-          pip-audit --strict \
-            || (
-              echo "::warning::pip-audit found vulnerabilities." && \
-              echo "::warning::If this is a new finding, triage it in the weekly pip-audit-weekly job. If accepted, add a --ignore-vuln line above with a justification comment."
-            )
+          pip-audit --strict
 
   # S-2: weekly pip-audit sweep — runs the FULL audit (no ignore list)
   # on a schedule so we can re-triage new findings before they become
@@ -263,6 +324,8 @@ jobs:
     if: github.event_name == 'schedule'
     # CI-10: pinned to match build-linux runner
     runs-on: ubuntu-22.04
+    # XS-25: cap weekly audit runtime.
+    timeout-minutes: 30
     permissions:
       contents: read
       issues: write
@@ -314,7 +377,17 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # CI-10: pinned to match build-linux runner
     runs-on: ubuntu-22.04
-    continue-on-error: true
+    # XS-25: cap slow-test runtime (these are the manual-script wrappers
+    # — slower than the main suite).
+    timeout-minutes: 60
+    # XS-57: removed job-level `continue-on-error: true`. Slow-test
+    # regressions now surface in CI check status. A failure opens a
+    # tracking issue (see the issue-on-failure step below) so regressions
+    # in tests/manual/ scripts no longer rot invisibly in main-branch
+    # run logs. PRs are NOT blocked because this job only runs on main.
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
 
@@ -337,13 +410,32 @@ jobs:
       - name: Run slow manual-script wrappers
         # --no-cov: coverage is already collected by the main test job;
         # we only care whether the slow wrappers pass here.
+        # XS-57: capture stdout/stderr to /tmp/slow-tests-failure.txt so
+        # the issue-on-failure step below can attach the failure log.
         run: |
-          python -m pytest tests/test_manual_slow.py -v --tb=short --slow --no-cov
+          set +e
+          python -m pytest tests/test_manual_slow.py -v --tb=short --slow --no-cov > /tmp/slow-tests-failure.txt 2>&1
+          rc=$?
+          cat /tmp/slow-tests-failure.txt
+          exit $rc
+
+      # XS-57: open a tracking issue on failure so slow-test regressions
+      # are not buried in CI logs. Mirrors the pip-audit-weekly pattern.
+      - name: Open issue on slow-test failure
+        if: failure()
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "[slow-tests] Regression detected in tests/test_manual_slow.py"
+          content-filepath: /tmp/slow-tests-failure.txt
+          labels: testing,regression
 
   # NEW-CI-002: version sync check
   version-check:
+    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
     # CI-10: pinned to match build-linux runner
     runs-on: ubuntu-22.04
+    # XS-25: cap version-check runtime.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -358,15 +450,22 @@ jobs:
           cache-dependency-glob: "**/pyproject.toml"
 
       - name: Check version sync
+        # XS-8: pass --check so version drift across pyproject.toml,
+        # voice_typer/client/package.json, src-tauri/Cargo.toml, and
+        # src-tauri/tauri.conf.json FAILS CI instead of silently
+        # syncing (the previous bare invocation made the gate a no-op).
         run: |
           uv pip install --system -e ".[test]"
-          python scripts/build/sync_versions.py
+          python scripts/build/sync_versions.py --check
           python -c "from voice_typer import __version__; print(__version__)"
 
   # BRAND-001: branding consistency check
   branding-check:
+    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
     # CI-10: pinned to match build-linux runner
     runs-on: ubuntu-22.04
+    # XS-25: cap branding-check runtime.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -381,8 +480,12 @@ jobs:
 
   # BUILD-N08: client-build job
   client-build:
+    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
     # CI-10: pinned to match build-linux runner
     runs-on: ubuntu-22.04
+    # XS-25: cap client-build runtime (npm ci + typecheck + lint + test +
+    # build:renderer).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -441,6 +544,7 @@ jobs:
   # `build-macos-universal` merged two identical arm64 slices and
   # silently produced a single-arch "universal" binary.
   build-native:
+    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check]
     strategy:
       matrix:
@@ -483,6 +587,8 @@ jobs:
             artifact_name: linux-key-listener
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    # XS-25: cap native-binary compile runtime (Swift / MSVC / gcc).
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -582,8 +688,11 @@ jobs:
   # (one per architecture) and matches Apple's universal-binary
   # convention for native helper tools.
   build-macos-universal:
+    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
     needs: [build-native]
     runs-on: macos-14
+    # XS-25: cap universal-binary merge runtime (lipo is fast).
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -660,8 +769,18 @@ jobs:
   # GAP-1: build-windows (renamed from "build"). Downloads the Windows
   # native binary from build-native, runs PyInstaller + Inno Setup.
   build-windows:
+    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check, build-native]
     runs-on: windows-2022
+    # XS-25: cap Windows build runtime (PyInstaller + electron-builder
+    # NSIS are the slowest steps in the matrix).
+    timeout-minutes: 60
+    # XS-55: gate signing-secret exposure behind the `release` environment
+    # when triggered by a tag push. PRs / branches get '' (no environment),
+    # so WIN_CSC_LINK etc. are not exposed to non-release runs. The
+    # `release` environment should be configured with required reviewers
+    # in the repo settings to gate signed releases.
+    environment: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     permissions:
       contents: write
       # CI-09: required for actions/attest-build-provenance to generate signed attestations
@@ -862,8 +981,14 @@ jobs:
   # x64 bundle is produced by an x64 Python interpreter installed below
   # (runs under Rosetta), so the .dmg still supports Intel Macs.
   build-macos:
+    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check, build-macos-universal]
     runs-on: macos-14
+    # XS-25: cap macOS build runtime (PyInstaller + electron-builder .dmg).
+    timeout-minutes: 60
+    # XS-55: gate signing-secret exposure behind the `release` environment
+    # when triggered by a tag push. See build-windows for the same gate.
+    environment: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     permissions:
       contents: write
       id-token: write
@@ -1022,8 +1147,14 @@ jobs:
   # GAP-1: build-linux. Downloads the Linux native binary, runs
   # PyInstaller + electron-builder for .deb / .rpm / AppImage.
   build-linux:
+    if: github.event_name != "schedule"  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check, build-native]
     runs-on: ubuntu-22.04
+    # XS-25: cap Linux build runtime (PyInstaller + electron-builder .deb/.rpm/AppImage).
+    timeout-minutes: 60
+    # XS-55: gate signing-secret exposure behind the `release` environment
+    # when triggered by a tag push. See build-windows for the same gate.
+    environment: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     permissions:
       contents: write
       id-token: write

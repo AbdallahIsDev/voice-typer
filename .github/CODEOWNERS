@@ -1,0 +1,25 @@
+# Voice Typer — CODEOWNERS
+#
+# XS-72: GitHub auto-assigns the listed reviewers to PRs that touch
+# files matching each pattern. The default rule (first line) catches
+# anything not matched by a later, more specific rule. The specific
+# rules below mark CI/build infrastructure as requiring maintainer
+# review so a bad workflow edit or a malicious Tauri build script
+# cannot ship without a human looking at it.
+#
+# Syntax reference:
+#   https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+#
+# Note: paths are anchored at the repo root. A leading slash is the
+# default (root-anchored). Patterns without a leading slash match
+# anywhere in the tree — be deliberate.
+
+# Default: maintainers team
+*                           @AbdallahIsDev
+
+# CI/build infrastructure requires maintainer review
+/.github/                   @AbdallahIsDev
+/src-tauri/                 @AbdallahIsDev
+/voice_typer/client/        @AbdallahIsDev
+/scripts/build/             @AbdallahIsDev
+/pyproject.toml             @AbdallahIsDev

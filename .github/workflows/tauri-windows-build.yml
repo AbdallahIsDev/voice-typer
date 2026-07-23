@@ -60,11 +60,13 @@ on:
   # pull_request:
   #   branches: [main]
 
-# Cancel in-flight runs of the same workflow on the same ref when a new
-# push lands. Saves CI minutes; does not affect release builds.
+# CI-08-style concurrency: cancel in-flight PR builds, keep release
+# (workflow_dispatch) builds running. Unconditional `cancel-in-progress:
+# true` would cancel release builds mid-signing if a push landed while
+# notarization was in flight (mirrors tauri-linux-build.yml:54-57).
 concurrency:
   group: tauri-windows-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Pin to match the runbook. Override via workflow_dispatch inputs.
@@ -260,7 +262,13 @@ jobs:
         shell: pwsh
         run: |
           cd src-tauri
-          cargo tauri build --target x86_64-pc-windows-msvc
+          # XS-28: apply tauri.windows-x86_64.conf.json — the base
+          # tauri.conf.json `bundle.resources` array lists every platform's
+          # native binaries (a documented superset for the mig15/mig16
+          # source-inspection tests) and would hard-fail at the tauri-build
+          # resource-copy step on a Windows host (macOS/Linux-only files
+          # don't exist here).
+          cargo tauri build --target x86_64-pc-windows-msvc --config tauri.windows-x86_64.conf.json
 
       - name: Locate + verify installer artifacts
         id: artifacts

@@ -43,6 +43,9 @@ concurrency:
   group: tauri-macos-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read   # XS-28: explicit least-privilege top-level default
+
 jobs:
   # ─── Job 1: Apple Silicon (aarch64-apple-darwin) ────────────────────────────
   # Runs natively on a macos-14 runner (Apple Silicon).
@@ -63,13 +66,32 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: tauri-macos-aarch64-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            tauri-macos-aarch64-
+
       - name: Install uv
         uses: astral-sh/setup-uv@v3
+        with:
+          # XS-26: enable uv's own dependency cache so a warm runner re-uses
+          # the wheel cache across runs (mirrors tauri-linux-build.yml).
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          # XS-26: cache npm so a warm runner skips re-installing renderer deps.
+          cache: npm
+          cache-dependency-path: voice_typer/client/package-lock.json
 
       - name: Install Xcode command-line tools
         run: |
@@ -134,13 +156,31 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: tauri-macos-x86_64-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            tauri-macos-x86_64-
+
       - name: Install uv
         uses: astral-sh/setup-uv@v3
+        with:
+          # XS-26: enable uv's own dependency cache (mirrors tauri-linux-build.yml).
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          # XS-26: cache npm so a warm runner skips re-installing renderer deps.
+          cache: npm
+          cache-dependency-path: voice_typer/client/package-lock.json
 
       - name: Install Xcode command-line tools + Rosetta 2
         run: |
@@ -207,13 +247,31 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: tauri-macos-universal-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            tauri-macos-universal-
+
       - name: Install uv
         uses: astral-sh/setup-uv@v3
+        with:
+          # XS-26: enable uv's own dependency cache (mirrors tauri-linux-build.yml).
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          # XS-26: cache npm so a warm runner skips re-installing renderer deps.
+          cache: npm
+          cache-dependency-path: voice_typer/client/package-lock.json
 
       - name: Install Node deps + build renderer
         run: |
@@ -250,7 +308,12 @@ jobs:
         run: |
           cd src-tauri
           cargo install tauri-cli --version "^2.0"
-          cargo tauri build --target universal-apple-darwin
+          # XS-28: apply tauri.macos.conf.json — the base tauri.conf.json
+          # `bundle.resources` array lists every platform's native binaries
+          # (a documented superset for the mig15/mig16 source-inspection tests)
+          # and would hard-fail at the tauri-build resource-copy step on a
+          # macOS host (Linux/Windows-only files don't exist here).
+          cargo tauri build --target universal-apple-darwin --config tauri.macos.conf.json
           cd ..
 
       - name: Notarize + staple (if secrets present)

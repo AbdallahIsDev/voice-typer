@@ -61,6 +61,18 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
 
+      # XS-FIX-4: explicit setup-python@v5 for parity with build.yml /
+      # tauri-*-build.yml. The `uv pip install --system` step below
+      # writes into the system Python, so we need a known Python version
+      # pinned (3.12 = the project's target). Without this, the runner's
+      # default Python (varies by image age) is used and the wheel cache
+      # keyed on pyproject.toml can silently miss when the Python minor
+      # version drifts.
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Snapshot pre-run manifest
         id: pre
         run: |
@@ -103,6 +115,11 @@ jobs:
           name: model-hashes-patch
           path: ${{ github.workspace }}/model-hashes.patch
           if-no-files-found: error
+          # XS-FIX-4: default 90-day retention is overkill for a patch
+          # artifact that's meant to be downloaded + applied within a
+          # day of the workflow run. 30 days covers the longest realistic
+          # maintainer-review lag and reduces Actions storage billing.
+          retention-days: 30
 
       - name: Summary
         if: always()

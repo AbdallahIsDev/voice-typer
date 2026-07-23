@@ -26,6 +26,14 @@ updates:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+    # XS-73: group ALL github-actions updates into a single PR. Without
+    # this block, each action (actions/checkout, actions/setup-node,
+    # actions/setup-python, github/codeql-action, etc.) gets its own PR
+    # — ~10 actions across 9 workflows = PR flooding on Monday mornings.
+    groups:
+      actions-deps:
+        patterns:
+          - "*"
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     schedule:

@@ -17,10 +17,19 @@ concurrency:
   group: client-ci-${{ github.ref }}
   cancel-in-progress: true
 
+# XS-69 / supply-chain: least-privilege permissions for the client CI.
+permissions:
+  contents: read
+
 jobs:
   client:
     name: Typecheck + Lint + Test
-    runs-on: ubuntu-latest
+    # XS-69: pin to ubuntu-22.04 instead of ubuntu-latest so runner image
+    # is deterministic (ubuntu-latest flips to 24.04 mid-2025 and broke
+    # libasound2 dependency resolution for our playwright sound-cue
+    # check in adjacent workflows).
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: voice_typer/client
@@ -53,5 +62,11 @@ jobs:
       - name: Sound cue distinctness check
         run: python ../../scripts/build/generate_beeps.py --check
 
-      - name: Test (Vitest)
-        run: npm test
+      # XS-69: run with --coverage so the vitest.config.ts thresholds
+      # (lines/functions/statements 70%, branches 60%) are actually
+      # enforced. The `test:coverage` script (added by XS-FIX-19) runs
+      # `vitest run --coverage` and requires @vitest/coverage-v8 (also
+      # added by XS-FIX-19). Without --coverage the thresholds are dead
+      # config — coverage can regress silently.
+      - name: Test (Vitest + coverage)
+        run: npm run test:coverage
