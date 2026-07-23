@@ -94,7 +94,23 @@ log = logging.getLogger("voice_typer.server.credential_store")
 #: single service, with the provider name as the username key. This
 #: matches the convention recommended by the keyring docs (one service
 #: per application, multiple usernames).
-KEYRING_SERVICE_NAME = "voice-typer"
+#:
+#: XZ-SEC-08: changed from the bare ``"voice-typer"`` to the reverse-DNS
+#: form ``"app.voicetyper"`` so another app registering the same bare
+#: service name cannot read Voice Typer secrets (or pollute our
+#: namespace). :func:`migrate_secrets_to_keyring` performs a one-time
+#: cutover that copies entries stored under any name in
+#: :data:`_LEGACY_KEYRING_SERVICE_NAMES` to the new name and deletes
+#: the legacy entries (gated on the ``service_name_migrated`` config
+#: flag so it only runs once per install).
+KEYRING_SERVICE_NAME = "app.voicetyper"
+
+#: Prior service names used by Voice Typer. :func:`migrate_secrets_to_keyring`
+#: copies any keyring entries stored under these names to
+#: :data:`KEYRING_SERVICE_NAME` and deletes the originals. Listed in
+#: reverse-chronological order (most recent first) so a partial cutover
+#: that was interrupted is completed correctly on the next launch.
+_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("voice-typer",)
 
 #: The prefix used in config.json reference tokens. A flat api_key field
 #: whose value starts with this prefix is treated as "the real secret
@@ -726,35 +742,50 @@ def _write_plaintext_fallback(provider: str, value: str) -> None:
     Preserves all other config fields.
 
     On any I/O error, logs and returns — never raises.
+
+    XZ-SEC-02: the read-modify-write is now wrapped in
+    ``_acquire_config_lock()`` (the same cross-process lock used by
+    ``Config.save()`` and ``migrate_secrets_to_keyring``). Pre-fix,
+    a concurrent ``Config.save()`` could clobber the field written
+    here (or vice versa) because the two writers didn't coordinate.
+    The lock is re-acquired per call (fcntl.flock/msvcrt.locking on
+    a fresh fd), so nesting under an already-held lock (e.g. when
+    ``Config.save()`` calls ``store_secret`` → this function) is safe
+    — the inner flock is a separate fd and fcntl.flock is per-fd.
     """
     try:
         from voice_typer.server.config import (
+            _acquire_config_lock,
             _config_dir,
             _secure_atomic_write,
             _secure_read_text,
         )
 
         config_file = _config_dir() / "config.json"
-        data: dict[str, Any] = {}
-        if config_file.exists():
-            try:
-                data = json.loads(_secure_read_text(config_file))
-                if not isinstance(data, dict):
+        # XZ-SEC-02: hold the cross-process lock for the full
+        # read-modify-write so concurrent Config.save() / migration
+        # can't clobber our change (or vice versa).
+        with _acquire_config_lock():
+            data: dict[str, Any] = {}
+            if config_file.exists():
+                try:
+                    data = json.loads(_secure_read_text(config_file))
+                    if not isinstance(data, dict):
+                        data = {}
+                except Exception:
                     data = {}
-            except Exception:
-                data = {}
-        field = PROVIDER_TO_CONFIG_FIELD.get(provider)
-        if not field:
-            return
-        if value:
-            data[field] = value
-        elif field in data:
-            # Clear the field rather than leaving a stale value
-            data[field] = ""
-        else:
-            # Field not present and we're clearing — nothing to do.
-            return
-        _secure_atomic_write(config_file, json.dumps(data, indent=2))
+            field = PROVIDER_TO_CONFIG_FIELD.get(provider)
+            if not field:
+                return
+            if value:
+                data[field] = value
+            elif field in data:
+                # Clear the field rather than leaving a stale value
+                data[field] = ""
+            else:
+                # Field not present and we're clearing — nothing to do.
+                return
+            _secure_atomic_write(config_file, json.dumps(data, indent=2))
         if value:
             log.info(
                 "[CREDENTIAL_STORE] wrote plaintext fallback for provider=%s (len=%d) to config.json",

@@ -125,13 +125,16 @@ def _secure_read_text(path: os.PathLike, *, encoding: str = "utf-8") -> str:
                 os.close(fd)
             raise
     else:
+        # XZ-R10-01: split the try so the deliberate reparse-point raise
+        # is NOT caught by the tolerant except (which previously swallowed
+        # it, making the Windows reparse-point protection dead code).
         try:
             stat_result = os.lstat(str(p)) if hasattr(os, "lstat") else None
             attrs = getattr(stat_result, "st_file_attributes", 0) or 0
-            if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
-                raise OSError(f"SEC-002: refusing to follow reparse point: {p}")
         except (AttributeError, OSError):
-            pass
+            attrs = 0
+        if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
+            raise OSError(f"SEC-002: refusing to follow reparse point: {p}")
         with open(p, encoding=encoding) as f:
             stat_before = os.fstat(f.fileno())
             content = f.read()

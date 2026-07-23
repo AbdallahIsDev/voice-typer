@@ -67,12 +67,33 @@ with proper ``ctypes.Structure`` definitions (``SID_AND_ATTRIBUTES``,
 
 from __future__ import annotations
 
+import ctypes
 import logging
 import weakref
 
 from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
+
+# XS-101 (IMPROVE-mode run XS): ``ctypes.wintypes.VOID`` is absent on
+# Linux/macOS (the ``wintypes`` module simply doesn't define it on
+# non-Windows Python builds, even though ``ctypes`` itself is importable).
+# The Windows-only body of ``_create_restrictive_security_attributes``
+# below references ``wintypes.VOID`` inside the ``SID_AND_ATTRIBUTES``
+# ``ctypes.Structure`` definition; on Linux this previously raised
+# ``AttributeError: module 'ctypes.wintypes' has no attribute 'VOID'``
+# whenever the function was invoked (which happens during the
+# ``test__security_attributes.py`` suite — the test mocks
+# ``ctypes.windll`` but does NOT patch ``wintypes.VOID``). On Windows,
+# ``wintypes.VOID`` exists and is a synonym for ``ctypes.c_void_p``.
+# We bind a module-level ``VOID`` symbol that prefers the genuine
+# ``wintypes.VOID`` when available and falls back to ``ctypes.c_void_p``
+# otherwise — then use ``VOID`` (not ``wintypes.VOID``) in the Structure
+# ``_fields_`` declaration below.
+try:
+    from ctypes.wintypes import VOID  # type: ignore[attr-defined]
+except (ImportError, AttributeError):  # pragma: no cover - non-Windows
+    VOID = ctypes.c_void_p
 
 
 def _create_restrictive_security_attributes():
@@ -91,7 +112,6 @@ def _create_restrictive_security_attributes():
     if not is_windows():
         return None
     try:
-        import ctypes
         from ctypes import wintypes
 
         advapi32 = ctypes.windll.advapi32
@@ -100,9 +120,15 @@ def _create_restrictive_security_attributes():
         # CR-001 / CR-002 (IMPROVE-mode run, 2026-07-21): proper ctypes
         # Structure definitions replace the manual byte-array + memmove
         # construction that had wrong offsets on x64.
+        # XS-101 (IMPROVE-mode run XS): ``VOID`` is the module-level
+        # fallback symbol (``wintypes.VOID`` on Windows,
+        # ``ctypes.c_void_p`` on Linux). Using ``VOID`` here instead of
+        # ``wintypes.VOID`` lets the Structure be defined on Linux when
+        # the test suite invokes this function with mocked
+        # ``ctypes.windll``.
         class SID_AND_ATTRIBUTES(ctypes.Structure):  # noqa: N801
             _fields_ = [
-                ("Sid", ctypes.POINTER(wintypes.VOID)),
+                ("Sid", ctypes.POINTER(VOID)),
                 ("Attributes", wintypes.DWORD),
             ]
 

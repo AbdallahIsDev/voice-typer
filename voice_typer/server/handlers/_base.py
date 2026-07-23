@@ -118,8 +118,11 @@ class HandlerBase(HandlerMixinBase):
     ``str(e)`` is ever sent to the renderer. The three-way
     error-envelope drift documented in PVT-G5-070 is eliminated:
     every handler catch-all now emits the same
-    ``{"code": "internal_error", "message": "internal error"}``
-    envelope as the dispatcher's outer ``except Exception``.
+    ``{"code": "server.internal_error", "message": "internal error"}``
+    envelope as the dispatcher's outer ``except Exception`` (G4-M-22
+    namespaced form — the dispatcher itself may still emit the legacy
+    ``internal_error`` alias on some paths; the renderer must accept
+    both forms, see ``voice_typer/server/ipc/validation.py``).
     Per-command VALIDATION errors (``missing_field``,
     ``invalid_payload``, ``payload_too_large``, etc.) remain the
     handler's responsibility and continue to route through
@@ -134,8 +137,8 @@ class HandlerBase(HandlerMixinBase):
         resp :
             The response dict the handler was building. Mutated in
             place: ``type`` is set to ``"error"`` and ``data`` is set
-            to the generic envelope ``{"code": "internal_error",
-            "message": "internal error"}``.
+            to the generic envelope ``{"code": "server.internal_error",
+            "message": "internal error"}`` (G4-M-22 namespaced form).
         exc :
             The exception that triggered the error path. Logged at
             ERROR with ``exc_info=True`` so the full traceback lands
@@ -174,8 +177,14 @@ class HandlerBase(HandlerMixinBase):
         """
         log.error("[IPC] %s failed: %s", cmd_name, exc, exc_info=True)
         resp["type"] = "error"
+        # G4-M-22 / EC-FIX-4: use the namespaced form
+        # ``server.internal_error`` rather than the legacy bare
+        # ``internal_error``. The renderer's ``usePython.ts`` switch
+        # accepts both forms (the legacy alias is documented in
+        # ``voice_typer/server/ipc/validation.py``); new emitters MUST
+        # use the namespaced form.
         resp["data"] = {
-            "code": "internal_error",
+            "code": "server.internal_error",
             "message": "internal error",
         }
         return resp

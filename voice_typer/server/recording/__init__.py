@@ -103,9 +103,12 @@ for several names ``X``:
       # % 100 == 0: re-log with exc_info every 100th occurrence
       # traceback suppressed: log message for intermediate occurrences
       # np.dot(flat, flat): vectorized RMS computation (AUDIO-007)
-      # rms_callback(chunk_rms, chunk_peak): 2-arg callback signature
-      #   (G4-L-04: the 3rd ``filtered`` arg was removed — no consumer
-      #    used it after BUBBLE-FIX-4.1 disabled the VAD gate)
+      # rms_callback(chunk_rms, chunk_peak, filtered): 3-arg callback signature
+      #   (T021 / R18-F12: the 3rd ``filtered`` arg forwards the filtered
+      #    audio chunk so WaveformBubble can run Silero VAD on the live
+      #    stream. G4-L-04 temporarily removed it, but BUBBLE-FIX-4.1's
+      #    VAD gate was re-enabled after the Silero model learned to
+      #    resample native-rate audio internally.)
 """
 
 from __future__ import annotations
@@ -148,11 +151,14 @@ log = logging.getLogger(__name__)
 # it here so ``from voice_typer.server.recording import X`` keeps working.
 from .buffer import (  # noqa: E402
     _BUFFER_CLEAR_QUEUE_MAXSIZE,
+    BUFFER_CLEAR_WORKER_NAME,
     _buffer_clear_queue,
     _buffer_clear_worker_loop,
     _ensure_buffer_clear_worker,
     _secure_clear_array,
     _secure_clear_array_background,
+    _stop_buffer_clear_worker,
+    set_thread_registry,
 )
 from .device_manager import (  # noqa: E402 — PVT-22 / Phase 4.5 split
     DeviceManager,
@@ -234,12 +240,15 @@ __all__ = [
     "ResampleUnavailable",
     "ResampleUnavailableError",
     # buffer
+    "BUFFER_CLEAR_WORKER_NAME",
     "_BUFFER_CLEAR_QUEUE_MAXSIZE",
     "_buffer_clear_queue",
     "_buffer_clear_worker_loop",
     "_ensure_buffer_clear_worker",
     "_secure_clear_array",
     "_secure_clear_array_background",
+    "_stop_buffer_clear_worker",
+    "set_thread_registry",
     # resampling
     "_RESAMPLE_RETRY_INTERVAL",
     "_SCIPY_PRELOADER_JOIN_TIMEOUT_S",
@@ -287,9 +296,9 @@ __all__ = [
 #   % 100 == 0                  # re-log with exc_info every 100th occurrence
 #   "traceback suppressed"      # log message for intermediate occurrences
 #   np.dot(flat, flat)          # vectorized RMS computation (AUDIO-007)
-#   rms_callback(chunk_rms, chunk_peak)  # 2-arg callback signature
-#   (G4-L-04: the 3rd ``filtered`` arg was removed — no consumer
-#    used it after BUBBLE-FIX-4.1 disabled the VAD gate)
+#   rms_callback(chunk_rms, chunk_peak, filtered)  # 3-arg callback signature
+#   (T021 / R18-F12: the 3rd ``filtered`` arg forwards the filtered audio
+#    chunk so WaveformBubble can run Silero VAD on the live stream)
 #
 # SEC-audit-008 / buffer-zeroing echo: tests in
 # tests/test_security_hardening.py::TestAudioBufferZeroing open
@@ -367,16 +376,16 @@ _MUTABLE_BUFFER = frozenset(
     }
 )
 
-# NOTE (2026-07-20): ``set_thread_registry`` was previously added here as
-# part of a merge-damage repair, but the authoritative HEAD version of
-# ``recorder.py`` does NOT call it — it was orphan code from the merge,
-# not an original feature. The function + ``_thread_registry`` global
-# have been removed to avoid a future agent re-adding the call site and
-# re-introducing the ``UnboundLocalError`` crash. If ThreadRegistry
-# propagation to the buffer worker is genuinely needed in the future,
-# implement it properly: define the setter, add the call at the correct
-# scope in ``recorder.py`` (start() method level, NOT inside the callback
-# closure), and have ``buffer._ensure_buffer_clear_worker`` register.
+# NOTE (2026-07-20, updated XS-FIX-15): ``set_thread_registry`` was
+# previously removed as merge damage, but the R4-F8 contract
+# (``tests/test_i5_retry_fixes.py::TestR4F8BufferClearWorkerRegistry``)
+# pins on its existence: the buffer-clear worker must register with a
+# central ThreadRegistry so ``shutdown_all()`` can join it during
+# ``VoiceTyperApp.quit()``. The function + ``_thread_registry`` global
+# have been re-added to ``buffer.py`` per the R4-F8 contract. The
+# setter is called by tests directly (``buffer.set_thread_registry(reg)``);
+# ``recorder.py`` does NOT call it (the buffer worker is lazily started
+# by ``_secure_clear_array_background``, not by ``Recorder.__init__``).
 
 
 class _RecordingModule(sys.modules[__name__].__class__):

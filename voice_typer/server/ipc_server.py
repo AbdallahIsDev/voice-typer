@@ -1159,10 +1159,15 @@ class IPCServer(
                     # PVT-G5-011: pass the LOCAL ``client`` so the error
                     # reaches the originating socket, not a concurrently-
                     # reconnected ``self._tcp_client``.
+                    # EC-FIX-2 / EC-10: align to the namespaced
+                    # ``server.internal_error`` form so the renderer's
+                    # ``ErrorEvent.code`` narrowing switches on a single
+                    # canonical prefix (``server.*``) across the TCP /
+                    # stdin / WS transports.
                     err: dict[str, object] = {
                         "type": "error",
                         "data": {
-                            "code": "internal_error",
+                            "code": "server.internal_error",
                             "message": "internal error",
                         },
                     }
@@ -1527,11 +1532,15 @@ class IPCServer(
                         dispatch_exc,
                         exc_info=True,
                     )
+                    # EC-FIX-2 / EC-10: align to the namespaced
+                    # ``server.internal_error`` form (same as the TCP
+                    # dispatch-level error handler above) so the
+                    # renderer can switch on a single canonical prefix.
                     self._send(
                         {
                             "type": "error",
                             "data": {
-                                "code": "internal_error",
+                                "code": "server.internal_error",
                                 "message": "internal error",
                             },
                         },
@@ -1575,10 +1584,15 @@ class IPCServer(
         # but not ``is True`` — keep exercising the dispatch path instead
         # of short-circuiting here.
         if getattr(self.app, "_shutting_down", False) is True:
+            # EC-FIX-2 / EC-10: align to the namespaced
+            # ``server.shutting_down`` form so the WS path
+            # (sidecar_ws.py, which already emits this code) and the
+            # TCP / stdin path produce identical envelopes —
+            # restoring the IPC-5 parity contract that had drifted.
             err: dict[str, object] = {
                 "type": "error",
                 "data": {
-                    "code": "shutting_down",
+                    "code": "server.shutting_down",
                     "message": "server is shutting down",
                 },
             }
@@ -1692,6 +1706,14 @@ class IPCServer(
         "save_templates": "_handle_save_templates",
         "restart_app": "_handle_restart_app",
         "quit_app": "_handle_quit_app",
+        # EC-FIX-2 / EC-9: Tauri host's cooperative-shutdown command.
+        # Registered in the shared dispatch table so the WS transport
+        # (sidecar_ws.py) can drop its special-case intercept and route
+        # ``shutdown`` through the same path as every other command.
+        # The handler delegates to ``self.service.quit()`` (NOT
+        # ``self.app.quit()``) so any side-effect added to the service
+        # layer runs identically on TCP / stdin / WS.
+        "shutdown": "_handle_shutdown",
         "onboarding_is_first_run": "_handle_onboarding_is_first_run",
         "onboarding_start": "_handle_onboarding_start",
         "onboarding_get_step": "_handle_onboarding_get_step",
@@ -1806,15 +1828,19 @@ class IPCServer(
 
         item_id = validated["id"]
         tray = getattr(self.app, "tray", None)
+        # EC-FIX-2 / EC-10: align to the namespaced
+        # ``server.unknown_tray_item`` form so the renderer's
+        # ``ErrorEvent.code`` narrowing switches on a single canonical
+        # prefix (``server.*``) across all error emitters.
         if tray is None or not hasattr(tray, "dispatch_tray_action"):
             resp["type"] = "error"
-            resp["data"] = {"code": "unknown_tray_item", "id": item_id}
+            resp["data"] = {"code": "server.unknown_tray_item", "id": item_id}
             return resp
 
         handled = tray.dispatch_tray_action(item_id)
         if not handled:
             resp["type"] = "error"
-            resp["data"] = {"code": "unknown_tray_item", "id": item_id}
+            resp["data"] = {"code": "server.unknown_tray_item", "id": item_id}
             return resp
 
         return {"type": "result", "data": {"ok": True}}
@@ -1828,11 +1854,55 @@ class IPCServer(
         # previous payload only had a free-text `message`, which
         # forced clients to substring-match the message to tell
         # the two cases apart.
+        # EC-FIX-2 / EC-10: align to the namespaced ``server.unknown_command``
+        # form so the renderer's ``ErrorEvent.code`` narrowing can
+        # switch on a single canonical prefix (``server.*``).
         resp["data"] = {
-            "code": "unknown_command",
+            "code": "server.unknown_command",
             "message": f"Unknown command: {cmd}",
             "command": cmd,
         }
+        return resp
+
+    def _handle_shutdown(self, data, resp) -> dict:
+        """Handle the ``shutdown`` IPC command (EC-FIX-2 / EC-9).
+
+        ADR-0020 §10: cooperative shutdown. The Tauri host sends this
+        to ask the backend to release the mic / volume / mutex and
+        exit cleanly. Previously this command was intercepted by
+        ``sidecar_ws._make_dispatch`` BEFORE dispatch, calling
+        ``server.app.quit()`` directly and bypassing the service layer
+        — so any future shutdown side-effect added to
+        :meth:`VoiceTyperService.quit` silently wouldn't run on Tauri.
+
+        The fix registers ``shutdown`` in :data:`_COMMAND_REGISTRY` so
+        the command flows through the shared dispatch table on every
+        transport (TCP / stdin / WS) and delegates to
+        :meth:`self.service.quit` (the same path ``quit_app`` already
+        takes). The ack is returned synchronously; the actual teardown
+        happens on the service layer's shutdown controller (which
+        schedules cleanup on a background thread, so the ack frame
+        reaches the host before the process exits).
+
+        The response shape (``{"type": "result", "data": {"ack": True}}``)
+        matches the prior WS-path ack so the Tauri Rust host's
+        ``shutdown`` match arm (which awaits this exact envelope) keeps
+        working unchanged.
+        """
+        # EC-FIX-2: delegate to the service layer (NOT self.app.quit())
+        # so shutdown side-effects added to VoiceTyperService.quit run
+        # identically across TCP / stdin / WS transports.
+        try:
+            self.service.quit()
+        except Exception as e:
+            # The service-layer shutdown controller is best-effort; a
+            # failure here (e.g. the tray is mid-teardown) must NOT
+            # strand the host waiting for an ack. Log server-side and
+            # still return the ack so the host proceeds to its
+            # hard-timeout backstop (kill_children).
+            log.error("[IPC] shutdown: service.quit() raised: %s", e, exc_info=True)
+        resp["type"] = "result"
+        resp["data"] = {"ack": True}
         return resp
 
     # ── Output ──────────────────────────────────────────────────────────
@@ -2212,7 +2282,6 @@ def main() -> None:
     import os
 
     from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging
-    from voice_typer.server.config import _config_dir
 
     try:
         _pkg_version = importlib.metadata.version("voice-typer")
@@ -2313,73 +2382,19 @@ def main() -> None:
         # the app's log file and a dedicated diagnostic file so debugging
         # is possible.
         log.exception("[FATAL] VoiceTyperApp() construction failed")
-        try:
-            import io
-            import traceback
+        # EC-FIX-2 / EC-8: the io.StringIO → traceback → _redact_text →
+        # _secure_atomic_write → /tmp-fallback pattern is encapsulated
+        # in ``ipc_diagnostics.write_startup_diagnostic`` so the
+        # construction-failure and app.start()-failure paths share a
+        # single source of truth (the two inline blocks had already
+        # drifted once — CR-10's overwrite-vs-append fix was applied to
+        # only one). The helper preserves the historical
+        # "Voice Typer startup failed at <time>" header so
+        # ``tests/test_ipc_server_main_diagnostics.py``'s substring
+        # assertions keep passing.
+        from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
 
-            from voice_typer.server.config import _secure_atomic_write
-            from voice_typer.server.security import _redact_text
-
-            buf = io.StringIO()
-            buf.write(f"Voice Typer startup failed at {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            buf.write(f"sys.executable: {sys.executable}\n")
-            # G4-M-27: redact secret-bearing argv entries before dumping.
-            # ``sys.argv`` may carry ``--ipc-token sk-…`` or env-style
-            # ``KEY=value`` pairs that include API keys / bearer tokens.
-            # The PIIRedactionFilter attached to the rotating log handler
-            # would scrub these in normal log lines, but this diagnostic
-            # file is written via _secure_atomic_write — bypassing the
-            # logging filter. Pipe each argv entry through ``_redact_text``
-            # so secrets are masked the same way they would be in a log
-            # record.
-            redacted_argv = [_redact_text(str(arg)) for arg in sys.argv]
-            buf.write(f"sys.argv: {redacted_argv}\n")
-            traceback.print_exc(file=buf)
-            # G4-M-27: redact the traceback text too. ``traceback.print_exc``
-            # can include ``str(exception)`` which may carry a URL with
-            # ``?key=sk-…`` or an env-var dump from a buggy handler —
-            # piping through ``_redact_text`` mirrors the PIIRedactionFilter
-            # behavior that the rotating file log applies to ``log.exception``.
-            diag_path = _config_dir() / "startup-error.log"
-            _secure_atomic_write(diag_path, _redact_text(buf.getvalue()))
-            log.error("[FATAL] Diagnostic written to %s", diag_path)
-        except Exception as write_exc:
-            # CR-40: last-resort — try stderr then a temp file so the
-            # traceback isn't lost (e.g. read-only config dir under
-            # pythonw.exe where stdout/stderr are also devnull).
-            print(buf.getvalue(), file=sys.stderr)
-            try:
-                import tempfile
-                from pathlib import Path
-
-                # G4-M-27: the /tmp fallback must be (a) PII-redacted
-                # (same as the config-dir path) and (b) owner-only.
-                # ``Path.write_text`` creates the file with the process
-                # umask (typically 0o644) — world-readable, which leaks
-                # the redacted-but-still-sensitive traceback (paths,
-                # library versions, possibly partial secrets that
-                # ``_redact_text`` missed) to any local user.
-                # ``os.open(O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)``
-                # + ``os.fdopen`` creates the file atomically with
-                # owner-only permissions; ``O_EXCL`` prevents silently
-                # clobbering an existing file (a symlink attack vector).
-                redacted_payload = _redact_text(buf.getvalue())
-                tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
-                fd = os.open(
-                    str(tmp),
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    0o600,
-                )
-                with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as f:
-                    f.write(redacted_payload)
-                log.error(
-                    "[FATAL] Could not write %s; wrote to %s instead (write error: %s)",
-                    diag_path,
-                    tmp,
-                    write_exc,
-                )
-            except Exception:
-                log.error("[FATAL] Could not write diagnostic anywhere: %s", write_exc)
+        write_startup_diagnostic("construction")
         # NEW-CLI-003: use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
 
@@ -2508,70 +2523,15 @@ def main() -> None:
         # KeyboardInterrupt and GeneratorExit. Now catches only Exception
         # so Ctrl+C and SystemExit propagate normally to the finally block.
         log.exception("[FATAL] app.start() raised — shutting down")
-        # Also write to the diagnostic file for users running under
-        # pythonw.exe where stdout/stderr are devnull.
-        try:
-            import io
-            import traceback
+        # EC-FIX-2 / EC-8: route through the shared diagnostic helper
+        # (same as the construction-failure path above). The helper
+        # preserves the historical
+        # "\n--- app.start() failed at <time> ---\n" header and the
+        # CR-10 overwrite-vs-append semantics so repeated relaunch
+        # crashes don't grow ``startup-error.log`` without bound.
+        from voice_typer.server.ipc_diagnostics import write_startup_diagnostic
 
-            from voice_typer.server.config import _secure_atomic_write
-            from voice_typer.server.security import _redact_text
-
-            buf = io.StringIO()
-            buf.write(f"\n--- app.start() failed at {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
-            traceback.print_exc(file=buf)
-            diag_path = _config_dir() / "startup-error.log"
-            # CR-10: OVERWRITE (not append) the diagnostic file.  The
-            # previous implementation read the existing content and
-            # appended, which made ``startup-error.log`` grow without
-            # bound across repeated ``app.start()`` failures (the
-            # operator would hit the same crash on every relaunch and
-            # the file accumulated every traceback).  Capping at one
-            # entry mirrors the construction-failure path above (line
-            # ~2445) and keeps the file a useful "what just happened"
-            # diagnostic instead of a multi-MB append-only log.
-            #
-            # G4-M-27: pipe through ``_redact_text`` (same as the
-            # construction-failure path) so secrets in the traceback —
-            # e.g. ``ConnectionError("?key=sk-…")`` — are masked
-            # before the file is written. The PIIRedactionFilter on
-            # the rotating log handler scrubs ``log.exception`` lines,
-            # but this diagnostic file bypasses the logging filter.
-            _secure_atomic_write(diag_path, _redact_text(buf.getvalue()))
-            log.error("[FATAL] Diagnostic written to %s", diag_path)
-        except Exception as write_exc:
-            # CR-40: last-resort — try stderr then a temp file so the
-            # traceback isn't lost (e.g. read-only config dir under
-            # pythonw.exe where stdout/stderr are also devnull).
-            print(buf.getvalue(), file=sys.stderr)
-            try:
-                import tempfile
-                from pathlib import Path
-
-                # G4-M-27: mirror the construction-failure /tmp fallback:
-                # PII-redact the payload AND create the file with
-                # ``os.open(O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)``
-                # + ``os.fdopen`` so the file is owner-only. The
-                # previous ``tmp.write_text`` call created the file
-                # with the process umask (typically 0o644), leaking
-                # the traceback to any local user.
-                redacted_payload = _redact_text(buf.getvalue())
-                tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
-                fd = os.open(
-                    str(tmp),
-                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
-                    0o600,
-                )
-                with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as f:
-                    f.write(redacted_payload)
-                log.error(
-                    "[FATAL] Could not write %s; wrote to %s instead (write error: %s)",
-                    diag_path,
-                    tmp,
-                    write_exc,
-                )
-            except Exception:
-                log.error("[FATAL] Could not write diagnostic anywhere: %s", write_exc)
+        write_startup_diagnostic("app.start()")
         # NEW-CLI-003: use the standardized exit code instead of raw 1.
         sys.exit(EXIT_CRASH)
     else:

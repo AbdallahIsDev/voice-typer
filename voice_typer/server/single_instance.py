@@ -235,22 +235,25 @@ def _ensure_single_instance(silent: bool = False):
     restart token file must have been modified within the last 30 seconds
     for the bypass to be accepted.
     """
-    if not is_windows():
-        # CR-16: POSIX single-instance enforcement via lockfile.
-        # Previously returned None immediately on macOS/Linux, leaving
-        # NO single-instance gate on the Python backend for POSIX. The
-        # autostart launcher could spawn duplicate backends that
-        # competed for the microphone, hotkeys, and volume control.
-        # The lockfile is created with O_CREAT|O_EXCL|O_CLOEXEC; on
-        # EEXIST we read the PID, check liveness, and either exit (alive)
-        # or reclaim (stale). The fd is returned (held for process
-        # lifetime, analogous to the Windows mutex handle).
-        return _ensure_single_instance_posix(silent=silent)
-
-    # Skip mutex check during restart -- old instance releases mutex on quit
-    # CR-11: dispatch to the platform-specific enforcement path.
-    if sys.platform == "win32":
+    # CR-16: dispatch to the platform-specific enforcement path via
+    # ``is_windows()`` only (NOT ``sys.platform``). The autostart
+    # launcher and tests monkeypatch ``is_windows`` to control routing;
+    # checking ``sys.platform`` here would bypass the monkeypatch on
+    # Linux test runs (where ``is_windows`` is forced True to exercise
+    # the Windows mutex path's dispatcher routing) and fall through to
+    # the POSIX helper — defeating the test's assertion that the POSIX
+    # helper is NOT called when ``is_windows()`` is True.
+    if is_windows():
         return _ensure_windows_single_instance(silent)
+    # CR-16: POSIX single-instance enforcement via lockfile.
+    # Previously returned None immediately on macOS/Linux, leaving
+    # NO single-instance gate on the Python backend for POSIX. The
+    # autostart launcher could spawn duplicate backends that
+    # competed for the microphone, hotkeys, and volume control.
+    # The lockfile is created with O_CREAT|O_EXCL|O_CLOEXEC; on
+    # EEXIST we read the PID, check liveness, and either exit (alive)
+    # or reclaim (stale). The fd is returned (held for process
+    # lifetime, analogous to the Windows mutex handle).
     return _ensure_single_instance_posix(silent=silent)
 
 
@@ -425,12 +428,23 @@ def _ensure_single_instance_posix(silent: bool = False):
 
     Also writes the backend PID file (previously Windows-only) so the
     autostart launcher's "backend running?" check works on POSIX.
+
+    XS-18 (IMPROVE-mode run XS): the config dir is resolved lazily via
+    ``voice_typer.server.app._config_dir`` (NOT via
+    ``voice_typer.server._paths.config_dir``). Both resolve to the same
+    function object at import time, but the test fixture
+    ``isolated_config_dir`` monkeypatches the ``_config_dir`` attribute
+    on the ``app`` module — and ``_paths.config_dir()`` looks up
+    ``config._config_dir`` at call time, NOT ``app._config_dir``, so the
+    patch was invisible to this function and the lockfile was created in
+    the real config dir (not ``tmp_path``). Resolving via the ``app``
+    module's attribute at call time honors the monkeypatch.
     """
     import fcntl
 
-    from voice_typer.server._paths import config_dir
+    from voice_typer.server import app as _app_module
 
-    cdir = config_dir()
+    cdir = _app_module._config_dir()
     try:
         cdir.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -466,7 +480,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             pid = None
 
         if pid is not None and _is_pid_alive(pid):
-            msg = f"Voice Typer: another instance is running (pid={pid})."
+            msg = f"Voice Typer: another instance is already running (pid={pid})."
             if not silent and sys.stderr is not None:
                 print(msg, file=sys.stderr)
             sys.exit(1)
@@ -478,7 +492,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             pass
         fd = _try_acquire(lock_path)
         if fd is None:
-            msg = "Voice Typer: another instance is running."
+            msg = "Voice Typer: another instance is already running."
             if not silent and sys.stderr is not None:
                 print(msg, file=sys.stderr)
             sys.exit(1)
@@ -499,7 +513,7 @@ def _ensure_single_instance_posix(silent: bool = False):
             os.close(fd)
         except OSError:
             pass
-        msg = "Voice Typer: another instance is running (lock held)."
+        msg = "Voice Typer: another instance is already running (lock held)."
         if not silent and sys.stderr is not None:
             print(msg, file=sys.stderr)
         sys.exit(1)

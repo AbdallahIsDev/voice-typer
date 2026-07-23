@@ -66,125 +66,19 @@ from voice_typer.server.tray_types import AppState, TrayController
 
 pystray = lazy_module("pystray")
 
-# TRAY-008: Localization for tray menu labels.
-# Uses English as default. Wrap hardcoded strings with _() function.
-# To add a new language, extend _TRAY_LABELS_LOCALES with a new locale
-# dict and call set_tray_locale('es') from the IPC layer when the user
-# changes the UI language in Settings.
-_TRAY_LABELS_EN: dict[str, str] = {
-    "app_name": APP_NAME,
-    "toggle_dictation": "Toggle Dictation",
-    "open_app": "Open App",
-    "models": "Models",
-    "restart": "Restart",
-    "quit": "Quit",
-    "about": "About",  # kept for potential in-app use
-    "diagnostics": "Diagnostics",  # kept for potential in-app use
-    "recording_active": "Recording active",
-    "update_available": "Update Available",
-    "version": "version",
-    "force_cancel_transcription": "Cancel Transcription",
-    # UX-1: Undo Last tray menu item.
-    "undo_last": "Undo Last",
-    # UX-2: Microphones submenu.
-    "microphones": "Microphones",
-    "more_microphones": "More microphones...",
-    # UX-3: Force Cancel Stuck Transcription (renamed from Cancel Transcription
-    # and made conditional on state == TRANSCRIBING).
-    "force_cancel_stuck_transcription": "Force Cancel Stuck Transcription",
-    # UX-33: Settings/History/Help quick shortcuts.
-    "settings": "Settings...",
-    "history": "History...",
-    "help": "Help...",
-    # UX-5: localized update-available notification body template.
-    "update_available_body": "{app} {version} is available (you have {current})",
-}
-
-# TRAY-008: Spanish translations (proof of concept for tray i18n).
-_TRAY_LABELS_ES: dict[str, str] = {
-    "app_name": APP_NAME,
-    "toggle_dictation": "Alternar Dictado",
-    "open_app": "Abrir Aplicación",
-    "models": "Modelos",
-    "restart": "Reiniciar",
-    "quit": "Salir",
-    "about": "Acerca de",  # kept for potential in-app use
-    "diagnostics": "Diagnósticos",  # kept for potential in-app use
-    "recording_active": "Grabación activa",
-    "update_available": "Actualización Disponible",
-    "version": "versión",
-    "force_cancel_transcription": "Cancelar Transcripción",
-    "undo_last": "Deshacer Último",
-    "microphones": "Micrófonos",
-    "more_microphones": "Más micrófonos...",
-    "force_cancel_stuck_transcription": "Forzar Cancelación de Transcripción Atascada",
-    "settings": "Configuración...",
-    "history": "Historial...",
-    "help": "Ayuda...",
-    "update_available_body": "{app} {version} está disponible (tienes {current})",
-}
-
-# TRAY-008: locale → label dict. Add new locales here.
-_TRAY_LABELS_LOCALES: dict[str, dict[str, str]] = {
-    "en": _TRAY_LABELS_EN,
-    "es": _TRAY_LABELS_ES,
-}
-
-# TRAY-008: current tray locale (defaults to English).
-_tray_locale: str = "en"
-
-
-def set_tray_locale(locale: str) -> None:
-    """TRAY-008: Set the tray menu locale.
-
-    Called by the IPC layer when the user changes the UI language in
-    Settings. Falls back to English if the locale is not supported.
-    After calling this, the tray menu must be rebuilt for the new
-    labels to take effect.
-    """
-    global _tray_locale
-    _tray_locale = locale if locale in _TRAY_LABELS_LOCALES else "en"
-
-
-def get_tray_locale() -> str:
-    """TRAY-008: Return the current tray locale."""
-    return _tray_locale
-
-
-def register_tray_labels(locale: str, labels: dict[str, str]) -> None:
-    """Register translated tray-menu labels for a locale, merging with existing.
-
-    Updates ``_TRAY_LABELS_LOCALES`` so ``_()`` returns the pushed
-    translations for keys present in ``labels``, falling back to English
-    for missing keys. Re-registration merges new keys over the prior
-    dict (so the renderer can push translations incrementally — e.g.
-    one IPC call for ``open_app`` + ``quit``, a later one for
-    ``toggle_dictation``).
-
-    Called by the ``set_tray_locale`` IPC handler when the renderer
-    pushes translated tray-menu strings for a locale.
-    """
-    existing = _TRAY_LABELS_LOCALES.get(locale, {})
-    merged = {**existing, **labels}
-    _TRAY_LABELS_LOCALES[locale] = merged
-
-
-def _(key: str) -> str:
-    """TRAY-008: Return the localized tray label for the given key.
-
-    Looks up the key in the current locale's label dict, falling back
-    to English, then to the key itself. This mirrors the i18n approach
-    used in the Electron frontend (i18n.ts).
-    """
-    labels = _TRAY_LABELS_LOCALES.get(_tray_locale, _TRAY_LABELS_EN)
-    if key in labels:
-        return labels[key]
-    # Fall back to English
-    if key in _TRAY_LABELS_EN:
-        return _TRAY_LABELS_EN[key]
-    # Last resort: return the key itself
-    return key
-
+# TRAY-008: Localization extracted to tray_i18n.py.
+# Re-exported here via # noqa: F401 for backward compat with tests that
+# monkeypatch voice_typer.server.tray.set_tray_locale / .get_tray_locale.
+from voice_typer.server.tray_i18n import (  # noqa: F401
+    _TRAY_LABELS_EN,
+    _TRAY_LABELS_ES,
+    _TRAY_LABELS_LOCALES,
+    _,
+    _tray_locale,
+    get_tray_locale,
+    register_tray_labels,
+    set_tray_locale,
+)
 
 log = logging.getLogger(__name__)
 

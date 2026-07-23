@@ -16,66 +16,34 @@ import json
 import logging
 import threading
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+from urllib.request import Request
 
 import numpy as np
 
+from voice_typer.server._http_safety import (
+    build_secure_opener,
+)
 from voice_typer.server._secrets import (
     assert_url_allowed,
     redact_secret,
     redact_url,
 )
+from voice_typer.server.asr_errors import (
+    ConsentRequiredError,  # noqa: F401  # EC-FIX-8: re-exported for backward compat with `from cloud_engines import ConsentRequiredError`
+)
 
 log = logging.getLogger(__name__)
 
 
-class _NoRedirectHandler(HTTPRedirectHandler):
-    """SEC-2: refuse to follow HTTP redirects.
-
-    ``urllib.request.build_opener`` ALWAYS installs the default
-    ``HTTPRedirectHandler`` (which silently follows 3xx responses)
-    UNLESS the caller passes an explicit ``HTTPRedirectHandler``
-    subclass. The previous code passed only ``HTTPSHandler()``,
-    expecting ``build_opener`` to skip the redirect handler — but
-    the urllib source adds the default handlers in addition to the
-    caller-provided ones (a handler of the same *class* replaces the
-    default; HTTPSHandler replaces HTTPSHandler but does NOT replace
-    HTTPRedirectHandler). So the opener was silently following 3xx
-    redirects despite the SECURITY comment claiming otherwise.
-
-    This subclass overrides ``redirect_request`` to raise
-    ``HTTPError`` so the existing ``except HTTPError`` / ``except
-    URLError`` branches in the cloud engines handle it as a hard
-    failure (no silent exfiltration of the request body — which
-    contains user audio + the API key in the Authorization header —
-    to an attacker-controlled redirect target).
-
-    See https://docs.python.org/3/library/urllib.request.html#urllib.request.HTTPRedirectHandler
-    for the contract.
-    """
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
-        # Raise HTTPError so the caller's ``except HTTPError`` branch
-        # catches it. The error message includes the redirect target
-        # (newurl) so the user / operator can diagnose a misconfigured
-        # endpoint, but ``redact_url`` is applied by the caller before
-        # logging to avoid leaking credentials in the URL.
-        raise HTTPError(
-            url=newurl,
-            code=code,
-            msg=f"redirect refused (SEC-2): {code} {msg} -> {redact_url(newurl)}",
-            hdrs=headers,
-            fp=fp,
-        )
-
-
 # PERF-NEW-010: module-level OpenerDirector for connection pooling.
 # Reuses TCP connections across requests (like requests.Session).
-# SEC-2: pass ``_NoRedirectHandler()`` so the opener does NOT follow
-# 3xx redirects (the default ``HTTPRedirectHandler`` would silently
-# POST the request body — user audio + API key — to an attacker-
-# controlled redirect target).
-_opener = build_opener(HTTPSHandler(), _NoRedirectHandler())
+# SEC-2: ``build_secure_opener()`` installs ``_NoRedirectHandler()`` so
+# the opener does NOT follow 3xx redirects (the default
+# ``HTTPRedirectHandler`` would silently POST the request body — user
+# audio + API key — to an attacker-controlled redirect target).
+# EC-FIX-8: the handler + builder live in ``_http_safety`` so they're
+# shared with ``llm_polish._opener`` (single source of truth).
+_opener = build_secure_opener()
 
 
 # G4-H-18 / G4-INVALIDATION: module-level cache of live CloudEngine
@@ -157,17 +125,6 @@ def clear_all_cached_engines() -> int:
         if clear_cached_engine(provider):
             released += 1
     return released
-
-
-class ConsentRequiredError(RuntimeError):
-    """NEW-PRIV-006: raised when a cloud engine is asked to transcribe
-    audio but the user hasn't granted consent for that provider.
-
-    Subclass of RuntimeError so existing ``except RuntimeError`` catch
-    clauses still work — but the IPC layer can ``isinstance``-check
-    for this type to surface a consent dialog instead of an error
-    toast.
-    """
 
 
 # Provider-specific defaults

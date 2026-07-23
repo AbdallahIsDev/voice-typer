@@ -171,6 +171,17 @@ def _linux_wayland_copy(text: str) -> None:
     indefinitely. ``subprocess.TimeoutExpired`` is converted to a
     ``RuntimeError`` so the caller's ``except Exception`` fallback to
     pyperclip kicks in.
+
+    XZ-CLIP-02 (session-XZ, High, Security): the text is piped via
+    ``stdin`` (NOT passed as a positional CLI argument). Passing
+    dictated text as a CLI arg made it visible to ANY local user via
+    ``/proc/<pid>/cmdline`` (world-readable on Linux), leaking
+    dictated secrets to other accounts on the box. The pre-fix
+    docstring claimed "piped to stdin" but the implementation
+    contradicted it — the docstring is now accurate. ``wl-copy`` with
+    no positional argument reads text from stdin, so we pass an empty
+    argv (``["wl-copy"]``) and feed the UTF-8-encoded text via
+    ``input=...``.
     """
     if not text:
         # `wl-copy` with no args clears the clipboard; that matches our
@@ -180,8 +191,9 @@ def _linux_wayland_copy(text: str) -> None:
 
     try:
         proc = subprocess.run(
-            ["wl-copy", "--", text],
-            stdin=subprocess.DEVNULL,
+            ["wl-copy"],
+            input=text.encode("utf-8"),
+            stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             check=False,

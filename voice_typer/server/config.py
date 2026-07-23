@@ -21,6 +21,7 @@
 # ──────────────────────────────────────────────────────────────────────────
 
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -280,6 +281,7 @@ def _validate_systemroot() -> None:
         )
 
 
+@functools.lru_cache(maxsize=1)
 def _config_dir() -> Path:
     """Get the voice-typer data directory.
 
@@ -293,6 +295,20 @@ def _config_dir() -> Path:
     automatically found and used.
 
     SEC-005: user-supplied env vars are validated for path traversal.
+
+    XV-119: the result is memoized for the process lifetime via
+    :func:`functools.lru_cache`.  The function is deterministic w.r.t.
+    ``os.environ`` + :func:`Path.home` + the existence of the legacy
+    ``~/.voice-typer`` directory, all of which are stable for the
+    process lifetime in production.  Caching eliminates the 30-50
+    ``stat()`` syscalls (``Path.resolve`` + ``Path.exists``) that
+    ``_validate_path_safety`` previously issued on each of the ~29
+    call sites at startup and 3+ per :meth:`Config.save`.
+
+    Tests that need to force re-resolution (e.g. after monkeypatching
+    ``os.environ`` or :func:`Path.home`) should call
+    :func:`_reset_config_dir_cache` — mirrors
+    :func:`voice_typer.server.credential_store._reset_keyring_cache`.
     """
     custom = os.environ.get("VOICE_TYPER_CONFIG_DIR")
     if custom:
@@ -342,6 +358,24 @@ def _config_dir() -> Path:
 
     # Fallback for any platform where the above checks didn't return.
     return legacy
+
+
+def _reset_config_dir_cache() -> None:
+    """Test-only: clear the cached :func:`_config_dir` result.
+
+    XV-119: :func:`_config_dir` is memoized via
+    :func:`functools.lru_cache` so the filesystem/env probes it
+    performs (``Path.resolve``, ``Path.exists``, ``os.path.commonpath``)
+    run at most once per process.  Tests that change the inputs —
+    ``VOICE_TYPER_CONFIG_DIR``, ``XDG_DATA_HOME``, ``APPDATA``,
+    :func:`Path.home`, or the existence of the legacy
+    ``~/.voice-typer`` directory — must call this helper to force
+    re-resolution on the next :func:`_config_dir` invocation.
+
+    Mirrors :func:`voice_typer.server.credential_store._reset_keyring_cache`
+    so the two caches share the same reset convention (TEST-033).
+    """
+    _config_dir.cache_clear()
 
 
 def _migrate_from_legacy():

@@ -269,38 +269,71 @@ class AsrBackendRegistry:
 
     def _is_disabled(self, name: str) -> bool:
         """Return True if ``name`` is in the disabled-backends set."""
-        return name in self._disabled_backends
+        with self._lock:
+            return name in self._disabled_backends
+
+    def failure_count(self, name: str) -> int:
+        """Return the current consecutive-failure count for ``name``.
+
+        G4-M-45: returns 0 for backends that have never failed (or were
+        never registered). Used by tests / Settings UI to surface the
+        circuit-breaker state to the user.
+        """
+        with self._lock:
+            return self._failure_counts.get(name, 0)
+
+    def reset_failures(self, name: str) -> None:
+        """Clear the failure counter and disabled state for ``name``.
+
+        G4-M-45: called by the user-facing "re-enable backend" path
+        (e.g. Settings -> Models -> Re-enable) so a backend that was
+        auto-disabled by the circuit breaker can be retried. Also
+        invoked programmatically when the user manually requests a
+        retry (e.g. via the F2 hotkey after a transient failure).
+
+        Clears both ``_failure_counts[name]`` (counter) and the
+        ``_disabled_backends`` membership, then persists the disabled
+        set to config so the change survives a restart.
+        """
+        with self._lock:
+            self._failure_counts[name] = 0
+            if name in self._disabled_backends:
+                self._disabled_backends.discard(name)
+                log.info("[ASR_REGISTRY] backend %s re-enabled (manual reset)", name)
+                self._persist_disabled()
 
     def _record_success(self, name: str) -> None:
         """Reset the failure counter for ``name`` and re-enable it if disabled."""
-        self._failure_counts[name] = 0
-        if name in self._disabled_backends:
-            self._disabled_backends.discard(name)
-            log.info("[ASR_REGISTRY] backend %s re-enabled (load succeeded)", name)
-            self._persist_disabled()
+        with self._lock:
+            self._failure_counts[name] = 0
+            if name in self._disabled_backends:
+                self._disabled_backends.discard(name)
+                log.info("[ASR_REGISTRY] backend %s re-enabled (load succeeded)", name)
+                self._persist_disabled()
 
     def _record_failure(self, name: str) -> None:
         """Increment the failure counter for ``name``; disable if threshold reached."""
-        count = self._failure_counts.get(name, 0) + 1
-        self._failure_counts[name] = count
-        if count >= self._MAX_CONSECUTIVE_FAILURES and name not in self._disabled_backends:
-            self._disabled_backends.add(name)
-            log.warning(
-                "[ASR_REGISTRY] backend %s disabled after %d consecutive failures",
-                name,
-                count,
-            )
-            self._persist_disabled()
-            # Fire one-time callback so ModelManager can show a tray
-            # notification. Defensive — callback may not be set yet.
-            try:
-                if self.on_backend_disabled is not None:
-                    self.on_backend_disabled(name, count)
-            except Exception:
+        with self._lock:
+            count = self._failure_counts.get(name, 0) + 1
+            self._failure_counts[name] = count
+            if count >= self._MAX_CONSECUTIVE_FAILURES and name not in self._disabled_backends:
+                self._disabled_backends.add(name)
                 log.warning(
-                    "[ASR_REGISTRY] on_backend_disabled callback raised",
-                    exc_info=True,
+                    "[ASR_REGISTRY] backend %s disabled after %d consecutive failures",
+                    name,
+                    count,
                 )
+                self._persist_disabled()
+                # Fire one-time callback so ModelManager can show a tray
+                # notification. Defensive — callback may not be set yet.
+                try:
+                    if self.on_backend_disabled is not None:
+                        self.on_backend_disabled(name, count)
+                except Exception:
+                    log.warning(
+                        "[ASR_REGISTRY] on_backend_disabled callback raised",
+                        exc_info=True,
+                    )
 
     def _persist_disabled(self) -> None:
         """Persist ``_disabled_backends`` to ``config.disabled_backends`` if the field exists."""
@@ -320,15 +353,10 @@ class AsrBackendRegistry:
         app.py's _load_transcription_engine_background().
 
         MEM-01 (c-review): on failure, the failed backend's ``unload()``
-        is now called BEFORE ``unregister(name)`` so any partially-
-        allocated resources (torch tensors, CUDA contexts, multi-GB
-        model weights) are released. Previously, the local ``backend``
-        variable went out of scope after the except block without
-        calling ``unload()``, leaking whatever the failed ``load()``
-        allocated before raising (e.g. a half-downloaded model on disk
-        + its in-memory weight tensor). ``unload()`` is safe to call
-        on a partially-loaded engine — all three backends guard on
-        ``self._model is None``.
+        is called so any partially-allocated resources (torch tensors,
+        CUDA contexts, multi-GB model weights) are released.
+        ``unload()`` is safe to call on a partially-loaded engine — all
+        three backends guard on ``self._model is None``.
 
         HIGH-20 / MODEL-2: the dict reads (``self._backends.get``) are
         guarded by ``self._lock`` so a concurrent ``register`` /
@@ -337,23 +365,33 @@ class AsrBackendRegistry:
         call is OUTSIDE the lock so a slow GPU/disk load doesn't block
         other readers (e.g. ``get_active`` from the dictation pipeline).
 
-        G4-H-19: when the primary backend fails, we now construct the
-        whisper engine (via :meth:`create`) before attempting the
-        whisper load. Previously, ``load_with_fallback`` only worked
-        if the whisper engine was already registered (e.g. by a prior
-        ``_ensure_engine("whisper")`` call). On a cold boot with a
-        non-whisper backend configured, the whisper branch silently
-        no-op'd and the registry returned ``None`` — leaving the app
-        in an ERROR state instead of transparently falling back.
+        G4-H-19: when the primary backend fails AND the primary is not
+        whisper, we construct the whisper engine (via :meth:`create`)
+        before attempting the whisper load. Previously,
+        ``load_with_fallback`` only worked if the whisper engine was
+        already registered. On a cold boot with a non-whisper backend
+        configured, the whisper branch silently no-op'd and the
+        registry returned ``None``.
 
-        G4-M-45: circuit breaker. Each load failure increments a
-        per-backend counter; on success the counter is reset. After
-        ``_MAX_CONSECUTIVE_FAILURES`` (3) consecutive failures, the
-        backend is added to ``_disabled_backends`` and skipped on
-        subsequent ``load_with_fallback`` calls — we go straight to
-        the whisper fallback. This prevents repeat-fail backends from
-        stalling every cold boot. The disabled state is persisted in
-        ``config.disabled_backends`` (defensively — see Config).
+        G4-M-45: circuit breaker. Each PRIMARY-backend load failure
+        increments a per-backend counter; on success the counter is
+        reset. After ``_MAX_CONSECUTIVE_FAILURES`` (3) consecutive
+        failures, the primary backend is added to ``_disabled_backends``
+        and skipped on subsequent ``load_with_fallback`` calls — we go
+        straight to the whisper fallback. The whisper FALLBACK's
+        failures are NOT tracked (whisper is a safety net, not the
+        user's configured backend); tracking them would fire a
+        spurious ``on_backend_disabled("whisper")`` callback whenever a
+        non-whisper primary is persistently failing.
+
+        XS-17 (F-09): pre-fix, the primary backend was UNREGISTERED on
+        failure, which meant subsequent ``load_with_fallback`` calls no
+        longer found it in ``_backends`` and skipped the primary path
+        entirely — so the failure counter only incremented ONCE and
+        the circuit breaker never tripped. The failed primary now
+        stays registered (only ``unload()`` is called for resource
+        cleanup) so the next call can retry it and increment the
+        counter toward the disable threshold.
 
         Args:
             progress_callback: optional callable(msg: str) to report
@@ -361,9 +399,9 @@ class AsrBackendRegistry:
         """
         _cb = progress_callback or (lambda msg: None)
 
-        # Try the configured backend first
+        # Try the configured (primary) backend first.
         name = self.active_name
-        # G4-M-45: skip disabled backends — go straight to whisper.
+        # G4-M-45: skip disabled backends — go straight to whisper fallback.
         if self._is_disabled(name):
             log.info(
                 "[ASR_REGISTRY] backend %s is disabled (circuit breaker) — skipping to whisper fallback",
@@ -388,12 +426,12 @@ class AsrBackendRegistry:
                     # G4-M-45: increment failure counter; possibly disable.
                     self._record_failure(name)
                     # MEM-01 (c-review): release any partially-allocated
-                    # resources (torch tensors, CUDA contexts, model weights)
-                    # BEFORE unregistering the backend. unload() is safe to
-                    # call on a partially-loaded engine — all three backends
-                    # guard on ``self._model is None``. Wrap in try/except so
-                    # an unload failure (e.g. a corrupted model handle) does
-                    # not prevent the unregister + whisper fallback.
+                    # resources (torch tensors, CUDA contexts, model weights).
+                    # unload() is safe to call on a partially-loaded engine —
+                    # all three backends guard on ``self._model is None``.
+                    # Wrap in try/except so an unload failure (e.g. a
+                    # corrupted model handle) does not prevent the whisper
+                    # fallback.
                     try:
                         backend.unload()
                         log.info("[ASR_REGISTRY] unloaded failed backend: %s", name)
@@ -403,11 +441,25 @@ class AsrBackendRegistry:
                             name,
                             unload_exc,
                         )
-                    # unregister() acquires the lock itself (RLock, so
-                    # re-entry is safe even if we held it here).
-                    self.unregister(name)
+                    # XS-17 (F-09): do NOT unregister the failed primary
+                    # backend — keep it in ``_backends`` so subsequent
+                    # ``load_with_fallback`` calls retry it (and increment
+                    # the failure counter toward the disable threshold).
+                    # Pre-fix, unregistering meant the counter only
+                    # incremented once and the circuit breaker never
+                    # tripped. ``get_active()`` still falls through to the
+                    # whisper fallback because the failed backend's
+                    # ``is_loaded`` remains False.
 
-        # Fallback to whisper
+        # If the primary IS whisper and it failed (or was disabled),
+        # there is no separate whisper backend to fall back to — return
+        # None so the caller (ModelManager.try_load) can surface the
+        # ERROR state to the user.
+        if name == "whisper":
+            return None
+
+        # Fallback to whisper (primary was a non-whisper backend that
+        # failed or was disabled).
         with self._lock:
             whisper = self._backends.get("whisper")
         # G4-H-19: if the whisper backend was never constructed (cold
@@ -434,15 +486,22 @@ class AsrBackendRegistry:
                 # OUTSIDE lock — see comment above.
                 whisper.load(progress_callback=_cb)
                 log.info("[ASR_REGISTRY] loaded fallback backend: whisper")
-                # G4-M-45: whisper fallback succeeded — reset whisper's
-                # own failure counter (it may have accumulated failures
-                # from a prior boot when even whisper couldn't load).
-                self._record_success("whisper")
+                # G4-M-45 / XS-17: do NOT call ``_record_success("whisper")``
+                # here — whisper is a FALLBACK, not the user's configured
+                # backend. Tracking its success would mask failures of the
+                # primary backend (the user's actual choice). The primary's
+                # counter is only reset by a successful load of the PRIMARY
+                # backend, not by the whisper fallback succeeding.
                 return whisper
             except Exception:
                 log.exception("[ASR_REGISTRY] whisper fallback also failed")
-                # G4-M-45: increment whisper's failure counter too.
-                self._record_failure("whisper")
+                # G4-M-45 / XS-17: do NOT call ``_record_failure("whisper")``
+                # — the circuit breaker tracks the user's configured
+                # backend, not the whisper fallback. Otherwise, a
+                # persistently failing parakeet would also disable whisper
+                # and fire a second ``on_backend_disabled("whisper")``
+                # callback (breaking the "exactly one disable callback"
+                # contract pinned by ``test_backend_disabled_after_max_consecutive_failures``).
                 # MEM-01 (c-review): same fix for the whisper fallback
                 # path — unload before giving up so we don't leak the
                 # whisper backend's partially-allocated resources.

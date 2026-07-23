@@ -445,8 +445,16 @@ class ClipboardManager:
                     return buf.value.rsplit("\\", 1)[-1].lower()
             finally:
                 kernel32.CloseHandle(h_process)
-        except Exception:
-            pass
+        except (OSError, AttributeError):
+            # EC-15: narrowed from bare ``except Exception: pass``. The
+            # protected block is a Win32 ctypes call sequence
+            # (OpenProcess / QueryFullProcessImageNameW / CloseHandle)
+            # which raises ``OSError`` on Win32 failures and
+            # ``AttributeError`` if a ctypes function pointer is missing.
+            _cb.log.debug(
+                "[CLIPBOARD] _detect_focused_process Win32 query failed",
+                exc_info=True,
+            )
         return None
 
     def copy(self, text: str) -> ClipboardSnapshot | None:
@@ -566,7 +574,15 @@ class ClipboardManager:
                 with contextlib.suppress(Exception):
                     self._keyboard.release(key)
         except Exception:
-            pass
+            # EC-15: was silent ``pass``. The protected block is a pynput
+            # keyboard.release loop; pynput can raise a variety of
+            # exceptions (OSError, RuntimeError, AttributeError on a
+            # half-initialised controller) so we keep the broad catch
+            # but log at DEBUG for forensic value.
+            _cb.log.debug(
+                "[CLIPBOARD] _release_stuck_modifiers pynput loop failed",
+                exc_info=True,
+            )
 
     def _safe_key_press(self, modifier, char) -> None:
         """PLAT-STUCK: Press modifier + char with guaranteed modifier release.
@@ -754,7 +770,16 @@ class ClipboardManager:
                         "[CLIPBOARD] RDP session detected — increasing paste delay to %dms", int(paste_delay * 1000)
                     )
             except Exception:
-                pass
+                # EC-15: was silent ``pass``. The protected block is a
+                # lazy import + platform predicate call which can raise
+                # ImportError (server_platform not importable in some
+                # test/headless envs) or any error from the underlying
+                # Win32/POSIX session probe. Keep the broad catch so a
+                # flaky probe never blocks paste, but log at DEBUG.
+                _cb.log.debug(
+                    "[CLIPBOARD] is_remote_session probe failed; using default paste delay",
+                    exc_info=True,
+                )
 
         if not self._is_safe_paste_target():
             _cb.log.info("[CLIPBOARD] Paste blocked — security-sensitive window in foreground")

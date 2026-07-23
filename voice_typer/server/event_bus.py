@@ -64,14 +64,14 @@ Events emitted via ``event_bus.publish`` (the modern path):
 * ``download_progress`` — model download progress.
   Payload: ``{model, progress(0-100), status, +optional downloaded_bytes,
   total_bytes, speed_bytes_per_sec, eta_seconds, paused, resumed}``.
-* ``electron_notification`` — request a renderer toast (renamed
-  ``notification`` on the Tauri side). Payload: ``{title, message,
-  duration_ms, critical}``.
+* ``notification`` — request a renderer toast. Payload: ``{title, message,
+  duration_ms, critical}``. (Canonical name — previously emitted as
+  ``electron_notification``; CR-8 renamed the wire event on the Python
+  side so both the Electron and Tauri paths consume the same name.)
 * ``navigate`` — tray → UI route change. Payload: ``{path:str}``.
 * ``show_window`` — show the main window. Payload: ``{}``.
 * ``quit_app`` — sidecar requests app quit. Payload: ``{}``.
-* ``relaunch_electron`` — sidecar requests app relaunch (renamed
-  ``relaunch_app`` on the Tauri side). Payload: ``{}``.
+* ``relaunch_app`` — sidecar requests app relaunch. Payload: ``{}``.
 * ``paste_failed`` — clipboard paste failed (NEW-UX-006); renderer
   shows a sonner toast with "Open recovery file" action.
   Payload: ``{message:str, recovery_path:str|null}``.

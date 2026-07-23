@@ -133,8 +133,19 @@ class VoiceTyperApp:
         # shutdown methods then run as a safety net (they're idempotent).
         self._thread_registry = ThreadRegistry()
 
-        # Install Python-level excepthook for unhandled Python exceptions
-        _crash_handler.install_python_excepthook()
+        # Install Python-level excepthook for unhandled Python exceptions.
+        # APP-9 (F-07): wrapped in try/except so an excepthook-install
+        # failure (e.g. a missing Win32 API on an unsupported build, or
+        # a sys.excepthook assignment that raises on a restricted
+        # interpreter) does not abort VoiceTyperApp construction. The
+        # excepthook is a best-effort diagnostics aid — if it can't be
+        # installed, we log at DEBUG (with exc_info=True) so the
+        # failure is diagnosable without spamming the default-INFO
+        # production log, and continue with init.
+        try:
+            _crash_handler.install_python_excepthook()
+        except Exception:
+            log.debug("[INIT] excepthook install failed", exc_info=True)
 
         # Startup banner -- first visible log, before any subsystem init
         log.info(
@@ -386,19 +397,24 @@ class VoiceTyperApp:
         # try-block assignment and then rejects the ``None`` reset.
         self._template_manager: "TemplateManager | None" = None  # noqa: UP037
         self._vocabulary_manager: "VocabularyManager | None" = None  # noqa: UP037
+        # APP-8 (F-07): eager-init failures must be logged at WARNING
+        # (not DEBUG) with exc_info=True so they're visible in the
+        # default-INFO production log and the stack trace is captured
+        # for diagnosis. Pre-fix, these were swallowed at DEBUG, making
+        # template/vocabulary init failures effectively invisible.
         try:
             from voice_typer.server.templates import TemplateManager
 
             self._template_manager = TemplateManager()
         except Exception:
-            log.debug("[INIT] TemplateManager eager-init failed")
+            log.warning("[INIT] TemplateManager eager-init failed", exc_info=True)
             self._template_manager = None
         try:
             from voice_typer.server.vocabulary import VocabularyManager
 
             self._vocabulary_manager = VocabularyManager()
         except Exception:
-            log.debug("[INIT] VocabularyManager eager-init failed")
+            log.warning("[INIT] VocabularyManager eager-init failed", exc_info=True)
             self._vocabulary_manager = None
         self._llm_polisher = None  # Created on first polish (needs consent check)
         self._cloud_engine = None  # Lazy-init if cloud backend selected
@@ -718,9 +734,20 @@ class VoiceTyperApp:
             # be more than just our transcription.  So we send N
             # backspaces instead — this is the standard "undo paste"
             # behavior.
-            for _ in range(char_count):
+            #
+            # APP-6: batch backspaces into chunks of ``_undo_chunk_size``
+            # (10) with a 10ms ``time.sleep(0.01)`` between chunks so we
+            # don't flood the OS keyboard event queue on long
+            # transcriptions (>200 chars). Without rate limiting,
+            # pynput can drop keystrokes silently. The sleep is omitted
+            # after the final (possibly partial) chunk — there's no
+            # subsequent chunk to space it from.
+            _undo_chunk_size = 10
+            for _i in range(char_count):
                 kb.press("\x08")  # Backspace
                 kb.release("\x08")
+                if (_i + 1) % _undo_chunk_size == 0 and (_i + 1) < char_count:
+                    time.sleep(0.01)
             self._last_transcription = ""
             self.tray.notify(APP_NAME, i18n.t("notify.app.undo_done", char_count=char_count))
         except ImportError:
@@ -949,10 +976,17 @@ class VoiceTyperApp:
         Before cleanup, pushes a ``quit_app`` event over the TCP channel
         so the Electron frontend knows to call ``app.quit()`` and shut
         down cleanly (instead of being left orphaned with no backend).
+
+        APP-10 (F-06): the ``event_bus.publish({"type": "quit_app"})``
+        call MUST come BEFORE the ``if self._shutting_down:`` re-entry
+        guard. Pre-fix, the guard sat at the top of the method and a
+        double-quit (e.g. user clicks the tray Quit item twice, or
+        SIGTERM races with the tray quit) silently dropped the second
+        push — leaving Electron with no shutdown signal if the first
+        push was lost in a TCP race. The fix pushes unconditionally on
+        every call and only guards the actual ``self.quit()`` call so
+        cleanup isn't run twice.
         """
-        if self._shutting_down:
-            log.debug("[QUIT] Already shutting down, ignoring duplicate quit_app call")
-            return
         log.info("[QUIT] Quitting %s", APP_NAME)
 
         # Item 12: If recording, discard the recording before quitting
@@ -965,9 +999,19 @@ class VoiceTyperApp:
             log.debug("[QUIT] Could not discard recording", exc_info=True)
 
         # 0. Notify Electron frontend over TCP so it can quit cleanly.
+        # APP-10: this MUST run BEFORE the _shutting_down guard so a
+        # double-quit still pushes the event (the first push may have
+        # been lost in a TCP race; the second push is the safety net).
         from voice_typer.server import event_bus
 
         event_bus.publish({"type": "quit_app"})
+
+        # APP-10: re-entry guard sits AFTER the push so the quit event
+        # is always published, even on a double-quit. Only the actual
+        # ``self.quit()`` cleanup is skipped on the second call.
+        if self._shutting_down:
+            log.debug("[QUIT] Already shutting down, ignoring duplicate quit_app call")
+            return
 
         # 1. Delegate to the audited cleanup path.  self.quit() raises
         #    SystemExit(0) at the end; _wrap re-raises it, and pystray

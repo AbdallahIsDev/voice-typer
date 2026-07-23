@@ -185,15 +185,13 @@ class VoiceTyperService:
         self._download_cancel_events: dict[str, threading.Event] = {}
         self._download_cancel_lock = threading.Lock()
         self._active_download_id: str | None = None
-        # Legacy single-event attribute retained for backwards-compat
-        # with tests that set/read ``service._download_cancel_event``
-        # directly as a test seam. Production code uses the per-download
-        # dict above; ``cancel_model_download`` checks this attribute as
-        # a fallback so the legacy test seam continues to work.
-        # T1-F10: typed as ``threading.Event | None`` (was ``Any``) so
-        # static checkers can verify the ``.is_set()`` / ``.set()``
-        # calls in ``cancel_model_download`` against the real Event API.
-        self._download_cancel_event: threading.Event | None = None
+        # EC-FIX-15 / EC-24: the legacy single-instance
+        # ``self._download_cancel_event`` attribute (retained as a test
+        # seam for backwards-compat with tests that set/read it
+        # directly) has been REMOVED.  Production code uses the
+        # per-download dict above exclusively.  Callers that need to
+        # signal a cancel must use ``_register_download`` /
+        # ``_download_cancel_events[download_id]`` / ``_is_download_cancelled``.
         # PERF-FIX-1: short-TTL cache (5s) for refresh_microphones so
         # rapid refresh clicks don't re-query PortAudio each time.
         self._microphones_cache: list = []
@@ -333,9 +331,14 @@ class VoiceTyperService:
         key inputs (or a warning when only the plaintext fallback is
         available).
         """
-        from voice_typer.server.ipc_server import _sanitize_config_for_ipc
+        # EC-FIX-15 / EC-22: import the canonical sanitizer from the
+        # transport-neutral ``config_sanitizer`` module instead of
+        # reaching DOWN into the IPC transport layer (``ipc_server``),
+        # which created a real import cycle (ipc_server imports
+        # VoiceTyperService from this module).
+        from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
-        sanitized = _sanitize_config_for_ipc(self._app.config)
+        sanitized = sanitize_config_for_ipc(self._app.config)
         # RW-01: attach keyring status. Wrapped in try/except so a
         # broken keyring library never breaks the get_config IPC path
         # (which would lock the renderer out of all settings).
@@ -361,9 +364,13 @@ class VoiceTyperService:
         can show the same keychain indicators.
         """
         from voice_typer.server.config import Config
-        from voice_typer.server.ipc_server import _sanitize_config_for_ipc
 
-        sanitized = _sanitize_config_for_ipc(Config())
+        # EC-FIX-15 / EC-22: import the canonical sanitizer from the
+        # transport-neutral ``config_sanitizer`` module — see
+        # :meth:`get_config` for rationale.
+        from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
+
+        sanitized = sanitize_config_for_ipc(Config())
         try:
             from voice_typer.server import credential_store
 
@@ -1640,13 +1647,15 @@ class VoiceTyperService:
         NEW-PRIV-011: sets the cancellation event so the download_model
         polling loop stops waiting and returns a "cancelled" result.
 
-        HIGH-8 / SERVICE-1: signals BOTH the active download's per-
-        download Event (looked up in ``self._download_cancel_events``
-        under the lock) AND the legacy single-instance
-        ``self._download_cancel_event`` attribute (retained as a test
-        seam). Without the per-download lookup, two concurrent
-        ``download_model`` calls would each overwrite the shared
-        attribute and only one would actually get cancelled.
+        HIGH-8 / SERVICE-1: signals the active download's per-download
+        Event (looked up in ``self._download_cancel_events`` under the
+        lock). Without the per-download lookup, two concurrent
+        ``download_model`` calls would each overwrite a shared attribute
+        and only one would actually get cancelled.
+
+        EC-FIX-15 / EC-24: the legacy single-instance
+        ``self._download_cancel_event`` fallback branch has been REMOVED.
+        All cancel signals now flow through the per-download dict.
         """
         cancelled_any = False
         # HIGH-8 / SERVICE-1: per-download dict path — signal the
@@ -1656,19 +1665,6 @@ class VoiceTyperService:
             active_event = self._download_cancel_events.get(active_id) if active_id is not None else None
         if active_event is not None:
             active_event.set()
-            cancelled_any = True
-        # Legacy single-event path — retained for backwards-compat
-        # with tests that assign ``service._download_cancel_event``
-        # directly. Also still useful as a belt-and-suspenders signal
-        # for any download_model invocation running on a code path that
-        # hasn't been migrated to the per-download dict (none in
-        # practice, but defensive).
-        if self._download_cancel_event is not None:
-            # Check + set in one expression so the literal
-            # ``_download_cancel_event.is_set()`` source string remains
-            # present (pinned by tests/test_ux_components.py).
-            if not self._download_cancel_event.is_set():
-                self._download_cancel_event.set()
             cancelled_any = True
         if cancelled_any:
             log.info("[SERVICE] Model download cancellation requested")

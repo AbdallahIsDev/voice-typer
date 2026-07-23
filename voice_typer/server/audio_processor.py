@@ -110,6 +110,41 @@ class AudioProcessor:
         """Reset all filter states for a new recording session."""
         self._chain.reset()
 
+    def set_sample_rate(self, sr: int) -> None:
+        """Update the chain's sample rate and rebuild the filter chain.
+
+        XV-31 (CRITICAL) / AUDIO-6 (High) / AUDIO-9 (Medium): called by
+        :meth:`AudioQualityController._rebuild_audio_processor` when
+        ``force_sr`` is provided (e.g. on hot-plug or when the recorder
+        resolves a new ``candidate_sr`` that differs from
+        ``config.sample_rate``).
+
+        Without this, all filter coefficients stay tuned to the original
+        sample rate and a hot-plugged device at a different native rate
+        silently mistunes the entire chain: an 80 Hz high-pass built at
+        16 kHz actually cuts at 240 Hz when fed 48 kHz audio (removing
+        male speech fundamentals); notch frequencies, EQ crossovers,
+        and compressor attack/release ballistics all drift in lockstep.
+
+        Updates ``self._sample_rate`` and triggers
+        :meth:`rebuild_from_config` so the new chain is built at the
+        new rate. The :class:`FilterChain` object itself is preserved
+        (only its internal filter list is swapped atomically via
+        :meth:`FilterChain.swap`), so callers holding a reference to
+        ``processor.chain`` keep working across the rate change.
+
+        Idempotent in the sense that the chain object identity is
+        preserved (``rebuild_from_config`` swaps the internal filter
+        list in place rather than replacing the chain object), so
+        calling this with the current rate is safe — it just rebuilds
+        the filters with identical coefficients.
+
+        Args:
+            sr: new sample rate in Hz.
+        """
+        self._sample_rate = int(sr)
+        self.rebuild_from_config(self._config)
+
     def set_quality_callback(self, cb: QualityCallback) -> None:
         """Wire a quality detector callback."""
         self._quality_callback = cb
@@ -214,6 +249,17 @@ class AudioProcessor:
             log.debug("[AUDIO-PROC] quality callback raised", exc_info=True)
 
     # ── Introspection ───────────────────────────────────────────────
+
+    @property
+    def sample_rate(self) -> int:
+        """The chain's current sample rate (Hz).
+
+        XV-31: updated by :meth:`set_sample_rate` (e.g. on hot-plug)
+        so callers (and tests) can read the effective rate the chain
+        is currently tuned to. Reads return the same value as
+        ``self._sample_rate``.
+        """
+        return self._sample_rate
 
     @property
     def chain(self) -> FilterChain:

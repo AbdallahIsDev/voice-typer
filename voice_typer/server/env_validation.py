@@ -134,6 +134,12 @@ def _validate_env_vars() -> None:
         else:
             _validate_hf_endpoint(hf_endpoint)
 
+    # EC-FIX-10 / EC-24: wire the sidecar-env contract check into the
+    # single env-validation entry point so missing sidecar env vars are
+    # logged at startup. No-op when not running under the Tauri host
+    # (i.e. when ``TAURI_SIDECAR != "1"``).
+    _validate_sidecar_env()
+
 
 # G4-M-58: Allowlist of hostnames that HF_ENDPOINT may point to.
 # ``huggingface.co`` is the official upstream; ``hf-mirror.com`` is the
@@ -234,6 +240,12 @@ def _validate_sidecar_env() -> None:
     with os.environ.get(...), with no shared validator. A future change to
     spawn.rs that drops an env var would silently degrade Python-side
     behavior with no startup warning.
+
+    EC-FIX-10 / EC-24: now wired into :func:`_validate_env_vars` (called
+    from :func:`voice_typer.server.logging_setup._setup_logging` at
+    startup), so the sidecar env-var contract is checked on every server
+    boot. No-op when ``TAURI_SIDECAR != "1"`` (i.e. when running standalone
+    via ``python -m voice_typer.server``).
     """
     if os.environ.get("TAURI_SIDECAR") != "1":
         return  # Not a sidecar — skip validation

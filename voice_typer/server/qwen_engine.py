@@ -102,6 +102,39 @@ class QwenEngine:
         with self._lock:
             return self._model is not None
 
+    def _resolve_device(self) -> str:
+        """XV-65: Resolve the effective device, honouring ``"auto"``.
+
+        Mirrors ``TranscriptionEngine._resolve_device``
+        (transcription.py:447-480) but adapted to Qwen's ``torch``-based
+        model wrapper:
+
+        - ``"auto"`` → ``"cuda"`` if ``torch.cuda.is_available()`` else
+          ``"cpu"``.
+        - ``"cuda"`` / ``"cpu"`` → returned as-is (explicit device wins).
+
+        ``self.device`` is NOT mutated here — the caller (``load()``)
+        updates it after a successful ``.to("cuda")`` so a failed CUDA
+        init doesn't leave a stale ``"cuda"`` value that would make
+        ``transcribe_with_fallback``'s CUDA-error branch unreachable
+        (the original XV-65 bug).
+
+        Returns the resolved device string.
+        """
+        if self.device == "auto":
+            try:
+                import torch
+            except ImportError:
+                log.warning("[QWEN] torch not installed — cannot probe CUDA, falling back to CPU")
+                return "cpu"
+            try:
+                if torch.cuda.is_available():
+                    return "cuda"
+            except Exception as exc:  # noqa: BLE001 — CUDA probe can raise varied errors
+                log.warning("[QWEN] CUDA probe failed (%s) — falling back to CPU", exc)
+            return "cpu"
+        return self.device
+
     def load(self, progress_callback=None) -> bool:
         """Load the Qwen ASR model from the local ``model_path``.
 
@@ -218,11 +251,44 @@ class QwenEngine:
                 )
                 _load_elapsed = time.perf_counter() - _t0
                 _warm_label = "warm (page-cache)" if _load_elapsed < 5.0 else "cold (disk)"
+
+                # XV-65: Actually move the model to the resolved device.
+                # Previously ``load()`` stored ``self.device`` but never
+                # applied it — ``from_pretrained()`` was called with no
+                # ``device=`` kwarg and no ``.to(self.device)`` call, so
+                # Qwen3-ASR-1.7B ran entirely on CPU regardless of GPU
+                # config (5-10× slower inference). ``self.device`` was
+                # also never updated from ``"auto"`` to a concrete value,
+                # making ``transcribe_with_fallback``'s ``if self.device
+                # == "cuda"`` branch unreachable.
+                effective_device = self._resolve_device()
+                if effective_device == "cuda":
+                    self._model.to("cuda")
+                    # float16 conversion is best-effort: some model
+                    # wrappers may not accept a dtype on ``.to()`` or
+                    # may not support half precision on the target GPU.
+                    try:
+                        import torch
+
+                        self._model.to(torch.float16)
+                    except ImportError:
+                        log.warning("[QWEN] torch not available — skipping float16 conversion")
+                    except Exception as exc:  # noqa: BLE001 — best-effort
+                        log.warning(
+                            "[QWEN] float16 conversion failed (%s) — keeping default dtype",
+                            exc,
+                        )
+                # Update self.device to the concrete resolved value so
+                # ``transcribe_with_fallback`` and ``device_info`` see
+                # "cuda"/"cpu" instead of the literal "auto".
+                self.device = effective_device
+
                 log.info(
-                    "[QWEN] Model loaded successfully from %s (%s) — %.1fs",
+                    "[QWEN] Model loaded successfully from %s (%s) — %.1fs (device=%s)",
                     self.model_path,
                     _warm_label,
                     _load_elapsed,
+                    self.device,
                 )
                 return True
             except ImportError as exc:
@@ -511,8 +577,15 @@ class QwenEngine:
 
     @property
     def device_info(self) -> str:
-        """Return device info string."""
-        return f"qwen/{self.device}"
+        """Return device info string.
+
+        XV-65: uses the resolved device so ``"auto"`` is reflected as
+        the concrete ``"cuda"`` / ``"cpu"`` after ``load()`` (or, before
+        load, by probing ``torch.cuda.is_available()``). Previously this
+        returned the literal string ``"qwen/auto"`` when the engine was
+        configured with ``device="auto"``.
+        """
+        return f"qwen/{self._resolve_device()}"
 
     @property
     def loaded_via(self) -> str:

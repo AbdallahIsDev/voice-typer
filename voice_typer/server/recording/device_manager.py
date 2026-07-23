@@ -384,7 +384,31 @@ class DeviceManager:
         return ordered
 
     def _fallback_host_rank(self, host_name: str) -> int:
+        """REC-6: rank host APIs for fallback device selection.
+
+        Lower rank = preferred. The ranking covers Windows, macOS, and
+        Linux host APIs so the fallback loop picks the most reliable
+        host when multiple devices share the same name.
+
+        Windows:
+          - MME = 0 (most compatible, lowest latency on legacy hardware)
+          - WASAPI = 1 (modern, lower latency on Win 10+)
+          - WDM-KS = 2 (kernel streaming, rare)
+          - DirectSound = 3 (legacy, higher latency)
+
+        macOS:
+          - CoreAudio = 0 (the only native host API — always rank 0)
+
+        Linux:
+          - ALSA = 0 (native, lowest latency)
+          - PulseAudio = 1 (userspace daemon, ubiquitous on desktop)
+          - JACK = 2 (pro audio, low latency but rare on consumer systems)
+
+        Unknown hosts return 5 (lowest priority but not last — leaves
+        room for future additions without renumbering).
+        """
         lower = host_name.lower()
+        # Windows hosts
         if lower == "mme":
             return 0
         if "wasapi" in lower:
@@ -393,7 +417,19 @@ class DeviceManager:
             return 2
         if "directsound" in lower:
             return 3
-        return 4
+        # macOS hosts
+        if "coreaudio" in lower or "core audio" in lower:
+            return 0
+        # Linux hosts
+        if lower == "alsa":
+            return 0
+        if "pulseaudio" in lower:
+            return 1
+        if lower == "jack":
+            return 2
+        # Unknown host — lowest priority but not last (leaves room for
+        # future additions).
+        return 5
 
     def _resolve_effective_sample_rate(self, device: int | None) -> tuple[int, dict | None]:
         """Determine the effective sample rate and device info for the given device.

@@ -220,8 +220,12 @@ def _is_elevated_target(hwnd: int | None = None) -> bool:
             return False
         finally:
             kernel32.CloseHandle(h_process)
-    except Exception:
-        return False
+    except Exception as exc:
+        # EC-15: fail-closed — if the elevation check itself raises,
+        # block paste rather than risk pasting into an elevated target
+        # we couldn't verify.
+        _log().warning("paste-safety check failed; failing closed: %s", exc)
+        return True
 
 
 # ─── PLAT-014: Password field detection ───────────────────────────────
@@ -272,8 +276,12 @@ def _focused_window_is_credential_dialog(hwnd: int | None = None) -> bool:
             return False
         cls = class_name.value
         return cls in _CRED_DIALOG_CLASSES
-    except Exception:
-        return False
+    except Exception as exc:
+        # EC-15: fail-closed — if the credential-dialog check raises,
+        # block paste rather than risk pasting into an undetected
+        # credential prompt.
+        _log().warning("paste-safety check failed; failing closed: %s", exc)
+        return True
 
 
 def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
@@ -383,8 +391,19 @@ def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
                         "fallback) — dictation blocked for security"
                     )
                     return True
-            except Exception:
-                pass
+            except Exception as exc:
+                # EC-15: wire the one-shot paste-safety warning so the
+                # swallowed exception is visible (was silent ``pass``).
+                # The function falls through to ``return False`` below
+                # (fail-open) because the cred-dialog heuristic is the
+                # last resort — we cannot positively identify a password
+                # field, so we allow paste rather than block all
+                # dictation when comtypes is merely absent.
+                _warn_paste_safety_once(
+                    "uia_password_cred_dialog_importerror_fallback",
+                    "_is_password_field",
+                    exc,
+                )
         except Exception as exc:
             # CLIP-2 (High, Security): comtypes is installed but the
             # UIA call raised (e.g. desktop-bridge app, UAC dialog,
@@ -406,16 +425,29 @@ def _is_password_field(focused: Any = None, hwnd: int | None = None) -> bool:
                         "failed) — dictation blocked for security (CLIP-2)"
                     )
                     return True
-            except Exception:
-                pass
+            except Exception as exc:
+                # EC-15: wire the one-shot paste-safety warning so the
+                # swallowed exception is visible (was silent ``pass``).
+                # Falls through to ``return False`` (fail-open) for the
+                # same reason as the ImportError branch above.
+                _warn_paste_safety_once(
+                    "uia_password_cred_dialog_uia_error_fallback",
+                    "_is_password_field",
+                    exc,
+                )
 
         # No raw ctypes fallback: implementing IsPassword via raw ctypes
         # requires defining the full IUIAutomation COM interface vtable
         # by hand (80+ methods), which is fragile and error-prone.
         # comtypes is the supported way to call UIA from Python.
         return False
-    except Exception:
-        return False
+    except Exception as exc:
+        # EC-15: fail-closed — the outer try covers the whole password-
+        # field detection path. If something unexpected broke it (not
+        # the inner comtypes/UIA errors already handled above), block
+        # paste rather than risk pasting into a credential prompt.
+        _log().warning("paste-safety check failed; failing closed: %s", exc)
+        return True
 
 
 # PERF-FIX-001: module-level cached IUIAutomation instance.
@@ -529,7 +561,17 @@ def _is_content_editable(focused: Any = None) -> bool:
                     comtypes.CoUninitialize()
     except ImportError:
         return False
-    except Exception:
+    except Exception as exc:
+        # EC-15: ``_is_content_editable`` is informational only (the
+        # caller logs but does NOT block paste on True — see
+        # ``_is_safe_paste_target`` docstring, CLIP-3). Fail-OPEN here
+        # is correct: returning True would falsely report a rich-editor
+        # target without improving security. We still log the failure
+        # so a broken UIA install is observable.
+        _log().warning(
+            "paste-safety check failed; keeping fail-open (contentEditable is informational, not a security gate): %s",
+            exc,
+        )
         return False
 
 
@@ -642,8 +684,12 @@ def _is_password_field_macos() -> bool:
             return False
         try:
             pid = front_app.processIdentifier()
-        except Exception:
-            return False
+        except Exception as exc:
+            # EC-15: fail-closed — if we cannot read the frontmost app's
+            # PID, we cannot query its AX tree, so we cannot verify the
+            # target is safe. Block paste.
+            _log().warning("paste-safety check failed; failing closed: %s", exc)
+            return True
         if pid is None or pid <= 0:
             return False
 
@@ -657,8 +703,12 @@ def _is_password_field_macos() -> bool:
         # pyobjc returns (OSStatus, value) tuple for the out-param.
         try:
             focused_result = ApplicationServices.AXUIElementCopyAttributeValue(app_elem, "AXFocusedUIElement", None)
-        except Exception:
-            return False
+        except Exception as exc:
+            # EC-15: fail-closed — if we cannot fetch the focused UI
+            # element, we cannot check whether it is a password field.
+            # Block paste.
+            _log().warning("paste-safety check failed; failing closed: %s", exc)
+            return True
         if not focused_result or not isinstance(focused_result, tuple):
             return False
         if len(focused_result) < 2 or focused_result[0] != 0:
@@ -745,15 +795,34 @@ def _find_focused_atspi_accessible(desktop: Any, max_depth: int = 10) -> Any:
         try:
             if root_state.contains(_PYATSPI_STATE_FOCUSED):
                 return desktop
-        except Exception:
-            pass
+        except Exception as exc:
+            # EC-15: wire the one-shot paste-safety warning so the
+            # swallowed exception is visible (was silent ``pass``).
+            # The traversal continues below; if it also fails to find
+            # a focused accessible, the caller fails open.
+            _warn_paste_safety_once(
+                "atspi_focused_state_check",
+                "_find_focused_atspi_accessible",
+                exc,
+            )
 
     # Depth-first traversal: at each level, recurse into the first
     # child whose subtree contains a focused accessible. We cap the
     # total recursion depth at ``max_depth`` to bound worst-case time.
     try:
         child_count = desktop.childCount
-    except Exception:
+    except Exception as exc:
+        # EC-15: this helper returns an element (``Any``) or ``None`` —
+        # NOT a bool. Changing the return type to ``True`` would break
+        # the caller (``focused.getRole()`` on a bool raises). We log
+        # via the one-shot paste-safety warning for dedup and keep the
+        # ``None`` return; the caller's own fail-closed paths
+        # (``_is_password_field_linux``) cover the security posture.
+        _warn_paste_safety_once(
+            "atspi_focused_childcount_lookup",
+            "_find_focused_atspi_accessible",
+            exc,
+        )
         return None
     for i in range(child_count):
         try:
@@ -838,8 +907,12 @@ def _is_password_field_linux() -> bool:
     try:
         try:
             desktop = pyatspi.Registry.getDesktop(0)
-        except Exception:
-            return False
+        except Exception as exc:
+            # EC-15: fail-closed — if the AT-SPI2 desktop is unavailable,
+            # we cannot traverse the accessibility tree to find the
+            # focused element. Block paste.
+            _log().warning("paste-safety check failed; failing closed: %s", exc)
+            return True
         if desktop is None:
             return False
 
@@ -849,8 +922,12 @@ def _is_password_field_linux() -> bool:
 
         try:
             role = focused.getRole()
-        except Exception:
-            return False
+        except Exception as exc:
+            # EC-15: fail-closed — if we cannot read the focused
+            # accessible's role, we cannot determine whether it is a
+            # password field. Block paste.
+            _log().warning("paste-safety check failed; failing closed: %s", exc)
+            return True
 
         try:
             password_role = pyatspi.ROLE_PASSWORD_TEXT

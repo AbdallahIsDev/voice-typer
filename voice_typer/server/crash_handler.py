@@ -927,10 +927,30 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
     without re-running with a debugger attached.
     """
     with contextlib.suppress(Exception):
+        # XZ-PII-01: redact exc_value before logging at CRITICAL.
+        # PIIRedactionFilter (attached to log handlers) only catches
+        # structured PII patterns + API-key-shaped tokens. Plain user
+        # speech in str(exc_value) (e.g. ValueError("cannot process: "
+        # + transcribed_text)) would pass through verbatim into the
+        # rotating log file. Apply explicit redaction here so secrets
+        # and PII are stripped before the log record is formatted.
+        try:
+            from voice_typer.server._secrets import redact_secret
+            from voice_typer.server.security import redact_pii
+
+            _redacted_value = redact_secret(redact_pii(str(exc_value))) if exc_value is not None else "None"
+        except Exception:
+            _redacted_value = str(exc_value)[:200] if exc_value is not None else "None"
         log.critical(
-            "[CRASH] Unhandled Python exception",
-            exc_info=(exc_type, exc_value, exc_tb),
+            "[CRASH] Unhandled Python exception: %s: %s",
+            exc_type.__name__ if exc_type is not None else "Unknown",
+            _redacted_value,
         )
+        # Full traceback only when VOICE_TYPER_DEBUG=1 (operator opt-in
+        # for verbose diagnostics). Production logs get the redacted
+        # single-line summary above to bound PII exposure.
+        if os.environ.get("VOICE_TYPER_DEBUG", "") == "1":
+            log.critical("[CRASH] Full traceback (VOICE_TYPER_DEBUG=1)", exc_info=(exc_type, exc_value, exc_tb))
     # G4-M-34: write a python_crash.<PID>.txt marker so the next
     # session's report_pending_crash can surface it.  Best-effort —
     # the hook must never raise (it runs during interpreter shutdown
@@ -939,21 +959,39 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
     # unlikely, and the worst case is a single overwritten file.
     if _python_crash_dir is not None:
         with contextlib.suppress(Exception):
+            # XZ-R17-03: use _secure_atomic_write for atomic write +
+            # O_NOFOLLOW + 0o600 on POSIX (was write_text with default
+            # umask 0644 = world-readable on multi-user systems).
+            # XZ-PII-02: apply redact_pii + redact_secret to exc_value
+            # before persisting to the marker file (was raw str()).
+            try:
+                from voice_typer.server._secrets import redact_secret
+                from voice_typer.server.config import _secure_atomic_write
+                from voice_typer.server.security import redact_pii
+
+                _atomic_write = _secure_atomic_write
+                _redact = lambda s: redact_secret(redact_pii(s))
+            except Exception:
+                _atomic_write = None
+                _redact = lambda s: s
             marker_path = _python_crash_dir / f"python_crash.{os.getpid()}.txt"
             thread_name = threading.current_thread().name
             timestamp = datetime.now().isoformat()
-            # CR-98: truncate exc_value to 200 chars so exception messages
-            # that contain user speech (e.g. ``ValueError("cannot process: "
-            # + transcribed_text)``) don't leak into the persistent crash
-            # archive. The full traceback is already in the log file.
-            _safe_value = str(exc_value)[:200] if exc_value is not None else "None"
+            # CR-98 + XZ-PII-02: truncate + redact exc_value so user
+            # speech and secrets don't leak into the persistent crash
+            # archive.
+            _raw_value = str(exc_value)[:200] if exc_value is not None else "None"
+            _safe_value = _redact(_raw_value)
             content = (
                 f"exc_type={exc_type.__name__ if exc_type is not None else 'Unknown'}\n"
                 f"exc_value={_safe_value}\n"
                 f"thread={thread_name}\n"
                 f"timestamp={timestamp}\n"
             )
-            marker_path.write_text(content, encoding="utf-8")
+            if _atomic_write is not None:
+                _atomic_write(marker_path, content)
+            else:
+                marker_path.write_text(content, encoding="utf-8")
     if _original_excepthook is not None and _original_excepthook is not _crash_excepthook:
         with contextlib.suppress(Exception):
             _original_excepthook(exc_type, exc_value, exc_tb)

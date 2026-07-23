@@ -94,6 +94,36 @@ def consume_restart_token() -> None:
 
 # ─── SEC-009: PII Redaction Filter ──────────────────────────────────────
 
+# XV-122: fast-path trigger for ``_redact_text``.  The redaction pass
+# runs 8-12 regex substitutions unconditionally on every log record,
+# even though the vast majority of records contain no PII / secret
+# pattern.  This single ``re.Pattern.search`` is a *necessary* condition
+# for ANY of the redaction patterns (``PIIRedactionFilter._PATTERNS``,
+# ``_secrets._KEY_PATTERNS``, ``_secrets._FLAG_KEY_PATTERNS`` whose
+# value is ≥20 chars, and the URL-credential branch gated on ``"@"``)
+# to match — so a miss here means we can return the input unchanged
+# without running any of the heavier substitutions.
+#
+# Trigger breakdown (each is necessary for at least one pattern):
+#   - ``@``      — email pattern (``\b[\w.+-]+@[\w-]+\.[\w.-]+\b``) and
+#                  the URL-credential branch (``redact_url``).
+#   - ``+``      — international phone pattern (``\+\d{1,3}…``).
+#   - ``\d{3,}`` — US phone, SSN, credit-card, and every realistic IBAN
+#                  (every country's BBAN format includes 3+ consecutive
+#                  digits).
+#   - ``Bearer`` — ``_KEY_PATTERNS[0]``.
+#   - ``Token``  — ``_KEY_PATTERNS[1]``.
+#   - ``sk-``    — ``_KEY_PATTERNS[2]``.
+#   - ``key=``   — bare ``key=`` flag form (``_BARE_KEY_VALUE_PATTERN``
+#                  with keyword ``key``); also a substring of ``--key=``
+#                  and other ``--<keyword>=`` flag forms whose keyword
+#                  ends in ``key`` (e.g. ``--api_key=``, ``--api-key=``).
+#   - ``[A-Za-z0-9_\-]{20,}`` — the generic 20+ char bare-token pattern
+#                  (``_KEY_PATTERNS[3]``); also catches any flag form
+#                  whose *value* is 20+ chars (the common production
+#                  case — real API keys are long).
+_FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|[A-Za-z0-9_\-]{20,}")
+
 
 def _redact_text(text: str) -> str:
     """Apply PII + API-secret + URL-credential redaction to *text*.
@@ -118,7 +148,20 @@ def _redact_text(text: str) -> str:
     The redaction helpers are imported from :mod:`voice_typer.server._secrets`
     so the secret-matching patterns stay defined in exactly one place
     (no duplicated regexes).
+
+    XV-122: a single :data:`_FAST_TRIGGER` scan gates the whole pass.
+    Every trigger in the alternation is a *necessary* condition for at
+    least one downstream pattern to match, so a miss lets us return
+    *text* unchanged without issuing the 8-12 ``re.sub`` calls (a
+    5-10x speedup for the common log line that carries no secret /
+    PII / URL-credential trigger).
     """
+    # XV-122: fast path — no trigger means no pattern can match, so
+    # skip the substitution loop entirely.  ``str`` input only; the
+    # ``PIIRedactionFilter.filter`` call site always passes the
+    # already-stringified ``record.getMessage()`` / traceback text.
+    if not _FAST_TRIGGER.search(text):
+        return text
     for pattern, replacement in PIIRedactionFilter._PATTERNS:
         text = pattern.sub(replacement, text)
     text = redact_secret(text)

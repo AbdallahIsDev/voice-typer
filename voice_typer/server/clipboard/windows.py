@@ -80,8 +80,12 @@ class Win32Clipboard:
                 import ctypes
 
                 ctypes.windll.user32.CloseClipboard()
-            except Exception:
-                pass
+            except (OSError, AttributeError):
+                # EC-15: narrowed from bare ``except Exception: pass``.
+                # CloseClipboard is a Win32 ctypes call; ``OSError`` covers
+                # Win32 API failures and ``AttributeError`` covers a
+                # missing ctypes function pointer on stripped builds.
+                _cb.log.debug("clipboard cleanup failed", exc_info=True)
             self._opened = False
         return False  # don't suppress exceptions
 
@@ -110,8 +114,12 @@ class Win32Clipboard:
             user32 = ctypes.windll.user32
             if hasattr(user32, "GetClipboardSequenceNumber"):
                 return user32.GetClipboardSequenceNumber()
-        except Exception:
-            pass
+        except (OSError, AttributeError):
+            # EC-15: narrowed from bare ``except Exception: pass``.
+            # GetClipboardSequenceNumber is a Win32 ctypes call;
+            # ``OSError`` covers Win32 API failures and
+            # ``AttributeError`` covers a missing function pointer.
+            _cb.log.debug("clipboard sequence-number query failed", exc_info=True)
         return 0
 
 
@@ -129,8 +137,13 @@ def _win32_empty_clipboard() -> None:
         # take effect.
         with _cb.Win32Clipboard() as clip:
             clip.empty()
-    except Exception:
-        pass
+    except (OSError, AttributeError):
+        # EC-15: narrowed from bare ``except Exception: pass``. The
+        # protected block opens, empties, and closes the clipboard via
+        # Win32 ctypes (OpenClipboard / EmptyClipboard / CloseClipboard);
+        # ``OSError`` covers Win32 API failures and ``AttributeError``
+        # covers a missing ctypes function pointer.
+        _cb.log.debug("clipboard cleanup failed", exc_info=True)
 
 
 # ─── PLAT-001: Win32 SendInput Ctrl+V helper ──────────────────────────

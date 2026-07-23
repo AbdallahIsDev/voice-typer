@@ -193,10 +193,22 @@ _XRUN_ALERT_THRESHOLD = 5  # alert if N xruns in the window
 _XRUN_ALERT_PERIOD = 10.0  # ...within M seconds
 
 
-# PERF-NEW-018: MAX_BUFFER_CHUNKS is now dynamically adjusted in
-# start() based on max_recording_time_seconds.  The default below is a
-# safe ceiling (30K chunks * 1024 samples/chunk / 16kHz ≈ 30 min).
-# For longer recordings, start() increases the deque maxlen.
+# PERF-NEW-018 / XV-20: MAX_BUFFER_CHUNKS is dynamically adjusted in
+# start() based on max_recording_time_seconds AND the device's effective
+# sample rate (after _resolve_effective_sample_rate returns). The
+# original implementation assumed 1024-sample blocks at 16kHz
+# (chunk_seconds=0.064), but the actual blocksize is 512 and the
+# effective rate may be 44.1/48kHz (device native rate). At 48kHz the
+# stale 30000-chunk default only holds 30000 × 512/48000 ≈ 5.3 min — a
+# 30-min dictation would silently lose the first ~25 min via deque
+# maxlen eviction.
+#
+# The default below is a safe ceiling for the common 16kHz/512-sample
+# case (30000 × 512/16000 = 960s = 16 min, comfortably above the 900s
+# default max_recording_time_seconds). start() computes
+# ``chunk_seconds = blocksize / effective_sr`` and resizes the deque to
+# ``int(max_rec / chunk_seconds) + safety`` when the result exceeds
+# this default.
 DEFAULT_MAX_BUFFER_CHUNKS = 30000
 BUFFER_WARNING_THRESHOLD = 5000
 TELEMETRY_LOG_INTERVAL = 1000
@@ -342,8 +354,22 @@ class Recorder:
         # AUDIO-PRE: pre-roll circular buffer (captures audio before
         # recording officially starts to reduce cold-start latency).
         # Configurable via config.pre_roll_buffer_seconds (0 = disabled).
+        #
+        # XV-21: the deque maxlen MUST be sized against the device's
+        # *effective* sample rate, not config.sample_rate (16kHz). At
+        # 48kHz the same 512-sample blocksize fires 3× more often, so a
+        # 1-second pre-roll needs 3× the chunk capacity. The placeholder
+        # sizing below uses config.sample_rate as a safe default for the
+        # common 16kHz case; start() re-sizes the deque once
+        # _effective_sr is known (after the device loop succeeds) using
+        # the values cached in _preroll_seconds / _preroll_blocksize.
         preroll_seconds = float(getattr(config, "pre_roll_buffer_seconds", 0.0) or 0)
         sample_rate = int(getattr(config, "sample_rate", 16000) or 16000)
+        # XV-21: cache these so start() can recompute the deque maxlen
+        # using _effective_sr without re-reading config (which the audio
+        # callback does not touch).
+        self._preroll_seconds: float = preroll_seconds
+        self._preroll_blocksize: int = 512  # matches sd.InputStream blocksize
         self._preroll_buffer: collections.deque = collections.deque(
             maxlen=int(preroll_seconds * sample_rate / 512) + 2 if preroll_seconds > 0 else 0
         )
@@ -1300,24 +1326,19 @@ class Recorder:
         # and max_recording_time_seconds=0 auto-selection). Always defaults to 900.
         self._cached_max_recording_time = int(getattr(self.config, "max_recording_time_seconds", 900))
 
-        # PERF-NEW-018: dynamically size the buffer based on max_recording_time_seconds.
-        # At 16kHz with 1024-sample chunks, each chunk = 64ms.  For a 30-min
-        # recording: 1800s / 0.064s ≈ 28125 chunks.  For 1 hour: 56250.
+        # XV-20: dynamic buffer sizing is DEFERRED until after the
+        # device loop below sets ``effective_sr``. The original
+        # implementation computed ``needed_chunks`` here using a stale
+        # 0.064s chunk-duration assumption (1024 samples / 16kHz), but
+        # the actual blocksize is 512 and the effective sample rate may
+        # be 44.1/48kHz (device native rate). Computing the size now
+        # would under-allocate by ~3× at 48kHz and silently evict the
+        # first ~25 minutes of a 30-minute dictation. See the resize
+        # block after the device loop succeeds.
         try:
             max_rec = int(self._cached_max_recording_time)
         except (TypeError, ValueError):
             max_rec = 0
-        if max_rec > 0:
-            needed_chunks = int(max_rec / 0.064) + 1000  # +1K safety
-            if needed_chunks > DEFAULT_MAX_BUFFER_CHUNKS:
-                # Create a new deque with larger maxlen and copy existing data
-                old_data = list(self._buffer)
-                self._buffer = collections.deque(old_data, maxlen=needed_chunks)
-                log.debug(
-                    "[RECORDING] Buffer sized for %ds max recording: %d chunks",
-                    max_rec,
-                    needed_chunks,
-                )
 
         device = self._resolve_device()
         candidates = self._same_physical_microphone_candidates(device)
@@ -1571,6 +1592,86 @@ class Recorder:
             if last_error is not None:
                 raise last_error
             raise RuntimeError("No input device could be opened")
+
+        # ── XV-20 / XV-21: dynamic buffer sizing (deferred from above) ──
+        # Now that the device loop has finalized ``effective_sr`` (the
+        # device's native sample rate, which may be 44.1/48kHz), size
+        # both the main recording buffer and the pre-roll deque using
+        # the ACTUAL chunk duration ``blocksize / effective_sr``.
+        #
+        # XV-20: previously the main buffer was sized against a stale
+        # 1024-sample/16kHz assumption (chunk_seconds=0.064). At 48kHz
+        # with 512-sample blocks the real chunk_seconds is 512/48000 ≈
+        # 0.0107s, so 30000 default chunks only hold ~5.3 min — a
+        # 30-min dictation silently lost the first ~25 min via deque
+        # maxlen eviction. We resize to ``int(max_rec / chunk_seconds)
+        # + safety`` so the buffer can always hold the full configured
+        # max_recording_time_seconds. Existing buffer contents (empty
+        # at this point in start()) are preserved via list(deque).
+        #
+        # XV-21: the pre-roll deque was sized in __init__ using
+        # ``config.sample_rate`` (16kHz). At 48kHz the same 1-second
+        # pre-roll needs 3× the chunk capacity. Re-size here using
+        # ``effective_sr`` so the pre-roll actually captures the
+        # configured ``pre_roll_buffer_seconds``. Existing pre-roll
+        # chunks already captured by the audio callback (between
+        # stream.start() above and here) are preserved.
+        blocksize = 512  # matches sd.InputStream blocksize below
+        # ``effective_sr`` is the local assigned in the device loop
+        # above (initialised to ``self.config.sample_rate`` at the top
+        # of the device-enumeration block and updated to ``candidate_sr``
+        # on every successful stream open). It is a local — not shared
+        # with the audio worker thread — so reading it here needs no
+        # lock. ``self._effective_sr`` (the instance attribute read by
+        # snapshot() under ``self._lock``) was set to the same value
+        # inside the device loop. We read the local because the resize
+        # math is start()-local and does not need to coordinate with
+        # concurrent snapshot() reads.
+        sizing_sr = effective_sr if effective_sr > 0 else self.config.sample_rate
+        if sizing_sr <= 0:
+            sizing_sr = self.config.sample_rate
+        chunk_seconds = blocksize / sizing_sr if sizing_sr > 0 else 0.064
+
+        if max_rec > 0 and chunk_seconds > 0:
+            needed_chunks = int(max_rec / chunk_seconds) + 1000  # +1K safety
+            current_maxlen = self._buffer.maxlen or 0
+            if needed_chunks > current_maxlen:
+                # Preserve any data already in the buffer (defensive —
+                # start() clears the buffer at line ~1220, so this is
+                # normally empty) when resizing.
+                old_data = list(self._buffer)
+                self._buffer = collections.deque(old_data, maxlen=needed_chunks)
+                log.debug(
+                    "[RECORDING] Buffer sized for %ds max recording at %d Hz "
+                    "(blocksize=%d, chunk_seconds=%.4f): %d chunks",
+                    max_rec,
+                    sizing_sr,
+                    blocksize,
+                    chunk_seconds,
+                    needed_chunks,
+                )
+
+        # XV-21: re-size the pre-roll deque using the effective sample
+        # rate. The deque was created in __init__ with a placeholder
+        # capacity based on config.sample_rate (16kHz); for a 48kHz
+        # device that capacity is 3× too small, so a 1s pre-roll would
+        # only capture ~0.33s. Preserve any preroll already captured by
+        # the audio callback (it may have fired between stream.start()
+        # and here).
+        if self._preroll_active and self._preroll_seconds > 0 and sizing_sr > 0:
+            new_preroll_maxlen = int(self._preroll_seconds * sizing_sr / blocksize) + 2
+            current_preroll_maxlen = self._preroll_buffer.maxlen or 0
+            if new_preroll_maxlen != current_preroll_maxlen:
+                old_preroll = list(self._preroll_buffer)
+                self._preroll_buffer = collections.deque(old_preroll, maxlen=new_preroll_maxlen)
+                log.debug(
+                    "[RECORDING] Pre-roll buffer sized for %.2fs at %d Hz (blocksize=%d): %d chunks (was %d)",
+                    self._preroll_seconds,
+                    sizing_sr,
+                    blocksize,
+                    new_preroll_maxlen,
+                    current_preroll_maxlen,
+                )
 
         if selected_device != device and isinstance(selected_device, int):
             log.info(

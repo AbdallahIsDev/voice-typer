@@ -57,7 +57,10 @@ ad-hoc:
 # Every ``code`` field stamped on an IPC error envelope SHOULD come
 # from this set. The registry is the single source of truth so the
 # renderer's ``usePython.ts`` switch statement can be generated /
-# audited against it.
+# audited against it (see ``tests/test_error_codes_registry.py`` for
+# the contract test that asserts every emitted ``"code": "..."``
+# literal in the server tree is either registered here or is a
+# documented legacy alias).
 #
 # Naming convention:
 # - ``client.*`` — the request was malformed / invalid / unauthorized.
@@ -67,12 +70,14 @@ ad-hoc:
 #   The renderer surfaces a generic "something went wrong" message and
 #   logs the detail for support.
 #
-# Legacy non-namespaced codes (``invalid_field``, ``missing_field``,
-# ``invalid_payload``, ``rate_limited``, ``internal_error``) are NOT
-# listed here — they continue to be emitted by the validation helper
-# and the rate limiter for backward compatibility, but new code should
+# Legacy non-namespaced aliases (``internal_error``, ``shutting_down``,
+# ``unknown_command``, ``unknown_tray_item``, ``auth_failed``,
+# ``rate_limited``, ``invalid_payload``, ``invalid_field``,
+# ``missing_field``, ``model_switch_failed``, ``payload_too_large``)
+# are still emitted by some paths for backward compat — new code MUST
 # use the namespaced form. The renderer must accept both forms (treat
-# the legacy form as an alias).
+# the legacy form as an alias). The contract test in
+# ``tests/test_error_codes_registry.py`` is the regression guard.
 ERROR_CODES: frozenset[str] = frozenset(
     {
         # Client-originated errors (4xx analog).
@@ -82,11 +87,15 @@ ERROR_CODES: frozenset[str] = frozenset(
         "client.rate_limited",
         "client.path_not_allowed",
         "client.not_found",
+        "client.auth_failed",
         # Server-originated errors (5xx analog).
         "server.internal_error",
         "server.handler_error",
         "server.file_locked",
         "server.model_switch_failed",
+        "server.shutting_down",
+        "server.unknown_command",
+        "server.unknown_tray_item",
     }
 )
 

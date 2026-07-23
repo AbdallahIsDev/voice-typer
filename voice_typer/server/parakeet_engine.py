@@ -125,45 +125,31 @@ _OVERLAP_DEDUP_WINDOW = 3
 def _cleanup_hf_cache_dir(model_dir: "Any") -> None:
     """G4-CR-06 / cache cleanup: best-effort delete a tampered HF cache dir.
 
-    Called from ``ParakeetEngine.load()`` and
-    ``asr_setup.download_parakeet_weights`` when
-    ``verify_model_integrity()`` returns False.  Removes the
-    ``models--<org>--<repo>`` directory (the HuggingFace Hub cache root
-    for a single repo) so the next ``load()`` doesn't re-discover the
-    tampered snapshot.
+    EC-FIX-8: this local helper now delegates to the canonical
+    ``voice_typer.server.asr_utils.cleanup_hf_cache_dir`` so the
+    cleanup logic lives in one place (previously the same body was
+    duplicated 3x across ``transcription.py``,
+    ``asr_setup.py``, and here — EC-17 finding #2).
+
+    The ``model_dir`` argument is preserved for backward compatibility
+    with the existing call site in ``ParakeetEngine.load()`` (which
+    already resolved the path from ``_PARAKERT_MODEL_ID``).  The
+    canonical helper re-resolves the path from the repo_id
+    (``_PARAKERT_MODEL_ID``) — the two paths are guaranteed identical
+    because both use ``_config_dir() / "huggingface" / "hub" /
+    f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"``.  The
+    ``model_dir`` argument is therefore accepted but ignored.
 
     Best-effort: logs but does not raise if the cleanup itself fails
     (e.g. file is locked on Windows, permission denied on POSIX).  The
     integrity hard-fail (``return False`` / ``RuntimeError`` in the
     caller) is the security gate; this cleanup is just hygiene so a
     retry doesn't silently re-load the same tampered files.
-
-    Parameters
-    ----------
-    model_dir : Path or str
-        The ``models--<org>--<repo>`` directory under
-        ``<config_dir>/huggingface/hub/``.
     """
-    import shutil
-    from pathlib import Path
+    from voice_typer.server.asr_utils import cleanup_hf_cache_dir
 
-    path = Path(model_dir)
-    if not path.exists():
-        return
-    try:
-        shutil.rmtree(path)
-        log.warning(
-            "[PARAKEET] Removed tampered HF cache directory %s after integrity check failure.",
-            path,
-        )
-    except OSError as exc:
-        # Best-effort: don't raise.  The integrity hard-fail above is
-        # the security gate; the cleanup is just hygiene.
-        log.warning(
-            "[PARAKEET] Could not remove tampered HF cache directory %s: %s. Manual cleanup recommended.",
-            path,
-            exc,
-        )
+    # ``model_dir`` is intentionally ignored — see docstring above.
+    cleanup_hf_cache_dir(_PARAKERT_MODEL_ID, log_prefix="[PARAKEET]")
 
 
 class ParakeetEngine:
@@ -403,7 +389,13 @@ class ParakeetEngine:
                     )
                     if progress_callback:
                         progress_callback("HuggingFace consent required before downloading Parakeet model.")
-                    from voice_typer.server.cloud_engines import ConsentRequiredError
+                    # EC-FIX-8: import ConsentRequiredError from the
+                    # canonical ``asr_errors`` module (previously
+                    # imported from ``cloud_engines`` — EC-30 finding
+                    # #12 / EC-B4: local engines should not depend on
+                    # the cloud-engines module just for a 5-line
+                    # exception class).
+                    from voice_typer.server.asr_errors import ConsentRequiredError
 
                     raise ConsentRequiredError(
                         f"HuggingFace consent not given — refusing to download {_PARAKERT_MODEL_ID}."
@@ -456,12 +448,23 @@ class ParakeetEngine:
             #
             # The verify path is the same regardless of cache-hit or
             # post-download: enumerate snapshot dirs and call
-            # ``_verify_model_integrity`` against the manifest.  On
+            # ``verify_model_integrity`` against the manifest.  On
             # failure we hard-fail (return False) and remove the
             # offending ``models--<repo>`` directory so the next
             # ``load()`` doesn't re-discover the tampered snapshot.
-            from voice_typer.server.asr_setup import _verify_model_integrity
+            #
+            # EC-FIX-8 (EC-B4): call ``security.verify_model_integrity``
+            # directly with the canonical (local_dir, repo_id) argument
+            # order.  Previously this went through the
+            # ``asr_setup._verify_model_integrity`` wrapper which had a
+            # swapped (repo_id, local_dir) signature — the wrapper just
+            # re-swapped the args back to the canonical order, but the
+            # indirection was a footgun (callers had to remember which
+            # order each wrapper expected).  The wrapper has been
+            # deleted; callers now use ``security.verify_model_integrity``
+            # directly with the canonical order.
             from voice_typer.server.config import _config_dir
+            from voice_typer.server.security import verify_model_integrity
 
             cache_root = _config_dir() / "huggingface" / "hub"
             model_dir = cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
@@ -470,7 +473,7 @@ class ParakeetEngine:
                 verify_exc: Exception | None = None
                 try:
                     for snapshot in (model_dir / "snapshots").iterdir():
-                        if snapshot.is_dir() and _verify_model_integrity(_PARAKERT_MODEL_ID, str(snapshot)):
+                        if snapshot.is_dir() and verify_model_integrity(str(snapshot), _PARAKERT_MODEL_ID):
                             verified = True
                             break
                 except OSError as exc:
@@ -1015,7 +1018,12 @@ class ParakeetEngine:
         """
         import gc
 
-        from voice_typer.server.transcription import release_gpu_memory
+        # EC-FIX-8: ``release_gpu_memory`` now lives in the canonical
+        # ``asr_utils`` module (formerly imported from ``transcription``).
+        # ``transcription.py`` still re-exports the name for backward
+        # compat with tests that patch
+        # ``voice_typer.server.transcription.release_gpu_memory``.
+        from voice_typer.server.asr_utils import release_gpu_memory
 
         with self._lock:
             self._model = None

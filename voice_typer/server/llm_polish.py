@@ -15,9 +15,12 @@ Pipeline order: transcribe → text cleanup → vocabulary → templates → LLM
 
 import json
 import logging
-from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+from urllib.error import URLError
+from urllib.request import Request
 
+from voice_typer.server._http_safety import (
+    build_secure_opener,
+)
 from voice_typer.server._secrets import (
     assert_url_allowed,
     redact_secret,
@@ -25,37 +28,6 @@ from voice_typer.server._secrets import (
 )
 
 log = logging.getLogger(__name__)
-
-
-class _NoRedirectHandler(HTTPRedirectHandler):
-    """SEC-2: refuse to follow HTTP redirects.
-
-    ``urllib.request.build_opener`` ALWAYS installs the default
-    ``HTTPRedirectHandler`` (which silently follows 3xx responses)
-    UNLESS the caller passes an explicit ``HTTPRedirectHandler``
-    subclass. The previous code passed only ``HTTPSHandler()``,
-    expecting ``build_opener`` to skip the redirect handler — but
-    urllib adds the default handlers in addition to the caller-provided
-    ones (a handler of the same *class* replaces the default;
-    HTTPSHandler replaces HTTPSHandler but does NOT replace
-    HTTPRedirectHandler). So the opener was silently following 3xx
-    redirects despite the SECURITY comment claiming otherwise.
-
-    This subclass overrides ``redirect_request`` to raise ``HTTPError``
-    so the existing ``except HTTPError`` / ``except URLError`` branches
-    handle it as a hard failure (no silent exfiltration of the request
-    body — which contains the user's transcribed text — to an attacker-
-    controlled redirect target).
-    """
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
-        raise HTTPError(
-            url=newurl,
-            code=code,
-            msg=f"redirect refused (SEC-2): {code} {msg} -> {redact_url(newurl)}",
-            hdrs=headers,
-            fp=fp,
-        )
 
 
 # SEC-audit-006 (Round 0 forward-port): use a dedicated opener that does NOT
@@ -76,7 +48,12 @@ class _NoRedirectHandler(HTTPRedirectHandler):
 # installs the default ``HTTPRedirectHandler`` regardless of whether
 # the caller passed ``HTTPSHandler``. Passing ``_NoRedirectHandler()``
 # (a subclass that raises on redirect) actually achieves the intent.
-_opener = build_opener(HTTPSHandler(), _NoRedirectHandler())
+#
+# EC-FIX-8: the handler + builder now live in ``_http_safety`` so
+# they're shared with ``cloud_engines._opener`` (single source of
+# truth — previously the class was duplicated verbatim across both
+# modules, EC-17 finding #1).
+_opener = build_secure_opener()
 
 # ─── Preset prompts ─────────────────────────────────────────────────────
 

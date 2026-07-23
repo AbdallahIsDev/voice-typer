@@ -357,6 +357,14 @@ class RecordingController:
                 APP_NAME,
                 f"Could not start recording.\n{e}\n\nCheck voice-typer.log for traceback.",
             )
+            try:
+                from voice_typer.server import event_bus
+
+                event_bus.publish(
+                    {"type": "error", "data": {"message": f"Could not start recording: {e}", "kind": "recording_start"}}
+                )
+            except Exception:
+                pass
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
 
     def stop(self) -> None:

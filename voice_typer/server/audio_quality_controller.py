@@ -154,15 +154,21 @@ class AudioQualityController:
         """
         try:
             if force_sr is not None:
-                # AUDIO-6/AUDIO-9: update the chain's sample rate first
-                # so the subsequent rebuild_from_config builds filters
-                # with coefficients tuned to the actual device rate.
-                # set_sample_rate is a no-op when the rate is unchanged.
+                # XV-31 (CRITICAL) / AUDIO-6 / AUDIO-9: update the chain's
+                # sample rate first so the subsequent rebuild_from_config
+                # builds filters with coefficients tuned to the actual
+                # device rate. ``AudioProcessor.set_sample_rate`` now
+                # exists (FA5-FIX), so the ``getattr`` lookup succeeds
+                # and the call is made for real — previously this branch
+                # silently fell through to the dead-fallback log line
+                # below, leaving all filter coefficients tuned to the
+                # original sample rate (hot-plug → mistuned filter chain).
+                # The ``getattr`` guard is retained only as a defensive
+                # measure for spec-limited test doubles that omit the
+                # method; production code paths always have it.
                 set_sr = getattr(self._app._audio_processor, "set_sample_rate", None)
                 if callable(set_sr):
                     set_sr(force_sr)
-                else:
-                    log.debug("[APP] AudioProcessor lacks set_sample_rate — skipping AUDIO-6 rebuild")
             self._app._audio_processor.rebuild_from_config(self._app.config)
             # PERF-02 (R8): refresh the recorder's _vad_enabled cache so the
             # next audio chunk sees the new VAD config without re-evaluating

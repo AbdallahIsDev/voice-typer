@@ -103,7 +103,19 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
     with recorder._lock:
         if not recorder._buffer:
             return np.array([], dtype=np.float32)
-        effective_sr = recorder._effective_sr
+        # CR-5: use ``_buffer_sr`` (the actual sample rate of the audio in
+        # ``recorder._buffer``) instead of ``_effective_sr`` (the device's
+        # native rate). When an AudioProcessor is active, ``process_chunk``
+        # resamples to the chain's construction rate (typically 16 kHz)
+        # before appending — so the buffer holds chain-rate audio. Using
+        # ``_effective_sr`` here would cause ``_resample_chunk`` to
+        # resample a second time (chain→target on top of the native→chain
+        # resample already done by ``process_chunk``), which (a) wastes
+        # CPU and (b) can introduce artifacts from the double resample.
+        # Fall back to ``_effective_sr`` when ``_buffer_sr`` is 0/unset
+        # (defensive — should never happen because ``__init__`` and
+        # ``start()`` both initialize it).
+        effective_sr = recorder._buffer_sr or recorder._effective_sr
         # PERF-NEW-021: read the cached target_sr instead of
         # recorder.config.sample_rate to avoid attribute lookup under lock.
         target_sr = getattr(recorder, "_cached_target_sr", None) or recorder.config.sample_rate
@@ -237,6 +249,16 @@ def discard_recording(recorder: Recorder) -> None:
     # snapshot() reader sees a consistent value.
     with recorder._lock:
         recorder._effective_sr = recorder.config.sample_rate
+        # CR-5: reset ``_buffer_sr`` to ``None`` so the next session
+        # starts clean (matches the ``_effective_sr`` reset above, but
+        # uses ``None`` so stop()/snapshot() fall back to ``_effective_sr``
+        # via the ``_buffer_sr or _effective_sr`` idiom until
+        # ``_process_audio_chunk`` updates it on the first chunk).
+        # Without this, a subsequent ``stop()``/``snapshot()`` would use
+        # the previous session's chain rate as the resample source rate —
+        # causing a wrong-rate resample on the first chunk of the new
+        # session.
+        recorder._buffer_sr = None
     recorder._last_rms = 0.0
     recorder._silence_timer = 0.0
     recorder._silence_start_time = None

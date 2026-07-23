@@ -199,7 +199,7 @@ class ModelManager:
         all production mutations go through ``ModelManager`` methods
         which keep the registry and the fields in sync via the explicit
         ``_sync_legacy_fields`` / ``_sync_registry_from_fields`` calls
-        inside ``_change_model_impl`` (now guarded by both
+        inside ``change_model`` (now guarded by both
         ``_config_mutation_lock`` and ``_model_change_lock`` per CR-77).
         Reading via ``self._registry.get_active()`` directly is safe:
         ``AsrBackendRegistry`` is internally synchronized (its own
@@ -675,7 +675,7 @@ class ModelManager:
         engines constructed for the same name, or with the old backend
         unregistered before the new one finished loading.
 
-        CR-77: ``_change_model_impl`` mutates ``app.config.asr_backend``
+        CR-77: ``change_model`` mutates ``app.config.asr_backend``
         / ``model_size`` and calls ``app.config.save()``.  That mutation
         must be atomic w.r.t. concurrent IPC handlers
         (``service.apply_config`` / ``set_config`` / onboarding) which
@@ -964,34 +964,6 @@ class ModelManager:
             except Exception as exc:
                 log.exception("[MODEL] set_active_backend load failed: %s", exc)
                 self._app.tray.set_state(AppState.ERROR, f"Backend failed: {exc}")
-
-    def _change_model_impl(self, model_size: str) -> None:
-        """Actual implementation of :meth:`change_model` (locks acquired by caller).
-
-        .. deprecated::
-            Since G4-H-16, :meth:`change_model` is split into three
-            phase helpers (``_change_model_setattr_phase``,
-            ``_change_model_unload_phase``, ``_change_model_load_phase``)
-            so the heavy load can run outside ``_config_mutation_lock``.
-            This shim exists for backward-compat with any caller that
-            still calls ``_change_model_impl`` directly. It re-acquires
-            the config lock around the load phase to preserve the legacy
-            behavior (the new change_model releases it before load).
-
-        Split out so ``change_model`` can wrap the entire body in
-        ``with self._app._config_mutation_lock:`` (outer) and
-        ``with self._model_change_lock:`` (inner) without re-indenting
-        ~80 LOC.  CR-77: the caller MUST hold both locks.
-        """
-        # Legacy callers expect the full cycle under both locks.
-        # Delegate to the new phase helpers but re-acquire the config
-        # lock around the load phase to preserve legacy behavior.
-        with self._app._config_mutation_lock:
-            new_backend, deferred = self._change_model_setattr_phase(model_size)
-            if deferred:
-                return
-            self._change_model_unload_phase(new_backend)
-            self._change_model_load_phase(new_backend)
 
     # ERR-003: apply a deferred model change captured during an active
     # recording. Called from _start_dictation before the new recording

@@ -11,6 +11,18 @@ from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
+from voice_typer.server.asr_errors import ConsentRequiredError
+
+# EC-FIX-8: shared ASR helpers now live in ``asr_utils`` (canonical source).
+# The re-exports below preserve backward compatibility with tests and
+# service.py that import these names from ``transcription``.
+from voice_typer.server.asr_utils import (  # noqa: F401
+    _MODEL_SIZE_MB,
+    _check_disk_space_for_download,
+    _download_with_retry,
+    cleanup_hf_cache_dir,
+    release_gpu_memory,
+)
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 from voice_typer.server.platform_utils import is_windows
 
@@ -45,76 +57,13 @@ _WHISPER_SAMPLE_RATE = 16000  # Whisper always expects 16kHz input
 _nvidia_dll_path_handles: list[object] = []
 
 
-# PROD-004: Approximate model sizes (MB) for disk-space pre-check.
-# These are the uncompressed sizes of the faster-whisper models.
-_MODEL_SIZE_MB = {
-    "tiny.en": 75,
-    "tiny": 75,
-    "base.en": 150,
-    "base": 150,
-    "small.en": 500,
-    "small": 500,
-    "medium.en": 1500,
-    "medium": 1500,
-    "large-v1": 3000,
-    "large-v2": 3000,
-    "large-v3": 3000,
-    "large": 3000,
-    # NEW-MODEL-001: added turbo + distilled variants.
-    # ``large-v3-turbo`` (a.k.a. "turbo") is the fast multilingual model
-    # released by OpenAI in 2024 — near-large-v3 accuracy at ~8x speed.
-    # ``distil-large-v3`` and ``distil-medium.en`` are distilled variants
-    # from the Distil-Whisper project: smaller, faster, slightly lower
-    # accuracy.  See ``voice_typer/server/model_registry.py`` for full
-    # metadata (VRAM, supported languages, repo IDs, speed ratings).
-    "large-v3-turbo": 809,
-    "turbo": 809,  # alias for large-v3-turbo
-    "distil-large-v3": 1500,
-    "distil-medium.en": 780,
-}
-# Extra margin for temporary files, metadata, tokenizer, etc.
-_DISK_SPACE_MARGIN_MB = 500
-
-
-def release_gpu_memory() -> None:
-    """Release GPU memory held by PyTorch's caching allocator.
-
-    NEW-MEM-001: ``del model; gc.collect()`` releases the Python
-    references to the model but PyTorch's CUDA caching allocator
-    retains the freed blocks for reuse by the same process.  After a
-    backend switch (e.g. Whisper → Parakeet → Whisper), the cached
-    blocks from the previous model are never reused (different model
-    architecture), so they accumulate.  On RTX 3060/4060 (8–12 GB
-    VRAM), 2 backend switches can OOM.
-
-    This helper calls ``torch.cuda.empty_cache()`` to release the
-    cached blocks back to the OS, making VRAM available for the next
-    backend.  Safe to call when:
-
-    - torch is not installed (no-op, debug-logged)
-    - CUDA is not initialized (no-op, returns silently)
-    - the current device is CPU (no-op)
-
-    Designed to be called from every ASR engine's ``unload()`` and
-    from every GPU→CPU fallback path in ``TranscriptionEngine``.
-    """
-    try:
-        import torch
-    except ImportError:
-        # torch not installed — nothing to release.
-        return
-    try:
-        if not torch.cuda.is_available():
-            return
-        # Synchronize before empty_cache so pending async kernels
-        # finish and release their allocations.
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
-        log.debug("[GPU] torch.cuda.empty_cache() called after model unload")
-    except Exception as exc:
-        # CUDA not initialized, or some other runtime issue — log
-        # at debug so we don't spam the log on every unload.
-        log.debug("[GPU] torch.cuda.empty_cache() failed: %s", exc)
+# EC-FIX-8: ``_MODEL_SIZE_MB`` + ``_DISK_SPACE_MARGIN_MB``,
+# ``release_gpu_memory()``, ``_download_with_retry()``,
+# ``_check_disk_space_for_download()``, and
+# ``cleanup_hf_cache_dir()`` (formerly ``_cleanup_failed_whisper_cache``)
+# were extracted to ``voice_typer.server.asr_utils`` as the canonical
+# home for shared ASR helpers.  See the re-export block at the top of
+# this module for the backward-compat imports.
 
 
 def _free_nvidia_dll_path_handles() -> None:
@@ -150,161 +99,6 @@ _nvidia_dll_paths_configured = False
 # _nvidia_dll_path_handles and os.environ["PATH"], causing duplicate
 # DLL directory additions and race-conditional PATH corruption.
 _nvidia_config_lock = threading.Lock()
-
-
-def _download_with_retry(
-    download_fn,
-    *,
-    max_attempts: int = 3,
-    delays: tuple[float, ...] = (5.0, 15.0, 45.0),
-    **kwargs,
-) -> str:
-    """PROD-004: Wrap snapshot_download() with exponential backoff retry.
-
-    Downloads can fail due to transient network issues, HuggingFace
-    rate limits, or CDN timeouts.  Retrying with increasing delays
-    gives the network time to recover and avoids failing the entire
-    model load on a single transient error.
-
-    Parameters
-    ----------
-    download_fn : callable
-        The ``snapshot_download`` function (or a wrapper).
-    max_attempts : int
-        Maximum number of download attempts.
-    delays : tuple[float, ...]
-        Delay in seconds before each retry.  The first attempt has no
-        delay; ``delays[i]`` is the delay before attempt ``i+1``.
-    **kwargs
-        Forwarded to ``download_fn``.
-
-    Returns
-    -------
-    str
-        The path to the downloaded model directory.
-
-    Raises
-    ------
-    Exception
-        The last exception if all attempts fail.
-    """
-    import time as _time
-
-    last_exc: BaseException = RuntimeError("no transcription attempts made")
-    for attempt in range(max_attempts):
-        try:
-            return download_fn(**kwargs)
-        except Exception as exc:
-            last_exc = exc
-            if attempt < max_attempts - 1:
-                delay = delays[attempt] if attempt < len(delays) else delays[-1]
-                log.warning(
-                    "[PROD-004] Download attempt %d/%d failed: %s. Retrying in %.0fs...",
-                    attempt + 1,
-                    max_attempts,
-                    exc,
-                    delay,
-                )
-                _time.sleep(delay)
-            else:
-                # CR-41: log.exception preserves the traceback; keep max_attempts arg, drop exc.
-                log.exception(
-                    "[PROD-004] All %d download attempts failed.",
-                    max_attempts,
-                )
-    raise last_exc
-
-
-def _cleanup_failed_whisper_cache(repo_id: str) -> None:
-    """G4-CR-06 / cache cleanup: best-effort delete a tampered Whisper HF cache dir.
-
-    Called from ``TranscriptionEngine._pre_download_model`` when
-    ``verify_model_integrity()`` returns False (either on the cache-hit
-    path or after a fresh download).  Removes the
-    ``models--<org>--<repo>`` directory under
-    ``<config_dir>/huggingface/hub/`` so the next call doesn't
-    re-discover the tampered snapshot.
-
-    Best-effort: logs but does not raise if the cleanup itself fails
-    (e.g. file is locked on Windows, permission denied on POSIX).  The
-    integrity hard-fail (``raise RuntimeError`` / fall-through to
-    re-download) is the security gate; this cleanup is just hygiene.
-    """
-    import shutil
-
-    try:
-        from voice_typer.server.config import _config_dir
-
-        cache_root = _config_dir() / "huggingface" / "hub"
-    except Exception as exc:
-        log.debug("[MODEL] could not resolve config dir for cache cleanup: %s", exc)
-        return
-
-    model_dir = cache_root / f"models--{repo_id.replace('/', '--')}"
-    if not model_dir.exists():
-        return
-    try:
-        shutil.rmtree(model_dir)
-        log.warning(
-            "[MODEL] Removed tampered HF cache directory %s after integrity check failure.",
-            model_dir,
-        )
-    except OSError as exc:
-        log.warning(
-            "[MODEL] Could not remove tampered HF cache directory %s: %s. Manual cleanup recommended.",
-            model_dir,
-            exc,
-        )
-
-
-def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
-    """PROD-005: Check available disk space before model download.
-
-    Compares available space in the HuggingFace cache directory
-    against the estimated model size with a 500 MB margin.
-    Raises ``RuntimeError`` with a user-friendly message if
-    insufficient space is detected.
-    """
-    import shutil
-
-    try:
-        # Determine the cache directory
-        from huggingface_hub import constants
-
-        cache_dir = constants.HF_HUB_CACHE
-    except (ImportError, AttributeError):
-        try:
-            cache_dir = os.path.join(os.path.expanduser("~"), ".cache", "huggingface", "hub")
-        except Exception:
-            return  # Can't determine cache dir, skip check
-
-    try:
-        usage = shutil.disk_usage(cache_dir)
-        available_mb = usage.free // (1024 * 1024)
-        estimated_mb = _MODEL_SIZE_MB.get(model_size, 500) + _DISK_SPACE_MARGIN_MB
-
-        if available_mb < estimated_mb:
-            raise RuntimeError(
-                f"Insufficient disk space to download model '{model_size}'. "
-                f"Available: {available_mb} MB, "
-                f"Required (estimated): {estimated_mb} MB "
-                f"(model ~{_MODEL_SIZE_MB.get(model_size, 500)} MB + "
-                f"{_DISK_SPACE_MARGIN_MB} MB margin). "
-                f"Free up disk space and try again."
-            )
-        log.debug(
-            "[PROD-005] Disk space check passed: %d MB available, ~%d MB needed for '%s'",
-            available_mb,
-            estimated_mb,
-            model_size,
-        )
-    except RuntimeError:
-        raise
-    except Exception as exc:
-        # If we can't check disk space, don't block the download —
-        # the download itself will fail with a clear error if space
-        # runs out during the transfer.
-        log.debug("[PROD-005] Disk space check skipped: %s", exc)
 
 
 def _configure_nvidia_dll_paths():
@@ -880,7 +674,10 @@ class TranscriptionEngine:
                     # G4-CR-06 / cache cleanup on verify failure: remove
                     # the offending cache dir so the re-download doesn't
                     # get the same tampered files served from local cache.
-                    _cleanup_failed_whisper_cache(repo_id)
+                    # EC-FIX-8: delegate to the canonical ``cleanup_hf_cache_dir``
+                    # in ``asr_utils`` (formerly ``_cleanup_failed_whisper_cache``
+                    # in this module).
+                    cleanup_hf_cache_dir(repo_id, log_prefix="[MODEL]")
                     # Fall through to the download path (do NOT return).
                 else:
                     log.info("[MODEL] Model '%s' already cached (integrity verified)", model_size)
@@ -911,12 +708,17 @@ class TranscriptionEngine:
                 )
                 if progress_callback:
                     progress_callback("HuggingFace consent required before downloading model.")
-                # Return without downloading.  The renderer is
-                # responsible for showing the consent dialog when the
-                # user tries to download a model via the Models page
-                # UI; once consent is granted, the download retry
-                # will succeed.
-                return
+                # EC-FIX-8 (EC-B4): raise ``ConsentRequiredError`` instead of
+                # silently returning, mirroring ``parakeet_engine.load`` and
+                # ``cloud_engines.CloudEngine.transcribe``.  The IPC layer
+                # ``isinstance``-checks for this type to surface a consent
+                # dialog instead of a generic error toast.  Previously the
+                # Whisper path silently returned, so the renderer saw
+                # "no error" + "no model loaded" and the user had no way to
+                # distinguish "no consent given" from "download in progress".
+                raise ConsentRequiredError(
+                    f"HuggingFace consent not given — refusing to download model '{model_size}'."
+                )
 
             log.info("[MODEL] Model '%s' not cached, downloading...", model_size)
             if progress_callback:
@@ -951,11 +753,20 @@ class TranscriptionEngine:
                 # G4-CR-06 / cache cleanup on verify failure: remove
                 # the offending cache dir so the next load doesn't
                 # re-discover the tampered snapshot.
-                _cleanup_failed_whisper_cache(repo_id)
+                # EC-FIX-8: delegate to the canonical ``cleanup_hf_cache_dir``
+                # in ``asr_utils`` (formerly ``_cleanup_failed_whisper_cache``
+                # in this module).
+                cleanup_hf_cache_dir(repo_id, log_prefix="[MODEL]")
                 raise RuntimeError(f"Model integrity verification failed for {repo_id}")
             log.info("[MODEL] Model '%s' download complete", model_size)
         except ImportError:
             log.debug("[MODEL] huggingface_hub not available, skipping pre-download")
+        except ConsentRequiredError:
+            # EC-FIX-8 (EC-B4): re-raise ``ConsentRequiredError`` so it
+            # propagates to the IPC layer — do NOT let the broad
+            # ``except Exception`` below swallow it (which would turn a
+            # user-actionable consent dialog into a silent warning log).
+            raise
         except Exception as exc:
             log.warning("[MODEL] Pre-download failed (WhisperModel will retry): %s", exc)
 

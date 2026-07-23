@@ -88,6 +88,12 @@ _level_worker_wake_event: threading.Event = threading.Event()
 # couldn't keep up). Logged with throttling. Same pattern as
 # recording.py's RT-SAFE-001 _dropped_ring_chunks.
 _dropped_level_chunks: int = 0
+# XV-58: timestamp (``time.monotonic()``) of the last throttled log
+# emission for ``_dropped_level_chunks``. The worker thread logs the
+# counter every 5s (if >0) and resets both the counter and this
+# timestamp. Initial value of 0.0 guarantees the first drop event
+# (whenever it happens) triggers a log immediately.
+_last_drop_log_time: float = 0.0
 
 # ── Test recording state (uses the SAME stream) ─────────────────────
 # MEM-02: ``_test_chunks`` / ``_test_raw_chunks`` are bounded
@@ -191,6 +197,42 @@ def get_level() -> dict:
             "peak": _monitor_peak,
             "active": _monitor_active,
         }
+
+
+def get_level_diagnostics() -> dict:
+    """Return runtime diagnostics for the level monitor (XV-58).
+
+    Exposes ``_dropped_level_chunks`` (chunks dropped because the worker
+    thread couldn't keep up with the PortAudio callback rate) plus ring
+    buffer fill state, for telemetry / debugging. The counter is reset
+    every 5s by ``_level_worker_loop`` after logging, so this snapshot
+    is point-in-time (drops since the last 5s log emission).
+
+    No existing IPC handler wires this through to the frontend (the
+    ``level_monitor_*`` IPC family is start/stop/status only); the
+    function is exposed for future diagnostics-IPC use and for in-process
+    callers (e.g. ``service.py`` could surface it in
+    ``level_monitor_status``).
+
+    Returns:
+        dict with keys:
+            - ``dropped_level_chunks`` (int): chunks dropped since the
+              last 5s throttled log.
+            - ``ring_buffer_capacity`` (int): configured max capacity.
+            - ``ring_buffer_len`` (int): current fill level.
+            - ``monitor_active`` (bool): whether the monitor stream is
+              running.
+    """
+    # ``_dropped_level_chunks`` is incremented in the PortAudio callback
+    # (RT thread) and reset in the worker thread (here, via the 5s log);
+    # ``int`` read is atomic under CPython's GIL, so no lock is needed
+    # for a point-in-time snapshot.
+    return {
+        "dropped_level_chunks": _dropped_level_chunks,
+        "ring_buffer_capacity": _LEVEL_RING_BUFFER_CAPACITY,
+        "ring_buffer_len": len(_level_ring_buffer),
+        "monitor_active": _monitor_active,
+    }
 
 
 def update_level_processor(config_dict: dict) -> None:
@@ -601,7 +643,13 @@ def stop_test_recording() -> dict:
     with _monitor_lock:
         was_active = _test_mode
         sr = _monitor_sample_rate
-        chunks = list(_test_chunks)
+        # XV-54: only ``_test_raw_chunks`` is populated by the worker
+        # thread in production. ``_test_chunks`` is kept as a backward-
+        # compat shim (still bounded + cleared here) for tests outside
+        # this module's scope that append to it directly, but it is no
+        # longer the source of the processed ``audio`` -- that's derived
+        # from ``raw_audio.copy()`` below so we don't store two copies
+        # of every chunk in memory.
         raw_chunks = list(_test_raw_chunks)
         filters = dict(_test_filters)
         list(_test_peak_history)
@@ -624,7 +672,7 @@ def stop_test_recording() -> dict:
         _test_clip_count = 0
         _test_silence_blocks = 0
 
-    if not was_active and not chunks:
+    if not was_active and not raw_chunks:
         return {
             "success": False,
             "audio_base64": "",
@@ -635,7 +683,7 @@ def stop_test_recording() -> dict:
             "quality": {},
         }
 
-    if not chunks:
+    if not raw_chunks:
         return {
             "success": True,
             "audio_base64": "",
@@ -646,10 +694,16 @@ def stop_test_recording() -> dict:
             "quality": {},
         }
 
-    # Concatenate all chunks into a single float32 array
+    # XV-54: derive ``audio`` from ``raw_audio.copy()`` before filtering.
+    # Previously both ``_test_chunks`` (filtered-then-stored) and
+    # ``_test_raw_chunks`` (raw) were populated by the worker thread,
+    # storing two copies of every chunk in memory (~2x peak test-audio
+    # footprint, up to ~22 MB at 48 kHz / 30 s). The filtered audio is
+    # now derived from the raw copy at stop time, so only one copy is
+    # stored during the test.
     try:
-        audio = np.concatenate(chunks, axis=0).reshape(-1)
         raw_audio = np.concatenate(raw_chunks, axis=0).reshape(-1)
+        audio = raw_audio.copy()
     except Exception as exc:
         log.warning("[LEVEL-MON] Chunk concatenation failed: %s", exc)
         return {
@@ -986,6 +1040,7 @@ def _level_worker_loop() -> None:
     any remaining chunks before exiting so a stop right after a
     callback doesn't lose the last level update.
     """
+    global _dropped_level_chunks, _last_drop_log_time
     while True:
         # Wait for work or stop signal. 50 ms timeout ensures we notice
         # the stop flag even if the wake event is missed (same pattern
@@ -1012,6 +1067,28 @@ def _level_worker_loop() -> None:
                     exc_info=True,
                 )
 
+        # XV-58: throttled log of dropped chunks. The counter is
+        # incremented in the PortAudio callback (RT thread) when the
+        # ring buffer overflows; we log it every 5s (if >0) and reset.
+        # ``int`` read + reset is atomic under CPython's GIL, so no
+        # lock is needed here. The 5s throttle prevents log spam under
+        # sustained overload (e.g. RNNoise taking 50ms/chunk on a slow
+        # CPU -> 100% drop rate -> would otherwise log on every 50ms
+        # iteration = 20 logs/sec).
+        if _dropped_level_chunks > 0:
+            now = time.monotonic()
+            if (now - _last_drop_log_time) >= 5.0:
+                dropped = _dropped_level_chunks
+                _dropped_level_chunks = 0
+                _last_drop_log_time = now
+                log.warning(
+                    "[LEVEL-MON] %d audio chunks dropped in the last ~5s "
+                    "(worker thread couldn't keep up with the PortAudio "
+                    "callback rate; consider disabling RNNoise or reducing "
+                    "the filter chain cost)",
+                    dropped,
+                )
+
         if _level_worker_stop_event.is_set():
             return
 
@@ -1024,13 +1101,21 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     ``_level_worker_loop`` so it can take 5–50 ms (RNNoise) without
     missing the ~32 ms PortAudio deadline.
 
-    Mirrors the original callback body exactly so the level-bar UX,
-    test-chunk accumulation, and quality metrics are unchanged. The
-    only difference is *where* it runs (worker thread vs RT thread).
+    XV-55: the heavy computation (filter chain via
+    ``_level_processor.process_chunk``, ``np.abs`` / ``np.sqrt`` /
+    ``np.mean`` for RMS/peak, raw-audio quality metrics) runs OUTSIDE
+    ``_monitor_lock`` so ``get_level()`` / ``stop_test_recording()`` /
+    other worker iterations are not blocked waiting for the lock while
+    RNNoise churns. The lock is acquired only for the shared-state
+    writes (``_monitor_level``, ``_monitor_peak``, ``_test_raw_chunks``
+    append, quality-metric appends).
 
-    Acquires ``_monitor_lock`` for the duration of the shared-state
-    writes so ``get_level()`` / ``stop_test_recording()`` see
-    consistent values.
+    XV-54: only ``_test_raw_chunks`` is populated -- the processed
+    ``audio`` is derived from ``raw_audio.copy()`` in
+    ``stop_test_recording`` so we don't store two copies of every
+    chunk. ``_test_chunks`` is kept as a backward-compat shim (still
+    bounded + cleared) for tests outside this module's scope, but is
+    no longer appended to here.
     """
     global _monitor_level, _monitor_peak, _monitor_active, _test_mode, _test_chunks
     global _test_silence_blocks, _test_clip_count
@@ -1038,42 +1123,86 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     if status:
         log.debug("[LEVEL-MON] PortAudio status: %s", status)
 
+    # XV-55: snapshot shared state under the lock (quick). The heavy
+    # computation below reads these but doesn't write them; re-checking
+    # ``_monitor_active`` and ``_test_mode`` under the lock at write
+    # time guards against a concurrent stop_monitoring() /
+    # stop_test_recording() that flips the flags while we're computing.
+    with _monitor_lock:
+        active = _monitor_active
+        test_mode = _test_mode
+    if not active:
+        return
+
+    # -- Heavy work OUTSIDE the lock --
+    # XV-55: ``_level_processor.process_chunk`` can take 5-50 ms
+    # (RNNoise on CPU). Holding ``_monitor_lock`` during that time
+    # would block ``get_level()`` (called by the IPC handler on the
+    # main thread) and ``stop_test_recording()`` -- visible as a frozen
+    # level bar / mic-test-stop latency. The lock is acquired only for
+    # the shared-state writes below.
+    flat = indata.ravel()
+    rms: float | None = None
+    peak: float | None = None
+    raw_rms_for_quality: float | None = None
+    raw_peak_for_quality: float | None = None
+    if len(flat) > 0:
+        # Apply noise filters to the level bar audio if a processor is
+        # active, so the bar reflects what the user hears after
+        # filtering, not the raw mic input. ``_level_processor`` is
+        # only mutated by ``update_level_processor`` (which acquires
+        # ``_monitor_lock``), so reading it here without the lock is
+        # safe -- worst case we use a stale reference for one chunk.
+        processor = _level_processor
+        if processor is not None:
+            filtered = processor.process_chunk(indata.reshape(-1, 1))
+            # ``process_chunk`` may return ``None`` to pass-through
+            # (e.g. when the filter chain is disabled at runtime).
+            flat_filtered = filtered.ravel() if filtered is not None else flat
+            abs_flat = np.abs(flat_filtered)
+            rms = float(np.sqrt(np.mean(flat_filtered**2)))
+        else:
+            abs_flat = np.abs(flat)
+            rms = float(np.sqrt(np.mean(flat**2)))
+        peak = float(abs_flat.max())
+
+        # XV-55: compute test-quality metrics from RAW audio outside
+        # the lock too (np.sqrt/mean/square on a 512-sample block is
+        # cheap but still RT-relevant under load).
+        if test_mode:
+            raw_rms_for_quality = float(np.sqrt(np.mean(np.square(flat.astype(np.float32)))))
+            raw_peak_for_quality = float(np.abs(flat).max())
+
+    # -- Shared-state writes UNDER the lock (quick) --
+    # XV-55: only the writes to ``_monitor_level``, ``_monitor_peak``,
+    # ``_test_raw_chunks`` (append), and the quality-metric lists are
+    # lock-protected. These are all O(1) -- the heavy work is done.
     with _monitor_lock:
         if not _monitor_active:
-            return
-        flat = indata.ravel()
+            return  # monitor stopped while we were computing
         if len(flat) > 0:
-            # Apply noise filters to the level bar audio if a
-            # processor is active, so the bar reflects what the
-            # user hears after filtering, not the raw mic input.
-            if _level_processor is not None:
-                filtered = _level_processor.process_chunk(indata.reshape(-1, 1))
-                flat_filtered = filtered.ravel()
-                abs_flat = np.abs(flat_filtered)
-                rms = float(np.sqrt(np.mean(flat_filtered**2)))
-            else:
-                abs_flat = np.abs(flat)
-                rms = float(np.sqrt(np.mean(flat**2)))
-            peak = float(abs_flat.max())
             # Smooth with exponential moving average
-            _monitor_level = (_monitor_level * 0.6) + (rms * 0.4)
-            _monitor_peak = max(_monitor_peak * 0.8, peak)
+            if rms is not None:
+                _monitor_level = (_monitor_level * 0.6) + (rms * 0.4)
+            if peak is not None:
+                _monitor_peak = max(_monitor_peak * 0.8, peak)
         else:
             _monitor_level *= 0.85
             _monitor_peak *= 0.85
 
-        # If a test recording is active, also accumulate audio
-        if _test_mode:
+        # If a test recording is active, also accumulate audio.
+        # XV-54: only ``_test_raw_chunks`` is populated -- ``audio`` is
+        # derived from ``raw_audio.copy()`` at stop time.
+        if _test_mode and len(flat) > 0:
             # Track quality metrics from RAW audio (not filtered)
             # so the quality report reflects the true mic input
             # independent of any active filter settings.
-            raw_rms_for_quality = float(np.sqrt(np.mean(np.square(flat.astype(np.float32)))))
-            raw_peak_for_quality = float(np.abs(flat).max())
-            _test_chunks.append(indata.copy())
-            _test_raw_chunks.append(indata.copy())
-            _test_rms_history.append(raw_rms_for_quality)
-            _test_peak_history.append(raw_peak_for_quality)
-            if raw_rms_for_quality < 0.0005:
-                _test_silence_blocks += 1
-            if raw_peak_for_quality > 0.95:
-                _test_clip_count += 1
+            if raw_rms_for_quality is not None:
+                _test_raw_chunks.append(indata.copy())
+                _test_rms_history.append(raw_rms_for_quality)
+            if raw_peak_for_quality is not None:
+                _test_peak_history.append(raw_peak_for_quality)
+                if raw_rms_for_quality is not None and raw_rms_for_quality < 0.0005:
+                    _test_silence_blocks += 1
+                if raw_peak_for_quality > 0.95:
+                    _test_clip_count += 1

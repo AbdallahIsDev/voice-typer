@@ -162,7 +162,8 @@ class StartupSequence:
                     # complete to prevent the wizard from showing on
                     # every restart and overwriting the user's settings.
                     config_file = _config_dir() / "config.json"
-                    if config_file.exists():
+                    started_marker = _config_dir() / ".onboarding_started"
+                    if config_file.exists() and not started_marker.exists():
                         log.info(
                             "[STARTUP] Config file exists but onboarding "
                             "flag is False and marker is missing -- "

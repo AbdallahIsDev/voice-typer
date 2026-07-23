@@ -306,8 +306,16 @@ def _make_dispatch(server: IPCServer):
         # message instead of starting a long-running handler (e.g.
         # ``download_model``) that would race teardown. The
         # ``shutdown`` message itself is exempt — the host sends it to
-        # TRIGGER shutdown, and we ack it below before any cleanup
-        # runs.
+        # TRIGGER shutdown, and it is now handled by the shared
+        # ``_COMMAND_REGISTRY`` entry ``"shutdown": "_handle_shutdown"``
+        # (registered in ipc_server.py by EC-FIX-2) which delegates to
+        # ``service.quit()`` — the SAME path the TCP ``quit_app``
+        # command uses. Pre-EC-FIX-3 the WS path special-cased
+        # ``shutdown`` here and called ``server.app.quit()`` directly,
+        # bypassing the service layer (so any future shutdown
+        # side-effect added to ``service.quit()`` silently wouldn't run
+        # on Tauri). The special-case is now removed; ``shutdown``
+        # flows through ``server._dispatch`` like every other command.
         if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False) is True:
             log.debug("[SIDECAR-WS] rejecting %s — server shutting down", msg_type)
             return {
@@ -317,31 +325,6 @@ def _make_dispatch(server: IPCServer):
                     "message": "server is shutting down; please retry later",
                 },
             }
-
-        # ADR-0020 §10: cooperative shutdown.
-        if msg_type == "shutdown":
-            log.info("[SIDECAR-WS] shutdown received — releasing mic and exiting")
-            # Delegate to the app's quit path so mic/volume/mutex
-            # cleanup runs identically to the Electron quit path.
-            try:
-                # Schedule the shutdown on a background thread so we
-                # can ack first; the host's hard timeout is 2.0s.
-                import threading
-
-                def _do_shutdown() -> None:
-                    try:
-                        server.app.quit()
-                    except Exception:
-                        log.exception("[SIDECAR-WS] shutdown handler raised")
-
-                threading.Thread(
-                    target=_do_shutdown,
-                    name="sidecar-shutdown",
-                    daemon=True,
-                ).start()
-            except Exception:
-                log.exception("[SIDECAR-WS] failed to schedule shutdown")
-            return {"type": "result", "data": {"ack": True}}
 
         # ADR-0019 + CR-11 rate limit check. Look up the shared limiter
         # on every call (cheap — dict-style getattr) so all WS frames to
@@ -387,21 +370,26 @@ def _make_dispatch(server: IPCServer):
             log.exception("[SIDECAR-WS] _dispatch raised")
             # IPC-5 (2026-07-18): the error envelope now matches the
             # TCP path (``ipc_server._handle_tcp_connection``'s
-            # ERR-018 block) verbatim — same ``code`` ("internal_error")
-            # AND same ``message`` ("internal error"). Pre-IPC-5 the WS
-            # path used the message "dispatch raised" while TCP used
+            # ERR-018 block) verbatim — same ``code`` AND same
+            # ``message`` ("internal error"). Pre-IPC-5 the WS path
+            # used the message "dispatch raised" while TCP used
             # "internal error"; both messages were generic (neither
             # leaked ``str(exception)``) but the divergence meant a
             # client could not use the message text to confirm parity.
-            # The new contract: ``{"type":"error","data":{"code":
-            # "internal_error","message":"internal error"}}`` on BOTH
-            # paths. The WS-path test
-            # ``test_dispatch_dispatch_raises_returns_internal_error``
-            # asserts only ``code`` (not ``message``), so this change
-            # is backward-compatible.
+            # The contract: ``{"type":"error","data":{"code":
+            # "server.internal_error","message":"internal error"}}``.
+            #
+            # EC-FIX-3 (EC-10): the ``code`` was migrated from the
+            # legacy ``"internal_error"`` to the namespaced
+            # ``"server.internal_error"`` form (matching the
+            # ``ERROR_CODES`` registry in ``ipc/validation.py``). The
+            # renderer accepts both forms (legacy treated as alias),
+            # so this is a backward-compatible migration. EC-FIX-2
+            # applies the same migration to the TCP path's
+            # ``internal_error`` emissions.
             return {
                 "type": "error",
-                "data": {"code": "internal_error", "message": "internal error"},
+                "data": {"code": "server.internal_error", "message": "internal error"},
             }
 
         # _dispatch returns None for fire-and-forget commands (e.g.
@@ -473,6 +461,31 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     log.info("[SIDECAR-WS] client connected from %s", peer)
 
     if not await _authenticate(websocket):
+        # EC-11 (cross-transport parity): mirror the TCP path's
+        # ``auth_failed`` error frame (ipc_server.py:~L925) BEFORE
+        # closing the WS with code 1008. Pre-EC-FIX-3 the WS path
+        # closed with 1008 and sent NO error frame, so the Rust host
+        # (src-tauri/src/sidecar/ws.rs) and the Electron client had to
+        # treat the close as an opaque auth failure with no envelope
+        # detail. Now both transports emit the same
+        # ``{"type":"error","data":{"code":"auth_failed",...}}`` frame
+        # before closing — clients can branch on the error code without
+        # sniffing the close reason. Wrapped in ``contextlib.suppress``
+        # because the socket may already be half-closed (e.g. the
+        # client RST'd after sending the bad token); the close call
+        # below is the authoritative teardown.
+        with contextlib.suppress(Exception):
+            await websocket.send(
+                json.dumps(
+                    {
+                        "type": "error",
+                        "data": {
+                            "code": "auth_failed",
+                            "message": "authentication failed",
+                        },
+                    }
+                )
+            )
         with contextlib.suppress(Exception):
             await websocket.close(code=1008, reason="auth failed")
         return
@@ -513,16 +526,20 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
         log.info("[SIDECAR-WS] first authenticated connection — emitting `ready` event")
         event_bus.publish({"type": "ready"})
 
-    # CR-79: ``_push_to_ws`` is registered as an event_bus subscriber
-    # (sync API). It is invoked from WHATEVER thread ``event_bus.publish``
-    # runs on — typically a domain thread (tray, transcription,
-    # dictation_pipeline) that is NOT the asyncio loop thread.
+    # CR-79 / CR-37 / CR-30 / CR-4: ``_push_to_ws`` is registered as an
+    # event_bus subscriber (sync API). It is invoked from WHATEVER
+    # thread ``event_bus.publish`` runs on — typically a domain thread
+    # (tray, transcription, dictation_pipeline, audio-worker, IPC
+    # dispatch workers) that is NOT the asyncio loop thread.
     # ``asyncio.Queue`` is documented as NOT thread-safe; the GIL makes
     # immediate deque ops atomic but the ``_getters``/``_putters``
     # future-scheduling path can miss wakeups. Capture the running loop
-    # here and store it on the server so the sync subscriber can route
-    # all queue mutations through ``loop.call_soon_threadsafe`` (which
-    # is the documented way to bridge a sync caller to an asyncio
+    # ONCE here (EC-FIX-3 cleanup: previously re-captured three times
+    # at L550/L560/L570 with a dead ``_ws_loop`` local — all redundant
+    # since the loop is identical for the lifetime of this connection)
+    # and store it on the server so the sync subscriber can route all
+    # queue mutations through ``loop.call_soon_threadsafe`` (which is
+    # the documented way to bridge a sync caller to an asyncio
     # primitive from a non-loop thread).
     #
     # ``server._ws_loop`` is intentionally NOT read back inside
@@ -539,35 +556,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     # The TCP path installs a single _tcp_client and writes to it
     # under self._lock; the WS path uses a per-connection asyncio
     # Queue + a writer task so we don't block the dispatch loop.
-    #
-    # CR-37: capture the running loop BEFORE registering the subscriber
-    # so ``_push_to_ws`` (which may be invoked from arbitrary threads
-    # via ``event_bus.publish`` — audio-worker, IPC dispatch threads,
-    # the GIL-bound ThreadPoolExecutor) can marshal the enqueue onto
-    # the loop thread. ``asyncio.Queue.put_nowait`` is NOT thread-safe:
-    # calling it from a non-loop thread races on the queue's internal
-    # ``maxsize`` check and can corrupt the underlying deque.
-    _ws_loop = asyncio.get_running_loop()
     outbound: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
-    # CR-30: capture the running loop so subscribers firing from
-    # non-loop threads (audio worker, transcription thread, tray
-    # thread) can enqueue thread-safely. `asyncio.Queue.put_nowait`
-    # is NOT thread-safe — the asyncio docs require all queue
-    # operations to run on the loop thread. Direct put_nowait from
-    # another thread can corrupt the queue's internal linked list,
-    # causing dropped events, stuck writer task, or RuntimeError
-    # taking down the WS connection → FT-1 respawn.
-    loop = asyncio.get_running_loop()
-
-    # CR-4: capture the running loop ONCE so _push_to_ws can marshal
-    # queue mutations onto the loop thread. asyncio.Queue is not
-    # thread-safe; ``event_bus.publish()`` is called from many
-    # non-loop threads (transcription, hotkey, tray, IPC dispatch
-    # workers, deferred audio-worker), so direct mutation of
-    # ``outbound`` from ``_push_to_ws`` corrupts the queue's internal
-    # deque + Future state. See ``_enqueue_safe`` for the full
-    # rationale.
-    loop = asyncio.get_running_loop()
 
     def _push_to_ws(event: dict) -> None:
         """Subscriber for event_bus.publish — enqueues for the writer task.
@@ -609,6 +598,47 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     from voice_typer.server import event_bus
 
     event_bus.subscribe(_push_to_ws)
+
+    # EC-FIX-3 (EC-11 / ERR-017 parity): emit a ``state_changed``
+    # snapshot on EVERY authenticated connection (not just the first
+    # ``ready``). This mirrors the TCP path's connect-time snapshot at
+    # ``ipc_server.py:_handle_tcp_connection`` (~L1003-1017) so a WS
+    # reconnect after a transient drop immediately re-hydrates the
+    # renderer's tray state badge instead of leaving it stale until
+    # the next state transition.
+    #
+    # Placement: this is published AFTER ``_push_to_ws`` is registered
+    # as an event_bus subscriber (L624 above) so the event flows
+    # through the WS writer task's outbound queue to the host. The
+    # ``ready`` emit at L527 is intentionally published BEFORE
+    # ``_push_to_ws`` is registered (per ADR-0020 round-2 — see the
+    # comment block above) and is delivered via ``server.push`` →
+    # ``_pending_tcp`` flush; ``state_changed`` is published here so
+    # it is GUARANTEED to reach the WS client on every auth.
+    #
+    # Defensive: the tray may not be initialized yet on the very first
+    # connection (the app boots the IPC server before the tray icon is
+    # constructed). ``getattr(..., None)`` + the ``is not None`` guard
+    # skip the emit in that case — the host will pick up the next
+    # state transition via the normal ``status_change`` hook.
+    try:
+        current_state = getattr(server.app.tray, "_state", None)
+        current_msg = getattr(server.app.tray, "_message", "")
+        if current_state is not None:
+            event_bus.publish(
+                {
+                    "type": "state_changed",
+                    "data": {
+                        "status": getattr(current_state, "value", str(current_state)),
+                        "message": current_msg,
+                    },
+                }
+            )
+    except Exception:
+        log.debug(
+            "[SIDECAR-WS] failed to emit initial state_changed on connect",
+            exc_info=True,
+        )
 
     async def _writer() -> None:
         """Drain the outbound queue and write each event as a WS frame."""

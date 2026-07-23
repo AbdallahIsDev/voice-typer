@@ -25,6 +25,7 @@ import logging
 import queue
 import threading
 import time
+from typing import Any
 
 import numpy as np
 
@@ -81,14 +82,104 @@ _BUFFER_CLEAR_QUEUE_MAXSIZE = 64
 _buffer_clear_queue: queue.Queue = queue.Queue(maxsize=_BUFFER_CLEAR_QUEUE_MAXSIZE)
 _buffer_clear_worker_lock = threading.Lock()
 _buffer_clear_worker: threading.Thread | None = None
-# NOTE (2026-07-20): ``_thread_registry`` and the registration block in
-# ``_ensure_buffer_clear_worker`` were removed — they were added as part of
-# a merge-damage repair, but HEAD's ``recorder.py`` never calls
-# ``recording.set_thread_registry()``, so the registry was always ``None``
-# and the registration was dead code. Keeping it risked a future agent
-# re-adding the orphan call site in ``recorder.py`` (which was the original
-# crash). If ThreadRegistry propagation is genuinely needed, implement it
-# end-to-end properly — see the note in ``recording/__init__.py``.
+
+# R4-F8: worker thread name (re-exported for tests / ThreadRegistry).
+BUFFER_CLEAR_WORKER_NAME = "buffer-clear-bg"
+
+# Test-only join timeout for the buffer-clear worker. Generous because
+# the worker may be in the middle of zeroing a large deque when the
+# sentinel arrives.
+_BUFFER_CLEAR_WORKER_JOIN_TIMEOUT_S = 5.0
+
+# R4-F8: optional central ThreadRegistry for shutdown coordination.
+# When set via ``set_thread_registry``, the lazily-started buffer-clear
+# worker registers itself so ``shutdown_all()`` can signal/join it during
+# ``VoiceTyperApp.quit()``. Mirrors the scipy-preloader pattern in
+# ``recorder.py``. ``None`` (the default) means no registry — behaviour
+# is unchanged (the worker is still tracked via the module-global
+# ``_buffer_clear_worker`` and can be joined by
+# ``_stop_buffer_clear_worker``).
+_thread_registry: Any | None = None
+
+
+def set_thread_registry(registry: Any | None) -> None:
+    """R4-F8: install a central ThreadRegistry for shutdown coordination.
+
+    When called BEFORE the worker is started, the next
+    ``_ensure_buffer_clear_worker`` call will register the new worker.
+
+    When called AFTER the worker is already running, the running worker
+    is registered immediately (mirrors the scipy-preloader pattern in
+    ``recorder.py``). This is needed because the worker may have been
+    lazily started by an earlier ``_secure_clear_array_background`` call
+    that ran before the registry was set.
+
+    Passing ``None`` clears the registry — subsequent worker starts will
+    not register. The already-running worker (if any) is left alone.
+    """
+    global _thread_registry
+    _thread_registry = registry
+    if registry is not None:
+        # If the worker is already running, register it immediately so
+        # ``shutdown_all()`` can join it. Mirrors the scipy-preloader
+        # pattern in ``recorder.py`` __init__.
+        worker = _buffer_clear_worker
+        if worker is not None and worker.is_alive():
+            with contextlib.suppress(Exception):
+                registry.register(
+                    name=BUFFER_CLEAR_WORKER_NAME,
+                    thread=worker,
+                    stop_event=None,
+                    join_timeout=_BUFFER_CLEAR_WORKER_JOIN_TIMEOUT_S,
+                )
+
+
+def _stop_buffer_clear_worker(timeout: float = 2.0) -> bool:
+    """R4-F8 (test-only helper): signal the buffer-clear worker to stop
+    and join it.
+
+    Sends the ``None`` sentinel through ``_buffer_clear_queue`` so the
+    worker's loop exits on its next iteration, then joins the worker
+    thread for up to ``timeout`` seconds.
+
+    Returns ``True`` if the worker exited within the timeout (or no
+    worker was running), ``False`` if it timed out. Idempotent: safe to
+    call when the worker is not running (returns ``True`` immediately).
+
+    After this returns, ``_buffer_clear_worker`` is set to ``None`` so
+    the next ``_ensure_buffer_clear_worker`` call lazily starts a fresh
+    worker. If the worker failed to exit within the timeout, the global
+    reference is still cleared (the daemon will exit on its next
+    iteration when it sees the sentinel).
+    """
+    global _buffer_clear_worker
+    worker = _buffer_clear_worker
+    if worker is None:
+        return True
+    # Send the None sentinel so the worker exits its loop. ``put_nowait``
+    # because the queue is bounded — if it's full (worker starved for an
+    # extended period), we still proceed with the join; the daemon will
+    # exit on its next iteration when it eventually drains to the
+    # sentinel.
+    with contextlib.suppress(queue.Full):
+        _buffer_clear_queue.put_nowait(None)
+    worker.join(timeout=timeout)
+    exited = not worker.is_alive()
+    if not exited:
+        log.warning(
+            "[RECORDING] buffer-clear worker did not exit within %.1fs (it will exit as a daemon on next iteration)",
+            timeout,
+        )
+    else:
+        log.debug("[RECORDING] buffer-clear worker exited cleanly")
+    # Clear the global reference whether or not the join succeeded. The
+    # daemon will exit on its next iteration when it sees the sentinel;
+    # the next ``_ensure_buffer_clear_worker`` call will start a fresh
+    # worker if needed.
+    with _buffer_clear_worker_lock:
+        if _buffer_clear_worker is worker:
+            _buffer_clear_worker = None
+    return exited
 
 
 def _ensure_buffer_clear_worker() -> threading.Thread:
@@ -98,6 +189,14 @@ def _ensure_buffer_clear_worker() -> threading.Thread:
     The worker is a daemon so it never blocks process exit. Acquired
     under ``_buffer_clear_worker_lock`` to make the lazy-start race-free
     under concurrent ``stop()``/``discard()`` calls.
+
+    R4-F8: when ``set_thread_registry`` was previously called with a
+    non-None registry, the freshly-started worker is registered so
+    ``shutdown_all()`` can signal/join it during ``VoiceTyperApp.quit()``.
+    The registry entry is removed by ``_stop_buffer_clear_worker`` after
+    the join completes (or times out) so a subsequent lazy-start
+    re-registers cleanly without triggering the
+    "Re-registering name" warning.
     """
     global _buffer_clear_worker
     # Fast path: worker already running. ``threading.Thread.is_alive``
@@ -110,22 +209,35 @@ def _ensure_buffer_clear_worker() -> threading.Thread:
         if worker is None or not worker.is_alive():
             worker = threading.Thread(
                 target=_buffer_clear_worker_loop,
-                name="buffer-clear-bg",
+                name=BUFFER_CLEAR_WORKER_NAME,
                 daemon=True,
             )
             _buffer_clear_worker = worker
             worker.start()
+            # R4-F8: register the freshly-started worker with the
+            # central ThreadRegistry (if one was set). Best-effort —
+            # if register() raises, the worker is still running and
+            # tracked via the module-global.
+            if _thread_registry is not None:
+                with contextlib.suppress(Exception):
+                    _thread_registry.register(
+                        name=BUFFER_CLEAR_WORKER_NAME,
+                        thread=worker,
+                        stop_event=None,
+                        join_timeout=_BUFFER_CLEAR_WORKER_JOIN_TIMEOUT_S,
+                    )
     return worker
 
 
 def _buffer_clear_worker_loop() -> None:
     """CR-10: drain ``_buffer_clear_queue`` and zero each deque's chunks.
 
-    Loops until the worker thread is killed (it's a daemon, so process
-    exit handles that). Each item popped is a ``collections.deque`` of
-    audio chunks; we iterate it and ``ndarray.fill(0)`` each chunk. Best
-    effort — any exception is swallowed (the deque will be GC'd anyway,
-    and we don't want one bad buffer to poison the worker for the rest).
+    Loops until a ``None`` sentinel is popped from the queue (sent by
+    ``_stop_buffer_clear_worker``). Each non-None item popped is a
+    ``collections.deque`` of audio chunks; we iterate it and
+    ``ndarray.fill(0)`` each chunk. Best effort — any exception is
+    swallowed (the deque will be GC'd anyway, and we don't want one bad
+    buffer to poison the worker for the rest).
     """
     while True:
         try:
@@ -137,6 +249,11 @@ def _buffer_clear_worker_loop() -> None:
             time.sleep(0.01)
             continue
         try:
+            if buffer is None:
+                # R4-F8: sentinel from ``_stop_buffer_clear_worker`` —
+                # exit the loop cleanly so the worker thread can be
+                # joined by tests / shutdown_all().
+                return
             for chunk in buffer:
                 if isinstance(chunk, np.ndarray):
                     chunk.fill(0)

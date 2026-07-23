@@ -48,14 +48,15 @@ class HotkeyDispatcher:
         # plain-bool race; session-2's attribute name
         # ``_esc_pending_capture_exit_event`` is adopted because it is
         # already used at ``ipc_server._on_ipc_client_disconnect``.
-        # TODO Fix-A: ipc/server.py:1022 still does
-        # ``_hotkeys._esc_pending_capture_exit = False`` — that line
-        # targets the OLD attribute name. Session-4 deletes the dead
-        # ``ipc/server.py`` parallel implementation entirely, which
-        # eliminates the TODO. Until then, the OLD attribute is NOT
-        # initialized here (so the ``= False`` write hits a missing
-        # attribute and raises AttributeError — fail-loud is safer
-        # than silently overwriting the Event).
+        # XZ-R17-12: the stale TODO Fix-A comment referencing the
+        # non-existent ``ipc/server.py`` file has been deleted. The
+        # OLD ``_esc_pending_capture_exit`` bool attribute was never
+        # referenced anywhere in the codebase (the file was renamed
+        # to ``ipc_server.py`` and the attribute was updated to the
+        # Event form). The ``_esc_pending_capture_exit_event``
+        # threading.Event is the sole, canonical implementation.
+        # CR-85 + M-94: threading.Event for atomic cross-thread
+        # ESC-cancel signaling. See _on_esc_release for the consumer side.
         self._esc_pending_capture_exit_event: threading.Event = threading.Event()
 
     # ── Backend accessors (for back-compat with tests that read them) ──
@@ -218,6 +219,15 @@ class HotkeyDispatcher:
         """
 
         def _dictation_callback() -> None:
+            # XZ-R17-02: guard against hotkey callbacks firing during
+            # shutdown. The shutdown controller stops hotkey backends
+            # with a 5s timeout each — if stop() times out, the listener
+            # thread may still fire callbacks that call toggle_dictation()
+            # → _start_dictation(), undoing cleanup and racing
+            # recorder.stop()/discard().
+            if getattr(self._app, "_shutting_down", False):
+                log.debug("[HOTKEY] dictation ignored — app shutting down")
+                return
             if keyboard_ownership().is_hotkey_capture_active():
                 log.debug("[HOTKEY] dictation ignored — frontend hotkey capture active")
                 return
@@ -233,6 +243,10 @@ class HotkeyDispatcher:
         """
 
         def _repaste_callback() -> None:
+            # XZ-R17-02: shutdown guard (see _dictation_callback).
+            if getattr(self._app, "_shutting_down", False):
+                log.debug("[HOTKEY] repaste ignored — app shutting down")
+                return
             if keyboard_ownership().is_hotkey_capture_active():
                 log.debug("[HOTKEY] repaste ignored — frontend hotkey capture active")
                 return
@@ -277,6 +291,10 @@ class HotkeyDispatcher:
             self._esc_backend = create_hotkey_backend("<esc>")
 
             def _esc_callback() -> None:
+                # XZ-R17-02: shutdown guard (see _dictation_callback).
+                if getattr(self._app, "_shutting_down", False):
+                    log.debug("[HOTKEY] ESC ignored — app shutting down")
+                    return
                 # ARCH-ESC-001: centralized ownership check.
                 if keyboard_ownership().is_hotkey_capture_active():
                     log.info("[HOTKEY] ESC pressed during hotkey capture — waiting for key-up")

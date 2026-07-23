@@ -93,6 +93,28 @@ class TemplateManager:
         self._templates: list[dict] = []
         self._load()
 
+    @property
+    def templates(self) -> list[dict]:
+        """Public read accessor for the templates list.
+
+        XS-15: the previous public ``templates`` attribute was renamed
+        to ``_templates`` (private) without a property shim, breaking
+        every caller — tests, IPC handlers, the tray menu builder, and
+        the on-disk persistence round-trip in
+        ``tests/test_history_and_models.py::TestTemplatesPersistToDisk``.
+
+        Returns a SHALLOW COPY of the underlying list so callers can
+        iterate / index / clear the returned list without mutating the
+        manager's internal state (per the
+        ``test_templates_property_returns_copy`` contract: modifying the
+        returned object must not affect the manager).
+
+        The individual template dicts inside the list are NOT copied
+        (shallow copy) — callers that need to mutate a template should
+        use :meth:`update` so the change persists to disk.
+        """
+        return list(self._templates)
+
     # ── Persistence ──────────────────────────────────────────────────
 
     def _load(self) -> None:
