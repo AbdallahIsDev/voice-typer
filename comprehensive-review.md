@@ -193,14 +193,6 @@ plus the base repo's pre-existing comprehensive review.
 
 ## Quick-Win Batch (LOW RISK, HIGH VALUE — fix first)
 
-### QW-2 — Tauri v2 config key mismatch (8 test failures)
-- **Severity**: High (8 pre-existing test failures)
-- **Status**: Pending
-- **Description**: `src-tauri/tauri.conf.json` lines 73-74, 78-79 use Tauri v1 keys `postInstallScript` / `preRemoveScript`; tests in `tests/tauri/mig17/mig18/mig19` expect Tauri v2 keys `postInstall` / `preRemove`. Tests fail because config field is `None` when read.
-- **Affected tests** (8): `mig17/test_autostart_installer_linux.py::test_tauri_conf_has_linux_deb_postinstall`, `::test_tauri_conf_has_linux_deb_preremove`, `mig17/test_externalbin_spawn_linux.py::test_tauri_conf_linux_bundle_uses_postinst_prerm`, `mig17/test_native_key_listener_linux.py::TestTauriBundleResources::test_tauri_conf_linux_deb_uses_postinst_script`, `mig18/test_linux_signing.py::test_deb_post_install_script_wired`, `::test_deb_pre_remove_script_wired`, `::test_rpm_postinst_prerm_exist_and_wired`, `mig19/test_linux_cutover.py::test_ci_workflow_builds_rpm_via_bundle_config`.
-- **Recommended fix**: Rename keys in `tauri.conf.json` from `postInstallScript`→`postInstall`, `preRemoveScript`→`preRemove` (Tauri v2 schema). 1-line change × 4 sites.
-- **Effort**: 1h.
-
 #### ARCH-5 — `service.py` (2,116 lines): 66-method facade
 - **Severity**: Medium
 - **Status**: Pending
