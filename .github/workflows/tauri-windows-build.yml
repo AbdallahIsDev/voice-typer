@@ -200,6 +200,16 @@ jobs:
           $PYBS = $env:PYBS
           $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[-1])"
           Write-Host "PYBS=$PYBS  SITE=$SITE"
+          # ctranslate2 ships DLLs directly in ctranslate2/ (not ctranslate2/lib/).
+          # Build the data-dir flag conditionally so we don't hard-fail if the
+          # layout changes in a future ctranslate2 release.
+          $ct2Dir = "$SITE\ctranslate2"
+          $dataDirFlag = @()
+          if (Test-Path "$ct2Dir\lib") {
+            $dataDirFlag = @("--include-data-dir=$ct2Dir\lib=ctranslate2/lib")
+          } elseif (Test-Path $ct2Dir) {
+            $dataDirFlag = @("--include-data-dir=$ct2Dir=ctranslate2")
+          }
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
@@ -208,7 +218,7 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
-              --include-data-dir="$SITE\ctranslate2\lib=ctranslate2/lib" `
+              $($dataDirFlag) `
               --windows-disable-console `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp" `
               --output-filename=python-sidecar-x86_64-pc-windows-msvc.exe `
@@ -226,6 +236,13 @@ jobs:
         run: |
           $PYBS = $env:PYBS
           $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[-1])"
+          $ct2Dir = "$SITE\ctranslate2"
+          $dataDirFlag = @()
+          if (Test-Path "$ct2Dir\lib") {
+            $dataDirFlag = @("--include-data-dir=$ct2Dir\lib=ctranslate2/lib")
+          } elseif (Test-Path $ct2Dir) {
+            $dataDirFlag = @("--include-data-dir=$ct2Dir=ctranslate2")
+          }
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
@@ -234,7 +251,7 @@ jobs:
               --include-package=ctranslate2 `
               --include-package=voice_typer `
               --include-package=websockets `
-              --include-data-dir="$SITE\ctranslate2\lib=ctranslate2/lib" `
+              $($dataDirFlag) `
               --windows-disable-console `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" `
               --output-filename=prewarm-x86_64-pc-windows-msvc.exe `
