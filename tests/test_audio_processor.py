@@ -12,6 +12,8 @@ import numpy as np
 import pytest
 from voice_typer.server.audio_processor import AudioProcessor
 
+from tests.fixtures.app_helpers import make_sine
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════════
@@ -66,10 +68,10 @@ def processor(default_config):
     return AudioProcessor(default_config, sample_rate=16000)
 
 
-def make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5) -> np.ndarray:
-    """Generate a sine wave at the given frequency."""
-    t = np.linspace(0, duration_s, int(sr * duration_s), endpoint=False)
-    return (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32)
+# XS-42: ``make_sine`` was previously defined inline here. It has been
+# migrated to :func:`tests.fixtures.app_helpers.make_sine` and is now
+# imported at the top of this module. The 5 call sites below use the
+# shared helper directly.
 
 
 # ═══════════════════════════════════════════════════════════════════════════

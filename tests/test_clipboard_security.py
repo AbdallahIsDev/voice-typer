@@ -22,10 +22,12 @@ def clipboard():
         return cm
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Non-Windows path: _is_safe_paste_target is a Win32 UIPI gate that returns True on POSIX",
+)
 def test_safe_paste_target_non_windows(clipboard):
     """On non-Windows, _is_safe_paste_target always returns True."""
-    if sys.platform == "win32":
-        pytest.skip("Non-Windows test")
     assert clipboard._is_safe_paste_target() is True
 
 
@@ -62,8 +64,10 @@ def test_send_keystroke_sequence_uses_finally(clipboard):
 # tests/test_clipboard_borrow_restore.py.
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Non-Windows path: _get_clipboard_sequence_number is a Win32 no-op returning 0 on POSIX",
+)
 def test_clipboard_sequence_number_non_windows(clipboard):
     """_get_clipboard_sequence_number returns 0 on non-Windows."""
-    if sys.platform == "win32":
-        pytest.skip("Non-Windows test")
     assert clipboard._get_clipboard_sequence_number() == 0

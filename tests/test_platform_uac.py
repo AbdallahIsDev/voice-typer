@@ -68,10 +68,12 @@ class TestUACFocus:
 class TestUACFocusCrossPlatform:
     """Cross-platform tests that don't require Win32 APIs."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Non-Windows path: bring_electron_to_front is a no-op when Win32 SetForegroundWindow is unavailable",
+    )
     def test_bring_to_front_on_non_windows_is_noop(self, monkeypatch):
         """On non-Windows, bring_electron_to_front should be a safe no-op."""
-        if sys.platform == "win32":
-            pytest.skip("Testing non-Windows behavior")
         try:
             from voice_typer.server.tray_window import bring_electron_to_front
             # On non-Windows, this is expected to be a no-op or use a

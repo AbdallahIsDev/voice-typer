@@ -438,21 +438,25 @@ class TestSpecManifest:
 class TestRDPSession:
     """PLAT-RDP: is_remote_session detects RDP/SSH sessions."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows uses GetSystemMetrics for RDP detection, not SSH env vars",
+    )
     def test_returns_false_when_no_ssh_env(self, monkeypatch):
         monkeypatch.delenv("SSH_CLIENT", raising=False)
         monkeypatch.delenv("SSH_TTY", raising=False)
         from voice_typer.server.server_platform import is_remote_session
 
-        if sys.platform == "win32":
-            pytest.skip("Windows uses GetSystemMetrics")
         assert is_remote_session() is False
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows uses GetSystemMetrics for RDP detection, not SSH env vars",
+    )
     def test_detects_ssh_session(self, monkeypatch):
         monkeypatch.setenv("SSH_CLIENT", "10.0.0.1 12345 22")
         from voice_typer.server.server_platform import is_remote_session
 
-        if sys.platform == "win32":
-            pytest.skip("Windows uses GetSystemMetrics")
         assert is_remote_session() is True
 
 
@@ -610,9 +614,16 @@ class TestClipboardSequenceNumber:
         from voice_typer.server.clipboard import Win32Clipboard
 
         assert hasattr(Win32Clipboard, "get_sequence_number")
-        # On non-Windows, returns 0
-        if sys.platform != "win32":
-            assert Win32Clipboard.get_sequence_number() == 0
+
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Non-Windows path: Win32Clipboard.get_sequence_number is a no-op returning 0 on POSIX",
+    )
+    def test_get_sequence_number_returns_zero_on_non_windows(self):
+        """On non-Windows, ``Win32Clipboard.get_sequence_number()`` returns 0."""
+        from voice_typer.server.clipboard import Win32Clipboard
+
+        assert Win32Clipboard.get_sequence_number() == 0
 
 
 # ─── PLAT-001: pynput fallback documented ────────────────────────────

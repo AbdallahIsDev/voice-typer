@@ -134,7 +134,6 @@ def test_module_level_ready_emitted_is_gone() -> None:
 # ── sidecar_ws._handle_connection uses the per-instance flag ──────────
 
 
-@pytest.mark.asyncio
 async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
     """``sidecar_ws._handle_connection`` emits ``ready`` on first auth.
 
@@ -224,7 +223,6 @@ async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
     assert server._ready_emitted is True
 
 
-@pytest.mark.asyncio
 async def test_handle_connection_does_not_re_emit_ready_on_reconnect(
     monkeypatch,
 ) -> None:
@@ -294,7 +292,6 @@ async def test_handle_connection_does_not_re_emit_ready_on_reconnect(
     assert server._ready_emitted is True
 
 
-@pytest.mark.asyncio
 async def test_two_fresh_servers_each_emit_ready(monkeypatch) -> None:
     """Two fresh IPCServer instances each emit ``ready`` exactly once.
 

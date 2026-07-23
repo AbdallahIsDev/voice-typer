@@ -17,7 +17,6 @@ across the ADR-0010 migration:
 
 from __future__ import annotations
 
-import os
 import sys
 from unittest.mock import MagicMock, patch
 
@@ -29,11 +28,6 @@ sys.modules.setdefault("pynput", MagicMock())
 sys.modules.setdefault("pynput.keyboard", MagicMock())
 sys.modules.setdefault("pyperclip", MagicMock())
 
-# Xvfb is running on :99 — set DISPLAY so any incidental pynput usage
-# doesn't crash the suite.
-os.environ.setdefault("DISPLAY", ":99")
-os.environ.pop("WAYLAND_DISPLAY", None)
-
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
@@ -42,6 +36,26 @@ from voice_typer.server.config_validators import (  # noqa: E402
     validate_config_update,
 )
 from voice_typer.server.history_db import HistoryDB  # noqa: E402
+
+# ---------------------------------------------------------------------------
+# Display-env isolation (XS-22)
+# ---------------------------------------------------------------------------
+# Previously this module mutated the process environment at import time
+# (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard
+# code happy on a headless Linux box. Those mutations leaked into the
+# entire test session. The autouse fixture below uses ``monkeypatch`` so
+# the mutations are auto-restored after each test (no cross-test leak).
+# XS-FIX-2 could consolidate this into ``tests/conftest.py`` as a
+# session-scoped fixture; for now it is duplicated per-file because
+# conftest.py is owned by another sub-agent.
+
+
+@pytest.fixture(autouse=True)
+def _mock_display_env(monkeypatch):
+    """Ensure DISPLAY is set and WAYLAND_DISPLAY is unset for clipboard tests."""
+    monkeypatch.setenv("DISPLAY", ":99")
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    yield
 
 # ---------------------------------------------------------------------------
 # ClipboardManager.copy — regression: still writes text to clipboard

@@ -69,12 +69,13 @@ class TestTauriBinaryLookup:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         assert _tauri_binary() is None
 
+    @pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="Linux-only: verifies the /usr/bin/voice-typer-tauri install-path scan (POSIX-specific)",
+    )
     def test_returns_path_from_install_paths_linux(self, monkeypatch, tmp_path):
         """On Linux, the binary at ``/usr/bin/voice-typer-tauri`` is found
         when the env override is unset."""
-        if sys.platform != "linux":
-            pytest.skip("Linux-only install path test")
-
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -96,12 +97,13 @@ class TestTauriBinaryLookup:
         result = _tauri_binary()
         assert result == "/usr/bin/voice-typer-tauri"
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX-only: Windows has no executable bit — the os.access(X_OK) check has no equivalent on Win32",
+    )
     def test_skips_non_executable_posix_candidate(self, monkeypatch, tmp_path):
         """On POSIX, a non-executable file at an install path is skipped
         — a stale non-executable artifact shouldn't fool the launcher."""
-        if sys.platform == "win32":
-            pytest.skip("POSIX-only executability check")
-
         stale = tmp_path / "stale-voice-typer-tauri"
         stale.write_text("not executable")
         stale.chmod(0o644)  # no execute bit

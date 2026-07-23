@@ -132,7 +132,10 @@ class TestFts5SearchWiring:
 
             def _do_insert(conn):
                 cur = conn.cursor()
-                for ts, txt in zip(timestamps, texts):
+                # Both lists have exactly 3 elements; strict=True guards
+                # against silent truncation if one is ever edited without
+                # the other (B905).
+                for ts, txt in zip(timestamps, texts, strict=True):
                     cur.execute(
                         "INSERT INTO transcriptions (text, timestamp) VALUES (?, ?)",
                         (txt, ts),

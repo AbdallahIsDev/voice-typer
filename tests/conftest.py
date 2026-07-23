@@ -68,6 +68,53 @@ import pytest
 # fixture docstring for the full rationale.
 
 
+# XS-46: dedicated warning category for mock_heavy_imports patch
+# failures. Previously these used the bare ``UserWarning`` default,
+# which made them impossible to filter separately from real warnings
+# emitted by the SUT. Contributors can now filter them with::
+#
+#     filterwarnings("ignore::tests.conftest.MockHeavyImportsWarning")
+#
+# or via the ``-W`` CLI flag.
+class MockHeavyImportsWarning(UserWarning):
+    """Emitted by ``mock_heavy_imports`` when a patch fails.
+
+    Categories of patches that can emit this warning:
+
+    - ``atexit_register``: the ``voice_typer.server.app.atexit.register``
+      patch failed (module renamed or attribute moved).
+    - ``force_pynput_hotkey_backend``: the hoisted hotkey-backend patch
+      failed.
+    - ``keyboard_ownership_reset``: the per-test ``keyboard_ownership``
+      singleton reset failed.
+
+    XS-46 also dedupes each warning kind to fire at most once per
+    pytest session via :data:`_mock_heavy_imports_warned` so a 102-test
+    file no longer emits 102 copies of the same warning.
+    """
+
+
+# XS-46: per-session dedup flag. Each key is a warning kind
+# (``"atexit_register"``, ``"force_pynput_hotkey_backend"``,
+# ``"keyboard_ownership_reset"``). The first test to hit a given kind
+# emits the warning; subsequent tests skip the ``warnings.warn`` call.
+# This keeps the pytest output readable when a real module-rename bug
+# is present (one warning surfaces the drift; the other 101 tests in
+# the file stay quiet).
+_mock_heavy_imports_warned: dict[str, bool] = {}
+
+
+def _warn_once(kind: str, message: str) -> None:
+    """Emit a :class:`MockHeavyImportsWarning` at most once per session.
+
+    XS-46: see :class:`MockHeavyImportsWarning` for the rationale.
+    """
+    if _mock_heavy_imports_warned.get(kind):
+        return
+    _mock_heavy_imports_warned[kind] = True
+    warnings.warn(message, MockHeavyImportsWarning, stacklevel=2)
+
+
 def pytest_configure(config):
     """TEST-003: register the real_pynput and real_pil markers.
 
@@ -76,6 +123,10 @@ def pytest_configure(config):
     scripts in ``tests/manual/`` as proper pytest tests. Slow tests
     are deselected by default (see ``pytest_collection_modifyitems``)
     and only run when ``--slow`` is passed.
+
+    XS-45: also register the ``real_torch`` marker for tests that
+    genuinely need real ``torch.backends.mps`` semantics (mirrors the
+    existing ``real_pynput`` / ``real_pil`` pattern).
     """
     config.addinivalue_line(
         "markers",
@@ -84,6 +135,10 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "real_pil: opt out of the PIL mock (use real PIL for image tests)",
+    )
+    config.addinivalue_line(
+        "markers",
+        "real_torch: opt out of the torch mock (use real torch.backends.mps)",
     )
     config.addinivalue_line(
         "markers",
@@ -240,6 +295,48 @@ def mock_heavy_imports(monkeypatch, request):
 
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
+    # XS-45: torch is a heavy optional dep (~17s import cost on the
+    # sandbox) that is lazily imported by 6 production modules
+    # (transcription.py, dictation_pipeline.py, vad.py,
+    # crash_recovery.py, parakeet_engine.py, noise_suppressor.py).
+    # Each test that touched those paths previously re-implemented the
+    # same local torch mock with drift (some mocked
+    # ``torch.backends.mps``, some didn't). Hoisting the mock into the
+    # autouse fixture eliminates the 17s import tax and the drift.
+    #
+    # TEST-003 / XS-45: tests marked with @pytest.mark.real_torch will
+    # NOT have torch mocked, so they can exercise real
+    # ``torch.backends.mps`` semantics on Apple Silicon.
+    if not request.node.get_closest_marker("real_torch"):
+        mock_torch = MagicMock(name="mock_torch")
+        # Production code at ``voice_typer/server/transcription.py:1260``
+        # does ``isinstance(exc, torch.cuda.OutOfMemoryError)``. A bare
+        # MagicMock attribute is NOT a type, so ``isinstance`` raises
+        # ``TypeError`` (NOT caught by the surrounding
+        # ``except (ImportError, AttributeError)`` — the production
+        # guard only handles the no-torch-installed case).
+        # Fix: expose a real exception subclass at that attribute path
+        # so the isinstance check returns False cleanly (the mock is
+        # never a real torch, so OOM is never "matched") and the
+        # production code falls through to its substring-based MRO
+        # check.
+        class _FakeOutOfMemoryError(Exception):
+            """Mock stand-in for ``torch.cuda.OutOfMemoryError``.
+
+            Real torch's OOM error subclasses ``RuntimeError``; ours
+            subclasses ``Exception`` so it doesn't accidentally match
+            a real ``RuntimeError`` raised by the SUT (which would
+            incorrectly trigger the GPU-fallback path).
+            """
+
+        mock_torch.cuda.OutOfMemoryError = _FakeOutOfMemoryError
+        monkeypatch.setitem(sys.modules, "torch", mock_torch)
+        # ``torch.backends``, ``torch.backends.mps`` etc. are
+        # auto-created child mocks — no explicit per-submodule setitem
+        # is needed. ``transformers`` is also mocked because the
+        # parakeet_engine + noise_suppressor paths lazily import it.
+        monkeypatch.setitem(sys.modules, "transformers", MagicMock(name="mock_transformers"))
+
     # Prevent atexit handler from polluting test output. FIX-18:
     # previously this was wrapped in ``contextlib.suppress(Exception)``,
     # which silently swallowed typos in the monkeypatch target and let
@@ -253,12 +350,12 @@ def mock_heavy_imports(monkeypatch, request):
             lambda *a, **kw: None,
         )
     except (ImportError, AttributeError) as exc:
-        warnings.warn(
+        _warn_once(
+            "atexit_register",
             "mock_heavy_imports: could not patch "
             "'voice_typer.server.app.atexit.register' "
             f"({type(exc).__name__}: {exc}); atexit handlers may fire "
             "during tests.",
-            stacklevel=2,
         )
 
     # CR-068 (IMPROVE-mode run, 2026-07-21): hoist the
@@ -288,12 +385,12 @@ def mock_heavy_imports(monkeypatch, request):
             _force_pynput,
         )
     except (ImportError, AttributeError) as exc:
-        warnings.warn(
+        _warn_once(
+            "force_pynput_hotkey_backend",
             "mock_heavy_imports: could not hoist "
             "force_pynput_hotkey_backend patch "
             f"({type(exc).__name__}: {exc}); hotkey tests may fail "
             "on non-Linux platforms.",
-            stacklevel=2,
         )
 
     # CR-017 (IMPROVE-mode run, 2026-07-21): reset the keyboard_ownership
@@ -312,12 +409,12 @@ def mock_heavy_imports(monkeypatch, request):
 
         keyboard_ownership().reset()
     except (ImportError, AttributeError) as exc:
-        warnings.warn(
+        _warn_once(
+            "keyboard_ownership_reset",
             "mock_heavy_imports: could not reset keyboard_ownership "
             "singleton "
             f"({type(exc).__name__}: {exc}); hotkey ownership state "
             "may leak between tests.",
-            stacklevel=2,
         )
 
 

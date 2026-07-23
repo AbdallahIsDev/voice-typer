@@ -164,8 +164,11 @@ class TestCompareLogic:
     """Verify scripts/ruff_ratchet_check.py compare behavior with synthetic inputs."""
 
     def test_equal_counts_passes(self) -> None:
-        # UP007: 3 (matches baseline)
-        stdin = json.dumps([{"code": "UP007"}] * 3)
+        # Use a rule with count > 1 from the current baseline to avoid brittleness
+        # (UP007 baseline is 1 as of session XS; N806 is 27). Match N806 count.
+        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _n806 = _baseline["by_rule"].get("N806", 27)
+        stdin = json.dumps([{"code": "N806"}] * _n806)
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 0, (
             f"Expected exit 0 (counts equal baseline), got {result.returncode}.\n"
@@ -174,8 +177,10 @@ class TestCompareLogic:
         assert "PASS" in result.stdout
 
     def test_total_grew_fails(self) -> None:
-        # UP007: 4 (baseline is 3)
-        stdin = json.dumps([{"code": "UP007"}] * 4)
+        # Use N806 baseline + 1 to exceed per-rule count
+        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _n806 = _baseline["by_rule"].get("N806", 27)
+        stdin = json.dumps([{"code": "N806"}] * (_n806 + 1))
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1, (
             f"Expected exit 1 (total grew), got {result.returncode}.\n"
@@ -192,19 +197,23 @@ class TestCompareLogic:
         assert "FAIL" in result.stdout
 
     def test_per_rule_regression_with_same_total_fails(self) -> None:
-        # F401 baseline is 3, so F401 × 4 exceeds it → per-rule regression.
-        # Total = 5 (≤ baseline 180) → total passes, but per-rule fails.
-        stdin = json.dumps([{"code": "B007"}] + [{"code": "F401"}] * 4)
+        # Use a rule with baseline 0 to ensure per-rule regression triggers.
+        # B007 baseline + 1 extra B007 exceeds the per-rule count.
+        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _b007 = _baseline["by_rule"].get("B007", 3)
+        stdin = json.dumps([{"code": "B007"}] * (_b007 + 1))
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 1, (
             f"Expected exit 1 (per-rule regression), got {result.returncode}.\nstdout:\n{result.stdout}"
         )
         assert "per-rule regression" in result.stdout
-        assert "F401" in result.stdout
+        assert "B007" in result.stdout
 
     def test_total_shrunk_passes_with_improved_hint(self) -> None:
-        # UP007: 2 (shrank from 3)
-        stdin = json.dumps([{"code": "UP007"}] * 2)
+        # Use N806 baseline - 1 to show shrinkage
+        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _n806 = _baseline["by_rule"].get("N806", 27)
+        stdin = json.dumps([{"code": "N806"}] * max(0, _n806 - 1))
         result = _run_script(["--stdin"], stdin=stdin)
         assert result.returncode == 0
         assert "improved" in result.stdout.lower()
@@ -252,8 +261,10 @@ class TestRegenerateLogic:
         BASELINE_PATH.write_text(original, encoding="utf-8")
 
     def test_regenerate_refuses_to_grow(self) -> None:
-        # 181 violations (more than baseline 180) — should refuse.
-        stdin = json.dumps([{"code": "UP007"}] * 5)
+        # More violations than current baseline total — should refuse.
+        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _old_total = _baseline["total_count"]
+        stdin = json.dumps([{"code": "UP007"}] * (_old_total + 5))
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 1, (
             f"Expected exit 1 (refuse to grow), got {result.returncode}.\nstdout:\n{result.stdout}"
@@ -261,10 +272,10 @@ class TestRegenerateLogic:
         assert "REFUSED" in result.stdout
         # Baseline file should be unchanged.
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-        assert baseline["total_count"] == 180
+        assert baseline["total_count"] == _old_total
 
     def test_regenerate_same_count_succeeds(self) -> None:
-        # Same 3 violations — should succeed (idempotent).
+        # Same count as input — should succeed (idempotent).
         stdin = json.dumps([{"code": "UP007"}] * 3)
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0

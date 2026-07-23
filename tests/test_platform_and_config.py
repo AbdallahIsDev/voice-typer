@@ -256,9 +256,11 @@ class TestIoprioSetUsesSyscallNotLibcSymbol:
         assert 'hasattr(libc, "ioprio_set")' not in code
         assert "libc.syscall" in code
 
+    @pytest.mark.skipif(
+        sys.platform != "linux",
+        reason="Linux-only: ioprio_set syscall is Linux-specific (syscall number is Linux-defined)",
+    )
     def test_ioprio_set_actually_runs_on_linux(self, monkeypatch):
-        if sys.platform != "linux":
-            pytest.skip("Linux-only test")
         import ctypes
 
         from voice_typer.server import prewarm

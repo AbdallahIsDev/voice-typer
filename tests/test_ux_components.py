@@ -108,10 +108,17 @@ class TestModelDownloadSupportsCancel:
         service_py = (REPO_ROOT / "voice_typer" / "server" / "service.py").read_text(encoding="utf-8")
         assert "def cancel_model_download" in service_py
 
-    def test_service_has_download_cancel_event(self):
+    def test_service_has_download_cancel_events(self):
+        """service.py declares the per-download cancel Event dict.
+
+        EC-FIX-15 / EC-24: the legacy single-instance
+        ``_download_cancel_event`` attribute has been REMOVED; the
+        per-download dict (``_download_cancel_events``) plus the
+        ``_register_download`` helper are the production API.
+        """
         service_py = (REPO_ROOT / "voice_typer" / "server" / "service.py").read_text(encoding="utf-8")
-        assert "_download_cancel_event" in service_py
-        assert "_download_cancel_event.is_set()" in service_py
+        assert "_download_cancel_events" in service_py
+        assert "_register_download" in service_py
         assert '"cancelled": True' in service_py
 
     def test_ipc_server_has_cancel_model_download_handler(self):

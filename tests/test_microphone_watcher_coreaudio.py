@@ -96,6 +96,10 @@ def test_import_error_when_pyobjc_missing() -> None:
         _try_import_coreaudio()
 
 
+@pytest.mark.skipif(
+    sys.platform == "darwin",
+    reason="Verifies the non-macOS ImportError path — on macOS pyobjc may succeed",
+)
 def test_coreaudio_watcher_start_raises_on_non_macos() -> None:
     """``CoreAudioMicrophoneWatcher.start`` raises ``ImportError`` off macOS.
 
@@ -105,9 +109,6 @@ def test_coreaudio_watcher_start_raises_on_non_macos() -> None:
     a non-macOS platform raises a clean ``ImportError`` that the
     caller can catch to fall back to polling.
     """
-    if sys.platform == "darwin":
-        pytest.skip("this test verifies the non-macOS path")
-
     from voice_typer.server.microphone_watcher_coreaudio import (
         CoreAudioMicrophoneWatcher,
     )

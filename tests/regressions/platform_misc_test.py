@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 
 # WP-1: the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
@@ -229,11 +231,14 @@ class TestContainerEnvironmentDetection:
 
         assert callable(warn_if_in_container)
 
+    @pytest.mark.skipif(
+        sys.platform.startswith("linux"),
+        reason="Non-Linux only: is_in_container short-circuits to False when /proc/1/cgroup and cgroup v1/v2 signatures are unavailable",
+    )
     def test_is_in_container_returns_false_on_non_linux(self):
         from voice_typer.server.container_detect import is_in_container
 
-        if not sys.platform.startswith("linux"):
-            assert is_in_container() is False
+        assert is_in_container() is False
 
     def test_get_container_type_returns_none_when_not_in_container(self):
         from voice_typer.server.container_detect import get_container_type
@@ -262,11 +267,14 @@ class TestPlatContentContentEditable:
 
         assert callable(_is_content_editable)
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Non-Windows path: _is_content_editable short-circuits to False when Win32 UI Automation is unavailable",
+    )
     def test_returns_false_on_non_windows(self):
         from voice_typer.server.clipboard import _is_content_editable
 
-        if sys.platform != "win32":
-            assert _is_content_editable() is False
+        assert _is_content_editable() is False
 
 
 class TestPlatMacBlocked:

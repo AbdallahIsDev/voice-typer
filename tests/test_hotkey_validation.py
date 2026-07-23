@@ -18,6 +18,8 @@ The policy is a DENYLIST design, not a blanket rule design:
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from voice_typer.server.config_validators import (
     _BLOCKED_CTRL_LETTERS,
@@ -58,7 +60,19 @@ ALLOWED_HOTKEYS = [
     # F-key combos with modifiers are allowed.
     "<shift>+<f5>",
     "<ctrl>+<f1>",
-    "<ctrl>+<alt>+<f2>",
+    # XS-99: ``<ctrl>+<alt>+<f2>`` switches to VT2 on Linux (a
+    # kernel-level console switch that pynput / the X server cannot
+    # intercept). The Linux reserved-shortcut table correctly blocks
+    # it, so this parametrize entry is skipped on Linux to avoid a
+    # false "expected to be allowed, but got: reserved by operating
+    # system (linux)" failure.
+    pytest.param(
+        "<ctrl>+<alt>+<f2>",
+        marks=pytest.mark.skipif(
+            sys.platform == "linux",
+            reason="<ctrl>+<alt>+<F2> switches to VT2 on Linux — reserved by OS",
+        ),
+    ),
 ]
 
 

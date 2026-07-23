@@ -59,14 +59,14 @@ class TestAccessibilityIpcEndpointExists:
         assert "accessibility_status" in src, "PLAT-030: handler must return 'accessibility_status' response type."
         assert "AXIsProcessTrusted" in src, "PLAT-030: handler must use AXIsProcessTrusted() on macOS."
 
+    @pytest.mark.skipif(
+        sys.platform == "darwin",
+        reason="Non-macOS only: verifies the granted=True no-op path when AXIsProcessTrusted is unavailable",
+    )
     def test_check_accessibility_returns_granted_on_non_macos(self, monkeypatch):
         """On non-macOS platforms, the handler must return granted=True."""
 
         from voice_typer.server.ipc_server import IPCServer
-
-        # Ensure we're on a non-macOS platform for this test
-        if sys.platform == "darwin":
-            pytest.skip("Test only runs on non-macOS platforms")
 
         # Build a minimal IPCServer with a mock app
         app = MagicMock()

@@ -12,11 +12,8 @@ state the monolith provided.
 
 from __future__ import annotations
 
-import inspect
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 
 # WP-1: the previous Linux test-env shim that aliased
@@ -66,28 +63,6 @@ class TestElectronLogFilesCaptured:
         if hasattr(result["stderr"], "close"):
             result["stderr"].close()
 
-    @pytest.mark.skip(
-        reason="RW-8: PORT-CANDIDATE — ported to "
-        "tests/test_bugfix_regressions_behavioral.py::"
-        "TestElectronLogFilesBehavioral::test_all_electron_launch_sites_call_log_files_helper"
-    )
-    def test_electron_launch_sites_use_log_files_not_devnull(self):
-        # RW-8: PORT-CANDIDATE — see
-        # tests/test_bugfix_regressions_behavioral.py::TestElectronLogFilesBehavioral::
-        # test_all_electron_launch_sites_call_log_files_helper.
-        # The source-string count (>= 3 occurrences of `_electron_log_files()`)
-        # is brittle: production may consolidate the 3 launch sites into a
-        # shared helper without losing the invariant. The behavioral test
-        # mocks subprocess.Popen for each launch entry point and verifies
-        # the helper is invoked.
-        from voice_typer.server import autostart_launcher
-
-        src = inspect.getsource(autostart_launcher)
-        # All 3 Electron launch functions must call _electron_log_files
-        assert src.count("_electron_log_files()") >= 3, (
-            "RACE-009: all 3 Electron launch sites must call _electron_log_files()."
-        )
-
 
 class TestElectronNotificationIpcEndpoint:
     """TRAY-035.
@@ -106,27 +81,6 @@ class TestElectronNotificationIpcEndpoint:
         assert "show_electron_notification" in ipc_server.IPCServer._COMMAND_REGISTRY, (
             "TRAY-035: IPC _COMMAND_REGISTRY must include 'show_electron_notification'"
         )
-
-    @pytest.mark.skip(
-        reason="RW-8: DELETE-CANDIDATE — redundant with "
-        "TestElectronNotificationFieldValidation (same file), which "
-        "dispatches the handler behaviorally and verifies the published "
-        "event contains electron_notification, duration_ms, and critical "
-        "fields."
-    )
-    def test_handler_pushes_electron_notification_event(self):
-        # RW-8: DELETE-CANDIDATE — redundant with TestElectronNotificationFieldValidation
-        # (same file), which dispatches the handler behaviorally with various
-        # payloads and verifies the published event contains electron_notification,
-        # duration_ms, and critical fields. The source-string check here adds
-        # no additional coverage. Skipped to avoid double-maintenance.
-        from voice_typer.server import ipc_server
-
-        # REFACTOR: check the handler method source instead of _dispatch.
-        src = inspect.getsource(ipc_server.IPCServer._handle_show_electron_notification)
-        assert "electron_notification" in src, "TRAY-035: handler must push an 'electron_notification' event"
-        assert "duration_ms" in src, "TRAY-035: handler must support a duration_ms parameter"
-        assert "critical" in src, "TRAY-035: handler must support a critical flag"
 
     def test_handler_validates_data_is_dict(self):
         """The handler must reject non-dict data with an error response."""

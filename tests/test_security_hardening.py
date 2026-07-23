@@ -365,10 +365,12 @@ class TestSecureReadText:
         test_file.write_text("hello world", encoding="utf-8")
         assert _secure_read_text(test_file) == "hello world"
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX-only: O_NOFOLLOW symlink-rejection is not supported by the Win32 filesystem",
+    )
     def test_rejects_symlink(self, tmp_path):
         """_secure_read_text raises OSError for symlinks on POSIX."""
-        if sys.platform == "win32":
-            pytest.skip("O_NOFOLLOW not available on Windows")
         from voice_typer.server.config import _secure_read_text
 
         real_file = tmp_path / "real.txt"
@@ -537,10 +539,12 @@ class TestCorrectionsLimits:
 class TestSystemRootValidation:
     """SEC-audit-011: SystemRoot env var validation on Windows."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX-only: _validate_systemroot is a Win32-only env-var guard that short-circuits on POSIX",
+    )
     def test_validate_systemroot_noop_on_posix(self):
         """_validate_systemroot is a no-op on non-Windows platforms."""
-        if sys.platform == "win32":
-            pytest.skip("Test only applies to non-Windows platforms")
         from voice_typer.server.config import _validate_systemroot
 
         # Should not raise
@@ -567,10 +571,12 @@ class TestSystemRootValidation:
 class TestSecureFileWrites:
     """SEC-003: All persistent file writes use 0o600 permissions."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="POSIX-only: 0o600 permission check has no equivalent on the Win32 filesystem (ACLs use a different model)",
+    )
     def test_secure_atomic_write_permissions(self, tmp_path):
         """_secure_atomic_write creates files with 0o600 on POSIX."""
-        if sys.platform == "win32":
-            pytest.skip("POSIX-specific test")
         from voice_typer.server.config import _secure_atomic_write
 
         test_file = tmp_path / "test.json"

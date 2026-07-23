@@ -200,15 +200,16 @@ class TestElevatedFocusCrossPlatform:
             # Platform-specific constructor may fail — that's OK
             pass
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Non-Windows path: _detect_focused_process returns None when Win32 APIs are unavailable",
+    )
     def test_detect_focused_process_returns_none_on_non_windows(self, monkeypatch):
         """On non-Windows, ``_detect_focused_process`` returns ``None``.
 
         UAC and the Win32 foreground-window APIs do not exist on POSIX;
         the function short-circuits at clipboard.py:661-662.
         """
-        if sys.platform == "win32":
-            pytest.skip("Testing non-Windows behavior")
-
         from voice_typer.server import clipboard
 
         # Even on a Windows host, forcing is_windows() False must
@@ -217,15 +218,16 @@ class TestElevatedFocusCrossPlatform:
         result = clipboard.ClipboardManager._detect_focused_process()
         assert result is None
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Non-Windows path: _is_elevated_target returns False when Win32 APIs are unavailable",
+    )
     def test_is_elevated_target_none_on_non_windows(self, monkeypatch):
         """On non-Windows, ``_is_elevated_target`` returns False.
 
         Mirrors :meth:`test_is_elevated_target_returns_false_on_non_windows`
         in the cross-platform class for surface coverage.
         """
-        if sys.platform == "win32":
-            pytest.skip("Testing non-Windows behavior")
-
         from voice_typer.server import clipboard
 
         monkeypatch.setattr(clipboard, "is_windows", lambda: False)

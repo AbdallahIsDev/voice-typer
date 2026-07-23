@@ -15,8 +15,6 @@ from __future__ import annotations
 import inspect
 from pathlib import Path
 
-import pytest
-
 
 # WP-1: the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
@@ -31,27 +29,6 @@ class TestTrayIconBaseIcoLookup:
     every time. Fix: generate-icons.mjs now emits tray-mic.ico;
     tray_icon.py looks for the base ICO as a fallback.
     """
-
-    @pytest.mark.skip(
-        reason="RW-8: PORT-CANDIDATE — ported to "
-        "tests/test_bugfix_regressions_behavioral.py::"
-        "TestTrayIconBaseIcoBehavioral::test_get_icon_path_returns_ico_when_available"
-    )
-    def test_get_icon_path_looks_for_base_ico(self):
-        # RW-8: PORT-CANDIDATE — see
-        # tests/test_bugfix_regressions_behavioral.py::TestTrayIconBaseIcoBehavioral::
-        # test_get_icon_path_returns_ico_when_available.
-        # The source-string check ("tray-mic.ico" in _get_icon_path source)
-        # is brittle: production may refactor the path lookup into a helper
-        # or use a different variable name. The behavioral test mocks the
-        # filesystem to simulate the .ico file existing and verifies the
-        # function returns the .ico path.
-        from voice_typer.server.tray_icon import _get_icon_path
-
-        src = inspect.getsource(_get_icon_path)
-        assert "tray-mic.ico" in src, (
-            "PLAT-024: _get_icon_path must look for the base tray-mic.ico as a fallback on Windows."
-        )
 
     def test_generate_icons_mjs_emits_tray_ico(self):
         """generate-icons.mjs must call generateIco for tray-mic.ico.

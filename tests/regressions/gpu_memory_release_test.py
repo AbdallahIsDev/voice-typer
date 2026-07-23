@@ -26,7 +26,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
-from voice_typer.server.transcription import release_gpu_memory
+from voice_typer.server.asr_utils import release_gpu_memory
 
 
 class TestReleaseGpuMemoryHelper:

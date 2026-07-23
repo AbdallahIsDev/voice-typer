@@ -190,7 +190,6 @@ def test_push_to_ws_does_not_touch_queue_directly() -> None:
 # ─── Behavioral: no events lost under low load ────────────────────────
 
 
-@pytest.mark.asyncio
 async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
     """CR-4 regression: every event from non-loop threads is delivered.
 
@@ -296,7 +295,6 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
 # ─── Behavioral: writer does not deadlock under overflow ──────────────
 
 
-@pytest.mark.asyncio
 async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> None:
     """CR-4 regression: writer task stays alive under heavy queue overflow.
 
@@ -411,7 +409,6 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
 # ─── Behavioral: shutdown safety ──────────────────────────────────────
 
 
-@pytest.mark.asyncio
 async def test_push_to_ws_swallows_runtime_error_on_closed_loop(monkeypatch) -> None:
     """CR-4: publishing during loop shutdown must not raise.
 

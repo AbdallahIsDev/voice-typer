@@ -283,14 +283,17 @@ class TestComtypesFallbackFailsClosed:
         )
         assert callable(clipboard._focused_window_is_credential_dialog)
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Non-Windows path: _focused_window_is_credential_dialog short-circuits to False when Win32 FindWindowEx is unavailable",
+    )
     def test_focused_window_returns_false_on_non_windows(self):
         """On non-Windows platforms, the helper must return False
         (no credential dialogs to detect).
         """
         from voice_typer.server.clipboard import _focused_window_is_credential_dialog
 
-        if sys.platform != "win32":
-            assert _focused_window_is_credential_dialog() is False
+        assert _focused_window_is_credential_dialog() is False
 
     def test_comtypes_absence_logs_warning_not_info(self):
         """The ImportError handler must log at WARNING level (not INFO)

@@ -216,12 +216,21 @@ def test_runtime_test_runner_parses() -> None:
         "test wrapper has a stable callable name"
     )
 
-    # On Windows, also verify the module imports without error. We
-    # deliberately do NOT call ``main()`` here — it spawns the real
-    # app and simulates F2 keypresses, which is incompatible with
-    # headless CI.
-    if sys.platform != "win32":
-        pytest.skip("runtime_test_runner.py uses ctypes.windll (Windows-only)")
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="Windows-only: runtime_test_runner.py uses ctypes.windll (Win32 API) at import time",
+)
+def test_runtime_test_runner_imports_on_windows() -> None:
+    """On Windows, ``runtime_test_runner.py`` must import without error.
+
+    The script imports ``ctypes.wintypes`` at module top level, which
+    raises ``ImportError`` on POSIX. We deliberately do NOT call
+    ``main()`` here — it spawns the real app and simulates F2
+    keypresses, which is incompatible with headless CI.
+    """
+    script = MANUAL_DIR / "runtime_test_runner.py"
     module = _load_script_module(script, "manual_runtime_test_runner")
     assert callable(module.run), "runtime_test_runner.run must be callable"
     assert callable(module.main), "runtime_test_runner.main must be callable"

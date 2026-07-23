@@ -28,11 +28,18 @@ from unittest.mock import MagicMock
 import pytest
 
 
-def _make_manager() -> ClipboardManager:
+def _make_manager():
     """Build a ClipboardManager with all heavy deps mocked out.
 
     Imports are local so the autouse mock fixture has installed its
     ``sounddevice``/``pynput``/``pyperclip`` mocks first.
+
+    Note: no return-type annotation — ``ClipboardManager`` is only
+    imported inside this function body (deferred so the autouse
+    ``mock_heavy_imports`` fixture in ``conftest.py`` can install the
+    pynput/pyperclip ``sys.modules`` mocks first). An annotation would
+    trigger ruff F821 (undefined name) since the symbol is not in
+    module scope.
     """
     from voice_typer.server.clipboard import ClipboardManager
 

@@ -223,7 +223,13 @@ class TestBuildModelsSubmenuConfigProvider:
 
 
 class TestCancelModelDownloadMechanism:
-    """Verify the cancel mechanism works at the Python service level."""
+    """Verify the cancel mechanism works at the Python service level.
+
+    EC-FIX-15 / EC-24: the legacy single-instance ``_download_cancel_event``
+    attribute has been removed.  These tests now exercise the per-download
+    API (``_register_download`` / ``_download_cancel_events`` /
+    ``_unregister_download``) that production code uses.
+    """
 
     def test_cancel_returns_false_when_no_download_active(self, tmp_config_dir):
         from voice_typer.server.service import VoiceTyperService
@@ -242,12 +248,16 @@ class TestCancelModelDownloadMechanism:
             config = type("FakeConfig", (), {})()
 
         service = VoiceTyperService(FakeApp())
-        service._download_cancel_event = threading.Event()
-        assert not service._download_cancel_event.is_set()
+        download_id = service._register_download("test-model")
+        event = service._download_cancel_events[download_id]
+        assert not event.is_set()
+        assert service._active_download_id == download_id
 
         result = service.cancel_model_download()
         assert result == {"cancelled": True}
-        assert service._download_cancel_event.is_set()
+        assert event.is_set()
+        # Cleanup so the dict doesn't leak between tests.
+        service._unregister_download(download_id)
 
     def test_cancel_event_is_clearable(self, tmp_config_dir):
         from voice_typer.server.service import VoiceTyperService
@@ -256,20 +266,24 @@ class TestCancelModelDownloadMechanism:
             config = type("FakeConfig", (), {})()
 
         service = VoiceTyperService(FakeApp())
-        service._download_cancel_event = threading.Event()
+        download_id = service._register_download("test-model")
         service.cancel_model_download()
-        service._download_cancel_event = None
+        # Unregistering the download clears the active id and removes
+        # the Event from the dict, so a subsequent cancel returns False.
+        service._unregister_download(download_id)
         result = service.cancel_model_download()
         assert result == {"cancelled": False}
 
-    def test_download_cancel_event_starts_as_none(self, tmp_config_dir):
+    def test_download_cancel_events_starts_empty(self, tmp_config_dir):
+        """A fresh service has no registered downloads."""
         from voice_typer.server.service import VoiceTyperService
 
         class FakeApp:
             config = type("FakeConfig", (), {})()
 
         service = VoiceTyperService(FakeApp())
-        assert service._download_cancel_event is None
+        assert service._download_cancel_events == {}
+        assert service._active_download_id is None
 
 
 class TestAsrSetupHasNoConfigDirCache:

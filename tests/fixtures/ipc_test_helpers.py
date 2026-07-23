@@ -226,8 +226,135 @@ def make_ipc_server_with_fakes() -> tuple[Any, MagicMock, MagicMock]:
     return server, fake_app, fake_service
 
 
+# ── XS-42: sidecar_ws + recorder factories ─────────────────────────────
+
+
+def make_fake_sidecar_ws_server(
+    *,
+    ready_emitted: bool = True,
+    dispatch_return: Any = None,
+) -> MagicMock:
+    """Build a fake ``IPCServer`` for ``sidecar_ws._handle_connection`` tests.
+
+    XS-42: this is the canonical fake-server factory for the sidecar WS
+    tests.  It replaces the ``_make_fake_server`` helpers that were
+    copy-pasted across at least 6 test files
+    (``tests/test_sidecar_ws_thread_safety.py``,
+    ``tests/tauri/test_sidecar_ws_unit.py``, ``tests/test_ipc5_error_envelope_parity.py``,
+    ``tests/tauri/mig15/test_ws_hmac_windows.py``,
+    ``tests/tauri/mig16/test_ws_hmac_macos.py``,
+    ``tests/tauri/mig17/test_ws_hmac_linux.py``).
+
+    The returned ``MagicMock`` exposes the four attributes that
+    ``sidecar_ws._handle_connection`` reads on the server argument:
+
+    - ``_dispatch`` — callable, returns ``dispatch_return`` (default
+      ``None``).  ``_handle_connection`` calls
+      ``server._dispatch(json.loads(raw))`` inside its dispatch loop.
+    - ``app`` — child ``MagicMock`` (matches the real
+      ``IPCServer.app`` attribute).  ``_handle_connection`` doesn't
+      read it directly but the WS ``ready`` event carries it as
+      context for the host.
+    - ``push`` — ``MagicMock``.  ``_handle_connection`` installs the
+      ``_push_to_ws`` subscriber by calling
+      ``server.push(callback)``.
+    - ``_ready_emitted`` — ``bool`` (default ``True``).  When ``True``,
+      ``_handle_connection`` skips the post-auth ``ready`` emission so
+      tests can focus on the dispatch / queue paths without a stray
+      ``ready`` event interfering.  Pass ``ready_emitted=False`` to
+      exercise the first-auth ``ready`` emission path.
+
+    Parameters
+    ----------
+    ready_emitted : bool, optional
+        Initial value of ``server._ready_emitted``.  Default ``True``
+        (skip ``ready`` emission — most sidecar tests don't care about
+        it).  Pass ``False`` to test the first-auth ``ready`` path.
+    dispatch_return : Any, optional
+        Return value of the mock ``_dispatch``.  Default ``None``.
+
+    Returns
+    -------
+    MagicMock
+        A mock that satisfies the read surface of
+        ``sidecar_ws._handle_connection``.
+    """
+    server = MagicMock(name="fake_sidecar_ws_server")
+    server._dispatch = MagicMock(return_value=dispatch_return)
+    server.app = MagicMock(name="fake_sidecar_ws_server.app")
+    server.push = MagicMock(name="fake_sidecar_ws_server.push")
+    server._ready_emitted = ready_emitted
+    return server
+
+
+def make_fake_recorder(
+    *,
+    sample_rate: int = 16000,
+    microphone: Any = None,
+) -> MagicMock:
+    """Build a minimal fake ``Recorder`` for tests that touch the recorder.
+
+    XS-42: this is the canonical fake-recorder factory.  It replaces
+    the ``_make_recorder`` helpers that were copy-pasted across at
+    least 5 test files (``tests/test_concurrent_resample_safety.py``,
+    ``tests/test_secure_clear_array.py``, ``tests/test_recording_discard.py``,
+    ``tests/test_recorder_device_cache_prewarm.py``,
+    ``tests/regressions/concurrency_rms_test.py``, plus
+    ``tests/test_transcription.py::_make_recorder__010``).
+
+    The factory constructs a real ``Recorder`` (so the test exercises
+    production code paths) with a ``MagicMock`` config and then
+    installs a ``MagicMock`` stream + buffer so the test never touches
+    real audio hardware.  VAD availability is patched to ``False``
+    because importing ``torch`` for the real VAD check takes ~17s on
+    the sandbox and the recorder tests don't depend on VAD.
+
+    Parameters
+    ----------
+    sample_rate : int, optional
+        Value for ``config.sample_rate``.  Default 16000 (Whisper's
+        native rate).
+    microphone : Any, optional
+        Value for ``config.microphone``.  Default ``None`` (use the
+        system default device — which is itself a ``MagicMock`` in
+        headless test environments).
+
+    Returns
+    -------
+    voice_typer.server.recording.Recorder
+        A constructed Recorder instance with mocked stream + buffer.
+        The caller is free to override any attribute (e.g.
+        ``rec._effective_sr = 48000``) before exercising the path
+        under test.
+    """
+    from unittest.mock import patch
+
+    import numpy as np
+    from voice_typer.server.recording import Recorder
+
+    config = MagicMock()
+    config.sample_rate = sample_rate
+    config.microphone = microphone
+    config.silence_warning_seconds = 20.0
+    config.stop_on_silence_seconds = 120.0
+    config.max_recording_time_seconds = 900
+    config.device = "cpu"
+    with patch("voice_typer.server.vad.is_available", return_value=False):
+        rec = Recorder(config)
+    # Mark the recorder as "recording in progress" so methods like
+    # ``discard()`` and ``stop()`` don't early-return on the
+    # ``_recording_event.is_set()`` guard.
+    rec._recording_event.set()
+    rec._effective_sr = sample_rate
+    rec._stream = MagicMock(name="fake_stream")
+    rec._buffer = [np.array([[1.0]], dtype=np.float32)]
+    return rec
+
+
 __all__ = [
     "make_fake_app",
     "make_fake_service",
     "make_ipc_server_with_fakes",
+    "make_fake_sidecar_ws_server",
+    "make_fake_recorder",
 ]

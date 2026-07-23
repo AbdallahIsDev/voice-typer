@@ -46,7 +46,6 @@ fixture, ``_send_line`` / ``_read_response_line`` helpers, minimal
 from __future__ import annotations
 
 import json
-import os
 import socket
 import time
 from contextlib import suppress
@@ -135,7 +134,7 @@ class _MockApp:
     dispatch path goes through the genuine service layer.
     """
 
-    def __init__(self, tmp_path: Path) -> None:
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self.tray = MagicMock()
         self.tray.state = AppState.IDLE
 
@@ -156,7 +155,9 @@ class _MockApp:
         self._quit_called = False
         self._restart_called = False
 
-        os.environ["VOICE_TYPER_CONFIG_DIR_OVERRIDE"] = str(tmp_path)
+        # XS-23: use monkeypatch.setenv (auto-restored at teardown) instead of
+        # raw os.environ assignment (which leaked across tests).
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
         try:
             from voice_typer.server.history_db import HistoryDB
 
@@ -196,7 +197,7 @@ def live_server(tmp_path, monkeypatch):
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", token)
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
 
-    app = _MockApp(tmp_path=tmp_path)
+    app = _MockApp(tmp_path=tmp_path, monkeypatch=monkeypatch)
     server = IPCServer(app)
     app._ipc_server = server
     server.start()
@@ -380,8 +381,7 @@ class TestStdinListenerGatedInTcpMode:
     """
 
     def test_stdin_thread_not_started_when_tcp_mode_set_before_start(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
-        app = _MockApp(tmp_path=tmp_path)
+        app = _MockApp(tmp_path=tmp_path, monkeypatch=monkeypatch)
         server = IPCServer(app)
         app._ipc_server = server
         # Mirrors CLI: mark TCP mode BEFORE start() so the stdin
@@ -400,8 +400,7 @@ class TestStdinListenerGatedInTcpMode:
         stdin listener so the documented ``voice-typer`` CLI keeps
         working.
         """
-        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
-        app = _MockApp(tmp_path=tmp_path)
+        app = _MockApp(tmp_path=tmp_path, monkeypatch=monkeypatch)
         server = IPCServer(app)
         app._ipc_server = server
         server.start()

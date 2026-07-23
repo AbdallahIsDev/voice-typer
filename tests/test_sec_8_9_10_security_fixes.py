@@ -34,7 +34,6 @@ from __future__ import annotations
 import contextlib
 import inspect
 import json
-import os
 import socket
 import sys
 import time
@@ -77,7 +76,7 @@ class _MockApp:
     accept / auth / get_status path needs.
     """
 
-    def __init__(self, tmp_path: Path):
+    def __init__(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         self.tray = MagicMock()
         self.tray.state = AppState.IDLE
         self.tray._state = AppState.IDLE
@@ -97,7 +96,9 @@ class _MockApp:
         self.models = MagicMock()
         self.change_model = MagicMock()
 
-        os.environ["VOICE_TYPER_CONFIG_DIR"] = str(tmp_path)
+        # XS-23: use monkeypatch.setenv (auto-restored at teardown) instead of
+        # raw os.environ assignment (which leaked across tests).
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
         try:
             from voice_typer.server.history_db import HistoryDB
 
@@ -183,7 +184,7 @@ def sec8_server(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
 
-    app = _MockApp(tmp_path)
+    app = _MockApp(tmp_path, monkeypatch)
     server = IPCServer(app)
     server.service.apply_config_side_effects = lambda updates: None
     from voice_typer.server.event_bus import subscribe as _set_push_event
@@ -1065,11 +1066,16 @@ class TestG4L06RedactSecretThreshold20:
         assert token not in redacted
         assert "***" in redacted
 
-    def test_31_char_bare_token_redacted(self):
-        """G4-L-06: a 31-char bare token (just under the old 32-char
-        threshold) is now redacted."""
-        token = "0123456789abcdefghij123456789abc"  # 31 chars
-        assert len(token) == 31
+    def test_32_char_bare_token_redacted(self):
+        """G4-L-06: a 32-char bare token (just under the old 33-char
+        threshold) is now redacted.
+
+        XS-98: the literal ``'0123456789abcdefghij123456789abc'`` is
+        32 chars long (10 digits + 10 letters + 9 digits + 3 letters),
+        but the previous assertion checked for 31 — a typo. Fixed here.
+        """
+        token = "0123456789abcdefghij123456789abc"  # 32 chars
+        assert len(token) == 32
         redacted = redact_secret(token)
         assert token not in redacted
         assert "***" in redacted

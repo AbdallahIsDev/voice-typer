@@ -17,6 +17,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 
 # WP-1: the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
@@ -321,6 +323,10 @@ class TestWslDetectionLogic:
     on WSL where win32 APIs aren't available.
     """
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Non-Windows path: _is_ime_composing short-circuits to False when Win32 IME APIs are unavailable",
+    )
     def test_ime_composition_check_returns_false_on_non_windows(self):
         """On non-Windows platforms, _is_ime_composing must return
         False without crashing.
@@ -330,8 +336,7 @@ class TestWslDetectionLogic:
         # Create a backend instance without full init
         backend = WindowsNativeHotkey.__new__(WindowsNativeHotkey)
         # On non-Windows, the method should return False
-        if sys.platform != "win32":
-            assert backend._is_ime_composing() is False
+        assert backend._is_ime_composing() is False
 
     def test_polling_loop_handles_missing_win32gui(self):
         """The polling loop must not crash if win32gui is unavailable

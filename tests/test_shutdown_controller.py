@@ -140,17 +140,11 @@ def controller(fake_app):
 class TestShutdownControllerWiring:
     """Verify ``VoiceTyperApp.__init__`` wires up ``ShutdownController``.
 
-    XFAIL until the primary agent adds
-    ``self.shutdown = ShutdownController(self)`` to ``VoiceTyperApp.__init__``
-    and the 7 delegate methods on ``VoiceTyperApp``.
+    XS-51 (2026-07-21): the wiring has landed — ``VoiceTyperApp.__init__``
+    constructs ``self.shutdown = ShutdownController(self)`` (see
+    ``voice_typer/server/app.py:228``). These tests now run unmarked.
     """
 
-    @pytest.mark.xfail(
-        reason="wiring pending — primary agent will add "
-        "`self.shutdown = ShutdownController(self)` to VoiceTyperApp.__init__ "
-        "and replace the 7 extracted methods with 1-line delegates",
-        strict=False,
-    )
     def test_app_has_shutdown_attribute(self, tmp_config_dir, monkeypatch):
         """``self.shutdown`` must be a ``ShutdownController`` instance."""
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
@@ -164,10 +158,6 @@ class TestShutdownControllerWiring:
         assert hasattr(instance, "shutdown"), "VoiceTyperApp.__init__ must construct self.shutdown (ShutdownController)"
         assert isinstance(instance.shutdown, ShutdownController), "self.shutdown must be a ShutdownController instance"
 
-    @pytest.mark.xfail(
-        reason="wiring pending — primary agent will add the delegate stubs",
-        strict=False,
-    )
     def test_shutdown_back_references_app(self, tmp_config_dir, monkeypatch):
         """``ShutdownController._app`` must be the ``VoiceTyperApp`` instance."""
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)

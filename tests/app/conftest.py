@@ -5,24 +5,18 @@ The local ``mock_heavy_imports`` autouse fixture that used to live in
 branch has been hoisted into the project-wide ``mock_heavy_imports``
 fixture in ``tests/conftest.py`` (CR-60). Tests in this directory
 inherit that project-wide mock automatically.
+
+XS-92: the local ``tmp_config_dir`` fixture override that previously
+lived here was DELETED because it was byte-for-byte identical to the
+project-wide ``tmp_config_dir`` fixture in ``tests/conftest.py``. The
+project-wide fixture is now picked up automatically. A future change
+to the project-wide fixture will propagate to ``tests/app/`` tests
+without needing a manual mirror update here.
 """
 
 from unittest.mock import MagicMock
 
 import pytest
-
-
-@pytest.fixture
-def tmp_config_dir(tmp_path, monkeypatch):
-    """Point config to a temp directory.
-
-    Overrides the project-wide fixture of the same name to preserve the
-    pre-split behaviour: the original ``tests/test_app.py`` defined its
-    own ``tmp_config_dir`` rather than using the project-wide one, so
-    we keep the local override for behavioural parity.
-    """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
 
 
 @pytest.fixture

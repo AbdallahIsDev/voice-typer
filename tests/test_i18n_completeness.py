@@ -408,7 +408,8 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "help.searchPlaceholder",  # "Search commands…"
     # history (3 keys)
     "history.charsSuffix",  # " ({count} chars)"
-    "history.exportTruncatedWarning",  # "Export limited to {count} most recent records — use search to export older entries."
+    # "Export limited to {count} most recent records — use search to export older entries."
+    "history.exportTruncatedWarning",
     "history.sortLabel",  # "Sort"
     # hotkey.combos (5 keys)
     "hotkey.combos.cmdShiftVMacOS",  # "Cmd+Shift+V (macOS)"
@@ -457,7 +458,8 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # onboarding (11 keys)
     "onboarding.permissionsInstructionsLinuxStep1",  # "Add yourself to the 'input' group"
     "onboarding.permissionsInstructionsLinuxStep2",  # "Install the udev rule granting group-read on /dev/input/event*"
-    "onboarding.permissionsInstructionsLinuxStep3",  # "Log out and back in (or reboot) for the group change to take effect"
+    # "Log out and back in (or reboot) for the group change to take effect"
+    "onboarding.permissionsInstructionsLinuxStep3",
     "onboarding.permissionsInstructionsLinuxTitle",  # "Input Group + udev Rule Required"
     "onboarding.permissionsInstructionsMacosStep1",  # "Open System Settings → Privacy & Security → Accessibility"
     "onboarding.permissionsInstructionsMacosStep2",  # "Add Voice Typer (and its key-listener helper) to the list"
@@ -470,52 +472,82 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
     "settings.modelPlaceholder",  # "gpt-4o-mini"
     # settings.appearance (4 keys)
-    "settings.appearance.contrastWarning",  # "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1). Increase the difference between this colour and the relevant background."
+    # "Low contrast: {ratio}:1 (WCAG AA requires 4.5:1)."
+    # "Increase the difference between this colour and the relevant background."
+    "settings.appearance.contrastWarning",
     "settings.appearance.contrastWarningShort",  # "Contrast {ratio}:1"
     "settings.appearance.customDropdownLabel",  # "Custom (use toggle below)"
-    "settings.appearance.hexInvalid",  # "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c). Reverting to the previous value on blur."
+    # "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c)."
+    # "Reverting to the previous value on blur."
+    "settings.appearance.hexInvalid",
     # settings.audioEnhancement (41 keys)
     "settings.audioEnhancement.compressorAttack",  # "Compressor Attack"
     "settings.audioEnhancement.compressorAttackAria",  # "Compressor Attack"
-    "settings.audioEnhancement.compressorAttackInfo",  # "How fast compression engages when the signal exceeds the threshold. 2–10ms catches transients without pumping."
+    # "How fast compression engages when the signal exceeds the threshold."
+    # "2–10ms catches transients without pumping."
+    "settings.audioEnhancement.compressorAttackInfo",
     "settings.audioEnhancement.compressorAttackInfoSearch",  # "How fast compression engages."
     "settings.audioEnhancement.compressorOutputGain",  # "Compressor Output Gain"
     "settings.audioEnhancement.compressorOutputGainAria",  # "Compressor Output Gain"
-    "settings.audioEnhancement.compressorOutputGainInfo",  # "Make-up gain applied after compression to restore perceived loudness. 0dB is neutral; +3–6dB compensates for typical speech compression."
+    # "Make-up gain applied after compression to restore perceived loudness."
+    # "0dB is neutral; +3–6dB compensates for typical speech compression."
+    "settings.audioEnhancement.compressorOutputGainInfo",
     "settings.audioEnhancement.compressorOutputGainInfoSearch",  # "Make-up gain applied after compression."
     "settings.audioEnhancement.compressorRelease",  # "Compressor Release"
     "settings.audioEnhancement.compressorReleaseAria",  # "Compressor Release"
-    "settings.audioEnhancement.compressorReleaseInfo",  # "How fast compression disengages after the signal drops below the threshold. 50–150ms avoids gain breathing on trailing syllables."
+    # "How fast compression disengages after the signal drops below the threshold."
+    # "50–150ms avoids gain breathing on trailing syllables."
+    "settings.audioEnhancement.compressorReleaseInfo",
     "settings.audioEnhancement.compressorReleaseInfoSearch",  # "How fast compression disengages."
     "settings.audioEnhancement.equalizer",  # "Equalizer"
     "settings.audioEnhancement.equalizerAria",  # "Equalizer"
     "settings.audioEnhancement.gateAttack",  # "Gate Attack"
     "settings.audioEnhancement.gateAttackAria",  # "Gate Attack"
-    "settings.audioEnhancement.gateAttackInfo",  # "How fast the gate opens when the signal rises above the open threshold. 5–25ms is typical for speech."
+    # "How fast the gate opens when the signal rises above the open threshold."
+    # "5–25ms is typical for speech."
+    "settings.audioEnhancement.gateAttackInfo",
     "settings.audioEnhancement.gateAttackInfoSearch",  # "How fast the gate opens."
     "settings.audioEnhancement.gateHold",  # "Gate Hold"
     "settings.audioEnhancement.gateHoldAria",  # "Gate Hold"
-    "settings.audioEnhancement.gateHoldInfo",  # "How long the gate stays open after the signal drops below the close threshold before release begins. 100–300ms prevents flicker on pauses."
+    # "How long the gate stays open after the signal drops below the close"
+    # "threshold before release begins. 100–300ms prevents flicker on pauses."
+    "settings.audioEnhancement.gateHoldInfo",
     "settings.audioEnhancement.gateHoldInfoSearch",  # "How long the gate stays open after the signal drops."
     "settings.audioEnhancement.gateRelease",  # "Gate Release"
     "settings.audioEnhancement.gateReleaseAria",  # "Gate Release"
-    "settings.audioEnhancement.gateReleaseInfo",  # "How fast the gate closes after the hold time expires. 100–200ms avoids abrupt cuts on trailing consonants."
+    # "How fast the gate closes after the hold time expires."
+    # "100–200ms avoids abrupt cuts on trailing consonants."
+    "settings.audioEnhancement.gateReleaseInfo",
     "settings.audioEnhancement.gateReleaseInfoSearch",  # "How fast the gate closes after the hold time expires."
     "settings.audioEnhancement.limiter",  # "Limiter"
     "settings.audioEnhancement.limiterAria",  # "Limiter"
     "settings.audioEnhancement.limiterRelease",  # "Limiter Release"
     "settings.audioEnhancement.limiterReleaseAria",  # "Limiter Release"
-    "settings.audioEnhancement.limiterReleaseInfo",  # "How fast the limiter recovers after catching a transient. 50–100ms is typical."
+    # "How fast the limiter recovers after catching a transient."
+    # "50–100ms is typical."
+    "settings.audioEnhancement.limiterReleaseInfo",
     "settings.audioEnhancement.limiterReleaseInfoSearch",  # "How fast the limiter recovers after catching a transient."
     "settings.audioEnhancement.notchFrequency",  # "Notch Frequency"
     "settings.audioEnhancement.notchFrequencyAria",  # "Notch Frequency"
-    "settings.audioEnhancement.notchFrequencyInfo",  # "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains."
+    # "Center frequency of the notch."
+    # "50Hz for Europe/Asia mains, 60Hz for North America mains."
+    "settings.audioEnhancement.notchFrequencyInfo",
     "settings.audioEnhancement.notchFrequencyInfoSearch",  # "Center frequency of the notch."
-    "settings.audioEnhancement.presetAutoDescription",  # "Backend picks the best filter chain for the detected noise floor and hardware. Recommended for most users."
-    "settings.audioEnhancement.presetCustomDescription",  # "Hand-pick every filter and parameter. Best for advanced users with a known acoustic environment."
-    "settings.audioEnhancement.presetNoisyRoomDescription",  # "Aggressive filtering for keyboard clatter, fans, and HVAC rumble. RNNoise + strong gate + compressor for consistent ASR accuracy."
-    "settings.audioEnhancement.presetOffDescription",  # "Bypass the entire filter chain. Use only with a clean signal — background noise will degrade transcription."
-    "settings.audioEnhancement.presetStudioDescription",  # "Light filtering for quiet, treated rooms. High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre."
+    # "Backend picks the best filter chain for the detected noise floor and"
+    # "hardware. Recommended for most users."
+    "settings.audioEnhancement.presetAutoDescription",
+    # "Hand-pick every filter and parameter."
+    # "Best for advanced users with a known acoustic environment."
+    "settings.audioEnhancement.presetCustomDescription",
+    # "Aggressive filtering for keyboard clatter, fans, and HVAC rumble."
+    # "RNNoise + strong gate + compressor for consistent ASR accuracy."
+    "settings.audioEnhancement.presetNoisyRoomDescription",
+    # "Bypass the entire filter chain. Use only with a clean signal —"
+    # "background noise will degrade transcription."
+    "settings.audioEnhancement.presetOffDescription",
+    # "Light filtering for quiet, treated rooms."
+    # "High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre."
+    "settings.audioEnhancement.presetStudioDescription",
     # templates (3 keys)
     "templates.matchModeAria",  # "Match mode: {mode}"
     "templates.matchModeExactLabel",  # "Exact"

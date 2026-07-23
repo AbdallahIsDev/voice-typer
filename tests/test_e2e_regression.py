@@ -6,6 +6,8 @@ Covers:
 - STARTUP-5: POSIX prewarm scheduler (macOS LaunchAgent + Linux systemd)
 - STARTUP-7: Windows autostart uses Task Scheduler logon trigger (with Run-key fallback)
 """
+import importlib
+import importlib.util
 import inspect
 import json
 import sys
@@ -190,11 +192,24 @@ class TestPrewarmFiltersImportsByActiveBackend:
         monkeypatch.setattr("builtins.__import__", tracking_import)
         from voice_typer.server import prewarm
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
-        # Mock the heavy modules so they don't actually load
+        # Mock the heavy modules so they don't actually load.
+        # XS-100: ``prewarm._warm_imports`` calls ``_warm_package_files("torch")``
+        # which uses ``importlib.util.find_spec("torch")``. ``find_spec`` looks
+        # up ``sys.modules["torch"].__spec__`` and raises
+        # ``ValueError: torch.__spec__ is not set`` if the attribute is missing
+        # (MagicMock does NOT auto-vivify dunder attributes). Set ``__spec__``
+        # explicitly via ``importlib.util.spec_from_loader`` so the mock
+        # satisfies the importlib contract without needing a real loader.
+        mock_torch = MagicMock()
+        mock_torch.__spec__ = importlib.util.spec_from_loader("torch", loader=None)
+        mock_transformers = MagicMock()
+        mock_transformers.__spec__ = importlib.util.spec_from_loader("transformers", loader=None)
+        mock_faster_whisper = MagicMock()
+        mock_faster_whisper.__spec__ = importlib.util.spec_from_loader("faster_whisper", loader=None)
         fake_modules = {
-            "torch": MagicMock(),
-            "transformers": MagicMock(),
-            "faster_whisper": MagicMock(),
+            "torch": mock_torch,
+            "transformers": mock_transformers,
+            "faster_whisper": mock_faster_whisper,
         }
         with patch.dict(sys.modules, fake_modules):
             prewarm._warm_imports()

@@ -38,6 +38,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.app_helpers import make_voice_typer_app
+
 # WP-1: the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
@@ -254,29 +256,6 @@ class TestApiDocConfigTableAccuracy:
 # ─── H2: Windows _open_config_file — default-app open, validated notepad fallback ─
 
 
-def _make_app(tmp_config_dir, monkeypatch):
-    """Build a ``VoiceTyperApp`` with mocked hardware/GUI deps.
-
-    Mirrors the ``app`` fixture in ``tests/test_app.py`` and the
-    ``_make_app`` helper in ``tests/test_b4_config_editor_lock.py``,
-    inlined here so this test file is self-contained.
-    """
-    monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-    monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-    monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
-
-    from voice_typer.server.app import VoiceTyperApp
-
-    instance = VoiceTyperApp()
-    instance.config.esc_cancel_enabled = False
-    instance.config.voice_biometric_consent = True
-    instance.models.transcriber = MagicMock()
-    instance.models.transcriber.is_loaded = True
-    instance.models._sync_registry_from_fields()
-    return instance
-
-
 class TestWindowsOpenConfigFile:
     """XPLAT-01 + SEC-audit-011: Windows _open_config_file opens the user's
     default editor (respecting .json associations) but still holds
@@ -290,7 +269,7 @@ class TestWindowsOpenConfigFile:
 
     def test_opens_with_default_app_first_when_associated(self, tmp_config_dir, monkeypatch):
         """Primary path uses the default-app open (association-respecting)."""
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: False)
@@ -334,7 +313,7 @@ class TestWindowsOpenConfigFile:
 
     def test_falls_back_to_systemroot_notepad_when_no_association(self, tmp_config_dir, monkeypatch):
         """No .json handler -> SystemRoot-validated Notepad, not bare notepad."""
-        app = _make_app(tmp_config_dir, monkeypatch)
+        app = make_voice_typer_app(tmp_config_dir, monkeypatch)
         monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: False)
