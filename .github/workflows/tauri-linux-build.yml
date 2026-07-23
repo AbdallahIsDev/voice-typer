@@ -114,6 +114,7 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@v1
         with:
+          toolchain: stable
           targets: ${{ env.BUILD_ARCH == 'aarch64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
 
       # CI-5 / BUILD-N07: cache the cargo registry + src-tauri/target

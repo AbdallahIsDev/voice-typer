@@ -309,6 +309,7 @@ def mock_heavy_imports(monkeypatch, request):
     # ``torch.backends.mps`` semantics on Apple Silicon.
     if not request.node.get_closest_marker("real_torch"):
         mock_torch = MagicMock(name="mock_torch")
+
         # Production code at ``voice_typer/server/transcription.py:1260``
         # does ``isinstance(exc, torch.cuda.OutOfMemoryError)``. A bare
         # MagicMock attribute is NOT a type, so ``isinstance`` raises
@@ -501,3 +502,84 @@ def clear_binary_path_cache():
     cache_clear = getattr(get_native_binary_path, "cache_clear", None)
     if cache_clear is not None:
         cache_clear()
+
+
+# ── FT-2: clean up leaked daemon-thread-spawning subsystems after each test ─
+#
+# Several test files construct ``HistoryDB()`` / ``CrashRecovery()`` /
+# ``DuckCrashRecovery()`` / ``IPCServer`` instances via ``_MockApp``-style
+# helpers whose fixtures only call ``server.stop()`` on teardown. ``stop()``
+# tears down the TCP accept loop + worker pool but does NOT close the app's
+# ``history_db`` (which owns a long-lived ``HistoryDBWriter`` daemon thread)
+# or ``_crash_recovery`` (which owns a ``crash-recovery-saver`` daemon
+# thread). Each leaked instance accumulates one daemon thread for the
+# remainder of the session.
+#
+# On Windows, the cumulative daemon-thread count across the full suite
+# eventually trips a native limit (~150+ threads + their kernel handles),
+# causing a silent process crash at ~59% through the run (FT-2). The crash
+# manifests mid-test (no faulthandler traceback, exit code 1) because the
+# next ``CreateThread`` call (e.g. inside ``test_ipc5_error_envelope_parity``
+# when it spawns another ``IPCServer``) fails at the Win32 level.
+#
+# This autouse fixture walks ``gc.get_objects()`` after each test and
+# explicitly closes/shuts down any still-alive ``HistoryDB`` /
+# ``CrashRecovery`` / ``DuckCrashRecovery`` instances. It is defensive:
+# - ``close``/``shutdown`` are idempotent on all three classes.
+# - ``getattr(..., None)`` guards against missing attributes.
+# - ``gc.get_objects()`` is bounded by the number of live objects (cheap
+#   enough per-test; the alternative — tracking instances via a registry —
+#   would require touching every ``_MockApp`` helper across ~30 test files).
+#
+# Tests that already close their own ``HistoryDB`` (e.g. via the
+# ``history_db`` fixture above) are unaffected: ``db.close()`` is a no-op
+# on the second call.
+@pytest.fixture(autouse=True)
+def _cleanup_leaked_daemon_thread_owners():
+    """FT-2: close leaked HistoryDB / CrashRecovery instances after each test."""
+    yield
+    import gc
+
+    # Import lazily so a broken module import doesn't break collection.
+    try:
+        from voice_typer.server.history_db import HistoryDB
+    except Exception:  # pragma: no cover - import guard
+        HistoryDB = None  # type: ignore[assignment,misc]
+    try:
+        from voice_typer.server.crash_recovery import CrashRecovery
+    except Exception:  # pragma: no cover - import guard
+        CrashRecovery = None  # type: ignore[assignment,misc]
+    try:
+        from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+    except Exception:  # pragma: no cover - import guard
+        DuckCrashRecovery = None  # type: ignore[assignment,misc]
+
+    # Iterate over a snapshot — closing may trigger finalizers that mutate
+    # the gc list.
+    for obj in gc.get_objects():
+        if HistoryDB is not None and isinstance(obj, HistoryDB):
+            # ``_closed`` guard mirrors the internal one so we skip already
+            # closed DBs (avoids re-joining a dead thread).
+            if not getattr(obj, "_closed", False):
+                with contextlib_suppress():
+                    obj.close()
+        elif CrashRecovery is not None and isinstance(obj, CrashRecovery):
+            # ``_save_thread`` is None after shutdown — skip re-shutdown.
+            if getattr(obj, "_save_thread", None) is not None:
+                with contextlib_suppress():
+                    obj.shutdown()
+        elif DuckCrashRecovery is not None and isinstance(obj, DuckCrashRecovery):
+            # DuckCrashRecovery has no long-lived thread; nothing to do.
+            pass
+
+
+def contextlib_suppress():
+    """Return a ``contextlib.suppress(Exception)`` context manager.
+
+    Inline indirection so the fixture body stays readable and the import
+    stays at module load (``contextlib`` is already imported at top of file
+    via the heavy-imports block? — no, import it here to be safe).
+    """
+    import contextlib
+
+    return contextlib.suppress(Exception)
