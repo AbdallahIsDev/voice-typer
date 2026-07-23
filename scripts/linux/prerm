@@ -4,23 +4,25 @@
 # Runs as root during `apt remove voice-typer`. Removes the udev rule and
 # XKB config installed by postinst. Does NOT remove the user from the
 # input group (other apps may rely on it — see uninstall_permissions.py).
+#
+# Also removes the per-user autostart .desktop entry
+# (~/.config/autostart/voice-typer.desktop) so the launcher does not
+# respawn the app on next login after uninstall.
 
 set -e
 
 case "$1" in
     remove|deconfigure)
-        # CR-5: Probe multiple candidate paths — Tauri v2 installs to
-        # /usr/lib/voice-typer/..., legacy Electron installs to
-        # /usr/share/voice-typer/...; both must be supported so uninstall
-        # works regardless of which installer produced the package.
+        # Probe ALL 5 canonical candidate paths so the uninstall script is
+        # found regardless of which installer produced the package (Tauri
+        # v2 .deb, legacy Electron .deb, AppImage, manual install).
         UNINSTALL_SCRIPT=""
         for candidate in \
-            "/usr/lib/voice-typer/resources/scripts/linux/uninstall_permissions.py" \
-            "/usr/lib/voice-typer/resources/scripts/uninstall_permissions.py" \
-            "/usr/lib/voice-typer/scripts/linux/uninstall_permissions.py" \
-            "/usr/lib/voice-typer/scripts/uninstall_permissions.py" \
             "/usr/share/voice-typer/scripts/uninstall_permissions.py" \
-            "/usr/share/voice-typer/scripts/linux/uninstall_permissions.py"; do
+            "/usr/lib/voice-typer/scripts/uninstall_permissions.py" \
+            "/usr/lib/voice-typer/resources/scripts/uninstall_permissions.py" \
+            "/usr/lib/voice-typer/resources/scripts/linux/uninstall_permissions.py" \
+            "/usr/lib/voice-typer/resources/linux-scripts/uninstall_permissions.py"; do
             if [ -f "$candidate" ]; then
                 UNINSTALL_SCRIPT="$candidate"
                 break
@@ -32,6 +34,27 @@ case "$1" in
         else
             echo "[voice-typer] uninstall_permissions.py not found — skipping keyboard-permission cleanup"
         fi
+
+        # Remove the per-user autostart .desktop entry for every non-system
+        # user. The .desktop file is created by autostart_launcher.py and
+        # would otherwise respawn Voice Typer on next login after uninstall.
+        # /root is handled explicitly (rare, but possible if the user ever
+        # ran voice-typer via sudo -E).
+        remove_autostart_for_home() {
+            local home_dir="$1"
+            [ -d "$home_dir" ] || return 0
+            local autostart_dir="$home_dir/.config/autostart"
+            if [ -d "$autostart_dir" ]; then
+                find "$autostart_dir" -maxdepth 1 -name "voice-typer.desktop" -delete 2>/dev/null || true
+            fi
+        }
+
+        while IFS=: read -r _ _ uid _ _ home_dir _; do
+            [ -n "$home_dir" ] || continue
+            [ "$uid" -ge 1000 ] 2>/dev/null || continue
+            remove_autostart_for_home "$home_dir"
+        done < <(getent passwd 2>/dev/null || true)
+        remove_autostart_for_home /root
     ;;
     upgrade|failed-upgrade)
     ;;

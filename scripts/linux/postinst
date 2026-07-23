@@ -7,6 +7,8 @@
 #   2. Adds the installing user to the input group
 #   3. Configures Caps Lock neutralization (X11 / GNOME / KDE / Sway)
 #   4. Writes a manifest at /var/lib/voice-typer/permissions-manifest.json
+#   5. Installs a polkit-stable symlink so the polkit policy keeps resolving
+#      to a working script across Tauri v2 / AppImage installs.
 #
 # The user only types their sudo password once (prompted by apt itself).
 # After install, the user must log out and log back in for the input group
@@ -14,26 +16,29 @@
 
 set -e
 
+# The polkit-stable path: the polkit policy hard-codes this path because
+# polkit requires an absolute, stable path that does not change across
+# AppImage versions or .deb / .rpm upgrades. The Tauri v2 bundle physically
+# installs the script at /usr/lib/voice-typer/resources/linux-scripts/, so
+# this postinst installs a symlink at the polkit-stable path pointing at the
+# actually-installed script.
+POLKIT_STABLE_PATH="/usr/share/voice-typer/scripts/install_permissions.py"
+
 case "$1" in
     configure)
         # Find the install_permissions.py script.
-        # NF-R9-2: Tauri v2's .deb bundler installs `bundle.resources` entries
-        # to /usr/lib/voice-typer/resources/, NOT /usr/share/voice-typer/scripts/.
-        # The pre-fix postinst only looked at the legacy path, so every apt
-        # install ended with "install_permissions.py not found — skipping
-        # keyboard permission setup" and the user was NOT added to the input
-        # group, the udev rule was NOT installed, and the bundled
-        # linux-key-listener could not read /dev/input/event* — native hotkeys
-        # silently failed on Linux for every .deb/.rpm install.
-        # Fix: probe the canonical Tauri v2 resource path first, then fall
-        # back to legacy paths for backward compat.
+        # Probe ALL 5 canonical candidate paths so the script is found
+        # regardless of which installer produced the package (Tauri v2
+        # .deb, legacy Electron .deb, AppImage, manual install).
+        # The probe order is: polkit-stable path first (so re-installs
+        # short-circuit), then Tauri v2 resource paths, then legacy paths.
         INSTALL_SCRIPT=""
         for candidate in \
+            "/usr/share/voice-typer/scripts/install_permissions.py" \
+            "/usr/lib/voice-typer/scripts/install_permissions.py" \
             "/usr/lib/voice-typer/resources/scripts/install_permissions.py" \
             "/usr/lib/voice-typer/resources/scripts/linux/install_permissions.py" \
-            "/usr/share/voice-typer/scripts/install_permissions.py" \
-            "/opt/voice-typer/resources/scripts/install_permissions.py" \
-            "/opt/voice-typer/resources/scripts/linux/install_permissions.py"; do
+            "/usr/lib/voice-typer/resources/linux-scripts/install_permissions.py"; do
             if [ -f "$candidate" ]; then
                 INSTALL_SCRIPT="$candidate"
                 break
@@ -45,11 +50,22 @@ case "$1" in
             exit 0
         fi
 
-        echo "[voice-typer] Setting up keyboard permissions..."
+        echo "[voice-typer] Setting up keyboard permissions (using $INSTALL_SCRIPT)..."
         python3 "$INSTALL_SCRIPT" || {
             echo "[voice-typer] WARNING: keyboard permission setup failed (non-fatal)"
             echo "[voice-typer] The hotkey may not work until permissions are granted."
         }
+
+        # Install the polkit-stable symlink so the polkit policy resolves
+        # to the actually-installed script. Skip if INSTALL_SCRIPT already
+        # equals POLKIT_STABLE_PATH (avoids clobbering an existing regular
+        # file at the polkit-stable path — e.g. legacy Electron installs
+        # that physically place the script there).
+        if [ "$INSTALL_SCRIPT" != "$POLKIT_STABLE_PATH" ]; then
+            mkdir -p "$(dirname "$POLKIT_STABLE_PATH")"
+            ln -sfn "$INSTALL_SCRIPT" "$POLKIT_STABLE_PATH"
+            echo "[voice-typer] Installed polkit-stable symlink: $POLKIT_STABLE_PATH -> $INSTALL_SCRIPT"
+        fi
 
         echo ""
         echo "Voice Typer setup complete."

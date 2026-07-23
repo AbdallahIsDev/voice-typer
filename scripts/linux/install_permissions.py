@@ -9,16 +9,32 @@ Voice Typer make on Linux." Called by:
 - AppImage first-run helper (as root, via ``pkexec``)
 
 Operations (all idempotent):
-  1. Copy ``99-voice-typer.rules`` to ``/etc/udev/rules.d/``
-  2. Reload udev rules and trigger input subsystem
-  3. Add the current user (from SUDO_USER / PKEXEC_UID) to the ``input`` group
-  4. Detect session type (X11 / GNOME / KDE / Sway) and configure Caps Lock
+  1. Ensure the polkit-stable path
+     ``/usr/share/voice-typer/scripts/install_permissions.py`` resolves
+     to this script (symlink for stable installs, copy for AppImage).
+     Also installs the polkit policy file to
+     ``/usr/share/polkit-1/actions/org.voice-typer.policy`` so
+     ``pkexec org.voice-typer.install-permissions`` resolves to the
+     custom authentication prompt. This is a defensive fallback for
+     AppImage installs (which have no ``postinst``) and for repair
+     scenarios.
+  2. Copy ``99-voice-typer.rules`` to ``/etc/udev/rules.d/``
+  3. Reload udev rules and trigger input subsystem
+  4. Add the current user (from SUDO_USER / PKEXEC_UID) to the ``input`` group
+  5. Detect session type (X11 / GNOME / KDE / Sway) and configure Caps Lock
      neutralization appropriately
-  5. Write a manifest at ``/var/lib/voice-typer/permissions-manifest.json``
+  6. Write a manifest at ``/var/lib/voice-typer/permissions-manifest.json``
      tracking what was installed (used by uninstall_permissions.py)
 
 Usage:
   python3 install_permissions.py [--uninstall]
+  python3 install_permissions.py --setup-system-paths
+
+The ``--setup-system-paths`` flag performs ONLY the polkit-stable path
+setup (step 1) and exits — it does not install udev rules, add the user
+to the input group, or write a manifest. Used by the AppImage first-run
+helper to register the polkit action before the user clicks "Grant
+permission" in the onboarding flow.
 
 Exit codes:
   0 = success
@@ -53,6 +69,35 @@ MANIFEST_DIR = Path("/var/lib/voice-typer")
 MANIFEST_PATH = MANIFEST_DIR / "permissions-manifest.json"
 
 INPUT_GROUP = "input"
+
+# Polkit-stable path: the polkit policy hard-codes this absolute path
+# (see ``voice-typer.polkit``) because polkit requires an absolute,
+# stable path that does not change across AppImage versions or
+# .deb / .rpm upgrades. Tauri v2 installs the script at a different
+# physical path (``/usr/lib/voice-typer/resources/linux-scripts/`` for
+# .deb / .rpm, or inside the AppImage squashfs mount for AppImage), so
+# this script self-installs a symlink (or copy, for AppImage) at the
+# polkit-stable path on every invocation. The Debian / RPM ``postinst``
+# also installs this symlink; the self-install here is a defensive
+# fallback for AppImage installs (which have no ``postinst``) and for
+# repair scenarios (e.g. the symlink was deleted manually).
+POLKIT_STABLE_DIR = Path("/usr/share/voice-typer/scripts")
+POLKIT_STABLE_PATH = POLKIT_STABLE_DIR / "install_permissions.py"
+
+# The polkit policy file. Installed to the canonical polkit actions
+# directory so ``pkexec org.voice-typer.install-permissions`` resolves
+# to the custom authentication prompt (instead of the generic pkexec
+# prompt). The Debian / RPM postinst installs this via the package
+# manager; AppImage installs require this script to install it.
+POLKIT_POLICY_SOURCE = Path(__file__).resolve().parent / "voice-typer.polkit"
+POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/org.voice-typer.policy")
+
+# AppImage squashfs mounts under ``/tmp/.mount_<name><rand>/``. The
+# mount is ephemeral — it disappears when the AppImage process exits.
+# A symlink to a path inside the mount would dangle after exit, so for
+# AppImage runs we COPY the script to the polkit-stable path instead
+# of symlinking. The copy is stable across AppImage launches.
+_APPIMAGE_MOUNT_PREFIX = "/tmp/.mount_"
 
 
 # ─── Helpers ───────────────────────────────────────────────────────────────
@@ -108,6 +153,148 @@ def backup_if_exists(path: Path) -> Path | None:
         log(f"Backed up existing {path} → {backup}")
         return backup
     return None
+
+
+def _is_running_from_appimage() -> bool:
+    """Return True iff ``__file__`` resolves to a path inside an AppImage mount.
+
+    AppImage squashfs mounts under ``/tmp/.mount_<name><rand>/``. The mount
+    is ephemeral (disappears when the AppImage exits), so a symlink into
+    the mount would dangle after exit. ``setup_polkit_stable_path`` uses
+    this check to decide between a symlink (stable install path) and a
+    copy (AppImage mount path).
+    """
+    try:
+        resolved = Path(__file__).resolve()
+    except OSError:
+        return False
+    return str(resolved).startswith(_APPIMAGE_MOUNT_PREFIX)
+
+
+def _install_polkit_policy() -> None:
+    """Install the polkit policy file to the canonical polkit actions dir.
+
+    Idempotent: skips if the destination already matches the source
+    (byte-identical). Only runs if the source policy file exists alongside
+    this script (it is bundled as a Tauri resource sibling in
+    ``src-tauri/resources/linux-scripts/``).
+    """
+    if not POLKIT_POLICY_SOURCE.is_file():
+        log(f"WARNING: polkit policy source not found at {POLKIT_POLICY_SOURCE} — skipping polkit policy install")
+        return
+
+    # Idempotent: skip if destination already matches source.
+    if POLKIT_POLICY_DEST.is_file():
+        try:
+            if POLKIT_POLICY_DEST.read_bytes() == POLKIT_POLICY_SOURCE.read_bytes():
+                return  # Already up to date — no-op.
+        except OSError:
+            pass  # Fall through to overwrite.
+
+    try:
+        POLKIT_POLICY_DEST.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(POLKIT_POLICY_SOURCE, POLKIT_POLICY_DEST)
+        POLKIT_POLICY_DEST.chmod(0o644)
+        log(f"Installed polkit policy to {POLKIT_POLICY_DEST}")
+    except OSError as exc:
+        log(f"WARNING: failed to install polkit policy (non-fatal): {exc}")
+
+
+def setup_polkit_stable_path() -> None:
+    """Ensure the polkit-stable path resolves to this script.
+
+    The polkit policy (``voice-typer.polkit``) hard-codes
+    ``/usr/share/voice-typer/scripts/install_permissions.py`` as the
+    ``org.freedesktop.policykit.exec.path`` annotation. Polkit requires
+    an absolute, stable path — it does not follow symlinks at invoke
+    time, but the path must EXIST when ``pkexec
+    org.voice-typer.install-permissions`` is invoked.
+
+    For Debian / RPM installs, the package's ``postinst`` creates a
+    symlink at the polkit-stable path pointing to the actually-installed
+    script (under ``/usr/lib/voice-typer/resources/linux-scripts/``).
+    This function is a defensive fallback for:
+
+    1. **AppImage installs** — no ``postinst`` runs, so the polkit-stable
+       path is never created. We COPY this script to the polkit-stable
+       path (a symlink would dangle after the AppImage is unmounted).
+    2. **Repair scenarios** — the symlink was deleted manually, or a
+       previous ``postinst`` failed before the symlink step.
+    3. **Dev / manual runs** — running the script directly from the
+       source tree (e.g. ``sudo python3 scripts/linux/install_permissions.py``).
+
+    The function is idempotent: re-running it does not clobber an
+    existing regular file at the polkit-stable path that is already
+    up to date. It also installs the polkit policy file to the canonical
+    polkit actions directory (idempotent).
+
+    Must be called as root (the polkit-stable path is under
+    ``/usr/share/``). Non-root callers should be screened out before
+    invocation — this function logs a warning and returns if not root.
+    """
+    if not is_root():
+        log("WARNING: setup_polkit_stable_path() called as non-root — skipping")
+        return
+
+    this_script = Path(__file__).resolve()
+
+    # If we're already running from the polkit-stable path, no-op
+    # (the polkit policy already resolves to us).
+    try:
+        if this_script.samefile(POLKIT_STABLE_PATH):
+            _install_polkit_policy()
+            return
+    except FileNotFoundError:
+        pass  # polkit-stable path doesn't exist yet — fall through.
+
+    POLKIT_STABLE_DIR.mkdir(parents=True, exist_ok=True)
+
+    if _is_running_from_appimage():
+        # AppImage mount is ephemeral — copy the script so the
+        # polkit-stable path keeps resolving after the AppImage exits.
+        try:
+            # Don't clobber a newer copy (e.g. a re-run after upgrade).
+            if POLKIT_STABLE_PATH.is_file():
+                try:
+                    if POLKIT_STABLE_PATH.read_bytes() == this_script.read_bytes():
+                        log(f"Polkit-stable copy already up to date at {POLKIT_STABLE_PATH}")
+                        _install_polkit_policy()
+                        return
+                except OSError:
+                    pass  # Fall through to overwrite.
+            shutil.copy2(this_script, POLKIT_STABLE_PATH)
+            POLKIT_STABLE_PATH.chmod(0o755)
+            log(f"Installed polkit-stable copy: {POLKIT_STABLE_PATH} (copied from {this_script})")
+        except OSError as exc:
+            log(f"WARNING: failed to install polkit-stable copy (non-fatal): {exc}")
+    else:
+        # Stable install path — symlink (matches postinst behavior).
+        # Use ``ln -sfn`` semantics: force, symbolic, no-deref so
+        # re-runs and upgrades don't leave dangling links.
+        try:
+            # If the polkit-stable path is a regular file (e.g. legacy
+            # Electron install physically placed the script there),
+            # don't clobber it — leave the existing regular file in
+            # place. This matches the postinst's guard.
+            if POLKIT_STABLE_PATH.is_file() and not POLKIT_STABLE_PATH.is_symlink():
+                log(f"Polkit-stable path {POLKIT_STABLE_PATH} is a regular file — not clobbering")
+            else:
+                # Create or update the symlink.
+                if POLKIT_STABLE_PATH.is_symlink():
+                    current_target = os.readlink(POLKIT_STABLE_PATH)
+                    if current_target == str(this_script):
+                        log(f"Polkit-stable symlink already points to {this_script}")
+                        _install_polkit_policy()
+                        return
+                    # Unlink the old symlink before re-creating.
+                    POLKIT_STABLE_PATH.unlink()
+                os.symlink(str(this_script), POLKIT_STABLE_PATH)
+                log(f"Installed polkit-stable symlink: {POLKIT_STABLE_PATH} -> {this_script}")
+        except OSError as exc:
+            log(f"WARNING: failed to install polkit-stable symlink (non-fatal): {exc}")
+
+    # Install / refresh the polkit policy file alongside the symlink.
+    _install_polkit_policy()
 
 
 # ─── Install operations ────────────────────────────────────────────────────
@@ -182,9 +369,10 @@ def detect_session_type() -> str:
         if target:
             try:
                 result = subprocess.run(
-                    ["sudo", "-u", target, "systemctl", "--user", "show-property",
-                     "SessionType"],
-                    capture_output=True, text=True, timeout=5,
+                    ["sudo", "-u", target, "systemctl", "--user", "show-property", "SessionType"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
                 )
                 if "wayland" in result.stdout.lower():
                     xdg_session_type = "wayland"
@@ -249,9 +437,19 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
     if session_type == "gnome":
         try:
             # Run gsettings as the target user
-            run(["sudo", "-u", username, "gsettings", "set",
-                 "org.gnome.desktop.input-sources", "xkb-options",
-                 "['caps:none']"], check=False)
+            run(
+                [
+                    "sudo",
+                    "-u",
+                    username,
+                    "gsettings",
+                    "set",
+                    "org.gnome.desktop.input-sources",
+                    "xkb-options",
+                    "['caps:none']",
+                ],
+                check=False,
+            )
             log(f"Set GNOME xkb-options to caps:none for user '{username}'")
             result["gnome_settings_modified"] = True
         except (FileNotFoundError, subprocess.CalledProcessError) as exc:
@@ -304,8 +502,10 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
             log(f"WARNING: Sway config failed (non-fatal): {exc}")
 
     if session_type == "wayland-other":
-        log("WARNING: unsupported Wayland compositor — Caps Lock neutralization skipped. "
-            "Use a non-Caps-Lock hotkey (e.g. Alt) or configure your compositor manually.")
+        log(
+            "WARNING: unsupported Wayland compositor — Caps Lock neutralization skipped. "
+            "Use a non-Caps-Lock hotkey (e.g. Alt) or configure your compositor manually."
+        )
 
     return result
 
@@ -341,12 +541,21 @@ def install() -> None:
     if not is_root():
         fail(1, "must run as root (use sudo / apt / dnf / pkexec)")
 
+    # 0. Ensure the polkit-stable path resolves to this script. This is
+    # a defensive fallback for AppImage installs (no postinst runs to
+    # create the symlink) and for repair scenarios (symlink deleted
+    # manually). For Debian / RPM installs, the postinst already
+    # created the symlink — this is an idempotent no-op.
+    setup_polkit_stable_path()
+
     username = get_target_user()
     if not username:
         # If running as root directly (no SUDO_USER), skip usermod
         # but still install udev rule + XKB config
-        log("WARNING: no target user detected (SUDO_USER / PKEXEC_UID empty) — "
-            "skipping usermod. Run 'sudo usermod -aG input <username>' manually.")
+        log(
+            "WARNING: no target user detected (SUDO_USER / PKEXEC_UID empty) — "
+            "skipping usermod. Run 'sudo usermod -aG input <username>' manually."
+        )
         username = "root"
 
     log(f"Installing Voice Typer keyboard permissions for user '{username}'...")
@@ -369,8 +578,7 @@ def install() -> None:
     log("")
     log("Voice Typer keyboard permissions installed successfully.")
     if username != "root":
-        log(f"IMPORTANT: user '{username}' must log out and log back in for "
-            f"the 'input' group change to take effect.")
+        log(f"IMPORTANT: user '{username}' must log out and log back in for the 'input' group change to take effect.")
     log("")
 
 
@@ -425,9 +633,18 @@ def uninstall() -> None:
             username = manifest.get("target_user", "")
             if username and username != "root":
                 try:
-                    run(["sudo", "-u", username, "gsettings", "reset",
-                         "org.gnome.desktop.input-sources", "xkb-options"],
-                        check=False)
+                    run(
+                        [
+                            "sudo",
+                            "-u",
+                            username,
+                            "gsettings",
+                            "reset",
+                            "org.gnome.desktop.input-sources",
+                            "xkb-options",
+                        ],
+                        check=False,
+                    )
                     log(f"Reset GNOME xkb-options for user '{username}'")
                 except (FileNotFoundError, subprocess.CalledProcessError):
                     pass
@@ -436,19 +653,25 @@ def uninstall() -> None:
         # to parse them. The user can manually remove the "Voice Typer"
         # marker block. We log a message instead.
         if manifest.get("kde_config_modified"):
-            log("NOTE: KDE config (~/.config/kxkbrc) was modified — "
-                "remove the 'Options=caps:none' line manually if desired.")
+            log(
+                "NOTE: KDE config (~/.config/kxkbrc) was modified — "
+                "remove the 'Options=caps:none' line manually if desired."
+            )
         if manifest.get("sway_config_modified"):
-            log("NOTE: Sway config (~/.config/sway/config) was modified — "
-                "remove the '# Voice Typer' block manually if desired.")
+            log(
+                "NOTE: Sway config (~/.config/sway/config) was modified — "
+                "remove the '# Voice Typer' block manually if desired."
+            )
 
         # Note: we do NOT remove the user from the input group. Other
         # apps may rely on it, and removing group membership is more
         # disruptive than leaving it. The user can manually run
         # 'sudo gpasswd -d <user> input' if desired.
-        log("NOTE: user was added to the 'input' group — not removing "
+        log(
+            "NOTE: user was added to the 'input' group — not removing "
             "(other apps may rely on it). Run 'sudo gpasswd -d <user> input' "
-            "to remove manually if desired.")
+            "to remove manually if desired."
+        )
 
     # Remove manifest
     if MANIFEST_PATH.exists():
@@ -464,6 +687,14 @@ def uninstall() -> None:
 def main() -> None:
     if "--uninstall" in sys.argv:
         uninstall()
+    elif "--setup-system-paths" in sys.argv:
+        # Standalone polkit-stable path setup — used by the AppImage
+        # first-run helper to register the polkit action without
+        # running the full udev / usermod / Caps Lock install.
+        if not is_root():
+            fail(1, "must run as root (use sudo / pkexec)")
+        setup_polkit_stable_path()
+        log("System paths setup complete.")
     else:
         install()
 
