@@ -36,7 +36,7 @@ REPO_ROOT_CONTEXT = "voice_typer.server.recording"  # noqa: N816 (readability)
 class _OkStream:
     """No-op ``InputStream`` mock that records the requested samplerate.
 
-    Mirrors the ``_OkStream`` in ``tests/test_rw7_rw8_audio_callback.py``
+    Mirrors the ``_OkStream`` in ``tests/test_audio_callback.py``
     but stores ``samplerate`` so the Bluetooth-HFP detection branch in
     ``start()`` (which reads ``stream.samplerate``) doesn't blow up.
     """

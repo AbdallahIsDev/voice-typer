@@ -294,7 +294,14 @@ _THIS_FILE = Path(__file__).resolve()
 _REPO_ROOT = _THIS_FILE.parents[3]
 _CLIENT_SRC = _REPO_ROOT / "voice_typer" / "client" / "src"
 _RENDERER_SRC = _CLIENT_SRC / "renderer" / "src"
-_TAURI_BRIDGE = _RENDERER_SRC / "lib" / "tauri-bridge.ts"
+# XS-21: ``tauri-bridge.ts`` was split into a ``tauri-bridge/`` directory
+# (PVT-30) with submodules ``index.ts``, ``detect.ts``,
+# ``python-namespace.ts``, ``bubble-namespace.ts``, ``window-namespace.ts``.
+# The fixture below concatenates all submodules so the static regex
+# assertions authored against the original monolith still match patterns
+# spread across the split files.
+_TAURI_BRIDGE_DIR = _RENDERER_SRC / "lib" / "tauri-bridge"
+_TAURI_BRIDGE = _TAURI_BRIDGE_DIR / "index.ts"
 _USE_PYTHON = _RENDERER_SRC / "hooks" / "usePython.ts"
 _PRELOAD = _CLIENT_SRC / "preload" / "index.ts"
 _PYTHON_CALL_HANDLER = _CLIENT_SRC / "main" / "ipc" / "python-call-handler.ts"
@@ -344,9 +351,32 @@ ELECTRON_ERROR_ENVELOPE_FIELD = "_error"
 
 @pytest.fixture(scope="module")
 def tauri_bridge_source() -> str:
-    """Read ``client/src/renderer/src/lib/tauri-bridge.ts`` as text."""
-    assert _TAURI_BRIDGE.exists(), f"tauri-bridge.ts not found: {_TAURI_BRIDGE}"
-    return _TAURI_BRIDGE.read_text(encoding="utf-8")
+    """Read ``client/src/renderer/src/lib/tauri-bridge`` as text.
+
+    XS-21: PVT-30 split the original ``tauri-bridge.ts`` monolith into a
+    ``tauri-bridge/`` directory with submodules (``index.ts`` + four
+    siblings). This fixture concatenates all ``*.ts`` files in that
+    directory (in a deterministic order: ``index.ts`` first, then the
+    rest alphabetically) so the static regex assertions authored against
+    the monolith still match patterns spread across the split files.
+    """
+    assert _TAURI_BRIDGE_DIR.is_dir(), (
+        f"tauri-bridge/ directory not found: {_TAURI_BRIDGE_DIR}"
+    )
+    sibling_files = sorted(p for p in _TAURI_BRIDGE_DIR.glob("*.ts"))
+    # Put index.ts first so the orchestrator (which imports the
+    # namespace factories + auto-installs) appears at the top of the
+    # concatenated source — preserves the natural reading order.
+    ordered = [_TAURI_BRIDGE] + [
+        p for p in sibling_files if p.name != "index.ts"
+    ]
+    parts: list[str] = []
+    for path in ordered:
+        assert path.is_file(), (
+            f"tauri-bridge submodule not found: {path}"
+        )
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 @pytest.fixture(scope="module")

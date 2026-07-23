@@ -225,7 +225,17 @@ class TestAllowlistCorrectness:
         # intentionally NOT in the TS `ALLOWED_COMMANDS` Set. Exclude
         # it from the "missing" check so the parity test does not flag
         # it as a renderer-reachable gap.
-        rust_only_commands = {"tray_click"}
+        # PVT-G5-075 + XZ-17 reviewer feedback: `tray_click` and
+        # `shutdown` are Rust-only / host-supervised commands. The
+        # server registry has handlers for both, but neither is ever
+        # sent by the renderer:
+        #   - `tray_click` is dispatched internally by the Rust tray
+        #     menu handler (src-tauri/src/tray.rs::on_menu_event).
+        #   - `shutdown` is host-supervised (the Rust host + Electron
+        #     main both manage sidecar shutdown; the renderer never
+        #     sends it). See FEATURES.md row 81.
+        # Both are intentionally NOT in the TS ALLOWED_COMMANDS Set.
+        rust_only_commands = {"tray_click", "shutdown"}
         missing = server_cmds - allowlist_entries - rust_only_commands
         assert not missing, (
             f"Allowlist is missing server commands (renderer calls would be silently rejected): {sorted(missing)}"

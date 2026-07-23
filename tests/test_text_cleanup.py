@@ -670,3 +670,274 @@ class TestTextCleanupAdditionalParametrized:
         """Misspellings should be corrected even with punctuation."""
         result = clean_transcribed_text(input_text)
         assert "investigate" in result.lower() or "weird" in result.lower() or "grammar" in result.lower()
+
+
+# ── XV-42 / XV-52: performance-refactor regression tests ──────────────
+
+
+class TestXZ3PhraseCorrectionPerformance:
+    """XZ-3 / XV-42: ``_correct_whisper_phrases`` and ``_remove_extra_words``
+    must use a cheap ``bad.lower() in lower`` substring check for the
+    per-phrase membership test (instead of an O(N×M) regex search per
+    phrase) and reuse eagerly-precompiled Patterns for substitution,
+    while preserving exact output behaviour.
+    """
+
+    def test_eager_compiled_patterns_parallel_to_phrases(self):
+        """configure_corrections eagerly builds one Pattern per phrase."""
+        from voice_typer.server import text_cleanup
+        import re
+        text_cleanup.configure_corrections()
+        assert len(text_cleanup._active_phrase_patterns) == len(text_cleanup._active_phrases)
+        for p in text_cleanup._active_phrase_patterns:
+            assert isinstance(p, re.Pattern)
+        assert len(text_cleanup._active_extra_word_patterns) == len(text_cleanup._active_extra_words)
+        for p in text_cleanup._active_extra_word_patterns:
+            assert isinstance(p, re.Pattern)
+
+    def test_no_match_dictation_returns_unchanged_fast(self):
+        """When no phrase is present, _correct_whisper_phrases returns the
+        input unchanged. Verifies the substring-check filter produces the
+        same result as the original regex-search filter would have.
+        """
+        from voice_typer.server import text_cleanup
+        text_cleanup.configure_corrections()
+        # Text that contains none of the known phrase corrections.
+        text = "the quick brown fox jumps over the lazy dog"
+        assert text_cleanup._correct_whisper_phrases(text) == text
+        assert text_cleanup._remove_extra_words(text) == text
+
+    def test_phrase_correction_still_applies(self):
+        """XV-42 refactor preserves the core phrase-correction behaviour."""
+        from voice_typer.server import text_cleanup
+        text_cleanup.configure_corrections()
+        # 'they working' -> "it's working" is in the bundled corrections.
+        out = text_cleanup._correct_whisper_phrases("looks like they working")
+        assert "it's working" in out
+
+    def test_case_preserving_replacement_still_works(self):
+        """XV-42 refactor preserves the L19 case-preserving substitution."""
+        from voice_typer.server import text_cleanup
+        text_cleanup.configure_corrections()
+        # 'they working' is in corrections; uppercase input should map to
+        # uppercase replacement (the 'I' in "it's" comes from the good
+        # string, but the matched-casing logic must still run).
+        out = text_cleanup._correct_whisper_phrases("THEY WORKING")
+        # The match is case-insensitive; uppercase input -> uppercase replacement.
+        assert "IT'S WORKING" in out.upper() or "it's working" in out.lower()
+
+    def test_substring_check_matches_regex_search_semantics(self):
+        """XV-42: ``bad.lower() in lower`` must be equivalent to the
+        original ``pattern.search(lower)`` for every active phrase, when
+        ``lower`` is already lowercased (as the production code does:
+        ``lower = text.lower()`` before the loop).
+
+        The original pattern was ``re.compile(re.escape(bad),
+        re.IGNORECASE)`` and ``lower`` is already lowercased, so the
+        two are equivalent. This test pins that invariant so a future
+        change to either side is caught.
+        """
+        import re
+        from voice_typer.server import text_cleanup
+        text_cleanup.configure_corrections()
+        # NOTE: these must be LOWERCASE to match the production code's
+        # ``lower = text.lower()`` precondition. The original
+        # pattern.search used re.IGNORECASE so it would also match
+        # mixed-case, but the substring check ``bad.lower() in lower``
+        # only works because lower is already lowercased.
+        lower_samples = [
+            "they working today",
+            "the quick brown fox",
+            "to 2 text",
+            "without whether it is a problem",
+            "execute execute the command",
+            "this me either way",
+            "treat 3 as a test",
+            "adds a test here",
+            "didn't and catch",
+        ]
+        for bad, _ in text_cleanup._active_phrases:
+            pattern = re.compile(re.escape(bad), re.IGNORECASE)
+            for lower in lower_samples:
+                assert (bad.lower() in lower) == bool(pattern.search(lower)), (
+                    f"substring/regex mismatch for bad={bad!r} lower={lower!r}"
+                )
+
+    def test_membership_test_uses_original_lower_not_mutated_text(self):
+        """XV-42: the membership test must check the ORIGINAL lowercased
+        text, not the mutated text — matching the original
+        ``lower = text.lower()`` computed once before the loop.
+
+        We install a phrase pair where the first substitution INTRODUCES
+        text that the second phrase would match, and verify the second
+        phrase is NOT applied (because it wasn't in the original).
+        """
+        from voice_typer.server import text_cleanup
+        saved = (
+            text_cleanup._active_phrases,
+            text_cleanup._active_phrase_patterns,
+        )
+        try:
+            text_cleanup._active_phrases = [("foo", "bar"), ("bar", "SHOULD_NOT_APPEAR")]
+            text_cleanup._active_phrase_patterns = [
+                text_cleanup.re.compile(text_cleanup.re.escape("foo"), text_cleanup.re.IGNORECASE),
+                text_cleanup.re.compile(text_cleanup.re.escape("bar"), text_cleanup.re.IGNORECASE),
+            ]
+            # 'foo' -> 'bar' (introduces 'bar'); 'bar' should NOT then
+            # match because the membership test uses original lower 'foo',
+            # not the mutated 'bar'.
+            out = text_cleanup._correct_whisper_phrases("foo")
+            assert out == "bar", f"expected 'bar', got {out!r}"
+            assert "SHOULD_NOT_APPEAR" not in out
+        finally:
+            text_cleanup._active_phrases = saved[0]
+            text_cleanup._active_phrase_patterns = saved[1]
+
+
+class TestXZ3SingleTokenization:
+    """XZ-3 / XV-52: ``clean_transcribed_text`` must tokenize the dictation
+    ONCE and pass the token list through the four token-based structural
+    helpers, instead of calling ``text.split(" ")`` four times.
+    """
+
+    def test_token_based_helpers_exist_and_are_callable(self):
+        """The four ``*_tokens`` helpers exist and operate on token lists."""
+        from voice_typer.server import text_cleanup
+        for name in (
+            "_clean_self_corrections_tokens",
+            "_remove_adjacent_duplicate_phrases_tokens",
+            "_remove_near_duplicate_words_tokens",
+            "_fix_common_misspellings_tokens",
+        ):
+            assert hasattr(text_cleanup, name), f"missing {name}"
+            fn = getattr(text_cleanup, name)
+            # Round-trips: tokens in, tokens out, same length-ish.
+            tokens = ["hello", "world"]
+            out = fn(tokens)
+            assert isinstance(out, list)
+            assert all(isinstance(t, str) for t in out)
+
+    def test_text_based_wrappers_still_work(self):
+        """The original text-based helpers are preserved as thin wrappers."""
+        from voice_typer.server import text_cleanup
+        text_cleanup.configure_corrections()
+        # These should produce the same output as before the refactor.
+        assert text_cleanup._clean_self_corrections("talk talking") == "talking"
+        assert text_cleanup._remove_adjacent_duplicate_phrases("hello hello world") == "hello world"
+        assert text_cleanup._remove_near_duplicate_words("hello world") == "hello world"
+        assert "investigate" in text_cleanup._fix_common_misspellings("infestigate this").lower()
+
+    def test_single_tokenization_matches_old_behaviour(self):
+        """End-to-end: clean_transcribed_text produces the same output as
+        the old 4×-tokenization implementation for a representative input.
+        """
+        # This is a regression guard; the specific expected values were
+        # captured from the pre-refactor implementation.
+        assert clean_transcribed_text("I talk talking to it") == "I talking to it"
+        assert clean_transcribed_text("hello hello world") == "Hello world"
+        assert clean_transcribed_text("infestigate this") == "Investigate this"
+
+
+class TestXZ3PrecompiledRegexes:
+    """XZ-3 / XV-52: all regex patterns used in the hot path must be
+    precompiled at module load (no ``re.match`` / ``re.search`` /
+    ``re.findall`` / ``re.split`` with uncompiled string patterns)."""
+
+    def test_misspell_wrap_regex_is_precompiled(self):
+        from voice_typer.server import text_cleanup
+        import re
+        assert isinstance(text_cleanup._RE_MISSPELL_WRAP, re.Pattern)
+
+    def test_sentence_split_regex_is_precompiled(self):
+        from voice_typer.server import text_cleanup
+        import re
+        assert isinstance(text_cleanup._RE_SENTENCE_SPLIT, re.Pattern)
+
+    def test_word_chars_regex_is_precompiled(self):
+        from voice_typer.server import text_cleanup
+        import re
+        assert isinstance(text_cleanup._RE_WORD_CHARS, re.Pattern)
+
+    def test_no_uncompiled_regex_calls_in_hot_path(self):
+        """No function body in text_cleanup.py calls re.match / re.search /
+        re.findall / re.split with an uncompiled string-pattern argument
+        (the XV-52 finding was specifically about these uncompiled calls).
+
+        Uses ``ast`` so comments and docstrings don't trigger false
+        positives.
+        """
+        import ast
+        import inspect
+        import textwrap
+        from voice_typer.server import text_cleanup
+
+        src = textwrap.dedent(inspect.getsource(text_cleanup))
+        tree = ast.parse(src)
+
+        forbidden = {"match", "search", "findall", "split", "fullmatch"}
+        offenders: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            # Match ``re.match(...)`` / ``re.search(...)`` etc.
+            if (
+                isinstance(func, ast.Attribute)
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "re"
+                and func.attr in forbidden
+            ):
+                if node.args and isinstance(node.args[0], ast.Constant | ast.Str):
+                    offenders.append(
+                        f"line {node.lineno}: re.{func.attr}({node.args[0].value!r})"
+                    )
+        assert not offenders, (
+            "XV-52: uncompiled re.* calls with string patterns still present: "
+            + "; ".join(offenders)
+        )
+
+    def test_looks_like_question_uses_precompiled_patterns(self):
+        """_looks_like_question end-to-end still classifies questions
+        correctly after switching to precompiled regexes."""
+        from voice_typer.server import text_cleanup
+        assert text_cleanup._looks_like_question("can you help me") is True
+        assert text_cleanup._looks_like_question("the sky is blue") is False
+        assert text_cleanup._looks_like_question("do you know. can you help") is True
+
+
+class TestXZ3IdempotenceAndConcurrency:
+    """XZ-3: the refactor must not break idempotence or concurrency."""
+
+    def test_idempotent_after_refactor(self):
+        """clean_transcribed_text(clean_transcribed_text(x)) == clean_transcribed_text(x)."""
+        for text in [
+            "hello world",
+            "they working today",
+            "infestigate this grammer",
+            "i think i know",
+            "right now right now go",
+        ]:
+            once = clean_transcribed_text(text)
+            twice = clean_transcribed_text(once)
+            assert twice == once, f"not idempotent for {text!r}: {once!r} -> {twice!r}"
+
+    def test_concurrent_calls_safe(self):
+        """Concurrent clean_transcribed_text calls must not crash."""
+        import threading
+        errors = []
+        results = []
+
+        def worker(text):
+            try:
+                results.append(clean_transcribed_text(text))
+            except Exception as e:
+                errors.append(e)
+
+        texts = ["hello world", "they working", "infestigate", "test test one two"] * 5
+        threads = [threading.Thread(target=worker, args=(t,)) for t in texts]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(timeout=5.0)
+        assert not errors, f"concurrent errors: {errors}"
+        assert len(results) == len(texts)

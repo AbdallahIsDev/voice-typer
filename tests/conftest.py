@@ -444,3 +444,60 @@ def templates_dir(tmp_path, monkeypatch):
     """Temporary templates directory with _config_dir monkeypatched."""
     monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     return tmp_path
+
+
+# ── XV-112: clear ``get_native_binary_path`` LRU cache between tests ──────
+
+
+@pytest.fixture(autouse=True)
+def clear_binary_path_cache():
+    """Clear the ``functools.lru_cache`` on
+    ``voice_typer.server.native_hotkeys.binary_path.get_native_binary_path``
+    before every test.
+
+    XV-112 memoises ``get_native_binary_path()`` with
+    ``functools.lru_cache(maxsize=1)`` so production startup doesn't
+    re-probe the 6-step lookup chain 3× (factory probe + backend init +
+    availability check = ~18 ``Path.is_file()`` stats). Without this
+    fixture the cache would persist across tests, breaking the many
+    tests that monkeypatch ``sys.platform`` / ``platform.machine`` /
+    ``VOICE_TYPER_NATIVE_*`` env vars / ``Path.is_file`` to simulate
+    different platform + filesystem states and expect DIFFERENT results
+    from successive calls to ``get_native_binary_path()`` within the
+    same test session.
+
+    Affected test files (each relies on per-call resolution):
+      - ``tests/test_native_hotkeys_binary_path.py``
+      - ``tests/test_native_hotkeys.py``
+      - ``tests/tauri/test_native_binary_path_tauri.py``
+      - ``tests/tauri/mig15/test_native_key_listener_windows.py``
+      - ``tests/tauri/mig16/test_native_key_listener_macos.py``
+      - ``tests/tauri/mig17/test_native_key_listener_linux.py``
+
+    Tests that monkeypatch ``factory.get_native_binary_path`` directly
+    (``tests/test_native_binary_checksum.py``) bypass the real function
+    entirely, so they do not need this fixture — but the ``cache_clear``
+    call is cheap (one dict pop) and runs unconditionally to keep the
+    fixture simple and avoid per-test opt-in drift.
+
+    See ``tests/test_binary_path_caching.py`` for the pinning tests that
+    assert the cache actually memoises (and that ``cache_clear`` resets
+    it) — those tests use ``monkeypatch.setattr`` to swap the function
+    out, so they are unaffected by this fixture.
+    """
+    try:
+        from voice_typer.server.native_hotkeys.binary_path import (
+            get_native_binary_path,
+        )
+    except ImportError:
+        # Module not importable in this test environment (e.g. a
+        # stripped-down test subset). Nothing to clear.
+        return
+    # ``functools.lru_cache`` decorates the function with
+    # ``cache_clear``. If a future change removes the decorator, the
+    # ``getattr`` guard keeps this fixture a no-op rather than
+    # erroring — the affected tests would then start failing (which is
+    # the desired signal: the caching contract was broken).
+    cache_clear = getattr(get_native_binary_path, "cache_clear", None)
+    if cache_clear is not None:
+        cache_clear()

@@ -40,7 +40,7 @@ import numpy as np
 import pytest
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Shared helpers (mirror tests/test_rw7_rw8_audio_callback.py patterns)
+# Shared helpers (mirror tests/test_audio_callback.py patterns)
 # ═══════════════════════════════════════════════════════════════════════════
 
 

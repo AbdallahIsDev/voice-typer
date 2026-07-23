@@ -6,7 +6,7 @@ verified state, so future regressions are caught immediately.
 Findings covered
 ----------------
 - PERF-004   clean_transcribed_text() synchronous cleanup — fast & precompiled
-- PERF-012   Win32 hotkey polling rate — must be Sleep(1), not Sleep(100)
+- PERF-012   Win32 hotkey polling rate — must be Sleep(8) with timeBeginPeriod(8), not Sleep(100)
 - PERF-PIPE  _token_key uses a precompiled module-level regex
 - PERF-STATS local ASR engines accept and reuse ``audio_stats``
 - PERF-009   Qwen transcribe_batch is intentionally sequential (design decision)
@@ -133,23 +133,37 @@ class TestCleanTranscribedTextUsesPrecompiledRegex:
         )
 
 
-# ─── PERF-012: Win32 hotkey polling uses Sleep(1) ─────────────────────────
+# ─── PERF-012: Win32 hotkey polling uses Sleep(8) + timeBeginPeriod(8) ────
 
 
-class TestWin32PollingLoopUsesSleepOne:
-    """PERF-012 (FALSE POSITIVE / OUTDATED).
+class TestWin32PollingLoopUsesSleepEight:
+    """PERF-012 (FALSE POSITIVE / OUTDATED) + XV-107 (docstring drift fix).
 
     The finding claims the Win32 polling loop runs at 10 Hz
     (``Sleep(100)`` ⇒ up to 100 ms hotkey-detection latency).
-    The current implementation actually uses ``Sleep(1)`` (≈1 ms
-    latency), and the docstring on ``_run_polling_loop`` already
-    documents the rationale.  These tests pin the invariant so a
-    future "let's bump it to 50 ms to save CPU" regression is caught.
+    The current implementation actually uses ``Sleep(8)`` with
+    ``timeBeginPeriod(8)`` (≈8 ms latency, ~125 Hz), and the
+    docstring on ``_run_polling_loop`` documents the rationale.
+    These tests pin the invariant so a future "let's bump it to
+    50 ms to save CPU" regression is caught.
+
+    XV-107: the docstring + comments were previously stale — they
+    claimed ``Sleep(1)`` / 1ms cadence / ~1000 Hz, but the code's
+    actual cadence has been 8ms / ~125 Hz since the PERF-01/CPU-01
+    refactor. These tests now pin the 8ms reality so the docstring
+    drift doesn't reappear.
     """
 
-    def test_polling_loop_uses_sleep_1_not_sleep_100(self):
-        """``_run_polling_loop`` must call ``Sleep(1)`` in its main
+    def test_polling_loop_uses_sleep_8_not_sleep_100(self):
+        """``_run_polling_loop`` must call ``Sleep(8)`` in its main
         loop, never ``Sleep(100)`` (or any value ≥ 50).
+
+        XV-107: the main-loop cadence is 8ms (not 1ms — that was the
+        pre-PERF-01/CPU-01 cadence). ``Sleep(1)`` is still present
+        in the transient Caps-Lock-suppression branch (which needs
+        <8ms latency to avoid missing the next key event), so we
+        assert ``Sleep(8)`` is present rather than asserting the
+        absence of ``Sleep(1)``.
         """
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
@@ -157,11 +171,12 @@ class TestWin32PollingLoopUsesSleepOne:
         # Find every ``Sleep(N)`` call in the polling loop body.
         sleep_calls = re.findall(r"Sleep\((\d+)\)", src)
         assert sleep_calls, "_run_polling_loop must call kernel32.Sleep(N) — no Sleep call found"
-        # The main-loop sleep MUST be 1 ms.  Other Sleep calls inside
-        # the loop (e.g. IME-composition branch) may be larger, but
-        # the loop body's primary yield must be Sleep(1).
-        assert "1" in sleep_calls, (
-            f"_run_polling_loop must call Sleep(1) for ~1ms hotkey-detection latency; found Sleep calls: {sleep_calls}"
+        # The main-loop sleep MUST be 8 ms (XV-107: was previously
+        # documented as 1ms, but the actual cadence is 8ms with
+        # timeBeginPeriod(8) — see PERF-01/CPU-01).
+        assert "8" in sleep_calls, (
+            f"_run_polling_loop must call Sleep(8) for ~8ms hotkey-detection "
+            f"latency (~125 Hz with timeBeginPeriod(8)); found Sleep calls: {sleep_calls}"
         )
         # The legacy 100 ms / 10 Hz behavior must NOT be present anywhere
         # in the polling loop.
@@ -170,16 +185,26 @@ class TestWin32PollingLoopUsesSleepOne:
             f"to 10 Hz polling (100 ms latency). Found Sleep calls: {sleep_calls}"
         )
 
-    def test_polling_loop_docstring_documents_1ms_latency(self):
-        """The docstring must mention the 1 ms / ~1000 Hz polling rate
+    def test_polling_loop_docstring_documents_8ms_latency(self):
+        """The docstring must mention the 8 ms / ~125 Hz polling rate
         so the rationale is visible to anyone tempted to "optimize"
         it back to 100 ms.
+
+        XV-107: previously asserted 1ms / ~1000 Hz — that was stale
+        docstring drift after PERF-01/CPU-01 bumped the cadence to
+        8ms. Now pins the 8ms reality.
         """
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         doc = WindowsNativeHotkey._run_polling_loop.__doc__ or ""
-        assert "1ms" in doc.replace(" ", "").lower() or "1 ms" in doc.lower() or "Sleep(1)" in doc, (
-            "_run_polling_loop docstring must document the 1 ms Sleep cadence"
+        assert (
+            "8ms" in doc.replace(" ", "").lower()
+            or "8 ms" in doc.lower()
+            or "Sleep(8)" in doc
+            or "125hz" in doc.replace(" ", "").lower()
+        ), (
+            "_run_polling_loop docstring must document the 8 ms Sleep cadence "
+            "(~125 Hz with timeBeginPeriod(8)) — XV-107"
         )
         # The docstring must explicitly mention the previous 10 Hz /
         # 100 ms behavior was replaced — that's the audit trail showing

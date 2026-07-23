@@ -7,7 +7,7 @@ copy-pasted across at least 6 test files:
   instance with hardware/GUI dependencies mocked out. Mirrors the
   ``app`` fixture in ``tests/app/conftest.py`` and the ``_make_app``
   helpers in ``tests/test_api_doc_accuracy.py`` /
-  ``tests/test_b4_config_editor_lock.py`` / ``tests/test_dictation_pipeline_review_fixes.py``.
+  ``tests/test_config_editor_lock.py`` / ``tests/test_dictation_pipeline_review_fixes.py``.
 - :func:`make_sine` — generates a 1-D float32 numpy sine wave. Mirrors
   the ``make_sine`` / ``_make_sine`` helpers in
   ``tests/test_audio_processor.py``, ``tests/test_recorder_double_resample.py``,

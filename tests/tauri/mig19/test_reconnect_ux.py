@@ -184,7 +184,14 @@ _SRC_TAURI = _REPO_ROOT / "src-tauri"
 
 # ─── Source files inspected by these tests ─────────────────────────────
 _APP_STORE_TS = _RENDERER_SRC / "stores" / "appStore.ts"
-_TAURI_BRIDGE_TS = _RENDERER_SRC / "lib" / "tauri-bridge.ts"
+# XS-21: ``tauri-bridge.ts`` was split into a ``tauri-bridge/`` directory
+# (PVT-30) with submodules ``index.ts``, ``detect.ts``,
+# ``python-namespace.ts``, ``bubble-namespace.ts``, ``window-namespace.ts``.
+# The fixture below concatenates all submodules so the static regex
+# assertions authored against the original monolith still match patterns
+# spread across the split files.
+_TAURI_BRIDGE_DIR = _RENDERER_SRC / "lib" / "tauri-bridge"
+_TAURI_BRIDGE_TS = _TAURI_BRIDGE_DIR / "index.ts"
 _USE_CONNECTION_TS = _RENDERER_SRC / "hooks" / "useConnection.ts"
 _USE_PYTHON_TS = _RENDERER_SRC / "hooks" / "usePython.ts"
 _APP_TSX = _RENDERER_SRC / "App.tsx"
@@ -228,9 +235,32 @@ def app_store_source() -> str:
 
 @pytest.fixture(scope="module")
 def tauri_bridge_source() -> str:
-    """Read tauri-bridge.ts as text (for static assertions)."""
-    assert _TAURI_BRIDGE_TS.is_file(), f"tauri-bridge.ts not found: {_TAURI_BRIDGE_TS}"
-    return _TAURI_BRIDGE_TS.read_text(encoding="utf-8")
+    """Read tauri-bridge as text (for static assertions).
+
+    XS-21: PVT-30 split the original ``tauri-bridge.ts`` monolith into a
+    ``tauri-bridge/`` directory with submodules (``index.ts`` + four
+    siblings). This fixture concatenates all ``*.ts`` files in that
+    directory (in a deterministic order: ``index.ts`` first, then the
+    rest alphabetically) so the static regex assertions authored against
+    the monolith still match patterns spread across the split files.
+    """
+    assert _TAURI_BRIDGE_DIR.is_dir(), (
+        f"tauri-bridge/ directory not found: {_TAURI_BRIDGE_DIR}"
+    )
+    sibling_files = sorted(p for p in _TAURI_BRIDGE_DIR.glob("*.ts"))
+    # Put index.ts first so the orchestrator (which imports the
+    # namespace factories + auto-installs) appears at the top of the
+    # concatenated source — preserves the natural reading order.
+    ordered = [_TAURI_BRIDGE_TS] + [
+        p for p in sibling_files if p.name != "index.ts"
+    ]
+    parts: list[str] = []
+    for path in ordered:
+        assert path.is_file(), (
+            f"tauri-bridge submodule not found: {path}"
+        )
+        parts.append(path.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 @pytest.fixture(scope="module")
@@ -400,50 +430,60 @@ def test_bridge_subscribes_to_ft1_relaunching_event(
     the ``onEvent`` callback (so usePythonEvent sees it).
     """
     # The bridge must register a Tauri event listener for the FT-1 events.
-    # The source builds an `ft1Events: Array<[string, string]>` table
-    # and iterates it with `for (const [tauriEvt, pythonEvt] of ft1Events)`.
-    # The `.listen(tauriEvt, ...)` call uses the loop variable, not the
-    # literal string. So we verify TWO things:
-    #   (a) the literal appears in the ft1Events table initializer
-    #       (covered by the mapping_re assertion below)
-    #   (b) `.listen(tauriEvt, ...)` is called inside the loop (so the
-    #       subscription actually happens).
+    # Post-PVT-30 split, the bridge inlines TWO separate
+    # `tauri.event.listen("ft1_relaunching", ...)` and
+    # `tauri.event.listen("ft1_reconnected", ...)` calls (one per event)
+    # in python-namespace.ts, rather than iterating an `ft1Events` table
+    # with a loop variable. We verify the literal string subscription:
+    #   (a) `.listen("ft1_relaunching"` appears (subscription happens)
+    #   (b) the mapping to `type: "reconnecting"` + `reason: "ft1_relaunching"`
+    #       appears nearby (covered by the mapping_re assertion below).
     listen_re = re.compile(
-        r"\.listen\s*\(\s*tauriEvt\b",
+        r'\.listen\s*\(\s*["\']' + re.escape(_TAURI_EVENT_RELAUNCHING) + r'["\']',
         re.MULTILINE | re.DOTALL,
     )
     assert listen_re.search(tauri_bridge_source), (
-        "tauri-bridge.ts must call tauri.event.listen(tauriEvt, ...) inside "
-        "the ft1Events loop — without this subscription the renderer never "
-        "learns the WS disconnected + the UI stays frozen on 'connected' "
-        "while the sidecar is dead."
+        "tauri-bridge must call tauri.event.listen(\"ft1_relaunching\", ...) — "
+        "without this subscription the renderer never learns the WS "
+        "disconnected + the UI stays frozen on 'connected' while the "
+        "sidecar is dead."
     )
 
     # The bridge must map ft1_relaunching → synthesised "reconnecting" frame.
-    # We look for the [tauriEvt, pythonEvt] tuple in the ft1Events array.
-    mapping_re = re.compile(
-        r'\[\s*["\']' + re.escape(_TAURI_EVENT_RELAUNCHING) + r'["\']\s*,\s*'
-        r'["\']' + re.escape(_PY_EVENT_RECONNECTING) + r'["\']\s*\]',
+    # Post-split, the mapping is inlined as:
+    #   const event = { type: "reconnecting", data: { reason: "ft1_relaunching" } };
+    # We look for `type: "reconnecting"` + `reason: "ft1_relaunching"` in
+    # the same source (both literals must appear).
+    mapping_type_re = re.compile(
+        r'type:\s*["\']' + re.escape(_PY_EVENT_RECONNECTING) + r'["\']',
         re.MULTILINE,
     )
-    assert mapping_re.search(tauri_bridge_source), (
-        f"tauri-bridge.ts must map [{_TAURI_EVENT_RELAUNCHING!r}, "
-        f"{_PY_EVENT_RECONNECTING!r}] in the ft1Events table — this is "
-        f"the translation that lets usePythonEvent('reconnecting', ...) "
+    mapping_reason_re = re.compile(
+        r'reason:\s*["\']' + re.escape(_TAURI_EVENT_RELAUNCHING) + r'["\']',
+        re.MULTILINE,
+    )
+    assert mapping_type_re.search(tauri_bridge_source), (
+        f"tauri-bridge must synthesise type: {_PY_EVENT_RECONNECTING!r} — "
+        f"this is the translation that lets usePythonEvent('reconnecting', ...) "
         f"see the Rust host's FT-1 disconnect signal."
+    )
+    assert mapping_reason_re.search(tauri_bridge_source), (
+        f"tauri-bridge must include reason: {_TAURI_EVENT_RELAUNCHING!r} in "
+        f"the synthesised event data."
     )
 
     # The synthesised frame must be passed to the onEvent callback.
-    # We verify the callback invocation pattern (callback({...type:
-    # pythonEvt...})).
+    # Post-split, the bridge builds a `const event = { type: "...", data: {...} }`
+    # object and passes it to `handler(event)` (where `handler` is the
+    # callback wrapper from `makeListener`). We verify the handler(event)
+    # invocation pattern appears in the source.
     callback_re = re.compile(
-        r"callback\s*\(\s*\{\s*type:\s*pythonEvt",
+        r"handler\s*\(\s*event\s*\)",
         re.MULTILINE,
     )
     assert callback_re.search(tauri_bridge_source), (
-        "tauri-bridge.ts must invoke the onEvent callback with a "
-        "synthesised frame of the form {type: pythonEvt, data: {...}} "
-        "so usePythonEvent subscribers see the FT-1 events."
+        "tauri-bridge must invoke the handler with the synthesised event "
+        "object so usePythonEvent subscribers see the FT-1 events."
     )
 
 
@@ -496,32 +536,38 @@ def test_bridge_subscribes_to_ft1_reconnected_event(
     path). The bridge translates it to a synthesised
     ``{type: "reconnected", ...}`` frame.
     """
-    # Same as ft1_relaunching: the source iterates an `ft1Events`
-    # table with `for (const [tauriEvt, pythonEvt] of ft1Events)` and
-    # calls `.listen(tauriEvt, ...)`. The literal "ft1_reconnected"
-    # appears in the table initializer (verified by mapping_re below).
-    # We verify the listen call uses the loop variable.
+    # Post-PVT-30 split: the bridge inlines a separate
+    # `tauri.event.listen("ft1_reconnected", ...)` call. We verify the
+    # literal string subscription (not a loop variable).
     listen_re = re.compile(
-        r"\.listen\s*\(\s*tauriEvt\b",
+        r'\.listen\s*\(\s*["\']' + re.escape(_TAURI_EVENT_RECONNECTED) + r'["\']',
         re.MULTILINE | re.DOTALL,
     )
     assert listen_re.search(tauri_bridge_source), (
-        "tauri-bridge.ts must call tauri.event.listen(tauriEvt, ...) inside "
-        "the ft1Events loop — without this the renderer would stay on "
-        "'restarting' forever after a successful FT-1 respawn (the "
-        "'reconnected' python-event would never fire)."
+        "tauri-bridge must call tauri.event.listen(\"ft1_reconnected\", ...) — "
+        "without this the renderer would stay on 'restarting' forever after "
+        "a successful FT-1 respawn (the 'reconnected' python-event would "
+        "never fire)."
     )
 
-    mapping_re = re.compile(
-        r'\[\s*["\']' + re.escape(_TAURI_EVENT_RECONNECTED) + r'["\']\s*,\s*'
-        r'["\']' + re.escape(_PY_EVENT_RECONNECTED) + r'["\']\s*\]',
+    # Post-split, the mapping is inlined as:
+    #   const event = { type: "reconnected", data: { reason: "ft1_reconnected" } };
+    mapping_type_re = re.compile(
+        r'type:\s*["\']' + re.escape(_PY_EVENT_RECONNECTED) + r'["\']',
         re.MULTILINE,
     )
-    assert mapping_re.search(tauri_bridge_source), (
-        f"tauri-bridge.ts must map [{_TAURI_EVENT_RECONNECTED!r}, "
-        f"{_PY_EVENT_RECONNECTED!r}] in the ft1Events table — this is "
-        f"the translation that lets usePythonEvent('reconnected', ...) "
+    mapping_reason_re = re.compile(
+        r'reason:\s*["\']' + re.escape(_TAURI_EVENT_RECONNECTED) + r'["\']',
+        re.MULTILINE,
+    )
+    assert mapping_type_re.search(tauri_bridge_source), (
+        f"tauri-bridge must synthesise type: {_PY_EVENT_RECONNECTED!r} — "
+        f"this is the translation that lets usePythonEvent('reconnected', ...) "
         f"see the Rust host's FT-1 success signal."
+    )
+    assert mapping_reason_re.search(tauri_bridge_source), (
+        f"tauri-bridge must include reason: {_TAURI_EVENT_RECONNECTED!r} in "
+        f"the synthesised event data."
     )
 
 
@@ -1211,21 +1257,22 @@ def test_bridge_installs_window_python_with_onevent(
       - ``window.python.call({type, data}) → Promise<data>``
       - ``window.python.onEvent(callback) → () => void``
     """
-    # window.python assignment
+    # window.python assignment — post-PVT-30 split, the bridge calls
+    # `createPythonNamespace(tauri)` and assigns the result to
+    # `window.python`. The old `window.python = python` (local variable)
+    # pattern no longer exists.
     assign_re = re.compile(
-        r"window\.python\s*=\s*python\b",
+        r"window\.python\s*=\s*createPythonNamespace",
         re.MULTILINE,
     )
     assert assign_re.search(tauri_bridge_source), (
-        "tauri-bridge.ts must assign `window.python = python` so the "
-        "usePythonEvent hook can find the bridge at runtime."
+        "tauri-bridge must assign `window.python = createPythonNamespace(tauri)` "
+        "so the usePythonEvent hook can find the bridge at runtime."
     )
-    # onEvent must be a key on the python object literal.
-    # NB: the object literal also defines `call`, `pasteText`, etc., so we
-    # allow a generous window after the opening brace before requiring the
-    # `onEvent:` key.
+    # onEvent must be a key on the returned object literal in
+    # python-namespace.ts. The factory function `createPythonNamespace`
+    # returns an object with `call:` and `onEvent:` keys.
     onevent_re = re.compile(
-        r"const\s+python\s*:\s*PythonBridge\s*=\s*\{[\s\S]{0,800}?"
         r"onEvent\s*:",
         re.MULTILINE | re.DOTALL,
     )

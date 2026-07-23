@@ -13,6 +13,7 @@ from voice_typer.server._secrets import (
     extend_url_allowlist,
     get_url_allowlist,
     is_url_allowed,
+    redact_api_keys,
     redact_secret,
     redact_url,
 )
@@ -77,6 +78,117 @@ class TestRedactSecret:
         # alphanumeric runs and no sk-/Bearer/Token patterns, so it
         # should pass through unchanged.
         assert redact_secret(s) == s
+
+
+class TestRedactApiKeys:
+    """Tests for the ``redact_api_keys`` helper (XV-121 DRY consolidation).
+
+    ``redact_api_keys`` is the canonical API-key redaction helper shared
+    by ``redact_secret`` (log-message redaction, default ``"***"``) and
+    ``credential_store._redact_sensitive`` (IPC-bound keyring-exception
+    redaction, ``"[redacted]"``). These tests pin its contract so a
+    future change to ``_KEY_PATTERNS`` can't silently break either
+    consumer.
+    """
+
+    def test_default_replacement_is_triple_star(self):
+        """Without an explicit replacement, ``redact_api_keys`` uses ``"***"``.
+
+        This matches the historical behavior of ``redact_secret`` and
+        is what every log-message redaction call site expects.
+        """
+        s = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
+        assert redact_api_keys(s) == "***"
+
+    def test_custom_replacement_redacts_sk_prefix(self):
+        """The ``replacement`` kwarg controls the substituted marker.
+
+        ``credential_store._redact_sensitive`` uses ``"[redacted]"`` to
+        match the convention used for filesystem paths (``"[path]"``)
+        in IPC-bound messages.
+        """
+        s = "backend rejected: sk-abcdefghij1234567890XYZ"
+        out = redact_api_keys(s, replacement="[redacted]")
+        assert "sk-abcdefghij1234567890XYZ" not in out
+        assert "[redacted]" in out
+
+    def test_bearer_prefix_preserved_with_custom_replacement(self):
+        """``Bearer <token>`` → ``Bearer [redacted]`` (prefix kept).
+
+        The prefix-group capture in the Bearer pattern means the
+        ``Bearer `` label survives redaction — only the secret portion
+        is replaced. This is what ``test_rw6_api_key_redaction_bearer_token``
+        in ``test_pii_redaction.py`` relies on (with the default
+        ``"***"`` replacement); this test pins the same behavior for
+        the custom-replacement path used by ``credential_store``.
+        """
+        s = "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890"
+        out = redact_api_keys(s, replacement="[redacted]")
+        assert out == "Authorization: Bearer [redacted]"
+
+    def test_token_prefix_preserved_with_custom_replacement(self):
+        """``Token <token>`` → ``Token [redacted]`` (prefix kept)."""
+        s = "Token abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
+        out = redact_api_keys(s, replacement="[redacted]")
+        assert out == "Token [redacted]"
+
+    def test_generic_20char_alphanumeric_run_redacted(self):
+        """A bare 20+ char alphanumeric run is redacted (G4-L-06).
+
+        This is the catch-all that catches bare hex/base64 keys without
+        a recognizable prefix (e.g. Groq ``gsk_...`` keys, GitLab PATs,
+        GitHub PATs). ``credential_store._redact_sensitive`` historically
+        required 32+ chars; the canonical helper uses 20+ (G4-L-06),
+        so a 20-31 char bare token is now also redacted.
+        """
+        # 20-char bare token (no prefix, no sk-/Bearer/Token).
+        token = "0123456789abcdefghij"
+        assert len(token) == 20
+        assert redact_api_keys(token, replacement="[redacted]") == "[redacted]"
+
+    def test_no_match_returns_input_unchanged(self):
+        """When no pattern matches, the input is returned verbatim.
+
+        This is the pass-through behavior that lets
+        ``credential_store._redact_sensitive`` use ``redact_api_keys``
+        on clean diagnostic strings (e.g. ``"no usable keyring backend
+        (fail backend selected)"``) without mangling them.
+        """
+        s = "no usable keyring backend (fail backend selected)"
+        assert redact_api_keys(s) == s
+        assert redact_api_keys(s, replacement="[redacted]") == s
+
+    def test_does_not_apply_flag_patterns(self):
+        """``redact_api_keys`` must NOT apply the SEC-9 flag patterns.
+
+        ``--token=shortvalue`` (18 chars, no 20+ char alphanum run,
+        no ``sk-``/``Bearer``/``Token`` prefix) is left unchanged by
+        ``redact_api_keys``. The full ``redact_secret`` would redact
+        it via the SEC-9 flag pattern (producing ``--token=***``),
+        but ``redact_api_keys`` is the lower-level API-key-only
+        helper. This is the contract ``credential_store._redact_sensitive``
+        relies on: it never had the flag patterns, and adding them
+        would be a behavior change.
+        """
+        s = "--token=shortvalue"
+        # 'shortvalue' is 10 chars — well under the 20-char generic
+        # threshold. No sk-/Bearer/Token prefix. So unchanged.
+        assert redact_api_keys(s) == s
+        assert redact_api_keys(s, replacement="[redacted]") == s
+
+    def test_redact_secret_delegates_to_redact_api_keys(self):
+        """XV-121: ``redact_secret`` delegates the API-key portion to
+        ``redact_api_keys``.
+
+        For a string with no SEC-9 flag forms (so the flag-pattern pass
+        is a no-op) and length >= 20 (so the short-string early-exit
+        doesn't fire), ``redact_secret(s)`` must equal
+        ``redact_api_keys(s)``. This locks in the DRY refactor: if
+        someone re-inlines the API-key patterns in ``redact_secret``,
+        this test catches the regression.
+        """
+        s = "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890"
+        assert redact_secret(s) == redact_api_keys(s)
 
 
 class TestRedactUrl:

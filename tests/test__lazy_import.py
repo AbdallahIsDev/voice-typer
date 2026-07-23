@@ -341,6 +341,132 @@ def test_monkeypatch_setattr_on_proxy_then_access_works(monkeypatch, fake_module
     assert mock.InputStream == "fake_stream"
 
 
+# ── XV-78: __setattr__ mutates sys.modules (load-bearing) ────────────────
+
+
+def test_xv_78_setattr_mutates_real_sys_modules_entry(monkeypatch, fake_module):
+    """XV-78 (LOAD-BEARING): ``__setattr__`` must mutate the real module
+    object that lives in ``sys.modules`` — NOT the proxy instance and
+    NOT a private dict on the proxy. This is the load-bearing behaviour
+    documented in the ``__setattr__`` docstring.
+
+    Why load-bearing: ``__getattr__`` re-resolves the module from
+    ``sys.modules`` on every access (so per-test ``monkeypatch`` mocks
+    are honoured). If ``__setattr__`` stored the value anywhere OTHER
+    than the real module, the next ``__getattr__`` would not see it —
+    breaking ``monkeypatch.setattr(proxy, attr, fake)``.
+
+    This test pins the contract by:
+      1. Setting an attribute via the proxy.
+      2. Asserting the SAME module object in ``sys.modules`` has the
+         attribute (object identity, not just equality).
+      3. Asserting a fresh ``importlib.import_module`` call picks up
+         the mutation (proving it landed on the real module, not a
+         proxy-local copy).
+    """
+    name, mock = fake_module
+    proxy = lazy_module(name)
+
+    proxy.XV_78_sentinel = "load-bearing"
+
+    # 1. The mock that's installed in sys.modules received the value.
+    assert mock.XV_78_sentinel == "load-bearing"
+
+    # 2. The object in sys.modules IS the mock (identity check — no
+    #    copy, no proxy-local shadow).
+    assert sys.modules[name] is mock
+    assert sys.modules[name].XV_78_sentinel == "load-bearing"
+
+    # 3. A fresh ``importlib.import_module`` call picks up the mutation
+    #    — proving the value landed on the real module, not a
+    #    proxy-local attribute that only the proxy can see.
+    fresh = importlib.import_module(name)
+    assert fresh is mock
+    assert fresh.XV_78_sentinel == "load-bearing"
+
+
+def test_xv_78_setattr_visible_to_independent_importer(monkeypatch, fake_module):
+    """XV-78 follow-up: a mutation via the proxy is visible to ANY code
+    that imports the same module name — including code that uses a
+    plain ``importlib.import_module`` (no proxy). This is the
+    cross-importer visibility guarantee that ``monkeypatch.setattr``
+    relies on: the test fixture patches the module, and the production
+    code (which may have its own ``import`` statement, not the proxy)
+    sees the patch.
+
+    If ``__setattr__`` stored the value on the proxy instead of on the
+    real module, this test would fail — the independent importer would
+    see the unpatched module.
+    """
+    name, mock = fake_module
+    proxy = lazy_module(name)
+
+    proxy.shared_state = "from-proxy"
+
+    # An "independent importer" — a fresh call that does NOT go through
+    # the proxy. Production code typically does this at module top:
+    #   import sounddevice as sd
+    # …and then accesses ``sd.InputStream``. If the proxy's setattr
+    # didn't land on sys.modules, this fresh import would NOT see the
+    # patch.
+    independent = importlib.import_module(name)
+    assert independent is mock
+    assert independent.shared_state == "from-proxy"
+
+    # And the value survives a *re-resolve* via the proxy too (the
+    # __getattr__ path picks up the same mutated module).
+    assert proxy.shared_state == "from-proxy"
+
+
+def test_xv_78_setattr_does_not_store_on_proxy_instance(fake_module):
+    """XV-78 negative pin: ``__setattr__`` must NOT store the value on
+    the proxy instance itself. The proxy is stateless for attribute
+    storage — all writes go to the wrapped module. If this contract
+    breaks, the proxy would start shadowing wrapped-module attributes
+    and the per-test ``monkeypatch`` isolation would leak.
+
+    We verify this by:
+
+      1. Asserting the proxy class's ``__slots__`` does NOT include
+         ``__dict__`` — so the proxy literally has no instance dict
+         to store arbitrary attributes on (bypassing ``__getattr__``,
+         which would otherwise delegate to the wrapped module's
+         ``__dict__``).
+      2. Asserting the only slots are ``_module_name`` and
+         ``_cached_error`` — the two internal-only fields set in
+         ``__init__`` via ``object.__setattr__``.
+      3. Asserting both slot values are unchanged after a
+         ``proxy.<attr> = <value>`` assignment (the value went to the
+         wrapped module, not to either slot).
+    """
+    name, mock = fake_module
+    proxy = lazy_module(name)
+
+    # 1. The proxy class does NOT declare a ``__dict__`` slot — there
+    #    is literally no instance dict to store arbitrary attributes on.
+    assert "__dict__" not in _LazyModule.__slots__, (
+        f"_LazyModule.__slots__ must not include '__dict__' (would allow "
+        f"proxy-local attribute storage that bypasses the wrapped module); "
+        f"got {_LazyModule.__slots__}"
+    )
+
+    # 2. The only slots are the two internal-only fields.
+    assert set(_LazyModule.__slots__) == {"_module_name", "_cached_error"}, (
+        f"_LazyModule.__slots__ must be exactly ('_module_name', '_cached_error'); "
+        f"got {_LazyModule.__slots__}"
+    )
+
+    # 3. After a setattr, both slot values are unchanged — the value
+    #    went to the wrapped module, not to either slot.
+    proxy.should_not_land_on_proxy = True
+
+    assert object.__getattribute__(proxy, "_module_name") == name
+    assert object.__getattribute__(proxy, "_cached_error") is None
+
+    # The value landed on the wrapped module, not on the proxy.
+    assert mock.should_not_land_on_proxy is True
+
+
 # ── G4-M-43: ImportError caching ────────────────────────────────────────
 
 

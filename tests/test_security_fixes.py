@@ -1176,7 +1176,7 @@ class TestG4M55ExtendUrlAllowlistAuditLog:
             assert (
                 "test_warning_auto_detects_caller_when_not_passed" in joined
                 or "TestG4M55" in joined
-                or "test_sec_8_9_10_security_fixes" in joined
+                or "test_security_fixes" in joined
             ), f"auto-detected caller must reference this test; got: {joined!r}"
         finally:
             _secrets._user_extensions.discard("auto-caller.example.com")
