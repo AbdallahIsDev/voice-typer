@@ -3,6 +3,12 @@
 # render the tray icon on macOS. Voice-typer itself does not import
 # AppKit directly, but pyrefly follows the transitive imports through
 # pystray's backend selection.
+#
+# XS-44: `NSPasteboard`, `NSPasteboardItem`, and `NSWorkspace` were
+# added because `voice_typer/server/clipboard_snapshot.py` and
+# `voice_typer/server/clipboard_target_safety.py` access them at
+# runtime (macOS pasteboard + workspace introspection). They use the
+# same permissive `Any` typing as the existing stub entries.
 from typing import Any
 
 NSApplication: Any
@@ -16,6 +22,10 @@ NSWindow: Any
 NSView: Any
 NSResponder: Any
 NSTimer: Any
+# XS-44: clipboard code reads these via `AppKit.NSPasteboard` etc.
+NSPasteboard: Any
+NSPasteboardItem: Any
+NSWorkspace: Any
 
 # Constants.
 NSVariableStatusItemLength: float

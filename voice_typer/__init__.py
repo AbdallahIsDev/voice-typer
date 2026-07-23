@@ -10,7 +10,7 @@ using ``importlib.metadata``, with a hardcoded fallback for
 development environments where the package isn't installed.
 This makes ``pyproject.toml`` the single source of truth for the
 version string; ``package.json`` should be
-kept in sync via the build script (see ``scripts/sync_versions.py``).
+kept in sync via the build script (see ``scripts/build/sync_versions.py``).
 
 PR-1-FIX-3: ``__version__`` is resolved lazily via PEP 562's
 ``__getattr__``. The first access pays the ~53ms

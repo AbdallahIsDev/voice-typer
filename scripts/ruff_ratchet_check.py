@@ -18,7 +18,7 @@ Run from the project root.
 
 1. CI mode (default):
    ::
-       ruff check voice_typer/server/ --output-format=json > ruff-current.json
+       ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json > ruff-current.json
        python scripts/ruff_ratchet_check.py
 
    Exit code 0 if current <= baseline for every rule (and total).
@@ -26,16 +26,23 @@ Run from the project root.
 
 2. Regenerate baseline (only run locally after FIXING violations):
    ::
-       ruff check voice_typer/server/ --output-format=json | \
+       ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | \
            python scripts/ruff_ratchet_check.py --regenerate
 
    Rewrites ``ruff-baseline.json`` with the current violation counts.
    The script REFUSES to regenerate if the new total is HIGHER than the
    old total — that would be a regression, not a ratchet.
 
+   The script also REFUSES to regenerate if the baseline file is missing
+   or corrupt, because the refuse-to-grow check cannot run without a
+   valid prior baseline (XS-47). To override (e.g. for bootstrap or
+   emergency re-baselining after a deliberate scope change), pass
+   ``--force``: this skips both the missing-baseline guard and the
+   refuse-to-grow check, and prints a warning.
+
 3. Stdin mode (no temp file):
    ::
-       ruff check voice_typer/server/ --output-format=json | \
+       ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | \
            python scripts/ruff_ratchet_check.py --stdin
 
    Reads the current ruff JSON from stdin instead of ``ruff-current.json``.
@@ -108,8 +115,10 @@ def _load_baseline() -> dict[str, Any]:
     """Load and validate the baseline file."""
     if not BASELINE_PATH.is_file():
         print(f"ERROR: baseline file not found: {BASELINE_PATH}")
-        print("Create it with: ruff check voice_typer/server/ --output-format=json | "
-              "python scripts/ruff_ratchet_check.py --regenerate")
+        print(
+            "Create it with: ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | "
+            "python scripts/ruff_ratchet_check.py --regenerate"
+        )
         sys.exit(2)
     try:
         baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
@@ -178,9 +187,7 @@ def compare(current_violations: list[dict[str, Any]]) -> int:
             status = "ok"
         rows.append((rule, b, c, status))
 
-    total_status = "REGRESSION" if curr_total > base_total else (
-        "improved" if curr_total < base_total else "ok"
-    )
+    total_status = "REGRESSION" if curr_total > base_total else ("improved" if curr_total < base_total else "ok")
 
     print("Ruff ratchet comparison")
     print("=======================")
@@ -188,8 +195,10 @@ def compare(current_violations: list[dict[str, Any]]) -> int:
     print(f"  Total: baseline={base_total}  current={curr_total}  status={total_status}")
     if curr_total < base_total:
         print("  -> Total IMPROVED. Consider regenerating the baseline to lock in the gain:")
-        print("       ruff check voice_typer/server/ --output-format=json | "
-              "python scripts/ruff_ratchet_check.py --regenerate")
+        print(
+            "       ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | "
+            "python scripts/ruff_ratchet_check.py --regenerate"
+        )
     print()
     print("Per-rule breakdown:")
     print(_format_table(rows))
@@ -201,8 +210,10 @@ def compare(current_violations: list[dict[str, Any]]) -> int:
         print("  1. Fix the new violations introduced in this change, OR")
         print("  2. If the increase is intentional and unavoidable, document why")
         print("     in the PR description and regenerate the baseline:")
-        print("       ruff check voice_typer/server/ --output-format=json | "
-              "python scripts/ruff_ratchet_check.py --regenerate")
+        print(
+            "       ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | "
+            "python scripts/ruff_ratchet_check.py --regenerate"
+        )
         return 1
 
     if regressions:
@@ -219,11 +230,19 @@ def compare(current_violations: list[dict[str, Any]]) -> int:
     return 0
 
 
-def regenerate(current_violations: list[dict[str, Any]]) -> int:
+def regenerate(current_violations: list[dict[str, Any]], *, force: bool = False) -> int:
     """Rewrite the baseline file with the current violation counts.
 
     Refuses to write if the new total is HIGHER than the old total —
     that would be a regression, not a ratchet.
+
+    Also refuses to regenerate when the existing baseline is missing or
+    corrupt, because the refuse-to-grow check cannot run without a valid
+    prior baseline — a missing/corrupt baseline must not become a silent
+    escape hatch that locks in an arbitrary regression (XS-47). Both
+    guards are bypassed when ``force`` is True (intended for bootstrap
+    or emergency re-baselining after a deliberate scope change); a
+    warning is printed in that case.
     """
     new_total, new_by_rule = _summarize(current_violations)
 
@@ -232,20 +251,44 @@ def regenerate(current_violations: list[dict[str, Any]]) -> int:
     if BASELINE_PATH.is_file():
         try:
             old = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
-            if isinstance(old, dict):
-                for k, v in old.items():
-                    if k in REQUIRED_FIELDS:
-                        continue
-                    metadata[k] = v
-                old_total = old.get("total_count")
-                if isinstance(old_total, int) and new_total > old_total:
+        except (json.JSONDecodeError, OSError) as exc:
+            if not force:
+                print(f"ERROR: existing baseline is corrupt or unreadable: {exc}")
+                print("Refusing to regenerate without --force. A corrupt baseline")
+                print("means the refuse-to-grow check cannot run, so a regeneration")
+                print("could silently lock in a regression.")
+                print("To override (e.g. for bootstrap), re-run with --force.")
+                return 1
+            print(f"WARNING: --force bypassing corrupt baseline ({exc});")
+            print("         refuse-to-grow check skipped.")
+            old = None
+        if isinstance(old, dict):
+            for k, v in old.items():
+                if k in REQUIRED_FIELDS:
+                    continue
+                metadata[k] = v
+            old_total = old.get("total_count")
+            if isinstance(old_total, int) and new_total > old_total:
+                if not force:
                     print(f"REFUSED: new total ({new_total}) > old total ({old_total}).")
                     print("The ratchet only allows counts to shrink. Fix the new")
                     print("violations before regenerating the baseline.")
+                    print("If the increase is intentional and unavoidable, document")
+                    print("why in the PR description and re-run with --force.")
                     return 1
-        except (json.JSONDecodeError, OSError):
-            # Corrupt or missing baseline — proceed with regeneration.
-            pass
+                print(
+                    f"WARNING: --force bypassing refuse-to-grow check (new total {new_total} > old total {old_total})."
+                )
+    elif not force:
+        print(f"ERROR: baseline file not found: {BASELINE_PATH}")
+        print("Refusing to regenerate without --force. A missing baseline means")
+        print("the refuse-to-grow check cannot run, so a regeneration could")
+        print("silently lock in a regression.")
+        print("To override (e.g. for bootstrap), re-run with --force.")
+        return 1
+    else:
+        print("WARNING: --force bypassing missing baseline;")
+        print("         refuse-to-grow check skipped.")
 
     # Sort by_rule by rule code for deterministic diffs.
     new_by_rule_sorted = {k: new_by_rule[k] for k in sorted(new_by_rule)}
@@ -273,7 +316,15 @@ def main(argv: list[str] | None = None) -> int:
         "--regenerate",
         action="store_true",
         help="Rewrite ruff-baseline.json with the current violation counts. "
-             "Only use this after FIXING violations — refuses to grow the baseline.",
+        "Only use this after FIXING violations — refuses to grow the "
+        "baseline and refuses to run when the baseline is missing/corrupt.",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the refuse-to-grow check AND the missing/corrupt-baseline "
+        "guard on --regenerate. Intended for bootstrap or emergency "
+        "re-baselining after a deliberate scope change. Prints a warning.",
     )
     parser.add_argument(
         "--stdin",
@@ -284,8 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         "--current-path",
         type=Path,
         default=CURRENT_PATH,
-        help=f"Path to the current ruff JSON file (default: {CURRENT_PATH.name}). "
-             "Ignored when --stdin is set.",
+        help=f"Path to the current ruff JSON file (default: {CURRENT_PATH.name}). Ignored when --stdin is set.",
     )
     args = parser.parse_args(argv)
 
@@ -299,11 +349,11 @@ def main(argv: list[str] | None = None) -> int:
             # If neither is present, fall back to running ruff directly
             # by re-emitting a helpful error.
             print("ERROR: --regenerate requires either --stdin or an existing current file.")
-            print("       Run: ruff check voice_typer/server/ --output-format=json | \\")
+            print("       Run: ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | \\")
             print("             python scripts/ruff_ratchet_check.py --regenerate --stdin")
             return 2
         violations = _load_ruff_json(None if args.stdin else args.current_path, stdin_data)
-        return regenerate(violations)
+        return regenerate(violations, force=args.force)
 
     violations = _load_ruff_json(None if args.stdin else args.current_path, stdin_data)
     return compare(violations)

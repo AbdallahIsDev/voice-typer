@@ -8,10 +8,21 @@
 #
 # Runtime usage (from grep):
 #   AXIsProcessTrustedWithOptions(options_dict) -> bool
+#
+# XS-44: `AXUIElementCreateApplication` and `AXUIElementCopyAttributeValue`
+# were added because `voice_typer/server/clipboard_target_safety.py`
+# calls them at runtime (AX API for focused-element introspection on
+# macOS). They use the same permissive `Any` typing + `int` return
+# convention (matching AX API's `AXError` enum) as the existing stubs.
 from typing import Any
 
 def AXIsProcessTrustedWithOptions(options: Any) -> bool: ...
 def AXIsProcessTrusted() -> bool: ...
 def AXMakeProcessTrusted(*args: Any, **kwargs: Any) -> bool: ...
+# XS-44: clipboard_target_safety.py uses these to introspect the
+# currently-focused UI element (e.g. to detect terminal / rich-editor
+# paste targets that need special keystroke handling).
+def AXUIElementCreateApplication(pid: Any) -> Any: ...
+def AXUIElementCopyAttributeValue(element: Any, attribute: Any, value: Any) -> int: ...
 
 __all__: list[str]
