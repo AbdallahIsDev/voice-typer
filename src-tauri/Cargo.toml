@@ -46,11 +46,11 @@ tauri-plugin-dialog = "2"
 
 # ADR-0020 §6.2: enigo for cross-platform keystroke injection
 # (short-text paste path). Used by the paste_text event handler.
-enigo = "0.2"
+enigo = "0.6"
 
 # ADR-0020 §1 + §10: WebSocket client + tokio runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
-tokio-tungstenite = { version = "0.24", features = ["connect"] }
+tokio-tungstenite = { version = "0.30", features = ["connect"] }
 futures-util = "0.3"
 
 # ADR-0020 §3: per-launch bearer token (32 random bytes hex-encoded).
@@ -59,7 +59,7 @@ futures-util = "0.3"
 # "HMAC" wording, the Rust host treats it as a bearer token (the
 # sidecar's `ipc_server.py` validates the literal string match). The
 # `hmac`+`sha2` crates are therefore NOT needed in the host.
-rand = "0.8"
+rand = "0.10"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -82,7 +82,7 @@ env_logger = "0.11"
 # Windows host will surface the resolution failure — bump the major.minor
 # to match Tauri's resolved version in that case.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
     "Win32_System_Threading",
