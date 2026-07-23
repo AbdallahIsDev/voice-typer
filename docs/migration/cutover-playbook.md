@@ -327,7 +327,7 @@ Track every cutover (and rollback) in this section. Format:
 - [`signing-guide.md`](./signing-guide.md) — Windows Authenticode, macOS
   Developer ID + notarization + stapling, Linux unsigned + the
   no-auto-update audit (ADR-0020 §13 + §15).
-- [`tauri-sidecar-bridge.md`](./tauri-sidecar-bridge.md) — the 77-command
-  + 21-event wire contract (ADR-0020 §2 + §"Sidecar→UI Event Table").
+- [`tauri-sidecar-bridge.md`](./tauri-sidecar-bridge.md) — the 78-command
+  + 24-event wire contract (ADR-0020 §2 + §"Sidecar→UI Event Table").
 - [`../adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md)
   — the authoritative migration spec (Phase 5 + §"Reversibility").

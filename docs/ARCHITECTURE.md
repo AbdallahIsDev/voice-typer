@@ -12,7 +12,7 @@ The Python backend lives in `voice_typer/server/` and is unchanged between the t
 
 | Module | Purpose |
 |---|---|
-| `voice_typer/server/ipc_server.py` | JSON-lines IPC server (TCP `127.0.0.1:9876` on Electron; localhost WebSocket on Tauri). SEC-018 session-token auth, RELIABILITY-006 rate limiter, 77-command `_COMMAND_REGISTRY`, 24-event bus. Under `TAURI_SIDECAR=1`: heartbeat watchdog (ADR-0018) is NOT started; Win32 single-instance mutex is NOT acquired. |
+| `voice_typer/server/ipc_server.py` | JSON-lines IPC server (TCP `127.0.0.1:9876` on Electron; localhost WebSocket on Tauri). SEC-018 session-token auth, RELIABILITY-006 rate limiter, 78-command `_COMMAND_REGISTRY`, 24-event bus. Under `TAURI_SIDECAR=1`: heartbeat watchdog (ADR-0018) is NOT started; Win32 single-instance mutex is NOT acquired. |
 | `voice_typer/server/app.py` | `VoiceTyperApp` orchestrator — startup, state machine, thread safety. |
 | `voice_typer/server/recording/` + `recording_controller.py` | PortAudio capture, silence detection, session lifecycle, streaming. (Recording was decomposed into a package — see `docs/rw04-recording-decomposition.md`.) |
 | `voice_typer/server/transcription.py` + `asr_registry.py` + `qwen_engine.py` + `parakeet_engine.py` | ASR pipeline (Whisper / Qwen3-ASR / Parakeet, with GPU→CPU fallback). |
@@ -23,7 +23,7 @@ The Python backend lives in `voice_typer/server/` and is unchanged between the t
 | `voice_typer/server/prewarm_scheduler_posix.py` + `prewarm_resolver.py` + `task_scheduler.py` | Prewarm scheduling (Windows Task Scheduler / macOS LaunchAgent / Linux systemd user timer). `resolve_prewarm_exe()` finds the frozen `prewarm-<triple>[.exe]` for the Tauri path. |
 | `voice_typer/server/crash_recovery.py` | Crash-recovery buffer (RELIABILITY-005 async flush). |
 | `voice_typer/server/history_db.py` | SQLite WAL history DB (SEC-007 `0o600` perms). |
-| `voice_typer/server/sidecar_ws.py` (NEW for Tauri) | WebSocket server side of the Tauri bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth, dispatches WS frames via `IPCServer._dispatch` (reuses the 77-command registry unchanged). |
+| `voice_typer/server/sidecar_ws.py` (NEW for Tauri) | WebSocket server side of the Tauri bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth, dispatches WS frames via `IPCServer._dispatch` (reuses the 78-command registry unchanged). |
 | `voice_typer/server/shutdown_controller.py` (RW-9 extraction) | `ShutdownController` — extracted from `VoiceTyperApp`. Owns the entire shutdown / cleanup lifecycle: the shared idempotent `_do_cleanup` body invoked by `quit()`, `restart_app()`, and `_atexit_cleanup()`. Releases every subsystem (recorder, hotkeys, history DB, crash recovery, bubble level worker, Win32 mutex, Electron subprocess, devnull FDs). |
 | `voice_typer/server/audio_quality_controller.py` (RW-9 extraction) | `AudioQualityController` — extracted from `VoiceTyperApp`. Owns per-chunk audio-quality accumulation, on-the-fly filter-chain rebuilds on config change, and the final post-recording quality report. |
 | `voice_typer/server/crash_handler.py` (Windows SEH) | Vectored Exception Handler (`AddVectoredExceptionHandler`) that captures silent Windows process crashes (STATUS_HEAP_CORRUPTION, STATUS_ACCESS_VIOLATION) which terminate the process before Python's traceback machinery runs. Writes a minimal diagnostic blurb to the recovery file before the OS kills the process. |
@@ -56,7 +56,7 @@ The React renderer lives in `voice_typer/client/src/renderer/` and is **the same
 |---|---|---|
 | Electron main process | `voice_typer/client/src/main/index.ts` (209 lines — wiring-only; logic in `./state/`, `./python/`, `./ipc/`, `./windows/`, `./bootstrap`) | Generates 32-byte `IPC_TOKEN`, spawns Python backend as a child process, bridges `ipcMain`/`ipcRenderer` ↔ TCP `127.0.0.1:9876`, manages main + bubble windows, owns ALLOWED_COMMANDS allowlist (SEC-002 lateral boundary). |
 | Preload bridges | `voice_typer/client/src/preload/index.ts`, `voice_typer/client/src/preload/bubble.ts` | `contextBridge.exposeInMainWorld` installs `window.python`, `window.bubble`, `window.window_`. SEC-014 `contextIsolation: true` + `sandbox: true`; SEC-016 `assertFromBubble(event)` on bubble-scoped handlers. |
-| Electron launcher | `voice_typer/server/electron_launcher.py` (215 lines) | Inverse path (Python-as-parent) — also exists for the standalone Python install. |
+| Electron launcher | `voice_typer/server/electron_launcher.py` (318 lines) | Inverse path (Python-as-parent) — also exists for the standalone Python install. |
 
 ### Tauri host (in migration, not yet the default)
 
@@ -67,15 +67,15 @@ The React renderer lives in `voice_typer/client/src/renderer/` and is **the same
 | Capabilities | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | CR-5 / SEC-026 split: `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `dialog`, and `core:tray:default` + 7 tray perms (`allow-set-icon` / `allow-set-menu` / `allow-set-tooltip` / `allow-set-title` / `allow-get-by-id` / `allow-remove-by-id` / `allow-new`) — Rust host owns the tray; pystray is the Electron-fallback path only. `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. |
 | Cargo manifest | `src-tauri/Cargo.toml` | Tauri v2 + plugins (`shell`, `notification`, `clipboard-manager`, `single-instance`, `dialog`) + `enigo` (keystroke injection) + `tokio-tungstenite` (WS client) + `rand` (token gen) + Windows `windows` crate for `AttachThreadInput`/`SetForegroundWindow`. |
 
-### Bridge: `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
+### Bridge: `voice_typer/client/src/renderer/src/lib/tauri-bridge/` package (entry point `tauri-bridge/index.ts`)
 
 The Phase 3 UI port is the architectural keystone of the migration: the **renderer code is identical on both paths**. The runtime difference is absorbed entirely by the bridge, which auto-detects the host at startup and installs the right namespace:
 
 - **Electron path** — `client/src/preload/index.ts` runs in the preload world and uses `contextBridge.exposeInMainWorld` to install `window.python`, `window.bubble`, `window.window_`. The bridge module's `installTauriBridge()` detects the absence of `window.__TAURI__` and **early-returns** — it does NOT touch the preload-installed namespaces (referential identity preserved, verified by `tauri-bridge-commands.test.ts`).
-- **Tauri path** — `tauri.conf.json` sets `withGlobalTauri: true`, so the Tauri runtime injects `window.__TAURI__` (with `core.invoke`, `event.listen`, `window.getCurrentWindow`) before the renderer JS executes. The bridge module's auto-install side effect (last line of `tauri-bridge.ts`) calls `installTauriBridge()`, which sees `__TAURI__` and installs `window.python`/`window.bubble`/`window.window_` using Tauri's global API.
+- **Tauri path** — `tauri.conf.json` sets `withGlobalTauri: true`, so the Tauri runtime injects `window.__TAURI__` (with `core.invoke`, `event.listen`, `window.getCurrentWindow`) before the renderer JS executes. The bridge module's auto-install side effect (last line of `tauri-bridge/index.ts`) calls `installTauriBridge()`, which sees `__TAURI__` and installs `window.python`/`window.bubble`/`window.window_` using Tauri's global API.
 
 Both `main.tsx` (main window) and `bubble-main.tsx` (bubble window) import `./lib/tauri-bridge` BEFORE the React app mounts, so the namespaces are ready when `usePython` and other hooks initialize.
 
 ### IPC contract
 
-The IPC surface is **frozen for v1** at **77 commands / 24 events** (CR-18 reconciliation 2026-07-19; see ADR-0020 §16). The same `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py` dispatches both the Electron TCP path and the Tauri WebSocket path. The Electron main-process `ALLOWED_COMMANDS` allowlist (`client/src/main/index.ts`) is the lateral security boundary on the Electron path; the Tauri `dispatch` command's window-label check + `externalBin`-scoped capability (`src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json`) is the lateral boundary on the Tauri path (CR-5 split).
+The IPC surface is **frozen for v1** at **78 commands / 24 events** (CR-18 reconciliation 2026-07-19; see ADR-0020 §16). The same `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py` dispatches both the Electron TCP path and the Tauri WebSocket path. The Electron main-process `ALLOWED_COMMANDS` allowlist (canonical declaration in `client/src/main/allowed-commands.ts` — re-exported by `client/src/main/index.ts`) is the lateral security boundary on the Electron path; the Tauri `dispatch` command's window-label check + `externalBin`-scoped capability (`src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json`) is the lateral boundary on the Tauri path (CR-5 split).

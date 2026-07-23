@@ -53,7 +53,7 @@ tests + this tracking doc.
 **NOT extracted this round** (left for follow-up):
 
 - `_open_config_file`: stays on `VoiceTyperApp` because
-  `tests/test_b4_config_editor_lock.py` and
+  `tests/test_config_editor_lock.py` and
   `tests/test_bugfix_regressions.py:943` use
   `inspect.getsource(VoiceTyperApp._open_config_file)` to pin
   source-level invariants (macOS `open -W` branch, three platform
@@ -183,7 +183,7 @@ Methods:
   (SEC-audit-011 / B-4 fix).
 
 **Risk**: LOW — but blocked by source-level structure tests in
-`tests/test_b4_config_editor_lock.py` and
+`tests/test_config_editor_lock.py` and
 `tests/test_bugfix_regressions.py:943` that use
 `inspect.getsource(VoiceTyperApp._open_config_file)` to pin
 source-level invariants. Moving this method requires updating those
@@ -198,7 +198,7 @@ tests to inspect `SettingsController._open_config_file` instead.
 ```
 $ python -m pytest tests/test_app.py tests/test_startup_sequence.py \
                     tests/test_settings_controller.py tests/test_app_cleanup.py \
-                    tests/test_tray.py tests/test_b4_config_editor_lock.py \
+                    tests/test_tray.py tests/test_config_editor_lock.py \
                     tests/test_api_doc_accuracy.py -q --no-header --no-cov
 ============================= 192 passed in 29.31s =============================
 ```
@@ -292,7 +292,7 @@ reference that the monkeypatch can't override.
 
 ### 7.3 Why NOT extract `_open_config_file`?
 
-`tests/test_b4_config_editor_lock.py:39-141` uses
+`tests/test_config_editor_lock.py:39-141` uses
 `inspect.getsource(VoiceTyperApp._open_config_file)` to verify the
 source-level structure:
 
@@ -359,7 +359,7 @@ been **extracted in subsequent RW-9 rounds** — see §5.1 for the
 completed modules. The only remaining follow-up is:
 
 1. **`_open_config_file`** (LOW risk, ~100 lines, 1 method) — requires
-   rewriting `tests/test_b4_config_editor_lock.py` and
+   rewriting `tests/test_config_editor_lock.py` and
    `tests/test_bugfix_regressions.py:943` to inspect
    `SettingsController._open_config_file` instead of
    `VoiceTyperApp._open_config_file`.
