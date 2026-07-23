@@ -6,56 +6,36 @@ These items are the highest-priority remaining work for the project — they blo
 
 ---
 
-### HP-1. MIG-1.5 — Phase 0-W Windows host validation gate
+### HP-1. MIG-1.5 — Phase 0-W: Windows host validation gate
 
-**Status:** ❌ Not Fixed (blocked on real Windows host; code + tests in place)
+**Status:** ❌ Not Fixed — confirmed: sidecar binary is a 2-byte placeholder, never been Nuitka-frozen
 
-**Description:** Run the 9-point ADR-1020 Windows validation gate on a real Windows machine to prove the Tauri host + Nuitka-frozen sidecar actually work on Windows before cutting over from Electron. The test scaffolding exists at `tests/tauri/mig15/` (12 test files covering Nuitka build, sidecar spawn, WS+HMAC, paste, toast, shutdown, prewarm, key listener) but has NEVER been run against a real frozen sidecar on a real Windows host.
+**Description:** Run the 9-point ADR-0020 Windows validation gate on a real Windows machine to prove the Tauri host + Nuitka-frozen sidecar actually work before cutting over from Electron. The test scaffolding exists at `tests/tauri/mig15/` (12 test files) but has NEVER been run against a real frozen sidecar on a real Windows host.
 
-**Investigation findings (2026-07-22):**
-- Rust host `cargo check` passes 0-error on win32 GNU target. 18 Tauri commands registered, all compile.
-- `src-tauri/bin/python-sidecar-x86_64-pc-windows-gnu.exe` is a 2-byte placeholder — not a real Nuitka freeze.
+**Confirmed findings (2026-07-24 investigation):**
+- Rust host `cargo check` passes 0-error on win32 GNU target. 18+ Tauri commands registered, all compile.
+- `src-tauri/bin/python-sidecar-x86_64-pc-windows-gnu.exe` = **2 bytes** (not a real Nuitka freeze).
+- All 7 `src-tauri/bin/prewarm-*.*` files = **0 bytes** (empty placeholders).
 - `src-tauri/resources/native/` is empty — `windows-key-listener.exe` does not exist.
-- `src-tauri/resources/prewarm-*` binaries are 0-byte placeholders.
-- `scripts/build/nuitka_freeze.sh` is a ~1-line stub, does not freeze anything. ADR-0020 §4 has the exact command.
-- `scripts/build/build_native_listener_windows.sh` is a ~1-line stub.
-- `.github/workflows/tauri-windows-build.yml` exists with full CI pipeline: Nuitka freeze, prewarm build, native listener build, Authenticode signing, `cargo tauri build`, NSIS+MSI packaging. This CI workflow is the path of least resistance — trigger it instead of manual host steps.
-- QW-2 (Tauri v2 config key `postInstallScript`→`postInstall`) still unfixed — blocks Linux mig17/18/19 tests but does NOT block MIG-1.5 itself (that's Windows-only).
-- Electron host path is intact and fully working — reversible fallback preserved.
+- `scripts/build/nuitka_freeze.sh` is a ~1-line stub.
+- `.github/workflows/tauri-windows-build.yml` exists with full CI pipeline (Nuitka freeze, prewarm build, native listener build, Authenticode signing, `cargo tauri build`, NSIS+MSI packaging) — this is the path of least resistance.
+- Electron host path is intact and fully working (reversible fallback preserved).
 
 **Progress:** 50% — Rust host compiles, Tauri commands registered, test scaffolding exists, CI workflow exists. Missing: real Nuitka freeze, real native binaries, real execution of 9-point gate.
 
-**Related Files:**
-- `tests/tauri/mig15/` (12 test files)
-- `src-tauri/bin/python-sidecar-x86_64-pc-windows-gnu.exe` (2-byte placeholder)
-- `src-tauri/resources/native/` (empty directory)
-- `scripts/build/nuitka_freeze.sh` (stub)
-- `scripts/build/build_native_listener_windows.sh` (stub)
-- `.github/workflows/tauri-windows-build.yml` (full CI pipeline)
-- `docs/migration/windows-validation-runbook.md`
-- `tests/tauri/conftest.py`
-
-**Fix:**
-1. Run the `tauri-windows-build.yml` GitHub Actions workflow on a branch — this does Nuitka freeze, prewarm build, native listener build, and `cargo tauri build` in one pipeline.
-2. Extract the resulting installer + sidecar binaries from CI artifacts.
-3. On a real Windows host, install and verify the 9-point gate: sidecar spawns, WS+HMAC works, faster-whisper transcribes, enigo pastes, toast shows, shutdown clean, prewarm fires, native key listener works.
-4. OR: build natively on Windows — fill `scripts/build/nuitka_freeze.sh` and `scripts/build/build_native_listener_windows.sh` with real commands from ADR-0020 §4, then `cargo tauri build`.
+**Fix:** Trigger `tauri-windows-build.yml` on a branch → extract CI artifacts → install on real Windows → verify 9-point gate: sidecar spawns, WS auth works, faster-whisper transcribes, enigo pastes, toast shows, shutdown clean, prewarm fires, native key listener works.
 
 **Severity:** 🔴 Critical — blocks all downstream migration (MIG-1.6 through MIG-1.9, Phase 1–5).
 
 ---
 
-### HP-2. MIG-1.6 — Phase 0-M macOS validation gate (x86_64 + aarch64)
+### HP-2. MIG-1.6 — Phase 0-M: macOS validation gate (x86_64 + aarch64)
 
-**Status:** ❌ Not Fixed (blocked on real macOS host; code + tests in place)
+**Status:** ❌ Not Fixed — blocked on real macOS host; no macOS CI workflow exists yet
 
-**Description:** Same as MIG-1.5 but for macOS on both Intel and Apple Silicon — prove the Tauri host + sidecar work, including notification permissions and notarization. Test scaffolding at `tests/tauri/mig16/` (10 test files). Not started on any real macOS host. No macOS runner available in current sandbox.
+**Description:** Same as MIG-1.5 but for macOS on both Intel and Apple Silicon — prove the Tauri host + sidecar work, including notification permissions and notarization. Test scaffolding at `tests/tauri/mig16/` (10 test files). Never run on any real macOS host.
 
-**Progress:** 0% — no real-host execution. Test files exist. macOS CI workflow does not yet exist (unlike Windows which has `tauri-windows-build.yml`).
-
-**Related Files:**
-- `tests/tauri/mig16/` (10 test files)
-- `docs/migration/macos-validation-runbook.md`
+**Progress:** 0% — no real-host execution. Test files exist. No macOS CI workflow yet (unlike Windows which has `tauri-windows-build.yml`).
 
 **Fix:** Blocked on MIG-1.5 passing first. After Phase 0-W passes: (1) create macOS CI workflow matching `tauri-windows-build.yml` structure; (2) fill macOS build scripts; (3) run on real macOS host (Intel + Apple Silicon); (4) verify 9-point gate.
 
@@ -63,19 +43,13 @@ These items are the highest-priority remaining work for the project — they blo
 
 ---
 
-### HP-3. MIG-1.7 — Phase 0-L Linux validation gate (X11 + Wayland, incl. aarch64)
+### HP-3. MIG-1.7 — Phase 0-L: Linux validation gate (X11 + Wayland, incl. aarch64)
 
-**Status:** ❌ Not Fixed (real-host X11/Wayland gate not run; tests pass in scaffold)
+**Status:** ❌ Not Fixed — real-host X11/Wayland gate never run; tests pass in scaffold only
 
-**Description:** Same as MIG-1.5 for Linux on X11 and Wayland (both archs). Wayland breaks `enigo` global key injection — the clipboard paste fallback must be proven. Test scaffolding at `tests/tauri/mig17/` (10 test files) verified green (1428 passed, 4 xfailed in the full Tauri test suite) but real-host X11/Wayland gate NOT run.
+**Description:** Same as MIG-1.5 for Linux on X11 and Wayland (both archs). Wayland breaks `enigo` global key injection — the clipboard paste fallback must be proven. Test scaffolding at `tests/tauri/mig17/` (10 test files) verified green but real-host X11/Wayland gate NOT run.
 
-**Current blockers:** `scripts/linux/postinst` and `scripts/linux/prerm` scripts exist at correct paths. QW-2 (Tauri v2 config key mismatch) now resolved — `tauri.conf.json` keys accept the installed v2.6.3 tauri-build schema.
-
-**Related Files:**
-- `tests/tauri/mig17/` (10 test files)
-- `docs/migration/linux-validation-runbook.md`
-- `scripts/linux/postinst`
-- `scripts/linux/prerm`
+**Current blockers:** `scripts/linux/postinst` and `scripts/linux/prerm` scripts exist at correct paths. QW-2 (Tauri v2 config key mismatch) now resolved.
 
 **Fix:** Run Linux validation on X11 + Wayland real hosts. Test paste on both display servers. aarch64 Linux still has the `linux-key-listener` resource gap (XPLAT-11/17).
 
@@ -83,110 +57,58 @@ These items are the highest-priority remaining work for the project — they blo
 
 ---
 
-### HP-4. MIG-1.8 — Phase 1 sidecar packaging & signing (per platform)
+### HP-4. MIG-1.8 — Phase 1: Sidecar packaging & signing (per platform)
 
-**Status:** ❌ Not Fixed (blocked on Phase 0 gates; scaffolding only)
+**Status:** ❌ Not Fixed — confirmed: all build scripts are stubs; sidecar binary is a 2-byte placeholder
 
-**Description:** Freeze the Python backend into per-triple Nuitka executables, wire as Tauri `externalBin`, set up code-signing (Windows Authenticode / macOS Developer ID+notarization / Linux unsigned). Test scaffolding at `tests/tauri/mig18/` (9 test files covering per-triple freeze, externalBin wiring, OpenMP runtimes, Windows signing, macOS signing, Linux signing, postinst/prerm, PyInstaller fallback).
+**Description:** Freeze the Python backend into per-triple Nuitka executables, wire as Tauri `externalBin`, set up code-signing (Windows Authenticode / macOS Developer ID+notarization / Linux unsigned). Test scaffolding at `tests/tauri/mig18/` (9 test files).
 
-**Current state:** Scaffolding only. `scripts/build/nuitka_freeze.sh` is a 1-line stub. `scripts/build/build_sidecar_linux.sh` and `build_sidecar_macos.sh` are also stubs. Windows CI pipeline (`tauri-windows-build.yml`) has the Nuitka freeze fully wired in CI — this is the reference implementation for other platforms. Linux postinst/prerm scripts exist. macOS entitlements/Info.plist exist.
+**Confirmed findings (2026-07-24):**
+- `scripts/build/nuitka_freeze.sh` = **1-line stub** (does nothing).
+- `scripts/build/build_sidecar_linux.sh` and `build_sidecar_macos.sh` = also stubs.
+- Windows CI pipeline (`tauri-windows-build.yml`) has Nuitka freeze fully wired in CI — this is the reference implementation for other platforms.
+- Linux postinst/prerm scripts exist. macOS entitlements/Info.plist exist.
 
-**Related Files:**
-- `tests/tauri/mig18/` (9 test files)
-- `scripts/build/nuitka_freeze.sh` (stub)
-- `scripts/build/build_sidecar_linux.sh` (stub)
-- `scripts/build/build_sidecar_macos.sh` (stub)
-- `scripts/linux/postinst`, `scripts/linux/prerm`
-- `src-tauri/entitlements.plist`, `src-tauri/Info.plist`
-- `.github/workflows/tauri-windows-build.yml` (reference CI pipeline)
-
-**Fix:** Blocked on MIG-1.5/1.6/1.7. After Phase 0 gates pass per platform: (1) fill Nuitka freeze scripts with real commands per ADR-0020 §4; (2) create per-platform CI workflows; (3) implement code-signing per §13 (Authenticode for Windows, Developer ID+notarization for macOS); (4) verify postinst/prerm on Linux.
+**Fix:** Blocked on MIG-1.5/1.6/1.7. After Phase 0 gates pass per platform: (1) fill Nuitka freeze scripts per ADR-0020 §4; (2) create per-platform CI workflows; (3) implement code-signing; (4) verify postinst/prerm on Linux.
 
 **Severity:** 🔴 Critical — no production Tauri build possible without this.
 
 ---
 
-### HP-5. MIG-1.9 — Phase 3 UI port + Phases 4–5 wire swap & cutover
+### HP-5. MIG-1.9 — Phase 3–5: UI port + wire swap & per-platform cutover
 
-**Status:** ❌ Not Fixed (blocked on MIG-1.1–1.8; Phase 3 ~60% done)
+**Status:** ❌ Not Fixed — Phase 3 ~60% code-complete but 0% runtime-tested; Phases 4–5 not started
 
-**Description:** Final step — make the UI runtime-agnostic via `usePython`, flip from Electron to Tauri webview, cut each OS over while keeping Electron as reversible fallback. Test scaffolding at `tests/tauri/mig19/` (9 test files covering capabilities, final glue, per-OS cutover, Phase 4 validation, reconnect UX, tray menu, usePython bridge, wire-swap recovery).
+**Description:** The final capstone — make the UI runtime-agnostic, flip from Electron to Tauri webview, cut each OS over while keeping Electron as reversible fallback. Test scaffolding at `tests/tauri/mig19/` (9 test files).
 
-**Current state (Phase 3):** = 60% — `tauri-bridge.ts` calls `invoke('dispatch', {cmd, data})` and routes events. `usePython` abstraction exists. Main entry is still Electron. Never run under a real Tauri webview.
+**Current state (Phase 3 — UI bridge):**
+- **About 60% code-complete**: `voice_typer/client/src/renderer/src/lib/tauri-bridge/` package exists (4 submodules: `index.ts`, `detect.ts`, `python-namespace.ts`, `bubble-namespace.ts`, `window-namespace.ts`) — it auto-detects Tauri vs Electron and installs the correct `window.python`/`window.bubble`/`window.window_` namespaces.
+- **Compiles clean**: TypeScript typechecks pass (0 errors in both `tsconfig.web.json` and `tsconfig.node.json`). Unit tests in `tauri-bridge-commands.test.ts` pass under Vitest.
+- **Never run under real Tauri webview**: Both `main.tsx` and `bubble-main.tsx` import `./lib/tauri-bridge` at startup, but since Electron is still the active entry point, the bridge detects `window.__TAURI__` is absent and early-returns (no-op). The Tauri code path has never executed in a real browser window.
+- **Main entry is still Electron**: `voice_typer/client/src/main/index.ts` still `import { app } from "electron"`. The Tauri `src-tauri/tauri.conf.json` points `frontendDist` at the Electron-renderer build output (`voice_typer/client/dist`).
 
-**Current state (Phase 4–5):** 0% — no wire swap, no cutover. `client/src/main/index.ts` still `import { app } from "electron"`. `frontendDist` still points to Electron renderer output.
+**Current state (Phase 4–5 — wire swap + cutover):** 0% — no wire swap, no cutover. Nobody has ever built `cargo tauri build` or installed a Tauri-based `.exe` on any computer.
 
-**Key insight from investigation:** The Tauri reuses the same React renderer build as Electron (`frontendDist: "../voice_typer/client/dist"`). The `beforeDevCommand` builds only the renderer via `electron.vite.renderer.ts` config. This means Phase 3 (renderer bridge) is mostly done — the hard part is Phase 4 (swapping the Electron main entry for the Tauri webview launch) and Phase 5 (validating per-OS).
-
-**Related Files:**
-- `tests/tauri/mig19/` (9 test files)
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`
-- `voice_typer/client/src/renderer/src/lib/usePython.ts`
-- `voice_typer/client/src/main/index.ts` (Electron main entry)
-- `src-tauri/tauri.conf.json` (frontendDist config)
-- `src-tauri/capabilities/main-runtime.json`
-- `src-tauri/capabilities/bubble-runtime.json`
-- `docs/migration/cutover-playbook.md`
-
-**Fix:** Blocked on MIG-1.5–1.8. After those pass:
-1. Finalize `usePython` so both Electron and Tauri paths share one interface.
-2. Swap `frontendDist` to Tauri build output.
-3. Wire `invoke`→`dispatch` for all renderer IPC.
-4. Cut over per OS (Windows→macOS→Linux), verify each.
-5. Keep Electron intact as reversible fallback — do NOT delete Electron code.
+**The critical gap:** The **renderer is shared** between both stacks — the same React bundle works under both Electron and Tauri. The bridge code (Phase 3) is written and compiles. What's missing is:
+1. Building the real Python sidecar binary (blocked on MIG-1.8)
+2. Running `cargo tauri build` to produce an actual Tauri installer
+3. Installing and clicking around to verify the bridge actually works at runtime
+4. Swapping the default launch path from Electron to Tauri
 
 **Severity:** 🔴 Critical — this is the capstone of the entire migration epic.
 
 ---
 
-### SR-1. `_stopPythonCalled` idempotency guard never wired
-
-**Status:** ❌ Not Fixed
-
-**Description:** `state.ts:98-99` declares `_stopPythonCalled: boolean` (default `false` at line 125) as the idempotency guard for `stopPython()`. `xv-fa19-fixes.test.ts` (lines 309–448) tests that `stopPython()` sets the flag, subsequent calls are no-ops, and `startPython()` resets it. But `stop-python.ts` (the actual `stopPython()` function) never reads or writes `_stopPythonCalled` — it runs the full shutdown sequence every time, including on redundant calls during shutdown cascades.
-
-**Root cause:** The guard was declared in the state schema and tested but the implementation was never wired into `stop-python.ts`.
-
-**Affected code:**
-- `voice_typer/client/src/main/state.ts:98-99` (declaration)
-- `voice_typer/client/src/main/state.ts:125` (default value)
-- `voice_typer/client/src/main/python/stop-python.ts` (implementation — missing guard)
-- `voice_typer/client/src/main/python/start-python.ts` (reset — verify implementation)
-- `voice_typer/client/src/main/__tests__/xv-fa19-fixes.test.ts:309-448` (tests)
-
-**Fix:** In `stop-python.ts`, guard the function body with `if (state._stopPythonCalled) return;` at entry and set `state._stopPythonCalled = true;` after the guard. In `start-python.ts`, reset `state._stopPythonCalled = false;` before the existing startup logic. The tests at `xv-fa19-fixes.test.ts:367+` should then pass.
-
-**Severity:** 🟡 Medium — causes redundant socket writes and kill timers during shutdown cascades, but actual stop behavior still works (just not idempotent).
-
----
-
-### SR-2. 27 TypeScript typecheck failures — NOW RESOLVED
-
-**Status:** ✅ Fixed (2026-07-23)
-
-**Description:** `tsc --noEmit` on `tsconfig.web.json` produced 27 errors: 14 from prop interface mismatches (5 test files expecting props that were removed in refactors), 7 from config type drift (`config-parity.test.ts` mismatched `ModelSize`, missing `HasNone`/`HasSpeex`, stale `last_load_warnings`), 3 missing fields in test object literals, 2 implicit `any` in `bubble-namespace.ts`, 1 argument count mismatch, 1 unmatched brace.
-
-**Fixes applied (this session):**
-- 5 test files refactored: removed dead props, replaced `onNavigate` assertions with `mockNavigate`
-- `config-parity.test.ts` fixed: `ModelSize` values, `HasNone`/`HasSpeex` assertions, `bubble_x`/`bubble_y` added to literal, `last_load_warnings` block removed, brace mismatch fixed
-- `bubble-namespace.ts:238,252`: added type annotations to `callback` params
-- `xv-fa19-fixes.test.ts:153`: `String.search()` index bug fixed
-
-**Verification:** `npx tsc -p tsconfig.web.json --noEmit` → **0 errors**. `npx tsc -p tsconfig.node.json --noEmit` → **0 errors**.
-
----
-
 ### HP-8. MIG-1.4 — Prewarm packaging + FT-1 supervisor
 
-**Status:** ⚠️ Partial (Rust supervisor done; platform-specific autostart wiring not validated)
+**Status:** ⚠️ Partial — Rust supervisor code compiles; all prewarm binaries are 0-byte placeholders
 
-**Description:** Prewarm (model/asset warm-up) binary must launch at login/boot on each OS (LogonTrigger / LaunchAgent / systemd timer). FT-1 crash isolation must respawn the sidecar on crash without killing the UI. Rust supervisor code exists and compiles; `resolve_prewarm_exe()` exists; prewarm binaries for 9 target triples are committed but are 0-byte placeholders. Platform-specific autostart wiring (LogonTrigger, LaunchAgent, systemd timer) not validated on real hosts.
+**Description:** Prewarm (model/asset warm-up) binary must launch at login/boot on each OS (LogonTrigger / LaunchAgent / systemd timer). FT-1 crash isolation must respawn the sidecar on crash without killing the UI.
 
-**Related Files:**
-- `src-tauri/src/sidecar/ft1.rs` (FT-1 supervisor with circuit breaker)
-- `src-tauri/src/sidecar/spawn.rs` (`resolve_prewarm_exe`)
-- `src-tauri/resources/prewarm-*` (0-byte placeholders)
-- `docs/migration/windows-validation-runbook.md` (step 8: prewarm LogonTrigger)
+**Confirmed findings (2026-07-24):**
+- Rust supervisor code in `src-tauri/src/sidecar/` exists and compiles. `resolve_prewarm_exe()` exists.
+- **All 7 `src-tauri/bin/prewarm-*.*` files are 0-byte placeholders** — never built.
+- Platform-specific autostart wiring (LogonTrigger, LaunchAgent, systemd timer) not validated on real hosts.
 
 **Severity:** 🟡 High — blocks production readiness but lower urgency than Phase 0 gates.
 
