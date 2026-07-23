@@ -34,7 +34,7 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **74** commands listed in
+cannot invoke arbitrary commands — only the **76** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
 `voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
@@ -42,10 +42,10 @@ The authoritative count is enforced by CI (see
 are added or removed.
 
 > The Python-side `_COMMAND_REGISTRY` in
-> `voice_typer/server/ipc_server.py` registers **74** handlers.
+> `voice_typer/server/ipc_server.py` registers **76** handlers.
 > Only `tray_click` is intentionally absent from the renderer allowlist — it is
 > a Rust-only command routed via `dispatch_inner` (the tray handler invokes it
-> directly, bypassing the allowlist gate). All other 73 commands are
+> directly, bypassing the allowlist gate). All other 75 commands are
 > renderer-callable.
 
 ### Secret Redaction (SEC-003)
@@ -63,7 +63,7 @@ data exfiltration to attacker-controlled endpoints.
 
 ### Payload Size Limits (SEC-008, SEC-010, SEC-011)
 
-- TCP receive buffer capped at 1 MB per message (`voice_typer/server/ipc_server.py:588`, `_max_line_bytes = 1 * 1024 * 1024`). The same cap is enforced in the extracted transport at `voice_typer/server/ipc/transport.py:100` (`_max_line_bytes`) and the Tauri WebSocket path enforces a 1 MiB frame cap in `voice_typer/server/sidecar_ws.py`.
+- TCP receive buffer capped at 1 MB per message (`voice_typer/server/ipc/transport.py:100`, `_max_line_bytes = 1 * 1024 * 1024`). The Tauri WebSocket path enforces a matching 1 MiB frame cap via `_MAX_FRAME_BYTES = 1 * 1024 * 1024` in `voice_typer/server/sidecar_ws.py:123`.
 - History limit/offset bounded to prevent DoS via huge values.
 - Vocabulary payload capped at 1 MB; individual values at 1024 chars.
 
