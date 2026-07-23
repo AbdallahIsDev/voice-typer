@@ -489,7 +489,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node 20
+      - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
@@ -877,7 +877,7 @@ jobs:
       # to <resourcesPath>/voice-typer-backend/ at packaging time. At
       # runtime, index.ts's pythonArgs() looks for the bundled exe first
       # (packaged mode), falling back to the dev-mode venv.
-      - name: Set up Node 20
+      - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
@@ -1051,7 +1051,7 @@ jobs:
           chmod +x "$bin"
           echo "Native binary present: $bin"
 
-      - name: Set up Node 20
+      - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
@@ -1218,7 +1218,7 @@ jobs:
           chmod +x "$bin"
           echo "Native binary present: $bin"
 
-      - name: Set up Node 20
+      - name: Set up Node 24
         uses: actions/setup-node@v4
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
