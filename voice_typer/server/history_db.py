@@ -13,7 +13,7 @@ Architecture overview::
                                                      owns 1 write conn
                                                      drains queue, runs
                                                      PRAGMA wal_checkpoint
-                                                     every 60s
+                                                     every 300s
 
     caller thread ──► HistoryDB.get_recent ──► _get_read_conn (thread-local)
                                                 PRAGMA query_only=1
@@ -522,7 +522,7 @@ class HistoryDB:
             if result is not None:
                 status, pages_checkpointed, total_pages = result
                 # Only log when a non-trivial checkpoint happens (>= 100
-                # pages) to avoid flooding the log every 60s. Tiny
+                # pages) to avoid flooding the log every 300s. Tiny
                 # checkpoints (e.g. 20 pages) are silent — the WAL is
                 # healthy, no action needed.
                 # status: 0=ok, 1=partial(active readers), 2=full(needs restart)
@@ -542,7 +542,7 @@ class HistoryDB:
         except sqlite3.OperationalError as e:
             # This can happen when an external process (e.g. antivirus
             # scan) holds a lock on the WAL file. The next checkpoint
-            # attempt in 60s will retry.
+            # attempt in 300s will retry.
             log.debug(
                 "[HISTORY_DB] WAL checkpoint skipped (will retry in %.0fs): %s",
                 _WAL_CHECKPOINT_INTERVAL,

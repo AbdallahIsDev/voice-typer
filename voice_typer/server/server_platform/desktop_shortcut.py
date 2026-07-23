@@ -24,7 +24,7 @@ Patch-path compatibility
 ------------------------
 Tests patch ``subprocess.run`` via
 ``monkeypatch.setattr("voice_typer.server.server_platform.subprocess.run", _fake_run)``
-(in :mod:`tests.test_sec_8_9_10_security_fixes`).  This patches the
+(in :mod:`tests.test_security_fixes`).  This patches the
 ``run`` attribute on the stdlib ``subprocess`` module object (which is
 the same object this module imports via ``import subprocess`` at the
 top), so ``subprocess.run(...)`` calls below pick up the patch without

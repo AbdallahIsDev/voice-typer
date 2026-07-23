@@ -46,6 +46,10 @@ _KEY_PATTERNS = [
     # OpenAI-style keys: sk- followed by 8+ word chars.  Replace the
     # entire run (sk- and everything after that's still word-char).
     re.compile(r"sk-[A-Za-z0-9_\-]+"),
+    # Groq-style keys: gsk- followed by 8+ word chars.  Added back
+    # (XZ-2 reviewer feedback) so short 12-19 char gsk_ values are
+    # redacted even when they don't reach the 20-char generic threshold.
+    re.compile(r"gsk_[A-Za-z0-9_\-]+"),
     # Generic long alphanumeric run (>= 20 chars).  This catches
     # bare hex/base64 keys that don't match a known prefix.  Uses
     # \b to avoid partial-word matches inside longer words.
@@ -217,18 +221,90 @@ def redact_secret(value: object) -> str:
     # patterns above are specific enough to have already run.
     if len(value) < _MIN_REDACT_LEN:
         return redacted
+    # XV-121: delegate the API-key-pattern application to the shared
+    # ``redact_api_keys`` helper so the canonical "what an API-key-like
+    # substring looks like" knowledge lives in exactly one place
+    # (``_KEY_PATTERNS`` above). ``credential_store._redact_sensitive``
+    # also calls ``redact_api_keys`` (with a different replacement
+    # string) for its IPC-bound keyring-exception redaction.
+    return redact_api_keys(redacted)
+
+
+def redact_api_keys(text: str, *, replacement: str = "***") -> str:
+    """Redact API keys and bearer tokens from ``text`` (configurable marker).
+
+    This is the **canonical API-key redaction helper** for the codebase.
+    It applies :data:`_KEY_PATTERNS` (Bearer / Token / ``sk-`` / generic
+    20+ char alphanumeric run) to ``text`` and substitutes each match
+    with ``replacement``. Patterns that capture a prefix group
+    (``Bearer `` / ``Token ``) preserve the prefix; the secret portion
+    is replaced. Patterns without a prefix group replace the whole
+    match.
+
+    XV-121 (DRY consolidation): prior to this helper, the API-key
+    pattern knowledge was duplicated between this module
+    (:data:`_KEY_PATTERNS`) and ``credential_store._API_KEY_RE``
+    (a separate single-regex with different thresholds). The two
+    representations drifted — the credential_store version missed
+    ``Bearer`` / ``Token`` auth and required 32+ chars for the generic
+    catch-all, while this module's version matched 20+ chars and
+    recognized the auth-header prefixes. ``redact_api_keys`` is now the
+    single source of truth: :func:`redact_secret` (log-message
+    redaction, default ``"***"``) and
+    ``credential_store._redact_sensitive`` (IPC-bound keyring-exception
+    redaction, ``"[redacted]"``) both call it.
+
+    Parameters
+    ----------
+    text : str
+        The text to redact. Must already be a string — callers
+        converting from ``object`` should call ``str(value)`` first,
+        or use :func:`redact_secret` which does that automatically.
+    replacement : str
+        The substring to substitute for each redacted secret. Defaults
+        to ``"***"`` (the conventional log-redaction marker used by
+        :func:`redact_secret`). Use ``"[redacted]"`` for IPC-bound
+        messages that the renderer surfaces to the user (matching the
+        convention used by ``credential_store._redact_sensitive``).
+
+    Returns
+    -------
+    str
+        ``text`` with every match from :data:`_KEY_PATTERNS` replaced
+        by ``replacement`` (or ``prefix + replacement`` for prefix
+        patterns).
+
+    Notes
+    -----
+    Unlike :func:`redact_secret`, this helper:
+
+    - Does **not** apply the SEC-9 flag / ``key=value`` patterns
+      (:data:`_FLAG_KEY_PATTERNS`). Those patterns are specific to
+      log-message redaction where CLI flag forms (``--token=abc``)
+      are common; IPC-bound keyring exception messages don't contain
+      flag forms, so applying them there would be needless work (and
+      a behavior change for ``credential_store._redact_sensitive``,
+      which never had them).
+    - Does **not** apply the :data:`_MIN_REDACT_LEN` short-string
+      early-exit guard. Short inputs are still effectively pass-through
+      because the generic 20+ char alphanumeric pattern only fires on
+      long runs, and the prefix patterns (``Bearer`` / ``Token`` /
+      ``sk-``) are specific enough to be safe on any length.
+    - Does **not** stringify non-string input. Callers must convert
+      explicitly (or use :func:`redact_secret`).
+    """
     for pat in _KEY_PATTERNS:
 
-        def _sub(m: re.Match[str]) -> str:
+        def _sub(m: re.Match[str], _replacement: str = replacement) -> str:
             if m.lastindex:
                 # Pattern has a prefix group (e.g. "Bearer ").  Keep
                 # the prefix, redact the rest.
-                return m.group(1) + "***"
+                return m.group(1) + _replacement
             # No prefix group — redact the whole match.
-            return "***"
+            return _replacement
 
-        redacted = pat.sub(_sub, redacted)
-    return redacted
+        text = pat.sub(_sub, text)
+    return text
 
 
 def redact_url(url: str) -> str:

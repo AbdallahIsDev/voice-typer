@@ -86,6 +86,8 @@ import re
 import threading
 from typing import Any
 
+from voice_typer.server._secrets import redact_api_keys
+
 log = logging.getLogger("voice_typer.server.credential_store")
 
 # ── Constants ────────────────────────────────────────────────────────────
@@ -262,15 +264,20 @@ def last_store_outcome() -> dict[str, Any]:
 #   D-Bus errors referencing the session bus path, or pyobjc errors
 #   referencing the keychain file). The user's home directory is
 #   private metadata — redact it before exposing via IPC.
-# _API_KEY_RE: matches common API-key prefixes (sk-, gsk_, plus
-#   generic 32+ char alphanumeric runs that look like bearer tokens).
-#   This is the backstop — if a backend somehow embeds the value in
-#   an exception, we redact it before it reaches logs or the renderer.
+#
+# XV-121 (DRY consolidation): the API-key redaction pattern previously
+#   lived here as ``_API_KEY_RE`` (a separate single-regex with sk-12+,
+#   gsk_12+, 32+ char alphanum). It duplicated
+#   ``_secrets._KEY_PATTERNS`` (Bearer / Token / sk-any / 20+ char
+#   alphanum) and the two had drifted. The pattern is now shared:
+#   ``_redact_sensitive`` calls :func:`_secrets.redact_api_keys` with
+#   ``replacement="[redacted]"``. The local ``_PATH_RE`` remains here
+#   because filesystem-path redaction is specific to keyring exception
+#   messages (not duplicated anywhere else in the codebase).
 _PATH_RE = re.compile(
     r"(?:/home/[^/\s]+|/Users/[^/\s]+|~[/][^/\s]+|C:\\Users\\[^\\\s]+)",
     re.IGNORECASE,
 )
-_API_KEY_RE = re.compile(r"(?:sk-[A-Za-z0-9_-]{12,}|gsk_[A-Za-z0-9_-]{12,}|[A-Za-z0-9_-]{32,})")
 
 
 def _redact_sensitive(text: str | None) -> str | None:
@@ -284,12 +291,19 @@ def _redact_sensitive(text: str | None) -> str | None:
 
     Returns ``None`` unchanged (so callers can pass through optional
     values without a separate None check).
+
+    XV-121: API-key redaction delegates to
+    :func:`voice_typer.server._secrets.redact_api_keys` (the canonical
+    helper) with ``replacement="[redacted]"``. The shared
+    ``_KEY_PATTERNS`` list in ``_secrets`` is the single source of
+    truth for "what an API-key-like substring looks like" across the
+    codebase.
     """
     if not text:
         return text
     s = str(text)
     s = _PATH_RE.sub("[path]", s)
-    s = _API_KEY_RE.sub("[redacted]", s)
+    s = redact_api_keys(s, replacement="[redacted]")
     if len(s) > _REASON_MAX_LEN:
         s = s[: _REASON_MAX_LEN - 3] + "..."
     return s

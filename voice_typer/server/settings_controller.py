@@ -17,7 +17,7 @@ directly) keep working unchanged.
 Not extracted in this round:
 
     - ``_open_config_file``: stays on ``VoiceTyperApp`` because
-      ``tests/test_b4_config_editor_lock.py`` and
+      ``tests/test_config_editor_lock.py`` and
       ``tests/test_bugfix_regressions.py:943`` use
       ``inspect.getsource(VoiceTyperApp._open_config_file)`` to pin
       source-level invariants (macOS ``open -W`` branch, three platform

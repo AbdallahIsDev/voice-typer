@@ -15,6 +15,7 @@ and the credential-dialog class set (``_CRED_DIALOG_CLASSES``).
 from __future__ import annotations
 
 import contextlib
+import threading
 from typing import Any
 
 # ARCH-11: ``is_windows`` is resolved dynamically through the clipboard
@@ -50,6 +51,17 @@ def _log():
 # + CloseHandle = 3 kernel calls per paste). Cached on first access.
 # ``None`` = not yet computed.
 _WE_ELEVATED: bool | None = None
+
+# XV-103: guards the ``_WE_ELEVATED`` init race. The clipboard paste
+# path is called from the main IPC thread, but a prewarm / caps-lock
+# polling thread can also call into ``_is_elevated_target`` (which calls
+# ``_get_we_elevated``). Without this lock, two threads could both
+# observe ``_WE_ELEVATED is None`` and both run the Win32 token query,
+# stomping each other's write. The check-then-act is benign on
+# correctness (the value is process-stable) but the redundant token
+# query leaks handles if both threads enter the ``try`` block before
+# either sets the cache.
+_WE_ELEVATED_LOCK = threading.Lock()
 
 # PVT-G5-045 (session-5): per-paste security checks fail open (return
 # False). Logging every failure at WARNING would spam the log at paste
@@ -96,47 +108,61 @@ def _get_we_elevated() -> bool:
 
     Returns False on non-Windows, on failure, or when we cannot open
     our own process token (fail-open — same as the previous behavior).
+
+    XV-103: init is guarded by ``_WE_ELEVATED_LOCK`` using
+    double-checked locking so concurrent first-callers (e.g. the main
+    IPC paste thread plus the caps-lock polling thread) don't both
+    run the Win32 token query and stomp the cache. The fast path
+    (cache hit) is lock-free; only the cold path acquires the lock.
     """
     global _WE_ELEVATED
+    # Fast path: cache already populated — no lock needed.
     if _WE_ELEVATED is not None:
         return _WE_ELEVATED
-    if not is_windows():
-        _WE_ELEVATED = False
-        return _WE_ELEVATED
-    try:
-        import ctypes
-        from ctypes import wintypes
-
-        kernel32 = ctypes.windll.kernel32
-        advapi32 = ctypes.windll.advapi32
-
-        our_token = wintypes.HANDLE()
-        if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(our_token)):
+    # Cold path: acquire the lock and re-check (another thread may
+    # have populated the cache while we were waiting).
+    with _WE_ELEVATED_LOCK:
+        if _WE_ELEVATED is not None:
+            return _WE_ELEVATED
+        if not is_windows():
             _WE_ELEVATED = False
             return _WE_ELEVATED
         try:
-            # TokenElevation = 20
-            ret_len = wintypes.DWORD()
-            advapi32.GetTokenInformation(our_token, 20, None, 0, ctypes.byref(ret_len))
-            our_buf = ctypes.create_string_buffer(ret_len.value or 4)
-            if not advapi32.GetTokenInformation(our_token, 20, our_buf, ctypes.sizeof(our_buf), ctypes.byref(ret_len)):
+            import ctypes
+            from ctypes import wintypes
+
+            kernel32 = ctypes.windll.kernel32
+            advapi32 = ctypes.windll.advapi32
+
+            our_token = wintypes.HANDLE()
+            if not advapi32.OpenProcessToken(kernel32.GetCurrentProcess(), 0x0008, ctypes.byref(our_token)):
                 _WE_ELEVATED = False
                 return _WE_ELEVATED
-            _WE_ELEVATED = bool(ctypes.cast(our_buf, ctypes.POINTER(wintypes.DWORD))[0])
-        finally:
-            kernel32.CloseHandle(our_token)
-    except Exception as exc:
-        # PVT-G5-045 (session-5): cached and called once per process, so
-        # a plain WARNING (no dedup) is appropriate — operators get
-        # exactly one record per session if the Win32 token query path
-        # is broken.
-        _log().warning(
-            "[CLIPBOARD] _get_we_elevated failed: %s — failing open (paste allowed)",
-            exc,
-            exc_info=True,
-        )
-        _WE_ELEVATED = False
-    return _WE_ELEVATED
+            try:
+                # TokenElevation = 20
+                ret_len = wintypes.DWORD()
+                advapi32.GetTokenInformation(our_token, 20, None, 0, ctypes.byref(ret_len))
+                our_buf = ctypes.create_string_buffer(ret_len.value or 4)
+                if not advapi32.GetTokenInformation(
+                    our_token, 20, our_buf, ctypes.sizeof(our_buf), ctypes.byref(ret_len)
+                ):
+                    _WE_ELEVATED = False
+                    return _WE_ELEVATED
+                _WE_ELEVATED = bool(ctypes.cast(our_buf, ctypes.POINTER(wintypes.DWORD))[0])
+            finally:
+                kernel32.CloseHandle(our_token)
+        except Exception as exc:
+            # PVT-G5-045 (session-5): cached and called once per process, so
+            # a plain WARNING (no dedup) is appropriate — operators get
+            # exactly one record per session if the Win32 token query path
+            # is broken.
+            _log().warning(
+                "[CLIPBOARD] _get_we_elevated failed: %s — failing open (paste allowed)",
+                exc,
+                exc_info=True,
+            )
+            _WE_ELEVATED = False
+        return _WE_ELEVATED
 
 
 def _is_elevated_target(hwnd: int | None = None) -> bool:
@@ -459,6 +485,18 @@ _UIA_SINGLETON = None
 _UIA_MODULE = None
 _UIA_SINGLETON_INIT_ATTEMPTED = False
 
+# XV-103: guards the ``_UIA_SINGLETON`` init race. The ``_UIA_SINGLETON_INIT_ATTEMPTED``
+# flag is itself a check-then-act race: two threads can both observe
+# ``False``, both run ``comtypes.client.GetModule`` + ``CoCreateInstance``,
+# and both write to the module-level cache. CoCreateInstance returns a
+# fresh COM proxy each time, so the loser overwrites the winner's proxy —
+# the abandoned proxy leaks until GC, and on failure paths the
+# ``_UIA_SINGLETON_INIT_ATTEMPTED`` flag is set by whichever thread runs
+# last, masking the other thread's in-flight init. Double-checked locking
+# fixes this: the fast path (init already attempted) is lock-free; only
+# the cold path acquires the lock and re-checks the flag.
+_UIA_SINGLETON_LOCK = threading.Lock()
+
 
 def _get_uia_singleton():
     """Return the cached IUIAutomation instance, or None if unavailable.
@@ -466,28 +504,52 @@ def _get_uia_singleton():
     PERF-FIX-001: caches both the comtypes module reference (from
     GetModule("UIAutomationCore.dll")) and the IUIAutomation COM
     instance so we don't pay the CoCreateInstance cost on every paste.
+
+    XV-103: init is guarded by ``_UIA_SINGLETON_LOCK`` using
+    double-checked locking so concurrent first-callers don't both
+    run ``comtypes.client.GetModule`` + ``CoCreateInstance`` and
+    overwrite each other's cached proxy. The fast path (init already
+    attempted) is lock-free; only the cold path acquires the lock.
+
+    XV-103 (subtlety): the ``_UIA_SINGLETON_INIT_ATTEMPTED`` flag is
+    set in a ``finally`` block AFTER ``_UIA_SINGLETON`` is assigned.
+    Setting it earlier would let racing fast-path callers (which check
+    the flag WITHOUT the lock) observe the flag set while
+    ``_UIA_SINGLETON`` is still ``None`` — they'd return ``None`` and
+    permanently disable UIA checks for their code path even though
+    init eventually succeeded.
     """
     global _UIA_SINGLETON, _UIA_MODULE, _UIA_SINGLETON_INIT_ATTEMPTED
+    # Fast path: init already completed — no lock needed.
     if _UIA_SINGLETON_INIT_ATTEMPTED:
         return _UIA_SINGLETON
-    _UIA_SINGLETON_INIT_ATTEMPTED = True
-    if not is_windows():
-        return None
-    try:
-        import comtypes.client
+    # Cold path: acquire the lock and re-check (another thread may
+    # have completed the init while we were waiting).
+    with _UIA_SINGLETON_LOCK:
+        if _UIA_SINGLETON_INIT_ATTEMPTED:
+            return _UIA_SINGLETON
+        try:
+            if not is_windows():
+                return None
+            try:
+                import comtypes.client
 
-        _UIA_MODULE = comtypes.client.GetModule("UIAutomationCore.dll")
-        _UIA_SINGLETON = comtypes.CoCreateInstance(
-            _UIA_MODULE.CUIAutomation._reg_clsid_,
-            interface=_UIA_MODULE.IUIAutomation,
-        )
-    except Exception as exc:
-        _log().debug(
-            "[CLIPBOARD] IUIAutomation singleton init failed: %s — UIA checks disabled",
-            exc,
-        )
-        _UIA_SINGLETON = None
-    return _UIA_SINGLETON
+                _UIA_MODULE = comtypes.client.GetModule("UIAutomationCore.dll")
+                _UIA_SINGLETON = comtypes.CoCreateInstance(
+                    _UIA_MODULE.CUIAutomation._reg_clsid_,
+                    interface=_UIA_MODULE.IUIAutomation,
+                )
+            except Exception as exc:
+                _log().debug(
+                    "[CLIPBOARD] IUIAutomation singleton init failed: %s — UIA checks disabled",
+                    exc,
+                )
+                _UIA_SINGLETON = None
+            return _UIA_SINGLETON
+        finally:
+            # Set the flag LAST so racing fast-path readers never see
+            # the flag set with _UIA_SINGLETON still None.
+            _UIA_SINGLETON_INIT_ATTEMPTED = True
 
 
 def _get_uia_focused_element():

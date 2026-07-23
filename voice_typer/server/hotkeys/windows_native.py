@@ -104,8 +104,8 @@ class WindowsNativeHotkey(HotkeyBackend):
         # ``_is_ime_composing()`` staticmethod makes 5 syscalls per call
         # (GetForegroundWindow, ImmGetContext, ImmGetOpenStatus,
         # ImmGetCompositionStringW, ImmReleaseContext). At the polling
-        # loop's 1ms cadence that's ~5000 syscalls/sec even when no key
-        # is pressed. The throttled wrapper
+        # loop's 8ms cadence (~125 Hz, see PERF-01/CPU-01) that's ~625
+        # syscalls/sec even when no key is pressed. The throttled wrapper
         # ``_is_ime_composing_throttled()`` re-queries at most every
         # 50ms (20 Hz) — IME state changes at human typing speed so
         # 50ms latency is invisible to the user.
@@ -289,12 +289,13 @@ class WindowsNativeHotkey(HotkeyBackend):
                 else:
                     # Use GetAsyncKeyState polling for reliable hotkey detection.
                     # RegisterHotKey + GetMessageW does not reliably deliver WM_HOTKEY
-                    # on all Windows configurations.  PERF-012: the polling loop in
-                    # _run_polling_loop() uses Sleep(1) (~1000 Hz effective check
-                    # rate), which gives ~1 ms hotkey-detection latency while still
-                    # yielding the CPU between checks — the thread spends >99.9% of
-                    # its time sleeping in the kernel.  See _run_polling_loop() for
-                    # the rationale and the regression test that pins this invariant.
+                    # on all Windows configurations.  PERF-012 / PERF-01 / CPU-01: the
+                    # polling loop in _run_polling_loop() uses Sleep(8) with
+                    # timeBeginPeriod(8) (~125 Hz effective check rate), which gives
+                    # up to ~8 ms hotkey-detection latency while still yielding the
+                    # CPU between checks — the thread spends >99.9% of its time
+                    # sleeping in the kernel.  See _run_polling_loop() for the
+                    # rationale and the regression test that pins this invariant.
                     log.info("[HOTKEY] Starting hotkey detection via GetAsyncKeyState polling")
                     self._using_polling = True
                     self._run_polling_loop(callback)
@@ -401,10 +402,11 @@ class WindowsNativeHotkey(HotkeyBackend):
         """PERF-FIX-1: throttled wrapper around ``_is_ime_composing()``.
 
         The underlying staticmethod makes 5 syscalls per call (see
-        ``__init__`` for the rationale). The polling loop runs at 1ms
-        cadence, so calling it every iteration would be ~5000
-        syscalls/sec. This wrapper re-queries at most every 50ms (20 Hz)
-        and returns the cached result between queries.
+        ``__init__`` for the rationale). The polling loop runs at 8ms
+        cadence (~125 Hz, see PERF-01/CPU-01), so calling it every
+        iteration would be ~625 syscalls/sec. This wrapper re-queries
+        at most every 50ms (20 Hz) and returns the cached result
+        between queries.
 
         50ms latency is invisible to the user because IME state changes
         at human typing speed (each key press is ~50-150ms apart).
@@ -419,17 +421,21 @@ class WindowsNativeHotkey(HotkeyBackend):
     def _run_polling_loop(self, callback):
         """GetAsyncKeyState polling fallback for hotkey detection.
 
-        PERF-012 / PERF-003: On Windows, uses GetAsyncKeyState in a tight
-        loop with a 1ms sleep. This is still technically polling but at a
+        PERF-012 / PERF-003 / PERF-01 / CPU-01: On Windows, uses
+        GetAsyncKeyState in a tight loop with an 8ms sleep. The Windows
+        timer resolution is bumped to 8ms via ``timeBeginPeriod(8)``
+        before the loop so ``Sleep(8)`` actually sleeps ~8ms instead of
+        the default ~15.6ms. This is still technically polling but at a
         much lower cost than the previous 100ms (10Hz) approach — the key
-        is checked every 1ms, giving near-instant response while the
-        kernel Sleep(1) yields the CPU between checks. On Linux/macOS,
-        pynput's event-driven Listener is used instead of polling.
+        is checked every 8ms (~125 Hz), giving sub-perceptible response
+        while the kernel Sleep(8) yields the CPU between checks. On
+        Linux/macOS, pynput's event-driven Listener is used instead of
+        polling.
 
         The previous 10Hz polling (100ms sleep) introduced up to 100ms
-        latency on hotkey detection. The new 1ms polling reduces this to
-        ~1ms while still being CPU-efficient (the thread spends ~99.9% of
-        its time sleeping in the kernel).
+        latency on hotkey detection. The 8ms polling reduces this to
+        up to ~8ms while still being CPU-efficient (the thread spends
+        >99.9% of its time sleeping in the kernel).
 
         FIX-HOTKEY-ARCHITECTURE: dispatches to
         ``_run_modifier_only_polling_loop`` for modifier-only hotkeys
@@ -473,7 +479,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             was_pressed = False
         log.info("[HOTKEY] Polling loop started for VK=0x%X modifiers=0x%X", vk, self._modifiers)
         # PLAT-PUMP: hoist the win32gui import OUT of the polling loop.
-        # Pre-fix this ran ``import win32gui`` on every 1ms iteration,
+        # Pre-fix this ran ``import win32gui`` on every 8ms iteration,
         # which is wasteful (Python's import system acquires the import
         # lock and does a dict lookup even for cached modules). The
         # import is now done once before the loop starts. If win32gui
@@ -524,7 +530,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                     self._ensure_caps_lock_off()
                 # PLAT-020: suppress hotkey triggers during IME composition.
                 # PERF-FIX-1: use the throttled wrapper so we don't make 5
-                # syscalls per 1ms iteration.
+                # syscalls per 8ms iteration.
                 if self._is_ime_composing_throttled():
                     was_pressed = False
                     if _pump_messages is not None:
@@ -978,7 +984,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # Reset all per-cycle state so a stray IME composition doesn't
                 # leak into the next press cycle.
                 # PERF-FIX-1: use the throttled wrapper so we don't make 5
-                # syscalls per 1ms iteration.
+                # syscalls per 8ms iteration.
                 if self._is_ime_composing_throttled():
                     modifier_was_pressed = False
                     other_key_pressed = False
@@ -1039,8 +1045,9 @@ class WindowsNativeHotkey(HotkeyBackend):
                 #
                 # PERF-FIX-1: the scan is O(248) per iteration
                 # (GetAsyncKeyState for every VK in 0x08-0xFF). At the
-                # polling loop's 1ms cadence that's up to ~248k syscalls/sec
-                # while the modifier is held. The throttled wrapper
+                # polling loop's 8ms cadence (~125 Hz, see PERF-01/CPU-01)
+                # that's up to ~31k syscalls/sec while the modifier is held.
+                # The throttled wrapper
                 # ``_any_non_modifier_key_pressed_throttled()`` re-scans at
                 # most every 50ms (20 Hz), reducing the syscall rate to
                 # ~5k/sec. The throttle is safe because:
@@ -1051,7 +1058,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 #     always re-scans fresh;
                 #   - 50ms detection latency for non-modifier keys is
                 #     acceptable — typists press keys ≥50ms apart, and the
-                #     polling loop's 1ms cadence still gives ~1ms modifier
+                #     polling loop's 8ms cadence still gives ~8ms modifier
                 #     press/release latency (the scan throttle only affects
                 #     combo detection, not the hotkey fire itself).
                 # This scan is intentionally called every iteration while
@@ -1172,9 +1179,9 @@ class WindowsNativeHotkey(HotkeyBackend):
 
         PERF-FIX-1: this scan is O(248) per iteration (one
         ``GetAsyncKeyState`` per VK code). The modifier-only polling
-        loop runs at 1ms cadence, so calling this every iteration while
-        the modifier is held would be up to ~248k syscalls/sec. The
-        loop wraps this call in
+        loop runs at 8ms cadence (~125 Hz, see PERF-01/CPU-01), so
+        calling this every iteration while the modifier is held would
+        be up to ~31k syscalls/sec. The loop wraps this call in
         ``_any_non_modifier_key_pressed_throttled()`` (see below) to
         re-scan at most every 50ms. The scan itself is NOT moved to
         the not-held→held transition because the user can press a
@@ -1205,10 +1212,11 @@ class WindowsNativeHotkey(HotkeyBackend):
 
         The underlying scan is O(248) per call (see the docstring on
         ``_any_non_modifier_key_pressed`` for the rationale). The
-        modifier-only polling loop runs at 1ms cadence, so calling it
-        every iteration while the modifier is held would be up to
-        ~248k syscalls/sec. This wrapper re-scans at most every 50ms
-        (20 Hz), reducing the syscall rate to ~5k/sec.
+        modifier-only polling loop runs at 8ms cadence (~125 Hz, see
+        PERF-01/CPU-01), so calling it every iteration while the
+        modifier is held would be up to ~31k syscalls/sec. This
+        wrapper re-scans at most every 50ms (20 Hz), reducing the
+        syscall rate to ~5k/sec.
 
         Cache semantics:
 
@@ -1227,10 +1235,10 @@ class WindowsNativeHotkey(HotkeyBackend):
           was True.
 
         50ms detection latency for non-modifier keys is acceptable:
-        typists press keys ≥50ms apart, and the polling loop's 1ms
-        cadence still gives ~1ms modifier press/release latency (the
-        scan throttle only affects combo detection, not the hotkey
-        fire itself).
+        typists press keys ≥50ms apart, and the polling loop's 8ms
+        cadence (~125 Hz, see PERF-01/CPU-01) still gives ~8ms
+        modifier press/release latency (the scan throttle only affects
+        combo detection, not the hotkey fire itself).
         """
         now = time.monotonic()
         # Only consult the cache when the last result was False. A

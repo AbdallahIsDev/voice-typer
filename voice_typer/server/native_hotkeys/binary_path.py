@@ -36,6 +36,7 @@ The :func:`_normalize_machine` helper maps the various
 canonical arch token used as the dict key.
 """
 
+import functools
 import hashlib
 import json
 import logging
@@ -251,8 +252,37 @@ def _candidate_binary_names() -> list[str]:
 # ─── Binary discovery ──────────────────────────────────────────────────────
 
 
+@functools.lru_cache(maxsize=1)
 def get_native_binary_path() -> Path | None:
     """Find the native key-listener binary for the current platform+arch.
+
+    XV-112 (CACHED): the result is memoised with
+    :func:`functools.lru_cache(maxsize=1)` so the 6-step lookup chain
+    (env var → dev mode → PyInstaller onedir → ``_MEIPASS``) runs at
+    most ONCE per process. Pre-fix, the function was called up to
+    three times at startup (once per backend factory probe — see
+    :func:`voice_typer.server.native_hotkeys.factory.create_native_backend`
+    and
+    :func:`voice_typer.server.native_hotkeys.factory.is_native_backend_available`,
+    plus once from :class:`SubprocessHotkeyBackend.__init__` in
+    ``base.py``), each call performing up to 6 ``Path.is_file()`` /
+    ``os.stat`` probes — i.e. ~18 stats at boot for a result that
+    cannot change within a single process.
+
+    The function is PURE with respect to a single process: the
+    platform (``sys.platform``), the architecture
+    (``platform.machine()``), the candidate binary names
+    (:data:`_BINARY_NAMES` / :data:`_LEGACY_BINARY_NAMES`), and the
+    filesystem layout are all fixed for the lifetime of the process.
+    The only inputs that COULD change are the
+    ``VOICE_TYPER_NATIVE_BINARY`` / ``VOICE_TYPER_NATIVE_DIR`` env
+    vars, but those are set by the Tauri host (or the user's shell)
+    BEFORE the sidecar starts and do not change afterwards. Tests
+    that need to simulate different env / platform / filesystem state
+    MUST call :meth:`get_native_binary_path.cache_clear` (or use the
+    ``clear_binary_path_cache`` autouse fixture in ``tests/conftest.py``)
+    between scenarios — see ``tests/test_binary_path_caching.py`` for
+    the pinning tests.
 
     Search order:
     1. ``VOICE_TYPER_NATIVE_BINARY`` env var (explicit override — single binary)

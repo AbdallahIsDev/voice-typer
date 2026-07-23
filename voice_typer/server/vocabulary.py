@@ -229,49 +229,6 @@ class VocabularyManager:
         if final_exc is not None:
             raise final_exc
 
-        try:
-            self._user_path.parent.mkdir(parents=True, exist_ok=True)
-            content = json.dumps(self._data, indent=2, ensure_ascii=False)
-            # NEW-SEC-008: use the shared secure atomic write which
-            # applies O_NOFOLLOW on POSIX to prevent symlink TOCTOU.
-            # We still retry on PermissionError (file locked by
-            # editor/cloud-sync) by re-attempting the write.
-            for attempt in range(max_retries):
-                try:
-                    _secure_atomic_write(self._user_path, content)
-                    log.debug("[VOCAB] Saved user vocabulary")
-                    return
-                except PermissionError as exc:
-                    if attempt < max_retries - 1:
-                        backoff = 0.05 * (2**attempt)  # 50ms, 100ms, 200ms
-                        log.warning(
-                            "[VOCAB] PermissionError on save (attempt %d/%d), retrying in %.0fms: %s",
-                            attempt + 1,
-                            max_retries,
-                            backoff * 1000,
-                            exc,
-                        )
-                        _time.sleep(backoff)
-                    else:
-                        log.error(
-                            "[VOCAB] Failed to save user vocabulary after %d attempts: %s",
-                            max_retries,
-                            exc,
-                        )
-                except OSError:
-                    # G4-H-38: use log.exception so the traceback is
-                    # captured automatically via sys.exc_info().
-                    log.exception("[VOCAB] Failed to save user vocabulary")
-                    break
-            # Note: we deliberately do NOT re-raise — the existing
-            # contract is that _save_user is best-effort and failures
-            # are logged. Callers that need to know about failures
-            # should check the log.
-        except Exception:
-            # G4-H-38: use log.exception so the traceback is captured
-            # automatically via sys.exc_info().
-            log.exception("[VOCAB] Failed to save")
-
     # ── Read access ──────────────────────────────────────────────────
 
     def get_category(self, category: str) -> object:

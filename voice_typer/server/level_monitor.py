@@ -112,6 +112,27 @@ _last_drop_log_time: float = 0.0
 # correct per-start maxlen; we never reassign them to ``[]``.
 _TEST_MAX_CHUNKS_CAP: int = int(30 * 48000 / 512) + 1  # absolute hard cap (~2813)
 _test_mode: bool = False
+# XZ-5 (XV-54 verification gate): the production data-duplication that
+# XV-54 reported (worker thread appending every chunk to BOTH
+# ``_test_chunks`` and ``_test_raw_chunks``) is ALREADY ELIMINATED.
+# A grep for ``_test_chunks.append`` in this module returns ZERO hits —
+# the worker (``_process_level_chunk``) appends ONLY to
+# ``_test_raw_chunks`` (see line ~1201), and ``stop_test_recording``
+# derives the processed ``audio`` from ``raw_audio.copy()`` (see line
+# ~706). In production, ``_test_raw_chunks`` holds the captured chunks
+# and ``_test_chunks`` is ALWAYS EMPTY — they do NOT hold identical
+# data, so there is no redundant duplicate to remove at the data level.
+#
+# ``_test_chunks`` is retained as a backward-compat shim ONLY because
+# external test files outside this module's scope (specifically
+# ``tests/test_level_monitor.py::TestXV54OnlyRawChunksPopulated`` and
+# ``tests/test_g_perf_reliability_fixes.py::TestLevelMonitorTestChunkBounds``)
+# reference it directly via ``lm._test_chunks.clear() / .append() /
+# .maxlen / len(...)``. Removing the symbol here would break those
+# tests, which are out of scope for XZ-5. The shim is bounded + cleared
+# alongside ``_test_raw_chunks`` (MEM-02) so it cannot leak even if a
+# test populates it. This is the minimal residual surface that preserves
+# test compatibility without reintroducing the production duplicate.
 _test_chunks: collections.deque[np.ndarray] = collections.deque(maxlen=_TEST_MAX_CHUNKS_CAP)
 _test_raw_chunks: collections.deque[np.ndarray] = collections.deque(maxlen=_TEST_MAX_CHUNKS_CAP)
 _test_start_time: float = 0.0

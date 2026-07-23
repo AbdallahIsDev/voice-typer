@@ -55,11 +55,24 @@ _QWEN_ALLOWED_BASENAMES = {
 # RW-T1: Qwen3-ASR is Whisper-based and natively handles 30 s segments.
 # Longer recordings are split into overlapping chunks for safety
 # (memory, attention matrix size, and to bound per-call latency).
-# 3 s overlap provides boundary context. Merge uses simple
-# concatenation — Whisper-style models generally do not re-transcribe
-# overlap text the way TDT models do, so overlap dedup is unnecessary.
+# 3 s overlap provides boundary context.
+#
+# PVT-019: Despite earlier comments claiming Whisper-style models
+# "do not re-transcribe overlap text", real-world Qwen3-ASR runs DO
+# duplicate a few words at chunk boundaries (the 3 s overlap is
+# transcribed by both the previous and the current chunk). We dedup
+# by comparing the previous chunk's tail against the current chunk's
+# head and removing the matching prefix (see ``_dedup_overlap``).
 _QWEN_CHUNK_SECONDS = 30
 _QWEN_CHUNK_OVERLAP_SECONDS = 3
+# PVT-019: word-count heuristic for overlap dedup at chunk boundaries.
+# N=3 balances false negatives (small N → more duplicates slip through)
+# against false positives (large N → legitimate repetition stripped).
+# At ~3 words/sec English speech, a 3 s audio overlap can produce up
+# to ~9 words of duplicate text, but ASR rarely re-transcribes the
+# entire overlap region verbatim — N=3 catches the common 1-3 word
+# repeat (e.g. "the end" + "the end of the sentence").
+_QWEN_OVERLAP_DEDUP_WORDS = 3
 
 
 class QwenEngine:
@@ -399,9 +412,13 @@ class QwenEngine:
         Each chunk's text is run through the shared hallucination filter
         using that chunk's own RMS (``audio_stats`` from the caller is
         NOT used here — it describes the whole-audio RMS, not per-chunk).
-        Surviving chunk texts are joined with simple concatenation:
-        Whisper-style models generally do not re-transcribe overlap text
-        the way TDT models do, so overlap dedup is unnecessary.
+
+        PVT-019: Because consecutive chunks share a 3 s overlap
+        (``_QWEN_CHUNK_OVERLAP_SECONDS``), the overlap region is
+        transcribed by both chunks. We dedup the boundary by comparing
+        the previous chunk's tail against the current chunk's head and
+        removing the matching prefix (see ``_dedup_overlap``). Surviving
+        chunk texts are then joined with simple concatenation.
         """
         duration = len(audio) / sample_rate
         log.info("[QWEN] Splitting %.1fs audio into chunks", duration)
@@ -411,6 +428,12 @@ class QwenEngine:
             _QWEN_CHUNK_OVERLAP_SECONDS,
         )
         results: list[str] = []
+        # PVT-019: track the previous chunk's appended text so the
+        # current chunk's head can be deduped against it. Only updated
+        # when a chunk's text is actually appended (hallucination-
+        # rejected or empty chunks do NOT advance prev_text — their
+        # predecessor is still the most recent valid contribution).
+        prev_text = ""
         for i, chunk in enumerate(chunks):
             log.info(
                 "[QWEN] Transcribing chunk %d/%d (%.1fs)",
@@ -439,10 +462,80 @@ class QwenEngine:
                     log_transcriptions=False,
                 )
                 continue  # skip this chunk's text, don't append
+            # PVT-019: remove duplicate words at the overlap boundary.
+            # Only dedup against a non-empty predecessor; the first
+            # chunk has no predecessor and is appended verbatim.
+            if prev_text:
+                text = self._dedup_overlap(
+                    prev_text,
+                    text,
+                    n=_QWEN_OVERLAP_DEDUP_WORDS,
+                )
+                if not text:
+                    # Entire current chunk was a duplicate of the
+                    # previous chunk's tail — nothing new to append.
+                    # prev_text is NOT advanced: the previous chunk's
+                    # tail remains the most recent valid transcription
+                    # for the next chunk's overlap comparison.
+                    log.debug(
+                        "[QWEN] chunk %d/%d fully deduped against predecessor — skipping",
+                        i + 1,
+                        len(chunks),
+                    )
+                    continue
             results.append(text)
+            prev_text = text
         if not results:
             return ""
         return " ".join(results).strip()
+
+    @staticmethod
+    def _dedup_overlap(
+        prev_text: str,
+        curr_text: str,
+        n: int = _QWEN_OVERLAP_DEDUP_WORDS,
+    ) -> str:
+        """PVT-019: Remove duplicate words at chunk overlap boundaries.
+
+        When audio is split into overlapping chunks, the overlap region
+        is transcribed twice. If the last ``k`` words of ``prev_text``
+        match the first ``k`` words of ``curr_text`` (for any ``k`` in
+        ``[1, n]``), the matching prefix is removed from ``curr_text``.
+
+        Algorithm: try the largest ``k`` first (``k = n``) and decrease
+        until a match is found or ``k = 0``. The largest matching ``k``
+        maximises dedup while avoiding partial-word false positives
+        (a 3-word match is far more reliable than a 1-word match for
+        common stopwords like "the" / "a" / "and").
+
+        Parameters
+        ----------
+        prev_text : str
+            The previous chunk's (already-deduped) transcription text.
+        curr_text : str
+            The current chunk's transcription text.
+        n : int, optional
+            Maximum number of words to compare at the boundary.
+            Defaults to ``_QWEN_OVERLAP_DEDUP_WORDS`` (3).
+
+        Returns
+        -------
+        str
+            ``curr_text`` with the duplicate head removed, or
+            ``curr_text`` unchanged if no overlap is detected. May
+            return an empty string if the entire ``curr_text`` matched
+            the tail of ``prev_text`` (caller is responsible for
+            handling this case — typically by skipping the chunk).
+        """
+        prev_words = prev_text.split()
+        curr_words = curr_text.split()
+        if not prev_words or not curr_words:
+            return curr_text
+        max_k = min(n, len(prev_words), len(curr_words))
+        for k in range(max_k, 0, -1):
+            if prev_words[-k:] == curr_words[:k]:
+                return " ".join(curr_words[k:])
+        return curr_text
 
     @staticmethod
     def _split_audio(

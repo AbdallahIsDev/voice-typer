@@ -102,9 +102,62 @@ class _LazyModule:
         return getattr(self._resolve(), name)
 
     def __setattr__(self, name: str, value: Any) -> None:
+        """Delegate attribute assignment to the wrapped module in ``sys.modules``.
+
+        XV-78 (LOAD-BEARING — DO NOT REMOVE): this method MUTATES the real
+        module object that lives in ``sys.modules`` (returned by
+        ``self._resolve()`` → ``importlib.import_module``). It does NOT
+        store the value on the proxy itself — the proxy is intentionally
+        stateless for attribute reads (see the module docstring + ``__getattr__``).
+
+        Why this matters
+        -----------------
+        ``__getattr__`` re-resolves the module from ``sys.modules`` on every
+        access (per-test ``monkeypatch`` mocks must be honoured — see the
+        module docstring). If ``__setattr__`` stored the value on the proxy
+        (e.g. via ``object.__setattr__(self, name, value)``), the value
+        would land in a location that ``__getattr__`` NEVER consults —
+        ``__getattr__`` only runs when normal lookup fails, and the
+        per-instance dict is bypassed by ``__slots__``. The result would be
+        a write/read asymmetry: ``proxy.X = v`` would silently no-op,
+        ``proxy.X`` would then raise ``AttributeError`` (or return the
+        wrapped module's value), and the documented test pattern::
+
+            monkeypatch.setattr(recording.sd, "InputStream", fake)
+
+        would silently fail to take effect, breaking the entire test
+        fixture layer that injects fake ``sounddevice`` / ``pystray`` /
+        ``pynput`` backends.
+
+        Because modules are singletons in ``sys.modules``, the mutation is
+        visible to ANY other code that imports the same module name —
+        including other proxies for the same name (see
+        ``test_two_proxies_for_same_module_share_state``). This is
+        intentional and mirrors what would happen with a direct
+        ``import sounddevice as sd; sd.InputStream = fake``.
+
+        Removal would break: ``tests/test__lazy_import.py``
+        (``test_setattr_delegates_to_wrapped_module``,
+        ``test_monkeypatch_setattr_on_proxy_then_access_works``,
+        ``test_two_proxies_for_same_module_share_state``) plus every
+        production test that does ``monkeypatch.setattr(<lazy proxy>,
+        <attr>, <fake>)`` to inject a fake backend.
+
+        This behaviour is INTENTIONAL and load-bearing — it is the only
+        way to keep the proxy transparent for both reads and writes when
+        reads always re-resolve from ``sys.modules``.
+        """
         setattr(self._resolve(), name, value)
 
     def __delattr__(self, name: str) -> None:
+        """Delegate attribute deletion to the wrapped module in ``sys.modules``.
+
+        XV-78 (mirrors ``__setattr__``): deletion must mutate the real
+        module so a subsequent ``__getattr__`` re-resolve sees the
+        attribute as gone. Deleting on the proxy itself would be
+        silently invisible to ``__getattr__`` for the same reason
+        ``__setattr__`` would be (see ``__setattr__`` docstring).
+        """
         delattr(self._resolve(), name)
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid

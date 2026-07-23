@@ -551,7 +551,7 @@ class Recorder:
     #   - existing tests that do ``r._device_disconnected = False`` /
     #     ``r._mic_watcher is None`` / ``r._device_list_cache = ...``
     #     (see tests/test_microphone_watcher.py /
-    #     tests/test_rw7_rw8_audio_callback.py /
+    #     tests/test_audio_callback.py /
     #     tests/regressions/audio_test.py)
     #
     # The shims delegate reads AND writes through to ``self._devices.X``

@@ -114,8 +114,14 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
         # CPU and (b) can introduce artifacts from the double resample.
         # Fall back to ``_effective_sr`` when ``_buffer_sr`` is 0/unset
         # (defensive — should never happen because ``__init__`` and
-        # ``start()`` both initialize it).
-        effective_sr = recorder._buffer_sr or recorder._effective_sr
+        # ``start()`` both initialize it). XZ-8: use ``getattr`` with a
+        # ``None`` default so a ``Recorder`` instance that hasn't yet
+        # had ``_buffer_sr`` assigned (e.g. in unit tests that bypass
+        # ``start()``) doesn't raise ``AttributeError`` — the comment's
+        # stated intent is a fallback, and the ``or`` idiom only
+        # short-circuits on falsy values, not on missing attributes.
+        # ``None`` is falsy, so the fallback to ``_effective_sr`` fires.
+        effective_sr = getattr(recorder, "_buffer_sr", None) or recorder._effective_sr
         # PERF-NEW-021: read the cached target_sr instead of
         # recorder.config.sample_rate to avoid attribute lookup under lock.
         target_sr = getattr(recorder, "_cached_target_sr", None) or recorder.config.sample_rate

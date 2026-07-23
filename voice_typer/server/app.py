@@ -222,7 +222,7 @@ class VoiceTyperApp:
         # so tray menu callbacks and tests calling ``app._select_microphone``
         # keep working unchanged. ``_open_config_file`` stays on
         # VoiceTyperApp because source-level structure tests
-        # (test_b4_config_editor_lock.py) pin its body via inspect.getsource.
+        # (test_config_editor_lock.py) pin its body via inspect.getsource.
         from voice_typer.server.settings_controller import SettingsController
 
         self.settings: SettingsController = SettingsController(self)
@@ -1352,7 +1352,7 @@ def main() -> None:
 # voice_typer.server.app._windows_open_with_default_app /
 # _windows_wait_for_process_exit / _windows_close_process_handle /
 # _systemroot_notepad_path keep working unchanged (test_api_doc_accuracy.py,
-# test_b4_config_editor_lock.py). The bare PATH-resolved "notepad" pattern
+# test_config_editor_lock.py). The bare PATH-resolved "notepad" pattern
 # is intentionally NOT used — _systemroot_notepad_path validates the path
 # via %SYSTEMROOT%\\System32\\notepad.exe (SEC-audit-011 / XPLAT-01).
 from voice_typer.server.platform_launch import (  # noqa: F401

@@ -116,7 +116,7 @@ from __future__ import annotations
 # ─── Top-of-module imports ──────────────────────────────────────────────
 # RW-8: ``event_bus`` and ``compute_vad_prob`` MUST be imported at module
 # top (before the first class/def) so the static-source check in
-# tests/test_rw7_rw8_audio_callback.py::TestRW8HoistedImports passes.
+# tests/test_audio_callback.py::TestRW8HoistedImports passes.
 # Both are re-exported for backward compatibility.
 import collections
 import contextlib
