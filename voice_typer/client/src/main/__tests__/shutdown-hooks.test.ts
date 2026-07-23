@@ -97,22 +97,48 @@ describe("R6-F7: index.ts registers app.on('will-quit', stopPython)", () => {
 		// belt-and-suspenders shutdown hook (before-quit can be
 		// suppressed by event.preventDefault(), macOS logout paths,
 		// or tray close-to-tray on some platforms).
-		expect(src).toMatch(/app\.on\(\s*["']will-quit["']/);
-		// ...and it must call stopPython() (possibly inside a try/catch).
-		// Find the will-quit block and assert stopPython appears after it
-		// within ~500 chars.
-		const idx = src.indexOf("will-quit");
+		//
+		// Anchor the search on the ACTUAL handler registration
+		// (`app.on("will-quit",` — note the trailing comma). A naive
+		// `src.indexOf("will-quit")` would match the JSDoc summary
+		// near the top of the file (`app.on("before-quit" |
+		// "will-quit" | …)`), and the subsequent 500-char window
+		// would include the `stopPython` import statement —
+		// producing a false pass even if the handler body were
+		// empty. The trailing comma is present in the real
+		// `app.on("will-quit", (event) => {` call but absent in
+		// the JSDoc pipe-list, so it cleanly distinguishes them.
+		const idx = src.search(/app\.on\(\s*["']will-quit["']\s*,/);
 		expect(idx).toBeGreaterThan(-1);
 		const block = src.slice(idx, idx + 500);
+		// ...and it must call stopPython() (possibly inside a try/catch).
 		expect(block).toContain("stopPython");
 	});
 
-	it("index.ts source still contains the before-quit handler (unchanged behavior)", () => {
+	it("index.ts source contains an app.on('before-quit', ...) block that calls stopPython", () => {
 		const src = fs.readFileSync(
 			path.resolve(__dirname, "../index.ts"),
 			"utf-8",
 		);
-		expect(src).toMatch(/app\.on\(\s*["']before-quit["']/);
+		// The before-quit handler is the PRIMARY shutdown hook
+		// (fires first on normal quit paths). It must call
+		// stopPython() so the Python backend is cleaned up even
+		// when will-quit is suppressed (event.preventDefault(),
+		// macOS logout paths, tray close-to-tray on some
+		// platforms). Asserting only the registration — without
+		// verifying the stopPython call — would let a regression
+		// that empties the handler body pass silently (the
+		// handler is "registered" but does nothing).
+		//
+		// Same trailing-comma anchoring as the will-quit test
+		// above: the JSDoc summary line also mentions
+		// `app.on("before-quit"`, so a bare `indexOf` would land
+		// on the comment and the 500-char window would reach the
+		// `stopPython` import — a false pass.
+		const idx = src.search(/app\.on\(\s*["']before-quit["']\s*,/);
+		expect(idx).toBeGreaterThan(-1);
+		const block = src.slice(idx, idx + 500);
+		expect(block).toContain("stopPython");
 	});
 });
 

@@ -1115,8 +1115,18 @@ describe("RW-1: CI verifies version sync (rewrite of TestCiVerifiesVersionSync)"
 		expect(readCiWorkflow()).toContain("version-check");
 	});
 
-	it("verifies tag matches installer via MyAppVersion", () => {
-		expect(readCiWorkflow()).toContain("MyAppVersion");
+	it("verifies tag matches installer version via package.json read in CI", () => {
+		// The CI workflow reads the version out of voice_typer/client/package.json
+		// and compares it against the git tag ($tagVersion vs $installerVersion).
+		// The previous NSIS-based flow used the ``MyAppVersion`` preprocessor
+		// define; the current PowerShell-based flow uses a ``$installerVersion``
+		// variable populated from ``ConvertFrom-Json``. Both serve the same
+		// purpose (block a tag↔installer version mismatch), so accepting either
+		// token keeps the test resilient to the CI's shell choice.
+		const ci = readCiWorkflow();
+		const hasVersionSync =
+			ci.includes("MyAppVersion") || ci.includes("installerVersion");
+		expect(hasVersionSync).toBe(true);
 	});
 });
 
@@ -1206,7 +1216,7 @@ describe("RW-1: CHANGELOG test count is current (rewrite of test_changelog_has_c
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Section 13: ALLOWED_COMMANDS in src/main/index.ts
+// Section 13: ALLOWED_COMMANDS in src/main/allowed-commands.ts
 // ────────────────────────────────────────────────────────────────────
 //
 // Ports (8 of 9 TestAllowlistCorrectness tests):
@@ -1225,15 +1235,28 @@ describe("RW-1: CHANGELOG test count is current (rewrite of test_changelog_has_c
 // which is out of scope for a TS-string rewrite.  It stays in Python
 // with a REQUIRES-PYTHON-RUNNER comment.
 //
+// R6-F10: the canonical ALLOWED_COMMANDS declaration was moved from
+// `src/main/index.ts` (inline) into its own dependency-free module at
+// `src/main/allowed-commands.ts` to break a circular-import cycle
+// (`index.ts` → `python/` → `send-to-python.ts` → `index.ts`). The
+// test reads the canonical declaration so it stays in sync with the
+// file the Rust defense-in-depth gate (CR-4) and the Python parity
+// test (`tests/test_security_doc_command_count.py`) both reference.
+//
 // We extract the ALLOWED_COMMANDS set by slicing the source between
 // `ALLOWED_COMMANDS = new Set([` and the closing `]);` — same logic
 // as the Python test — then regex-match the quoted entries.
 
-const MAIN_INDEX_PATH = resolve(CLIENT_DIR, "src", "main", "index.ts");
+const ALLOWED_COMMANDS_PATH = resolve(
+	CLIENT_DIR,
+	"src",
+	"main",
+	"allowed-commands.ts",
+);
 
 function readAllowlistEntries(): Set<string> {
-	const src = readFileSync(MAIN_INDEX_PATH, "utf-8");
-	const start = src.indexOf("ALLOWED_COMMANDS = new Set([");
+	const src = readFileSync(ALLOWED_COMMANDS_PATH, "utf-8");
+	const start = src.indexOf("ALLOWED_COMMANDS = new Set(");
 	expect(start).not.toBe(-1);
 	const end = src.indexOf("]);", start);
 	expect(end).not.toBe(-1);
@@ -1246,7 +1269,7 @@ function readAllowlistEntries(): Set<string> {
 	return entries;
 }
 
-describe("RW-1: ALLOWED_COMMANDS in src/main/index.ts (rewrite of TestAllowlistCorrectness — 8 of 9 tests)", () => {
+describe("RW-1: ALLOWED_COMMANDS in src/main/allowed-commands.ts (rewrite of TestAllowlistCorrectness — 8 of 9 tests)", () => {
 	it("includes quit_app (rewrite of test_quit_app_in_allowlist)", () => {
 		expect(readAllowlistEntries().has("quit_app")).toBe(true);
 	});
@@ -1271,8 +1294,14 @@ describe("RW-1: ALLOWED_COMMANDS in src/main/index.ts (rewrite of TestAllowlistC
 		expect(readAllowlistEntries().has("save_vocabulary_with_diff")).toBe(false);
 	});
 
-	it("does NOT include the dead `repaste_last` alias (rewrite of test_dead_repaste_last_not_in_allowlist)", () => {
-		expect(readAllowlistEntries().has("repaste_last")).toBe(false);
+	it("includes the live `repaste_last` command (re-added per UX-23)", () => {
+		// `repaste_last` was previously in the ERR-IPC-003 "dead commands"
+		// removal list because it was only invoked via the tray hotkey
+		// callback, not as an IPC command. UX-23 wired the renderer's
+		// "Re-paste" button (Home.tsx) to call it via the IPC bridge, so
+		// it was re-added to the allowlist — it is no longer dead.
+		// See allowed-commands.ts §UX-23 for the full rationale.
+		expect(readAllowlistEntries().has("repaste_last")).toBe(true);
 	});
 
 	it("does NOT include the dead `complete_onboarding` alias (rewrite of test_dead_complete_onboarding_not_in_allowlist)", () => {
