@@ -93,31 +93,21 @@ def test_deb_depends_includes_required_packages(tauri_conf: dict) -> None:
 
 
 def test_deb_post_install_script_wired(tauri_conf: dict) -> None:
-    """``deb.postInstallScript`` must point at ``scripts/linux/postinst``.
+    """``deb.postInstall`` must point at ``scripts/linux/postinst``.
 
-    CR-53/CR-91: the previous assertion used
-    ``assert deb.get("postInstallScript") or deb["postInstall"].endswith(...)``,
-    which due to operator precedence short-circuits at the first truthy
-    operand — if the legacy Tauri v1 ``postInstallScript`` key was
-    present with ANY non-empty value, the path-content check on the v2
-    ``postInstall`` key was never evaluated. The rewrite below captures
-    the value into a local and asserts on it explicitly.
-
-    tauri-build 2.6.3 requires the long-form ``postInstallScript`` key
-    (the short ``postInstall`` form is rejected by the build script).
-    The strict assertions below lock in the long form so any regression
-    (e.g., a revert to the short form) is caught here.
+    Tauri v2 uses the short-form key ``postInstall`` (NOT ``postInstallScript``
+    which was a Tauri v1 key). See https://v2.tauri.app/reference/config/#debconfig
     """
     deb = tauri_conf["bundle"]["linux"]["deb"]
-    assert "postInstallScript" in deb, (
-        "bundle.linux.deb.postInstallScript missing — tauri-build 2.6.3 requires the 'postInstallScript' key"
+    assert "postInstall" in deb, (
+        "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
     )
-    assert "postInstall" not in deb, (
-        "stale short-form 'postInstall' key present on bundle.linux.deb should be 'postInstallScript'"
+    assert "postInstallScript" not in deb, (
+        "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
     )
-    post_install = deb["postInstallScript"]
-    assert post_install is not None, "bundle.linux.deb.postInstallScript must be set"
-    # Tauri resolves postInstallScript relative to src-tauri/ — the config uses
+    post_install = deb["postInstall"]
+    assert post_install is not None, "bundle.linux.deb.postInstall must be set"
+    # Tauri resolves postInstall relative to src-tauri/ — the config uses
     # "../../scripts/linux/postinst". We assert the tail to be robust to
     # the relative-path prefix.
     assert post_install.endswith("scripts/linux/postinst"), (
@@ -126,20 +116,20 @@ def test_deb_post_install_script_wired(tauri_conf: dict) -> None:
 
 
 def test_deb_pre_remove_script_wired(tauri_conf: dict) -> None:
-    """``deb.preRemoveScript`` must point at ``scripts/linux/prerm``.
+    """``deb.preRemove`` must point at ``scripts/linux/prerm``.
 
-    CR-53/CR-91: see ``test_deb_post_install_script_wired`` for the
-    operator-precedence bug in the previous ``or``-short-circuit form.
+    Tauri v2 uses the short-form key ``preRemove`` (NOT ``preRemoveScript``
+    which was a Tauri v1 key). See https://v2.tauri.app/reference/config/#debconfig
     """
     deb = tauri_conf["bundle"]["linux"]["deb"]
-    assert "preRemoveScript" in deb, (
-        "bundle.linux.deb.preRemoveScript missing — tauri-build 2.6.3 requires the 'preRemoveScript' key"
+    assert "preRemove" in deb, (
+        "bundle.linux.deb.preRemove missing — Tauri v2 requires the 'preRemove' key"
     )
-    assert "preRemove" not in deb, (
-        "stale short-form 'preRemove' key present on bundle.linux.deb — should be renamed to 'preRemove'"
+    assert "preRemoveScript" not in deb, (
+        "stale long-form 'preRemoveScript' key present on bundle.linux.deb — should use Tauri v2 'preRemove'"
     )
-    pre_remove = deb["preRemoveScript"]
-    assert pre_remove is not None, "bundle.linux.deb.preRemoveScript must be set"
+    pre_remove = deb["preRemove"]
+    assert pre_remove is not None, "bundle.linux.deb.preRemove must be set"
     assert pre_remove.endswith("scripts/linux/prerm"), (
         f"preRemove should reference scripts/linux/prerm, got {pre_remove!r}"
     )
@@ -250,26 +240,28 @@ def test_rpm_postinst_prerm_exist_and_wired(tauri_conf: dict) -> None:
     convention ($1 semantics) from Debian's postinst/prerm.
     """
     rpm = tauri_conf["bundle"]["linux"]["rpm"]
-    # tauri-build 2.6.3 says  requires the long-form installer-script keys.
-    assert "postInstallScript" in rpm, (
-        "bundle.linux.rpm.postInstallScript missing — tauri-build 2.6.3 requires the 'postInstallScript' key"
+    # Tauri v2 uses short-form keys `postInstall` / `preRemove` (NOT
+    # `postInstallScript` / `preRemoveScript` which were Tauri v1 keys).
+    # See https://v2.tauri.app/reference/config/#debconfig
+    assert "postInstall" in rpm, (
+        "bundle.linux.rpm.postInstall missing — Tauri v2 requires the 'postInstall' key"
     )
-    assert "postInstall" not in rpm, (
-        "stale short-form 'postInstall' key present on bundle.linux.rpm — should be renamed to 'postInstallScript'"
+    assert "postInstallScript" not in rpm, (
+        "stale long-form 'postInstallScript' key present on bundle.linux.rpm — should use Tauri v2 'postInstall'"
     )
-    rpm_post_install = rpm["postInstallScript"]
-    assert rpm_post_install is not None, "bundle.linux.rpm.postInstallScript must be set"
+    rpm_post_install = rpm["postInstall"]
+    assert rpm_post_install is not None, "bundle.linux.rpm.postInstall must be set"
     assert rpm_post_install.endswith("scripts/linux/postinst.rpm"), (
         f"rpm.postInstall should reference scripts/linux/postinst.rpm, got {rpm_post_install!r}"
     )
 
-    assert "preRemoveScript" in rpm, (
-        "bundle.linux.rpm.preRemoveScript missing — tauri-build 2.6.3 requires the 'preRemoveScript' key"
+    assert "preRemove" in rpm, (
+        "bundle.linux.rpm.preRemove missing — Tauri v2 requires the 'preRemove' key"
     )
-    assert "preRemove" not in rpm, (
-        "stale short-form 'preRemove' key present on bundle.linux.rpm — should be renamed to 'preRemoveScript'"
+    assert "preRemoveScript" not in rpm, (
+        "stale long-form 'preRemoveScript' key present on bundle.linux.rpm — should use Tauri v2 'preRemove'"
     )
-    rpm_pre_remove = rpm["preRemoveScript"]
+    rpm_pre_remove = rpm["preRemove"]
     assert rpm_pre_remove is not None, "bundle.linux.rpm.preRemove must be set"
     assert rpm_pre_remove.endswith("scripts/linux/prerm.rpm"), (
         f"rpm.preRemove should reference scripts/linux/prerm.rpm, got {rpm_pre_remove!r}"

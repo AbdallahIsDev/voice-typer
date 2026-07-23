@@ -401,18 +401,17 @@ def test_tauri_conf_has_linux_deb_postinstall():
     """
     conf = json.loads(TAURI_CONF.read_text())
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-    # The pinned tauri-build 2.6.3 Debian/RPM bundle schema requires the
-    # long-form installer-script keys `postInstallScript` / `preRemoveScript`
-    # (the short `postInstall` / `preRemove` form is rejected by the build
-    # script — see `cargo check` in src-tauri). Assert the long form and
-    # reject the short form so any regression is caught here.
-    assert "postInstallScript" in deb, (
-        "bundle.linux.deb.postInstallScript missing — tauri-build 2.6.3 requires the 'postInstallScript' key"
+    # Tauri v2 Debian/RPM bundle schema uses the short-form keys
+    # `postInstall` / `preRemove` (NOT `postInstallScript` / `preRemoveScript`
+    # which were Tauri v1 keys). See https://v2.tauri.app/reference/config/#debconfig
+    # Assert the v2 form and reject the v1 form so any regression is caught here.
+    assert "postInstall" in deb, (
+        "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
     )
-    assert "postInstall" not in deb, (
-        "stale short-form 'postInstall' key present on bundle.linux.deb — should be 'postInstallScript'"
+    assert "postInstallScript" not in deb, (
+        "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
     )
-    post_install = deb["postInstallScript"]
+    post_install = deb["postInstall"]
 
     assert post_install is not None, "bundle.linux.deb.postInstall is missing"
     # The path is relative to src-tauri/ per Tauri v2 docs (ADR-0020 §13.3
@@ -437,14 +436,15 @@ def test_tauri_conf_has_linux_deb_preremove():
     """``bundle.linux.deb.preRemove`` points to ``scripts/linux/prerm``."""
     conf = json.loads(TAURI_CONF.read_text())
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-    # tauri-build 2.6.3 requires the long-form `preRemoveScript` key.
-    assert "preRemoveScript" in deb, (
-        "bundle.linux.deb.preRemoveScript missing — tauri-build 2.6.3 requires the 'preRemoveScript' key"
+    # Tauri v2 uses the short-form `preRemove` key (NOT `preRemoveScript` which was Tauri v1).
+    # See https://v2.tauri.app/reference/config/#debconfig
+    assert "preRemove" in deb, (
+        "bundle.linux.deb.preRemove missing — Tauri v2 requires the 'preRemove' key"
     )
-    assert "preRemove" not in deb, (
-        "stale short-form 'preRemove' key present on bundle.linux.deb — should be 'preRemoveScript'"
+    assert "preRemoveScript" not in deb, (
+        "stale long-form 'preRemoveScript' key present on bundle.linux.deb — should use Tauri v2 'preRemove'"
     )
-    pre_remove = deb["preRemoveScript"]
+    pre_remove = deb["preRemove"]
 
     assert pre_remove is not None, "bundle.linux.deb.preRemove is missing"
     # See test_tauri_conf_has_linux_deb_postinstall for why we don't

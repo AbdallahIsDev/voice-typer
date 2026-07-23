@@ -19,7 +19,7 @@
 # `purge`.
 #
 # Tauri v2 limitation: as of Tauri 2.x, the bundle config supports
-# `postInstallScript` and `preRemoveScript` but NOT `postRemoveScript`.
+# Tauri v2 uses `postInstall` and `preRemove` (NOT `postInstallScript` / `preRemoveScript` which were Tauri v1 keys, and NOT `postRemoveScript`).
 # This postrm script is therefore NOT automatically wired into the .deb
 # by Tauri's bundler. To enable true `apt purge` cleanup, the .deb must
 # be post-processed (e.g. via a `dpkg-deb --extract` + re-pack step in

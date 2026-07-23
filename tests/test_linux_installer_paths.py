@@ -552,7 +552,7 @@ class TestPostrmPurgeSemantics:
     ($1 = 1).
 
     Tauri v2 limitation: as of Tauri 2.x, the bundle config supports
-    ``postInstallScript`` and ``preRemoveScript`` but NOT
+    ``postInstall`` and ``preRemove`` (Tauri v2 keys) but NOT
     ``postRemoveScript``. The postrm scripts are therefore NOT
     automatically wired into the .deb / .rpm by Tauri's bundler —
     they exist as standalone files for future CI post-processing

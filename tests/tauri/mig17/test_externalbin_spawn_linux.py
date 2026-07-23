@@ -345,53 +345,54 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
     deb = linux.get("deb", {})
     rpm = linux.get("rpm", {})
 
-    # tauri-build 2.6.3 requires the long-form installer-script keys
-    # `postInstallScript` / `preRemoveScript` (short form rejected by build).
-    assert "postInstallScript" in deb, (
-        "bundle.linux.deb.postInstallScript missing — tauri-build 2.6.3 requires the 'postInstallScript' key"
+    # Tauri v2 uses short-form keys `postInstall` / `preRemove` (NOT
+    # `postInstallScript` / `preRemoveScript` which were Tauri v1 keys).
+    # See https://v2.tauri.app/reference/config/#debconfig
+    assert "postInstall" in deb, (
+        "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
     )
-    assert "postInstall" not in deb, (
-        "stale short-form 'postInstall' key present on bundle.linux.deb — should be 'postInstallScript'"
+    assert "postInstallScript" not in deb, (
+        "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
     )
-    deb_post_install = deb["postInstallScript"]
+    deb_post_install = deb["postInstall"]
     assert deb_post_install is not None, "bundle.linux.deb.postInstall must be set"
     assert deb_post_install.endswith("scripts/linux/postinst"), (
         f"bundle.linux.deb.postInstall must point at scripts/linux/postinst "
         f"(reused verbatim from Electron per ADR-0020 §13.3), got {deb_post_install!r}"
     )
 
-    assert "preRemoveScript" in deb, (
-        "bundle.linux.deb.preRemoveScript missing — tauri-build 2.6.3 requires the 'preRemoveScript' key"
+    assert "preRemove" in deb, (
+        "bundle.linux.deb.preRemove missing — Tauri v2 requires the 'preRemove' key"
     )
-    assert "preRemove" not in deb, (
-        "stale short-form 'preRemove' key present on bundle.linux.deb — should be 'preRemoveScript'"
+    assert "preRemoveScript" not in deb, (
+        "stale long-form 'preRemoveScript' key present on bundle.linux.deb — should use Tauri v2 'preRemove'"
     )
-    deb_pre_remove = deb["preRemoveScript"]
+    deb_pre_remove = deb["preRemove"]
     assert deb_pre_remove is not None, "bundle.linux.deb.preRemove must be set"
     assert deb_pre_remove.endswith("scripts/linux/prerm"), (
         f"bundle.linux.deb.preRemove must point at scripts/linux/prerm "
         f"(reused verbatim from Electron per ADR-0020 §13.3), got {deb_pre_remove!r}"
     )
 
-    assert "postInstallScript" in rpm, (
-        "bundle.linux.rpm.postInstallScript missing — tauri-build 2.6.3 requires the 'postInstallScript' key"
+    assert "postInstall" in rpm, (
+        "bundle.linux.rpm.postInstall missing — Tauri v2 requires the 'postInstall' key"
     )
-    assert "postInstall" not in rpm, (
-        "stale short-form 'postInstall' key present on bundle.linux.rpm — should be 'postInstallScript'"
+    assert "postInstallScript" not in rpm, (
+        "stale long-form 'postInstallScript' key present on bundle.linux.rpm — should use Tauri v2 'postInstall'"
     )
-    rpm_post_install = rpm["postInstallScript"]
+    rpm_post_install = rpm["postInstall"]
     assert rpm_post_install is not None, "bundle.linux.rpm.postInstall must be set"
     assert rpm_post_install.endswith("scripts/linux/postinst.rpm"), (
         f"bundle.linux.rpm.postInstall must point at scripts/linux/postinst.rpm, got {rpm_post_install!r}"
     )
 
-    assert "preRemoveScript" in rpm, (
-        "bundle.linux.rpm.preRemoveScript missing — tauri-build 2.6.3 requires the 'preRemoveScript' key"
+    assert "preRemove" in rpm, (
+        "bundle.linux.rpm.preRemove missing — Tauri v2 requires the 'preRemove' key"
     )
-    assert "preRemove" not in rpm, (
-        "stale short-form 'preRemove' key present on bundle.linux.rpm — should be 'preRemoveScript'"
+    assert "preRemoveScript" not in rpm, (
+        "stale long-form 'preRemoveScript' key present on bundle.linux.rpm — should use Tauri v2 'preRemove'"
     )
-    rpm_pre_remove = rpm["preRemoveScript"]
+    rpm_pre_remove = rpm["preRemove"]
     assert rpm_pre_remove is not None, "bundle.linux.rpm.preRemove must be set"
     assert rpm_pre_remove.endswith("scripts/linux/prerm.rpm"), (
         f"bundle.linux.rpm.preRemove must point at scripts/linux/prerm.rpm, got {rpm_pre_remove!r}"

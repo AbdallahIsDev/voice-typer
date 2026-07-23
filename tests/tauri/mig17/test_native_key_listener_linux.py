@@ -242,14 +242,15 @@ class TestTauriBundleResources:
         """
         conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
         deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-        # tauri-build 2.6.3 requires the long-form `postInstallScript` key.
-        assert "postInstallScript" in deb, (
-            "bundle.linux.deb.postInstallScript missing — tauri-build 2.6.3 requires the 'postInstallScript' key"
+        # Tauri v2 uses the short-form `postInstall` key (NOT `postInstallScript` which was Tauri v1).
+        # See https://v2.tauri.app/reference/config/#debconfig
+        assert "postInstall" in deb, (
+            "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
         )
-        assert "postInstall" not in deb, (
-            "stale short-form 'postInstall' key present on bundle.linux.deb — should be 'postInstallScript'"
+        assert "postInstallScript" not in deb, (
+            "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
         )
-        post_install = deb["postInstallScript"]
+        post_install = deb["postInstall"]
         assert post_install is not None, (
             "tauri.conf.json bundle.linux.deb.postInstall must be set "
             "(the postinst script that sets up the input group + udev rule)"
