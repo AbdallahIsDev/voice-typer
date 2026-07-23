@@ -15,6 +15,7 @@ id→callback map, not the real pystray menu.
 
 from __future__ import annotations
 
+import pytest
 from voice_typer.server import event_bus
 from voice_typer.server.tray_menu import build_tray_menu_model
 
@@ -263,3 +264,395 @@ def test_tray_click_missing_id_returns_error():
 
     assert result["type"] == "error"
     assert result["data"]["code"] in ("missing_field", "invalid_payload")
+
+
+# ─── S1-CR-6: tray_menu + tray_state publish wiring ──────────────────────
+
+
+def _make_full_controller():
+    """Build a minimal controller satisfying build_tray_menu_model's contract."""
+
+    class _Ctrl:
+        def toggle_dictation(self):
+            pass
+
+        def restart_app(self):
+            pass
+
+        def change_microphone(self, _mic):
+            pass
+
+        def change_model(self, _name):
+            pass
+
+        def repaste_last(self):
+            pass
+
+        def refresh_microphones(self):
+            pass
+
+        _microphones = []
+
+    return _Ctrl()
+
+
+def _make_tauri_tray(*, controller=None, icon=None, hotkey="<f2>"):
+    """Build a TrayIcon-like object that bypasses pystray entirely.
+
+    Mirrors the shape that ``_maybe_publish_tray_menu`` and
+    ``_publish_tray_state`` read off ``self``. ``icon`` defaults to
+    ``None`` to model the Tauri runtime (where the native tray is owned
+    by the Rust host and the pystray ``Icon`` is never created).
+    """
+    import threading
+
+    import voice_typer.server.tray as tray_mod
+    from voice_typer.server.tray_types import AppState
+
+    class _FakeTray(tray_mod.TrayIcon):
+        def __init__(self):
+            self._config = None
+            self._controller = controller
+            self._state = AppState.IDLE
+            self._message = ""
+            self._icon = icon
+            self._menu_cache_valid = False
+            self._tray_id_map = {}
+            self._hotkey = hotkey
+            self._cpu_fallback_active = False
+            self._recording_started_at = None
+            self._microphones = []
+            self._elapsed_timer = None
+            # ``set_state`` queues pre-run state under ``_queue_lock`` when
+            # ``_icon`` is None — provide a real lock so the with-block works.
+            self._queue_lock = threading.Lock()
+            self._pending_states = []
+            self._pending_notifications = []
+
+    return _FakeTray()
+
+
+def test_publish_tray_state_guarded_by_tauri_sidecar(monkeypatch):
+    """The ``tray_state`` event is emitted ONLY under TAURI_SIDECAR=1."""
+    from voice_typer.server.tray_menu import publish_tray_state
+
+    captured = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_state":
+            captured.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        # 1. Without the env var: no event.
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+        assert publish_tray_state(icon="recording", tooltip="x") is False
+        assert captured == [], "tray_state must NOT publish without TAURI_SIDECAR"
+
+        # 2. With the env var: event emitted with both fields.
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+        assert publish_tray_state(icon="recording", tooltip="Voice Typer — Recording") is True
+        assert len(captured) == 1
+        ev = captured[0]
+        assert ev["type"] == "tray_state"
+        assert ev["data"]["icon"] == "recording"
+        assert ev["data"]["tooltip"] == "Voice Typer — Recording"
+
+        # 3. With only icon field: payload only has icon.
+        assert publish_tray_state(icon="idle") is True
+        ev2 = captured[-1]
+        assert ev2["data"] == {"icon": "idle"}
+
+        # 4. With no fields: returns False (nothing to publish).
+        assert publish_tray_state() is False
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+def test_maybe_publish_tray_menu_works_without_pystray_icon(monkeypatch):
+    """Under Tauri the pystray Icon is never created (Rust owns the tray).
+
+    The publish helper must NOT short-circuit on ``self._icon is None``
+    — otherwise the tray_menu event never reaches the Rust host and the
+    tray stays frozen at the empty placeholder for the whole session.
+    """
+    tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
+    assert tray._icon is None, "test setup: Tauri runtime has no pystray Icon"
+
+    captured = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_menu":
+            captured.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+        published = tray._maybe_publish_tray_menu()
+        assert published is True, (
+            "_maybe_publish_tray_menu must publish under Tauri even when "
+            "self._icon is None — the Rust host owns the native tray"
+        )
+        assert len(captured) == 1
+        assert captured[0]["type"] == "tray_menu"
+        assert isinstance(captured[0]["data"]["items"], list)
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+def test_set_state_publishes_tray_state_under_tauri(monkeypatch):
+    """``set_state`` emits a tray_state event so the Tauri host updates icon+tooltip."""
+    from voice_typer.server.tray_types import AppState
+
+    tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
+
+    captured = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_state":
+            captured.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+        tray.set_state(AppState.RECORDING, "Recording…")
+        assert len(captured) >= 1, "set_state must emit tray_state under Tauri"
+        ev = captured[-1]
+        assert ev["data"]["icon"] == "recording"
+        assert "Recording" in ev["data"]["tooltip"]
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+def test_set_state_publishes_tray_menu_only_on_transcribing_change(monkeypatch):
+    """TRANSCRIBING ⇄ non-TRANSCRIBING transitions publish tray_menu (Force Cancel item).
+
+    RECORDING ⇄ IDLE transitions only publish tray_state (icon/tooltip) —
+    publishing the full menu model on every state change would waste
+    work because the menu structure doesn't change.
+    """
+    from voice_typer.server.tray_types import AppState
+
+    tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
+
+    menu_events = []
+    state_events = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_menu":
+            menu_events.append(event)
+        elif event.get("type") == "tray_state":
+            state_events.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+
+        # IDLE → RECORDING: no menu publish (only state).
+        tray.set_state(AppState.RECORDING)
+        menu_after_recording = len(menu_events)
+        assert menu_after_recording == 0, "IDLE→RECORDING must NOT publish tray_menu (no menu structure change)"
+        assert len(state_events) == 1
+
+        # RECORDING → TRANSCRIBING: menu publish (Force Cancel item appears).
+        tray.set_state(AppState.TRANSCRIBING)
+        assert len(menu_events) == 1, "RECORDING→TRANSCRIBING must publish tray_menu (Force Cancel item appears)"
+
+        # TRANSCRIBING → TRANSCRIBING: no menu publish (no structure change).
+        tray.set_state(AppState.TRANSCRIBING, "still transcribing")
+        assert len(menu_events) == 1, "TRANSCRIBING→TRANSCRIBING must NOT publish tray_menu"
+
+        # TRANSCRIBING → IDLE: menu publish (Force Cancel item disappears).
+        tray.set_state(AppState.IDLE)
+        assert len(menu_events) == 2, "TRANSCRIBING→IDLE must publish tray_menu (Force Cancel item disappears)"
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+def test_set_hotkey_publishes_tray_menu_and_state(monkeypatch):
+    """``set_hotkey`` pushes the new hotkey label in the menu + tooltip."""
+    tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
+
+    menu_events = []
+    state_events = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_menu":
+            menu_events.append(event)
+        elif event.get("type") == "tray_state":
+            state_events.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+        tray.set_hotkey("<f9>")
+        assert len(menu_events) == 1, "set_hotkey must publish tray_menu (label changes)"
+        assert len(state_events) == 1, "set_hotkey must publish tray_state (tooltip changes)"
+        # The new hotkey should appear in the menu model's toggle_dictation label.
+        items = menu_events[0]["data"]["items"]
+        toggle = next(i for i in items if i["id"] == "toggle_dictation")
+        assert "F9" in toggle["label"], "menu label should reflect new hotkey"
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+def test_set_microphones_publishes_tray_menu(monkeypatch):
+    """``set_microphones`` pushes the new Microphones submenu to the host."""
+    ctrl = _make_full_controller()
+    tray = _make_tauri_tray(controller=ctrl, icon=None)
+
+    menu_events = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_menu":
+            menu_events.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+        mics = [{"id": "0", "name": "Built-in"}, {"id": "1", "name": "USB"}]
+        # Mirror production ordering: the caller (e.g. startup_tasks.py)
+        # updates ``controller._microphones`` BEFORE calling
+        # ``tray.set_microphones`` — ``_maybe_publish_tray_menu`` reads
+        # ``controller._microphones`` (not ``self._microphones``).
+        ctrl._microphones = mics
+        tray.set_microphones(mics)
+        assert len(menu_events) == 1, "set_microphones must publish tray_menu"
+        items = menu_events[0]["data"]["items"]
+        mic_item = next((i for i in items if i["id"] == "microphones"), None)
+        assert mic_item is not None, "menu model should include a microphones submenu"
+        assert mic_item["submenu"] is not None
+        sub_ids = {i["id"] for i in mic_item["submenu"] if not i["separator"]}
+        assert "mic:0" in sub_ids
+        assert "mic:1" in sub_ids
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+def test_refresh_config_publishes_tray_menu_and_state(monkeypatch):
+    """``refresh_config`` pushes the rebuilt menu + tooltip to the host."""
+    from types import SimpleNamespace
+
+    tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
+
+    menu_events = []
+    state_events = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_menu":
+            menu_events.append(event)
+        elif event.get("type") == "tray_state":
+            state_events.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+        tray.refresh_config(SimpleNamespace(hotkey="<f5>", model_size="medium", tray_left_click_action="open_app"))
+        assert len(menu_events) == 1, "refresh_config must publish tray_menu"
+        assert len(state_events) == 1, "refresh_config must publish tray_state"
+        items = menu_events[0]["data"]["items"]
+        toggle = next(i for i in items if i["id"] == "toggle_dictation")
+        assert "F5" in toggle["label"], "menu should reflect new hotkey from config"
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+def test_ws_reader_allowlist_includes_tray_state():
+    """The Rust WS reader's ALLOWED_EVENT_TYPES must include ``tray_state``.
+
+    Without this, the WS reader silently drops the ``tray_state`` event
+    at the protocol boundary — the Rust tray.rs listener never fires,
+    so the Tauri tray icon stays frozen at the startup placeholder
+    regardless of recording/transcribing/error state.
+    """
+    # Parse the ALLOWED_EVENT_TYPES array out of ws.rs. We grep the
+    # source rather than calling Rust because the sandbox has no cargo
+    # (the constant lives in src-tauri/src/sidecar/ws.rs).
+    from pathlib import Path
+
+    ws_rs = Path(__file__).resolve().parents[2] / "src-tauri" / "src" / "sidecar" / "ws.rs"
+    assert ws_rs.exists(), f"ws.rs not found at {ws_rs}"
+    src = ws_rs.read_text(encoding="utf-8")
+    # The array is a single const declaration; find its bounds and
+    # verify ``"tray_state"`` (with quotes) appears inside.
+    assert '"tray_state"' in src, (
+        'ws.rs must include "tray_state" in ALLOWED_EVENT_TYPES so the '
+        "Rust WS reader forwards the event to the tray_state listener "
+        "registered in tray.rs::create_tray"
+    )
+    # Also verify tray_menu is still there (regression guard — we
+    # edited the same line that lists tray_menu).
+    assert '"tray_menu"' in src
+
+
+def test_bg_work_wrapper_publishes_initial_menu(monkeypatch):
+    """``start(bg_work=…)`` wraps bg_work so the initial menu is published.
+
+    Under Tauri, the native tray is built by the Rust host with an
+    empty placeholder menu. Without an explicit publish after bg_work
+    completes (model preload + hotkey registration), the user sees only
+    the placeholder until they change a setting that triggers
+    ``invalidate_menu_cache``.
+    """
+    tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
+
+    menu_events = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_menu":
+            menu_events.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+
+        # The wrapper is built by _wrap_bg_work; invoke it directly so
+        # we don't have to spin up a real bg thread.
+        ran = []
+        wrapped = tray._wrap_bg_work(lambda: ran.append(True))
+        assert wrapped is not None
+        wrapped()
+        assert ran == [True], "wrapper must call the original bg_work"
+        assert len(menu_events) == 1, "wrapper must publish tray_menu after bg_work completes"
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+
+def test_bg_work_wrapper_returns_none_for_none_input():
+    """``_wrap_bg_work(None)`` returns ``None`` (preserves start() guards)."""
+    tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
+    assert tray._wrap_bg_work(None) is None
+
+
+def test_bg_work_wrapper_publishes_even_when_bg_work_raises(monkeypatch):
+    """If bg_work raises, the wrapper still publishes the menu (try/finally)."""
+    tray = _make_tauri_tray(controller=_make_full_controller(), icon=None)
+
+    menu_events = []
+
+    def _on_event(event):
+        if event.get("type") == "tray_menu":
+            menu_events.append(event)
+
+    event_bus.subscribe(_on_event)
+    try:
+        monkeypatch.setenv("TAURI_SIDECAR", "1")
+
+        def _boom():
+            raise RuntimeError("preload failed")
+
+        wrapped = tray._wrap_bg_work(_boom)
+        with pytest.raises(RuntimeError):
+            wrapped()
+        assert len(menu_events) == 1, "wrapper must publish tray_menu even when bg_work raises"
+    finally:
+        event_bus.unsubscribe(_on_event)
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)

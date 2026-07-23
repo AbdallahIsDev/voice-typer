@@ -401,12 +401,18 @@ def test_tauri_conf_has_linux_deb_postinstall():
     """
     conf = json.loads(TAURI_CONF.read_text())
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-    # CR-53/CR-91: prefer the Tauri v2 key 'postInstall' (no 'Script'
-    # suffix); fall back to the legacy v1 'postInstallScript' only so
-    # the assertion still produces a useful path-content error message
-    # if FIX-4 hasn't landed yet. The strict v2-only assertions below
-    # pin the v2 schema (ADR-0020) once FIX-4 lands.
-    post_install = deb.get("postInstall") or deb.get("postInstallScript")
+    # The pinned tauri-build 2.6.3 Debian/RPM bundle schema requires the
+    # long-form installer-script keys `postInstallScript` / `preRemoveScript`
+    # (the short `postInstall` / `preRemove` form is rejected by the build
+    # script — see `cargo check` in src-tauri). Assert the long form and
+    # reject the short form so any regression is caught here.
+    assert "postInstallScript" in deb, (
+        "bundle.linux.deb.postInstallScript missing — tauri-build 2.6.3 requires the 'postInstallScript' key"
+    )
+    assert "postInstall" not in deb, (
+        "stale short-form 'postInstall' key present on bundle.linux.deb — should be 'postInstallScript'"
+    )
+    post_install = deb["postInstallScript"]
 
     assert post_install is not None, "bundle.linux.deb.postInstall is missing"
     # The path is relative to src-tauri/ per Tauri v2 docs (ADR-0020 §13.3
@@ -425,24 +431,20 @@ def test_tauri_conf_has_linux_deb_postinstall():
         f"postInstall target does not exist on disk at the canonical repo "
         f"location: {POSTINST} (postInstall={post_install!r})"
     )
-    # Tauri v2 schema (ADR-0020) uses 'postInstall' (no 'Script' suffix).
-    # FIX-4 (CR-54) renamed the keys in tauri.conf.json so these strict
-    # v2-only assertions should pass.
-    # TODO: Uncomment after CR-54 fix (FIX-4) lands:
-    #   assert "postInstall" in deb, ("Tauri v2 'postInstall' key missing on bundle.linux.deb — config still uses v1 'postInstallScript'")
-    # TODO: Uncomment after CR-54 fix (FIX-4) lands:
-    #   assert "postInstallScript" not in deb, ("stale Tauri v1 'postInstallScript' key present on bundle.linux.deb — should be renamed to 'postInstall'")
 
 
 def test_tauri_conf_has_linux_deb_preremove():
     """``bundle.linux.deb.preRemove`` points to ``scripts/linux/prerm``."""
     conf = json.loads(TAURI_CONF.read_text())
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-    # CR-53/CR-91: prefer the Tauri v2 key 'preRemove' (no 'Script'
-    # suffix); fall back to the legacy v1 'preRemoveScript' only so the
-    # path-content check always runs (see test_tauri_conf_has_linux_deb_postinstall
-    # for the operator-precedence rationale).
-    pre_remove = deb.get("preRemove") or deb.get("preRemoveScript")
+    # tauri-build 2.6.3 requires the long-form `preRemoveScript` key.
+    assert "preRemoveScript" in deb, (
+        "bundle.linux.deb.preRemoveScript missing — tauri-build 2.6.3 requires the 'preRemoveScript' key"
+    )
+    assert "preRemove" not in deb, (
+        "stale short-form 'preRemove' key present on bundle.linux.deb — should be 'preRemoveScript'"
+    )
+    pre_remove = deb["preRemoveScript"]
 
     assert pre_remove is not None, "bundle.linux.deb.preRemove is missing"
     # See test_tauri_conf_has_linux_deb_postinstall for why we don't
@@ -454,13 +456,6 @@ def test_tauri_conf_has_linux_deb_preremove():
     assert PRERM.is_file(), (
         f"preRemove target does not exist on disk at the canonical repo location: {PRERM} (preRemove={pre_remove!r})"
     )
-    # Tauri v2 schema (ADR-0020) uses 'preRemove' (no 'Script' suffix).
-    # FIX-4 (CR-54) renamed the keys in tauri.conf.json so these strict
-    # v2-only assertions should pass.
-    # TODO: Uncomment after CR-54 fix (FIX-4) lands:
-    #   assert "preRemove" in deb, ("Tauri v2 'preRemove' key missing on bundle.linux.deb — config still uses v1 'preRemoveScript'")
-    # TODO: Uncomment after CR-54 fix (FIX-4) lands:
-    #   assert "preRemoveScript" not in deb, ("stale Tauri v1 'preRemoveScript' key present on bundle.linux.deb — should be renamed to 'preRemove'")
 
 
 def test_tauri_conf_has_linux_deb_desktop_template():
