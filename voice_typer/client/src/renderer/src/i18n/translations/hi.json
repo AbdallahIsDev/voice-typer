@@ -297,7 +297,12 @@
 		"startDictation": "डिक्टेशन शुरू करें",
 		"refreshFailed": "आँकड़े ताज़ा करने में विफल",
 		"dayActivityAria": "{label}: {count} transcriptions",
-		"loadingAria": "डैशबोर्ड लोड हो रहा है"
+		"loadingAria": "डैशबोर्ड लोड हो रहा है",
+		"cards": {
+			"dictations": "डिक्टेशन",
+			"chars": "अक्षर",
+			"duration": "अवधि"
+		}
 	},
 	"about": {
 		"title": "परिचय",
@@ -915,9 +920,7 @@
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
-		"bubbleClickToToggle": "Click Bubble to Toggle",
-		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation"
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click"
 	},
 	"models": {
 		"asrTitle": "ASR मॉडल",
@@ -1273,8 +1276,6 @@
 		"skippedSnack": "सेटअप छोड़ा गया — डिफ़ॉल्ट का उपयोग कर रहे हैं",
 		"stepProgress": "चरण {total} में से {current}",
 		"progressAria": "सेटअप चरण {current} / {total}",
-		"step4Item": "Pick a transcription model",
-		"step5Item": "Finish and load your model",
 		"permissionsTitle": "Keyboard Monitoring Permission",
 		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
 		"permissionsLoading": "Checking permission…",
@@ -1285,8 +1286,6 @@
 		"permissionsTestSuccess": "Hotkey detected! It works.",
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
-		"micLevel": "Input level",
-		"modelMultilingual": "Multilingual",
 		"skipConfirmTitle": "Skip setup?",
 		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
 		"skipConfirmLabel": "Skip anyway",
@@ -1315,7 +1314,6 @@
 		"transcribingLabel": "लिखा जा रहा है",
 		"idleLabel": "Ready",
 		"recordingLabel": "REC",
-		"micButtonAria": "Toggle dictation",
 		"micButtonStartAria": "Start dictation",
 		"micButtonStopAria": "Stop dictation"
 	},
@@ -1409,7 +1407,11 @@
 		}
 	},
 	"dashboard": {
-		"cards": {}
+		"cards": {
+			"dictations": "डिक्टेशन",
+			"chars": "अक्षर",
+			"duration": "अवधि"
+		}
 	},
 	"stats": {
 		"shareImage": {
@@ -1417,7 +1419,12 @@
 			"wpm": "WPM",
 			"min": "मिनट",
 			"savedVsTyping": "टाइपिंग की तुलना में बचाया",
-			"title": "Voice Typer आँकड़े"
+			"title": "Voice Typer आँकड़े",
+			"cloudMode": "क्लाउड",
+			"offlineMode": "ऑफ़लाइन",
+			"cloudApi": "क्लाउड API",
+			"localModel": "स्थानीय मॉडल",
+			"fasterThanAvg": "औसत टाइपिस्ट से {percent}% तेज़"
 		}
 	},
 	"hotkey": {

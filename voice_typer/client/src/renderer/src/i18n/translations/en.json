@@ -473,8 +473,6 @@
 		"bubbleShowOnStartupDescription": "Show the bubble when the app starts (only when Always Visible)",
 		"bubbleMicButton": "Bubble Mic Button",
 		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
-		"bubbleClickToToggle": "Click Bubble to Toggle",
-		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation",
 		"theme": "Theme",
 		"themeDescription": "Application color scheme",
 		"advanced": "Advanced",
@@ -1256,8 +1254,6 @@
 		"step1Item": "Choose your microphone",
 		"step2Item": "Grant keyboard-monitoring permission",
 		"step3Item": "Select a hotkey",
-		"step4Item": "Pick a transcription model",
-		"step5Item": "Finish and load your model",
 		"permissionsTitle": "Keyboard Monitoring Permission",
 		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
 		"permissionsLoading": "Checking permission…",
@@ -1280,7 +1276,6 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"micTitle": "Choose Your Microphone",
-		"micLevel": "Input level",
 		"micDescription": "Select the microphone you want to use for dictation. You can change this later in Settings.",
 		"micSelectAria": "Select microphone",
 		"noMics": "No microphones detected. You can set one later in Settings.",
@@ -1290,7 +1285,6 @@
 		"modelTitle": "Choose Your Model",
 		"modelDescription": "Pick a transcription model. Smaller models are faster; larger models are more accurate. The model downloads in the background after setup.",
 		"modelSelectAria": "Select model: {name}",
-		"modelMultilingual": "Multilingual",
 		"completeTitle": "You're All Set!",
 		"completeDescription": "Your Voice Typer is configured and ready. Press your hotkey ({hotkey}) to start dictating. The model will download and load in the background — this may take a minute on first run.",
 		"summaryMic": "Microphone:",
@@ -1325,7 +1319,6 @@
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer recording indicator",
 		"transcribingLabel": "Transcribing",
-		"micButtonAria": "Toggle dictation",
 		"micButtonStartAria": "Start dictation",
 		"micButtonStopAria": "Stop dictation",
 		"idleLabel": "Ready",
@@ -1426,7 +1419,12 @@
 			"wpm": "WPM",
 			"min": "min",
 			"savedVsTyping": "saved vs typing",
-			"title": "Voice Typer Stats"
+			"title": "Voice Typer Stats",
+			"cloudMode": "Cloud",
+			"offlineMode": "Offline",
+			"cloudApi": "Cloud API",
+			"localModel": "Local Model",
+			"fasterThanAvg": "{percent}% faster than avg typer"
 		}
 	},
 	"hotkey": {

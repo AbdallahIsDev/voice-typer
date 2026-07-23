@@ -568,9 +568,7 @@
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
-		"bubbleClickToToggle": "Click Bubble to Toggle",
-		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation"
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click"
 	},
 	"models": {
 		"asrTitle": "Modèles ASR",
@@ -1110,7 +1108,12 @@
 		"startDictation": "Démarrer la dictée",
 		"refreshFailed": "Échec de l'actualisation des statistiques",
 		"dayActivityAria": "{label}: {count} transcriptions",
-		"loadingAria": "Chargement du tableau de bord"
+		"loadingAria": "Chargement du tableau de bord",
+		"cards": {
+			"dictations": "Dictées",
+			"chars": "Caractères",
+			"duration": "Durée"
+		}
 	},
 	"about": {
 		"title": "À propos",
@@ -1230,7 +1233,6 @@
 		"transcribingLabel": "Transcription en cours",
 		"idleLabel": "Ready",
 		"recordingLabel": "REC",
-		"micButtonAria": "Toggle dictation",
 		"micButtonStartAria": "Start dictation",
 		"micButtonStopAria": "Stop dictation"
 	},
@@ -1337,8 +1339,6 @@
 		"skippedSnack": "Configuration ignorée — utilisation des valeurs par défaut",
 		"stepProgress": "Étape {current} sur {total}",
 		"progressAria": "Étape {current} sur {total} de la configuration",
-		"step4Item": "Pick a transcription model",
-		"step5Item": "Finish and load your model",
 		"permissionsTitle": "Keyboard Monitoring Permission",
 		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
 		"permissionsLoading": "Checking permission…",
@@ -1349,8 +1349,6 @@
 		"permissionsTestSuccess": "Hotkey detected! It works.",
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
-		"micLevel": "Input level",
-		"modelMultilingual": "Multilingual",
 		"skipConfirmTitle": "Skip setup?",
 		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
 		"skipConfirmLabel": "Skip anyway",
@@ -1409,7 +1407,11 @@
 		}
 	},
 	"dashboard": {
-		"cards": {}
+		"cards": {
+			"dictations": "Dictées",
+			"chars": "Caractères",
+			"duration": "Durée"
+		}
 	},
 	"stats": {
 		"shareImage": {
@@ -1417,7 +1419,12 @@
 			"wpm": "MPM",
 			"min": "min",
 			"savedVsTyping": "économisé vs frappe",
-			"title": "Statistiques Voice Typer"
+			"title": "Statistiques Voice Typer",
+			"cloudMode": "Mode Cloud",
+			"offlineMode": "Hors ligne",
+			"cloudApi": "API cloud",
+			"localModel": "Modèle local",
+			"fasterThanAvg": "{percent}% plus rapide que la moyenne"
 		}
 	},
 	"hotkey": {

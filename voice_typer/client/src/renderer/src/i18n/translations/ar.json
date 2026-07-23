@@ -76,9 +76,7 @@
 		"undoFailed": "تعذر التراجع عن آخر إملاء",
 		"repasteFailed": "تعذرت إعادة لصق آخر إملاء",
 		"errorTitle": "خطأ في التسجيل",
-		"retry": "إعادة المحاولة",
-		"entryCountSingular": "{count} إدخال",
-		"entryCountPlural": "{count} إدخالات"
+		"retry": "إعادة المحاولة"
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -299,7 +297,12 @@
 		"startDictation": "بدء الإملاء",
 		"refreshFailed": "فشل تحديث الإحصائيات",
 		"dayActivityAria": "{label}: {count} transcriptions",
-		"loadingAria": "جاري تحميل لوحة المعلومات"
+		"loadingAria": "جاري تحميل لوحة المعلومات",
+		"cards": {
+			"dictations": "إملاءات",
+			"chars": "أحرف",
+			"duration": "المدة"
+		}
 	},
 	"about": {
 		"title": "حول",
@@ -917,9 +920,7 @@
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "زر الميكروفون في الفقاعة",
-		"bubbleMicButtonDescription": "إظهار زر ميكروفون على الفقاعة الظاهرة دائمًا لبدء/إيقاف الإملاء بنقرة",
-		"bubbleClickToToggle": "نقر الفقاعة للتبديل",
-		"bubbleClickToToggleDescription": "عندما تكون الفقاعة ظاهرة دائمًا، النقر على زر الميكروفون يبدل الإملاء"
+		"bubbleMicButtonDescription": "إظهار زر ميكروفون على الفقاعة الظاهرة دائمًا لبدء/إيقاف الإملاء بنقرة"
 	},
 	"models": {
 		"asrTitle": "نماذج ASR",
@@ -1275,8 +1276,6 @@
 		"skippedSnack": "تم تخطي الإعداد — استخدام الإعدادات الافتراضية",
 		"stepProgress": "الخطوة {current} من {total}",
 		"progressAria": "خطوة الإعداد {current} من {total}",
-		"step4Item": "Pick a transcription model",
-		"step5Item": "Finish and load your model",
 		"permissionsTitle": "Keyboard Monitoring Permission",
 		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
 		"permissionsLoading": "Checking permission…",
@@ -1287,8 +1286,6 @@
 		"permissionsTestSuccess": "Hotkey detected! It works.",
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
-		"micLevel": "Input level",
-		"modelMultilingual": "Multilingual",
 		"skipConfirmTitle": "Skip setup?",
 		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
 		"skipConfirmLabel": "Skip anyway",
@@ -1317,7 +1314,6 @@
 		"transcribingLabel": "جارٍ الكتابة",
 		"idleLabel": "Ready",
 		"recordingLabel": "REC",
-		"micButtonAria": "Toggle dictation",
 		"micButtonStartAria": "Start dictation",
 		"micButtonStopAria": "Stop dictation"
 	},
@@ -1411,7 +1407,11 @@
 		}
 	},
 	"dashboard": {
-		"cards": {}
+		"cards": {
+			"dictations": "إملاءات",
+			"chars": "أحرف",
+			"duration": "المدة"
+		}
 	},
 	"stats": {
 		"shareImage": {
@@ -1419,7 +1419,12 @@
 			"wpm": "ك/د",
 			"min": "دقيقة",
 			"savedVsTyping": "موفّر مقابل الكتابة",
-			"title": "إحصائيات Voice Typer"
+			"title": "إحصائيات Voice Typer",
+			"cloudMode": "سحابي",
+			"offlineMode": "غير متصل",
+			"cloudApi": "API سحابي",
+			"localModel": "نموذج محلي",
+			"fasterThanAvg": "{percent}% أسرع من متوسط الكتابة"
 		}
 	},
 	"hotkey": {

@@ -297,7 +297,12 @@
 		"startDictation": "开始听写",
 		"refreshFailed": "刷新统计失败",
 		"dayActivityAria": "{label}: {count} transcriptions",
-		"loadingAria": "正在加载仪表盘"
+		"loadingAria": "正在加载仪表盘",
+		"cards": {
+			"dictations": "听写",
+			"chars": "字符",
+			"duration": "时长"
+		}
 	},
 	"about": {
 		"title": "关于",
@@ -915,9 +920,7 @@
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
-		"bubbleClickToToggle": "Click Bubble to Toggle",
-		"bubbleClickToToggleDescription": "When the bubble is always visible, clicking its mic button toggles dictation"
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click"
 	},
 	"models": {
 		"asrTitle": "ASR 模型",
@@ -1273,8 +1276,6 @@
 		"skippedSnack": "已跳过设置 — 使用默认值",
 		"stepProgress": "第 {current} 步，共 {total} 步",
 		"progressAria": "设置步骤 {current}/{total}",
-		"step4Item": "Pick a transcription model",
-		"step5Item": "Finish and load your model",
 		"permissionsTitle": "Keyboard Monitoring Permission",
 		"permissionsDescription": "Voice Typer listens for your hotkey globally. On some platforms this needs an OS-level permission before hotkeys will work.",
 		"permissionsLoading": "Checking permission…",
@@ -1285,8 +1286,6 @@
 		"permissionsTestSuccess": "Hotkey detected! It works.",
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
-		"micLevel": "Input level",
-		"modelMultilingual": "Multilingual",
 		"skipConfirmTitle": "Skip setup?",
 		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
 		"skipConfirmLabel": "Skip anyway",
@@ -1315,7 +1314,6 @@
 		"transcribingLabel": "转写中",
 		"idleLabel": "Ready",
 		"recordingLabel": "REC",
-		"micButtonAria": "Toggle dictation",
 		"micButtonStartAria": "Start dictation",
 		"micButtonStopAria": "Stop dictation"
 	},
@@ -1409,7 +1407,11 @@
 		}
 	},
 	"dashboard": {
-		"cards": {}
+		"cards": {
+			"dictations": "听写",
+			"chars": "字符",
+			"duration": "时长"
+		}
 	},
 	"stats": {
 		"shareImage": {
@@ -1417,7 +1419,12 @@
 			"wpm": "字/分",
 			"min": "分钟",
 			"savedVsTyping": "相比手打节省",
-			"title": "Voice Typer 统计"
+			"title": "Voice Typer 统计",
+			"cloudMode": "云端",
+			"offlineMode": "离线",
+			"cloudApi": "云端 API",
+			"localModel": "本地模型",
+			"fasterThanAvg": "比平均打字快 {percent}%"
 		}
 	},
 	"hotkey": {
