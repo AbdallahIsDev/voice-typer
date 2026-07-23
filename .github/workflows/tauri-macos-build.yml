@@ -1,12 +1,12 @@
 # =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5             — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/checkout@v7             — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-python@v7         — Node 24 runtime (v5/v6 = Node 20, deprecated)
-#   actions/cache@v5                 — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/cache@v6                 — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-node@v7            — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v5       — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/download-artifact@v5    — Node 24 runtime (v4 = Node 20, deprecated)
-#   astral-sh/setup-uv@v6            — Node 24 runtime (v3 = Node 20, deprecated)
+#   actions/upload-artifact@v7       — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/download-artifact@v8    — Node 24 runtime (v4 = Node 20, deprecated)
+#   astral-sh/setup-uv@v7            — Node 24 runtime (v3 = Node 20, deprecated)
 #   dtolnay/rust-toolchain@v1         — Node 24 runtime (@stable = untagged, may resolve to Node 20)
 # See build.yml header for full rationale + breaking-change analysis.
 # =============================================================================
@@ -67,7 +67,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -80,7 +80,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -91,7 +91,7 @@ jobs:
             tauri-macos-aarch64-
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           # XS-26: enable uv's own dependency cache so a warm runner re-uses
           # the wheel cache across runs (mirrors tauri-linux-build.yml).
@@ -138,7 +138,7 @@ jobs:
           file src-tauri/resources/native/macos-key-listener
 
       - name: Upload aarch64 artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: macos-aarch64-binaries
           path: |
@@ -159,7 +159,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -172,7 +172,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -183,7 +183,7 @@ jobs:
             tauri-macos-x86_64-
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           # XS-26: enable uv's own dependency cache (mirrors tauri-linux-build.yml).
           enable-cache: true
@@ -222,7 +222,7 @@ jobs:
           file src-tauri/resources/prewarm-x86_64-apple-darwin
 
       - name: Upload x86_64 artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: macos-x86_64-binaries
           path: |
@@ -252,7 +252,7 @@ jobs:
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -265,7 +265,7 @@ jobs:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -276,7 +276,7 @@ jobs:
             tauri-macos-universal-
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           # XS-26: enable uv's own dependency cache (mirrors tauri-linux-build.yml).
           enable-cache: true
@@ -300,13 +300,13 @@ jobs:
           cd ../..
 
       - name: Download aarch64 artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: macos-aarch64-binaries
           path: .
 
       - name: Download x86_64 artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: macos-x86_64-binaries
           path: .
@@ -358,7 +358,7 @@ jobs:
           xcrun stapler validate "$DMG_PATH"
 
       - name: Upload .dmg
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-macos-installer
           path: |
