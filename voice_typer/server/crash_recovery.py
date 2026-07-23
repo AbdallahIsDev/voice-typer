@@ -45,6 +45,17 @@ MAX_RECOVERY_ENTRIES = 10
 _SAVE_QUEUE_MAXSIZE = 32
 
 
+# FT-2: module-level WeakSet tracking all live CrashRecovery instances.
+# Tests that construct CrashRecovery via ``_MockApp`` helpers frequently
+# leak the instance (and its ``crash-recovery-saver`` daemon thread)
+# because the test fixture only calls ``IPCServer.stop()``, which does NOT
+# shut down ``app._crash_recovery``. On Windows the accumulated daemon
+# threads eventually trip a native limit and crash the whole pytest
+# process mid-suite (FT-2). ``tests/conftest.py`` iterates this set after
+# each test and calls ``shutdown()`` on any still-alive instance.
+_LIVE_INSTANCES: "weakref.WeakSet[CrashRecovery]" = weakref.WeakSet()
+
+
 class CrashRecovery:
     """Stores recent transcriptions for crash recovery.
 
@@ -111,6 +122,12 @@ class CrashRecovery:
                 pass  # atexit must never raise
 
         atexit.register(_atexit_save)
+        # FT-2: register in the module-level WeakSet so the test conftest
+        # can shutdown leaked instances after each test (prevents the
+        # daemon saver thread from accumulating across the full pytest run
+        # and crashing the process on Windows via native thread-limit
+        # exhaustion).
+        _LIVE_INSTANCES.add(self)
 
     # ── Persistence ──────────────────────────────────────────────────
 

@@ -198,7 +198,7 @@ jobs:
         shell: pwsh
         run: |
           $PYBS = $env:PYBS
-          $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[0])"
+          $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[-1])"
           Write-Host "PYBS=$PYBS  SITE=$SITE"
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
@@ -225,7 +225,7 @@ jobs:
         shell: pwsh
         run: |
           $PYBS = $env:PYBS
-          $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[0])"
+          $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[-1])"
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `

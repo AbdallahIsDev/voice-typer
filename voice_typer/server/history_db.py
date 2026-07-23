@@ -56,6 +56,7 @@ import re
 import sqlite3
 import threading
 import time
+import weakref
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -259,6 +260,17 @@ def _sanitize_fts_query(query: str) -> str:
     return " ".join(quoted)
 
 
+# FT-2: module-level WeakSet tracking all live HistoryDB instances. Tests
+# that construct HistoryDB via ``_MockApp`` helpers frequently leak the
+# instance (and its ``HistoryDBWriter`` daemon thread) because the test
+# fixture only calls ``IPCServer.stop()``, which does NOT close
+# ``app.history_db``. On Windows the accumulated daemon threads eventually
+# trip a native limit and crash the whole pytest process mid-suite (FT-2).
+# ``tests/conftest.py`` iterates this set after each test and calls
+# ``close()`` on any still-alive instance.
+_LIVE_INSTANCES: "weakref.WeakSet[HistoryDB]" = weakref.WeakSet()
+
+
 class HistoryDB:
     """Thread-safe SQLite database for transcription history.
 
@@ -343,6 +355,11 @@ class HistoryDB:
                 "[HISTORY_DB] Writer thread initialization failed: %s",
                 self._init_error,
             )
+        # FT-2: register in the module-level WeakSet so the test conftest
+        # can close leaked instances after each test (prevents the daemon
+        # writer thread from accumulating across the full pytest run and
+        # crashing the process on Windows via native thread-limit exhaustion).
+        _LIVE_INSTANCES.add(self)
 
     # ──────────────────────────────────────────────────────────────
     # Writer thread
