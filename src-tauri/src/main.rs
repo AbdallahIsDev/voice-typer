@@ -167,7 +167,6 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(Arc::new(SidecarState {
             child: Mutex::new(None),
-            token: Mutex::new(String::new()),
             ws_tx: Mutex::new(None),
             pending: Arc::new(AsyncMutex::new(HashMap::new())),
             next_id: AtomicU64::new(1),
@@ -254,7 +253,7 @@ fn main() {
                 let state: tauri::State<'_, Arc<SidecarState>> =
                     restart_handle.state();
                 let state_inner = state.inner().clone();
-                let ws_tx_opt = state_inner.ws_tx.lock().unwrap().clone();
+                let ws_tx_opt = crate::state::lock(&state_inner.ws_tx).clone();
                 if let Some(ws_tx) = ws_tx_opt {
                     let id = state_inner.next_id.fetch_add(1, Ordering::SeqCst);
                     let frame = json!({
@@ -322,7 +321,6 @@ fn main() {
                 let state = state.inner().clone();
 
                 let token = util::generate_token();
-                *state.token.lock().unwrap() = token.clone();
 
                 match spawn_sidecar_and_get_port(&app_handle, &token).await {
                     Ok((port, child, exit_rx)) => {
@@ -344,7 +342,7 @@ fn main() {
                             let _ = child.kill_tree().await;
                             return;
                         }
-                        *state.child.lock().unwrap() = Some(child);
+                        *crate::state::lock(&state.child) = Some(child);
                         // CR-2: store the sidecar's event receiver so
                         // shutdown_sidecar can poll for graceful exit.
                         *state.child_exit_rx.lock().await = exit_rx;

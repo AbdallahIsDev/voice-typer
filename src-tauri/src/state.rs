@@ -21,15 +21,22 @@ use serde_json::Value;
 // `None` (treated the same as "sidecar not connected") — which is
 // strictly safer than panicking the resilience layer.
 //
-// Usage: replace `state.token.lock().unwrap()` → `lock(&state.token)`.
+// Usage: replace `state.<field>.lock().unwrap()` → `lock(&state.<field>)`.
 //
-// Used by `state.rs`, `ft1.rs`, `ws.rs`, and `platform/logging.rs`.
+// Used by `state.rs`, `ft1.rs`, `ws.rs`, `main.rs`, `commands/sidecar_cmds.rs`,
+// `commands/bubble.rs`, and `platform/logging.rs` (the latter via its own
+// `mutex_lock` alias).
 // PVT-G5-018 originally used the inline `.unwrap_or_else(|e| e.into_inner())`
 // form in `logging.rs`; the merged version routes through this helper
 // for consistency (no circular-dep concern — `state.rs` only uses the
 // `log::warn!` macro, which expands to `log`-crate calls, not to
 // `logging.rs` calls).
-#[allow(dead_code)]
+//
+// EC-FIX-5 (EC-16 / EC-24): the `#[allow(dead_code)]` that used to live
+// here was STALE — the helper IS used at 10+ production call sites
+// (`ws.rs`, `main.rs`, `sidecar_cmds.rs`, `ft1.rs`, `state.rs`,
+// `bubble.rs`). Removed the suppression so the compiler will report any
+// future drift toward "unused" as a real warning.
 pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -244,23 +251,6 @@ pub(crate) fn kill_process_tree(pid: u32) {
 pub(crate) struct SidecarState {
     /// Child handle for kill_children backstop.
     pub(crate) child: Mutex<Option<SidecarHandle>>,
-    /// Token for the current sidecar instance (rotated per FT-1 respawn).
-    ///
-    /// G4-L-01 (Low): this field is WRITE-ONLY dead state — it is
-    /// written in `main.rs` (cold-start path) and `ft1.rs` (respawn
-    /// path), but NEVER read anywhere (the WS auth frame uses the
-    /// local `new_token` variable, not this field). It exists as a
-    /// historical artifact of the ADR-0020 §3 token-rotation design
-    /// (which originally planned to expose the live token to dispatch
-    /// callers). The recommended fix is removal; however, removal
-    /// requires coordinated edits to `main.rs:147` (struct init) and
-    /// `main.rs:208` (cold-start write) which are outside this
-    /// sub-agent's edit scope. The field is retained here as
-    /// `Mutex<String>` for backward compatibility; a future coordinated
-    /// task should remove it AND its two write sites. If future code
-    /// needs to read the token, wrap in `zeroize::Zeroizing<String>`
-    /// (requires adding the `zeroize` crate to Cargo.toml).
-    pub(crate) token: Mutex<String>,
     /// WS writer channel — None when the WS is disconnected.
     pub(crate) ws_tx: Mutex<Option<WsWriterTx>>,
     /// Pending dispatch requests (id → response sender).
@@ -273,7 +263,7 @@ pub(crate) struct SidecarState {
     /// FT-1 respawn serialization flag. Set when a respawn is in flight
     /// so concurrent WS-reader exits (e.g., a flapping sidecar that dies
     /// immediately after reconnect) don't launch multiple parallel
-    /// `ft1_respawn` supervisors that would corrupt `child`/`token`/`ws_tx`.
+    /// `ft1_respawn` supervisors that would corrupt `child`/`ws_tx`.
     /// Acquired with `compare_exchange(false → true)` on entry; cleared on
     /// exit (both Ok and restart paths).
     pub(crate) respawn_in_progress: AtomicBool,
@@ -333,7 +323,7 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
     // within the 2s window. Best-effort — if the WS is already gone,
     // we'll fall through to force-kill.
     let frame = serde_json::json!({"type": "shutdown"});
-    if let Some(ws_tx) = state.ws_tx.lock().unwrap().clone() {
+    if let Some(ws_tx) = lock(&state.ws_tx).clone() {
         // PVT-G5-059: bounded channel — use `try_send` instead of `send`.
         // At shutdown the channel may be full of pending dispatch frames
         // (rare but possible during a flap); `try_send` avoids awaiting
@@ -359,7 +349,7 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
     // `kill_tree` reaps descendants (PVT-G5-029) AND the root in one
     // call. No-op if the child has already exited (which is the
     // common case after the 2s graceful wait).
-    let child_opt = state.child.lock().unwrap().take();
+    let child_opt = lock(&state.child).take();
     if let Some(child) = child_opt {
         let _ = child.kill_tree().await;
     }

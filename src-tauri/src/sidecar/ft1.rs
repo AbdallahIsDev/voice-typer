@@ -348,10 +348,18 @@ pub(crate) async fn ft1_respawn_inner(
                     log::info!("[FT-1] killing old sidecar before installing new one (CR-28)");
                     let _ = old.kill_tree().await;
                 }
-                {
-                    let mut token_guard = mutex_lock(&state.token);
-                    *token_guard = new_token.clone();
-                }
+                // EC-FIX-5 (EC-24): the dead `state.token: Mutex<String>`
+                // field was removed from `SidecarState`. The new auth
+                // token for the freshly-spawned sidecar is the local
+                // `new_token` variable, passed directly to
+                // `reconnect_ws(app, state, port, &new_token)` below —
+                // it does NOT need to be stored on the shared state
+                // (the WS auth frame uses the local variable, not a
+                // field read). The dead write that used to live here
+                // (`*mutex_lock(&state.token) = new_token.clone()`)
+                // was the only "consumer" of the field; removing it
+                // lets the field itself be deleted (already done in
+                // `state.rs`).
                 // CR-2: rotate the event receiver so the next
                 // shutdown_sidecar call polls the new sidecar's exit.
                 {
@@ -621,10 +629,13 @@ mod tests {
 
     /// Helper: build a fresh `SidecarState` for testing. All fields
     /// initialized to their default (empty) state.
+    ///
+    /// EC-FIX-5 (EC-24): the `token: Mutex<String>` field was removed
+    /// from `SidecarState` — it was write-only dead state. The test
+    /// helper no longer initializes it.
     fn make_test_state() -> Arc<SidecarState> {
         Arc::new(SidecarState {
             child: Mutex::new(None),
-            token: Mutex::new(String::new()),
             ws_tx: Mutex::new(None),
             pending: Arc::new(AsyncMutex::new(HashMap::new())),
             next_id: AtomicU64::new(1),

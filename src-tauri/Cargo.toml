@@ -49,7 +49,7 @@ tauri-plugin-dialog = "2"
 enigo = "0.2"
 
 # ADR-0020 §1 + §10: WebSocket client + tokio runtime
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util"] }
 tokio-tungstenite = { version = "0.24", features = ["connect"] }
 futures-util = "0.3"
 
@@ -82,7 +82,7 @@ env_logger = "0.11"
 # Windows host will surface the resolution failure — bump the major.minor
 # to match Tauri's resolved version in that case.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.57", features = [
+windows = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
     "Win32_System_Threading",

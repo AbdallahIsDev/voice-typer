@@ -1,8 +1,15 @@
 """pytest configuration for the Tauri sidecar tests.
 
-These tests use pytest-asyncio in auto mode so async tests don't need
-explicit @pytest.mark.asyncio markers. This is local to the tauri/
-test directory so it doesn't affect the project-wide pytest config.
+XS-41: the previous ``pytest_collection_modifyitems`` hook that
+explicitly added ``pytest.mark.asyncio`` to every async test was
+removed — ``pyproject.toml`` sets ``asyncio_mode = "auto"``
+project-wide, which already auto-marks all async tests. The hook was
+dead code that predated the project-wide setting and the
+``co_flags & 0x100`` (CO_COROUTINE) heuristic was fragile.
+
+What remains is the platform-skip logic: Tauri migration-test
+directories (``mig15`` / ``mig16`` / ``mig17``) are platform-specific
+and skipped automatically when run on the wrong OS.
 """
 
 import os
@@ -70,15 +77,14 @@ def _required_platform(module_path: str) -> str | None:
     return None
 
 
-# Auto mode: every `async def test_*` is treated as an asyncio test
-# without needing @pytest.mark.asyncio. This matches the pattern in
-# the project's existing async tests (e.g. test_cloud_engines.py).
 def pytest_collection_modifyitems(config, items):
+    """Skip platform-specific Tauri migration tests on the wrong OS.
+
+    XS-41: the previous asyncio-marker logic was removed because
+    ``asyncio_mode = "auto"`` in ``pyproject.toml`` already handles
+    auto-marking. Only the platform-skip behavior remains.
+    """
     for item in items:
-        if hasattr(item, "function") and getattr(item.function, "__code__", None):
-            if item.function.__code__.co_flags & 0x100:  # CO_COROUTINE
-                item.add_marker(pytest.mark.asyncio)
-        # Skip platform-specific migration tests on the wrong OS.
         required = _required_platform(str(item.module.__file__))
         if required is not None and sys.platform != required:
             item.add_marker(

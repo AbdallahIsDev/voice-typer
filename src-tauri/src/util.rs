@@ -76,10 +76,18 @@ pub(crate) fn generate_token() -> String {
 }
 
 pub(crate) mod hex {
+    /// XV-146: write each byte directly into the pre-allocated String
+    /// buffer via `core::fmt::Write` — `write!` into a `String` writes
+    /// directly into its heap buffer, eliminating the intermediate
+    /// `format!(...)` allocation + the temporary `&str` per byte. The
+    /// `unwrap()` is safe (the `fmt::Write` impl for `String` is
+    /// infallible — it never returns `Err`).
     pub fn encode(bytes: &[u8]) -> String {
+        use std::fmt::Write;
         let mut s = String::with_capacity(bytes.len() * 2);
         for b in bytes {
-            s.push_str(&format!("{:02x}", b));
+            // SAFETY: String's `fmt::Write` impl never errors.
+            write!(s, "{:02x}", b).unwrap();
         }
         s
     }

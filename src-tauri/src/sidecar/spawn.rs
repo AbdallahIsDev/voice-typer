@@ -142,8 +142,22 @@ pub(crate) async fn spawn_sidecar_release(
                         // unlike `tokio::process::Child::id()` in the
                         // dev-mode path below). The shell-plugin child
                         // always has a pid once spawned.
+                        //
+                        // XV-136 (High): wrap the blocking
+                        // `kill_process_tree` (which on Unix spawns
+                        // `pgrep` + `kill -TERM` per descendant +
+                        // `std::thread::sleep(200ms)` + `kill -KILL` per
+                        // descendant — all `std::process::Command::status()`
+                        // blocking syscalls) in
+                        // `tauri::async_runtime::spawn_blocking` so we
+                        // don't stall a Tokio worker thread. Mirrors the
+                        // `SidecarHandle::kill_tree` pattern in
+                        // `state.rs:148`.
                         let pid = child.pid();
-                        crate::state::kill_process_tree(pid);
+                        let _ = tauri::async_runtime::spawn_blocking(
+                            move || crate::state::kill_process_tree(pid),
+                        )
+                        .await;
                         if let Err(kill_err) = child.kill() {
                             log::warn!(
                                 "[SIDECAR] failed to kill child after Terminated event (best-effort): {}",
@@ -169,8 +183,13 @@ pub(crate) async fn spawn_sidecar_release(
                         //
                         // NOTE: same as the Terminated arm above —
                         // `child.pid()` here is `u32`, not `Option<u32>`.
+                        // XV-136 (High): spawn_blocking wrap — see the
+                        // comment in the Terminated arm above.
                         let pid = child.pid();
-                        crate::state::kill_process_tree(pid);
+                        let _ = tauri::async_runtime::spawn_blocking(
+                            move || crate::state::kill_process_tree(pid),
+                        )
+                        .await;
                         if let Err(kill_err) = child.kill() {
                             log::warn!(
                                 "[SIDECAR] failed to kill child after CommandEvent::Error (best-effort): {}",
@@ -211,7 +230,15 @@ pub(crate) async fn spawn_sidecar_release(
     // BEFORE `child.kill()` so the root is still alive when we walk
     // `pgrep -P <pid>` (on Unix, killing the root first would reparent
     // the children to init and break the descendant walk).
-    crate::state::kill_process_tree(pid);
+    //
+    // XV-136 (High): spawn_blocking wrap — see the comment in the
+    // Terminated arm above. The blocking `pgrep` + `kill` walk +
+    // 200ms `std::thread::sleep` inside `kill_process_tree` must not
+    // stall a Tokio worker thread.
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        crate::state::kill_process_tree(pid)
+    })
+    .await;
     // G4-M-61: log the kill error for visibility (mirrors the dev-mode
     // path's kill-error logging below). The previous `let _ = child.kill();`
     // silently dropped the kill error — a stuck sidecar that won't die
@@ -299,7 +326,13 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
     // `Option<u32>` (None if the child has already been reaped).
     let pid_opt = child.id();
     if let Some(pid) = pid_opt {
-        crate::state::kill_process_tree(pid);
+        // XV-136 (High): spawn_blocking wrap — see the comment in the
+        // release-path Terminated arm above. Mirrors the
+        // `SidecarHandle::kill_tree` pattern in `state.rs:148`.
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            crate::state::kill_process_tree(pid)
+        })
+        .await;
     }
     // G4-M-61: log the kill error for visibility (mirrors the release
     // path's kill-error logging above).

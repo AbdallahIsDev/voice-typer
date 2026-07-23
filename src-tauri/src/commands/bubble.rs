@@ -30,7 +30,6 @@
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{PhysicalPosition, Emitter, Manager};
-use tokio_tungstenite::tungstenite::Message;
 
 use crate::state::SidecarState;
 
@@ -626,52 +625,20 @@ pub async fn bubble_toggle_dictation(
     // unknown id (acceptable: the sidecar already logs every dispatch
     // round-trip; one extra unmatched response per toggle is noise).
     //
-    // F-H3 (sub-agent 1-9 finding): this manual WS-frame construction
-    // duplicates the send path in
-    // `crate::commands::sidecar_cmds::dispatch_frame` (sidecar_cmds.rs
-    // :203-266). The canonical fix would be to delegate by calling
-    // `dispatch_frame(&state, "toggle_dictation", None)` — but that
-    // helper (a) allocates a real id via `state.next_id`, (b) inserts
-    // a `oneshot::Sender` into `state.pending`, and (c) awaits the
-    // response with a `DISPATCH_TIMEOUT_SECS` timeout. We can't reuse
-    // it for fire-and-forget semantics without one of:
-    //   (i)  leaking a stale `pending[id]` entry for every toggle
-    //        (the Python side does NOT echo `id=0` back, so the entry
-    //        would live until the next reconnect drain — F-H3's "minor
-    //        leak" footnote); or
-    //   (ii) adding a new `dispatch_fire_and_forget` helper to
-    //        `sidecar_cmds.rs` that sends a fixed `id=0` frame and
-    //        skips the pending map.
-    // Approach (ii) is the right long-term refactor but requires
-    // editing `sidecar_cmds.rs`, which is outside this sub-agent's
-    // `bubble.rs`-only edit window. We therefore keep the duplicated
-    // send inline and document the divergence here. The next fix wave
-    // should extract the shared send helper.
-    // TODO(PVT-25): extract a `dispatch_fire_and_forget` helper into
-    // `sidecar_cmds.rs` and have this command delegate to it, removing
-    // the duplicated `json!`/`ws_tx.send` block below.
-    let frame = json!({
-        "type": "toggle_dictation",
-        "data": {},
-        "id": 0u64,
-    });
-    // G4-H-27: poison-safe lock helper (state.rs::lock) instead of
-    // `.lock().unwrap()` — a poisoned Mutex here would brick the
-    // bubble's mic button permanently (every subsequent click would
-    // re-panic in the unwrap). With the helper, the lock is recovered
-    // and the worst case is a stale `ws_tx` slot (treated the same as
-    // "sidecar not connected" — the renderer shows the disconnected
-    // state via the `bubble:set-state` event).
-    let ws_tx_opt = crate::state::lock(&state.ws_tx).clone();
-    let ws_tx = ws_tx_opt.ok_or_else(|| "sidecar not connected".to_string())?;
-    // PVT-G5-059: `ws_tx` is a bounded `mpsc::Sender` — use `try_send`
-    // (synchronous) rather than `.send().await` (which would require an
-    // async context AND block on the writer-task consumer). Returns
-    // `TrySendError::Full` if the writer is overwhelmed (256-cap) or
-    // `TrySendError::Closed` if the writer task exited.
-    ws_tx.try_send(Message::Text(frame.to_string()))
-        .map_err(|e| format!("WS send failed: {e}"))?;
-    Ok(())
+    // EC-FIX-5 (EC-18 / PVT-25): the inline `json!` + `lock` +
+    // `try_send` block that used to live here was the PVT-25 TODO. It
+    // duplicated the send path in `dispatch_frame`. Replaced by a call
+    // to `crate::commands::sidecar_cmds::dispatch_fire_and_forget`,
+    // which constructs the id=0 frame, locks `ws_tx` via the poison-
+    // safe `mutex_lock` helper, and `try_send`s the frame. The error
+    // strings ("sidecar not connected" / "WS send failed: <e>")
+    // mirror `dispatch_frame`'s shape so the renderer's reject path
+    // handles them identically.
+    crate::commands::sidecar_cmds::dispatch_fire_and_forget(
+        state.inner(),
+        "toggle_dictation",
+        None,
+    )
 }
 
 // ─── G4-L-03: bubble_toggle_dictation rate limiter ────────────────────

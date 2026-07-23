@@ -116,11 +116,37 @@ fn cleanup_and_trigger_ft1_respawn(
         "ft1_relaunching",
         json!({"reason": "auth_failed_or_timeout"}),
     );
-    let app_clone = app.clone();
-    let state_clone = state.clone();
+    trigger_ft1_respawn_off_thread(app.clone(), state.clone());
+}
+
+// EC-FIX-5 (EC-18): extracted helper for the FT-1 respawn trigger
+// pattern that was duplicated at the WS-reader cleanup site and the
+// two heartbeat-miss arms (`Ok(Err(_))` and `Err(_)` from the 15s
+// timeout). All three sites had the identical block:
+//
+//   let app_clone = <handle>.clone();
+//   let state_clone = <state>.clone();
+//   std::thread::spawn(move || {
+//       tauri::async_runtime::block_on(async move {
+//           let _ = ft1_respawn(&app_clone, &state_clone).await;
+//       });
+//   });
+//
+// The thread + `block_on` bridge is required because `ft1_respawn`
+// awaits `reconnect_ws`, whose future is `!Send` (tokio-tungstenite
+// holds a `!Send` across an await). `tokio::spawn` requires `Send`
+// futures, so we drive the `!Send` future on a dedicated std thread
+// with its own `block_on` runtime. NF-R19-1 documents the failed
+// attempt to use a direct `tokio::spawn` here.
+//
+// This helper takes ownership (`app: AppHandle`, `state: Arc<SidecarState>`)
+// so callers pass `.clone()`d handles in and the helper moves them
+// into the spawned thread. Returns nothing — FT-1 is best-effort and
+// the caller has already logged the triggering event.
+fn trigger_ft1_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
     std::thread::spawn(move || {
         tauri::async_runtime::block_on(async move {
-            let _ = ft1_respawn(&app_clone, &state_clone).await;
+            let _ = ft1_respawn(&app, &state).await;
         });
     });
 }
@@ -209,7 +235,7 @@ pub(crate) async fn reconnect_ws(
         })?;
     // Drop the MutexGuard before spawning tasks (MutexGuard is !Send).
     {
-        let mut ws_tx_guard = state.ws_tx.lock().unwrap();
+        let mut ws_tx_guard = mutex_lock(&state.ws_tx);
         *ws_tx_guard = Some(ws_tx);
     }
     let state_clone = state.clone();
@@ -593,26 +619,19 @@ pub(crate) async fn reconnect_ws(
                 json!({"reason": "disconnected"}),
             );
             log::warn!("[WS-READER] unexpected close — triggering FT-1");
-            // Spawn FT-1 on a separate thread via std::thread::spawn +
-            // a block_on, so the non-Send WS stream half doesn't
-            // poison the tokio::spawn Send requirement. The FT-1
-            // supervisor itself uses tokio::spawn internally for the
-            // respawn attempts, so this is just a bridge.
-            //
-            // NF-R19-1 (reverted): a direct `tokio::spawn(async move {
-            // ft1_respawn(...).await })` was tried here and FAILED to
-            // compile — `ft1_respawn` awaits `reconnect_ws`, whose
-            // future is `!Send` (the tokio-tungstenite connect path
-            // holds a `!Send` across an await), and `tokio::spawn`
-            // requires `Send` futures. The thread + block_on bridge is
-            // the correct shape for driving this `!Send` future.
-            let app_clone = app_for_cleanup.clone();
-            let state_clone = state_for_cleanup.clone();
-            std::thread::spawn(move || {
-                tauri::async_runtime::block_on(async move {
-                    let _ = ft1_respawn(&app_clone, &state_clone).await;
-                });
-            });
+            // EC-FIX-5 (EC-18): spawn FT-1 on a separate thread via the
+            // shared `trigger_ft1_respawn_off_thread` helper. The thread
+            // + `block_on` bridge is required because `ft1_respawn`
+            // awaits `reconnect_ws`, whose future is `!Send`
+            // (tokio-tungstenite holds a `!Send` across an await), and
+            // `tokio::spawn` requires `Send` futures. NF-R19-1
+            // documents the failed attempt to use a direct
+            // `tokio::spawn` here. See the helper's doc comment for
+            // the full rationale.
+            trigger_ft1_respawn_off_thread(
+                app_for_cleanup.clone(),
+                state_for_cleanup.clone(),
+            );
         }
     });
 
@@ -683,13 +702,15 @@ pub(crate) async fn reconnect_ws(
                         log::warn!(
                             "[HEARTBEAT] 3 consecutive misses — triggering FT-1 respawn"
                         );
-                        let app_clone = heartbeat_app.clone();
-                        let state_clone = heartbeat_state.clone();
-                        std::thread::spawn(move || {
-                            tauri::async_runtime::block_on(async move {
-                                let _ = ft1_respawn(&app_clone, &state_clone).await;
-                            });
-                        });
+                        // EC-FIX-5 (EC-18): delegate to the shared
+                        // `trigger_ft1_respawn_off_thread` helper instead
+                        // of inlining the std::thread::spawn + block_on
+                        // bridge (duplicated with the timeout arm below
+                        // and the WS reader cleanup above).
+                        trigger_ft1_respawn_off_thread(
+                            heartbeat_app.clone(),
+                            heartbeat_state.clone(),
+                        );
                         break;
                     }
                 }
@@ -700,13 +721,12 @@ pub(crate) async fn reconnect_ws(
                         log::warn!(
                             "[HEARTBEAT] 3 consecutive misses — triggering FT-1 respawn"
                         );
-                        let app_clone = heartbeat_app.clone();
-                        let state_clone = heartbeat_state.clone();
-                        std::thread::spawn(move || {
-                            tauri::async_runtime::block_on(async move {
-                                let _ = ft1_respawn(&app_clone, &state_clone).await;
-                            });
-                        });
+                        // EC-FIX-5 (EC-18): same shared helper as the
+                        // dispatch-error arm above.
+                        trigger_ft1_respawn_off_thread(
+                            heartbeat_app.clone(),
+                            heartbeat_state.clone(),
+                        );
                         break;
                     }
                 }

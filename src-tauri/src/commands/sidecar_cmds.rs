@@ -1,6 +1,10 @@
 //! Tauri commands: dispatch, paste_text, shutdown_sidecar (ADR-0020 §6.2 + §7 + §10).
 
 use crate::state::SidecarState;
+// EC-FIX-5 (EC-16): poison-safe Mutex helper. Replaces inline
+// `.lock().unwrap()` so a poisoned mutex (a prior panic while holding
+// the lock) does not re-panic and permanently brick the dispatch path.
+use crate::state::lock as mutex_lock;
 use crate::util::{DISPATCH_TIMEOUT_SECS, SHUTDOWN_ACK_TIMEOUT_MS, SHUTDOWN_POLL_INTERVAL_MS};
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
@@ -256,6 +260,52 @@ pub(crate) async fn dispatch_inner(
     dispatch_frame(&state, &args.cmd, args.data).await
 }
 
+/// EC-FIX-5 (EC-18 / PVT-25): fire-and-forget dispatch helper.
+///
+/// Builds a WS frame `{"type": cmd, "data": data, "id": 0}` and sends it
+/// via `state.ws_tx.try_send` WITHOUT inserting a pending oneshot entry
+/// or awaiting a response. Used by `commands::bubble::bubble_toggle_dictation`
+/// (a sandboxed-window command that must NOT use the full `dispatch`
+/// path — the bubble renderer is allowed to send only the fixed
+/// `toggle_dictation` command, see G4-L-03 sanctioned-bypass doc).
+///
+/// The synthetic `id: 0` is special-cased server-side (the Python
+/// sidecar's `_handle_dispatch` does NOT echo `id=0` back) so the WS
+/// reader task's pending-map lookup is a no-op miss with a one-line
+/// `[WS-READER] unknown id` warning per toggle — acceptable noise.
+///
+/// Replaces the inline `json!` + `lock` + `try_send` block that was
+/// duplicated in `bubble.rs:629-674` (the PVT-25 TODO that called for
+/// this extraction). Keeps the poison-safe `mutex_lock` helper so a
+/// poisoned mutex doesn't brick the bubble's mic button permanently.
+///
+/// Returns `Err` if `ws_tx` is `None` (sidecar disconnected) or if
+/// `try_send` fails (channel full or writer task exited). Both error
+/// strings mirror the shape used by `dispatch_frame` so the renderer's
+/// existing reject path handles them identically.
+pub(crate) fn dispatch_fire_and_forget(
+    state: &Arc<SidecarState>,
+    cmd: &str,
+    data: Option<Value>,
+) -> Result<(), String> {
+    let frame = json!({
+        "type": cmd,
+        "data": data.unwrap_or(json!({})),
+        "id": 0u64,
+    });
+    let ws_tx_opt = mutex_lock(&state.ws_tx).clone();
+    let ws_tx = ws_tx_opt.ok_or_else(|| "sidecar not connected".to_string())?;
+    // PVT-G5-059: `ws_tx` is a bounded `mpsc::Sender` — use `try_send`
+    // (synchronous) rather than `.send().await` (which would require an
+    // async context AND block on the writer-task consumer). Returns
+    // `TrySendError::Full` if the writer is overwhelmed (256-cap) or
+    // `TrySendError::Closed` if the writer task exited.
+    ws_tx
+        .try_send(Message::Text(frame.to_string()))
+        .map_err(|e| format!("WS send failed: {e}"))?;
+    Ok(())
+}
+
 /// CR-14: shared dispatch body used by both the `dispatch` Tauri command
 /// (renderer `invoke('dispatch', {cmd, data})` calls) and the tray menu
 /// event handler in `tray.rs::on_menu_event` (which previously emitted
@@ -289,7 +339,7 @@ pub(crate) async fn dispatch_inner(
 ///
 /// PVT-G5-036: re-check `state.ws_tx` AFTER inserting the pending
 /// entry. A reconnect racing in the window between the outer
-/// `ws_tx.lock().unwrap().clone()` and the pending insert could leave
+/// `mutex_lock(&state.ws_tx).clone()` and the pending insert could leave
 /// us holding a stale `ws_tx` (the old writer task has exited; the new
 /// reader has no record of this id). Detect by re-checking
 /// `state.ws_tx` under a tight critical section; if it's now `None`,
@@ -329,7 +379,7 @@ async fn dispatch_frame(
 
     // CR-50: confirm `ws_tx` is Some BEFORE inserting into the pending
     // map so the early-return Err path doesn't leak a stale entry.
-    let ws_tx_opt = state.ws_tx.lock().unwrap().clone();
+    let ws_tx_opt = mutex_lock(&state.ws_tx).clone();
     let ws_tx = match ws_tx_opt {
         Some(tx) => tx,
         None => {
@@ -365,7 +415,7 @@ async fn dispatch_frame(
     // be `Send`. The boolean `needs_cleanup` carries the result out
     // of the lock scope so the await happens AFTER the guard is gone.
     let needs_cleanup = {
-        let ws_tx_now = state.ws_tx.lock().unwrap();
+        let ws_tx_now = mutex_lock(&state.ws_tx);
         ws_tx_now.is_none()
     };
     if needs_cleanup {
@@ -630,7 +680,7 @@ pub async fn shutdown_sidecar(
     }
     // Send the shutdown frame.
     let frame = json!({"type": "shutdown"});
-    if let Some(ws_tx) = state.ws_tx.lock().unwrap().clone() {
+    if let Some(ws_tx) = mutex_lock(&state.ws_tx).clone() {
         let _ = ws_tx.try_send(Message::Text(frame.to_string()));
     }
     // CR-2: Wait up to SHUTDOWN_ACK_TIMEOUT_MS for the sidecar to exit.
@@ -687,7 +737,7 @@ pub async fn shutdown_sidecar(
     // (recursive "kill_children") so the sidecar's grandchildren (native
     // hotkey binary, model subprocesses) are reaped too, not just the
     // direct child.
-    let child_opt = state.child.lock().unwrap().take();
+    let child_opt = mutex_lock(&state.child).take();
     if let Some(child) = child_opt {
         let _ = child.kill_tree().await;
     }
