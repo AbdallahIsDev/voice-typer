@@ -112,6 +112,13 @@ from voice_typer.server import recording as _recording_pkg  # noqa: E402
 # keep affecting production code (see module docstring §Patch-path).
 from voice_typer.server.recording import _secure_clear_array  # noqa: F401, E402
 
+# PVT-006 split: ``take_snapshot`` and ``discard_recording`` are the
+# promoted bodies of ``Recorder.snapshot`` and ``Recorder.discard``. The
+# methods become 1-line delegators so existing call sites, subclass
+# overrides, and ``inspect.getsource`` checks continue to work. See
+# :mod:`._recorder_split` for the full split plan.
+from . import _recorder_split  # noqa: E402
+
 # PVT-22 / Phase 4.5: ``DeviceManager`` owns device enumeration, hot-swap,
 # and the device-health-checker daemon thread. ``Recorder`` constructs a
 # ``DeviceManager`` instance in ``__init__`` and delegates the device
@@ -422,6 +429,19 @@ class Recorder:
         # assignment).
         self._devices: DeviceManager = DeviceManager(self)
 
+        # PERF: pre-warm the device-list cache on a background daemon
+        # thread so the start() hotkey critical path doesn't pay the
+        # 50-200ms PortAudio enumeration cost on the first recording.
+        # ``DeviceManager._refresh_device_list`` is the cached path
+        # (30s TTL, OS-event-invalidated); without pre-warming, the
+        # first ``start()`` after app launch would block on
+        # ``sd.query_devices()`` even though ``Recorder`` was
+        # constructed seconds earlier. The thread is best-effort —
+        # if PortAudio is unavailable (headless CI, no audio HW), the
+        # cache stays empty and ``start()`` falls back to direct
+        # ``sd.query_devices()`` calls (no regression).
+        self._prewarm_device_cache()
+
         # NOTE (RW-0): dead_air_timeout / _dead_air_speech_detected /
         # _dead_air_silence_start were REMOVED — redundant with
         # stop_on_silence_seconds. Do NOT re-add.
@@ -632,12 +652,19 @@ class Recorder:
         return self._devices.shutdown_mic_watcher()
 
     def __del__(self) -> None:
-        """Best-effort cleanup of the mic watcher. Must never raise."""
+        """Best-effort cleanup. Must never raise."""
         with contextlib.suppress(Exception):
             self.shutdown_mic_watcher()
-        # __del__ must never raise — Python logs and ignores it,
-        # but we don't want to add noise during interpreter
-        # teardown.
+        with contextlib.suppress(Exception):
+            self._recording_event.clear()
+        with contextlib.suppress(Exception):
+            self._worker_stop_event.set()
+        with contextlib.suppress(Exception):
+            self._event_stop_event.set()
+        with contextlib.suppress(Exception):
+            self._device_health_stop_event.set()
+        with contextlib.suppress(Exception):
+            self._teardown_stream()
 
     # ── AUDIO-HOT: hot-plug disconnect handling ─────────────────────────
 
@@ -1072,6 +1099,72 @@ class Recorder:
         """
         return self._devices._all_input_device_candidates()
 
+    def _prewarm_device_cache(self) -> None:
+        """Spawn a best-effort daemon thread to populate ``DeviceManager._device_list_cache``.
+
+        PERF (recorder hot-path): ``start()``'s device-enumeration block
+        performs several ``sd.query_devices()`` RPCs per candidate (50-200ms
+        each on Windows MME). ``DeviceManager._refresh_device_list`` is the
+        cached path (30s TTL, OS-event-invalidated by
+        ``MicrophoneDeviceWatcher``), but the cache is cold at construction
+        time. Pre-warming it on a background thread means that by the time
+        the user presses the dictation hotkey (typically seconds-to-minutes
+        after app launch), the cache is warm and ``_cached_max_input_channels``
+        returns instantly.
+
+        The thread is a one-shot daemon (no stop mechanism, no join needed).
+        If PortAudio is unavailable (headless CI, no audio HW), the cache
+        stays empty and ``start()`` falls back to direct
+        ``sd.query_devices()`` calls — no regression.
+        """
+        import threading as _threading
+
+        def _warm() -> None:
+            try:
+                self._devices._refresh_device_list()
+            except Exception:
+                log.debug("[RECORDING] device cache pre-warm failed", exc_info=True)
+
+        _threading.Thread(
+            target=_warm,
+            name="recorder-device-cache-prewarm",
+            daemon=True,
+        ).start()
+
+    def _cached_max_input_channels(self, device: int | None) -> int:
+        """Return ``max_input_channels`` for ``device`` from the cached device list.
+
+        PERF (recorder hot-path): avoids a 50-200ms ``sd.query_devices()``
+        RPC per candidate on the ``start()`` critical path. The cache is
+        owned by ``DeviceManager._refresh_device_list`` (30s TTL,
+        invalidated on OS device plug/unplug events by
+        ``MicrophoneDeviceWatcher``) and pre-warmed by
+        ``_prewarm_device_cache`` in ``__init__``.
+
+        Falls back to ``sd.query_devices(kind="input")`` for
+        ``device=None`` (the cache lists all input devices but does not
+        track which one is the OS default) and to ``1`` (mono) when the
+        device is not in the cache (e.g. a USB mic that was just plugged
+        in and the cache hasn't been invalidated yet — the next
+        iteration's ``sd.InputStream`` open will retry).
+        """
+        if device is None:
+            # Cache doesn't track OS default; fall back to a single direct
+            # query (one RPC, only on the default-device path which is the
+            # minority case — most users configure an explicit mic index).
+            try:
+                info = sd.query_devices(kind="input")
+                return int(info.get("max_input_channels", 1) or 1)
+            except Exception:
+                return 1
+        try:
+            for info in self._devices._refresh_device_list():
+                if info.get("index") == device:
+                    return int(info.get("max_input_channels", 1) or 1)
+        except Exception:
+            pass
+        return 1
+
     def start(self) -> None:
         """Start recording audio.
 
@@ -1306,8 +1399,13 @@ class Recorder:
                 config_channels = int(getattr(self.config, "recording_channels", 1) or 1)
                 channels = config_channels if config_channels > 0 else 1
                 try:
-                    dev_info = sd.query_devices(candidate) if candidate is not None else sd.query_devices(kind="input")
-                    max_ch = dev_info.get("max_input_channels", 1)
+                    # PERF: consult the cached device list (pre-warmed in
+                    # ``__init__`` via ``_prewarm_device_cache``) instead
+                    # of issuing a fresh ``sd.query_devices()`` RPC per
+                    # candidate. Each RPC is 50-200ms on Windows MME; with
+                    # 1-3 candidates the savings are 1-3 RPCs on the
+                    # hotkey critical path.
+                    max_ch = self._cached_max_input_channels(candidate)
                     if config_channels <= 0:
                         # 0 = auto-detect: prefer mono, fallback to device default
                         if max_ch >= 2:
@@ -1408,11 +1506,14 @@ class Recorder:
 
                 stream = None
                 try:
-                    # AUDIO-CH: also query channels for fallback devices
+                    # AUDIO-CH: also query channels for fallback devices.
+                    # PERF: use the cached lookup (same rationale as the
+                    # primary candidate loop above) — the fallback path
+                    # iterates ALL input devices, so per-candidate RPC
+                    # savings compound quickly here.
                     fb_channels = 1
                     try:
-                        fb_dev_info = sd.query_devices(candidate)
-                        fb_max_ch = fb_dev_info.get("max_input_channels", 1)
+                        fb_max_ch = self._cached_max_input_channels(candidate)
                         if fb_max_ch >= 2:
                             fb_channels = 2
                     except Exception:
@@ -2460,12 +2561,18 @@ class Recorder:
             if self._cached_resampled is not None and self._cached_resampled.size > 0:
                 _recording_pkg._secure_clear_array(self._cached_resampled)
         except (OSError, ValueError):
-            pass
+            log.warning(
+                "[RECORDER] secure_clear_array failed for _cached_resampled",
+                exc_info=True,
+            )
         try:
             if self._cached_no_resample_arr is not None and self._cached_no_resample_arr.size > 0:
                 _recording_pkg._secure_clear_array(self._cached_no_resample_arr)
         except (OSError, ValueError):
-            pass
+            log.warning(
+                "[RECORDER] secure_clear_array failed for _cached_no_resample_arr",
+                exc_info=True,
+            )
         self._cached_resampled = np.array([], dtype=np.float32)
         self._cached_no_resample_arr = None
         self._cached_native_chunk_count = 0
@@ -2624,142 +2731,15 @@ class Recorder:
     def snapshot(self) -> np.ndarray:
         """Return current recorded audio without clearing the active buffer.
 
-        Uses a cached resampled prefix to avoid O(n²) resampling on every call.
-        Only new chunks since the last snapshot are resampled, then concatenated
-        with the cached prefix.
-
-        PERF-NEW-002 / PERF-NEW-003: previously this called
-        ``list(self._buffer)[start:]`` which allocated a full list copy
-        of the deque on every snapshot (20K allocs/sec under sustained
-        recording).  Replaced with ``itertools.islice`` which is O(1)
-        in the deque size and avoids the intermediate list.  Also
-        avoided the O(n) ``np.concatenate([cached, new])`` allocation
-        when there's nothing new to add.
-
-        NEW-PERF-003: when no new chunks have arrived since the last
-        snapshot (the common case for the streaming thread polling at
-        4 Hz), return a VIEW into the cached array instead of a full
-        copy.  The streaming caller only reads the array and slices it
-        (which produces another view); it never mutates the data.  The
-        cache is replaced (not mutated in place) when new chunks arrive,
-        so existing views remain valid until their references are
-        released.  This eliminates ~7,200 × 1.9 MB = ~14 GB of garbage
-        allocation per 30-minute recording session.
-
-        NEW-PERF-007: avoid acquiring ``self._lock`` at all when the
-        buffer is empty.  The streaming thread polls at 4 Hz; if the
-        recorder hasn't started yet (or just stopped), each poll would
-        contend with the audio callback's lock acquisition for no
-        reason.  The lock-free ``len(self._buffer)`` check is safe
-        because:
-        - ``len()`` on a collections.deque is atomic in CPython.
-        - If the buffer transitions from empty → non-empty between our
-          check and the lock acquisition, the locked path handles it
-          correctly (returns the new chunk).
-        - If the buffer transitions from non-empty → empty (e.g.
-          stop() called), the locked path returns the empty-array
-          early-out.  No correctness issue.
+        PVT-006 split: body moved to :func:`._recorder_split.take_snapshot`.
+        This method is now a 1-line delegator so existing call sites,
+        subclass overrides, and ``inspect.getsource`` checks that look for
+        the method on the ``Recorder`` class continue to work. See the
+        docstring of the extracted helper for the full perf / correctness
+        rationale (cached resampled prefix, islice over the deque, VIEW
+        vs copy semantics, lock-free empty-buffer fast path).
         """
-        import itertools
-
-        # NEW-PERF-007: lock-free fast path for the empty-buffer case.
-        # Avoids 4 Hz lock contention with the audio callback thread
-        # when the recorder isn't actively recording.
-        if not self._buffer:
-            return np.array([], dtype=np.float32)
-        with self._lock:
-            if not self._buffer:
-                return np.array([], dtype=np.float32)
-            effective_sr = self._effective_sr
-            # PERF-NEW-021: read the cached target_sr instead of
-            # self.config.sample_rate to avoid attribute lookup under lock.
-            target_sr = getattr(self, "_cached_target_sr", None) or self.config.sample_rate
-
-            # ARCH-040: invalidate the cache if any of the parameters
-            # that affect the resampled output have changed since the
-            # last snapshot. Without this, a dtype or sample-rate
-            # change mid-session would return stale (and wrong-rate)
-            # cached audio.
-            new_key = (
-                str(self._buffer[0].dtype) if len(self._buffer) > 0 else "float32",
-                effective_sr,
-                target_sr,
-            )
-            if self._cached_resample_key != new_key:
-                self._cached_resampled = np.array([], dtype=np.float32)
-                self._cached_native_chunk_count = 0
-                self._cached_resample_key = new_key
-                # NEW-PERF-003: invalidate the no-resample cache too
-                # — a sample-rate or dtype change invalidates both.
-                self._cached_no_resample_len = -1
-                self._cached_no_resample_arr = None
-
-            if effective_sr != target_sr and len(self._buffer) > self._cached_native_chunk_count:
-                # PERF-NEW-003: islice avoids the full-deque list copy.
-                # Only the slice we actually need is materialized.
-                new_chunks = list(
-                    itertools.islice(
-                        self._buffer,
-                        self._cached_native_chunk_count,
-                        None,
-                    )
-                )
-                if new_chunks:
-                    new_audio = np.concatenate(new_chunks, axis=0).reshape(-1)
-                    # ERR-001: if resampling fails, drop the bad chunk
-                    # rather than appending native-rate audio that
-                    # would corrupt the streaming transcription.
-                    try:
-                        new_resampled = self._resample_chunk(new_audio, effective_sr, target_sr)
-                    except ResampleError as e:
-                        log.warning(
-                            "[RECORDING] Snapshot resample failed; dropping %d native samples: %s",
-                            len(new_audio),
-                            e,
-                        )
-                        self._cached_native_chunk_count = len(self._buffer)
-                        # NEW-PERF-003: return a view, not a copy.
-                        return self._cached_resampled[:]
-                    # PERF-NEW-002: avoid the O(n) reallocation when the
-                    # cached prefix is empty (first snapshot of a session).
-                    if len(self._cached_resampled) > 0:
-                        self._cached_resampled = np.concatenate([self._cached_resampled, new_resampled])
-                    else:
-                        self._cached_resampled = new_resampled
-                    self._cached_native_chunk_count = len(self._buffer)
-                # NEW-PERF-003: return a VIEW into the cache.  The caller
-                # (streaming.py) only reads + slices this array; it never
-                # mutates.  When the cache is later replaced by a new
-                # np.concatenate(...) assignment, this view remains valid
-                # (numpy keeps the underlying buffer alive until all views
-                # are released).  This eliminates the 1.9 MB copy on every
-                # 4 Hz poll — ~14 GB of garbage per 30-min recording.
-                return self._cached_resampled[:]
-            elif effective_sr == target_sr:
-                # No resampling needed, just concatenate all.
-                # PERF-NEW-003: islice over the deque avoids the full
-                # list copy.  ``np.fromiter`` would be even faster but
-                # requires a flat iterator; the deque holds 2D chunks
-                # so we still need one concatenate.
-                #
-                # NEW-PERF-003: cache the no-resample concatenation too,
-                # so repeated snapshots with no new chunks don't repeat
-                # the concatenate.  When chunks ARE new, we rebuild the
-                # cache.  The cache key is the buffer length — if it
-                # hasn't changed, the cached array is still valid.
-                buf_len = len(self._buffer)
-                if getattr(self, "_cached_no_resample_len", -1) == buf_len and self._cached_no_resample_arr is not None:
-                    return self._cached_no_resample_arr[:]
-                chunks = list(itertools.islice(self._buffer, 0, None))
-                audio = np.concatenate(chunks, axis=0).reshape(-1)
-                self._cached_no_resample_len = buf_len
-                self._cached_no_resample_arr = audio
-                return audio[:]
-            else:
-                # No new chunks, return cached
-                # NEW-PERF-003: return a VIEW, not a copy.  See comment
-                # in the resample branch above for why this is safe.
-                return self._cached_resampled[:]
+        return _recorder_split.take_snapshot(self)
 
     def _resample_chunk(self, audio: np.ndarray, effective_sr: int, target_sr: int) -> np.ndarray:
         """Resample a single chunk of audio.
@@ -2842,61 +2822,14 @@ class Recorder:
         )
 
     def discard(self) -> None:
-        """Discard current recording without processing."""
-        self._recording_event.clear()
-        # STREAM-FIX (Task 6): set _user_stop_pending before stream.stop()
-        # so the audio callback's early-return guard (line 574) suppresses
-        # the false "Stream finished unexpectedly" warning. The stop()
-        # path sets this flag (line 1887); discard() was missing it, so
-        # cancelling a recording via the Cancel button still fired the
-        # warning. This mirrors the stop() contract: any code path that
-        # intentionally stops the stream must set _user_stop_pending first
-        # so the callback knows the stream end is expected, not a crash.
-        self._user_stop_pending = True
-        # 17-H-FIX-2: increment stop_generation for symmetry with stop()
-        # so any stale disconnect handler launched from the audio
-        # callback (during discard's stream.stop()) bails out instead of
-        # racing with the teardown — matching stop()'s HOTKEY-CRASH guard.
-        self._stop_generation += 1
-        # ARCH-021: guard _effective_sr reset with the lock so a
-        # concurrent snapshot() reader sees a consistent value.
-        with self._lock:
-            self._effective_sr = self.config.sample_rate
-        self._last_rms = 0.0
-        self._silence_timer = 0.0
-        self._silence_start_time = None
-        self._silence_warning_count = 0
-        self._silence_next_warning_wait = 10.0
-        # G4-H-06: securely zero cached audio arrays BEFORE reassignment
-        # (previously this just dropped the references, leaving the
-        # discarded session's voice data in process memory).  Factored
-        # into ``_secure_clear_caches`` (shared with stop()'s two paths).
-        self._secure_clear_caches()
-        # 17-H-FIX-2: drain callback + stop + close via _teardown_stream()
-        # (shared with stop()). The previous inline stream.stop()/close()
-        # here had NO _is_in_audio_callback poll, risking use-after-free
-        # or deadlock when ESC-cancel landed during a busy audio callback
-        # (which fires ~16×/s). The helper polls for up to 300ms before
-        # close() and is idempotent if the stream was already None.
-        self._teardown_stream()
-        # RT-SAFE-001: stop the audio worker thread. drain=False because
-        # discard() doesn't need the in-flight audio — it's about to
-        # clear self._buffer anyway. The worker clears the ring buffer
-        # and exits after its current chunk (if any). Any chunk the
-        # worker appends to self._buffer before exiting is cleared below.
-        self._stop_audio_worker(timeout=_AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
-        # RW-8: stop the IPC event worker with drain=False — the
-        # recording was cancelled, so queued IPC events (e.g.
-        # audio_clip from the discarded audio) don't need to be
-        # published. The queue is cleared so the worker exits promptly.
-        self._stop_event_worker(timeout=_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
-        # CPU-03: stop the device health checker thread (mirrors the event worker).
-        self._stop_device_health_checker()
-        with self._lock:
-            # MEM-04 / SEC-audit-008: defer buffer zeroing to background daemon thread
-            # so discard() returns immediately (the secure clear happens off the hot path).
-            _old_buffer = self._buffer
-            self._buffer = collections.deque(
-                maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
-            )
-            _recording_pkg._secure_clear_array_background(_old_buffer)
+        """Discard current recording without processing.
+
+        PVT-006 split: body moved to :func:`._recorder_split.discard_recording`.
+        This method is now a 1-line delegator so existing call sites,
+        subclass overrides, and ``inspect.getsource`` checks that look for
+        the method on the ``Recorder`` class continue to work. See the
+        docstring of the extracted helper for the full rationale (stream
+        teardown ordering, secure-clear of cached audio arrays, worker
+        thread drain semantics).
+        """
+        _recorder_split.discard_recording(self)

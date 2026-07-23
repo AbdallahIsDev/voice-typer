@@ -434,7 +434,12 @@ class RecordingController:
 
         # Audio has already been resampled to config.sample_rate by Recorder.stop()
         duration = len(audio) / app.config.sample_rate if len(audio) > 0 else 0
-        # Capture RMS before starting transcription thread (race-safe)
+        # Capture RMS before starting transcription thread (race-safe).
+        # Diagnostic: include recorded_rms in the stop log so the
+        # "finish dictation → nothing transcribed" failure mode can be
+        # traced — if recorded_rms is non-trivial here but the pipeline
+        # later reports an empty transcription, the engine (not the
+        # mic) was the culprit.
         recorded_rms = app.recorder.last_rms
 
         # Run the revived AudioQualityAnalyzer on the captured audio.
@@ -444,8 +449,9 @@ class RecordingController:
             except Exception:
                 log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
         log.info(
-            "[DICTATION] Recording stopped -- %.1fs of audio, busy=True (cycle=%s)",
+            "[DICTATION] Recording stopped -- %.1fs of audio, recorded_rms=%.4f, busy=True (cycle=%s)",
             duration,
+            recorded_rms,
             app._cycle_id,
         )
 

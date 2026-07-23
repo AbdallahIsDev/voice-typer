@@ -23,27 +23,67 @@ import sys
 import threading
 import time
 import typing
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server import event_bus
 
-# CR-14 (IMPROVE-mode run): the helper leaf submodules under
-# ``voice_typer.server.ipc`` (``validation.py``, ``history_bounds.py``,
-# ``rate_limiter.py``, ``push_events.py``, ``process_meta.py``,
-# ``transport.py``) are actively imported by ``handlers/*.py`` and were
-# RETAINED when the dead duplicates ``ipc/server.py`` and ``ipc/main.py``
-# were deleted. We import the canonical helpers here so the
-# module-level names (``_validate_dict_payload``, ``_error_response``,
-# ``_pick_available_port``, ``_RateLimiter``, …) stay bound on
-# ``ipc_server`` for ``from voice_typer.server.ipc_server import X``
-# compatibility (pinned by ``tests/tauri/mig19/test_phase4_validation.py``
-# and ``tests/test_app.py``).
+# CR-1 (consolidated): the helper leaf submodules under
+# ``voice_typer.server.ipc`` (``validation.py``, ``transport.py``,
+# ``rate_limiter.py``, ``history_bounds.py``) are the CANONICAL source
+# for every helper this module uses.  The dead duplicates
+# ``ipc/server.py``, ``ipc/main.py``, ``ipc/process_meta.py`` and
+# ``ipc/push_events.py`` were deleted (CR-019 / test_dead_code_stays_removed)
+# and the local copies of these helpers that used to live in
+# ``ipc_server.py`` were replaced with the re-export imports below so the
+# two implementations cannot silently drift.  The ``IPCServer`` class,
+# ``_push_event_now``, ``_set_process_metadata`` and ``main`` remain
+# canonical to this module — they have no parallel implementation under
+# ``ipc/``.
 #
-# The ``noqa: F401`` on the import below marks these as intentional
-# re-exports — they're not used directly in this module but are part
-# of the public-ish API surface for test imports (``from
-# voice_typer.server.ipc_server import _error_response`` etc).
+# The ``noqa: F401`` markers flag these as intentional re-exports: the
+# names are used by this module's ``IPCServer`` body AND by external
+# ``from voice_typer.server.ipc_server import X`` imports (pinned by
+# ``tests/test_pick_available_port.py``, ``tests/test_cr_fixes.py``,
+# ``tests/test_ipc4_rate_limiter_dual_window.py``,
+# ``tests/test_r4_f18_rate_limiter_concurrent_init.py``,
+# ``tests/test_server.py``, ``tests/test_dead_code_stays_removed.py``
+# and ``tests/tauri/mig19/test_phase4_validation.py``).  Object identity
+# (``ipc_server._RateLimiter is ipc.rate_limiter._RateLimiter``) is the
+# single-source-of-truth guarantee — see
+# ``test_ipc_server_imports_TCPLineIO_from_transport`` for the pinned
+# pattern.
+from voice_typer.server.ipc.history_bounds import (  # noqa: F401
+    _HISTORY_LIMIT_DEFAULT,
+    _HISTORY_LIMIT_MAX,
+    _REDACTED_SENTINEL,
+    _SECRET_CONFIG_FIELDS,
+    _bound_history_limit,
+    _bound_history_offset,
+    _sanitize_config_for_ipc,
+)
+from voice_typer.server.ipc.rate_limiter import (  # noqa: F401
+    _HEARTBEAT_FORCE_EXIT_GRACE_SECONDS,
+    _HEARTBEAT_INTERVAL_SECONDS,
+    _HEARTBEAT_TIMEOUT_SECONDS,
+    _RATE_LIMIT_BURST,
+    _RATE_LIMIT_BURST_WINDOW_SECONDS,
+    _RATE_LIMIT_SUSTAINED,
+    _RATE_LIMIT_WINDOW_SECONDS,
+    _RATE_LIMITER_INIT_LOCK,
+    _TCP_WRITE_TIMEOUT_SECONDS,
+    COMMAND_COSTS,
+    DEFAULT_COST,
+    _RateLimiter,
+)
+
+# NOTE: ``_get_rate_limiter`` is intentionally NOT imported here — it is
+# defined locally below (see the CR-11 / R4-F18 comment block) so tests
+# that monkey-patch ``ipc_server._RateLimiter`` are observed by the
+# get-or-create's module-global class lookup.
+from voice_typer.server.ipc.transport import (  # noqa: F401
+    _pick_available_port,
+    _TCPLineIO,
+)
 from voice_typer.server.ipc.validation import (  # noqa: F401
     _error_response,
     _validate_dict_payload,
@@ -54,379 +94,25 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
-# PR-3-FINDING-3: shared IPC payload validation helper.
+# ── CR-11 / R4-F18: per-process rate limiter get-or-create ───────────────
 #
-# Validates an IPC ``data`` argument against a declarative schema.
-# Returns ``(validated_dict, None)`` on success, or
-# ``(None, error_response_dict)`` on validation failure so the handler
-# can ``return resp`` immediately.
+# ``_get_rate_limiter(server)`` is the canonical lazy get-or-create for the
+# per-process ``_RateLimiter``.  It is defined LOCALLY here (rather than
+# only re-exported from ``voice_typer.server.ipc.rate_limiter``) because
+# tests in ``tests/test_r4_f18_rate_limiter_concurrent_init.py`` and
+# ``tests/test_cr_fixes.py`` monkey-patch ``ipc_server._RateLimiter`` with
+# a counting stand-in to widen the race window — the patched class is
+# only observed if ``_get_rate_limiter`` looks up ``_RateLimiter`` from
+# THIS module's globals at call time.  A function imported from the leaf
+# module would resolve ``_RateLimiter`` against the LEAF module's globals
+# and silently ignore the monkey-patch.
 #
-# Schema format::
-#
-#     schema = {
-#         "field_name": {
-#             "type": str,          # required: the expected Python type
-#             "required": True,     # field MUST be present in data
-#             "default": "val",    # optional default (only for
-#                                  #   required=False)
-#         }
-#     }
-#
-# Example::
-#
-#     validated, error = _validate_dict_payload(data, {
-#         "hotkey": {"type": str, "required": True},
-#         "model": {"type": str, "required": False, "default": "small.en"},
-#     })
-#     if error:
-#         return error
-#
-# CR-14: the canonical implementation now lives in
-# ``voice_typer/server/ipc/validation.py`` (kept under the ``ipc/``
-# package because the handler mixins import it directly). The local
-# definition that used to live here was removed and replaced with the
-# import above to avoid the two copies drifting. R4-F5 / R13-F3
-# extended the helper with ``max_value_len`` / ``max_payload_bytes`` /
-# ``clamp_range`` rules and added :func:`_error_response` — both
-# extensions are documented in ``ipc/validation.py``.
-
-
-def _pick_available_port(start: int = 9876, max_tries: int = 100) -> tuple[int, socket.socket]:
-    """Return ``(port, bound_socket)`` for the first TCP port >= ``start`` free on 127.0.0.1.
-
-    P1-1.2: used by standalone mode to auto-pick a port for the backend's
-    TCP server.  Starts at the default IPC port (9876) and increments
-    until a free port is found (capped at ``max_tries`` attempts).  Falls
-    back to an OS-assigned ephemeral port (port=0) if every port in the
-    range is busy — this guarantees the function never fails.
-
-    CR-7 fix: the BOUND socket is returned alongside the port number so
-    the caller can pass it through to :meth:`IPCServer.start_tcp` (which
-    accepts either an ``int`` for backward compatibility or a
-    ``(port, sock)`` tuple for the no-race-window gold-standard path).
-    The previous probe-then-bind pattern closed the probe socket before
-    the real ``bind()`` in ``_accept_tcp``, opening a (small but real)
-    race window where another local process could grab the port.  By
-    handing the already-bound socket to ``start_tcp``, the kernel
-    guarantees no other process can claim that port between probe and
-    listen.
-
-    The returned socket has ``SO_REUSEADDR`` set and is bound to
-    ``127.0.0.1:port`` but NOT yet listening — the caller is expected to
-    call ``.listen()`` on it (or pass it to ``start_tcp`` which does so).
-    Callers that only want the port number (and accept the race window)
-    can close the socket themselves::
-
-        port, sock = _pick_available_port(...)
-        sock.close()  # releases the port; race window re-opens
-    """
-    for offset in range(max_tries):
-        candidate = start + offset
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            s.bind(("127.0.0.1", candidate))
-        except OSError:
-            # Port busy — close the probe socket and try the next one.
-            with contextlib.suppress(OSError):
-                s.close()
-            continue
-        # CR-7: return the ACTUAL bound port (s.getsockname()[1]), not
-        # ``candidate``.  When ``candidate == 0`` (ephemeral-port
-        # request), the OS assigns a real port number which we must
-        # surface to the caller.  The bound socket is returned so the
-        # caller can pass it through to start_tcp (no race window).
-        return s.getsockname()[1], s
-    # All ports in range are busy — let the OS assign an ephemeral one.
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    s.bind(("127.0.0.1", 0))
-    return s.getsockname()[1], s
-
-
-# ── RELIABILITY-006: per-connection rate limiter ─────────────────────────
-#
-# A crash-looping or buggy Electron client can flood the IPC socket
-# with thousands of malformed messages per second, exhausting file
-# descriptors and starving the tray thread.  ``_RateLimiter`` is a
-# sliding-window per-connection limiter: each connection gets a
-# bounded number of messages per window.  Over-budget messages are
-# dropped (with an error response) rather than dispatched.
-#
-# The limits are intentionally generous — a well-behaved Electron client
-# sends maybe 1-5 msg/s.
-#
-# RELIABILITY-006-FIX-10: ``burst`` (200) is the hard per-second cap; a
-# client that sends >200 messages in any 1-second window is throttled.
-# ``sustained`` (600) is measured over a 10-second window (60 msg/s
-# average) so short bursts within 1s (up to 200) are NOT throttled by
-# the sustained limit. Previously both used a 1s window with
-# sustained=60 < burst=200, making burst completely unreachable.
-#
-# IPC-4 fix (2026-07-18): the prior FIX-10 comment claimed "burst is
-# the hard per-second cap" but the implementation used a SINGLE deque
-# for both checks, with the same ``window`` (10s). With burst=200 and
-# sustained=600 over the same 10s deque, the burst check (>= 200)
-# ALWAYS fired first, making the sustained check (>= 600) unreachable
-# dead code. The fix: TWO independent deques — ``_burst_timestamps``
-# (1-second window) and ``_sustained_timestamps`` (10-second window) —
-# so burst catches fast-burst attacks (201 msgs in any 1s) and
-# sustained catches slow-drip attacks (601 msgs in any 10s = 60.1
-# msg/s average, never tripping the 200/s burst). The two checks are
-# now genuinely independent, not redundant.
-
-_RATE_LIMIT_WINDOW_SECONDS = 10.0
-_RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0
-_RATE_LIMIT_BURST = 200
-_RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
-
-# G4-M-09: per-command cost map. See voice_typer/server/ipc/rate_limiter.py
-# for the full rationale. Replicated here (rather than imported) so the
-# canonical ipc_server module remains self-contained for the
-# ``from voice_typer.server.ipc_server import _RateLimiter`` test
-# import path. Kept in sync with the ipc/rate_limiter.py copy.
-COMMAND_COSTS: dict[str, int] = {
-    "download_model": 50,
-    "import_model": 20,
-    "export_gdpr_bundle": 20,
-    "delete_all_personal_data": 20,
-    "heartbeat": 1,
-}
-DEFAULT_COST = 1
-
-# NEW-CONC-003: write timeout for TCP sendall.  A stalled Electron
-# renderer (e.g. GC pause, dev-tools inspection, or a busy main thread)
-# can stop draining its TCP receive buffer.  Without a timeout, sendall
-# blocks indefinitely, holding the IPC lock (pre-NEW-IPC-014) or
-# blocking the bubble_level worker thread (post-NEW-IPC-014).  2
-# seconds is generous for a localhost write — under normal load the
-# kernel buffer accepts data in microseconds.  When the timeout fires,
-# we drop the client connection so the accept loop can pick up the
-# next reconnect.
-_TCP_WRITE_TIMEOUT_SECONDS = 2.0
-
-# ── RW-10: Electron-alive heartbeat ─────────────────────────────────────
-#
-# If Electron crashes or is force-killed, the Python backend keeps
-# running with the mic stream open, hotkeys registered, volume ducked,
-# and the single-instance mutex held.  The next launch hits
-# ``ERROR_ALREADY_EXISTS`` and surfaces "Only one instance can run",
-# forcing the user to manually kill ``python.exe``.
-#
-# The heartbeat mechanism works as follows:
-#   1. Electron connects via TCP and starts sending ``heartbeat`` IPC
-#      commands every 5 seconds (see ``client/src/main/index.ts``).
-#   2. The ``_handle_heartbeat`` handler updates
-#      ``self._last_heartbeat_at = time.monotonic()``.
-#   3. The ``_heartbeat_loop`` daemon thread wakes every 5 seconds and
-#      checks if more than 120 seconds (24 missed heartbeats) have
-#      elapsed since the last heartbeat.  If so, it calls
-#      ``self.app.quit()`` — which runs the shared ``_do_cleanup()``
-#      path from RW-3 (restores volume, flushes recovery, releases the
-#      mutex, closes PortAudio).
-#
-# The watchdog only fires AFTER the first heartbeat has been received,
-# so the backend doesn't exit prematurely during a slow Electron cold
-# start (10+ seconds for the torch import + window creation).
-_HEARTBEAT_INTERVAL_SECONDS = 5.0
-_HEARTBEAT_TIMEOUT_SECONDS = 120.0  # 24 missed heartbeats — increased from 15s
-# CR-9: grace period (seconds) the heartbeat watchdog's force-exit
-# daemon thread waits before calling ``os._exit(1)``. 10s is longer
-# than the slowest legitimate ``app.quit()`` path (PortAudio stream
-# teardown + history DB flush + mutex release ≈ 2-3s in the worst
-# observed case), giving graceful shutdown room to complete while
-# still bounding the worst-case hang to 10s. Extracted as a constant
-# so tests can patch it down to ~50ms to avoid waiting real seconds.
-_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS = 10.0
-
-
-class _RateLimiter:
-    """Sliding-window per-connection rate limiter.
-
-    Each IPC connection gets its own ``_RateLimiter`` instance.  The
-    limiter tracks the timestamp of each accepted message in TWO
-    deques:
-
-    * ``_burst_timestamps`` — a 1-second sliding window. If the deque
-      reaches ``burst`` entries (default 200), the next message is
-      rejected. This catches fast-burst attacks (201+ msgs in any 1s).
-    * ``_sustained_timestamps`` — a ``window``-second sliding window
-      (default 10s). If the deque reaches ``sustained`` entries
-      (default 600 = 60 msg/s avg), the next message is rejected.
-      This catches slow-drip attacks (601+ msgs in any 10s = 60.1
-      msg/s avg) that never trip the per-second burst.
-
-    IPC-4 fix (2026-07-18): prior to this fix, both checks shared a
-    SINGLE deque (the ``window``-second one), so the burst check
-    (>= 200) always fired first and the sustained check (>= 600) was
-    unreachable dead code. The two checks are now genuinely
-    independent.
-    """
-
-    def __init__(
-        self,
-        *,
-        burst: int = _RATE_LIMIT_BURST,
-        sustained_per_sec: int = _RATE_LIMIT_SUSTAINED,
-        window: float = _RATE_LIMIT_WINDOW_SECONDS,
-        burst_window: float = _RATE_LIMIT_BURST_WINDOW_SECONDS,
-    ) -> None:
-        self._burst = burst
-        self._sustained = sustained_per_sec
-        self._window = window
-        self._burst_window = burst_window
-        # IPC-4: TWO independent deques. The burst deque uses a 1s
-        # window (configurable via ``burst_window``); the sustained
-        # deque uses the ``window`` parameter (default 10s).
-        # G4-M-09: each entry is now a ``(timestamp, cost)`` tuple
-        # rather than a bare timestamp, so the per-command cost map
-        # can be summed against the burst/sustained budgets. ``cost=1``
-        # for unknown commands preserves the pre-G4-M-09 behavior
-        # (each call counts as 1 unit).
-        self._burst_timestamps: deque[tuple[float, int]] = deque()
-        self._sustained_timestamps: deque[tuple[float, int]] = deque()
-        self._rejected: int = 0
-        self._lock = threading.Lock()
-
-    def allow(self, *, command: str = "", now: float | None = None) -> bool:
-        """Return True if the message should be accepted.
-
-        Parameters
-        ----------
-        command : str
-            The IPC command name (``msg.get("type")``). Used to look up
-            the per-command cost in :data:`COMMAND_COSTS`. Unknown
-            commands default to :data:`DEFAULT_COST` (1). Defaults to
-            ``""`` so legacy callers (which don't pass ``command``)
-            keep the pre-G4-M-09 cost-1 behavior.
-        now : float, optional
-            Current monotonic time.  If omitted, ``time.monotonic()``
-            is used.  Passing ``now`` explicitly makes the limiter
-            trivially testable.
-
-        SEC-6: ``_rejected`` is incremented atomically with the
-        rejection decision inside the same lock acquisition as the
-        deque check. Previously ``allow()`` returned False and the
-        caller separately called ``reject()`` (acquiring the lock
-        again) — a benign race where two threads could both observe
-        the same deque state, both decide to reject, and double-count
-        the rejection. Now ``allow()`` is the single source of truth
-        for both the decision and the counter.
-
-        IPC-4: the burst and sustained checks are now INDEPENDENT.
-        A client can trip burst (201 msgs in 1s) without tripping
-        sustained (601 msgs in 10s), and vice versa. Both deques are
-        evicted and checked under the same lock acquisition so the
-        decision is atomic.
-
-        G4-M-09: the cost-weighted check is
-        ``current_window_total + cost > limit`` — equivalent to the
-        pre-G4-M-09 ``len(deque) >= limit`` check when ``cost == 1``
-        (because each entry contributes 1 to the total). With
-        ``cost == 50`` (e.g. ``download_model``), the limit is
-        reached after 4 calls instead of 200.
-        """
-        ts = now if now is not None else time.monotonic()
-        cost = COMMAND_COSTS.get(command, DEFAULT_COST)
-        # Defensive: a misconfigured COMMAND_COSTS entry or a future
-        # caller passing a negative cost must not corrupt the budget.
-        # Clamp to at least 1 so the limiter is always strict-ish.
-        if cost < 1:
-            cost = 1
-        burst_cutoff = ts - self._burst_window
-        sustained_cutoff = ts - self._window
-        with self._lock:
-            # Evict expired timestamps from both deques.
-            while self._burst_timestamps and self._burst_timestamps[0][0] < burst_cutoff:
-                self._burst_timestamps.popleft()
-            while self._sustained_timestamps and self._sustained_timestamps[0][0] < sustained_cutoff:
-                self._sustained_timestamps.popleft()
-            # G4-M-09: sum the per-entry costs (not just the entry
-            # count) so an expensive command consumes more of the
-            # budget per call. ``cost == 1`` reduces this to the
-            # pre-G4-M-09 count-based check.
-            burst_total = sum(c for _, c in self._burst_timestamps)
-            sustained_total = sum(c for _, c in self._sustained_timestamps)
-            # IPC-4: burst check (1s window, hard per-second cap).
-            if burst_total + cost > self._burst:
-                self._rejected += 1
-                return False
-            # IPC-4: sustained check (10s window, avg-rate cap).
-            # Independent of burst — a slow-drip attacker who never
-            # sends >200 msgs/s but exceeds 600 msgs in 10s is caught
-            # here, where the prior single-deque impl would have
-            # missed them (burst fired first at 200).
-            if sustained_total + cost > self._sustained:
-                self._rejected += 1
-                return False
-            self._burst_timestamps.append((ts, cost))
-            self._sustained_timestamps.append((ts, cost))
-            return True
-
-    @property
-    def rejected_count(self) -> int:
-        """Total messages rejected since this limiter was created.
-
-        Not currently exposed via IPC, but useful for tests.
-        """
-        return self._rejected
-
-    def reject(self) -> None:
-        """No-op kept for backward compatibility.
-
-        SEC-6: the counter is now incremented atomically inside
-        :meth:`allow` when it returns ``False``. The separate
-        ``reject()`` call from the caller was dropped to eliminate the
-        benign race where two threads could both observe the same
-        deque state, both decide to reject, and double-count the
-        rejection. This method is retained (as a no-op) so existing
-        callers (and the WS path's source-level string check in
-        ``test_sidecar_ws_calls_rate_limiter_allow_per_frame``) don't
-        have to change in lockstep.
-        """
-        return None
-
-
-# ── CR-11: per-process rate limiter ──────────────────────────────────────
-#
-# Previously, both the TCP path (``_handle_tcp_connection``) and the WS
-# path (``sidecar_ws._make_dispatch``) instantiated a FRESH
-# ``_RateLimiter`` per connection. A local attacker could burst the
-# 200-message budget, disconnect, reconnect, and burst again — bypassing
-# the sustained cap entirely.
-#
-# The fix: ONE ``_RateLimiter`` per ``IPCServer`` instance, lazily
-# created and stored on the instance via ``_get_rate_limiter(server)``.
-# All connections (TCP reconnects, WS reconnects) within the same server
-# process share the same sliding-window deque, so the 10s sustained
-# budget continues to evict old timestamps across reconnects.
-#
-# Stored on the instance (not module-level) so:
-#   - Production: one limiter per server process (CR-11 fix).
-#   - Tests: each fresh IPCServer (or MagicMock test double) gets its
-#     own limiter, preserving test isolation without needing a reset
-#     hook. ``getattr(server, "_rate_limiter_instance", None)`` returns
-#     None for a real IPCServer (attribute not set) and a child
-#     MagicMock for a test double — the ``isinstance`` check filters
-#     both, creating+storing a real ``_RateLimiter`` on first access.
-#
-# R4-F18 (IMPROVE-mode run, 2026-07-19): the lazy get-or-create is now
-# guarded by a module-level ``threading.Lock`` so two threads
-# simultaneously hitting ``_get_rate_limiter(server)`` on a fresh
-# server instance cannot race past the ``isinstance`` check and each
-# construct a competing ``_RateLimiter`` instance. The race window was
-# tiny (a few microseconds between the ``getattr`` and the
-# ``setattr``), but the consequence was severe: the orphaned limiter's
-# accepted timestamps would NOT count toward the canonical budget, so
-# a slow-drip attacker could effectively double the rate-limit budget
-# for the brief overlap window (or worse, N× with N racing threads).
-# The init lock is held only for the brief get-or-create window, NOT
-# for the subsequent ``allow()`` call — the per-instance lock inside
-# ``_RateLimiter.allow()`` already serializes deque mutation, so this
-# outer lock does not serialize dispatch.
-_RATE_LIMITER_INIT_LOCK = threading.Lock()
-
-
+# The class object (``_RateLimiter``) and the init lock
+# (``_RATE_LIMITER_INIT_LOCK``) are still the canonical leaf-module
+# objects, imported above — they're single-source-of-truth.  Only the
+# get-or-create function is duplicated, with the leaf copy at
+# ``voice_typer/server/ipc/rate_limiter.py`` kept in sync.  See the test
+# ``test_leaf_copy_also_has_init_lock`` for the pinned invariant.
 def _get_rate_limiter(server: "object") -> _RateLimiter:
     """Return the per-process ``_RateLimiter`` for ``server`` (CR-11).
 
@@ -435,16 +121,16 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
     budget. A local attacker can no longer reset the budget by
     disconnecting and reconnecting.
 
-    R4-F18: the get-or-create sequence is now atomic across threads
-    thanks to ``_RATE_LIMITER_INIT_LOCK``. The lock is module-level
-    (shared across all server instances) — that's correct because the
-    critical section is "check this specific ``server._rate_limiter_instance``
+    R4-F18: the get-or-create sequence is atomic across threads thanks
+    to ``_RATE_LIMITER_INIT_LOCK``. The lock is module-level (shared
+    across all server instances) — that's correct because the critical
+    section is "check this specific ``server._rate_limiter_instance``
     and, if missing, create+store". Different server instances have
     different ``_rate_limiter_instance`` attributes, so the lock
-    serializes only the get-or-create on the SAME server (which is
-    the only race that matters); different servers can init in
-    parallel without contention. The lock is held for microseconds
-    at most (no I/O, no ``allow()`` call), so contention is negligible.
+    serializes only the get-or-create on the SAME server (which is the
+    only race that matters); different servers can init in parallel
+    without contention. The lock is held for microseconds at most (no
+    I/O, no ``allow()`` call), so contention is negligible.
     """
     # Fast path: limiter already exists on the server instance — return
     # it WITHOUT acquiring the init lock. This is the common case after
@@ -471,84 +157,6 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
             # attribute; on a real IPCServer it just sets the attribute.
             server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
         return limiter
-
-
-# ── SEC-003: config sanitization for IPC ─────────────────────────────────
-#
-# ``get_config`` must NOT echo secret fields back to the IPC client.
-# Even though the IPC socket is loopback-only, any local process can
-# connect to it (see SEC-018 for the auth fix).  We return a sanitized
-# view where API keys are replaced with a presence indicator so the
-# renderer can render "key configured" UI without ever holding the
-# actual key value.
-
-# Fields whose values are secrets and must never be echoed back.
-_SECRET_CONFIG_FIELDS = frozenset(
-    {
-        "cloud_api_key",
-        "openai_api_key",
-        "groq_api_key",
-        "deepgram_api_key",
-        "llm_api_key",
-    }
-)
-
-# Sentinel returned in place of a secret value.  The renderer treats
-# this as "key is set, do not display" — it must NOT treat this as the
-# actual key value (which would be a regression of SEC-003).
-_REDACTED_SENTINEL = "<redacted>"
-
-
-# SEC-010: maximum number of history rows a single IPC call can
-# materialize.  Without this cap, ``{"limit": 100000000}`` would
-# force SQLite to scan and the dispatcher to materialize a million
-# rows before slicing — a trivial DoS.
-_HISTORY_LIMIT_MAX = 500
-_HISTORY_LIMIT_DEFAULT = 50
-
-
-def _bound_history_limit(raw) -> int:
-    """Clamp a caller-supplied history ``limit`` to a safe range.
-
-    Accepts ints, floats, and numeric strings (the renderer sometimes
-    sends strings from form inputs).  Rejects anything else with the
-    default.  Result is always in ``[1, _HISTORY_LIMIT_MAX]``.
-    """
-    if raw is None:
-        return _HISTORY_LIMIT_DEFAULT
-    try:
-        v = int(raw)
-    except (TypeError, ValueError):
-        return _HISTORY_LIMIT_DEFAULT
-    return max(1, min(v, _HISTORY_LIMIT_MAX))
-
-
-def _bound_history_offset(raw) -> int:
-    """Clamp a caller-supplied history ``offset`` to a non-negative int."""
-    if raw is None:
-        return 0
-    try:
-        v = int(raw)
-    except (TypeError, ValueError):
-        return 0
-    return max(0, v)
-
-
-def _sanitize_config_for_ipc(config) -> dict:
-    """Return a copy of ``config.__dict__`` with secret fields redacted.
-
-    A secret field is any field in :data:`_SECRET_CONFIG_FIELDS`.  If
-    the field's value is truthy (a key was set), it is replaced with
-    ``"<redacted>"``.  If falsy (empty string or None), the original
-    value (``""`` / ``None``) is preserved so the renderer can
-    distinguish "no key set" from "key set but hidden".
-    """
-    out = config.__dict__.copy()
-    for k in _SECRET_CONFIG_FIELDS:
-        if k in out:
-            v = out[k]
-            out[k] = _REDACTED_SENTINEL if v else v
-    return out
 
 
 # Module-level push hook.  Set by the active IPCServer instance when it
@@ -602,20 +210,14 @@ def _push_event_now(msg: dict) -> bool:
     return event_bus.publish(msg)
 
 
-# CR-1 / CR-2: ``_TCPLineIO`` is the canonical TCP line-IO wrapper and
-# lives in ``voice_typer.server.ipc.transport`` (the surviving leaf of
-# the Phase-4.5 split).  Importing it here (rather than maintaining a
-# parallel copy in this shim) keeps a single source of truth and ensures
-# the CR-2 deadlock fix in ``_TCPLineIO.close`` (``shutdown(SHUT_RDWR)``
-# before ``close``) is the one every call site uses.
-from voice_typer.server.ipc.transport import _TCPLineIO  # noqa: E402,F401
-
 # ARCH-REFAC-002: the per-command ``_handle_*`` methods live in the
 # ``handlers/`` subpackage as mixin classes.  We import them here (after
 # all module-level helpers like ``log`` / ``_push_event_now`` /
-# ``_bound_history_limit`` are defined) so the mixins can resolve their
-# ``from voice_typer.server.ipc_server import ...`` references via the
-# partially initialized module already present in ``sys.modules``.
+# ``_get_rate_limiter`` and the imported ``_bound_history_limit`` /
+# ``_RateLimiter`` / ``_validate_dict_payload`` names are bound) so the
+# mixins can resolve their ``from voice_typer.server.ipc_server import
+# ...`` references via the partially initialized module already present
+# in ``sys.modules``.
 #
 # CRITICAL: Register the canonical module name BEFORE the mixin imports.
 # When ``python -m voice_typer.server.ipc_server`` loads this module,
@@ -680,6 +282,27 @@ class IPCServer(
         The application instance this server wraps.
     """
 
+    # Dedicated per-instance write-serialization lock for the TCP
+    # write path in ``_send``. ``socket.sendall`` releases the GIL
+    # between ``send()`` syscalls (when the kernel send buffer is
+    # full), so two concurrent ``sendall`` calls on the same socket
+    # can interleave their bytes at the kernel send-buffer level,
+    # corrupting the JSON-lines protocol. Serializing ONLY the
+    # write+flush+drain section (NOT the snapshot phase, NOT the
+    # dispatch read path) prevents interleaving without re-introducing
+    # the NEW-IPC-014 "slow client blocks all dispatchers" problem
+    # that ``self._lock`` had when it covered the entire send path.
+    #
+    # Production instances override this in ``__init__`` with a
+    # per-instance ``threading.Lock`` so two IPCServer instances
+    # don't share a lock. The class-level fallback exists ONLY for
+    # tests that bypass ``__init__`` via ``IPCServer.__new__(IPCServer)``
+    # and exercise ``_send`` — those tests don't set ``_tcp_write_lock``
+    # explicitly, so without the fallback they'd raise
+    # ``AttributeError``. Sequential test execution makes the
+    # shared fallback safe (no cross-test contention).
+    _tcp_write_lock = threading.Lock()
+
     def __init__(
         self,
         app,
@@ -729,6 +352,12 @@ class IPCServer(
         # trigger an IPC call. Lock would deadlock; RLock allows the
         # same thread to re-acquire.
         self._lock = threading.RLock()
+        # Per-instance override of the class-level ``_tcp_write_lock``
+        # fallback. See the class-level docstring above for the
+        # rationale (write-serialization lock separate from
+        # ``self._lock`` so a slow client blocks other writers — not
+        # other dispatchers' snapshots or the read path).
+        self._tcp_write_lock = threading.Lock()
         self._tcp_client: _TCPLineIO | None = None
         self._tcp_mode = False
         self._pending_tcp: list[str] = []
@@ -859,14 +488,26 @@ class IPCServer(
         # slow Electron cold start (10+ seconds for torch import)
         # doesn't trigger a false-positive exit.
         # ADR-0020 §2 + §10: under the Tauri sidecar path
-        # (TAURI_SIDECAR=1), the heartbeat watchdog (ADR-0018) is
-        # disabled. The Tauri Rust host's FT-1 supervisor detects
-        # sidecar death via WS-close / process exit and respawns, so
-        # the 120-second-heartbeat-timeout watchdog is redundant and
-        # would false-positive during a slow WS-only reconnect.
+        # (TAURI_SIDECAR=1), the Python-side heartbeat watchdog
+        # (ADR-0018) is disabled. The Tauri Rust host owns liveness
+        # via TWO mechanisms: (1) WS-close / process exit triggers
+        # FT-1 respawn, and (2) the Rust host dispatches a
+        # ``heartbeat`` command every 10s and triggers FT-1 respawn
+        # on 3 consecutive misses (≥30s unresponsive — catches GIL
+        # contention / infinite loops / blocking C calls that keep
+        # the socket open but don't respond to dispatches). The
+        # Python ``_handle_heartbeat`` handler is registered in
+        # ``_COMMAND_REGISTRY`` and updates ``_last_heartbeat_at``
+        # for the (disabled) watchdog's bookkeeping. See
+        # ``src-tauri/src/sidecar/ws.rs`` (reconnect_ws heartbeat
+        # task) and ``voice_typer/server/sidecar_ws.py`` (Heartbeat
+        # docstring) for the full picture.
         _tauri_sidecar = os.environ.get("TAURI_SIDECAR") == "1"
         if _tauri_sidecar:
-            log.info("[IPC] TAURI_SIDECAR=1 — skipping heartbeat-watchdog thread (Tauri FT-1 owns liveness)")
+            log.info(
+                "[IPC] TAURI_SIDECAR=1 — skipping heartbeat-watchdog thread "
+                "(Tauri Rust host owns liveness via WS-close + heartbeat dispatch)"
+            )
             self._heartbeat_thread = None
         else:
             self._heartbeat_stop_event.clear()
@@ -2333,56 +1974,74 @@ class IPCServer(
             # ``None`` (blocking), or the dispatch-loop ``readline`` would
             # block forever and the connection could never be reaped/
             # closed on cleanup (SEC-018 auth-timeout/close path).
-            _prev_timeout = tcp_client.conn.gettimeout()
-            with contextlib.suppress(OSError, AttributeError):
-                tcp_client.conn.settimeout(_TCP_WRITE_TIMEOUT_SECONDS)
-            # settimeout can fail if the socket is already closed;
-            # that's fine — the write below will also fail and we'll
-            # drop the connection cleanly.
-            try:
-                tcp_client.write(line + "\n")
-                tcp_client.flush()
-                # PERF-NEW-014 / SEC-008: drain at most the most recent
-                # K pending entries, not the whole list.  When the
-                # client was disconnected for a while, _pending_tcp
-                # could have grown to thousands of entries (16 Hz
-                # waveform bubble * minutes of disconnect).  Draining
-                # all of them on every push event was O(n) per push
-                # and blocked the audio thread.
-                _drain_cap = 100
-                if pending:
-                    # Already snapshot under lock — drain up to _drain_cap
-                    # of the most recent entries.
-                    recent = pending[-_drain_cap:]
-                    for p in recent:
-                        try:
-                            tcp_client.write(p + "\n")
-                            tcp_client.flush()
-                        except Exception:
-                            log.debug("[IPC] client write failed during pending drain")
-                            break
-            except (TimeoutError, OSError) as exc:
-                log.debug("[IPC] client write failed: %s", exc)
-                # Mark the client as dead so the accept loop will pick
-                # up the next reconnect.  We do this under the lock to
-                # avoid a race with a concurrent _send that just
-                # snapshotted the (now-dead) client.
-                with self._lock:
-                    if self._tcp_client is tcp_client:
-                        with contextlib.suppress(Exception):
-                            self._tcp_client.close()
-                        self._tcp_client = None
-            finally:
-                # Restore the previous timeout (NOT blocking ``None``) so
-                # the dispatch-loop ``readline`` keeps its auth deadline
-                # and the worker can exit/be reaped on cleanup.  Setting
-                # ``None`` here was the root cause of the
-                # auth-timeout/close deadlock (CR-2): a blocking socket
-                # could never time out, so the reader thread never exited
-                # and ``_TCPLineIO.close()`` deadlocked against the
-                # in-progress ``recv``.
+            #
+            # Write-serialization: the entire settimeout → write →
+            # flush → drain → restore-timeout block runs under
+            # ``self._tcp_write_lock``. ``socket.sendall`` releases
+            # the GIL between ``send()`` syscalls (when the kernel
+            # send buffer is full), so two concurrent ``sendall``
+            # calls on the same socket CAN interleave their bytes at
+            # the kernel send-buffer level, corrupting the JSON-lines
+            # protocol. The dedicated write lock (separate from
+            # ``self._lock``, which guards only the snapshot phase)
+            # serializes ONLY writers — a slow client blocks other
+            # writers, but not other dispatchers' snapshots or the
+            # read path. The 2s write timeout bounds the stall.
+            # Holding the lock across settimeout/restore also
+            # prevents a race where two threads clobber each other's
+            # timeout (one restores ``None`` while another is
+            # mid-write, blocking the writer forever).
+            with self._tcp_write_lock:
+                _prev_timeout = tcp_client.conn.gettimeout()
                 with contextlib.suppress(OSError, AttributeError):
-                    tcp_client.conn.settimeout(_prev_timeout)
+                    tcp_client.conn.settimeout(_TCP_WRITE_TIMEOUT_SECONDS)
+                # settimeout can fail if the socket is already closed;
+                # that's fine — the write below will also fail and we'll
+                # drop the connection cleanly.
+                try:
+                    tcp_client.write(line + "\n")
+                    tcp_client.flush()
+                    # PERF-NEW-014 / SEC-008: drain at most the most recent
+                    # K pending entries, not the whole list.  When the
+                    # client was disconnected for a while, _pending_tcp
+                    # could have grown to thousands of entries (16 Hz
+                    # waveform bubble * minutes of disconnect).  Draining
+                    # all of them on every push event was O(n) per push
+                    # and blocked the audio thread.
+                    _drain_cap = 100
+                    if pending:
+                        # Already snapshot under lock — drain up to _drain_cap
+                        # of the most recent entries.
+                        recent = pending[-_drain_cap:]
+                        for p in recent:
+                            try:
+                                tcp_client.write(p + "\n")
+                                tcp_client.flush()
+                            except Exception:
+                                log.debug("[IPC] client write failed during pending drain")
+                                break
+                except (TimeoutError, OSError) as exc:
+                    log.debug("[IPC] client write failed: %s", exc)
+                    # Mark the client as dead so the accept loop will pick
+                    # up the next reconnect.  We do this under the lock to
+                    # avoid a race with a concurrent _send that just
+                    # snapshotted the (now-dead) client.
+                    with self._lock:
+                        if self._tcp_client is tcp_client:
+                            with contextlib.suppress(Exception):
+                                self._tcp_client.close()
+                            self._tcp_client = None
+                finally:
+                    # Restore the previous timeout (NOT blocking ``None``) so
+                    # the dispatch-loop ``readline`` keeps its auth deadline
+                    # and the worker can exit/be reaped on cleanup.  Setting
+                    # ``None`` here was the root cause of the
+                    # auth-timeout/close deadlock (CR-2): a blocking socket
+                    # could never time out, so the reader thread never exited
+                    # and ``_TCPLineIO.close()`` deadlocked against the
+                    # in-progress ``recv``.
+                    with contextlib.suppress(OSError, AttributeError):
+                        tcp_client.conn.settimeout(_prev_timeout)
             return
 
         if tcp_mode:

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 
 # PERF-COLDSTART-001: lazy import — pystray's xorg backend calls
@@ -50,7 +51,15 @@ from voice_typer.server.tray_icon import _make_icon
 
 # #13: menu building extracted to tray_menu.py (display_hotkey, wrap_callback,
 # build_menu). tray.py now owns only pystray icon lifecycle + state queuing.
-from voice_typer.server.tray_menu import build_menu, display_hotkey, wrap_callback
+# build_menu is re-exported here so tests/test_e2e_smoke.py can assert
+# ``tray.build_menu is tray_menu.build_menu``; the in-process menu is now
+# assembled inline in TrayIcon._build_menu to surface Undo Last / Microphones /
+# Settings / History / Help / conditional Force Cancel.
+from voice_typer.server.tray_menu import (  # noqa: F401
+    build_menu,
+    display_hotkey,
+    wrap_callback,
+)
 
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
@@ -75,6 +84,20 @@ _TRAY_LABELS_EN: dict[str, str] = {
     "update_available": "Update Available",
     "version": "version",
     "force_cancel_transcription": "Cancel Transcription",
+    # UX-1: Undo Last tray menu item.
+    "undo_last": "Undo Last",
+    # UX-2: Microphones submenu.
+    "microphones": "Microphones",
+    "more_microphones": "More microphones...",
+    # UX-3: Force Cancel Stuck Transcription (renamed from Cancel Transcription
+    # and made conditional on state == TRANSCRIBING).
+    "force_cancel_stuck_transcription": "Force Cancel Stuck Transcription",
+    # UX-33: Settings/History/Help quick shortcuts.
+    "settings": "Settings...",
+    "history": "History...",
+    "help": "Help...",
+    # UX-5: localized update-available notification body template.
+    "update_available_body": "{app} {version} is available (you have {current})",
 }
 
 # TRAY-008: Spanish translations (proof of concept for tray i18n).
@@ -91,6 +114,14 @@ _TRAY_LABELS_ES: dict[str, str] = {
     "update_available": "Actualización Disponible",
     "version": "versión",
     "force_cancel_transcription": "Cancelar Transcripción",
+    "undo_last": "Deshacer Último",
+    "microphones": "Micrófonos",
+    "more_microphones": "Más micrófonos...",
+    "force_cancel_stuck_transcription": "Forzar Cancelación de Transcripción Atascada",
+    "settings": "Configuración...",
+    "history": "Historial...",
+    "help": "Ayuda...",
+    "update_available_body": "{app} {version} está disponible (tienes {current})",
 }
 
 # TRAY-008: locale → label dict. Add new locales here.
@@ -121,15 +152,21 @@ def get_tray_locale() -> str:
 
 
 def register_tray_labels(locale: str, labels: dict[str, str]) -> None:
-    """TRAY-008: Register translated labels for a tray locale.
+    """Register translated tray-menu labels for a locale, merging with existing.
 
-    Delegates to ``i18n.register_locale()``. Called by the
-    ``set_tray_locale`` IPC handler when the renderer pushes
-    translated tray-menu strings for a locale.
+    Updates ``_TRAY_LABELS_LOCALES`` so ``_()`` returns the pushed
+    translations for keys present in ``labels``, falling back to English
+    for missing keys. Re-registration merges new keys over the prior
+    dict (so the renderer can push translations incrementally — e.g.
+    one IPC call for ``open_app`` + ``quit``, a later one for
+    ``toggle_dictation``).
+
+    Called by the ``set_tray_locale`` IPC handler when the renderer
+    pushes translated tray-menu strings for a locale.
     """
-    from voice_typer.server.i18n import register_locale
-
-    register_locale(locale, labels)
+    existing = _TRAY_LABELS_LOCALES.get(locale, {})
+    merged = {**existing, **labels}
+    _TRAY_LABELS_LOCALES[locale] = merged
 
 
 def _(key: str) -> str:
@@ -153,6 +190,23 @@ log = logging.getLogger(__name__)
 
 
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
+
+
+# ADR-0020 §6.5: maps the internal ``AppState`` enum to the logical icon
+# names accepted by the Tauri Rust host's ``tray_state`` listener
+# (``src-tauri/src/tray.rs::load_tray_icon`` whitelists
+# ``"idle" | "recording" | "transcribing" | "error"``). States without a
+# dedicated tray-icon asset (``LOADING`` and ``CANCELLING``) fall back to
+# a neighboring state so the Tauri tray icon still updates to something
+# meaningful instead of staying frozen on the previous state's icon.
+_APP_STATE_TO_ICON_NAME: dict[AppState, str] = {
+    AppState.IDLE: "idle",
+    AppState.RECORDING: "recording",
+    AppState.TRANSCRIBING: "transcribing",
+    AppState.ERROR: "error",
+    AppState.LOADING: "idle",
+    AppState.CANCELLING: "error",
+}
 
 
 class TrayIcon:
@@ -181,7 +235,23 @@ class TrayIcon:
         self._state = AppState.IDLE
         self._message = ""
         self._notifications_enabled = True
-        # NEW-CQ-008: _microphones cache removed — was write-only
+        # UX-2 (FIX-10): cached microphone list for the Microphones ▸
+        # submenu. Populated by ``set_microphones`` (called from the
+        # IPC layer when the device list changes) and invalidated by
+        # ``set_microphones`` setting ``_menu_cache_valid = False``.
+        # Empty list until the first push — the submenu always renders
+        # (with a single ``More microphones...`` entry) so the user can
+        # open the Settings page to pick a device even before the
+        # backend has enumerated any.
+        self._microphones: list[dict] = []
+        # UX-11 (FIX-10): elapsed-recording timer. ``_recording_started_at``
+        # is set when state transitions INTO RECORDING and cleared when
+        # it transitions back to IDLE. ``_elapsed_timer`` is a daemon
+        # ``threading.Timer`` that ticks every 1s to refresh the tray
+        # tooltip with the current ``mm:ss`` (or ``h:mm:ss``) elapsed
+        # time. Both are ``None`` when not recording.
+        self._recording_started_at: float | None = None
+        self._elapsed_timer: threading.Timer | None = None
         self._autostart_enabled = False
         # SK-b: parakeet_engine emits ``{"type": "parakeet_cpu_fallback"}``
         # when GPU transcription fails and it falls back to CPU. We
@@ -233,32 +303,78 @@ class TrayIcon:
 
         PERF-005: previously this invalidated the menu cache on every
         state change (recording start/stop), causing the full menu to
-        be rebuilt.  The menu structure doesn't change on state
-        transitions — only the icon does.  Menu cache is now only
-        invalidated by explicit config changes (microphone list,
-        autostart toggle, etc.).
+        be rebuilt.  The menu structure doesn't change on most state
+        transitions — only the icon does. The exception is the
+        TRANSCRIBING state, which gates the visibility of the
+        ``Force Cancel Stuck Transcription`` menu item (UX-3): the
+        cache is invalidated only on TRANSCRIBING ↔ non-TRANSCRIBING
+        transitions so the item appears/disappears promptly.
+
+        UX-11: RECORDING ↔ IDLE transitions also start/stop the
+        elapsed-recording timer that refreshes the tooltip with the
+        current ``mm:ss`` elapsed time.
 
         Args:
             state: The new AppState to set.
             message: Optional status message for the tray tooltip.
         """
+        prev_state = self._state
         self._state = state
         self._message = message
-        # PERF-005: don't invalidate menu cache on state change —
-        # the icon is updated via _apply_state, not via menu rebuild.
+        # UX-3: invalidate menu cache on TRANSCRIBING transitions so the
+        # Force Cancel Stuck Transcription item appears/disappears. We
+        # only invalidate when the TRANSCRIBING-ness actually changes
+        # (not on every state transition) to preserve PERF-005's
+        # optimization for the common RECORDING ⇄ IDLE path.
+        transcribing_changed = (prev_state == AppState.TRANSCRIBING) != (state == AppState.TRANSCRIBING)
+        if transcribing_changed:
+            self._menu_cache_valid = False
+        # UX-11: manage the elapsed-recording timer on RECORDING ⇄ IDLE.
+        if state == AppState.RECORDING and prev_state != AppState.RECORDING:
+            self._recording_started_at = time.time()
+            self._start_elapsed_timer()
+        elif state != AppState.RECORDING and prev_state == AppState.RECORDING:
+            self._cancel_elapsed_timer()
+            self._recording_started_at = None
         if self._icon:
             self._apply_state(state, message)
         else:
             with self._queue_lock:
                 self._pending_states.append((state, message))
 
-    def set_microphones(self, mics: list[dict]) -> None:
-        """No-op: microphone cache removed (NEW-CQ-008).
+        # ADR-0020 §6.5: push icon + tooltip updates to the Tauri host so
+        # the native tray icon reflects the new state. Always emitted —
+        # even on RECORDING ⇄ IDLE (the icon color + tooltip suffix
+        # change). The publish helper is a no-op on the Electron/pystray
+        # runtime (guards on TAURI_SIDECAR=1).
+        self._publish_tray_state()
+        # When the TRANSCRIBING-ness changed, the menu structure changed
+        # too (Force Cancel Stuck Transcription item appears/disappears)
+        # — push the new menu model to the Tauri host. Non-TRANSCRIBING
+        # transitions only change the icon/tooltip (handled by
+        # ``_publish_tray_state`` above), so we don't waste a menu
+        # rebuild on every RECORDING ⇄ IDLE toggle.
+        if transcribing_changed:
+            self._maybe_publish_tray_menu()
+
+    def set_microphones(self, mics: list[dict] | None) -> None:
+        """Cache the microphone device list and invalidate the menu cache.
+
+        UX-2 (FIX-10): the cached list backs the Microphones ▸ submenu
+        (``_build_microphones_submenu``). ``None`` and empty inputs are
+        normalized to ``[]`` so callers never have to special-case a
+        missing list. Invalidates the menu cache so the next right-click
+        reflects the new device set.
 
         Args:
-            mics: List of microphone device dicts (ignored).
+            mics: List of microphone device dicts (``{"id", "name",
+                "default"}``), or ``None`` / ``[]`` for "no devices".
         """
-        pass
+        self._microphones = list(mics) if mics else []
+        self._menu_cache_valid = False
+        # ADR-0020 §6.5: push the new Microphones submenu to the Tauri
+        # host. No-op on the Electron/pystray runtime.
+        self._maybe_publish_tray_menu()
 
     def set_autostart_enabled(self, enabled: bool) -> None:
         """Update the cached autostart state.
@@ -286,6 +402,12 @@ class TrayIcon:
         """
         self._hotkey = hotkey
         self._menu_cache_valid = False
+        # ADR-0020 §6.5: the hotkey appears in the "Toggle Dictation
+        # (<hotkey>)" menu label and in the tooltip — push the updated
+        # menu model + tooltip to the Tauri host. No-op on the
+        # Electron/pystray runtime.
+        self._maybe_publish_tray_menu()
+        self._publish_tray_state()
 
     @staticmethod
     def _is_linux_wayland_without_sni() -> bool:
@@ -371,6 +493,52 @@ class TrayIcon:
         # the next menu rebuild reflects the user's current setting.
         self._hotkey = getattr(config, "hotkey", self._hotkey) or self._hotkey
         self._menu_cache_valid = False
+        # ADR-0020 §6.5: push the rebuilt menu model + tooltip to the
+        # Tauri host. The config can affect the hotkey label, model name
+        # in the tooltip, left-click default action, and Microphones
+        # submenu (via ``tray_left_click_action``). No-op on the
+        # Electron/pystray runtime.
+        self._maybe_publish_tray_menu()
+        self._publish_tray_state()
+
+    def _wrap_bg_work(self, bg_work: Callable | None) -> Callable | None:
+        """ADR-0020 §6.5: wrap ``bg_work`` so the initial tray menu is
+        published to the Tauri host after background setup completes.
+
+        ``bg_work`` (typically model preloading + hotkey registration)
+        runs on a daemon thread from :meth:`start`. Once it finishes,
+        the controller + config + microphone state are stable enough
+        that the serialized menu model is meaningful — so we publish
+        it to the Tauri host. Without this, the Tauri tray would show
+        only the empty placeholder menu until the user changed a
+        setting that triggered ``invalidate_menu_cache``.
+
+        Returns ``None`` when ``bg_work`` is ``None`` (preserves the
+        existing ``if self._bg_work_fn:`` guards in the three early-return
+        paths of :meth:`start`). The wrapper runs the original ``bg_work``
+        in a ``try/finally`` so the menu is published even if ``bg_work``
+        raises (a failed preload shouldn't leave the tray menu frozen).
+        """
+        if bg_work is None:
+            return None
+
+        def _wrapped() -> None:
+            try:
+                bg_work()
+            finally:
+                # Best-effort: a failure here shouldn't mask the original
+                # exception (if any). The ``finally`` ensures the menu
+                # is pushed even when bg_work raised.
+                try:
+                    self._maybe_publish_tray_menu()
+                    self._publish_tray_state()
+                except Exception:
+                    log.debug(
+                        "[TRAY] post-bg_work tray publish failed",
+                        exc_info=True,
+                    )
+
+        return _wrapped
 
     def start(self, bg_work: Callable | None = None) -> None:
         """Create the tray icon and start background work.
@@ -399,7 +567,7 @@ class TrayIcon:
         ``threading.Event`` instead of entering the pystray event
         loop.
         """
-        self._bg_work_fn = bg_work
+        self._bg_work_fn = self._wrap_bg_work(bg_work)
 
         # SK-b: subscribe to ``parakeet_cpu_fallback`` events so the
         # tray can surface a "(CPU fallback)" status suffix. Idempotent
@@ -579,6 +747,10 @@ class TrayIcon:
         if self._icon:
             self._icon.stop()
             self._icon = None
+        # UX-11: cancel the elapsed-recording timer so it doesn't keep
+        # firing after the tray is stopped. Idempotent (no-op if no
+        # timer was running).
+        self._cancel_elapsed_timer()
         # PVT-G5-001: release the main thread blocked in run() on the
         # tray-unavailable path. No-op if run() is on the pystray path
         # (the Event is never waited on there) or if stop() is called
@@ -621,6 +793,82 @@ class TrayIcon:
 
     # ─── Internals ──────────────────────────────────────────────────────
 
+    def _compute_tooltip(self, state: AppState, message: str) -> str:
+        """Compute the tray tooltip string for the given state + message.
+
+        Extracted from ``_apply_state`` so the Tauri-side ``tray_state``
+        event (``_publish_tray_state``) re-uses the same formatting
+        logic without duplicating it. Keeping both code paths in sync is
+        critical: a divergence would mean the pystray tooltip and the
+        Tauri tray tooltip show different strings for the same state.
+
+        The tooltip layout is:
+            ``<APP_NAME> — <message|state> [(CPU fallback)] [(mm:ss)] [<model>] (<hotkey>)``
+
+        Each suffix is optional and only appended when its condition
+        holds. ``APP_NAME`` is the localized app name; ``state.value``
+        is used when no explicit ``message`` is provided (and the state
+        is not IDLE — IDLE shows just the app name).
+        """
+        title = APP_NAME
+        if message:
+            title += f" — {message}"
+        elif state != AppState.IDLE:
+            title += f" — {state.value}"
+        # SK-b: append "(CPU fallback)" suffix when parakeet_engine has
+        # fallen back from CUDA to CPU. Published via the
+        # ``parakeet_cpu_fallback`` event; see
+        # ``_on_parakeet_cpu_fallback``.
+        if self._cpu_fallback_active:
+            title += " (CPU fallback)"
+        # UX-11 (FIX-10): append elapsed ``mm:ss`` (or ``h:mm:ss``) when
+        # recording so the user can see how long the current recording
+        # has been running. Skipped for non-RECORDING states and when
+        # ``_recording_started_at`` is None (e.g. before the first
+        # RECORDING transition).
+        if state == AppState.RECORDING and self._recording_started_at is not None:
+            elapsed = time.time() - self._recording_started_at
+            title += f" ({self._format_elapsed(elapsed)})"
+        # TRAY-022: Include model name and hotkey in tooltip
+        if self._config:
+            model = getattr(self._config, "model_size", "")
+            if model:
+                title += f" [{model}]"
+        hotkey = self._display_hotkey()
+        if hotkey:
+            title += f" ({hotkey})"
+        return title
+
+    def _publish_tray_state(self) -> None:
+        """ADR-0020 §6.5: push icon + tooltip updates to the Tauri host.
+
+        Mirrors ``_apply_state`` for the Tauri runtime: instead of
+        mutating the pystray ``Icon`` object (which doesn't exist under
+        Tauri), we emit a ``tray_state`` event the Rust host listens for
+        (``src-tauri/src/tray.rs::create_tray`` registers a listener
+        that calls ``tray.set_icon(...)`` and ``tray.set_tooltip(...)``
+        with the payload).
+
+        No-op on the Electron/pystray runtime —
+        :func:`voice_typer.server.tray_menu.publish_tray_state` guards on
+        ``TAURI_SIDECAR=1``. Safe to call headless — never touches
+        pystray. Best-effort: errors are logged at debug level so a
+        misbehaving event bus doesn't break the caller (typically
+        ``set_state``, which is on the hot path for state transitions).
+        """
+        from voice_typer.server.tray_menu import publish_tray_state
+
+        icon_name = _APP_STATE_TO_ICON_NAME.get(self._state, "idle")
+        tooltip = self._compute_tooltip(self._state, self._message)
+        try:
+            publish_tray_state(icon=icon_name, tooltip=tooltip)
+        except Exception:
+            log.debug(
+                "[TRAY] publish_tray_state failed (state=%s)",
+                self._state.value if hasattr(self._state, "value") else self._state,
+                exc_info=True,
+            )
+
     def _apply_state(self, state: AppState, message: str) -> None:
         """Apply state to the live icon (safe from any thread)."""
         if not self._icon:
@@ -641,26 +889,82 @@ class TrayIcon:
             # so we can drop the private-attr access.
             if hasattr(self._icon, "_icon_handle"):
                 self._icon._icon_handle = None
-        title = APP_NAME
-        if message:
-            title += f" — {message}"
-        elif state != AppState.IDLE:
-            title += f" — {state.value}"
-        # SK-b: append "(CPU fallback)" suffix when parakeet_engine has
-        # fallen back from CUDA to CPU. Published via the
-        # ``parakeet_cpu_fallback`` event; see
-        # ``_on_parakeet_cpu_fallback``.
-        if self._cpu_fallback_active:
-            title += " (CPU fallback)"
-        # TRAY-022: Include model name and hotkey in tooltip
-        if self._config:
-            model = getattr(self._config, "model_size", "")
-            if model:
-                title += f" [{model}]"
-        hotkey = self._display_hotkey()
-        if hotkey:
-            title += f" ({hotkey})"
-        self._icon.title = title
+        self._icon.title = self._compute_tooltip(state, message)
+
+    # ─── UX-11 (FIX-10): elapsed-recording timer ──────────────────────
+
+    @staticmethod
+    def _format_elapsed(seconds: float) -> str:
+        """Format ``seconds`` as ``mm:ss`` (under 1h) or ``h:mm:ss`` (1h+).
+
+        Negative inputs are clamped to 0. Used by ``_apply_state`` to
+        append the elapsed recording time to the tray tooltip.
+        """
+        total = max(0, int(seconds))
+        hours, rem = divmod(total, 3600)
+        minutes, secs = divmod(rem, 60)
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        return f"{minutes:02d}:{secs:02d}"
+
+    def _start_elapsed_timer(self) -> None:
+        """Start (or restart) the 1-second elapsed-recording tooltip timer.
+
+        UX-11 (FIX-10): a daemon ``threading.Timer`` that ticks every
+        1 second and re-applies the current state so the tray tooltip
+        updates with the latest ``mm:ss``. The timer reschedules itself
+        on each tick as long as the state is still RECORDING. Cancels
+        any prior timer first so rapid RECORDING → RECORDING transitions
+        (e.g. from a stop/restart race) don't leak overlapping timers.
+        """
+        self._cancel_elapsed_timer()
+
+        def _tick() -> None:
+            # Re-check state inside the tick: a stop() may have fired
+            # between the timer being scheduled and now. If we're no
+            # longer recording, just exit without rescheduling.
+            if self._state != AppState.RECORDING:
+                return
+            try:
+                if self._icon is not None:
+                    self._apply_state(self._state, self._message)
+                # ADR-0020 §6.5: under Tauri there is no pystray Icon
+                # to refresh; emit a tray_state event instead so the
+                # Rust host updates the native tooltip with the latest
+                # elapsed time. No-op on the Electron/pystray runtime.
+                self._publish_tray_state()
+            except Exception:
+                log.debug(
+                    "[TRAY] elapsed-timer tick failed to refresh tooltip",
+                    exc_info=True,
+                )
+            # Reschedule only if still recording. The check happens AFTER
+            # _apply_state so a state change during the apply is caught.
+            if self._state == AppState.RECORDING:
+                t = threading.Timer(1.0, _tick)
+                t.daemon = True
+                self._elapsed_timer = t
+                t.start()
+
+        t = threading.Timer(1.0, _tick)
+        t.daemon = True
+        self._elapsed_timer = t
+        t.start()
+
+    def _cancel_elapsed_timer(self) -> None:
+        """Cancel the elapsed-recording timer if running.
+
+        Idempotent — safe to call when no timer exists (e.g. before the
+        first RECORDING transition). Clears ``_elapsed_timer`` to ``None``
+        so ``set_state`` assertions on ``_elapsed_timer is None`` work.
+        """
+        t = self._elapsed_timer
+        self._elapsed_timer = None
+        if t is not None:
+            try:
+                t.cancel()
+            except Exception:
+                log.debug("[TRAY] elapsed-timer cancel failed", exc_info=True)
 
     def _on_parakeet_cpu_fallback(self, event: dict) -> None:
         """SK-b: handle ``parakeet_cpu_fallback`` events from parakeet_engine.
@@ -762,49 +1066,114 @@ class TrayIcon:
         self._maybe_publish_tray_menu()
 
     def _build_menu(self) -> tuple:
-        """Build the minimal tray menu with Models submenu.
+        """Build the tray menu with Models + Microphones submenus and quick shortcuts.
 
-        #13: delegates to tray_menu.build_menu(). tray.py owns the
-        cache (so it can invalidate on config change); tray_menu.py
-        owns the menu structure.
-
-        Menu structure:
-          - Open App (default/bold)
-          - Toggle Dictation
+        Menu structure (UX-1/UX-2/UX-3/UX-33):
+          - Open App (default/bold when ``tray_left_click_action == "open_app"``)
+          - Toggle Dictation (default/bold when action == "toggle_dictation")
+          - Undo Last                                  (UX-1)
+          - Force Cancel Stuck Transcription           (UX-3, only when state == TRANSCRIBING)
           - --- separator ---
           - Models ▸
+          - Microphones ▸                              (UX-2)
+          - --- separator ---
+          - Settings...                                (UX-33)
+          - History...                                 (UX-33)
+          - Help...                                    (UX-33)
           - --- separator ---
           - Restart
           - Quit
 
-        About, Diagnostics, and Show Last Notification have been
-        removed from the tray menu (they remain available in the
-        Electron app).
+        The menu is cached on the TrayIcon instance (``_cached_menu``)
+        and only rebuilt when ``_menu_cache_valid`` is False (set by
+        ``set_microphones`` / ``set_hotkey`` / ``refresh_config`` /
+        ``invalidate_menu_cache`` and on TRANSCRIBING state transitions
+        via ``set_state``).
+
+        About, Diagnostics, and Show Last Notification have been removed
+        from the tray menu (they remain available in the Electron app).
         """
         if self._menu_cache_valid and self._cached_menu is not None:
             return self._cached_menu
 
-        # BUGFIX: tray_left_click_action was never passed to build_menu,
-        # so the tray always defaulted to toggle_dictation on left-click.
+        hotkey_str = self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>"
+        hotkey_label = display_hotkey(hotkey_str)
         left_click = getattr(self._config, "tray_left_click_action", "open_app") or "open_app"
-        result = build_menu(
-            hotkey=self._hotkey or getattr(self._config, "hotkey", "<f2>") or "<f2>",
-            toggle_dictation=self._controller.toggle_dictation,
-            open_app=self.open_electron_window,
-            # PR-2 Finding #3: manual escape hatch for stuck transcription.
-            # Invokes _force_recover_from_stuck_transcription(force=True)
-            # via the app's delegate method.  Safe to call when
-            # transcription is not stuck (no-op).
-            force_cancel_transcription=lambda: self._controller.recording._force_recover_from_stuck_transcription(
-                force=True
-            ),
-            restart_app=self._controller.restart_app,
-            quit_app=self._confirm_quit_while_recording,
-            build_models_submenu=self._build_models_submenu,
-            left_click_action=left_click,
-            # TRAY-008: localization function
-            localize=_,
+        dictation_default = left_click == "toggle_dictation"
+        open_app_default = left_click == "open_app"
+
+        items: list = []
+
+        # Open App (first; default/bold depends on left_click_action).
+        items.append(
+            pystray.MenuItem(
+                _("open_app"),
+                wrap_callback(self.open_electron_window),
+                default=open_app_default,
+            )
         )
+        # Toggle Dictation (with hotkey hint in the label).
+        items.append(
+            pystray.MenuItem(
+                f"{_('toggle_dictation')} ({hotkey_label})",
+                wrap_callback(self._controller.toggle_dictation),
+                default=dictation_default,
+            )
+        )
+        # UX-1: Undo Last — surfaces the previously-unreachable undo_last IPC.
+        items.append(
+            pystray.MenuItem(
+                _("undo_last"),
+                wrap_callback(self._controller.undo_last),
+            )
+        )
+        # UX-3: Force Cancel Stuck Transcription — only rendered while
+        # transcribing so the menu isn't cluttered when nothing is stuck.
+        # The lambda is created (closure over self._controller.recording)
+        # but NOT invoked during menu building, so a mock controller
+        # without a ``recording`` attribute is safe.
+        if self._state == AppState.TRANSCRIBING:
+            items.append(
+                pystray.MenuItem(
+                    _("force_cancel_stuck_transcription"),
+                    wrap_callback(
+                        lambda: self._controller.recording._force_recover_from_stuck_transcription(force=True)
+                    ),
+                )
+            )
+
+        items.append(pystray.Menu.SEPARATOR)
+
+        # Models submenu — built by tray_models.build_models_menu_items.
+        models_sub = self._build_models_submenu()
+        items.append(pystray.MenuItem(_("models"), pystray.Menu(*models_sub)))
+        # UX-2: Microphones submenu — mirrors the Models submenu.
+        mic_sub = self._build_microphones_submenu()
+        items.append(pystray.MenuItem(_("microphones"), pystray.Menu(*mic_sub)))
+
+        items.append(pystray.Menu.SEPARATOR)
+
+        # UX-33: Settings / History / Help quick shortcuts. Each opens
+        # the Electron window on the corresponding route via _open_page.
+        for label_key, path in (
+            ("settings", "/settings"),
+            ("history", "/history"),
+            ("help", "/about"),
+        ):
+            items.append(
+                pystray.MenuItem(
+                    _(label_key),
+                    wrap_callback(lambda p=path: self._open_page(p)),
+                )
+            )
+
+        items.append(pystray.Menu.SEPARATOR)
+
+        # Restart + Quit.
+        items.append(pystray.MenuItem(_("restart"), wrap_callback(self._controller.restart_app)))
+        items.append(pystray.MenuItem(_("quit"), wrap_callback(self._confirm_quit_while_recording)))
+
+        result = tuple(items)
         self._cached_menu = result
         self._menu_cache_valid = True
         return result
@@ -817,14 +1186,21 @@ class TrayIcon:
         controller callbacks as :meth:`_build_menu`) and emits it through
         :func:`publish_tray_menu`, which guards on ``TAURI_SIDECAR``.  Returns
         ``True`` if published.  Safe to call headless — never touches pystray.
+
+        Note: under the Tauri runtime the pystray ``Icon`` is never created
+        (the native tray is owned by the Rust host), so ``self._icon`` is
+        ``None``. The earlier ``if self._icon is None: return False`` guard
+        therefore short-circuited EVERY publish under Tauri — the
+        ``tray_menu`` event never reached the Rust host and the tray menu
+        stayed frozen at the empty placeholder. The guard is now removed;
+        ``publish_tray_menu`` itself guards on ``TAURI_SIDECAR=1`` so the
+        Electron runtime (where ``_icon`` IS set) is unaffected — the
+        publish is a no-op there anyway.
         """
         from voice_typer.server.tray_menu import (
             build_tray_menu_model,
             publish_tray_menu,
         )
-
-        if self._icon is None:
-            return False
 
         controller = self._controller
         if controller is None:
@@ -855,27 +1231,77 @@ class TrayIcon:
         self._tray_id_map = _id_map
         return publish_tray_menu(model)
 
+    def _open_page(self, path: str) -> None:
+        """Publish a ``navigate`` event so the renderer opens ``path``.
+
+        UX-33 (FIX-10): generalization of ``_open_models_page`` so any
+        in-app route can be opened from the tray menu (Settings /
+        History / Help). Does NOT open the Electron window itself —
+        callers that need the window open (e.g. ``_open_models_page``)
+        call ``open_electron_window`` first, then ``_open_page``.
+
+        Args:
+            path: The renderer route to navigate to (e.g. ``/settings``).
+        """
+        from voice_typer.server import event_bus
+
+        try:
+            event_bus.publish({"type": "navigate", "data": {"path": path}})
+            log.info("[TRAY] Navigate push sent: %s", path)
+        except Exception as e:
+            log.warning("[TRAY] Failed to push navigate event for %s: %s", path, e)
+
     def _open_models_page(self) -> None:
         """Open the Electron window and navigate to the Models page.
 
         Called from the tray menu's "More models..." item. Opens/focuses
-        the Electron window (same as open_electron_window) and sends a
-        ``navigate`` push event so the renderer navigates to the Models
-        page instead of staying on whatever page was last open.
+        the Electron window (same as open_electron_window) and then
+        delegates to ``_open_page('/models')`` so the renderer navigates
+        to the Models page instead of staying on whatever page was last
+        open.
         """
-        # 1. Open/focus the Electron window
         from voice_typer.server.tray_window import open_electron_window as _open
 
         _open()
+        self._open_page("/models")
 
-        # 2. Push a navigate event so the renderer navigates to /models
-        from voice_typer.server import event_bus
+    def _build_microphones_submenu(self) -> list:
+        """Build the Microphones ▸ submenu (UX-2).
 
-        try:
-            event_bus.publish({"type": "navigate", "data": {"path": "/models"}})
-            log.info("[TRAY] Navigate-to-models push sent to Electron")
-        except Exception as e:
-            log.warning("[TRAY] Failed to push navigate-to-models event: %s", e)
+        Renders one MenuItem per cached microphone (``self._microphones``),
+        marking the active device (matching ``self._config.microphone``)
+        with a ``• `` prefix. A trailing ``More microphones...`` item
+        opens the Settings page (where the user can pick a device or
+        refresh the list).
+
+        Returns an empty list only if ``self._microphones`` is empty AND
+        the ``More microphones...`` shortcut is somehow suppressed — in
+        practice the shortcut is always appended so the submenu is never
+        empty (the user can always reach the Settings page).
+        """
+        active_mic_id = str(getattr(self._config, "microphone", None) or "")
+        items: list = []
+        for mic in self._microphones:
+            mic_id = str(mic.get("id", ""))
+            mic_name = str(mic.get("name", mic_id)) or mic_id
+            prefix = "• " if mic_id == active_mic_id else ""
+            # Default-arg capture so each iteration's mic_id is bound
+            # at lambda creation time (not lazily at call time).
+            items.append(
+                pystray.MenuItem(
+                    f"{prefix}{mic_name}",
+                    wrap_callback(lambda _id=mic_id: self._controller.change_microphone(_id)),
+                )
+            )
+        if self._microphones:
+            items.append(pystray.Menu.SEPARATOR)
+        items.append(
+            pystray.MenuItem(
+                _("more_microphones"),
+                wrap_callback(lambda: self._open_page("/settings")),
+            )
+        )
+        return items
 
     def _build_models_submenu(self) -> list:
         """Build a list of model MenuItems — only cached models + More models link.

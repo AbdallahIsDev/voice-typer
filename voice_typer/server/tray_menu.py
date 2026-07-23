@@ -366,3 +366,52 @@ def publish_tray_menu(model: list[dict]) -> bool:
         return False
     event_bus.publish({"type": "tray_menu", "data": {"items": model}})
     return True
+
+
+def publish_tray_state(
+    *,
+    icon: str | None = None,
+    tooltip: str | None = None,
+) -> bool:
+    """Emit the ``tray_state`` event for the Tauri/sidecar host.
+
+    ADR-0020 §6.5: the icon name + tooltip are only pushed to the event
+    bus when running under the Tauri sidecar (``TAURI_SIDECAR=1``). On
+    the Electron/pystray runtime this is a no-op — the pystray ``Icon``
+    object is updated directly by ``TrayIcon._apply_state`` so emitting
+    a parallel event would double-publish.
+
+    The Tauri Rust host registers a ``tray_state`` listener in
+    ``src-tauri/src/tray.rs::create_tray`` that calls ``tray.set_icon``
+    + ``tray.set_tooltip`` with the payload. Without this event, the
+    Tauri tray icon and tooltip stay frozen at their startup values
+    regardless of recording/transcribing/error state.
+
+    Args:
+        icon: Logical icon name (``"idle"``, ``"recording"``,
+            ``"transcribing"``, ``"error"``). The Rust host's
+            ``load_tray_icon`` whitelists these four names; any other
+            value is logged + dropped. ``None`` means "don't change
+            the icon".
+        tooltip: New tooltip string. ``None`` means "don't change
+            the tooltip".
+
+    Returns ``True`` if the event was published, ``False`` otherwise
+    (including when both fields are ``None`` — there's nothing to
+    update).
+    """
+    import os
+
+    from voice_typer.server import event_bus
+
+    if os.environ.get("TAURI_SIDECAR") != "1":
+        return False
+    payload: dict = {}
+    if icon is not None:
+        payload["icon"] = icon
+    if tooltip is not None:
+        payload["tooltip"] = tooltip
+    if not payload:
+        return False
+    event_bus.publish({"type": "tray_state", "data": payload})
+    return True

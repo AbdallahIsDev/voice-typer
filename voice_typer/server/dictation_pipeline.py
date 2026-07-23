@@ -639,6 +639,36 @@ class DictationPipeline:
         self._device_info = (
             active.device_info if active is not None and hasattr(active, "device_info") else "Parakeet ASR"
         )
+
+        # Empty-transcription diagnostic: when the engine returns an
+        # empty string without raising, the downstream
+        # ``_handle_empty_transcription`` will suppress the user-facing
+        # notification for short recordings — leaving the user with no
+        # feedback at all. Surface a single consolidated log line with
+        # every signal we have (duration, RMS, backend type, audio
+        # stats, streaming vs batch path) so the empty result is
+        # traceable from the log file. This does NOT change behavior;
+        # it only makes the existing silent-failure path visible to
+        # developers diagnosing the "finish dictation → nothing
+        # transcribed" symptom.
+        if not text:
+            backend_name = type(active).__name__ if active is not None else "<none>"
+            stats_repr = (
+                "rms={:.4f} peak={:.4f} silence_pct={:.1f}".format(*self._audio_stats)
+                if self._audio_stats is not None
+                else "<unavailable>"
+            )
+            log.warning(
+                "[TRANSCRIBE] Empty transcription result (cycle=%s, "
+                "duration=%.2fs, recorded_rms=%.4f, audio_stats=[%s], "
+                "backend=%s, path=%s) — see _handle_empty_transcription",
+                self._cycle_id,
+                self._duration,
+                self._recorded_rms,
+                stats_repr,
+                backend_name,
+                "streaming" if session is not None else "batch",
+            )
         return text
 
     def _handle_empty_transcription(self) -> None:
@@ -651,6 +681,23 @@ class DictationPipeline:
         make a meaningful speech assessment. The notification only fires when
         the user records for 15+ seconds with no detectable speech, which
         genuinely suggests a microphone issue.
+
+        REFINED-SILENCE-GRACE: the original grace-period suppression fired
+        for EVERY short recording, including ones with clear audio (high
+        RMS) where the engine returned empty. That hid the
+        "finish-dictation-→-nothing-transcribed" failure mode entirely:
+        the user saw no clipboard output, no error toast, no tray status
+        beyond "No speech detected" — even when their mic was working
+        fine and the engine was the real culprit (e.g. a misconfigured
+        model, a backend that returns "" without raising). The fix
+        narrows the suppression to ONLY the case it was designed for:
+        short recordings with NEAR-SILENCE (recorded_rms below the same
+        0.005 threshold used in the long-recording branch). Short
+        recordings with real audio still suppress the popup notification
+        (a 5s clip with no transcription is too ambiguous to be worth a
+        modal alert) but the tray status now reflects "transcription
+        returned empty" so the user knows something happened, and a
+        warning is logged so the failure is traceable.
         """
         log.info("[TRANSCRIBE] No speech detected (cycle=%s)", self._cycle_id)
         # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since there's nothing to
@@ -666,15 +713,44 @@ class DictationPipeline:
         # UX-SILENCE-GRACE: Suppress the notification for short recordings (< 15s).
         # A brief tap of the hotkey does not warrant a microphone warning.
         _grace_period = 15.0
-        if self._duration < _grace_period:
+        # Same near-silence threshold used by the long-recording branch
+        # below — keeps the "audio was actually captured" detection
+        # consistent across both branches.
+        _silence_rms_threshold = 0.005
+        _audio_was_captured = self._recorded_rms >= _silence_rms_threshold
+
+        if self._duration < _grace_period and not _audio_was_captured:
+            # Short recording AND near-silence: the user almost certainly
+            # tapped the hotkey by accident or stopped immediately. This
+            # is the original UX-SILENCE-GRACE case — suppress the
+            # notification entirely.
             log.info(
                 "[TRANSCRIBE] No speech detected but recording was only %.1fs "
-                "(< %.0fs grace period) — suppressing notification",
+                "(< %.0fs grace period) and near-silent (rms=%.4f) — suppressing notification",
                 self._duration,
                 _grace_period,
+                self._recorded_rms,
             )
             self._app.tray.set_state(AppState.IDLE, "No speech detected")
-        elif self._recorded_rms < 0.005:
+        elif self._duration < _grace_period and _audio_was_captured:
+            # Short recording BUT real audio was captured: the engine
+            # returned empty despite picking up a non-trivial signal.
+            # This is the silent-empty-transcription failure mode. Keep
+            # the popup suppressed (a short clip is too ambiguous to
+            # justify an alert) but surface a distinct tray status so
+            # the user sees something happened, and log at WARNING so
+            # the failure is traceable in the log file.
+            log.warning(
+                "[TRANSCRIBE] Short recording (%.1fs) with audio "
+                "(rms=%.4f >= %.4f) produced empty transcription — "
+                "engine returned no text (cycle=%s)",
+                self._duration,
+                self._recorded_rms,
+                _silence_rms_threshold,
+                self._cycle_id,
+            )
+            self._app.tray.set_state(AppState.IDLE, "Transcription returned empty")
+        elif self._recorded_rms < _silence_rms_threshold:
             self._app.tray.set_state(AppState.IDLE, "No speech -- check microphone")
             self._app.tray.notify(
                 APP_NAME,
@@ -683,7 +759,27 @@ class DictationPipeline:
                 "Check that the correct mic is selected and is active.",
             )
         else:
-            self._app.tray.set_state(AppState.IDLE, "No speech detected")
+            # Long recording with real audio but the engine returned
+            # empty — this is the unusual case where the model clearly
+            # failed (15+ seconds of intelligible audio should produce
+            # SOMETHING). Notify the user so they know to retry or
+            # check the log file.
+            log.warning(
+                "[TRANSCRIBE] Long recording (%.1fs) with audio "
+                "(rms=%.4f) produced empty transcription — engine "
+                "returned no text (cycle=%s)",
+                self._duration,
+                self._recorded_rms,
+                self._cycle_id,
+            )
+            self._app.tray.set_state(AppState.IDLE, "Transcription returned empty")
+            self._app.tray.notify(
+                APP_NAME,
+                "Audio was recorded but no transcription was produced.\n"
+                "This can happen if the model is misconfigured or the "
+                "audio is unclear. Try again, or check the log file for "
+                "details.",
+            )
         self._app._busy_event.set()  # busy = False
         self._app._schedule_timer(2.0, lambda: self._app.tray.set_state(AppState.IDLE))
 
