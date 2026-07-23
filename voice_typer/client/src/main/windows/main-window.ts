@@ -36,8 +36,14 @@ const log: _LogShape = (() => {
 			log?: _LogShape;
 		};
 		if (mod.log) return mod.log;
-	} catch {
-		// ignore — fall through to fallback
+	} catch (e) {
+		// ignore — fall through to fallback. `require()` may fail in
+		// bundlers that strip the dynamic require; the fallback logger
+		// below is sufficient for those environments.
+		console.warn(
+			"[main-window] structured logger require failed, using fallback:",
+			e,
+		);
 	}
 	return {
 		info: (...args: unknown[]) => console.log(...args),
@@ -86,8 +92,11 @@ function appendRendererError(line: string): void {
 	if (!_appendLogLine || !_rendererErrorsLogPath) return;
 	try {
 		_appendLogLine(_rendererErrorsLogPath(), line);
-	} catch {
-		/* best-effort */
+	} catch (e) {
+		// Best-effort: a logging failure must not cascade into a runtime
+		// failure of the calling code. The console.warn keeps the failure
+		// visible without breaking the renderer console forwarding path.
+		console.warn("[main-window] appendRendererError failed:", e);
 	}
 }
 
@@ -169,8 +178,12 @@ export function _resetNativeThemeListenerForTest(): void {
 	if (_nativeThemeHandler) {
 		try {
 			nativeTheme.off("updated", _nativeThemeHandler);
-		} catch {
-			/* best-effort */
+		} catch (e) {
+			/* best-effort: test-only cleanup; listener may already be gone */
+			console.warn(
+				"[main-window] _resetNativeThemeListenerForTest off() failed:",
+				e,
+			);
 		}
 		_nativeThemeHandler = null;
 	}

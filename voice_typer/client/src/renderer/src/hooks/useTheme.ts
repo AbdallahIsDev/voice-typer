@@ -24,8 +24,10 @@ function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
 	try {
 		const v = localStorage.getItem(LS_THEME_MODE);
 		if (v === "light" || v === "dark" || v === "system") return v;
-	} catch {
-		// localStorage read failure — using default
+	} catch (e) {
+		// localStorage read failure — using default. Common in SSR,
+		// sandboxed renderers, or when storage is disabled.
+		console.warn("[useTheme] readLsThemeMode failed:", e);
 	}
 	return "system";
 }
@@ -48,8 +50,9 @@ function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
 			v === "custom"
 		)
 			return v;
-	} catch {
-		// localStorage read failure — using default
+	} catch (e) {
+		// localStorage read failure — using default.
+		console.warn("[useTheme] readLsThemePreset failed:", e);
 	}
 	return "default";
 }
@@ -68,8 +71,9 @@ function readLsCustomTheme(): CustomThemeData | null {
 				return parsed as CustomThemeData;
 			}
 		}
-	} catch {
-		// localStorage parse failure — using default
+	} catch (e) {
+		// localStorage parse failure — using default.
+		console.warn("[useTheme] readLsCustomTheme parse failed:", e);
 	}
 	return null;
 }
@@ -81,8 +85,9 @@ function readLsTextSize(): number {
 			const n = Number.parseInt(v, 10);
 			if (Number.isFinite(n) && n >= 10 && n <= 20) return n;
 		}
-	} catch {
-		// localStorage read failure — using default
+	} catch (e) {
+		// localStorage read failure — using default.
+		console.warn("[useTheme] readLsTextSize failed:", e);
 	}
 	return 14;
 }

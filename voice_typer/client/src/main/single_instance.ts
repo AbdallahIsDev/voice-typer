@@ -37,8 +37,11 @@ export function computeConfigDir(): string {
 	const legacy = path.join(os.homedir(), ".voice-typer");
 	try {
 		if (fs.existsSync(legacy)) return legacy;
-	} catch {
-		/* ignore */
+	} catch (e) {
+		// ignore — fs.existsSync may throw on permission denied or
+		// if the homedir is unreachable. Fall through to the
+		// platform-appropriate default path below.
+		console.warn("[single_instance] legacy config dir probe failed:", e);
 	}
 	if (process.platform === "win32") {
 		return path.join(process.env.APPDATA || os.homedir(), "voice-typer");
@@ -70,16 +73,23 @@ export function writeElectronPidFile(): void {
 			flag: "w",
 			mode: 0o600,
 		});
-	} catch {
-		/* best-effort */
+	} catch (e) {
+		// best-effort: PID file is only used for stale-lock detection
+		// on the next launch; a missing file just means a future launch
+		// can't auto-recover from a hard crash (it will fall back to
+		// exiting as a duplicate instance).
+		console.warn("[single_instance] writeElectronPidFile failed:", e);
 	}
 }
 
 export function clearElectronPidFile(): void {
 	try {
 		if (fs.existsSync(electronPidFile())) fs.unlinkSync(electronPidFile());
-	} catch {
-		/* best-effort */
+	} catch (e) {
+		// best-effort: file may already be gone (race with another
+		// process) or the FS may be read-only. Non-fatal — a leftover
+		// PID file just means the next launch does stale-lock detection.
+		console.warn("[single_instance] clearElectronPidFile failed:", e);
 	}
 }
 
@@ -139,8 +149,9 @@ export function acquireSingleInstanceLock(): void {
 			clearElectronPidFile();
 			try {
 				app.releaseSingleInstanceLock();
-			} catch {
-				/* ignore */
+			} catch (e) {
+				/* ignore — Electron may reject if we never held the lock */
+				console.warn("[single_instance] releaseSingleInstanceLock failed:", e);
 			}
 			gotTheLock = app.requestSingleInstanceLock();
 		}

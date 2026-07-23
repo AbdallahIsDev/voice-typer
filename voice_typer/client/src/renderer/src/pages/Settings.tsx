@@ -44,8 +44,9 @@ function getSavedTab(): SettingsTab {
 		) {
 			return saved;
 		}
-	} catch {
+	} catch (e) {
 		// localStorage may be unavailable (SSR, sandboxed)
+		console.warn("[Settings] loadActiveTab failed:", e);
 	}
 	return "general";
 }
@@ -150,8 +151,9 @@ export default function SettingsPage() {
 	useEffect(() => {
 		try {
 			localStorage.setItem(LS_KEY, activeTab);
-		} catch {
+		} catch (e) {
 			// localStorage may be unavailable
+			console.warn("[Settings] persistActiveTab failed:", e);
 		}
 	}, [activeTab]);
 
@@ -294,8 +296,8 @@ export default function SettingsPage() {
 	return (
 		<div className="flex min-h-full flex-col">
 			{/* Sticky header: tabs + search (Fix #3 — SearchField
-                                moved inside the sticky header below the tab bar
-                                so it stays visible while scrolling settings). */}
+				moved inside the sticky header below the tab bar
+				so it stays visible while scrolling settings). */}
 			<div className="sticky top-0 left-0 right-0 z-40 bg-(--bg-subtle) border-b border-border">
 				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
 					<SegmentedControl<SettingsTab>
@@ -341,12 +343,12 @@ export default function SettingsPage() {
 				</div>
 
 				{/* Fix #12: empty-state banner with Clear filter button using
-                                        the existing searchNoMatch / noResultsMessage / a11y.clearSearch
-                                        i18n keys. `searchNoMatch` preserves the original "{query}"
-                                        interpolation so screen readers + sighted users see what they
-                                        searched for; `noResultsMessage` adds the actionable hint
-                                        ("Try a different search term or clear the filter..."); the
-                                        button gives a one-click escape hatch. */}
+					the existing searchNoMatch / noResultsMessage / a11y.clearSearch
+					i18n keys. `searchNoMatch` preserves the original "{query}"
+					interpolation so screen readers + sighted users see what they
+					searched for; `noResultsMessage` adds the actionable hint
+					("Try a different search term or clear the filter..."); the
+					button gives a one-click escape hatch. */}
 				{showEmptyBanner && (
 					<output
 						aria-live="polite"
@@ -414,11 +416,11 @@ export default function SettingsPage() {
 			</div>
 
 			{/* Fix #4: sticky-bottom save indicator — stays pinned to
-                                the bottom of the viewport while scrolling so
-                                the user always sees the pending/saving/saved
-                                state. Mirrors the sticky-top header (z-40,
-                                bg-(--bg-subtle), border-border) for visual
-                                rhythm. */}
+				the bottom of the viewport while scrolling so
+				the user always sees the pending/saving/saved
+				state. Mirrors the sticky-top header (z-40,
+				bg-(--bg-subtle), border-border) for visual
+				rhythm. */}
 			<div className="sticky bottom-0 left-0 right-0 z-40 border-t border-border bg-(--bg-subtle)">
 				<div className="mx-auto flex w-full max-w-2xl justify-end px-6 py-2">
 					<SettingsSaveIndicator

@@ -66,7 +66,12 @@ function loadNavState(): NavState {
 				};
 			}
 		}
-	} catch {}
+	} catch (e) {
+		// localStorage may be unavailable (SSR, sandboxed renderer)
+		// or the stored payload may be malformed JSON. Non-fatal —
+		// fall through to the default nav state so the app still boots.
+		console.warn("[useNavigation] loadNavState failed, using default:", e);
+	}
 	return defaultNavState();
 }
 
@@ -96,7 +101,13 @@ export function useNavigation() {
 					STORAGE_KEY_NAV,
 					JSON.stringify({ page, history, index }),
 				);
-			} catch {}
+			} catch (e) {
+				// localStorage may be unavailable (SSR, sandboxed
+				// renderer) or quota may be exceeded. Non-fatal — the
+				// in-memory nav state is still authoritative for the
+				// current session; we just lose cross-session persistence.
+				console.warn("[useNavigation] saveNavState failed:", e);
+			}
 		},
 		[],
 	);

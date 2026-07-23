@@ -46,8 +46,14 @@ const log: _LogShape = (() => {
 			log?: _LogShape;
 		};
 		if (mod.log) return mod.log;
-	} catch {
-		// ignore — fall through to fallback
+	} catch (e) {
+		// ignore — fall through to fallback. `require()` may fail in
+		// bundlers that strip the dynamic require; the fallback logger
+		// below is sufficient for those environments.
+		console.warn(
+			"[bubble-window] structured logger require failed, using fallback:",
+			e,
+		);
 	}
 	return {
 		info: (...args: unknown[]) => console.log(...args),
@@ -116,8 +122,11 @@ export function isForegroundFullscreen(): boolean {
 				}
 			}
 		}
-	} catch {
-		// Best-effort detection.
+	} catch (e) {
+		// Best-effort detection — `screen.getAllDisplays()` / `BrowserWindow.getFocusedWindow()`
+		// can throw in headless test environments or if the GPU process is gone.
+		// Non-fatal: we err on the side of NOT painting over fullscreen apps.
+		console.warn("[bubble-window] isForegroundFullscreen detection failed:", e);
 	}
 	return false;
 }
@@ -266,8 +275,13 @@ export function createBubbleWindow(): BrowserWindow {
 		if (!foregroundFullscreen) {
 			win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 		}
-	} catch {
-		// best-effort — window may be destroyed mid-call
+	} catch (e) {
+		// best-effort — window may be destroyed mid-call (e.g. user
+		// closed the app between the createBubbleWindow() guard and here).
+		log.warn(
+			`${BUBBLE_CLR}[BUBBLE]${RESET} setVisibleOnAllWorkspaces failed:`,
+			e,
+		);
 	}
 
 	win.webContents.on("did-fail-load", (_e, code, desc, url) => {
@@ -351,9 +365,10 @@ export function createBubbleWindow(): BrowserWindow {
 			if (win.isDestroyed()) return;
 			const [px, py] = win.getPosition();
 			savedBubblePos = { x: px, y: py };
-		} catch {
+		} catch (e) {
 			// Best-effort — ignore read failures (e.g. window destroyed
-			// mid-event).
+			// mid-event between the isDestroyed() check and getPosition()).
+			log.warn(`${BUBBLE_CLR}[BUBBLE]${RESET} 'moved' getPosition failed:`, e);
 		}
 	});
 	return win;
@@ -401,8 +416,12 @@ export function showBubbleWindow(): void {
 
 	try {
 		win.setAlwaysOnTop(true, "screen-saver");
-	} catch {
-		// best-effort — window may be destroyed mid-call
+	} catch (e) {
+		// best-effort — window may be destroyed mid-call.
+		log.warn(
+			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow setAlwaysOnTop failed:`,
+			e,
+		);
 	}
 	// SEC-025: conditionally enable visibleOnFullScreen based on
 	// foreground fullscreen state.
@@ -410,8 +429,12 @@ export function showBubbleWindow(): void {
 		if (!isForegroundFullscreen()) {
 			win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 		}
-	} catch {
-		// best-effort — window may be destroyed mid-call
+	} catch (e) {
+		// best-effort — window may be destroyed mid-call.
+		log.warn(
+			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow setVisibleOnAllWorkspaces failed:`,
+			e,
+		);
 	}
 
 	try {
@@ -429,13 +452,21 @@ export function showBubbleWindow(): void {
 	}
 	try {
 		win.moveTop();
-	} catch {
-		// best-effort — window may be destroyed mid-call
+	} catch (e) {
+		// best-effort — window may be destroyed mid-call.
+		log.warn(
+			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow moveTop failed:`,
+			e,
+		);
 	}
 	try {
 		win.setAlwaysOnTop(true, "screen-saver");
-	} catch {
-		// best-effort — window may be destroyed mid-call
+	} catch (e) {
+		// best-effort — window may be destroyed mid-call.
+		log.warn(
+			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow re-affirm setAlwaysOnTop failed:`,
+			e,
+		);
 	}
 
 	setImmediate(() => {
@@ -447,18 +478,30 @@ export function showBubbleWindow(): void {
 			);
 			try {
 				win.show();
-			} catch {
-				// best-effort — window may be destroyed mid-call
+			} catch (e) {
+				// best-effort — window may be destroyed mid-call.
+				log.warn(
+					`${BUBBLE_CLR}[BUBBLE]${RESET} setImmediate retry show() failed:`,
+					e,
+				);
 			}
 			try {
 				win.moveTop();
-			} catch {
-				// best-effort — window may be destroyed mid-call
+			} catch (e) {
+				// best-effort — window may be destroyed mid-call.
+				log.warn(
+					`${BUBBLE_CLR}[BUBBLE]${RESET} setImmediate retry moveTop failed:`,
+					e,
+				);
 			}
 			try {
 				win.setAlwaysOnTop(true, "screen-saver");
-			} catch {
-				// best-effort — window may be destroyed mid-call
+			} catch (e) {
+				// best-effort — window may be destroyed mid-call.
+				log.warn(
+					`${BUBBLE_CLR}[BUBBLE]${RESET} setImmediate retry setAlwaysOnTop failed:`,
+					e,
+				);
 			}
 		}
 	});
@@ -503,8 +546,12 @@ export function hideBubbleWindow(): void {
 				// the IPC bus clean.
 				try {
 					ipcMain.removeListener("bubble:hidden", onHidden);
-				} catch {
+				} catch (e) {
 					/* listener already removed or never registered */
+					log.warn(
+						`${BUBBLE_CLR}[BUBBLE]${RESET} removeListener('bubble:hidden') pre-hide failed:`,
+						e,
+					);
 				}
 				win.hide();
 				// PVT-G5-080: routine lifecycle event — log.info.
@@ -514,8 +561,12 @@ export function hideBubbleWindow(): void {
 				// remove the listener so it doesn't accumulate.
 				try {
 					ipcMain.removeListener("bubble:hidden", onHidden);
-				} catch {
+				} catch (e) {
 					/* listener already removed or never registered */
+					log.warn(
+						`${BUBBLE_CLR}[BUBBLE]${RESET} removeListener('bubble:hidden') post-hide failed:`,
+						e,
+					);
 				}
 			}
 		} catch (err) {

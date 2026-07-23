@@ -160,9 +160,10 @@ export default function PrewarmAndUpdates({
 		try {
 			const status = await call<PrewarmStatus>("get_prewarm_status");
 			setPrewarmStatus(status);
-		} catch {
+		} catch (e) {
 			// Best-effort: leave the previous status (or null) in place.
 			// The card renders an "Unknown" placeholder when null.
+			console.warn("[PrewarmAndUpdates] get_prewarm_status failed:", e);
 		} finally {
 			setPrewarmLoading(false);
 		}
@@ -318,8 +319,12 @@ export default function PrewarmAndUpdates({
 			try {
 				const ps = await call<PrewarmStatus>("get_prewarm_status");
 				if (!cancelled) setPrewarmStatus(ps);
-			} catch {
+			} catch (e) {
 				// leave prewarmStatus as null; card renders "Unknown"
+				console.warn(
+					"[PrewarmAndUpdates] initial get_prewarm_status failed:",
+					e,
+				);
 			}
 		};
 		load();

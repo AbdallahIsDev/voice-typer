@@ -106,9 +106,13 @@ export async function saveTemplates(
 ): Promise<void> {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-	} catch {
+	} catch (e) {
 		// localStorage may be unavailable (private mode, quota exceeded).
 		// The backend is the source of truth now, so this is non-fatal.
+		console.warn(
+			"[templates/storage] saveTemplates localStorage.setItem failed:",
+			e,
+		);
 	}
 	if (callFn) {
 		try {
@@ -136,8 +140,13 @@ export function makeRowId(): string {
 		) {
 			return crypto.randomUUID();
 		}
-	} catch {
-		// crypto may be undefined in some test environments
+	} catch (e) {
+		// crypto may be undefined in some test environments.
+		// Fall through to the Math.random-based pseudo-ID below.
+		console.warn(
+			"[templates/storage] crypto.randomUUID unavailable, falling back:",
+			e,
+		);
 	}
 	return `row-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }

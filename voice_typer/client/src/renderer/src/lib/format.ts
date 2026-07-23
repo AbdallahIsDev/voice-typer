@@ -280,8 +280,11 @@ export function formatDuration(seconds: number, locale?: Locale): string {
 			if (hours === 0 && minutes === 0) parts.seconds = secs;
 			const fmt = new Ctor(loc, { style: "short" });
 			return fmt.format(parts);
-		} catch {
-			// fall through to ASCII composite below
+		} catch (e) {
+			// fall through to ASCII composite below. Intl.DurationFormat
+			// can throw on older runtimes / non-standard locales; the
+			// fallback below is locale-independent.
+			console.warn("[format] Intl.DurationFormat failed, falling back:", e);
 		}
 	}
 

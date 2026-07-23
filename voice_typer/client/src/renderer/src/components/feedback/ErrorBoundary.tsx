@@ -188,9 +188,10 @@ export class ErrorBoundary extends Component<
 			document.execCommand("copy");
 			document.body.removeChild(ta);
 			this.flashCopied();
-		} catch {
+		} catch (e) {
 			// Last-resort: leave the error text on screen so the
 			// user can manually select + copy from the <pre>.
+			console.warn("[ErrorBoundary] clipboard fallback copy failed:", e);
 		}
 	};
 
@@ -263,8 +264,9 @@ export class ErrorBoundary extends Component<
 			}
 			try {
 				localStorage.clear();
-			} catch {
+			} catch (e) {
 				// Ignore — some sandboxed contexts disable localStorage.
+				console.warn("[ErrorBoundary] localStorage.clear failed:", e);
 			}
 			window.location.reload();
 		};

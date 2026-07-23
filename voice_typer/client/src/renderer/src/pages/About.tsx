@@ -220,9 +220,10 @@ export default function AboutPage() {
 			try {
 				const cfg = await call<VoiceTyperConfig>("get_config");
 				if (!cancelled) setConfig(cfg);
-			} catch {
+			} catch (e) {
 				// intentionally leave config as null — diagnostics simply
 				// show "—" until the backend comes back online.
+				console.warn("[About] get_config failed:", e);
 			}
 		};
 

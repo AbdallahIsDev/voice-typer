@@ -97,8 +97,13 @@ export function makeEntryId(): string {
 		) {
 			return crypto.randomUUID();
 		}
-	} catch {
-		// crypto may be undefined in some test environments
+	} catch (e) {
+		// crypto may be undefined in some test environments.
+		// Fall through to the Math.random-based pseudo-ID below.
+		console.warn(
+			"[vocabulary/transform] crypto.randomUUID unavailable, falling back:",
+			e,
+		);
 	}
 	return `entry-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
 }

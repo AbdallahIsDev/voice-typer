@@ -250,8 +250,13 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 									// Persist to localStorage so the choice survives restarts
 									try {
 										localStorage.setItem("voice-typer-ui-locale", v);
-									} catch {
+									} catch (e) {
 										// localStorage may be unavailable in some contexts
+										// (SSR, sandboxed renderer, quota exceeded).
+										console.warn(
+											"[GeneralSettingsSection] setItem locale failed:",
+											e,
+										);
 									}
 									// TRAY-008 / UX-6: push the locale (and any tray-menu
 									// labels the renderer can translate) to the Python
@@ -267,8 +272,13 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 												labels: trayLabelsForLocale(v as Locale),
 											},
 										});
-									} catch {
-										// IPC may not be available during startup
+									} catch (e) {
+										// IPC may not be available during startup or the
+										// backend may not yet have registered the route.
+										console.warn(
+											"[GeneralSettingsSection] set_tray_locale IPC failed:",
+											e,
+										);
 									}
 									// TODO: push locale to main process via IPC (XA-18-1) —
 									//   `setMainLocale()` in the Electron main process is

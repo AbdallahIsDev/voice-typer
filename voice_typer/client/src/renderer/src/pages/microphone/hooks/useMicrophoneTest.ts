@@ -197,8 +197,11 @@ export function useMicrophoneTest({
 				if (levelData && typeof levelData.active === "boolean") {
 					setMicMonitoring(levelData.active);
 				}
-			} catch {
-				// Ignore polling errors
+			} catch (e) {
+				// Ignore polling errors — the next 100ms tick will
+				// retry. Sustained failures are surfaced by the
+				// connection-status banner elsewhere in the UI.
+				console.warn("[useMicrophoneTest] level poll failed:", e);
 			}
 		}, 100);
 
@@ -263,8 +266,10 @@ export function useMicrophoneTest({
 			if (audioRef.current) {
 				try {
 					audioRef.current.pause();
-				} catch {
-					/* noop */
+				} catch (e) {
+					/* noop — audio element may already be in a
+					   closed/stopped state */
+					console.warn("[useMicrophoneTest] cleanup pause failed:", e);
 				}
 				audioRef.current = null;
 			}
@@ -284,8 +289,10 @@ export function useMicrophoneTest({
 		if (testRunning && !stoppingRef.current) {
 			try {
 				await call("microphone_test_cancel");
-			} catch {
-				/* ignore */
+			} catch (e) {
+				/* ignore — test may have already finished, or the
+				   backend may be tearing down */
+				console.warn("[useMicrophoneTest] selectMicrophone cancel failed:", e);
 			}
 			setTestRunning(false);
 			setTestAudioBase64(null);

@@ -221,8 +221,11 @@ function _cssColorToHexViaDOM(color: string): string | null {
 					.join("")
 			);
 		}
-	} catch {
-		// Fall through to next attempt
+	} catch (e) {
+		// Fall through to next attempt — the regex match / parse / hex
+		// conversion can fail on malformed inputs; the next strategy
+		// (DOM-based getComputedStyle) is more permissive.
+		console.warn("[color-utils] hex-parse strategy failed, trying next:", e);
 	}
 	return null;
 }

@@ -61,8 +61,14 @@ function dbusNameHasOwner(name: string): boolean | null {
 		}).toString();
 		// gdbus prints `(true,)` or `(false,)` for a boolean return.
 		return out.includes("true");
-	} catch {
-		// fall through to dbus-send
+	} catch (e) {
+		// gdbus missing / non-zero exit / timeout — fall through to
+		// the dbus-send fallback. Logging at debug level would be too
+		// noisy on systems that simply don't ship gdbus.
+		console.warn(
+			"[tray_available] gdbus probe failed, falling through to dbus-send:",
+			e,
+		);
 	}
 	const dbusSendArgs = [
 		"--session",

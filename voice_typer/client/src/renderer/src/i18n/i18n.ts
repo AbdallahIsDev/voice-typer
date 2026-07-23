@@ -101,8 +101,9 @@ function detectBrowserLocale(): Locale {
 			);
 			if (partial) return partial as Locale;
 		}
-	} catch {
+	} catch (e) {
 		// navigator may be unavailable (SSR, sandboxed). Fall through to "en".
+		console.warn("[i18n] detectBrowserLocale failed:", e);
 	}
 	return "en";
 }
@@ -127,8 +128,9 @@ try {
 			_currentLocale = detectBrowserLocale();
 		}
 	}
-} catch {
+} catch (e) {
 	// localStorage may be unavailable in some contexts (SSR, sandboxed)
+	console.warn("[i18n] module-load locale restore failed:", e);
 }
 
 // HIGH-32 / I18N-4: apply the RTL ``dir`` attribute on initial module
@@ -148,8 +150,9 @@ try {
 		// the user-selected UI locale (not the browser default).
 		document.documentElement.lang = _currentLocale;
 	}
-} catch {
+} catch (e) {
 	// document may be unavailable in some contexts (SSR, tests)
+	console.warn("[i18n] initial document dir/lang set failed:", e);
 }
 
 // Translation map: locale -> flat key-value pairs
@@ -276,8 +279,9 @@ export function setLocale(locale: Locale): void {
 			// in the user-selected UI locale (not the browser default).
 			document.documentElement.lang = next;
 		}
-	} catch {
+	} catch (e) {
 		// SSR environments may not have document
+		console.warn("[i18n] setLocale document dir/lang failed:", e);
 	}
 
 	// F-3: persist the choice so it survives restarts. Previously the
@@ -286,8 +290,9 @@ export function setLocale(locale: Locale): void {
 		if (typeof localStorage !== "undefined") {
 			localStorage.setItem("voice-typer-ui-locale", next);
 		}
-	} catch {
+	} catch (e) {
 		// localStorage may be unavailable in some contexts
+		console.warn("[i18n] setLocale localStorage.setItem failed:", e);
 	}
 
 	// F-3: notify subscribers (the useT hook) so every subscribed
@@ -296,8 +301,9 @@ export function setLocale(locale: Locale): void {
 	for (const cb of _localeSubscribers) {
 		try {
 			cb();
-		} catch {
+		} catch (e) {
 			// a misbehaving subscriber must not break locale switching
+			console.warn("[i18n] locale subscriber callback failed:", e);
 		}
 	}
 }

@@ -78,9 +78,13 @@ export function setSoundFeedbackEnabled(enabled: boolean): void {
 	_enabled = enabled;
 	try {
 		localStorage.setItem(STORAGE_KEY, enabled ? "1" : "0");
-	} catch {
+	} catch (e) {
 		// localStorage unavailable (e.g. SSR, private browsing) —
 		// non-fatal; the in-memory flag still works for this session.
+		console.warn(
+			"[sound-manager] setSoundFeedbackEnabled localStorage.setItem failed:",
+			e,
+		);
 	}
 }
 
@@ -288,9 +292,10 @@ function playViaAudioContext(kind: "start" | "stop" | "error"): boolean {
 			.then(() => {
 				try {
 					doPlay();
-				} catch {
+				} catch (e) {
 					// Synthesis failed — no fallback here; the caller's
 					// catch will handle it.
+					console.warn("[sound-manager] synthesis doPlay failed:", e);
 				}
 			})
 			.catch(() => {

@@ -63,10 +63,11 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
 		} else if (typeof (mq as MediaQueryList).addListener === "function") {
 			(mq as MediaQueryList).addListener(handler);
 		}
-	} catch {
+	} catch (e) {
 		// matchMedia may throw in restricted sandboxes — non-fatal.
 		// The cache simply won't auto-invalidate on contrast change;
 		// the per-color-change invalidation in
 		// ``handleCustomColorChange`` still applies.
+		console.warn("[themeColorCache] matchMedia listener setup failed:", e);
 	}
 }

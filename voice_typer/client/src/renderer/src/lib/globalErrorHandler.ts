@@ -78,8 +78,11 @@ function _genericUserMessage(): string {
 	try {
 		const msg = t("errorBoundary.description");
 		if (typeof msg === "string" && msg.length > 0) return msg;
-	} catch {
-		// Fall through to the hardcoded default.
+	} catch (e) {
+		// Fall through to the hardcoded default. The i18n module
+		// should never throw, but we guard so a future implementation
+		// can't break the global error handler.
+		console.warn("[globalErrorHandler] i18n t() failed, using default:", e);
 	}
 	return "The app encountered an unexpected error. Your data is safe.";
 }
@@ -163,10 +166,11 @@ export function installGlobalErrorHandlers(): void {
 		console.error("[Renderer] uncaught error:", detail);
 		try {
 			toast.error(_genericUserMessage());
-		} catch {
+		} catch (e) {
 			// If sonner isn't mounted yet (e.g. error during bootstrap
 			// before the Toaster component renders), the toast call is a
 			// no-op. The console.error above still surfaces the error.
+			console.warn("[globalErrorHandler] toast.error failed:", e);
 		}
 		// Do NOT call event.preventDefault() — we want the default
 		// browser console error to also appear in DevTools for parity
@@ -181,8 +185,9 @@ export function installGlobalErrorHandlers(): void {
 			console.error("[Renderer] unhandled promise rejection:", detail);
 			try {
 				toast.error(_genericUserMessage());
-			} catch {
+			} catch (e) {
 				// Same defensive guard as above.
+				console.warn("[globalErrorHandler] toast.error (rejection) failed:", e);
 			}
 			// Do NOT call event.preventDefault() — let the default browser
 			// warning appear in DevTools too.

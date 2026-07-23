@@ -266,8 +266,9 @@ export default function HistoryPage() {
 					setHasMore(newRecs.length >= PAGE_SIZE);
 					setRecords(newRecs);
 				}
-			} catch {
-				// Silently ignore — next manual load will pick up fresh data
+			} catch (e) {
+				// Silently ignore — next manual load will pick up fresh data.
+				console.warn("[History] background refresh failed:", e);
 			}
 		}, 500);
 		return undefined;
@@ -495,8 +496,8 @@ export default function HistoryPage() {
 				/>
 
 				{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-                                    refresh button. The module-level cache survives page
-                                    navigations, so we surface staleness here. */}
+				    refresh button. The module-level cache survives page
+				    navigations, so we surface staleness here. */}
 				<div className="flex justify-end pb-1">
 					<LastUpdatedIndicator
 						agoLabel={agoLabel}
@@ -551,9 +552,9 @@ export default function HistoryPage() {
 						{t("history.clearAll")}
 					</Button>
 					{/* Sort dropdown — client-side re-order of the loaded
-                                            records.  Placed inline so it groups with the other
-                                            list-action buttons; the Radix Select trigger
-                                            inherits the same muted outline-button styling. */}
+					    records.  Placed inline so it groups with the other
+					    list-action buttons; the Radix Select trigger
+					    inherits the same muted outline-button styling. */}
 					<Select
 						value={sortOrder}
 						onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
@@ -638,18 +639,18 @@ export default function HistoryPage() {
 						/>
 
 						{/*
-                                                        CR-054: once `records.length` reaches the 200-item
-                                                        display cap AND the backend still reports more
-                                                        available (`hasMore`), further "Load More" clicks
-                                                        would be silent no-ops — `records.slice(0, 200)`
-                                                        above hides any items past 200, so the user would
-                                                        click Load More and see nothing change for several
-                                                        clicks.  Replace the button with a notice pointing
-                                                        the user at the search field to find older entries.
-                                                        When `records.length < 200`, the Load More button is
-                                                        still useful (it grows the visible list below the
-                                                        cap), so we keep it.
-                                                */}
+							CR-054: once `records.length` reaches the 200-item
+							display cap AND the backend still reports more
+							available (`hasMore`), further "Load More" clicks
+							would be silent no-ops — `records.slice(0, 200)`
+							above hides any items past 200, so the user would
+							click Load More and see nothing change for several
+							clicks.  Replace the button with a notice pointing
+							the user at the search field to find older entries.
+							When `records.length < 200`, the Load More button is
+							still useful (it grows the visible list below the
+							cap), so we keep it.
+						*/}
 						{records.length >= 200 && hasMore ? (
 							<p className="mt-4 text-center text-xs text-(--text-muted)">
 								{t("history.showingCap", {

@@ -52,8 +52,9 @@ function loadCachedRecent(): HistoryRecord[] {
 			const parsed = JSON.parse(raw);
 			if (Array.isArray(parsed)) _cachedRecent = parsed as HistoryRecord[];
 		}
-	} catch {
-		// localStorage unavailable — non-fatal.
+	} catch (e) {
+		// localStorage unavailable or payload malformed — non-fatal.
+		console.warn("[Home] loadCachedRecent failed:", e);
 	}
 	return _cachedRecent;
 }
@@ -72,8 +73,9 @@ function loadCachedStats(): TodayStats | null {
 				_cachedStats = parsed as TodayStats;
 			}
 		}
-	} catch {
-		// localStorage unavailable — non-fatal.
+	} catch (e) {
+		// localStorage unavailable or payload malformed — non-fatal.
+		console.warn("[Home] loadCachedStats failed:", e);
 	}
 	return _cachedStats;
 }
@@ -82,8 +84,9 @@ function persistRecent(recent: HistoryRecord[]): void {
 	_cachedRecent = recent;
 	try {
 		localStorage.setItem(RECENT_CACHE_KEY, JSON.stringify(recent));
-	} catch {
+	} catch (e) {
 		// Quota exceeded or unavailable — non-fatal.
+		console.warn("[Home] persistRecent failed:", e);
 	}
 }
 
@@ -91,8 +94,9 @@ function persistStats(stats: TodayStats): void {
 	_cachedStats = stats;
 	try {
 		localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats));
-	} catch {
+	} catch (e) {
 		// Quota exceeded or unavailable — non-fatal.
+		console.warn("[Home] persistStats failed:", e);
 	}
 }
 
@@ -359,8 +363,9 @@ function useFirstRecordingCelebration(
 				});
 				try {
 					localStorage.setItem(FIRST_RECORD_CELEBRATED_KEY, "1");
-				} catch {
+				} catch (e) {
 					// localStorage unavailable — non-fatal.
+					console.warn("[Home] setItem first-record-celebrated failed:", e);
 				}
 			}
 		} catch (e) {
@@ -714,7 +719,7 @@ export default function Home() {
 			)}
 
 			{/* UX-9: thin progress bar under the status pill while a model
-                            download is in flight. */}
+			    download is in flight. */}
 			{downloadPct !== null && (
 				<div
 					className="h-0.5 w-32 rounded-full bg-(--bg-subtle)"
@@ -732,7 +737,7 @@ export default function Home() {
 			)}
 
 			{/* UX-7: subtle amber "Force cancel" affordance shown after
-                            FORCE_CANCEL_DELAY_MS in "transcribing" state. */}
+			    FORCE_CANCEL_DELAY_MS in "transcribing" state. */}
 			{showForceCancel && recordingState === "transcribing" && (
 				<button
 					type="button"
@@ -807,8 +812,8 @@ export default function Home() {
 			)}
 
 			{/* When there's no cached stats AND we're still loading the
-                            initial data, show a small spinner that preserves layout
-                            height (avoids the "page is empty" flash). */}
+			    initial data, show a small spinner that preserves layout
+			    height (avoids the "page is empty" flash). */}
 			{!stats && initialLoading && (
 				<section
 					className="mt-4 w-full flex items-center justify-center py-6"
@@ -819,9 +824,9 @@ export default function Home() {
 			)}
 
 			{/* Hidden share image capture target. EXPORT-FIX: `position:fixed;
-                            left:-9999` caused Chromium's paint optimization to skip painting
-                            the element, so html-to-image captured a 0×0 blank image. Using
-                            clip-path keeps the element painted while hiding it. */}
+			    left:-9999` caused Chromium's paint optimization to skip painting
+			    the element, so html-to-image captured a 0×0 blank image. Using
+			    clip-path keeps the element painted while hiding it. */}
 			<div
 				ref={imageRef}
 				aria-hidden

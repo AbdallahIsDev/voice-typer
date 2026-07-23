@@ -325,8 +325,10 @@ export function useModelLifecycle() {
 				if (!cancelled && info && typeof info.free_bytes === "number") {
 					setDiskInfo(info);
 				}
-			} catch {
-				// Backend doesn't support get_disk_info — silently skip.
+			} catch (e) {
+				// Backend doesn't support get_disk_info (older server version) —
+				// silently skip; disk-space widget stays hidden.
+				console.warn("[useModelLifecycle] get_disk_info probe failed:", e);
 			}
 			try {
 				// Probe whether the open-folder family of IPCs is
@@ -339,9 +341,13 @@ export function useModelLifecycle() {
 					setModelsFolderSupported(true);
 					void probe; // explicit no-op discard
 				}
-			} catch {
+			} catch (e) {
 				// Backend doesn't expose the open-folder family — keep
 				// the button hidden.
+				console.warn(
+					"[useModelLifecycle] models_folder_supported probe failed:",
+					e,
+				);
 			}
 		})();
 		return () => {

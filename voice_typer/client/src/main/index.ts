@@ -71,7 +71,12 @@ if (process.env.npm_lifecycle_event === "dev" || !app.isPackaged) {
 try {
 	// Best-effort — only matters on Windows 7+.
 	app.setAppUserModelId("VoiceTyper");
-} catch {}
+} catch (e) {
+	// setAppUserModelId can throw on non-Windows or if the registry
+	// write fails; non-fatal — Windows taskbar grouping falls back
+	// to the default (app.exe name) which is acceptable.
+	console.warn("[main] setAppUserModelId failed (non-fatal):", e);
+}
 
 // Single-instance gate + `app.on("second-instance")` handler. Must run
 // before `app.whenReady()` — the lock is checked at process start.
@@ -151,8 +156,8 @@ app.on("will-quit", (event) => {
 	event.preventDefault();
 	try {
 		stopPython();
-	} catch {
-		// Best-effort — don't block quit on stopPython errors.
+	} catch (err) {
+		console.warn("[main] stopPython failed during will-quit:", err);
 	}
 	// Allow quit to proceed after 3s even if Python hasn't exited.
 	// If Python exits first (graceful shutdown), quit immediately.

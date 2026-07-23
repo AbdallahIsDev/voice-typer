@@ -95,8 +95,9 @@ export function useOnboardingWizard(
 						if (cfgModel) setSelectedModel(cfgModel);
 						setSelectedMic(cfg.microphone ?? "");
 					}
-				} catch {
+				} catch (e) {
 					/* older backend without get_config */
+					console.warn("[useOnboardingWizard] get_config probe failed:", e);
 				}
 				const mics = await call<{
 					microphones: MicrophoneOption[];

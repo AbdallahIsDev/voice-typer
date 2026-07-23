@@ -127,10 +127,11 @@ function useThemeSync() {
 				: null;
 		try {
 			applyThemeVars(preset, isDark, customVars);
-		} catch {
+		} catch (e) {
 			// A corrupted custom_theme payload could throw inside
 			// applyThemeVars; swallow so the bubble doesn't crash over
 			// a cosmetic error. The .dark class is already toggled.
+			console.warn("[bubble-components] applyThemeVars failed:", e);
 		}
 	}, []);
 

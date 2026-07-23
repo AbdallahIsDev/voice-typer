@@ -339,8 +339,12 @@ export default function App() {
 								.catch((err) =>
 									console.warn("[clipboard] writeText failed:", err),
 								);
-						} catch {
+						} catch (e) {
 							// clipboard API may be unavailable — non-fatal.
+							console.warn(
+								"[App] clipboard writeText (recovery path) failed:",
+								e,
+							);
 						}
 					},
 				},
@@ -370,8 +374,14 @@ export default function App() {
 			if (cfg?.theme_mode) {
 				await reloadThemeFromConfig();
 			}
-		} catch {
-			// non-fatal
+		} catch (e) {
+			// non-fatal — the user already finished onboarding;
+			// theme will be re-applied on the next config_changed
+			// event or the next app launch.
+			console.warn(
+				"[App] handleOnboardingComplete get_config/reload failed:",
+				e,
+			);
 		}
 	}, [navigate, call, reloadThemeFromConfig]);
 
@@ -496,20 +506,20 @@ export default function App() {
 											</li>
 										</ol>
 										{/* PVT-fix-19: wire the existing
-                                                                                    `app.firstLaunchHint` key into the
-                                                                                    connecting UI. The key has shipped in
-                                                                                    translations/en.json since the early
-                                                                                    i18n rollout ("First launch can take
-                                                                                    30–60 seconds while we download the
-                                                                                    speech model (~466 MB for small.en)…")
-                                                                                    but was never rendered — the connecting
-                                                                                    screen only showed the 3-step progress
-                                                                                    list, leaving first-time users wondering
-                                                                                    whether the 30–60s wait was normal. The
-                                                                                    hint is shown ONLY on the `connecting`
-                                                                                    screen (not `restarting` or
-                                                                                    `disconnected`) because it specifically
-                                                                                    describes the model-download path. */}
+										    `app.firstLaunchHint` key into the
+										    connecting UI. The key has shipped in
+										    translations/en.json since the early
+										    i18n rollout ("First launch can take
+										    30–60 seconds while we download the
+										    speech model (~466 MB for small.en)…")
+										    but was never rendered — the connecting
+										    screen only showed the 3-step progress
+										    list, leaving first-time users wondering
+										    whether the 30–60s wait was normal. The
+										    hint is shown ONLY on the `connecting`
+										    screen (not `restarting` or
+										    `disconnected`) because it specifically
+										    describes the model-download path. */}
 										<p className="text-xs text-(--text-muted) max-w-md">
 											{t("app.firstLaunchHint")}
 										</p>
@@ -540,9 +550,9 @@ export default function App() {
 											{t("app.lostConnection")}
 										</p>
 										{/* NF-R10-5: show the actual error message when
-                                                                                        available (e.g. "Python crashed: exit code 137")
-                                                                                        so the user can act on it instead of seeing a
-                                                                                        generic "lost connection" message. */}
+											available (e.g. "Python crashed: exit code 137")
+											so the user can act on it instead of seeing a
+											generic "lost connection" message. */}
 										<p className="text-xs text-(--text-muted) max-w-md">
 											{lastError ?? t("app.lostConnectionHint")}
 										</p>
@@ -622,15 +632,15 @@ export default function App() {
 					{recordingState === "loading" ? t("a11y.loadingModel") : ""}
 					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
 					{/* PVT-fix-9: announce connection-state transitions so
-                                            screen-reader users get the same feedback that
-                                            sighted users get from the connecting/disconnected/
-                                            restarting UI swap. Reuses existing i18n keys
-                                            (`app.lostConnection`, `app.restartingBackend`,
-                                            `about.connected`) so no new translation keys are
-                                            required. The empty-string fallback for non-matching
-                                            states keeps the region silent between transitions
-                                            (aria-atomic=true means each change re-announces the
-                                            whole region, so a stable empty string is silent). */}
+					    screen-reader users get the same feedback that
+					    sighted users get from the connecting/disconnected/
+					    restarting UI swap. Reuses existing i18n keys
+					    (`app.lostConnection`, `app.restartingBackend`,
+					    `about.connected`) so no new translation keys are
+					    required. The empty-string fallback for non-matching
+					    states keeps the region silent between transitions
+					    (aria-atomic=true means each change re-announces the
+					    whole region, so a stable empty string is silent). */}
 					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
 					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
 					{connectionStatus === "connected" &&

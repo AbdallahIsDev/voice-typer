@@ -147,8 +147,9 @@ export function useTemplates({
 				// anything to migrate — we don't want to retry on every load.
 				try {
 					localStorage.setItem(MIGRATION_FLAG_KEY, "1");
-				} catch {
+				} catch (e) {
 					// localStorage unavailable — non-fatal; we'll retry next session.
+					console.warn("[useTemplates] migration flag setItem failed:", e);
 				}
 			}
 

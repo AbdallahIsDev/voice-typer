@@ -9,11 +9,74 @@
  * The interval is also cleared in the TCP close handler, but stopping
  * it here avoids the race where the 5s tick fires between
  * sendToPython("quit_app") and the socket actually closing.
+ *
+ * XV-157 (XZ-14): idempotency guard. `stopPython()` is invoked from up
+ * to 4 distinct sites during a single circuit-breaker trip:
+ *   1. `bootstrap.ts::onUncaught` / `onRejection` inline defensive call,
+ *   2. `bootstrap.ts::_productionExit` (called by `exit(1)` from #1),
+ *   3. `index.ts::before-quit` handler (fired by `app.quit()` from #2),
+ *   4. `index.ts::will-quit` belt-and-suspenders handler.
+ * Without the guard below, each call would send a fresh `quit_app`
+ * write over the dying TCP socket AND arm a fresh `killTimer` +
+ * `.once('exit')` listener on `pythonProcess`. P1-2c's `.once`
+ * mitigation prevented listener accumulation across calls, but the
+ * duplicate `quit_app` writes still raced on the half-closed socket
+ * and the duplicate `killTimer`s leaked handles into the event loop
+ * (each holding a strong ref to `state.pythonProcess` for 3s). The
+ * module-level `isStopping` / `isStopped` flags ensure only the FIRST
+ * call performs any work; subsequent calls return immediately.
+ *
+ * The flags reset automatically when this module is re-evaluated
+ * (e.g. by `vi.resetModules()` in tests, or by Electron's renderer
+ * reload in dev mode), so a freshly-spawned backend can be stopped
+ * again after a relaunch. `state._stopPythonCalled` is mirrored
+ * alongside the flags for cross-module observability; resetting it on
+ * `startPython()` is tracked separately (would require touching
+ * `start-python.ts`, which is outside this task's scope).
+ *
+ * XV-156: the armed `killTimer` is `.unref()`'d so it doesn't keep the
+ * Node event loop alive if the process is otherwise ready to exit
+ * (e.g. Python exits cleanly before the 3s grace period elapses).
  */
 import { state } from "../state";
 import { sendToPython } from "./send-to-python";
 
+// XV-157 (XZ-14): idempotency state. `isStopping` is true while a stop
+// is in flight (between the top-of-function guard and either the
+// killTimer callback or the `.once('exit')` callback). `isStopped`
+// becomes true once shutdown is complete (Python exited or was
+// force-killed). Together they prevent the breaker-trip cascade from
+// sending duplicate `quit_app` writes / arming duplicate killTimers.
+//
+// Module-scoped (not on `state`) so a `vi.resetModules()` re-import
+// resets them — this is what makes dev-mode `startPython()` re-spawn
+// re-stoppable without requiring `start-python.ts` to know about the
+// flags.
+let isStopping = false;
+let isStopped = false;
+
+// XV-157 (XZ-14): track the armed killTimer so we can clear any
+// previously-armed timer before setting a new one. The top-of-function
+// `isStopping` guard already prevents a second call from reaching the
+// `setTimeout` line, but this clear-before-set is defense-in-depth for
+// the case where the guard is bypassed (e.g. by a future code path
+// that resets `isStopping`/`isStopped` mid-cycle).
+let armedKillTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function stopPython() {
+	// XV-157 (XZ-14): idempotency guard. If a stop is already in
+	// flight (`isStopping`) OR has already completed (`isStopped`),
+	// return immediately. This prevents the breaker-trip cascade
+	// (bootstrap onUncaught → _productionExit → index before-quit →
+	// index will-quit) from sending duplicate `quit_app` writes
+	// and arming multiple killTimers.
+	if (isStopping || isStopped) return;
+	isStopping = true;
+	// Mirror on `state` for cross-module observability (the
+	// module-level flags above remain the source of truth for the
+	// idempotency decision).
+	state._stopPythonCalled = true;
+
 	// RW-10: stop the heartbeat interval first so we don't queue a
 	// heartbeat onto the dying socket while ``quit_app`` is in
 	// flight.  The interval is also cleared in the TCP close
@@ -33,14 +96,50 @@ export function stopPython() {
 		clearTimeout(state._tcpRetryTimer);
 		state._tcpRetryTimer = null;
 	}
-	if (!state.pythonProcess) return;
+	// No live process to kill — shutdown is "complete" immediately.
+	// Flip the flags so any subsequent call (e.g. will-quit firing
+	// after before-quit) is a no-op.
+	if (!state.pythonProcess) {
+		isStopping = false;
+		isStopped = true;
+		return;
+	}
+	// XV-157 (XZ-14): the top-of-function `isStopping` guard above
+	// is what guarantees `quit_app` is sent at most once per stop
+	// cycle — a second call never reaches this line. The
+	// `.catch(() => {})` swallows the rejection that fires when
+	// the socket is already half-closed (which is exactly the case
+	// during the breaker-trip cascade).
 	sendToPython({ type: "quit_app" }).catch(() => {});
+
+	// XV-157 (XZ-14): guard against duplicate killTimer creation.
+	// Clear any previously-armed timer before setting a new one.
+	// (Defense-in-depth — the `isStopping` guard at the top is the
+	// primary protection; this backstop covers a future code path
+	// that resets the flags mid-cycle.)
+	if (armedKillTimer) {
+		clearTimeout(armedKillTimer);
+		armedKillTimer = null;
+	}
 	const killTimer = setTimeout(() => {
 		if (state.pythonProcess) {
 			state.pythonProcess.kill();
 			state.pythonProcess = null;
 		}
+		armedKillTimer = null;
+		// XV-157 (XZ-14): shutdown complete — flip the flags so
+		// any subsequent stopPython() call (e.g. will-quit
+		// firing after the killTimer) is a no-op.
+		isStopping = false;
+		isStopped = true;
 	}, 3000);
+	// XV-156: unref the killTimer so it doesn't keep the event
+	// loop alive if the process is otherwise ready to exit (e.g.
+	// Python exits cleanly before the 3s grace period elapses, or
+	// the breaker-trip `app.quit()` succeeds before the timer
+	// fires).
+	killTimer.unref();
+	armedKillTimer = killTimer;
 	// P1-2c (Round 0 forward-port): use `.once` so the listener is
 	// auto-removed after firing. `stopPython()` may be called more than
 	// once for the same live `pythonProcess` (e.g. shutdown sequence +
@@ -48,5 +147,13 @@ export function stopPython() {
 	// per call — eventually tripping Node's default maxListeners=10
 	// warning. `.once` ensures each registered listener fires at most
 	// one time and is then cleaned up.
-	state.pythonProcess.once("exit", () => clearTimeout(killTimer));
+	state.pythonProcess.once("exit", () => {
+		clearTimeout(killTimer);
+		armedKillTimer = null;
+		// XV-157 (XZ-14): Python exited gracefully — shutdown
+		// is complete. Flip the flags so subsequent stopPython()
+		// calls are no-ops.
+		isStopping = false;
+		isStopped = true;
+	});
 }

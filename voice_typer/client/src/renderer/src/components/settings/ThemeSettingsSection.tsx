@@ -196,8 +196,11 @@ const _LS_DRAFT_KEY = "vt_custom_theme_draft";
 function _saveDraftToLS(data: CustomThemeData): void {
 	try {
 		localStorage.setItem(_LS_DRAFT_KEY, JSON.stringify(data));
-	} catch {
-		// localStorage may be full or unavailable — non-fatal
+	} catch (e) {
+		// localStorage may be full or unavailable — non-fatal.
+		// The backend save will still proceed; we just lose the
+		// crash-recovery draft for the next page visit.
+		console.warn("[ThemeSettingsSection] _saveDraftToLS failed:", e);
 	}
 }
 
@@ -214,8 +217,10 @@ function _loadDraftFromLS(): CustomThemeData | null {
 function _clearDraftLS(): void {
 	try {
 		localStorage.removeItem(_LS_DRAFT_KEY);
-	} catch {
-		// non-fatal
+	} catch (e) {
+		// non-fatal — a leftover draft will just be overwritten
+		// on the next save or rejected as stale on the next load.
+		console.warn("[ThemeSettingsSection] _clearDraftLS failed:", e);
 	}
 }
 
@@ -904,17 +909,17 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							onMouseLeave={revertToSavedPreset}
 						>
 							{/* PVT-043 / FIX-#9: render a DISABLED "Custom
-                                                                (use toggle below)" SelectItem when the saved
-                                                                preset is 'custom'.  Without this, the dropdown's
-                                                                trigger showed a blank value when the preset was
-                                                                'custom' (the SelectItem list filtered 'custom'
-                                                                out), making it look like the dropdown was broken.
-                                                                The disabled item is non-selectable — users
-                                                                toggle the custom theme via the switch below
-                                                                the dropdown.  Always rendered so the trigger's
-                                                                selected value always has a matching SelectItem
-                                                                (Radix Select otherwise warns about a missing
-                                                                value). */}
+								(use toggle below)" SelectItem when the saved
+								preset is 'custom'.  Without this, the dropdown's
+								trigger showed a blank value when the preset was
+								'custom' (the SelectItem list filtered 'custom'
+								out), making it look like the dropdown was broken.
+								The disabled item is non-selectable — users
+								toggle the custom theme via the switch below
+								the dropdown.  Always rendered so the trigger's
+								selected value always has a matching SelectItem
+								(Radix Select otherwise warns about a missing
+								value). */}
 							{(() => {
 								const customThemeDef = THEMES.find((t) => t.id === "custom");
 								if (!customThemeDef) return null;
@@ -951,7 +956,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 								);
 							})()}
 							{/* Built-in presets (excluding 'custom' — handled
-                                                                by the disabled item above). */}
+								by the disabled item above). */}
 							{THEMES.filter((t) => t.id !== "custom").map((theme) => {
 								const isDark =
 									document.documentElement.classList.contains("dark");
@@ -987,9 +992,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 			{/* ── Custom Theme toggle ────────────────────────────── */}
 			{/* A switch that enables/disables the custom color editor.
-                                When ON, theme_preset is forced to 'custom' and the color
-                                picker appears.  When OFF, the preset reverts to the
-                                previously-selected preset. */}
+				When ON, theme_preset is forced to 'custom' and the color
+				picker appears.  When OFF, the preset reverts to the
+				previously-selected preset. */}
 			{isVisible(customThemeLabel, customThemeInfoSearch, sectionTitle) && (
 				<SettingRow
 					label={customThemeLabel}
@@ -1094,9 +1099,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 										</p>
 									</div>
 									{/* PVT-043 / FIX-#3: contrast warning icon — shown
-                                                                                when the row's relevant colour pair falls below
-                                                                                the WCAG AA 4.5:1 threshold.  Tooltip shows the
-                                                                                actual ratio and the AA requirement. */}
+										when the row's relevant colour pair falls below
+										the WCAG AA 4.5:1 threshold.  Tooltip shows the
+										actual ratio and the AA requirement. */}
 									{showContrastWarning && ratioRounded !== null && (
 										<TooltipProvider delayDuration={200}>
 											<Tooltip>
@@ -1188,12 +1193,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					</div>
 
 					{/* Reset to defaults.
-                                                Part C5: the previously-broken "#888" 3-digit hex in
-                                                DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
-                                                so the validator accepts the payload — no more "Failed to
-                                                save settings" toast.
-                                                Part C6: button is disabled while the draft already matches
-                                                the defaults (re-enables the moment the user edits a color). */}
+						Part C5: the previously-broken "#888" 3-digit hex in
+						DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+						so the validator accepts the payload — no more "Failed to
+						save settings" toast.
+						Part C6: button is disabled while the draft already matches
+						the defaults (re-enables the moment the user edits a color). */}
 					<button
 						type="button"
 						disabled={customDraftIsDefault}

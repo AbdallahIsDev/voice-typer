@@ -160,11 +160,12 @@ export function rotateIfNeeded(
 		// XV-154: after rotation, reset the cache so the next call
 		// stats the active (new) file.
 		_clearCachedFileSize(filePath);
-	} catch {
+	} catch (e) {
 		// Best-effort: rotation failed (disk full, permission, race).
 		// Continue — the caller will still attempt the append. The
 		// file may grow past `maxSize` in this rare case, but we
 		// prefer "log the crash" over "rotate or nothing".
+		console.warn("[logging] rotateIfNeeded failed:", e);
 	}
 }
 
@@ -329,10 +330,11 @@ export function appendLogLine(
 		if (prevSize !== null) {
 			_setCachedFileSize(filePath, prevSize + Buffer.byteLength(line, "utf-8"));
 		}
-	} catch {
+	} catch (e) {
 		// Best-effort: disk full, permission denied, parent dir
 		// missing, etc. Swallow — the caller's code path is more
 		// important than the log line.
+		console.warn(`[logging] appendLogLine failed for ${filePath}:`, e);
 	}
 }
 
@@ -505,13 +507,17 @@ export const mainRuntimeLogger = {
 			const iso = new Date().toISOString();
 			const line = `${iso} [${level}] ${formatArgsForFile(args)}\n`;
 			fs.appendFileSync(logPath, line, { encoding: "utf-8" });
-		} catch {
+		} catch (e) {
 			// Best-effort: file write failed. The stdout
 			// tee already captured the message — we lose
 			// durability but not visibility. Swallowing
 			// here is correct: a logging failure must not
 			// cascade into a runtime failure of the
 			// calling code.
+			console.warn(
+				`[logging] mainRuntimeLogger.write failed for ${logPath}:`,
+				e,
+			);
 		}
 	},
 };

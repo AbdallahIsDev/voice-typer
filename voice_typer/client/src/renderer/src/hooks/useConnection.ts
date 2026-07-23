@@ -158,8 +158,12 @@ export function useConnection({
 							if (!cancelled && fr?.is_first_run) {
 								navigate("onboarding");
 							}
-						} catch {
+						} catch (e) {
 							// Older backend without the IPC route — silently ignore.
+							console.warn(
+								"[useConnection] onboarding_is_first_run probe failed:",
+								e,
+							);
 						}
 					}
 				}
