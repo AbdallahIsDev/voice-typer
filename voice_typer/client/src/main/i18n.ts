@@ -31,6 +31,8 @@
  * `setMainLocale`'s cast) remain typed.
  */
 
+import { APP_NAME } from "./branding";
+
 /**
  * The set of locales that ship dialog strings for the main process.
  * Must stay in sync with the renderer's `SUPPORTED_LOCALES`.
@@ -47,7 +49,7 @@ const MAIN_STRINGS = {
 		"dialog.selectModelFolder.title": "اختيار مجلد النماذج",
 		"dialog.singleInstance.message":
 			"يمكن تشغيل نسخة واحدة فقط من Voice Typer في كل مرة.\n\nأغلق النسخة الموجودة أولاً ثم حاول مرة أخرى.",
-		"dialog.singleInstance.title": "Voice Typer",
+		"dialog.singleInstance.title": APP_NAME,
 	},
 	de: {
 		"dialog.criticalError.body":
@@ -60,7 +62,7 @@ const MAIN_STRINGS = {
 		"dialog.selectModelFolder.title": "Modellordner auswählen",
 		"dialog.singleInstance.message":
 			"Es kann nur eine Instanz von Voice Typer gleichzeitig ausgeführt werden.\n\nSchließen Sie zuerst die bestehende Instanz und versuchen Sie es erneut.",
-		"dialog.singleInstance.title": "Voice Typer",
+		"dialog.singleInstance.title": APP_NAME,
 	},
 	en: {
 		"dialog.criticalError.body":
@@ -73,7 +75,7 @@ const MAIN_STRINGS = {
 		"dialog.selectModelFolder.title": "Select Model Folder",
 		"dialog.singleInstance.message":
 			"Only one instance of Voice Typer can run at a time.\n\nClose the existing instance first, then try again.",
-		"dialog.singleInstance.title": "Voice Typer",
+		"dialog.singleInstance.title": APP_NAME,
 	},
 	es: {
 		"dialog.criticalError.body":
@@ -86,7 +88,7 @@ const MAIN_STRINGS = {
 		"dialog.selectModelFolder.title": "Seleccionar carpeta de modelos",
 		"dialog.singleInstance.message":
 			"Solo se puede ejecutar una instancia de Voice Typer a la vez.\n\nCierra la instancia existente primero e inténtalo de nuevo.",
-		"dialog.singleInstance.title": "Voice Typer",
+		"dialog.singleInstance.title": APP_NAME,
 	},
 	fr: {
 		"dialog.criticalError.body":
@@ -99,7 +101,7 @@ const MAIN_STRINGS = {
 		"dialog.selectModelFolder.title": "Sélectionner le dossier de modèles",
 		"dialog.singleInstance.message":
 			"Une seule instance de Voice Typer peut être exécutée à la fois.\n\nFermez d'abord l'instance existante, puis réessayez.",
-		"dialog.singleInstance.title": "Voice Typer",
+		"dialog.singleInstance.title": APP_NAME,
 	},
 	hi: {
 		"dialog.criticalError.body":
@@ -112,7 +114,7 @@ const MAIN_STRINGS = {
 		"dialog.selectModelFolder.title": "मॉडल फ़ोल्डर चुनें",
 		"dialog.singleInstance.message":
 			"एक समय में Voice Typer की केवल एक ही इंस्टेंस चल सकती है।\n\nपहले मौजूदा इंस्टेंस बंद करें, फिर पुनः प्रयास करें।",
-		"dialog.singleInstance.title": "Voice Typer",
+		"dialog.singleInstance.title": APP_NAME,
 	},
 	ru: {
 		"dialog.criticalError.body":
@@ -125,7 +127,7 @@ const MAIN_STRINGS = {
 		"dialog.selectModelFolder.title": "Выберите папку моделей",
 		"dialog.singleInstance.message":
 			"Одновременно может быть запущен только один экземпляр Voice Typer.\n\nСначала закройте существующий экземпляр, затем попробуйте снова.",
-		"dialog.singleInstance.title": "Voice Typer",
+		"dialog.singleInstance.title": APP_NAME,
 	},
 	zh: {
 		"dialog.criticalError.body":
@@ -138,7 +140,7 @@ const MAIN_STRINGS = {
 		"dialog.selectModelFolder.title": "选择模型文件夹",
 		"dialog.singleInstance.message":
 			"同一时间只能运行一个 Voice Typer 实例。\n\n请先关闭已有实例，然后重试。",
-		"dialog.singleInstance.title": "Voice Typer",
+		"dialog.singleInstance.title": APP_NAME,
 	},
 } as const;
 

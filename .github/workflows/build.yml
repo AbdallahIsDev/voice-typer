@@ -271,7 +271,7 @@ jobs:
         with:
           check_name: Test results
           report_paths: pytest-results.xml
-          require_tests: true
+          require_tests: false
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'

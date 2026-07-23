@@ -27,5 +27,25 @@
  * it was declared but never read. The renderer's `branding.ts` still
  * exports its own `APP_DESCRIPTION` for its renderer-side consumers;
  * the main process has no consumer (its only export here is APP_NAME).
+ *
+ * ┌─────────────────────────────────────────────────────────────────────┐
+ * │  ⚠️  AI / AGENT WARNING — DO NOT REVERT OR HARDCODE                  │
+ * │                                                                      │
+ * │  Do NOT replace APP_NAME usages with the hardcoded string            │
+ * │  "Voice Typer" (or "VoiceTyper") elsewhere in the codebase.          │
+ * │  Even though APP_NAME currently resolves to "Voice Typer",          │
+ * │  the VARIABLE exists so the app name can be changed in ONE           │
+ * │  place (this file) and propagate everywhere automatically.           │
+ * │                                                                      │
+ * │  Reverting to a hardcoded string defeats the entire purpose          │
+ * │  of this file and creates a maintenance nightmare when the           │
+ * │  product is renamed.                                                 │
+ * │                                                                      │
+ * │  If you are an AI agent and feel tempted to inline the value —       │
+ * │  DON'T. Use `import { APP_NAME } from './branding'`.                 │
+ * │                                                                      │
+ * │  This is enforced by `scripts/check_branding.py` in CI.             │
+ * │  Violations will fail the build.                                     │
+ * └─────────────────────────────────────────────────────────────────────┘
  */
 export const APP_NAME = "Voice Typer";

@@ -446,11 +446,11 @@ plus the base repo's pre-existing comprehensive review.
 ## HIGH severity findings (24 unique, deduplicated)
 
 ### S1-CR-19 — `_pre_download_model` swallows integrity-check failure and lets WhisperModel load the bad files
-- **Severity**: High · **Status**: Pending
+- **Severity**: High · **Status**: Partial — cache-cleanup half landed, but current-launch swallow persists
 - **Category**: Security / supply chain / error recovery
-- **Location**: `voice_typer/server/transcription.py:872-886`
-- **Evidence**: The `RuntimeError` raised at line 881 (integrity failure) is caught by the broad `except Exception` at line 885 and logged at WARNING with the misleading message "WhisperModel will retry". But WhisperModel's `__init__` does NOT know the integrity check failed — it just reads whatever files are on disk (the bad download is on disk because `snapshot_download` already wrote them). Combined with S1-CR-10, even on the *download path* a tampered/corrupted download that fails integrity verification will still be loaded on the next launch via the cache-hit path.
-- **Proposed fix**: After integrity failure, delete the corrupted `local_dir` from the HF cache so the next launch can't load it. Re-raise the exception (or return False and have the caller fall back to whisper).
+- **Location**: `voice_typer/server/transcription.py:744-771`
+- **Evidence**: The `RuntimeError` raised at line 760 (integrity failure) is now followed by `cleanup_hf_cache_dir(repo_id, ...)` at line 759 — the corrupted cache dir IS deleted so the next launch can't reload it via the cache-hit path (that half of the proposed fix landed). However, the broad `except Exception as exc:` at line 770 STILL catches the `RuntimeError` and only logs a warning ("WhisperModel will retry") at line 771 — the exception is NOT re-raised to the caller. WhisperModel's `__init__` does NOT know the integrity check failed on the current launch and will load whatever is on disk. The second half of the proposed fix ("Re-raise the exception or return False") was not done.
+- **Proposed fix**: Re-raise the `RuntimeError` from the `except Exception` block (or narrow the `except` to exclude `RuntimeError`), so the integrity failure propagates to the caller and WhisperModel does not silently load the bad files on the current launch.
 - **Confidence**: High · **Found by**: R8
 
 ### S1-CR-22 — `LLMPolisher.polish()` silently returns original text on failure (hidden degraded mode)
@@ -590,6 +590,15 @@ plus the base repo's pre-existing comprehensive review.
 - **Impact**: New contributors following README's "Architecture" section will look for files that don't exist.
 - **Proposed fix**: Update README §"Architecture" tree to reflect package layout (or link to `docs/ARCHITECTURE.md`).
 - **Confidence**: High · **Found by**: R20
+
+### S1-CR-54 — ADR-0018 references a nonexistent test file
+- **Severity**: Medium · **Status**: Not Fixed
+- **Category**: Documentation / ADR accuracy
+- **Location**: `docs/adr/0018-heartbeat-watchdog.md:90`
+- **Evidence**: ADR-0018 §"References" cites `tests/test_ipc_server.py` as the home of `test_heartbeat_timeout_calls_quit()`. The file `tests/test_ipc_server.py` does NOT exist in the working tree (glob-confirmed). The real heartbeat test files are `tests/test_heartbeat.py` and `tests/test_heartbeat_force_exit.py`. The sibling ADR-0019 was fixed (its reference now points to the real `tests/test_ipc4_rate_limiter_dual_window.py`), but ADR-0018's broken reference was never corrected.
+- **Impact**: Contributors following the ADR's pointer to verify the watchdog test will hit a dead link. ADR accuracy regression vs ADR-0019.
+- **Proposed fix**: Update `docs/adr/0018-heartbeat-watchdog.md:90` to reference the real test file(s): `tests/test_heartbeat.py` (and/or `tests/test_heartbeat_force_exit.py`) and the actual test function name(s).
+- **Confidence**: High · **Found by**: Verifier (2026-07-24)
 
 ## MEDIUM severity findings (41 unique)
 
@@ -3377,14 +3386,6 @@ Session 5 was a UX/UI-focused review covering accessibility (WCAG), visual polis
 
 ## New Findings (discovered by verifier-agent, 2026-07-21)
 
-### VF-1 — Rust type error in `paste.rs:257` (BREAKS `cargo check`)
-- **Severity**: Critical
-- **Status**: Pending
-- **Category**: Rust compilation
-- **Location**: `src-tauri/src/commands/paste.rs:257`
-- **Evidence**: `HWND(target_hwnd_raw as *mut _)` — `HWND` type expects `isize`, but `*mut _` is provided. The `*mut _` coercion produces a raw pointer, not an `isize`, causing a type mismatch error during `cargo check`. This prevents the Tauri host from compiling.
-- **Impact**: `cargo check` fails. Any Tauri build is blocked.
-
 ### VF-4 — 18 deleted files from `archive/deleted_files.txt` were NOT deleted by the original agent (applied by verifier)
 - **Severity**: Critical (was)
 - **Status**: **Fixed (verified — deletions applied by verifier-agent on 2026-07-21)**
@@ -3560,20 +3561,6 @@ Verbatim copy of session-1's `comprehensive-review.md`:
 **Related Files:** `voice_typer/server/handlers/__init__.py:25-73`
 
 **Fix:** Add `from voice_typer.server.handlers.privacy_handlers import PrivacyHandlersMixin` to the import block and `"PrivacyHandlersMixin",` to `__all__`. One-line fix mirroring the R4-F6 pattern.
-
----
-
-## PVT-21 — `service.py` (2657 LOC, 76 methods, 13 domains) — god facade; `config_applier.py` already extracted but NEVER WIRED
-
-**Status:** ❌ Not Fixed
-
-**Description:** `VoiceTyperService` is a god facade with 76 methods spanning 13 domains: history, models, downloads, onboarding, microphone-test, level-monitor, vocabulary, templates, config, dictation, status, lifecycle, privacy/GDPR. Single god-methods: `download_model` (~470 LOC), `apply_config_side_effects` (~215 LOC), `import_model` (~145 LOC), `apply_config` (~110 LOC). The smoking gun: `voice_typer/server/config_applier.py` (478 LOC) ALREADY EXISTS with `ConfigApplier` containing the extracted (and IMPROVED — CR-61 `to_filter_dict`, CR-97 `save_strict()`) versions of `apply_config_side_effects` and `apply_config` — but `service.py` does NOT import or use it. The OLD inline versions are still in place as duplicates. The refactor was started but never wired up.
-
-**Severity:** 🔴 High (god facade + duplicated code + stalled refactor)
-
-**Related Files:** `voice_typer/server/service.py:1064-1451`; `voice_typer/server/config_applier.py` (already exists)
-
-**Fix:** In `service.py.__init__`: add `self._config_applier = ConfigApplier(self)`. Replace inline `apply_config_side_effects` and `apply_config` with 2-line delegators. This drops `service.py` by ~325 LOC and lands the CR-61 + CR-97 bug fixes. Test `tests/regressions/concurrency_test.py:84` (source-string pin on `_config_mutation_lock`) needs target updated to `config_applier.ConfigApplier.apply_config`.
 
 ---
 
@@ -4554,21 +4541,20 @@ Verbatim copy of session-3's `comprehensive-review.md`:
 ### High Findings (P1)
 
 17. **[PVT-017]** Bubble window doesn't receive theme presets — Sub-agent 1
-18. **[PVT-018]** FOUC on app start (no pre-React theme bootstrap) — Sub-agent 1
-19. **[PVT-019]** AccordionTrigger has no visible focus indicator — Sub-agent 2
-20. **[PVT-020]** NumberInputStepper steppers inaccessible to keyboard/touch — Sub-agent 2
-21. **[PVT-021]** Sidebar nav is flat list, not documented 3-group hierarchy — Sub-agent 3
-22. **[PVT-022]** TitleBar close button uses hardcoded `#C42B1C` instead of destructive tokens — Sub-agent 3
-23. **[PVT-023]** Missing `aria-keyshortcuts` on TitleBar buttons and Sidebar nav — Sub-agent 3
-24. **[PVT-024]** Duplicate `useSnackbar.ts` and `useSnackbar.tsx` files — Sub-agent 4
-25. **[PVT-025]** Spinner size prop silently broken for non-{16,20,24} values — Sub-agent 4
-26. **[PVT-026]** Toast duration inconsistent (3000/4000/6000/8000ms) — Sub-agent 4
-27. **[PVT-027]** Sonner Toaster missing richColors, closeButton, position, duration — Sub-agent 4
-28. **[PVT-028]** Settings.tsx is 1125-line spaghetti — Sub-agent 5
-29. **[PVT-029]** Search auto-switch is hint-based, not label-based — Sub-agent 5
-30. **[PVT-030]** Search hints untranslated for 5 of 8 locales — Sub-agent 5
-31. **[PVT-031]** lib/utils/models.ts is dead code; half-finished extraction — Sub-agent 6
-32. **[PVT-032]** No retry button on download failure — Sub-agent 6
+18. **[PVT-019]** AccordionTrigger has no visible focus indicator — Sub-agent 2
+19. **[PVT-020]** NumberInputStepper steppers inaccessible to keyboard/touch — Sub-agent 2
+20. **[PVT-021]** Sidebar nav is flat list, not documented 3-group hierarchy — Sub-agent 3
+21. **[PVT-022]** TitleBar close button uses hardcoded `#C42B1C` instead of destructive tokens — Sub-agent 3
+22. **[PVT-023]** Missing `aria-keyshortcuts` on TitleBar buttons and Sidebar nav — Sub-agent 3
+23. **[PVT-024]** Duplicate `useSnackbar.ts` and `useSnackbar.tsx` files — Sub-agent 4
+24. **[PVT-025]** Spinner size prop silently broken for non-{16,20,24} values — Sub-agent 4
+25. **[PVT-026]** Toast duration inconsistent (3000/4000/6000/8000ms) — Sub-agent 4
+26. **[PVT-027]** Sonner Toaster missing richColors, closeButton, position, duration — Sub-agent 4
+27. **[PVT-028]** Settings.tsx is 1125-line spaghetti — Sub-agent 5
+28. **[PVT-029]** Search auto-switch is hint-based, not label-based — Sub-agent 5
+29. **[PVT-030]** Search hints untranslated for 5 of 8 locales — Sub-agent 5
+30. **[PVT-031]** lib/utils/models.ts is dead code; half-finished extraction — Sub-agent 6
+31. **[PVT-032]** No retry button on download failure — Sub-agent 6
 33. **[PVT-033]** No disk-space check before download; no storage-path disclosure — Sub-agent 6
 34. **[PVT-034]** No way to revert to "System Default" microphone — Sub-agent 7
 35. **[PVT-035]** Active mic hot-swap silently swallowed; UI shows "Unknown" — Sub-agent 7

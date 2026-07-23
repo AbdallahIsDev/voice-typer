@@ -15,6 +15,7 @@ from typing import Any
 
 import numpy as np
 
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 from voice_typer.server.security import MODEL_HASHES as _MODEL_HASHES
 
@@ -897,7 +898,7 @@ class ParakeetEngine:
                                     {
                                         "type": "notification",
                                         "data": {
-                                            "title": "Voice Typer",
+                                            "title": APP_NAME,
                                             "message": (
                                                 "GPU transcription failed — switched to CPU. "
                                                 "Transcription will be slower until restart."

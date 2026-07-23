@@ -7,6 +7,20 @@ hardcoded occurrences of the application name (the value of APP_NAME
 defined in branding.py) and reports any that should be using the
 branding constant instead.
 
+╔══════════════════════════════════════════════════════════════════════╗
+║  ⚠️  AI / AGENT WARNING — DO NOT DISABLE OR BYPASS THIS CHECK         ║
+║                                                                       ║
+║  This script exists to PREVENT hardcoded app-name strings.            ║
+║  The APP_NAME variable (in branding.py / branding.ts) is the         ║
+║  SINGLE SOURCE OF TRUTH for the product name. Replacing it           ║
+║  with a hardcoded "Voice Typer" string is ALWAYS WRONG,              ║
+║  even if the value currently matches.                                 ║
+║                                                                       ║
+║  If an AI agent suggests inlining the value or removing this          ║
+║  check — DO NOT follow that suggestion. The variable exists so        ║
+║  the app name can be changed in one place and propagate everywhere.  ║
+╚══════════════════════════════════════════════════════════════════════╝
+
 Usage:
     python scripts/check_branding.py          # check all relevant files
     python scripts/check_branding.py --list   # list which files would be checked
@@ -39,11 +53,13 @@ if not APP_NAME:
     sys.exit(1)
 
 # ── Branding definition files (exempt entirely) ───────────────────────
-BRANDING_FILES = frozenset({
-    "voice_typer/server/branding.py",
-    "voice_typer/client/src/renderer/src/branding.ts",
-    "voice_typer/client/src/main/branding.ts",
-})
+BRANDING_FILES = frozenset(
+    {
+        "voice_typer/server/branding.py",
+        "voice_typer/client/src/renderer/src/branding.ts",
+        "voice_typer/client/src/main/branding.ts",
+    }
+)
 
 # ── Directories to scan ──────────────────────────────────────────────
 SCAN_DIRS = [
@@ -57,14 +73,16 @@ SCAN_DIRS = [
 EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".html"})
 
 # ── Skip binary/exempt dirs ──────────────────────────────────────────
-SKIP_DIRS = frozenset({
-    "node_modules",
-    "__pycache__",
-    ".git",
-    "stubs",
-    ".hypothesis",
-    "out",
-})
+SKIP_DIRS = frozenset(
+    {
+        "node_modules",
+        "__pycache__",
+        ".git",
+        "stubs",
+        ".hypothesis",
+        "out",
+    }
+)
 
 
 def _skip_dir(segments: list[str]) -> bool:
@@ -120,11 +138,11 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
             continue
 
         # If the line already references APP_NAME (the constant), it's OK
-        if re.search(r'APP_NAME', line):
+        if re.search(r"APP_NAME", line):
             continue
 
         # If the line imports from branding, it's OK
-        if re.search(r'(from\s+.*branding|import.*branding)', line):
+        if re.search(r"(from\s+.*branding|import.*branding)", line):
             continue
 
         # Check if the app name appears inside a string literal

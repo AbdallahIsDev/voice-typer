@@ -92,6 +92,7 @@ from voice_typer.server._electron_build import (
     _npm_command,
     _spawn_flags,
 )
+from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger(__name__)
 
@@ -262,7 +263,7 @@ def _tauri_binary() -> str | None:
          ``Exec=voice-typer-tauri`` line).
        - **macOS**: ``/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri``
          and the user-local ``~/Applications/…`` counterpart. The
-         bundle name comes from ``productName`` ("Voice Typer") while
+          bundle name comes from ``productName`` (APP_NAME) while
          the inner executable is the Cargo binary name
          (``voice-typer-tauri``).
        - **Windows**: ``%PROGRAMFILES%\\Voice Typer\\voice-typer-tauri.exe``
@@ -284,13 +285,13 @@ def _tauri_binary() -> str | None:
     candidates: list[Path] = []
     if sys.platform == "win32":
         program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
-        candidates.append(Path(program_files) / "Voice Typer" / "voice-typer-tauri.exe")
+        candidates.append(Path(program_files) / APP_NAME / "voice-typer-tauri.exe")
         local_appdata = os.environ.get("LOCALAPPDATA")
         if local_appdata:
-            candidates.append(Path(local_appdata) / "Programs" / "Voice Typer" / "voice-typer-tauri.exe")
+            candidates.append(Path(local_appdata) / "Programs" / APP_NAME / "voice-typer-tauri.exe")
     elif sys.platform == "darwin":
-        candidates.append(Path("/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri"))
-        candidates.append(Path.home() / "Applications" / "Voice Typer.app" / "Contents" / "MacOS" / "voice-typer-tauri")
+        candidates.append(Path("/Applications") / f"{APP_NAME}.app" / "Contents" / "MacOS" / "voice-typer-tauri")
+        candidates.append(Path.home() / "Applications" / f"{APP_NAME}.app" / "Contents" / "MacOS" / "voice-typer-tauri")
     else:  # Linux / other POSIX
         candidates.append(Path("/usr/bin/voice-typer-tauri"))
         candidates.append(Path("/usr/local/bin/voice-typer-tauri"))

@@ -119,12 +119,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 	it("llm_preset accepts any string (widened from 4-value union for flexibility)", () => {
 		// The TS type now accepts any string (matching Python server's
 		// open-ended preset forwarding).  Documented presets:
-		const values: string[] = [
-			"professional",
-			"casual",
-			"email",
-			"code",
-		];
+		const values: string[] = ["professional", "casual", "email", "code"];
 		expect(values).toHaveLength(4);
 	});
 });
