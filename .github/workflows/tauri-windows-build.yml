@@ -222,16 +222,16 @@ jobs:
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
-              --enable-plugin=numpy@cleanup `
+              --enable-plugin=numpy `
               --nofollow-import-to=torch._dynamo `
               --nofollow-import-to=torch._inductor `
               --nofollow-import-to=torch.export `
               --nofollow-import-to=torch._functorch `
               --nofollow-import-to=transformers `
-              --include-package=faster_whisper@cleanup `
-              --include-package=ctranslate2@cleanup `
-              --include-package=voice_typer@cleanup `
-              --include-package=websockets@cleanup `
+              --include-package=faster_whisper `
+              --include-package=ctranslate2 `
+              --include-package=voice_typer `
+              --include-package=websockets `
               $($dataDirFlag) `
               --windows-console-mode=disable `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp" `
@@ -261,16 +261,16 @@ jobs:
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
-              --enable-plugin=numpy@cleanup `
+              --enable-plugin=numpy `
               --nofollow-import-to=torch._dynamo `
               --nofollow-import-to=torch._inductor `
               --nofollow-import-to=torch.export `
               --nofollow-import-to=torch._functorch `
               --nofollow-import-to=transformers `
-              --include-package=faster_whisper@cleanup `
-              --include-package=ctranslate2@cleanup `
-              --include-package=voice_typer@cleanup `
-              --include-package=websockets@cleanup `
+              --include-package=faster_whisper `
+              --include-package=ctranslate2 `
+              --include-package=voice_typer `
+              --include-package=websockets `
               $($dataDirFlag) `
               --windows-console-mode=disable `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" `
