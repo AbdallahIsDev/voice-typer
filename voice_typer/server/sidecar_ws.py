@@ -69,14 +69,14 @@ path via the ``TAURI_SIDECAR=1`` env var (see ``ipc_server.py``).
 Liveness is instead owned by the Rust host, which combines two
 detection mechanisms:
 
-1. **Transport-level**: WS-close or process exit triggers FT-1
+1. **Transport-level**: WS-close or process exit triggers supervisor
    respawn (ADR-0020 §10).
 2. **Application-level**: the Rust host dispatches a ``heartbeat``
    command every 10s (handled here in Python by
    ``_handle_heartbeat``, registered in ``_COMMAND_REGISTRY``). On
    3 consecutive misses (≥30s of unresponsiveness — socket open but
    no response, e.g. GIL contention / infinite loop / blocking C
-   call), the Rust host triggers FT-1 respawn. This catches sidecar
+   call), the Rust host triggers respawn. This catches sidecar
    hangs that keep the TCP/WS socket open but don't respond to
    dispatches — a scenario the WS-close-only detection misses.
 
@@ -198,7 +198,7 @@ async def _authenticate(websocket) -> bool:
     time) against the ``VOICE_TYPER_IPC_TOKEN`` env var set by the
     Rust host at spawn. On mismatch, the socket is closed immediately
     and the connection is rejected (the host treats this as a crash
-    → FT-1 respawn with a fresh token, ADR-0020 §10).
+    → respawn with a fresh token, ADR-0020 §10).
 
     Returns ``True`` if authenticated, ``False`` if rejected.
     """
@@ -330,7 +330,7 @@ def _make_dispatch(server: IPCServer):
         # on every call (cheap — dict-style getattr) so all WS frames to
         # this server share the same sliding-window budget. _RateLimiter
         # .allow() returns a bool (no retry-after); the host backs off
-        # via FT-1 backoff on repeated rate-limit hits.
+        # via backoff on repeated rate-limit hits.
         rate_limiter = _get_rate_limiter(server)
         #
         # G4-M-09: pass ``command=msg_type`` so the per-command cost map
@@ -414,7 +414,7 @@ def _enqueue_safe(outbound: asyncio.Queue, event: dict) -> None:
     dropped events (transcription_final never reached the Tauri host),
     a deadlocked writer task (``await outbound.get()`` never wakes
     after a cross-thread ``put_nowait``), or a hard asyncio loop
-    crash killing the sidecar (→ FT-1 respawn loop).
+    crash killing the sidecar (→ respawn loop).
 
     This helper does the drop-oldest dance (``full`` / ``get_nowait``
     / ``put_nowait``). It is marshaled onto the event-loop thread via
@@ -453,7 +453,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     ADR-0020 §1: the sidecar is the WS SERVER; the Rust host is the
     WS CLIENT. Multiple connections are allowed (e.g. the host may
     reconnect after a transient WS drop), but only one authenticated
-    connection at a time is meaningful — the host uses FT-1 respawn
+    connection at a time is meaningful — the host uses respawn
     rather than reconnect, so a duplicate connection implies a
     protocol bug worth logging.
     """
@@ -583,7 +583,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
         never raises QueueFull).
 
         ``RuntimeError`` is raised by ``call_soon_threadsafe`` when
-        the loop has been closed (process shutdown / FT-1 respawn).
+        the loop has been closed (process shutdown / respawn).
         The writer task has already been cancelled by the connection
         ``finally`` block, so there is no consumer for the event —
         drop silently at DEBUG level. This is the documented

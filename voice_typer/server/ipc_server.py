@@ -583,8 +583,8 @@ class IPCServer(
         # (TAURI_SIDECAR=1), the Python-side heartbeat watchdog
         # (ADR-0018) is disabled. The Tauri Rust host owns liveness
         # via TWO mechanisms: (1) WS-close / process exit triggers
-        # FT-1 respawn, and (2) the Rust host dispatches a
-        # ``heartbeat`` command every 10s and triggers FT-1 respawn
+        # respawn, and (2) the Rust host dispatches a
+        # ``heartbeat`` command every 10s and triggers respawn
         # on 3 consecutive misses (≥30s unresponsive — catches GIL
         # contention / infinite loops / blocking C calls that keep
         # the socket open but don't respond to dispatches). The
@@ -1440,7 +1440,7 @@ class IPCServer(
         # shutdown sequence (no atexit handlers, no finally blocks) —
         # appropriate here because the graceful ``_do_cleanup()`` path
         # already ran inside ``app.quit()`` above. We use ``os._exit(1)``
-        # (non-zero) so the host's FT-1 supervisor treats this as a
+        # (non-zero) so the supervisor treats this as a
         # crash and respawns with backoff, rather than silently exiting
         # and looking like a clean shutdown.
         try:
@@ -2567,7 +2567,7 @@ def main() -> None:
     # ADR-0020 §2 + §10: when running as a Tauri sidecar, set the
     # TAURI_SIDECAR=1 env var so downstream gates (heartbeat watchdog,
     # VoiceTyperSingleInstance mutex) know to disable themselves. The
-    # Tauri host's single-instance plugin + FT-1 supervisor replace
+    # Tauri host's single-instance plugin + supervisor replace
     # them. The env var is set here (rather than required to be set by
     # the host) so a `python -m voice_typer.server.ipc_server --ws`
     # invocation from a terminal also gets the right behavior.
