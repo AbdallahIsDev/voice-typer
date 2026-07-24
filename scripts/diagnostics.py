@@ -199,7 +199,7 @@ def export_diagnostics() -> str:
                 # the zip's config_redacted.json.
                 try:
                     from voice_typer.server.ipc_server import (
-                        _SECRET_CONFIG_FIELDS as _redact_keys,
+                        _SECRET_CONFIG_FIELDS as _redact_keys,  # noqa: N811
                     )
                 except Exception:
                     # Fallback: copy of the canonical frozenset. Keep in

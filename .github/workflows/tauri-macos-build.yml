@@ -338,6 +338,33 @@ jobs:
           cargo tauri build --target universal-apple-darwin --config tauri.macos.conf.json
           cd ..
 
+      - name: Codesign nested Mach-O binaries (S1-CR-37)
+        if: ${{ env.MAC_SIGNING_IDENTITY != '' }}
+        run: |
+          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
+          # S1-CR-37: cargo tauri build signs the main .app executable via
+          # config's signingIdentity, but NOT the nested Mach-O binaries
+          # under Contents/Resources/ and Contents/MacOS/. Apple's
+          # notarization service rejects .app bundles containing unsigned
+          # Mach-O binaries with "The binary is not signed". Sign them
+          # BEFORE notarization (signing-guide.md §"Signing command").
+          BINARIES=(
+            "$APP_PATH/Contents/Resources/python-sidecar-aarch64-apple-darwin"
+            "$APP_PATH/Contents/Resources/python-sidecar-x86_64-apple-darwin"
+            "$APP_PATH/Contents/Resources/prewarm-aarch64-apple-darwin"
+            "$APP_PATH/Contents/Resources/prewarm-x86_64-apple-darwin"
+            "$APP_PATH/Contents/Resources/native/macos-key-listener"
+          )
+          for bin in "${BINARIES[@]}"; do
+            if [ -f "$bin" ]; then
+              echo "[codesign] signing $bin"
+              codesign --force --options runtime --sign "$MAC_SIGNING_IDENTITY" \
+                --entitlements src-tauri/entitlements.plist "$bin"
+            else
+              echo "[codesign] SKIP (not found): $bin"
+            fi
+          done
+
       - name: Notarize + staple (if secrets present)
         if: ${{ env.MAC_SIGNING_IDENTITY != '' }}
         run: |
