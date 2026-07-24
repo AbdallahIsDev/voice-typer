@@ -21,7 +21,14 @@ import pytest
 
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked dependencies."""
+    """Create a VoiceTyperApp with mocked dependencies.
+
+    WR-2: yield-style fixture so the background ``_model_load_thread``
+    is joined in teardown — previously it was leaked across test
+    boundaries (the thread kept running after the test finished,
+    occasionally touching the now-torn-down VoiceTyperApp and causing
+    flaky failures in later tests).
+    """
     monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
@@ -47,4 +54,10 @@ def app(tmp_config_dir, monkeypatch):
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
     instance.models._sync_registry_from_fields()
-    return instance
+    yield instance
+    # WR-2: join the background model-load thread so it doesn't outlive
+    # the test and touch a torn-down VoiceTyperApp. Best-effort — if the
+    # thread is None or already finished, the join is a no-op.
+    loader = getattr(instance.models, "_model_load_thread", None)
+    if loader is not None and loader.is_alive():
+        loader.join(timeout=2.0)

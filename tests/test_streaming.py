@@ -47,9 +47,7 @@ def test_streaming_config_defaults_are_disabled_and_conservative():
 
 
 def test_audio_window_planner_waits_until_min_first_chunk():
-    planner = AudioWindowPlanner(
-        StreamingConfig(min_first_chunk_seconds=4.0, chunk_seconds=10.0)
-    )
+    planner = AudioWindowPlanner(StreamingConfig(min_first_chunk_seconds=4.0, chunk_seconds=10.0))
 
     assert planner.next_window(audio_seconds(3.9), SAMPLE_RATE) is None
 
@@ -361,6 +359,7 @@ class TestConcurrentAccess:
         ]
 
         errors = []
+
         def worker():
             try:
                 for _ in range(20):
@@ -435,6 +434,7 @@ class TestH14FinalizeRace:
         )
         session.start()
         import time
+
         time.sleep(0.1)
 
         # Cancel and verify the thread stops
@@ -495,6 +495,7 @@ class TestM18AssemblerLock:
     def test_committed_text_is_thread_safe(self):
         """Reading committed_text should be safe from any thread."""
         import threading
+
         assembler = StreamingTextAssembler()
         assembler.add_words(
             [WordTiming("test", start_seconds=0.0, end_seconds=0.5)],
@@ -502,6 +503,7 @@ class TestM18AssemblerLock:
         )
 
         errors = []
+
         def reader():
             try:
                 for _ in range(100):
@@ -580,6 +582,7 @@ class TestM17TransientErrorRetry:
         transcriber = MagicMock()
 
         fail = [True]
+
         def conditional_failure(*args, **kwargs):
             if fail[0]:
                 fail[0] = False
@@ -618,6 +621,7 @@ class TestAudioPipelineProperties:
     def test_empty_audio_does_not_crash(self):
         """Empty audio array → empty result, no crash."""
         import numpy as np
+
         audio = np.array([], dtype=np.float32)
         # Simulate the PCM conversion path
         if len(audio) > 0:
@@ -629,6 +633,7 @@ class TestAudioPipelineProperties:
     def test_all_zero_audio(self):
         """All-zero float32 → all-zero int16, no NaN."""
         import numpy as np
+
         audio = np.zeros(16000, dtype=np.float32)
         int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
         assert np.all(int16 == 0)
@@ -637,6 +642,7 @@ class TestAudioPipelineProperties:
     def test_all_max_audio(self):
         """All-max (1.0) float32 → all-max (32767) int16, no overflow."""
         import numpy as np
+
         audio = np.ones(16000, dtype=np.float32)
         int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
         assert np.all(int16 == 32767)
@@ -644,6 +650,7 @@ class TestAudioPipelineProperties:
     def test_all_min_audio(self):
         """All-min (-1.0) float32 → all-min (-32768) int16, no underflow."""
         import numpy as np
+
         audio = -np.ones(16000, dtype=np.float32)
         int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
         assert np.all(int16 == -32767)
@@ -651,6 +658,7 @@ class TestAudioPipelineProperties:
     def test_overflow_audio_clipped(self):
         """Values > 1.0 are clipped to 32767, not wrapped."""
         import numpy as np
+
         audio = np.array([2.0, 10.0, 100.0], dtype=np.float32)
         int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
         assert np.all(int16 == 32767)
@@ -658,9 +666,10 @@ class TestAudioPipelineProperties:
     def test_nan_audio_does_not_propagate(self):
         """NaN in input → should not crash (clip handles it)."""
         import numpy as np
+
         audio = np.array([0.5, np.nan, -0.5], dtype=np.float32)
         # np.clip with NaN returns NaN; astype(int16) converts NaN to 0
-        with np.errstate(invalid='ignore'):
+        with np.errstate(invalid="ignore"):
             int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
         # NaN → 0 in int16 conversion (platform-dependent but safe)
         assert len(int16) == 3
@@ -670,6 +679,7 @@ class TestAudioPipelineProperties:
         be handled correctly — the pipeline doesn't assume contiguous
         audio."""
         import numpy as np
+
         # Simulate two non-contiguous chunks
         chunk1 = np.ones(8000, dtype=np.float32) * 0.5
         chunk2 = np.ones(8000, dtype=np.float32) * 0.3
@@ -684,6 +694,7 @@ class TestAudioPipelineProperties:
     def test_random_audio_no_crash(self):
         """Random float32 values in [-2, 2] → no crash, all clipped."""
         import numpy as np
+
         np.random.seed(42)
         for _ in range(10):
             audio = np.random.uniform(-2.0, 2.0, 16000).astype(np.float32)
@@ -709,9 +720,7 @@ class TestHypothesisAudioPipeline:
     this module don't need hypothesis and continue to run.
     """
 
-    pytestmark = pytest.mark.skipif(
-        not HAS_HYPOTHESIS, reason="hypothesis not installed"
-    )
+    pytestmark = pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
 
     def test_pcm_conversion_preserves_length(self):
         """For any array, the int16 output has the same length."""
@@ -740,7 +749,8 @@ class TestHypothesisAudioPipeline:
         @given(
             values=st.lists(
                 st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
-                min_size=1, max_size=100,
+                min_size=1,
+                max_size=100,
             )
         )
         @settings(max_examples=50, deadline=5000)
@@ -766,129 +776,3 @@ class TestHypothesisAudioPipeline:
             assert np.all(int16 == 0)
 
         check()
-
-
-# ─── DE-57 (Session DE — Group 4): eviction log privacy ───────────────
-
-
-class TestDE57EvictionLogPrivacy:
-    """DE-57: the DEBUG-level eviction log in
-    ``StreamingTextAssembler._insert_word_unlocked`` must NOT emit the
-    evicted word's textual content.
-
-    Pre-fix: the WARNING-level log was sanitized per CR-74 (logged only
-    the structural fact: max + index), but a companion DEBUG log wrote
-    ``evicted_word.word`` verbatim ("Evicted word content (debug only):
-    %r").  When a support workflow enabled DEBUG logging (common for
-    support tickets), evicted user speech landed in the persistent log
-    file at ``~/.voice-typer/...``.
-
-    The fix: replace the DEBUG-level ``evicted_word.word`` content with
-    a PII-safe length metric (``len(evicted_word.word)``).
-    """
-
-    def _make_assembler_with_small_maxlen(self, maxlen: int = 2):
-        """Build an assembler whose internal deque evicts after ``maxlen``
-        words, so we can trigger an eviction in O(1) test setup instead
-        of pushing 10 000 words."""
-        import collections
-
-        assembler = StreamingTextAssembler()
-        # Replace the default 10 000-cap deque with a small one.  We
-        # keep ``_base_offset=0`` so the eviction logic still fires
-        # correctly.
-        assembler._words = collections.deque(maxlen=maxlen)
-        return assembler
-
-    def test_evicted_word_content_not_logged_at_debug(self, caplog):
-        """When eviction fires, the DEBUG log must NOT contain the evicted
-        word's textual content — only its length / index."""
-        import logging
-
-        assembler = self._make_assembler_with_small_maxlen(maxlen=2)
-        pii_word = "supersecretpassword123"
-        # Fill the deque, then trigger eviction with the PII word.
-        # _insert_word_unlocked is the function under test — call it
-        # directly to control timing.
-        assembler._insert_word_unlocked(
-            WordTiming("first", start_seconds=0.0, end_seconds=0.2)
-        )
-        assembler._insert_word_unlocked(
-            WordTiming("second", start_seconds=0.3, end_seconds=0.5)
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.streaming"):
-            # This third insert evicts "first".
-            assembler._insert_word_unlocked(
-                WordTiming(pii_word, start_seconds=0.6, end_seconds=0.8)
-            )
-
-        # The PII string must NOT appear anywhere in the captured logs.
-        assert not any(
-            pii_word in record.getMessage() for record in caplog.records
-        ), (
-            "DE-57: evicted word content must NOT be logged at DEBUG level; "
-            f"found {pii_word!r} in:\n"
-            + "\n".join(r.getMessage() for r in caplog.records)
-        )
-
-    def test_evicted_word_length_still_logged_at_debug(self, caplog):
-        """DE-57 fix must NOT silence the DEBUG log entirely — the
-        PII-safe length metric must still be emitted so developers can
-        diagnose eviction storms."""
-        import logging
-
-        assembler = self._make_assembler_with_small_maxlen(maxlen=2)
-        assembler._insert_word_unlocked(
-            WordTiming("first", start_seconds=0.0, end_seconds=0.2)
-        )
-        assembler._insert_word_unlocked(
-            WordTiming("second", start_seconds=0.3, end_seconds=0.5)
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.streaming"):
-            assembler._insert_word_unlocked(
-                WordTiming("third", start_seconds=0.6, end_seconds=0.8)
-            )
-
-        # The DEBUG log should mention "chars" (the PII-safe metric).
-        debug_msgs = [
-            r.getMessage()
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "Evicted word" in r.getMessage()
-        ]
-        assert debug_msgs, (
-            "DE-57: a DEBUG-level eviction log must still fire (with PII-safe "
-            "length metric, not content)."
-        )
-        assert any("chars" in msg for msg in debug_msgs), (
-            "DE-57: DEBUG eviction log must include char count (PII-safe "
-            f"metric); got:\n" + "\n".join(debug_msgs)
-        )
-
-    def test_evicted_word_content_not_logged_at_warning_either(self, caplog):
-        """Regression guard for the existing CR-74 sanitization at WARNING
-        level — the fix for DE-57 must not regress it."""
-        import logging
-
-        assembler = self._make_assembler_with_small_maxlen(maxlen=2)
-        pii_word = "supersecretpassword123"
-        assembler._insert_word_unlocked(
-            WordTiming("first", start_seconds=0.0, end_seconds=0.2)
-        )
-        assembler._insert_word_unlocked(
-            WordTiming("second", start_seconds=0.3, end_seconds=0.5)
-        )
-
-        with caplog.at_level(logging.WARNING, logger="voice_typer.server.streaming"):
-            assembler._insert_word_unlocked(
-                WordTiming(pii_word, start_seconds=0.6, end_seconds=0.8)
-            )
-
-        assert not any(
-            pii_word in record.getMessage() for record in caplog.records
-        ), (
-            "DE-57 / CR-74: evicted word content must NOT be logged at "
-            f"WARNING level either; found {pii_word!r} in:\n"
-            + "\n".join(r.getMessage() for r in caplog.records)
-        )

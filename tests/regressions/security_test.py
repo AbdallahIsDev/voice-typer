@@ -406,14 +406,38 @@ class TestSystemRootValidationFunctional:
 
     def test_validate_systemroot_rejects_nonexistent_dir(self, monkeypatch):
         """A SystemRoot pointing to a nonexistent directory must be
-        rejected.
+        rejected (reset to the safe default ``C:\\Windows``).
+
+        WR-5: previously this test was a complete no-op on Linux CI:
+        (1) it set ``SystemRoot`` (mixed-case) but the production
+        function reads ``SYSTEMROOT`` (all-caps, case-sensitive on
+        Linux); (2) it never patched ``is_windows`` so the function
+        early-returned at config.py:204-205 (``if not is_windows():
+        return``); (3) the assertion ``"SystemRoot" in os.environ``
+        was trivially True because the test itself just set it. The
+        "rejects nonexistent dir" branch (config.py:246-262) was
+        entirely uncovered. Now mirrors the sibling
+        ``test_validate_systemroot_rejects_traversal`` pattern: patch
+        ``is_windows`` to True, set all-caps ``SYSTEMROOT``, and
+        assert the function resets it to the safe default.
         """
+        from voice_typer.server import config
         from voice_typer.server.config import _validate_systemroot
 
-        monkeypatch.setenv("SystemRoot", r"C:\Nonexistent\Path\12345")
+        # Patch is_windows so the function doesn't early-return on Linux.
+        monkeypatch.setattr(config, "is_windows", lambda: True)
+        # Use all-caps SYSTEMROOT (case-sensitive on Linux; the production
+        # function reads os.environ.get("SYSTEMROOT", "")).
+        monkeypatch.setenv("SYSTEMROOT", r"C:\Nonexistent\Path\12345")
         _validate_systemroot()
-        # Must not crash; the function should handle it gracefully
-        assert "SystemRoot" in os.environ
+        # The function must reset the malicious value to the safe default
+        # (``C:\Windows``) — see config.py:246-262.
+        assert os.environ.get("SYSTEMROOT") == r"C:\Windows", (
+            "PLAT-016/REG-3: _validate_systemroot() must reset a "
+            "nonexistent-dir SYSTEMROOT to 'C:\\\\Windows' (the safe "
+            "default). Got: "
+            f"{os.environ.get('SYSTEMROOT')!r}"
+        )
 
     def test_validate_systemroot_function_exists_and_is_callable(self):
         from voice_typer.server.config import _validate_systemroot

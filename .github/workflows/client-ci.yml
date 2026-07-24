@@ -65,6 +65,17 @@ jobs:
       - name: Lint (Biome)
         run: npm run lint
 
+      # WR-16: build the renderer (electron-vite build) before tests so a
+      # broken build config / dead import surfaces here instead of only
+      # in the much slower tauri-* workflows. package.json `build` script
+      # is `electron-vite build` (verified 2026-07-24). Previously this
+      # workflow only ran typecheck + lint + test — a build-time error in
+      # electron.vite.config.ts (e.g. a bad plugin import, an env-var
+      # guard that throws at build time) would land on the Tauri release
+      # workflow and block a release instead of being caught at PR time.
+      - name: Build (electron-vite)
+        run: npm run build
+
       # F2 regression guard: ensure the start/stop sound cues are NOT
       # byte-identical. If someone later copies one constant into both
       # (the original Finding-2 bug), this fails the build.

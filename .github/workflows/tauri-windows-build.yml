@@ -69,6 +69,14 @@ concurrency:
   group: tauri-windows-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# WR-17: top-level least-privilege default. Mirrors the macOS / Linux
+# tauri workflows (tauri-macos-build.yml:59-60, tauri-linux-build.yml:71-72)
+# and the repo-wide CI-08 / XS-28 pinning policy. The job-level block at
+# :88-91 widens this to `id-token: write` + `attestations: write` ONLY on
+# the build job that needs SLSA attestation.
+permissions:
+  contents: read
+
 env:
   # Pin to match the runbook. Override via workflow_dispatch inputs.
   PYBS_DATE: ${{ github.event.inputs.pybs_date || '20241219' }}
@@ -301,6 +309,31 @@ jobs:
             & $signtool verify /pa /v $exe
           }
           Remove-Item $pfxPath -Force
+
+      # WR-17: generate placeholder Tauri icons + binary stubs if they
+      # don't already exist. cargo tauri build reads the icon list from
+      # tauri.conf.json and hard-fails on the first missing icon. The
+      # `--check` flag exits 0 if all stubs are present (no-op on a warm
+      # checkout that already ran the script) and 1 if any are missing —
+      # the `||` falls through to the generation command only when needed.
+      # Stub content + CLI flags verified by reading
+      # scripts/gen_tauri_icons_stub.py (argparse: --check / --clean / no-flag).
+      - name: Generate Tauri icons (stub)
+        shell: bash
+        run: |
+          python scripts/gen_tauri_icons_stub.py --check || python scripts/gen_tauri_icons_stub.py
+
+      # WR-17: install tauri-cli explicitly. The runner's pre-installed
+      # `cargo-tauri` is unversioned and lags upstream by months; on
+      # windows-2022 it has historically been missing entirely (the
+      # `cargo tauri build` step below would fail with `no such command`).
+      # macOS already has this step at tauri-macos-build.yml:332; Linux
+      # gets the same step in this same WR-17 batch. Pin to ^2.0 so we
+      # stay on the Tauri v2 line (Tauri v3 will be a breaking change
+      # requiring a manual re-evaluation).
+      - name: Install tauri-cli (v2)
+        shell: pwsh
+        run: cargo install tauri-cli --version "^2.0"
 
       - name: Build the Tauri app (ADR-0020 §7)
         shell: pwsh

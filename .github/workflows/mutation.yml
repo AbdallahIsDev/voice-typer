@@ -4,11 +4,20 @@
 # XS-87: This workflow was previously gated by `if: false` at the job
 # level and relied on `mutmut>=2.4` being installed from the dev extra.
 # In session XS:
-#   - mutmut was removed from the `[dev]` extra in pyproject.toml
-#     (handled by XS-FIX-1).
+#   - The XS-FIX-1 note in the prior version of this header claimed mutmut
+#     was removed from `[dev]`, but a re-check on 2026-07-24 (WR-16) found
+#     it is STILL listed at pyproject.toml:281 (`mutmut>=2.4`, behind the
+#     TEST-010 comment at :280). Keeping the dep in `[dev]` is fine — it's
+#     only installed when a developer explicitly requests the dev extra
+#     (`uv pip install -e .[dev]`), never in CI (no workflow installs the
+#     `dev` extra except tauri-* which build sidecars, not tests).
 #   - tests/mutmut_config.py was confirmed NOT to exist (the workflow's
 #     `config_check` step unconditionally exited 0 because the file was
-#     missing — the gate was theatre).
+#     missing — the gate was theatre). Note that the [tool.mutmut] table
+#     at pyproject.toml:368 IS present (modern mutmut reads config from
+#     pyproject.toml, not from tests/mutmut_config.py), so the missing
+#     file is no longer a blocker for mutmut itself — but the workflow
+#     still does nothing useful and is kept retired.
 #   - The workflow is now retired: it keeps only a `workflow_dispatch`
 #     trigger and a single no-op step that prints a notice pointing at
 #     the comprehensive-review.md XS-87 finding. This preserves the
@@ -19,10 +28,14 @@
 #     `dev` extra in pyproject.toml.
 #
 # To re-enable mutation testing in the future:
-#   1. Re-add `mutmut>=2.4` to `[project.optional-dependencies].dev`
-#      in pyproject.toml.
-#   2. Restore tests/mutmut_config.py with MODULES_TO_MUTATE and
-#      TEST_COMMAND.
+#   1. Confirm `mutmut>=2.4` is still in `[project.optional-dependencies].dev`
+#      in pyproject.toml (it is as of 2026-07-24 — see pyproject.toml:281).
+#      There is no need to re-add it.
+#   2. If you want the old `config_check` step back, restore
+#      tests/mutmut_config.py with MODULES_TO_MUTATE and TEST_COMMAND
+#      (modern mutmut prefers pyproject.toml's [tool.mutmut] table —
+#      already present at pyproject.toml:368 — but the legacy
+#      mutmut_config.py shim is still supported for backwards compat).
 #   3. Restore the original job body (see git history at commit
 #      8629146 for the prior version).
 # =============================================================================

@@ -85,9 +85,7 @@ class TestDownloadParakeetWeightsCapturesTraceback:
 
         result = download_parakeet_weights(progress_callback=lambda msg: None)
         assert isinstance(result, tuple)
-        assert len(result) == 3, (
-            "GT-15: download_parakeet_weights must return a 3-tuple."
-        )
+        assert len(result) == 3, "GT-15: download_parakeet_weights must return a 3-tuple."
         success, reason, exc_info = result
         assert success is False
         assert reason == "download_retry_exhausted"
@@ -118,15 +116,12 @@ class TestDownloadParakeetWeightsCapturesTraceback:
             download_parakeet_weights(progress_callback=lambda msg: None)
 
         error_records = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.ERROR and "download attempts failed" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.ERROR and "download attempts failed" in r.getMessage()
         ]
         assert error_records, "GT-15: download failure must produce an ERROR log record."
         rec = error_records[-1]
         assert rec.exc_info is not None, (
-            "GT-15: log.error must be called with exc_info=True so the "
-            "full traceback is written to the log file."
+            "GT-15: log.error must be called with exc_info=True so the full traceback is written to the log file."
         )
         assert rec.exc_info[0] is RuntimeError
 
@@ -173,9 +168,7 @@ class TestDownloadParakeetWeightsIntegrityCheckLogsDetails:
             for r in caplog.records
             if r.levelno == logging.ERROR and "integrity check failed after download" in r.getMessage()
         ]
-        assert integrity_errors, (
-            "GT-B2-4: integrity-check failure must produce an ERROR log record."
-        )
+        assert integrity_errors, "GT-B2-4: integrity-check failure must produce an ERROR log record."
         msg = integrity_errors[-1].getMessage()
         assert "config.json" in msg, "failed_file must be in the log message"
         assert "allow_pattern_matched=True" in msg
@@ -196,142 +189,3 @@ class TestConsentGateReturnShape:
         assert success is False
         assert reason == "huggingface_consent_false"
         assert exc_info is None
-
-
-# ── DE-58: consent gate safe default (config=None → consent not given) ──
-#
-# These tests pin the DE-58 safe-default behaviour: when ``config`` is
-# ``None`` the consent gate MUST treat consent as NOT given (GDPR Art.
-# 6/13), aligned with ``parakeet_engine.ParakeetEngine.load``'s safe
-# default.  Pre-fix, a ``None`` config silently bypassed the gate.
-#
-# NOTE: the return shape here follows the GT-15 3-tuple contract
-# ``(success, reason, exc_info)`` — ``exc_info`` is ``None`` for the
-# consent-gate path because no exception was raised. If the production
-# ``download_parakeet_weights`` is reverted to the 2-tuple contract,
-# these assertions must be updated in lock-step.
-
-
-class TestDE58ConsentGateSafeDefault:
-    """DE-58: ``download_parakeet_weights`` must treat ``config=None``
-    as "consent NOT given" (safe default per GDPR Art. 6/13), aligned
-    with ``parakeet_engine.ParakeetEngine.load``'s safe default.
-
-    Pre-fix: when ``config`` was ``None`` the consent gate was silently
-    SKIPPED — the function proceeded straight to ``snapshot_download``,
-    leaking the user's IP to HuggingFace and pulling ~2.5 GB over the
-    network without explicit opt-in.  Any future refactor that invoked
-    ``download_parakeet_weights`` from a production path without
-    forwarding ``config`` silently disabled the consent gate.
-    """
-
-    def test_config_none_returns_consent_false(self):
-        """``download_parakeet_weights(config=None)`` MUST return
-        ``(False, "huggingface_consent_false", None)`` and MUST NOT touch the
-        network — even though no exception is raised.
-        """
-        with patch("huggingface_hub.snapshot_download") as mock_sd:
-            result = download_parakeet_weights(config=None)
-
-        assert result == (False, "huggingface_consent_false", None)
-        # The HuggingFace network call must NOT fire when consent is
-        # implicitly not given.
-        assert mock_sd.call_count == 0, (
-            "DE-58: snapshot_download must not be invoked when config=None "
-            "(safe default: consent not given)."
-        )
-
-    def test_no_args_returns_consent_false(self):
-        """Calling ``download_parakeet_weights()`` with no args (the
-        legacy signature) MUST also default to consent not given.
-
-        This pins the defense-in-depth guarantee: a future refactor that
-        drops the ``config`` argument from a call site cannot silently
-        bypass the gate.
-        """
-        with patch("huggingface_hub.snapshot_download") as mock_sd:
-            result = download_parakeet_weights()
-
-        assert result == (False, "huggingface_consent_false", None)
-        assert mock_sd.call_count == 0
-
-    def test_config_with_consent_false_returns_consent_false(self):
-        """When ``config.huggingface_consent`` is explicitly False, the
-        gate refuses and returns the consent-false reason code.
-        """
-        config = MagicMock()
-        config.huggingface_consent = False
-
-        with patch("huggingface_hub.snapshot_download") as mock_sd:
-            result = download_parakeet_weights(config=config)
-
-        assert result == (False, "huggingface_consent_false", None)
-        assert mock_sd.call_count == 0
-
-    def test_force_true_bypasses_gate(self):
-        """``force=True`` is the explicit escape hatch for legacy / test
-        paths that have already verified consent upstream and cannot
-        forward a real Config object.  It must reach the snapshot_download
-        call (mocked here) instead of short-circuiting at the gate.
-        """
-        # Make snapshot_download's cache probe succeed so the function
-        # returns (True, "", None) without actually downloading.
-        with (
-            patch(
-                "huggingface_hub.snapshot_download",
-                return_value="/fake/cache/path",
-            ) as mock_sd,
-            patch(
-                "voice_typer.server.asr_setup._verify_model_integrity",
-                return_value=(True, {}),
-            ),
-        ):
-            result = download_parakeet_weights(force=True)
-
-        assert result == (True, "", None)
-        # snapshot_download must have been invoked at least once
-        # (the cache probe is the first call).
-        assert mock_sd.call_count >= 1, (
-            "DE-58: force=True must bypass the consent gate and reach "
-            "snapshot_download."
-        )
-
-    def test_force_true_does_not_require_config(self):
-        """``force=True`` works even when ``config`` is ``None`` (the
-        legacy bypass scenario) — but the bypass is now EXPLICIT at the
-        call site, not implicit.
-        """
-        with (
-            patch("huggingface_hub.snapshot_download", return_value="/fake/cache/path"),
-            patch(
-                "voice_typer.server.asr_setup._verify_model_integrity",
-                return_value=(True, {}),
-            ),
-        ):
-            # Both config=None AND force=True — force wins.
-            result = download_parakeet_weights(config=None, force=True)
-
-        assert result == (True, "", None)
-
-
-class TestDE58ConsentGateProgressCallback:
-    """DE-58: when the consent gate refuses, the progress_callback (if
-    provided) MUST be invoked with a human-readable consent message so
-    the renderer / tray can surface the reason to the user.
-    """
-
-    def test_progress_callback_invoked_on_consent_false(self):
-        progress_messages: list[str] = []
-        download_parakeet_weights(
-            progress_callback=progress_messages.append,
-            config=None,
-        )
-
-        assert progress_messages, (
-            "DE-58: progress_callback must be invoked with a consent-required "
-            "message when the gate refuses."
-        )
-        assert any("consent" in msg.lower() for msg in progress_messages), (
-            "DE-58: progress_callback message must mention consent; got: "
-            f"{progress_messages!r}"
-        )

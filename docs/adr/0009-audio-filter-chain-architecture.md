@@ -164,8 +164,12 @@ All filters operate on `float32` numpy arrays, mono, sample-rate-agnostic (passe
 
 ### 3.8 Post-capture denoise — REMOVED
 
-- **Decision**: Delete the `noise_filter_post_capture` feature entirely.
+- **Decision**: Delete the post-capture *denoise filter* (Layer B3 in the
+  original `AudioProcessor`) entirely.
 - **Rationale**: Real-time NoiseSuppressor makes it redundant. The streaming path never used it. The "first 0.5s is silence" assumption was fragile. `noisereduce` is removed from dependencies.
+- **Note (GT-58)**: the `noise_filter_post_capture` *Config field* is
+  retained as a runtime gate (read by `level_monitor.py` and
+  `microphone_test.py`). See §5.4 below — it is NOT deprecated.
 
 ---
 
@@ -234,12 +238,22 @@ noise_filter_notch_frequency_hz: float = 0.0  # 0 = auto-detect
 
 ### 5.2 Removed fields
 
-- `noise_filter_post_capture` — removed (post-capture denoise deleted).
+> **GT-58 (2026-07 update)**: the fields listed below were *previously*
+> kept on the `Config` dataclass with `# DEPRECATED` comments "for
+> backward compat". They have now been **removed from the dataclass
+> entirely** — they were declared, validated, and persisted but never
+> read at runtime. Existing `config.json` files written by older app
+> versions that still carry these keys load without raising because the
+> v3 schema migration (`_migrate_to_v3`) silently scrubs them before
+> construction. Do NOT re-add these fields.
+
 - `normalize_audio` — removed (replaced by Compressor).
 - `normalize_target_peak` — removed (replaced by Compressor).
 - `silence_rms_threshold` — removed (dead code).
 - `silence_peak_threshold` — removed (dead code).
 - `noise_filter_gate_threshold` — removed (replaced by open/close thresholds).
+- `volume_duck_per_session` — removed (ducking now always applies to master volume cross-platform).
+- `volume_duck_smart` — removed (smart duck is always ON when `volume_duck_enabled` is True).
 
 ### 5.3 Modified defaults
 
@@ -248,9 +262,28 @@ noise_filter_notch_frequency_hz: float = 0.0  # 0 = auto-detect
 - `noise_filter_highpass_cutoff_hz`: stays `80.0` (but filter order goes from 2 to 4).
 - `noise_filter_gate_hold_ms`: stays `200.0` (was inconsistent — dataclass said 300, config said 150; now unified to 200 to match OBS).
 
-### 5.4 Kept for backward compat (ignored at runtime)
+### 5.4 Runtime switches (NOT deprecated)
 
-- `noise_filter_enabled` — replaced by `audio_preset != "off"`. Old configs with `noise_filter_enabled=False` are migrated to `audio_preset="off"` on load.
+> **GT-58 (2026-07 update)**: previous revisions of this ADR labelled
+> these fields "deprecated" and listed `noise_filter_post_capture` under
+> §5.2 "Removed fields". That was incorrect — they are actively read at
+> runtime by `level_monitor.py` and synced by `config_applier.py`. The
+> misleading `# DEPRECATED` comments on the dataclass fields have been
+> removed. These fields remain first-class `Config` dataclass members
+> and are NOT scrubbed by the v3 schema migration.
+
+- `noise_filter_enabled` — runtime switch read by `level_monitor.py`
+  (`if not config_dict.get("noise_filter_enabled", True)`). Synced from
+  `audio_preset` by `config_applier.py` (`config.noise_filter_enabled =
+  preset != "off"`), so its on-disk value is a derived cache. Old
+  configs with `noise_filter_enabled=False` are migrated to
+  `audio_preset="off"` by the v1→v2 schema migration, after which
+  `apply_preset` re-derives the runtime value on every load.
+- `noise_filter_post_capture` — runtime switch read by
+  `level_monitor.py` and `microphone_test.py`. The post-capture
+  *filter* (Layer B3 in the original `AudioProcessor`) was removed, but
+  the flag itself is still consulted as a runtime gate, so the
+  dataclass field is retained.
 
 ### 5.5 Preset definitions (single source of truth)
 

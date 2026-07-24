@@ -243,6 +243,18 @@ jobs:
     needs: [build-aarch64, build-x86_64]
     runs-on: macos-14
     timeout-minutes: 60
+    # WR-17: job-level permissions widen the top-level `contents: read`
+    # default (line 59-60) with the two scopes required for SLSA build
+    # provenance attestation via actions/attest-build-provenance@v4 —
+    # mirrors tauri-windows-build.yml:88-91. `id-token: write` lets the
+    # job mint an OIDC token for the attestation signing identity;
+    # `attestations: write` lets it write the attestation record to the
+    # repo. Both are no-ops on PR/fork builds (the `if:` gate on the
+    # attestation step below restricts it to tag pushes only).
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     env:
       # CRIT-7: the `secrets` context is NOT available in step `if:`
       # conditions (GitHub Actions does not populate it there, so the
@@ -326,6 +338,18 @@ jobs:
           scripts/build/build_native_listener_macos.sh
           ls -la src-tauri/bin src-tauri/resources src-tauri/resources/native
 
+      # WR-17: generate placeholder Tauri icons + binary stubs if they
+      # don't already exist. cargo tauri build reads the icon list from
+      # tauri.conf.json and hard-fails on the first missing icon. The
+      # `--check` flag exits 0 if all stubs are present (no-op on a warm
+      # checkout) and 1 if any are missing — the `||` falls through to
+      # the generation command only when needed. CLI flags verified by
+      # reading scripts/gen_tauri_icons_stub.py (argparse: --check /
+      # --clean / no-flag = generate).
+      - name: Generate Tauri icons (stub)
+        run: |
+          python3 scripts/gen_tauri_icons_stub.py --check || python3 scripts/gen_tauri_icons_stub.py
+
       - name: Build Tauri universal .app + .dmg
         run: |
           cd src-tauri
@@ -396,3 +420,59 @@ jobs:
             src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app
           if-no-files-found: error
           retention-days: 30
+
+      # WR-17: generate SHA-256 checksums for the .dmg + .app bundle,
+      # mirroring tauri-windows-build.yml:368-393. macOS uses `shasum -a 256`
+      # (BSD coreutils). The .dmg is a single file — direct shasum. The
+      # .app bundle is a DIRECTORY (no canonical byte sequence — file mtimes,
+      # .DS_Store, __pycache__ all vary across runs), so we hash a
+      # deterministic `ditto -c -k --keepParent --norsrc` archive of it
+      # instead and annotate the line so a downstream verifier knows what
+      # they're checking. Output format is `<hash>  <name>` (GNU sha256sum
+      # compatible) so Linux users can `sha256sum -c SHA256SUMS.txt` and
+      # macOS users can `shasum -a 256 -c SHA256SUMS.txt`.
+      - name: Generate SHA-256 checksums
+        run: |
+          set -euo pipefail
+          BUNDLE_DMG="src-tauri/target/universal-apple-darwin/release/bundle/dmg"
+          BUNDLE_APP="src-tauri/target/universal-apple-darwin/release/bundle/macos"
+          : > SHA256SUMS.txt
+          for dmg in "$BUNDLE_DMG"/*.dmg; do
+            [ -f "$dmg" ] || continue
+            hash=$(shasum -a 256 "$dmg" | awk '{print $1}')
+            name=$(basename "$dmg")
+            echo "$hash  $name" >> SHA256SUMS.txt
+          done
+          for app in "$BUNDLE_APP"/*.app; do
+            [ -d "$app" ] || continue
+            name=$(basename "$app")
+            # ditto the .app into a deterministic zip + hash the zip.
+            ditto -c -k --keepParent --norsrc "$app" "/tmp/${name}.zip"
+            hash=$(shasum -a 256 "/tmp/${name}.zip" | awk '{print $1}')
+            echo "$hash  ${name}.zip (canonical ditto archive of ${name})" >> SHA256SUMS.txt
+            rm -f "/tmp/${name}.zip"
+          done
+          echo "Generated SHA256SUMS.txt:"
+          cat SHA256SUMS.txt
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v5
+        with:
+          name: VoiceTyper-Tauri-MacOS-SHA256SUMS
+          path: SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      # WR-17: SLSA build provenance attestation. Mirrors
+      # tauri-windows-build.yml:395-401. Gated on tag pushes so PR/fork
+      # builds (which lack the job-level id-token:write permission grant
+      # in fork contexts) don't fail. The subject-path covers both the
+      # .dmg and the .app so the attestation is verifiable against either
+      # artifact the user downloads.
+      - name: Attest build provenance (SLSA)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app

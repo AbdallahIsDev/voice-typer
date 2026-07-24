@@ -953,7 +953,13 @@
 			"reRunWizard": "Re-run Setup Wizard",
 			"reRunWizardAria": "Re-run setup wizard",
 			"reRunWizardHint": "Restart the onboarding wizard to re-configure microphone, hotkey, and model",
-			"reRunWizardToast": "Setup wizard re-enabled — navigating there now"
+			"reRunWizardToast": "Setup wizard re-enabled — navigating there now",
+			"exportDiagnosticBundle": "Export Diagnostic Bundle",
+			"exportDiagnosticBundleAria": "Export diagnostic bundle",
+			"exportDiagnosticBundleHint": "Save a zip of logs, config, and system info to attach to a bug report",
+			"diagnosticBundleExported": "Diagnostic bundle exported successfully",
+			"diagnosticBundleExportedWithPath": "Diagnostic bundle saved to: {path}",
+			"diagnosticBundleExportFailed": "Failed to export diagnostic bundle"
 		},
 		"pending": "Pending…"
 	},
@@ -1580,5 +1586,15 @@
 			"hourShort": "h",
 			"secondShort": "s"
 		}
+	},
+	"errors": {
+		"network": "Network connection issue. Check your internet connection and try again.",
+		"timeout": "The request timed out. Please try again in a moment.",
+		"storage": "Storage error. Check that you have enough disk space and the right permissions.",
+		"render": "The app hit a rendering error. Try reloading the page.",
+		"unknown": "The app encountered an unexpected error. Your data is safe.",
+		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
+		"rateLimited": "Too many requests. Please wait a moment and try again.",
+		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
 	}
 }

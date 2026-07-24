@@ -101,6 +101,9 @@ class TestMicrophoneTestStop:
         fake_service.microphone_test_stop.side_effect = RuntimeError("no test running")
         resp = ipc_server._handle_microphone_test_stop({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestMicrophoneTestCancel:
@@ -116,6 +119,9 @@ class TestMicrophoneTestCancel:
         fake_service.microphone_test_cancel.side_effect = RuntimeError("already finished")
         resp = ipc_server._handle_microphone_test_cancel({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestMicrophoneTestStatus:
@@ -134,6 +140,9 @@ class TestMicrophoneTestStatus:
         fake_service.microphone_test_status.side_effect = RuntimeError("state corrupt")
         resp = ipc_server._handle_microphone_test_status({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestMicrophoneTestGetLevel:
@@ -153,3 +162,6 @@ class TestMicrophoneTestGetLevel:
         fake_service.microphone_test_get_level.side_effect = RuntimeError("no test")
         resp = ipc_server._handle_microphone_test_get_level({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"

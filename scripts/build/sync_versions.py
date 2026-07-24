@@ -34,6 +34,14 @@ import re
 import sys
 from pathlib import Path
 
+if sys.version_info >= (3, 11):
+    import tomllib  # type: ignore[import-not-found]
+else:  # pragma: no cover — Python 3.10 fallback
+    try:
+        import tomli as tomllib  # type: ignore[import-not-found, no-redef]
+    except ImportError:  # pragma: no cover — tomli is a fallback dep
+        tomllib = None  # type: ignore[assignment]
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Files that contain a version string we want to keep in sync.
@@ -41,6 +49,10 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 INIT_PY = REPO_ROOT / "voice_typer" / "__init__.py"
 PACKAGE_JSON = REPO_ROOT / "voice_typer" / "client" / "package.json"
 ELECTRON_BUILDER = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
+# WR-20: also sync the Tauri v2 host (src-tauri/) so the Rust shell +
+# Tauri config report the same version as the Python package.
+TAURI_CONF_JSON = REPO_ROOT / "src-tauri" / "tauri.conf.json"
+CARGO_TOML = REPO_ROOT / "src-tauri" / "Cargo.toml"
 
 
 def read_pyproject_version() -> str:
@@ -132,6 +144,80 @@ def write_electron_builder_version(version: str) -> None:
     ELECTRON_BUILDER.write_text(new_text, encoding="utf-8")
 
 
+def read_tauri_conf_version() -> str | None:
+    """Read the ``version`` field from ``src-tauri/tauri.conf.json``.
+
+    WR-20: Tauri v2's config schema stores the app version at the
+    top-level ``version`` key. Returns None if the file is absent
+    (e.g. in a checkout that doesn't include the Tauri host).
+    """
+    if not TAURI_CONF_JSON.exists():
+        return None
+    data = json.loads(TAURI_CONF_JSON.read_text(encoding="utf-8"))
+    return data.get("version")
+
+
+def write_tauri_conf_version(version: str) -> None:
+    """Update the top-level ``version`` field in ``tauri.conf.json``.
+
+    Preserves JSON formatting (2-space indent + trailing newline) to
+    match the existing file style. Only writes if a ``version`` key is
+    already present — never injects a new key.
+    """
+    text = TAURI_CONF_JSON.read_text(encoding="utf-8")
+    data = json.loads(text)
+    if "version" not in data:
+        return  # don't inject a new key
+    data["version"] = version
+    new_text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    TAURI_CONF_JSON.write_text(new_text, encoding="utf-8")
+
+
+def read_cargo_toml_version() -> str | None:
+    """Read ``package.version`` from ``src-tauri/Cargo.toml``.
+
+    WR-20: Cargo stores the crate version under ``[package] version =
+    "..."``. Uses stdlib ``tomllib`` (Python 3.11+) or the ``tomli``
+    backport (3.10). Falls back to a regex if neither is importable
+    (rare — packaging depends on tomli).
+    """
+    if not CARGO_TOML.exists():
+        return None
+    text = CARGO_TOML.read_text(encoding="utf-8")
+    if tomllib is not None:
+        try:
+            data = tomllib.loads(text)
+            return data.get("package", {}).get("version")
+        except Exception:
+            pass  # fall through to regex
+    # Regex fallback — handles the common ``[package]\n...\nversion = "..."`` case.
+    m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    return m.group(1) if m else None
+
+
+def write_cargo_toml_version(version: str) -> None:
+    """Update ``package.version`` in ``src-tauri/Cargo.toml``.
+
+    Uses a regex replacement so we don't have to round-trip the entire
+    TOML through ``tomllib`` (which would lose comments, formatting,
+    and the order of tables). The regex matches the first
+    ``version = "..."`` line, which is always under ``[package]`` per
+    Cargo's manifest schema (the ``[package]`` table is required and
+    conventionally placed first).
+    """
+    text = CARGO_TOML.read_text(encoding="utf-8")
+    new_text, n = re.subn(
+        r'^(version\s*=\s*)"[^"]+"',
+        rf'\1"{version}"',
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if n == 0:
+        return  # no version field — don't inject
+    CARGO_TOML.write_text(new_text, encoding="utf-8")
+
+
 def collect_versions() -> dict[str, str | None]:
     """Return a dict of {location: version_or_None}."""
     return {
@@ -139,6 +225,9 @@ def collect_versions() -> dict[str, str | None]:
         "voice_typer/__init__.py (fallback)": read_init_py_fallback(),
         "voice_typer/client/package.json": read_package_json_version(),
         "voice_typer/client/electron-builder.yml": read_electron_builder_version(),
+        # WR-20: Tauri v2 host files
+        "src-tauri/tauri.conf.json": read_tauri_conf_version(),
+        "src-tauri/Cargo.toml": read_cargo_toml_version(),
     }
 
 
@@ -153,6 +242,13 @@ def apply_version(version: str) -> list[str]:
     if ELECTRON_BUILDER.exists() and read_electron_builder_version() is not None:
         write_electron_builder_version(version)
         updated.append(str(ELECTRON_BUILDER))
+    # WR-20: Tauri v2 host files
+    if TAURI_CONF_JSON.exists() and read_tauri_conf_version() is not None:
+        write_tauri_conf_version(version)
+        updated.append(str(TAURI_CONF_JSON))
+    if CARGO_TOML.exists() and read_cargo_toml_version() is not None:
+        write_cargo_toml_version(version)
+        updated.append(str(CARGO_TOML))
     return updated
 
 

@@ -21,7 +21,7 @@ use crate::sidecar::supervisor::{bubble_coalesce_should_emit, ft1_respawn};
 use crate::util::{BUBBLE_LEVEL_COALESCE_HZ, MAX_FRAME_BYTES};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use futures_util::{
     stream::{SplitSink, SplitStream},
@@ -88,8 +88,13 @@ const ALLOWED_EVENT_TYPES: &[&str] = &[
     "parakeet_cpu_fallback",
     // Paste error:
     "paste_failed",
-    // Legacy aliases (drop after one release cycle):
-    "relaunch_electron", "electron_notification",
+    // GT-E3-6: legacy aliases `relaunch_electron` and
+    // `electron_notification` REMOVED. The Python sidecar has published
+    // the canonical `relaunch_app` and `notification` event names for
+    // more than one release cycle; the rolling-upgrade grace period is
+    // over. Old sidecars that still emit the legacy names will now have
+    // those frames DROPPED by the `ALLOWED_EVENT_TYPES` allowlist
+    // (logged at `[WS-READER] dropping unknown event type:`).
 ];
 
 // G4-M-64: bound the WS connect attempt so a hung sidecar that
@@ -156,11 +161,48 @@ fn cleanup_and_trigger_ft1_respawn(
 // into the spawned thread. Returns nothing — FT-1 is best-effort and
 // the caller has already logged the triggering event.
 fn trigger_ft1_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
-    std::thread::spawn(move || {
-        tauri::async_runtime::block_on(async move {
-            let _ = ft1_respawn(&app, &state).await;
-        });
-    });
+    // GT-C4-4: send on the long-lived supervisor channel instead of
+    // spawning a new OS thread per call. The supervisor thread is
+    // lazily spawned on first use via `respawn_supervisor_sender()`.
+    if let Err(e) = respawn_supervisor_sender().send((app, state)) {
+        log::error!(
+            "[FT-1] failed to enqueue respawn request to supervisor thread (it may have panicked): {}",
+            e
+        );
+    }
+}
+
+// GT-C4-4: single long-lived supervisor thread, lazily spawned on
+// first use via a `OnceLock<mpsc::Sender>`. Replaces the prior
+// pattern of spawning a NEW OS thread per FT-1 trigger (WS reader
+// cleanup, heartbeat miss #3, auth failure). Thread creation is
+// ~50µs but the real cost is observability noise and a subtle
+// pile-up risk if `respawn_in_progress` gets stuck. The supervisor
+// loops on `rx.recv()` and runs `block_on(ft1_respawn)` for each
+// request sequentially. Since `ft1_respawn` is already serialized
+// by the `respawn_in_progress` compare_exchange, concurrent requests
+// just queue in the channel buffer and no-op when the supervisor
+// gets to them. The supervisor thread lives for the process
+// lifetime (parked on `rx.recv()` when idle, ~8KB stack, zero CPU).
+type RespawnRequest = (tauri::AppHandle, Arc<SidecarState>);
+
+static RESPAWN_SUPERVISOR_TX: OnceLock<std::sync::mpsc::Sender<RespawnRequest>> = OnceLock::new();
+
+fn respawn_supervisor_sender() -> &'static std::sync::mpsc::Sender<RespawnRequest> {
+    RESPAWN_SUPERVISOR_TX.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::channel::<RespawnRequest>();
+        std::thread::Builder::new()
+            .name("ft1-respawn-supervisor".into())
+            .spawn(move || {
+                for (app, state) in rx {
+                    let _ = tauri::async_runtime::block_on(async move {
+                        let _ = ft1_respawn(&app, &state).await;
+                    });
+                }
+            })
+            .expect("GT-C4-4: failed to spawn ft1-respawn-supervisor thread");
+        tx
+    })
 }
 
 // ─── XZ-11: phase helpers extracted from `reconnect_ws` ──────────────────
@@ -587,19 +629,13 @@ fn spawn_reader_task(
                         let _ = app_for_reader.emit(emit_name, payload.clone());
                         let _ = app_for_reader.emit("python-event", json!({"type": emit_name, "data": payload}));
 
-                        // CR-8 backward-compat alias: if an older Python
-                        // sidecar still emits the legacy `electron_notification`
-                        // event name (rolling upgrade), also emit it under
-                        // the new canonical `notification` name so new UI
-                        // code subscribing to `notification` keeps working.
-                        // The legacy `electron_notification` emit above
-                        // (via the direct `let emit_name = ...` pass-through)
-                        // keeps any old UI listeners working too. Drop this
-                        // alias after one release cycle once all sidecars are
-                        // upgraded to emit `notification` directly.
-                        if event_type == "electron_notification" {
-                            let _ = app_for_reader.emit("notification", payload.clone());
-                        }
+                        // GT-E3-6: the legacy `electron_notification` →
+                        // `notification` alias block was REMOVED. The
+                        // Python sidecar now publishes `notification`
+                        // directly (and `electron_notification` is no
+                        // longer in `ALLOWED_EVENT_TYPES`, so legacy
+                        // frames are dropped earlier with a `[WS-READER]
+                        // dropping unknown event type:` log line).
                     }
                     Ok(Message::Close(_)) => {
                         log::info!("[WS-READER] sidecar closed the WS");
@@ -713,79 +749,97 @@ fn spawn_reader_task(
 /// the TCP socket, which makes the WS reader's drain loop clear all
 /// pending entries. So the leak is bounded and self-healing.
 fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<SidecarState>) {
-    tauri::async_runtime::spawn(async move {
-        let mut missed: u32 = 0;
-        let mut interval = tokio::time::interval(Duration::from_secs(10));
-        loop {
-            // Check shutdown BEFORE sleeping so a shutdown signalled
-            // during the previous iteration's response wait doesn't
-            // fire another heartbeat.
-            if heartbeat_state.shutting_down.load(Ordering::SeqCst) {
-                break;
-            }
-            interval.tick().await;
-            if heartbeat_state.shutting_down.load(Ordering::SeqCst) {
-                break;
-            }
-            // Wrap `dispatch_inner` in a 15s timeout — its own 120s
-            // internal timeout is too long for a liveness probe.
-            // `Ok(Ok(_))` = response received within 15s.
-            // `Ok(Err(_))` = dispatch_inner returned an error (WS send
-            //   failed, server error envelope, or its 120s internal
-            //   timeout somehow fired first).
-            // `Err(_)` = our 15s outer timeout elapsed (the sidecar
-            //   is hung — socket open but no response).
-            let heartbeat_args = DispatchArgs {
-                cmd: "heartbeat".to_string(),
-                data: None,
-            };
-            match tokio::time::timeout(
-                Duration::from_secs(15),
-                dispatch_inner(heartbeat_args, heartbeat_state.clone()),
-            )
-            .await
-            {
-                Ok(Ok(_)) => {
-                    missed = 0;
+    // GT-8 / GT-C4-3: abort any previous heartbeat task before spawning
+    // the new one. `reconnect_ws` is called on every successful FT-1
+    // respawn (and on initial cold start), so without this abort the
+    // PRIOR heartbeat task would leak — it loops forever on a 10s
+    // `interval.tick()`. After N reconnects you'd have N concurrent
+    // heartbeat tasks all dispatching `heartbeat` frames at 10s
+    // intervals, multiplying sidecar load N×.
+    //
+    // GT-C4-1: the heartbeat's pending dispatch id is allocated INSIDE
+    // `dispatch_inner` (in `dispatch_frame` — `sidecar_cmds.rs`, owned
+    // by GT-FIX-20). The heartbeat task here does NOT know the id, so
+    // it can't manually remove the pending entry from `state.pending`
+    // on the 15s timeout. Mitigation (existing behavior, preserved):
+    //   - On miss #3, FT-1 respawn kills the sidecar → WS socket
+    //     drops → WS reader's drain loop clears ALL pending entries.
+    //   - On miss #1/#2, `dispatch_frame`'s internal 120s timeout
+    //     eventually removes the entry. Bounded leak.
+    // GT-FIX-20 will add a Drop guard on the dispatch path (GT-49) so
+    // the pending entry is removed immediately when the dispatch
+    // future is dropped (which happens when the 15s outer timeout
+    // cancels `dispatch_inner`).
+    let prev_handle_opt = {
+        let mut hb_guard = heartbeat_state.heartbeat_handle.blocking_lock();
+        hb_guard.take()
+    };
+    if let Some(prev) = prev_handle_opt {
+        prev.abort();
+        log::info!("[HEARTBEAT] aborted previous heartbeat task before spawning new one (GT-8)");
+    }
+    let handle: tauri::async_runtime::JoinHandle<()> =
+        tauri::async_runtime::spawn(async move {
+            let mut missed: u32 = 0;
+            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            loop {
+                if heartbeat_state.shutting_down.load(Ordering::SeqCst) {
+                    break;
                 }
-                Ok(Err(e)) => {
-                    missed += 1;
-                    log::warn!("[HEARTBEAT] dispatch error (miss #{}/3): {}", missed, e);
-                    if missed >= 3 {
-                        log::warn!(
-                            "[HEARTBEAT] 3 consecutive misses — triggering FT-1 respawn"
-                        );
-                        // EC-FIX-5 (EC-18): delegate to the shared
-                        // `trigger_ft1_respawn_off_thread` helper instead
-                        // of inlining the std::thread::spawn + block_on
-                        // bridge (duplicated with the timeout arm below
-                        // and the WS reader cleanup above).
-                        trigger_ft1_respawn_off_thread(
-                            heartbeat_app.clone(),
-                            heartbeat_state.clone(),
-                        );
-                        break;
+                interval.tick().await;
+                if heartbeat_state.shutting_down.load(Ordering::SeqCst) {
+                    break;
+                }
+                let heartbeat_args = DispatchArgs {
+                    cmd: "heartbeat".to_string(),
+                    data: None,
+                };
+                match tokio::time::timeout(
+                    Duration::from_secs(15),
+                    dispatch_inner(heartbeat_args, heartbeat_state.clone()),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => {
+                        missed = 0;
+                    }
+                    Ok(Err(e)) => {
+                        missed += 1;
+                        log::warn!("[HEARTBEAT] dispatch error (miss #{}/3): {}", missed, e);
+                        if missed >= 3 {
+                            log::warn!(
+                                "[HEARTBEAT] 3 consecutive misses — triggering FT-1 respawn"
+                            );
+                            trigger_ft1_respawn_off_thread(
+                                heartbeat_app.clone(),
+                                heartbeat_state.clone(),
+                            );
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        missed += 1;
+                        log::warn!("[HEARTBEAT] 15s response timeout (miss #{}/3)", missed);
+                        if missed >= 3 {
+                            log::warn!(
+                                "[HEARTBEAT] 3 consecutive misses — triggering FT-1 respawn"
+                            );
+                            trigger_ft1_respawn_off_thread(
+                                heartbeat_app.clone(),
+                                heartbeat_state.clone(),
+                            );
+                            break;
+                        }
                     }
                 }
-                Err(_) => {
-                    missed += 1;
-                    log::warn!("[HEARTBEAT] 15s response timeout (miss #{}/3)", missed);
-                    if missed >= 3 {
-                        log::warn!(
-                            "[HEARTBEAT] 3 consecutive misses — triggering FT-1 respawn"
-                        );
-                        // EC-FIX-5 (EC-18): same shared helper as the
-                        // dispatch-error arm above.
-                        trigger_ft1_respawn_off_thread(
-                            heartbeat_app.clone(),
-                            heartbeat_state.clone(),
-                        );
-                        break;
-                    }
-                }
             }
-        }
-    });
+        });
+    // GT-8 / GT-C4-3: store the new handle so the next reconnect (or
+    // `shutdown_sidecar_for_exit`) can abort it.
+    {
+        let mut hb_guard = heartbeat_state.heartbeat_handle.blocking_lock();
+        *hb_guard = Some(handle);
+    }
 }
 
 // XZ-11: thin orchestrator extracted from the original 585-line
@@ -872,12 +926,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_pending_dispatch_map_fulfill_by_id() {
-        // ADR-0020 §7: the WS reader task fulfills pending dispatch
-        // requests by id. Insert a pending request with id=42, then
-        // fulfill it with a response carrying id=42 — the oneshot
-        // receiver must resolve with that exact response, and the map
-        // must be empty afterwards.
-        let pending: PendingMap = Arc::new(AsyncMutex::new(HashMap::new()));
+        // GT-E3-5: PendingMap no longer wrapped in outer Arc —
+        // construct directly via `AsyncMutex::new(HashMap::new())`.
+        let pending: PendingMap = AsyncMutex::new(HashMap::new());
         let id = 42u64;
 
         // Insert the pending request.
@@ -913,10 +964,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pending_dispatch_map_unfulfilled_id_leaves_entry() {
-        // A response with the wrong id must NOT fulfill a pending request.
-        // The dispatch caller will time out (DISPATCH_TIMEOUT_SECS) and
-        // remove the entry itself (see `dispatch` command).
-        let pending: PendingMap = Arc::new(AsyncMutex::new(HashMap::new()));
+        // GT-E3-5: PendingMap no longer wrapped in outer Arc.
+        let pending: PendingMap = AsyncMutex::new(HashMap::new());
         let id = 99u64;
         let (tx, _rx) = oneshot::channel::<Value>();
         pending.lock().await.insert(id, tx);
@@ -993,5 +1042,94 @@ mod tests {
         // coalesce branch above). A regression that mapped `bubble_level`
         // to `bubble:level` would break the coalesce path silently.
         assert_eq!(translate_event_name("bubble_level"), "bubble_level");
+    }
+
+    // ── GT-E3-6: legacy event aliases removed from ALLOWED_EVENT_TYPES ─
+
+    #[test]
+    fn test_gt_e3_6_legacy_aliases_not_in_allowlist() {
+        // GT-E3-6: `relaunch_electron` and `electron_notification` were
+        // removed from `ALLOWED_EVENT_TYPES`. Old Python sidecars that
+        // still emit these legacy names will have their frames DROPPED
+        // by the WS reader's allowlist check.
+        assert!(
+            !ALLOWED_EVENT_TYPES.contains(&"relaunch_electron"),
+            "GT-E3-6: legacy `relaunch_electron` must NOT be in the allowlist"
+        );
+        assert!(
+            !ALLOWED_EVENT_TYPES.contains(&"electron_notification"),
+            "GT-E3-6: legacy `electron_notification` must NOT be in the allowlist"
+        );
+        // Canonical names must still be present.
+        assert!(
+            ALLOWED_EVENT_TYPES.contains(&"relaunch_app"),
+            "canonical `relaunch_app` must remain in the allowlist"
+        );
+        assert!(
+            ALLOWED_EVENT_TYPES.contains(&"notification"),
+            "canonical `notification` must remain in the allowlist"
+        );
+    }
+
+    // ── GT-8: heartbeat task abort on reconnect ────────────────────
+
+    #[tokio::test]
+    async fn test_gt8_heartbeat_handle_slot_round_trips_take_abort_replace() {
+        let state = Arc::new(crate::state::SidecarState::new());
+        assert!(
+            state.heartbeat_handle.lock().await.is_none(),
+            "GT-8: fresh state must have heartbeat_handle = None"
+        );
+
+        let h1 = tauri::async_runtime::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+        *state.heartbeat_handle.lock().await = Some(h1);
+        assert!(state.heartbeat_handle.lock().await.is_some());
+
+        // Simulate a second reconnect: take + abort + replace.
+        let prev = state.heartbeat_handle.lock().await.take();
+        assert!(prev.is_some());
+        if let Some(h) = prev {
+            h.abort();
+        }
+        assert!(state.heartbeat_handle.lock().await.is_none());
+
+        let h2 = tauri::async_runtime::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+        *state.heartbeat_handle.lock().await = Some(h2);
+        assert!(state.heartbeat_handle.lock().await.is_some());
+
+        // Cleanup.
+        if let Some(h) = state.heartbeat_handle.lock().await.take() {
+            h.abort();
+        }
+    }
+
+    /// GT-8: `shutdown_sidecar_for_exit` must abort any in-flight
+    /// heartbeat task stored on `state.heartbeat_handle`.
+    #[tokio::test]
+    async fn test_gt8_shutdown_sidecar_for_exit_aborts_heartbeat_handle() {
+        use crate::state::shutdown_sidecar_for_exit;
+        let state = Arc::new(crate::state::SidecarState::new());
+        let h = tauri::async_runtime::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+        *state.heartbeat_handle.lock().await = Some(h);
+        assert!(state.heartbeat_handle.lock().await.is_some());
+
+        let state_clone = state.clone();
+        tokio::time::timeout(
+            Duration::from_millis(3000),
+            shutdown_sidecar_for_exit(&state_clone),
+        )
+        .await
+        .expect("shutdown_sidecar_for_exit should complete within 3s");
+
+        assert!(
+            state.heartbeat_handle.lock().await.is_none(),
+            "GT-8: shutdown_sidecar_for_exit must abort + clear the heartbeat handle"
+        );
     }
 }

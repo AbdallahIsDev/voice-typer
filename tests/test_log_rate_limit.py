@@ -139,20 +139,12 @@ def test_suppressed_occurrence_renders_format_args():
     logger = FakeLogger()
 
     # First call (1st occurrence) → logger.log at ERROR with raw msg + args.
-    log_rate_limited(
-        logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True
-    )
-    logger.log.assert_called_once_with(
-        logging.ERROR, "chunk %d failed", 7, exc_info=True
-    )
+    log_rate_limited(logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True)
+    logger.log.assert_called_once_with(logging.ERROR, "chunk %d failed", 7, exc_info=True)
 
     # Second call (suppressed) → DEBUG with the rendered message.
-    log_rate_limited(
-        logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True
-    )
-    logger.debug.assert_called_once_with(
-        "%s (suppressed occurrence %d)", "chunk 7 failed", 2
-    )
+    log_rate_limited(logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True)
+    logger.debug.assert_called_once_with("%s (suppressed occurrence %d)", "chunk 7 failed", 2)
 
 
 # ── 3. Nth occurrence ────────────────────────────────────────────────
@@ -174,9 +166,7 @@ def test_occurrence_100_logs_at_configured_level_with_exc_info():
 
     # 100th call → configured level with exc_info.
     log_rate_limited(logger, logging.ERROR, msg, exc_info=True, every_n=100)
-    logger.log.assert_called_once_with(
-        logging.ERROR, msg, exc_info=True
-    )
+    logger.log.assert_called_once_with(logging.ERROR, msg, exc_info=True)
     logger.debug.assert_not_called()
 
 
@@ -191,9 +181,7 @@ def test_occurrence_101_logs_at_debug_again():
     logger.debug.reset_mock()
 
     log_rate_limited(logger, logging.ERROR, msg, exc_info=True, every_n=100)
-    logger.debug.assert_called_once_with(
-        "%s (suppressed occurrence %d)", msg, 101
-    )
+    logger.debug.assert_called_once_with("%s (suppressed occurrence %d)", msg, 101)
     logger.log.assert_not_called()
 
 
@@ -238,12 +226,8 @@ def test_explicit_key_buckets_dynamic_messages():
     logger = FakeLogger()
 
     # Same key, different message text → should share a counter.
-    log_rate_limited(
-        logger, logging.ERROR, "chunk %d failed", 1, key="chunk-failed", every_n=100
-    )
-    log_rate_limited(
-        logger, logging.ERROR, "chunk %d failed", 2, key="chunk-failed", every_n=100
-    )
+    log_rate_limited(logger, logging.ERROR, "chunk %d failed", 1, key="chunk-failed", every_n=100)
+    log_rate_limited(logger, logging.ERROR, "chunk %d failed", 2, key="chunk-failed", every_n=100)
 
     # 1st → log at level; 2nd → DEBUG.
     assert logger.log.call_count == 1
@@ -306,9 +290,7 @@ def test_concurrent_calls_do_not_crash_and_total_count_is_consistent():
     # (the very first call) and never more than 2× the expected count
     # (a generous upper bound that catches gross lock failures).
     expected_level_calls_lower_bound = n_threads  # ≥1 per thread
-    expected_level_calls_upper_bound = 2 * (
-        n_threads * (1 + calls_per_thread // 100)
-    )
+    expected_level_calls_upper_bound = 2 * (n_threads * (1 + calls_per_thread // 100))
     actual_level_calls = logger.log.call_count
     assert actual_level_calls >= expected_level_calls_lower_bound
     assert actual_level_calls <= expected_level_calls_upper_bound
@@ -360,9 +342,7 @@ def test_level_is_forwarded_as_configured():
     """The caller chooses the level — WARNING, INFO, CRITICAL all work."""
     logger = FakeLogger()
     log_rate_limited(logger, logging.WARNING, "warn-test", every_n=100)
-    logger.log.assert_called_once_with(
-        logging.WARNING, "warn-test", exc_info=False
-    )
+    logger.log.assert_called_once_with(logging.WARNING, "warn-test", exc_info=False)
 
 
 def test_logger_name_is_part_of_counter_key():
@@ -403,9 +383,7 @@ def test_integration_with_real_logger_and_caplog(caplog):
             try:
                 raise RuntimeError("synthetic chunk error")
             except RuntimeError:
-                log_rate_limited(
-                    real_logger, logging.ERROR, msg, exc_info=True, every_n=100
-                )
+                log_rate_limited(real_logger, logging.ERROR, msg, exc_info=True, every_n=100)
 
         # Occurrence 100 — ERROR with exc_info again.
         try:
@@ -435,3 +413,303 @@ def test_integration_with_real_logger_and_caplog(caplog):
     # The DEBUG records should carry the suppressed-occurrence suffix.
     for i, r in enumerate(debug_records, start=2):
         assert f"(suppressed occurrence {i})" in r.message
+
+
+# ── 8. GT-66: periodic INFO summary for chronic suppressed conditions ──
+
+
+class TestGt66PeriodicInfoSummary:
+    """GT-66: emit a periodic INFO-level summary per counter key —
+    every 60s of wall-clock time, if any counter incremented >0 since
+    the last summary, log::
+
+        log.info('[rate-limit] %d suppressed occurrences of %r in last 60s',
+                 delta, key)
+
+    The summary is routed through the module logger
+    (``voice_typer.server.log_rate_limit``) so it's always visible at
+    the file handler's INFO level regardless of the caller's logger
+    level.  The first suppressed occurrence seeds the timer (so the
+    first 60-second window starts ticking from the second call, not
+    from process boot).
+    """
+
+    def test_first_suppressed_occurrence_does_not_emit_summary(self, caplog):
+        """The first suppressed occurrence seeds the timer — no summary
+        is emitted until 60s have elapsed.
+        """
+        logger = FakeLogger()
+        msg = "gt-66-seed-test"
+
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.log_rate_limit"):
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+
+        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        assert summaries == [], (
+            f"GT-66: no INFO summary should fire on the first suppressed "
+            f"occurrence (timer just seeded); got {summaries!r}"
+        )
+
+    def test_summary_fires_after_interval_with_delta(self, monkeypatch, caplog):
+        """When 60s+ of wall-clock has elapsed AND delta > 0 since the
+        last summary, an INFO summary fires with the delta count and
+        the counter key.
+        """
+        logger = FakeLogger()
+        msg = "gt-66-summary-test"
+
+        fake_time = [0.0]
+        monkeypatch.setattr(
+            "voice_typer.server.log_rate_limit.time.monotonic",
+            lambda: fake_time[0],
+        )
+
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.log_rate_limit"):
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+            for _ in range(9):
+                log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+
+            fake_time[0] = 61.0
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+
+        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        assert len(summaries) == 1, (
+            f"expected exactly 1 INFO summary after the 60s threshold; "
+            f"got {len(summaries)}: {[r.message for r in summaries]!r}"
+        )
+        msg_text = summaries[0].getMessage()
+        assert "11 suppressed occurrences" in msg_text, f"expected delta=11 in summary; got {msg_text!r}"
+        assert repr(msg) in msg_text, f"expected counter key {msg!r} in summary; got {msg_text!r}"
+        assert "in last 60s" in msg_text
+
+    def test_summary_resets_delta_after_emission(self, monkeypatch, caplog):
+        """After an INFO summary fires, the per-key delta is reset to 0.
+        The next summary (after another 60s) reports only the delta
+        accumulated SINCE the previous summary — not the cumulative
+        total since process start.
+        """
+        logger = FakeLogger()
+        msg = "gt-66-reset-test"
+
+        fake_time = [0.0]
+        monkeypatch.setattr(
+            "voice_typer.server.log_rate_limit.time.monotonic",
+            lambda: fake_time[0],
+        )
+
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.log_rate_limit"):
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+            for _ in range(8):
+                log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+            fake_time[0] = 61.0
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+
+            fake_time[0] = 122.0
+            for _ in range(3):
+                log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+
+        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        assert len(summaries) == 2, (
+            f"expected 2 summaries (one per 60s window); got {len(summaries)}: {[r.message for r in summaries]!r}"
+        )
+        first = summaries[0].getMessage()
+        second = summaries[1].getMessage()
+        assert "10 suppressed occurrences" in first, f"first summary: {first!r}"
+        assert "3 suppressed occurrences" in second, (
+            f"GT-66 regression: delta not reset after first summary; second summary should report 3, got: {second!r}"
+        )
+
+    def test_summary_does_not_fire_within_same_window(self, monkeypatch, caplog):
+        """Multiple suppressed occurrences within the same 60-second
+        window do NOT each emit a summary.
+        """
+        logger = FakeLogger()
+        msg = "gt-66-window-test"
+
+        fake_time = [0.0]
+        monkeypatch.setattr(
+            "voice_typer.server.log_rate_limit.time.monotonic",
+            lambda: fake_time[0],
+        )
+
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.log_rate_limit"):
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+
+            fake_time[0] = 61.0
+            log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+            for _ in range(5):
+                log_rate_limited(logger, logging.ERROR, msg, every_n=100)
+
+        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        assert len(summaries) == 1, (
+            f"only one summary should fire per 60s window; got {len(summaries)}: {[r.message for r in summaries]!r}"
+        )
+
+    def test_summary_per_key_independent(self, monkeypatch, caplog):
+        """Each counter key has its own summary cadence — a summary for
+        key A does not reset key B's delta.
+        """
+        logger = FakeLogger()
+        msg_a = "gt-66-key-a"
+        msg_b = "gt-66-key-b"
+
+        fake_time = [0.0]
+        monkeypatch.setattr(
+            "voice_typer.server.log_rate_limit.time.monotonic",
+            lambda: fake_time[0],
+        )
+
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.log_rate_limit"):
+            log_rate_limited(logger, logging.ERROR, msg_a, every_n=100)
+            log_rate_limited(logger, logging.ERROR, msg_a, every_n=100)
+            log_rate_limited(logger, logging.ERROR, msg_b, every_n=100)
+            log_rate_limited(logger, logging.ERROR, msg_b, every_n=100)
+
+            fake_time[0] = 61.0
+            log_rate_limited(logger, logging.ERROR, msg_a, every_n=100)
+            log_rate_limited(logger, logging.ERROR, msg_b, every_n=100)
+
+        summaries = [r for r in caplog.records if r.levelno == logging.INFO and "[rate-limit]" in r.message]
+        assert len(summaries) == 1, (
+            f"expected 1 summary (key A only); got {len(summaries)}: {[r.message for r in summaries]!r}"
+        )
+        assert repr(msg_a) in summaries[0].getMessage()
+
+
+# ── 9. GT-B1-12: counter dict capped at 1024 with LRU eviction ────────
+
+
+class TestGtB1_12LRUEviction:
+    """GT-B1-12: ``_RATE_LIMIT_COUNTS`` is capped at ``_MAX_COUNTERS``
+    (1024) entries with LRU eviction.  When eviction fires, a WARNING
+    is logged through the module logger so the operator notices caller
+    misuse (dynamic messages without an explicit ``key=``).
+    """
+
+    def test_dict_capped_at_max_counters(self):
+        """After >_MAX_COUNTERS distinct keys, the dict size is exactly
+        _MAX_COUNTERS (no unbounded growth).
+        """
+        logger = FakeLogger()
+        for i in range(log_rate_limit._MAX_COUNTERS + 50):
+            log_rate_limited(
+                logger,
+                logging.ERROR,
+                f"dynamic-msg-{i}",
+                every_n=100,
+            )
+
+        assert len(log_rate_limit._RATE_LIMIT_COUNTS) == log_rate_limit._MAX_COUNTERS, (
+            f"GT-B1-12 regression: dict size = "
+            f"{len(log_rate_limit._RATE_LIMIT_COUNTS)}, expected "
+            f"{log_rate_limit._MAX_COUNTERS}"
+        )
+
+    def test_eviction_removes_least_recently_used(self):
+        """The first-inserted key (least-recently-used) is evicted when
+        the cap is exceeded; the most-recently-used key survives.
+        """
+        logger = FakeLogger()
+        for i in range(log_rate_limit._MAX_COUNTERS):
+            log_rate_limited(
+                logger,
+                logging.ERROR,
+                f"msg-{i}",
+                every_n=100,
+            )
+        first_key = (logger.name, "msg-0")
+        assert first_key in log_rate_limit._RATE_LIMIT_COUNTS, (
+            "first key should still be present before the cap is exceeded"
+        )
+
+        log_rate_limited(logger, logging.ERROR, "msg-new", every_n=100)
+
+        assert first_key not in log_rate_limit._RATE_LIMIT_COUNTS, "GT-B1-12 regression: LRU key was not evicted"
+        new_key = (logger.name, "msg-new")
+        assert new_key in log_rate_limit._RATE_LIMIT_COUNTS, "newly-inserted key should be present"
+
+    def test_access_marks_key_as_most_recently_used(self):
+        """Re-accessing an existing key moves it to the MRU end so it
+        survives eviction on the next insert.
+        """
+        logger = FakeLogger()
+        for i in range(log_rate_limit._MAX_COUNTERS):
+            log_rate_limited(
+                logger,
+                logging.ERROR,
+                f"msg-{i}",
+                every_n=100,
+            )
+
+        log_rate_limited(logger, logging.ERROR, "msg-0", every_n=100)
+        log_rate_limited(logger, logging.ERROR, "msg-new", every_n=100)
+
+        assert (logger.name, "msg-0") in log_rate_limit._RATE_LIMIT_COUNTS, (
+            "GT-B1-12: re-accessed key should survive eviction (MRU)"
+        )
+        assert (logger.name, "msg-1") not in log_rate_limit._RATE_LIMIT_COUNTS, (
+            "GT-B1-12: stale LRU key should have been evicted instead of the re-accessed one"
+        )
+
+    def test_eviction_logs_warning_through_module_logger(self, caplog):
+        """When eviction fires, a WARNING is emitted through the module
+        logger (``voice_typer.server.log_rate_limit``) so the operator
+        notices the caller misuse.
+        """
+        logger = FakeLogger()
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.log_rate_limit"):
+            for i in range(log_rate_limit._MAX_COUNTERS + 5):
+                log_rate_limited(
+                    logger,
+                    logging.ERROR,
+                    f"eviction-warn-{i}",
+                    every_n=100,
+                )
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "[rate-limit]" in r.message]
+        assert warnings, (
+            "GT-B1-12: expected at least one WARNING when eviction fires; "
+            f"got records={[r.message for r in caplog.records]!r}"
+        )
+        msg_text = warnings[0].getMessage()
+        assert "evicted" in msg_text
+        assert str(log_rate_limit._MAX_COUNTERS) in msg_text
+        assert "key=" in msg_text
+
+    def test_no_eviction_no_warning(self, caplog):
+        """When the dict stays under the cap, no eviction WARNING fires."""
+        logger = FakeLogger()
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.log_rate_limit"):
+            for i in range(50):
+                log_rate_limited(
+                    logger,
+                    logging.ERROR,
+                    f"safe-msg-{i}",
+                    every_n=100,
+                )
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "[rate-limit]" in r.message]
+        assert warnings == [], (
+            f"GT-B1-12: no eviction WARNING should fire when dict is under "
+            f"the cap; got {[r.message for r in warnings]!r}"
+        )
+
+    def test_reset_clears_summary_and_eviction_state(self):
+        """``reset()`` clears the LRU dict AND the GT-66 summary dicts
+        so the next test starts from a clean slate.
+        """
+        logger = FakeLogger()
+        for i in range(10):
+            log_rate_limited(logger, logging.ERROR, f"reset-test-{i}", every_n=100)
+        log_rate_limit._RATE_LIMIT_LAST_SUMMARY[(logger.name, "x")] = 1.0
+        log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY[(logger.name, "x")] = 5
+
+        reset()
+
+        assert not log_rate_limit._RATE_LIMIT_COUNTS
+        assert not log_rate_limit._RATE_LIMIT_LAST_SUMMARY
+        assert not log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY

@@ -425,3 +425,125 @@ def test_per_module_log_levels_ignores_invalid_entries(config_dir, clean_env, st
     # Should not raise.
     logging_setup._setup_logging()
     assert logging.getLogger("voice_typer.server.another").level == logging.INFO
+
+
+# ─── GT-B1-15: startup banner logging the active log configuration ─────
+
+
+class TestGtB1_15StartupBanner:
+    """GT-B1-15: after ``_setup_logging_shared`` returns, emit a single
+    INFO-level banner so operators can see at a glance which logging
+    configuration took effect::
+
+        log.info(
+            "[STARTUP] logging initialized: file=%s, level=%s, json=%s, "
+            "debug=%s, quiet=%s, session=%s",
+            log_file, root_level, json_mode, debug, quiet, session_id,
+        )
+
+    The banner is the first INFO record emitted through the
+    ``voice_typer.server.logging_setup`` logger after the rotating
+    file handler is installed, so it lands at the top of
+    ``voice-typer.log`` and is the first thing an operator sees when
+    investigating a crash.
+    """
+
+    def _banner_lines(self, config_dir: Path) -> str:
+        """Helper: read the log file and return the banner line(s)."""
+        content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
+        return "\n".join(line for line in content.splitlines() if "[STARTUP]" in line)
+
+    def test_banner_appears_in_log_file(self, config_dir, clean_env, stub_side_effects):
+        """The ``[STARTUP] logging initialized:`` banner is written to
+        ``<config_dir>/voice-typer.log`` after ``_setup_logging`` returns.
+        """
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        assert "[STARTUP] logging initialized:" in banner, (
+            f"GT-B1-15 regression: no startup banner in log file; got:\n{banner}"
+        )
+
+    def test_banner_includes_file_path(self, config_dir, clean_env, stub_side_effects):
+        """The banner includes the resolved log file path."""
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        expected_file = str(config_dir / "voice-typer.log")
+        assert f"file={expected_file}" in banner, f"GT-B1-15: banner missing file path; got: {banner!r}"
+
+    def test_banner_includes_level_name(self, config_dir, clean_env, stub_side_effects):
+        """The banner includes the root logger level NAME (``DEBUG``,
+        ``WARNING``, etc.) — not the numeric value — so it's human-readable.
+        """
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        assert "level=DEBUG" in banner, f"GT-B1-15: banner missing/incorrect level; got: {banner!r}"
+
+    def test_banner_reflects_quiet_flag(self, config_dir, clean_env, stub_side_effects, monkeypatch):
+        """When VOICE_TYPER_QUIET=1, the banner shows level=WARNING and quiet=True."""
+        monkeypatch.setenv("VOICE_TYPER_QUIET", "1")
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        assert "level=WARNING" in banner, f"GT-B1-15: quiet mode should set level=WARNING; got: {banner!r}"
+        assert "quiet=True" in banner, f"GT-B1-15: banner should show quiet=True; got: {banner!r}"
+
+    def test_banner_reflects_debug_flag(self, config_dir, clean_env, stub_side_effects, monkeypatch):
+        """When VOICE_TYPER_DEBUG=1, the banner shows debug=True."""
+        monkeypatch.setenv("VOICE_TYPER_DEBUG", "1")
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        assert "debug=True" in banner, f"GT-B1-15: banner should show debug=True; got: {banner!r}"
+
+    def test_banner_reflects_json_mode(self, config_dir, clean_env, stub_side_effects, monkeypatch):
+        """When VOICE_TYPER_LOG_JSON=1, the banner shows json=True."""
+        monkeypatch.setenv("VOICE_TYPER_LOG_JSON", "1")
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        assert "json=True" in banner, (
+            f"GT-B1-15: banner should show json=True under VOICE_TYPER_LOG_JSON=1; got: {banner!r}"
+        )
+
+    def test_banner_includes_session_id(self, config_dir, clean_env, stub_side_effects):
+        """The banner includes the 8-char hex session id returned by
+        ``setup_logging``.
+        """
+        from voice_typer.server import log as _log_module
+
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        session_id = _log_module._session_id
+        assert session_id, "setup_logging did not populate _session_id"
+        assert f"session={session_id}" in banner, (
+            f"GT-B1-15: banner missing session id; expected session={session_id}, got: {banner!r}"
+        )
+
+    def test_banner_defaults_when_no_flags_set(self, config_dir, clean_env, stub_side_effects):
+        """Default config: debug=False, quiet=False, json=False, level=DEBUG."""
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        assert "debug=False" in banner
+        assert "quiet=False" in banner
+        assert "json=False" in banner
+
+    def test_banner_emitted_before_validate_env_vars(self, config_dir, clean_env, stub_side_effects):
+        """GT-B1-15 + PLAT-008 ordering: the banner is emitted AFTER
+        ``_setup_logging_shared`` returns (so the file handler is
+        installed) but BEFORE ``_validate_env_vars`` runs.
+
+        Asserted indirectly: the banner is present in the file (which
+        means the file handler was installed before the banner was
+        emitted), and ``_validate_env_vars`` was still called exactly
+        once (so the banner does not skip validation).
+        """
+        logging_setup._setup_logging()
+        _flush_all()
+        banner = self._banner_lines(config_dir)
+        assert "[STARTUP]" in banner
+        stub_side_effects["validate_env"].assert_called_once_with()

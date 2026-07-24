@@ -6,9 +6,10 @@ transport layer.
 
 Architecture
 ------------
-This module is the LEAF of the dependency tree.  It imports nothing
-from ``voice_typer.*`` (only stdlib) so that any other module can
-import it without risk of a circular import.
+This module is the LEAF of the dependency tree.  It imports only
+stdlib plus :mod:`voice_typer.server.log_rate_limit` (which is itself
+stdlib-only, so no circular-import risk); any other module can import
+it without risk of a circular import.
 
 Domain modules (recording, service, app, tray, hotkey_dispatcher,
 level_monitor, dictation_pipeline, startup_tasks, recording_controller,
@@ -75,6 +76,23 @@ Events emitted via ``event_bus.publish`` (the modern path):
 * ``paste_failed`` — clipboard paste failed (NEW-UX-006); renderer
   shows a sonner toast with "Open recovery file" action.
   Payload: ``{message:str, recovery_path:str|null}``.
+* ``tray_menu`` — ADR-0020 §6.5 / GT-53; serialized menu model pushed
+  to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On Electron/
+  pystray the native menu is the single source of truth and this is
+  a no-op. Payload: ``{items:[<menu node dict>]}``.
+* ``tray_state`` — ADR-0020 §6.5 / GT-53; tray icon name + tooltip
+  pushed to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On
+  Electron/pystray the ``TrayIcon`` is updated directly so emitting
+  a parallel event would double-publish. Payload: ``{icon:str?,
+  tooltip:str?}`` (at least one field present).
+* ``consent_required`` — UX-005 / GT-53; emitted by ``service/model.py``
+  when the renderer must prompt for HuggingFace consent before a model
+  download can proceed. Payload: ``{provider:str, model:str,
+  message:str}``.
+* ``parakeet_cpu_fallback`` — SK-b / GT-53; emitted by
+  ``parakeet_engine.py`` when GPU transcription fails and the engine
+  falls back to CPU. The tray shows a "(CPU fallback)" status suffix.
+  Payload: ``{device:str (="cpu"), reason:str}``.
 
 Events emitted via ``IPCServer.push`` (NOT through ``event_bus.publish``
 — they bypass the bus because they are wired into the IPC accept loop
@@ -90,9 +108,9 @@ server):
   former is a per-transition signal with just ``status``; the latter
   is the connect-time snapshot with a ``message`` field.
 
-Total: 24 events (23 via ``event_bus.publish`` + 1 ``ready`` (pushed
-directly) + 2 ``IPCServer.push``-only events = 24 unique event names;
-the ADR-0020 §2 table lists all 24).
+Total: 28 events (26 via ``event_bus.publish`` (``ready`` is also
+pushed directly on TCP-server start) + 2 ``IPCServer.push``-only
+events = 28 unique event names; the ADR-0020 §2 table lists all 28).
 
 Thread safety
 -------------
@@ -104,9 +122,15 @@ guaranteed not to deadlock.
 
 Subscriber exception isolation
 ------------------------------
-A subscriber that raises is logged at DEBUG level (with ``exc_info``)
-and skipped.  Other subscribers still receive the event.  This matches
-the previous ``_push_event_now`` semantics and is verified by
+A subscriber that raises is logged at **WARNING** level (with
+``exc_info``) on the FIRST occurrence for that subscriber, then at
+DEBUG (without ``exc_info``) on subsequent occurrences — see
+:func:`voice_typer.server.log_rate_limit.log_rate_limited`. Production
+file handlers run at INFO so the first failure surfaces; rate-limiting
+prevents log spam if a subscriber is persistently broken. The
+subscriber is then skipped and other subscribers still receive the
+event. This matches the previous ``_push_event_now`` semantics (log
+and continue) and is verified by
 ``tests/test_event_bus.py::TestSubscriberExceptionIsolation``.
 """
 
@@ -117,6 +141,40 @@ import threading
 import typing
 from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol, runtime_checkable
+
+from voice_typer.server.log_rate_limit import log_rate_limited
+
+
+def _subscriber_key(fn: typing.Callable[..., typing.Any]) -> str:
+    """Return a stable string key identifying *fn* for rate-limit counters.
+
+    Used as the ``key=`` argument to :func:`log_rate_limited` so that each
+    distinct subscriber gets its own counter: the FIRST exception from a
+    given subscriber logs at WARNING (with full traceback); subsequent
+    exceptions from the SAME subscriber log at DEBUG (no traceback) so a
+    persistently-broken subscriber doesn't spam the production log.
+
+    Strategy:
+    - Bound methods (``self.method``): include ``id(self.__self__)`` so
+      two methods bound to different instances get separate counters.
+    - Named functions / unbound methods: use ``module.qualname`` —
+      stable across calls and unique within a process.
+    - Lambdas and C-level callables (``__qualname__`` is ``<lambda>``
+      or absent): fall back to ``id(fn)`` — unique for the callable's
+      lifetime, which is the only window the counter matters for.
+    """
+    qualname = getattr(fn, "__qualname__", None) or ""
+    module = getattr(fn, "__module__", "") or ""
+    # Bound methods: include id() of the bound instance so two methods
+    # bound to different instances get separate counters.
+    self_obj = getattr(fn, "__self__", None)
+    if self_obj is not None:
+        return f"{module}.{qualname}@0x{id(self_obj):x}"
+    if qualname and qualname != "<lambda>":
+        return f"{module}.{qualname}" if module else qualname
+    # Lambdas and C-level callables: use id() of the callable itself.
+    return f"callable@0x{id(fn):x}"
+
 
 log = logging.getLogger("voice_typer.server.event_bus")
 
@@ -197,26 +255,6 @@ def _get_deferred_executor() -> ThreadPoolExecutor:
     return winner
 
 
-def shutdown_executor() -> None:
-    """Shutdown the deferred-publish executor.
-
-    CR-22: Previously the executor was a module-global singleton with no
-    explicit lifecycle management. On `restart_app()` the old executor
-    was orphaned and a new one created — leaking worker threads. On
-    normal exit the worker could block up to the default join timeout
-    (~5s) slowing shutdown.
-
-    Call this from `shutdown_controller._do_cleanup()` after the IPC
-    server stop to release the worker thread promptly.
-    """
-    global _deferred_executor
-    with _deferred_executor_lock:
-        executor = _deferred_executor
-        _deferred_executor = None
-    if executor is not None:
-        executor.shutdown(wait=False, cancel_futures=True)
-
-
 def _is_rt_thread() -> bool:
     """Return True if the current thread is a real-time audio thread."""
     name = threading.current_thread().name
@@ -254,14 +292,29 @@ def unsubscribe(callback: typing.Callable[[dict], None] | None) -> None:
 
 
 def _deliver(event: dict, fns: list[typing.Callable[[dict], None]]) -> bool:
-    """Deliver *event* to every callback in *fns* (no lock held)."""
+    """Deliver *event* to every callback in *fns* (no lock held).
+
+    GT-3: subscriber exceptions are logged at WARNING (with
+    ``exc_info=True``) on the FIRST occurrence per subscriber, then at
+    DEBUG (no ``exc_info``) on subsequent occurrences via
+    :func:`log_rate_limited`.  Production file handlers run at INFO so
+    the first failure surfaces; rate-limiting prevents a persistently
+    broken subscriber from flooding the log.  Other subscribers still
+    receive the event.
+    """
     delivered = False
     for fn in fns:
         try:
             fn(event)
             delivered = True
         except Exception:
-            log.debug("[event_bus] subscriber raised", exc_info=True)
+            log_rate_limited(
+                log,
+                logging.WARNING,
+                "[event_bus] subscriber raised",
+                exc_info=True,
+                key=f"subscriber:{_subscriber_key(fn)}",
+            )
     return delivered
 
 
@@ -286,8 +339,10 @@ def publish(event: dict) -> bool:
       ``ThreadPoolExecutor`` so the RT thread returns in microseconds.
       Synchronous path is preserved for all other threads.
     - Exception isolation: a subscriber that raises is logged at
-      DEBUG level and skipped.  Other subscribers still receive
-      the event.  See ``TestSubscriberExceptionIsolation``.
+      WARNING (with ``exc_info``) on the first occurrence per
+      subscriber, then at DEBUG on subsequent occurrences
+      (:func:`log_rate_limited`), and skipped. Other subscribers
+      still receive the event. See ``TestSubscriberExceptionIsolation``.
     - The subscriber list is snapshotted under the lock before
       iteration, so ``unsubscribe`` from within a subscriber
       callback does not raise ``RuntimeError: Set changed size
@@ -323,7 +378,19 @@ def _subscriber_count() -> int:
 
 
 def shutdown() -> None:
-    """M-22: shut down the deferred-publish ThreadPoolExecutor.
+    """M-22 / GT-C1-7: shut down the deferred-publish ThreadPoolExecutor.
+
+    This is the SINGLE canonical lifecycle hook for the lazily-created
+    ``ThreadPoolExecutor``.  Previously a duplicate ``shutdown_executor()``
+    function existed alongside this one — it was deleted in GT-C1-7
+    (DRY, Rule 24) because nothing in the codebase called it (only
+    ``shutdown()`` is invoked from
+    ``shutdown_controller._do_cleanup``).  The ``shutdown_executor``
+    variant differed only in passing ``cancel_futures=True`` to
+    ``executor.shutdown``; we preserve the original ``shutdown()``
+    semantics (``wait=False``, no ``cancel_futures``) so already-queued
+    ``_deliver`` tasks finish on the worker thread and in-flight events
+    are not lost.
 
     The single-worker ``ThreadPoolExecutor`` lazily created by
     ``_get_deferred_executor()`` is a process-global resource that was
@@ -392,9 +459,10 @@ def shutdown() -> None:
 #   and the listeners are fast (set a flag, flip a toggle). The
 #   PERF-2 RT-thread deferral is NOT applied here because no RT
 #   thread ever publishes a config change.
-# - Listener exceptions are isolated (logged at DEBUG, skipped) so
-#   one misbehaving listener doesn't block the others — matches the
-#   semantics of the generic ``publish`` path.
+# - Listener exceptions are isolated (logged at WARNING on the first
+#   occurrence per listener, then at DEBUG via ``log_rate_limited``,
+#   and skipped) so one misbehaving listener doesn't block the others
+#   — matches the semantics of the generic ``publish`` path (GT-3).
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -506,9 +574,11 @@ def _publish_config_change(updates: dict) -> bool:
       PERF-2-style deferral here (RT threads never publish config
       changes).
     - Listener exception isolation: a listener that raises is logged
-      at DEBUG level (with ``exc_info``) and skipped. Other
-      listeners still receive the event. Matches the generic
-      ``publish`` semantics.
+      at WARNING (with ``exc_info``) on the FIRST occurrence per
+      listener, then at DEBUG on subsequent occurrences
+      (:func:`log_rate_limited`), and skipped. Other listeners still
+      receive the event. Matches the generic ``publish`` semantics
+      (GT-3).
     - The listener list is snapshotted under the lock before
       iteration so a listener that (un)subscribes itself or another
       listener during fan-out does not raise ``RuntimeError: Set
@@ -524,9 +594,17 @@ def _publish_config_change(updates: dict) -> bool:
             listener.on_config_changed(updates)
             delivered = True
         except Exception:
-            log.debug(
+            # GT-3: same WARNING-on-first / DEBUG-on-repeat policy as
+            # the generic ``_deliver`` path. ``listener`` is a
+            # ``ConfigChangeListener`` Protocol; ``_subscriber_key``
+            # falls back to ``id()`` for protocol-implementing objects
+            # without a useful ``__qualname__``.
+            log_rate_limited(
+                log,
+                logging.WARNING,
                 "[event_bus] config-change listener raised",
                 exc_info=True,
+                key=f"config_listener:{_subscriber_key(listener)}",
             )
     return delivered
 

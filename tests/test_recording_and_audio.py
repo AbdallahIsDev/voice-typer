@@ -75,9 +75,18 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
+        # GT-46: _force_recover_from_stuck_transcription now snapshots
+        # _transcription_thread + _watchdog_firings under _watchdog_lock.
+        ctrl._watchdog_lock = threading.Lock()
+        # Force-recover path also touches _cancelled_cycle_ids_lock +
+        # _cancelled_cycle_ids when app._cycle_id is non-None. MagicMock's
+        # auto-attribute makes app._cycle_id non-None, so we must init both.
+        ctrl._cancelled_cycle_ids_lock = threading.Lock()
+        ctrl._cancelled_cycle_ids = set()
 
         app = MagicMock()
         app._busy_event.is_set.return_value = False
+        app._cycle_id = None  # avoid _cancelled_cycle_ids path
         ctrl._app = app
 
         ctrl._force_recover_from_stuck_transcription(force=True)
@@ -98,6 +107,8 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
+        # GT-46: snapshot block needs _watchdog_lock.
+        ctrl._watchdog_lock = threading.Lock()
         app = MagicMock()
         app._busy_event.is_set.return_value = False
         ctrl._app = app
@@ -123,6 +134,8 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
+        # GT-46: snapshot block needs _watchdog_lock.
+        ctrl._watchdog_lock = threading.Lock()
         app = MagicMock()
         app._busy_event.is_set.return_value = False
         ctrl._app = app
@@ -419,6 +432,8 @@ class TestCancelGuaranteesTrayReset:
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._streaming_session_lock = threading.Lock()
         ctrl._watchdog_lock = threading.Lock()
+        # GT-22: cancel() now acquires _toggle_lock (RLock) at entry.
+        ctrl._toggle_lock = threading.RLock()
         ctrl._watchdog_firings = 0
         ctrl._watchdog_max_firings = 3
         ctrl._transcription_thread = None
@@ -456,6 +471,8 @@ class TestCancelSetsCancellingState:
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._streaming_session_lock = threading.Lock()
         ctrl._watchdog_lock = threading.Lock()
+        # GT-22: cancel() now acquires _toggle_lock (RLock) at entry.
+        ctrl._toggle_lock = threading.RLock()
         ctrl._watchdog_firings = 0
         ctrl._watchdog_max_firings = 3
         ctrl._transcription_thread = None

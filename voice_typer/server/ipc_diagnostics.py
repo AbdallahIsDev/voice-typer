@@ -146,12 +146,29 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         # CR-10: OVERWRITE (not append) the diagnostic file so repeated
         # relaunch crashes don't grow it without bound.
         _secure_atomic_write(diag_path, _redact_text(buf.getvalue()))
-        _log.error("[FATAL] Diagnostic written to %s", diag_path)
+        # GT-14: log at CRITICAL (level 50) -- the level-name carries
+        # the severity; an in-message ``[FATAL]`` prefix is dropped
+        # because log aggregators / alerting rules key off
+        # ``record.levelno``, not substring matches.
+        _log.critical("Diagnostic written to %s", diag_path)
     except Exception as write_exc:
-        # CR-40: last-resort — try stderr then a temp file so the
+        # CR-40: last-resort -- try stderr then a temp file so the
         # traceback isn't lost (e.g. read-only config dir under
         # pythonw.exe where stdout/stderr are also devnull).
-        print(buf.getvalue(), file=sys.stderr)
+        # GT-B1-5: ``print`` bypasses the PIIRedactionFilter -- pipe
+        # the payload through ``_redact_text`` BEFORE the print so
+        # secrets embedded in the traceback (URL query-string keys,
+        # env-var dumps, bearer tokens) are masked the same way they
+        # would be in a ``log.critical`` record.  If the redactor
+        # itself raises, fall back to printing the unredacted payload
+        # -- a partially-redacted traceback is better than no traceback
+        # at all (this matches the ``except Exception:`` last-resort
+        # philosophy of the surrounding block).
+        try:
+            stderr_payload = _redact_text(buf.getvalue())
+        except Exception:
+            stderr_payload = buf.getvalue()
+        print(stderr_payload, file=sys.stderr)
         try:
             # G4-M-27: the /tmp fallback must be (a) PII-redacted
             # (same as the config-dir path) and (b) owner-only.
@@ -173,11 +190,14 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
             )
             with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as f:
                 f.write(redacted_payload)
-            _log.error(
-                "[FATAL] Could not write %s; wrote to %s instead (write error: %s)",
+            # GT-14: log at CRITICAL -- see comment above.  The
+            # ``[FATAL]`` prefix is dropped because the level name
+            # now carries that information.
+            _log.critical(
+                "Could not write %s; wrote to %s instead (write error: %s)",
                 diag_path,
                 tmp,
                 write_exc,
             )
         except Exception:
-            _log.error("[FATAL] Could not write diagnostic anywhere: %s", write_exc)
+            _log.critical("Could not write diagnostic anywhere: %s", write_exc)

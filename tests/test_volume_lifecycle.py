@@ -237,7 +237,7 @@ class TestStartDictationDucksVolume:
         app.config.volume_duck_enabled = True
         app.config.volume_duck_level = 0.25
         app.config.volume_duck_fade_ms = 200
-        app.config.volume_duck_per_session = False
+        # GT-58: volume_duck_per_session was REMOVED from the Config dataclass.
         app.recorder.recording = False
         app.recorder.start = MagicMock()
 
@@ -582,7 +582,7 @@ class TestPerSessionDuckGatedOnSupport:
         app, backend = app_with_fake_ducker
         # FakeBackend defaults to supports_per_session=False
         app.config.volume_duck_enabled = True
-        app.config.volume_duck_per_session = True  # user opted in
+        # GT-58: volume_duck_per_session was REMOVED from the Config dataclass.
         app.recorder.recording = False
         app.recorder.start = MagicMock()
 
@@ -625,9 +625,9 @@ class TestPerSessionDuckGatedOnSupport:
         instance.recorder.recording = False
         instance.recorder.start = MagicMock()
         instance.config.volume_duck_enabled = True
-        # UX-2: per_session is set to True in config, but the app must
-        # ignore it and always use master-volume ducking.
-        instance.config.volume_duck_per_session = True
+        # GT-58: volume_duck_per_session was REMOVED from the Config
+        # dataclass. The app MUST always use master-volume ducking
+        # regardless of any legacy on-disk value (UX-2).
 
         instance._start_dictation()
 

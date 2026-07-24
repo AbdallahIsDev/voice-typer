@@ -136,8 +136,6 @@ class TestHandlerCatchAllEnvelopeShape:
         assert resp["data"]["message"] == "internal error"
 
     def test_get_vocabulary_catch_all_has_code_field(self, ipc_server, fake_service):
-        """NOTE: vocabulary_handlers.py is in agent 2-m's scope. Until migrated,
-        this test will fail (handler emits server.handler_error, not server.internal_error)."""
         fake_service.get_vocabulary.side_effect = RuntimeError("vocab db corrupt")
         resp = ipc_server._handle_get_vocabulary({}, {})
         assert resp["type"] == "error"
@@ -152,8 +150,6 @@ class TestHandlerCatchAllEnvelopeShape:
         assert resp["data"]["message"] == "internal error"
 
     def test_get_microphones_catch_all_has_code_field(self, ipc_server, fake_service):
-        """NOTE: microphone_handlers.py is in agent 2-m's scope. Same caveat as
-        test_get_vocabulary_catch_all_has_code_field."""
         fake_service.get_microphones.side_effect = RuntimeError("portaudio init failed")
         resp = ipc_server._handle_get_microphones({}, {})
         assert resp["type"] == "error"
@@ -161,8 +157,6 @@ class TestHandlerCatchAllEnvelopeShape:
         assert resp["data"]["message"] == "internal error"
 
     def test_repaste_last_catch_all_has_code_field(self, ipc_server, fake_service):
-        """NOTE: repaste_handlers.py is in agent 2-m's scope. Same caveat as
-        test_get_vocabulary_catch_all_has_code_field."""
         fake_service.repaste_last.side_effect = RuntimeError("clipboard busy")
         resp = ipc_server._handle_repaste_last({}, {})
         assert resp["type"] == "error"

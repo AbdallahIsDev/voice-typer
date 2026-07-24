@@ -26,19 +26,20 @@
  * module-level `isStopping` / `isStopped` flags ensure only the FIRST
  * call performs any work; subsequent calls return immediately.
  *
- * Flags are reset by `_resetStopPythonFlagsForRestart()`, called from
- * `startPython()` after the retry-generation bump. Tests can call it
- * directly instead of relying on `vi.resetModules()`.
- * `state._stopPythonCalled` is mirrored alongside the flags for
- * cross-module observability and is also reset by
- * `_resetStopPythonFlagsForRestart()`.
+ * The flags reset automatically when this module is re-evaluated
+ * (e.g. by `vi.resetModules()` in tests, or by Electron's renderer
+ * reload in dev mode), so a freshly-spawned backend can be stopped
+ * again after a relaunch. `state._stopPythonCalled` is mirrored
+ * alongside the flags for cross-module observability; resetting it on
+ * `startPython()` is handled by `_resetStopPythonFlags()` (GT-A3-10,
+ * exported below) which `start-python.ts` should call at the top of
+ * `startPython()`.
  *
- * XV-156: the armed `killTimer` is `.unref()`'d so it doesn't keep the
- * Node event loop alive if the process is otherwise ready to exit
- * (e.g. Python exits cleanly before the 3s grace period elapses).
+ * GT-71: the armed `killTimer` is NOT `.unref()`'d. It must keep the
+ * Node event loop alive until the SIGTERM fires so Electron doesn't
+ * exit (cancelling the timer) before Python is confirmed dead.
  */
 import { state } from "../state";
-import { clearTcpStartupTimeout } from "./tcp-connect";
 import { sendToPython } from "./send-to-python";
 
 // XV-157 (XZ-14): idempotency state. `isStopping` is true while a stop
@@ -52,6 +53,8 @@ import { sendToPython } from "./send-to-python";
 // resets them — this is what makes dev-mode `startPython()` re-spawn
 // re-stoppable without requiring `start-python.ts` to know about the
 // flags.
+//
+// GT-A3-10: `_resetStopPythonFlags()` is exported below.
 let isStopping = false;
 let isStopped = false;
 
@@ -62,33 +65,6 @@ let isStopped = false;
 // the case where the guard is bypassed (e.g. by a future code path
 // that resets `isStopping`/`isStopped` mid-cycle).
 let armedKillTimer: ReturnType<typeof setTimeout> | null = null;
-
-/**
- * Reset the idempotency flags so a freshly-spawned backend can be
- * stopped again after a relaunch. Called from `startPython()` (after the
- * retry-generation bump) so each new backend lifecycle starts with a
- * clean stop state. Tests can call this directly instead of relying on
- * `vi.resetModules()` to re-evaluate the module.
- *
- * Also clears any armed `killTimer` left over from a prior stop cycle
- * (defense-in-depth — the timer should already have been cleared by the
- * `killTimer` callback or the `.once('exit')` listener, but if neither
- * fired e.g. because the prior backend was adopted via `VT_PYTHON_PORT`,
- * the handle would otherwise leak).
- *
- * ER-29: also clears the TCP startup timeout timer so a fresh 60s
- * window begins with the new backend lifecycle.
- */
-export function _resetStopPythonFlagsForRestart(): void {
-	if (armedKillTimer) {
-		clearTimeout(armedKillTimer);
-		armedKillTimer = null;
-	}
-	isStopping = false;
-	isStopped = false;
-	state._stopPythonCalled = false;
-	clearTcpStartupTimeout();
-}
 
 export function stopPython() {
 	// XV-157 (XZ-14): idempotency guard. If a stop is already in
@@ -123,9 +99,6 @@ export function stopPython() {
 		clearTimeout(state._tcpRetryTimer);
 		state._tcpRetryTimer = null;
 	}
-	// ER-29: clear the TCP startup timeout so the 60s startup
-	// dialog doesn't fire while we're shutting down.
-	clearTcpStartupTimeout();
 	// No live process to kill — shutdown is "complete" immediately.
 	// Flip the flags so any subsequent call (e.g. will-quit firing
 	// after before-quit) is a no-op.
@@ -153,15 +126,7 @@ export function stopPython() {
 	}
 	const killTimer = setTimeout(() => {
 		if (state.pythonProcess) {
-			// DE-84: use SIGKILL (not the default SIGTERM) to
-			// match the file-header docstring's "force-kill"
-			// promise and the parallel pattern in
-			// `relaunch-app.ts`. A Python backend stuck in a C
-			// extension (torch/sounddevice import) will ignore
-			// SIGTERM exactly as it ignored `quit_app`; SIGKILL is
-			// uncatchable and guarantees the process exits,
-			// releasing the single-instance mutex.
-			state.pythonProcess.kill("SIGKILL");
+			state.pythonProcess.kill();
 			state.pythonProcess = null;
 		}
 		armedKillTimer = null;
@@ -171,12 +136,8 @@ export function stopPython() {
 		isStopping = false;
 		isStopped = true;
 	}, 3000);
-	// XV-156: unref the killTimer so it doesn't keep the event
-	// loop alive if the process is otherwise ready to exit (e.g.
-	// Python exits cleanly before the 3s grace period elapses, or
-	// the breaker-trip `app.quit()` succeeds before the timer
-	// fires).
-	killTimer.unref();
+	// GT-71: do NOT `.unref()` the killTimer — it must keep Electron
+	// alive until Python is confirmed dead.
 	armedKillTimer = killTimer;
 	// P1-2c (Round 0 forward-port): use `.once` so the listener is
 	// auto-removed after firing. `stopPython()` may be called more than
@@ -199,4 +160,20 @@ export function stopPython() {
 		isStopping = false;
 		isStopped = true;
 	});
+}
+
+/**
+ * GT-A3-10: reset the idempotency flags so a freshly-spawned backend
+ * can be stopped again. `startPython()` should call this BEFORE
+ * assigning `state.pythonProcess`.
+ * @internal
+ */
+export function _resetStopPythonFlags(): void {
+	isStopping = false;
+	isStopped = false;
+	if (armedKillTimer) {
+		clearTimeout(armedKillTimer);
+		armedKillTimer = null;
+	}
+	state._stopPythonCalled = false;
 }

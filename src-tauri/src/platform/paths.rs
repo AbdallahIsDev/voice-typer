@@ -17,35 +17,34 @@
 /// byte-for-byte, we resolve from env vars directly, matching the
 /// Python side's `_paths.config_dir()` resolution.
 ///
-/// # NF-R19-4: the `app` parameter is kept for future migration
+/// # NF-R19-4 (REVISED): `app` parameter dropped
 ///
-/// Today the `app: &tauri::AppHandle` parameter is unused (env-var
-/// resolution matches Python `_paths.py`, see below). It is kept in
-/// the signature rather than dropped because:
-/// (1) the function is called from `main.rs` + `platform/logging.rs`
-///     where the `AppHandle` is already in scope — passing it in keeps
-///     the call sites forward-compatible with a future migration to
-///     `app.path().app_config_dir()` (e.g. if we ever align the
-///     Python side's dir name to `com.voicetyper.app`).
-/// (2) dropping the param would require editing `main.rs` and
-///     `platform/logging.rs`, which are NOT in this fix's file
-///     ownership set — that edit is sequenced as a follow-up by the
-///     primary agent after this fix lands. Keeping the param avoids a
-///     broken compile in the interim.
-/// `#[allow(unused_variables)]` is NOT acceptable per the project's
-/// lint rules, so the `let _ = app;` discards the value explicitly
-/// with this rationale attached.
+/// Previously this function took `app: &tauri::AppHandle` for
+/// "forward-compatible migration to `app.path().app_config_dir()`".
+/// The param was never used (`let _ = app;`), and the migration never
+/// materialized — the env-var resolution is the steady-state path. The
+/// dead param was flagged by GT-E3-4 and is now removed; all 3 callers
+/// (`main.rs`, `system_cmds.rs`, `migrate.rs`) updated.
 ///
 /// # No Electron userData merge under Tauri
 ///
 /// ADR-0020 §8 mentions an optional one-time migration from the old
 /// Electron `userData/voice-typer` directory to `<config_dir>` on
 /// first Tauri launch. Under Tauri there is **no Electron main
-/// process**, so no `userData/voice-typer` dir ever exists — the
-/// migration step is a no-op and is intentionally NOT implemented
-/// here. (If a future hybrid build ever needs it, the merge rules in
-/// ADR-0020 §8 apply — newest-mtime-wins for `config.json`, append-
-/// only for `history.db`, copy-only-absent for `models/`.)
+/// process**, so the `userData/voice-typer` dir is created only by the
+/// PRIOR Electron install on the user's machine — IF one exists. The
+/// migration step IS implemented (see `crate::migrate::migrate_electron_userdata`)
+/// and runs from `main.rs::setup` BEFORE the sidecar spawns. It probes
+/// the three legacy Electron `userData` names (`voice-typer-desktop`,
+/// `voice-typer`, `Voice Typer`) under the platform's `userData` base,
+/// picks the first that exists, and merges per ADR-0020 §8 rules:
+/// newest-mtime-wins for `config.json`, append-only for `history.db`,
+/// copy-only-absent for `models/`. The merge is idempotent and guarded
+/// by a `.migrated-from-electron` sentinel file so it only runs once.
+/// (GT-E3-8: the prior doc here said "migration is a no-op and is
+/// intentionally NOT implemented here" — that was stale; the
+/// migration IS implemented in `migrate.rs` and has been running since
+/// session-1's PVT-4 fix.)
 ///
 /// # Python-side `VoiceTyperSingleInstance` Win32 mutex
 ///
@@ -57,8 +56,7 @@
 /// `tauri-plugin-single-instance` gate (§12). The Tauri plugin uses
 /// the same Win32 mutex approach under the hood (different name based
 /// on the app identifier) so the two gates don't collide.
-pub(crate) fn config_dir(app: &tauri::AppHandle) -> std::path::PathBuf {
-    let _ = app; // NF-R19-4: see doc comment above — kept for future migration.
+pub(crate) fn config_dir() -> std::path::PathBuf {
     config_dir_from_env(
         std::env::var("HOME").ok().as_deref(),
         std::env::var("APPDATA").ok().as_deref(),
@@ -153,19 +151,19 @@ pub(crate) fn config_dir_from_env(
         // if CWD is read-only, which is the correct behavior (better
         // than crashing during config-dir resolution).
         let base = appdata.unwrap_or_else(|| {
-            // PVT-G5-085: switched from `eprintln!` to `log::warn!`
-            // so the warning lands in `voice-typer.log` (the rotating
-            // file logger) for operators. Note: at the very first
-            // call from `main.rs` (before `init_file_logger` runs),
-            // `log::warn!` is a silent no-op — the runtime calls
-            // through `config_dir(app)` after logger init will emit.
-            log::warn!(
+            // PVT-G5-085: switched from `eprintln!` to `log::warn!`.
+            // GT-80: ALSO eprintln! so it lands on stderr regardless
+            // of logger state (first call from main.rs happens BEFORE
+            // init_file_logger, so log::warn! alone is silent).
+            let warn_msg = format!(
                 "[paths] APPDATA env var is not set — falling back to \
                  CWD-relative config dir (./{}). This is expected for \
                  Windows service accounts / headless CI but indicates \
                  a missing user profile in normal desktop sessions.",
                 APP_NAME
             );
+            eprintln!("{}", warn_msg);
+            log::warn!("{}", warn_msg);
             "."
         });
         std::path::PathBuf::from(base).join(APP_NAME)
@@ -178,15 +176,18 @@ pub(crate) fn config_dir_from_env(
         // (rare — `launchd` always sets HOME for user sessions, but
         // a system LaunchDaemon runs without it). Falls back to CWD.
         let home = home.unwrap_or_else(|| {
-            // PVT-G5-085: `log::warn!` (was `eprintln!`) — see the
-            // Windows branch above for the rationale.
-            log::warn!(
+            // PVT-G5-085: `log::warn!` (was `eprintln!`).
+            // GT-80: ALSO eprintln! so it lands on stderr regardless
+            // of logger state.
+            let warn_msg = format!(
                 "[paths] HOME env var is not set — falling back to \
                  CWD-relative config dir (./{}). This is expected for \
                  system LaunchDaemons but indicates a missing user \
                  profile in normal desktop sessions.",
                 APP_NAME
             );
+            eprintln!("{}", warn_msg);
+            log::warn!("{}", warn_msg);
             "."
         });
         std::path::PathBuf::from(home)
@@ -210,9 +211,10 @@ pub(crate) fn config_dir_from_env(
         // technically undefined behavior per the spec; we choose a
         // CWD-relative path rather than panicking.
         let home = home.unwrap_or_else(|| {
-            // PVT-G5-085: `log::warn!` (was `eprintln!`) — see the
-            // Windows branch above for the rationale.
-            log::warn!(
+            // PVT-G5-085: `log::warn!` (was `eprintln!`).
+            // GT-80: ALSO eprintln! so it lands on stderr regardless
+            // of logger state.
+            let warn_msg = format!(
                 "[paths] HOME env var is not set — falling back to \
                  CWD-relative config dir (./{}). This is expected for \
                  systemd user units without `Environment=HOME=...` \
@@ -220,6 +222,8 @@ pub(crate) fn config_dir_from_env(
                  desktop sessions.",
                 APP_NAME
             );
+            eprintln!("{}", warn_msg);
+            log::warn!("{}", warn_msg);
             "."
         });
         std::path::PathBuf::from(home)

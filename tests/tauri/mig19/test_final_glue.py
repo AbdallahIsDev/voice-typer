@@ -204,17 +204,19 @@ EXPECTED_MAIN_RS_COMMANDS = [
     "bubble_set_draggable",
     "bubble_move_by",
     "bubble_hide_complete",
-    # CR-33 — bubble window extensions (resize / state / toggle).
+    # CR-33 — bubble window extensions (resize / toggle).
+    # GT-82: `bubble_emit_state` removed — dead in production.
     "bubble_resize",
-    "bubble_emit_state",
     "bubble_toggle_dictation",
-    # CR-33 — system-level window_ commands (port of Electron
-    # window:open-logs / model:import-dialog / templates:export /
-    # config:export IPC handlers).
+    # CR-33 — system-level window_ commands.
     "open_logs",
+    # GT-83: dedicated host-log-dir opener.
+    "open_host_logs",
     "open_model_import_dialog",
     "export_templates",
     "export_config",
+    # GT-35: renderer-side error log sink.
+    "renderer_log_error",
 ]
 
 #: ADR-0020 §15: the v1 Tauri migration MUST NOT wire up

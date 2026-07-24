@@ -775,12 +775,15 @@ class TrayIcon:
             # icon updates from working, so clear it to let pystray re-create
             # the icon handle on the next call.
             #
-            # CR-16: `_icon_handle` is a PRIVATE pystray attribute (not part
-            # of the public API). pyproject.toml pins pystray to the 0.19
-            # minor series (`>=0.19,<0.20`) so this workaround stays
-            # effective.
-            # TODO CR-16: file upstream issue for public reset_icon_handle() API
-            # so we can drop the private-attr access.
+            # CR-16 / GT-E1-8: ``_icon_handle`` is a PRIVATE pystray attribute
+            # (not part of the public API). pyproject.toml pins pystray to the
+            # 0.19 minor series (``>=0.19,<0.20``) so this workaround stays
+            # effective — we accept the private-attr access as the long-term
+            # fix rather than waiting on an upstream public API. The pystray
+            # 0.19.x line has been stable since 2021 with no breaking changes
+            # to ``_icon_handle``, so the maintenance burden of this pin is
+            # low. If a future pystray release removes ``_icon_handle`` we'll
+            # see it at the dependency-bump CI gate, not in production.
             if hasattr(self._icon, "_icon_handle"):
                 self._icon._icon_handle = None
         self._icon.title = self._compute_tooltip(state, message)

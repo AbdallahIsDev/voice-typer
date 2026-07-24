@@ -27,11 +27,18 @@
 
 from __future__ import annotations
 
+import contextlib
 import errno
 import os
 
 import pytest
 from voice_typer.server import single_instance as si_mod
+
+# CR-16/GT-41: ``fcntl`` is POSIX-only; skip the entire module on
+# Windows (the Windows mutex path is exercised in regressions/
+# security_test.py instead).
+pytest.importorskip("fcntl")
+import fcntl  # noqa: E402
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -59,8 +66,51 @@ def isolated_config_dir(monkeypatch, tmp_path):
 
 
 def _cleanup_lock_fd(fd: int | None) -> None:
-    """Close a lock fd if open (best-effort)."""
-    if fd is not None:
+    """Close a lock fd if open (best-effort).
+
+    Works with both raw ``int`` fds and ``_PosixSingleInstanceHandle``
+    instances (which subclass ``int``). Calls ``release()`` if the
+    handle exposes it, then falls back to ``os.close`` for safety.
+    """
+    if fd is None:
+        return
+    # GT-42: prefer the handle's ``release()`` method (idempotent,
+    # also unlinks the lockfile best-effort).
+    release = getattr(fd, "release", None)
+    if callable(release):
+        try:
+            release()
+            return
+        except OSError:
+            pass
+    try:
+        os.close(int(fd))
+    except OSError:
+        pass
+
+
+@contextlib.contextmanager
+def _hold_flock(lock_path):
+    """GT-41: Open ``lock_path`` and hold ``flock(LOCK_EX)`` for the
+    duration of the ``with`` block.
+
+    Used by ``TestSecondInstanceRejected`` to simulate a LIVE process
+    holding the lockfile's flock — which is what the new GT-41 logic
+    checks FIRST (before any PID liveness check). Pre-writing a PID
+    string into the lockfile is no longer enough to trigger the
+    duplicate-launch rejection, because ``flock`` is the authoritative
+    crash-safe primitive (the old PID-check-first behavior was the
+    PID-recycling false positive that GT-41 fixes).
+    """
+    fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield fd
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
         try:
             os.close(fd)
         except OSError:
@@ -140,26 +190,42 @@ class TestFirstInstanceAcquiresLock:
 
 
 class TestSecondInstanceRejected:
-    """Scenario (b): lockfile exists with an ALIVE PID → sys.exit(1)."""
+    """Scenario (b): lockfile exists AND another process holds the flock
+    → ``sys.exit(1)``.
 
-    def test_exits_when_pid_is_alive(self, isolated_config_dir):
-        """A live PID in the lockfile → SystemExit(1)."""
-        # Pre-create the lockfile with our own PID (definitely alive).
+    GT-41: the previous tests pre-wrote our own PID into the lockfile
+    and relied on ``_is_pid_alive`` returning True to trigger the
+    rejection. That path is now the FALLBACK (only taken when
+    ``os.open(O_RDWR)`` on the existing lockfile fails). The PRIMARY
+    rejection signal is now ``flock(LOCK_EX | LOCK_NB)`` failing with
+    ``EWOULDBLOCK`` — which we simulate here by holding the flock on
+    another fd for the duration of the call.
+    """
+
+    def test_exits_when_flock_held_by_another_process(self, isolated_config_dir):
+        """A live flock holder → SystemExit(1).
+
+        GT-41: ``flock`` is the authoritative crash-safe primitive.
+        Even though the PID in the lockfile may be our own (or a
+        recycled unrelated PID), if another process holds the flock
+        we must exit.
+        """
         lock_file = isolated_config_dir / "backend.lock"
         lock_file.write_text(f"{os.getpid()}\n")
         assert lock_file.exists()
 
-        with pytest.raises(SystemExit) as exc_info:
-            si_mod._ensure_single_instance_posix(silent=True)
-        assert exc_info.value.code == 1
+        with _hold_flock(lock_file):
+            with pytest.raises(SystemExit) as exc_info:
+                si_mod._ensure_single_instance_posix(silent=True)
+            assert exc_info.value.code == 1
 
-    def test_does_not_unlink_lockfile_when_pid_alive(self, isolated_config_dir):
-        """The lockfile is NOT removed when the PID is alive (we're the duplicate)."""
+    def test_does_not_unlink_lockfile_when_flock_held(self, isolated_config_dir):
+        """The lockfile is NOT removed when another process holds the flock."""
         lock_file = isolated_config_dir / "backend.lock"
         lock_file.write_text(f"{os.getpid()}\n")
         original_content = lock_file.read_text()
 
-        with pytest.raises(SystemExit):
+        with _hold_flock(lock_file), pytest.raises(SystemExit):
             si_mod._ensure_single_instance_posix(silent=True)
 
         # Lockfile must still exist with the original PID (we didn't steal it).
@@ -178,7 +244,7 @@ class TestSecondInstanceRejected:
         pid_file = isolated_config_dir / "backend.pid"
         pid_file.write_text(f"{os.getpid()}\n")
 
-        with pytest.raises(SystemExit):
+        with _hold_flock(lock_file), pytest.raises(SystemExit):
             si_mod._ensure_single_instance_posix(silent=True)
 
         # PID file must be unchanged.
@@ -189,7 +255,7 @@ class TestSecondInstanceRejected:
         lock_file = isolated_config_dir / "backend.lock"
         lock_file.write_text(f"{os.getpid()}\n")
 
-        with pytest.raises(SystemExit):
+        with _hold_flock(lock_file), pytest.raises(SystemExit):
             si_mod._ensure_single_instance_posix(silent=True)
 
         captured = capsys.readouterr()
@@ -201,7 +267,7 @@ class TestSecondInstanceRejected:
         lock_file = isolated_config_dir / "backend.lock"
         lock_file.write_text(f"{os.getpid()}\n")
 
-        with pytest.raises(SystemExit):
+        with _hold_flock(lock_file), pytest.raises(SystemExit):
             si_mod._ensure_single_instance_posix(silent=False)
 
         captured = capsys.readouterr()

@@ -1,6 +1,5 @@
 import { PanelLeftIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useEffect, useState } from "react";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import type { WindowBridge } from "@/types/ipc";
@@ -11,7 +10,14 @@ interface TitleBarProps {
 	onGoForward?: () => void;
 	canGoBack?: boolean;
 	canGoForward?: boolean;
-	isMaximized?: boolean;
+	// GT-E2-10 (session-6 dedup): ``isMaximized`` is now a REQUIRED prop.
+	// Previously TitleBar had its own local ``useState`` +
+	// ``onMaximizedChanged`` subscription as a fallback for when the
+	// prop was undefined — duplicating the subscription already living
+	// in App.tsx (App.tsx:161-189) which always passes the prop. The
+	// duplicate subscription is deleted; App.tsx is the single owner of
+	// the maximize-state subscription.
+	isMaximized: boolean;
 	// UX-8: open the keyboard-shortcut help overlay. Previously the
 	// overlay was only reachable via the "?" key — invisible to users
 	// who never discover that shortcut. Exposing a TitleBar button
@@ -134,44 +140,13 @@ export function TitleBar({
 	onGoForward,
 	canGoBack,
 	canGoForward,
-	isMaximized: isMaximizedProp,
+	isMaximized,
 	onOpenHelp,
 }: TitleBarProps) {
-	const [localIsMaximized, setLocalIsMaximized] = useState(false);
 	const bridge =
 		typeof window !== "undefined"
 			? (window.window_ as WindowBridge)
 			: undefined;
-
-	useEffect(() => {
-		if (isMaximizedProp !== undefined) return;
-		if (!bridge) return;
-		let cancelled = false;
-		bridge
-			.isMaximized()
-			.then((v) => {
-				if (!cancelled) setLocalIsMaximized(v);
-			})
-			// G4-M-XX: surface window-control IPC failures instead of
-			// swallowing them silently — empty `.catch(() => {})` made
-			// debugging why the maximize state never updated nearly
-			// impossible. The structured warn lands in dev-tools and
-			// (via the main process console-message forwarder) in
-			// ``electron-renderer-errors.log``.
-			.catch((err) =>
-				console.warn("[IPC] window control failed: isMaximized:", err),
-			);
-		const unsub = bridge.onMaximizedChanged((v) => {
-			if (!cancelled) setLocalIsMaximized(v);
-		});
-		return () => {
-			cancelled = true;
-			unsub();
-		};
-	}, [bridge, isMaximizedProp]);
-
-	const isMaximized =
-		isMaximizedProp !== undefined ? isMaximizedProp : localIsMaximized;
 
 	const handleMinimize = () =>
 		bridge
@@ -282,8 +257,8 @@ export function TitleBar({
 			</button>
 
 			{/* UX-8: discoverable "?" help button. Mirrors the "?"
-			    keyboard shortcut (handled in App.tsx) so mouse users and
-			    AT users can also open the keyboard-shortcut overlay. */}
+                            keyboard shortcut (handled in App.tsx) so mouse users and
+                            AT users can also open the keyboard-shortcut overlay. */}
 			<button
 				type="button"
 				onClick={onOpenHelp}

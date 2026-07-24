@@ -47,9 +47,7 @@ def _parse_frontend_reserved_shortcuts() -> dict:
     robust to future TS source formatting changes.
     """
     if not _HOTKEY_RESERVED_JSON_CLIENT.exists():
-        pytest.skip(
-            f"hotkey_reserved.json not found at {_HOTKEY_RESERVED_JSON_CLIENT}"
-        )
+        pytest.skip(f"hotkey_reserved.json not found at {_HOTKEY_RESERVED_JSON_CLIENT}")
     with _HOTKEY_RESERVED_JSON_CLIENT.open("r", encoding="utf-8") as f:
         data = json.load(f)
     return data.get("per_platform_reserved", {})
@@ -79,6 +77,7 @@ def test_reserved_hotkeys_match_frontend() -> None:
 # ──────────────────────────────────────────────────────────────────────────
 # 2. _validate_hotkey
 # ──────────────────────────────────────────────────────────────────────────
+
 
 def test_is_reserved_hotkey_win32() -> None:
     """Win32-reserved shortcuts are detected on the win32 platform."""
@@ -207,6 +206,7 @@ def test_is_reserved_hotkey_non_reserved() -> None:
 # 3. validate_config_update rejects reserved shortcuts
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def test_validate_config_update_rejects_reserved_hotkey() -> None:
     """Setting a reserved hotkey via IPC is rejected.
 
@@ -222,9 +222,7 @@ def test_validate_config_update_rejects_reserved_hotkey() -> None:
     original = cv._sys.platform
     cv._sys.platform = "darwin"
     try:
-        validated, errors = validate_config_update(
-            {"hotkey": "<cmd>+<space>"}
-        )
+        validated, errors = validate_config_update({"hotkey": "<cmd>+<space>"})
         assert len(errors) == 1
         assert "reserved" in errors[0].lower()
         assert "hotkey" not in validated
@@ -246,27 +244,35 @@ def test_validate_config_update_rejects_reserved_repaste_hotkey() -> None:
     original = cv._sys.platform
     cv._sys.platform = "win32"
     try:
-        validated, errors = validate_config_update(
-            {"repaste_hotkey": "<win>+<l>"}
-        )
+        validated, errors = validate_config_update({"repaste_hotkey": "<win>+<l>"})
         assert len(errors) == 1
         assert "reserved" in errors[0].lower()
     finally:
         cv._sys.platform = original
 
 
-def test_validate_config_update_rejects_reserved_push_to_talk_hotkey() -> None:
-    """The push_to_talk_hotkey field also rejects reserved shortcuts."""
+def test_validate_config_update_silently_drops_push_to_talk_hotkey() -> None:
+    """GT-F2-8: ``push_to_talk_hotkey`` was removed from
+    ``IPC_CONFIG_ALLOWLIST`` to match the TS-side contract (config.ts
+    documents it as a write-only back-compat field the renderer MUST
+    NOT write). The field is still a ``Config`` dataclass member and
+    still validated on load — only the IPC write path is closed.
+
+    A payload with ``push_to_talk_hotkey`` set to a *reserved* shortcut
+    must NOT raise a reserved-shortcut error: the key is silently
+    dropped by ``validate_config_update`` (same contract as any other
+    unknown key), so the reserved-shortcut validator never runs.
+    """
     import voice_typer.server.config_validators as cv
 
     original = cv._sys.platform
     cv._sys.platform = "darwin"
     try:
-        validated, errors = validate_config_update(
-            {"push_to_talk_hotkey": "<cmd>+<q>"}
-        )
-        assert len(errors) == 1
-        assert "reserved" in errors[0].lower()
+        validated, errors = validate_config_update({"push_to_talk_hotkey": "<cmd>+<q>"})
+        # No errors — the field is silently dropped, not rejected.
+        assert errors == [], f"push_to_talk_hotkey should be silently dropped (GT-F2-8); got errors: {errors}"
+        # The field does not appear in the validated dict.
+        assert "push_to_talk_hotkey" not in validated
     finally:
         cv._sys.platform = original
 
@@ -275,10 +281,8 @@ def test_validate_config_update_rejects_reserved_push_to_talk_hotkey() -> None:
 # 4. _platform_key
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def test_platform_key_returns_valid_key() -> None:
     """_platform_key returns one of the valid _RESERVED_HOTKEYS keys."""
     pk = _platform_key()
-    assert pk in _RESERVED_HOTKEYS, (
-        f"_platform_key() returned {pk!r}, expected one of "
-        f"{list(_RESERVED_HOTKEYS.keys())}"
-    )
+    assert pk in _RESERVED_HOTKEYS, f"_platform_key() returned {pk!r}, expected one of {list(_RESERVED_HOTKEYS.keys())}"

@@ -69,7 +69,8 @@ export interface StatusChangeEvent {
 //   - {type:"error", data:{code:"unknown_tray_item", id?}} (no `message`)
 //   - {type:"error", data:{code:"internal_error"|"rate_limited", message}}
 // `code` is always present (REQUIRED); `message` is conventionally present
-// but omitted for `unknown_tray_item`. The 4 optional fields cover all
+// but omitted for `unknown_tray_item` (GT-F2-7: made OPTIONAL on the TS
+// side to match the emitter reality). The 4 optional fields cover all
 // variants without forcing callers to narrow on `code` first.
 //
 // Note: this is the module-local ErrorEvent (Python IPC). It does NOT
@@ -121,7 +122,15 @@ export interface ErrorEvent {
 	type: "error";
 	data: {
 		code: ErrorCodes;
-		message: string;
+		// GT-F2-7: `message` is OPTIONAL — the `unknown_tray_item`
+		// emitter in `voice_typer/server/ipc_server.py` pushes
+		// `{type:"error", data:{code:"unknown_tray_item", id?}}`
+		// with NO `message` field (only `id` identifies the bad
+		// tray item). All other emitters include `message`.
+		// Previously REQUIRED here, forcing callers to either lie
+		// (asserting `message: string` on a value that's
+		// `undefined` at runtime) or narrow on `code` first.
+		message?: string;
 		field?: string;
 		command?: string;
 		id?: string | number;
@@ -359,21 +368,57 @@ export interface QuitAppEvent {
  *  EC-FIX-7 (addresses [EC-3]): the wire event was renamed from
  *  `relaunch_electron` to `relaunch_app` on the Python+Tauri sides in
  *  PVT-2. The renderer type now models `relaunch_app` as the canonical
- *  event. The legacy `RelaunchElectronEvent` (below) is retained for
- *  backward compat with older Python backends that still emit
- *  `relaunch_electron`; both are members of the `PythonPushEvent` union
- *  so the renderer accepts either during the transition. */
+ *  event.
+ *
+ *  GT-55: the legacy `RelaunchElectronEvent` (type: "relaunch_electron")
+ *  was DELETED — verified the Python side emits ONLY `relaunch_app` now
+ *  (the `relaunch_electron` symbol survives only in historical comments
+ *  in `voice_typer/server/app.py` and `voice_typer/server/ipc_server.py`,
+ *  not as a wire event). The transition window for old sidecars has long
+ *  since closed. */
 export interface RelaunchAppEvent {
 	type: "relaunch_app";
 	data: Record<string, unknown>;
 }
 
-/** @deprecated Use `RelaunchAppEvent`. Kept for backward compat with older
- *  Python backends that still emit `relaunch_electron`. Do NOT add new
- *  emitters — the canonical event name is `relaunch_app` (see [EC-3]). */
-export interface RelaunchElectronEvent {
-	type: "relaunch_electron";
-	data: Record<string, unknown>;
+// ── GT-52: server-emitted push events previously missing from the union ─
+//
+// The Python backend emits these via `event_bus.publish(...)` but the
+// TS `PythonPushEvent` union never modelled them, so renderer code
+// subscribing via `usePythonEvent("tray_state", ...)` got no compile-time
+// type narrowing (the event was typed as `never` in the union, forcing
+// `as unknown as PythonPushEvent` casts — a Rule 26 violation). Added
+// here so the union matches the actual server emit surface.
+
+/** Pushed by `voice_typer/server/tray_menu.py:416` to update the tray
+ *  icon + tooltip. The Python emitter (`_push_tray_state`) only
+ *  includes `icon` and/or `tooltip` if non-null, and bails out if BOTH
+ *  are null — so at runtime the payload has at least one of the two,
+ *  but the TS type marks both optional to match the emitter's
+ *  conditional inclusion pattern. Consumed by the Tauri Rust host
+ *  (`src-tauri/src/sidecar/ws.rs`) which forwards to the OS tray. */
+export interface TrayStateEvent {
+	type: "tray_state";
+	data: { icon?: string; tooltip?: string };
+}
+
+/** Pushed by `voice_typer/server/service/model.py:596-605` when a model
+ *  download is refused because the user has not granted the required
+ *  consent (e.g. HuggingFace). The renderer surfaces a consent dialog
+ *  naming the provider + model; the message is shown verbatim. */
+export interface ConsentRequiredEvent {
+	type: "consent_required";
+	data: { provider: string; model: string; message: string };
+}
+
+/** Pushed by `voice_typer/server/parakeet_engine.py:910-915` when GPU
+ *  transcription fails and the engine falls back to CPU. `device` is
+ *  always `"cpu"` today; `reason` is the truncated exception message
+ *  (max 200 chars per the Python emitter). The renderer uses this to
+ *  show a one-time "transcription will be slower" banner. */
+export interface ParakeetCpuFallbackEvent {
+	type: "parakeet_cpu_fallback";
+	data: { device: string; reason: string };
 }
 
 // ── FT-1 (resilient sidecar) lifecycle events ──────────────────────
@@ -443,7 +488,12 @@ export type PythonPushEvent =
 	| ShowWindowEvent
 	| QuitAppEvent
 	| RelaunchAppEvent
-	| RelaunchElectronEvent
+	// GT-52: three server-emitted events previously missing from the
+	// union. Each is published by `event_bus.publish(...)` in the
+	// Python tree (see the per-interface docstring for the emitter).
+	| TrayStateEvent
+	| ConsentRequiredEvent
+	| ParakeetCpuFallbackEvent
 	| ReconnectingEvent
 	| ReconnectedEvent;
 

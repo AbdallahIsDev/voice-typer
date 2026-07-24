@@ -25,8 +25,15 @@ RESOURCES_DIR="$PROJECT_ROOT/src-tauri/resources"
 # ─── Args ────────────────────────────────────────────────────────────────────
 ARCH="${1:-}"
 if [[ "$ARCH" == "--check" ]]; then
-    echo "[build_prewarm_macos] --check: same toolchain as build_sidecar_macos — OK if that passes."
-    exit 0
+    # Delegate to the sibling sidecar build script which performs the
+    # real toolchain probe (python-build-standalone interpreter,
+    # nuitka, faster_whisper, ctranslate2). The prewarm binary uses
+    # the exact same Nuitka toolchain as the sidecar, so a successful
+    # sidecar --check implies a successful prewarm build.
+    # WR-18: previously this was a stub that just echoed "OK if that
+    # passes" and exited 0 without invoking the sibling — masking
+    # real toolchain breakage.
+    exec bash "$SCRIPT_DIR/build_sidecar_macos.sh" --check
 fi
 
 if [[ -z "$ARCH" ]]; then

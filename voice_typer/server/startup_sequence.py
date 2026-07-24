@@ -473,13 +473,36 @@ class StartupSequence:
                 # delegates were removed; callers now target startup_tasks.
                 prewarm_future = pool.submit(startup_tasks.sync_prewarm_task, app, _shutdown_event)
                 mic_future = pool.submit(startup_tasks.load_microphones, app, _shutdown_event)
-                # RACE-020: reduced timeout from 30s to 10s so a stuck
-                # task doesn't block the entire startup sequence.
-                for label, fut in [("prewarm", prewarm_future), ("mic", mic_future)]:
+                # GT-A1-3: enforce a SINGLE shared 10s budget across
+                # both futures. The previous code called
+                # ``fut.result(timeout=10)`` sequentially, so a stuck
+                # ``prewarm`` task could consume the full 10s, then
+                # ``mic`` could consume ANOTHER 10s — total worst-case
+                # startup delay was 20s, not 10s. ``concurrent.futures.wait``
+                # with ``timeout=10`` enforces a single shared deadline:
+                # both futures must complete within 10s of submission,
+                # otherwise the not-done futures are reported as
+                # ``TIMEOUT`` and we log a warning per remaining future.
+                # RACE-020 (10s budget, down from 30s) is preserved.
+                done, not_done = concurrent.futures.wait(
+                    {prewarm_future, mic_future},
+                    timeout=10,
+                    return_when=concurrent.futures.ALL_COMPLETED,
+                )
+                for fut in done:
+                    # Surface any exception from a completed future.
+                    label = "prewarm" if fut is prewarm_future else "mic"
                     try:
-                        fut.result(timeout=10)
+                        fut.result()
                     except Exception as exc:
                         log.warning("[STARTUP] %s task failed: %s", label, exc)
+                for fut in not_done:
+                    label = "prewarm" if fut is prewarm_future else "mic"
+                    log.warning(
+                        "[STARTUP] %s task did not complete within shared 10s budget "
+                        "(still running on worker thread; will be cancelled below)",
+                        label,
+                    )
             finally:
                 # PVT-G5-015: do NOT wait for the pool's worker threads
                 # to finish — they may be stuck inside ``subprocess.run``

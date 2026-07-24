@@ -27,7 +27,7 @@
 //! - macOS:   `~/Library/Application Support/<name>`
 //! - Linux:   `~/.config/<name>` (or `$XDG_CONFIG_HOME/<name>`)
 //!
-//! New Tauri config_dir: `platform::paths::config_dir(app)` (already implemented).
+//! New Tauri config_dir: `platform::paths::config_dir()` (already implemented).
 //!
 //! Merge rules (do NOT overwrite newer data):
 //! - `config.json`: if absent in target, copy whole; if present but differs,
@@ -118,8 +118,13 @@ fn electron_userdata_candidates() -> Vec<PathBuf> {
 }
 
 /// One-time, idempotent, SAFE migration from Electron userData to Tauri config_dir.
-pub fn migrate_electron_userdata(app: &tauri::AppHandle) {
-    let new_dir = crate::platform::paths::config_dir(app);
+pub fn migrate_electron_userdata(_app: &tauri::AppHandle) {
+    // GT-E3-4: `app` was only used to call `platform::paths::config_dir(app)`;
+    // now that `config_dir()` takes no args, the param is unused. Kept in
+    // the signature for forward-compat (a future migration might need
+    // `app.path().resource_dir()` to copy bundled defaults). Prefixed
+    // with `_` to silence the unused-param lint under clippy::all.
+    let new_dir = crate::platform::paths::config_dir();
 
     // CR-19 fix: use a sentinel file (.migrated-from-electron) as the
     // idempotency marker instead of checking config.json existence.

@@ -77,6 +77,18 @@ jobs:
     if: false
     runs-on: ubuntu-22.04
     timeout-minutes: 90
+    # WR-17: job-level permissions widen the top-level `contents: read`
+    # default (:71-72) with the two scopes required for SLSA build
+    # provenance attestation via actions/attest-build-provenance@v4 —
+    # mirrors tauri-windows-build.yml:88-91 and tauri-macos-build.yml:254-257.
+    # `id-token: write` lets the job mint an OIDC token for the attestation
+    # signing identity; `attestations: write` lets it write the attestation
+    # record to the repo. Both are no-ops on PR/fork builds (the `if:` gate
+    # on the attestation step below restricts it to tag pushes only).
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       # Fail fast = false so an aarch64 build failure doesn't hide an x86_64
       # success (and vice versa). ADR-0020 §"Reversibility": each platform's
@@ -294,6 +306,28 @@ jobs:
           npm ci
           npm run build:renderer
 
+      # WR-17: generate placeholder Tauri icons + binary stubs if they
+      # don't already exist. cargo tauri build reads the icon list from
+      # tauri.conf.json and hard-fails on the first missing icon. The
+      # `--check` flag exits 0 if all stubs are present (no-op on a warm
+      # checkout) and 1 if any are missing — the `||` falls through to
+      # the generation command only when needed. CLI flags verified by
+      # reading scripts/gen_tauri_icons_stub.py (argparse: --check /
+      # --clean / no-flag = generate).
+      - name: Generate Tauri icons (stub)
+        run: |
+          python3 scripts/gen_tauri_icons_stub.py --check || python3 scripts/gen_tauri_icons_stub.py
+
+      # WR-17: install tauri-cli explicitly. The runner's pre-installed
+      # `cargo-tauri` is unversioned and lags upstream by months; on
+      # ubuntu-22.04 it has historically been missing entirely (the
+      # `cargo tauri build` step below would fail with `no such command`).
+      # macOS already has this step at tauri-macos-build.yml:356; Windows
+      # gets the same step in this same WR-17 batch. Pin to ^2.0 so we
+      # stay on the Tauri v2 line.
+      - name: Install tauri-cli (v2)
+        run: cargo install tauri-cli --version "^2.0"
+
       - name: Build Tauri app (${{ env.BUILD_ARCH }})
         # ADR-0020 Phase 0-L gate: cargo tauri build needs webkit2gtk-4.1-dev +
         # libgtk-3-dev, which we installed above. The build runs headless because
@@ -371,3 +405,63 @@ jobs:
             src-tauri/resources/.build-prewarm-*.log
             src-tauri/target/*/release/.frozen/Cargo.lock
           if-no-files-found: warn
+
+      # WR-17: generate SHA-256 checksums for the .deb + .AppImage + .rpm
+      # installers, mirroring tauri-windows-build.yml:368-393. Linux uses
+      # GNU `sha256sum`. The matrix fans out per arch (x86_64, aarch64)
+      # so each arch leg produces its own SHA256SUMS.txt — the artifact
+      # name is parameterized on BUILD_ARCH to avoid clobbering. Output
+      # format is `<hash>  <basename>` so users can verify with
+      # `sha256sum -c SHA256SUMS.txt` on any Linux distro.
+      - name: Generate SHA-256 checksums
+        run: |
+          set -euo pipefail
+          : > SHA256SUMS.txt
+          for f in \
+              src-tauri/target/*/release/bundle/deb/*.deb \
+              src-tauri/target/release/bundle/deb/*.deb \
+              src-tauri/target/*/release/bundle/appimage/*.AppImage \
+              src-tauri/target/release/bundle/appimage/*.AppImage \
+              src-tauri/target/*/release/bundle/rpm/*.rpm \
+              src-tauri/target/release/bundle/rpm/*.rpm; do
+            [ -f "$f" ] || continue
+            hash=$(sha256sum "$f" | awk '{print $1}')
+            name=$(basename "$f")
+            echo "$hash  $name" >> SHA256SUMS.txt
+          done
+          echo "Generated SHA256SUMS.txt for $BUILD_ARCH:"
+          cat SHA256SUMS.txt
+          # Fail loudly if no installers were found (mirrors the Windows
+          # workflow's if-no-files-found: error policy on its checksums
+          # upload — a silent empty checksums file would give a false
+          # sense of verification coverage).
+          if [ ! -s SHA256SUMS.txt ]; then
+            echo "::error::No .deb/.AppImage/.rpm installers found for $BUILD_ARCH — SHA256SUMS.txt is empty."
+            exit 1
+          fi
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v5
+        with:
+          name: VoiceTyper-Tauri-Linux-SHA256SUMS-${{ env.BUILD_ARCH }}
+          path: SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      # WR-17: SLSA build provenance attestation. Mirrors
+      # tauri-windows-build.yml:395-401 and tauri-macos-build.yml:467-479.
+      # Gated on tag pushes so PR/fork builds (which lack the job-level
+      # id-token:write permission grant in fork contexts) don't fail.
+      # subject-path covers all three installer formats across both arch
+      # target dirs (target/<triple>/release/bundle/ and target/release/bundle/).
+      - name: Attest build provenance (SLSA)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            src-tauri/target/*/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/*/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/*/release/bundle/rpm/*.rpm
+            src-tauri/target/release/bundle/rpm/*.rpm

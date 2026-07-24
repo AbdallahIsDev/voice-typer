@@ -59,15 +59,6 @@ class TestHelpersReturnPathsUnderConfigDir:
     def test_config_dir_equals_config_dir(self):
         assert _paths.config_dir() == self.dir
 
-    def test_pid_file_under_config_dir(self):
-        assert _paths.pid_file() == self.dir / "autostart.pid"
-
-    def test_prewarm_sentinel_under_config_dir(self):
-        assert _paths.prewarm_sentinel() == self.dir / ".prewarm-sentinel"
-
-    def test_prewarm_log_under_config_dir(self):
-        assert _paths.prewarm_log() == self.dir / "prewarm.log"
-
     def test_prewarm_launchagent_log_under_config_dir(self):
         assert _paths.prewarm_launchagent_log() == self.dir / "prewarm-launchagent.log"
 
@@ -260,9 +251,8 @@ class TestNoHardcodedVoiceTyperPaths:
         assert not offenders, (
             "RW-7 regression: hardcoded Path.home() / '.voice-typer' "
             "found in executable code. Use voice_typer.server._paths "
-            "helpers instead (config_dir, pid_file, prewarm_sentinel, "
-            "prewarm_log, prewarm_launchagent_log, autostart_log, "
-            "venv_pythonw, legacy_hf_cache_dir):\n" + "\n".join(offenders)
+            "helpers instead (config_dir, prewarm_launchagent_log, "
+            "autostart_log, venv_pythonw, legacy_hf_cache_dir):\n" + "\n".join(offenders)
         )
 
     def test_config_py_still_has_legacy_migration_probe(self):

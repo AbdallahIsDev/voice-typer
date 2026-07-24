@@ -241,10 +241,19 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             });
         })
         .on_tray_icon_event(|tray, event| {
+            // GT-B4-7: log the raw event at debug so a future regression
+            // in tray click handling surfaces in the rotating log.
+            log::debug!("[TRAY] icon click event: {:?}", event);
             if let TrayIconEvent::Click { .. } = event {
                 if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
+                    if let Err(e) = window.show() {
+                        log::warn!("[TRAY] show failed: {}", e);
+                    }
+                    if let Err(e) = window.set_focus() {
+                        log::warn!("[TRAY] set_focus failed: {}", e);
+                    }
+                } else {
+                    log::warn!("[TRAY] main window not found on tray click");
                 }
             }
         });
@@ -274,11 +283,19 @@ pub fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     });
 
     // CR-6 (Rust side): listen for `tray_state` events from the Python
-    // sidecar and update the tray icon + tooltip. The Python-side
-    // `_maybe_publish_tray_menu` + `tray_state` emission is owned by
-    // Fix-E — this listener is a no-op until Fix-E wires the publish
-    // path. Once Fix-E adds `app.emit("tray_state", ...)` from
-    // `tray.py::set_state`, the icon + tooltip here will start moving.
+    // sidecar and update the tray icon + tooltip.
+    //
+    // GT-E3-7 (option b — preferred): the Python-side publish path
+    // (`tray.py::set_state` emitting `tray_state` via the WS bridge) is
+    // NOT YET WIRED — it's owned by Fix-E (GT-FIX-13 owns `tray.py`).
+    // Until Fix-E lands, this listener is a no-op but is kept DEFENSIVELY
+    // so the moment Fix-E adds the publish path, the Rust side starts
+    // moving the icon + tooltip with no further host changes. The
+    // alternative (option a — delete the listener + `TrayStatePayload` +
+    // `load_tray_icon` + the 5 payload tests) was rejected because it
+    // would create a coordinated two-PR landing requirement.
+    //
+    // Defensive — Python publish path pending Fix-E.
     let app_clone_state = app.clone();
     app.listen("tray_state", move |event| {
         let payload: TrayStatePayload = match serde_json::from_str(event.payload()) {

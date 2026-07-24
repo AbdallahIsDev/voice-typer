@@ -58,6 +58,15 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+// GT-D3-6: project-wide clippy lint gate.
+#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
+
+// GT-D3-6: project-wide clippy lint gate.
+#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
+
+// GT-D3-6: project-wide clippy lint gate.
+#![warn(clippy::all, clippy::cast_possible_truncation, clippy::unwrap_used)]
+
 mod commands;
 mod migrate;
 mod platform;
@@ -79,9 +88,8 @@ use tokio_tungstenite::tungstenite::Message as WsMessage;
 use serde_json::json;
 
 use commands::bubble::{
-    bubble_emit_state, bubble_hide_complete, bubble_move_by, bubble_resize,
-    bubble_set_draggable, bubble_set_position, bubble_show, bubble_signal_ready,
-    bubble_toggle_dictation,
+    bubble_hide_complete, bubble_move_by, bubble_resize, bubble_set_draggable,
+    bubble_set_position, bubble_show, bubble_signal_ready, bubble_toggle_dictation,
 };
 use commands::export::{export_history, export_vocabulary};
 use commands::sidecar_cmds::{dispatch, paste_text, shutdown_sidecar};
@@ -90,7 +98,16 @@ use commands::sidecar_cmds::{dispatch, paste_text, shutdown_sidecar};
 // the renderer's `window.window_?` bridge expects (porting the Electron
 // `window:open-logs`, `model:import-dialog`, `templates:export`,
 // `config:export` IPC handlers).
-use commands::system_cmds::{export_config, export_templates, open_logs, open_model_import_dialog};
+//
+// GT-83: `open_host_logs` opens the Rust host log dir specifically
+// (`<config_dir>/logs/`) — distinct from `open_logs` which opens the
+// parent `<config_dir>/`.
+// GT-35: `renderer_log_error` is the bridge for the renderer's
+// `__tauriLog.error(...)` to land in a host-side rotating log file.
+use commands::system_cmds::{
+    export_config, export_templates, open_host_logs, open_logs, open_model_import_dialog,
+    renderer_log_error,
+};
 use platform::logging::init_file_logger;
 use platform::paths::config_dir;
 use sidecar::supervisor::ft1_respawn;
@@ -98,16 +115,30 @@ use sidecar::spawn::spawn_sidecar_and_get_port;
 use sidecar::ws::reconnect_ws;
 use state::SidecarState;
 use std::sync::Mutex;
-// PVT-G5-007: SHUTDOWN_ACK_TIMEOUT_MS bounds the force-kill backstop
-// wait in the RunEvent::Exit handler. PVT-G5-034: Ordering is used
-// for the post-spawn shutting_down re-check.
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
-// PVT-G5-007: SHUTDOWN_ACK_TIMEOUT_MS bounds the force-kill backstop
-// wait in the RunEvent::Exit handler.
-use util::SHUTDOWN_ACK_TIMEOUT_MS;
 use tokio::sync::Mutex as AsyncMutex;
 use std::collections::HashMap;
+
+// GT-26 (High, partial): Host shutdown budget mismatched.
+//
+// `util::SHUTDOWN_ACK_TIMEOUT_MS` is 2000ms (2s) — but the sidecar's
+// GRACEFUL shutdown path can legitimately take 3-4s on a cold disk.
+// The 2s budget force-kills the sidecar mid-flush, which can corrupt
+// `history.db` (WAL not checkpointed) and leak the native hotkey
+// binary child.
+//
+// This is a LOCAL override — we do NOT touch `util::SHUTDOWN_ACK_TIMEOUT_MS`
+// because (a) that file is owned by GT-FIX-19, and (b) the 2s value is
+// pinned by a unit test in `util.rs::tests` AND used by `shutdown_sidecar`
+// (the renderer-invoked cooperative-shutdown command) where a tighter
+// 2s budget is appropriate. The `RunEvent::Exit` path here is the
+// LAST-RESORT teardown when the host is going away — it should err on
+// the side of giving the sidecar more time rather than force-killing
+// mid-flush.
+//
+// Coordinate with GT-FIX-06 (owns sidecar_ws.py graceful shutdown).
+const HOST_SHUTDOWN_GRACE_MS: u64 = 5000;
 
 // Re-export for the `tauri::generate_handler!` macro. The macro expects
 // the command fn names to be in scope at the call site — the `use` above
@@ -137,9 +168,17 @@ fn main() {
         );
         // Best-effort: env_logger for stderr only (no file sink).
         // `try_init` avoids panic if `log::set_logger` was already called.
-        let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        //
+        // GT-79: surface env_logger fallback failure to stderr.
+        if let Err(e2) = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
             .format_timestamp_millis()
-            .try_init();
+            .try_init()
+        {
+            eprintln!(
+                "[MAIN] env_logger fallback ALSO failed: {} — running with NO logger; all log::*! calls will be dropped",
+                e2
+            );
+        }
     }
 
     tauri::Builder::default()
@@ -155,8 +194,13 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             // ADR-0020 §12: second launch — focus the existing main window.
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-                let _ = window.set_focus();
+                // GT-B4-12: log best-effort show/focus failures.
+                if let Err(e) = window.show() {
+                    log::warn!("[MAIN] single-instance: window.show() failed (best-effort): {}", e);
+                }
+                if let Err(e) = window.set_focus() {
+                    log::warn!("[MAIN] single-instance: window.set_focus() failed (best-effort): {}", e);
+                }
             }
         }))
         .plugin(tauri_plugin_shell::init())
@@ -188,17 +232,18 @@ fn main() {
             bubble_set_draggable,
             bubble_move_by,
             bubble_hide_complete,
-            // CR-33: bubble window extensions (resize / state / toggle).
+            // CR-33: bubble window extensions (resize / toggle).
+            // GT-82: `bubble_emit_state` removed — dead in production.
             bubble_resize,
-            bubble_emit_state,
             bubble_toggle_dictation,
-            // CR-33: system-level window_ commands (port of Electron
-            // window:open-logs / model:import-dialog / templates:export
-            // / config:export IPC handlers).
+            // CR-33: system-level window_ commands.
             open_logs,
+            open_host_logs,
             open_model_import_dialog,
             export_templates,
             export_config,
+            // GT-35: renderer_log_error sink.
+            renderer_log_error,
         ])
         .setup(|app| {
             let app_handle = app.handle().clone();
@@ -209,7 +254,7 @@ fn main() {
             // emit it to the log sink.
             log::info!(
                 "[SETUP] config_dir resolved to: <redacted>/{}",
-                config_dir(&app_handle)
+                config_dir()
                     .file_name()
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| "voice-typer".into())
@@ -284,9 +329,15 @@ fn main() {
                 // needs only a few microseconds to send it on the
                 // socket. 10ms is generous; even on a loaded host the
                 // writer task schedules within 1ms.
-                std::thread::sleep(std::time::Duration::from_millis(10));
-                log::info!("[RESTART] calling app.restart()");
-                restart_handle.restart();
+                //
+                // GT-87: spawn on the async runtime so the Tauri event-
+                // loop thread is NOT blocked for 10ms.
+                let restart_for_async = restart_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    log::info!("[RESTART] calling app.restart()");
+                    restart_for_async.restart();
+                });
             });
             // ADR-0020 §6.5: create the system tray (rendered from the
             // Python sidecar's `tray_menu` events). Failure is
@@ -294,27 +345,23 @@ fn main() {
             if let Err(e) = crate::tray::create_tray(app.handle()) {
                 log::error!("[TRAY] init failed: {}", e);
             }
-            // PVT-3 (session 1): reset the FT-1 restart counter to 0 at
-            // the start of every fresh app launch, BEFORE
-            // `spawn_sidecar_and_get_port` (which is called inside the
-            // `tauri::async_runtime::spawn` block below). The counter
-            // is incremented by `ft1_respawn` on each sidecar-restart
-            // attempt and reset to 0 only on successful `reconnect_ws`.
-            // Without this reset, 3 consecutive bad cold-starts
-            // (transient AV quarantine, slow disk, missing binary on a
-            // re-install) brick the install permanently: the 4th launch
-            // reads `count: 3`, trips the breaker in `ft1_respawn`,
-            // emits `ft1_failed`, and the user has no recovery path
-            // short of manually deleting `ft1_restart_counter.json`.
-            // Resetting here means the counter only ever counts FT-1
-            // retries WITHIN a single session — which is the original
-            // CR-29 intent.
+            // GT-1 (Critical): the unconditional `write_ft1_restart_counter(0)`
+            // that used to live here DEFEATED the FT-1 circuit breaker.
+            // Every fresh app launch reset the persisted counter to 0,
+            // so 3 consecutive bad cold-starts never accumulated to the
+            // breaker threshold across launches.
             //
-            // G4-H-28 (session 4): the counter now also carries a `ts`
-            // field so stale counts from prior sessions don't trip the
-            // breaker — but we still reset here so the in-session
-            // counter starts at 0 (matching the original CR-29 intent).
-            crate::sidecar::supervisor::write_ft1_restart_counter(0);
+            // The G4-H-28 staleness check in `read_ft1_restart_counter`
+            // (supervisor.rs) ALREADY handles the stale-count case:
+            // if the counter file's `ts` field is older than
+            // `FT1_COUNTER_STALE_SECS` (10 minutes) — or missing
+            // entirely (legacy file) — the read returns 0. So a fresh
+            // launch after a 10+ minute gap reads 0 naturally.
+            //
+            // The reset is now ONLY done on successful `reconnect_ws`
+            // (supervisor.rs:375 — GT-FIX-19's file) so the in-session
+            // counter faithfully tracks FT-1 retries without being
+            // wiped by an unconditional reset at startup.
             // Spawn the sidecar + WS bridge in a background tokio task.
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();
@@ -339,7 +386,13 @@ fn main() {
                                 "[SETUP] shutting_down set during sidecar spawn — \
                                  killing freshly-spawned sidecar"
                             );
-                            let _ = child.kill_tree().await;
+                            // GT-B4-12: log best-effort kill_tree failure.
+                            if let Err(e) = child.kill_tree().await {
+                                log::warn!(
+                                    "[SETUP] kill_tree on freshly-spawned sidecar failed (best-effort): {}",
+                                    e
+                                );
+                            }
                             return;
                         }
                         *crate::state::lock(&state.child) = Some(child);
@@ -436,7 +489,7 @@ fn main() {
                     .clone();
                 tauri::async_runtime::block_on(async move {
                     let _ = tokio::time::timeout(
-                        Duration::from_millis(SHUTDOWN_ACK_TIMEOUT_MS + 1000),
+                        Duration::from_millis(HOST_SHUTDOWN_GRACE_MS + 1000),
                         crate::state::shutdown_sidecar_for_exit(&sidecar_state),
                     )
                     .await;

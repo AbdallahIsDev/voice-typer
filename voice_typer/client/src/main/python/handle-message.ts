@@ -15,6 +15,9 @@ import { app } from "electron";
 import { BUBBLE_CLR, RESET, ts } from "../logging";
 import { state } from "../state";
 import { hideBubbleWindow, showBubbleWindow, showMainWindow } from "../windows";
+// GT-A3-8: broadcastToMainWindow imported directly from main-window
+// (windows/index.ts is owned by another sub-agent and doesn't re-export it).
+import { broadcastToMainWindow } from "../windows/main-window";
 import { relaunchApp } from "./relaunch-app";
 import { sendToPython } from "./send-to-python";
 
@@ -43,7 +46,11 @@ export function handleMessage(msg: Record<string, unknown>): void {
 				// fields) to the Error so consumers can do
 				// `if ((err as any).code === "rate_limited") ...` instead of
 				// pattern-matching the human-readable message string.
-				const code = errData.code as string | undefined;
+				// GT-D2-6: avoid the unsafe `as string | undefined` cast. Narrow
+				// with `typeof` so only string codes are attached; any other shape
+				// (number, object, array) is treated as undefined.
+				const code =
+					typeof errData.code === "string" ? errData.code : undefined;
 				if (code !== undefined) {
 					(err as Error & { code?: string }).code = code;
 				}
@@ -76,7 +83,12 @@ export function handleMessage(msg: Record<string, unknown>): void {
 			);
 			hideBubbleWindow();
 		} else if (msg.type === "bubble_set_state") {
-			const state_ = (msg.data as Record<string, unknown>)?.state as string;
+			// GT-D2-6: avoid the chained `as Record<string, unknown> as string`
+			// cast chain. Coerce via `String(...)` after narrowing so the
+			// renderer always gets a string on its `bubble:set-state` channel.
+			const rawData = msg.data as Record<string, unknown> | undefined;
+			const rawState = rawData?.state;
+			const state_ = typeof rawState === "string" ? rawState : String(rawState);
 			console.warn(
 				`${ts()}  ${BUBBLE_CLR}[BUBBLE] received bubble_set_state: ${state_}${RESET}`,
 			);
@@ -138,8 +150,9 @@ export function handleMessage(msg: Record<string, unknown>): void {
 		// to the bubble window too — a data leak (the bubble only needs
 		// waveform level + show/hide events).  Filter to the main window
 		// only; the bubble gets its own dedicated channel for waveform.
-		if (state.mainWindow && !state.mainWindow.isDestroyed()) {
-			state.mainWindow.webContents.send("python-event", msg);
-		}
+		// GT-A3-8: route through broadcastToMainWindow instead of calling
+		// webContents.send directly. Centralizes CR-28 pythonReady flip +
+		// destroyed-window guard.
+		broadcastToMainWindow("python-event", msg);
 	}
 }

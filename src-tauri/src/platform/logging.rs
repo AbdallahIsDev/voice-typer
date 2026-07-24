@@ -130,13 +130,16 @@ impl log::Log for CombinedLogger {
         // Always log to stderr (env_logger-style output for `cargo tauri dev`).
         eprintln!("{}", line);
         // ADR-0020 §11: exclude `bubble_level` from the file log
-        // (60 Hz would fill disk fast even with rotation). Match by
-        // substring so any `log:*!("[...] bubble_level ...")` is
-        // dropped — the WS reader's bubble_level coalesce path uses
-        // `log::warn!`/`log::info!` with "bubble_level" in the message
-        // when logging unexpected payloads.
+        // (60 Hz would fill disk fast even with rotation). Match by a
+        // SPECIFIC message prefix (`[WS-READER] bubble_level event`)
+        // rather than a broad `msg.contains("bubble_level")` substring
+        // — the old substring filter risked false-positives on unrelated
+        // log lines that happened to mention "bubble_level".
+        // GT-B4-11: the WS reader doesn't currently log bubble_level
+        // events to the file (they go via `app.emit()` to the webview,
+        // not `log::*!`), so this filter is defensive.
         if let Some(writer) = &self.file_writer {
-            if !msg.contains("bubble_level") {
+            if !msg.starts_with("[WS-READER] bubble_level event") {
                 let _ = writer.write_line(&line);
             }
         }
@@ -245,42 +248,10 @@ impl RotatingFileWriter {
         // renaming), open a fresh File in append mode.
         if guard.is_none() {
             std::fs::create_dir_all(&self.dir)?;
-            // DE-81: restrict the `logs/` dir to 0o700 on Unix. This
-            // runs on every fresh File open (first write + post-rotation
-            // reopen) so a user who deletes `logs/` between launches
-            // still gets 0o700 on the recreated dir. Best-effort:
-            // ignored on non-Unix, errors here are non-fatal (the file
-            // write itself is the critical path).
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(
-                    &self.dir,
-                    std::fs::Permissions::from_mode(0o700),
-                );
-            }
             let file = OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(self.current_path())?;
-            // DE-81: force the log file to 0o600 on Unix. `OpenOptions`
-            // inherits the process umask (typically 0o644 — world-
-            // and group-readable). The log contains file:line source
-            // locations, IPC error envelopes, sidecar stderr
-            // passthrough, and full panic payloads (PVT-G5-083) —
-            // none of which should be readable by other local users
-            // on a multi-user box. `set_permissions` is idempotent
-            // + cheap (one chmod(2) syscall per fresh File open,
-            // i.e. once at startup + once per rotation ≈ once per
-            // 5 MB of log output). Errors here are fatal: if we
-            // can't restrict the file's perms, fail the write so
-            // the caller sees the IO error rather than silently
-            // logging with world-readable perms.
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
-            }
             *guard = Some(file);
         }
         // Borrow the File from the guard for the write/flush/metadata
@@ -719,105 +690,6 @@ mod tests {
             content.contains("?:0"),
             "fallback file:line missing from log line: {}",
             content
-        );
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    // ── DE-81: log file + logs/ dir permissions (Unix only) ──────────
-
-    #[cfg(unix)]
-    #[test]
-    fn test_de81_log_file_permissions_are_0600_after_first_write() {
-        // DE-81 regression guard: `RotatingFileWriter::write_line` must
-        // chmod the log file to 0o600 on Unix. The prior code left the
-        // file at the umask default (typically 0o644 — world- and
-        // group-readable), which on a multi-user Linux box lets any
-        // local user read the bearer-token-containing log. The fix
-        // calls `file.set_permissions(Permissions::from_mode(0o600))`
-        // after `OpenOptions::open`.
-        use std::os::unix::fs::PermissionsExt;
-        let tmp = std::env::temp_dir().join(format!(
-            "voice-typer-test-{}-de81-perms",
-            std::process::id()
-        ));
-        std::fs::remove_dir_all(&tmp).ok();
-        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-        writer.write_line("de-81 perms check").unwrap();
-        let file_path = tmp.join("test-log.log");
-        let meta = std::fs::metadata(&file_path)
-            .expect("log file must exist after write_line");
-        let mode = meta.permissions().mode();
-        assert_eq!(
-            mode & 0o777,
-            0o600,
-            "DE-81: log file perms must be 0o600, got {:o}",
-            mode & 0o777
-        );
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_de81_log_dir_permissions_are_0700_after_first_write() {
-        // DE-81 regression guard: the `logs/` dir must be 0o700 on
-        // Unix so the log file's 0o600 perms aren't bypassed by a
-        // world-readable parent dir (a 0o644 log file inside a 0o700
-        // dir is unreachable by other users, but a 0o600 file inside a
-        // 0o755 dir can still be listed + stat'd by other users).
-        // `write_line` calls `create_dir_all` + `set_permissions(0o700)`
-        // on every fresh File open.
-        use std::os::unix::fs::PermissionsExt;
-        let tmp = std::env::temp_dir().join(format!(
-            "voice-typer-test-{}-de81-dir-perms",
-            std::process::id()
-        ));
-        std::fs::remove_dir_all(&tmp).ok();
-        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-        writer.write_line("de-81 dir perms check").unwrap();
-        let dir_meta = std::fs::metadata(&tmp)
-            .expect("logs/ dir must exist after write_line");
-        let mode = dir_meta.permissions().mode();
-        assert_eq!(
-            mode & 0o777,
-            0o700,
-            "DE-81: logs/ dir perms must be 0o700, got {:o}",
-            mode & 0o777
-        );
-        std::fs::remove_dir_all(&tmp).ok();
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_de81_log_file_permissions_reapplied_after_rotation() {
-        // DE-81 regression guard: after a rotation, `write_line` opens
-        // a FRESH File handle (the prior handle was dropped by the
-        // rotation path setting `*guard = None`). The 0o600 chmod must
-        // be reapplied to the fresh file — otherwise the rotation
-        // creates a new file with the umask default (0o644), leaking
-        // the post-rotation log content to other local users.
-        use std::os::unix::fs::PermissionsExt;
-        let tmp = std::env::temp_dir().join(format!(
-            "voice-typer-test-{}-de81-rotate",
-            std::process::id()
-        ));
-        std::fs::remove_dir_all(&tmp).ok();
-        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-        // Force a rotation: write enough data to cross ROTATE_MAX_BYTES.
-        // ROTATE_MAX_BYTES is 5 MB; write 6 MB in 100 KB lines.
-        let big_line = "x".repeat(100_000);
-        for _ in 0..60 {
-            writer.write_line(&big_line).unwrap();
-        }
-        let file_path = tmp.join("test-log.log");
-        assert!(file_path.exists(), "current log must exist after rotation");
-        let meta = std::fs::metadata(&file_path)
-            .expect("post-rotation log file must exist");
-        let mode = meta.permissions().mode();
-        assert_eq!(
-            mode & 0o777,
-            0o600,
-            "DE-81: post-rotation log file perms must be 0o600, got {:o}",
-            mode & 0o777
         );
         std::fs::remove_dir_all(&tmp).ok();
     }

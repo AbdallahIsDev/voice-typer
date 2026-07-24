@@ -22,7 +22,6 @@
  * injects an `exit` mock that bypasses `_productionExit`, the Python
  * backend is still cleaned up before the breaker trips.
  */
-import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { app, crashReporter, dialog, session } from "electron";
@@ -34,31 +33,15 @@ import { state } from "./state";
 
 /**
  * SEC-029: generate a per-session nonce. Use crypto.randomUUID()
- * (always available in Node 14.17+/Electron 12+ via the built-in
- * `node:crypto` module), fall back to a timestamp+random string if
- * `randomUUID` throws (extremely unlikely — would require a broken
- * CSPRNG). Stored in `state.sessionNonce` and tagged onto every
- * python-event so the renderer can reject replayed frames.
- *
- * AC-116: previously this function used CommonJS `require("node:crypto")`
- * inside a `try/catch`, inconsistent with the rest of this file which
- * uses ESM imports for `fs`, `path`, and `electron`. The defensive
- * `require` was a historical artifact — `node:crypto` is a built-in
- * module that's always available in Node 14+, so the ESM import is
- * always safe.
- *
- * ER-65: the dynamic `require("node:crypto")` was also a per-call
- * cost (Node caches built-in modules, but the resolver still runs).
- * Replaced with a static top-level `import { randomUUID }` — bound
- * at module load time, no per-call `require`. The `typeof randomUUID
- * === "function"` guard is kept for defensive portability (some
- * sandboxed runtimes expose the `crypto` module without the named
- * export).
+ * when available (Node 14.17+/Electron 12+), fall back to a
+ * timestamp+random string. Stored in `state.sessionNonce` and tagged
+ * onto every python-event so the renderer can reject replayed frames.
  */
 function generateSessionNonce(): void {
 	try {
+		const cryptoMod = require("node:crypto") as { randomUUID?: () => string };
 		state.sessionNonce =
-			(typeof randomUUID === "function" ? randomUUID() : "") ||
+			cryptoMod.randomUUID?.() ||
 			`${Date.now()}-${Math.random().toString(36).slice(2)}`;
 	} catch {
 		state.sessionNonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -259,8 +242,9 @@ export function _installErrorHandlers(opts: {
 				err instanceof Error ? (err.stack ?? err.message) : String(err)
 			}\n`;
 			fs.appendFileSync(filePath, line, { encoding: "utf-8" });
-		} catch {
-			// Logging is best-effort.
+		} catch (e) {
+			// GT-B3-8: surface the failure.
+			console.error("[bootstrap] logEvent failed for", filePath, e);
 		}
 	};
 
@@ -419,9 +403,14 @@ function _productionExit(code: number): void {
 			e,
 		);
 	}
-	// Schedule `app.quit()` first so Electron's `before-quit` /
-	// `will-quit` hooks fire (they're the canonical shutdown path
-	// and what the rest of the app listens to).
+	// GT-12: synchronously SIGKILL the Python backend BEFORE the
+	// quit call so the kill is NOT timer-dependent.
+	try {
+		state.pythonProcess?.kill("SIGKILL");
+	} catch (e) {
+		console.error("[VT] synchronous SIGKILL of Python failed:", e);
+	}
+	// Schedule the quit call so Electron's before-quit/will-quit hooks fire.
 	try {
 		app.quit();
 	} catch (e) {
@@ -450,4 +439,18 @@ export function bootstrapRuntime(): void {
 	setupUserData();
 	setupCsp();
 	setupErrorHandlers();
+	// GT-A3-7: best-effort crash reporter.
+	try {
+		crashReporter.start({ uploadToServer: false });
+	} catch (e) {
+		console.warn("[bootstrap] crashReporter.start failed (non-fatal):", e);
+	}
+	// GT-A3-7: surface child/GPU process crashes.
+	try {
+		app.on("child-process-gone", (_e: unknown, details: unknown) => {
+			log.error("child-process-gone", details);
+		});
+	} catch (e) {
+		console.warn("[bootstrap] child-process-gone handler failed:", e);
+	}
 }

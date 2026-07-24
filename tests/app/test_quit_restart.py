@@ -372,30 +372,6 @@ class TestAppRestartLogMessage:
             )
 
 
-def _stub_restart_for_log_test(app, monkeypatch):
-    """Stub out restart_app side effects so it can run for log capture."""
-    monkeypatch.setattr(
-        "voice_typer.server.event_bus.publish",
-        lambda msg: None,
-    )
-    monkeypatch.setattr("voice_typer.server.app.time.sleep", lambda s: None)
-    monkeypatch.setattr(
-        "voice_typer.server.app.sys.exit",
-        lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
-    )
-    monkeypatch.setattr("voice_typer.server.app.os._exit", lambda code: None)
-    app.hotkeys._hotkey_backend = MagicMock()
-    app.hotkeys._esc_backend = MagicMock()
-    app.hotkeys._repaste_backend = MagicMock()
-    app._cancel_pending_timers = MagicMock()
-    app.tray = MagicMock()
-    app.recorder = MagicMock()
-    app.recorder.recording = False
-    app.recording._transcription_thread = None
-    app.recording.get_streaming_session = MagicMock(return_value=None)
-    app.recording.set_streaming_session = MagicMock()
-
-
 class TestAppQuitAppAlwaysPushesEvent:
     """APP-10: ``quit_app`` previously checked ``_shutting_down`` at the
     TOP of the method, BEFORE pushing the ``quit_app`` event. On a

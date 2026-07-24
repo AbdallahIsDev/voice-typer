@@ -121,8 +121,39 @@ class TimerCoordinator:
             gen = self._timer_generation
 
             def guarded_func():
-                if gen == self._timer_generation:
-                    func()
+                # GT-72: the generation check is a check-then-act TOCTOU.
+                # ``threading.Timer.cancel()`` only prevents a timer that
+                # hasn't fired yet. If this ``guarded_func`` has already
+                # been invoked by the Timer thread (and passed the
+                # unlocked gen check below) when
+                # ``_cancel_pending_timers`` bumps the generation, the
+                # running callback would still proceed to call
+                # ``func()`` — which touches app state (tray, recorder,
+                # IPC server) that ``_do_cleanup`` is concurrently
+                # tearing down. We close the window with a second
+                # generation check performed UNDER the lock (pairs with
+                # the bump in ``_cancel_pending_timers``), and ALSO
+                # consult ``app._shutting_down_event`` so a callback
+                # that races against the very start of shutdown (before
+                # ``_cancel_pending_timers`` has run but after the
+                # shutdown event has been set) is still suppressed.
+                if gen != self._timer_generation:
+                    return  # stale: scheduled before a cancel
+                app = self._app
+                shutting_down_event = getattr(app, "_shutting_down_event", None) if app is not None else None
+                if shutting_down_event is not None and shutting_down_event.is_set():
+                    log.debug("[TIMER] suppressed scheduled callback: app._shutting_down_event is set")
+                    return
+                # Re-check the generation under the lock so a concurrent
+                # ``_cancel_pending_timers`` cannot bump-and-clear
+                # between the unlocked check above and the ``func()``
+                # call below. The lock is released immediately (we do
+                # NOT hold it during ``func()``) so slow callbacks don't
+                # block other threads from scheduling.
+                with self._pending_timers_lock:
+                    if gen != self._timer_generation:
+                        return
+                func()
 
             timer = threading.Timer(delay, guarded_func)
             # RACE-016: daemon=True is acceptable because timer callbacks

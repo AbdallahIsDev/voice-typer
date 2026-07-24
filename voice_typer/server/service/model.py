@@ -694,6 +694,16 @@ class ModelMixin:
             except Exception:
                 log.debug("[SERVICE] tray notify failed", exc_info=True)
 
+        # WR-14: pyrefly unbound-name — initialize download_id BEFORE the
+        # outer ``try:`` block so the ``except Exception`` handler below
+        # can safely reference it even if the very first statement inside
+        # the try (the ``from voice_typer.server.model_registry import
+        # get_model_metadata`` import) raises ImportError before the
+        # previous (in-try) initialization at the old line 709 executed.
+        # The HIGH-8 / SERVICE-1 comment below still applies — this
+        # initialization is the safety net for the outer handler.
+        download_id: str | None = None
+
         try:
             # NEW-MODEL-001: consult the model registry so we support
             # turbo + distilled variants without hard-coding name-to-repo
@@ -701,12 +711,11 @@ class ModelMixin:
             # any registry drift.
             from voice_typer.server.model_registry import get_model_metadata
 
-            # HIGH-8 / SERVICE-1: initialize download_id at the top of
-            # the outer try so the outer ``except Exception`` handler
+            # HIGH-8 / SERVICE-1: download_id is initialized above the
+            # outer ``try:`` so the outer ``except Exception`` handler
             # can safely reference it (and call _unregister_download)
             # even when the exception was raised before the inner
             # _register_download call was reached.
-            download_id: str | None = None
 
             model_meta = get_model_metadata(model_name)
             is_whisper_family = model_meta is not None and model_meta.backend in ("whisper", "distil-whisper")

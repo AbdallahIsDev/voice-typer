@@ -993,7 +993,18 @@ class TestDynamicSampleRateResolution:
         )
 
     def test_resolve_returns_tuple_with_native_rate(self):
-        """The method must return (sample_rate, device_info_dict)."""
+        """The method must return (sample_rate, device_info_dict).
+
+        WR-4: previously this test wrapped its assertion in
+        `try/except Exception: pass`, which swallowed the AssertionError
+        raised by `assert result is not None` itself — the test was a
+        no-op that passed even when the production method returned None
+        or raised. Now we let exceptions propagate (the only expected
+        failure mode is `sounddevice.PortAudioError` if no device is
+        available, which is environment-specific and should surface as
+        a skip rather than a silent pass). We also assert the explicit
+        tuple shape per the docstring contract.
+        """
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder
 
@@ -1007,14 +1018,21 @@ class TestDynamicSampleRateResolution:
                 "default_samplerate": 48000,
                 "max_input_channels": 1,
             }
-            try:
-                result = rec._resolve_effective_sample_rate()
-                # Must return a tuple (rate, info) or similar
-                assert result is not None
-            except Exception:
-                # Some implementations may need more setup; the key
-                # assertion is that the method exists and is callable.
-                pass
+            result = rec._resolve_effective_sample_rate()
+            # The method must return a (sample_rate, device_info_dict) tuple.
+            assert result is not None, (
+                "AUDIO-016: _resolve_effective_sample_rate() returned None — "
+                "the method must always return a (rate, info) tuple when "
+                "sounddevice.query_devices succeeds."
+            )
+            assert isinstance(result, tuple), (
+                f"AUDIO-016: _resolve_effective_sample_rate() returned "
+                f"{type(result).__name__}, expected tuple. Got: {result!r}"
+            )
+            assert len(result) == 2, (
+                f"AUDIO-016: _resolve_effective_sample_rate() returned a "
+                f"{len(result)}-tuple, expected 2-tuple (rate, info). Got: {result!r}"
+            )
 
 
 class TestPeakMeterAccuracy:

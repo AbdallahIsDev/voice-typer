@@ -65,6 +65,9 @@ class TestLevelMonitorStop:
         fake_service.level_monitor_stop.side_effect = RuntimeError("not running")
         resp = ipc_server._handle_level_monitor_stop({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestLevelMonitorStatus:
@@ -88,3 +91,6 @@ class TestLevelMonitorStatus:
         fake_service.level_monitor_status.side_effect = RuntimeError("state corrupt")
         resp = ipc_server._handle_level_monitor_status({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"

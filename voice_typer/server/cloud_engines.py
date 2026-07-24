@@ -15,6 +15,8 @@ import io
 import json
 import logging
 import threading
+from collections.abc import Callable
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
@@ -324,7 +326,7 @@ class CloudEngine:
         model: str | None = None,
         language: str = "en",
         consent_given: bool = False,
-        local_engine_factory: "callable | None" = None,
+        local_engine_factory: "Callable[..., Any] | None" = None,
     ):
         self.provider = provider
         self.api_key = api_key

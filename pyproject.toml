@@ -208,7 +208,8 @@ voice-typer = "voice_typer.server.ipc_server:main"
 # pytest-mock: MagicMock fixture.
 test = [
     "pytest>=7",
-    "pytest-mock",
+    # WR-1: pytest-mock removed — verified zero usages of `mocker` fixture
+    # across tests/ (tests use monkeypatch + unittest.mock.patch instead).
     "pytest-asyncio>=0.23",
     "pytest-timeout>=2.3",
     "pytest-cov>=4.1",
@@ -370,6 +371,11 @@ test_command = "pytest -x -q tests/test_text_cleanup.py tests/test_config.py tes
 
 [tool.setuptools.packages.find]
 include = ["voice_typer*"]
+# WR-19: exclude voice_typer.client (the JS/TS Electron/Tauri frontend)
+# from Python packaging — the directory contains no .py files but the
+# `voice_typer*` glob would otherwise match it, producing bogus wheel
+# manifest entries and "package init file not found" setuptools warnings.
+exclude = ["voice_typer.client*"]
 
 # NEW-DEAD-003: removed the dead HugeIcons font reference (the
 # ``assets/fonts/*.ttf`` entry, ~1.9 MB).  The file was referenced as
@@ -408,13 +414,31 @@ testpaths = ["tests"]
 # pytest-cov is absent (see conftest.py). This way:
 #   - CI (with [test]): coverage enforced at 65%.
 #   - Minimal install (no [test]): `pytest` runs without --cov errors.
-addopts = "-v --tb=short --cov=voice_typer --cov-fail-under=65"
+# WR-1: --strict-markers + --strict-config convert unknown marker typos (e.g.
+# `@pytest.mark.rela_pynput` instead of `real_pynput`) and ini-parse errors
+# from silent warnings into hard failures at collection time. Without
+# --strict-markers, a typo silently disables the autouse-fixture opt-out
+# logic in tests/conftest.py:mock_heavy_imports, causing the test to run
+# with heavy imports mocked even when the author intended to use real libs.
+# WR-1: --timeout=60 --timeout-method=thread activates pytest-timeout
+# (declared in [test] extras but never previously wired into addopts). A
+# single hung test now fails loudly with `Failed: Timeout >60.0s` instead
+# of silently consuming the job-level 30-minute timeout-minutes budget.
+# 60s is generous: the longest legitimate test (test_stalled_auth_connection_
+# times_out) was patched down to 0.5s in WR-10, so no in-tree test should
+# approach the cap.
+addopts = "-v --tb=short --strict-markers --strict-config --timeout=60 --timeout-method=thread --cov=voice_typer --cov-fail-under=65"
 # ADR-0020 round-2 fix: async tests (tests/tauri/*, tests/test_cloud_engines.py)
 # use `async def test_*` without explicit @pytest.mark.asyncio markers.
 # `asyncio_mode = "auto"` makes pytest-asyncio treat every async test as
 # an asyncio test automatically. Without this, 13 of 38 tauri tests error
 # with "async def functions are not natively supported".
 asyncio_mode = "auto"
+# WR-1: explicitly pin the asyncio fixture loop scope to silence the
+# DeprecationWarning emitted by pytest-asyncio 0.24+ when this key is
+# unset. The default `function` scope is correct for the project's async
+# tests (each test gets its own event loop).
+asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # NEW-TEST-003: previously ``ignore::ResourceWarning`` was blanket-

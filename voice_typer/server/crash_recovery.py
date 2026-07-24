@@ -146,6 +146,15 @@ class CrashRecovery:
         fails closed: symlink detected → ``OSError`` → ``_entries``
         is reset to ``[]`` and a warning is logged, matching the
         templates / vocabulary / config load paths.
+
+        GT-A1-5: when the file exists but can't be parsed (corrupt
+        JSON, truncated by a mid-write crash, etc.), rename it to
+        ``<path>.corrupt.<timestamp>`` before resetting ``_entries``.
+        This preserves the corrupt file for forensic review and
+        ensures the next ``_save_sync()`` starts fresh instead of
+        re-reading the same corrupt content.  Best-effort — a rename
+        failure (e.g. cross-device, permissions) is logged and
+        swallowed so ``_load`` still resets ``_entries`` cleanly.
         """
         if not self._path.exists():
             self._entries = []
@@ -160,11 +169,56 @@ class CrashRecovery:
             elif isinstance(data, dict) and "entries" in data:
                 self._entries = data["entries"]
             else:
+                # GT-A1-5: shape is wrong but JSON parsed — treat as
+                # corrupt and quarantine so the next save isn't
+                # merged with stale data.
+                self._quarantine_corrupt()
                 self._entries = []
             log.debug("[RECOVERY] Loaded %d entries", len(self._entries))
         except Exception as exc:
             log.warning("[RECOVERY] Failed to load: %s", exc)
+            # GT-A1-5: quarantine the corrupt file so the next save
+            # creates a fresh one.  Best-effort — failures are logged
+            # and swallowed so _load always resets _entries cleanly.
+            self._quarantine_corrupt()
             self._entries = []
+
+    def _quarantine_corrupt(self) -> None:
+        """GT-A1-5: rename the recovery file to ``<path>.corrupt.<ts>``.
+
+        Preserves the corrupt file for forensic review (e.g. inspecting
+        what truncation pattern led to the parse failure) and ensures
+        the next ``_save_sync()`` starts fresh instead of being merged
+        with stale data.
+
+        Best-effort: if the rename fails (cross-device, permissions,
+        file disappeared between the ``exists()`` check and now), the
+        failure is logged at ``debug`` level and swallowed.  This must
+        never raise — callers (``_load``) rely on a clean reset to
+        ``_entries = []`` regardless of quarantine outcome.
+        """
+        try:
+            if not self._path.exists():
+                return
+            from datetime import datetime
+
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            corrupt_path = self._path.with_name(f"{self._path.name}.corrupt.{ts}")
+            # If a corrupt file with the same timestamp already exists
+            # (extremely unlikely — would need two crashes within the
+            # same second), disambiguate with a counter.
+            counter = 0
+            while corrupt_path.exists():
+                counter += 1
+                corrupt_path = self._path.with_name(f"{self._path.name}.corrupt.{ts}.{counter}")
+            self._path.rename(corrupt_path)
+            log.warning(
+                "[RECOVERY] Quarantined corrupt recovery file: %s -> %s",
+                self._path.name,
+                corrupt_path.name,
+            )
+        except Exception as exc:
+            log.debug("[RECOVERY] Failed to quarantine corrupt file: %s", exc)
 
     def _save_sync(self) -> None:
         """Save recovery entries to disk synchronously.
@@ -572,11 +626,48 @@ class CrashRecovery:
 
         try:
             with zipfile.ZipFile(str(tmp_bundle_path), "w", zipfile.ZIP_DEFLATED) as zf:
-                # 1. Log file
+                # 1. Log file — GT-B2-13: redact PII + secrets line-by-line
+                # before adding to the zip.  Previously the log was added
+                # verbatim via ``zf.write(str(log_path), ...)`` which meant
+                # any PII / API key that slipped past the
+                # ``PIIRedactionFilter`` (e.g. an exception message logged
+                # at DEBUG before the filter was attached, or a
+                # ``log.debug("config: %s", cfg_dict)`` that bypassed
+                # structured redaction) would ship in the bug-report zip.
+                # Now we read the log, run each line through the same
+                # ``redact_secret(redact_pii(line))`` pipeline used by the
+                # excepthook, and write the redacted bytes into the zip.
                 log_path = config_dir / "voice-typer.log"
                 if log_path.exists():
                     with contextlib.suppress(Exception):
-                        zf.write(str(log_path), "voice-typer.log")
+                        try:
+                            from voice_typer.server._secrets import redact_secret
+                            from voice_typer.server.security import redact_pii
+
+                            redacted_lines: list[str] = []
+                            with log_path.open("r", encoding="utf-8", errors="replace") as fh:
+                                for line in fh:
+                                    # ``redact_pii`` + ``redact_secret`` both
+                                    # operate on str → str; chaining them
+                                    # catches both PII patterns (email,
+                                    # phone, IBAN, SSN, CC) and secret
+                                    # patterns (Bearer tokens, long
+                                    # alphanumeric keys, ``token=abc``
+                                    # key=value forms).
+                                    redacted_lines.append(redact_secret(redact_pii(line)))
+                            zf.writestr(
+                                "voice-typer.log",
+                                "".join(redacted_lines),
+                            )
+                        except Exception:
+                            # GT-B2-13: if redaction fails (e.g. security
+                            # module unavailable), fall back to skipping
+                            # the log entirely rather than shipping raw
+                            # content — defense in depth.
+                            log.debug(
+                                "[CRASH-RECOVERY] failed to redact voice-typer.log; skipping",
+                                exc_info=True,
+                            )
 
                 # 2. Config (redacted)
                 config_path = config_dir / "config.json"

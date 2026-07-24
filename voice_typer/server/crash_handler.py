@@ -34,9 +34,11 @@ import ctypes
 import ctypes.wintypes
 import logging
 import os
+import platform
 import sys
 import threading
 import time
+import traceback
 from ctypes import wintypes
 from datetime import datetime
 from pathlib import Path
@@ -138,8 +140,42 @@ _ft = wintypes.FILETIME()
 _st = _SYSTEMTIME()
 
 # Pre-allocated crash message buffer and static parts
-# Max approx: 3 + 23 + 8 + 10 + 18 + 18 + 8 + 18 + 8 + 80 + 2 = ~196 bytes
-_CRASH_MSG_BUF_SIZE = 1024
+# GT-B2-14: the VEH buffer layout is now data-driven. Each entry is a
+# (label, width) tuple where ``width`` is the maximum byte count that
+# segment can occupy in the buffer. ``_CRASH_MSG_BUF_SIZE`` is
+# auto-computed as the sum of all widths plus a small safety margin
+# so adding/removing a field only requires editing this list.
+#
+# Layout breakdown (matches the byte-by-byte construction in
+# ``_vectored_handler_impl``):
+#   bom          : 3   (UTF-8 BOM)
+#   timestamp    : 23  ("YYYY-MM-DD HH:MM:SS.mmm")
+#   crash_label  : 9   ("  CRASH  " — sep+label+sep)
+#   code         : 13  ("code=0x" + 8 hex digits)
+#   addr         : 25  (", addr=0x" + 16 hex digits)
+#   pid          : 17  (", pid=0x" + 8 hex digits)
+#   tid          : 17  (", tid=0x" + 8 hex digits)
+#   nl1          : 2   ("\r\n")
+#   name         : 80  (friendly exception name — longest is
+#                       ``_NAME_STACK`` at 60 bytes; 80 leaves headroom)
+#   nl2          : 2   ("\r\n")
+_CRASH_MSG_LAYOUT: list[tuple[str, int]] = [
+    ("bom", 3),
+    ("timestamp", 23),
+    ("crash_label", 9),
+    ("code", 13),
+    ("addr", 25),
+    ("pid", 17),
+    ("tid", 17),
+    ("nl1", 2),
+    ("name", 80),
+    ("nl2", 2),
+]
+# Auto-compute the crash-message body size from the layout, then add
+# headroom so a future field extension doesn't silently truncate the
+# write. The original constant was 1024; the layout sum is ~191, so
+# the headroom is ample.
+_CRASH_MSG_BUF_SIZE = sum(width for _, width in _CRASH_MSG_LAYOUT) + 256
 _crash_msg_buf: bytearray = bytearray(_CRASH_MSG_BUF_SIZE)
 
 # Pre-encoded static message parts (ASCII)
@@ -164,6 +200,15 @@ _NAME_UNKNOWN = b"Unknown fatal exception."
 # (which correctly marshals the internal UTF-16 buffer)
 _crash_file_path: str = ""
 _PID: int = 0
+
+# GT-7: pre-computed static header written as a preamble to every
+# ``crash_diagnostics.<PID>.txt`` file.  Built once at
+# ``set_crash_handler_config_dir()`` time so the VEH callback can write
+# it without any heap allocations (the bytes are already encoded).
+# Contains: app version, OS build, Python version, and a snapshot of
+# loaded module names — enough context for a support engineer to
+# triage a silent SEH crash without asking the user to run --status.
+_crash_header_bytes: bytes = b""
 
 # G4-M-34: config_dir used by ``_crash_excepthook`` to write the
 # ``python_crash.<PID>.txt`` marker file.  Set in
@@ -469,7 +514,21 @@ def _vectored_handler_impl(exception_pointers) -> int:
     # NOTE: buf[:pos] creates a new bytes object (heap allocation).
     # This is an acceptable limitation — see the module docstring.
     if _crash_file_path:
-        _write_to_file(_crash_file_path, buf[:pos])
+        # GT-7: prepend the pre-computed static header (app/python/OS
+        # version + loaded-module snapshot) so the crash_diagnostics
+        # file carries enough context for a support engineer to triage
+        # the crash.  ``_crash_header_bytes`` is built once at
+        # ``set_crash_handler_config_dir()`` time, so this concatenation
+        # is the only extra heap allocation relative to the pre-fix
+        # behavior — acceptable per the module docstring's heap-alloc
+        # caveat.  If the header is empty (e.g. config_dir was never
+        # set, or header computation failed), we fall back to writing
+        # only the crash body, preserving the pre-fix behavior.
+        body = buf[:pos]
+        if _crash_header_bytes:
+            _write_to_file(_crash_file_path, _crash_header_bytes + body)
+        else:
+            _write_to_file(_crash_file_path, body)
         # G4-L-14: mark as written so cascading VEH callbacks don't
         # write a second record.  ``global`` is declared at the top of
         # this function (above) so the assignment here updates the
@@ -551,6 +610,78 @@ def _write_to_file(path_str: str, data: bytes) -> None:
 # ── Public API ────────────────────────────────────────────────────────
 
 
+# Maximum number of top-level module names included in the crash
+# diagnostics header.  Picked to bound the file size at ~10 KiB while
+# still capturing the long tail of C-extension / package names that
+# are most likely to be implicated in a silent crash.
+_HEADER_MAX_MODULES = 500
+
+
+def _compute_crash_header() -> bytes:
+    """GT-7: build the static header block for ``crash_diagnostics.<PID>.txt``.
+
+    Called once at ``set_crash_handler_config_dir()`` time so the VEH
+    callback can write the header as a preamble without any heap
+    allocations (the bytes are already encoded and cached in
+    ``_crash_header_bytes``).
+
+    The header carries enough static context for a support engineer to
+    triage a silent SEH crash without asking the user to run
+    ``--status`` manually:
+      - App version (from ``voice_typer.__version__``)
+      - OS / platform build (``platform.platform()`` + ``platform.version()``)
+      - Python version (``sys.version``)
+      - Loaded-module snapshot (top-level package names from
+        ``sys.modules``, capped to keep the file size reasonable)
+
+    All assembly is best-effort: any failure (e.g. ``voice_typer`` not
+    yet importable during early bootstrap) is swallowed and the
+    corresponding field is replaced with ``<unknown>`` so the header
+    is always emitted.
+
+    Returns
+    -------
+    bytes
+        UTF-8 encoded header terminated with a trailing CRLF.
+    """
+    lines: list[str] = ["=== VOICE-TYPER CRASH DIAGNOSTICS HEADER ==="]
+    try:
+        import voice_typer
+
+        app_version = getattr(voice_typer, "__version__", "<unknown>")
+    except Exception:
+        app_version = "<unknown>"
+    lines.append(f"App version: {app_version}")
+    try:
+        lines.append(f"OS: {platform.platform()}")
+        lines.append(f"OS build: {platform.version()}")
+    except Exception:
+        lines.append("OS: <unknown>")
+    try:
+        lines.append(f"Python: {sys.version}")
+    except Exception:
+        lines.append("Python: <unknown>")
+    try:
+        top_level: list[str] = []
+        seen: set[str] = set()
+        for name in sorted(sys.modules):
+            top = name.split(".", 1)[0]
+            if top in seen:
+                continue
+            seen.add(top)
+            top_level.append(top)
+            if len(top_level) >= _HEADER_MAX_MODULES:
+                break
+        total = len(sys.modules)
+        lines.append(f"Loaded modules (total={total}, shown={len(top_level)}):")
+        for m in top_level:
+            lines.append(f"  {m}")
+    except Exception:
+        lines.append("Loaded modules: <unknown>")
+    lines.append("=== END HEADER ===")
+    return ("\r\n".join(lines) + "\r\n").encode("utf-8", errors="replace")
+
+
 def set_crash_handler_config_dir(config_dir: Path) -> None:
     """Cache the config directory path for the VEH callback.
 
@@ -571,8 +702,15 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
 
     G4-L-14: resets ``_crash_written`` so each test (and each process)
     starts with a clean rate-limit flag.
+
+    GT-7: pre-computes the static crash-diagnostics header (app version,
+    OS build, Python version, loaded-module snapshot) and caches it in
+    ``_crash_header_bytes``.  The VEH callback writes this header as a
+    preamble to ``crash_diagnostics.<PID>.txt`` when a crash occurs —
+    see ``_vectored_handler_impl``.
     """
     global _crash_file_path, _PID, _python_crash_dir, _crash_written
+    global _crash_header_bytes
     try:
         resolved = Path(config_dir).resolve()
         _PID = os.getpid()
@@ -586,11 +724,19 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # G4-L-14: reset the rate-limit flag so a fresh process (or a
         # re-init in tests) can write a new crash record.
         _crash_written = False
+        # GT-7: pre-compute the header once at config-dir cache time so
+        # the VEH callback doesn't have to allocate.  Best-effort — a
+        # failure here leaves ``_crash_header_bytes`` empty and the VEH
+        # callback falls back to writing only the crash body (preserving
+        # the pre-fix behavior).
+        with contextlib.suppress(Exception):
+            _crash_header_bytes = _compute_crash_header()
     except Exception as exc:
         log.debug("[CRASH] Failed to cache config dir: %s", exc)
         _crash_file_path = ""
         _python_crash_dir = None
         _crash_written = False
+        _crash_header_bytes = b""
 
 
 def _archive_crash_file(file_path: Path, config_dir: Path) -> None:
@@ -912,6 +1058,67 @@ def remove_crash_handler() -> None:
 _original_excepthook = sys.excepthook
 
 
+def _format_redacted_traceback(exc_tb) -> str:
+    """GT-4: format a traceback with PII-safe fields only.
+
+    Each frame is rendered as::
+
+        File "<basename>", line <N>, in <func_name>
+
+    The full source line (which can contain argument values, dict
+    literals, f-string interpolations of user data, etc.) is OMITTED
+    so the marker file carries no PII.  Only the file basename (not
+    the full path, which can leak the user's home directory), the
+    line number, and the function name are kept — enough for a
+    support engineer to locate the offending code in the repo.
+
+    Returns an empty string if ``exc_tb`` is ``None``.
+    """
+    if exc_tb is None:
+        return ""
+    try:
+        frames = traceback.extract_tb(exc_tb)
+    except Exception:
+        return ""
+    if not frames:
+        return ""
+    lines = ["Traceback (most recent call last):"]
+    for frame in frames:
+        try:
+            basename = os.path.basename(frame.filename) if frame.filename else "<unknown>"
+            lineno = frame.lineno if frame.lineno is not None else 0
+            func = frame.name or "<unknown>"
+        except Exception:
+            continue
+        lines.append(f'  File "{basename}", line {lineno}, in {func}')
+    return "\n".join(lines)
+
+
+def _get_active_asr_backend() -> str:
+    """GT-4: best-effort lookup of the active ASR backend.
+
+    Returns the backend name (e.g. ``"whisper"``, ``"parakeet"``,
+    ``"qwen"``) or ``"<unknown>"`` if it can't be determined.  Called
+    from the excepthook, which runs during interpreter shutdown, so
+    every step is wrapped in ``try/except`` — a failure here must not
+    mask the original crash.
+
+    Reads from the persisted ``Config`` rather than the live
+    ``AsrBackendRegistry`` because (a) the registry is owned by
+    ``ModelManager`` (an app-level singleton, not module-level), and
+    (b) during interpreter shutdown the registry's lock-held state
+    may be partially dismantled.  The persisted config value is the
+    stable, safe choice.
+    """
+    try:
+        from voice_typer.server.config import Config
+
+        cfg = Config.load()
+        return str(getattr(cfg, "asr_backend", "<unknown>"))
+    except Exception:
+        return "<unknown>"
+
+
 def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
     """Custom sys.excepthook for unhandled Python exceptions.
 
@@ -979,6 +1186,7 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
 
                 def _redact(s):
                     return s
+
             marker_path = _python_crash_dir / f"python_crash.{os.getpid()}.txt"
             thread_name = threading.current_thread().name
             timestamp = datetime.now().isoformat()
@@ -987,12 +1195,45 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
             # archive.
             _raw_value = str(exc_value)[:200] if exc_value is not None else "None"
             _safe_value = _redact(_raw_value)
-            content = (
-                f"exc_type={exc_type.__name__ if exc_type is not None else 'Unknown'}\n"
-                f"exc_value={_safe_value}\n"
-                f"thread={thread_name}\n"
-                f"timestamp={timestamp}\n"
-            )
+            # GT-4: redacted traceback (file basenames + line numbers +
+            # function names, args stripped).  Frames carry no argument
+            # values, so this is PII-safe.
+            _traceback_text = _format_redacted_traceback(exc_tb)
+            # GT-4: static context for triage — app/python/OS version
+            # + active ASR backend.  Each lookup is best-effort.
+            try:
+                import voice_typer
+
+                _app_version = getattr(voice_typer, "__version__", "<unknown>")
+            except Exception:
+                _app_version = "<unknown>"
+            try:
+                _python_version = sys.version
+            except Exception:
+                _python_version = "<unknown>"
+            try:
+                _os_version = platform.platform()
+            except Exception:
+                _os_version = "<unknown>"
+            _asr_backend = _get_active_asr_backend()
+            content_lines = [
+                f"exc_type={exc_type.__name__ if exc_type is not None else 'Unknown'}",
+                f"exc_value={_safe_value}",
+                f"thread={thread_name}",
+                f"timestamp={timestamp}",
+                # GT-4: static triage context.
+                f"app_version={_app_version}",
+                f"python_version={_python_version}",
+                f"os_version={_os_version}",
+                f"asr_backend={_asr_backend}",
+            ]
+            # GT-4: append the redacted traceback unconditionally so
+            # support engineers can locate the call site without
+            # VOICE_TYPER_DEBUG=1.
+            if _traceback_text:
+                content_lines.append("")
+                content_lines.append(_traceback_text)
+            content = "\n".join(content_lines) + "\n"
             if _atomic_write is not None:
                 _atomic_write(marker_path, content)
             else:

@@ -24,7 +24,7 @@
  *     stale swatches in the custom-theme editor.
  */
 
-// PVT-XXX (session-5 type narrowing): ``ThemeColorCacheEntry`` is only
+// GT-E2-6 (session-6 type narrowing): ``ThemeColorCacheEntry`` is only
 // used by this module (no external importer — verified by grep across
 // the renderer tree). Keep the type NON-exported so the surface area
 // stays minimal and future renames don't ripple into other files.

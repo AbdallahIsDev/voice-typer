@@ -20,7 +20,10 @@ on:
       - "**/*.md"
       - "docs/**"
   schedule:
-    - cron: '0 6 * * 1'  # Weekly Monday 06:00 UTC
+    - cron: '0 6 * * *'  # WR-16: daily 06:00 UTC (was weekly Mon). CodeQL
+                          # suite + query packs update ~weekly upstream; a
+                          # daily run surfaces new alerts within 24h of a
+                          # query-pack release instead of up to 7 days late.
 
 # XS-FIX-4: cancel superseded CodeQL runs on the same ref. CodeQL is
 # the longest single workflow in the repo (matrix of 3 languages, each
@@ -62,6 +65,16 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          # WR-16: opt into the extended query suites. Default behavior is
+          # the `security-extended` pack for C/C++ but ONLY `security-and-quality`
+          # is NOT included by default for python/javascript-typescript/actions,
+          # so a broad class of maintainability + correctness queries (e.g.
+          # unused imports, dangerous globals, suspicious string concat) was
+          # skipped. Explicitly requesting both suites ensures every language
+          # runs the deepest available pack set. Cost: ~15-25% longer analyze
+          # step — acceptable given the daily-cadence change above already
+          # accepts a 7x schedule increase.
+          queries: security-extended, security-and-quality
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3

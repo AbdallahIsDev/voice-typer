@@ -31,12 +31,15 @@ These tests pin the contract of the extraction:
 from __future__ import annotations
 
 import contextlib
+import os
 import signal
 import sys
 import threading
+import time
 from unittest.mock import MagicMock
 
 import pytest
+import voice_typer.server.shutdown_controller
 from voice_typer.server.shutdown_controller import ShutdownController
 
 # ── Fixtures ────────────────────────────────────────────────────────────
@@ -728,3 +731,197 @@ class TestWin32ConsoleHandlerRouting:
         falls back to the next handler in the chain."""
         result = controller._win32_console_handler(99)
         assert result is False
+
+
+# ── GT-43: post-cleanup shutdown watchdog (non-main-thread quit) ──────
+
+
+class TestGT43ShutdownWatchdog:
+    """GT-43: when ``quit()`` runs on a non-main thread, ``_do_cleanup()``
+    completes, and the main thread is still parked in ``tray.run()``, a
+    daemon-thread watchdog fires ``os._exit(0)`` after
+    ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` seconds as a last-resort hard kill.
+    """
+
+    def test_watchdog_armed_when_quit_runs_on_non_main_thread(self, controller, fake_app, monkeypatch):
+        fake_app._do_cleanup = MagicMock()
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+
+        armed_calls: list[float] = []
+
+        def _spy_arm(timeout_s: float) -> None:
+            armed_calls.append(timeout_s)
+
+        monkeypatch.setattr(controller, "_arm_shutdown_watchdog", _spy_arm)
+
+        done = threading.Event()
+        error_holder: list = []
+
+        def _run_quit():
+            try:
+                controller.quit()
+            except BaseException as exc:
+                error_holder.append(exc)
+            finally:
+                done.set()
+
+        t = threading.Thread(target=_run_quit, name="test-quit-thread")
+        t.start()
+        done.wait(timeout=5.0)
+
+        assert not error_holder, f"quit() on non-main thread raised: {error_holder}"
+        assert armed_calls == [voice_typer.server.shutdown_controller.SHUTDOWN_WATCHDOG_TIMEOUT_S], (
+            f"GT-43: quit() on non-main thread must arm the watchdog; got armed_calls={armed_calls}"
+        )
+
+    def test_watchdog_NOT_armed_when_quit_runs_on_main_thread(self, controller, fake_app, monkeypatch):
+        fake_app._do_cleanup = MagicMock()
+        monkeypatch.setattr(sys, "exit", lambda code=0: None)
+
+        armed_calls: list[float] = []
+        monkeypatch.setattr(
+            controller,
+            "_arm_shutdown_watchdog",
+            lambda timeout_s: armed_calls.append(timeout_s),
+        )
+
+        controller.quit()
+
+        assert armed_calls == [], (
+            f"GT-43: quit() on main thread must NOT arm the watchdog; got armed_calls={armed_calls}"
+        )
+
+    def test_watchdog_calls_os_exit_after_timeout(self, monkeypatch):
+        from voice_typer.server.shutdown_controller import ShutdownController
+
+        fake_app = MagicMock()
+        ctrl = ShutdownController(fake_app)
+
+        exit_calls: list[int] = []
+        monkeypatch.setattr(os, "_exit", lambda code=0: exit_calls.append(code))
+
+        start = time.monotonic()
+        ctrl._arm_shutdown_watchdog(0.2)
+        time.sleep(0.6)
+        elapsed = time.monotonic() - start
+
+        assert exit_calls == [0], (
+            f"GT-43: watchdog must call os._exit(0) after the timeout; got exit_calls={exit_calls}"
+        )
+        assert elapsed >= 0.2, f"GT-43: watchdog fired too early — expected ≥0.2s, got {elapsed:.2f}s"
+
+
+# ── GT-70: recorder _force_closed shutdown barrier ────────────────────
+
+
+class TestGT70RecorderForceClosedBarrier:
+    """GT-70: when ``recorder.stop()`` (or ``recorder.discard()``) times
+    out, ``_do_cleanup()`` must set a ``_force_closed`` flag on the
+    recorder and SKIP the subsequent ``recorder.shutdown_mic_watcher()``
+    call."""
+
+    def test_shutdown_mic_watcher_skipped_when_recorder_stop_times_out(self, controller, fake_app, monkeypatch):
+        fake_app.recorder.recording = True
+
+        import voice_typer.server.shutdown_controller as _sc
+
+        original_run_with_timeout = _sc._run_with_timeout
+
+        def _fast_run_with_timeout(description, func, timeout=5.0):
+            if description == "recorder.stop":
+                return original_run_with_timeout(description, func, timeout=0.1)
+            return original_run_with_timeout(description, func, timeout=timeout)
+
+        monkeypatch.setattr(_sc, "_run_with_timeout", _fast_run_with_timeout)
+
+        blocked = threading.Event()
+
+        def _blocking_stop():
+            blocked.wait(timeout=5.0)
+
+        fake_app.recorder.stop = _blocking_stop
+
+        controller._do_cleanup()
+
+        blocked.set()
+
+        fake_app.recorder.shutdown_mic_watcher.assert_not_called()
+        assert getattr(fake_app.recorder, "_force_closed", None) is True, (
+            "GT-70: recorder.stop() timeout must set app.recorder._force_closed = True"
+        )
+
+    def test_shutdown_mic_watcher_called_when_recorder_stop_completes(self, controller, fake_app):
+        fake_app.recorder.recording = True
+
+        controller._do_cleanup()
+
+        fake_app.recorder.stop.assert_called_once_with()
+        fake_app.recorder.shutdown_mic_watcher.assert_called_once_with()
+
+    def test_timeout_sentinel_distinct_from_none(self):
+        from voice_typer.server.shutdown_controller import TIMEOUT
+
+        assert TIMEOUT is not None, "GT-70: TIMEOUT sentinel must not be None"
+        assert TIMEOUT is TIMEOUT, "TIMEOUT sentinel identity check"
+
+
+# ── GT-72: in-flight timer drain after _cancel_pending_timers ──────────
+
+
+class TestGT72InFlightTimerDrain:
+    """GT-72: ``_do_cleanup()`` must drain in-flight timer threads with a
+    short bounded timeout AFTER ``_cancel_pending_timers()``. The
+    delegate only calls ``Timer.cancel()`` (a no-op for already-fired
+    timers); a timer whose ``guarded_func`` has already passed the
+    generation check but hasn't yet called ``func()`` would race the
+    subsystem teardown below."""
+
+    def test_do_cleanup_joins_in_flight_timer_threads(self, controller, fake_app, monkeypatch):
+        import threading as _threading
+
+        in_flight_started = _threading.Event()
+        in_flight_can_finish = _threading.Event()
+
+        def _slow_func():
+            in_flight_started.set()
+            in_flight_can_finish.wait(timeout=5.0)
+
+        timer = _threading.Timer(0.01, _slow_func)
+        timer.daemon = True
+
+        timers_coord = MagicMock()
+        timers_coord._pending_timers_lock = _threading.Lock()
+        timers_coord._pending_timers = [timer]
+        fake_app.timers = timers_coord
+
+        timer.start()
+        assert in_flight_started.wait(timeout=2.0), "GT-72: test setup failed — in-flight timer never started"
+
+        cleanup_done = _threading.Event()
+        cleanup_errors: list = []
+
+        def _run_cleanup():
+            try:
+                controller._do_cleanup()
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+            finally:
+                cleanup_done.set()
+
+        cleanup_thread = _threading.Thread(target=_run_cleanup, name="test-cleanup-thread-gt72")
+        cleanup_thread.start()
+
+        time.sleep(0.1)
+        in_flight_can_finish.set()
+
+        assert cleanup_done.wait(timeout=5.0), "GT-72: _do_cleanup didn't complete after releasing in-flight timer"
+        assert not cleanup_errors, f"GT-72: _do_cleanup raised: {cleanup_errors}"
+
+        fake_app._cancel_pending_timers.assert_called_once_with()
+
+    def test_do_cleanup_does_not_deadlock_when_no_timers_coord(self, controller, fake_app):
+        fake_app.timers = None
+
+        controller._do_cleanup()
+
+        fake_app._cancel_pending_timers.assert_called_once_with()

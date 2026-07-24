@@ -16,12 +16,71 @@
 #
 # SPDX-License-Identifier: MIT
 
+param([switch]$Check)
+
 $ErrorActionPreference = "Stop"
+Set-StrictMode -Version Latest
 
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $SourceFile = Join-Path $ProjectRoot "voice_typer\server\native\windows-key-listener.c"
 $OutputDir  = Join-Path $ProjectRoot "src-tauri\resources\native"
 $OutputExe  = Join-Path $OutputDir "windows-key-listener.exe"
+
+# ─── -Check mode: probe the toolchain and exit (mirrors compile_native.sh
+# --check for win32 — WR-18 FINDING A-1). The sibling bash script
+# build_native_listener_windows.sh invokes `compile_native.ps1 -Check`;
+# previously this script had no param() block so PowerShell rejected the
+# -Check argument with "A parameter cannot be found that matches parameter
+# name 'Check'." The probe below verifies (a) the C source file exists and
+# (b) an MSVC toolchain is reachable (cl.exe on PATH, or vswhere.exe
+# present, or vcvars64.bat discoverable) — exits 0 if OK, 1 if missing.
+if ($Check) {
+    Write-Host "[compile_native] -Check: verifying toolchain"
+
+    # (a) Source file must exist.
+    if (-not (Test-Path $SourceFile)) {
+        Write-Error "[compile_native] MISSING: source file not found: $SourceFile"
+        exit 1
+    }
+    Write-Host "[compile_native] OK: source file found: $SourceFile"
+
+    # (b) cl.exe on PATH?
+    $clOnPath = $null
+    $clOnPath = Get-Command "cl.exe" -ErrorAction SilentlyContinue
+    if ($clOnPath) {
+        Write-Host "[compile_native] OK: cl.exe found on PATH at $($clOnPath.Source)"
+        exit 0
+    }
+
+    # (c) vswhere.exe present? (Implies a VS install — cl.exe reachable via vcvars.)
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $vsPath = & $vswhere -latest -property installationPath
+        if ($vsPath) {
+            Write-Host "[compile_native] OK: Visual Studio found at $vsPath (cl.exe available via vcvars)"
+            exit 0
+        }
+    }
+
+    # (d) vcvars64.bat discoverable? (VS Build Tools may be installed without vswhere on PATH.)
+    $vcvarsCandidates = @(
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "${env:ProgramFiles(x86)}\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
+        "${env:ProgramFiles}\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+    )
+    foreach ($v in $vcvarsCandidates) {
+        if (Test-Path $v) {
+            Write-Host "[compile_native] OK: vcvars64.bat found at $v (cl.exe available via vcvars)"
+            exit 0
+        }
+    }
+
+    Write-Error "[compile_native] MISSING: neither cl.exe (MSVC) nor vswhere.exe nor vcvars64.bat found."
+    Write-Error "  Install Visual Studio Build Tools with the 'Desktop development with C++' workload."
+    Write-Error "  Download: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022"
+    exit 1
+}
 
 # Ensure output directory exists
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null

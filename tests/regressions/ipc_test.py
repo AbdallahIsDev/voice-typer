@@ -12,7 +12,6 @@ state the monolith provided.
 
 from __future__ import annotations
 
-import inspect
 import sys
 import threading
 from unittest.mock import MagicMock
@@ -33,31 +32,6 @@ class TestAccessibilityIpcEndpointExists:
     for the Electron UI to query. Fix: added ``check_accessibility``
     IPC handler that returns ``{granted, platform}``.
     """
-
-    @pytest.mark.skip(
-        reason="RW-8: PORT-CANDIDATE — ported to "
-        "tests/test_bugfix_regressions_behavioral.py::"
-        "TestAccessibilityIpcBehavioral::"
-        "test_handler_returns_accessibility_status_type_and_uses_axistrusted_on_macos"
-    )
-    def test_check_accessibility_ipc_handler_exists(self):
-        # RW-8: PORT-CANDIDATE — see
-        # tests/test_bugfix_regressions_behavioral.py::TestAccessibilityIpcBehavioral::
-        # test_handler_returns_accessibility_status_type_and_uses_axistrusted_on_macos.
-        # The source-string check ("accessibility_status" and "AXIsProcessTrusted"
-        # in the handler source) is brittle: production may extract the macOS
-        # probe into a helper. The behavioral test mocks sys.platform=darwin
-        # and ApplicationServices.AXIsProcessTrusted to verify the handler
-        # returns the expected response type and consults AXIsProcessTrusted.
-        from voice_typer.server import ipc_server
-
-        # REFACTOR: _dispatch was converted to a command registry.
-        assert "check_accessibility" in ipc_server.IPCServer._COMMAND_REGISTRY, (
-            "PLAT-030: IPC _COMMAND_REGISTRY must include 'check_accessibility'."
-        )
-        src = inspect.getsource(ipc_server.IPCServer._handle_check_accessibility)
-        assert "accessibility_status" in src, "PLAT-030: handler must return 'accessibility_status' response type."
-        assert "AXIsProcessTrusted" in src, "PLAT-030: handler must use AXIsProcessTrusted() on macOS."
 
     @pytest.mark.skipif(
         sys.platform == "darwin",
@@ -121,37 +95,6 @@ class TestSendCatchesOSErrorSubclasses:
 
 class TestReadlineCapsOversizedMessages:
     """NEW-IPC-012: Large IPC message handling at size boundaries."""
-
-    @pytest.mark.skip(
-        reason="RW-8: PORT-CANDIDATE — ported to "
-        "tests/test_bugfix_regressions_behavioral.py::"
-        "TestTcpLineIoOversizedBehavioral::test_oversized_message_returns_none"
-    )
-    def test_readline_caps_oversized_messages(self):
-        # RW-8: PORT-CANDIDATE — see
-        # tests/test_bugfix_regressions_behavioral.py::TestTcpLineIoOversizedBehavioral::
-        # test_oversized_message_returns_none.
-        # The source-string check ("_MAX_LINE_BYTES" in readline source)
-        # is brittle: production may rename the constant or inline the cap
-        # as a literal. The behavioral test feeds a >1MB message through a
-        # real socketpair and verifies readline returns None (EOF).
-        """The _TCPLineIO.readline() must cap at _MAX_LINE_BYTES.
-        A message exceeding the cap must trigger EOF (empty return),
-        not OOM or hang.
-        """
-        from voice_typer.server.ipc_server import _TCPLineIO
-
-        # Verify the cap exists in source. The implementation may use
-        # either module-level constants (_MAX_LINE_BYTES / _MAX_LINE_CHARS)
-        # or function-local variables (_max_line_bytes / _max_line_chars).
-        # Both enforce the 1 MB cap; the test accepts either naming
-        # convention.
-        src = inspect.getsource(_TCPLineIO.readline)
-        assert (
-            "_MAX_LINE_BYTES" in src or "_MAX_LINE_CHARS" in src or "_max_line_bytes" in src or "_max_line_chars" in src
-        )
-        # The drop condition must return empty string on overflow
-        assert "return" in src
 
     @pytest.mark.skipif(
         not hasattr(__import__("socket"), "AF_UNIX"),

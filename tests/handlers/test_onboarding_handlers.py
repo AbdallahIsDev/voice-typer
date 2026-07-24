@@ -49,6 +49,9 @@ class TestOnboardingIsFirstRun:
         fake_service.onboarding_is_first_run.side_effect = RuntimeError("disk error")
         resp = ipc_server._handle_onboarding_is_first_run({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestOnboardingStepNavigation:
@@ -229,6 +232,9 @@ class TestOnboardingListHandlers:
         fake_service.onboarding_get_microphones.side_effect = RuntimeError("portaudio")
         resp = ipc_server._handle_onboarding_get_microphones({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 # ── FIX-11: new onboarding IPC handlers (UX-32 / UX-4 / UX-27) ────────

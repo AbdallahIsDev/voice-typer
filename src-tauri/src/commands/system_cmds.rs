@@ -20,148 +20,8 @@
 use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
 
-use crate::commands::export::{export_data, require_main_window};
+use crate::commands::export::export_data;
 use crate::platform::paths::config_dir;
-
-// ─── DE-73: defense-in-depth config redaction ─────────────────────────
-//
-// The Python sidecar is contractually responsible for redacting API
-// keys / secrets / tokens BEFORE the config payload reaches the Rust
-// `export_config` command (see `voice_typer/server/credential_store.py`
-// `_redact_sensitive`). DE-73 adds a Rust-side redaction pass as
-// defense-in-depth: if a future sidecar refactor or a custom build of
-// the renderer forgets to redact, the Rust host still scrubs obvious
-// secret-shaped keys before writing the JSON to disk. Without this,
-// any regression in the Python redaction path silently leaks API keys
-// into the user's chosen export file (a GDPR / security incident).
-//
-// The key-matching regex is `(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|auth)`
-// — same shape used by the Python `_secrets._KEY_PATTERNS` allowlist,
-// applied case-insensitively as a substring match (the regex is
-// unanchored, so `my_api_key_v2` and `X-Auth-Token` both match). We
-// implement it without the `regex` crate (substring check on the
-// lowercased key) to avoid pulling a new dependency into the Tauri
-// host — the pattern is simple enough that hand-rolling the matcher
-// is cleaner than adding `regex` to `Cargo.toml`.
-//
-// When a redaction fires, we log at `warn` so it lands in the
-// rotating log file for post-mortem diagnosis (a redaction firing at
-// this layer means the Python sidecar's redaction FAILED — that's a
-// bug worth investigating).
-
-/// Marker value substituted in place of redacted secrets. Matches the
-/// Python sidecar's `_REDACTED` literal shape so the exported JSON is
-/// consistent regardless of which layer did the redaction.
-pub(crate) const REDACTED_MARKER: &str = "***REDACTED***";
-
-/// DE-73: return `true` if `key` matches the redaction pattern
-/// `(?i)(api[_-]?key|secret|token|password|passwd|pwd|credential|auth)`
-/// (case-insensitive substring match — the regex is unanchored).
-pub(crate) fn is_sensitive_key(key: &str) -> bool {
-    let k = key.to_ascii_lowercase();
-    // `api[_-]?key` → "api_key", "api-key", "apikey" (and any
-    // key containing those as a substring, e.g. "openai_api_key").
-    // We check all three spellings because the regex `[_-]?` makes
-    // the separator optional.
-    if k.contains("api_key")
-        || k.contains("api-key")
-        || k.contains("apikey")
-    {
-        return true;
-    }
-    // The remaining alternatives are plain substring checks. Using
-    // `contains` (not `==`) so keys like "auth_token" or
-    // "client_secret_v2" still match — same semantics as the
-    // unanchored regex.
-    k.contains("secret")
-        || k.contains("token")
-        || k.contains("password")
-        || k.contains("passwd")
-        || k.contains("pwd")
-        || k.contains("credential")
-        || k.contains("auth")
-}
-
-/// DE-73: walk a JSON `Value` recursively and replace every value
-/// whose key matches [`is_sensitive_key`] with the
-/// [`REDACTED_MARKER`] literal. Mutates `value` in place. Returns the
-/// count of redactions performed so the caller can log a single
-/// summary line (and so tests can assert the count).
-///
-/// Recurses into objects and arrays. Non-container values (strings,
-/// numbers, bools, null) are leaves — they're only redacted if their
-/// PARENT key is sensitive (handled by the parent's iteration).
-pub(crate) fn redact_config_secrets(value: &mut Value) -> usize {
-    let mut count = 0usize;
-    redact_config_secrets_inner(value, None, &mut count);
-    count
-}
-
-/// Recursive helper. `parent_key` is the key under which `value`
-/// lives (None at the root) — used to decide whether to replace
-/// `value` wholesale (if the parent key is sensitive) or to recurse
-/// into it.
-fn redact_config_secrets_inner(
-    value: &mut Value,
-    parent_key: Option<&str>,
-    count: &mut usize,
-) {
-    // If the parent key is sensitive, replace this value wholesale
-    // with the redaction marker (regardless of type — a secret could
-    // be a string, number, bool, or even a nested object the sidecar
-    // failed to scrub).
-    if let Some(key) = parent_key {
-        if is_sensitive_key(key) {
-            // Only redact non-null values — redacting `null` would
-            // be a false positive (a sensitive key with no value is
-            // not a leak). This also avoids logging a `warn` line
-            // for empty secrets, which would be noise.
-            if !value.is_null() {
-                log::warn!(
-                    "[DE-73] redacted sensitive config key {:?} (value type: {}) — \
-                     Python-side redaction may have missed this",
-                    key,
-                    match value {
-                        Value::String(_) => "string",
-                        Value::Number(_) => "number",
-                        Value::Bool(_) => "bool",
-                        Value::Array(_) => "array",
-                        Value::Object(_) => "object",
-                        Value::Null => "null",
-                    }
-                );
-                *value = Value::String(REDACTED_MARKER.to_string());
-                *count += 1;
-            }
-            return;
-        }
-    }
-
-    // Otherwise recurse into containers.
-    match value {
-        Value::Object(map) => {
-            // Collect keys first to avoid borrow issues while mutating.
-            let keys: Vec<String> = map.keys().cloned().collect();
-            for key in keys {
-                if let Some(child) = map.get_mut(&key) {
-                    redact_config_secrets_inner(child, Some(&key), count);
-                }
-            }
-        }
-        Value::Array(arr) => {
-            // Array elements have no key — pass None so they're only
-            // redacted if their value happens to be an object whose
-            // OWN keys are sensitive (handled by the Object arm above
-            // on the next recursion).
-            for child in arr.iter_mut() {
-                redact_config_secrets_inner(child, None, count);
-            }
-        }
-        // Leaves: nothing to do (the parent-key check above already
-        // handled redaction).
-        _ => {}
-    }
-}
 
 // ─── Tauri command: open_logs (UX-008) ────────────────────────────────
 
@@ -182,33 +42,30 @@ fn redact_config_secrets_inner(
 /// the Tauri host writes to the platform-canonical config dir per
 /// ADR-0020 §8).
 ///
-/// DE-72: the response no longer includes the `path` field — the
-/// absolute path can contain the user's home directory / username
-/// (PII leak in shared logs / crash reports), and no renderer call
-/// site consumes it (`window-namespace.ts::openLogs` strips `path`
-/// before returning to the React layer). Returns
-/// `{"success": true}` on success or `{"success": false, "error":
-/// "<msg>"}` on failure.
+/// Returns `{"success": true, "path": "<dir>"}` on success or
+/// `{"success": false, "error": "<msg>"}` on failure — matching the
+/// Electron handler's shape so `Settings.tsx`'s `viewLogs()` handler
+/// is unchanged on both runtimes.
 ///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
-/// renderer's `invoke('open_logs')` call is unchanged.
-/// `require_main_window(&window)?` runs FIRST so a compromised bubble
-/// renderer cannot trigger OS file-manager opens.
+/// GT-83: this command opens the PARENT `<config_dir>/` (the voice-
+/// typer root, which contains `logs/`, `config.json`, `history.db`,
+/// `models/`, etc.). For opening the logs/ subdir specifically, see
+/// `open_host_logs` below — the renderer's "View Logs" button should
+/// prefer `open_host_logs` so the user lands in the logs directory
+/// directly. (GT-E3-4: `app` param removed since `config_dir()` no
+/// longer takes args.)
 #[tauri::command]
-pub async fn open_logs(
-    app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<Value, String> {
-    require_main_window(&window)?;
-    let log_dir = config_dir(&app);
+pub async fn open_logs() -> Result<Value, String> {
+    let log_dir = config_dir();
     // Best-effort mkdir — if it fails (e.g. permission denied), the
     // open command below will surface the error to the user.
     let _ = std::fs::create_dir_all(&log_dir);
+    let path_str = log_dir.to_string_lossy().to_string();
 
     let open_result = open_path_in_file_manager(&log_dir);
     match open_result {
-        Ok(()) => Ok(json!({"success": true})),
-        Err(e) => Ok(json!({"success": false, "error": e})),
+        Ok(()) => Ok(json!({"success": true, "path": path_str})),
+        Err(e) => Ok(json!({"success": false, "error": e, "path": path_str})),
     }
 }
 
@@ -223,22 +80,19 @@ pub async fn open_logs(
 /// landed in the config root and had to navigate into `logs/` manually.
 /// This command opens `logs/` directly.
 ///
-/// DE-18: `window` is auto-injected by Tauri at runtime.
-/// `require_main_window(&window)?` runs FIRST so a compromised bubble
-/// renderer cannot trigger OS file-manager opens.
+/// Coordinate with GT-FIX-17 (owns `window-namespace.ts`) — the TS
+/// bridge is being updated to route the renderer's "View Logs" button
+/// to `open_host_logs` (and keep `open_logs` for "Open Config Folder").
 #[tauri::command]
-pub async fn open_host_logs(
-    app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<Value, String> {
-    require_main_window(&window)?;
-    let log_dir = config_dir(&app).join("logs");
+pub async fn open_host_logs() -> Result<Value, String> {
+    let log_dir = config_dir().join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
+    let path_str = log_dir.to_string_lossy().to_string();
 
     let open_result = open_path_in_file_manager(&log_dir);
     match open_result {
-        Ok(()) => Ok(json!({"success": true})),
-        Err(e) => Ok(json!({"success": false, "error": e})),
+        Ok(()) => Ok(json!({"success": true, "path": path_str})),
+        Err(e) => Ok(json!({"success": false, "error": e, "path": path_str})),
     }
 }
 
@@ -312,17 +166,10 @@ fn open_path_in_file_manager(path: &std::path::Path) -> Result<(), String> {
 /// `{"canceled": false, "path": "<folder>"}` on success. Matches the
 /// Electron handler's shape so `Models.tsx`'s import handler is
 /// unchanged on both runtimes.
-///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
-/// renderer's `invoke('open_model_import_dialog')` call is unchanged.
-/// `require_main_window(&window)?` runs FIRST so a compromised bubble
-/// renderer cannot trigger a folder-picker dialog.
 #[tauri::command]
 pub async fn open_model_import_dialog(
     app: tauri::AppHandle,
-    window: tauri::Window,
 ) -> Result<Value, String> {
-    require_main_window(&window)?;
     let file_path = app
         .dialog()
         .file()
@@ -349,57 +196,28 @@ pub async fn open_model_import_dialog(
 /// `export_history` / `export_vocabulary` so the renderer's mapping
 /// (Tauri `canceled:true` → Electron `{success:false}` parity) works
 /// identically.
-///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
-/// renderer's `invoke('export_templates', { data })` call is
-/// unchanged. `require_main_window(&window)?` runs FIRST.
 #[tauri::command]
 pub async fn export_templates(
     data: Value,
     app: tauri::AppHandle,
-    window: tauri::Window,
 ) -> Result<Value, String> {
-    require_main_window(&window)?;
     // Templates are always JSON (no tabular CSV shape). Pass "json"
     // explicitly so the shared helper's format-validation accepts.
     export_data(data, "json".to_string(), app, "voice-typer-templates", "Export Templates").await
 }
 
 /// NEW-PRIV-007: GDPR right-to-export for the full app config. The
-/// Python sidecar is contractually responsible for redacting API keys
-/// BEFORE the data reaches this command. DE-73 adds a Rust-side
-/// defense-in-depth redaction pass via [`redact_config_secrets`] — if
-/// the Python path regresses, the Rust host still scrubs obvious
-/// secret-shaped keys (api_key / secret / token / password / passwd /
-/// pwd / credential / auth, case-insensitive substring match) before
-/// writing the JSON to disk. Mirrors the Electron `config:export` IPC
+/// Python sidecar is responsible for redacting API keys BEFORE the
+/// data reaches this command — the Rust host just writes whatever
+/// JSON the renderer passed. Mirrors the Electron `config:export` IPC
 /// handler.
 ///
 /// Same return shape as `export_templates`.
-///
-/// DE-18: `window` is auto-injected by Tauri at runtime — the
-/// renderer's `invoke('export_config', { data })` call is unchanged.
-/// `require_main_window(&window)?` runs FIRST.
 #[tauri::command]
 pub async fn export_config(
-    mut data: Value,
+    data: Value,
     app: tauri::AppHandle,
-    window: tauri::Window,
 ) -> Result<Value, String> {
-    require_main_window(&window)?;
-    // DE-73: defense-in-depth redaction. Walk the JSON tree and
-    // replace any value whose key matches the sensitive-key pattern
-    // with `***REDACTED***`. Logs a `warn` per redaction so a
-    // regression in the Python-side redaction is visible in the
-    // rotating log file.
-    let redaction_count = redact_config_secrets(&mut data);
-    if redaction_count > 0 {
-        log::warn!(
-            "[DE-73] export_config: redacted {} sensitive field(s) at the \
-             Rust host (Python-side redaction should have caught these)",
-            redaction_count
-        );
-    }
     export_data(data, "json".to_string(), app, "voice-typer-config", "Export Config").await
 }
 
@@ -429,192 +247,5 @@ mod tests {
         // manager would open and then show an error, but that's the
         // user's problem, not the host's). We just assert no panic.
         let _ = open_path_in_file_manager(std::path::Path::new("/nonexistent/path/that/does/not/exist/voice-typer-test"));
-    }
-
-    // ── DE-73: is_sensitive_key ───────────────────────────────────────
-    //
-    // Pins the key-matching pattern: `(?i)(api[_-]?key|secret|token|
-    // password|passwd|pwd|credential|auth)` as a case-insensitive
-    // substring match.
-
-    #[test]
-    fn test_is_sensitive_key_api_key_variants() {
-        // `api[_-]?key` matches all three spellings (and any key
-        // containing them as a substring).
-        assert!(is_sensitive_key("api_key"));
-        assert!(is_sensitive_key("api-key"));
-        assert!(is_sensitive_key("apikey"));
-        assert!(is_sensitive_key("openai_api_key"));
-        assert!(is_sensitive_key("OPENAI_API_KEY"));
-        assert!(is_sensitive_key("X-Api-Key"));
-        assert!(is_sensitive_key("provider_apikey_v2"));
-    }
-
-    #[test]
-    fn test_is_sensitive_key_secret_token_password() {
-        assert!(is_sensitive_key("secret"));
-        assert!(is_sensitive_key("client_secret"));
-        assert!(is_sensitive_key("CLIENT_SECRET"));
-        assert!(is_sensitive_key("token"));
-        assert!(is_sensitive_key("auth_token"));
-        assert!(is_sensitive_key("bearer_token"));
-        assert!(is_sensitive_key("password"));
-        assert!(is_sensitive_key("PASSWORD"));
-        assert!(is_sensitive_key("user_password"));
-        assert!(is_sensitive_key("passwd"));
-        assert!(is_sensitive_key("pwd"));
-        assert!(is_sensitive_key("credential"));
-        assert!(is_sensitive_key("auth"));
-        assert!(is_sensitive_key("authorization"));
-        assert!(is_sensitive_key("X-Auth-Token"));
-    }
-
-    #[test]
-    fn test_is_sensitive_key_negatives() {
-        // Keys that look sensitive but aren't (no substring match).
-        assert!(!is_sensitive_key("api"));
-        assert!(!is_sensitive_key("model"));
-        assert!(!is_sensitive_key("language"));
-        assert!(!is_sensitive_key("vocabulary"));
-        assert!(!is_sensitive_key("backend"));
-        assert!(!is_sensitive_key("history"));
-        assert!(!is_sensitive_key("auto_punctuate"));
-        assert!(!is_sensitive_key("tray_icon"));
-        assert!(!is_sensitive_key(""));
-    }
-
-    // ── DE-73: redact_config_secrets ──────────────────────────────────
-
-    #[test]
-    fn test_redact_config_secrets_flat_object() {
-        let mut v = json!({
-            "model": "small.en",
-            "api_key": "sk-abc123",
-            "language": "en",
-            "password": "hunter2"
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 2);
-        assert_eq!(v["model"], "small.en");
-        assert_eq!(v["api_key"], REDACTED_MARKER);
-        assert_eq!(v["language"], "en");
-        assert_eq!(v["password"], REDACTED_MARKER);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_nested_object() {
-        let mut v = json!({
-            "providers": {
-                "openai": {
-                    "api_key": "sk-abc123",
-                    "model": "gpt-4"
-                },
-                "anthropic": {
-                    "api_key": "sk-ant-xyz",
-                    "auth_token": "Bearer abc"
-                }
-            },
-            "version": 2
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 3);
-        assert_eq!(v["providers"]["openai"]["api_key"], REDACTED_MARKER);
-        assert_eq!(v["providers"]["openai"]["model"], "gpt-4");
-        assert_eq!(v["providers"]["anthropic"]["api_key"], REDACTED_MARKER);
-        assert_eq!(v["providers"]["anthropic"]["auth_token"], REDACTED_MARKER);
-        assert_eq!(v["version"], 2);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_array_of_objects() {
-        let mut v = json!([
-            {"id": 1, "api_key": "sk-1"},
-            {"id": 2, "token": "tok-2"},
-            {"id": 3, "name": "no secret here"}
-        ]);
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 2);
-        assert_eq!(v[0]["id"], 1);
-        assert_eq!(v[0]["api_key"], REDACTED_MARKER);
-        assert_eq!(v[1]["id"], 2);
-        assert_eq!(v[1]["token"], REDACTED_MARKER);
-        assert_eq!(v[2]["name"], "no secret here");
-    }
-
-    #[test]
-    fn test_redact_config_secrets_skips_null_values() {
-        // A sensitive key with a null value is not a leak — don't
-        // redact (and don't log a warn).
-        let mut v = json!({
-            "api_key": null,
-            "secret": null,
-            "model": "small.en"
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 0, "null values should not be redacted");
-        assert!(v["api_key"].is_null());
-        assert!(v["secret"].is_null());
-    }
-
-    #[test]
-    fn test_redact_config_secrets_redacts_non_string_values() {
-        // A secret could be a number (e.g. a numeric PIN) or bool —
-        // redact regardless of type.
-        let mut v = json!({
-            "password": 12345,
-            "pwd": true,
-            "credential": ["nested", "array"]
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 3);
-        assert_eq!(v["password"], REDACTED_MARKER);
-        assert_eq!(v["pwd"], REDACTED_MARKER);
-        assert_eq!(v["credential"], REDACTED_MARKER);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_case_insensitive_keys() {
-        let mut v = json!({
-            "API_KEY": "sk-1",
-            "ApiKey": "sk-2",
-            "PASSWORD": "pw"
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 3);
-        assert_eq!(v["API_KEY"], REDACTED_MARKER);
-        assert_eq!(v["ApiKey"], REDACTED_MARKER);
-        assert_eq!(v["PASSWORD"], REDACTED_MARKER);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_empty_object() {
-        let mut v = json!({});
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_no_secrets() {
-        let mut v = json!({
-            "model": "small.en",
-            "language": "en",
-            "vocabulary": ["hello", "world"]
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 0);
-        // Verify the data is untouched.
-        assert_eq!(v["model"], "small.en");
-        assert_eq!(v["vocabulary"][0], "hello");
-    }
-
-    #[test]
-    fn test_redact_config_secrets_non_object_root() {
-        // The root itself is not under any key — redaction only
-        // applies to values whose parent KEY is sensitive. A bare
-        // scalar root has nothing to redact.
-        let mut v = json!("just a string");
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 0);
-        assert_eq!(v, "just a string");
     }
 }

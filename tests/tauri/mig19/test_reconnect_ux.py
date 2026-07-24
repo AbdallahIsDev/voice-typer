@@ -244,21 +244,15 @@ def tauri_bridge_source() -> str:
     rest alphabetically) so the static regex assertions authored against
     the monolith still match patterns spread across the split files.
     """
-    assert _TAURI_BRIDGE_DIR.is_dir(), (
-        f"tauri-bridge/ directory not found: {_TAURI_BRIDGE_DIR}"
-    )
+    assert _TAURI_BRIDGE_DIR.is_dir(), f"tauri-bridge/ directory not found: {_TAURI_BRIDGE_DIR}"
     sibling_files = sorted(p for p in _TAURI_BRIDGE_DIR.glob("*.ts"))
     # Put index.ts first so the orchestrator (which imports the
     # namespace factories + auto-installs) appears at the top of the
     # concatenated source — preserves the natural reading order.
-    ordered = [_TAURI_BRIDGE_TS] + [
-        p for p in sibling_files if p.name != "index.ts"
-    ]
+    ordered = [_TAURI_BRIDGE_TS] + [p for p in sibling_files if p.name != "index.ts"]
     parts: list[str] = []
     for path in ordered:
-        assert path.is_file(), (
-            f"tauri-bridge submodule not found: {path}"
-        )
+        assert path.is_file(), f"tauri-bridge submodule not found: {path}"
         parts.append(path.read_text(encoding="utf-8"))
     return "\n\n".join(parts)
 
@@ -443,7 +437,7 @@ def test_bridge_subscribes_to_ft1_relaunching_event(
         re.MULTILINE | re.DOTALL,
     )
     assert listen_re.search(tauri_bridge_source), (
-        "tauri-bridge must call tauri.event.listen(\"ft1_relaunching\", ...) — "
+        'tauri-bridge must call tauri.event.listen("ft1_relaunching", ...) — '
         "without this subscription the renderer never learns the WS "
         "disconnected + the UI stays frozen on 'connected' while the "
         "sidecar is dead."
@@ -468,8 +462,7 @@ def test_bridge_subscribes_to_ft1_relaunching_event(
         f"see the Rust host's FT-1 disconnect signal."
     )
     assert mapping_reason_re.search(tauri_bridge_source), (
-        f"tauri-bridge must include reason: {_TAURI_EVENT_RELAUNCHING!r} in "
-        f"the synthesised event data."
+        f"tauri-bridge must include reason: {_TAURI_EVENT_RELAUNCHING!r} in the synthesised event data."
     )
 
     # The synthesised frame must be passed to the onEvent callback.
@@ -544,7 +537,7 @@ def test_bridge_subscribes_to_ft1_reconnected_event(
         re.MULTILINE | re.DOTALL,
     )
     assert listen_re.search(tauri_bridge_source), (
-        "tauri-bridge must call tauri.event.listen(\"ft1_reconnected\", ...) — "
+        'tauri-bridge must call tauri.event.listen("ft1_reconnected", ...) — '
         "without this the renderer would stay on 'restarting' forever after "
         "a successful FT-1 respawn (the 'reconnected' python-event would "
         "never fire)."
@@ -566,8 +559,7 @@ def test_bridge_subscribes_to_ft1_reconnected_event(
         f"see the Rust host's FT-1 success signal."
     )
     assert mapping_reason_re.search(tauri_bridge_source), (
-        f"tauri-bridge must include reason: {_TAURI_EVENT_RECONNECTED!r} in "
-        f"the synthesised event data."
+        f"tauri-bridge must include reason: {_TAURI_EVENT_RECONNECTED!r} in the synthesised event data."
     )
 
 
@@ -646,21 +638,40 @@ def test_use_connection_handles_reconnected_event(
 # ─── Test 4: bridge emits "restarting" event when FT-1 relaunches app ─
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "GAP-A: the ConnectionStatus union in appStore.ts is missing "
+        "the 'reconnecting' literal — the handler currently uses "
+        "'restarting' as a workaround. This test asserts the correct "
+        "'reconnecting' literal that GAP-A's fix will introduce. When "
+        "GAP-A lands, the xfail will XPASS and the suite will fail "
+        "(strict=True), prompting removal of the marker."
+    ),
+)
 def test_use_connection_maps_reconnecting_event_to_restarting_status(
     use_connection_source: str,
 ) -> None:
     """ADR-0020 §10: the ``useConnection`` hook must subscribe to the
     synthesised ``"reconnecting"`` python-event (which the bridge
     emits when the Rust host fires ``ft1_relaunching``) and transition
-    the status to ``"restarting"``.
+    the status to ``"reconnecting"``.
 
-    The handler at ``useConnection.ts:237-243`` calls
+    The handler at ``useConnection.ts:237-243`` currently calls
     ``setConnectionStatus("restarting" as ConnectionStatus)`` — the
     ``as`` cast is GAP-A: ``"reconnecting"`` is not in the
     ``ConnectionStatus`` union, so the hook casts ``"restarting"`` to
     admit the transient state. Functionally correct (the UI branch at
     ``App.tsx`` for ``"restarting"`` shows the spinner); semantically
     imprecise.
+
+    WR-7: this test is marked ``xfail(strict=True)`` because GAP-A
+    has not yet added 'reconnecting' to the ConnectionStatus union in
+    appStore.ts. The handler currently uses 'restarting' as a
+    workaround. This test asserts the correct 'reconnecting' literal
+    that GAP-A's fix will introduce. When GAP-A lands, the xfail will
+    XPASS and the suite will fail (strict=True), prompting removal of
+    the marker.
     """
     sub_re = re.compile(
         r'usePythonEvent\s*\(\s*["\']' + re.escape(_PY_EVENT_RECONNECTING) + r'["\']',
@@ -673,19 +684,21 @@ def test_use_connection_maps_reconnecting_event_to_restarting_status(
         "disconnect (CR-5) or exhausts FT-1 retries (full-app relaunch)."
     )
 
-    # The handler must transition to "restarting" (with the GAP-A `as` cast).
-    # We tolerate either "restarting" or "reconnecting" here — if a future
-    # fix adds "reconnecting" to the union (resolving GAP-A), the handler
-    # will use it directly without the cast.
+    # The handler must transition to "reconnecting" (the literal GAP-A
+    # will add to the ConnectionStatus union). The current workaround
+    # uses "restarting" as a cast — this xfail asserts the correct
+    # "reconnecting" literal that GAP-A's fix will introduce.
     handler_re = re.compile(
-        r'setConnectionStatus\s*\(\s*["\'](?:restarting|reconnecting)["\']',
+        r'setConnectionStatus\s*\(\s*["\']reconnecting["\']',
         re.MULTILINE,
     )
     assert handler_re.search(use_connection_source), (
-        "useConnection.ts must call setConnectionStatus('restarting') "
-        "(or 'reconnecting' once GAP-A is resolved) inside the "
-        "usePythonEvent('reconnecting', ...) handler — this transitions "
-        "the UI to the 'Restarting Voice Typer backend…' spinner branch."
+        "useConnection.ts must call setConnectionStatus('reconnecting') "
+        "inside the usePythonEvent('reconnecting', ...) handler — this "
+        "transitions the UI to the 'Restarting Voice Typer backend…' "
+        "spinner branch. WR-7: GAP-A has not yet added 'reconnecting' "
+        "to the ConnectionStatus union in appStore.ts; the handler "
+        "currently uses 'restarting' as a workaround."
     )
 
 

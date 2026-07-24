@@ -116,6 +116,16 @@ def set_thread_registry(registry: Any | None) -> None:
 
     Passing ``None`` clears the registry — subsequent worker starts will
     not register. The already-running worker (if any) is left alone.
+
+    GT-47: the read of ``_buffer_clear_worker`` and the subsequent call
+    to ``registry.register(...)`` are now performed under
+    ``_buffer_clear_worker_lock``. Previously the read happened outside
+    the lock — a concurrent ``_stop_buffer_clear_worker`` could clear
+    the global to ``None`` and the underlying worker thread could exit
+    between our read and the ``register`` call, leaving the central
+    ThreadRegistry with a stale/dead thread reference that
+    ``shutdown_all()`` would later try to join (no-op join on a dead
+    thread, but the registry entry would never be cleaned up).
     """
     global _thread_registry
     _thread_registry = registry
@@ -123,15 +133,22 @@ def set_thread_registry(registry: Any | None) -> None:
         # If the worker is already running, register it immediately so
         # ``shutdown_all()`` can join it. Mirrors the scipy-preloader
         # pattern in ``recorder.py`` __init__.
-        worker = _buffer_clear_worker
-        if worker is not None and worker.is_alive():
-            with contextlib.suppress(Exception):
-                registry.register(
-                    name=BUFFER_CLEAR_WORKER_NAME,
-                    thread=worker,
-                    stop_event=None,
-                    join_timeout=_BUFFER_CLEAR_WORKER_JOIN_TIMEOUT_S,
-                )
+        #
+        # GT-47: hold ``_buffer_clear_worker_lock`` across the read +
+        # ``register`` call so a concurrent
+        # ``_stop_buffer_clear_worker`` cannot clear the global between
+        # the read and the register (which would register a stale/dead
+        # thread reference).
+        with _buffer_clear_worker_lock:
+            worker = _buffer_clear_worker
+            if worker is not None and worker.is_alive():
+                with contextlib.suppress(Exception):
+                    registry.register(
+                        name=BUFFER_CLEAR_WORKER_NAME,
+                        thread=worker,
+                        stop_event=None,
+                        join_timeout=_BUFFER_CLEAR_WORKER_JOIN_TIMEOUT_S,
+                    )
 
 
 def _stop_buffer_clear_worker(timeout: float = 2.0) -> bool:

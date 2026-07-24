@@ -122,7 +122,12 @@ NOISE_SUPPRESSION_METHODS: frozenset[str] = frozenset({"rnnoise", "deepfilternet
 # dispatcher (see ``_validate_config_update``).
 
 ValidatorFn = Callable[[object], str | None]
-FieldSpec = tuple[type, ValidatorFn]
+# GT-D1-6: widened to accept either a single ``type`` (e.g. ``str``, ``bool``)
+# or a tuple of types (used by Optional fields such as ``microphone`` whose
+# spec is ``(str, type(None))``). The previous ``tuple[type, ValidatorFn]``
+# alias was too narrow and forced the bare ``dict`` annotation on
+# ``IPC_CONFIG_ALLOWLIST``.
+FieldSpec = tuple[type | tuple[type, ...], ValidatorFn]
 
 
 def _is_str(v: object) -> TypeGuard[str]:
@@ -674,10 +679,19 @@ _VALIDATOR_PUSH_TO_TALK_HOTKEY = _validate_hotkey
 _VALIDATOR_CLOUD_MODEL = _make_str_validator(max_len=256)
 
 
-IPC_CONFIG_ALLOWLIST: dict = {
+# GT-D1-6: typed as ``dict[str, FieldSpec]`` (previously a bare ``dict``)
+# so static checkers can verify that every entry is a (type, validator)
+# pair. ``FieldSpec`` is the tuple alias defined above.
+IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── Hotkey ────────────────────────────────────────────────────────
     "hotkey": (str, _VALIDATOR_HOTKEY),
-    "push_to_talk_hotkey": (str, _VALIDATOR_PUSH_TO_TALK_HOTKEY),
+    # GT-F2-8: ``push_to_talk_hotkey`` removed from the IPC allowlist —
+    # the TS-side contract (see voice_typer/client/src/renderer/src/types/config.ts)
+    # documents it as a write-only back-compat field the renderer MUST NOT
+    # write. Accepting it here would let a malicious IPC client mutate a
+    # server field the renderer is forbidden to touch. Existing on-disk
+    # config.json values are still loaded by ``Config.load()`` (the field
+    # remains on the Config dataclass); only the IPC write path is closed.
     "repaste_hotkey": (str, _VALIDATOR_REPASTE_HOTKEY),
     # ── Recording ─────────────────────────────────────────────────────
     "microphone": ((str, type(None)), _VALIDATOR_MICROPHONE),
@@ -818,9 +832,11 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "silence_warning_seconds": (float, _make_float_validator(lo=0.0, hi=600.0)),
     "stop_on_silence_seconds": (float, _make_float_validator(lo=0.0, hi=3600.0)),
     "max_recording_time_seconds": (int, _make_int_validator(lo=300, hi=3600)),
-    # AUDIO-014: configurable VAD/silence thresholds
-    "silence_rms_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
-    "silence_peak_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
+    # GT-58: silence_rms_threshold / silence_peak_threshold REMOVED from
+    # the IPC allowlist — they were also removed from the Config dataclass
+    # (declared, validated, persisted, never read at runtime per ADR 0007
+    # §4.3). Existing config.json values are silently scrubbed by the v3
+    # schema migration.
     # AUDIO-013: Silero VAD configuration
     "use_silero_vad": (bool, _bool_validator),
     "vad_speech_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
@@ -829,9 +845,10 @@ IPC_CONFIG_ALLOWLIST: dict = {
     "recording_channels": (int, _make_int_validator(lo=0, hi=8)),
     # AUDIO-PRE: pre-roll buffer
     "pre_roll_buffer_seconds": (float, _make_float_validator(lo=0.0, hi=30.0)),
-    # AUDIO-AGC: peak normalization
-    "normalize_audio": (bool, _bool_validator),
-    "normalize_target_peak": (float, _make_float_validator(lo=0.1, hi=1.0)),
+    # GT-58: normalize_audio / normalize_target_peak REMOVED from the IPC
+    # allowlist — also removed from the Config dataclass (replaced by the
+    # Compressor filter per ADR 0007 §5.2). Existing config.json values
+    # are silently scrubbed by the v3 schema migration.
     # PLAT-013/014: paste safety warnings
     "warn_elevated_paste": (bool, _bool_validator),
     "warn_password_paste": (bool, _bool_validator),
@@ -900,7 +917,7 @@ IPC_CONFIG_ALLOWLIST: dict = {
 }
 
 
-def validate_config_update(data: dict) -> tuple[dict, list]:
+def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], list[str]]:
     """Validate a caller-supplied config update payload.
 
     Parameters
@@ -929,8 +946,8 @@ def validate_config_update(data: dict) -> tuple[dict, list]:
     The function is pure: it does not touch the Config object or perform
     any I/O.  This makes it trivially testable.
     """
-    validated: dict = {}
-    errors: list = []
+    validated: dict[str, object] = {}
+    errors: list[str] = []
     for k, v in data.items():
         spec = IPC_CONFIG_ALLOWLIST.get(k)
         if spec is None:
@@ -981,7 +998,7 @@ def validate_config_update(data: dict) -> tuple[dict, list]:
     return validated, errors
 
 
-def validate_config(cfg) -> list[str]:
+def validate_config(cfg: object) -> list[str]:
     """Validate an already-loaded :class:`Config` instance against
     :data:`IPC_CONFIG_ALLOWLIST`.
 

@@ -91,10 +91,9 @@ class _TimeoutSentinel:
 
 
 TIMEOUT = _TimeoutSentinel()
-
-# Compatibility aliases for DE-54 / DE-11 regression tests.
 _TIMEOUT = TIMEOUT
 _DE11_GRACE_PERIOD_SECONDS: float = 2.0
+
 
 # GT-43: watchdog timeout for the non-main-thread ``quit()`` /
 # ``restart_app()`` path. After ``_do_cleanup()`` completes, we arm a
@@ -369,9 +368,7 @@ class ShutdownController:
                 pending_lock = getattr(timers_coord, "_pending_timers_lock", None)
                 if pending_lock is not None:
                     with pending_lock:
-                        in_flight_timers = list(
-                            getattr(timers_coord, "_pending_timers", [])
-                        )
+                        in_flight_timers = list(getattr(timers_coord, "_pending_timers", []))
             app._cancel_pending_timers()
             # Drain in-flight timer threads with a short total budget.
             # Per-timer timeout of 0.5s × N timers — for the typical
@@ -381,9 +378,7 @@ class ShutdownController:
                 try:
                     timer.join(timeout=0.5)
                 except Exception:
-                    log.debug(
-                        "[CLEANUP] in-flight timer join failed", exc_info=True
-                    )
+                    log.debug("[CLEANUP] in-flight timer join failed", exc_info=True)
         except Exception:
             log.debug("[CLEANUP] _cancel_pending_timers failed", exc_info=True)
 
@@ -783,9 +778,7 @@ class ShutdownController:
                 app.tray.stop,
                 timeout=5.0,
             )
-            if _tray_stop_result is TIMEOUT and (
-                threading.current_thread() is not threading.main_thread()
-            ):
+            if _tray_stop_result is TIMEOUT and (threading.current_thread() is not threading.main_thread()):
                 log.warning(
                     "[SHUTDOWN] GT-43: tray.stop() timed out on non-main thread "
                     "— calling os._exit(0) to unblock the main thread parked in "
@@ -931,6 +924,7 @@ class ShutdownController:
         timeout by patching ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` or by
         passing a smaller ``timeout_s`` directly.
         """
+
         def _watchdog() -> None:
             deadline = time.monotonic() + timeout_s
             while time.monotonic() < deadline:

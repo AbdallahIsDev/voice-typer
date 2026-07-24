@@ -47,7 +47,10 @@ concurrency:
 
 jobs:
   populate:
-    runs-on: ubuntu-latest
+    # WR-16: pin to ubuntu-22.04 for parity with build.yml + tauri-*-build.yml
+    # (repo-wide pinning policy — ubuntu-latest flipped to 24.04 mid-2025 and
+    # broke apt-resolvable system deps in adjacent workflows).
+    runs-on: ubuntu-22.04
     timeout-minutes: 10
 
     steps:
@@ -98,6 +101,19 @@ jobs:
           # rewrites the security.py fallback to match.
           python scripts/populate_model_hashes.py
 
+      # WR-16: syntax-check the freshly-rewritten security.py BEFORE
+      # running the test suite. populate_model_hashes.py rewrites the
+      # hardcoded fallback dict via string interpolation; a malformed
+      # rewrite (e.g. an unescaped quote in a hash, a truncated file)
+      # would leave security.py unparseable and the test step below
+      # would surface the failure as an opaque ImportError from a
+      # downstream module. Catch it here with a clean ast.parse error
+      # pointing at the actual syntax problem.
+      - name: Verify security.py syntax
+        run: |
+          python -c "import ast; ast.parse(open('voice_typer/server/security.py').read())"
+          echo "security.py parses cleanly."
+
       - name: Verify tests still pass
         run: |
           uv pip install --system ".[test]"
@@ -108,14 +124,23 @@ jobs:
       - name: Generate patch artifact
         if: always()
         run: |
-          git diff --no-color > /tmp/model-hashes.patch || true
+          # WR-16: drop the previous `|| true` on the git-diff line — let
+          # a real git error (e.g. corrupt index, broken HEAD) fail loudly
+          # instead of being swallowed into an empty patch. The `[ -s ... ]`
+          # test below handles the genuine empty-patch case (no changes).
+          git diff --no-color > /tmp/model-hashes.patch
           if [ -s /tmp/model-hashes.patch ]; then
             echo "Changes detected — patch is non-empty."
             cp /tmp/model-hashes.patch "${{ github.workspace }}/model-hashes.patch"
-          else
-            echo "No changes — manifest and security.py were already in sync."
-            echo "(empty patch)" > "${{ github.workspace }}/model-hashes.patch"
           fi
+          # WR-16: removed the previous `else` branch that wrote a literal
+          # "(empty patch)" placeholder file. With the placeholder, the
+          # `if-no-files-found: error` directive on the Upload step below
+          # could NEVER fire (the file always existed) — masking the exact
+          # failure mode it was supposed to catch. Now, when there are no
+          # changes, model-hashes.patch is never created and the Upload
+          # step's `if-no-files-found: error` correctly errors out, which
+          # is the intended signal that this run produced no manifest diff.
 
       - name: Upload patch
         if: always()

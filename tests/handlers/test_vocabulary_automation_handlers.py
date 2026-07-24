@@ -92,6 +92,9 @@ class TestGetVocabularySuggestions:
         fake_app._vocabulary_automation = automation
         resp = ipc_server._handle_get_vocabulary_suggestions({}, {})
         assert resp["type"] == "error"
+        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
 
 
 class TestApplyVocabularySuggestion:

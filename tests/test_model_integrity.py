@@ -8,6 +8,7 @@ These tests cover two concerns:
    config.json pinned in the files dict, so verify_model_integrity() actually
    enforces file-level integrity rather than silently soft-passing.
 """
+
 import hashlib
 import re
 import tempfile
@@ -23,12 +24,14 @@ _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 def test_verify_model_integrity_missing_dir():
     """Returns False for non-existent directory."""
     from voice_typer.server.asr_setup import _verify_model_integrity
+
     assert _verify_model_integrity("test/model", "/nonexistent/path") is False
 
 
 def test_verify_model_integrity_empty_dir():
     """Returns False for directory with no model files."""
     from voice_typer.server.asr_setup import _verify_model_integrity
+
     with tempfile.TemporaryDirectory() as tmp:
         assert _verify_model_integrity("test/model", tmp) is False
 
@@ -36,6 +39,7 @@ def test_verify_model_integrity_empty_dir():
 def test_verify_model_integrity_valid():
     """Returns True for directory with model and config files."""
     from voice_typer.server.asr_setup import _verify_model_integrity
+
     with tempfile.TemporaryDirectory() as tmp:
         # Create a model file
         (Path(tmp) / "model.safetensors").write_bytes(b"\x00" * 100)
@@ -47,6 +51,7 @@ def test_verify_model_integrity_valid():
 def test_verify_model_integrity_no_config():
     """Returns False for directory with model but no config."""
     from voice_typer.server.asr_setup import _verify_model_integrity
+
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "model.bin").write_bytes(b"\x00" * 100)
         assert _verify_model_integrity("test/model", tmp) is False
@@ -55,9 +60,10 @@ def test_verify_model_integrity_no_config():
 def test_verify_model_integrity_empty_model_file():
     """Returns False for directory with empty model file."""
     from voice_typer.server.asr_setup import _verify_model_integrity
+
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "model.safetensors").write_bytes(b"")
-        (Path(tmp) / "config.json").write_text('{}')
+        (Path(tmp) / "config.json").write_text("{}")
         assert _verify_model_integrity("test/model", tmp) is False
 
 
@@ -79,9 +85,7 @@ def test_model_hashes_revisions_are_pinned_commit_shas():
 
     assert MODEL_HASHES, "MODEL_HASHES is empty — manifest failed to load"
     hf_repos = [r for r in MODEL_HASHES if r != "qwen"]
-    assert len(hf_repos) >= 5, (
-        f"Expected at least 5 HuggingFace repos in MODEL_HASHES, got {len(hf_repos)}: {hf_repos}"
-    )
+    assert len(hf_repos) >= 5, f"Expected at least 5 HuggingFace repos in MODEL_HASHES, got {len(hf_repos)}: {hf_repos}"
     for repo_id in hf_repos:
         entry = MODEL_HASHES[repo_id]
         revision = entry.get("revision", "")
@@ -117,13 +121,11 @@ def test_model_hashes_have_pinned_config_json():
             f"Pin at least config.json."
         )
         assert "config.json" in files, (
-            f"model_hashes.json entry '{repo_id}' does not pin config.json — "
-            f"add its SHA-256 to the 'files' dict."
+            f"model_hashes.json entry '{repo_id}' does not pin config.json — add its SHA-256 to the 'files' dict."
         )
         config_hash = files["config.json"]
         assert _SHA256_RE.match(config_hash), (
-            f"model_hashes.json entry '{repo_id}' config.json hash {config_hash!r} "
-            f"is not a 64-char hex SHA-256 digest."
+            f"model_hashes.json entry '{repo_id}' config.json hash {config_hash!r} is not a 64-char hex SHA-256 digest."
         )
 
 
@@ -169,8 +171,7 @@ def test_model_hashes_fallback_matches_json(monkeypatch):
             f"must mirror model_hashes.json."
         )
         assert fb_entry.get("files") == json_entry.get("files"), (
-            f"repo '{repo_id}': fallback 'files' dict != JSON 'files' dict. "
-            f"The fallback must mirror model_hashes.json."
+            f"repo '{repo_id}': fallback 'files' dict != JSON 'files' dict. The fallback must mirror model_hashes.json."
         )
 
 
@@ -253,3 +254,50 @@ def test_verify_model_integrity_fails_when_pinned_file_missing(monkeypatch, tmp_
 
     result = security.verify_model_integrity(str(tmp_path), "test/missing-file-repo")
     assert result is False
+
+
+# ── GT-E1-3: ALLOW_PATTERNS aliases regression ──────────────────────────
+
+
+def test_allow_patterns_parakeet_omits_bin():
+    """SEC-audit-005 / G4-M-39: the Parakeet allowlist must NOT include
+    ``*.bin`` — the pickle-serialised format is a remote-code-execution
+    vector and Parakeet ships ``model.safetensors`` only.
+    """
+    from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET
+
+    assert "*.safetensors" in ALLOW_PATTERNS_PARAKEET
+    assert "config.json" in ALLOW_PATTERNS_PARAKEET
+    assert "*.bin" not in ALLOW_PATTERNS_PARAKEET, (
+        "GT-E1-3 / SEC-audit-005: ALLOW_PATTERNS_PARAKEET must not include "
+        "*.bin — Parakeet ships safetensors only and *.bin is an RCE vector."
+    )
+
+
+def test_allow_patterns_whisper_includes_bin():
+    """SEC-audit-005 / G4-M-39: the Whisper allowlist keeps ``*.bin``
+    because CTranslate2 (``faster_whisper``) consumes ``model.bin``
+    natively and never via ``torch.load`` (the pickle-vector path).
+    """
+    from voice_typer.server._model_integrity import ALLOW_PATTERNS_WHISPER
+
+    assert "*.bin" in ALLOW_PATTERNS_WHISPER
+    assert "*.safetensors" in ALLOW_PATTERNS_WHISPER
+
+
+def test_allow_patterns_backward_compat_alias_removed():
+    """GT-E1-3: the bare ``ALLOW_PATTERNS`` backward-compat alias was
+    removed because no production caller imports it (all callers use
+    the backend-specific ``ALLOW_PATTERNS_PARAKEET`` / ``ALLOW_PATTERNS_WHISPER``
+    explicitly). If a future contributor re-introduces the alias, this
+    test fails so they are forced to either delete it again or wire a
+    real caller.
+    """
+    import voice_typer.server._model_integrity as mi
+
+    assert not hasattr(mi, "ALLOW_PATTERNS"), (
+        "GT-E1-3: bare ALLOW_PATTERNS alias was deleted as dead code "
+        "(zero production callers). Re-introducing it without a real "
+        "caller violates the cleanup. Use ALLOW_PATTERNS_PARAKEET or "
+        "ALLOW_PATTERNS_WHISPER explicitly instead."
+    )

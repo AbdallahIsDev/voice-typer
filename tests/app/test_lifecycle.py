@@ -76,6 +76,9 @@ class TestAppStateTransitions:
         # `time.monotonic()` call (returning a MagicMock instead of a float).
         monkeypatch.setattr(app_mod, "time", MagicMock())
 
+        app.models.transcriber = MagicMock()
+        app.models._sync_registry_from_fields()
+
         app.recorder = MagicMock()
         app.recorder.recording = True
         # Return 0.1s of audio (less than 0.5s threshold)
@@ -85,6 +88,10 @@ class TestAppStateTransitions:
 
         _wait_for_busy_clear(app)
         assert app._busy_event.is_set()
+        # WR-2: the short-audio branch must NOT call into the transcription
+        # engine at all (duration < 0.5s short-circuits before the
+        # transcription thread is started in RecordingController.stop).
+        app.models.transcriber.transcribe_with_fallback.assert_not_called()
 
     def test_transcribe_success_copies_to_clipboard(self, app, monkeypatch):
         app.clipboard = MagicMock()
@@ -185,6 +192,8 @@ class TestAppStateTransitions:
         app.clipboard.copy.assert_not_called()
 
     def test_transcribe_failure_shows_error(self, app):
+        from voice_typer.server.tray_types import AppState
+
         app.models.transcriber = MagicMock()
         app.models._sync_registry_from_fields()
         app.models.transcriber.transcribe_with_fallback = MagicMock(side_effect=Exception("model crash"))
@@ -193,20 +202,41 @@ class TestAppStateTransitions:
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
 
+        # WR-2: mock the tray so the ERROR-state transition is observable.
+        # The dictation pipeline's except handler calls
+        # ``tray.set_state(AppState.ERROR, "Transcription failed")``.
+        app.tray = MagicMock()
+
         app._stop_dictation()
 
         _wait_for_busy_clear(app)
 
         # Should not crash; error state should be set
         assert app._busy_event.is_set()
+        # WR-2: verify the ERROR tray state was actually entered (the
+        # dictation pipeline's except handler must call
+        # tray.set_state(AppState.ERROR, ...) — previously this test
+        # never checked that the ERROR state was reached).
+        app.tray.set_state.assert_called_with(AppState.ERROR, "Transcription failed")
 
     def test_transcribe_cuda_fallback_clears_busy(self, app):
         """When GPU transcription fails with CUDA error, fallback to CPU succeeds
-        and _busy is still cleared."""
+        and _busy is still cleared.
+
+        WR-2: the previous mock returned success on every call — the
+        CUDA-failure path was never actually exercised. We now use
+        ``side_effect=[RuntimeError("CUDA error"), "fallback worked"]``
+        so the first call simulates the GPU failure and the second
+        call returns the CPU-fallback transcription. The mock must be
+        called twice (once for GPU, once for the CPU retry).
+        """
         app.models.transcriber = MagicMock()
         app.models._sync_registry_from_fields()
-        # First call (GPU) raises CUDA error, fallback (CPU) returns text
-        app.models.transcriber.transcribe_with_fallback = MagicMock(return_value="fallback worked")
+        # First call (GPU) raises CUDA error, second call (CPU fallback)
+        # returns text — actually exercises the fallback path.
+        app.models.transcriber.transcribe_with_fallback = MagicMock(
+            side_effect=[RuntimeError("CUDA error"), "fallback worked"]
+        )
         app.models.transcriber.device_info = "cpu (int8)"
 
         app.recorder = MagicMock()
@@ -218,7 +248,8 @@ class TestAppStateTransitions:
         _wait_for_busy_clear(app)
 
         assert app._busy_event.is_set()
-        app.models.transcriber.transcribe_with_fallback.assert_called_once()
+        # WR-2: the mock must be called twice (GPU attempt + CPU retry).
+        assert app.models.transcriber.transcribe_with_fallback.call_count == 2
 
     def test_force_recover_resets_busy(self, app):
         """_force_recover_from_stuck_transcription clears _busy and resets tray."""

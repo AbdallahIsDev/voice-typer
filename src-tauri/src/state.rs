@@ -46,7 +46,15 @@ pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Pending dispatch requests keyed by id. Each entry has a oneshot
 /// sender that the WS reader task fulfills when the matching response
 /// arrives.
-pub(crate) type PendingMap = Arc<AsyncMutex<HashMap<u64, oneshot::Sender<Value>>>>;
+///
+/// GT-E3-5: removed the redundant outer `Arc`. `SidecarState` itself is
+/// always shared via `Arc<SidecarState>`, so the inner `AsyncMutex` is
+/// already shared — wrapping it in another `Arc` doubled the indirection
+/// without any benefit. `AsyncMutex::lock` takes `&self`, so existing
+/// call sites (`state.pending.lock().await`) compile unchanged. The
+/// only cross-file impact is `main.rs`'s struct-literal initializer,
+/// which must drop the `Arc::new(...)` wrapper — see GT-FIX-20.
+pub(crate) type PendingMap = AsyncMutex<HashMap<u64, oneshot::Sender<Value>>>;
 
 /// The WS writer half, wrapped in a channel so the dispatch command
 /// (which runs on a Tauri async runtime) can send frames without
@@ -179,27 +187,41 @@ impl SidecarHandle {
 /// / `tokio::process::Child`, not a `SidecarHandle`, so they can't use
 /// `kill_tree`).
 pub(crate) fn kill_process_tree(pid: u32) {
+    // GT-19: capture each shell-out result and log on Err / non-zero
+    // exit so a broken `taskkill`/`pgrep`/`kill` (PATH issue,
+    // permissions, etc.) isn't silently swallowed. The function remains
+    // best-effort — failures are logged but don't abort shutdown.
     #[cfg(windows)]
     {
         use std::process::Command;
-        // /F = force, /T = terminate the whole tree rooted at the pid.
-        // `taskkill /T` already walks descendants recursively, so no
-        // separate walk is needed on Windows.
-        let _ = Command::new("taskkill")
+        let tool = "taskkill";
+        match Command::new(tool)
             .args(["/F", "/T", "/PID", &pid.to_string()])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
-            .status();
+            .status()
+        {
+            Ok(s) if s.success() => {
+                log::info!("[KILL-TREE] taskkill succeeded for pid={}", pid);
+            }
+            Ok(s) => {
+                log::warn!(
+                    "[KILL-TREE] {} exited with code {} for pid {}",
+                    tool,
+                    s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
+                    pid
+                );
+            }
+            Err(e) => {
+                log::warn!("[KILL-TREE] {} failed for pid={}: {}", tool, pid, e);
+            }
+        }
     }
     #[cfg(unix)]
     {
         use std::process::Command;
         use std::time::Duration;
 
-        // PVT-G5-029: depth-first collection of ALL descendants.
-        // `pgrep -P <cur>` prints the PIDs of `cur`'s direct children,
-        // one per line. We push each onto the stack so its own children
-        // are visited too — this catches grandchildren + deeper.
         let mut all_descendants: Vec<u32> = Vec::new();
         let mut stack: Vec<u32> = vec![pid];
         while let Some(cur) = stack.pop() {
@@ -208,43 +230,82 @@ pub(crate) fn kill_process_tree(pid: u32) {
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::null())
                 .output();
-            if let Ok(out) = pgrep {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                for line in stdout.lines() {
-                    if let Ok(child_pid) = line.trim().parse::<u32>() {
-                        all_descendants.push(child_pid);
-                        stack.push(child_pid);
+            match pgrep {
+                Ok(out) if out.status.success() => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    for line in stdout.lines() {
+                        if let Ok(child_pid) = line.trim().parse::<u32>() {
+                            all_descendants.push(child_pid);
+                            stack.push(child_pid);
+                        }
                     }
+                }
+                Ok(out) => {
+                    // Exit 1 = no children (normal leaf) — skip logging.
+                    if out.status.code() != Some(1) {
+                        log::warn!(
+                            "[KILL-TREE] pgrep exited with code {:?} for pid {}",
+                            out.status.code(),
+                            cur
+                        );
+                    }
+                }
+                Err(e) => {
+                    log::warn!("[KILL-TREE] pgrep failed for pid={}: {}", cur, e);
                 }
             }
         }
 
-        // SIGTERM each descendant (graceful first — gives the native
-        // hotkey binary / model subprocesses a chance to release the
-        // audio device + clean up).
         for &dpid in &all_descendants {
-            let _ = Command::new("kill")
+            match Command::new("kill")
                 .args(["-TERM", &dpid.to_string()])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
-                .status();
+                .status()
+            {
+                Ok(s) if s.success() => {}
+                Ok(s) => {
+                    log::warn!(
+                        "[KILL-TREE] kill -TERM exited with code {} for pid {}",
+                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
+                        dpid
+                    );
+                }
+                Err(e) => {
+                    log::warn!("[KILL-TREE] kill -TERM failed for pid={}: {}", dpid, e);
+                }
+            }
         }
 
-        // Brief grace period so the SIGTERM can take effect before we
-        // escalate to SIGKILL. 200ms is enough for a well-behaved child
-        // to exit; longer waits would slow shutdown without catching
-        // many more survivors.
         std::thread::sleep(Duration::from_millis(200));
 
-        // SIGKILL survivors (best-effort — `kill -KILL` on an already-
-        // exited pid is a no-op, so we don't bother filtering).
         for &dpid in &all_descendants {
-            let _ = Command::new("kill")
+            match Command::new("kill")
                 .args(["-KILL", &dpid.to_string()])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
-                .status();
+                .status()
+            {
+                Ok(s) if s.success() => {}
+                Ok(s) => {
+                    log::warn!(
+                        "[KILL-TREE] kill -KILL exited with code {} for pid {}",
+                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
+                        dpid
+                    );
+                }
+                Err(e) => {
+                    log::warn!("[KILL-TREE] kill -KILL failed for pid={}: {}", dpid, e);
+                }
+            }
         }
+
+        // GT-19: final summary line.
+        log::info!(
+            "[KILL-TREE] reaped {} descendants of pid {}",
+            all_descendants.len(),
+            pid
+        );
     }
 }
 
@@ -277,6 +338,44 @@ pub(crate) struct SidecarState {
     /// `shutdown_sidecar` falls back to bounded sleep polling for that
     /// path.
     pub(crate) child_exit_rx: AsyncMutex<Option<mpsc::Receiver<CommandEvent>>>,
+    /// GT-8 / GT-C4-3: the most recently spawned heartbeat task's
+    /// `JoinHandle`. `reconnect_ws` spawns a fresh heartbeat task on
+    /// every successful reconnect; without storing + aborting the
+    /// previous handle, each reconnect LEAKS the prior task. After N
+    /// reconnects you'd have N concurrent heartbeat tasks all
+    /// dispatching `heartbeat` frames at 10s intervals.
+    ///
+    /// GT-FIX-20 coordination note: `main.rs`'s `SidecarState { ... }`
+    /// struct-literal initializer must add `heartbeat_handle:
+    /// AsyncMutex::new(None),` — OR switch to `SidecarState::new()`.
+    pub(crate) heartbeat_handle:
+        AsyncMutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+}
+
+impl SidecarState {
+    /// GT-8 / GT-C4-3: convenience constructor so `main.rs`'s struct
+    /// literal can be replaced with `SidecarState::new()`. `pub(crate)`
+    /// so `main.rs` (owned by GT-FIX-20) can switch to it — also
+    /// future-proofs against further field additions.
+    pub(crate) fn new() -> Self {
+        Self {
+            child: Mutex::new(None),
+            ws_tx: Mutex::new(None),
+            // GT-E3-5: PendingMap no longer wrapped in outer Arc.
+            pending: AsyncMutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            shutting_down: AtomicBool::new(false),
+            respawn_in_progress: AtomicBool::new(false),
+            child_exit_rx: AsyncMutex::new(None),
+            heartbeat_handle: AsyncMutex::new(None),
+        }
+    }
+}
+
+impl Default for SidecarState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ─── PVT-G5-007: app-exit sidecar teardown ────────────────────────────────
@@ -312,63 +411,162 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
     use std::time::Duration;
     use crate::util::SHUTDOWN_ACK_TIMEOUT_MS;
 
-    // Idempotency guard: if a shutdown is already in flight (renderer
-    // command, prior ExitRequested, or FT-1 supervisor), bail out —
-    // that path is already tearing the sidecar down.
+    // Idempotency guard.
     if state.shutting_down.swap(true, Ordering::SeqCst) {
+        log::info!("[EXIT-SHUTDOWN] shutting_down already set — skipping duplicate teardown");
         return;
     }
 
-    // Send the shutdown frame so a cooperative sidecar can ack + exit
-    // within the 2s window. Best-effort — if the WS is already gone,
-    // we'll fall through to force-kill.
-    let frame = serde_json::json!({"type": "shutdown"});
-    if let Some(ws_tx) = lock(&state.ws_tx).clone() {
-        // PVT-G5-059: bounded channel — use `try_send` instead of `send`.
-        // At shutdown the channel may be full of pending dispatch frames
-        // (rare but possible during a flap); `try_send` avoids awaiting
-        // on a full channel while the run loop is trying to exit.
-        let _ = ws_tx.try_send(Message::Text(frame.to_string()));
+    // GT-8 / GT-C4-3: abort the heartbeat task so it doesn't keep
+    // dispatching `heartbeat` frames into the dead WS.
+    {
+        let mut hb_guard = state.heartbeat_handle.lock().await;
+        if let Some(handle) = hb_guard.take() {
+            handle.abort();
+            log::info!("[EXIT-SHUTDOWN] aborted in-flight heartbeat task");
+        }
     }
 
-    // Wait up to SHUTDOWN_ACK_TIMEOUT_MS for graceful exit. The
-    // CommandEvent receiver (release builds) yields `Terminated` when
-    // the sidecar exits; the dev-mode path has no receiver so we just
-    // sleep the full window. We don't care WHICH event came back —
-    // either way we proceed to the force-kill backstop below.
+    // Send the shutdown frame (best-effort).
+    // GT-18: log on failure so a stuck writer task isn't silent.
+    let frame = serde_json::json!({"type": "shutdown"});
+    if let Some(ws_tx) = lock(&state.ws_tx).clone() {
+        if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string())) {
+            log::warn!(
+                "[EXIT-SHUTDOWN] try_send of shutdown frame failed (best-effort): {}",
+                e
+            );
+        }
+    } else {
+        log::info!("[EXIT-SHUTDOWN] no ws_tx — skipping cooperative shutdown frame");
+    }
+
+    // Wait up to SHUTDOWN_ACK_TIMEOUT_MS for graceful exit.
+    // GT-18: mirror the `shutdown_sidecar` Tauri command's logging.
     let deadline = Duration::from_millis(SHUTDOWN_ACK_TIMEOUT_MS);
+    let mut graceful = false;
     let mut rx_guard = state.child_exit_rx.lock().await;
     if let Some(rx) = rx_guard.as_mut() {
-        let _ = tokio::time::timeout(deadline, rx.recv()).await;
+        match tokio::time::timeout(deadline, rx.recv()).await {
+            Ok(Some(CommandEvent::Terminated(payload))) => {
+                log::info!(
+                    "[EXIT-SHUTDOWN] sidecar exited gracefully (code={:?}, signal={:?})",
+                    payload.code,
+                    payload.signal
+                );
+                graceful = true;
+            }
+            Ok(Some(other)) => {
+                log::warn!(
+                    "[EXIT-SHUTDOWN] unexpected event while waiting for termination: {:?}",
+                    other
+                );
+            }
+            Ok(None) => {
+                log::warn!("[EXIT-SHUTDOWN] sidecar event stream closed without Terminated");
+            }
+            Err(_) => {
+                log::warn!(
+                    "[EXIT-SHUTDOWN] sidecar did not exit within {}ms — force-killing",
+                    SHUTDOWN_ACK_TIMEOUT_MS
+                );
+            }
+        }
     } else {
+        log::info!(
+            "[EXIT-SHUTDOWN] dev-mode sidecar — sleeping {}ms before force-kill",
+            SHUTDOWN_ACK_TIMEOUT_MS
+        );
         tokio::time::sleep(deadline).await;
     }
     drop(rx_guard);
 
-    // Force-kill backstop: take the child and kill the whole tree.
-    // `kill_tree` reaps descendants (PVT-G5-029) AND the root in one
-    // call. No-op if the child has already exited (which is the
-    // common case after the 2s graceful wait).
+    // Force-kill backstop.
+    // GT-18: log kill_tree errors.
     let child_opt = lock(&state.child).take();
     if let Some(child) = child_opt {
-        let _ = child.kill_tree().await;
+        if let Err(e) = child.kill_tree().await {
+            log::warn!("[EXIT-SHUTDOWN] kill_tree failed (best-effort): {}", e);
+        }
     }
+
+    // GT-18: final summary line.
+    log::info!(
+        "[EXIT-SHUTDOWN] sidecar teardown complete graceful={}",
+        graceful
+    );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     /// PVT-G5-029: `kill_process_tree` must be best-effort — calling
-    /// it with a non-existent pid (or a pid with no children) must not
-    /// panic. Verifies the recursive `pgrep` walk handles an empty
-    /// descendant set cleanly on Unix, and the `taskkill /T` call on
-    /// Windows doesn't panic when the pid doesn't exist (it just
-    /// returns a non-zero exit status which we ignore).
+    /// it with a non-existent pid must not panic.
     #[test]
     fn test_kill_process_tree_nonexistent_pid_is_noop() {
-        // PID 999_999 is vanishingly unlikely to exist on a test
-        // runner. The function should return without panicking.
         kill_process_tree(999_999);
+    }
+
+    /// GT-19: kill_process_tree must not panic on a pathologically
+    /// large pid (e.g. u32::MAX).
+    #[test]
+    fn test_kill_process_tree_u32_max_is_noop() {
+        kill_process_tree(u32::MAX);
+    }
+
+    /// GT-8 / GT-C4-3: `SidecarState::new()` must initialize
+    /// `heartbeat_handle` to `None`. Also verifies the `Default` impl.
+    #[tokio::test]
+    async fn test_sidecar_state_new_heartbeat_handle_is_none() {
+        let state = SidecarState::new();
+        assert!(
+            state.heartbeat_handle.lock().await.is_none(),
+            "fresh SidecarState must have heartbeat_handle = None"
+        );
+        let default_state = SidecarState::default();
+        assert!(
+            default_state.heartbeat_handle.lock().await.is_none(),
+            "SidecarState::default() must have heartbeat_handle = None"
+        );
+    }
+
+    /// GT-E3-5: PendingMap type alias no longer wraps an outer Arc.
+    #[tokio::test]
+    async fn test_pending_map_no_outer_arc_compiles_and_works() {
+        let pending: PendingMap = AsyncMutex::new(HashMap::new());
+        let (tx, _rx) = oneshot::channel::<Value>();
+        pending.lock().await.insert(1u64, tx);
+        assert_eq!(pending.lock().await.len(), 1);
+        let _ = pending.lock().await.remove(&1u64);
+        assert_eq!(pending.lock().await.len(), 0);
+    }
+
+    /// GT-8: `shutdown_sidecar_for_exit` must be idempotent.
+    #[tokio::test]
+    async fn test_shutdown_sidecar_for_exit_is_idempotent() {
+        let state = Arc::new(SidecarState::new());
+        let state_clone = state.clone();
+        tokio::time::timeout(
+            Duration::from_millis(2500),
+            shutdown_sidecar_for_exit(&state_clone),
+        )
+        .await
+        .expect("first shutdown_sidecar_for_exit should complete within 2.5s");
+        assert!(
+            state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
+            "shutting_down must be set after first call"
+        );
+        let state_clone2 = state.clone();
+        let second = tokio::time::timeout(
+            Duration::from_millis(100),
+            shutdown_sidecar_for_exit(&state_clone2),
+        )
+        .await;
+        assert!(
+            second.is_ok(),
+            "second shutdown_sidecar_for_exit must short-circuit immediately (idempotency)"
+        );
     }
 }

@@ -53,6 +53,27 @@ pub(crate) fn is_dev_mode_for(value: Option<&str>) -> bool {
 
 /// ADR-0020 §1 + §4.1: release-build spawn via `externalBin`. Wraps
 /// the resulting `CommandChild` in `SidecarHandle::ShellPlugin`.
+///
+/// GT-A2-4 (Low, SKIPPED — documented): the release-mode ShellPlugin
+/// sidecar has no kill-on-drop equivalent of the dev-mode
+/// `kill_on_drop(true)`. If the host process crashes (segfault, OOM
+/// kill, `kill -9`), the sidecar Python process is orphaned and keeps
+/// running with the mic / IPC port / native hotkey binary held. The
+/// proper fix is platform-specific:
+///   - POSIX: `prctl(PR_SET_PDEATHSIG, SIGKILL)` in a `pre_exec` hook.
+///   - Windows: assign the sidecar to a Job Object with
+///     `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`.
+/// Both approaches require a `pre_exec` hook (POSIX) or post-spawn
+/// Job-Object syscalls (Windows) that the tauri-plugin-shell
+/// `externalBin` API does NOT expose. The fix would require EITHER
+/// refactoring the release path to spawn via `std::process::Command`
+/// directly OR adding a `platform/*` helper that attaches the
+/// just-spawned child's pid to a Job Object / registers prctl —
+/// `platform/*` is GT-FIX-20's domain. COORDINATION NOTE for
+/// GT-FIX-20: a `platform::process::register_kill_on_parent_exit(pid:
+/// u32)` helper would let this file call it right after
+/// `cmd.spawn()` below. The dev-mode path is already covered by
+/// `kill_on_drop(true)` (see `spawn_sidecar_dev_mode`).
 pub(crate) async fn spawn_sidecar_release(
     app: &tauri::AppHandle,
     token: &str,
@@ -278,12 +299,22 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
         .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
+        // GT-20: set VOICE_TYPER_DEBUG=1 so the Python sidecar enables
+        // verbose debug logging (its `log.py` checks this env var).
+        // Previously this set only `RUST_LOG=debug`, which is
+        // meaningless for a Python child (Python doesn't read
+        // `RUST_LOG`) — it only affected native Rust binaries the
+        // sidecar might spawn. Keep `RUST_LOG=debug` too so those
+        // native children stay verbose in dev mode.
+        .env("VOICE_TYPER_DEBUG", "1")
         .env("RUST_LOG", "debug")
         .stdout(std::process::Stdio::piped())
         // Dev mode: inherit stderr so the developer sees Python
         // tracebacks in the `cargo tauri dev` console.
         .stderr(std::process::Stdio::inherit())
         // Ensure the dev sidecar dies with the host (no zombie python).
+        // GT-A2-4: dev-mode equivalent of the release-mode kill-on-drop
+        // requirement (see the GT-A2-4 note on `spawn_sidecar_release`).
         .kill_on_drop(true);
 
     let mut child = cmd
@@ -349,10 +380,19 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
 /// (`spawn_sidecar_release`) and dev-mode-path (`spawn_sidecar_dev_mode`)
 /// stdout-reading loops. Returns the port if `line` is the
 /// `{"event":"server_started","port":N}` JSON line, else `None`.
+///
+/// GT-D3-2: the port field is parsed via `u16::try_from(p).ok()` instead
+/// of `p as u16`. The previous `as u16` cast silently truncated any port
+/// value above 65535 (e.g. a corrupted `port: 70000` JSON would wrap to
+/// `70000_u32 as u16 = 4464`). `try_from` returns `Err` for out-of-range
+/// values, which `.ok()` maps to `None`.
 pub(crate) fn parse_server_started(line: &str) -> Option<u16> {
     let v: Value = serde_json::from_str(line.trim()).ok()?;
     if v.get("event").and_then(|e| e.as_str()) == Some("server_started") {
-        v.get("port").and_then(|p| p.as_u64()).map(|p| p as u16)
+        v.get("port")
+            .and_then(|p| p.as_u64())
+            // GT-D3-2: try_from instead of truncating `as u16`.
+            .and_then(|p| u16::try_from(p).ok())
     } else {
         None
     }
@@ -421,6 +461,35 @@ mod tests {
         // the parser shouldn't reject it either — port-as-u64 → 0u16).
         let line = r#"{"event":"server_started","port":0}"#;
         assert_eq!(parse_server_started(line), Some(0));
+    }
+
+    // ── GT-D3-2: u16::try_from instead of truncating `as u16` ────────
+
+    #[test]
+    fn test_parse_server_started_port_above_u16_max_returns_none() {
+        // GT-D3-2: a port value above u16::MAX (65535) must return None
+        // instead of silently truncating. Previously `p as u16` would
+        // wrap 70000 → 4464.
+        let line = r#"{"event":"server_started","port":70000}"#;
+        assert_eq!(
+            parse_server_started(line),
+            None,
+            "GT-D3-2: port=70000 must return None (not truncate to 4464)"
+        );
+    }
+
+    #[test]
+    fn test_parse_server_started_port_u16_max_passthrough() {
+        // u16::MAX (65535) is the upper bound of valid ports.
+        let line = r#"{"event":"server_started","port":65535}"#;
+        assert_eq!(parse_server_started(line), Some(65535));
+    }
+
+    #[test]
+    fn test_parse_server_started_port_u64_max_returns_none() {
+        // An absurdly large port must also return None.
+        let line = r#"{"event":"server_started","port":18446744073709551615}"#;
+        assert_eq!(parse_server_started(line), None);
     }
 
     #[test]

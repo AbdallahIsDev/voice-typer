@@ -135,9 +135,9 @@ fi
 # Phase 1a below overwrites them with real Nuitka/compiled artifacts.
 echo "::group::Phase 0 — ensure Tauri icons + binary stubs"
 ICON_STUB="$PROJECT_ROOT/scripts/gen_tauri_icons_stub.py"
-if ! python "$ICON_STUB" --check; then
+if ! python3 "$ICON_STUB" --check; then
     echo "[build_tauri_all] some stubs missing — generating..."
-    python "$ICON_STUB" || { echo "ERROR: gen_tauri_icons_stub.py failed" >&2; exit 1; }
+    python3 "$ICON_STUB" || { echo "ERROR: gen_tauri_icons_stub.py failed" >&2; exit 1; }
 fi
 echo "::endgroup::"
 
@@ -225,6 +225,16 @@ fi
 #   (c) the sidecar binary was placed in src-tauri/bin/ (Tauri externalBin
 #       target — if missing, the installed app fails to launch the backend).
 echo "::group::Phase 1d — verify build artifacts"
+# WR-18 FINDING C-1: Windows binaries carry an .exe suffix; macOS/Linux do not.
+# Previously SIDECAR_BIN was constructed without the .exe suffix, so the
+# existence check below always failed on Windows (the actual artifact is
+# python-sidecar-x86_64-pc-windows-msvc.exe), causing exit 4 even when the
+# build had succeeded. Mirrors the EXE_SUFFIX pattern in nuitka_freeze.sh:144-148.
+case "$HOST_PLATFORM" in
+    windows) EXE_SUFFIX=".exe" ;;
+    *)       EXE_SUFFIX="" ;;
+esac
+
 BUNDLE_DIR="$SRC_TAURI/target/$TARGET_TRIPLE/release/bundle"
 if [[ ! -d "$BUNDLE_DIR" ]]; then
     echo "ERROR: bundle dir not found: $BUNDLE_DIR" >&2
@@ -247,10 +257,10 @@ while IFS= read -r -d '' _bf; do
     fi
 done < <(find "$BUNDLE_DIR" -type f -print0)
 # (c) the sidecar binary was placed in src-tauri/bin/.
-SIDECAR_BIN="$SRC_TAURI/bin/python-sidecar-$TARGET_TRIPLE"
+SIDECAR_BIN="$SRC_TAURI/bin/python-sidecar-$TARGET_TRIPLE$EXE_SUFFIX"
 if [[ ! -f "$SIDECAR_BIN" ]]; then
     echo "ERROR: sidecar binary not found: $SIDECAR_BIN" >&2
-    echo "  Phase 1a should have placed python-sidecar-$TARGET_TRIPLE in src-tauri/bin/." >&2
+    echo "  Phase 1a should have placed python-sidecar-$TARGET_TRIPLE$EXE_SUFFIX in src-tauri/bin/." >&2
     exit 4
 fi
 echo "[build_tauri_all] OK: $BUNDLE_FILE_COUNT bundle file(s) + sidecar binary verified"

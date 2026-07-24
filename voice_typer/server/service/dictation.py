@@ -6,8 +6,19 @@ active dictation.
 """
 
 import logging
+from typing import TYPE_CHECKING
 
 from voice_typer.server._secrets import redact_secret, redact_url
+
+if TYPE_CHECKING:
+    # WR-14: ``ForceCancelResult`` is a TypedDict defined in
+    # ``voice_typer/server/service/__init__.py`` (which imports this
+    # mixin via ``from voice_typer.server.service.dictation import
+    # DictationMixin``). Importing it at runtime would create a circular
+    # import, so we resolve the forward-reference annotation only under
+    # ``TYPE_CHECKING`` (pyrefly / mypy) and leave the runtime annotation
+    # as a string.
+    from voice_typer.server.service import ForceCancelResult
 
 log = logging.getLogger(__name__)
 

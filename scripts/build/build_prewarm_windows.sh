@@ -26,10 +26,31 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 RESOURCES_DIR="$PROJECT_ROOT/src-tauri/resources"
 
 # ─── Args ────────────────────────────────────────────────────────────────────
-ARCH="${1:-x86_64}"
+ARCH="${1:-}"
 if [[ "$ARCH" == "--check" ]]; then
-    echo "[build_prewarm_windows] --check: same toolchain as build_sidecar_windows — OK if that passes."
-    exit 0
+    # Delegate to the sibling sidecar build script which performs the
+    # real toolchain probe (python-build-standalone interpreter,
+    # nuitka, faster_whisper, ctranslate2). The prewarm binary uses
+    # the exact same Nuitka toolchain as the sidecar, so a successful
+    # sidecar --check implies a successful prewarm build.
+    # WR-18: previously this was a stub that just echoed "OK if that
+    # passes" and exited 0 without invoking the sibling — masking
+    # real toolchain breakage.
+    exec bash "$SCRIPT_DIR/build_sidecar_windows.sh" --check
+fi
+
+# WR-18 FINDING F-2: previously ARCH defaulted to x86_64 unconditionally,
+# so on Windows-on-ARM hosts (aarch64) the script produced an x86_64
+# binary that wouldn't run natively. Now auto-detect via uname -m (matches
+# the Linux/macOS sibling pattern at build_prewarm_linux.sh:39-46), still
+# allowing $1 to override. MSYS2/Git Bash report x86_64 / aarch64 directly
+# (no normalization needed).
+if [[ -z "$ARCH" ]]; then
+    case "$(uname -m)" in
+        x86_64)   ARCH="x86_64" ;;
+        aarch64)  ARCH="aarch64" ;;
+        *) echo "ERROR: unsupported host arch: $(uname -m)" >&2; exit 1 ;;
+    esac
 fi
 
 case "$ARCH" in

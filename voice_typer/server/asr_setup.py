@@ -34,8 +34,10 @@ Lifecycle:
 
 import logging
 import os
+import sys
 import threading
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -187,7 +189,7 @@ def ensure_hf_env():
     os.environ.setdefault("HF_HUB_DISABLE_UNVERIFIED_ACCESS_WARNING", "1")
 
 
-def _verify_model_integrity(repo_id: str, local_dir: str) -> bool:
+def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[str, Any]]:
     """Verify downloaded model files have valid structure.
 
     PROD-006: Basic integrity check that the model directory
@@ -196,10 +198,80 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> bool:
     SEC-audit-005: Delegates to the centralized
     ``security.verify_model_integrity()`` which also checks SHA-256
     hashes against the MODEL_HASHES manifest when available.
-    """
-    from voice_typer.server.security import verify_model_integrity
 
-    return verify_model_integrity(local_dir, repo_id)
+    GT-B2-4: returns ``(ok, details)`` instead of a bare bool so the
+    caller can surface a useful diagnostic when the integrity check
+    fails. ``details`` is a dict with the following keys (any of which
+    may be ``None`` when not applicable):
+
+    - ``failed_file``: relative path of the file that failed the check.
+    - ``expected_hash``: the manifest-declared SHA-256 for
+      ``failed_file``.
+    - ``actual_hash``: the computed SHA-256 for ``failed_file``.
+    - ``allow_pattern_matched``: whether the download's allow-patterns
+      matched any file in ``local_dir``.
+
+    When the integrity check passes, ``details`` is an empty dict.
+    """
+    from voice_typer.server.security import MODEL_HASHES, verify_model_integrity
+
+    ok = verify_model_integrity(local_dir, repo_id)
+    if ok:
+        return (True, {})
+
+    details: dict[str, Any] = {
+        "failed_file": None,
+        "expected_hash": None,
+        "actual_hash": None,
+        "allow_pattern_matched": None,
+    }
+
+    model_path = Path(local_dir)
+    manifest = MODEL_HASHES.get(repo_id, {})
+    pinned_files: dict[str, str] = manifest.get("files", {}) or {}
+
+    if pinned_files and model_path.exists():
+        from voice_typer.server.security import compute_file_sha256
+
+        for filename, expected_hash in pinned_files.items():
+            file_path = model_path / filename
+            if not file_path.exists():
+                details["failed_file"] = filename
+                details["expected_hash"] = expected_hash
+                details["actual_hash"] = None
+                break
+            try:
+                actual_hash = compute_file_sha256(file_path)
+            except Exception as exc:
+                log.debug("[ASR_SETUP] could not compute hash for %s: %s", file_path, exc)
+                continue
+            if actual_hash != expected_hash:
+                details["failed_file"] = filename
+                details["expected_hash"] = expected_hash
+                details["actual_hash"] = actual_hash
+                break
+
+    try:
+        import fnmatch
+
+        matched = False
+        if model_path.exists():
+            for entry in model_path.rglob("*"):
+                if not entry.is_file():
+                    continue
+                rel = entry.relative_to(model_path).as_posix()
+                for pat in _HF_ALLOW_PATTERNS:
+                    if fnmatch.fnmatch(rel, pat) or fnmatch.fnmatch(rel, f"*/{pat}"):
+                        matched = True
+                        break
+                if matched:
+                    break
+        details["allow_pattern_matched"] = matched
+    except Exception as exc:
+        log.debug("[ASR_SETUP] could not determine allow_pattern_matched: %s", exc)
+        details["allow_pattern_matched"] = None
+
+    return (False, details)
 
 
 def _cleanup_failed_cache(repo_id: str) -> None:
@@ -247,7 +319,7 @@ def _cleanup_failed_cache(repo_id: str) -> None:
 def download_parakeet_weights(
     progress_callback: Callable[[str], None] | None = None,
     config: Any = None,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, tuple[type, BaseException, Any] | None]:
     """Download Parakeet TDT v3 model weights via huggingface_hub.
 
     PROD-004: wraps snapshot_download in retry loop with exponential
@@ -255,29 +327,28 @@ def download_parakeet_weights(
 
     PROD-005: checks disk space before attempting download.
 
-    G4-H-04 (Session 7 — Group 4): defense-in-depth consent gate.
+    G4-H-04: defense-in-depth consent gate.
     When ``config`` is provided, ``config.huggingface_consent`` MUST be
-    True before any HuggingFace network call.  The IPC handler in
-    ``service.py::_require_huggingface_consent`` already gates on
-    consent; this in-function check is the belt-and-suspenders guard
-    against future refactors that bypass the IPC layer.  When
-    ``config`` is ``None`` (legacy / test path), the gate is SKIPPED —
-    the caller is presumed to have already verified consent.
+    True before any HuggingFace network call.
 
-    G4-M-46 (Session 7 — Group 4): the return type is now
-    ``tuple[bool, str]``.  The string is a short reason code that the
-    caller (``service.py::download_model``) maps to a specific tray
-    notification:
+    G4-M-46: the return type is now a 3-tuple
+    ``(success, reason, exc_info)``.  ``reason`` is a short reason code:
       - ``"huggingface_consent_false"`` — consent gate blocked download.
       - ``"huggingface_hub_missing"`` — ``huggingface_hub`` import failed.
       - ``"disk_space_insufficient"`` — canonical disk-space check raised.
       - ``"download_retry_exhausted"`` — all ``_MAX_DOWNLOAD_RETRIES``
         attempts failed.
-      - ``"integrity_check_failed"`` — post-download
-        ``verify_model_integrity()`` returned False (tampered or
-        corrupted download).  The offending ``models--<repo>`` directory
-        is removed so the next call re-downloads fresh.
-    Success returns ``(True, "")``.
+      - ``"integrity_check_failed"`` — post-download integrity check
+        returned False (tampered or corrupted download).
+    Success returns ``(True, "", None)``.
+
+    GT-15: ``exc_info`` is the captured ``sys.exc_info()`` 3-tuple
+    ``(type, value, traceback)`` from the most recent exception in this
+    function, or ``None`` when no exception was raised. The IPC layer /
+    diagnostic bundle consumer can format the traceback via
+    ``traceback.format_exception(*exc_info)`` to surface the full chain
+    — HF Hub URL, HTTP status, retry chain, originating frame inside
+    ``snapshot_download`` — without needing to re-raise.
 
     Args:
         progress_callback: Optional callable(message: str) for progress updates.
@@ -285,7 +356,7 @@ def download_parakeet_weights(
             gate is enforced.
 
     Returns:
-        ``(success, reason)`` — see above.
+        ``(success, reason, exc_info)`` — see above.
     """
     # G4-H-04: defense-in-depth consent gate.  Only enforce when
     # ``config`` is provided — legacy callers that don't pass config
@@ -300,7 +371,7 @@ def download_parakeet_weights(
             log.warning("[ASR_SETUP] HuggingFace consent not given — refusing to download Parakeet weights.")
             if progress_callback:
                 progress_callback("HuggingFace consent required before downloading Parakeet model.")
-            return (False, "huggingface_consent_false")
+            return (False, "huggingface_consent_false", None)
 
     ensure_hf_env()
     try:
@@ -314,7 +385,7 @@ def download_parakeet_weights(
         )
         if progress_callback:
             progress_callback("huggingface_hub not installed, cannot download weights")
-        return (False, "huggingface_hub_missing")
+        return (False, "huggingface_hub_missing", None)
 
     repo_id = "nvidia/parakeet-tdt-0.6b-v3"
 
@@ -336,14 +407,28 @@ def download_parakeet_weights(
             local_files_only=True,
         )
         # PROD-006: Verify model integrity for cached weights
-        if local_dir and _verify_model_integrity(repo_id, local_dir):
+        if local_dir:
+            cached_ok, cached_details = _verify_model_integrity(repo_id, local_dir)
+        else:
+            cached_ok, cached_details = False, {}
+        if cached_ok:
             msg = "Parakeet model already cached"
             log.info("[ASR_SETUP] %s", msg)
             if progress_callback:
                 progress_callback(msg)
-            return (True, "")
+            return (True, "", None)
         else:
-            log.warning("[ASR_SETUP] Cached model failed integrity check, re-downloading")
+            # GT-B2-4: log the integrity-check details at WARNING before
+            # _cleanup_failed_cache removes the offending files.
+            log.warning(
+                "[ASR_SETUP] Cached model failed integrity check, re-downloading "
+                "(details: failed_file=%s expected_hash=%s actual_hash=%s "
+                "allow_pattern_matched=%s)",
+                cached_details.get("failed_file"),
+                (cached_details.get("expected_hash") or "")[:16],
+                (cached_details.get("actual_hash") or "")[:16],
+                cached_details.get("allow_pattern_matched"),
+            )
             # G4-CR-06 / cache cleanup on verify failure: remove the
             # offending cache dir so the re-download doesn't get the
             # same tampered files served from local cache.
@@ -384,7 +469,7 @@ def download_parakeet_weights(
         log.error("[ASR_SETUP] %s", msg)
         if progress_callback:
             progress_callback(msg)
-        return (False, "disk_space_insufficient")
+        return (False, "disk_space_insufficient", sys.exc_info())
     except Exception as e:
         # PROD-005: If the canonical check can't be imported, log and
         # proceed. The model download itself will fail naturally if
@@ -419,27 +504,52 @@ def download_parakeet_weights(
             resume_download=True,
         )
     except Exception as e:
+        # GT-15: capture the full ``sys.exc_info()`` triple into the
+        # return tuple so the IPC layer / diagnostic bundle consumer
+        # can format the traceback (HF Hub URL, HTTP status, retry
+        # chain, originating frame inside ``snapshot_download``) for
+        # remote debugging — the #1 ASR-app support case. ``log.error``
+        # with ``exc_info=True`` writes the full traceback to the log
+        # file so the on-disk log is no longer blind to the underlying
+        # failure mode (429 rate-limit vs DNS vs CRC vs TLS).
+        captured_exc_info = sys.exc_info()
         log.error(
             "[ASR_SETUP] All %d download attempts failed. Last error: %s",
             _MAX_DOWNLOAD_RETRIES,
             e,
+            exc_info=True,
         )
         if progress_callback:
             progress_callback(f"Download failed after {_MAX_DOWNLOAD_RETRIES} attempts: {e}")
-        return (False, "download_retry_exhausted")
+        return (False, "download_retry_exhausted", captured_exc_info)
 
     # PROD-006: Verify model integrity after download
-    if not _verify_model_integrity(repo_id, local_dir):
-        log.error("[ASR_SETUP] Model integrity check failed after download")
+    # GT-B2-4: ``_verify_model_integrity`` now returns ``(ok, details)``.
+    # Log the details at ERROR before ``_cleanup_failed_cache`` removes
+    # the offending files — without these details, support cannot
+    # distinguish a missing pinned file from a hash mismatch from a
+    # tampered allow-pattern (all surface as the same opaque
+    # ``integrity_check_failed`` reason code).
+    post_ok, post_details = _verify_model_integrity(repo_id, local_dir)
+    if not post_ok:
+        log.error(
+            "[ASR_SETUP] Model integrity check failed after download "
+            "(details: failed_file=%s expected_hash=%s actual_hash=%s "
+            "allow_pattern_matched=%s)",
+            post_details.get("failed_file"),
+            (post_details.get("expected_hash") or "")[:16],
+            (post_details.get("actual_hash") or "")[:16],
+            post_details.get("allow_pattern_matched"),
+        )
         if progress_callback:
             progress_callback("Download completed but integrity check failed")
         # G4-CR-06 / cache cleanup on verify failure: remove the
         # offending cache dir so the next call doesn't re-discover the
         # tampered snapshot.
         _cleanup_failed_cache(repo_id)
-        return (False, "integrity_check_failed")
+        return (False, "integrity_check_failed", None)
     msg = "Parakeet model download complete"
     log.info("[ASR_SETUP] %s", msg)
     if progress_callback:
         progress_callback(msg)
-    return (True, "")
+    return (True, "", None)

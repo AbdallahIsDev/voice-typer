@@ -58,6 +58,15 @@ pub(crate) const SHUTDOWN_POLL_INTERVAL_MS: u64 = 100;
 /// ADR-0020 §6.2: paste-text short/long threshold (characters). Short
 /// text is injected via `enigo.text()` (IME-safe); long text is copied
 /// to the clipboard then Ctrl/Cmd+V is pressed.
+///
+/// GT-E3-9: this is a HOST-INTERNAL heuristic with NO Python
+/// counterpart — `voice_typer/server/` has zero references to
+/// `paste_short_threshold`, `PASTE_SHORT_THRESHOLD`, or `300` in a
+/// paste context (verified via `rg`). The constant is consumed only
+/// by `src-tauri/src/commands/paste.rs` (GT-FIX-20's domain) to
+/// decide the short-vs-long injection strategy on the HOST side; the
+/// Python sidecar never sees this value. So there's no parity
+/// requirement — leave as-is.
 pub(crate) const PASTE_SHORT_THRESHOLD: usize = 300;
 
 /// ADR-0020 §11: max bytes per log file before rotation.
@@ -77,17 +86,22 @@ pub(crate) fn generate_token() -> String {
 
 pub(crate) mod hex {
     /// XV-146: write each byte directly into the pre-allocated String
-    /// buffer via `core::fmt::Write` — `write!` into a `String` writes
-    /// directly into its heap buffer, eliminating the intermediate
-    /// `format!(...)` allocation + the temporary `&str` per byte. The
-    /// `unwrap()` is safe (the `fmt::Write` impl for `String` is
-    /// infallible — it never returns `Err`).
+    /// buffer via `core::fmt::Write`. The `expect` is safe (the
+    /// `fmt::Write` impl for `String` is infallible — it never returns
+    /// `Err`).
     pub fn encode(bytes: &[u8]) -> String {
         use std::fmt::Write;
         let mut s = String::with_capacity(bytes.len() * 2);
         for b in bytes {
-            // SAFETY: String's `fmt::Write` impl never errors.
-            write!(s, "{:02x}", b).unwrap();
+            // Rationale: String's `fmt::Write` impl never errors —
+            // `std::fmt::Write::write_str` for `String` unconditionally
+            // returns `Ok(())` because the underlying `Vec<u8>` push
+            // cannot fail (it aborts on OOM rather than returning Err).
+            // (GT-D3-3: was `.unwrap()` with a `SAFETY:` comment —
+            // switched to `.expect` with a `Rationale:` prefix since
+            // this is not an `unsafe` block and `SAFETY:` is reserved
+            // for `unsafe` rationale.)
+            write!(s, "{:02x}", b).expect("fmt::Write for String is infallible");
         }
         s
     }
@@ -109,7 +123,13 @@ pub(crate) fn now_timestamp() -> String {
         .unwrap_or_default();
     let secs = now.as_secs();
     let millis = now.subsec_millis();
-    let days = (secs / 86_400) as i64;
+    // GT-D3-7: use `i64::try_from(...).unwrap_or(i64::MAX)` for the
+    // `u64 → i64` cast instead of `as i64`. The `as i64` cast silently
+    // wraps any u64 value above `i64::MAX`. The saturating `try_from`
+    // keeps the value at `i64::MAX` instead of wrapping negative,
+    // matching PVT-G5-051's pattern. In practice both produce the same
+    // output for any real timestamp.
+    let days = i64::try_from(secs / 86_400).unwrap_or(i64::MAX);
     let rem = secs % 86_400;
     let hour = rem / 3600;
     let min = (rem % 3600) / 60;
@@ -119,7 +139,11 @@ pub(crate) fn now_timestamp() -> String {
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097) as u64; // [0, 146096]
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
-    let y = yoe as i64 + era * 400;
+    // GT-D3-7: same `i64::try_from` saturating cast for `yoe → i64`.
+    // `yoe` is in `[0, 399]` so it always fits, but the explicit
+    // `try_from` documents the invariant and is consistent with the
+    // `days` cast above.
+    let y = i64::try_from(yoe).unwrap_or(i64::MAX) + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
     let mp = (5 * doy + 2) / 153; // [0, 11]
     let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]

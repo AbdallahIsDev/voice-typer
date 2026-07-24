@@ -10,10 +10,21 @@ include requirements.txt
 
 # Server Python modules
 recursive-include voice_typer/server *.py
-recursive-include voice_typer/server/assets *
 
-# Client build output (Electron)
-recursive-include voice_typer/client/build *
+# WR-19: include voice_typer/server/native/ data files (binaries.json +
+# linux-key-listener, linux-key-listener.c, macos-key-listener.swift,
+# windows-key-listener.c). Without these, `pip install voice-typer` from
+# sdist leaves native_hotkeys/binary_path.py and spec_parser.py unable
+# to locate or compile the listener at runtime.
+recursive-include voice_typer/server/native *
+
+# WR-19: include the bundled Silero VAD TorchScript model
+# (voice_typer/server/silero_vad.jit, ~1.8 MB). Loaded at runtime by
+# voice_typer/server/vad.py:38. Without this, `pip install voice-typer`
+# from sdist leaves VAD raising RuntimeError at first dictation.
+# (Frozen builds via voice-typer.spec:107 already include this file
+# explicitly; this entry closes the sdist gap.)
+include voice_typer/server/silero_vad.jit
 
 # Corrections data + reserved-hotkey table + model integrity hashes.
 # All three JSON files are read by voice_typer/server/ modules at
@@ -24,6 +35,12 @@ include voice_typer/server/corrections.json
 include voice_typer/server/hotkey_reserved.json
 include voice_typer/server/model_hashes.json
 
-# Icon assets
-include voice_typer/server/assets/*.png
-include voice_typer/server/assets/*.ico
+# WR-19: removed three dead lines that referenced voice_typer/server/assets/
+# (the directory does not exist on disk — verified via `ls
+# voice_typer/server/assets/`). The previous `recursive-include
+# voice_typer/server/assets *` + two `include voice_typer/server/assets/*.png`
+# / `*.ico` lines silently matched nothing.
+# WR-19: also removed `recursive-include voice_typer/client/build *` —
+# the electron-vite build output directory is `voice_typer/client/out/`
+# (not `build/`), and the renderer is built separately by CI / Tauri,
+# not shipped with the Python sdist.

@@ -6,6 +6,17 @@ Extracted verbatim from the original ``service.py`` god class
 """
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    # WR-14: ``StatusResponse`` is a TypedDict defined in
+    # ``voice_typer/server/service/__init__.py`` (which imports this
+    # mixin via ``from voice_typer.server.service.status import
+    # StatusMixin``). Importing it at runtime would create a circular
+    # import, so we resolve the forward-reference annotation only under
+    # ``TYPE_CHECKING`` (pyrefly / mypy) and leave the runtime annotation
+    # as a string.
+    from voice_typer.server.service import StatusResponse
 
 log = logging.getLogger(__name__)
 

@@ -8,22 +8,26 @@ from __future__ import annotations
 
 import pytest
 
-pytestmark = pytest.mark.skipif(
-    True,  # Will be overridden below if hypothesis is available
-    reason="hypothesis not installed — install with: pip install hypothesis",
-)
-
+# WR-11: single-assignment pytestmark. The previous code first set
+# ``pytestmark = pytest.mark.skipif(True, ...)`` then reassigned it to
+# ``pytest.mark.skipif(False, ...)`` inside the ``try`` block if
+# hypothesis imported cleanly. The reassignment worked but was
+# confusing — the two-stage pattern read as "always skip first, then
+# maybe un-skip". The single-assignment form below is equivalent and
+# clearer: detect hypothesis up front, then set the skipif mark based
+# on the result.
 try:
     from hypothesis import HealthCheck, given, settings
     from hypothesis import strategies as st
 
     HAS_HYPOTHESIS = True
-    pytestmark = pytest.mark.skipif(
-        False,
-        reason="hypothesis not installed",
-    )
 except ImportError:
     HAS_HYPOTHESIS = False
+
+pytestmark = pytest.mark.skipif(
+    not HAS_HYPOTHESIS,
+    reason="hypothesis not installed — install with: pip install hypothesis",
+)
 
 
 if HAS_HYPOTHESIS:
@@ -38,7 +42,7 @@ if HAS_HYPOTHESIS:
         """Generate a WordTiming with start <= end, both finite and non-negative."""
         start = draw(st.floats(min_value=0.0, max_value=max_time, allow_nan=False, allow_infinity=False))
         end = draw(st.floats(min_value=start, max_value=max_time, allow_nan=False, allow_infinity=False))
-        word = draw(st.text(min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=('Ll', 'Lu'))))
+        word = draw(st.text(min_size=1, max_size=20, alphabet=st.characters(whitelist_categories=("Ll", "Lu"))))
         return WordTiming(word=word, start_seconds=round(start, 3), end_seconds=round(end, 3))
 
     class TestAssemblerProperties:

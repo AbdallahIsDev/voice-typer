@@ -13,6 +13,7 @@ import { app, dialog } from "electron";
 import { HEARTBEAT_INTERVAL_MS, IPC_TOKEN } from "../constants";
 import { state } from "../state";
 import { createWindows } from "../windows";
+import { broadcastToMainWindow } from "../windows/main-window";
 import { handleMessage } from "./handle-message";
 import { sendToPython } from "./send-to-python";
 
@@ -35,7 +36,7 @@ function clearTcpStartupTimeout(): void {
 	}
 }
 
-export function tcpConnect(port: number) {
+export function tcpConnect(port: number): void {
 	// Start the startup timeout on the first connect attempt. If
 	// tcpConnect is called again (e.g. after a dev-mode restart),
 	// the timer is already cleared from the prior successful
@@ -72,7 +73,7 @@ export function tcpConnect(port: number) {
 		}, TCP_STARTUP_TIMEOUT_MS);
 	}
 
-	function tryConnect() {
+	function tryConnect(): void {
 		const client = new net.Socket();
 		// CRITICAL: do NOT set `tcpSocket = client` here.  Setting it
 		// before the socket is connected and authed means sendToPython()
@@ -138,12 +139,9 @@ export function tcpConnect(port: number) {
 			// (The full-restart flow no longer needs this — the renderer
 			// is reloaded fresh — but it's still useful for transient
 			// TCP drops that don't warrant a full process restart.)
-			if (
-				state._hadConnectedBefore &&
-				state.mainWindow &&
-				!state.mainWindow.isDestroyed()
-			) {
-				state.mainWindow.webContents.send("python-event", {
+			if (state._hadConnectedBefore) {
+				// GT-A3-8: route through broadcastToMainWindow.
+				broadcastToMainWindow("python-event", {
 					type: "reconnected",
 					_session_nonce: state.sessionNonce,
 				});
@@ -159,11 +157,16 @@ export function tcpConnect(port: number) {
 			sendToPython({ type: "heartbeat" }).catch(() => {
 				/* best-effort — will retry on next tick */
 			});
-			state.heartbeatInterval = setInterval(() => {
+			// GT-59: unref the heartbeat interval so it doesn't keep the Node.js
+			// event loop alive on its own. Without .unref(), a hidden background
+			// instance would never exit when the user closes all windows.
+			const h = setInterval(() => {
 				sendToPython({ type: "heartbeat" }).catch(() => {
 					/* best-effort — close handler will clear the interval */
 				});
 			}, HEARTBEAT_INTERVAL_MS);
+			h.unref();
+			state.heartbeatInterval = h;
 		});
 
 		client.on("data", (chunk: Buffer) => {
@@ -236,8 +239,14 @@ export function tcpConnect(port: number) {
 			// PVT-G5-007: reset the TCP line buffer on close
 			// so stale partial frames from the previous
 			// connection don't bleed into the next one.
-			state.tcpBuffer = "";
+			//
+			// GT-44: scope the buffer clear to the socket that actually owns
+			// the current state. Previously the clear ran unconditionally — a
+			// STALE socket close (e.g. an old retry-generation socket finishing
+			// TCP teardown after a newer socket already connected) would wipe
+			// the live socket's in-flight partial frame.
 			if (state.tcpSocket === client) {
+				state.tcpBuffer = "";
 				state.tcpSocket = null;
 				state._tcpAuthed = false;
 			}

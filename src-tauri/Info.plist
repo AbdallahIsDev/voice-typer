@@ -16,6 +16,19 @@
   <string>Voice Typer needs microphone access to transcribe your speech to text.</string>
   <key>NSUserNotificationsUsageDescription</key>
   <string>Voice Typer posts native notifications for dictation events and errors.</string>
+  <!--
+    WR-19: NSAppleEventsUsageDescription is REQUIRED on macOS 14+ for the
+    com.apple.security.automation.apple-events entitlement (granted in
+    entitlements.plist:46-47) to actually take effect at the TCC layer.
+    Without this usage-description string, every AppleScript invocation
+    from volume_ducker.py and clipboard_snapshot.py silently fails with
+    errAEEventNotPermitted (-1743) — volume ducking during dictation and
+    foreground-app detection for safe paste targeting both break.
+    The entitlement grants the *capability*; this string provides the
+    *user-facing consent prompt*.
+  -->
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Voice Typer uses AppleScript to control system volume during dictation and to detect the foreground app for safe paste targeting.</string>
   <key>LSMinimumSystemVersion</key>
   <string>13.0</string>
 </dict>

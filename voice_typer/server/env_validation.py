@@ -32,10 +32,18 @@ def _validate_env_vars() -> None:
     for var in _bool_vars:
         val = os.environ.get(var)
         if val is not None and not _bool_pattern.match(val):
+            # GT-63: pre-redact the env-var value at the call site.
+            # The previous ``%r`` of the raw value leaked whatever the
+            # user typed (which may carry a username, partial secret,
+            # or shell-injection payload) into the log record's msg
+            # args -- any handler that bypasses the PIIRedactionFilter
+            # (third-party handlers, the ``print()`` fallback in
+            # ipc_diagnostics.py:154) would write it verbatim.  Booleans
+            # are on the safe-list, but a *failed* boolean validation
+            # means the value is NOT a boolean -- treat it as opaque.
             log.warning(
-                "[ENV] Invalid value for %s=%r -- expected boolean (1/0/true/false/yes/no). Resetting to empty.",
+                "[ENV] Invalid value for %s=<redacted> -- expected boolean (1/0/true/false/yes/no). Resetting to empty.",
                 var,
-                val,
             )
             os.environ.pop(var, None)
 
@@ -51,9 +59,10 @@ def _validate_env_vars() -> None:
 
     config_dir = os.environ.get("VOICE_TYPER_CONFIG_DIR")
     if config_dir is not None and (not _path_pattern.match(config_dir) or len(config_dir) > 4096):
+        # GT-63: pre-redact the path value -- ``VOICE_TYPER_CONFIG_DIR`` typically
+        # carries a username (``/Users/jane.doe/...``) which is PII; never log raw.
         log.warning(
-            "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=%r -- expected valid path. Resetting to empty.",
-            config_dir,
+            "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=<redacted> -- expected valid path. Resetting to empty.",
         )
         os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
 
@@ -86,9 +95,10 @@ def _validate_env_vars() -> None:
     # never see it.
     hf_home = os.environ.get("HF_HOME")
     if hf_home is not None and (not _path_pattern.match(hf_home) or len(hf_home) > 4096):
+        # GT-63: pre-redact -- HF_HOME is a filesystem path, typically under
+        # the user's home directory, so it carries a username.
         log.warning(
-            "[ENV] Invalid value for HF_HOME=%r -- expected valid path. Resetting to empty.",
-            hf_home,
+            "[ENV] Invalid value for HF_HOME=<redacted> -- expected valid path. Resetting to empty.",
         )
         os.environ.pop("HF_HOME", None)
     elif hf_home is not None:
@@ -102,10 +112,18 @@ def _validate_env_vars() -> None:
         try:
             _validate_path_safety(Path(hf_home), Path.home())
         except (ValueError, OSError, RuntimeError) as exc:
+            # GT-63: pre-redact the HF_HOME value (path -> PII).
+            # GT-B1-14: include the exception *type name* so the operator
+            # knows which validation predicate failed (ValueError vs
+            # OSError vs RuntimeError) without having to grep the source.
+            # ``%s`` of the exception instance itself is safe -- the
+            # validation predicates raise with messages that describe the
+            # *rule* that failed ("path escapes home directory"), not the
+            # *value* that failed (the path itself stays redacted).
             log.warning(
-                "[ENV] HF_HOME=%r failed path-safety validation (%s) — "
+                "[ENV] HF_HOME=<redacted> failed path-safety validation (%s: %s) — "
                 "discarding to prevent import_model path traversal.",
-                hf_home,
+                type(exc).__name__,
                 exc,
             )
             os.environ.pop("HF_HOME", None)
@@ -126,9 +144,10 @@ def _validate_env_vars() -> None:
     hf_endpoint = os.environ.get("HF_ENDPOINT")
     if hf_endpoint is not None:
         if not _path_pattern.match(hf_endpoint) or len(hf_endpoint) > 4096:
+            # GT-63: pre-redact -- HF_ENDPOINT is a URL, may carry a username
+            # (``https://jane%40example.com@mirror/``) or a query-string key.
             log.warning(
-                "[ENV] Invalid value for HF_ENDPOINT=%r -- expected valid URL. Resetting to empty.",
-                hf_endpoint,
+                "[ENV] Invalid value for HF_ENDPOINT=<redacted> -- expected valid URL. Resetting to empty.",
             )
             os.environ.pop("HF_ENDPOINT", None)
         else:
@@ -186,18 +205,17 @@ def _validate_hf_endpoint(raw: str) -> None:
     scheme = (parsed.scheme or "").lower()
     hostname = parsed.hostname
     if scheme != "https":
+        # GT-63: pre-redact the raw HF_ENDPOINT value (URL -> PII / secret).
         log.warning(
-            "[ENV] HF_ENDPOINT=%r rejected — must use https:// scheme "
+            "[ENV] HF_ENDPOINT=<redacted> rejected — must use https:// scheme "
             "(got %r). Discarding to prevent plaintext model downloads.",
-            raw,
             scheme or "<empty>",
         )
         os.environ.pop("HF_ENDPOINT", None)
         return
     if not hostname:
         log.warning(
-            "[ENV] HF_ENDPOINT=%r rejected — could not parse hostname. Discarding to prevent download redirection.",
-            raw,
+            "[ENV] HF_ENDPOINT=<redacted> rejected — could not parse hostname. Discarding to prevent download redirection.",
         )
         os.environ.pop("HF_ENDPOINT", None)
         return
@@ -208,18 +226,16 @@ def _validate_hf_endpoint(raw: str) -> None:
     )
     if not allowed:
         log.warning(
-            "[ENV] HF_ENDPOINT=%r rejected — hostname %r is not in the "
+            "[ENV] HF_ENDPOINT=<redacted> rejected — hostname %r is not in the "
             "allowlist %s. Discarding to prevent download redirection "
             "to an attacker-controlled server.",
-            raw,
             hostname_lower,
             sorted(_ALLOWED_HF_ENDPOINT_HOSTS),
         )
         os.environ.pop("HF_ENDPOINT", None)
         return
     log.debug(
-        "[ENV] HF_ENDPOINT=%r accepted (host=%s, scheme=https).",
-        raw,
+        "[ENV] HF_ENDPOINT=<redacted> accepted (host=%s, scheme=https).",
         hostname_lower,
     )
 

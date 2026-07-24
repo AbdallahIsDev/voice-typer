@@ -39,6 +39,7 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 from voice_typer.server.volume_ducker import VolumeDucker
 
@@ -475,6 +476,7 @@ class TestMonitorConcurrency:
         assert not ducker.actually_ducked
         assert backend.fade_calls == []  # no duck happened
 
+    @pytest.mark.slow
     def test_concurrent_duck_and_restore_with_monitor(self):
         """Stress test: multiple threads calling duck/restore while the
         monitor might be starting/stopping."""
@@ -505,6 +507,7 @@ class TestMonitorConcurrency:
         # Monitor should not be running after all cycles complete.
         assert _wait_for(lambda: not ducker.is_monitor_running, timeout=1.0)
 
+    @pytest.mark.slow
     def test_thread_join_before_start_race_regression(self):
         """Regression test for the v2.3 bug where _start_smart_duck_monitor
         assigned self._monitor_thread BEFORE calling .start().

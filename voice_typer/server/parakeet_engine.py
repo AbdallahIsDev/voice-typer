@@ -1019,11 +1019,15 @@ class ParakeetEngine:
         """
         import gc
 
-        # EC-FIX-8: ``release_gpu_memory`` now lives in the canonical
-        # ``asr_utils`` module (formerly imported from ``transcription``).
-        # ``transcription.py`` still re-exports the name for backward
-        # compat with tests that patch
-        # ``voice_typer.server.transcription.release_gpu_memory``.
+        # EC-FIX-8: ``release_gpu_memory`` lives in the canonical
+        # ``asr_utils`` module. ``transcription.py`` still re-exports the
+        # name for backward compat, BUT because this is a LOCAL import
+        # (not a module-level import), tests that want to intercept the
+        # call MUST patch ``voice_typer.server.asr_utils.release_gpu_memory``
+        # — patching ``voice_typer.server.transcription.release_gpu_memory``
+        # does NOT intercept the local import resolution. (See WR-4 and
+        # tests/regressions/gpu_memory_release_test.py
+        # ::TestReleaseGpuMemoryFunctional::test_parakeet_unload_invokes_release.)
         from voice_typer.server.asr_utils import release_gpu_memory
 
         with self._lock:

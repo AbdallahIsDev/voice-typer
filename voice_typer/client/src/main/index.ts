@@ -125,6 +125,23 @@ app.whenReady().then(() => {
 	isLinuxWaylandWithoutSni();
 });
 
+// GT-11: SIGTERM/SIGINT → app.quit() → before-quit → stopPython().
+// 3s hard backstop if before-quit hangs.
+let _signalQuitFired = false;
+const signalQuitHandler = () => {
+	if (_signalQuitFired) return;
+	_signalQuitFired = true;
+	try {
+		app.quit();
+	} catch (e) {
+		console.warn("[main] app.quit() from signal handler failed:", e);
+		process.exit(0);
+	}
+	setTimeout(() => process.exit(0), 3000).unref();
+};
+process.on("SIGTERM", signalQuitHandler);
+process.on("SIGINT", signalQuitHandler);
+
 app.on("before-quit", () => {
 	app.isQuitting = true;
 	stopPython();
@@ -135,23 +152,13 @@ app.on("before-quit", () => {
 });
 
 // PVT-G5-005 (R6-F7): belt-and-suspenders `will-quit` handler.
-// `before-quit` can be suppressed (event.preventDefault(), macOS
-// logout paths, tray close-to-tray on some platforms). If it is,
-// Python cleanup relies on this second hook. We preventDefault,
-// call `stopPython()`, and allow quit to proceed after a 3s grace
-// period (matching stop-python.ts's SIGKILL timer) — or immediately
-// if Python exits first.
-//
-// A module-level flag prevents infinite re-entry: `will-quit` fires
-// after `before-quit`, and if we were to call `app.quit()` here it
-// would re-fire `before-quit` → `will-quit` → … We use `app.exit(0)`
-// instead (which bypasses both events), and the flag is an extra
-// safety net in case the quit mechanism changes in the future.
+// GT-71: removed the 3s forceExitTimer that raced with stopPython's
+// killTimer. Now relies on killTimer (no longer .unref()'d) +
+// pythonProcess.once('exit') to call app.exit(0).
+// GT-60: if pythonProcess is already null, exit immediately.
 let _willQuitStopPythonFired = false;
 app.on("will-quit", (event) => {
-	if (_willQuitStopPythonFired) {
-		return; // Already handled — allow quit to proceed.
-	}
+	if (_willQuitStopPythonFired) return;
 	_willQuitStopPythonFired = true;
 	event.preventDefault();
 	try {
@@ -159,16 +166,12 @@ app.on("will-quit", (event) => {
 	} catch (err) {
 		console.warn("[main] stopPython failed during will-quit:", err);
 	}
-	// Allow quit to proceed after 3s even if Python hasn't exited.
-	// If Python exits first (graceful shutdown), quit immediately.
-	const forceExitTimer = setTimeout(() => {
-		app.exit(0);
-	}, 3000);
 	if (state.pythonProcess) {
 		state.pythonProcess.once("exit", () => {
-			clearTimeout(forceExitTimer);
 			app.exit(0);
 		});
+	} else {
+		app.exit(0);
 	}
 });
 

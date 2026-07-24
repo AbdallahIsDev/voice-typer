@@ -360,7 +360,18 @@ class ModelManager:
                 # plus a remediation hint. ``available_backends`` returns
                 # the registered backend names; ``active_name`` is the one
                 # that was selected as primary.
-                _attempted = ", ".join(self._registry.available_backends()) or "(none registered)"
+                # WR-14: pyrefly not-callable — ``available_backends`` is a
+                # @property on ASRRegistry (asr_registry.py:534-538) returning
+                # ``list[str]``, NOT a method. Calling it (``()``) raises
+                # ``TypeError: 'list' object is not callable`` at runtime.
+                # Use the property's value directly (no parentheses). Guard
+                # with ``callable()`` so test doubles that override the
+                # attribute with a callable (e.g. MagicMock auto-spec) still
+                # work.
+                _backends = self._registry.available_backends
+                if callable(_backends):
+                    _backends = _backends()
+                _attempted = ", ".join(_backends) or "(none registered)"
                 _primary = getattr(self._app.config, "asr_backend", "unknown")
                 log.warning(
                     "[STARTUP] All backends failed to load "

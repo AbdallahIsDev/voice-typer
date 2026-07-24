@@ -24,6 +24,7 @@ so unlike the Windows named mutex there is no abandoned-lock recovery path
 """
 
 import contextlib
+import errno
 import logging
 import os
 import sys
@@ -54,6 +55,77 @@ from voice_typer.server.config import (  # noqa: E402,F401 — re-exported for m
 )
 
 log = logging.getLogger(__name__)
+
+
+class _PosixSingleInstanceHandle(int):
+    """GT-42: Wrapper around the POSIX single-instance lockfile fd.
+
+    Subclasses ``int`` so existing callers/tests that treat the return
+    value of ``_ensure_single_instance_posix`` as a raw fd continue to
+    work (``isinstance(handle, int)`` is True, ``handle > 0`` works,
+    ``os.close(handle)`` works on the int value).
+
+    The wrapper exists so graceful shutdown can explicitly close the fd
+    (releasing the ``fcntl.flock``) — mirroring the Windows path's
+    ``CloseHandle`` step. Without it, the POSIX fd was stored on
+    ``ipc_server._single_instance_mutex`` and only released implicitly
+    by process exit, which on graceful restart could leave the fd
+    dangling long enough to interfere with a fast re-launch.
+
+    ``release()`` is idempotent: subsequent calls are no-ops. It is
+    safe to call after the underlying fd has already been closed
+    (e.g., by a test's ``os.close(handle)`` cleanup) — the
+    ``OSError`` from the double-close is suppressed at DEBUG level.
+
+    GT-42 coordination note: ``shutdown_controller._do_cleanup``
+    (owned by GT-FIX-07) should call
+    ``app._single_instance_handle.release()`` for the POSIX branch
+    after the Windows ``CloseHandle`` step. GT-FIX-07 will add that
+    call; this module only exposes the handle and the ``release()``
+    API. The handle SHOULD be stored on
+    ``app._single_instance_handle`` by ``app.py``'s startup path so
+    ``_do_cleanup`` can find it (that assignment is also GT-FIX-07's
+    responsibility since ``app.py`` is owned by another fix agent).
+    """
+
+    # NOTE: ``int`` subclasses do NOT support non-empty ``__slots__``
+    # (CPython raises ``TypeError: nonempty __slots__ not supported
+    # for subtype of 'int'``). They get a ``__dict__`` by default,
+    # which is what we use to store ``_lock_path`` / ``_released``.
+    # The per-instance memory overhead is negligible (one handle per
+    # process) and is dwarfed by the rest of the app.
+
+    def __new__(cls, fd: int, lock_path=None):
+        instance = super().__new__(cls, fd)
+        instance._lock_path = lock_path
+        instance._released = False
+        return instance
+
+    def release(self) -> None:
+        """Close the underlying fd (releasing the ``flock``) and unlink
+        the lockfile (best-effort).
+
+        Idempotent and best-effort: errors from ``os.close`` /
+        ``os.unlink`` are suppressed at DEBUG level. Safe to call
+        after the underlying fd has already been closed by other
+        means (e.g. ``os.close(handle)`` in a test teardown).
+        """
+        if self._released:
+            return
+        self._released = True
+        try:
+            os.close(int(self))
+        except OSError:
+            log.debug(
+                "[SHUTDOWN] POSIX single-instance fd close failed",
+                exc_info=True,
+            )
+        # Best-effort unlink — if the file was already removed (e.g.,
+        # another launch's stale-reclaim), we don't care; the next
+        # launch's ``O_EXCL`` will create a fresh lockfile.
+        if self._lock_path is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(self._lock_path)
 
 
 def _backend_pid_file() -> Path:
@@ -419,13 +491,31 @@ def _ensure_single_instance_posix(silent: bool = False):
     """CR-16: POSIX single-instance enforcement via lockfile.
 
     Mirrors the Windows mutex path's contract: returns a handle (the
-    lockfile fd) that must be held for the process lifetime; on
-    duplicate-instance detection, exits the process.
+    lockfile fd wrapped in a ``_PosixSingleInstanceHandle``) that must
+    be held for the process lifetime; on duplicate-instance detection,
+    exits the process.
 
     Lockfile path: ``<config_dir>/backend.lock`` (mode 0o600).
-    On EEXIST: read the PID, check liveness via ``_is_pid_alive``. If
-    alive, exit. If stale (dead/garbage/empty), unlink + retry once.
-    On retry failure, exit.
+
+    GT-41: On ``O_EXCL`` failure (lockfile already exists), we attempt
+    ``fcntl.flock(fd, LOCK_EX | LOCK_NB)`` on the existing lockfile
+    FIRST — before any PID liveness check. ``flock`` is the
+    crash-safe primitive (the kernel auto-releases it on process
+    death, including hard crashes like SIGKILL/OOM/power loss). PID
+    liveness via ``_is_pid_alive`` is a secondary diagnostic that can
+    be fooled by PID recycling: after a hard crash, if the OS
+    recycles the dead process's PID to an UNRELATED process before
+    the user restarts, the old code falsely exited with "another
+    instance is already running". Treating ``flock`` as authoritative
+    eliminates the false positive.
+
+    If ``flock`` succeeds → previous holder is dead → we refresh the
+    PID in the lockfile and proceed. If ``flock`` fails with
+    ``EWOULDBLOCK``/``EAGAIN`` → another live process holds it → we
+    read the PID for a diagnostic message and exit. The legacy
+    PID-check + unlink + retry path is retained as a fallback for
+    the rare case where ``os.open(O_RDWR)`` on the existing lockfile
+    fails (e.g., restrictive permissions on the lockfile itself).
 
     Also writes the backend PID file (previously Windows-only) so the
     autostart launcher's "backend running?" check works on POSIX.
@@ -470,16 +560,75 @@ def _ensure_single_instance_posix(silent: bool = False):
                 print(f"Voice Typer: cannot create lock file: {exc}", file=sys.stderr)
             sys.exit(1)
 
+    def _read_pid_from_lockfile(path):
+        try:
+            with open(path) as f:
+                pid_str = f.read().strip()
+            return int(pid_str) if pid_str.isdigit() else None
+        except (OSError, ValueError):
+            return None
+
     fd = _try_acquire(lock_path)
     if fd is None:
-        # Lockfile exists — check if the holder is alive.
+        # GT-41: O_EXCL failed — lockfile exists. Try flock FIRST.
+        # ``flock`` is the crash-safe primitive (kernel auto-releases
+        # on process death); PID liveness can be fooled by PID
+        # recycling. Open the existing lockfile non-exclusively and
+        # attempt ``flock(LOCK_EX | LOCK_NB)``.
+        existing_fd: int | None = None
         try:
-            with open(lock_path) as f:
-                pid_str = f.read().strip()
-            pid = int(pid_str) if pid_str.isdigit() else None
-        except (OSError, ValueError):
-            pid = None
+            existing_fd = os.open(
+                str(lock_path),
+                os.O_RDWR | os.O_CLOEXEC,
+            )
+        except OSError:
+            # Cannot open the existing lockfile (e.g., restrictive
+            # permissions, or the file disappeared between O_EXCL and
+            # this open). Fall through to the legacy PID-check path
+            # below — it may still be able to read the PID via
+            # Python's ``open()`` and reclaim via unlink+retry.
+            existing_fd = None
 
+        if existing_fd is not None:
+            try:
+                fcntl.flock(existing_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                # GT-41: flock succeeded → previous holder is dead
+                # (kernel released the flock when the process died).
+                # Refresh the PID and proceed with this fd. Truncate
+                # and rewrite our PID so diagnostics show us, not the
+                # dead process.
+                try:
+                    os.lseek(existing_fd, 0, os.SEEK_SET)
+                    os.ftruncate(existing_fd, 0)
+                    os.write(existing_fd, str(os.getpid()).encode("ascii"))
+                    os.fsync(existing_fd)
+                except OSError:
+                    pass
+                _write_backend_pid_file()
+                return _PosixSingleInstanceHandle(existing_fd, lock_path)
+            except OSError as exc:
+                # Close the existing_fd we opened; we won't use it.
+                with contextlib.suppress(OSError):
+                    os.close(existing_fd)
+                if exc.errno in (errno.EWOULDBLOCK, errno.EAGAIN):
+                    # GT-41: Another LIVE process holds the flock.
+                    # Read the PID for a diagnostic message and exit.
+                    pid = _read_pid_from_lockfile(lock_path)
+                    if pid is not None:
+                        msg = f"Voice Typer: another instance is already running (pid={pid})."
+                    else:
+                        msg = "Voice Typer: another instance is already running (lock held)."
+                    if not silent and sys.stderr is not None:
+                        print(msg, file=sys.stderr)
+                    sys.exit(1)
+                # Unexpected flock errno — fall through to the legacy
+                # PID-check + unlink+retry path for robustness.
+
+        # Legacy fallback: PID check + unlink + retry. Used when
+        # ``os.open(O_RDWR)`` on the existing lockfile failed OR
+        # ``flock`` raised an unexpected errno. Preserves the
+        # pre-GT-41 behavior for these edge cases.
+        pid = _read_pid_from_lockfile(lock_path)
         if pid is not None and _is_pid_alive(pid):
             msg = f"Voice Typer: another instance is already running (pid={pid})."
             if not silent and sys.stderr is not None:
@@ -518,4 +667,9 @@ def _ensure_single_instance_posix(silent: bool = False):
     # CR-16: also write the backend PID file on POSIX (previously
     # Windows-only) so the autostart launcher's PID-file check works.
     _write_backend_pid_file()
-    return fd
+    # GT-42: wrap the fd in a ``_PosixSingleInstanceHandle`` so the
+    # shutdown controller can call ``release()`` to explicitly close
+    # the fd (releasing the flock). The int-subclass design preserves
+    # backward compat with callers that treat the return value as a
+    # raw fd (``isinstance(handle, int)``, ``os.close(handle)``).
+    return _PosixSingleInstanceHandle(fd, lock_path)

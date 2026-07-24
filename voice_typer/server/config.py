@@ -30,7 +30,7 @@ import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path, PureWindowsPath
-from typing import Literal
+from typing import Any, Literal
 
 from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey
 from voice_typer.server.platform_utils import is_macos, is_windows
@@ -504,13 +504,16 @@ _CURRENT_SCHEMA_VERSION = 3
 
 # NEW-DEAD-018: _MIGRATIONS infrastructure for schema version migrations.
 # G4-L-22: v3 prunes deprecated dead-code keys.
-# T1-F3: typed as ``dict[int, Callable[[dict], dict]]`` so static
-# checkers can verify that every registered migration is a function
+# T1-F3 / GT-D1-7: typed as ``dict[int, Callable[[dict[str, Any]], dict[str, Any]]]``
+# so static checkers can verify that every registered migration is a function
 # taking a config dict and returning a (possibly mutated) config dict.
-_MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
+# The keys/values are deliberately ``Any`` (not a TypedDict) because the
+# migration functions freely add/remove/rename arbitrary keys on the raw
+# JSON-loaded dict before it is fed to ``Config(**data)``.
+_MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
 
 
-def _migrate_to_v2(data: dict) -> dict:
+def _migrate_to_v2(data: dict[str, Any]) -> dict[str, Any]:
     """Migrate config from schema v1 to v2 (ADR 0007 -- filter chain).
 
     G4-M-13: each rename logs at INFO.
@@ -538,9 +541,7 @@ def _migrate_to_v2(data: dict) -> dict:
         data["audio_preset"] = "off"
 
     if data.get("noise_filter_rnnoise") is True and "noise_suppression_method" not in data:
-        log.info(
-            "[CONFIG] migrating schema v1 -> v2: noise_filter_rnnoise=True -> noise_suppression_method='rnnoise'"
-        )
+        log.info("[CONFIG] migrating schema v1 -> v2: noise_filter_rnnoise=True -> noise_suppression_method='rnnoise'")
         data["_load_warnings"].append(
             "noise_suppression_method set to 'rnnoise' because noise_filter_rnnoise was True (schema v2 migration)"
         )
@@ -549,11 +550,23 @@ def _migrate_to_v2(data: dict) -> dict:
     return data
 
 
-def _migrate_to_v3(data: dict) -> dict:
+def _migrate_to_v3(data: dict[str, Any]) -> dict[str, Any]:
     """Migrate config from schema v2 to v3 (G4-L-22 -- prune deprecated fields).
 
     ADR 0007 deprecated several fields that the filter chain no longer
     reads.  v3 explicitly pop()s them from the on-disk dict.
+
+    GT-58: ``noise_filter_enabled`` and ``noise_filter_post_capture`` were
+    previously in this scrub list but are actually RUNTIME switches (read
+    by ``level_monitor.py`` and synced by ``config_applier.py``) — they
+    must NOT be pruned here. Only the 7 truly-dead fields below are
+    scrubbed. See ADR 0009 §5 for the canonical field-by-field status.
+
+    The 7 dead fields are KEPT in this scrub list even though they were
+    also removed from the ``Config`` dataclass — this guarantees that
+    existing ``config.json`` files written by older app versions (which
+    still carry these keys) load without raising ``TypeError`` from
+    ``cls(**data)``. The keys are silently popped before construction.
     """
     data.setdefault("_load_warnings", [])
     deprecated_keys = (
@@ -563,9 +576,7 @@ def _migrate_to_v3(data: dict) -> dict:
         "normalize_target_peak",
         "volume_duck_per_session",
         "volume_duck_smart",
-        "noise_filter_enabled",
         "noise_filter_gate_threshold",
-        "noise_filter_post_capture",
     )
     for key in deprecated_keys:
         if key in data:
@@ -849,7 +860,9 @@ class Config:
     ] = "default"
     # User-customised theme colours (only used when theme_preset == "custom").
     # Stored as nested dict: {"light": {var: val, ...}, "dark": {var: val, ...}}
-    custom_theme: dict | None = None
+    # GT-D1-6: parameterised the bare ``dict`` annotation so static checkers
+    # can verify the nested structure that the renderer writes.
+    custom_theme: dict[str, dict[str, str]] | None = None
 
     # UX-036: Accessibility
     text_size: int = 14
@@ -873,12 +886,13 @@ class Config:
     # detection, so the "only after speech" condition dead air added was
     # unnecessary. Do NOT re-add. See RecordingSettingsSection.tsx comment.
 
-    # AUDIO-014: configurable VAD/silence thresholds (overridden by
-    # auto-calibration at recording start). 0.0 = use built-in defaults.
-    # NOTE: these are kept for backward compat but are no longer read
-    # by the recording callback (dead code per ADR 0007 §4.3).
-    silence_rms_threshold: float = 0.0  # DEPRECATED — dead code
-    silence_peak_threshold: float = 0.0  # DEPRECATED — dead code
+    # GT-58: silence_rms_threshold / silence_peak_threshold were REMOVED
+    # from the Config dataclass — they were declared, validated, and
+    # persisted, but never read by any runtime code path (ADR 0007 §4.3).
+    # Existing config.json files that still carry these keys are silently
+    # scrubbed by the v3 schema migration (``_migrate_to_v3``), so loading
+    # an old config does NOT raise — the keys are simply dropped before
+    # construction. Do NOT re-add.
 
     # AUDIO-013: VAD configuration for the recording callback.
     # ADR 0007 §4.1: use_silero_vad defaults to True (torch is installed).
@@ -900,9 +914,11 @@ class Config:
 
     # ADR 0007 §5.2: normalize_audio and normalize_target_peak REMOVED.
     # Replaced by the Compressor filter in the audio filter chain.
-    # Fields kept for backward compat (migration ignores them).
-    normalize_audio: bool = True  # DEPRECATED — replaced by Compressor
-    normalize_target_peak: float = 0.7  # DEPRECATED — replaced by Compressor
+    # GT-58: the dataclass fields themselves were removed — they were
+    # declared, validated, and persisted, but never read at runtime (the
+    # Compressor filter supersedes them entirely). Existing config.json
+    # files that still carry these keys are silently scrubbed by the v3
+    # schema migration (``_migrate_to_v3``). Do NOT re-add.
 
     # ─── Volume ducking (v1.1.0) ────────────────────────────────────
     # Reduces system volume during dictation to prevent speaker output
@@ -917,18 +933,17 @@ class Config:
     # power users who edit config.json directly.
     volume_duck_enabled: bool = True
     volume_duck_level: float = 0.20  # 0.0–1.0 perceptual-linear (20% duck)
-    # UX-2: per-session ducking removed — now always ducks all audio
-    # (master volume) cross-platform. The field is kept for backward
-    # compat but ignored at runtime (per_session is always False).
-    volume_duck_per_session: bool = False  # DEPRECATED — always False at runtime
+    # UX-2 / GT-58: ``volume_duck_per_session`` REMOVED from the Config
+    # dataclass — ducking now always applies to the master volume
+    # cross-platform. Existing config.json files that still carry the key
+    # are silently scrubbed by the v3 schema migration. Do NOT re-add.
     # UX-2: fade duration is now a fixed 200ms default (was 150ms).
     # Not exposed in the UI. Power users can override in config.json.
     volume_duck_fade_ms: int = 200  # 0–1000, 0 = instant
-    # UX-2: smart duck is now ALWAYS ON when volume_duck_enabled is True.
-    # Not exposed as a separate toggle — merged into Auto Duck Volume.
-    # The field is kept for backward compat but ignored at runtime
-    # (smart_duck is always True when ducking is enabled).
-    volume_duck_smart: bool = True  # DEPRECATED — always True at runtime
+    # UX-2 / GT-58: ``volume_duck_smart`` REMOVED from the Config dataclass —
+    # smart duck is now ALWAYS ON when ``volume_duck_enabled`` is True.
+    # Existing config.json files that still carry the key are silently
+    # scrubbed by the v3 schema migration. Do NOT re-add.
     # UX-2: smart-duck poll interval is now a fixed 500ms default.
     # Not exposed in the UI. Power users can override in config.json.
     volume_duck_smart_poll_interval_ms: int = 500
@@ -963,17 +978,24 @@ class Config:
     # by audio_chain_builder.build_chain(). Chain order:
     #   HighPass → NoiseSuppressor → NoiseGate → Equalizer → Compressor → Limiter
     #
-    # Legacy fields (noise_filter_enabled, noise_filter_rnnoise,
-    # noise_filter_post_capture, noise_filter_gate_threshold) are kept
-    # for backward compat but migrated/ignored per ADR 0007 §5.
-    noise_filter_enabled: bool = True  # DEPRECATED — use audio_preset != "off"
+    # GT-58 / ADR 0009: ``noise_filter_enabled`` and
+    # ``noise_filter_post_capture`` are RUNTIME switches, NOT deprecated.
+    # They are actively read by ``level_monitor.py`` and synced by
+    # ``config_applier.py`` (which sets ``noise_filter_enabled =
+    # audio_preset != "off"``). The legacy ``noise_filter_rnnoise`` field
+    # is still kept for backward compat with old config.json files but is
+    # migrated/ignored per ADR 0007 §5.
+    noise_filter_enabled: bool = True  # runtime switch — see ADR 0009
     noise_filter_highpass: bool = True
     noise_filter_highpass_cutoff_hz: float = 80.0  # 20–500
     noise_filter_gate: bool = True
-    noise_filter_gate_threshold: float = 0.003  # DEPRECATED — use open/close thresholds
+    # GT-58: ``noise_filter_gate_threshold`` REMOVED from the Config
+    # dataclass — replaced by the open/close threshold pair below per
+    # ADR 0007. Existing config.json files that still carry the key are
+    # silently scrubbed by the v3 schema migration. Do NOT re-add.
     noise_filter_gate_hold_ms: float = 200.0  # ADR 0007: was 150, now 200 (matches OBS)
     noise_filter_rnnoise: bool = True  # ADR 0007: was False, now True (RNNoise is default dep)
-    noise_filter_post_capture: bool = True  # DEPRECATED — post-capture removed per ADR 0007
+    noise_filter_post_capture: bool = True  # runtime switch — see ADR 0009
 
     # ADR 0007 §5.1: New filter chain fields
     # Noise suppressor backend selection.
@@ -1671,7 +1693,7 @@ class Config:
         return cls()
 
     @classmethod
-    def _validate_non_numeric_fields(cls, data: dict) -> dict:
+    def _validate_non_numeric_fields(cls: type["Config"], data: dict[str, Any]) -> dict[str, Any]:
         """Validate and coerce bool and str fields in loaded config data.
 
         NEW-CQ-016: collects warnings in ``data['_load_warnings']`` so
@@ -1732,8 +1754,9 @@ class Config:
             "bubble_click_to_toggle",
             "bubble_mic_button",
             "volume_duck_enabled",
-            "volume_duck_per_session",
-            "volume_duck_smart",
+            # GT-58: volume_duck_per_session and volume_duck_smart were REMOVED
+            # from the Config dataclass — no longer coerced here. Old
+            # config.json values are silently scrubbed by the v3 migration.
             # STARTUP-6: volume_duck_smart_poll_interval_ms is an int (50-5000),
             # NOT a bool — it was misclassified here, causing the bool validator
             # to flag the default value 500 as invalid and log a spurious
@@ -1767,7 +1790,9 @@ class Config:
             # G4-M-11: missing bool fields that legacy config.json files
             # may have stored as "true"/"false" strings or 0/1 ints.
             "use_silero_vad",
-            "normalize_audio",
+            # GT-58: normalize_audio was REMOVED from the Config dataclass —
+            # no longer coerced here. Old config.json values are silently
+            # scrubbed by the v3 migration.
             "warn_elevated_paste",
             "warn_password_paste",
             "clipboard_save_restore",
@@ -1835,7 +1860,9 @@ class Config:
             "vad_speech_threshold",
             "vad_silence_threshold",
             "noise_filter_highpass_cutoff_hz",
-            "noise_filter_gate_threshold",
+            # GT-58: noise_filter_gate_threshold was REMOVED from the Config
+            # dataclass — no longer coerced here. Old config.json values are
+            # silently scrubbed by the v3 migration.
             "noise_filter_gate_hold_ms",
             "noise_filter_gate_open_threshold_db",
             "noise_filter_gate_close_threshold_db",
@@ -1853,9 +1880,10 @@ class Config:
             "noise_filter_limiter_release_ms",
             "noise_filter_notch_frequency_hz",
             "volume_duck_level",
-            "silence_rms_threshold",
-            "silence_peak_threshold",
-            "normalize_target_peak",
+            # GT-58: silence_rms_threshold, silence_peak_threshold, and
+            # normalize_target_peak were REMOVED from the Config dataclass
+            # — no longer coerced here. Old config.json values are silently
+            # scrubbed by the v3 migration.
             "vocabulary_auto_confidence_threshold",
             "vocabulary_auto_apply_threshold",
         }
@@ -2026,5 +2054,6 @@ from voice_typer.server.config_validators import (  # noqa: E402,F401 — backwa
     _make_optional_str_validator,
     _make_str_validator,
     _make_url_validator,
+    validate_config,
     validate_config_update,
 )

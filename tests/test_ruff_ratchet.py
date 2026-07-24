@@ -318,16 +318,30 @@ class TestRatchetHolds:
     """Verify the ratchet is not currently regressed by running the actual comparison."""
 
     def test_current_ruff_count_is_at_or_below_baseline(self) -> None:
-        """Run `ruff check voice_typer/server/ --output-format=json` and compare.
+        """Run `ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json` and compare.
 
         This is the same command CI runs. If this test fails, either:
         - A new violation was introduced → fix it OR update the baseline.
         - The ruff version changed and emits different counts → update the baseline.
         """
-        # Run ruff and capture JSON output. We don't use --stdin here because
-        # we need to invoke ruff directly (not through the ratchet script).
+        # WR-14: scope now matches ruff-baseline.json _target
+        # (voice_typer/ tests/ scripts/ conftest.py). Previously this
+        # test ran ruff against voice_typer/server/ only (3 violations)
+        # but compared against the 180-violation baseline — the test
+        # always passed with "improved by 177" regardless of regressions
+        # in tests/ or scripts/.
         ruff_result = subprocess.run(
-            [sys.executable, "-m", "ruff", "check", "voice_typer/server/", "--output-format=json"],
+            [
+                sys.executable,
+                "-m",
+                "ruff",
+                "check",
+                "voice_typer/",
+                "tests/",
+                "scripts/",
+                "conftest.py",
+                "--output-format=json",
+            ],
             capture_output=True,
             text=True,
             cwd=PROJECT_ROOT,
@@ -346,7 +360,7 @@ class TestRatchetHolds:
             f"Ratchet regression: current ruff violations exceed the baseline.\n"
             f"ratchet stdout:\n{result.stdout}\n"
             f"Either fix the new violations OR (if intentional) update the baseline:\n"
-            f"  ruff check voice_typer/server/ --output-format=json | "
+            f"  ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | "
             f"python scripts/ruff_ratchet_check.py --regenerate --stdin"
         )
 

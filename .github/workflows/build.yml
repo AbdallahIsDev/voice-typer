@@ -270,11 +270,17 @@ jobs:
         # XS-84: -n auto --dist=loadgroup parallelises via pytest-xdist.
         # XS-85: --junitxml emits pytest-results.xml consumed by the
         # mikepenz/action-junit-report step below for PR annotations.
+        # WR-15: explicit --timeout / --strict-* on the CI invocation too
+        # (pyproject.toml addopts already sets them via WR-1, but defense-
+        # in-depth — a future edit that drops addopts would silently lose
+        # these guards if they lived only in pyproject.toml).
         run: |
           python -m pytest tests/ -n auto --dist=loadgroup -v --tb=short -q \
             --cov=voice_typer --cov-fail-under=65 \
             --cov-report=xml --cov-report=term-missing \
-            --junitxml=pytest-results.xml
+            --junitxml=pytest-results.xml \
+            --timeout=120 --timeout-method=thread \
+            --strict-markers --strict-config
 
       # XS-85: publish test results as PR annotations so a single
       # failing test among 331 files is surfaced directly on the diff
@@ -289,10 +295,16 @@ jobs:
           require_tests: false
 
       - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v4
+        # WR-15: `if: always()` so coverage is uploaded EVEN WHEN pytest
+        # fails — the delta vs. main is the most useful signal on a red
+        # run, and Codecov PR comments rely on the upload landing. Without
+        # `always()` a single failing test would silently suppress the
+        # coverage diff for the entire PR.
+        if: always() && matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.xml
+          files: ./coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
       # XS-86: coverage ratchet. The fixed --cov-fail-under=65 floor
@@ -303,7 +315,10 @@ jobs:
       # ubuntu×3.12 leg (the canonical leg for Codecov upload) to avoid
       # matrix fan-out cost and per-OS coverage variance noise.
       - name: Coverage ratchet check
-        if: matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
+        # WR-15: `if: always()` mirrors the Codecov upload gate above so
+        # the ratchet runs against whatever coverage.xml was produced
+        # (even on red pytest legs) — same rationale as the upload step.
+        if: always() && matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
         run: python scripts/coverage_ratchet_check.py
 
       # S-2: pip-audit two-tier policy.

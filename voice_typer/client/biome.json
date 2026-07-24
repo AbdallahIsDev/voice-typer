@@ -13,8 +13,12 @@
 			"**/*.jsx",
 			"**/*.json",
 			"**/*.css",
-			"!src/renderer/dist",
 			"!out"
 		]
+	},
+	"linter": {
+		"rules": {
+			"recommended": true
+		}
 	}
 }

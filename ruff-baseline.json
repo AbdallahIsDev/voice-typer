@@ -1,31 +1,10 @@
 {
   "_target": "voice_typer/ tests/ scripts/ conftest.py",
-  "_updated": "2026-07-22 \u2014 Regenerated from a real `ruff check voice_typer/ tests/ scripts/ conftest.py` run (ruff 0.15.22) so the recorded counts reflect the actual codebase state (was 159 on 2026-07-21; new floor is 180). The bump absorbs drift introduced by parallel fix-agent activity across tests/ and voice_typer/ since the last regeneration. Per-rule deltas vs the previous baseline (159) are: B007 +2, B018 +6, B904 +3 (new), E402 -4, E501 -15, F401 0 (net: S5-CR-17(d) fixed hotkeys/__init__.py:56; 3 new F401 in tests/test_hp7_empty_transcription_fix.py + tests/tauri/mig17/test_wayland_hotkey_no_client_warning.py belong to other bundles), F821 -2 (S1-CR-11 / S5-CR-17(a) fix landed: recorder.py now routes through `_recording_pkg._secure_clear_array(...)` instead of the bare undefined name), F841 +1 (net: S5-CR-17(c) fixed recorder.py:2288 + startup_tasks.py:273, and 1 new F841 in voice_typer/server/clipboard_target_safety.py:835 was fixed in this same bundle so the net drift in voice_typer/server/ is -2; the remaining 19 F841 are all in tests/tauri/mig1{5,6,7}/ + tests/test_*.py and belong to other bundles), I001 0 (1 new I001 in tests/tauri/mig17/test_wayland_hotkey_no_client_warning.py:30 belongs to another bundle), N802 +11, N806 +2, N811 +1 (new), SIM102 +1, SIM105 +6, SIM108 +1, SIM117 +7, SIM118 +1 (new), SIM222 -1 (fixed), UP007 +1 (new). F-rule violations in voice_typer/server/ are now ZERO (verified with `ruff check voice_typer/server/ --select F --no-fix`), satisfying the S5-CR-17(a\u2013d) scope. The remaining F-rule violations across the expanded scope (3 F401 + 1 F821 + 19 F841 = 23 total, all in tests/) belong to other fix bundles and are tracked there. Regenerate via: `ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | python scripts/ruff_ratchet_check.py --regenerate` (the regenerate subcommand refuses if the new total grows, so when the count drops below 180 re-run it to lock in the gain).",
+  "_updated": "2026-07-24 \u2014 WR-14: regenerated from a real `ruff check voice_typer/ tests/ scripts/ conftest.py` run (ruff 0.15.22) so the recorded counts reflect the actual codebase state. The previous baseline (180 violations across 23 rules) was stale: it carried 159 phantom entries (rules with count > 0 that no longer have ANY violations in the current code) plus F-rule entries (F401=3, F821=1, F841=19) that per docs/ruff-ratchet.md \u00a7\"Step 1\" must hard-fail with zero tolerance and therefore must NOT be tracked by the ratchet. The real current state is 21 violations across 2 rules (E501=3, SIM105=18), all in tests/. The 159 phantom entries (B007, B018, B904, E402, E731, E741, F401, F821, F841, I001, N801, N802, N806, N811, SIM102, SIM108, SIM115, SIM117, SIM118, UP007, UP022) were eliminated by prior fix waves (S5-CR-17, S1-CR-11, etc.) but the baseline was never regenerated to lock in the gains. F-rules are entirely omitted from `by_rule` so the ratchet cannot silently absorb a future regression in unused-import / undefined-name / unused-variable checks. Regenerate via: `ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json | python scripts/ruff_ratchet_check.py --regenerate` (the regenerate subcommand refuses if the new total grows, so when the count drops below 21 re-run it to lock in the gain).",
   "_schema_version": 1,
-  "total_count": 180,
+  "total_count": 21,
   "by_rule": {
-    "B007": 3,
-    "B018": 11,
-    "B904": 3,
-    "E402": 16,
-    "E501": 6,
-    "E731": 22,
-    "E741": 1,
-    "F401": 3,
-    "F821": 1,
-    "F841": 19,
-    "I001": 1,
-    "N801": 1,
-    "N802": 16,
-    "N806": 27,
-    "N811": 1,
-    "SIM102": 3,
-    "SIM105": 31,
-    "SIM108": 2,
-    "SIM115": 1,
-    "SIM117": 9,
-    "SIM118": 1,
-    "UP007": 1,
-    "UP022": 1
+    "E501": 3,
+    "SIM105": 18
   }
 }

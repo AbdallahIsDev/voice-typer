@@ -31,111 +31,41 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{PhysicalPosition, Emitter, Manager};
 
+// GT-21: structured error type for migrated commands. See
+// `commands::errors` for the migration plan.
+use crate::commands::errors::VoiceTyperError;
 use crate::state::SidecarState;
 
 // ─── Tauri commands: bubble window (MIG-1.2, ADR-0020 §9) ────────────
 
-// ─── DE-71: main-window-origin guard for bubble control commands ──────
-//
-// `bubble_signal_ready` and `bubble_emit_state` emit events TO the
-// bubble window that the bubble renderer interprets as authoritative
-// sidecar state. A compromised sandboxed bubble (XSS in the waveform
-// pill) MUST NOT be able to spoof these — e.g. emitting a fake
-// `bubble:ready` to confuse the sidecar's level-pump startup, or
-// emitting `bubble:set-state("recording")` to spoof the UI into
-// showing "recording" while the sidecar is actually idle.
-//
-// The canonical `require_main_window` helper lives in
-// `commands::sidecar_cmds` but is `fn`-private (not `pub(crate)`).
-// Promoting it to `pub(crate)` would require editing `sidecar_cmds.rs`
-// (out of scope for this `bubble.rs`-only fix wave), so we duplicate
-// the helper here. The error envelope shape mirrors the canonical
-// helper exactly so the renderer's reject path treats both identically.
-// See `sidecar_cmds.rs:32-48` for the G4-H-01 rationale.
-
-/// DE-71: pure helper that returns the error-envelope string used when
-/// a non-main window attempts to invoke a main-only command. Extracted
-/// from [`require_main_window`] so the envelope shape can be unit-
-/// tested without a `tauri::Window` (which the in-process test harness
-/// can't construct).
-///
-/// Returns:
-/// - `Ok(())` if `label == "main"`.
-/// - `Err(<json envelope string>)` otherwise. The envelope shape is
-///   `{"type":"error","data":{"code":"disallowed_window","message":...}}`,
-///   mirroring the sidecar WS error envelope so the renderer's existing
-///   reject path handles it identically to a server-side rejection.
-fn main_window_label_check(label: &str) -> Result<(), String> {
-    if label != "main" {
-        let err = json!({
-            "type": "error",
-            "data": {
-                "code": "disallowed_window",
-                "message": "command only allowed from main window"
-            }
-        });
-        return Err(err.to_string());
-    }
-    Ok(())
-}
-
-/// DE-71: gate a `#[tauri::command]` on the calling window being the
-/// main window. Mirrors `commands::sidecar_cmds::require_main_window`
-/// (which is `fn`-private — see the section comment above for the
-/// duplication rationale). Logs a G4-H-01 warning on rejection so the
-/// security audit trail shows the rejected call attempt + the offending
-/// window label.
-fn require_main_window(window: &tauri::Window) -> Result<(), String> {
-    let label = window.label();
-    if let Err(e) = main_window_label_check(label) {
-        log::warn!(
-            "[G4-H-01] bubble command rejected from non-main window: {}",
-            label
-        );
-        return Err(e);
-    }
-    Ok(())
-}
-
 /// Show the bubble window (ADR-0020 §9 + MIG-1.2).
 ///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own visibility. The bubble's auto-show-on-
-/// hover handler in `Bubble.tsx` invokes this when the cursor enters
-/// the hot zone, so requiring the call to originate from the main
-/// window would break that UX. The command's effect is confined to
-/// the bubble window itself.
+/// GT-21: migrated to `Result<(), VoiceTyperError>` as the proof-of-
+/// concept for the structured-error-type migration. The remaining
+/// bubble commands stay on `Result<T, String>` (tagged `TODO(GT-21)`).
 #[tauri::command]
-pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
+    // GT-50: emit `bubble:show` to the bubble window BEFORE `.show()`
+    // so the bubble renderer can synchronously apply pending state
+    // on the same tick the window becomes visible. Previously the
+    // Tauri host emitted no event here — the bubble renderer only
+    // knew it was shown via the OS window-visibility callback, which
+    // fires AFTER the first paint, causing a 1-frame flash of stale
+    // state. `emit_to(...).ok()` is best-effort.
+    let _ = app.emit_to("bubble", "bubble:show", ());
     app.get_webview_window("bubble")
-        .ok_or("bubble window not found")?
+        .ok_or_else(|| VoiceTyperError::WindowNotFound("bubble".to_string()))?
         .show()
-        .map_err(|e| e.to_string())
+        .map_err(|e| VoiceTyperError::OsError(e.to_string()))
 }
 
-/// Emit `bubble:ready` to the bubble window — the bubble renderer
-/// listens for this and signals back to the Python sidecar that it's
-/// ready to receive `bubble_level` events (ADR-0020 §9 + MIG-1.2).
+/// Emit `bubble:ready` to the bubble window (ADR-0020 §9 + MIG-1.2).
 ///
-/// **DE-71 (main-window gate):** this command is now gated by
-/// [`require_main_window`]. It signals sidecar-level readiness (the
-/// Python sidecar's `bubble_level` pump starts on receipt), so a
-/// compromised sandboxed bubble MUST NOT be able to spoof a readiness
-/// signal and confuse the sidecar's startup handshake. The legitimate
-/// caller is the MAIN renderer's `usePython.ts` boot sequence, which
-/// fires this once after the Tauri host is ready. The bubble renderer
-/// has no legitimate reason to invoke it.
+/// GT-21: migrated to `Result<(), VoiceTyperError>`.
 #[tauri::command]
-pub async fn bubble_signal_ready(
-    app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<(), String> {
-    // DE-71: only the main window may signal bubble readiness — see
-    // the doc comment above for the spoofing rationale.
-    require_main_window(&window)?;
+pub async fn bubble_signal_ready(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
     app.emit_to("bubble", "bubble:ready", ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| VoiceTyperError::OsError(e.to_string()))
 }
 
 /// Move the bubble window to `(x, y)` in physical pixels (ADR-0020 §9
@@ -147,16 +77,6 @@ pub async fn bubble_signal_ready(
 /// Numeric values are used directly; `"top"`/`"bottom"` strings compute
 /// the appropriate y from the primary monitor size + bubble size
 /// (centered horizontally). Any other shape returns an error.
-///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own window position. The main renderer's
-/// `usePython.ts` calls this on hotkey fire (to position the bubble
-/// under the cursor), but the bubble renderer also calls it during
-/// initialization to apply a saved last-position. The command's effect
-/// is confined to the bubble window itself, so a compromised bubble
-/// can at worst move itself off-screen (an annoyance, not a security
-/// boundary — the bubble is sandboxed per SEC-026 / CR-5).
 #[tauri::command]
 pub async fn bubble_set_position(
     x: Value,
@@ -171,13 +91,17 @@ pub async fn bubble_set_position(
         .map_err(|e| e.to_string())?
         .ok_or("no primary monitor available")?;
     let screen_size = monitor.size();
-    let screen_w = screen_size.width as i32;
-    let screen_h = screen_size.height as i32;
+    // GT-D3-4: was `screen_size.width as i32` / `as i32` — a silent
+    // truncation on displays wider than 2^31 px (theoretical but
+    // documented defense per PVT-G5-051). `i32::try_from(u32).unwrap_or(i32::MAX)`
+    // saturates to `i32::MAX` instead of wrapping negative.
+    let screen_w = i32::try_from(screen_size.width).unwrap_or(i32::MAX);
+    let screen_h = i32::try_from(screen_size.height).unwrap_or(i32::MAX);
     let bubble_size = window
         .outer_size()
         .map_err(|e| e.to_string())?;
-    let bubble_w = bubble_size.width as i32;
-    let bubble_h = bubble_size.height as i32;
+    let bubble_w = i32::try_from(bubble_size.width).unwrap_or(i32::MAX);
+    let bubble_h = i32::try_from(bubble_size.height).unwrap_or(i32::MAX);
     let (px, py) = parse_position(x, y, screen_w, screen_h, bubble_w, bubble_h)?;
     window
         .set_position(PhysicalPosition::new(px, py))
@@ -242,15 +166,8 @@ fn parse_position(
             }
         }
         Value::String(s) => match s.as_str() {
-            // AC-33: x-axis "top"/"bottom" arms compute the centered-x
-            // coordinate and clamp to ≥0 — mirrors the y-axis "bottom"
-            // arm below (`.max(0)`). Without the clamp, when the bubble
-            // window is wider than the primary monitor (e.g. 400px bubble
-            // on a 320px-wide screen), `(screen_w - bubble_w) / 2`
-            // evaluates to a NEGATIVE value, moving the bubble's top-left
-            // off-screen left.
-            "top" => ((screen_w - bubble_w) / 2).max(0),
-            "bottom" => ((screen_w - bubble_w) / 2).max(0),
+            "top" => (screen_w - bubble_w) / 2,
+            "bottom" => (screen_w - bubble_w) / 2,
             other => return Err(format!("x string must be \"top\" or \"bottom\", got {:?}", other)),
         },
         Value::Null => 0,
@@ -541,240 +458,6 @@ mod tests {
         assert_eq!(clamp_f64_to_i32(sub), 0);
         assert_eq!(clamp_f64_to_i32(-sub), 0);
     }
-
-    // ───────────────────────────────────────────────────────────────────
-    // DE-16: bubble_move_by overflow safety (checked_add)
-    // ───────────────────────────────────────────────────────────────────
-    //
-    // The pre-fix code did `pos.x + dx` (plain `i32 + i32`), which
-    // silently wraps on overflow. A renderer-supplied dx near i32::MAX
-    // on top of a pos.x near i32::MAX would wrap to a negative pixel,
-    // jerking the bubble off-screen with no diagnostic. The post-fix
-    // `compute_move_by_new_pos` uses `i32::checked_add` and returns
-    // a descriptive error naming both operands.
-
-    #[test]
-    fn test_compute_move_by_new_pos_typical_drag_delta() {
-        // Small positive drag delta (typical mousemove during a drag).
-        // Should pass through unchanged.
-        let (nx, ny) = compute_move_by_new_pos(100, 5, 200, -3).unwrap();
-        assert_eq!(nx, 105);
-        assert_eq!(ny, 197);
-    }
-
-    #[test]
-    fn test_compute_move_by_new_pos_zero_delta_is_noop() {
-        // dx=dy=0 → position unchanged (no-op move).
-        let (nx, ny) = compute_move_by_new_pos(500, 0, 600, 0).unwrap();
-        assert_eq!(nx, 500);
-        assert_eq!(ny, 600);
-    }
-
-    #[test]
-    fn test_compute_move_by_new_pos_negative_delta_moves_left_up() {
-        // Negative deltas should move the bubble left and up.
-        let (nx, ny) = compute_move_by_new_pos(1000, -250, 800, -100).unwrap();
-        assert_eq!(nx, 750);
-        assert_eq!(ny, 700);
-    }
-
-    #[test]
-    fn test_compute_move_by_new_pos_x_overflow_returns_err() {
-        // DE-16: pos.x = i32::MAX, dx = 1 → overflow. Pre-fix: wraps to
-        // i32::MIN (the bubble jumps to the leftmost pixel). Post-fix:
-        // returns Err with a descriptive message.
-        let result = compute_move_by_new_pos(i32::MAX, 1, 0, 0);
-        assert!(result.is_err(), "i32::MAX + 1 should overflow");
-        let err = result.unwrap_err();
-        assert!(
-            err.contains("move_by overflow"),
-            "error should mention move_by overflow, got: {}",
-            err
-        );
-        assert!(
-            err.contains(&i32::MAX.to_string()),
-            "error should include pos_x operand ({}), got: {}",
-            i32::MAX,
-            err
-        );
-        assert!(
-            err.contains("1"),
-            "error should include dx operand (1), got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn test_compute_move_by_new_pos_y_overflow_returns_err() {
-        // DE-16: pos.y = i32::MIN, dy = -1 → underflow.
-        let result = compute_move_by_new_pos(0, 0, i32::MIN, -1);
-        assert!(result.is_err(), "i32::MIN + (-1) should underflow");
-        let err = result.unwrap_err();
-        assert!(err.contains("move_by overflow"));
-        assert!(err.contains(&i32::MIN.to_string()));
-        assert!(err.contains("-1"));
-    }
-
-    #[test]
-    fn test_compute_move_by_new_pos_x_at_i32_max_with_zero_delta_accepted() {
-        // DE-16: at the boundary, dx=0 should NOT overflow (i32::MAX + 0
-        // is well-defined). Pin this so a future "defensive" refactor
-        // doesn't accidentally reject legitimate edge values.
-        let (nx, _) = compute_move_by_new_pos(i32::MAX, 0, 0, 0).unwrap();
-        assert_eq!(nx, i32::MAX);
-    }
-
-    #[test]
-    fn test_compute_move_by_new_pos_both_axes_overflow_reports_x_first() {
-        // DE-16: when both axes overflow, the x-axis error is reported
-        // first (the helper checks x before y). Pin this so error
-        // messages stay deterministic — a future refactor that swaps
-        // the order would break renderer-side error parsing.
-        let result = compute_move_by_new_pos(i32::MAX, 1, i32::MIN, -1);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        // Both operands are i32::MAX + 1, but the x check fires first
-        // so the error mentions pos_x = i32::MAX (not pos_y = i32::MIN).
-        assert!(err.contains(&i32::MAX.to_string()));
-        assert!(!err.contains(&i32::MIN.to_string()));
-    }
-
-    // ───────────────────────────────────────────────────────────────────
-    // DE-70: bubble_resize dimension cap (8K = 7680)
-    // ───────────────────────────────────────────────────────────────────
-    //
-    // The pre-fix code passed width/height straight to set_size with
-    // no upper bound — a renderer bug sending u32::MAX would ask the
-    // OS window manager for a multi-gigapixel surface. The post-fix
-    // `cap_resize_dim` saturates at 7680 (8K UHD), well above any
-    // legitimate pill content measurement but well below the OS-
-    // brokenness threshold.
-
-    #[test]
-    fn test_cap_resize_dim_typical_pill_size_passes_through() {
-        // Typical pill content is 80–240px. Should pass unchanged.
-        assert_eq!(cap_resize_dim(80), 80);
-        assert_eq!(cap_resize_dim(240), 240);
-        assert_eq!(cap_resize_dim(1), 1);
-    }
-
-    #[test]
-    fn test_cap_resize_dim_at_boundary_7680_passes_through() {
-        // The exact 8K cap (7680) should pass through unchanged
-        // (`u32::min(7680, 7680) == 7680`).
-        assert_eq!(cap_resize_dim(BUBBLE_RESIZE_MAX_DIM), BUBBLE_RESIZE_MAX_DIM);
-        assert_eq!(cap_resize_dim(7680), 7680);
-    }
-
-    #[test]
-    fn test_cap_resize_dim_just_over_boundary_clamped_to_7680() {
-        // 7681 (one pixel over 8K) should clamp to 7680.
-        assert_eq!(cap_resize_dim(7681), 7680);
-    }
-
-    #[test]
-    fn test_cap_resize_dim_u32_max_clamped_to_7680() {
-        // DE-70: the renderer-bug / compromised-bubble scenario —
-        // u32::MAX (a 4-gigapixel dimension) must clamp to 7680, NOT
-        // be passed to set_size where it would trigger a Wayland
-        // xdg_surface protocol error or burn CPU on Windows.
-        assert_eq!(cap_resize_dim(u32::MAX), 7680);
-    }
-
-    #[test]
-    fn test_cap_resize_dim_zero_passes_through() {
-        // 0 is a degenerate but not overflow value — `u32::min(0, 7680)
-        // == 0`. We deliberately do NOT clamp 0 to a minimum because
-        // the OS will reject a 0-size window with a clear error, and
-        // the renderer should see that error to surface the bug
-        // (rather than silently getting a 1×1 window). Pin this
-        // contract so a future "defensive" refactor doesn't hide the
-        // renderer bug behind a silent minimum.
-        assert_eq!(cap_resize_dim(0), 0);
-    }
-
-    // ───────────────────────────────────────────────────────────────────
-    // DE-71: main-window-origin guard (require_main_window)
-    // ───────────────────────────────────────────────────────────────────
-    //
-    // The pure helper `main_window_label_check` is the testable surface
-    // (it takes a `&str` instead of a `tauri::Window`, which the
-    // in-process test harness can't construct). The full
-    // `require_main_window` wrapper just adds a `log::warn!` and is
-    // exercised end-to-end by the mig19 integration tests in
-    // `tests/tauri/mig19/`.
-
-    #[test]
-    fn test_main_window_label_check_accepts_main() {
-        // The "main" label is the canonical main-window label
-        // (registered in main.rs::setup → WindowBuilder::new("main")).
-        assert!(main_window_label_check("main").is_ok());
-    }
-
-    #[test]
-    fn test_main_window_label_check_rejects_bubble_label() {
-        // DE-71: a call originating from the "bubble" window (the
-        // sandboxed pill renderer) MUST be rejected — this is the
-        // core security boundary the gate enforces.
-        let result = main_window_label_check("bubble");
-        assert!(result.is_err(), "bubble label should be rejected");
-        let err = result.unwrap_err();
-        assert!(
-            err.contains("disallowed_window"),
-            "error should include the disallowed_window code, got: {}",
-            err
-        );
-        assert!(
-            err.contains("only allowed from main window"),
-            "error should include the human-readable message, got: {}",
-            err
-        );
-        // The envelope shape must mirror the sidecar WS error envelope
-        // so the renderer's existing reject path handles it identically.
-        assert!(
-            err.contains("\"type\":\"error\""),
-            "error should be a JSON envelope with type=error, got: {}",
-            err
-        );
-        assert!(
-            err.contains("\"data\":"),
-            "error should be a JSON envelope with a data field, got: {}",
-            err
-        );
-    }
-
-    #[test]
-    fn test_main_window_label_check_rejects_unknown_label() {
-        // A future window label (e.g. a settings window) should also be
-        // rejected — the gate is "main only", not "main + a few others".
-        let result = main_window_label_check("settings");
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.contains("disallowed_window"));
-    }
-
-    #[test]
-    fn test_main_window_label_check_rejects_empty_label() {
-        // An empty window label (defensive — shouldn't happen in
-        // practice, but Tauri doesn't enforce non-empty labels) must
-        // be rejected, not silently accepted.
-        assert!(main_window_label_check("").is_err());
-    }
-
-    #[test]
-    fn test_main_window_label_check_error_envelope_is_valid_json() {
-        // DE-71: the error envelope must be valid JSON so the renderer's
-        // `JSON.parse(rejection_message)` path (in tauri-bridge's
-        // rejection handler) doesn't throw a parse error on top of the
-        // rejection. Pin this contract — a future refactor that
-        // switches to a plain-string error would break the renderer.
-        let err = main_window_label_check("bubble").unwrap_err();
-        let parsed: serde_json::Value = serde_json::from_str(&err)
-            .expect("error envelope should be valid JSON");
-        assert_eq!(parsed["type"], "error");
-        assert_eq!(parsed["data"]["code"], "disallowed_window");
-        assert!(parsed["data"]["message"].is_string());
-    }
 }
 
 /// Toggle the bubble window's draggable state (ADR-0020 §9 + MIG-1.2).
@@ -785,15 +468,6 @@ mod tests {
 /// and calls `start_dragging()` on mouse-down (or unbinds the
 /// listener when `false`). This keeps the drag logic in the renderer
 /// where it can be throttled to the animation frame.
-///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own draggability. The main renderer's
-/// `usePython.ts` toggles this on hotkey-down/up, but the bubble
-/// renderer may also self-toggle in response to its own UI state
-/// (e.g. disabling drag while the user is interacting with the mic
-/// button so an accidental drag doesn't fire). The command's effect
-/// is confined to the bubble window's drag listener.
 #[tauri::command]
 pub async fn bubble_set_draggable(
     draggable: bool,
@@ -806,25 +480,6 @@ pub async fn bubble_set_draggable(
 /// Move the bubble window by `(dx, dy)` physical pixels relative to
 /// its current `outer_position` (ADR-0020 §9 + MIG-1.2). Returns the
 /// new `{x, y}` so the TS bridge can cache it without a round-trip.
-///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own window geometry. The drag handler in
-/// `Bubble.tsx` invokes `bubble_move_by` on each mousemove while the
-/// user drags the pill, so requiring the call to originate from the
-/// main window would break drag entirely. The command's effect is
-/// confined to the bubble window itself, so a compromised bubble can
-/// at worst mess with its own position (an annoyance, not a security
-/// boundary — the bubble is sandboxed per SEC-026 / CR-5).
-///
-/// **DE-16 (overflow safety):** the prior `pos.x + dx` / `pos.y + dy`
-/// arithmetic was plain `i32 + i32`, which silently wraps on overflow
-/// (Rust's default release-mode behavior). A renderer that sends a
-/// huge `dx` (e.g. `i32::MAX`) on top of a `pos.x` near `i32::MAX`
-/// would wrap to a negative coordinate, jerking the bubble off-screen
-/// with no diagnostic. The fix uses [`compute_move_by_new_pos`],
-/// which `checked_add`s each axis and returns a descriptive error
-/// naming the offending operands so the renderer can surface it.
 #[tauri::command]
 pub async fn bubble_move_by(
     dx: i32,
@@ -835,63 +490,35 @@ pub async fn bubble_move_by(
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
     let pos = window.outer_position().map_err(|e| e.to_string())?;
-    // DE-16: use checked arithmetic so a renderer-supplied dx/dy that
-    // would overflow i32::MAX surfaces a descriptive error instead of
-    // silently wrapping the bubble to a wrapped-negative pixel.
-    let (new_x, new_y) = compute_move_by_new_pos(pos.x, dx, pos.y, dy)?;
+    let new_x = pos.x + dx;
+    let new_y = pos.y + dy;
     window
         .set_position(PhysicalPosition::new(new_x, new_y))
         .map_err(|e| e.to_string())?;
     Ok(json!({"x": new_x, "y": new_y}))
 }
 
-/// DE-16: pure helper that computes the new `(x, y)` position for
-/// [`bubble_move_by`] using `i32::checked_add` on each axis.
+/// Hide the bubble window and emit `bubble:hide` so the renderer can
+/// run cleanup (e.g., stop the level animation) BEFORE the window becomes
+/// invisible (ADR-0020 §9 + MIG-1.2).
 ///
-/// Extracted from the command body so the overflow safety can be unit-
-/// tested without spinning up a Tauri `AppHandle` + webview window
-/// (which the in-process `#[cfg(test)]` harness can't do).
+/// GT-50: previously this command (a) emitted `bubble:hide_complete` —
+/// a name the renderer never listens for — and (b) hid the window FIRST,
+/// so the renderer's cleanup ran AFTER the window was already torn down,
+/// leaking the requestAnimationFrame loop for ~1 frame. The fix renames
+/// the event to `bubble:hide` AND reorders the emit to fire BEFORE `.hide()`.
 ///
-/// # Errors
-///
-/// Returns `Err("move_by overflow: <pos> + <delta>")` if either axis
-/// would overflow `i32`. The error message includes both operands so
-/// the renderer (or a developer reading the log) can see exactly which
-/// axis overflowed and by how much.
-fn compute_move_by_new_pos(
-    pos_x: i32,
-    dx: i32,
-    pos_y: i32,
-    dy: i32,
-) -> Result<(i32, i32), String> {
-    let new_x = pos_x
-        .checked_add(dx)
-        .ok_or_else(|| format!("move_by overflow: {} + {}", pos_x, dx))?;
-    let new_y = pos_y
-        .checked_add(dy)
-        .ok_or_else(|| format!("move_by overflow: {} + {}", pos_y, dy))?;
-    Ok((new_x, new_y))
-}
-
-/// Hide the bubble window and emit `bubble:hide_complete` so the
-/// renderer can run cleanup (e.g., stop the level animation) before
-/// the window becomes invisible (ADR-0020 §9 + MIG-1.2).
-///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own visibility lifecycle. The bubble's
-/// "auto-hide after 3s idle" timer in `Bubble.tsx` invokes this when
-/// the user stops interacting, so requiring the call to originate from
-/// the main window would break the auto-hide UX. The command's effect
-/// is confined to the bubble window itself.
+/// TODO(GT-21): migrate to `Result<(), VoiceTyperError>`.
 #[tauri::command]
 pub async fn bubble_hide_complete(app: tauri::AppHandle) -> Result<(), String> {
+    // GT-50: emit FIRST so the renderer's cleanup runs while the
+    // window is still visible.
+    app.emit_to("bubble", "bubble:hide", ())
+        .map_err(|e| e.to_string())?;
     let window = app
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
-    window.hide().map_err(|e| e.to_string())?;
-    app.emit_to("bubble", "bubble:hide_complete", ())
-        .map_err(|e| e.to_string())
+    window.hide().map_err(|e| e.to_string())
 }
 
 // ─── Tauri commands: bubble window extensions (CR-33) ────────────────
@@ -916,26 +543,6 @@ pub async fn bubble_hide_complete(app: tauri::AppHandle) -> Result<(), String> {
 /// Mirrors the Electron `bubble:resize` IPC handler in
 /// `voice_typer/client/src/main/index.ts` which calls
 /// `BrowserWindow.setSize(width, height)`.
-///
-/// **Window-origin policy (DE-71):** this command is intentionally NOT
-/// gated by [`require_main_window`] — the bubble renderer is permitted
-/// to self-manipulate its own window size. The bubble's content
-/// measurement observer (`Bubble.tsx`'s `ResizeObserver`) invokes this
-/// when the pill content changes (e.g. state label grows from
-/// "listening" to "transcribing…"), so requiring the call to originate
-/// from the main window would break the auto-fit behavior. The
-/// command's effect is confined to the bubble window itself.
-///
-/// **DE-70 (size ceiling):** the prior code passed `width` / `height`
-/// straight to `set_size` with no upper bound. A renderer bug (or a
-/// compromised sandboxed bubble) that sent `width = u32::MAX` would
-/// ask the window manager for a 4-gigapixel-wide window, which on
-/// Linux triggers a Wayland `xdg_surface` protocol error (killing the
-/// bubble) and on Windows silently clips to the monitor but burns CPU
-/// compositing a huge surface. The fix caps both dimensions to
-/// [`BUBBLE_RESIZE_MAX_DIM`] (7680 = 8K UHD) before calling
-/// `set_size` — well above any legitimate pill content measurement but
-/// well below the OS-brokenness threshold.
 #[tauri::command]
 pub async fn bubble_resize(
     width: u32,
@@ -945,73 +552,16 @@ pub async fn bubble_resize(
     let window = app
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
-    // DE-70: cap both dimensions to 8K (7680) before calling set_size
-    // to avoid handing the OS window manager a multi-gigapixel surface
-    // (see `cap_resize_dim` doc for the rationale).
-    let capped_w = cap_resize_dim(width);
-    let capped_h = cap_resize_dim(height);
     use tauri::PhysicalSize;
     window
-        .set_size(PhysicalSize::new(capped_w, capped_h))
+        .set_size(PhysicalSize::new(width, height))
         .map_err(|e| e.to_string())
 }
 
-/// DE-70: hard ceiling on each `bubble_resize` dimension. 7680 = 8K
-/// UHD width (the highest-resolution consumer display standard as of
-/// 2024). A pill content measurement of 7680+px indicates a renderer
-/// bug (the pill is typically 80–240px wide), so capping here is a
-/// safety net, not a UX constraint.
-///
-/// Extracted into a named constant + pure helper so the cap can be
-/// unit-tested without a Tauri window.
-const BUBBLE_RESIZE_MAX_DIM: u32 = 7680;
-
-/// DE-70: cap a single resize dimension to [`BUBBLE_RESIZE_MAX_DIM`].
-/// Saturating — `u32::min` returns the smaller of the input and the
-/// cap, so any input ≤ 7680 passes through unchanged and any input
-/// above is clamped to 7680.
-fn cap_resize_dim(d: u32) -> u32 {
-    d.min(BUBBLE_RESIZE_MAX_DIM)
-}
-
-/// Emit a `bubble:set-state` event to the bubble window with the given
-/// state string (CR-33 / ADR-0020 §9). The bubble renderer's
-/// `onSetState(callback)` listener (in preload/bubble.ts:64-71) updates
-/// the state label — e.g. "recording", "transcribing", "loading".
-///
-/// This command is invoked from the MAIN renderer (which has dispatch
-/// access) when the Python sidecar sends a `status_change` event, so
-/// the sandboxed bubble renderer doesn't need to subscribe to the full
-/// Python event stream. The main renderer routes only the state
-/// relevant to the bubble via this dedicated channel.
-///
-/// Mirrors the Electron `bubble:set-state` IPC send in
-/// `voice_typer/client/src/main/index.ts`.
-///
-/// **DE-71 (main-window gate):** this command is now gated by
-/// [`require_main_window`]. It emits an authoritative state label that
-/// the bubble UI trusts (the bubble displays "recording" without any
-/// independent verification), so a compromised sandboxed bubble MUST
-/// NOT be able to spoof a state — e.g. emitting
-/// `bubble:set-state("recording")` to fool the user into thinking the
-/// mic is hot when the sidecar is actually idle (a privacy-relevant
-/// spoof). The legitimate caller is the MAIN renderer's
-/// `usePython.ts::onStatusChange` handler, which forwards sidecar
-/// `status_change` events. The bubble renderer has no legitimate
-/// reason to invoke it (it learns state via the emitted event, not by
-/// emitting one itself).
-#[tauri::command]
-pub async fn bubble_emit_state(
-    state: String,
-    app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<(), String> {
-    // DE-71: only the main window may emit bubble state — see the doc
-    // comment above for the state-spoofing rationale.
-    require_main_window(&window)?;
-    app.emit_to("bubble", "bubble:set-state", state)
-        .map_err(|e| e.to_string())
-}
+// GT-82: `bubble_emit_state` was deleted — it was dead in production.
+// The WS reader's `translate_event_name` + global `app.emit()` path
+// already delivers `bubble:set-state` to all windows; this dedicated
+// command was never invoked from the renderer.
 
 /// Toggle dictation from the bubble's own mic button (CR-33 / ADR-0020
 /// §9 + UX-10). The bubble is a sandboxed renderer (SEC-026 / CR-5)

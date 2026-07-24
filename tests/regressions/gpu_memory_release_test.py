@@ -154,9 +154,19 @@ class TestReleaseGpuMemoryFunctional:
     """Functional test: actually invoke unload() and verify the helper
     is called."""
 
-    def test_parakeet_unload_invokes_release(self, monkeypatch):
+    def test_parakeet_unload_invokes_release(self):
         """End-to-end: ParakeetEngine.unload() must trigger
-        release_gpu_memory()."""
+        release_gpu_memory().
+
+        WR-4: previously this test patched
+        `voice_typer.server.transcription.release_gpu_memory`, but
+        `parakeet_engine.unload()` does a LOCAL import
+        (`from voice_typer.server.asr_utils import release_gpu_memory`
+        at parakeet_engine.py:1027), so the patch on `transcription.X`
+        never intercepted the call and the mock was never invoked.
+        Patching `voice_typer.server.asr_utils.release_gpu_memory` (the
+        canonical source) intercepts the local import correctly.
+        """
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         # Build a ParakeetEngine without loading the model.
@@ -165,18 +175,23 @@ class TestReleaseGpuMemoryFunctional:
         eng._model = None
         eng._processor = None
 
-        # Mock the helper to track calls.
-        with (
-            patch("voice_typer.server.parakeet_engine.release_gpu_memory")
-            if False
-            else patch("voice_typer.server.transcription.release_gpu_memory") as mock_release
-        ):
+        # Mock the helper at its canonical source so the local import
+        # inside `unload()` resolves to the mock.
+        with patch("voice_typer.server.asr_utils.release_gpu_memory") as mock_release:
             eng.unload()
             mock_release.assert_called_once()
 
     def test_qwen_unload_invokes_release(self):
         """End-to-end: QwenEngine.unload() must trigger
-        release_gpu_memory()."""
+        release_gpu_memory().
+
+        Note: qwen_engine.py:661 does `from voice_typer.server.transcription
+        import release_gpu_memory` at module load (not a local import inside
+        `unload()`), so patching `voice_typer.server.transcription.
+        release_gpu_memory` correctly intercepts the call here. The asymmetry
+        with parakeet_engine (which uses a local import from `asr_utils`) is
+        documented at parakeet_engine.py:1022-1027.
+        """
         from voice_typer.server.qwen_engine import QwenEngine
 
         eng = QwenEngine.__new__(QwenEngine)
