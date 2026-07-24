@@ -231,7 +231,10 @@ const _bubbleWindowCrashTimestamps: number[] = [];
 function recordRenderCrash(timestamps: number[], label: string): boolean {
 	const now = Date.now();
 	timestamps.push(now);
-	while (timestamps.length > 0 && now - timestamps[0]! > RENDER_CRASH_WINDOW_MS) {
+	while (
+		timestamps.length > 0 &&
+		now - timestamps[0]! > RENDER_CRASH_WINDOW_MS
+	) {
 		timestamps.shift();
 	}
 	if (timestamps.length > RENDER_CRASH_THRESHOLD) {
