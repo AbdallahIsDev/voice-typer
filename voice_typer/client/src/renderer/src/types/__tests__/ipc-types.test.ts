@@ -31,7 +31,15 @@
 // PVT-G5-060 / PVT-G5-061: the acceptedTypes list + length assertion
 // were extended to cover the 19 new event types added to the union
 // (``state_changed`` + the 18 events previously flowing through
-// ``onEvent`` untyped). The length is now 27 (was 9).
+// ``onEvent`` untyped). The length was 27.
+//
+// GT-52: added ``tray_state`` + ``consent_required`` +
+// ``parakeet_cpu_fallback`` (3 new events emitted by the Python backend
+// but never modelled in the TS union). Length grew from 27 to 29.
+//
+// GT-55: removed ``relaunch_electron`` (RelaunchElectronEvent interface
+// DELETED — verified the Python side emits only ``relaunch_app`` now).
+// Length shrunk by 1, then grew by 3 (GT-52) for a net of 29.
 //
 // NOTE: ``types/ipc.ts`` exports ONLY TypeScript types/interfaces —
 // there are no runtime values — so the bulk of these assertions are
@@ -91,7 +99,15 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"bubble_config",
 			"show_window",
 			"quit_app",
-			"relaunch_electron",
+			// GT-55: ``relaunch_electron`` REMOVED from this list
+			// (RelaunchElectronEvent interface deleted — verified
+			// no Python emitter; see the new compile-time guard
+			// below). The canonical event is ``relaunch_app``.
+			// GT-52: three new events emitted by the Python
+			// backend but previously missing from the union.
+			"tray_state",
+			"consent_required",
+			"parakeet_cpu_fallback",
 		];
 
 		// Runtime guard: the literals must NOT appear in the accepted
@@ -99,9 +115,14 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// the array above AND reintroduces the type.
 		expect(acceptedTypes).not.toContain("model_loaded");
 		expect(acceptedTypes).not.toContain("transcription_partial");
-		// PVT-G5-060 / PVT-G5-061: was 9, now 27
-		// (8 retained - 1 deleted transcription_partial + 19 added)
-		expect(acceptedTypes).toHaveLength(27);
+		// GT-55: ``relaunch_electron`` must NOT be in the union
+		// (RelaunchElectronEvent interface deleted).
+		expect(acceptedTypes).not.toContain("relaunch_electron");
+		// PVT-G5-060 / PVT-G5-061: was 9, then 27.
+		// GT-55: -1 (relaunch_electron removed) = 26.
+		// GT-52: +3 (tray_state + consent_required +
+		// parakeet_cpu_fallback) = 29.
+		expect(acceptedTypes).toHaveLength(29);
 	});
 
 	it("a `{ type: 'model_loaded' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
@@ -145,6 +166,46 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			: false;
 		const _typeGuard: Guard = false;
 		expect(_typeGuard).toBe(false);
+	});
+
+	it("a `{ type: 'relaunch_electron' }` value is NOT assignable to PythonPushEvent (GT-55 compile-time guard)", () => {
+		// GT-55: ``RelaunchElectronEvent`` was DELETED from the union
+		// after verifying the Python side emits only ``relaunch_app``.
+		// If a future contributor re-adds ``RelaunchElectronEvent`` to
+		// the union, the conditional resolves to ``true`` and the
+		// ``false`` assignment fails to compile — CI catches it before
+		// the deprecated contract ships again.
+		type WouldBeRelaunchElectron = {
+			type: "relaunch_electron";
+			data: Record<string, unknown>;
+		};
+		type Guard = WouldBeRelaunchElectron extends PythonPushEvent
+			? true
+			: false;
+		const _typeGuard: Guard = false;
+		expect(_typeGuard).toBe(false);
+	});
+
+	it("GT-52: tray_state / consent_required / parakeet_cpu_fallback ARE assignable to PythonPushEvent (compile-time guard)", () => {
+		// GT-52: three server-emitted push events added to the union.
+		// If a future contributor removes any of the three interfaces
+		// from the union, the corresponding conditional resolves to
+		// ``false`` and the ``true`` assignment fails to compile.
+		type HasTrayState = { type: "tray_state"; data: { icon?: string; tooltip?: string } } extends PythonPushEvent
+			? true
+			: false;
+		type HasConsentRequired = { type: "consent_required"; data: { provider: string; model: string; message: string } } extends PythonPushEvent
+			? true
+			: false;
+		type HasParakeetCpuFallback = { type: "parakeet_cpu_fallback"; data: { device: string; reason: string } } extends PythonPushEvent
+			? true
+			: false;
+		const _trayState: HasTrayState = true;
+		const _consent: HasConsentRequired = true;
+		const _parakeet: HasParakeetCpuFallback = true;
+		expect(_trayState).toBe(true);
+		expect(_consent).toBe(true);
+		expect(_parakeet).toBe(true);
 	});
 });
 

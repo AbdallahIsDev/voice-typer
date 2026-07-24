@@ -10,17 +10,22 @@
 //   • TS `audio_preset` union must mirror the Python IPC validator's
 //     `_make_enum_validator({"auto", "studio", "noisy_room", "off",
 //     "custom"})` (NOT the dataclass Literal[...] which includes
-//     legacy "none"/"recommended" for backward-compat).
+//     legacy "none"/"recommended" for backward-compat — those are
+//     rewritten by the Config.load v1->v2 migration BEFORE the IPC
+//     validator sees them, so the IPC boundary never accepts either).
 //   • TS `noise_suppression_method` union must mirror Python
 //     `NOISE_SUPPRESSION_METHODS` frozenset ({"rnnoise",
-//     "deepfilternet", "none"}).
+//     "deepfilternet", "none"}). The historical "speex" value was
+//     never implemented and is rejected at the IPC boundary.
 //   • TS `llm_preset` union must mirror Python IPC validator's
 //     `_make_enum_validator({"professional", "casual", "email",
 //     "code"})`.
 //   • TS `bubble_x` / `bubble_y` / `bubble_scale` /
-//     `test_duration_seconds` are `@deprecated` optionals until
-//     XZ-IMP-07 adds them to the Python Config dataclass + IPC
-//     allowlist.
+//     `test_duration_seconds` are persisted by the Python Config
+//     dataclass (added by GT-FIX-11). `bubble_x`/`bubble_y` are
+//     REQUIRED (`number | null`); `bubble_scale`/`test_duration_seconds`
+//     are OPTIONAL on the TS side for backward compat with older
+//     config.json files / older sidecars that predate the fields.
 //
 // This file is a TS-only static guard — it doesn't shell out to
 // Python (which would require a Python interpreter in the vitest
@@ -70,22 +75,30 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 });
 
 describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset match Python IPC validators", () => {
-	it("audio_preset includes legacy 'none' and 'recommended' (kept in TS type for backward compat)", () => {
-		// The TS VoiceTyperConfig type includes "none" and "recommended"
-		// for backward-compat with older config.json files; the IPC
-		// validator maps them to the canonical "auto" / "off" at the
-		// server boundary.  These compile-time guards verify the TS
-		// union still accepts them.
+	it("audio_preset does NOT include legacy 'none' or 'recommended' (GT-51: tightened to IPC validator)", () => {
+		// GT-51: the TS union was tightened to mirror the Python IPC
+		// enum validator in `config_validators.py`, which rejects
+		// 'none' and 'recommended' at the wire boundary. The Python
+		// `Config.load()` v1->v2 migration rewrites stale on-disk
+		// values BEFORE the IPC validator sees them, so the IPC
+		// boundary never accepts either legacy value. The wider TS
+		// union previously let renderer code construct a payload the
+		// server would silently reject.
+		//
+		// Compile-time guards: 'none' / 'recommended' must NOT be
+		// assignable to `audio_preset`. The conditional resolves to
+		// `false` while the union excludes them; if a contributor
+		// re-adds either, the `false` assignment fails to compile.
 		type HasNone = "none" extends VoiceTyperConfig["audio_preset"]
 			? true
 			: false;
 		type HasRecommended = "recommended" extends VoiceTyperConfig["audio_preset"]
 			? true
 			: false;
-		const _none: HasNone = true;
-		const _rec: HasRecommended = true;
-		expect(_none).toBe(true);
-		expect(_rec).toBe(true);
+		const _none: HasNone = false;
+		const _rec: HasRecommended = false;
+		expect(_none).toBe(false);
+		expect(_rec).toBe(false);
 	});
 
 	it("audio_preset includes all 5 IPC-accepted values", () => {
@@ -99,12 +112,16 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 		expect(values).toHaveLength(5);
 	});
 
-	it("noise_suppression_method includes 'speex' (added for bandwidth flexibility)", () => {
+	it("noise_suppression_method does NOT include 'speex' (GT-51: removed — never implemented, rejected by IPC validator)", () => {
+		// GT-51: 'speex' was never implemented (no speex backend in
+		// `audio_filters/noise_suppressor.py`) and was rejected at
+		// the IPC boundary. Removed from the TS union to eliminate
+		// the drift.
 		type HasSpeex = "speex" extends VoiceTyperConfig["noise_suppression_method"]
 			? true
 			: false;
-		const _guard: HasSpeex = true;
-		expect(_guard).toBe(true);
+		const _guard: HasSpeex = false;
+		expect(_guard).toBe(false);
 	});
 
 	it("noise_suppression_method includes all 3 Python-allowed values", () => {
@@ -130,6 +147,11 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 		// WITHOUT bubble_scale / test_duration_seconds must type-check.
 		// bubble_x and bubble_y are REQUIRED (number | null) and must
 		// be included.
+		//
+		// GT-36 / GT-FIX-11: the Python Config dataclass now persists
+		// all four fields; bubble_scale / test_duration_seconds remain
+		// OPTIONAL on the TS side for back-compat with older
+		// config.json files / older sidecars.
 		//
 		// We use `as VoiceTyperConfig` (not `as unknown as`) so the
 		// compiler still checks the OTHER required fields are present.
@@ -164,6 +186,9 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 			unsafe_paste_on_unknown_focus: false,
 			corrections_path: null,
 			log_transcriptions: false,
+			// GT-37 (PLAT-013/014): paste-safety toggles.
+			warn_elevated_paste: true,
+			warn_password_paste: true,
 			recording_mode: "toggle",
 			push_to_talk_hotkey: "",
 			esc_cancel_enabled: true,
@@ -261,6 +286,40 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 		// deprecated fields are absent from the literal:
 		expect(minimal.bubble_scale).toBeUndefined();
 		expect(minimal.test_duration_seconds).toBeUndefined();
+		// GT-37: optional paste-safety toggles are present in this fixture.
+		expect(minimal.warn_elevated_paste).toBe(true);
+		expect(minimal.warn_password_paste).toBe(true);
+	});
+});
+
+describe("GT-37: warn_elevated_paste / warn_password_paste — optional paste-safety toggles", () => {
+	it("both fields are declared on VoiceTyperConfig (compile-time presence guard)", () => {
+		// Compile-time guard: accessing the fields on a value of
+		// type `VoiceTyperConfig` must type-check. If a future
+		// contributor removes either field from the interface, the
+		// property access below fails to compile and CI catches it.
+		// The fields are OPTIONAL (`boolean | undefined`) for back-compat
+		// with older sidecars that predate GT-37; the renderer treats
+		// absence as `true` (the Python default).
+		const cfg = {} as VoiceTyperConfig;
+		const _elevated: boolean | undefined = cfg.warn_elevated_paste;
+		const _password: boolean | undefined = cfg.warn_password_paste;
+		expect(_elevated).toBeUndefined();
+		expect(_password).toBeUndefined();
+	});
+});
+
+describe("GT-F2-3: onboarding_failed / recording_channels / pre_roll_buffer_seconds — optional server-controlled fields", () => {
+	it("all three fields are OPTIONAL (omittable from a literal) and readable", () => {
+		// Compile-time guard: a literal that omits all three must
+		// type-check (proving they're optional). Reading them back
+		// must yield `undefined` (no default at the TS layer).
+		const cfg = {
+			schema_version: 3,
+		} as VoiceTyperConfig;
+		expect(cfg.onboarding_failed).toBeUndefined();
+		expect(cfg.recording_channels).toBeUndefined();
+		expect(cfg.pre_roll_buffer_seconds).toBeUndefined();
 	});
 });
 

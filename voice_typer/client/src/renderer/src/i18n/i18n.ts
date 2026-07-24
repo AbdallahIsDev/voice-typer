@@ -16,14 +16,8 @@
 // SUPPORTED_LOCALES so first-run users see their language automatically.
 
 import { useSyncExternalStore } from "react";
-import ar from "./translations/ar.json";
-import de from "./translations/de.json";
+// ER-65: ar/de/es/fr/hi/ru/zh dynamically imported via ensureLocaleLoaded()
 import en from "./translations/en.json";
-import es from "./translations/es.json";
-import fr from "./translations/fr.json";
-import hi from "./translations/hi.json";
-import ru from "./translations/ru.json";
-import zh from "./translations/zh.json";
 
 type TranslationDict = Record<string, unknown>;
 
@@ -181,26 +175,88 @@ function flatten(obj: TranslationDict, prefix = ""): Map<string, string> {
 // Register English translations
 _translations.set("en", flatten(en as TranslationDict));
 
-// Register Spanish translations (UX-015: proof of concept for i18n)
-_translations.set("es", flatten(es as TranslationDict));
+// ER-65: locales whose dynamic import has already been kicked off.
+// Prevents duplicate network requests when both the module-load
+// auto-load AND the first ``t()`` call race for the same locale.
+const _localeLoadInitiated: Set<Locale> = new Set();
 
-// Register French translations
-_translations.set("fr", flatten(fr as TranslationDict));
+// Pending dynamic-import promises — used to deduplicate concurrent
+// ``ensureLocaleLoaded`` calls for the same locale.
+const _localeLoadPromises: Map<Locale, Promise<void>> = new Map();
 
-// Register Chinese (Mandarin) translations
-_translations.set("zh", flatten(zh as TranslationDict));
+/**
+ * Asynchronously load + register a non-English locale's translation
+ * table via dynamic ``import()``. No-op for English (already loaded) or
+ * for locales already loaded / in-flight.
+ *
+ * ER-65: previously all 8 locale JSON files were statically imported,
+ * adding ~60 KB to the initial bundle and ~8 ms of parse time per
+ * locale at boot — even though most users only ever see one locale.
+ * The dynamic import is fire-and-forget: while the chunk loads,
+ * ``t()`` falls back to English (the universal fallback already
+ * encoded in the lookup path). Once the chunk resolves we register
+ * the translations and notify subscribers (the ``useT`` hook) so
+ * every subscribed component re-renders with the now-available
+ * locale strings.
+ *
+ * Note: ``_localeSubscribers`` is declared further down in the module
+ * (with the other subscription plumbing). It's a ``const`` so the TDZ
+ * would normally prevent this function from referencing it — but
+ * ``ensureLocaleLoaded`` is only ever CALLED from ``setLocale`` /
+ * module-init / ``t()``, all of which run after the module body has
+ * finished evaluating, so by the time the dynamic-import promise
+ * resolves and the subscriber loop runs, ``_localeSubscribers`` is
+ * initialised.
+ *
+ * @param locale The locale to load.
+ * @returns A promise that resolves once the locale is registered (or
+ *          immediately for English / already-loaded locales).
+ */
+export function ensureLocaleLoaded(locale: Locale): Promise<void> {
+        // English is always loaded synchronously at module init.
+        if (locale === "en") return Promise.resolve();
+        // Already loaded — nothing to do.
+        if (_translations.has(locale)) return Promise.resolve();
+        // Already in-flight — return the pending promise so callers can
+        // await it without spawning a duplicate request.
+        const existing = _localeLoadPromises.get(locale);
+        if (existing) return existing;
 
-// Register Hindi translations
-_translations.set("hi", flatten(hi as TranslationDict));
+        _localeLoadInitiated.add(locale);
+        const promise = (async () => {
+                try {
+                        const mod = await import(
+                                /* @vite-ignore */ `./translations/${locale}.json`
+                        );
+                        const data = (mod as { default: TranslationDict }).default;
+                        _translations.set(locale, flatten(data));
+                        // Notify subscribers (the ``useT`` hook) so every
+                        // subscribed component re-renders with the now-available
+                        // locale strings. We use the same path as ``setLocale()``.
+                        for (const cb of _localeSubscribers) {
+                                try {
+                                        cb();
+                                } catch (e) {
+                                        console.warn(
+                                                "[i18n] locale-ready subscriber callback failed:",
+                                                e,
+                                        );
+                                }
+                        }
+                } catch (e) {
+                        // Dynamic import failed (corrupt chunk, network error,
+                        // unsupported locale at runtime). Leave English as the
+                        // active fallback — ``t()`` already falls back to English
+                        // when the current locale's map is missing.
+                        console.warn(`[i18n] dynamic import for "${locale}" failed:`, e);
+                } finally {
+                        _localeLoadPromises.delete(locale);
+                }
+        })();
+        _localeLoadPromises.set(locale, promise);
+        return promise;
+}
 
-// Register Arabic translations
-_translations.set("ar", flatten(ar as TranslationDict));
-
-// Register Russian translations
-_translations.set("ru", flatten(ru as TranslationDict));
-
-// Register German translations
-_translations.set("de", flatten(de as TranslationDict));
 
 /**
  * Register translations for a locale.
@@ -339,7 +395,7 @@ export function t(key: string, params?: Record<string, string>): string {
 	// Interpolate {placeholder} values
 	if (params) {
 		for (const [k, v] of Object.entries(params)) {
-			result = result.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+			result = result.replace(interpRegex(k), v);
 		}
 	}
 	return result;
@@ -383,6 +439,29 @@ export function t(key: string, params?: Record<string, string>): string {
 //   tChoice("inbox.messages", 2, {name: "Alice"})
 //                                         → "You have 2 unread messages."
 //                                         (and {name} would be interpolated too)
+
+// ER-20: cache the per-parameter interpolation RegExp. ``t()`` /
+// ``tChoice()`` previously built a fresh ``new RegExp(`\\{${k}\\}`, "g")``
+// for every parameter of every call — under a hot render path with
+// several interpolations per string this allocated thousands of
+// short-lived RegExp objects per second. The keyspace is tiny (only a
+// handful of distinct placeholder names — ``count``, ``name``, …) so a
+// Map<string, RegExp> cache reuses the same RegExp instance forever.
+const _interpCache = new Map<string, RegExp>();
+
+/**
+ * Get (or create) the cached interpolation RegExp for a placeholder key.
+ * The RegExp matches the literal ``{key}`` token globally so it can be
+ * passed to ``String.prototype.replace`` for substitution.
+ */
+function interpRegex(key: string): RegExp {
+        let r = _interpCache.get(key);
+        if (!r) {
+                r = new RegExp(`\\{${key}\\}`, "g");
+                _interpCache.set(key, r);
+        }
+        return r;
+}
 
 // Cache Intl.PluralRules instances per locale — constructing one is
 // expensive enough that we don't want to do it on every tChoice() call.
@@ -480,7 +559,18 @@ export function tChoice(
 		}
 	}
 	for (const [k, v] of Object.entries(merged)) {
-		resolved = resolved.replace(new RegExp(`\\{${k}\\}`, "g"), v);
+		resolved = resolved.replace(interpRegex(k), v);
 	}
 	return resolved;
+}
+
+// ER-65: kick off the async load of the user's restored/detected
+// locale at module init so the dynamic import is in-flight by the time
+// the first ``t()`` call happens. English (the universal fallback) is
+// already registered synchronously above, so ``t()`` returns English
+// strings until the dynamic chunk resolves — then ``useT`` subscribers
+// are notified and the UI repaints with the user's selected locale.
+// The fire-and-forget pattern means module load stays synchronous.
+if (_currentLocale !== "en") {
+        void ensureLocaleLoaded(_currentLocale);
 }

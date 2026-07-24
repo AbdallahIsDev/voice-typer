@@ -121,12 +121,18 @@ export function useSnackbar() {
 		[],
 	);
 
-	const clearSnack = useCallback(() => {
-		// Dismiss all toasts — sonner doesn't expose per-toast dismissal
-		// from this side of the wrapper without an id, so we dismiss all.
-		// This matches the previous "clear current snackbar" semantics
-		// closely enough for the legacy call sites that use it.
-		toast.dismiss();
+	const clearSnack = useCallback((id?: string | number) => {
+		// Dismiss a specific toast when an id is given; otherwise
+		// dismiss all active toasts. The optional id maps 1:1 to
+		// ``toast.dismiss(id)`` so callers that have shown a
+		// context-specific toast can dismiss just that one without
+		// killing unrelated toasts. Omitting id preserves the
+		// legacy "clear all" semantics for existing call sites.
+		if (id !== undefined) {
+			toast.dismiss(id);
+		} else {
+			toast.dismiss();
+		}
 	}, []);
 
 	return { showSnack, clearSnack };

@@ -14,6 +14,17 @@ export interface VoiceTyperConfig {
 	// Recording
 	sample_rate: number;
 	microphone: string | null;
+	// GT-F2-3: optional because older sidecars (pre-GT-F2-3) don't
+	// echo it back on `get_config`. The Python `Config` dataclass
+	// declares `recording_channels: int = 1` (mono) and it's in the
+	// IPC allowlist; absence on the wire is treated as 1 (mono) by
+	// the renderer.
+	recording_channels?: number;
+	// GT-F2-3: optional because older sidecars (pre-GT-F2-3) don't
+	// echo it back. The Python `Config` dataclass declares
+	// `pre_roll_buffer_seconds: float = 0.0` (no pre-roll) and it's
+	// in the IPC allowlist; absence on the wire is treated as 0.0.
+	pre_roll_buffer_seconds?: number;
 
 	// Transcription
 	model_size: ModelSize;
@@ -54,25 +65,44 @@ export interface VoiceTyperConfig {
 	corrections_path: string | null;
 	log_transcriptions: boolean;
 
+	// GT-37 (PLAT-013 / PLAT-014): paste-safety toggles. Both default
+	// to true in the Python `Config` dataclass
+	// (`voice_typer/server/config.py:643-645`) and are in the IPC
+	// allowlist. When true, the renderer surfaces a confirmation
+	// dialog before pasting into elevated (admin/root) windows or
+	// password fields. OPTIONAL on the TS side for backward compat
+	// with older sidecars (pre-GT-37) that don't echo them; absence
+	// is treated as `true` by the renderer (the Python default).
+	warn_elevated_paste?: boolean;
+	warn_password_paste?: boolean;
+
 	// Recording mode
 	recording_mode: "toggle" | "push_to_talk";
 	/**
-	 * @deprecated EC-FIX-10 / EC-24: made optional to reflect reality.
+	 * @deprecated EC-FIX-10 / EC-24 / GT-F2-8: server-controlled only.
 	 *
 	 * Kept in the type for config-file backwards-compat only — older
 	 * `config.json` files written by previous versions may include
-	 * this key. The server (voice_typer/server/config.py:646) declares
-	 * `push_to_talk_hotkey: str = ""` ("Separate hotkey for PTT (empty
-	 * = same as toggle)") but NEVER reads it — `recording_mode ==
-	 * "push_to_talk"` always uses the main `hotkey` field (see
-	 * `voice_typer/server/config_applier.py:197` and
-	 * `voice_typer/server/service.py:1122`, which only check for the
-	 * *presence* of the key in `updates` so the hotkey listener can be
-	 * re-registered, not the value).
+	 * this key. The server (`voice_typer/server/config.py`) declares
+	 * `push_to_talk_hotkey: str = ""` but NEVER reads it —
+	 * `recording_mode == "push_to_talk"` always uses the main `hotkey`
+	 * field (see `voice_typer/server/config_applier.py` and
+	 * `voice_typer/server/service.py`, which only check for the
+	 * *presence* of the key in `updates` so the hotkey listener can
+	 * be re-registered, not the value).
 	 *
-	 * Rules of engagement (EC-FIX-10):
-	 *   - The server MUST NOT read this value (it is a write-only
-	 *     back-compat field on the wire).
+	 * GT-F2-8 (coordinates with GT-FIX-11 on the Python side): the
+	 * field has been REMOVED from `IPC_CONFIG_ALLOWLIST` in
+	 * `voice_typer/server/config_validators.py`, so the server now
+	 * ENFORCES the write-only-on-the-wire contract — any
+	 * `set_config({ push_to_talk_hotkey: ... })` IPC call is rejected
+	 * by the validator before reaching the dataclass. The renderer
+	 * cannot write this value via IPC; the field survives only as a
+	 * config-file back-compat key for stale `config.json` files.
+	 *
+	 * Rules of engagement (EC-FIX-10, enforced as of GT-F2-8):
+	 *   - The server MUST NOT read this value (the allowlist removal
+	 *     now blocks any attempt to write it via IPC).
 	 *   - The renderer MUST NOT write this value (no production
 	 *     component sets it; only test fixtures do, for type
 	 *     completeness).
@@ -80,9 +110,10 @@ export interface VoiceTyperConfig {
 	 *     without breaking the type contract.
 	 *
 	 * Do NOT wire up a separate PTT hotkey without also:
-	 *   1. Reading this value in the server's hotkey listener.
-	 *   2. Surfacing a UI in `RecordingSettingsSection.tsx` to set it.
-	 * Until both exist, this field is a no-op.
+	 *   1. Re-adding the field to the Python IPC allowlist.
+	 *   2. Reading this value in the server's hotkey listener.
+	 *   3. Surfacing a UI in `RecordingSettingsSection.tsx` to set it.
+	 * Until all three exist, this field is a no-op.
 	 */
 	push_to_talk_hotkey?: string;
 	esc_cancel_enabled: boolean;
@@ -146,27 +177,38 @@ export interface VoiceTyperConfig {
 	// null or both non-null) — the renderer writes them as a pair via
 	// `set_config({ bubble_x, bubble_y })`.
 	//
-	// Backend-side these are declared in `voice_typer/server/config.py`
-	// alongside `bubble_position` and survive across restarts via the
-	// normal config.json serialisation path.
+	// GT-36 / GT-FIX-11: the Python `Config` dataclass in
+	// `voice_typer/server/config.py` now persists these (declared as
+	// `int | None = None`) alongside `bubble_position`, and they're in
+	// the IPC allowlist, so they survive across restarts via the
+	// normal config.json serialisation path. Older sidecars
+	// (pre-GT-FIX-11) silently dropped both keys — the renderer
+	// treats absence as null. REQUIRED on the TS side because every
+	// modern sidecar (post-GT-FIX-11) echoes them on `get_config`.
 	bubble_x: number | null;
 	bubble_y: number | null;
 
 	// PVT-067: persisted bubble scale factor. Default 1.0 (no scaling).
 	// The bubble window multiplies its base DPI by this value to render
 	// a larger or smaller pill. Range is clamped by the renderer to
-	// [0.5, 2.0] before being sent to `set_config`. Optional because
-	// older config.json files (pre-PVT-067) don't include the field —
-	// absence is treated as 1.0 by both the renderer and the server.
+	// [0.5, 2.0] before being sent to `set_config`.
+	//
+	// GT-36 / GT-FIX-11: the Python `Config` dataclass now persists
+	// this as `float = 1.0` and it's in the IPC allowlist. OPTIONAL on
+	// the TS side for backward compat with older config.json files /
+	// older sidecars that predate the field — absence is treated as
+	// 1.0 by both the renderer and the server.
 	bubble_scale?: number;
 
 	// PVT-034: persisted microphone-test duration (seconds). The
 	// Microphone page's "Test" button records for this many seconds
-	// before auto-stopping. Range clamped to [1, 30] by the server
-	// (`voice_typer/server/level_monitor.py:507`). Optional because
-	// older config.json files don't include the field — absence falls
-	// back to the server default of 10s (`_test_duration` in
-	// `level_monitor.py:112`).
+	// before auto-stopping. Range clamped to [1, 30] by the server.
+	//
+	// GT-36 / GT-FIX-11: the Python `Config` dataclass now persists
+	// this as `int = 5` and it's in the IPC allowlist. OPTIONAL on the
+	// TS side for backward compat with older config.json files /
+	// older sidecars that predate the field — absence falls back to
+	// the server default of 5s.
 	test_duration_seconds?: number;
 
 	// History
@@ -176,6 +218,13 @@ export interface VoiceTyperConfig {
 
 	// Onboarding
 	onboarding_completed: boolean;
+	// GT-F2-3: server-controlled flag set by the backend when the
+	// onboarding flow fails irrecoverably (e.g. model download error
+	// during guided setup). OPTIONAL because older sidecars
+	// (pre-GT-F2-3) don't echo it; the renderer treats absence as
+	// false. The Python `Config` dataclass declares
+	// `onboarding_failed: bool = False`.
+	onboarding_failed?: boolean;
 
 	// Tray
 	tray_left_click_action: "open_app" | "toggle_dictation";
@@ -223,15 +272,20 @@ export interface VoiceTyperConfig {
 	volume_duck_smart: boolean;
 	volume_duck_smart_poll_interval_ms: number;
 
-	// ADR 0007: Audio enhancement preset
-	audio_preset:
-		| "auto"
-		| "studio"
-		| "noisy_room"
-		| "off"
-		| "custom"
-		| "none"
-		| "recommended";
+	// ADR 0007: Audio enhancement preset.
+	//
+	// GT-51: tightened to mirror the Python IPC enum validator in
+	// `voice_typer/server/config_validators.py`
+	// (`_make_enum_validator({"auto", "studio", "noisy_room", "off",
+	// "custom"})`). The legacy aliases "none" and "recommended" were
+	// previously kept in the TS union for stale `config.json` files,
+	// but the Python `Config.load()` v1→v2 migration rewrites them on
+	// disk to "off" / "auto" BEFORE the IPC validator sees them, so
+	// the IPC boundary never accepts either value. The wider TS union
+	// let renderer code construct a payload that the Python IPC
+	// validator would silently reject — narrowed to eliminate that
+	// drift.
+	audio_preset: "auto" | "studio" | "noisy_room" | "off" | "custom";
 
 	// ADR 0007: Noise filtering (filter chain)
 	noise_filter_enabled: boolean; // DEPRECATED
@@ -246,7 +300,15 @@ export interface VoiceTyperConfig {
 	noise_filter_gate_release_ms: number;
 	noise_filter_rnnoise: boolean; // DEPRECATED
 	noise_filter_post_capture: boolean; // DEPRECATED
-	noise_suppression_method: "rnnoise" | "deepfilternet" | "speex" | "none";
+	// GT-51: tightened to mirror the Python `NOISE_SUPPRESSION_METHODS`
+	// frozenset in `voice_typer/server/config_validators.py`
+	// ({"rnnoise", "deepfilternet", "none"}). The historical "speex"
+	// option was never implemented — there is no speex backend in
+	// `audio_filters/noise_suppressor.py` — and was rejected at the
+	// IPC boundary, but the TS union still admitted it, letting
+	// renderer code construct a payload the server would silently
+	// reject. Removed from the union to eliminate the drift.
+	noise_suppression_method: "rnnoise" | "deepfilternet" | "none";
 	noise_filter_eq: boolean;
 	noise_filter_eq_low_db: number;
 	noise_filter_eq_mid_db: number;

@@ -28,6 +28,23 @@
  *     details leaked to the UI — the full stack is in the console
  *     for the developer/operator to diagnose).
  *
+ * BG-88: the toast now uses a STABLE id (``'global-error-handler'``)
+ * so successive errors REPLACE the existing toast instead of stacking
+ * on top of each other. Previously a tight error loop (e.g. an effect
+ * that re-threw on every retry) could pile up dozens of identical
+ * toasts, making the UI unreadable. With the stable id, sonner
+ * dedupes — only the most recent error's toast stays visible.
+ *
+ * BG-89: the toast now exposes two action buttons:
+ *   • ``View logs`` — calls ``window.window_?.openLogs?.()`` to open
+ *     the Python backend's log folder in the OS file manager (the
+ *     full stack trace + IPC error details live there for diagnosis).
+ *   • ``Copy error`` — writes the most recent error's formatted
+ *     stack to the clipboard so users can paste it into a bug report.
+ *     The formatted string is passed directly into the toast options
+ *     builder (no module-level state — each error event carries its
+ *     own detail into the action-button closure).
+ *
  * The handlers are idempotent — calling ``installGlobalErrorHandlers``
  * twice is safe (the second call is a no-op).
  *
@@ -53,6 +70,12 @@ import { toast } from "sonner";
 import { t } from "@/i18n/i18n";
 
 let _installed = false;
+
+// BG-88: stable toast id so successive errors replace (not stack on
+// top of) the existing toast. Sonner's ``id`` option dedupes — the
+// second ``toast.error(msg, {id})`` call updates the existing toast
+// in place rather than spawning a second one.
+const GLOBAL_ERROR_TOAST_ID = "global-error-handler";
 
 /**
  * Generic, localized error message for the user-facing toast.
@@ -135,6 +158,98 @@ function _formatReasonForConsole(reason: unknown): string {
 }
 
 /**
+ * BG-89: safely resolve a localized string, falling back to the
+ * provided English default when i18n is unavailable or the key is
+ * missing. Mirrors the defensive pattern in ``_genericUserMessage``
+ * so the action-button labels never throw.
+ */
+function _safeT(key: string, fallback: string): string {
+	try {
+		const msg = t(key);
+		if (typeof msg === "string" && msg.length > 0) return msg;
+	} catch (e) {
+		console.warn(`[globalErrorHandler] i18n t("${key}") failed:`, e);
+	}
+	return fallback;
+}
+
+/**
+ * BG-89: build the sonner toast options for the global error toast.
+ *
+ * Returns an options object with:
+ *   • ``id`` — the stable toast id (BG-88 dedup).
+ *   • ``action`` — the primary action button ("View logs" →
+ *     ``window.window_?.openLogs?.()``).
+ *   • ``cancel`` — the secondary action button ("Copy error" →
+ *     copies the last formatted error stack to the clipboard via
+ *     ``navigator.clipboard.writeText``).
+ *
+ * Both buttons are defensively guarded: ``window.window_`` may not
+ * exist (older preload scripts, Tauri bridge), and
+ * ``navigator.clipboard`` may not exist (non-secure context, SSR
+ * snapshot). A missing affordance is silently ignored — the toast
+ * still renders with whatever buttons ARE available.
+ */
+function _buildToastOptions(formattedError: string): {
+	id: string;
+	action?: { label: string; onClick: () => void };
+	cancel?: { label: string; onClick: () => void };
+} {
+	const opts: {
+		id: string;
+		action?: { label: string; onClick: () => void };
+		cancel?: { label: string; onClick: () => void };
+	} = { id: GLOBAL_ERROR_TOAST_ID };
+
+	// "View logs" action — opens the Python backend's log folder.
+	// The bridge method is optional (older preload scripts / Tauri
+	// bridge may not install it); silently skip when unavailable.
+	const windowApi = (window as unknown as {
+		window_?: { openLogs?: () => Promise<unknown> };
+	}).window_;
+	if (typeof windowApi?.openLogs === "function") {
+		opts.action = {
+			label: _safeT("errors.viewLogsAction", "View logs"),
+			onClick: () => {
+				try {
+					void windowApi.openLogs?.();
+				} catch (e) {
+					console.warn(
+						"[globalErrorHandler] openLogs() threw:",
+						e,
+					);
+				}
+			},
+		};
+	}
+
+	// "Copy error" cancel-side action — writes the formatted stack
+	// to the clipboard. ``navigator.clipboard`` may be missing in
+	// non-secure contexts (older Tauri / file:// / SSR); silently
+	// skip when unavailable.
+	if (
+		typeof navigator !== "undefined" &&
+		typeof navigator.clipboard?.writeText === "function"
+	) {
+		opts.cancel = {
+			label: _safeT("errors.copyErrorAction", "Copy error"),
+			onClick: () => {
+				navigator.clipboard
+					.writeText(formattedError)
+					.catch((e) =>
+						console.warn(
+							"[globalErrorHandler] clipboard.writeText failed:",
+							e,
+						),
+					);
+			},
+		};
+	}
+
+	return opts;
+}
+
+/**
  * Install the global ``error`` and ``unhandledrejection`` listeners.
  *
  * Idempotent: safe to call multiple times. The second call is a
@@ -165,7 +280,7 @@ export function installGlobalErrorHandlers(): void {
 		const detail = _formatForConsole(event.error ?? event.message);
 		console.error("[Renderer] uncaught error:", detail);
 		try {
-			toast.error(_genericUserMessage());
+			toast.error(_genericUserMessage(), _buildToastOptions(detail));
 		} catch (e) {
 			// If sonner isn't mounted yet (e.g. error during bootstrap
 			// before the Toaster component renders), the toast call is a
@@ -184,7 +299,7 @@ export function installGlobalErrorHandlers(): void {
 			const detail = _formatReasonForConsole(event.reason);
 			console.error("[Renderer] unhandled promise rejection:", detail);
 			try {
-				toast.error(_genericUserMessage());
+				toast.error(_genericUserMessage(), _buildToastOptions(detail));
 			} catch (e) {
 				// Same defensive guard as above.
 				console.warn("[globalErrorHandler] toast.error (rejection) failed:", e);
