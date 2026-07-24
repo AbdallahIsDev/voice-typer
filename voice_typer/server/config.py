@@ -418,10 +418,8 @@ def _acquire_config_lock(timeout: float | None = None):
         timeout = _CONFIG_LOCK_TIMEOUT_SECONDS
 
     lock_file = _config_dir() / "config.json.lock"
-    try:
+    with contextlib.suppress(OSError):
         _config_dir().mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass
 
     if not is_windows():
         import errno
@@ -456,10 +454,8 @@ def _acquire_config_lock(timeout: float | None = None):
             try:
                 yield
             finally:
-                try:
+                with contextlib.suppress(OSError):
                     fcntl.flock(fd, fcntl.LOCK_UN)
-                except OSError:
-                    pass
                 _os.close(fd)
         except TimeoutError:
             raise
@@ -493,10 +489,8 @@ def _acquire_config_lock(timeout: float | None = None):
             try:
                 yield
             finally:
-                try:
+                with contextlib.suppress(OSError):
                     msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-                except OSError:
-                    pass
                 _os.close(fd)
         except TimeoutError:
             raise

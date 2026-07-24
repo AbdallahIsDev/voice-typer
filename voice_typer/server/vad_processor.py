@@ -366,7 +366,7 @@ class VadProcessor:
         # thresholds from the default app logs — this is genuine per-session
         # operational state (logged once per session, not per audio frame).
         log.info(
-            "[VAD] auto-calibrated: noise_floor=%.1f dBFS, silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS [status=calibrated]",
+            "[VAD] auto-calibrated: noise_floor=%.1f dBFS, silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS",
             noise_db,
             self._silence_threshold_db,
             self._speech_threshold_db,

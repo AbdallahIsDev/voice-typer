@@ -23,6 +23,7 @@ so unlike the Windows named mutex there is no abandoned-lock recovery path
 — ``flock`` is authoritative.
 """
 
+import contextlib
 import logging
 import os
 import sys
@@ -486,10 +487,8 @@ def _ensure_single_instance_posix(silent: bool = False):
             sys.exit(1)
 
         # Stale lock — unlink and retry once.
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(lock_path)
-        except OSError:
-            pass
         fd = _try_acquire(lock_path)
         if fd is None:
             msg = "Voice Typer: another instance is already running."
@@ -509,10 +508,8 @@ def _ensure_single_instance_posix(silent: bool = False):
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         # Another process holds the flock — exit.
-        try:
+        with contextlib.suppress(OSError):
             os.close(fd)
-        except OSError:
-            pass
         msg = "Voice Typer: another instance is already running (lock held)."
         if not silent and sys.stderr is not None:
             print(msg, file=sys.stderr)
