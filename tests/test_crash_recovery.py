@@ -1,6 +1,7 @@
 """Tests for voice_typer.crash_recovery — CrashRecovery add, save, clear, check."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -745,3 +746,199 @@ class TestCrashRecoveryDelAfterShutdown:
         assert on_disk_texts[-1] == "entry-14", (
             f"expected entry-14 to be the last on-disk entry, got {on_disk_texts[-1]}"
         )
+
+
+# ============================================================================
+# GT-A1-5: corrupt recovery file is quarantined (not silently dropped)
+# ============================================================================
+
+
+class TestCrashRecoveryQuarantineCorrupt:
+    """GT-A1-5: when ``_load`` encounters a corrupt recovery file
+    (unparseable JSON, truncated by a mid-write crash, wrong shape),
+    it renames the file to ``<path>.corrupt.<timestamp>`` before
+    resetting ``_entries = []``.
+    """
+
+    def test_corrupt_json_file_is_quarantined(self, recovery_dir):
+        """GT-A1-5: a file with broken JSON is renamed to
+        ``<name>.corrupt.<ts>`` and ``_entries`` is reset to ``[]``."""
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        path = recovery_dir / "voice-typer-recovery.json"
+        path.write_text('{"entries": [NOT VALID JSON', encoding="utf-8")
+        cr = CrashRecovery(config_dir=recovery_dir)
+        assert cr.count == 0, "GT-A1-5: corrupt file must yield _entries=[]"
+        assert not path.exists(), (
+            "GT-A1-5: original corrupt file must be moved out of the way"
+        )
+        quarantined = list(recovery_dir.glob("voice-typer-recovery.json.corrupt.*"))
+        assert len(quarantined) == 1, (
+            f"GT-A1-5: expected exactly one quarantine file; got {quarantined}"
+        )
+        assert "NOT VALID JSON" in quarantined[0].read_text(encoding="utf-8")
+
+    def test_corrupt_shape_file_is_quarantined(self, recovery_dir):
+        """GT-A1-5: a file with valid JSON but the wrong shape (no
+        ``entries`` key, not a list) is also quarantined."""
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        path = recovery_dir / "voice-typer-recovery.json"
+        path.write_text('{"unexpected_key": 42}', encoding="utf-8")
+        cr = CrashRecovery(config_dir=recovery_dir)
+        assert cr.count == 0
+        assert not path.exists(), "GT-A1-5: wrong-shape file must be quarantined"
+        quarantined = list(recovery_dir.glob("voice-typer-recovery.json.corrupt.*"))
+        assert len(quarantined) == 1
+
+    def test_quarantine_allows_next_save_to_start_fresh(self, recovery_dir):
+        """GT-A1-5: after a corrupt file is quarantined, the next
+        ``add()`` writes a fresh file at the original path."""
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        path = recovery_dir / "voice-typer-recovery.json"
+        path.write_text('{"entries": [BROKEN', encoding="utf-8")
+        cr = CrashRecovery(config_dir=recovery_dir)
+        assert cr.count == 0
+        cr.add("fresh after corruption", pasted=False)
+        cr.flush(timeout=2.0)
+        assert path.exists(), "GT-A1-5: fresh file must exist at original path"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        texts = [e.get("text", "") for e in data.get("entries", [])]
+        assert "fresh after corruption" in texts
+        quarantined = list(recovery_dir.glob("voice-typer-recovery.json.corrupt.*"))
+        assert len(quarantined) == 1
+        cr.shutdown()
+
+    def test_quarantine_corrupt_is_best_effort(self, recovery_dir):
+        """GT-A1-5: if the rename fails, ``_quarantine_corrupt`` must
+        not raise — callers rely on a clean reset to ``_entries = []``."""
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        path = recovery_dir / "voice-typer-recovery.json"
+        path.write_text('{"entries": [BROKEN', encoding="utf-8")
+
+        import unittest.mock as _mock
+
+        original_rename = Path.rename
+
+        def boom(self, target):
+            if self == path:
+                raise OSError("simulated cross-device rename failure")
+            return original_rename(self, target)
+
+        with _mock.patch.object(Path, "rename", boom):
+            cr = CrashRecovery(config_dir=recovery_dir)
+        assert cr.count == 0
+        cr.shutdown()
+
+
+# ============================================================================
+# GT-B2-13: log file added to diagnostic zip is redacted line-by-line
+# ============================================================================
+
+
+class TestDiagnosticBundleLogRedaction:
+    """GT-B2-13: the voice-typer.log file is run through
+    ``redact_secret(redact_pii(line))`` line-by-line before being added
+    to the diagnostic bundle zip.
+    """
+
+    def test_log_in_zip_is_redacted_for_pii(self, recovery_dir):
+        """GT-B2-13: a log line containing an email address has the
+        email replaced with ``[EMAIL]`` in the bundled zip."""
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        log_path = recovery_dir / "voice-typer.log"
+        log_path.write_text(
+            "2026-07-24 INFO something happened for user@example.com\n",
+            encoding="utf-8",
+        )
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            bundled_log = zf.read("voice-typer.log").decode("utf-8")
+        assert "user@example.com" not in bundled_log, (
+            f"GT-B2-13: PII (email) must be redacted; got:\n{bundled_log}"
+        )
+        assert "[EMAIL]" in bundled_log, (
+            f"GT-B2-13: redacted log must contain [EMAIL] token; got:\n{bundled_log}"
+        )
+        cr.shutdown()
+
+    def test_log_in_zip_is_redacted_for_secrets(self, recovery_dir):
+        """GT-B2-13: a log line containing a Bearer token has the
+        token redacted in the bundled zip."""
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        log_path = recovery_dir / "voice-typer.log"
+        log_path.write_text(
+            "2026-07-24 DEBUG http call Authorization: Bearer eyJhbGciOiJIUzI1NiJ9."
+            "eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c\n",
+            encoding="utf-8",
+        )
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            bundled_log = zf.read("voice-typer.log").decode("utf-8")
+        assert "eyJhbGciOiJIUzI1NiJ9" not in bundled_log, (
+            f"GT-B2-13: Bearer token must be redacted; got:\n{bundled_log}"
+        )
+        cr.shutdown()
+
+    def test_log_in_zip_preserves_non_pii_content(self, recovery_dir):
+        """GT-B2-13: non-PII / non-secret log content is preserved verbatim."""
+        import zipfile
+
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        log_path = recovery_dir / "voice-typer.log"
+        log_path.write_text(
+            "2026-07-24 INFO model loaded successfully\n"
+            "2026-07-24 INFO audio device opened\n",
+            encoding="utf-8",
+        )
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            bundled_log = zf.read("voice-typer.log").decode("utf-8")
+        assert "model loaded successfully" in bundled_log
+        assert "audio device opened" in bundled_log
+        cr.shutdown()
+
+    def test_log_redaction_failure_skips_log(self, recovery_dir, monkeypatch):
+        """GT-B2-13: if redaction fails, the log is SKIPPED entirely
+        rather than shipped raw — defense in depth."""
+        import zipfile
+
+        from voice_typer.server import security
+        from voice_typer.server.crash_recovery import CrashRecovery
+
+        log_path = recovery_dir / "voice-typer.log"
+        log_path.write_text(
+            "2026-07-24 INFO user@example.com leaked\n",
+            encoding="utf-8",
+        )
+
+        def raising_redact_pii(text):
+            raise RuntimeError("redaction unavailable")
+
+        monkeypatch.setattr(security, "redact_pii", raising_redact_pii)
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        bundle_path = cr.create_diagnostic_bundle()
+        assert bundle_path is not None, (
+            "GT-B2-13: bundle creation must not fail when redaction raises"
+        )
+        with zipfile.ZipFile(bundle_path, "r") as zf:
+            names = zf.namelist()
+        assert "voice-typer.log" not in names, (
+            f"GT-B2-13: log must be skipped when redaction fails; got names: {names}"
+        )
+        cr.shutdown()

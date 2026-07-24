@@ -38,8 +38,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-pytestmark = pytest.mark.real_torch
-
 # ── APP-3 / CR-015: config.save() must happen inside _config_mutation_lock ─
 
 

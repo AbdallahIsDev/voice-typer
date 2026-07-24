@@ -1054,6 +1054,20 @@ class TestCfg8DeprecatedFieldsRemoved:
         "noise_filter_post_capture",
         "volume_duck_per_session",
         "volume_duck_smart",
+        # GT-58: also removed from IPC_CONFIG_ALLOWLIST — these were
+        # declared, validated, and persisted but never read at runtime
+        # (ADR 0007 §4.3 / §5.2). The Config dataclass fields themselves
+        # were also removed; existing config.json values are silently
+        # scrubbed by the v3 schema migration.
+        "silence_rms_threshold",
+        "silence_peak_threshold",
+        "normalize_audio",
+        "normalize_target_peak",
+        # GT-F2-8: removed from IPC allowlist to match the TS-side
+        # contract (config.ts documents this as a write-only back-compat
+        # field the renderer MUST NOT write). The Config dataclass field
+        # is retained — only the IPC write path is closed.
+        "push_to_talk_hotkey",
     ]
 
     NON_DEPRECATED_KEPT = [
@@ -1131,3 +1145,128 @@ class TestCfg8DeprecatedFieldsRemoved:
             "volume_duck_enabled": True,
             "hotkey": "<f4>",
         }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# GT-58: deprecated fields silently scrubbed on load (backward compat)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestGT58DeprecatedFieldsScrubbedOnLoad:
+    """GT-58: existing ``config.json`` files written by older app versions
+    that still carry the 7 now-removed deprecated fields MUST load without
+    raising. The unknown-key filter in ``Config.load()`` (``data = {k: v
+    for k, v in parsed.items() if k in cls.__dataclass_fields__}``) silently
+    drops them before ``cls(**data)`` constructs the Config instance, and
+    the v3 schema migration (``_migrate_to_v3``) scrubs them as a
+    defense-in-depth backstop for any code path that bypasses the filter.
+    """
+
+    REMOVED_FIELDS = [
+        "silence_rms_threshold",
+        "silence_peak_threshold",
+        "normalize_audio",
+        "normalize_target_peak",
+        "volume_duck_per_session",
+        "volume_duck_smart",
+        "noise_filter_gate_threshold",
+    ]
+
+    def test_config_with_deprecated_fields_loads_without_error(self, tmp_path, monkeypatch):
+        """A ``config.json`` carrying all 7 removed deprecated fields loads
+        without raising ``TypeError`` and the resulting Config instance
+        does NOT expose the removed fields as attributes."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        stale_config = {"schema_version": 2, "hotkey": "<f9>"}
+        for field in self.REMOVED_FIELDS:
+            stale_config[field] = 0.5 if "threshold" in field or "peak" in field else True
+        config_file.write_text(json.dumps(stale_config))
+
+        c = Config.load()
+
+        # Sanity: the non-deprecated field survived.
+        assert c.hotkey == "<f9>"
+        # Schema was bumped to v3 by the migration.
+        assert c.schema_version == _CURRENT_SCHEMA_VERSION
+        # The removed fields are NOT attributes on the Config instance.
+        for field in self.REMOVED_FIELDS:
+            assert not hasattr(c, field), (
+                f"Removed field {field!r} should NOT be on the Config instance"
+            )
+
+    def test_config_with_deprecated_fields_at_schema_v3_loads(self, tmp_path, monkeypatch):
+        """A ``config.json`` at schema_version=3 with the deprecated fields
+        still present (e.g. written by a buggy migrator that didn't pop
+        them) is handled gracefully by the unknown-key filter — the keys
+        are silently dropped (with a WARNING log) and the remaining
+        fields load normally. No fallback to defaults occurs."""
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        stale_config = {"schema_version": 3, "hotkey": "<f9>", "silence_rms_threshold": 0.5}
+        config_file.write_text(json.dumps(stale_config))
+
+        c = Config.load()
+        # The non-deprecated field survived — no fallback to defaults.
+        assert c.hotkey == "<f9>"
+        # The deprecated field is NOT on the instance.
+        assert not hasattr(c, "silence_rms_threshold")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# GT-D1-6 / GT-D1-7: validator and migration function return types
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestGTD1ValidatorAndMigrationTypes:
+    """GT-D1-6 / GT-D1-7: the validator entry points and migration
+    functions are now typed with parameterised generics instead of bare
+    ``dict``/``list``. These tests pin the new type contracts.
+    """
+
+    def test_validate_config_update_returns_tuple_of_correct_types(self):
+        """``validate_config_update`` must return a 2-tuple whose first
+        element is a ``dict`` and whose second is a ``list`` of ``str``."""
+        from voice_typer.server.config import validate_config_update
+
+        validated, errors = validate_config_update({"hotkey": "<f4>"})
+        assert isinstance(validated, dict)
+        assert isinstance(errors, list)
+        for e in errors:
+            assert isinstance(e, str)
+
+    def test_validate_config_returns_list_of_str(self):
+        """``validate_config`` must return a ``list[str]``."""
+        from voice_typer.server.config import Config, validate_config
+
+        errors = validate_config(Config())
+        assert isinstance(errors, list)
+        for e in errors:
+            assert isinstance(e, str)
+
+    def test_ipc_config_allowlist_is_dict_of_fieldspec(self):
+        """``IPC_CONFIG_ALLOWLIST`` is now typed as
+        ``dict[str, FieldSpec]`` (parameterised), not a bare ``dict``."""
+        import typing
+        import voice_typer.server.config_validators as cv
+
+        hints = typing.get_type_hints(cv, include_extras=False)
+        allowlist_hint = hints.get("IPC_CONFIG_ALLOWLIST")
+        assert allowlist_hint is not None, "IPC_CONFIG_ALLOWLIST must have a type hint"
+        origin = typing.get_origin(allowlist_hint)
+        assert origin is dict, (
+            f"IPC_CONFIG_ALLOWLIST hint origin must be dict, got {origin!r}"
+        )
+        args = typing.get_args(allowlist_hint)
+        assert len(args) == 2, (
+            f"IPC_CONFIG_ALLOWLIST must be parameterised [str, FieldSpec], got args={args!r}"
+        )
+
+    def test_migrate_to_v3_returns_dict(self):
+        """``_migrate_to_v3`` returns a ``dict`` (migration contract)."""
+        from voice_typer.server.config import _migrate_to_v3
+
+        result = _migrate_to_v3({"silence_rms_threshold": 0.5, "_load_warnings": []})
+        assert isinstance(result, dict)
+        # The deprecated key was scrubbed.
+        assert "silence_rms_threshold" not in result

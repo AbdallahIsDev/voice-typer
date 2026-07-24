@@ -274,7 +274,8 @@ class TestFinalizeAudioQualityReport:
 
         ctrl._finalize_audio_quality_report(np.ones(16000, dtype=np.float32))
 
-        app.tray.notify.assert_not_called(), ("tray.notify must NEVER be called from _finalize_audio_quality_report")
+        app.tray.notify.assert_not_called()
+        # tray.notify must NEVER be called from _finalize_audio_quality_report
 
     def test_swallows_exceptions_from_analyzer(self, caplog):
         """If ``analyze_full_audio`` raises, the controller must not

@@ -231,6 +231,20 @@ class TestFormatInterpolationFailure:
         result = t("state.idle", unused_kwarg="ignored")
         assert result == "idle"
 
+    def test_bad_format_spec_returns_unformatted_text(self):
+        """AC-22 — a translation whose format spec is invalid (e.g.
+        ``{name:bad}``) must NOT raise ``ValueError``. The previous
+        ``except (KeyError, IndexError)`` only caught missing-
+        placeholder / index errors, not bad-format-spec errors —
+        ``str.format`` raises ``ValueError`` for an unknown format
+        spec, which would crash a notification path. The catch is now
+        broadened to ``(KeyError, IndexError, ValueError)``.
+        """
+        register_locale("en", {"test.bad_format_spec": "Hello {name:bad}"})
+        result = t("test.bad_format_spec", name="world")
+        # The bad format spec is caught; unformatted text returned.
+        assert result == "Hello {name:bad}"
+
 
 # ── (e) Thread-safety ───────────────────────────────────────────────────
 

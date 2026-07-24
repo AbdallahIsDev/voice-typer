@@ -23,16 +23,14 @@ The SUT returns ``None`` on any failure (the caller then falls back to
 a default NULL DACL). The success path returns a ctypes
 ``SECURITY_ATTRIBUTES`` structure.
 
-Known SUT quirk (tested, not fixed)
-------------------------------------
+SetEntriesInAclW return-code semantics
+---------------------------------------
 ``SetEntriesInAclW`` returns a ``DWORD`` Win32 error code (0 =
 ``ERROR_SUCCESS`` = success). The SUT checks
-``if not advapi32.SetEntriesInAclW(...)`` — which means a
-*successful* return (0) enters the NULL-DACL fallback branch, and a
-*failed* return (non-zero) enters the branch that uses ``new_acl``.
-Both branches therefore effectively apply a permissive DACL on real
-Windows. These tests pin the *actual* behaviour so any future fix is
-deliberate and accompanied by a test update.
+``if SetEntriesInAclW(...) != 0`` — so a *successful* return (0)
+enters the else branch that uses ``new_acl``, and a *failed* return
+(non-zero) enters the fallback (NULL DACL) branch. See
+``TestSetEntriesInAclSemantics`` below for the pinned behaviour.
 """
 
 from __future__ import annotations

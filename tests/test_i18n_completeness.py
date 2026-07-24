@@ -5,7 +5,7 @@ These tests verify that every non-English locale file has:
   2. Placeholder parity (every {placeholder} in an en.json value exists in the
      locale's value, and vice versa).
   3. Value-translated check: for every key, the locale's value is NOT identical
-     to the English value ΓÇö UNLESS the key is in ALLOWED_UNTRANSLATED (brand
+     to the English value — UNLESS the key is in ALLOWED_UNTRANSLATED (brand
      names, technical acronyms, etc.).
 
 These tests are the durable fix for the i18n coverage gaps documented in the
@@ -30,27 +30,27 @@ NON_ENGLISH_LOCALES = ["ar", "de", "es", "fr", "hi", "ru", "zh"]
 # Keys whose values are intentionally identical across all locales (brand
 # names, technical acronyms, etc.).  These are NOT translation gaps.
 ALLOWED_UNTRANSLATED = {
-    "app.name",  # "Voice Typer" ΓÇö brand name
-    "settings.apiUrl",  # "API URL" ΓÇö technical acronym, kept as-is
-    "settings.languageHindi",  # "Hindi" ΓÇö proper noun
-    "nav.microphone",  # "Microphone" ΓÇö technical term
-    "settings.overlay",  # "Overlay" ΓÇö technical term
-    "settings.preset",  # "Preset" ΓÇö technical term
-    "settings.presetCode",  # "Code" ΓÇö technical term
-    "settings.notifications",  # "Notifications" ΓÇö technical term
-    "home.error",  # "ERROR" ΓÇö technical term
-    # Provider labels are brand names ΓÇö kept identical across all locales.
+    "app.name",  # "Voice Typer" — brand name
+    "settings.apiUrl",  # "API URL" — technical acronym, kept as-is
+    "settings.languageHindi",  # "Hindi" — proper noun
+    "nav.microphone",  # "Microphone" — technical term
+    "settings.overlay",  # "Overlay" — technical term
+    "settings.preset",  # "Preset" — technical term
+    "settings.presetCode",  # "Code" — technical term
+    "settings.notifications",  # "Notifications" — technical term
+    "home.error",  # "ERROR" — technical term
+    # Provider labels are brand names — kept identical across all locales.
     "models.providers.openai.label",  # "OpenAI Whisper API"
     "models.providers.groq.label",  # "Groq Whisper API"
     "models.providers.deepgram.label",  # "Deepgram API"
-    # Parakeet label is a product name ΓÇö kept identical.
+    # Parakeet label is a product name — kept identical.
     "models.card.parakeetLabel",  # "NVIDIA Parakeet TDT v3  ┬╖  "
-    # Em-dash placeholder for missing data ΓÇö identical glyph across locales.
-    "about.unknown",  # "ΓÇö"
-    # Version number format ΓÇö "v{version}" is universally identical.
+    # Em-dash placeholder for missing data — identical glyph across locales.
+    "about.unknown",  # "—"
+    # Version number format — "v{version}" is universally identical.
     "about.versionValue",  # "v{version}"
     # AUDIO-TERM: audio engineering terms that are genuinely
-    # identical cognates in de/es/fr ΓÇö "Equalizer", "Limiter" are
+    # identical cognates in de/es/fr — "Equalizer", "Limiter" are
     # standard technical vocabulary used untranslated in German, Spanish,
     # and French audio engineering contexts. Adding them here avoids
     # forcing a fake distinction that would confuse native speakers.
@@ -58,43 +58,43 @@ ALLOWED_UNTRANSLATED = {
     "settings.audioEnhancement.equalizerAria",  # "Equalizer"
     "settings.audioEnhancement.limiter",  # "Limiter"
     "settings.audioEnhancement.limiterAria",  # "Limiter"
-    # "Variables: {vars}" ΓÇö "Variables" is identical in EN/ES (cognate).
+    # "Variables: {vars}" — "Variables" is identical in EN/ES (cognate).
     "templates.variablesTooltip",  # "Variables: {vars}"
     # IMPL-C: keyboard shortcut values that are universal key-combo notation
-    # (no natural translation ΓÇö "Ctrl+B", "Tab / Shift+Tab", "Esc" stay
+    # (no natural translation — "Ctrl+B", "Tab / Shift+Tab", "Esc" stay
     # identical across locales that use the Latin keyboard layout).
     "about.toggleSidebarValue",  # "Ctrl+B"
     "about.navigateFieldsValue",  # "Tab / Shift+Tab"
     "about.closeDialogsValue",  # "Esc"
     # IMPL-C (parity): "Enter or Space" and "Space" are the same universal
     # keyboard-key notation as the about.*Value keys above.  Adding them
-    # here keeps the keyboard-shortcut table consistent ΓÇö translating key
+    # here keeps the keyboard-shortcut table consistent — translating key
     # names will not match how users see them on their physical keyboards.
     "about.openDropdownsValue",  # "Enter or Space"
     "about.toggleSwitchesValue",  # "Space"
-    # IMPL-C: "Auto" is a universal abbreviation for automatic mode ΓÇö kept
+    # IMPL-C: "Auto" is a universal abbreviation for automatic mode — kept
     # identical across Latin-script locales.
     "analytics.auto",  # "Auto"
     # Theme switch labels: "System" in German is the standard German word for
-    # the system-following theme mode ΓÇö identical to English by coincidence,
+    # the system-following theme mode — identical to English by coincidence,
     # not a translation gap.
     "theme.system",  # "System"
     # IMPL-C: universal technical placeholders that have no natural
     # translation in any locale. URLs and model identifiers are protocol-level
-    # strings ΓÇö translating them would break the API endpoint or model lookup.
-    # The hotkeyPicker.customLabel value is "{label}" only ΓÇö a pure template
+    # strings — translating them would break the API endpoint or model lookup.
+    # The hotkeyPicker.customLabel value is "{label}" only — a pure template
     # placeholder with no translatable prose.
     "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
     "settings.modelPlaceholder",  # "gpt-4o-mini"
     "hotkeyPicker.customLabel",  # "{label}"
-    # Proper nouns: credits section entries ΓÇö canonical English names.
+    # Proper nouns: credits section entries — canonical English names.
     "about.creditsAuthorsValue",  # "AbdallahIsDev and contributors"
     "about.creditsFontsValue",  # "Geist"
     "about.creditsIconsValue",  # "Hugeicons"
     "about.creditsLibrariesValue",  # "faster-whisper, CTranslate2, Electron, ..."
     # Universal abbreviation.
     "bubble.recordingLabel",  # "REC"
-    # Universal sort notation ΓÇö identical across Latin-script locales.
+    # Universal sort notation — identical across Latin-script locales.
     "common.sortAZ",  # "A \u2192 Z"
     "common.sortZA",  # "Z \u2192 A"
     # Punctuation command/symbol names shown in the cheat sheet.
@@ -106,12 +106,12 @@ ALLOWED_UNTRANSLATED = {
     "help.punctuation.hyphen",  # "Hyphen"
     "help.punctuation.openParen",  # "Open parenthesis"
     "help.punctuation.tab",  # "Tab"
-    # Technical status ΓÇö flat path duplicate of models.benchmark.notImplemented (in PRE).
+    # Technical status — flat path duplicate of models.benchmark.notImplemented (in PRE).
     "models.benchmarkNotImplemented",  # "Benchmark not yet implemented."
     # Universal abbreviations.
     "stats.shareImage.min",  # "min"
     "stats.shareImage.wpm",  # "WPM"
-    # Theme preset names are brand/proper nouns ΓÇö kept identical.
+    # Theme preset names are brand/proper nouns — kept identical.
     "theme.preset.ayu",  # "Ayu"
     "theme.preset.catppuccin",  # "Catppuccin"
     "theme.preset.dracula",  # "Dracula"
@@ -283,7 +283,7 @@ PRE_EXISTING_UNTRANSLATED = {
 # via t() at runtime), RW-2 backfilled them with English values so the gate
 # passes. Native translation is commissioned in a follow-up round.
 #
-# This set is the UNION of every key any locale was missing ΓÇö different
+# This set is the UNION of every key any locale was missing — different
 # locales had different subsets missing (ar: 18, de: 41, fr/hi/ru/zh: 49).
 # es.json was already backfilled by RW-13 with English fallback values for
 # the same 49 keys; de.json already had settings.searchHints.* as English
@@ -297,7 +297,7 @@ PRE_EXISTING_UNTRANSLATED = {
 #     entry has no remaining English-fallback locale, signaling the set
 #     needs cleanup.
 #   - New keys added to en.json that aren't translated must be added here
-#     (or properly translated) within the same PR ΓÇö the key-parity gate
+#     (or properly translated) within the same PR — the key-parity gate
 #     enforces this.
 RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # about.relativeTime.* (4 keys)
@@ -305,7 +305,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "about.relativeTime.hoursAgo",
     "about.relativeTime.lessThanMinute",
     "about.relativeTime.minutesAgo",
-    # help.keys.* (12 keys) ΓÇö keyboard shortcut notation; many of these are
+    # help.keys.* (12 keys) — keyboard shortcut notation; many of these are
     # universal ("Ctrl+B", "Esc", "Space") but the surrounding help-overlay
     # framework still expects a per-locale value. Backfilled as English
     # pending native review of which key names need translation.
@@ -320,7 +320,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "help.keys.toggle",
     "help.keys.toggleSidebar",
     "help.keys.zoomTextSize",
-    # microphoneTest.* (23 keys) ΓÇö microphone test result UI strings
+    # microphoneTest.* (23 keys) — microphone test result UI strings
     "microphoneTest.backgroundNoise",
     "microphoneTest.clipping",
     "microphoneTest.clippingDetected",
@@ -344,10 +344,10 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "microphoneTest.voiceDetected",
     "microphoneTest.voiceNotDetected",
     "microphoneTest.volume",
-    # settings.fastStartup* (2 keys) ΓÇö added by PW-3 (prewarm toggle)
+    # settings.fastStartup* (2 keys) — added by PW-3 (prewarm toggle)
     "settings.fastStartup",
     "settings.fastStartupDescription",
-    # settings.searchHints.* (4 keys) ΓÇö settings search bar hint keywords
+    # settings.searchHints.* (4 keys) — settings search bar hint keywords
     "settings.searchHints.aiAudio",
     "settings.searchHints.appearance",
     "settings.searchHints.general",
@@ -357,7 +357,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.troubleshooting.reRunWizardAria",
     "settings.troubleshooting.reRunWizardHint",
     "settings.troubleshooting.reRunWizardToast",
-    # IMPROVE-mode RW-2 backfill (25 keys) ΓÇö English-fallback pending native
+    # IMPROVE-mode RW-2 backfill (25 keys) — English-fallback pending native
     # translation. Added when CR-4/CR-51/CR-54/CR-55 i18n parity gates were
     # enforced. Remove each key from this set once it is properly translated
     # in EVERY non-English locale (ar/de/es/fr/hi/ru/zh).
@@ -408,7 +408,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "help.searchPlaceholder",  # "Search commandsΓÇª"
     # history (3 keys)
     "history.charsSuffix",  # " ({count} chars)"
-    # "Export limited to {count} most recent records ΓÇö use search to export older entries."
+    # "Export limited to {count} most recent records — use search to export older entries."
     "history.exportTruncatedWarning",
     "history.sortLabel",  # "Sort"
     # hotkey.combos (5 keys)
@@ -452,9 +452,9 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "microphoneTest.detectedIssueCodes.clipping",  # "Audio clipping detected"
     "microphoneTest.detectedIssueCodes.high_noise",  # "High background noise"
     "microphoneTest.detectedIssueCodes.moderate_noise",  # "Moderate background noise"
-    "microphoneTest.detectedIssueCodes.no_voice",  # "No voice detected ΓÇö try speaking during the test"
-    "microphoneTest.detectedIssueCodes.volume_low",  # "Volume is low ΓÇö consider raising input gain"
-    "microphoneTest.detectedIssueCodes.volume_too_low",  # "Volume too low ΓÇö speak closer to the microphone"
+    "microphoneTest.detectedIssueCodes.no_voice",  # "No voice detected — try speaking during the test"
+    "microphoneTest.detectedIssueCodes.volume_low",  # "Volume is low — consider raising input gain"
+    "microphoneTest.detectedIssueCodes.volume_too_low",  # "Volume too low — speak closer to the microphone"
     # onboarding (11 keys)
     "onboarding.permissionsInstructionsLinuxStep1",  # "Add yourself to the 'input' group"
     "onboarding.permissionsInstructionsLinuxStep2",  # "Install the udev rule granting group-read on /dev/input/event*"
@@ -467,7 +467,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "onboarding.permissionsInstructionsMacosTitle",  # "Accessibility Permission Required"
     "onboarding.permissionsRefresh",  # "Refresh permission"
     "onboarding.permissionsRefreshAria",  # "Re-check keyboard permission"
-    "onboarding.permissionsTestFailureBlocked",  # "Permission still required ΓÇö grant it, then try again."
+    "onboarding.permissionsTestFailureBlocked",  # "Permission still required — grant it, then try again."
     # settings (2 keys)
     "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
     "settings.modelPlaceholder",  # "gpt-4o-mini"
@@ -477,7 +477,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.appearance.contrastWarning",
     "settings.appearance.contrastWarningShort",  # "Contrast {ratio}:1"
     "settings.appearance.customDropdownLabel",  # "Custom (use toggle below)"
-    # "Invalid hex colour ΓÇö must be #rrggbb (e.g. #1a2b3c)."
+    # "Invalid hex colour — must be #rrggbb (e.g. #1a2b3c)."
     # "Reverting to the previous value on blur."
     "settings.appearance.hexInvalid",
     # settings.audioEnhancement (41 keys)
@@ -542,7 +542,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # "Aggressive filtering for keyboard clatter, fans, and HVAC rumble."
     # "RNNoise + strong gate + compressor for consistent ASR accuracy."
     "settings.audioEnhancement.presetNoisyRoomDescription",
-    # "Bypass the entire filter chain. Use only with a clean signal ΓÇö"
+    # "Bypass the entire filter chain. Use only with a clean signal —"
     # "background noise will degrade transcription."
     "settings.audioEnhancement.presetOffDescription",
     # "Light filtering for quiet, treated rooms."
@@ -834,7 +834,7 @@ class TestRW2BackfillSetIsMinimal:
 
     Every key in the set must currently be English-fallback in at least one
     non-English locale. If a key has been properly translated in EVERY
-    non-English locale, leaving it in the set is dead weight ΓÇö the test
+    non-English locale, leaving it in the set is dead weight — the test
     fails so the maintainer removes the entry. This keeps the backfill set
     from accumulating stale entries as translations are commissioned.
 
@@ -866,7 +866,7 @@ class TestRW2BackfillSetIsMinimal:
             # classified as "translated". The previous implementation used
             # ``locale_flats[loc].get(key) == en_value`` which is True when
             # the key is absent (None == en_value is False for non-None
-            # en_value, but True when en_value itself is None ΓÇö and more
+            # en_value, but True when en_value itself is None — and more
             # importantly a missing key masked the "still English somewhere"
             # signal because the comparison treated absence as translated).
             # The fix is to require the key to be PRESENT and equal to the
@@ -878,7 +878,7 @@ class TestRW2BackfillSetIsMinimal:
                 stale.append(key)
         assert not stale, (
             "RW2_BACKFILLED_PENDING_TRANSLATION has entries that are now fully "
-            "translated in every non-English locale ΓÇö remove them from the set to "
+            "translated in every non-English locale — remove them from the set to "
             f"keep it minimal: {sorted(stale)}"
         )
 
@@ -886,7 +886,7 @@ class TestRW2BackfillSetIsMinimal:
         """Smoke test: the set is non-empty (RW-2 stopgap is in effect).
 
         When this test starts failing because the set is empty, that means
-        every backfilled key has been properly translated ΓÇö delete the set
+        every backfilled key has been properly translated — delete the set
         and the ratchet test class entirely.
 
         The set should only ever SHRINK as translations are commissioned
@@ -911,7 +911,7 @@ class TestI18nGateSummary:
     This is a meta-test that fails loudly if any locale has even a single
     missing key. It complements the parametrized test_key_parity_with_en
     by providing a single aggregated failure message in CI logs that lists
-    every locale's missing-key count at a glance ΓÇö useful for triage.
+    every locale's missing-key count at a glance — useful for triage.
     """
 
     def test_all_locales_have_full_key_parity(self, en_flat: dict[str, str]) -> None:
@@ -924,7 +924,7 @@ class TestI18nGateSummary:
             summary[locale] = len(missing)
         total_missing = sum(summary.values())
         assert total_missing == 0, (
-            f"i18n key-parity gate failed ΓÇö {total_missing} missing keys total "
+            f"i18n key-parity gate failed — {total_missing} missing keys total "
             f"across non-English locales: {summary}. Run "
             f"`python -m pytest tests/test_i18n_completeness.py -k key_parity -q` "
             f"for per-locale details."

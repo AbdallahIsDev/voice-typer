@@ -33,20 +33,20 @@ def db(tmp_path):
 
 class TestHistoryDBSchema:
     def test_schema_has_transcriptions_table(self, db):
-        conn = db._get_conn()
+        conn = db._get_read_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='transcriptions'")
         assert cursor.fetchone() is not None
 
     def test_schema_has_favorite_column(self, db):
-        conn = db._get_conn()
+        conn = db._get_read_conn()
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(transcriptions)")
         columns = {row[1] for row in cursor.fetchall()}
         assert "favorite" in columns
 
     def test_schema_has_language_column(self, db):
-        conn = db._get_conn()
+        conn = db._get_read_conn()
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(transcriptions)")
         columns = {row[1] for row in cursor.fetchall()}
@@ -170,7 +170,7 @@ class TestHistoryDBStats:
 
 class TestHistoryDBWALMode:
     def test_uses_wal_mode(self, db):
-        conn = db._get_conn()
+        conn = db._get_read_conn()
         cursor = conn.cursor()
         cursor.execute("PRAGMA journal_mode")
         mode = cursor.fetchone()[0]
@@ -404,7 +404,7 @@ class TestChunkedRetention:
         assert deleted == 5  # only non-favorites deleted
 
         # Verify favorites remain.
-        conn = db._get_conn()
+        conn = db._get_read_conn()
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM transcriptions WHERE favorite = 1")
         assert cursor.fetchone()[0] == 5

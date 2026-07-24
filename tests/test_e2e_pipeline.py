@@ -560,7 +560,7 @@ class TestE2EFullPipeline:
 class TestE2EAuthEnforcement:
     """E2E tests for SEC-018 TCP session token auth."""
 
-    def test_stalled_auth_connection_times_out(self, e2e_server):
+    def test_stalled_auth_connection_times_out(self, e2e_server, monkeypatch):
         """A 'connect-and-stall' client should be disconnected by the auth timeout.
 
         PR-3-FIX-1 added a 5-second ``settimeout`` on the TCP socket
@@ -574,14 +574,41 @@ class TestE2EAuthEnforcement:
         NOTHING, and waits for the server to close the connection.
         We expect the socket to be closed within ~6 seconds (5s
         timeout + 1s tolerance).
+
+        WR-12: the production ``_tcp_auth_timeout_seconds`` is a LOCAL
+        variable inside ``IPCServer._handle_tcp_connection`` (set to
+        5.0) — it is NOT a module-level constant, so it cannot be
+        patched via ``monkeypatch.setattr``. We instead intercept
+        ``socket.socket.settimeout`` and convert the 5.0 value to 0.5
+        so the test completes in ~1s instead of ~6s. The test's own
+        ``settimeout(8.0)`` (sock) and ``settimeout(5.0)`` (sock2) are
+        effectively unaffected: sock's value of 8.0 doesn't match the
+        5.0 trigger; sock2's value of 5.0 is converted to 0.5, but
+        ``_read_line`` (used for sock2) immediately overrides the
+        socket timeout with its own ``timeout`` argument, so the
+        conversion has no observable effect on the test client side.
         """
+        # WR-12: patch socket.socket.settimeout so the production
+        # server-side auth timeout (5.0s) is scaled down to 0.5s for
+        # faster testing. See the docstring above for why a direct
+        # patch of ``_tcp_auth_timeout_seconds`` is impossible.
+        _original_settimeout = socket.socket.settimeout
+
+        def _fast_auth_settimeout(self, seconds):
+            if seconds == 5.0:
+                seconds = 0.5
+            return _original_settimeout(self, seconds)
+
+        monkeypatch.setattr("socket.socket.settimeout", _fast_auth_settimeout)
+
         server, port, token, app = e2e_server
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(8.0)
         sock.connect(("127.0.0.1", port))
 
-        # Send NOTHING — the server should disconnect us after ~5s.
+        # Send NOTHING — the server should disconnect us after ~0.5s
+        # (scaled down from 5s by the settimeout patch above).
         # We read from the socket to detect EOF (the server closed
         # the connection).
         start = time.monotonic()
@@ -606,22 +633,20 @@ class TestE2EAuthEnforcement:
             sock.close()
             pytest.fail(
                 "Stalled connection was NOT closed within 8 seconds "
-                "(expected ~5s auth timeout). The _tcp_auth_timeout_seconds "
-                "may have been removed or the settimeout call was broken."
+                "(expected ~0.5s auth timeout, scaled down from 5s by "
+                "the WR-12 patch). The _tcp_auth_timeout_seconds may "
+                "have been removed or the settimeout call was broken."
             )
             return
 
-        # Verify the elapsed time is roughly the 5s timeout.
-        # XS-52: bounds widened from ``4.5 <= elapsed <= 8.0`` to
-        # ``3.0 <= elapsed <= 15.0`` — on slow/overloaded CI runners the
-        # auth-timeout firing can slip by several seconds in either
-        # direction (process scheduling, GC pauses, thread-pool
-        # contention). The test still verifies the timeout *fires* (the
-        # upper bound) and isn't a no-op (the lower bound); the exact
-        # 5s value is asserted nowhere else.
-        assert 3.0 <= elapsed <= 15.0, (
-            f"Connection closed after {elapsed:.1f}s, expected ~5s "
-            f"(auth timeout) — the _tcp_auth_timeout may have changed."
+        # WR-12: verify the elapsed time is roughly the 0.5s scaled-down
+        # timeout. The bounds are wider than 0.5s to tolerate process
+        # scheduling / GC pauses on slow CI runners (the test no longer
+        # waits 5s for the timeout to fire, so it completes ~10x faster).
+        assert 0.3 <= elapsed <= 3.0, (
+            f"Connection closed after {elapsed:.1f}s, expected ~0.5s "
+            f"(auth timeout, scaled down from 5s by the WR-12 patch) — "
+            f"the _tcp_auth_timeout may have changed."
         )
         sock.close()
 

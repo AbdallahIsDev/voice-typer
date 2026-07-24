@@ -339,19 +339,47 @@ class TestCloudEngineUrlAllowlist:
             engine.transcribe(np.zeros(16000, dtype=np.float32))
 
     def test_openai_default_url_allowed(self):
-        """The default provider URL must pass the allowlist check."""
+        """The default provider URL must pass the allowlist check.
+
+        WR-9: patch ``_opener.open`` so the test never makes a real
+        network egress. The patch raises ``URLError`` so the engine
+        raises ``RuntimeError`` (the existing assertion). We then
+        assert the mock was called with a Request whose ``full_url`` is
+        the OpenAI default — proving the allowlist let the URL through.
+        """
+        from urllib.error import URLError
+
         import numpy as np
         from voice_typer.server.cloud_engines import CloudEngine
 
         engine = CloudEngine(provider="openai", api_key="sk-test", consent_given=True)
-        # Should not raise on the allowlist check; the actual HTTP
-        # request will fail (no network) but the error should be a
-        # RuntimeError, not a ValueError.
-        with pytest.raises(RuntimeError):
+        # Patch _opener.open to raise URLError so the engine raises
+        # RuntimeError (no real network egress).
+        with (
+            patch(
+                "voice_typer.server.cloud_engines._opener.open",
+                side_effect=URLError("test-isolated"),
+            ) as mock_open,
+            pytest.raises(RuntimeError),
+        ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
+        # The mock must have been called — proving the allowlist let
+        # the default OpenAI URL through.
+        assert mock_open.call_count == 1
+        req = mock_open.call_args[0][0]
+        assert req.full_url == "https://api.openai.com/v1/audio/transcriptions"
 
     def test_localhost_self_hosted_allowed(self):
-        """Local self-hosted endpoints (Ollama, vLLM) must work."""
+        """Local self-hosted endpoints (Ollama, vLLM) must work.
+
+        WR-9: patch ``_opener.open`` so the test never makes a real
+        network egress. The patch raises ``URLError`` so the engine
+        raises ``RuntimeError`` (the existing assertion). We then
+        assert the mock was called with a Request whose ``full_url`` is
+        the localhost URL — proving the allowlist let it through.
+        """
+        from urllib.error import URLError
+
         import numpy as np
         from voice_typer.server.cloud_engines import CloudEngine
 
@@ -361,9 +389,20 @@ class TestCloudEngineUrlAllowlist:
             api_url="http://localhost:11434/v1/audio/transcriptions",
             consent_given=True,
         )
-        # Allowlist check passes; HTTP fails (no server) -> RuntimeError
-        with pytest.raises(RuntimeError):
+        # Patch _opener.open to raise URLError (no real network egress).
+        with (
+            patch(
+                "voice_typer.server.cloud_engines._opener.open",
+                side_effect=URLError("test-isolated"),
+            ) as mock_open,
+            pytest.raises(RuntimeError),
+        ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
+        # The mock must have been called — proving the allowlist let
+        # the localhost URL through.
+        assert mock_open.call_count == 1
+        req = mock_open.call_args[0][0]
+        assert req.full_url == "http://localhost:11434/v1/audio/transcriptions"
 
     def test_test_connection_rejects_untrusted_url(self):
         """test_connection returns (False, msg) for untrusted URLs."""
@@ -481,7 +520,18 @@ class TestDeepgramUrlParameterInjection:
             engine.transcribe(np.zeros(16000, dtype=np.float32))
 
     def test_accepts_valid_model_name(self):
-        """Valid model names like 'nova-2' must pass validation."""
+        """Valid model names like 'nova-2' must pass validation.
+
+        WR-9: patch ``_opener.open`` so the test never makes a real
+        network egress. The patch raises ``URLError`` so the engine
+        raises ``RuntimeError`` (the existing assertion). We then
+        assert the mock was called with a Request whose ``full_url`` is
+        the Deepgram URL — proving both validation and the allowlist
+        let the request through.
+        """
+        from urllib.error import URLError
+
+        import numpy as np
         from voice_typer.server.cloud_engines import CloudEngine
 
         engine = CloudEngine(
@@ -492,13 +542,20 @@ class TestDeepgramUrlParameterInjection:
             language="en",
             consent_given=True,
         )
-        # The validation happens inside _send_deepgram; we verify it
-        # passes the validation step by checking that the engine
-        # raises RuntimeError from urlopen (not from validation).
-        import numpy as np
-
-        with pytest.raises(RuntimeError) as exc_info:
+        # Patch _opener.open to raise URLError (no real network egress).
+        with (
+            patch(
+                "voice_typer.server.cloud_engines._opener.open",
+                side_effect=URLError("test-isolated"),
+            ) as mock_open,
+            pytest.raises(RuntimeError) as exc_info,
+        ):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
+        # The mock must have been called — proving validation passed
+        # and the allowlist let the Deepgram URL through.
+        assert mock_open.call_count == 1
+        req = mock_open.call_args[0][0]
+        assert req.full_url == "https://api.deepgram.com/v1/listen"
         # "invalid characters" appears only when validation fails;
         # a URLError-based RuntimeError means validation passed.
         assert "invalid characters" not in str(exc_info.value)

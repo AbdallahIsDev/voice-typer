@@ -367,3 +367,186 @@ class TestHfEndpoint:
         monkeypatch.delenv("HF_ENDPOINT", raising=False)
         _validate_env_vars()
         assert "HF_ENDPOINT" not in os.environ
+
+
+# ─── GT-63: env-var values pre-redacted in log records ─────────────────
+
+
+class TestGt63EnvVarValuesRedacted:
+    """GT-63: ALL env-var values logged by ``_validate_env_vars`` are
+    pre-redacted at the call site (``<redacted>`` literal in the message
+    body) — defense-in-depth so a handler that bypasses
+    ``PIIRedactionFilter`` cannot leak the raw value.
+
+    Booleans and log levels are on the explicit safe-list per the
+    spec, but a *failed* boolean validation means the value is NOT a
+    boolean — it's an opaque string the operator typed — so it must
+    be redacted too.
+    """
+
+    def test_invalid_boolean_value_redacted(self, monkeypatch, caplog):
+        secret_value = "maybe-with-username-jane.doe"
+        monkeypatch.setenv("VOICE_TYPER_QUIET", secret_value)
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+        rendered = [r.getMessage() for r in caplog.records]
+        assert not any(secret_value in m for m in rendered), (
+            f"GT-63 regression: raw boolean value leaked to log: {rendered!r}"
+        )
+        assert any("<redacted>" in m and "VOICE_TYPER_QUIET" in m for m in rendered), (
+            f"expected a redacted warning mentioning VOICE_TYPER_QUIET; got {rendered!r}"
+        )
+
+    def test_invalid_config_dir_value_redacted(self, monkeypatch, caplog):
+        secret_path = "/Users/jane.doe/.config/voice-typer" + "x" * 5000
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", secret_path)
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+        rendered = [r.getMessage() for r in caplog.records]
+        assert not any(secret_path in m for m in rendered), (
+            f"GT-63 regression: raw CONFIG_DIR path leaked to log: {rendered!r}"
+        )
+        assert any(
+            "<redacted>" in m and "VOICE_TYPER_CONFIG_DIR" in m for m in rendered
+        ), (
+            f"expected a redacted warning mentioning VOICE_TYPER_CONFIG_DIR; "
+            f"got {rendered!r}"
+        )
+
+    def test_invalid_hf_home_value_redacted(self, monkeypatch, caplog):
+        secret_path = "/Users/jane.doe/.cache/huggingface" + "x" * 5000
+        monkeypatch.setenv("HF_HOME", secret_path)
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+        rendered = [r.getMessage() for r in caplog.records]
+        assert not any(secret_path in m for m in rendered), (
+            f"GT-63 regression: raw HF_HOME path leaked to log: {rendered!r}"
+        )
+        assert any("<redacted>" in m and "HF_HOME" in m for m in rendered), (
+            f"expected a redacted warning mentioning HF_HOME; got {rendered!r}"
+        )
+
+    def test_invalid_hf_endpoint_value_redacted(self, monkeypatch, caplog):
+        secret_url = "http://jane.doe:secret@google.com/" + "a" * 5000
+        monkeypatch.setenv("HF_ENDPOINT", secret_url)
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+        rendered = [r.getMessage() for r in caplog.records]
+        assert not any(secret_url in m for m in rendered), (
+            f"GT-63 regression: raw HF_ENDPOINT URL leaked to log: {rendered!r}"
+        )
+
+    def test_hf_endpoint_rejection_paths_redacted(self, monkeypatch, caplog):
+        """All three HF_ENDPOINT rejection branches (scheme, hostname,
+        allowlist) must redact the raw URL.
+        """
+        monkeypatch.setenv("HF_ENDPOINT", "http://huggingface.co")
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+        scheme_records = [
+            r.getMessage() for r in caplog.records if "rejected" in r.getMessage()
+        ]
+        assert scheme_records, "expected a rejection record for http:// scheme"
+        assert all("http://huggingface.co" not in m for m in scheme_records), (
+            f"GT-63 regression: raw HF_ENDPOINT leaked in scheme rejection: "
+            f"{scheme_records!r}"
+        )
+        assert any("<redacted>" in m for m in scheme_records)
+
+    def test_hf_endpoint_allowlist_rejection_redacted(self, monkeypatch, caplog):
+        """The allowlist rejection path logs the hostname (which is
+        allowlisted metadata, not PII) but must NOT log the raw URL.
+        """
+        monkeypatch.setenv("HF_ENDPOINT", "https://evil.example.com/secret/path/with/key=abc")
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+        rejected = [
+            r.getMessage() for r in caplog.records if "rejected" in r.getMessage()
+        ]
+        assert rejected, "expected a rejection record for non-allowlisted host"
+        assert all(
+            "https://evil.example.com/secret/path/with/key=abc" not in m
+            for m in rejected
+        ), (
+            f"GT-63 regression: raw HF_ENDPOINT URL leaked in allowlist "
+            f"rejection: {rejected!r}"
+        )
+        # Hostname is OK to log (allowlist metadata, not PII).
+        assert any("evil.example.com" in m for m in rejected)
+
+
+# ─── GT-B1-14: path-safety validation failure includes exception type ──
+
+
+class TestGtB1_14PathSafetyExceptionType:
+    """GT-B1-14: when ``_validate_path_safety`` rejects ``HF_HOME``, the
+    log message must include ``type(exc).__name__`` so the operator
+    knows which validation predicate failed (``ValueError`` vs
+    ``OSError`` vs ``RuntimeError``) without having to grep the source.
+
+    The HF_HOME value itself is redacted per GT-63; only the exception
+    *type name* and the exception *message* (which describes the rule,
+    not the value) are logged.
+    """
+
+    def test_path_safety_failure_includes_exception_type_name(
+        self, monkeypatch, caplog
+    ):
+        secret_path = "/tmp/some/path/that/escapes/home"
+        monkeypatch.setenv("HF_HOME", secret_path)
+
+        def _raise_value_error(_path, _home):
+            raise ValueError("path escapes home directory")
+
+        monkeypatch.setattr(
+            "voice_typer.server.config._validate_path_safety",
+            _raise_value_error,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+
+        matching = [
+            r for r in caplog.records
+            if "HF_HOME" in r.getMessage() and "path-safety" in r.getMessage()
+        ]
+        assert matching, (
+            "expected a path-safety failure record; got "
+            f"{[r.getMessage() for r in caplog.records]!r}"
+        )
+        msg = matching[0].getMessage()
+        assert "ValueError" in msg, (
+            f"GT-B1-14 regression: exception type name missing from log; "
+            f"got {msg!r}"
+        )
+        assert secret_path not in msg, (
+            f"GT-63 regression: raw HF_HOME path leaked in path-safety "
+            f"failure log: {msg!r}"
+        )
+        assert "path escapes home directory" in msg
+
+    def test_path_safety_failure_with_oserror_includes_type(self, monkeypatch, caplog):
+        """Same as above but with ``OSError`` to confirm the type name
+        is dynamic, not hardcoded.
+        """
+        monkeypatch.setenv("HF_HOME", "/tmp/escapes/home")
+
+        def _raise_oserror(_path, _home):
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(
+            "voice_typer.server.config._validate_path_safety",
+            _raise_oserror,
+        )
+
+        with caplog.at_level(logging.WARNING):
+            _validate_env_vars()
+
+        matching = [
+            r for r in caplog.records
+            if "path-safety" in r.getMessage()
+        ]
+        assert matching
+        msg = matching[0].getMessage()
+        assert "OSError" in msg
+        assert "permission denied" in msg

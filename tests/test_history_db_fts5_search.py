@@ -33,14 +33,14 @@ class TestFts5SearchWiring:
 
     def test_fts5_virtual_table_exists(self, db):
         """MIGRATION_V3 must have created the ``transcriptions_fts`` table."""
-        conn = db._get_conn()
+        conn = db._get_read_conn()
         cur = conn.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='transcriptions_fts'")
         assert cur.fetchone() is not None
 
     def test_fts5_table_has_rows(self, db):
         """The AFTER INSERT trigger must have populated the FTS5 index."""
-        conn = db._get_conn()
+        conn = db._get_read_conn()
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM transcriptions_fts")
         assert cur.fetchone()[0] == 6
@@ -270,7 +270,7 @@ class TestFts5SearchTriggersSync:
             findme = next(r for r in all_rows if r["text"] == "findme before delete")
 
             # Confirm FTS5 sees it before delete
-            conn = db2._get_conn()
+            conn = db2._get_read_conn()
             cur = conn.cursor()
             cur.execute(
                 "SELECT COUNT(*) FROM transcriptions_fts WHERE rowid = ?",
@@ -295,7 +295,7 @@ class TestFts5SearchTriggersSync:
     def test_clear_all_empties_fts_index(self, db):
         """After ``clear_all()``, the FTS5 index must be empty."""
         assert db.clear_all() is True
-        conn = db._get_conn()
+        conn = db._get_read_conn()
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM transcriptions_fts")
         assert cur.fetchone()[0] == 0

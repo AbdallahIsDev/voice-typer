@@ -56,6 +56,7 @@ def _reset_crash_handler_module_state():
         "_kernel32",
         "_crash_written",
         "_python_crash_dir",
+        "_crash_header_bytes",
     )
     saved = {k: getattr(crash_handler, k, _UNSET) for k in keys}
     crash_handler._crash_file_path = ""
@@ -64,6 +65,7 @@ def _reset_crash_handler_module_state():
     crash_handler._kernel32 = None
     crash_handler._crash_written = False
     crash_handler._python_crash_dir = None
+    crash_handler._crash_header_bytes = b""
     yield
     for k, v in saved.items():
         if v is _UNSET:
@@ -686,3 +688,231 @@ class TestVectoredHandlerPosix:
 #    corruption (patch ``_func_create_file_w`` to return -1),
 #    ``_write_to_file`` must NOT raise and the empty file must be
 #    deleted via ``_func_delete_file_w``.
+
+
+# ============================================================================
+# GT-4: Python crash marker carries a redacted traceback + static triage ctx
+# ============================================================================
+
+
+class TestPythonCrashMarkerTraceback:
+    """GT-4: ``_crash_excepthook`` writes a redacted traceback and static
+    triage context (app/python/OS version + active ASR backend) to the
+    ``python_crash.<PID>.txt`` marker unconditionally.
+    """
+
+    def test_marker_contains_traceback_line(self, restore_excepthook, tmp_path):
+        """The marker file contains a line starting with
+        ``Traceback (most recent call last)``."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        try:
+            raise ValueError("boom")
+        except ValueError as exc:
+            crash_handler._crash_excepthook(type(exc), exc, exc.__traceback__)
+        marker = tmp_path / f"python_crash.{os.getpid()}.txt"
+        assert marker.exists(), "GT-4: python_crash marker must be written"
+        content = marker.read_text(encoding="utf-8")
+        assert "Traceback (most recent call last)" in content, (
+            f"GT-4: marker must include the traceback header; got:\n{content}"
+        )
+
+    def test_marker_traceback_uses_basename_only(self, restore_excepthook, tmp_path):
+        """GT-4: traceback frames use only the file basename."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        try:
+            raise ValueError("boom")
+        except ValueError as exc:
+            crash_handler._crash_excepthook(type(exc), exc, exc.__traceback__)
+        marker = tmp_path / f"python_crash.{os.getpid()}.txt"
+        content = marker.read_text(encoding="utf-8")
+        tb_section = content.split("\n\n", 1)[1] if "\n\n" in content else ""
+        assert tb_section, "GT-4: marker must contain a traceback section"
+        import re as _re
+
+        frame_lines = [
+            line for line in tb_section.splitlines() if line.startswith('  File "')
+        ]
+        assert frame_lines, (
+            f"GT-4: traceback must contain at least one frame line; got:\n{tb_section}"
+        )
+        for line in frame_lines:
+            m = _re.match(r'  File "([^"]+)", line (\d+), in (\S+)', line)
+            assert m is not None, f"GT-4: malformed frame line: {line!r}"
+            file_path = m.group(1)
+            assert "/" not in file_path and "\\" not in file_path, (
+                f"GT-4: frame file must be basename only; got: {file_path!r}"
+            )
+
+    def test_marker_includes_app_python_os_version_and_asr_backend(
+        self, restore_excepthook, tmp_path
+    ):
+        """GT-4: the marker carries app_version, python_version,
+        os_version, and asr_backend as key=value lines."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        try:
+            raise ValueError("boom")
+        except ValueError as exc:
+            crash_handler._crash_excepthook(type(exc), exc, exc.__traceback__)
+        marker = tmp_path / f"python_crash.{os.getpid()}.txt"
+        content = marker.read_text(encoding="utf-8")
+        for key in ("app_version=", "python_version=", "os_version=", "asr_backend="):
+            assert key in content, (
+                f"GT-4: marker must include '{key}' line; got:\n{content}"
+            )
+        assert f"{sys.version_info.major}.{sys.version_info.minor}" in content, (
+            "GT-4: python_version value must include the running Python major.minor"
+        )
+
+    def test_marker_traceback_excludes_source_line(self, restore_excepthook, tmp_path):
+        """GT-4: traceback frames must NOT include the source code line."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        try:
+            x = "secret-user-data"  # noqa: F841
+            raise ValueError(x)
+        except ValueError as exc:
+            crash_handler._crash_excepthook(type(exc), exc, exc.__traceback__)
+        marker = tmp_path / f"python_crash.{os.getpid()}.txt"
+        content = marker.read_text(encoding="utf-8")
+        # The literal source-line text (the assignment statement)
+        # must NOT appear in the marker.  `x = "secret-user-data"`
+        # would be included by the default traceback formatter as
+        # the source line; the redacted version must omit it.  The
+        # bare value ``secret-user-data`` may legitimately appear in
+        # ``exc_value=`` (it is not PII-shaped so redaction leaves
+        # it alone) - that is fine; we are only asserting the source
+        # LINE is absent.
+        assert 'x = "secret-user-data"' not in content, (
+            "GT-4: traceback must NOT include the source line (which "
+            "carries argument values / user data); got:\n" + content
+        )
+
+    def test_format_redacted_traceback_returns_empty_for_none(self):
+        """GT-4: ``_format_redacted_traceback(None)`` returns ``""``."""
+        assert crash_handler._format_redacted_traceback(None) == ""
+
+    def test_format_redacted_traceback_includes_frame_func(self):
+        """GT-4: a real traceback yields at least one frame line with the function name."""
+
+        def _outer_frame():
+            raise RuntimeError("test")
+
+        try:
+            _outer_frame()
+        except RuntimeError as exc:
+            tb_text = crash_handler._format_redacted_traceback(exc.__traceback__)
+        assert "Traceback (most recent call last)" in tb_text
+        assert "_outer_frame" in tb_text
+
+
+# ============================================================================
+# GT-7: crash_diagnostics file includes app/python/OS version header
+# ============================================================================
+
+
+class TestCrashDiagnosticsHeader:
+    """GT-7: at ``set_crash_handler_config_dir()`` time, a static header
+    block is pre-computed and cached in ``_crash_header_bytes``.
+    """
+
+    def test_set_config_dir_precomputes_header(self, tmp_path):
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        assert crash_handler._crash_header_bytes, (
+            "GT-7: _crash_header_bytes must be non-empty after "
+            "set_crash_handler_config_dir()"
+        )
+
+    def test_header_includes_app_version(self, tmp_path):
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
+        assert "App version:" in header, (
+            f"GT-7: header must include 'App version:' line; got:\n{header}"
+        )
+
+    def test_header_includes_python_version(self, tmp_path):
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
+        assert "Python:" in header
+        assert f"{sys.version_info.major}.{sys.version_info.minor}" in header, (
+            "GT-7: header Python version must match the running interpreter"
+        )
+
+    def test_header_includes_os_version(self, tmp_path):
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
+        assert "OS:" in header, (
+            f"GT-7: header must include 'OS:' line; got:\n{header}"
+        )
+
+    def test_header_includes_loaded_modules_snapshot(self, tmp_path):
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
+        assert "Loaded modules" in header, (
+            f"GT-7: header must include 'Loaded modules' section; got:\n{header}"
+        )
+        assert "voice_typer" in header, (
+            "GT-7: header module snapshot must include 'voice_typer'"
+        )
+
+    def test_header_is_recomputed_on_each_set_config_dir(self, tmp_path):
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        first = crash_handler._crash_header_bytes
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        second = crash_handler._crash_header_bytes
+        assert first and second
+        assert first == second, (
+            "GT-7: header should be deterministic for the same module set"
+        )
+
+    def test_compute_crash_header_returns_bytes(self):
+        header = crash_handler._compute_crash_header()
+        assert isinstance(header, bytes), (
+            f"GT-7: _compute_crash_header must return bytes; got {type(header).__name__}"
+        )
+        assert header.decode("utf-8", errors="replace")
+
+
+# ============================================================================
+# GT-B2-14: VEH buffer layout is data-driven + auto-computed size
+# ============================================================================
+
+
+class TestCrashBufferLayout:
+    """GT-B2-14: the VEH buffer layout is described as a list of
+    ``(label, width)`` tuples and ``_CRASH_MSG_BUF_SIZE`` is auto-computed.
+    """
+
+    def test_layout_is_list_of_label_width_tuples(self):
+        layout = crash_handler._CRASH_MSG_LAYOUT
+        assert isinstance(layout, list) and layout, "layout must be a non-empty list"
+        for entry in layout:
+            assert isinstance(entry, tuple) and len(entry) == 2, (
+                f"each layout entry must be a 2-tuple; got {entry!r}"
+            )
+            label, width = entry
+            assert isinstance(label, str) and label, (
+                f"layout label must be a non-empty str; got {label!r}"
+            )
+            assert isinstance(width, int) and width > 0, (
+                f"layout width must be a positive int; got {width!r}"
+            )
+
+    def test_buffer_size_matches_layout_sum_plus_margin(self):
+        layout_sum = sum(width for _, width in crash_handler._CRASH_MSG_LAYOUT)
+        assert crash_handler._CRASH_MSG_BUF_SIZE > layout_sum, (
+            f"GT-B2-14: buffer size ({crash_handler._CRASH_MSG_BUF_SIZE}) "
+            f"must exceed layout sum ({layout_sum}) to provide headroom"
+        )
+
+    def test_buffer_size_accommodates_full_layout(self):
+        layout_sum = sum(width for _, width in crash_handler._CRASH_MSG_LAYOUT)
+        assert len(crash_handler._crash_msg_buf) >= layout_sum, (
+            f"GT-B2-14: _crash_msg_buf ({len(crash_handler._crash_msg_buf)} bytes) "
+            f"must be >= layout sum ({layout_sum} bytes)"
+        )
+
+    def test_layout_includes_all_required_segments(self):
+        labels = {label for label, _ in crash_handler._CRASH_MSG_LAYOUT}
+        for required in ("bom", "timestamp", "crash_label", "code", "addr", "pid", "tid", "name"):
+            assert required in labels, (
+                f"GT-B2-14: layout must include '{required}' segment; got {sorted(labels)}"
+            )

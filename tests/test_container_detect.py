@@ -352,3 +352,280 @@ class TestWarnIfInContainer:
         with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             container_detect.warn_if_in_container()
         assert not any("PLAT-021" in r.message for r in caplog.records)
+
+
+# ── DE-66: cgroup v2-aware detection ───────────────────────────────────
+
+
+def _set_proc_files(monkeypatch, contents: dict[str, str | None]) -> None:
+    """Configure ``Path.read_text`` to return per-path content.
+
+    Parameters
+    ----------
+    contents : dict[str, str | None]
+        Maps POSIX-normalized path → file content. If a path maps to
+        ``None``, reading it raises ``OSError``. Reading any path NOT
+        in the dict raises ``FileNotFoundError`` (caught by the module
+        under test's ``except OSError`` in ``_read_proc_file``).
+
+    This helper is the cgroup-v2-aware counterpart of ``_set_cgroup``:
+    it can set up multiple ``/proc`` files simultaneously so tests can
+    simulate rootless Podman (which writes to ``/proc/1/environ`` and
+    ``/proc/self/mountinfo`` but NOT ``/proc/1/cgroup``).
+    """
+    normalized = {_normalize(Path(p)): v for p, v in contents.items()}
+
+    def _read_text(self: Path, *args, **kwargs) -> str:
+        key = _normalize(self)
+        if key in normalized:
+            value = normalized[key]
+            if value is None:
+                raise OSError(f"cannot read {self}")
+            return value
+        raise FileNotFoundError(str(self))
+
+    monkeypatch.setattr(Path, "read_text", _read_text)
+
+
+class TestCgroupV2Detection:
+    """DE-66: cgroup v2-aware detection for rootless Podman and modern
+    OCI runtimes.
+
+    On cgroup v2 (default on Linux kernels 5.15+), rootless Podman
+    containers do NOT create ``/run/.containerenv`` and may not write a
+    recognizable signature into ``/proc/1/cgroup`` (the path is often
+    just ``0::/``). Pre-fix, these containers were misdetected as
+    "not in container" — causing the app to attempt unavailable
+    features (system tray, audio capture, GPU) inside the container,
+    producing confusing errors instead of the graceful degradation
+    that ``warn_if_in_container`` is meant to provide.
+
+    The fix adds two cgroup v2-aware detection paths:
+
+    1. ``container=`` env var on PID 1 (read via ``/proc/1/environ``)
+    2. overlayfs rooted at ``/`` (read via ``/proc/self/mountinfo``)
+    """
+
+    def test_proc1_environ_container_var_detected(self, monkeypatch):
+        """DE-66: ``container=oci`` (or any value) on PID 1's environ
+        must trigger container detection even when cgroup is
+        uninformative (``0::/``) and no ``/.dockerenv`` /
+        ``/run/.containerenv`` exist."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())  # no .dockerenv / .containerenv
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",  # uninformative cgroup v2
+                "/proc/1/environ": "PATH=/usr/bin\x00container=oci\x00",
+                "/proc/self/mountinfo": "",  # no overlayfs
+            },
+        )
+        _clear_container_env(monkeypatch)  # current process env has no CONTAINER
+        assert container_detect.is_in_container() is True
+
+    def test_proc1_environ_podman_value_detected(self, monkeypatch):
+        """DE-66: ``container=podman`` on PID 1's environ triggers
+        detection — rootless Podman commonly sets this."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": "container=podman\x00HOME=/root\x00",
+                "/proc/self/mountinfo": "",
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.is_in_container() is True
+
+    def test_proc1_environ_no_container_var_not_detected(self, monkeypatch):
+        """DE-66: PID 1 environ WITHOUT a ``container=`` var must NOT
+        trigger detection (the env-var path is specific to the exact
+        key ``container``, not a substring match)."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                # NOTE: ``MY_CONTAINER=foo`` must NOT match (key != "container")
+                "/proc/1/environ": "PATH=/bin\x00MY_CONTAINER=foo\x00",
+                "/proc/self/mountinfo": "",
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.is_in_container() is False
+
+    def test_mountinfo_overlay_at_root_detected(self, monkeypatch):
+        """DE-66: an ``overlay`` filesystem mounted at ``/`` in
+        ``/proc/self/mountinfo`` must trigger container detection
+        (catches rootless Podman and other OCI runtimes)."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        # A representative rootless-Podman mountinfo line: mount point
+        # is field 5 (``/``), fstype is the token after the ``-``
+        # separator (``overlay``).
+        mountinfo = (
+            "1 0 0:1 / / rw,relatime - overlay overlay rw,lowerdir=/var/lib/containers,upperdir=/var/lib/containers/overlay-containers/xyz/usr,diff\n"
+            "30 1 0:28 / /proc rw,nosuid,nodev,noexec - proc proc rw\n"
+        )
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": "",
+                "/proc/self/mountinfo": mountinfo,
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.is_in_container() is True
+
+    def test_mountinfo_overlay_not_at_root_not_detected(self, monkeypatch):
+        """DE-66: an ``overlay`` filesystem mounted at a NON-root
+        location (e.g. ``/var/lib/docker/overlay2``) must NOT trigger
+        container detection — only overlay-at-root is a reliable
+        container indicator (host systems may use overlayfs for
+        /var/lib/docker or /home)."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        # overlay mounted at /var/lib/docker, not /
+        mountinfo = (
+            "30 1 0:28 /var/lib/docker /var/lib/docker rw,relatime - overlay overlay rw\n"
+        )
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": "",
+                "/proc/self/mountinfo": mountinfo,
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.is_in_container() is False
+
+    def test_mountinfo_non_overlay_at_root_not_detected(self, monkeypatch):
+        """DE-66: a NON-overlay filesystem (ext4, btrfs) at ``/`` must
+        NOT trigger detection — only overlay-at-root is the indicator."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        mountinfo = "1 0 8:1 / / rw,relatime - ext4 /dev/sda1 rw\n"
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": "",
+                "/proc/self/mountinfo": mountinfo,
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.is_in_container() is False
+
+    def test_rootless_podman_no_containerenv_detected_via_environ(self, monkeypatch):
+        """DE-66: simulated rootless Podman — no ``/run/.containerenv``,
+        no cgroup signature, but ``container=podman`` on PID 1 — must
+        be detected. This is the exact scenario the fix targets."""
+        _force_linux(monkeypatch)
+        # No /.dockerenv, no /run/.containerenv
+        _set_existing_paths(monkeypatch, set())
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",  # no signature
+                "/proc/1/environ": "container=podman\x00HOME=/root\x00PATH=/usr/bin\n",
+                "/proc/self/mountinfo": "1 0 0:1 / / rw - overlay overlay rw\n",
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.is_in_container() is True
+
+    def test_rootless_podman_no_environ_var_detected_via_mountinfo(self, monkeypatch):
+        """DE-66: if the rootless Podman runtime does NOT set
+        ``container=``, the overlayfs-at-root fallback must still
+        detect the container."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": "PATH=/usr/bin\n",  # no container= var
+                "/proc/self/mountinfo": "1 0 0:1 / / rw - overlay overlay rw\n",
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.is_in_container() is True
+
+    def test_get_container_type_returns_runtime_value_from_environ(self, monkeypatch):
+        """DE-66: ``get_container_type`` must return the ``container=``
+        value (e.g. ``oci``, ``podman``, ``lxc``) when the env-var path
+        fires — instead of generic ``unknown``."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": "container=oci\x00",
+                "/proc/self/mountinfo": "",
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.get_container_type() == "oci"
+
+    def test_get_container_type_overlay_fallback_label(self, monkeypatch):
+        """DE-66: when ONLY the overlayfs-at-root indicator fires
+        (no env-var, no cgroup signature, no .dockerenv), the
+        container type must be a recognizable label (not bare
+        ``unknown``) so operators can diagnose."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": "",
+                "/proc/self/mountinfo": "1 0 0:1 / / rw - overlay overlay rw\n",
+            },
+        )
+        _clear_container_env(monkeypatch)
+        ct = container_detect.get_container_type()
+        assert ct is not None
+        # Must mention overlayfs so the operator knows which indicator fired.
+        assert "overlay" in ct.lower()
+
+    def test_proc1_environ_unreadable_does_not_break_detection(self, monkeypatch):
+        """DE-66: if ``/proc/1/environ`` is unreadable (OSError /
+        PermissionError — common in hardened containers where PID 1
+        is owned by another user), detection must fall through to
+        the next indicator (overlayfs) rather than raising."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": None,  # OSError on read
+                "/proc/self/mountinfo": "1 0 0:1 / / rw - overlay overlay rw\n",
+            },
+        )
+        _clear_container_env(monkeypatch)
+        # Must not raise; must detect via overlay fallback.
+        assert container_detect.is_in_container() is True
+
+    def test_mountinfo_unreadable_does_not_break_detection(self, monkeypatch):
+        """DE-66: if ``/proc/self/mountinfo`` is unreadable, detection
+        must fall through without raising."""
+        _force_linux(monkeypatch)
+        _set_existing_paths(monkeypatch, set())
+        _set_proc_files(
+            monkeypatch,
+            {
+                "/proc/1/cgroup": "0::/\n",
+                "/proc/1/environ": "container=oci\x00",  # detected via environ
+                "/proc/self/mountinfo": None,  # OSError on read
+            },
+        )
+        _clear_container_env(monkeypatch)
+        assert container_detect.is_in_container() is True

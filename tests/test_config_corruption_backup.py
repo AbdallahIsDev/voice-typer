@@ -634,3 +634,95 @@ class TestSaveBackupBeforeOverwrite:
         recovered = json.loads(config_file.read_text(encoding="utf-8"))
         assert recovered["future_field"] == "value the older build doesn't know about"
         assert recovered["hotkey"] == "<f3>"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# GT-58: stale config.json with deprecated keys still loads (silent scrub)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class TestGT58DeprecatedKeysSilentlyScrubbed:
+    """GT-58: ``Config.load()`` must accept a stale ``config.json``
+    written by an older app version that still carries the 7 deprecated
+    fields which have been removed from the ``Config`` dataclass.
+
+    The unknown-key filter in ``Config.load()`` silently drops these keys
+    before ``cls(**data)`` constructs the Config instance. The v3 schema
+    migration's scrub list is a defense-in-depth backstop. Either way,
+    the load MUST NOT raise.
+    """
+
+    DEPRECATED_KEYS = [
+        "silence_rms_threshold",
+        "silence_peak_threshold",
+        "normalize_audio",
+        "normalize_target_peak",
+        "volume_duck_per_session",
+        "volume_duck_smart",
+        "noise_filter_gate_threshold",
+    ]
+
+    def test_stale_v2_config_with_deprecated_keys_loads_cleanly(self, tmp_path, monkeypatch):
+        """A schema-v2 config with all 7 deprecated keys must load
+        without falling into the corrupt-config fallback path. The
+        non-deprecated settings (hotkey, autostart) must survive, and
+        no ``config.json.corrupt-*`` backup must be created."""
+        _patch_config_dir(tmp_path, monkeypatch)
+        config_file = tmp_path / "config.json"
+
+        stale_config = {
+            "schema_version": 2,
+            "hotkey": "<f9>",
+            "autostart": False,
+            "secrets_migrated": True,
+        }
+        for key in self.DEPRECATED_KEYS:
+            if "threshold" in key or "peak" in key:
+                stale_config[key] = 0.5
+            else:
+                stale_config[key] = True
+        config_file.write_text(json.dumps(stale_config), encoding="utf-8")
+
+        cfg = Config.load()
+
+        assert cfg.hotkey == "<f9>"
+        assert cfg.autostart is False
+        assert cfg.schema_version == 3
+        for key in self.DEPRECATED_KEYS:
+            assert not hasattr(cfg, key), (
+                f"Deprecated field {key!r} must not be on the Config instance"
+            )
+        corrupt_backups = list(tmp_path.glob("config.json.corrupt-*"))
+        assert corrupt_backups == [], (
+            f"Stale v2 config should NOT trigger corrupt-config backup; found: {corrupt_backups}"
+        )
+
+    def test_stale_v3_config_with_deprecated_keys_handled_gracefully(
+        self, tmp_path, monkeypatch
+    ):
+        """A schema-v3 config that *still* carries deprecated keys
+        is handled gracefully by the unknown-key filter — the keys are
+        silently dropped (with a WARNING log) and the remaining fields
+        load normally. No corrupt-config fallback path is triggered."""
+        _patch_config_dir(tmp_path, monkeypatch)
+        config_file = tmp_path / "config.json"
+
+        stale_config = {
+            "schema_version": 3,
+            "hotkey": "<f9>",
+            "silence_rms_threshold": 0.5,
+            "secrets_migrated": True,
+        }
+        config_file.write_text(json.dumps(stale_config), encoding="utf-8")
+
+        cfg = Config.load()
+
+        # Non-deprecated values survived.
+        assert cfg.hotkey == "<f9>"
+        # The deprecated field is NOT on the instance.
+        assert not hasattr(cfg, "silence_rms_threshold")
+        # No corrupt-config backup was created.
+        corrupt_backups = list(tmp_path.glob("config.json.corrupt-*"))
+        assert corrupt_backups == [], (
+            f"Stale v3 config should NOT trigger corrupt-config backup; found: {corrupt_backups}"
+        )

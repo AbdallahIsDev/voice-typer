@@ -23,15 +23,28 @@ previous ``_push_event_now`` semantics:
   ``RuntimeError: Set changed size during iteration``.
 - re-entrant publish (a subscriber that itself calls publish) does
   not deadlock (RLock).
+
+GT-3 additions (TestSubscriberExceptionLogLevel /
+TestConfigChangeListenerExceptionLogLevel) pin the WARNING-on-first /
+ DEBUG-on-repeat rate-limit policy for subscriber exceptions.
+
+GT-C1-7 additions (TestShutdownConsolidation) pin the deletion of the
+duplicate ``shutdown_executor()``.
+
+GT-53 additions (TestCanonicalCatalogue) pin the catalogue completeness
+(4 newly-listed events: tray_menu, tray_state, consent_required,
+parakeet_cpu_fallback).
 """
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 
 import pytest
 from voice_typer.server import event_bus
+from voice_typer.server import log_rate_limit
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -44,14 +57,26 @@ def _clean_subscribers():
     the next (the event_bus is a process-global singleton).  We
     snapshot, clear, yield, then restore so concurrent test runs in
     the same process don't see each other's state.
+
+    Also resets the ``log_rate_limit`` counters so each test starts
+    with a clean rate-limit slate — otherwise a subscriber that
+    raises in test N would be on occurrence 2+ by test N+1 and the
+    GT-3 WARNING-on-first-occurrence assertion would fail.
     """
     with event_bus._lock:
         original = set(event_bus._subscribers)
         event_bus._subscribers.clear()
+    with event_bus._config_change_lock:
+        original_listeners = set(event_bus._config_change_listeners)
+        event_bus._config_change_listeners.clear()
+    log_rate_limit.reset()
     yield
     with event_bus._lock:
         event_bus._subscribers.clear()
         event_bus._subscribers.update(original)
+    with event_bus._config_change_lock:
+        event_bus._config_change_listeners.clear()
+        event_bus._config_change_listeners.update(original_listeners)
 
 
 # ── publish with no subscribers ────────────────────────────────────────
@@ -318,8 +343,204 @@ class TestSubscriberExceptionIsolation:
             event_bus.publish({"type": "test"})
         assert first_called == [True]
         assert second_received == [{"type": "test"}]
-        # The exception should have been logged at DEBUG level.
+        # GT-3: the first exception from this subscriber must be logged
+        # (no longer silently dropped at DEBUG). The exact level is
+        # verified by ``TestSubscriberExceptionLogLevel`` below; here
+        # we only assert the message is captured.
         assert any("subscriber raised" in r.getMessage() for r in caplog.records)
+
+
+# ── GT-3: subscriber exception log level ───────────────────────────────
+
+
+class TestSubscriberExceptionLogLevel:
+    """GT-3: subscriber exceptions must surface at WARNING (not DEBUG)
+    on the FIRST occurrence per subscriber so production file handlers
+    (INFO+) actually capture them.  Subsequent occurrences from the
+    SAME subscriber rate-limit back to DEBUG so a persistently-broken
+    subscriber doesn't spam the log.
+
+    These tests pin the rate-limit contract: WARNING on occurrence #1,
+    DEBUG on occurrence #2+.
+    """
+
+    def test_first_exception_logged_at_warning(self, caplog):
+        """GT-3: the first exception from a subscriber is logged at
+        WARNING level with the message body present."""
+        log_rate_limit.reset()
+
+        def bad(_msg: dict) -> None:
+            raise RuntimeError("boom")
+
+        event_bus.subscribe(bad)
+        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
+            event_bus.publish({"type": "test"})
+        # Find the record emitted by the subscriber-exception path.
+        matching = [
+            r for r in caplog.records if "subscriber raised" in r.getMessage()
+        ]
+        assert len(matching) == 1, f"expected 1 record, got {matching}"
+        assert matching[0].levelno == logging.WARNING, (
+            f"GT-3: first occurrence must be WARNING, got "
+            f"{logging.getLevelName(matching[0].levelno)}"
+        )
+
+    def test_first_exception_includes_exc_info(self, caplog):
+        """GT-3: the first-occurrence WARNING record must carry the
+        exception traceback (``exc_info``) so operators can diagnose."""
+        log_rate_limit.reset()
+
+        def bad(_msg: dict) -> None:
+            raise RuntimeError("traceback please")
+
+        event_bus.subscribe(bad)
+        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
+            event_bus.publish({"type": "test"})
+        matching = [
+            r for r in caplog.records if "subscriber raised" in r.getMessage()
+        ]
+        assert matching, "no matching record captured"
+        record = matching[0]
+        assert record.levelno == logging.WARNING
+        assert record.exc_info is not None, (
+            "GT-3: first-occurrence WARNING must include exc_info"
+        )
+        # exc_info is (type, value, tb); the value should be our RuntimeError.
+        assert record.exc_info[0] is RuntimeError
+        assert "traceback please" in str(record.exc_info[1])
+
+    def test_second_exception_logged_at_debug(self, caplog):
+        """GT-3: the SECOND exception from the SAME subscriber
+        rate-limits to DEBUG (no WARNING, no exc_info) so a
+        persistently-broken subscriber can't spam the log."""
+        log_rate_limit.reset()
+
+        def bad(_msg: dict) -> None:
+            raise RuntimeError("again")
+
+        event_bus.subscribe(bad)
+        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
+            event_bus.publish({"type": "first"})
+            event_bus.publish({"type": "second"})
+        matching = [
+            r for r in caplog.records if "subscriber raised" in r.getMessage()
+        ]
+        # Two records total: WARNING then DEBUG.
+        assert len(matching) == 2, (
+            f"expected 2 records (WARNING + DEBUG), got {len(matching)}: "
+            f"{[(r.levelname, r.getMessage()) for r in matching]}"
+        )
+        assert matching[0].levelno == logging.WARNING
+        assert matching[1].levelno == logging.DEBUG, (
+            f"GT-3: second occurrence must be DEBUG, got "
+            f"{logging.getLevelName(matching[1].levelno)}"
+        )
+        # The DEBUG record carries no exc_info (rate-limit suppresses
+        # the traceback on repeats — see log_rate_limit.log_rate_limited).
+        assert matching[1].exc_info is None
+
+    def test_distinct_subscribers_each_get_warning_on_first(self, caplog):
+        """GT-3: rate-limit counters are PER-SUBSCRIBER — the first
+        exception from subscriber B still logs at WARNING even if
+        subscriber A has already raised."""
+        log_rate_limit.reset()
+
+        def a(_msg: dict) -> None:
+            raise RuntimeError("a")
+
+        def b(_msg: dict) -> None:
+            raise RuntimeError("b")
+
+        event_bus.subscribe(a)
+        event_bus.subscribe(b)
+        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
+            # Single publish: both raise for the first time.
+            event_bus.publish({"type": "test"})
+        matching = [
+            r for r in caplog.records if "subscriber raised" in r.getMessage()
+        ]
+        assert len(matching) == 2, (
+            f"expected 2 records (one per subscriber), got {len(matching)}"
+        )
+        # Both should be WARNING (first occurrence for each subscriber).
+        assert all(r.levelno == logging.WARNING for r in matching), (
+            f"GT-3: each subscriber's FIRST exception must be WARNING; "
+            f"got levels {[r.levelname for r in matching]}"
+        )
+
+    def test_subsequent_occurrence_message_visible_at_debug(self, caplog):
+        """GT-3: rate-limited (suppressed) occurrences are still
+        emitted at DEBUG so they're visible when debug logging is
+        enabled — they're just not promoted to WARNING."""
+        log_rate_limit.reset()
+
+        def bad(_msg: dict) -> None:
+            raise RuntimeError("repeat")
+
+        event_bus.subscribe(bad)
+        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
+            for _ in range(5):
+                event_bus.publish({"type": "test"})
+        matching = [
+            r for r in caplog.records if "subscriber raised" in r.getMessage()
+        ]
+        # 1 WARNING + 4 DEBUG suppressed occurrences.
+        assert len(matching) == 5
+        assert matching[0].levelno == logging.WARNING
+        assert all(r.levelno == logging.DEBUG for r in matching[1:])
+
+
+class TestConfigChangeListenerExceptionLogLevel:
+    """GT-3: the config-change-listener fan-out path mirrors the
+    generic publish path — first occurrence WARNING, subsequent
+    DEBUG."""
+
+    def test_first_listener_exception_logged_at_warning(self, caplog):
+        log_rate_limit.reset()
+
+        class _BadListener:
+            def on_config_changed(self, _updates: dict) -> None:
+                raise RuntimeError("config boom")
+
+        event_bus.subscribe_config_changes(_BadListener())
+        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
+            result = event_bus._publish_config_change({"foo": 1})
+        # No successful delivery (the only listener raised).
+        assert result is False
+        matching = [
+            r
+            for r in caplog.records
+            if "config-change listener raised" in r.getMessage()
+        ]
+        assert len(matching) == 1
+        assert matching[0].levelno == logging.WARNING
+        assert matching[0].exc_info is not None
+
+    def test_second_listener_exception_logged_at_debug(self, caplog):
+        log_rate_limit.reset()
+
+        # SAME instance — shares the rate-limit counter.
+        bad = _BadConfigListener()
+        event_bus.subscribe_config_changes(bad)
+        with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
+            event_bus._publish_config_change({"foo": 1})
+            event_bus._publish_config_change({"foo": 2})
+        matching = [
+            r
+            for r in caplog.records
+            if "config-change listener raised" in r.getMessage()
+        ]
+        assert len(matching) == 2
+        assert matching[0].levelno == logging.WARNING
+        assert matching[1].levelno == logging.DEBUG
+
+
+class _BadConfigListener:
+    """Module-level listener class so ``__qualname__`` is stable
+    (a nested class would also work; this just reads cleaner)."""
+
+    def on_config_changed(self, _updates: dict) -> None:
+        raise RuntimeError("config repeat")
 
 
 # ── None handling ──────────────────────────────────────────────────────
@@ -653,3 +874,74 @@ class TestRTThreadGuard:
             assert received == [{"type": "test_main"}]
         finally:
             event_bus.unsubscribe(cb)
+
+
+# ── GT-C1-7: shutdown function consolidation ───────────────────────────
+
+
+class TestShutdownConsolidation:
+    """GT-C1-7: ``shutdown_executor()`` was a dead-code duplicate of
+    ``shutdown()`` (only ``shutdown()`` is called from
+    ``shutdown_controller._do_cleanup``). The duplicate is deleted;
+    ``shutdown()`` remains the single public lifecycle hook.
+
+    These tests pin the consolidation so a future "refactor" doesn't
+    silently reintroduce the duplicate.
+    """
+
+    def test_shutdown_executor_is_deleted(self):
+        """GT-C1-7: ``shutdown_executor`` must NOT be exported."""
+        assert not hasattr(event_bus, "shutdown_executor"), (
+            "GT-C1-7: shutdown_executor() was deleted as a duplicate of "
+            "shutdown(); reintroducing it breaks DRY (Rule 24)"
+        )
+
+    def test_shutdown_function_exists(self):
+        """GT-C1-7: ``shutdown()`` is the single canonical hook."""
+        assert hasattr(event_bus, "shutdown")
+        assert callable(event_bus.shutdown)
+
+    def test_shutdown_is_idempotent(self):
+        """GT-C1-7: ``shutdown()`` is idempotent — calling it twice
+        (or with no executor ever created) must not raise."""
+        # No executor was created in this test (no RT-thread publish).
+        event_bus.shutdown()  # no-op
+        event_bus.shutdown()  # still no-op
+        # And after shutdown, a fresh publish still works (lazy
+        # executor re-creation if an RT thread later publishes).
+        received: list[dict] = []
+        event_bus.subscribe(received.append)
+        assert event_bus.publish({"type": "post_shutdown"}) is True
+        assert received == [{"type": "post_shutdown"}]
+        # Cleanup: shut down any executor the publish may have created
+        # (it didn't, because we're on a non-RT thread, but be tidy).
+        event_bus.shutdown()
+
+
+# ── GT-53: canonical catalogue completeness ────────────────────────────
+
+
+class TestCanonicalCatalogue:
+    """GT-53: the docstring catalogue must list every event actually
+    emitted by the Python sidecar. The four events below were
+    previously missing (tray_menu, tray_state, consent_required,
+    parakeet_cpu_fallback)."""
+
+    def test_catalogue_lists_tray_menu_event(self):
+        assert "``tray_menu``" in event_bus.__doc__
+
+    def test_catalogue_lists_tray_state_event(self):
+        assert "``tray_state``" in event_bus.__doc__
+
+    def test_catalogue_lists_consent_required_event(self):
+        assert "``consent_required``" in event_bus.__doc__
+
+    def test_catalogue_lists_parakeet_cpu_fallback_event(self):
+        assert "``parakeet_cpu_fallback``" in event_bus.__doc__
+
+    def test_catalogue_total_count_updated(self):
+        """GT-53: the 'Total: N events' line must reflect the 4 newly
+        catalogued events (24 → 28)."""
+        assert "Total: 28 events" in event_bus.__doc__
+        # The old stale count must NOT still be present.
+        assert "Total: 24 events" not in event_bus.__doc__

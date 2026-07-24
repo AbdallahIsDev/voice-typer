@@ -536,7 +536,15 @@ class TestRendererAllowlist:
     def test_allowlist_includes_test_llm_connection(self):
         from pathlib import Path
 
-        main_ts = Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "main" / "index.ts"
+        # WR-14: allowlist moved from index.ts to allowed-commands.ts per CR-063.
+        main_ts = (
+            Path(__file__).resolve().parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "main"
+            / "allowed-commands.ts"
+        )
         source = main_ts.read_text(encoding="utf-8")
         assert '"test_llm_connection"' in source, (
             "Electron main process ALLOWED_COMMANDS must include 'test_llm_connection' so the renderer can invoke it"

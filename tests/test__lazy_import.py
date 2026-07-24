@@ -23,8 +23,6 @@ public contract of the module:
   import (slot lookup happens before ``__getattr__``).
 - Multiple proxies are independent; two proxies for the same module
   share state through ``sys.modules``.
-- G4-M-43: ``probe_required_deps()`` returns the list of missing
-  modules from a probe set.
 
 All tests use ``monkeypatch`` to install lightweight ``MagicMock``
 fakes in ``sys.modules`` (or to spy on ``importlib.import_module``) —
@@ -38,7 +36,7 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server._lazy_import import _LazyModule, lazy_module, probe_required_deps
+from voice_typer.server._lazy_import import _LazyModule, lazy_module
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -572,60 +570,8 @@ class TestImportErrorCaching:
         assert import_spy["calls"] == [name, name]
 
 
-# ── G4-M-43: probe_required_deps ────────────────────────────────────────
-
-
-class TestProbeRequiredDeps:
-    """G4-M-43: ``probe_required_deps`` returns the list of missing modules."""
-
-    def test_returns_empty_list_when_all_present(self, monkeypatch):
-        """When every module in the probe set imports successfully, returns []."""
-        # Install a MagicMock for each module name so import_module succeeds.
-        for name in ("test_probe_present_a", "test_probe_present_b"):
-            monkeypatch.setitem(sys.modules, name, MagicMock())
-
-        missing = probe_required_deps(("test_probe_present_a", "test_probe_present_b"))
-        assert missing == []
-
-    def test_returns_missing_modules_sorted(self, monkeypatch):
-        """Missing modules are returned sorted by name."""
-        # Install one present module; leave the other two missing.
-        monkeypatch.setitem(sys.modules, "test_probe_present", MagicMock())
-        # Ensure the "missing" names really are missing.
-        for name in ("test_probe_missing_zzz", "test_probe_missing_aaa"):
-            monkeypatch.delitem(sys.modules, name, raising=False)
-
-        missing = probe_required_deps(
-            (
-                "test_probe_missing_zzz",
-                "test_probe_present",
-                "test_probe_missing_aaa",
-            )
-        )
-        assert missing == ["test_probe_missing_aaa", "test_probe_missing_zzz"]
-
-    def test_default_probe_set_includes_sounddevice_and_pystray(self):
-        """The default probe set includes the heavy cold-start deps."""
-        # Don't actually probe — just check the constant.
-        from voice_typer.server._lazy_import import _REQUIRED_DEPS
-
-        assert "sounddevice" in _REQUIRED_DEPS
-        assert "pystray" in _REQUIRED_DEPS
-        # numpy is a hard dependency (audio buffers) — always required.
-        assert "numpy" in _REQUIRED_DEPS
-
-    def test_probe_with_empty_set_returns_empty_list(self):
-        """An empty probe set returns an empty list (no work to do)."""
-        assert probe_required_deps(()) == []
-
-    def test_probe_does_not_cache_results(self, monkeypatch):
-        """``probe_required_deps`` re-imports on every call so callers can
-        re-probe after the user installs a missing package.
-        """
-        # First call: module missing.
-        monkeypatch.delitem(sys.modules, "test_probe_recheck", raising=False)
-        assert probe_required_deps(("test_probe_recheck",)) == ["test_probe_recheck"]
-
-        # Second call: module now present (mock installed).
-        monkeypatch.setitem(sys.modules, "test_probe_recheck", MagicMock())
-        assert probe_required_deps(("test_probe_recheck",)) == []
+# GT-57: ``probe_required_deps`` + ``_REQUIRED_DEPS`` were deleted from
+# ``_lazy_import.py`` (zero production callers — the promised startup
+# diagnostic was never wired). The five ``TestProbeRequiredDeps`` tests
+# were removed alongside. If a startup diagnostic is needed in the
+# future, add a fresh probe function and tests at that point.

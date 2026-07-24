@@ -602,7 +602,12 @@ class TestRestartAppReentryGuard:
 
         monkeypatch.setattr(app, "_do_cleanup", spy_do_cleanup)
 
+        # DE-49: the re-entry guard in restart_app now checks
+        # ``_shutting_down_event.is_set()`` (threading.Event version)
+        # instead of the plain boolean.  Setting only the boolean no
+        # longer short-circuits the guard; the Event must be set too.
         app._shutting_down = True
+        app._shutting_down_event.set()
 
         # Must NOT raise (no SystemExit, no other exception).
         app.restart_app()
@@ -641,9 +646,10 @@ class TestRestartAppReentryGuard:
         )
 
     def test_restart_app_guard_is_first_statement_in_method(self):
-        """Source-level invariant: the ``if self._shutting_down:`` guard
-        must be the FIRST executable statement in restart_app (before
-        the log.info call, before the config.save(), before any push)."""
+        """Source-level invariant: the re-entry guard
+        (``if self._shutting_down_event.is_set():``) must be the FIRST
+        executable statement in restart_app (before the log.info call,
+        before the config.save(), before any push)."""
         import inspect
 
         from voice_typer.server.app import VoiceTyperApp
@@ -658,9 +664,15 @@ class TestRestartAppReentryGuard:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
-            assert stripped.startswith("if self._shutting_down:"), (
+            # DE-49: the guard uses the threading.Event version
+            # (``_shutting_down_event.is_set()``) instead of the plain
+            # boolean — see the rationale in restart_app's inline
+            # comment.
+            assert stripped.startswith("if self._shutting_down_event.is_set():"), (
                 "APP-1: the first executable statement in restart_app "
-                "must be 'if self._shutting_down:' (the re-entry guard). "
+                "must be 'if self._shutting_down_event.is_set():' "
+                "(the re-entry guard, DE-49 — using the threading.Event "
+                "version for cross-thread memory ordering). "
                 f"Got: {stripped!r}"
             )
             # Log message is on a subsequent line of the guard block
