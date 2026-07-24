@@ -9,7 +9,7 @@ the TCP transport:
   ``{"type":"error","data":{"code":"auth_failed","message":...}}`` to
   the socket and THEN closes it. The Rust host
   (``src-tauri/src/sidecar/ws.rs:340``) has a dedicated ``auth_failed``
-  match arm that consumes this frame, logs it, and triggers an FT-1
+  match arm that consumes this frame, logs it, and triggers an supervisor
   respawn with a fresh token.
 
 - WS path (``sidecar_ws._handle_connection``): closed the socket with

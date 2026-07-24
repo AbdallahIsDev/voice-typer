@@ -15,7 +15,7 @@ corrupt. Observed symptoms (per CR-4 in comprehensive-review.md):
   Tauri host → user sees no dictated text),
 - a deadlocked writer task (``await outbound.get()`` never wakes
   after a cross-thread ``put_nowait``),
-- a hard asyncio loop crash killing the sidecar (→ FT-1 respawn
+- a hard asyncio loop crash killing the sidecar (→ respawn
   loop).
 
 The fix captures ``loop = asyncio.get_running_loop()`` once at
@@ -43,7 +43,7 @@ threads and verify:
 
 4. **Shutdown safety**: publishing during loop shutdown raises
    ``RuntimeError`` from ``call_soon_threadsafe``; ``_push_to_ws``
-   must swallow it (no traceback per published event during FT-1
+   must swallow it (no traceback per published event during supervisor
    respawn).
 """
 
@@ -412,7 +412,7 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
 async def test_push_to_ws_swallows_runtime_error_on_closed_loop(monkeypatch) -> None:
     """CR-4: publishing during loop shutdown must not raise.
 
-    When the sidecar is shutting down (FT-1 respawn, host kill), the
+    When the sidecar is shutting down (respawn, host kill), the
     event loop is closed. ``loop.call_soon_threadsafe`` raises
     ``RuntimeError`` in that state. ``_push_to_ws`` must swallow it
     (drop the event at DEBUG level) — otherwise every event published

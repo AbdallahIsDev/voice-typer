@@ -4,7 +4,7 @@ GT-27 (High): the WS server had no graceful close path —
 ``sidecar_ws.run()``'s asyncio loop was only terminated by process
 exit (host force-kill or ``sys.exit``), so the connected Tauri client
 received a TCP RST instead of a WS Close frame. This triggered the
-FT-1 respawn path as if the sidecar had crashed.
+respawn path as if the sidecar had crashed.
 
 GT-45 (Medium, partial): the WS dispatch shutdown gate at
 ``sidecar_ws._make_dispatch``'s early ``_shutting_down`` check is
@@ -111,7 +111,7 @@ def test_graceful_shutdown_sends_close_1001_to_all_authenticated_conns(
     to EVERY authenticated connection before stopping the loop.
 
     Pre-GT-27 the loop was killed by process exit, so the connected
-    Tauri client received a TCP RST and triggered FT-1 respawn as if
+    Tauri client received a TCP RST and triggered respawn as if
     the sidecar had crashed. The fix sends a clean WS Close frame so
     the host tears down the WS client cleanly.
     """
