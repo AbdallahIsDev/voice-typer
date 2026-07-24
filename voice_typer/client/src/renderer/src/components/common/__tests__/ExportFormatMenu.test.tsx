@@ -99,11 +99,13 @@ describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
 		await user.click(trigger);
 		await screen.findByRole("menu");
 
-		// requestAnimationFrame defers focus, so wait for it via findBy.
+		// requestAnimationFrame defers focus, so wait for it via findBy
+		// + waitFor. Radix schedules focus on the first menuitem via rAF;
+		// in jsdom the rAF callback needs an explicit flush.
 		const firstItem = await screen.findByRole("menuitem", {
 			name: /export as json/i,
 		});
-		expect(firstItem).toHaveFocus();
+		await waitFor(() => expect(firstItem).toHaveFocus());
 	});
 
 	it("ArrowDown moves focus to the second menuitem; ArrowUp moves back", async () => {
@@ -114,25 +116,25 @@ describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
 		const items = await screen.findAllByRole("menuitem");
 		expect(items).toHaveLength(2);
 
-		// First item focused after open.
+		// First item focused after open (Radix defers via rAF).
 		await screen.findByRole("menuitem", { name: /export as json/i });
-		expect(items[0]).toHaveFocus();
+		await waitFor(() => expect(items[0]).toHaveFocus());
 
 		// ArrowDown → second item.
 		await user.keyboard("{ArrowDown}");
-		expect(items[1]).toHaveFocus();
+		await waitFor(() => expect(items[1]).toHaveFocus());
 
 		// ArrowDown again wraps to first item (cyclic nav).
 		await user.keyboard("{ArrowDown}");
-		expect(items[0]).toHaveFocus();
+		await waitFor(() => expect(items[0]).toHaveFocus());
 
 		// ArrowUp wraps back to last item.
 		await user.keyboard("{ArrowUp}");
-		expect(items[1]).toHaveFocus();
+		await waitFor(() => expect(items[1]).toHaveFocus());
 
 		// ArrowUp back to first item.
 		await user.keyboard("{ArrowUp}");
-		expect(items[0]).toHaveFocus();
+		await waitFor(() => expect(items[0]).toHaveFocus());
 	});
 
 	it("Home jumps to the first menuitem; End jumps to the last", async () => {
@@ -144,11 +146,11 @@ describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
 
 		// End → last item.
 		await user.keyboard("{End}");
-		expect(items[1]).toHaveFocus();
+		await waitFor(() => expect(items[1]).toHaveFocus());
 
 		// Home → first item.
 		await user.keyboard("{Home}");
-		expect(items[0]).toHaveFocus();
+		await waitFor(() => expect(items[0]).toHaveFocus());
 	});
 
 	it("Escape closes the menu and returns focus to the trigger button", async () => {
@@ -160,7 +162,7 @@ describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
 		const firstItem = await screen.findByRole("menuitem", {
 			name: /export as json/i,
 		});
-		expect(firstItem).toHaveFocus();
+		await waitFor(() => expect(firstItem).toHaveFocus());
 
 		await user.keyboard("{Escape}");
 
@@ -169,8 +171,8 @@ describe("ExportFormatMenu — A11Y-7 / SET-2 (keyboard nav)", () => {
 		// but the React re-render may need one more microtask).
 		await screen.findByRole("button", { name: /export/i });
 		expect(screen.queryByRole("menu")).toBeNull();
-		// Trigger regained focus.
-		expect(trigger).toHaveFocus();
+		// Trigger regained focus (Radix restores focus asynchronously).
+		await waitFor(() => expect(trigger).toHaveFocus());
 		// aria-expanded reflects the closed state.
 		expect(trigger).toHaveAttribute("aria-expanded", "false");
 	});

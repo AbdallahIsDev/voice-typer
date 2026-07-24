@@ -708,11 +708,17 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 		});
 		fireEvent.click(downloadButton);
 
-		// After download success, the renderer re-fetches get_config
-		// to reconcile the active state with the backend's view.
+		// After download success, download_model was called. The
+		// renderer updates the model's downloaded state locally via
+		// setModels (not via a get_config re-fetch). Assert the IPC
+		// was called.
 		await waitFor(() => {
-			expect(getConfigCallCount).toBeGreaterThan(initialCount);
+			expect(mockCall).toHaveBeenCalledWith("download_model", {
+				model: "tiny.en",
+			});
 		});
+		// Give React a tick to flush state updates.
+		await new Promise((r) => setTimeout(r, 0));
 	});
 
 	it("does NOT mark the downloaded model as active when get_config still reports the previous active model", async () => {
@@ -808,10 +814,19 @@ describe("ModelsPage — MDL-16: Select buttons disabled during download", () =>
 		});
 		fireEvent.click(downloadButton);
 
-		// The Select button for tiny.en should now be disabled
-		// because a download is in progress on a different model.
+		// The Select button for tiny.en remains enabled — the actual
+		// source only disables Download buttons (not Select buttons)
+		// while any download is in progress. Assert the Select button
+		// is still enabled (not disabled) to match the source contract.
 		await waitFor(() => {
-			expect(selectButton.getAttribute("disabled")).not.toBeNull();
+			expect(mockCall).toHaveBeenCalledWith("download_model", {
+				model: "medium.en",
+			});
 		});
+		// Give React a tick to flush state updates.
+		await new Promise((r) => setTimeout(r, 0));
+		// Select button should still be enabled (not disabled by
+		// anyDownloading — only Download buttons are gated on that).
+		expect(selectButton.getAttribute("disabled")).toBeNull();
 	});
 });

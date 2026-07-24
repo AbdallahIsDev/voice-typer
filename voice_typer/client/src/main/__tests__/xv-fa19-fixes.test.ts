@@ -138,26 +138,26 @@ describe("XV-153: VT_BUBBLE_TEST timers stored + cleared", () => {
 	});
 
 	it("source assigns the outer setTimeout for VT_BUBBLE_TEST", () => {
-		// The actual source uses an inline setTimeout (not a named
-		// module-level variable). Assert it exists within the
-		// VT_BUBBLE_TEST block.
-		const bubbleTestIdx = src.indexOf("VT_BUBBLE_TEST");
-		expect(bubbleTestIdx).toBeGreaterThan(-1);
-		const block = src.slice(bubbleTestIdx, bubbleTestIdx + 800);
+		// Find the actual VT_BUBBLE_TEST code block (not the comment).
+		const codeIdx = src.indexOf('VT_BUBBLE_TEST === "1"');
+		expect(codeIdx).toBeGreaterThan(-1);
+		// Slice a generous window to capture the full block (the
+		// setTimeout/setInterval calls are inside the if block).
+		const block = src.slice(codeIdx, codeIdx + 1200);
 		expect(block).toMatch(/setTimeout/);
 	});
 
 	it("source assigns the inner setInterval for VT_BUBBLE_TEST", () => {
-		const bubbleTestIdx = src.indexOf("VT_BUBBLE_TEST");
-		const block = src.slice(bubbleTestIdx, bubbleTestIdx + 800);
+		const codeIdx = src.indexOf('VT_BUBBLE_TEST === "1"');
+		const block = src.slice(codeIdx, codeIdx + 1200);
 		expect(block).toMatch(/setInterval/);
 	});
 
 	it("source assigns the inner setTimeout (clear interval) for VT_BUBBLE_TEST", () => {
 		// The actual source uses setTimeout to clear the interval
 		// after 10s. Assert a second setTimeout exists in the block.
-		const bubbleTestIdx = src.indexOf("VT_BUBBLE_TEST");
-		const block = src.slice(bubbleTestIdx, bubbleTestIdx + 800);
+		const codeIdx = src.indexOf('VT_BUBBLE_TEST === "1"');
+		const block = src.slice(codeIdx, codeIdx + 1200);
 		// Count setTimeout occurrences — should be at least 2 (outer
 		// + inner clear).
 		const setTimeoutCount = (block.match(/setTimeout/g) ?? []).length;
