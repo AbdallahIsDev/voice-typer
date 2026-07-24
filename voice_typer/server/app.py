@@ -235,9 +235,16 @@ class VoiceTyperApp:
         # (quit_app -> self.quit()), restart_app (-> self._do_cleanup()),
         # and tests calling ``app._do_cleanup()`` directly all keep working
         # unchanged.
-        from voice_typer.server.shutdown_controller import ShutdownController
+        from voice_typer.server.shutdown_controller import (
+            SHUTDOWN_WATCHDOG_TIMEOUT_S,
+            ShutdownController,
+        )
 
         self.shutdown: ShutdownController = ShutdownController(self)
+        # GT-43: stash the watchdog timeout on the instance so
+        # restart_app()'s non-main-thread branch can arm the watchdog
+        # without re-importing the constant.
+        self._shutdown_watchdog_timeout_s: float = SHUTDOWN_WATCHDOG_TIMEOUT_S
 
         # RW-9 Phase 7: audio-quality side-effects extracted to
         # AudioQualityController. The app keeps thin delegate methods so
@@ -1072,12 +1079,40 @@ class VoiceTyperApp:
         # the pystray loop and app.start() returns. On the main thread,
         # sys.exit(0) works normally. The conditional mirrors quit()'s
         # pattern at shutdown_controller.py:464,497-498.
+        #
+        # GT-43: if restart_app() is running on a non-main thread (the
+        # common case — pystray tray menu callback), arm the same
+        # shutdown watchdog ``quit()`` uses. If ``tray.stop()`` (called
+        # inside ``_do_cleanup`` above) failed to break the pystray
+        # loop and the main thread is still parked in ``tray.run()``
+        # after ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` seconds, the watchdog
+        # calls ``os._exit(0)`` to unblock the process. Without this,
+        # a hung pystray backend leaves the old process unkillable
+        # after a Restart click — and the new process can't claim the
+        # single-instance mutex / IPC port, so the restart silently
+        # fails. The watchdog is a daemon thread, so it never blocks
+        # the normal exit path (if the main thread returns from
+        # ``tray.run()`` promptly, the process exits and the daemon
+        # is killed).
+        is_main_thread = threading.current_thread() is threading.main_thread()
+        if not is_main_thread:
+            try:
+                self.shutdown._arm_shutdown_watchdog(
+                    self._shutdown_watchdog_timeout_s
+                )
+            except Exception:
+                log.debug(
+                    "[RESTART] GT-43: failed to arm shutdown watchdog",
+                    exc_info=True,
+                )
         log.info("[RESTART] Old process exiting via sys.exit(0)")
-        if threading.current_thread() is threading.main_thread():
+        if is_main_thread:
             sys.exit(0)
         # else: rely on tray.stop() (called inside _do_cleanup) to
         # break the pystray loop so app.start() returns and
-        # ipc_server.main() falls through to process exit.
+        # ipc_server.main() falls through to process exit. If that
+        # doesn't happen within SHUTDOWN_WATCHDOG_TIMEOUT_S seconds,
+        # the GT-43 watchdog will call os._exit(0) as a last resort.
 
     def _wait_for_relaunch_ack(self, timeout: float) -> bool:
         """Wait for Electron to ack the ``relaunch_electron`` event.

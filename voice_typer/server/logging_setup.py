@@ -44,11 +44,39 @@ def _setup_logging():
     quiet = os.environ.get("VOICE_TYPER_QUIET", "").lower() in ("1", "true", "yes")
     port_mode = "--port" in sys.argv
 
-    _setup_logging_shared(
+    session_id = _setup_logging_shared(
         config_dir,
         debug=debug,
         quiet=quiet,
         port_mode=port_mode,
+    )
+
+    # GT-B1-15: emit a startup banner so operators can see at a glance
+    # which logging configuration took effect (file path, root level,
+    # JSON mode, debug flag, quiet flag, session id).  Logged at INFO so
+    # it appears in the rotating file log under the default
+    # configuration (file handler sits at INFO per G4-H-35).  The
+    # session_id is the 8-char hex returned by ``setup_logging``;
+    # ``os.environ.get("VOICE_TYPER_LOG_JSON")`` is re-checked here
+    # (rather than introspected from ``log``) so the banner stays
+    # accurate even if ``setup_logging`` is changed to compute JSON
+    # mode from a different source in the future.
+    _log_file = config_dir / "voice-typer.log"
+    _json_mode = os.environ.get("VOICE_TYPER_LOG_JSON", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    _root_level = logging.getLogger().level
+    log.info(
+        "[STARTUP] logging initialized: file=%s, level=%s, json=%s, "
+        "debug=%s, quiet=%s, session=%s",
+        _log_file,
+        logging.getLevelName(_root_level),
+        _json_mode,
+        debug,
+        quiet,
+        session_id,
     )
 
     # PLAT-008: validate environment variables before consuming them

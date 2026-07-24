@@ -49,6 +49,8 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
+from collections import OrderedDict
 from typing import Any
 
 __all__ = ["log_rate_limited", "reset"]
@@ -62,19 +64,70 @@ __all__ = ["log_rate_limited", "reset"]
 # pass an explicit ``key=`` to bucket them.
 
 _RATE_LIMIT_LOCK = threading.Lock()
-"""Guards all access to :data:`_RATE_LIMIT_COUNTS`."""
+"""Guards all access to :data:`_RATE_LIMIT_COUNTS` and the summary-state
+ dicts below."""
 
-_RATE_LIMIT_COUNTS: dict[tuple[str, str], int] = {}
-"""Map of ``(logger.name, key)`` → number of times the path has fired.
+_MAX_COUNTERS = 1024
+"""GT-B1-12: hard cap on the number of distinct rate-limit counters.
 
-Never read or written without holding :data:`_RATE_LIMIT_LOCK`.
+The keys are ``(logger.name, key_or_msg)`` pairs.  In practice, a
+handful of distinct rate-limited call sites means the dict stays
+small; if a future caller uses an unbounded set of dynamic messages
+without passing an explicit ``key=``, the dict would grow without
+bound -- potentially exhausting memory in a long-running server.
+This cap with LRU eviction bounds the worst case; the eviction
+WARNING (see :func:`log_rate_limited`) surfaces caller misuse so the
+bug gets noticed.
+"""
+
+_SUMMARY_INTERVAL_SECONDS = 60.0
+"""GT-66: wall-clock seconds between INFO-level suppression summaries."""
+
+_RATE_LIMIT_COUNTS: "OrderedDict[tuple[str, str], int]" = OrderedDict()
+"""Map of ``(logger.name, key)`` -> number of times the path has fired.
+
+Implemented as :class:`collections.OrderedDict` so :meth:`move_to_end`
+gives O(1) LRU semantics without a separate access-ordered structure
+(GT-B1-12).  Never read or written without holding
+:data:`_RATE_LIMIT_LOCK`.
+"""
+
+_RATE_LIMIT_LAST_SUMMARY: dict[tuple[str, str], float] = {}
+"""GT-66: per-key ``time.monotonic()`` of the most recent INFO summary.
+
+A key is inserted into this dict on the *first* suppressed occurrence
+(so the first 60-second window starts ticking from the second call,
+not from process boot -- otherwise a single suppressed occurrence at
+process start + 61s of silence would emit an empty summary).  Never
+read or written without holding :data:`_RATE_LIMIT_LOCK`.
+"""
+
+_RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY: dict[tuple[str, str], int] = {}
+"""GT-66: per-key count of suppressed occurrences since the last summary.
+
+Reset to 0 whenever an INFO summary is emitted for the key.  Never
+read or written without holding :data:`_RATE_LIMIT_LOCK`.
+"""
+
+_log = logging.getLogger(__name__)
+"""Module logger used for the GT-66 INFO summary and the GT-B1-12
+eviction WARNING.
+
+These meta-logs are emitted through the *module* logger
+(``voice_typer.server.log_rate_limit``) -- NOT through the caller's
+``logger`` argument -- so they are always visible at the file handler's
+INFO level regardless of the caller's logger level (a caller may have
+raised their level via ``VOICE_TYPER_LOG_LEVEL_MODULES``; the summary
+should still surface to the operator).
 """
 
 
 def reset() -> None:
-    """Clear all rate-limit counters — called by tests for isolation."""
+    """Clear all rate-limit counters -- called by tests for isolation."""
     with _RATE_LIMIT_LOCK:
         _RATE_LIMIT_COUNTS.clear()
+        _RATE_LIMIT_LAST_SUMMARY.clear()
+        _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY.clear()
 
 
 def log_rate_limited(
@@ -148,6 +201,29 @@ def log_rate_limited(
     with _RATE_LIMIT_LOCK:
         count = _RATE_LIMIT_COUNTS.get(counter_key, 0) + 1
         _RATE_LIMIT_COUNTS[counter_key] = count
+        # GT-B1-12: mark this key as most-recently-used so the LRU
+        # eviction policy evicts the LEAST-recently-used key when the
+        # dict hits the cap.  ``OrderedDict.__setitem__`` does NOT move
+        # an existing key to the end automatically, so this explicit
+        # call is what makes the LRU semantics work.
+        _RATE_LIMIT_COUNTS.move_to_end(counter_key)
+        # GT-B1-12: cap the dict size.  Eviction signals caller misuse
+        # (dynamic messages without an explicit ``key=``); we count
+        # the evictions here and log a WARNING after releasing the
+        # lock so the I/O doesn't block other callers.
+        evicted_count = 0
+        while len(_RATE_LIMIT_COUNTS) > _MAX_COUNTERS:
+            _RATE_LIMIT_COUNTS.popitem(last=False)
+            evicted_count += 1
+
+    if evicted_count:
+        _log.warning(
+            "[rate-limit] counter dict exceeded %d entries; evicted %d "
+            "LRU key(s) -- caller should pass an explicit key= to bucket "
+            "dynamic messages",
+            _MAX_COUNTERS,
+            evicted_count,
+        )
 
     # ``every_n <= 0`` means "never log on the Nth" (only the 1st logs
     # at the configured level).  ``every_n == 1`` means every call is an
@@ -166,3 +242,39 @@ def log_rate_limited(
     # logging framework only renders the string if DEBUG is enabled).
     rendered = msg % args if args else msg
     logger.debug("%s (suppressed occurrence %d)", rendered, count)
+
+    # GT-66: periodic INFO summary so chronic suppressed-occurrence
+    # conditions surface at INFO level (the file-handler default) — not
+    # just at DEBUG (which is only visible when VOICE_TYPER_DEBUG=1).
+    # Tracked per ``counter_key`` so each error class gets its own
+    # summary cadence.  The first suppressed occurrence seeds the timer
+    # (``_RATE_LIMIT_LAST_SUMMARY`` is set to ``now``); once
+    # ``_SUMMARY_INTERVAL_SECONDS`` of wall-clock has elapsed AND at
+    # least one occurrence has fired since the last summary, emit an
+    # INFO line through the module logger and reset the per-key delta.
+    now = time.monotonic()
+    summary_delta = 0
+    summary_key: str | None = None
+    with _RATE_LIMIT_LOCK:
+        delta = _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY.get(counter_key, 0) + 1
+        _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY[counter_key] = delta
+        last_summary = _RATE_LIMIT_LAST_SUMMARY.get(counter_key)
+        if last_summary is None:
+            # Seed the timer on the first suppressed occurrence so the
+            # first 60-second window starts ticking from now.
+            _RATE_LIMIT_LAST_SUMMARY[counter_key] = now
+        elif (now - last_summary) >= _SUMMARY_INTERVAL_SECONDS and delta > 0:
+            summary_delta = delta
+            summary_key = counter_key[1]
+            _RATE_LIMIT_LAST_SUMMARY[counter_key] = now
+            _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY[counter_key] = 0
+
+    if summary_key is not None:
+        # Log outside the lock to avoid holding it during I/O.  Route
+        # through the module logger so the summary is always visible
+        # regardless of the caller's logger level.
+        _log.info(
+            "[rate-limit] %d suppressed occurrences of %r in last 60s",
+            summary_delta,
+            summary_key,
+        )

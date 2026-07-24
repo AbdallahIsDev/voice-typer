@@ -24,8 +24,16 @@ import threading
 import time
 import typing
 from concurrent.futures import ThreadPoolExecutor
+from types import FrameType
+from typing import TYPE_CHECKING, TextIO
 
 from voice_typer.server import event_bus
+
+if TYPE_CHECKING:
+    # GT-D1-5: concrete type for the ``service`` DI parameter (was ``Any``).
+    # Imported under TYPE_CHECKING to avoid a runtime circular import —
+    # VoiceTyperService imports from this module's neighbours.
+    from voice_typer.server.service import VoiceTyperService
 
 # CR-1 (consolidated): the helper leaf submodules under
 # ``voice_typer.server.ipc`` (``validation.py``, ``transport.py``,
@@ -94,6 +102,40 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 
+# GT-29 / GT-D1-10: typed response envelope and command-handler aliases.
+#
+# ``ResponseEnvelope`` is the canonical shape of every IPC frame pushed or
+# dispatched: a dict with at least ``type`` (str) and optional ``data``,
+# ``id``. Using a type alias (instead of bare ``dict``) lets the type
+# checker verify handler signatures and the dispatch-table value type, so
+# a typo in a handler-method name surfaces at IPCServer construction
+# (where the bound-method cache is built) rather than at dispatch time.
+ResponseEnvelope = dict[str, object]
+
+# ``CommandHandler`` is the signature every ``_handle_*`` method follows:
+# ``(data, resp) -> resp | None``. Storing bound methods in a typed dict
+# (instead of method-name strings resolved via ``getattr``) means the
+# type checker can verify the call site in ``_dispatch``.
+CommandHandler = typing.Callable[
+    [object | None, ResponseEnvelope], ResponseEnvelope | None
+]
+
+# GT-25: read-only IPC commands whose handlers do NOT mutate shared
+# app/service state. These bypass the per-server ``_dispatch_lock`` so a
+# long-running state-mutating handler (e.g. ``download_model``) does not
+# block a quick status poll from a second authenticated connection. The
+# set is intentionally minimal — only commands whose handler bodies are
+# pure reads (no recorder / config / model / history mutation).
+_READONLY_COMMANDS: frozenset[str] = frozenset(
+    {
+        "get_status",
+        "get_config",
+        "get_model_catalog",
+        "heartbeat",
+    }
+)
+
+
 # ── CR-11 / R4-F18: per-process rate limiter get-or-create ───────────────
 #
 # ``_get_rate_limiter(server)`` is the canonical lazy get-or-create for the
@@ -153,9 +195,12 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
         limiter = getattr(server, "_rate_limiter_instance", None)
         if not isinstance(limiter, _RateLimiter):
             limiter = _RateLimiter()
+            # GT-30: ``IPCServer.__init__`` now declares
+            # ``_rate_limiter_instance: _RateLimiter | None = None``, so the
+            # assignment type-checks cleanly without ``# type: ignore``.
             # ``setattr`` on a MagicMock overrides the auto-vivified child
             # attribute; on a real IPCServer it just sets the attribute.
-            server._rate_limiter_instance = limiter  # type: ignore[attr-defined]
+            server._rate_limiter_instance = limiter
         return limiter
 
 
@@ -306,7 +351,7 @@ class IPCServer(
     def __init__(
         self,
         app,
-        service: "typing.Any | None" = None,
+        service: "VoiceTyperService | None" = None,
     ) -> None:
         # ARCH-REFAC-004: dependency-injection seam.
         #
@@ -415,6 +460,53 @@ class IPCServer(
         # False`` automatically. See ``_reset_ready_emitted()`` for the
         # test-only helper that resets this between runs of the same server.
         self._ready_emitted: bool = False
+
+        # GT-30: declare the per-instance rate-limiter attribute on
+        # ``IPCServer`` itself (was dynamically injected by the
+        # module-level ``_get_rate_limiter`` helper, with a
+        # ``# type: ignore[attr-defined]`` silencing the missing-attribute
+        # diagnostic). Declaring it here means the type checker can
+        # verify both the ``setattr`` site and the ``getattr`` fast path
+        # in ``_get_rate_limiter``; a refactor that drops the
+        # ``_get_rate_limiter`` injection is now visible as
+        # ``_rate_limiter_instance is None`` at dispatch time rather than
+        # as a silent slow-path regression.
+        self._rate_limiter_instance: _RateLimiter | None = None
+
+        # GT-25: per-server dispatch lock serializing state-mutating
+        # handler invocations. Read-only handlers (see
+        # ``_READONLY_COMMANDS``) bypass this lock. The lock is held ONLY
+        # for the handler body — NOT for the dispatch I/O (read, parse,
+        # response write) — so a slow state-mutating handler (e.g.
+        # ``download_model``) blocks OTHER state-mutating dispatches but
+        # NOT read-only status polls or the accept loop. ``RLock`` so a
+        # handler that re-enters ``_dispatch`` on the same thread (e.g.
+        # via ``event_bus.publish`` triggering a synchronously-delivered
+        # event) does not self-deadlock.
+        self._dispatch_lock = threading.RLock()
+
+        # GT-29: instance-level typed handler cache. Built once at
+        # ``__init__`` by resolving every class-level ``_COMMAND_REGISTRY``
+        # method-name string to its bound method via ``getattr``. The
+        # class-level ``_COMMAND_REGISTRY: dict[str, str]`` is kept as the
+        # introspection source-of-truth (pinned by
+        # ``tests/tauri/mig19/test_phase4_validation.py`` and
+        # ``tests/test_ipc_shutdown_registry.py``); this cache is the
+        # dispatch-time lookup table that gives the type checker a
+        # ``Callable`` value type instead of ``str``. A typo in the
+        # class-level registry now surfaces at IPCServer construction
+        # (every test that builds an IPCServer) instead of only when the
+        # buggy command is dispatched.
+        self._command_handlers: dict[str, CommandHandler] = {}
+        for _cmd, _method_name in self._COMMAND_REGISTRY.items():
+            _bound = getattr(self, _method_name, None)
+            if not callable(_bound):
+                raise RuntimeError(
+                    f"_COMMAND_REGISTRY[{_cmd!r}] resolves to non-callable "
+                    f"attribute {_method_name!r} on IPCServer — registry "
+                    "entry and handler method have drifted out of sync."
+                )
+            self._command_handlers[_cmd] = _bound
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -1378,7 +1470,9 @@ class IPCServer(
             )
         return True
 
-    def _handle_heartbeat(self, data, resp) -> dict:
+    def _handle_heartbeat(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope:
         """Handle the ``heartbeat`` IPC command (RW-10).
 
         Electron's main process sends this every 5 seconds (see
@@ -1397,7 +1491,9 @@ class IPCServer(
         resp["type"] = "heartbeat_ack"
         return resp
 
-    def _handle_relaunch_ack(self, data, resp) -> None:
+    def _handle_relaunch_ack(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """PERF-005: Electron ack that it has received and is processing the
         ``relaunch_electron`` request.
 
@@ -1573,6 +1669,13 @@ class IPCServer(
             registry entry, not inserting into a giant elif chain.
         The handler bodies are identical to the old elif blocks -- this
         is a mechanical refactor with zero behavior change.
+
+        GT-25 / GT-45: state-mutating handler invocations are serialized
+        on ``self._dispatch_lock`` with a TOCTOU-closing re-check of
+        ``app._shutting_down`` inside the lock. Read-only handlers (see
+        ``_READONLY_COMMANDS``) bypass the lock; their best-effort
+        shutdown re-check is done unlocked (mirroring the original
+        PVT-G5-004 gate).
         """
         # PVT-G5-004: cooperative shutdown gate. When the app is shutting
         # down (``app._shutting_down is True``), reject all NEW dispatch
@@ -1584,25 +1687,13 @@ class IPCServer(
         # but not ``is True`` — keep exercising the dispatch path instead
         # of short-circuiting here.
         if getattr(self.app, "_shutting_down", False) is True:
-            # EC-FIX-2 / EC-10: align to the namespaced
-            # ``server.shutting_down`` form so the WS path
-            # (sidecar_ws.py, which already emits this code) and the
-            # TCP / stdin path produce identical envelopes —
-            # restoring the IPC-5 parity contract that had drifted.
-            err: dict[str, object] = {
-                "type": "error",
-                "data": {
-                    "code": "server.shutting_down",
-                    "message": "server is shutting down",
-                },
-            }
-            if isinstance(msg, dict) and "id" in msg:
-                err["id"] = msg["id"]
-            return err
+            return self._shutting_down_error(msg)
 
         cmd = msg.get("type")
         data = msg.get("data")
-        resp = {"id": msg.get("id")} if "id" in msg else {}
+        resp: ResponseEnvelope = (
+            {"id": msg.get("id")} if "id" in msg else {}
+        )
 
         # RW-13: propagate the inbound request id as a correlation id for
         # the duration of this dispatch.  Every log emitted by a handler
@@ -1630,13 +1721,51 @@ class IPCServer(
         # receives the original value (including ``None``) for the error
         # message, preserving the previous wire behaviour.
         cmd_key = cmd if isinstance(cmd, str) else ""
+        # GT-29: resolve the handler via the class-level ``_COMMAND_REGISTRY``
+        # (the introspection source-of-truth) plus ``getattr`` so test-time
+        # monkey-patches (``monkeypatch.setattr(server, '_handle_<cmd>', ...)``)
+        # are observed at dispatch time. The instance-level
+        # ``_command_handlers`` cache (built in ``__init__``) is a typed
+        # validation artifact: it surfaces registry typos at IPCServer
+        # construction (every test that builds an IPCServer) rather than
+        # only when the buggy command is dispatched. The cache is NOT
+        # consulted at dispatch time — that would silently bypass
+        # monkey-patches. The ``CommandHandler`` annotation on the local
+        # ``handler`` variable gives the type checker a ``Callable`` value
+        # type instead of ``Any``.
+        handler_name = self._COMMAND_REGISTRY.get(cmd_key)
+        handler: CommandHandler | None = None
+        if handler_name is not None:
+            _resolved = getattr(self, handler_name, None)
+            if callable(_resolved):
+                handler = _resolved  # type: ignore[assignment]
         try:
-            handler_name = self._COMMAND_REGISTRY.get(cmd_key)
-            if handler_name is None:
+            if handler is None:
                 result = self._handle_unknown_command(cmd, data, resp)
+            elif cmd_key in _READONLY_COMMANDS:
+                # GT-25: read-only handlers bypass the dispatch lock —
+                # they don't mutate shared app/service state, so a
+                # long-running state-mutating handler on another thread
+                # can't block a quick status poll.
+                # GT-45: best-effort unlocked re-check (the initial
+                # PVT-G5-004 gate already covered the common case).
+                if getattr(self.app, "_shutting_down", False) is True:
+                    result = self._shutting_down_error(msg)
+                else:
+                    result = handler(data, resp)
             else:
-                handler = getattr(self, handler_name)
-                result = handler(data, resp)
+                # GT-25 + GT-45: state-mutating handlers serialize on the
+                # per-server dispatch lock; the shutdown re-check happens
+                # INSIDE the lock so the (locked) handler invocation is
+                # atomic with the (locked, on the ShutdownController side)
+                # shutdown-flag set — closing the TOCTOU window between
+                # the unlocked gate at the top of ``_dispatch`` and the
+                # handler call.
+                with self._dispatch_lock:
+                    if getattr(self.app, "_shutting_down", False) is True:
+                        result = self._shutting_down_error(msg)
+                    else:
+                        result = handler(data, resp)
         finally:
             if _corr_token is not None:
                 from voice_typer.server.log import reset_correlation_id
@@ -1651,6 +1780,28 @@ class IPCServer(
             result.setdefault("data", {})
 
         return result
+
+    def _shutting_down_error(self, msg: dict) -> ResponseEnvelope:
+        """Build a structured ``server.shutting_down`` error envelope.
+
+        EC-FIX-2 / EC-10: aligned to the namespaced ``server.*`` form so
+        the WS path (sidecar_ws.py) and the TCP / stdin path produce
+        identical envelopes — restoring the IPC-5 parity contract.
+
+        Factored out of ``_dispatch`` (GT-45) so the initial PVT-G5-004
+        gate and the per-handler-call TOCTOU re-check share a single
+        source of truth for the envelope shape.
+        """
+        err: ResponseEnvelope = {
+            "type": "error",
+            "data": {
+                "code": "server.shutting_down",
+                "message": "server is shutting down",
+            },
+        }
+        if isinstance(msg, dict) and "id" in msg:
+            err["id"] = msg["id"]
+        return err
 
     # Command registry: maps IPC command name to handler method.
     # Built once at class definition time; _dispatch does a single dict lookup.
@@ -1802,7 +1953,9 @@ class IPCServer(
         "export_gdpr_bundle": "_handle_export_gdpr_bundle",
     }
 
-    def _handle_tray_click(self, data, resp) -> dict:
+    def _handle_tray_click(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope:
         """ADR-0020 §6.5 / §16: dispatch a Tauri tray-menu click by item id.
 
         Looks the clicked ``id`` up via the tray's ``dispatch_tray_action``
@@ -1845,7 +1998,9 @@ class IPCServer(
 
         return {"type": "result", "data": {"ok": True}}
 
-    def _handle_unknown_command(self, cmd, data, resp) -> dict | None:
+    def _handle_unknown_command(
+        self, cmd: object | None, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope:
         """Handle the ``__unknown__`` IPC command."""
         resp["type"] = "error"
         # ERR-009: include a structured `code` field so clients can
@@ -1864,7 +2019,9 @@ class IPCServer(
         }
         return resp
 
-    def _handle_shutdown(self, data, resp) -> dict:
+    def _handle_shutdown(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope:
         """Handle the ``shutdown`` IPC command (EC-FIX-2 / EC-9).
 
         ADR-0020 §10: cooperative shutdown. The Tauri host sends this
@@ -1888,21 +2045,67 @@ class IPCServer(
         matches the prior WS-path ack so the Tauri Rust host's
         ``shutdown`` match arm (which awaits this exact envelope) keeps
         working unchanged.
+
+        GT-5: the ack is set on ``resp`` and returned BEFORE
+        ``self.service.quit()`` is invoked. ``service.quit()`` runs
+        ``_do_cleanup()`` synchronously (30+ steps, ~95s worst case);
+        the Tauri host's ``SHUTDOWN_ACK_TIMEOUT_MS=2000ms`` fires long
+        before cleanup completes, force-killing the sidecar
+        mid-cleanup. Running cleanup on a daemon background thread lets
+        the dispatch loop flush the ack frame immediately — the host
+        receives the ack within milliseconds and proceeds to its
+        graceful-wait while the sidecar's cleanup runs concurrently.
+
+        GT-C3-7: the background-thread cleanup catches ``BaseException``
+        (NOT just ``Exception``) so a ``SystemExit`` / ``KeyboardInterrupt``
+        raised inside ``service.quit()`` is logged server-side rather
+        than silently killing the cleanup thread. The ack is unaffected
+        — it was already returned before the thread started.
         """
-        # EC-FIX-2: delegate to the service layer (NOT self.app.quit())
-        # so shutdown side-effects added to VoiceTyperService.quit run
-        # identically across TCP / stdin / WS transports.
-        try:
-            self.service.quit()
-        except Exception as e:
-            # The service-layer shutdown controller is best-effort; a
-            # failure here (e.g. the tray is mid-teardown) must NOT
-            # strand the host waiting for an ack. Log server-side and
-            # still return the ack so the host proceeds to its
-            # hard-timeout backstop (kill_children).
-            log.error("[IPC] shutdown: service.quit() raised: %s", e, exc_info=True)
+        # GT-5: build the ack envelope FIRST and return it. The dispatch
+        # loop flushes the wire frame before the background cleanup
+        # thread can make progress (the daemon thread doesn't get
+        # scheduled until the dispatch loop yields or blocks on I/O).
         resp["type"] = "result"
         resp["data"] = {"ack": True}
+
+        # GT-5 + GT-C3-7: run service.quit() on a background daemon
+        # thread so the synchronous ~95s _do_cleanup does NOT block the
+        # dispatch pool thread that's about to flush the ack frame. The
+        # host's 2s SHUTDOWN_ACK_TIMEOUT_MS fires long before cleanup
+        # completes; without the background thread, the host force-kills
+        # the sidecar mid-cleanup (crash_recovery/history_db flush,
+        # recorder.stop, hotkey unregisters, PID file clear, tray.stop,
+        # Win32 mutex CloseHandle are all interrupted).
+        def _bg_cleanup() -> None:
+            # EC-FIX-2: delegate to the service layer (NOT
+            # self.app.quit()) so shutdown side-effects added to
+            # VoiceTyperService.quit run identically across TCP / stdin
+            # / WS transports.
+            try:
+                self.service.quit()
+            except BaseException as e:  # noqa: BLE001 — GT-C3-7
+                # The service-layer shutdown controller is best-effort;
+                # a failure here (e.g. the tray is mid-teardown, a
+                # KeyboardInterrupt during a sleep, or a SystemExit
+                # raised deep inside _do_cleanup) must NOT silently kill
+                # the cleanup thread and leave resources held. Log
+                # server-side so the operator can diagnose; the host's
+                # hard-timeout backstop (kill_children) fires either way.
+                # ``BaseException`` (rather than ``Exception``) catches
+                # ``SystemExit`` / ``KeyboardInterrupt`` too — the ack
+                # was already returned, so there's nothing to recover.
+                log.error(
+                    "[IPC] shutdown: service.quit() raised: %s",
+                    e,
+                    exc_info=True,
+                )
+
+        threading.Thread(
+            target=_bg_cleanup,
+            name="ipc-shutdown-cleanup",
+            daemon=True,
+        ).start()
         return resp
 
     # ── Output ──────────────────────────────────────────────────────────
@@ -1911,7 +2114,12 @@ class IPCServer(
         """Send an unsolicited event (no ``id`` field)."""
         self._send(msg)
 
-    def _send(self, msg: dict | None, _out=None, _client=None) -> None:
+    def _send(
+        self,
+        msg: dict | None,
+        _out: TextIO | None = None,
+        _client: object | None = None,
+    ) -> None:
         """Serialize *msg* and write it to the active transport.
 
         NEW-IPC-014 / NEW-CONC-001 / NEW-CONC-003: previously the entire
@@ -1956,13 +2164,19 @@ class IPCServer(
             # ``_client`` defaults to ``None`` for the push-event path.
             tcp_client = _client if _client is not None else self._tcp_client
             tcp_mode = self._tcp_mode
-            # Snapshot and clear the pending list atomically.  Anything
-            # pushed between this snapshot and the actual send will be
-            # picked up by the NEXT _send call (or this one's drain
-            # loop, since we re-check after each write).
-            pending = list(self._pending_tcp) if self._pending_tcp else None
-            if pending:
-                self._pending_tcp.clear()
+            # XV-82 / GT-48: snapshot the pending list ONLY when we have
+            # a connected client to drain it to. When ``tcp_client`` is
+            # None (disconnected), the snapshot+clear is skipped — the
+            # tcp_mode branch below appends the new line to the in-memory
+            # buffer instead. This eliminates the FIFO race (GT-48) at
+            # its root: with no snapshot+clear, no other thread can
+            # observe an empty ``_pending_tcp`` mid-snapshot and append
+            # a NEW event that the snapshot's re-merge would mis-order.
+            pending: list[str] | None = None
+            if tcp_client is not None:
+                if self._pending_tcp:
+                    pending = list(self._pending_tcp)
+                    self._pending_tcp.clear()
 
         # Step 2: serialize + write OUTSIDE the lock.  A slow client can
         # stall here without blocking other dispatchers.
@@ -2123,11 +2337,23 @@ class IPCServer(
             # events are also in history_db).
             _pending_cap = 1000
             with self._lock:
-                # Re-merge any pending we snapshot earlier (they belong
-                # before this new message in the queue).
+                # GT-48: re-merge with correct FIFO ordering. Under the
+                # XV-82 snapshot gate above, ``pending`` is always None
+                # in this tcp_mode branch (the snapshot only runs when
+                # ``tcp_client is not None``, which short-circuits to
+                # the earlier write-and-drain path). The re-merge is kept
+                # DEFENSIVELY — if a future change re-introduces an
+                # unconditional snapshot, the FIFO order is preserved:
+                # snapshot events (oldest) first, then any events a
+                # concurrent thread appended between our snapshot+clear
+                # and this re-acquire, then the new line (newest). The
+                # previous buggy sequence (extend-then-append) placed OLD
+                # snapshot events AFTER the concurrent thread's NEW event
+                # — violating FIFO publish order.
                 if pending:
-                    self._pending_tcp.extend(pending)
-                self._pending_tcp.append(line)
+                    self._pending_tcp = pending + self._pending_tcp + [line]
+                else:
+                    self._pending_tcp.append(line)
                 if len(self._pending_tcp) > _pending_cap:
                     dropped = len(self._pending_tcp) - _pending_cap
                     del self._pending_tcp[:dropped]
@@ -2267,7 +2493,7 @@ def main() -> None:
             # Wrap it in a closure that calls ``dump_traceback_later``
             # with a 1-second delay — the documented use case for
             # on-demand thread dumps from SIGUSR1.
-            def _on_sigusr1(_signum: int, _frame: "typing.Any") -> None:
+            def _on_sigusr1(_signum: int, _frame: FrameType | None) -> None:
                 faulthandler.dump_traceback_later(timeout=1.0)
 
             signal.signal(signal.SIGUSR1, _on_sigusr1)

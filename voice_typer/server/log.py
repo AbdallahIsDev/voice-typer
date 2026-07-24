@@ -34,6 +34,7 @@ import logging
 import logging.handlers
 import os
 import sys
+import time
 import uuid
 from pathlib import Path
 
@@ -114,6 +115,39 @@ _devnull_files: list = []
 """File descriptors opened for pythonw.exe stdio redirection."""
 
 
+# GT-64: runtime log-level override registry.  Populated by
+# ``_apply_per_module_log_levels`` (env-var path at startup) and by
+# ``set_module_level`` (runtime API for IPC / CLI).  Queried by
+# ``get_module_levels`` so operators can verify the active per-module
+# config without restarting.  Values are stored as level *names*
+# (``"DEBUG"``, ``"INFO"`` ...) so the dict is JSON-serialisable for IPC.
+_module_level_overrides: dict[str, str] = {}
+
+
+def _iso_timestamp(record: logging.LogRecord, *, utc: bool = False) -> str:
+    """Return an ISO 8601 timestamp with milliseconds and timezone.
+
+    GT-61: ``logging.Formatter.formatTime`` with a custom format string
+    bypasses Python's ``%(msecs)`` / ``%(asctime)`` defaults and drops
+    both milliseconds and the timezone offset.  For an audio app that
+    pushes ``bubble_level`` events at ~60 Hz, two log lines within the
+    same second are indistinguishable, and cross-timezone support
+    tickets require manual timezone inference.
+
+    By default the local-time zone offset is appended (``+0200``);
+    pass ``utc=True`` for the JSON formatter which emits a Z-suffixed
+    UTC timestamp (``...Z``) that log aggregators expect.
+    """
+    if utc:
+        ct = time.gmtime(record.created)
+        base = time.strftime("%Y-%m-%dT%H:%M:%S", ct)
+        return f"{base}.{int(record.msecs):03d}Z"
+    ct = time.localtime(record.created)
+    base = time.strftime("%Y-%m-%dT%H:%M:%S", ct)
+    tz = time.strftime("%z", ct) or "+0000"
+    return f"{base}.{int(record.msecs):03d}{tz}"
+
+
 def reset() -> None:
     """Reset all logging state — called by tests to avoid cross-test contamination."""
     global _session_id
@@ -122,6 +156,9 @@ def reset() -> None:
         with contextlib.suppress(Exception):
             f.close()
     _devnull_files.clear()
+    # GT-64: clear the per-module override registry so tests don't leak
+    # overrides between runs.
+    _module_level_overrides.clear()
     root = logging.getLogger("voice_typer")
     root.handlers.clear()
     root.filters.clear()
@@ -159,11 +196,25 @@ class _BubbleLevelExclusionFilter(logging.Filter):
     The marker string is the exact event-type token used by the
     ``bubble_level`` push and by ``IPCServer._send``'s high-frequency
     drop log, so any record mentioning it is excluded from the file.
+
+    GT-62: WARNING+ records are kept unconditionally (cheap path,
+    no ``getMessage()`` call) so legitimate error logs mentioning
+    ``bubble_level`` are never silently dropped from the file.
     """
 
     _MARKER = "bubble_level"
 
     def filter(self, record: logging.LogRecord) -> bool:
+        # GT-62: cheap path — WARNING+ records are always kept (no
+        # ``getMessage()`` call) so a legitimate
+        # ``"bubble_level handler crashed"``-style error is never
+        # dropped from the file. The expensive substring match only
+        # runs for DEBUG / INFO records, which is the level the
+        # high-frequency bubble push is emitted at — so the
+        # noise-suppression behaviour is preserved while protecting
+        # diagnostic error lines.
+        if record.levelno >= logging.WARNING:
+            return True
         msg = record.getMessage()
         return self._MARKER not in msg
 
@@ -301,6 +352,38 @@ def _extract_topic(msg: str) -> tuple[str | None, str]:
 # ── Colour formatters ─────────────────────────────────────────────────
 
 
+def _append_exception_text(
+    formatter: logging.Formatter,
+    record: logging.LogRecord,
+    line: str,
+) -> str:
+    """GT-2: append ``exc_text`` / ``stack_info`` to a formatted log line.
+
+    Python's stock ``logging.Formatter.format`` does this; custom
+    overrides that skip ``super().format()`` must replicate it or
+    ``log.exception(...)`` / ``log.error(..., exc_info=True)`` lose
+    their tracebacks — the single most important diagnostic field for
+    remote triage. ``PIIRedactionFilter`` (when attached to the handler)
+    has already cached a *redacted* traceback in ``record.exc_text``;
+    we honour it to avoid re-running the (potentially expensive)
+    traceback formatting and to preserve the PII scrub.
+
+    Shared by :class:`_ColorFormatter`, :class:`_FileFormatter`, and
+    :class:`_JsonFormatter` (DRY — Rule 24).
+    """
+    if record.exc_info and not record.exc_text:
+        record.exc_text = formatter.formatException(record.exc_info)
+    if record.exc_text:
+        if not line.endswith("\n"):
+            line += "\n"
+        line += record.exc_text
+    if record.stack_info:
+        if not line.endswith("\n"):
+            line += "\n"
+        line += formatter.formatStack(record.stack_info)
+    return line
+
+
 class _ColorFormatter(logging.Formatter):
     """ANSI-coloured formatter for stderr (terminal output).
 
@@ -336,9 +419,11 @@ class _ColorFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = self.formatTime(record, "%H:%M:%S")
-        if ts[0] == "0":
-            ts = ts[1:]
+        # GT-61: ISO 8601 with millis + tz so sub-second audio events
+        # are distinguishable. ISO 8601 requires a 2-digit hour, so we
+        # do NOT trim the leading zero (the legacy ``%H:%M:%S`` trim
+        # was a cosmetic preference that breaks ISO parsing).
+        ts = _iso_timestamp(record)
         msg = record.getMessage()
         topic, _ = _extract_topic(msg)
         # G4-CR-12: the per-process ``[hex session_id]`` bracket is rendered
@@ -359,18 +444,25 @@ class _ColorFormatter(logging.Formatter):
             # Full-line colour: emit colour, ts, dim bracket (SGR 22
             # restores normal intensity so the level symbol + message
             # stay in the level colour), then reset.
-            return f"\033[{c}m{ts}  \033[{self._DIM_ATTR}m[{session_id}]\033[22m  {sym} {msg}\033[0m"
+            line = f"\033[{c}m{ts}  \033[{self._DIM_ATTR}m[{session_id}]\033[22m  {sym} {msg}\033[0m"
+        else:
+            # INFO — dim timestamp, dim session_id bracket, no level label,
+            # message coloured by topic.
+            prefix = f"\033[{self._DIM}m{ts}\033[0m"
+            tc = _TOPIC_COLOR.get(topic) if topic else None
+            if tc is None and not topic:
+                inferred = _infer_topic(msg)
+                if inferred:
+                    tc = _TOPIC_COLOR.get(inferred)
+            body = f"\033[{tc}m{msg}\033[0m" if tc else msg
+            line = f"{prefix}  {bracket}  {body}"
 
-        # INFO — dim timestamp, dim session_id bracket, no level label,
-        # message coloured by topic.
-        prefix = f"\033[{self._DIM}m{ts}\033[0m"
-        tc = _TOPIC_COLOR.get(topic) if topic else None
-        if tc is None and not topic:
-            inferred = _infer_topic(msg)
-            if inferred:
-                tc = _TOPIC_COLOR.get(inferred)
-        body = f"\033[{tc}m{msg}\033[0m" if tc else msg
-        return f"{prefix}  {bracket}  {body}"
+        # GT-2: append exception traceback. ``PIIRedactionFilter``
+        # pre-formats and redacts the traceback into ``record.exc_text``
+        # before any formatter runs, so we honour it here. Plain text
+        # (no ANSI) so the traceback is readable on every terminal.
+        line = _append_exception_text(self, record, line)
+        return line
 
 
 class _FileFormatter(logging.Formatter):
@@ -421,7 +513,9 @@ class _FileFormatter(logging.Formatter):
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        ts = self.formatTime(record, "%Y-%m-%d  %H:%M:%S")
+        # GT-61: ISO 8601 with millis + tz so sub-second audio events
+        # are distinguishable in the file log.
+        ts = _iso_timestamp(record)
         msg = record.getMessage()
         label = self._LVL_LABEL.get(record.levelno, "INFO ")
         # G4-CR-12: render the per-process session_id bracket so operators
@@ -444,7 +538,12 @@ class _FileFormatter(logging.Formatter):
         task_name = getattr(record, "taskName", None)
         if task_name:
             task_bracket = f"  [{task_name}]"
-        return f"{ts}  [{session_id}]  [{thread_name}]{task_bracket}  {label}  [{component}]  {msg}"
+        line = f"{ts}  [{session_id}]  [{thread_name}]{task_bracket}  {label}  [{component}]  {msg}"
+        # GT-2: append the (already PII-redacted) traceback so
+        # ``log.exception(...)`` / ``log.error(..., exc_info=True)``
+        # records keep their diagnostic stack trace in the file.
+        line = _append_exception_text(self, record, line)
+        return line
 
 
 class _JsonFormatter(logging.Formatter):
@@ -502,7 +601,10 @@ class _JsonFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, object] = {
-            "ts": self.formatTime(record, "%Y-%m-%d  %H:%M:%S"),
+            # GT-61: ISO 8601 UTC with millis + ``Z`` suffix so log
+            # aggregators get a parseable, timezone-aware timestamp
+            # (no manual tz inference needed for cross-timezone tickets).
+            "ts": _iso_timestamp(record, utc=True),
             "level": record.levelname,
             "component": getattr(record, "component", record.name),
             # G4-CR-13: emit ``session_id`` so JSON aggregators can group
@@ -529,6 +631,15 @@ class _JsonFormatter(logging.Formatter):
         correlation_id = get_correlation_id()
         if correlation_id:
             payload["correlation_id"] = correlation_id
+        # GT-2: include the (PII-redacted) traceback so JSON aggregators
+        # can index / alert on stack traces. ``PIIRedactionFilter`` has
+        # already cached the redacted text in ``record.exc_text``.
+        if record.exc_info and not record.exc_text:
+            record.exc_text = self.formatException(record.exc_info)
+        if record.exc_text:
+            payload["traceback"] = record.exc_text.rstrip()
+        if record.stack_info:
+            payload["stack_info"] = self.formatStack(record.stack_info).rstrip()
         return json.dumps(payload, ensure_ascii=False)
 
 
@@ -543,29 +654,119 @@ def _apply_per_module_log_levels() -> None:
         VOICE_TYPER_LOG_LEVEL_MODULES="module.path=LEVEL,another.module=LEVEL"
 
     where ``LEVEL`` is a ``logging`` level name (``DEBUG``, ``INFO``,
-    ``WARNING``, ``ERROR``, ``CRITICAL``).  Invalid entries are silently
-    skipped (best-effort) so a typo in one entry does not break logging
-    setup.  Lets operators crank up DEBUG on a single subsystem (e.g.
+    ``WARNING``, ``ERROR``, ``CRITICAL``).  Invalid entries are
+    skipped (best-effort) so a typo in one entry does not break
+    logging setup, but each skipped entry now logs a WARNING (GT-65)
+    so the operator can see *which* entry was ignored and why — a
+    silent skip was an operator trap (typo in the module path => no
+    DEBUG output => operator assumes the subsystem isn't logging when
+    in fact the override never applied).  Lets operators crank up
+    DEBUG on a single subsystem (e.g.
     ``voice_typer.server.dictation_pipeline``) without enabling DEBUG
     globally and flooding the rotating file with high-frequency events
     from unrelated subsystems.
+
+    Successfully applied overrides are recorded in
+    :data:`_module_level_overrides` so :func:`get_module_levels` can
+    report the active per-module config (GT-64).
     """
     raw = os.environ.get("VOICE_TYPER_LOG_LEVEL_MODULES", "")
     if not raw:
         return
+    # GT-65: log to the voice_typer.server.log logger so the warning
+    # reaches the rotating file handler (setup_logging has already
+    # attached it by the time this runs).
+    setup_log = logging.getLogger("voice_typer.server.log")
     for entry in raw.split(","):
         entry = entry.strip()
-        if not entry or "=" not in entry:
+        if not entry:
+            continue
+        if "=" not in entry:
+            setup_log.warning(
+                "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES "
+                "entry %r (reason: missing '=')",
+                entry,
+            )
             continue
         name, _, level_str = entry.partition("=")
         name = name.strip()
         level_str = level_str.strip().upper()
         if not name or not level_str:
+            setup_log.warning(
+                "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES "
+                "entry %r (reason: empty module name or level)",
+                entry,
+            )
             continue
         level = getattr(logging, level_str, None)
         if not isinstance(level, int):
+            setup_log.warning(
+                "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES "
+                "entry %r (reason: unknown level %r — expected DEBUG/INFO/WARNING/ERROR/CRITICAL)",
+                entry,
+                level_str,
+            )
             continue
         logging.getLogger(name).setLevel(level)
+        # GT-64: record the override so get_module_levels can report it.
+        _module_level_overrides[name] = level_str
+        setup_log.info(
+            "[LOG-SETUP] set %s to %s",
+            name,
+            level_str,
+        )
+
+
+def set_module_level(name: str, level: str) -> None:
+    """Set a single logger's level at runtime (GT-64).
+
+    Parameters
+    ----------
+    name:
+        Dotted logger name (e.g. ``"voice_typer.server.dictation_pipeline"``).
+    level:
+        Level name (``"DEBUG"``, ``"INFO"``, ``"WARNING"``, ``"ERROR"``,
+        ``"CRITICAL"``) — case-insensitive.  Invalid names raise
+        :class:`ValueError`.
+
+    Notes
+    -----
+    Mirrors what :func:`_apply_per_module_log_levels` does for the
+    ``VOICE_TYPER_LOG_LEVEL_MODULES`` env var, but exposes a public
+    API so the renderer / a future CLI / a debug overlay can change
+    a subsystem's level without restarting the sidecar.  Emits an
+    INFO log line so the change is visible in the rotating file (audit
+    trail).  The override is recorded in :data:`_module_level_overrides`
+    and is queryable via :func:`get_module_levels`.
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError(f"set_module_level: name must be a non-empty string, got {name!r}")
+    level_str = (level or "").strip().upper()
+    resolved = getattr(logging, level_str, None) if level_str else None
+    if not isinstance(resolved, int):
+        raise ValueError(
+            f"set_module_level: unknown level {level!r} for module {name!r} "
+            "(expected DEBUG/INFO/WARNING/ERROR/CRITICAL)"
+        )
+    logging.getLogger(name).setLevel(resolved)
+    _module_level_overrides[name] = level_str
+    logging.getLogger("voice_typer.server.log").info(
+        "[LOG-SETUP] set %s to %s (runtime override)",
+        name,
+        level_str,
+    )
+
+
+def get_module_levels() -> dict[str, str]:
+    """Return a snapshot of explicitly-set per-module level overrides (GT-64).
+
+    Returns a fresh dict (mutating the return value does not affect
+    internal state).  Includes overrides applied by the
+    ``VOICE_TYPER_LOG_LEVEL_MODULES`` env var at startup AND by
+    subsequent :func:`set_module_level` calls.  Values are level
+    *names* (``"DEBUG"`` ...) so the dict is JSON-serialisable for IPC.
+    """
+    return dict(_module_level_overrides)
 
 
 def _ensure_last_resort_redacted(pii_filter: logging.Filter) -> None:
@@ -763,7 +964,7 @@ def setup_logging(
             with contextlib.suppress(OSError):
                 sys.stderr.reconfigure(errors="backslashreplace")
 
-        # ── 5. Coloured stderr (terminal or --port mode) ───────────────
+        # ── 5. Stderr stream handler ─────────────────────────────────────
         # P1-1.1: always flush after each emit so terminal log lines appear
         # in real-time.  The bare logging.StreamHandler only flushes on
         # close (or when its internal buffer hits a high-water mark), so
@@ -771,15 +972,37 @@ def setup_logging(
         # buffer for seconds before being flushed — making the app look
         # like it's hanging silently.  _FlushingStreamHandler.emit() calls
         # self.flush() after every record.
+        #
+        # GT-13: ALWAYS attach a stderr stream handler (with PII filter,
+        # INFO level) — not only when stderr is a TTY or --port mode is
+        # active.  Under Tauri sidecar, sys.stderr is a pipe (not a TTY)
+        # and --port is not in sys.argv, so the legacy ``do_color`` gate
+        # attached NO stream handler.  All INFO/DEBUG records went only
+        # to the RotatingFileHandler; if the config dir was read-only /
+        # disk full / perm wrong, the file write failed silently via
+        # ``handleError`` and the record was lost.  Python's
+        # ``lastResort`` only fires when NO handlers are configured —
+        # here the file handler IS configured (just failing), so
+        # lastResort never triggered, leaving ZERO log signal of the
+        # failure.  Attaching a stderr handler guarantees the record
+        # reaches *some* sink even when the file write fails.
         do_color = sys.stderr.isatty() or port_mode
-        if sys.stderr is not None and do_color:
+        if sys.stderr is not None:
             stream = _FlushingStreamHandler()
             stream.setLevel(logging.DEBUG if debug else logging.INFO)
-            # RW-13: in JSON mode the console also emits structured records
-            # (no ANSI colouring — JSON consumers parse the line, not the
-            # rendering).  The PII filter still runs below, so console JSON
-            # output is redacted too.
-            stream.setFormatter(_JsonFormatter() if json_mode else _ColorFormatter())
+            if do_color:
+                # RW-13: in JSON mode the console also emits structured
+                # records (no ANSI colouring — JSON consumers parse the
+                # line, not the rendering).  The PII filter still runs
+                # below, so console JSON output is redacted too.
+                stream.setFormatter(_JsonFormatter() if json_mode else _ColorFormatter())
+            else:
+                # Non-TTY (Tauri sidecar, piped stderr, log redirection):
+                # plain-text format (no ANSI escapes) so the lines stay
+                # readable when piped through ``less`` / ``grep`` / a
+                # log shipper.  JSON mode still uses _JsonFormatter for
+                # structured consumers.
+                stream.setFormatter(_JsonFormatter() if json_mode else _FileFormatter())
             # RW-6: attach the same PII / API-key redaction filter to the
             # console handler so secrets don't leak to the terminal either.
             stream.addFilter(_pii_filter)

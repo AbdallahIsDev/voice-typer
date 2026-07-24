@@ -60,6 +60,7 @@ import os
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -75,19 +76,51 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# GT-43 / GT-70: sentinel returned by ``_run_with_timeout`` when the worker
+# thread did not finish within the timeout. Distinct from ``None`` so callers
+# can reliably detect a timeout and apply per-resource shutdown barriers
+# (GT-70) or hard-kill fallbacks (GT-43 tray.stop → os._exit(0)).
+class _TimeoutSentinel:
+    """Singleton sentinel signaling that ``_run_with_timeout`` abandoned
+    its worker thread. Use ``is TIMEOUT`` to compare."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover — cosmetic
+        return "<TIMEOUT>"
+
+
+TIMEOUT = _TimeoutSentinel()
+
+# Compatibility aliases for DE-54 / DE-11 regression tests.
+_TIMEOUT = TIMEOUT
+_DE11_GRACE_PERIOD_SECONDS: float = 2.0
+
+# GT-43: watchdog timeout for the non-main-thread ``quit()`` /
+# ``restart_app()`` path. After ``_do_cleanup()`` completes, we arm a
+# daemon-thread watchdog that calls ``os._exit(0)`` after this many
+# seconds if the process is still alive (i.e. the main thread hasn't
+# returned from ``tray.run()``). 10s matches the GT-43 spec; tests patch
+# this to a shorter value to keep the suite fast.
+SHUTDOWN_WATCHDOG_TIMEOUT_S: float = 10.0
+
+
 def _run_with_timeout(description: str, func, timeout: float = 5.0):
     """PVT-G5-057: run *func* in a worker thread with a hard timeout.
 
-    Returns whatever ``func()`` returned, or ``None`` if it did not
-    finish within *timeout* seconds (in which case a warning is logged
-    and the worker thread continues running in the background — Python
-    does not support thread cancellation, so we leak a daemon thread
-    rather than block shutdown indefinitely). Re-raises any exception
-    raised by ``func()`` so the caller's existing try/except still
-    applies.
+    Returns whatever ``func()`` returned, or :data:`TIMEOUT` (a sentinel
+    distinct from ``None``) if it did not finish within *timeout* seconds.
+    Re-raises any exception raised by ``func()`` so the caller's existing
+    try/except still applies. The worker thread is daemon-marked so it
+    doesn't block interpreter exit if it really is stuck.
 
-    The worker thread is daemon-marked so it doesn't block interpreter
-    exit if it really is stuck.
+    GT-70: callers that share a resource across multiple
+    ``_run_with_timeout`` calls (e.g. ``app.recorder`` for
+    ``recorder.stop`` → ``recorder.shutdown_mic_watcher``) MUST check the
+    return value against :data:`TIMEOUT` and skip the downstream call
+    when the upstream one timed out — otherwise the leaked worker thread
+    races the next call on the same resource (PortAudio is not safe for
+    concurrent stream operations from multiple threads).
     """
     result_holder: dict = {}
 
@@ -110,7 +143,7 @@ def _run_with_timeout(description: str, func, timeout: float = 5.0):
             description,
             timeout,
         )
-        return None
+        return TIMEOUT
     if "error" in result_holder:
         raise result_holder["error"]
     return result_holder.get("value")
@@ -308,9 +341,49 @@ class ShutdownController:
         except Exception:
             log.debug("[SHUTDOWN] WS dispatch pool shutdown failed", exc_info=True)
 
-        # Cancel all pending timers
+        # Cancel all pending timers.
+        # GT-72: ``_cancel_pending_timers`` (on TimerCoordinator) bumps
+        # ``_timer_generation`` and calls ``Timer.cancel()`` on every
+        # pending timer — but ``Timer.cancel()`` only prevents a timer
+        # that hasn't fired yet. A timer whose ``guarded_func`` has
+        # already been invoked by the Timer thread (passed the
+        # ``gen == self._timer_generation`` check) but hasn't yet called
+        # ``func()`` will STILL run ``func()`` after the generation bump,
+        # racing the subsystem teardown below. The fix on the
+        # TimerCoordinator side (GT-72 primary fix, NOT owned by this
+        # agent) is to re-check the generation under a shutdown lock; the
+        # fix HERE is to give those in-flight ``func()`` invocations a
+        # short bounded window to complete before we start tearing down
+        # the subsystems they touch (tray, recorder, IPC server).
+        #
+        # We capture the pending-timer list BEFORE calling
+        # ``_cancel_pending_timers`` (which clears it), then ``.join()``
+        # each captured timer thread with a short per-timer timeout so
+        # the total drain is bounded. ``Timer.cancel()`` is a no-op for
+        # already-fired timers, so joining them is safe and gives the
+        # in-flight ``guarded_func`` body a chance to return.
         try:
+            timers_coord = getattr(app, "timers", None)
+            in_flight_timers: list = []
+            if timers_coord is not None:
+                pending_lock = getattr(timers_coord, "_pending_timers_lock", None)
+                if pending_lock is not None:
+                    with pending_lock:
+                        in_flight_timers = list(
+                            getattr(timers_coord, "_pending_timers", [])
+                        )
             app._cancel_pending_timers()
+            # Drain in-flight timer threads with a short total budget.
+            # Per-timer timeout of 0.5s × N timers — for the typical
+            # 3-5 pending timers, total drain is ≤2.5s, well within the
+            # 5s budget that the rest of cleanup tolerates per step.
+            for timer in in_flight_timers:
+                try:
+                    timer.join(timeout=0.5)
+                except Exception:
+                    log.debug(
+                        "[CLEANUP] in-flight timer join failed", exc_info=True
+                    )
         except Exception:
             log.debug("[CLEANUP] _cancel_pending_timers failed", exc_info=True)
 
@@ -342,22 +415,53 @@ class ShutdownController:
         # PVT-G5-057: wrap in timeout — PortAudio's stop() can hang on
         # some backends (notably WASAPI on Windows when the device is
         # gone). 5s matches the daemon-thread join convention.
+        #
+        # GT-70: per-resource "shutdown barrier" for the recorder. If
+        # ``recorder.stop`` (or ``recorder.discard``) times out, the
+        # worker thread is LEAKED as a daemon and continues touching the
+        # PortAudio stream in the background. A subsequent
+        # ``recorder.shutdown_mic_watcher`` call would race the leaked
+        # worker — PortAudio is not safe for concurrent stream
+        # operations from multiple threads. We set a local
+        # ``recorder_force_closed`` flag (and mirror it onto
+        # ``app.recorder._force_closed`` so the recorder itself can
+        # short-circuit any later access) and skip the downstream
+        # ``shutdown_mic_watcher`` call when the flag is set.
+        recorder_force_closed = False
         try:
             if app.recorder is not None and app.recorder.recording:
                 try:
-                    _run_with_timeout(
+                    _stop_result = _run_with_timeout(
                         "recorder.stop",
                         app.recorder.stop,
                         timeout=5.0,
                     )
+                    if _stop_result is TIMEOUT:
+                        recorder_force_closed = True
+                        with contextlib.suppress(Exception):
+                            app.recorder._force_closed = True
+                        log.warning(
+                            "[SHUTDOWN] GT-70: recorder.stop() timed out — "
+                            "marking recorder as force-closed; downstream "
+                            "recorder.shutdown_mic_watcher will be skipped"
+                        )
                 except Exception as e:
                     log.warning("[SHUTDOWN] recorder.stop() failed: %s, trying discard()", e)
                     try:
-                        _run_with_timeout(
+                        _discard_result = _run_with_timeout(
                             "recorder.discard",
                             app.recorder.discard,
                             timeout=5.0,
                         )
+                        if _discard_result is TIMEOUT:
+                            recorder_force_closed = True
+                            with contextlib.suppress(Exception):
+                                app.recorder._force_closed = True
+                            log.warning(
+                                "[SHUTDOWN] GT-70: recorder.discard() timed out — "
+                                "marking recorder as force-closed; downstream "
+                                "recorder.shutdown_mic_watcher will be skipped"
+                            )
                     except Exception as e2:
                         log.warning("[SHUTDOWN] recorder.discard() also failed: %s", e2)
         except Exception:
@@ -368,12 +472,22 @@ class ShutdownController:
         # — the thread is a daemon and would die on process exit anyway,
         # but explicit stop() avoids a 2s join race during GC.
         # PVT-G5-057: 5s timeout.
+        # GT-70: SKIP this step if ``recorder.stop`` / ``recorder.discard``
+        # timed out above — the leaked worker thread is still accessing
+        # the PortAudio stream, and concurrent ``shutdown_mic_watcher``
+        # calls can segfault or leave the audio device inconsistent.
         try:
-            if app.recorder is not None:
+            if app.recorder is not None and not recorder_force_closed:
                 _run_with_timeout(
                     "recorder.shutdown_mic_watcher",
                     app.recorder.shutdown_mic_watcher,
                     timeout=5.0,
+                )
+            elif recorder_force_closed:
+                log.warning(
+                    "[SHUTDOWN] GT-70: skipping recorder.shutdown_mic_watcher "
+                    "because recorder.stop()/discard() timed out (leaked worker "
+                    "may still be accessing the PortAudio stream)"
                 )
         except Exception as e:
             log.debug("[SHUTDOWN] mic watcher shutdown failed: %s", e)
@@ -651,12 +765,33 @@ class ShutdownController:
         # has completed. Idempotent — wrapped in try-except so a second
         # call after the tray is already stopped doesn't propagate.
         # PVT-G5-057: 5s timeout.
+        #
+        # GT-43 / XV-10: if ``tray.stop()`` times out AND we're on a
+        # non-main thread, call ``os._exit(0)`` immediately. The main
+        # thread is parked in pystray's ``tray.run()`` event loop and
+        # relies on ``tray.stop()`` breaking that loop to return. If
+        # ``tray.stop()`` hangs, the main thread never returns and the
+        # process is unkillable via the normal path — ``sys.exit(0)`` in
+        # ``quit()`` only raises ``SystemExit`` in THIS worker thread.
+        # ``os._exit(0)`` bypasses Python's orderly shutdown but is safe
+        # here because every other subsystem has already been torn down
+        # by the cleanup steps above. On the main thread, we just log
+        # and continue — ``quit()``'s ``sys.exit(0)`` will handle exit.
         try:
-            _run_with_timeout(
+            _tray_stop_result = _run_with_timeout(
                 "tray.stop",
                 app.tray.stop,
                 timeout=5.0,
             )
+            if _tray_stop_result is TIMEOUT and (
+                threading.current_thread() is not threading.main_thread()
+            ):
+                log.warning(
+                    "[SHUTDOWN] GT-43: tray.stop() timed out on non-main thread "
+                    "— calling os._exit(0) to unblock the main thread parked in "
+                    "tray.run() (all subsystem cleanup already completed)"
+                )
+                os._exit(0)
         except Exception:
             log.debug("[CLEANUP] tray.stop() failed", exc_info=True)
 
@@ -753,8 +888,70 @@ class ShutdownController:
         # tests/test_app_cleanup.py::test_quit_calls_do_cleanup.
         app._do_cleanup()
 
+        # GT-43: After ``_do_cleanup()`` completes on a non-main thread,
+        # arm a 10s watchdog daemon thread. ``sys.exit(0)`` below only
+        # raises ``SystemExit`` in THIS worker thread — process exit
+        # relies on the main thread returning from ``tray.run()`` (which
+        # ``tray.stop()``, called inside ``_do_cleanup()``, was supposed
+        # to break). If the main thread still hasn't returned after 10s
+        # (pystray's event loop didn't actually break, or the OS window
+        # manager is stuck), the watchdog calls ``os._exit(0)`` as a
+        # last resort. ``os._exit(0)`` is safe here because every
+        # subsystem has already been torn down by ``_do_cleanup()``.
+        # The watchdog is a daemon thread, so it never blocks process
+        # exit in the normal case (main thread returns, process exits,
+        # daemon thread is killed).
+        if not is_main:
+            self._arm_shutdown_watchdog(SHUTDOWN_WATCHDOG_TIMEOUT_S)
+
         if is_main:
             sys.exit(0)
+
+    def _arm_shutdown_watchdog(self, timeout_s: float) -> None:
+        """GT-43: arm a daemon-thread watchdog that calls ``os._exit(0)``
+        after ``timeout_s`` seconds if the process is still alive.
+
+        Used by ``quit()`` (and ``restart_app()`` on the ``VoiceTyperApp``
+        side, which mirrors this pattern) when invoked from a non-main
+        thread. ``sys.exit(0)`` only raises ``SystemExit`` in the worker
+        thread — process exit relies on ``tray.stop()`` breaking the
+        pystray loop on the main thread (parked in ``tray.run()``). If
+        ``tray.stop()`` succeeded but the main thread still hasn't
+        returned from ``tray.run()`` (e.g. pystray's Gtk/Cocoa backend
+        didn't actually break the loop, or the OS window manager is
+        stuck), the watchdog fires ``os._exit(0)`` as a last resort.
+
+        ``os._exit(0)`` bypasses Python's orderly shutdown (no atexit,
+        no daemon-thread joins, no stdio flush). This is safe because
+        ``_do_cleanup()`` has already run every subsystem cleanup by
+        the time the watchdog is armed.
+
+        The watchdog daemon thread polls in 0.5s increments so it stays
+        responsive to interpreter shutdown. Tests can shorten the
+        timeout by patching ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` or by
+        passing a smaller ``timeout_s`` directly.
+        """
+        def _watchdog() -> None:
+            deadline = time.monotonic() + timeout_s
+            while time.monotonic() < deadline:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                time.sleep(min(0.5, remaining))
+            log.warning(
+                "[SHUTDOWN] GT-43 watchdog: process still alive %.1fs after "
+                "_do_cleanup completed — calling os._exit(0) to unblock the "
+                "main thread (parked in tray.run())",
+                timeout_s,
+            )
+            os._exit(0)
+
+        t = threading.Thread(
+            target=_watchdog,
+            name="shutdown-watchdog",
+            daemon=True,
+        )
+        t.start()
 
     # ─── atexit safety net ─────────────────────────────────────────────
 
