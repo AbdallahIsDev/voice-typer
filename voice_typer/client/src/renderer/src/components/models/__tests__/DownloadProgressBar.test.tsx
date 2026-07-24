@@ -9,7 +9,8 @@
  * The test verifies:
  *   1. The progressbar role is preserved.
  *   2. The aria-label matches the en.json catalog value
- *      `models.download.progressAria` ("Model download progress").
+ *      `models.download.progressAria` with the {percent} placeholder
+ *      interpolated ("Model download: 42% complete" for progress=42).
  *   3. Mocking `t()` to return a sentinel makes the aria-label flip to
  *      the sentinel — proving the label is NOT a hardcoded literal.
  *   4. The aria-valuenow/min/max attributes still reflect the `progress`
@@ -37,7 +38,6 @@ vi.mock("@/i18n/i18n", async (importOriginal) => {
 });
 
 import { DownloadProgressBar } from "@/components/models/DownloadProgressBar";
-import { t } from "@/i18n/i18n";
 
 const baseProps = {
 	progress: 42,
@@ -73,15 +73,16 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 		expect(bar).toHaveAttribute("aria-valuenow", "40");
 	});
 
-	it("aria-label is sourced from models.download.progressAria (matches en.json catalog value)", () => {
+	it("aria-label is sourced from models.download.progressAria with {percent} interpolated", () => {
 		render(<DownloadProgressBar {...baseProps} />);
 		const bar = screen.getByRole("progressbar");
-		// en.json: models.download.progressAria = "Model download progress".
-		// If the component hardcoded the literal, this assertion would
-		// still pass — so we also do the sentinel test below to prove
-		// the label is NOT a literal.
-		const expected = t("models.download.progressAria");
-		expect(bar).toHaveAttribute("aria-label", expected);
+		// en.json: models.download.progressAria = "Model download: {percent}% complete".
+		// BG-4: the {percent} placeholder MUST be interpolated — screen
+		// readers would otherwise announce the literal token "{percent}"
+		// (with curly braces) for the entire duration of every download.
+		// For progress=42 the expected label is "Model download: 42% complete".
+		expect(bar).toHaveAttribute("aria-label", "Model download: 42% complete");
+		expect(bar.getAttribute("aria-label")).not.toContain("{percent}");
 	});
 
 	it("aria-label flips to the sentinel when t() is mocked (proves no hardcoded literal)", () => {
@@ -89,6 +90,15 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 		render(<DownloadProgressBar {...baseProps} />);
 		const bar = screen.getByRole("progressbar");
 		expect(bar).toHaveAttribute("aria-label", "SENTINEL_PROGRESS_ARIA");
+	});
+
+	it("status <p> is an aria-live=polite region (BG-75: announce download status changes to SR users)", () => {
+		render(<DownloadProgressBar {...baseProps} />);
+		// The status line shows the human-readable status string + the
+		// downloaded/total/speed/ETA spans. SR users need to hear updates
+		// as the download progresses — wrap the <p> in aria-live=polite.
+		const status = screen.getByText("downloading");
+		expect(status.closest("p")).toHaveAttribute("aria-live", "polite");
 	});
 
 	it("rounds the aria-valuenow to the nearest 10 (throttled for SR)", () => {
