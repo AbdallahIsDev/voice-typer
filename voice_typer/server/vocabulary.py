@@ -15,6 +15,7 @@ The vocabulary is applied after text cleanup and before template matching
 in the pipeline: transcribe → text cleanup → vocabulary → templates → auto-punctuate → paste
 """
 
+import contextlib
 import json
 import logging
 import threading
@@ -365,11 +366,8 @@ class VocabularyManager:
             self._save_user()
         except Exception:
             # M-63: roll back the in-memory mutation.
-            with self._lock:
-                try:
-                    cat_data.remove(new_entry)
-                except ValueError:
-                    pass
+            with self._lock, contextlib.suppress(ValueError):
+                cat_data.remove(new_entry)
             raise
         return True
 

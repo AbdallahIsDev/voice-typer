@@ -80,6 +80,7 @@ Cross-platform testing notes are in ``docs/security/credential-store.md``.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -876,12 +877,8 @@ def _acquire_migration_lock(lock_file):
             # fall back to a busy-wait by retrying on OSError).
             import msvcrt
 
-            try:
+            with contextlib.suppress(OSError):
                 msvcrt.locking(lock_fd.fileno(), msvcrt.LK_LOCK, 1)
-            except OSError:
-                # Best-effort: if LK_LOCK fails (rare), proceed without
-                # a lock — same fail-open behavior as the no-fcntl case.
-                pass
     except Exception:
         # Any failure acquiring the lock: close the fd and re-raise so
         # the caller knows the lock is NOT held (callers catch this and
@@ -948,13 +945,8 @@ def migrate_secrets_to_keyring() -> int:
     # inspect config.json.  The lock is held for the entire
     # read-migrate-write sequence so a concurrent process cannot
     # interleave its own migration with ours.
-    try:
+    with contextlib.suppress(OSError):
         _config_dir().mkdir(parents=True, exist_ok=True)
-    except OSError:
-        # If the dir already exists this is a no-op; if it can't be
-        # created, the subsequent _acquire_migration_lock call will
-        # fail with a clearer error.
-        pass
 
     try:
         lock_fd = _acquire_migration_lock(lock_file)
@@ -976,10 +968,8 @@ def migrate_secrets_to_keyring() -> int:
         return _migrate_secrets_to_keyring_locked(config_file)
     finally:
         if lock_fd is not None:
-            try:
+            with contextlib.suppress(OSError):
                 lock_fd.close()
-            except OSError:
-                pass
 
 
 def _migrate_secrets_to_keyring_locked(config_file) -> int:

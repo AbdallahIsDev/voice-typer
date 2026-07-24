@@ -135,7 +135,7 @@ class LinuxVolumeBackend(VolumeBackend):
             # the patches effective without requiring test changes.
             from voice_typer.server import volume_backends as _vb_pkg
 
-            Path = _vb_pkg.Path
+            Path = _vb_pkg.Path  # noqa: N806
             asound = Path("/proc/asound")
             if not asound.exists():
                 return True  # not Linux? — duck to be safe

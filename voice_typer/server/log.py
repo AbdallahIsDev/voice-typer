@@ -382,9 +382,9 @@ class _FileFormatter(logging.Formatter):
 
     Format::
 
-        2026-06-28 18:36:22  [a3f1b2c4]  [MainThread]  INFO   [voice_typer.server.app]  [HOTKEY] RegisterHotKey succeeded
+        2026-06-28 18:36:22  [a3f1b2c4]  [MainThread]  INFO   [voice_typer.server.app]  RegisterHotKey OK
         2026-06-28 18:36:22  [a3f1b2c4]  [MainThread]  WARN   [voice_typer.server.app]  [ENV] Invalid value ...
-        2026-06-28 18:36:22  [a3f1b2c4]  [TranscribeThread]  ERROR  [voice_typer.server.dictation_pipeline]  [RECORDING] Stream finished unexpectedly
+        2026-06-28 18:36:22  [a3f1b2c4]  [TranscribeThread]  ERROR  [voice_typer.server.dictation_pipeline]  Stream finished
 
     Fields (left to right):
 

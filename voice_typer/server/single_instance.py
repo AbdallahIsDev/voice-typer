@@ -314,7 +314,7 @@ def _ensure_windows_single_instance(silent: bool = False):
     # kernel32 (e.g. Wine, Windows RT) lacks the export. Failure here
     # doesn't block startup; the original inheritable-handle behavior
     # is the pre-fix status quo and is no worse than before.
-    HANDLE_FLAG_INHERIT = 0x00000001
+    HANDLE_FLAG_INHERIT = 0x00000001  # noqa: N806
     if mutex:
         try:
             kernel32.SetHandleInformation.argtypes = [

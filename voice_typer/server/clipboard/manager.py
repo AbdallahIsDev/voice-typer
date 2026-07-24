@@ -723,7 +723,7 @@ class ClipboardManager:
                 current_seq = self._get_clipboard_sequence_number()
                 if current_seq != expected_seq:
                     _cb.log.warning(
-                        "[CLIPBOARD] Clipboard modified between copy and paste (seq %d -> %d) — re-copying before paste",
+                        "[CLIPBOARD] Clipboard modified between copy and paste (seq %d -> %d) — re-copying",
                         expected_seq,
                         current_seq,
                     )

@@ -450,7 +450,15 @@ class CloudEngine:
                     # PVT-G5-041: include exc_info so the local fallback
                     # failure traceback is captured for debugging.
                     log.error("[CLOUD] Local fallback also failed: %s", local_err, exc_info=True)
-                    raise RuntimeError(f"Cloud ({self.provider}) and local fallback both failed") from cloud_err
+                    # S1-CR-24: re-raise the ORIGINAL cloud error (not a
+                    # bare RuntimeError) so the dictation pipeline's
+                    # ``_friendly_transcription_error`` can match the
+                    # exception type (ConnectionError, TimeoutError,
+                    # URLError) and produce a user-friendly message.
+                    # The local error is chained via ``__cause__`` for
+                    # debugging but does not mask the original cloud
+                    # error type.
+                    raise cloud_err from local_err
             raise
 
     def unload(self) -> None:

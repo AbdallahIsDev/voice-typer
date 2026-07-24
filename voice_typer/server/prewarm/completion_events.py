@@ -29,6 +29,7 @@ looked up via ``_pkg._read_prewarm_pid()`` for consistency.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import select
@@ -159,8 +160,8 @@ def _wait_completion_windows(pid: int, timeout_s: float) -> bool:
         kernel32.WaitForSingleObject.restype = wintypes.DWORD
         kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-        SYNCHRONIZE = 0x00100000
-        WAIT_OBJECT_0 = 0
+        SYNCHRONIZE = 0x00100000  # noqa: N806
+        WAIT_OBJECT_0 = 0  # noqa: N806
         handle = kernel32.OpenEventW(SYNCHRONIZE, False, _completion_event_name(pid))
         if not handle:
             return False
@@ -188,7 +189,5 @@ def _wait_completion_linux(pid: int, timeout_s: float) -> bool:
     except (OSError, ValueError):
         return False
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.close(fd)
-        except OSError:
-            pass

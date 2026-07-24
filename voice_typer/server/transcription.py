@@ -767,6 +767,13 @@ class TranscriptionEngine:
             # ``except Exception`` below swallow it (which would turn a
             # user-actionable consent dialog into a silent warning log).
             raise
+        except RuntimeError:
+            # S1-CR-19: re-raise integrity-check failures (raised at
+            # line 760 above) so WhisperModel does NOT silently load
+            # the bad files on the current launch. The cache dir was
+            # already cleaned (line 759), so the next launch will
+            # re-download — but the current launch must fail fast.
+            raise
         except Exception as exc:
             log.warning("[MODEL] Pre-download failed (WhisperModel will retry): %s", exc)
 

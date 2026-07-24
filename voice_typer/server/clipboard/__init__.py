@@ -75,6 +75,7 @@ from __future__ import annotations
 
 # ─── Standard library imports ────────────────────────────────────────
 import atexit  # noqa: F401  (re-exported for tests that inspect atexit usage)
+import contextlib
 import logging
 import os  # noqa: F401  (used by linux primitives; re-exported)
 import shutil  # noqa: F401  (used by linux primitives; re-exported)
@@ -290,12 +291,8 @@ def _signal_restore_handler(signum: int, frame: Any) -> None:  # noqa: ARG001
     re-raising the signal fails for any reason, raise ``SystemExit``
     so the process still terminates.
     """
-    try:
+    with contextlib.suppress(Exception):
         _force_restore_pending_at_exit()
-    except Exception:
-        # Best-effort: never raise from a signal handler. The
-        # atexit handler may have already logged the failure.
-        pass
     # Restore default disposition and re-raise so the process exits
     # with the conventional 128+signum status (matches what bash/$?
     # reports for signal-killed processes).

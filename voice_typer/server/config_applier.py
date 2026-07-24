@@ -625,7 +625,7 @@ class ConfigApplier:
             # G4-L-24: wrap the setattr loop in try/except. On exception,
             # restore pre-loop values for the keys we already set, then
             # re-raise so the caller sees the original error.
-            _MISSING = object()
+            _MISSING = object()  # noqa: N806
             set_keys: list[tuple[str, Any]] = []
             try:
                 for k, v in updates.items():

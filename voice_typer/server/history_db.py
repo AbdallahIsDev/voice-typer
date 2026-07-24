@@ -782,10 +782,7 @@ class HistoryDB:
                 # their own BEGIN;…COMMIT; (e.g. _MIGRATION_V3) are
                 # passed through unchanged.
                 needs_wrapper = "BEGIN;" not in migration_sql.upper()
-                if needs_wrapper:
-                    wrapped_sql = "BEGIN;\n" + migration_sql + "\nCOMMIT;\n"
-                else:
-                    wrapped_sql = migration_sql
+                wrapped_sql = "BEGIN;\n" + migration_sql + "\nCOMMIT;\n" if needs_wrapper else migration_sql
                 cursor.executescript(wrapped_sql)
                 # G4-CR-02: persist the version after each successful
                 # migration iteration so the next launch doesn't

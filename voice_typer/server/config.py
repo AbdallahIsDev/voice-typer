@@ -545,7 +545,7 @@ def _migrate_to_v2(data: dict) -> dict:
 
     if data.get("noise_filter_rnnoise") is True and "noise_suppression_method" not in data:
         log.info(
-            "[CONFIG] migrating schema v1 -> v2: noise_filter_rnnoise=True -> setting noise_suppression_method='rnnoise'"
+            "[CONFIG] migrating schema v1 -> v2: noise_filter_rnnoise=True -> noise_suppression_method='rnnoise'"
         )
         data["_load_warnings"].append(
             "noise_suppression_method set to 'rnnoise' because noise_filter_rnnoise was True (schema v2 migration)"

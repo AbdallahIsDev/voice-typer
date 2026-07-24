@@ -970,10 +970,15 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
                 from voice_typer.server.security import redact_pii
 
                 _atomic_write = _secure_atomic_write
-                _redact = lambda s: redact_secret(redact_pii(s))
+
+                def _redact(s):
+                    return redact_secret(redact_pii(s))
+
             except Exception:
                 _atomic_write = None
-                _redact = lambda s: s
+
+                def _redact(s):
+                    return s
             marker_path = _python_crash_dir / f"python_crash.{os.getpid()}.txt"
             thread_name = threading.current_thread().name
             timestamp = datetime.now().isoformat()

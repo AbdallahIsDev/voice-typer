@@ -11,6 +11,7 @@ its engines, and callers use get_active() to get the current
 backend without knowing which one it is.
 """
 
+import contextlib
 import logging
 import threading
 from typing import Any
@@ -337,12 +338,10 @@ class AsrBackendRegistry:
 
     def _persist_disabled(self) -> None:
         """Persist ``_disabled_backends`` to ``config.disabled_backends`` if the field exists."""
-        try:
+        # Config dataclass may not expose ``disabled_backends`` —
+        # silently skip; in-memory state still works for this run.
+        with contextlib.suppress(AttributeError, TypeError):
             self._config.disabled_backends = sorted(self._disabled_backends)
-        except (AttributeError, TypeError):
-            # Config dataclass may not expose ``disabled_backends`` —
-            # silently skip; in-memory state still works for this run.
-            pass
 
     # ── End G4-M-45 circuit-breaker helpers ────────────────────────────
 
