@@ -1,6 +1,6 @@
 // src/renderer/src/components/common/SettingRow.tsx
 
-import type { ReactNode } from "react";
+import { useId, useEffect, useRef, type ReactNode } from "react";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +9,20 @@ interface SettingRowProps {
 	info?: string;
 	children: ReactNode;
 	align?: "start" | "center";
+	/**
+	 * Optional `htmlFor` to associate this row's visible label with a
+	 * specific form control rendered as a child. When provided, the
+	 * label is rendered as a real `<label htmlFor={htmlFor}>` element
+	 * (clicking the label focuses the control — WCAG 2.4.13 + SC 1.3.1
+	 * + SC 4.1.2). When omitted, the label is rendered as a `<span>`
+	 * (existing behavior — the child must provide its own accessible
+	 * name via `aria-label` / `aria-labelledby` / a wrapping `<label>`).
+	 *
+	 * Callers that pass a child without its own accessible name AND
+	 * without `htmlFor` will get a dev-mode console warning (see the
+	 * useEffect below) so the omission is caught during development.
+	 */
+	htmlFor?: string;
 }
 
 export function SettingRow({
@@ -16,17 +30,52 @@ export function SettingRow({
 	info,
 	children,
 	align = "center",
+	htmlFor,
 }: SettingRowProps) {
-	// UX-014: the <span> below is purely visual — it does NOT use
-	// ``htmlFor`` because there is no shared ID between the label
-	// and the child input.  Children must provide their own
-	// ``aria-label`` (or be wrapped in a ``<label>`` themselves) so
-	// screen readers announce the setting name when the input is
-	// focused.  A previous version of this component used ``<label>``
-	// with ``useId()``, but that ID was never consumed by any child,
-	// leaving ``htmlFor`` pointing at a non-existent element.
-	// Using a <span> avoids the Biome ``a11y/noLabelWithoutControl``
-	// lint violation.
+	// useId() generates a stable id we put on the visible label
+	// element. Children can grab it via aria-labelledby if they want
+	// to point at the visible label text without duplicating the string.
+	const labelId = useId();
+
+	// Dev-mode audit. Inspect the rendered children for form controls
+	// (input, select, textarea, button[role=switch], [role=checkbox],
+	// [role=radio]) and verify each one has an accessible name
+	// (aria-label, aria-labelledby, title, or — when `htmlFor` is set
+	// on the row — is referenced by the row's label). If any control
+	// lacks an accessible name, log a one-time warning so the omission
+	// surfaces during development without breaking production builds.
+	const childrenRef = useRef<HTMLDivElement | null>(null);
+	useEffect(() => {
+		if (!import.meta.env.DEV) return;
+		const node = childrenRef.current;
+		if (!node) return;
+		const controls = node.querySelectorAll<HTMLElement>(
+			'input, select, textarea, button[role="switch"], [role="checkbox"], [role="radio"]',
+		);
+		if (controls.length === 0) return;
+		controls.forEach((ctrl) => {
+			const hasOwnName =
+				ctrl.hasAttribute("aria-label") ||
+				ctrl.hasAttribute("aria-labelledby") ||
+				ctrl.hasAttribute("title");
+			const isWrappedInLabel = ctrl.closest("label") !== null;
+			if (hasOwnName || isWrappedInLabel) return;
+			// eslint-disable-next-line no-console
+			console.warn(
+				`[SettingRow] The visible label "${label}" has no programmatic association with its child form control. ` +
+					'Pass `htmlFor` on SettingRow (and `id` on the control) OR pass `aria-label` / `aria-labelledby` on the control. ' +
+					'Without an association, screen-reader users hear the control announced without its name.',
+			);
+		});
+	}, [label, children]);
+
+	// The label is rendered as `<label>` only when the caller has
+	// opted in via `htmlFor`. Without `htmlFor`, a `<label>` would
+	// either (a) wrap the child (changing layout — many children are
+	// flex / Switch / Select and don't tolerate being wrapped) or
+	// (b) carry a dangling `htmlFor` pointing at a non-existent id (the
+	// bug that caused the original `<label>` → `<span>` downgrade).
+	const LabelTag = htmlFor ? "label" : "span";
 	return (
 		<div
 			className={cn(
@@ -35,12 +84,18 @@ export function SettingRow({
 			)}
 		>
 			<div className="flex min-w-0 items-center gap-2">
-				<span className="text-sm font-medium text-(--text-primary) cursor-default">
+				<LabelTag
+					id={labelId}
+					htmlFor={htmlFor}
+					className="text-sm font-medium text-(--text-primary) cursor-default"
+				>
 					{label}
-				</span>
+				</LabelTag>
 				{info && <InfoTooltip text={info} />}
 			</div>
-			<div className="shrink-0">{children}</div>
+			<div ref={childrenRef} className="shrink-0">
+				{children}
+			</div>
 		</div>
 	);
 }

@@ -46,7 +46,7 @@ export function KeyringStatusBadge({
 	// via Tab. Radix Tooltip opens on focus by default, exposing the
 	// status text without a mouse interaction.
 	const buttonBaseClass =
-		"inline-flex items-center appearance-none border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-help";
+		"inline-flex items-center appearance-none border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-default";
 
 	if (available) {
 		const tooltipText = backend

@@ -57,7 +57,7 @@ export function SearchField({
 				onChange={handleChange}
 				placeholder={placeholder}
 				aria-label={resolvedAriaLabel}
-				className="ps-9 rounded-xl bg-(--bg-subtle) border-border"
+				className="ps-9 pe-9 rounded-xl bg-(--bg-subtle) border-border"
 			/>
 			{value && (
 				<button

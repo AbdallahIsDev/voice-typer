@@ -32,7 +32,7 @@ interface EmptyStateProps {
 }
 
 export function EmptyState({
-	icon: _icon,
+	icon,
 	title,
 	description,
 	actionLabel,
@@ -60,7 +60,7 @@ export function EmptyState({
 			)}
 		>
 			<HugeiconsIcon
-				icon={isError ? Alert02Icon : _icon}
+				icon={isError ? Alert02Icon : icon}
 				strokeWidth={2}
 				className={cn(
 					"h-10 w-10",
@@ -70,15 +70,19 @@ export function EmptyState({
 							// contrast, and stacking opacity on top
 							// pushes the icon below WCAG 1.4.11.
 							"text-destructive"
-						: // NF-R15-16: opacity-50 (up from 30) so the icon passes WCAG
+						: // opacity-50 (up from 30) so the icon passes WCAG
 							// 1.4.11 non-text contrast (3:1) against typical backgrounds.
 							"text-(--text-muted) opacity-50",
 				)}
 			/>
-			<p className="text-sm text-(--text-muted)">{title}</p>
-			{/* NF-R15-16: dropped opacity-70 — text-(--text-muted) is already
-                            a low-contrast token, and stacking opacity on top pushed the
-                            effective contrast below WCAG AA for body text. */}
+			{/* Title is rendered as an <h3> (not a <p>) so screen-reader
+			    users can navigate empty-state cards by heading. The heading
+			    level (h3) is chosen to sit below the typical page <h1>/<h2>
+			    hierarchy used across the app. */}
+			<h3 className="text-sm text-(--text-muted)">{title}</h3>
+			{/* Dropped opacity-70 — text-(--text-muted) is already a
+			    low-contrast token, and stacking opacity on top pushed the
+			    effective contrast below WCAG AA for body text. */}
 			{description && (
 				<p className="text-xs text-(--text-muted)">{description}</p>
 			)}

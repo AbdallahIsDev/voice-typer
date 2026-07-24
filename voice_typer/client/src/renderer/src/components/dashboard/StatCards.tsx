@@ -1,33 +1,33 @@
 import { Mic02Icon, TextIcon, Time02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { t } from "@/i18n/i18n";
-import { compactNumber } from "@/lib/format";
+import { compactNumber, formatDuration } from "@/lib/format";
 import type { TodayStats } from "@/types/ipc";
 
-// PVT-090 / Task #17: ``formatCompactNumber`` was previously defined
-// inline here (with the "K+" suffix on remainder) AND separately in
-// Dashboard.tsx (with just "K").  Both have been replaced by the
-// shared ``compactNumber`` in ``lib/format.ts``.  The StatCards
-// legacy behaviour (K+ on remainder, locale-aware sub-1000 grouping)
-// is preserved by passing ``{ plusSuffix: true, localeAware: true }``.
+// ``formatCompactNumber`` was previously defined inline here (with the
+// "K+" suffix on remainder) AND separately in Dashboard.tsx (with just
+// "K"). Both have been replaced by the shared ``compactNumber`` in
+// ``lib/format.ts``. The StatCards legacy behaviour (K+ on remainder,
+// locale-aware sub-1000 grouping) is preserved by passing
+// ``{ plusSuffix: true, localeAware: true }``.
 function formatCompactNumber(n: number): string {
 	return compactNumber(n, { plusSuffix: true, localeAware: true });
 }
 
-function formatDuration(seconds: number): string {
-	const totalMinutes = Math.max(seconds > 0 ? 1 : 0, Math.round(seconds / 60));
-	const h = Math.floor(totalMinutes / 60);
-	const m = totalMinutes % 60;
-	if (totalMinutes === 0) return `0m`;
-	if (h === 0) return `${m}m`;
-	if (m === 0) return `${h}h`;
-	return `${h}h ${m}m`;
-}
+// ``formatDuration`` was previously defined inline here with hardcoded
+// English ``"h"`` / ``"m"`` suffixes AND separately in Dashboard.tsx
+// with subtly different edge-case handling (the two copies had
+// drifted). Both copies are now replaced by the shared
+// ``formatDuration`` in ``lib/format.ts``, which resolves the
+// ``h`` / ``m`` glyphs through ``t()`` (``analytics.durationHours`` /
+// ``durationMinutes`` / ``durationHoursMinutes`` / ``durationZero``)
+// so non-English locales see translated suffixes once F1 translates
+// the new keys.
 
-// NF-R15-7: card labels are now i18n-driven. We look up the translation key
-// at render time so the active locale is always reflected — the previous
-// implementation hard-coded English strings, which broke i18n for es / fr /
-// de / ar / hi / zh users.
+// Card labels are i18n-driven. We look up the translation key at
+// render time so the active locale is always reflected — the previous
+// implementation hard-coded English strings, which broke i18n for es /
+// fr / de / ar / hi / zh users.
 const CARDS: {
 	labelKey:
 		| "dashboard.cards.dictations"

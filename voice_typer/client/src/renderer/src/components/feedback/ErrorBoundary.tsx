@@ -154,7 +154,12 @@ export class ErrorBoundary extends Component<
 			lines.push(t("errorBoundary.unknownError"));
 		}
 		if (errorInfo?.componentStack) {
-			lines.push("\nComponent stack:");
+			// route the label through the i18n catalog so it adapts to
+			// the user's UI locale (previously hardcoded as
+			// `"\nComponent stack:"`). Preserve the leading newline so the
+			// pasted bug-report blob keeps the same visual separation between
+			// the JS stack and the React component tree.
+			lines.push(`\n${t("errorBoundary.componentStackLabel")}`);
 			lines.push(String(errorInfo.componentStack));
 		}
 		const payload = lines.join("\n");
@@ -296,10 +301,43 @@ export class ErrorBoundary extends Component<
 							{t("errorBoundary.description")}
 						</p>
 					</div>
+					{/* user-friendly summary placed ABOVE the technical <pre>
+					    so non-developer users see the recommended recovery path
+					    before the raw error message. The raw stack trace below is
+					    preserved for bug-report copy-paste but is no longer the
+					    first thing the user reads. */}
+					<p className="max-w-2xl text-sm text-(--text-muted)">
+						{t("errorBoundary.configCrashHint")}
+					</p>
 					<pre className="max-w-2xl overflow-auto rounded-lg border border-border bg-(--bg-subtle) p-4 text-left text-xs text-(--text-muted)">
 						{errorMessage}
 					</pre>
+					{/* sr-only hint wired to the Reset settings button via
+					    aria-describedby so screen-reader / keyboard users hear
+					    the rationale when the button receives focus. The `title`
+					    attribute alone is not reliably announced by all SRs. */}
+					<p id="error-boundary-reset-hint" className="sr-only">
+						{t("errorBoundary.resetSettingsHint")}
+					</p>
 					<div className="flex flex-wrap items-center justify-center gap-2">
+						{/* "Reset settings" is rendered FIRST and visually
+						    highlighted as the recommended recovery action — most
+						    render crashes stem from a bad config value, so this
+						    affordance has the highest expected payoff. The
+						    destructive tint + soft background visually separate
+						    it from the secondary Try Again / Reload App actions. */}
+						<button
+							type="button"
+							onClick={this.handleResetSettings}
+							disabled={this.state.resetting}
+							className="rounded-lg border border-destructive/60 bg-destructive/10 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-50"
+							title={t("errorBoundary.resetSettingsHint")}
+							aria-describedby="error-boundary-reset-hint"
+						>
+							{this.state.resetting
+								? t("errorBoundary.resetting")
+								: t("errorBoundary.resetSettings")}
+						</button>
 						<button
 							type="button"
 							onClick={this.handleReset}
@@ -319,28 +357,21 @@ export class ErrorBoundary extends Component<
 							onClick={this.handleCopyError}
 							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle)"
 						>
-							{this.state.copied ? "Copied!" : "Copy error"}
+							{this.state.copied
+								? t("errorBoundary.copied")
+								: t("errorBoundary.copyError")}
 						</button>
 						<button
 							type="button"
 							onClick={this.handleOpenLogs}
 							className="rounded-lg border border-border px-4 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle)"
 						>
-							Open logs
-						</button>
-						<button
-							type="button"
-							onClick={this.handleResetSettings}
-							disabled={this.state.resetting}
-							className="rounded-lg border border-destructive/60 px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
-							title="Reset all settings to defaults and reload — useful if a bad config value caused this crash"
-						>
-							{this.state.resetting ? "Resetting…" : "Reset settings"}
+							{t("errorBoundary.openLogs")}
 						</button>
 					</div>
 					{this.state.resetFailed && (
 						<p className="text-xs text-destructive">
-							Backend reset failed — clearing local state and reloading anyway.
+							{t("errorBoundary.resetFailedNotice")}
 						</p>
 					)}
 				</div>

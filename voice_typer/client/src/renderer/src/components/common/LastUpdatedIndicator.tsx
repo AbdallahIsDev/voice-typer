@@ -41,13 +41,13 @@ export function LastUpdatedIndicator({
 	return (
 		<div
 			className={
-				"flex items-center gap-1.5 text-[11px] text-(--text-muted) " +
+				"flex items-center gap-1.5 text-xs text-(--text-muted) " +
 				(className ?? "")
 			}
 			data-testid="last-updated-indicator"
 		>
 			<span>
-				{t("common.lastUpdated")}: {agoLabel}
+				{t("common.lastUpdatedWithValue", { value: agoLabel })}
 			</span>
 			<Button
 				variant="ghost"
