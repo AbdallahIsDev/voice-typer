@@ -72,7 +72,11 @@ function csvEscape(v: unknown): string {
 		s = v;
 	} else if (v == null) {
 		s = "";
-	} else if (typeof v === "number" || typeof v === "boolean" || typeof v === "bigint") {
+	} else if (
+		typeof v === "number" ||
+		typeof v === "boolean" ||
+		typeof v === "bigint"
+	) {
 		s = String(v);
 	} else {
 		try {

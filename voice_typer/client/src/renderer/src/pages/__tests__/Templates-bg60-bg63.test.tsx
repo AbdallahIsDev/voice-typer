@@ -181,8 +181,7 @@ describe("Templates page — BG-63 export format forwarding", () => {
 		if (originalWindow_ !== undefined) {
 			window.window_ = originalWindow_;
 		} else {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			delete (window as any).window_;
+			delete (window as { window_?: unknown }).window_;
 		}
 	});
 

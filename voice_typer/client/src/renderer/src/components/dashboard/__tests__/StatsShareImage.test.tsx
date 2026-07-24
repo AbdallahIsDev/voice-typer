@@ -33,10 +33,7 @@ vi.mock("@/i18n/i18n", async (importOriginal) => {
 	return {
 		...actual,
 		t: (key: string, params?: Record<string, string>) => {
-			if (
-				useSentinel &&
-				key === "stats.shareImage.backgroundWaveform"
-			) {
+			if (useSentinel && key === "stats.shareImage.backgroundWaveform") {
 				return "SENTINEL_WAVEFORM_TITLE";
 			}
 			return actual.t(key, params);

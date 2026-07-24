@@ -8,9 +8,8 @@
  * locale's direction.
  */
 import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import type { ToasterProps } from "sonner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Capture the most recent props passed to the mocked Toaster so each
 // test can assert on the `position` value after a locale change.
@@ -26,7 +25,7 @@ vi.mock("sonner", () => ({
 // Import AFTER the mock so the mock is wired up before module eval.
 // `setLocale` is imported lazily inside each test's `act` so we can
 // reset to a known baseline without polluting other test files.
-import { setLocale, type Locale } from "@/i18n/i18n";
+import { type Locale, setLocale } from "@/i18n/i18n";
 import { Toaster } from "../sonner";
 
 afterEach(() => {

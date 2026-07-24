@@ -251,7 +251,9 @@ export function AudioFilterChain({
 		"settings.audioEnhancement.noiseSuppressionInfoSearch",
 	);
 	const noiseGateLabel = t("settings.audioEnhancement.noiseGate");
-	const noiseGateInfoSearch = t("settings.audioEnhancement.noiseGateInfoSearch");
+	const noiseGateInfoSearch = t(
+		"settings.audioEnhancement.noiseGateInfoSearch",
+	);
 	const gateOpenThresholdLabel = t(
 		"settings.audioEnhancement.gateOpenThreshold",
 	);
@@ -298,9 +300,7 @@ export function AudioFilterChain({
 	const compressorRatioInfoSearch = t(
 		"settings.audioEnhancement.compressorRatioInfoSearch",
 	);
-	const compressorAttackLabel = t(
-		"settings.audioEnhancement.compressorAttack",
-	);
+	const compressorAttackLabel = t("settings.audioEnhancement.compressorAttack");
 	const compressorAttackInfoSearch = t(
 		"settings.audioEnhancement.compressorAttackInfoSearch",
 	);
@@ -472,7 +472,9 @@ export function AudioFilterChain({
 								max={0}
 								step={1}
 								onChange={(v) => set("noise_filter_gate_close_threshold_db", v)}
-								ariaLabel={t("settings.audioEnhancement.gateCloseThresholdAria")}
+								ariaLabel={t(
+									"settings.audioEnhancement.gateCloseThresholdAria",
+								)}
 								suffix="dB"
 								deferApply
 							/>
@@ -563,11 +565,7 @@ export function AudioFilterChain({
 			)}
 			{(config.noise_filter_eq ?? true) && (
 				<>
-					{filterIsVisible(
-						eqLowLabel,
-						eqLowInfoSearch,
-						audioSectionTitle,
-					) && (
+					{filterIsVisible(eqLowLabel, eqLowInfoSearch, audioSectionTitle) && (
 						<SettingRow
 							label={eqLowLabel}
 							info={t("settings.audioEnhancement.eqLowInfo")}
@@ -584,11 +582,7 @@ export function AudioFilterChain({
 							/>
 						</SettingRow>
 					)}
-					{filterIsVisible(
-						eqMidLabel,
-						eqMidInfoSearch,
-						audioSectionTitle,
-					) && (
+					{filterIsVisible(eqMidLabel, eqMidInfoSearch, audioSectionTitle) && (
 						<SettingRow
 							label={eqMidLabel}
 							info={t("settings.audioEnhancement.eqMidInfo")}
@@ -663,7 +657,9 @@ export function AudioFilterChain({
 								max={0}
 								step={1}
 								onChange={(v) => set("noise_filter_compressor_threshold_db", v)}
-								ariaLabel={t("settings.audioEnhancement.compressorThresholdAria")}
+								ariaLabel={t(
+									"settings.audioEnhancement.compressorThresholdAria",
+								)}
 								suffix="dB"
 								deferApply
 							/>
@@ -746,7 +742,9 @@ export function AudioFilterChain({
 								min={-24}
 								max={24}
 								step={1}
-								onChange={(v) => set("noise_filter_compressor_output_gain_db", v)}
+								onChange={(v) =>
+									set("noise_filter_compressor_output_gain_db", v)
+								}
 								ariaLabel={t(
 									"settings.audioEnhancement.compressorOutputGainAria",
 								)}
@@ -759,11 +757,7 @@ export function AudioFilterChain({
 			)}
 
 			{/* Limiter */}
-			{filterIsVisible(
-				limiterLabel,
-				limiterInfoSearch,
-				audioSectionTitle,
-			) && (
+			{filterIsVisible(limiterLabel, limiterInfoSearch, audioSectionTitle) && (
 				<SettingRow
 					label={limiterLabel}
 					info={t("settings.audioEnhancement.limiterInfo")}

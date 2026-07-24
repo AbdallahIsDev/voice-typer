@@ -179,9 +179,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			type: "relaunch_electron";
 			data: Record<string, unknown>;
 		};
-		type Guard = WouldBeRelaunchElectron extends PythonPushEvent
-			? true
-			: false;
+		type Guard = WouldBeRelaunchElectron extends PythonPushEvent ? true : false;
 		const _typeGuard: Guard = false;
 		expect(_typeGuard).toBe(false);
 	});
@@ -191,13 +189,22 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// If a future contributor removes any of the three interfaces
 		// from the union, the corresponding conditional resolves to
 		// ``false`` and the ``true`` assignment fails to compile.
-		type HasTrayState = { type: "tray_state"; data: { icon?: string; tooltip?: string } } extends PythonPushEvent
+		type HasTrayState = {
+			type: "tray_state";
+			data: { icon?: string; tooltip?: string };
+		} extends PythonPushEvent
 			? true
 			: false;
-		type HasConsentRequired = { type: "consent_required"; data: { provider: string; model: string; message: string } } extends PythonPushEvent
+		type HasConsentRequired = {
+			type: "consent_required";
+			data: { provider: string; model: string; message: string };
+		} extends PythonPushEvent
 			? true
 			: false;
-		type HasParakeetCpuFallback = { type: "parakeet_cpu_fallback"; data: { device: string; reason: string } } extends PythonPushEvent
+		type HasParakeetCpuFallback = {
+			type: "parakeet_cpu_fallback";
+			data: { device: string; reason: string };
+		} extends PythonPushEvent
 			? true
 			: false;
 		const _trayState: HasTrayState = true;

@@ -64,6 +64,7 @@ vi.mock("@/components/ui/switch", () => ({
 		"aria-label"?: string;
 	}) => (
 		<button
+			type="button"
 			data-testid="consent-switch"
 			role="switch"
 			aria-checked={props.checked}
@@ -107,7 +108,12 @@ describe("CloudProvidersPanel — BG-74 (test-result span is a live region)", ()
 			message: "Connection successful — API key is valid.",
 			status: "success",
 		};
-		render(<CloudProvidersPanel {...baseProps} testResults={{ openai: testResult }} />);
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				testResults={{ openai: testResult }}
+			/>,
+		);
 		const resultSpan = screen.getByText(
 			"Connection successful — API key is valid.",
 		);
@@ -129,7 +135,12 @@ describe("CloudProvidersPanel — three test-result color branches (BG-77 invali
 			message: "ok",
 			status: "success",
 		};
-		render(<CloudProvidersPanel {...baseProps} testResults={{ openai: testResult }} />);
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				testResults={{ openai: testResult }}
+			/>,
+		);
 		const span = screen.getByText("ok");
 		expect(span.className).toContain("text-primary");
 		expect(span.className).not.toContain("text-[(--text-muted)]");
@@ -140,7 +151,12 @@ describe("CloudProvidersPanel — three test-result color branches (BG-77 invali
 			message: "bad key",
 			status: "failure",
 		};
-		render(<CloudProvidersPanel {...baseProps} testResults={{ openai: testResult }} />);
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				testResults={{ openai: testResult }}
+			/>,
+		);
 		const span = screen.getByText("bad key");
 		expect(span.className).toContain("text-destructive");
 	});
@@ -150,7 +166,12 @@ describe("CloudProvidersPanel — three test-result color branches (BG-77 invali
 			message: "testing…",
 			status: "info",
 		};
-		render(<CloudProvidersPanel {...baseProps} testResults={{ openai: testResult }} />);
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				testResults={{ openai: testResult }}
+			/>,
+		);
 		const span = screen.getByText("testing…");
 		// BG-77: `text-[(--text-muted)]` is invalid Tailwind v4 syntax.
 		// The canonical form is `text-(--text-muted)` — matches every other
@@ -168,7 +189,9 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 			<CloudProvidersPanel
 				{...baseProps}
 				apiKeys={{}}
-				config={{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig}
+				config={
+					{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig
+				}
 			/>,
 		);
 		expect(screen.queryByTestId("consent-switch")).toBeNull();
@@ -179,13 +202,13 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 			<CloudProvidersPanel
 				{...baseProps}
 				apiKeys={{ openai: "sk-test" }}
-				config={{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig}
+				config={
+					{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig
+				}
 			/>,
 		);
 		expect(screen.getByTestId("consent-switch")).toBeInTheDocument();
-		expect(
-			screen.getByText(/Consent not granted/i),
-		).toBeInTheDocument();
+		expect(screen.getByText(/Consent not granted/i)).toBeInTheDocument();
 	});
 
 	it("shows the consent card when consent is already granted (even without an API key)", () => {
@@ -193,13 +216,13 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 			<CloudProvidersPanel
 				{...baseProps}
 				apiKeys={{}}
-				config={{ ...baseConfig, cloud_openai_consent: true } as VoiceTyperConfig}
+				config={
+					{ ...baseConfig, cloud_openai_consent: true } as VoiceTyperConfig
+				}
 			/>,
 		);
 		expect(screen.getByTestId("consent-switch")).toBeInTheDocument();
-		expect(
-			screen.getByText(/Consent granted/i),
-		).toBeInTheDocument();
+		expect(screen.getByText(/Consent granted/i)).toBeInTheDocument();
 	});
 
 	it("toggling the consent switch invokes onConsentChange with the new value", () => {
@@ -208,7 +231,9 @@ describe("CloudProvidersPanel — consent progressive disclosure", () => {
 			<CloudProvidersPanel
 				{...baseProps}
 				apiKeys={{ openai: "sk-test" }}
-				config={{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig}
+				config={
+					{ ...baseConfig, cloud_openai_consent: false } as VoiceTyperConfig
+				}
 				onConsentChange={onConsentChange}
 			/>,
 		);
@@ -224,13 +249,10 @@ describe("CloudProvidersPanel — Save / Test buttons", () => {
 		// Provider label for "openai" is "OpenAI Whisper API" — so the aria-label
 		// resolves to "Save OpenAI Whisper API API key".
 		const onSaveApiKey = vi.fn();
-		render(
-			<CloudProvidersPanel
-				{...baseProps}
-				onSaveApiKey={onSaveApiKey}
-			/>,
-		);
-		screen.getByRole("button", { name: /Save OpenAI Whisper API API key/i }).click();
+		render(<CloudProvidersPanel {...baseProps} onSaveApiKey={onSaveApiKey} />);
+		screen
+			.getByRole("button", { name: /Save OpenAI Whisper API API key/i })
+			.click();
 		expect(onSaveApiKey).toHaveBeenCalledWith("openai");
 	});
 
@@ -242,7 +264,9 @@ describe("CloudProvidersPanel — Save / Test buttons", () => {
 				onTestConnection={onTestConnection}
 			/>,
 		);
-		screen.getByRole("button", { name: /Test OpenAI Whisper API connection/i }).click();
+		screen
+			.getByRole("button", { name: /Test OpenAI Whisper API connection/i })
+			.click();
 		expect(onTestConnection).toHaveBeenCalledWith("openai");
 	});
 });

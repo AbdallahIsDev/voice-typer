@@ -59,17 +59,13 @@ export function AvailableMicrophonesList({
 			    a list — notably Safari + VoiceOver). Tailwind's divide-y
 			    and the rounded/border classes apply identically to
 			    <ul>/<li> as they did to the previous <div>/<div>. */}
-			<ul
-				role="list"
-				className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border"
-			>
+			<ul className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
 				{/* PVT-034 (Fix 1): "Use System Default" button — the only
 				    way (other than refreshing and hoping) to revert
 				    from a named microphone back to the OS default.
 				    Disabled while a test is running so the user can't
 				    swap mics mid-recording. */}
 				<li
-					role="listitem"
 					className={cn(
 						"flex items-center gap-3 px-3.5 py-2.5",
 						testRunning && "opacity-50 pointer-events-none",
@@ -100,17 +96,13 @@ export function AvailableMicrophonesList({
 					</Button>
 				</li>
 				{otherMicrophones.length === 0 ? (
-					<li
-						role="listitem"
-						className="px-3.5 py-3 text-xs text-(--text-muted)"
-					>
+					<li className="px-3.5 py-3 text-xs text-(--text-muted)">
 						{t("microphone.noOtherMicrophones")}
 					</li>
 				) : (
 					otherMicrophones.map((mic) => (
 						<li
 							key={mic.id ?? String(mic.index)}
-							role="listitem"
 							className={cn(testRunning && "opacity-50 pointer-events-none")}
 						>
 							<MicrophoneListItem

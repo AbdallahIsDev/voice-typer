@@ -866,8 +866,8 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 		// etc.) are produced at runtime by the template literal, so we
 		// assert on the template pattern + the role attribute instead.
 		expect(src).toContain('role="tabpanel"');
-		expect(src).toContain("id={`panel-${tab}`}");
-		expect(src).toContain("aria-labelledby={`tab-${tab}`}");
+		expect(src).toMatch(/id=\{`panel-\$\{tab\}`\}/);
+		expect(src).toMatch(/aria-labelledby=\{`tab-\$\{tab\}`\}/);
 		// Sanity: the renderTabPanel helper is called once per tab
 		// value (appearance, general, aiAudio, privacy).
 		for (const tabId of ["appearance", "general", "aiAudio", "privacy"]) {

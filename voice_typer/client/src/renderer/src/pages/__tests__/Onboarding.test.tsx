@@ -99,7 +99,12 @@ vi.mock("@/components/ui/select", () => ({
 		value: string;
 		textValue?: string;
 	}) => (
-		<div data-value={value} data-text-value={textValue} role="option">
+		<div
+			data-value={value}
+			data-text-value={textValue}
+			role="option"
+			tabIndex={-1}
+		>
 			{children}
 		</div>
 	),

@@ -421,12 +421,12 @@ export interface ParakeetCpuFallbackEvent {
 	data: { device: string; reason: string };
 }
 
-// ── FT-1 (resilient sidecar) lifecycle events ──────────────────────
+// ── (resilient sidecar) lifecycle events ──────────────────────
 //
 // EC-FIX-7 (addresses [EC-14]): these events are NOT emitted by the Python
 // backend — they are synthesized by the host bridge (Tauri Rust
-// `src-tauri/src/sidecar/ft1.rs` or Electron main) when the transport
-// layer detects a disconnect and enters the FT-1 reconnect loop. They
+// `src-tauri/src/sidecar/supervisor.rs` or Electron main) when the transport
+// layer detects a disconnect and enters the reconnect loop. They
 // are members of `PythonPushEvent` so renderer code can subscribe via
 // `usePythonEvent("reconnecting", ...)` without an `as unknown as
 // PythonPushEvent` cast (the unsafe cast was a rule #26 violation —
@@ -457,7 +457,7 @@ export interface ReconnectedEvent {
 // `PythonPushEvent["type"]` so a typo like `usePythonEvent("past_failed", ...)`
 // fails at compile time instead of silently never firing. Currently the
 // `type` param is `string`, which lets any typo through and was the root
-// cause of the FT-1 unsafe `as unknown as PythonPushEvent` casts noted in
+// cause of the unsafe `as unknown as PythonPushEvent` casts noted in
 // [EC-14]. This file cannot perform that narrowing itself (the hook lives
 // in another sub-agent's file scope); it only exposes the union.
 export type PythonPushEvent =

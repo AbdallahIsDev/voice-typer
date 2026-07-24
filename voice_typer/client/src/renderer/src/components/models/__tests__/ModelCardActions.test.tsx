@@ -80,7 +80,9 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 			/>,
 		);
 		// Active button is disabled.
-		const activeBtn = screen.getByRole("button", { name: /Active: small\.en/i });
+		const activeBtn = screen.getByRole("button", {
+			name: /Active: small\.en/i,
+		});
 		expect(activeBtn).toBeDisabled();
 		// Uses the Tick02Icon (not PlayIcon — Select/Active are tick affordances).
 		expect(screen.getAllByTestId("hugeicon")[0]).toHaveAttribute(

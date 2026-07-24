@@ -17,56 +17,54 @@ import { NumberInputStepper } from "../number-input-stepper";
 // component calls `t("a11y.increase")` and `t("a11y.decrease")` for
 // the up/down stepper buttons.
 vi.mock("@/i18n/i18n", () => ({
-        t: (key: string) => key,
+	t: (key: string) => key,
 }));
 
 afterEach(() => {
-        cleanup();
+	cleanup();
 });
 
 describe("NumberInputStepper — BG-39 RTL logical positioning", () => {
-        it("uses logical `end-1` (not physical `right-1`) for the stepper container", () => {
-                render(
-                        <NumberInputStepper
-                                value="1"
-                                onChange={() => {}}
-                                aria-label="test-stepper"
-                        />,
-                );
+	it("uses logical `end-1` (not physical `right-1`) for the stepper container", () => {
+		render(
+			<NumberInputStepper
+				value="1"
+				onChange={() => {}}
+				aria-label="test-stepper"
+			/>,
+		);
 
-                // The stepper container is the only absolutely-positioned child
-                // of the wrapper `<div class="group relative ...">`.
-                const wrapper = document.querySelector(".group") as HTMLElement;
-                expect(wrapper).toBeTruthy();
-                const stepperContainer = wrapper.querySelector(
-                        ".absolute",
-                ) as HTMLElement;
-                expect(stepperContainer).toBeTruthy();
-                // BG-39: physical `right-1` is gone; logical `end-1` is present
-                // so the steppers appear on the inline-end edge (right in LTR,
-                // left in RTL) without per-locale overrides.
-                expect(stepperContainer.className).toContain("end-1");
-                expect(stepperContainer.className).not.toMatch(/\bright-1\b/);
-        });
+		// The stepper container is the only absolutely-positioned child
+		// of the wrapper `<div class="group relative ...">`.
+		const wrapper = document.querySelector(".group") as HTMLElement;
+		expect(wrapper).toBeTruthy();
+		const stepperContainer = wrapper.querySelector(".absolute") as HTMLElement;
+		expect(stepperContainer).toBeTruthy();
+		// BG-39: physical `right-1` is gone; logical `end-1` is present
+		// so the steppers appear on the inline-end edge (right in LTR,
+		// left in RTL) without per-locale overrides.
+		expect(stepperContainer.className).toContain("end-1");
+		expect(stepperContainer.className).not.toMatch(/\bright-1\b/);
+	});
 
-        it("uses logical `pe-8` (not physical `pr-8`) for the input's end-side padding", () => {
-                render(
-                        <NumberInputStepper
-                                value="1"
-                                onChange={() => {}}
-                                aria-label="test-stepper"
-                        />,
-                );
+	it("uses logical `pe-8` (not physical `pr-8`) for the input's end-side padding", () => {
+		render(
+			<NumberInputStepper
+				value="1"
+				onChange={() => {}}
+				aria-label="test-stepper"
+			/>,
+		);
 
-                const input = document.querySelector(
-                        'input[type="number"]',
-                ) as HTMLInputElement;
-                expect(input).toBeTruthy();
-                // BG-39: the input reserves gutter space for the steppers via
-                // logical `pe-8` (padding-inline-end) instead of physical
-                // `pr-8` (padding-right), so the gutter sits on the same side
-                // as the steppers in both LTR and RTL.
-                expect(input.className).toContain("pe-8");
-                expect(input.className).not.toMatch(/\bpr-8\b/);
-        });
+		const input = document.querySelector(
+			'input[type="number"]',
+		) as HTMLInputElement;
+		expect(input).toBeTruthy();
+		// BG-39: the input reserves gutter space for the steppers via
+		// logical `pe-8` (padding-inline-end) instead of physical
+		// `pr-8` (padding-right), so the gutter sits on the same side
+		// as the steppers in both LTR and RTL.
+		expect(input.className).toContain("pe-8");
+		expect(input.className).not.toMatch(/\bpr-8\b/);
+	});
 });

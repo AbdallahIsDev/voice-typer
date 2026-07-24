@@ -29,9 +29,7 @@ describe("ER-29: source-level contracts", () => {
 			path.resolve(__dirname, "../tcp-connect.ts"),
 			"utf-8",
 		);
-		const setTimeoutIdx = src.indexOf(
-			"_tcpStartupTimeoutTimer = setTimeout(",
-		);
+		const setTimeoutIdx = src.indexOf("_tcpStartupTimeoutTimer = setTimeout(");
 		const unrefIdx = src.indexOf("_tcpStartupTimeoutTimer.unref()");
 		expect(setTimeoutIdx).toBeGreaterThan(-1);
 		expect(unrefIdx).toBeGreaterThan(-1);
@@ -207,8 +205,7 @@ describe("ER-29 runtime: stopPython() invokes clearTcpStartupTimeout", () => {
 		try {
 			const { stopPython } = await import("../stop-python");
 			const proc = makeMockProc();
-			mockState.pythonProcess =
-				proc as unknown as MainState["pythonProcess"];
+			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 			stopPython();
 			expect(mockClearTcpStartupTimeout).toHaveBeenCalledTimes(1);
 		} finally {
@@ -243,13 +240,13 @@ describe("ER-26 runtime: _resetStopPythonFlagsForRestart", () => {
 		vi.resetModules();
 		vi.useFakeTimers();
 		try {
-			const { stopPython, _resetStopPythonFlagsForRestart } =
-				await import("../stop-python");
+			const { stopPython, _resetStopPythonFlagsForRestart } = await import(
+				"../stop-python"
+			);
 			// First proc + stopPython cycle.
 			const proc1 = makeMockProc();
 			proc1.pid = 4242;
-			mockState.pythonProcess =
-				proc1 as unknown as MainState["pythonProcess"];
+			mockState.pythonProcess = proc1 as unknown as MainState["pythonProcess"];
 			stopPython();
 			expect(mockSendToPython).toHaveBeenCalledTimes(1); // quit_app sent
 			// Reset flags (as startPython would do after spawning a fresh proc).
@@ -259,8 +256,7 @@ describe("ER-26 runtime: _resetStopPythonFlagsForRestart", () => {
 			// Second proc + second stopPython cycle — must NOT be a no-op.
 			const proc2 = makeMockProc();
 			proc2.pid = 5353;
-			mockState.pythonProcess =
-				proc2 as unknown as MainState["pythonProcess"];
+			mockState.pythonProcess = proc2 as unknown as MainState["pythonProcess"];
 			stopPython();
 			expect(mockSendToPython).toHaveBeenCalledTimes(2); // quit_app sent twice
 		} finally {

@@ -134,6 +134,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Analytics01Icon: make("Analytics01Icon"),
 		ArrowDown01Icon: make("ArrowDown01Icon"),
 		ArrowRight01Icon: make("ArrowRight01Icon"),
+		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
 		ArrowUp01Icon: make("ArrowUp01Icon"),
 		Book02Icon: make("Book02Icon"),
 		BookOpen02Icon: make("BookOpen02Icon"),
@@ -478,7 +479,7 @@ describe("useSnackbar — RW-1 rewrite (DX-013: no Snackbar component returned)"
 		const { result } = renderHook(() => useSnackbar());
 		result.current.showSnack("Failed", "error");
 		expect(toastMock.error).toHaveBeenCalledWith("Failed", {
-			duration: 3000,
+			duration: 8000,
 		});
 	});
 });

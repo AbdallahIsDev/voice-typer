@@ -30,6 +30,8 @@
 // white). It now picks whichever of white/black has better contrast
 // against the user-chosen primary and warns when NEITHER clears AA.
 
+import { _themeColorCache } from "@/components/settings/themeColorCache";
+import { cssColorToHex } from "@/lib/color-utils";
 import {
 	CUSTOM_COLOR_KEYS,
 	type CustomThemeData,
@@ -37,8 +39,6 @@ import {
 	DEFAULT_CUSTOM_LIGHT,
 	THEMES,
 } from "@/themes";
-import { cssColorToHex } from "@/lib/color-utils";
-import { _themeColorCache } from "@/components/settings/themeColorCache";
 
 // ── WCAG 2.x contrast ───────────────────────────────────────────────
 
@@ -126,7 +126,8 @@ export function getContrastPair(
 	mode: "light" | "dark",
 ): { fg: string; bg: string } | null {
 	const src = draft?.[mode];
-	const fallback = mode === "light" ? DEFAULT_CUSTOM_LIGHT : DEFAULT_CUSTOM_DARK;
+	const fallback =
+		mode === "light" ? DEFAULT_CUSTOM_LIGHT : DEFAULT_CUSTOM_DARK;
 	const get = (k: string): string => src?.[k] ?? fallback[k] ?? "#000000";
 	switch (varName) {
 		case "--background":
@@ -138,7 +139,10 @@ export function getContrastPair(
 			// (white or black, whichever has higher contrast). The warning
 			// fires only when NEITHER clears AA — i.e. the user picked a
 			// mid-tone primary that can't carry either text colour.
-			return { fg: _pickContrastForeground(get("--primary")), bg: get("--primary") };
+			return {
+				fg: _pickContrastForeground(get("--primary")),
+				bg: get("--primary"),
+			};
 		case "--bg-subtle":
 			return { fg: get("--foreground"), bg: get("--bg-subtle") };
 		case "--text-muted":

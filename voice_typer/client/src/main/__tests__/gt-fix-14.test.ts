@@ -442,7 +442,7 @@ describe("GT-A3-7: bootstrapRuntime starts crashReporter + registers child-proce
 			(c: unknown[]) => c[0] === "child-process-gone",
 		);
 		expect(call).toBeDefined();
-		const handler = call![1] as (e: unknown, details: unknown) => void;
+		const handler = call?.[1] as (e: unknown, details: unknown) => void;
 		handler(undefined, { reason: "test" });
 		expect(logErrorSpy).toHaveBeenCalledWith("child-process-gone", {
 			reason: "test",

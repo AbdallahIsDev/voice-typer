@@ -6,8 +6,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { formatVram } from "@/lib/format";
 import { t } from "@/i18n/i18n";
+import { formatVram } from "@/lib/format";
 import { HEADING_CLASS } from "../lib/constants";
 import type { ModelOption } from "../lib/types";
 
@@ -80,22 +80,14 @@ export function ModelStep({
 									    badges are optional — older backends don't
 									    return these fields. */}
 									{m.vram_gb != null && (
-										<span
-											aria-label={t("onboarding.vramBadge", {
-												vram: formatVram(m.vram_gb * 1024),
-											})}
-											className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)"
-										>
+										<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)">
 											{t("onboarding.vramBadge", {
 												vram: formatVram(m.vram_gb * 1024),
 											})}
 										</span>
 									)}
 									{langKey != null && (
-										<span
-											aria-label={t(langKey)}
-											className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)"
-										>
+										<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)">
 											{t(langKey)}
 										</span>
 									)}

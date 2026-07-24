@@ -70,17 +70,21 @@ vi.mock("../tcp-connect", () => ({
  * Build a mock ChildProcess-like object. `autoExitOnKill` controls whether
  * kill() triggers an asynchronous "exit" event (simulating graceful kill).
  */
-function makeMockProc(opts: { autoExitOnKill?: boolean; exitDelayMs?: number } = {}) {
+function makeMockProc(
+	opts: { autoExitOnKill?: boolean; exitDelayMs?: number } = {},
+) {
 	const { autoExitOnKill = true, exitDelayMs = 0 } = opts;
 	const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
 	const proc = {
 		pid: 99999,
 		killed: false,
 		on: vi.fn((ev: string, cb: (...a: unknown[]) => void) => {
-			(listeners[ev] ??= []).push(cb);
+			if (!listeners[ev]) listeners[ev] = [];
+			listeners[ev].push(cb);
 		}),
 		once: vi.fn((ev: string, cb: (...a: unknown[]) => void) => {
-			(listeners[ev] ??= []).push(cb);
+			if (!listeners[ev]) listeners[ev] = [];
+			listeners[ev].push(cb);
 		}),
 		removeAllListeners: vi.fn((ev?: string) => {
 			if (ev) listeners[ev] = [];
@@ -90,7 +94,9 @@ function makeMockProc(opts: { autoExitOnKill?: boolean; exitDelayMs?: number } =
 			proc.killed = true;
 			if (autoExitOnKill) {
 				const fire = () => {
-					(listeners.exit ?? []).forEach((cb) => cb(0, sig));
+					(listeners.exit ?? []).forEach((cb) => {
+						cb(0, sig);
+					});
 				};
 				if (exitDelayMs > 0) setTimeout(fire, exitDelayMs);
 				else queueMicrotask(fire);
@@ -98,7 +104,9 @@ function makeMockProc(opts: { autoExitOnKill?: boolean; exitDelayMs?: number } =
 			return true;
 		}),
 		emit: vi.fn((ev: string, ...a: unknown[]) => {
-			(listeners[ev] ?? []).forEach((cb) => cb(...a));
+			(listeners[ev] ?? []).forEach((cb) => {
+				cb(...a);
+			});
 		}),
 	};
 	return proc;
@@ -131,8 +139,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
 		const proc = makeMockProc();
-		mockState.pythonProcess =
-			proc as unknown as MainState["pythonProcess"];
+		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		await relaunchApp();
 		expect(mockStopPython).toHaveBeenCalledTimes(1);
 	});
@@ -141,8 +148,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
 		const proc = makeMockProc();
-		mockState.pythonProcess =
-			proc as unknown as MainState["pythonProcess"];
+		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		const callSequence: string[] = [];
 		mockClearTcpStartupTimeout.mockImplementation(() =>
 			callSequence.push("clearTcp"),
@@ -161,8 +167,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		const { relaunchApp } = await import("../relaunch-app");
 		// A proc that does NOT auto-exit on kill — we'll emit "exit" manually.
 		const proc = makeMockProc({ autoExitOnKill: false });
-		mockState.pythonProcess =
-			proc as unknown as MainState["pythonProcess"];
+		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		let startPythonCalled = false;
 		mockStartPython.mockImplementation(() => {
 			startPythonCalled = true;
@@ -184,8 +189,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
 		const proc = makeMockProc();
-		mockState.pythonProcess =
-			proc as unknown as MainState["pythonProcess"];
+		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		let relaunchingDuringStartPython: boolean | null = null;
 		mockStartPython.mockImplementation(() => {
 			relaunchingDuringStartPython = mockState._relaunching;
@@ -199,8 +203,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
 		const proc = makeMockProc();
-		mockState.pythonProcess =
-			proc as unknown as MainState["pythonProcess"];
+		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		await relaunchApp();
 		expect(mockStartPython).toHaveBeenCalledTimes(1);
 	});
@@ -212,8 +215,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 			const { relaunchApp } = await import("../relaunch-app");
 			// A proc that NEVER emits exit (simulates stuck in C extension).
 			const proc = makeMockProc({ autoExitOnKill: false });
-			mockState.pythonProcess =
-				proc as unknown as MainState["pythonProcess"];
+			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 			const relaunchPromise = relaunchApp();
 			// Advance fake timers past the 3s SIGKILL fallback.
 			await vi.advanceTimersByTimeAsync(3500);
@@ -229,8 +231,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
 		const proc = makeMockProc({ autoExitOnKill: false });
-		mockState.pythonProcess =
-			proc as unknown as MainState["pythonProcess"];
+		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		// Set a fake _tcpRetryTimer.
 		const fakeTimer = setTimeout(() => {}, 10000);
 		mockState._tcpRetryTimer = fakeTimer;
@@ -249,8 +250,7 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		const { relaunchApp } = await import("../relaunch-app");
 		mockState._relaunching = true;
 		const proc = makeMockProc();
-		mockState.pythonProcess =
-			proc as unknown as MainState["pythonProcess"];
+		mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 		await relaunchApp();
 		// Should NOT have called stopPython / startPython (no-op path).
 		expect(mockStopPython).not.toHaveBeenCalled();

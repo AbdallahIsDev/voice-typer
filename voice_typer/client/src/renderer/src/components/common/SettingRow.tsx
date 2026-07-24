@@ -1,6 +1,6 @@
 // src/renderer/src/components/common/SettingRow.tsx
 
-import { useId, useEffect, useRef, type ReactNode } from "react";
+import { type ReactNode, useEffect, useId, useRef } from "react";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { cn } from "@/lib/utils";
 
@@ -63,11 +63,11 @@ export function SettingRow({
 			// eslint-disable-next-line no-console
 			console.warn(
 				`[SettingRow] The visible label "${label}" has no programmatic association with its child form control. ` +
-					'Pass `htmlFor` on SettingRow (and `id` on the control) OR pass `aria-label` / `aria-labelledby` on the control. ' +
-					'Without an association, screen-reader users hear the control announced without its name.',
+					"Pass `htmlFor` on SettingRow (and `id` on the control) OR pass `aria-label` / `aria-labelledby` on the control. " +
+					"Without an association, screen-reader users hear the control announced without its name.",
 			);
 		});
-	}, [label, children]);
+	}, [label]);
 
 	// The label is rendered as `<label>` only when the caller has
 	// opted in via `htmlFor`. Without `htmlFor`, a `<label>` would

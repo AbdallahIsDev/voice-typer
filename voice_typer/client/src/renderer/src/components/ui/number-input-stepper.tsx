@@ -208,7 +208,7 @@ function NumberInputStepper({
 				// aria-invalid:ring-destructive) is applied.
 				aria-invalid={isInvalid || undefined}
 				className={cn(
-					"pr-8 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0",
+					"pe-8 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0",
 					className,
 				)}
 				min={min}
@@ -218,7 +218,7 @@ function NumberInputStepper({
 			/>
 			<div
 				className={cn(
-					"absolute right-1 top-0 flex h-full w-8 flex-col",
+					"absolute end-1 top-0 flex h-full w-8 flex-col",
 					"opacity-0 pointer-events-none transition-opacity duration-200",
 					"group-hover:opacity-100 group-hover:pointer-events-auto",
 					// PVT-020: reveal steppers whenever the input OR a stepper

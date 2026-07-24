@@ -138,9 +138,7 @@ describe("LiveQualityFeedback — A11Y-5 (aria-live + i18n)", () => {
 		useSentinel = true;
 		render(<LiveQualityFeedback {...baseProps} />);
 		expect(
-			screen.getByText(
-				"SENTINEL:microphoneTest.qualityFeedback.recording:{}",
-			),
+			screen.getByText("SENTINEL:microphoneTest.qualityFeedback.recording:{}"),
 		).toBeInTheDocument();
 		// The old hardcoded literal "Recording..." must NOT be present.
 		expect(screen.queryByText(/Recording\.\.\./)).toBeNull();

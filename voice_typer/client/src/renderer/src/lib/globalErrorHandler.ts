@@ -204,9 +204,11 @@ function _buildToastOptions(formattedError: string): {
 	// "View logs" action — opens the Python backend's log folder.
 	// The bridge method is optional (older preload scripts / Tauri
 	// bridge may not install it); silently skip when unavailable.
-	const windowApi = (window as unknown as {
-		window_?: { openLogs?: () => Promise<unknown> };
-	}).window_;
+	const windowApi = (
+		window as unknown as {
+			window_?: { openLogs?: () => Promise<unknown> };
+		}
+	).window_;
 	if (typeof windowApi?.openLogs === "function") {
 		opts.action = {
 			label: _safeT("errors.viewLogsAction", "View logs"),
@@ -214,10 +216,7 @@ function _buildToastOptions(formattedError: string): {
 				try {
 					void windowApi.openLogs?.();
 				} catch (e) {
-					console.warn(
-						"[globalErrorHandler] openLogs() threw:",
-						e,
-					);
+					console.warn("[globalErrorHandler] openLogs() threw:", e);
 				}
 			},
 		};
@@ -237,10 +236,7 @@ function _buildToastOptions(formattedError: string): {
 				navigator.clipboard
 					.writeText(formattedError)
 					.catch((e) =>
-						console.warn(
-							"[globalErrorHandler] clipboard.writeText failed:",
-							e,
-						),
+						console.warn("[globalErrorHandler] clipboard.writeText failed:", e),
 					);
 			},
 		};

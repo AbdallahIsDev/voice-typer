@@ -28,7 +28,7 @@
 //                              duplicated across the namespace installers).
 //   • `python-namespace.ts` — `createPythonNamespace(tauri): PythonBridge`
 //                              (call dispatch + onEvent subscription with
-//                              FT-1 relay).
+//                              relay).
 //   • `bubble-namespace.ts` — `createBubbleNamespace(tauri, windowLabel?):
 //                              MainRendererBubble | BubbleWindowBubble`
 //                              (audio level stream + 6 mutators + 5 event

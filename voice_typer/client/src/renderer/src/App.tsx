@@ -74,7 +74,7 @@ export default function App() {
 	// Runs on mount AND whenever `currentPage` or `t` (i.e. the active
 	// locale) changes — a locale switch re-titles the window.
 	useEffect(() => {
-		document.title = t(`nav.${currentPage}`) + " — " + APP_NAME;
+		document.title = `${t(`nav.${currentPage}`)} — ${APP_NAME}`;
 	}, [currentPage, t]);
 
 	// BG-26 (a11y / focus management on route change): move keyboard focus

@@ -191,7 +191,7 @@ describe("Home page", () => {
 		// `expect(...).toBeDefined()` doesn't narrow the TS type, so use
 		// a non-null assertion. The preceding expect guards the runtime
 		// case; this assertion only silences the static-type check.
-		const handler = transcriptionFinalCall![1];
+		const handler = transcriptionFinalCall?.[1];
 
 		await act(async () => {
 			handler({ text: "hello world" });

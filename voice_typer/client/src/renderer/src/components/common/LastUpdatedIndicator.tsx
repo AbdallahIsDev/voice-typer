@@ -46,9 +46,7 @@ export function LastUpdatedIndicator({
 			}
 			data-testid="last-updated-indicator"
 		>
-			<span>
-				{t("common.lastUpdatedWithValue", { value: agoLabel })}
-			</span>
+			<span>{t("common.lastUpdatedWithValue", { value: agoLabel })}</span>
 			<Button
 				variant="ghost"
 				size="sm"
