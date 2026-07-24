@@ -306,41 +306,14 @@ plus the base repo's pre-existing comprehensive review.
 
 ## Backend / IPC
 
-### S1-CR-33 — ~45 failing vitest tests across 14 client files — real UI regressions
-- **Severity**: High · **Status**: Pending
+### S1-CR-33 — ~154 failing vitest tests across 35 client files — real UI regressions (WORSENED)
+- **Severity**: High · **Status**: Pending (worsened — was ~45/14, now 154/35)
 - **Category**: Existing failing tests / UI regressions
-- **Location**: 14 test files under `voice_typer/client/src/renderer/src/__tests__/` and `components/__tests__/`
-- **Evidence**: Subset run (4 files, 60s timeout): `Test Files 4 failed (4), Tests 18 failed | 20 passed (38)`. Partial full run showed ~45 failed across 14 files: `Sidebar.test.tsx` (9 fail), `TitleBar.test.tsx` (3 fail), `Home.test.tsx` (1), `ModelsPage.test.tsx` (5), `App-ux-fixes.test.tsx` (6), `Onboarding.test.tsx` (1), `ExportFormatMenu.test.tsx` (5), `segmented-control.test.tsx` (3), `LiveQualityFeedback.test.tsx` (1), `StatsShareImage.test.tsx` (2), `DownloadProgressBar.test.tsx` (2), `electron-ipc-build-behavior.test.tsx` (4), `consent-privacy-behavior.test.tsx` (2), `ux-components-behavior.test.tsx` (1).
-- **Evidence example** (Sidebar): `× UX-16: active nav item carries the 2px left accent bar + soft accent background classes` — `AssertionError: expected 'group/button inline-flex shrink-0 ite…' to contain 'border-l-2'`. Real accessibility and UX regressions in the Sidebar and TitleBar components.
-- **Impact**: Real production feature losses (aria-keyshortcuts, destructive hover tokens, etc.), not flaky tests.
-- **Proposed fix**: Investigate `voice_typer/client/src/renderer/src/components/layout/Sidebar.tsx` and `TitleBar.tsx` — likely a refactor regressed the FIX-15 / UX-16 / PROD-7/9/14 changes.
+- **Location**: 35 test files under `voice_typer/client/src/renderer/src/__tests__/` and `components/__tests__/`
+- **Evidence**: Full run (2026-07-25): `Test Files 35 failed | 77 passed (112), Tests 154 failed | 1046 passed | 4 expected fail | 8 skipped (1212)`. Was ~45 failed across 14 files previously. Fixes were attempted in commits `7ef71d7` and `ac12e6c` (assertion updates) but regressed further — likely new UI component changes introduced additional failures.
+- **Impact**: 154 production UX and accessibility regressions blocking CI gate.
+- **Proposed fix**: Full test-by-test triage. Many failures are assertion mismatches from component restyling (border classes, aria attrs). Some are a11y violations (SettingRow labels missing `htmlFor`/`aria-label`). Needs systematic fix across 35 files.
 - **Confidence**: High · **Found by**: R12
-
-### S1-CR-37 — macOS Tauri workflow never codesigns sidecar + prewarm binaries before bundling (CI-4 re-framed)
-- **Severity**: High · **Status**: Pending
-- **Category**: CI/CD / macOS packaging / signing
-- **Location**: `.github/workflows/tauri-macos-build.yml:182-285`
-- **Evidence**: The job's signing steps: `Build Tauri universal .app + .dmg` (cargo tauri build — signs main .app executable via config's `signingIdentity`, but NOT the nested Mach-O binaries `python-sidecar-{x86_64,aarch64}-apple-darwin`, `prewarm-{x86_64,aarch64}-apple-darwin`, `macos-key-listener` under `Contents/Resources/` and `Contents/MacOS/`). `Notarize + staple` submits the .app to `notarytool`. The only explicit `codesign` is on the .dmg at line 270 — AFTER the .app has already been notarized. Apple's notarization service rejects .app bundles containing unsigned Mach-O binaries with `The binary is not signed`. The signing-guide.md §"Signing command" documents this exact step but the workflow doesn't execute it.
-- **Impact**: Notarization will reject the .app bundle. macOS Tauri release is broken.
-- **Proposed fix**: Add `codesign --force --options runtime --sign "$MAC_SIGNING_IDENTITY" --entitlements src-tauri/entitlements.plist <binary>` step for each of the 5 nested Mach-O binaries, BEFORE the notarize step. Alternatively `codesign --deep --force --options runtime --sign "$MAC_SIGNING_IDENTITY" --entitlements src-tauri/entitlements.plist "$APP_PATH"`.
-- **Confidence**: High · **Found by**: R14
-
-### S1-CR-38 — `sync_versions.py` not actually enforced in CI
-- **Severity**: High · **Status**: Pending
-- **Category**: CI/CD
-- **Location**: `.github/workflows/build.yml:340-344`
-- **Evidence**: The script `scripts/build/sync_versions.py:159-223` defines three modes: no args (print, return 0), `--apply` (write), `--check` (exit 1 if any file's version differs). CI uses **no args** — always returns 0 even when versions drift.
-- **Impact**: Versions can drift across `pyproject.toml`, `voice_typer/__init__.py`, `voice_typer/client/package.json`, `voice_typer/client/electron-builder.yml` without CI failing.
-- **Proposed fix**: Change `python scripts/build/sync_versions.py` to `python scripts/build/sync_versions.py --check` in `build.yml:343`.
-- **Confidence**: High · **Found by**: R14
-
-### S1-CR-41 — RPM `prerm.rpm` same legacy-path bug
-- **Severity**: High · **Status**: Pending
-- **Category**: Packaging / Linux / RPM
-- **Location**: `scripts/linux/prerm.rpm:11`
-- **Evidence**: Same NF-R9-2 class of bug, on the uninstall side. Tauri v2 bundles resources at `/usr/lib/voice-typer/resources/scripts/linux/uninstall_permissions.py`, never at `/usr/share/voice-typer/scripts/`.
-- **Proposed fix**: Mirror the postinst's probe loop in `prerm.rpm`.
-- **Confidence**: High · **Found by**: R15
 
 ### S1-CR-43 — Uninstall does NOT remove user data: config dir, logs, model cache (GB-sized), history DB
 - **Severity**: High · **Status**: Pending
@@ -351,37 +324,13 @@ plus the base repo's pre-existing comprehensive review.
 - **Proposed fix**: Linux: extend `prerm`/`prerm.rpm` to also `disable_autostart` and offer `--purge` semantics for user data. Windows NSIS: add an `nsis.installerHooks` uninstaller hook that calls a cleanup script. macOS: ship an `Uninstall Voice Typer.app` helper.
 - **Confidence**: High · **Found by**: R15
 
-### S1-CR-47 — Server-side tray i18n only supports 2 of 8 locales
-- **Severity**: High · **Status**: Pending
-- **Category**: i18n / tray
-- **Location**: `voice_typer/server/tray.py:97-100`
-- **Evidence**: `_TRAY_LABELS_LOCALES = {"en": _TRAY_LABELS_EN, "es": _TRAY_LABELS_ES}`. Switching to any of `ar`, `de`, `fr`, `hi`, `ru`, `zh` falls back to English. Server-side `i18n.py:244` only `register_locale("en", _INITIAL_LABELS)` — the 50+ `notify.*` and `state.*` keys have no non-English translations registered.
-- **Impact**: Tray menu, tray notifications, and tray tooltip state messages are English-only for 6 of 8 supported locales.
-- **Proposed fix**: Either register locale dicts for the 6 missing locales, or auto-generate from the client-side locale JSONs.
-- **Confidence**: High · **Found by**: R18
-
 ### S1-CR-49 — i18n test gate is RED: 14 of 15 completeness tests fail
-- **Severity**: High · **Status**: Pending
+- **Severity**: High · **Status**: Pending (root cause CR-50 now resolved)
 - **Category**: i18n / existing failing tests
 - **Location**: `tests/test_i18n_completeness.py`, `tests/regressions/i18n_test.py`
 - **Evidence**: `pytest tests/test_i18n_completeness.py -k "key_parity or extra_keys"` yields 14 failures (7 key_parity + 6 extra_keys + 1 summary). `tests/regressions/i18n_test.py::TestSpanishTranslationComplete::test_es_json_has_same_keys_as_en` fails with 24 missing keys.
 - **Impact**: i18n test infrastructure correctly catches regressions but failures are unaddressed.
-- **Proposed fix**: Fix S1-CR-16, S1-CR-48, S1-CR-50 first; the 14 failures collapse to those 3 root causes.
-- **Confidence**: High · **Found by**: R18
-
-### S1-CR-50 — ~19 orphan keys in `en.json` (defined but never referenced in code)
-- **Severity**: High · **Status**: Pending
-- **Category**: i18n / tech debt
-- **Location**: `voice_typer/client/src/renderer/src/locales/en.json`
-- **Evidence**: 24-25 "missing" keys include ~19 orphans that exist only in en.json and are never referenced in `voice_typer/client/src/renderer/src/**/*.{ts,tsx}`:
-  - `bubble.micButtonAria` (the generic version — code uses `micButtonStartAria`/`micButtonStopAria`)
-  - `settings.bubbleClickToToggle`, `settings.bubbleClickToToggleDescription`
-  - `onboarding.micLevel`, `onboarding.modelMultilingual`
-  - `onboarding.permissionsTitle`, `permissionsDescription`, `permissionsLoading`, `permissionsNeeded`, `permissionsOk`, `permissionsNoneNeeded`, `permissionsTestButton`, `permissionsTestFailure`, `permissionsTestLabel`, `permissionsTestSuccess`
-  - `onboarding.skipConfirmLabel`, `skipConfirmMessage`, `skipConfirmTitle`
-  - `onboarding.step4Item`, `step5Item`
-- **Impact**: `scripts/add_i18n_keys.py --all` would propagate these to all locale files as English placeholders for keys that no code uses.
-- **Proposed fix**: Delete the orphan keys from `en.json` (not propagated to other locales).
+- **Proposed fix**: Fix S1-CR-16, S1-CR-48, S1-CR-50 first; the 14 failures collapse to those 3 root causes. Note: CR-50 now fully resolved — all orphan keys deleted from all 8 locale JSONs.
 - **Confidence**: High · **Found by**: R18
 
 ### S1-CR-52 — README architecture tree is stale (flat files are now packages)
@@ -812,8 +761,8 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 The codebase has substantial prior engineering investment (RT-safe audio, secure atomic writes, keyring credential store, defense-in-depth security, comprehensive ADRs). However, the Tauri cutover migration (ADR-0020) is **half-finished** in multiple critical dimensions:
 
 1. **Tauri host-side integration broken end-to-end**: tray click handler (S1-CR-5), zombie leak (S1-CR-3), dispatch allowlist regression (S1-CR-4), Tauri config schema mismatch (S1-CR-12), missing per-arch configs (S1-CR-13), missing bundle resources (S1-CR-15).
-2. **Linux packaging broken under Tauri**: postinst/prerm hard-code legacy paths (S1-CR-39, S1-CR-41), no user-data cleanup on uninstall (S1-CR-43).
-3. **CI/CD quality gates are red**: ruff baseline out of sync (S1-CR-28), pyrefly baseline empty (S1-CR-30), 17 failing config tests (S1-CR-31), ~45 failing vitest tests (S1-CR-33), 14 failing i18n tests (S1-CR-49), 30 failing tray tests (S1-CR-7).
+2. **Linux packaging broken under Tauri**: postinst/prerm hard-code legacy paths (S1-CR-39), no user-data cleanup on uninstall (S1-CR-43). (S1-CR-41 — RPM prerm.rpm legacy paths — was FIXED in commit `f99309c`.)
+3. **CI/CD quality gates are red**: ruff baseline out of sync (S1-CR-28), pyrefly baseline empty (S1-CR-30), 17 failing config tests (S1-CR-31), ~154 failing vitest tests (S1-CR-33), 14 failing i18n tests (S1-CR-49), 30 failing tray tests (S1-CR-7).
 4. **Privacy/consent regressions**: HuggingFace consent bypass (S1-CR-8), secret leak in diagnostics script (S1-CR-9), raw transcription in support bundle (S1-CR-23), GDPR delete/export incomplete (S1-CR-87, S1-CR-88).
 5. **Silent data-loss bug**: clipboard restore never runs (S1-CR-2) — every paste clobbers the user's clipboard.
 6. **Security supply-chain gap**: model integrity check bypassed on cache-hit (S1-CR-10, S1-CR-19), native binaries have no checksum (S1-CR-46).
