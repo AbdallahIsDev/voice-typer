@@ -110,3 +110,4 @@ src-tauri/.cargo/
 cargo-check-log.txt
 src-tauri/gen/
 src-tauri/icons/
+changes/

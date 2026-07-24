@@ -3045,14 +3045,6 @@ Session 5 was a UX/UI-focused review covering accessibility (WCAG), visual polis
 - **test_bugfix_regressions.py 4446-line monolith**: RESOLVED — split into 13 files in `tests/regressions/` preserving all 86 classes.
 - **ARCH-18** (inline `_handle_*` methods): RESOLVED — only 3 intentional residents remain (`_handle_heartbeat`, `_handle_relaunch_ack`, `_handle_unknown_command`).
 
-## Findings Marked Won't Fix (with rationale)
-
-- **CR-29** (`service.py` 2364 LOC god facade): Won't Fix this run — mixin approach is safe per ARCH-5 evidence but ~4-5 hours with multiple test-seam blockers from ARCH-12. Defer to a dedicated refactor run.
-- **ARCH-10** (circular import between `ipc_server.py` and `handlers/*.py`): Won't Fix — pattern is stable and documented. Moving helpers to `ipc_helpers.py` would be cleaner but provides no runtime benefit.
-- **ARCH-12** (164 `inspect.getsource` source-string tests): Won't Fix — pattern is endemic; chip away individually when touching pinned code, cannot complete in one shot.
-- **ARCH-9** (`app.py` test-seam re-exports, 199 monkeypatch sites): Won't Fix — wide surface area (72+ import sites across 65+ files, ~20 re-exported symbols). High risk of breaking tests. Defer to a dedicated refactor run.
-
-
 ### S6-CR-10 — Ruff ratchet baseline severely stale (claims 3 violations, actual 61)
 - **Severity**: Critical
 
