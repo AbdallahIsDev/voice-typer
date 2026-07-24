@@ -221,7 +221,7 @@ class TestTrayLocaleSwitchingRebuildsMenu:
         """An unsupported locale must fall back to English."""
         from voice_typer.server import tray
 
-        tray.set_tray_locale("xx")  # not supported
+        tray.set_tray_locale("zz")  # not supported
         assert tray.get_tray_locale() == "en"  # falls back
         assert tray._("toggle_dictation") == "Toggle Dictation"
 

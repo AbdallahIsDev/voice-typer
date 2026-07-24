@@ -129,9 +129,9 @@ def test_getattr_re_resolves_on_every_access_no_caching(fake_module, import_spy)
     name, _ = fake_module
     proxy = lazy_module(name)
 
-    proxy.foo
-    proxy.foo
-    proxy.foo
+    _ = proxy.foo
+    _ = proxy.foo
+    _ = proxy.foo
 
     assert import_spy["calls"] == [name, name, name]
 
@@ -169,7 +169,7 @@ def test_getattr_propagates_import_error(monkeypatch):
     proxy = lazy_module("nonexistent.module.xyz")
 
     with pytest.raises(ModuleNotFoundError):
-        proxy.anything
+        _ = proxy.anything
 
 
 def test_getattr_propagates_attribute_error_from_wrapped_module(monkeypatch):
@@ -187,7 +187,7 @@ def test_getattr_propagates_attribute_error_from_wrapped_module(monkeypatch):
 
     assert proxy.existing == "yes"
     with pytest.raises(AttributeError):
-        proxy.missing
+        _ = proxy.missing
 
 
 def test_getattr_for_module_name_does_not_trigger_import(fake_module, import_spy):
@@ -494,11 +494,11 @@ class TestImportErrorCaching:
         proxy = lazy_module("nonexistent.module.xyz")
 
         with pytest.raises(ModuleNotFoundError):
-            proxy.foo
+            _ = proxy.foo
         with pytest.raises(ModuleNotFoundError):
-            proxy.bar
+            _ = proxy.bar
         with pytest.raises(ModuleNotFoundError):
-            proxy.baz
+            _ = proxy.baz
 
         # import_module called exactly once (not three times).
         assert call_count["n"] == 1, f"import_module should be called once (cached), got {call_count['n']}"
@@ -516,9 +516,9 @@ class TestImportErrorCaching:
         proxy = lazy_module("nonexistent.module.cached")
 
         with pytest.raises(ModuleNotFoundError) as exc_info_1:
-            proxy.foo
+            _ = proxy.foo
         with pytest.raises(ModuleNotFoundError) as exc_info_2:
-            proxy.bar
+            _ = proxy.bar
 
         assert exc_info_1.value is original_error
         assert exc_info_2.value is original_error
@@ -542,7 +542,7 @@ class TestImportErrorCaching:
         monkeypatch.setattr(importlib, "import_module", boom)
         proxy1 = lazy_module("nonexistent.module.sibling")
         with pytest.raises(ModuleNotFoundError):
-            proxy1.foo
+            _ = proxy1.foo
 
         # Second proxy for the same name gets a fresh attempt — install
         # a successful mock and restore the real import_module so the

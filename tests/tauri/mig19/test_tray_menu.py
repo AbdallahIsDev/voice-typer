@@ -211,6 +211,7 @@ TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 CAPABILITY_JSON = PROJECT_ROOT / "src-tauri" / "capabilities" / "main-runtime.json"
 
 TRAY_PY = PROJECT_ROOT / "voice_typer" / "server" / "tray.py"
+TRAY_I18N_PY = PROJECT_ROOT / "voice_typer" / "server" / "tray_i18n.py"
 TRAY_MENU_PY = PROJECT_ROOT / "voice_typer" / "server" / "tray_menu.py"
 TRAY_ICON_PY = PROJECT_ROOT / "voice_typer" / "server" / "tray_icon.py"
 TRAY_MODELS_PY = PROJECT_ROOT / "voice_typer" / "server" / "tray_models.py"
@@ -246,6 +247,21 @@ def tray_py_source() -> str:
     """Read voice_typer/server/tray.py as text."""
     assert TRAY_PY.exists(), f"tray.py not found: {TRAY_PY}"
     return TRAY_PY.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def tray_i18n_py_source() -> str:
+    """Read voice_typer/server/tray_i18n.py as text.
+
+    S1-CR-47: the locale dicts (_TRAY_LABELS_EN, _TRAY_LABELS_ES,
+    _TRAY_LABELS_LOCALES, etc.) and the set_tray_locale / get_tray_locale /
+    _() functions were extracted from tray.py into tray_i18n.py. tray.py
+    re-exports them for backward compat, but the canonical definitions live
+    here. Source-text assertions that grep for the dict definitions must
+    read tray_i18n.py, not tray.py.
+    """
+    assert TRAY_I18N_PY.exists(), f"tray_i18n.py not found: {TRAY_I18N_PY}"
+    return TRAY_I18N_PY.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -440,7 +456,7 @@ def test_tray_menu_separators_present(tray_menu_py_source) -> None:
 # ─── Section B: locale support preserved (en + es at minimum) ───────────────
 
 
-def test_tray_locale_english_dict_present(tray_py_source) -> None:
+def test_tray_locale_english_dict_present(tray_i18n_py_source) -> None:
     """TRAY-008: English locale dict must be defined.
 
     The English locale is the default fallback for every tray label.
@@ -448,14 +464,14 @@ def test_tray_locale_english_dict_present(tray_py_source) -> None:
     models, restart, quit, force_cancel_transcription) plus the
     app_name tooltip key.
     """
-    assert "_TRAY_LABELS_EN" in tray_py_source, (
-        "tray.py must define _TRAY_LABELS_EN — the English locale dict "
+    assert "_TRAY_LABELS_EN" in tray_i18n_py_source, (
+        "tray_i18n.py must define _TRAY_LABELS_EN — the English locale dict "
         "is the default fallback for every tray label (TRAY-008)."
     )
     # Extract the EN dict body.
     en_dict_match = re.search(
         r"_TRAY_LABELS_EN\s*:\s*dict\[str,\s*str\]\s*=\s*\{(.*?)\}",
-        tray_py_source,
+        tray_i18n_py_source,
         re.DOTALL,
     )
     assert en_dict_match, (
@@ -486,19 +502,19 @@ def test_tray_locale_english_dict_present(tray_py_source) -> None:
     )
 
 
-def test_tray_locale_spanish_dict_present(tray_py_source) -> None:
+def test_tray_locale_spanish_dict_present(tray_i18n_py_source) -> None:
     """TRAY-008: Spanish locale dict must be defined.
 
     Spanish is the proof-of-concept locale for tray i18n. The user
     can switch the UI to Español and the tray must update to Spanish
     labels via the ``set_tray_locale('es')`` IPC command.
     """
-    assert "_TRAY_LABELS_ES" in tray_py_source, (
-        "tray.py must define _TRAY_LABELS_ES — Spanish is the proof-of-concept locale for tray i18n (TRAY-008)."
+    assert "_TRAY_LABELS_ES" in tray_i18n_py_source, (
+        "tray_i18n.py must define _TRAY_LABELS_ES — Spanish is the proof-of-concept locale for tray i18n (TRAY-008)."
     )
     es_dict_match = re.search(
         r"_TRAY_LABELS_ES\s*:\s*dict\[str,\s*str\]\s*=\s*\{(.*?)\}",
-        tray_py_source,
+        tray_i18n_py_source,
         re.DOTALL,
     )
     assert es_dict_match, (
@@ -531,7 +547,7 @@ def test_tray_locale_spanish_dict_present(tray_py_source) -> None:
     )
 
 
-def test_tray_locale_registry_includes_en_and_es(tray_py_source) -> None:
+def test_tray_locale_registry_includes_en_and_es(tray_i18n_py_source) -> None:
     """TRAY-008: ``_TRAY_LABELS_LOCALES`` must register en + es.
 
     The locale registry maps locale codes to their label dicts. The
@@ -539,12 +555,12 @@ def test_tray_locale_registry_includes_en_and_es(tray_py_source) -> None:
     requested locale isn't in this registry, so en + es must be
     registered for the host VALIDATE step's Spanish toggle to work.
     """
-    assert "_TRAY_LABELS_LOCALES" in tray_py_source, (
-        "tray.py must define _TRAY_LABELS_LOCALES — the locale→dict registry that set_tray_locale consults."
+    assert "_TRAY_LABELS_LOCALES" in tray_i18n_py_source, (
+        "tray_i18n.py must define _TRAY_LABELS_LOCALES — the locale→dict registry that set_tray_locale consults."
     )
     locales_match = re.search(
         r"_TRAY_LABELS_LOCALES\s*:\s*dict\[str,\s*dict\[str,\s*str\]\]\s*=\s*\{(.*?)\}",
-        tray_py_source,
+        tray_i18n_py_source,
         re.DOTALL,
     )
     assert locales_match, "Could not extract _TRAY_LABELS_LOCALES dict body."
@@ -557,7 +573,7 @@ def test_tray_locale_registry_includes_en_and_es(tray_py_source) -> None:
     )
 
 
-def test_tray_locale_setter_and_getter_present(tray_py_source) -> None:
+def test_tray_locale_setter_and_getter_present(tray_i18n_py_source) -> None:
     """TRAY-008: ``set_tray_locale`` + ``get_tray_locale`` functions exist.
 
     The IPC layer calls ``set_tray_locale('es')`` when the user
@@ -565,21 +581,21 @@ def test_tray_locale_setter_and_getter_present(tray_py_source) -> None:
     be present and module-level (so the IPC handler can import them
     directly without a TrayIcon instance).
     """
-    assert "def set_tray_locale(locale: str) -> None:" in tray_py_source, (
-        "tray.py must define module-level set_tray_locale(locale) — the "
+    assert "def set_tray_locale(locale: str) -> None:" in tray_i18n_py_source, (
+        "tray_i18n.py must define module-level set_tray_locale(locale) — the "
         "IPC handler in system_handlers.py imports + calls it directly."
     )
-    assert "def get_tray_locale() -> str:" in tray_py_source, (
-        "tray.py must define module-level get_tray_locale() → str — used by tests to verify the current locale."
+    assert "def get_tray_locale() -> str:" in tray_i18n_py_source, (
+        "tray_i18n.py must define module-level get_tray_locale() → str — used by tests to verify the current locale."
     )
     # The setter must fall back to English for unknown locales.
-    assert 'locale if locale in _TRAY_LABELS_LOCALES else "en"' in tray_py_source, (
+    assert 'locale if locale in _TRAY_LABELS_LOCALES else "en"' in tray_i18n_py_source, (
         "set_tray_locale must fall back to 'en' for unknown locales — "
         "prevents a KeyError if the UI sends an unsupported locale code."
     )
 
 
-def test_tray_locale_lookup_function_present(tray_py_source) -> None:
+def test_tray_locale_lookup_function_present(tray_i18n_py_source) -> None:
     """TRAY-008: the ``_()`` lookup function translates keys → labels.
 
     The ``_()`` function (mirroring gettext's convention) takes a
@@ -587,12 +603,12 @@ def test_tray_locale_lookup_function_present(tray_py_source) -> None:
     English then to the key itself. ``build_menu`` calls
     ``localize(_)`` which is this function.
     """
-    assert "def _(key: str) -> str:" in tray_py_source, (
-        "tray.py must define the _(key) lookup function — build_menu "
+    assert "def _(key: str) -> str:" in tray_i18n_py_source, (
+        "tray_i18n.py must define the _(key) lookup function — build_menu "
         "calls localize(_) where _ translates keys to localized labels."
     )
     # The lookup must consult the current locale first, then fall back.
-    assert "_TRAY_LABELS_LOCALES.get(_tray_locale, _TRAY_LABELS_EN)" in tray_py_source, (
+    assert "_TRAY_LABELS_LOCALES.get(_tray_locale, _TRAY_LABELS_EN)" in tray_i18n_py_source, (
         "_(key) must look up the key in the current locale's dict, "
         "falling back to _TRAY_LABELS_EN — the 3-tier fallback "
         "(locale → en → key) is the contract."

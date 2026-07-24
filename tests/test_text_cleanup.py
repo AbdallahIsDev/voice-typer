@@ -887,7 +887,7 @@ class TestXZ3PrecompiledRegexes:
                 continue
             func = node.func
             # Match ``re.match(...)`` / ``re.search(...)`` etc.
-            if (
+            if (  # noqa: SIM102
                 isinstance(func, ast.Attribute)
                 and isinstance(func.value, ast.Name)
                 and func.value.id == "re"

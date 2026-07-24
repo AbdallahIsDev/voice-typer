@@ -184,10 +184,9 @@ class TestIsPasswordFieldLinux:
         # Clear any cached pyatspi module so the import retry fires.
         saved = sys.modules.pop("pyatspi", None)
         try:
-            with patch("builtins.__import__", side_effect=_block_pyatspi):
-                with patch.object(clip_mod, "log") as mock_log:
-                    result1 = safety_mod._is_password_field_linux()
-                    result2 = safety_mod._is_password_field_linux()
+            with patch("builtins.__import__", side_effect=_block_pyatspi), patch.object(clip_mod, "log") as mock_log:
+                result1 = safety_mod._is_password_field_linux()
+                result2 = safety_mod._is_password_field_linux()
         finally:
             if saved is not None:
                 sys.modules["pyatspi"] = saved
@@ -335,10 +334,9 @@ class TestIsPasswordFieldMacOS:
         saved_appkit = sys.modules.pop("AppKit", None)
         saved_app_services = sys.modules.pop("ApplicationServices", None)
         try:
-            with patch("builtins.__import__", side_effect=_block_pyobjc):
-                with patch.object(clip_mod, "log") as mock_log:
-                    result1 = safety_mod._is_password_field_macos()
-                    result2 = safety_mod._is_password_field_macos()
+            with patch("builtins.__import__", side_effect=_block_pyobjc), patch.object(clip_mod, "log") as mock_log:
+                result1 = safety_mod._is_password_field_macos()
+                result2 = safety_mod._is_password_field_macos()
         finally:
             if saved_appkit is not None:
                 sys.modules["AppKit"] = saved_appkit
@@ -476,14 +474,14 @@ class TestSignalHandlerRegistration:
 
     def test_signal_restore_handler_calls_force_restore(self):
         """The signal handler invokes _force_restore_pending_at_exit()."""
-        with patch.object(clip_mod, "_force_restore_pending_at_exit") as mock_force:
-            # The handler will re-raise the signal via os.kill, which
-            # we must prevent from actually killing the test process.
-            # Patch os.kill + signal.signal to no-ops.
-            with (
-                patch.object(clip_mod.os, "kill") as mock_kill,
-                patch.object(clip_mod, "_signal_restore_handler", wraps=clip_mod._signal_restore_handler),
-            ):
+        # The handler will re-raise the signal via os.kill, which
+        # we must prevent from actually killing the test process.
+        # Patch os.kill + signal.signal to no-ops.
+        with (
+            patch.object(clip_mod, "_force_restore_pending_at_exit") as mock_force,
+            patch.object(clip_mod.os, "kill") as mock_kill,
+            patch.object(clip_mod, "_signal_restore_handler", wraps=clip_mod._signal_restore_handler),
+        ):
                 # Re-import the inner logic by calling the handler directly.
                 # We need to suppress the re-raise: patch the signal
                 # module so SIG_DFL is a sentinel and signal() is a noop.

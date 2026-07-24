@@ -166,12 +166,9 @@ class TestConfigMutationLock:
 
         # Pre-acquire the lock in the current thread (simulating
         # apply_config having acquired it before calling save()).
-        with lock:
-            # save() must not block here — RLock allows reentrant
-            # acquisition by the same thread.
-            with patch("voice_typer.server.config._secure_atomic_write") as mock_write:
-                mock_write.return_value = None
-                assert cfg.save() is True
+        with lock, patch("voice_typer.server.config._secure_atomic_write") as mock_write:
+            mock_write.return_value = None
+            assert cfg.save() is True
 
     def test_concurrent_saves_are_serialized(self, tmp_path, monkeypatch):
         """Two concurrent ``save()`` calls must not interleave their

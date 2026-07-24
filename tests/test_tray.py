@@ -985,7 +985,7 @@ class TestOpenPageGeneralization:
         items = _FakeIcon.last_kwargs["menu"]()
         menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
         # Find Settings, History, Help items and click each.
-        for label_substr, expected_path in [
+        for label_substr, _expected_path in [
             ("Settings", "/settings"),
             ("History", "/history"),
             ("Help", "/about"),
@@ -1008,7 +1008,13 @@ class TestTrayLocaleFullCoverage:
     def test_register_tray_labels_adds_locale(self):
         """UX-6: a locale dict pushed from the renderer is registered and
         made active by set_tray_locale, even for a locale the server does
-        not hard-code (en/es only by default)."""
+        not hard-code (en/es only by default).
+
+        S1-CR-47: de/fr/ru/zh/ar/hi are now pre-registered with full
+        translations, so this test uses a locale code ("xx") that is
+        NOT in _TRAY_LABELS_LOCALES to verify the push-from-renderer
+        path still works for locales the server doesn't know about.
+        """
         from voice_typer.server.tray import (
             _,
             get_tray_locale,
@@ -1016,10 +1022,10 @@ class TestTrayLocaleFullCoverage:
             set_tray_locale,
         )
 
-        register_tray_labels("de", {"open_app": "App öffnen", "quit": "Beenden"})
-        set_tray_locale("de")
-        assert get_tray_locale() == "de"
-        assert _("open_app") == "App öffnen"
+        register_tray_labels("xx", {"open_app": "Open App XX", "quit": "Quit XX"})
+        set_tray_locale("xx")
+        assert get_tray_locale() == "xx"
+        assert _("open_app") == "Open App XX"
         # Keys not in the pushed dict fall back to English.
         assert _("toggle_dictation") == "Toggle Dictation"
         # Restore default.
@@ -1042,12 +1048,17 @@ class TestTrayLocaleFullCoverage:
 
     def test_set_tray_locale_with_labels_dict(self):
         """The set_tray_locale IPC path accepts a `labels` dict and applies
-        it: after the call, `_()` returns the pushed translation."""
+        it: after the call, `_()` returns the pushed translation.
+
+        S1-CR-47: uses locale "yy" (not pre-registered) so the test
+        verifies the push path without interference from the 8
+        pre-registered locales (en/es/ar/de/fr/hi/ru/zh).
+        """
         from voice_typer.server import tray as tray_mod
 
         labels = {"models": "Модели", "microphones": "Микрофоны"}
-        tray_mod.register_tray_labels("ru", labels)
-        tray_mod.set_tray_locale("ru")
+        tray_mod.register_tray_labels("yy", labels)
+        tray_mod.set_tray_locale("yy")
         assert tray_mod._("models") == "Модели"
         assert tray_mod._("microphones") == "Микрофоны"
         # Untranslated key keeps the English default.
@@ -1055,10 +1066,14 @@ class TestTrayLocaleFullCoverage:
         tray_mod.set_tray_locale("en")
 
     def test_set_tray_locale_falls_back_to_en_for_unknown(self):
-        """Unknown locale falls back to English (existing TRAY-008 contract)."""
+        """Unknown locale falls back to English (existing TRAY-008 contract).
+
+        S1-CR-47: uses "zz" which is guaranteed not in the pre-registered
+        locale set (en/es/ar/de/fr/hi/ru/zh) nor in any test-pushed locale.
+        """
         from voice_typer.server.tray import _, get_tray_locale, set_tray_locale
 
-        set_tray_locale("xx")
+        set_tray_locale("zz")
         assert get_tray_locale() == "en"
         assert _("quit") == "Quit"
 

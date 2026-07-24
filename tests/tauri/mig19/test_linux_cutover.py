@@ -31,7 +31,7 @@ VALIDATE ON LINUX HOST (X11 + Wayland + both archs):
             chmod +x bundle/appimage/*.AppImage && ./bundle/appimage/*.AppImage   # AppImage
     3.  Verify the runtime is Tauri (NOT Electron):
             ps aux | grep voice-typer    # → 'voice-typer-tauri' (Tauri) vs 'voice-typer' (Electron)
-            head -1 ~/.config/voice-typer/voice-typer.log   # → 'runtime=tauri version=... target=x86_64-unknown-linux-gnu ...'
+            head -1 ~/.config/voice-typer/voice-typer.log   # → 'runtime=tauri version=... target=x86_64-unknown-linux-gnu'
     4.  Launch the app, grant mic permission, toggle dictation via the
         global hotkey, dictate text into a foreground window
         (gnome-text-editor). Verify ``enigo.text()`` injects the dictated

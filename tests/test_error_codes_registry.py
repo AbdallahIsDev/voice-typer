@@ -259,7 +259,7 @@ class TestLegacyAliases:
 
     @pytest.mark.parametrize(
         "legacy, namespaced",
-        sorted((l, n) for l, n in LEGACY_ALIASES.items() if n),
+        sorted((legacy, n) for legacy, n in LEGACY_ALIASES.items() if n),
     )
     def test_legacy_alias_has_namespaced_counterpart(
         self, legacy: str, namespaced: str

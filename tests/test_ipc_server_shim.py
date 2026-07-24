@@ -106,7 +106,8 @@ def test_ipc_server_module_is_not_a_monolith() -> None:
     src_file = shim.__file__
     assert src_file is not None, "ipc_server module must be backed by a file"
     size = os.path.getsize(src_file)
-    line_count = sum(1 for _ in open(src_file, encoding="utf-8"))
+    with open(src_file, encoding="utf-8") as f:
+        line_count = sum(1 for _ in f)
     assert line_count <= 300, (
         f"ipc_server.py is {line_count} lines / {size} bytes — expected a "
         f"thin re-export shim (<=300 lines). See CR-1 / Fix-A."

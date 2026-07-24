@@ -36,7 +36,7 @@ return`` guard dead code.  Removed the misleading flag.
 """
 
 
-import pytest
+import pytest  # noqa: E402
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

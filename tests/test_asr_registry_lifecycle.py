@@ -313,7 +313,7 @@ class TestSetActiveBackend:
         except Exception as e:
             raise AssertionError(
                 f"set_active_backend with unknown backend should raise ValueError, got {type(e).__name__}: {e}"
-            )
+            ) from e
         else:
             raise AssertionError("set_active_backend with unknown backend should raise ValueError")
 
@@ -613,7 +613,7 @@ class TestCircuitBreaker:
         registry.on_backend_disabled = lambda name, count: disable_calls.append((name, count))
 
         # Drive parakeet to MAX failures.
-        for i in range(registry._MAX_CONSECUTIVE_FAILURES):
+        for _ in range(registry._MAX_CONSECUTIVE_FAILURES):
             registry.load_with_fallback(progress_callback=lambda msg: None)
 
         assert registry._is_disabled("parakeet"), "parakeet should be disabled after reaching MAX_CONSECUTIVE_FAILURES."

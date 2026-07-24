@@ -387,7 +387,7 @@ class TestWindowsOpenConfigFile:
             if not isinstance(first, ast.List):
                 continue
             for elt in first.elts:
-                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                if isinstance(elt, ast.Constant) and isinstance(elt.value, str):  # noqa: SIM102
                     if elt.value == "notepad":
                         violations.append(f"line {node.lineno}: Popen([{elt.value!r}, ...])")
 

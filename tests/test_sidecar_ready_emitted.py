@@ -35,9 +35,9 @@ import pytest
 
 websockets = pytest.importorskip("websockets")
 
-from voice_typer.server.ipc_server import IPCServer
+from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 
-from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service
+from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service  # noqa: E402
 
 # ── Per-instance attribute ─────────────────────────────────────────────
 

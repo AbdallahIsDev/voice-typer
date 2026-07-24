@@ -434,11 +434,8 @@ class TestTrayNotifyPath:
         # Find the next method def after notify() — search for the next
         # "\n    def " at the same indent (4 spaces).
         next_def = src.find("\n    def ", notify_start + 1)
-        if next_def == -1:
-            # notify() is the last method — take the rest of the class.
-            notify_body = src[notify_start:]
-        else:
-            notify_body = src[notify_start:next_def]
+        # notify() is the last method — take the rest of the class.
+        notify_body = src[notify_start:] if next_def == -1 else src[notify_start:next_def]
         assert "event_bus.publish" not in notify_body, (
             "tray.py::notify() must NOT call event_bus.publish — it uses "
             "pystray's _icon.notify() directly. (The event_bus.publish "

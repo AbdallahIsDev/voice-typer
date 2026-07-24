@@ -157,9 +157,11 @@ class TestCloudEngineProtocol:
         )
         audio = np.zeros(16000, dtype=np.float32)
 
-        with patch.object(engine, "transcribe", side_effect=RuntimeError("cloud down")):
-            with pytest.raises(RuntimeError, match="cloud down"):
-                engine.transcribe_with_fallback(audio)
+        with (
+            patch.object(engine, "transcribe", side_effect=RuntimeError("cloud down")),
+            pytest.raises(RuntimeError, match="cloud down"),
+        ):
+            engine.transcribe_with_fallback(audio)
         # Factory was invoked (lazy construction attempted).
         factory.assert_called_once_with()
 
@@ -174,9 +176,11 @@ class TestCloudEngineProtocol:
         engine = CloudEngine(provider="openai", api_key="test-key", consent_given=True)
         audio = np.zeros(16000, dtype=np.float32)
 
-        with patch.object(engine, "transcribe", side_effect=RuntimeError("cloud down")):
-            with pytest.raises(RuntimeError, match="cloud down"):
-                engine.transcribe_with_fallback(audio)
+        with (
+            patch.object(engine, "transcribe", side_effect=RuntimeError("cloud down")),
+            pytest.raises(RuntimeError, match="cloud down"),
+        ):
+            engine.transcribe_with_fallback(audio)
 
 
 class TestCloudEngineCacheInvalidation:

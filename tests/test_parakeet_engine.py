@@ -714,9 +714,9 @@ class TestG4H04ConsentGate:
 
         with (
             patch.object(type(engine), "_is_cached", return_value=False),
+            pytest.raises(ConsentRequiredError, match="consent not given"),
         ):
-            with pytest.raises(ConsentRequiredError, match="consent not given"):
-                engine.load()
+            engine.load()
 
     def test_consent_none_raises_on_cache_miss(self):
         """When ``config`` is None (degenerate path) and the model is
@@ -727,9 +727,11 @@ class TestG4H04ConsentGate:
         engine, _, _ = _make_engine_with_mocks(device="cpu")
         engine.config = None  # degenerate / test path
 
-        with patch.object(type(engine), "_is_cached", return_value=False):
-            with pytest.raises(ConsentRequiredError, match="consent not given"):
-                engine.load()
+        with (
+            patch.object(type(engine), "_is_cached", return_value=False),
+            pytest.raises(ConsentRequiredError, match="consent not given"),
+        ):
+            engine.load()
 
     def test_consent_true_proceeds_to_download(self):
         """When ``config.huggingface_consent`` is True and the model is

@@ -233,7 +233,7 @@ class TestContainerEnvironmentDetection:
 
     @pytest.mark.skipif(
         sys.platform.startswith("linux"),
-        reason="Non-Linux only: is_in_container short-circuits to False when /proc/1/cgroup and cgroup v1/v2 signatures are unavailable",
+        reason="Non-Linux only: is_in_container short-circuits to False when /proc/1/cgroup and cgroup v1/v2 signatures unavailable",
     )
     def test_is_in_container_returns_false_on_non_linux(self):
         from voice_typer.server.container_detect import is_in_container

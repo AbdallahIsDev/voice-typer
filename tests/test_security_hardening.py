@@ -573,7 +573,7 @@ class TestSecureFileWrites:
 
     @pytest.mark.skipif(
         sys.platform == "win32",
-        reason="POSIX-only: 0o600 permission check has no equivalent on the Win32 filesystem (ACLs use a different model)",
+        reason="POSIX-only: 0o600 permission check has no equivalent on Win32 filesystem (ACLs use a different model)",
     )
     def test_secure_atomic_write_permissions(self, tmp_path):
         """_secure_atomic_write creates files with 0o600 on POSIX."""

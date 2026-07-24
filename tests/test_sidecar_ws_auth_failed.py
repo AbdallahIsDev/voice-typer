@@ -80,10 +80,7 @@ def _make_fake_websocket(auth_frame: bytes | str) -> MagicMock:
     """
     ws = MagicMock()
 
-    if isinstance(auth_frame, str):
-        auth_frame_bytes = auth_frame.encode()
-    else:
-        auth_frame_bytes = auth_frame
+    auth_frame_bytes = auth_frame.encode() if isinstance(auth_frame, str) else auth_frame
 
     async def _fake_recv():
         return auth_frame_bytes

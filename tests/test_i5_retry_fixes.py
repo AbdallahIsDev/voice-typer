@@ -773,10 +773,9 @@ class TestR3F6DroppedLevelChunksLog:
 
         try:
             chunk = np.ones((512, 1), dtype=np.float32) * 0.25
-            with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
-                with lm._monitor_lock:
-                    for _ in range(70):
-                        holder["cb"](chunk, 512, None, None)
+            with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"), lm._monitor_lock:
+                for _ in range(70):
+                    holder["cb"](chunk, 512, None, None)
 
             # At least one WARNING record must mention "ring buffer full"
             # or "dropped".

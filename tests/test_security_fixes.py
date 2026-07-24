@@ -51,11 +51,11 @@ _mock_pystray.MenuItem = MagicMock
 _mock_pystray.Icon = MagicMock
 sys.modules.setdefault("pystray", _mock_pystray)
 
-from voice_typer.server import (
+from voice_typer.server import (  # noqa: E402
     _secrets,  # noqa: E402
     server_platform,  # noqa: E402
 )
-from voice_typer.server._secrets import (
+from voice_typer.server._secrets import (  # noqa: E402
     assert_url_allowed,  # noqa: E402
     extend_url_allowlist,  # noqa: E402
     redact_secret,  # noqa: E402

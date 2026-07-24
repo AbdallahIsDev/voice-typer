@@ -296,7 +296,7 @@ class TestSecurityAttributesOutput:
         _configure_full_success(adv)
         sa = _create_restrictive_security_attributes()
 
-        class SECURITY_ATTRIBUTES(ctypes.Structure):
+        class SECURITY_ATTRIBUTES(ctypes.Structure):  # noqa: N801
             _fields_ = [
                 ("nLength", wintypes.DWORD),
                 ("lpSecurityDescriptor", wintypes.LPVOID),
