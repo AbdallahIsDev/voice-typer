@@ -34,7 +34,9 @@
 			"step1StartingPython": "Python wird gestartet",
 			"step2LoadingModel": "Modell wird geladen",
 			"step3Ready": "Bereit"
-		}
+		},
+		"pageNotFoundDescription": "Unknown page: {page}",
+		"pageNotFoundTitle": "Page not found"
 	},
 	"nav": {
 		"home": "Startseite",
@@ -45,7 +47,12 @@
 		"models": "Modelle",
 		"microphone": "Mikrofon",
 		"settings": "Einstellungen",
-		"about": "Über"
+		"about": "Über",
+		"group": {
+			"power": "Power features",
+			"system": "System",
+			"main": "Main"
+		}
 	},
 	"home": {
 		"ready": "BEREIT",
@@ -76,7 +83,9 @@
 		"undoFailed": "Letzte Transkription konnte nicht rückgängig gemacht werden",
 		"repasteFailed": "Letzte Transkription konnte nicht erneut eingefügt werden",
 		"errorTitle": "Aufnahmefehler",
-		"retry": "Wiederholen"
+		"retry": "Wiederholen",
+		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"toggleFailed": "Failed to toggle dictation. Please check your connection."
 	},
 	"common": {
 		"cancel": "Abbrechen",
@@ -100,7 +109,9 @@
 		"sortAZ": "A → Z",
 		"sortZA": "Z → A",
 		"import": "Importieren",
-		"importAria": "Aus Datei importieren"
+		"importAria": "Aus Datei importieren",
+		"lastUpdatedWithValue": "Last updated: {value}",
+		"close": "Close"
 	},
 	"microphone": {
 		"levelBarAria": "Mikrofoneingangspegel",
@@ -152,7 +163,14 @@
 		"permissionDeniedMessageLinux": "Voice Typer kann nicht auf das Mikrofon zugreifen. Stellen Sie sicher, dass keine andere Anwendung es exklusiv belegt und dass PulseAudio/PipeWire läuft.",
 		"permissionDeniedMessage": "Voice Typer kann nicht auf das Mikrofon zugreifen. Gewähren Sie Mikrofonzugriff in den Datenschutzeinstellungen Ihres Systems.",
 		"openSettings": "Einstellungen öffnen",
-		"openSettingsAria": "Mikrofon-Datenschutzeinstellungen des Betriebssystems öffnen"
+		"openSettingsAria": "Mikrofon-Datenschutzeinstellungen des Betriebssystems öffnen",
+		"loading": "Loading microphones…",
+		"test": {
+			"qualityPoor": "Poor",
+			"qualityGood": "Good",
+			"qualityOk": "OK"
+		},
+		"stopPlaybackFirst": "Stop audio playback before starting a new test"
 	},
 	"vocabulary": {
 		"title": "Benutzerwortschatz",
@@ -215,7 +233,8 @@
 		"importFailed": "Import fehlgeschlagen: {error}",
 		"importEmpty": "Datei enthält keine Wörterbucheinträge",
 		"loadFailedTitle": "Wörterbuch konnte nicht geladen werden",
-		"retry": "Wiederholen"
+		"retry": "Wiederholen",
+		"loading": "Loading vocabulary…"
 	},
 	"templates": {
 		"title": "Vorlagen",
@@ -259,7 +278,8 @@
 		"importEmpty": "Datei enthält keine Vorlagen",
 		"matchModeExactLabel": "Exakt",
 		"matchModeContainsLabel": "Enthält",
-		"matchModeAria": "Match mode: {mode}"
+		"matchModeAria": "Match mode: {mode}",
+		"loading": "Loading templates…"
 	},
 	"analytics": {
 		"title": "Analysen",
@@ -407,7 +427,8 @@
 		"creditsFontsValue": "Geist",
 		"creditsIconsLabel": "Icons",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation"
+		"documentationLink": "Documentation",
+		"loading": "Loading…"
 	},
 	"settings": {
 		"title": "Einstellungen",
@@ -654,7 +675,12 @@
 			"maxRecordingTimeAria": "Maximale Aufnahmedauer",
 			"stopOnSilence": "Automatischer Stopp",
 			"stopOnSilenceInfo": "Aufnahme nach dieser Anzahl Sekunden Stille automatisch stoppen.",
-			"stopOnSilenceAria": "Automatischer Stopp"
+			"stopOnSilenceAria": "Automatischer Stopp",
+			"rangeErrorMinutes": "Must be between {min} and {max}",
+			"rangeHintSeconds": "Range: {min}–{max} s",
+			"parseError": "Enter a whole number",
+			"rangeHintMinutes": "Range: {min}–{max} min",
+			"rangeErrorSeconds": "Must be between {min} and {max}"
 		},
 		"audioEnhancement": {
 			"title": "Audioverbesserung",
@@ -916,11 +942,13 @@
 			"available": "Sicher im Schlüsselbund des Betriebssystems gespeichert.",
 			"availableWithBackend": "Sicher im Schlüsselbund des Betriebssystems gespeichert (Backend: {backend}).",
 			"fallback": "Schlüsselbund-Backend nicht verfügbar — Geheimnisse werden als Klartext mit 0o600-Berechtigungen gespeichert.",
-			"fallbackWithReason": "Schlüsselbund-Backend nicht verfügbar ({reason}) — Geheimnisse werden als Klartext mit 0o600-Berechtigungen gespeichert."
+			"fallbackWithReason": "Schlüsselbund-Backend nicht verfügbar ({reason}) — Geheimnisse werden als Klartext mit 0o600-Berechtigungen gespeichert.",
+			"statusLabel": "Keyring status"
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click"
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"pending": "Pending…"
 	},
 	"models": {
 		"asrTitle": "ASR-Modelle",
@@ -967,7 +995,8 @@
 			"resumeFailed": "Failed to resume: {error}",
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
-			"cancelFailed": "Failed to cancel: {error}"
+			"cancelFailed": "Failed to cancel: {error}",
+			"parakeetDepsInstalled": "Parakeet dependencies installed successfully."
 		},
 		"test": {
 			"needApiKey": "Please enter an API key first",
@@ -980,7 +1009,8 @@
 			"active": "Aktiv",
 			"downloaded": "Heruntergeladen",
 			"depsRequired": "Abhängigkeiten erforderlich",
-			"available": "Verfügbar"
+			"available": "Verfügbar",
+			"insufficientDisk": "Insufficient disk space"
 		},
 		"import": {
 			"title": "Modell importieren",
@@ -1012,7 +1042,8 @@
 			"cancel": "Abbrechen",
 			"depsAria": "Download dependencies for {name}",
 			"deps": "Abhängigkeiten herunterladen",
-			"progressAria": "Modell wird heruntergeladen: {percent}% abgeschlossen"
+			"progressAria": "Modell wird heruntergeladen: {percent}% abgeschlossen",
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1075,7 +1106,6 @@
 		"pleaseEnterApiKey": "Bitte geben Sie zuerst einen API-Schlüssel ein",
 		"consentGranted": "Zustimmung erteilt — Modell-Downloads von HuggingFace werden fortgesetzt.",
 		"consentRevoked": "Zustimmung widerrufen — Modell-Downloads von HuggingFace sind blockiert.",
-		"speed": "Geschwindigkeit",
 		"size": "Größe",
 		"language": "Sprache",
 		"fastest": "Am schnellsten",
@@ -1096,7 +1126,21 @@
 			"running": "Wird ausgeführt...",
 			"run": "Benchmark ausführen"
 		},
-		"benchmarkNotImplemented": "Benchmark not yet implemented."
+		"benchmarkNotImplemented": "Benchmark not yet implemented.",
+		"speed": {
+			"fastest": "Fastest",
+			"variable": "Variable",
+			"slow": "Slow",
+			"fast": "Fast"
+		},
+		"openFolderAria": "Open the models directory in your file manager",
+		"openFolderFailed": "Open folder failed",
+		"disk": {
+			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model.",
+			"lowSpaceTitle": "Low disk space"
+		},
+		"loading": "Loading models…",
+		"openFolder": "Open models folder"
 	},
 	"tooltips": {
 		"toggleRecording": "Sprachdiktat starten oder beenden",
@@ -1128,7 +1172,8 @@
 		"noiseSuppressionMethod": "Rauschunterdrückungsmethode",
 		"importNotAvailableOutsideElectron": "Import außerhalb von Electron nicht verfügbar",
 		"transcriptionComplete": "Transkription abgeschlossen.",
-		"moreInfoAbout": "More info about {label}"
+		"moreInfoAbout": "More info about {label}",
+		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
 	},
 	"help": {
 		"title": "Tastaturkürzel",
@@ -1299,7 +1344,11 @@
 		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
 		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
-		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
+		"modelOption": "{description} — {size} ({speed})",
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step5Item": "Start dictating",
+		"step4Item": "Choose your model"
 	},
 	"titleBar": {
 		"minimize": "Minimieren",
@@ -1307,7 +1356,9 @@
 		"restore": "Wiederherstellen",
 		"close": "Schließen",
 		"back": "Zurück (oder Maus-Zurück-Taste)",
-		"forward": "Vorwärts (oder Maus-Vorwärts-Taste)"
+		"forward": "Vorwärts (oder Maus-Vorwärts-Taste)",
+		"forwardWithShortcut": "Forward ({shortcut})",
+		"backWithShortcut": "Back ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice-Typer-Aufnahmeanzeige",
@@ -1322,7 +1373,16 @@
 		"description": "Die App hat einen unerwarteten Fehler festgestellt. Ihre Daten sind sicher.",
 		"unknownError": "Unbekannter Fehler",
 		"tryAgain": "Erneut versuchen",
-		"reloadApp": "App neu laden"
+		"reloadApp": "App neu laden",
+		"copyError": "Copy error",
+		"componentStackLabel": "Component stack:",
+		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
+		"openLogs": "Open logs",
+		"reportBug": "Report this bug",
+		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
+		"resetSettings": "Reset settings",
+		"copied": "Copied!",
+		"resetting": "Resetting…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "Taste drücken",
@@ -1332,7 +1392,12 @@
 		"cancelRecordingAria": "Aufnahme abbrechen — {label}",
 		"recordNewAria": "Neue Tastenkombination aufnehmen — {label}",
 		"presetHotkeysAria": "Vordefinierte Tastenkombinationen — {label}",
-		"assignHint": "Zum Zuweisen eine Taste drücken oder Esc zum Abbrechen"
+		"assignHint": "Zum Zuweisen eine Taste drücken oder Esc zum Abbrechen",
+		"defaultAriaLabel": "Hotkey picker",
+		"secondsRemainingSuffix": "({count}s)",
+		"clearAria": "Clear hotkey — {label}",
+		"holdingPrefix": "Holding: {modifiers}",
+		"clearTitle": "Clear hotkey"
 	},
 	"activityList": {
 		"failedToCopy": "Kopieren fehlgeschlagen",
@@ -1456,7 +1521,25 @@
 			"up": "↑",
 			"down": "↓",
 			"left": "←",
-			"right": "→"
+			"right": "→",
+			"alt_r": "Alt",
+			"cmd_r": "Cmd",
+			"print_screen": "Print Screen",
+			"alt_l": "Alt",
+			"page_down": "Page Down",
+			"page_up": "Page Up",
+			"scroll_lock": "Scroll Lock",
+			"shift_l": "Shift",
+			"caps_lock": "Caps Lock",
+			"shift_r": "Shift",
+			"cmd_l": "Cmd",
+			"ctrl_l": "Ctrl",
+			"return": "Enter",
+			"num_lock": "Num Lock",
+			"escape": "Esc",
+			"alt_gr": "AltGr",
+			"meta": "Super",
+			"ctrl_r": "Ctrl"
 		},
 		"combos": {
 			"ctrlShiftV": "Ctrl+Shift+V",
@@ -1464,6 +1547,38 @@
 			"ctrlSpace": "Ctrl+Space",
 			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
 			"superSpace": "Super+Space"
+		},
+		"presets": {
+			"combo": {
+				"ctrlAltV": "Ctrl+Alt+V",
+				"superSpace": "Super+Space",
+				"cmdShiftV": "Cmd+Shift+V (macOS)",
+				"ctrlSpace": "Ctrl+Space",
+				"ctrlShiftV": "Ctrl+Shift+V"
+			},
+			"single": {
+				"fn": "Fn / Globe 🌐 (macOS only)",
+				"alt": "Alt",
+				"ctrl": "Ctrl",
+				"caps_lock": "Caps Lock"
+			}
+		},
+		"errors": {
+			"empty": "Hotkey is empty",
+			"comboMustEndNonModifier": "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+			"fnMacOnly": "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.",
+			"invalid": "Invalid hotkey",
+			"noKeys": "Hotkey has no keys",
+			"fnMacOnlyShort": "Fn key is only supported on macOS.",
+			"singleKeyOnly": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos."
+		},
+		"none": "None"
+	},
+	"format": {
+		"duration": {
+			"hourShort": "h",
+			"secondShort": "s",
+			"minuteShort": "m"
 		}
 	}
 }

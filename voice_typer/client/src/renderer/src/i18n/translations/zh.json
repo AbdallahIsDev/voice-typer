@@ -34,7 +34,9 @@
 			"step1StartingPython": "正在启动 Python",
 			"step2LoadingModel": "正在加载模型",
 			"step3Ready": "就绪"
-		}
+		},
+		"pageNotFoundDescription": "Unknown page: {page}",
+		"pageNotFoundTitle": "Page not found"
 	},
 	"nav": {
 		"home": "首页",
@@ -45,7 +47,12 @@
 		"models": "模型",
 		"microphone": "麦克风",
 		"settings": "设置",
-		"about": "关于"
+		"about": "关于",
+		"group": {
+			"power": "Power features",
+			"system": "System",
+			"main": "Main"
+		}
 	},
 	"home": {
 		"ready": "就绪",
@@ -76,7 +83,9 @@
 		"undoFailed": "无法撤销上次转写",
 		"repasteFailed": "无法重新粘贴上次转写",
 		"errorTitle": "录制错误",
-		"retry": "重试"
+		"retry": "重试",
+		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"toggleFailed": "Failed to toggle dictation. Please check your connection."
 	},
 	"common": {
 		"cancel": "取消",
@@ -100,7 +109,9 @@
 		"sortAZ": "A → Z",
 		"sortZA": "Z → A",
 		"import": "导入",
-		"importAria": "从文件导入"
+		"importAria": "从文件导入",
+		"lastUpdatedWithValue": "Last updated: {value}",
+		"close": "Close"
 	},
 	"microphone": {
 		"levelBarAria": "麦克风输入电平",
@@ -152,7 +163,14 @@
 		"permissionDeniedMessageLinux": "Voice Typer 无法访问麦克风。请确保没有其他应用程序独占它，并且 PulseAudio/PipeWire 正在运行。",
 		"permissionDeniedMessage": "Voice Typer 无法访问麦克风。请在系统隐私设置中授予麦克风访问权限。",
 		"openSettings": "打开设置",
-		"openSettingsAria": "打开操作系统麦克风隐私设置"
+		"openSettingsAria": "打开操作系统麦克风隐私设置",
+		"loading": "Loading microphones…",
+		"test": {
+			"qualityPoor": "Poor",
+			"qualityGood": "Good",
+			"qualityOk": "OK"
+		},
+		"stopPlaybackFirst": "Stop audio playback before starting a new test"
 	},
 	"vocabulary": {
 		"title": "自定义词汇",
@@ -215,7 +233,8 @@
 		"importFailed": "导入失败：{error}",
 		"importEmpty": "文件不包含词汇条目",
 		"loadFailedTitle": "加载词汇失败",
-		"retry": "重试"
+		"retry": "重试",
+		"loading": "Loading vocabulary…"
 	},
 	"templates": {
 		"title": "模板",
@@ -259,7 +278,8 @@
 		"importEmpty": "文件不包含模板",
 		"matchModeExactLabel": "精确",
 		"matchModeContainsLabel": "包含",
-		"matchModeAria": "Match mode: {mode}"
+		"matchModeAria": "Match mode: {mode}",
+		"loading": "Loading templates…"
 	},
 	"analytics": {
 		"title": "分析",
@@ -407,7 +427,8 @@
 		"creditsFontsValue": "Geist",
 		"creditsIconsLabel": "Icons",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation"
+		"documentationLink": "Documentation",
+		"loading": "Loading…"
 	},
 	"settings": {
 		"title": "设置",
@@ -648,7 +669,12 @@
 			"maxRecordingTimeAria": "最长录音时间分钟数",
 			"stopOnSilence": "静默时自动停止",
 			"stopOnSilenceInfo": "静默超过此秒数后自动停止录音。",
-			"stopOnSilenceAria": "静默停止秒数"
+			"stopOnSilenceAria": "静默停止秒数",
+			"rangeErrorMinutes": "Must be between {min} and {max}",
+			"rangeHintSeconds": "Range: {min}–{max} s",
+			"parseError": "Enter a whole number",
+			"rangeHintMinutes": "Range: {min}–{max} min",
+			"rangeErrorSeconds": "Must be between {min} and {max}"
 		},
 		"audioEnhancement": {
 			"title": "音频增强",
@@ -916,11 +942,13 @@
 			"available": "安全存储在系统钥匙串中。",
 			"availableWithBackend": "安全存储在系统钥匙串中（后端：{backend}）。",
 			"fallback": "钥匙串后端不可用——密钥将以明文形式存储，权限为 0o600。",
-			"fallbackWithReason": "钥匙串后端不可用（{reason}）——密钥将以明文形式存储，权限为 0o600。"
+			"fallbackWithReason": "钥匙串后端不可用（{reason}）——密钥将以明文形式存储，权限为 0o600。",
+			"statusLabel": "Keyring status"
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click"
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"pending": "Pending…"
 	},
 	"models": {
 		"asrTitle": "ASR 模型",
@@ -967,7 +995,8 @@
 			"resumeFailed": "Failed to resume: {error}",
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
-			"cancelFailed": "Failed to cancel: {error}"
+			"cancelFailed": "Failed to cancel: {error}",
+			"parakeetDepsInstalled": "Parakeet dependencies installed successfully."
 		},
 		"test": {
 			"needApiKey": "Please enter an API key first",
@@ -980,7 +1009,8 @@
 			"active": "活跃",
 			"downloaded": "已下载",
 			"depsRequired": "需要依赖项",
-			"available": "可用"
+			"available": "可用",
+			"insufficientDisk": "Insufficient disk space"
 		},
 		"import": {
 			"title": "导入模型",
@@ -1012,7 +1042,8 @@
 			"cancel": "取消",
 			"depsAria": "Download dependencies for {name}",
 			"deps": "下载依赖项",
-			"progressAria": "下载模型中：已完成 {percent}%"
+			"progressAria": "下载模型中：已完成 {percent}%",
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1075,7 +1106,6 @@
 		"pleaseEnterApiKey": "请先输入 API 密钥",
 		"consentGranted": "已授同意 — 将继续从 HuggingFace 下载模型。",
 		"consentRevoked": "已撤销同意 — 从 HuggingFace 下载模型已被阻止。",
-		"speed": "速度",
 		"size": "大小",
 		"language": "语言",
 		"fastest": "最快",
@@ -1096,7 +1126,21 @@
 			"running": "运行中...",
 			"run": "运行基准测试"
 		},
-		"benchmarkNotImplemented": "Benchmark not yet implemented."
+		"benchmarkNotImplemented": "Benchmark not yet implemented.",
+		"speed": {
+			"fastest": "Fastest",
+			"variable": "Variable",
+			"slow": "Slow",
+			"fast": "Fast"
+		},
+		"openFolderAria": "Open the models directory in your file manager",
+		"openFolderFailed": "Open folder failed",
+		"disk": {
+			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model.",
+			"lowSpaceTitle": "Low disk space"
+		},
+		"loading": "Loading models…",
+		"openFolder": "Open models folder"
 	},
 	"tooltips": {
 		"toggleRecording": "开始或停止语音听写",
@@ -1128,7 +1172,8 @@
 		"noiseSuppressionMethod": "降噪方法",
 		"importNotAvailableOutsideElectron": "在 Electron 外部不可用导入",
 		"transcriptionComplete": "转写完成。",
-		"moreInfoAbout": "More info about {label}"
+		"moreInfoAbout": "More info about {label}",
+		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
 	},
 	"help": {
 		"title": "键盘快捷键",
@@ -1299,7 +1344,11 @@
 		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
 		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
-		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
+		"modelOption": "{description} — {size} ({speed})",
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step5Item": "Start dictating",
+		"step4Item": "Choose your model"
 	},
 	"titleBar": {
 		"minimize": "最小化",
@@ -1307,7 +1356,9 @@
 		"restore": "还原",
 		"close": "关闭",
 		"back": "后退（或鼠标后退按钮）",
-		"forward": "前进（或鼠标前进按钮）"
+		"forward": "前进（或鼠标前进按钮）",
+		"forwardWithShortcut": "Forward ({shortcut})",
+		"backWithShortcut": "Back ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer 录音指示器",
@@ -1322,7 +1373,16 @@
 		"description": "应用遇到意外错误。您的数据是安全的。",
 		"unknownError": "未知错误",
 		"tryAgain": "重试",
-		"reloadApp": "重新加载应用"
+		"reloadApp": "重新加载应用",
+		"copyError": "Copy error",
+		"componentStackLabel": "Component stack:",
+		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
+		"openLogs": "Open logs",
+		"reportBug": "Report this bug",
+		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
+		"resetSettings": "Reset settings",
+		"copied": "Copied!",
+		"resetting": "Resetting…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "按一个键",
@@ -1332,7 +1392,12 @@
 		"cancelRecordingAria": "取消录音 — {label}",
 		"recordNewAria": "录制新快捷键 — {label}",
 		"presetHotkeysAria": "预设快捷键 — {label}",
-		"assignHint": "按一个键进行分配，或按 Esc 取消"
+		"assignHint": "按一个键进行分配，或按 Esc 取消",
+		"defaultAriaLabel": "Hotkey picker",
+		"secondsRemainingSuffix": "({count}s)",
+		"clearAria": "Clear hotkey — {label}",
+		"holdingPrefix": "Holding: {modifiers}",
+		"clearTitle": "Clear hotkey"
 	},
 	"activityList": {
 		"failedToCopy": "复制失败",
@@ -1456,7 +1521,25 @@
 			"up": "↑",
 			"down": "↓",
 			"left": "←",
-			"right": "→"
+			"right": "→",
+			"alt_r": "Alt",
+			"cmd_r": "Cmd",
+			"print_screen": "Print Screen",
+			"alt_l": "Alt",
+			"page_down": "Page Down",
+			"page_up": "Page Up",
+			"scroll_lock": "Scroll Lock",
+			"shift_l": "Shift",
+			"caps_lock": "Caps Lock",
+			"shift_r": "Shift",
+			"cmd_l": "Cmd",
+			"ctrl_l": "Ctrl",
+			"return": "Enter",
+			"num_lock": "Num Lock",
+			"escape": "Esc",
+			"alt_gr": "AltGr",
+			"meta": "Super",
+			"ctrl_r": "Ctrl"
 		},
 		"combos": {
 			"ctrlShiftV": "Ctrl+Shift+V",
@@ -1464,6 +1547,38 @@
 			"ctrlSpace": "Ctrl+Space",
 			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
 			"superSpace": "Super+Space"
+		},
+		"presets": {
+			"combo": {
+				"ctrlAltV": "Ctrl+Alt+V",
+				"superSpace": "Super+Space",
+				"cmdShiftV": "Cmd+Shift+V (macOS)",
+				"ctrlSpace": "Ctrl+Space",
+				"ctrlShiftV": "Ctrl+Shift+V"
+			},
+			"single": {
+				"fn": "Fn / Globe 🌐 (macOS only)",
+				"alt": "Alt",
+				"ctrl": "Ctrl",
+				"caps_lock": "Caps Lock"
+			}
+		},
+		"errors": {
+			"empty": "Hotkey is empty",
+			"comboMustEndNonModifier": "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+			"fnMacOnly": "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.",
+			"invalid": "Invalid hotkey",
+			"noKeys": "Hotkey has no keys",
+			"fnMacOnlyShort": "Fn key is only supported on macOS.",
+			"singleKeyOnly": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos."
+		},
+		"none": "None"
+	},
+	"format": {
+		"duration": {
+			"hourShort": "h",
+			"secondShort": "s",
+			"minuteShort": "m"
 		}
 	}
 }

@@ -34,7 +34,9 @@
 			"step1StartingPython": "पायथन शुरू हो रहा है",
 			"step2LoadingModel": "मॉडल लोड हो रहा है",
 			"step3Ready": "तैयार"
-		}
+		},
+		"pageNotFoundDescription": "Unknown page: {page}",
+		"pageNotFoundTitle": "Page not found"
 	},
 	"nav": {
 		"home": "होम",
@@ -45,7 +47,12 @@
 		"models": "मॉडल",
 		"microphone": "माइक्रोफोन",
 		"settings": "सेटिंग्स",
-		"about": "हमारे बारे में"
+		"about": "हमारे बारे में",
+		"group": {
+			"power": "Power features",
+			"system": "System",
+			"main": "Main"
+		}
 	},
 	"home": {
 		"ready": "तैयार",
@@ -76,7 +83,9 @@
 		"undoFailed": "अंतिम ट्रांसक्रिप्शन को पूर्ववत नहीं किया जा सका",
 		"repasteFailed": "अंतिम ट्रांसक्रिप्शन को फिर से पेस्ट नहीं किया जा सका",
 		"errorTitle": "रिकॉर्डिंग त्रुटि",
-		"retry": "पुनः प्रयास करें"
+		"retry": "पुनः प्रयास करें",
+		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"toggleFailed": "Failed to toggle dictation. Please check your connection."
 	},
 	"common": {
 		"cancel": "रद्द करें",
@@ -100,7 +109,9 @@
 		"sortAZ": "अ → ज्ञ",
 		"sortZA": "ज्ञ → अ",
 		"import": "आयात करें",
-		"importAria": "फ़ाइल से आयात करें"
+		"importAria": "फ़ाइल से आयात करें",
+		"lastUpdatedWithValue": "Last updated: {value}",
+		"close": "Close"
 	},
 	"microphone": {
 		"levelBarAria": "माइक्रोफ़ोन इनपुट स्तर",
@@ -152,7 +163,14 @@
 		"permissionDeniedMessageLinux": "Voice Typer माइक्रोफ़ोन तक नहीं पहुंच सकता। जांचें कि कोई अन्य एप्लिकेशन इसे विशेष रूप से उपयोग नहीं कर रहा है और PulseAudio/PipeWire चल रहा है।",
 		"permissionDeniedMessage": "Voice Typer माइक्रोफ़ोन तक नहीं पहुंच सकता। अपनी सिस्टम गोपनीयता सेटिंग्स में माइक्रोफ़ोन एक्सेस दें।",
 		"openSettings": "सेटिंग्स खोलें",
-		"openSettingsAria": "ऑपरेटिंग सिस्टम की माइक्रोफ़ोन गोपनीयता सेटिंग्स खोलें"
+		"openSettingsAria": "ऑपरेटिंग सिस्टम की माइक्रोफ़ोन गोपनीयता सेटिंग्स खोलें",
+		"loading": "Loading microphones…",
+		"test": {
+			"qualityPoor": "Poor",
+			"qualityGood": "Good",
+			"qualityOk": "OK"
+		},
+		"stopPlaybackFirst": "Stop audio playback before starting a new test"
 	},
 	"vocabulary": {
 		"title": "कस्टम शब्दावली",
@@ -215,7 +233,8 @@
 		"importFailed": "आयात विफल: {error}",
 		"importEmpty": "फ़ाइल में कोई शब्दावली प्रविष्टियाँ नहीं हैं",
 		"loadFailedTitle": "शब्दावली लोड करने में विफल",
-		"retry": "पुनः प्रयास करें"
+		"retry": "पुनः प्रयास करें",
+		"loading": "Loading vocabulary…"
 	},
 	"templates": {
 		"title": "टेम्पलेट",
@@ -259,7 +278,8 @@
 		"importEmpty": "फ़ाइल में कोई टेम्पलेट नहीं है",
 		"matchModeExactLabel": "सटीक",
 		"matchModeContainsLabel": "शामिल है",
-		"matchModeAria": "Match mode: {mode}"
+		"matchModeAria": "Match mode: {mode}",
+		"loading": "Loading templates…"
 	},
 	"analytics": {
 		"title": "एनालिटिक्स",
@@ -407,7 +427,8 @@
 		"creditsFontsValue": "Geist",
 		"creditsIconsLabel": "Icons",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation"
+		"documentationLink": "Documentation",
+		"loading": "Loading…"
 	},
 	"settings": {
 		"title": "सेटिंग्स",
@@ -648,7 +669,12 @@
 			"maxRecordingTimeAria": "अधिकतम रिकॉर्डिंग अवधि",
 			"stopOnSilence": "स्वतः रोकें",
 			"stopOnSilenceInfo": "इतने सेकंड के मौन के बाद स्वतः रिकॉर्डिंग रोकें।",
-			"stopOnSilenceAria": "स्वतः रोकें"
+			"stopOnSilenceAria": "स्वतः रोकें",
+			"rangeErrorMinutes": "Must be between {min} and {max}",
+			"rangeHintSeconds": "Range: {min}–{max} s",
+			"parseError": "Enter a whole number",
+			"rangeHintMinutes": "Range: {min}–{max} min",
+			"rangeErrorSeconds": "Must be between {min} and {max}"
 		},
 		"audioEnhancement": {
 			"title": "ऑडियो संवर्द्धन",
@@ -916,11 +942,13 @@
 			"available": "सिस्टम कीचेन में सुरक्षित रूप से संग्रहीत।",
 			"availableWithBackend": "सिस्टम कीचेन में सुरक्षित रूप से संग्रहीत (बैकएंड: {backend})।",
 			"fallback": "कीचेन बैकएंड उपलब्ध नहीं है — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।",
-			"fallbackWithReason": "कीचेन बैकएंड उपलब्ध नहीं है ({reason}) — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।"
+			"fallbackWithReason": "कीचेन बैकएंड उपलब्ध नहीं है ({reason}) — रहस्य सादे पाठ में 0o600 अनुमतियों के साथ संग्रहीत होंगे।",
+			"statusLabel": "Keyring status"
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click"
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"pending": "Pending…"
 	},
 	"models": {
 		"asrTitle": "ASR मॉडल",
@@ -967,7 +995,8 @@
 			"resumeFailed": "Failed to resume: {error}",
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
-			"cancelFailed": "Failed to cancel: {error}"
+			"cancelFailed": "Failed to cancel: {error}",
+			"parakeetDepsInstalled": "Parakeet dependencies installed successfully."
 		},
 		"test": {
 			"needApiKey": "Please enter an API key first",
@@ -980,7 +1009,8 @@
 			"active": "सक्रिय",
 			"downloaded": "डाउनलोड किया गया",
 			"depsRequired": "निर्भरताएं आवश्यक हैं",
-			"available": "उपलब्ध"
+			"available": "उपलब्ध",
+			"insufficientDisk": "Insufficient disk space"
 		},
 		"import": {
 			"title": "मॉडल आयात करें",
@@ -1012,7 +1042,8 @@
 			"cancel": "रद्द करें",
 			"depsAria": "Download dependencies for {name}",
 			"deps": "निर्भरताएं डाउनलोड करें",
-			"progressAria": "मॉडल डाउनलोड हो रहा है: {percent}% पूर्ण"
+			"progressAria": "मॉडल डाउनलोड हो रहा है: {percent}% पूर्ण",
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1075,7 +1106,6 @@
 		"pleaseEnterApiKey": "कृपया पहले एक API कुंजी दर्ज करें",
 		"consentGranted": "सहमति प्रदान की गई — HuggingFace से मॉडल डाउनलोड आगे बढ़ेंगे।",
 		"consentRevoked": "सहमति वापस ली गई — HuggingFace से मॉडल डाउनलोड अवरुद्ध हैं।",
-		"speed": "गति",
 		"size": "आकार",
 		"language": "भाषा",
 		"fastest": "सबसे तेज़",
@@ -1096,7 +1126,21 @@
 			"running": "चल रहा है...",
 			"run": "बेंचमार्क चलाएं"
 		},
-		"benchmarkNotImplemented": "Benchmark not yet implemented."
+		"benchmarkNotImplemented": "Benchmark not yet implemented.",
+		"speed": {
+			"fastest": "Fastest",
+			"variable": "Variable",
+			"slow": "Slow",
+			"fast": "Fast"
+		},
+		"openFolderAria": "Open the models directory in your file manager",
+		"openFolderFailed": "Open folder failed",
+		"disk": {
+			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model.",
+			"lowSpaceTitle": "Low disk space"
+		},
+		"loading": "Loading models…",
+		"openFolder": "Open models folder"
 	},
 	"tooltips": {
 		"toggleRecording": "वॉयस डिक्टेशन शुरू या बंद करें",
@@ -1128,7 +1172,8 @@
 		"noiseSuppressionMethod": "शोर दमन विधि",
 		"importNotAvailableOutsideElectron": "Electron के बाहर आयात उपलब्ध नहीं है",
 		"transcriptionComplete": "ट्रांसक्रिप्शन पूर्ण।",
-		"moreInfoAbout": "More info about {label}"
+		"moreInfoAbout": "More info about {label}",
+		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
 	},
 	"help": {
 		"title": "कीबोर्ड शॉर्टकट",
@@ -1299,7 +1344,11 @@
 		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
 		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
-		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
+		"modelOption": "{description} — {size} ({speed})",
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step5Item": "Start dictating",
+		"step4Item": "Choose your model"
 	},
 	"titleBar": {
 		"minimize": "न्यूनतम करें",
@@ -1307,7 +1356,9 @@
 		"restore": "पुनर्स्थापित करें",
 		"close": "बंद करें",
 		"back": "पीछे (या माउस बैक बटन)",
-		"forward": "आगे (या माउस फ़ॉरवर्ड बटन)"
+		"forward": "आगे (या माउस फ़ॉरवर्ड बटन)",
+		"forwardWithShortcut": "Forward ({shortcut})",
+		"backWithShortcut": "Back ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer रिकॉर्डिंग संकेतक",
@@ -1322,7 +1373,16 @@
 		"description": "ऐप में अप्रत्याशित त्रुटि हुई। आपका डेटा सुरक्षित है।",
 		"unknownError": "अज्ञात त्रुटि",
 		"tryAgain": "पुनः प्रयास करें",
-		"reloadApp": "ऐप पुनः लोड करें"
+		"reloadApp": "ऐप पुनः लोड करें",
+		"copyError": "Copy error",
+		"componentStackLabel": "Component stack:",
+		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
+		"openLogs": "Open logs",
+		"reportBug": "Report this bug",
+		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
+		"resetSettings": "Reset settings",
+		"copied": "Copied!",
+		"resetting": "Resetting…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "एक कुंजी दबाएं",
@@ -1332,7 +1392,12 @@
 		"cancelRecordingAria": "रिकॉर्डिंग रद्द करें — {label}",
 		"recordNewAria": "नया शॉर्टकट रिकॉर्ड करें — {label}",
 		"presetHotkeysAria": "प्रीसेट शॉर्टकट — {label}",
-		"assignHint": "असाइन करने के लिए एक कुंजी दबाएं, या रद्द करने के लिए Esc दबाएं"
+		"assignHint": "असाइन करने के लिए एक कुंजी दबाएं, या रद्द करने के लिए Esc दबाएं",
+		"defaultAriaLabel": "Hotkey picker",
+		"secondsRemainingSuffix": "({count}s)",
+		"clearAria": "Clear hotkey — {label}",
+		"holdingPrefix": "Holding: {modifiers}",
+		"clearTitle": "Clear hotkey"
 	},
 	"activityList": {
 		"failedToCopy": "कॉपी करने में विफल",
@@ -1456,7 +1521,25 @@
 			"up": "↑",
 			"down": "↓",
 			"left": "←",
-			"right": "→"
+			"right": "→",
+			"alt_r": "Alt",
+			"cmd_r": "Cmd",
+			"print_screen": "Print Screen",
+			"alt_l": "Alt",
+			"page_down": "Page Down",
+			"page_up": "Page Up",
+			"scroll_lock": "Scroll Lock",
+			"shift_l": "Shift",
+			"caps_lock": "Caps Lock",
+			"shift_r": "Shift",
+			"cmd_l": "Cmd",
+			"ctrl_l": "Ctrl",
+			"return": "Enter",
+			"num_lock": "Num Lock",
+			"escape": "Esc",
+			"alt_gr": "AltGr",
+			"meta": "Super",
+			"ctrl_r": "Ctrl"
 		},
 		"combos": {
 			"ctrlShiftV": "Ctrl+Shift+V",
@@ -1464,6 +1547,38 @@
 			"ctrlSpace": "Ctrl+Space",
 			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
 			"superSpace": "Super+Space"
+		},
+		"presets": {
+			"combo": {
+				"ctrlAltV": "Ctrl+Alt+V",
+				"superSpace": "Super+Space",
+				"cmdShiftV": "Cmd+Shift+V (macOS)",
+				"ctrlSpace": "Ctrl+Space",
+				"ctrlShiftV": "Ctrl+Shift+V"
+			},
+			"single": {
+				"fn": "Fn / Globe 🌐 (macOS only)",
+				"alt": "Alt",
+				"ctrl": "Ctrl",
+				"caps_lock": "Caps Lock"
+			}
+		},
+		"errors": {
+			"empty": "Hotkey is empty",
+			"comboMustEndNonModifier": "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+			"fnMacOnly": "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.",
+			"invalid": "Invalid hotkey",
+			"noKeys": "Hotkey has no keys",
+			"fnMacOnlyShort": "Fn key is only supported on macOS.",
+			"singleKeyOnly": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos."
+		},
+		"none": "None"
+	},
+	"format": {
+		"duration": {
+			"hourShort": "h",
+			"secondShort": "s",
+			"minuteShort": "m"
 		}
 	}
 }

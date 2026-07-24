@@ -34,7 +34,9 @@
 			"step1StartingPython": "Запуск Python",
 			"step2LoadingModel": "Загрузка модели",
 			"step3Ready": "Готово"
-		}
+		},
+		"pageNotFoundDescription": "Unknown page: {page}",
+		"pageNotFoundTitle": "Page not found"
 	},
 	"nav": {
 		"home": "Главная",
@@ -45,7 +47,12 @@
 		"models": "Модели",
 		"microphone": "Микрофон",
 		"settings": "Настройки",
-		"about": "О программе"
+		"about": "О программе",
+		"group": {
+			"power": "Power features",
+			"system": "System",
+			"main": "Main"
+		}
 	},
 	"home": {
 		"ready": "ГОТОВО",
@@ -76,7 +83,9 @@
 		"undoFailed": "Не удалось отменить последнюю транскрипцию",
 		"repasteFailed": "Не удалось вставить заново последнюю транскрипцию",
 		"errorTitle": "Ошибка записи",
-		"retry": "Повторить"
+		"retry": "Повторить",
+		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"toggleFailed": "Failed to toggle dictation. Please check your connection."
 	},
 	"common": {
 		"cancel": "Отмена",
@@ -100,7 +109,9 @@
 		"sortAZ": "А → Я",
 		"sortZA": "Я → А",
 		"import": "Импорт",
-		"importAria": "Импорт из файла"
+		"importAria": "Импорт из файла",
+		"lastUpdatedWithValue": "Last updated: {value}",
+		"close": "Close"
 	},
 	"microphone": {
 		"levelBarAria": "Уровень входа микрофона",
@@ -152,7 +163,14 @@
 		"permissionDeniedMessageLinux": "Voice Typer не может получить доступ к микрофону. Убедитесь, что никакое другое приложение не использует его исключительно и что PulseAudio/PipeWire работает.",
 		"permissionDeniedMessage": "Voice Typer не может получить доступ к микрофону. Предоставьте доступ к микрофону в настройках конфиденциальности вашей системы.",
 		"openSettings": "Открыть настройки",
-		"openSettingsAria": "Открыть настройки конфиденциальности микрофона операционной системы"
+		"openSettingsAria": "Открыть настройки конфиденциальности микрофона операционной системы",
+		"loading": "Loading microphones…",
+		"test": {
+			"qualityPoor": "Poor",
+			"qualityGood": "Good",
+			"qualityOk": "OK"
+		},
+		"stopPlaybackFirst": "Stop audio playback before starting a new test"
 	},
 	"vocabulary": {
 		"title": "Пользовательский словарь",
@@ -215,7 +233,8 @@
 		"importFailed": "Импорт не удался: {error}",
 		"importEmpty": "Файл не содержит записей словаря",
 		"loadFailedTitle": "Не удалось загрузить словарь",
-		"retry": "Повторить"
+		"retry": "Повторить",
+		"loading": "Loading vocabulary…"
 	},
 	"templates": {
 		"title": "Шаблоны",
@@ -259,7 +278,8 @@
 		"importEmpty": "Файл не содержит шаблонов",
 		"matchModeExactLabel": "Точно",
 		"matchModeContainsLabel": "Содержит",
-		"matchModeAria": "Match mode: {mode}"
+		"matchModeAria": "Match mode: {mode}",
+		"loading": "Loading templates…"
 	},
 	"analytics": {
 		"title": "Аналитика",
@@ -407,7 +427,8 @@
 		"creditsFontsValue": "Geist",
 		"creditsIconsLabel": "Icons",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "Documentation"
+		"documentationLink": "Documentation",
+		"loading": "Loading…"
 	},
 	"settings": {
 		"title": "Настройки",
@@ -648,7 +669,12 @@
 			"maxRecordingTimeAria": "Макс. время записи в минутах",
 			"stopOnSilence": "Автоостановка при тишине",
 			"stopOnSilenceInfo": "Автоматически остановить запись после указанного количества секунд тишины.",
-			"stopOnSilenceAria": "Секунды до автоостановки при тишине"
+			"stopOnSilenceAria": "Секунды до автоостановки при тишине",
+			"rangeErrorMinutes": "Must be between {min} and {max}",
+			"rangeHintSeconds": "Range: {min}–{max} s",
+			"parseError": "Enter a whole number",
+			"rangeHintMinutes": "Range: {min}–{max} min",
+			"rangeErrorSeconds": "Must be between {min} and {max}"
 		},
 		"audioEnhancement": {
 			"title": "Улучшение звука",
@@ -916,11 +942,13 @@
 			"available": "Безопасно хранится в связке ключей ОС.",
 			"availableWithBackend": "Безопасно хранится в связке ключей ОС (бэкенд: {backend}).",
 			"fallback": "Бэкенд связки ключей недоступен — секреты будут храниться в открытом виде с правами 0o600.",
-			"fallbackWithReason": "Бэкенд связки ключей недоступен ({reason}) — секреты будут храниться в открытом виде с правами 0o600."
+			"fallbackWithReason": "Бэкенд связки ключей недоступен ({reason}) — секреты будут храниться в открытом виде с правами 0o600.",
+			"statusLabel": "Keyring status"
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "Bubble Mic Button",
-		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click"
+		"bubbleMicButtonDescription": "Show a mic button on the always-visible bubble to start/stop dictation with a click",
+		"pending": "Pending…"
 	},
 	"models": {
 		"asrTitle": "Модели ASR",
@@ -967,7 +995,8 @@
 			"resumeFailed": "Failed to resume: {error}",
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
-			"cancelFailed": "Failed to cancel: {error}"
+			"cancelFailed": "Failed to cancel: {error}",
+			"parakeetDepsInstalled": "Parakeet dependencies installed successfully."
 		},
 		"test": {
 			"needApiKey": "Please enter an API key first",
@@ -980,7 +1009,8 @@
 			"active": "Активен",
 			"downloaded": "Загружен",
 			"depsRequired": "Требуются зависимости",
-			"available": "Доступен"
+			"available": "Доступен",
+			"insufficientDisk": "Insufficient disk space"
 		},
 		"import": {
 			"title": "Импорт модели",
@@ -1012,7 +1042,8 @@
 			"cancel": "Отмена",
 			"depsAria": "Download dependencies for {name}",
 			"deps": "Загрузить зависимости",
-			"progressAria": "Загрузка модели: {percent}% завершено"
+			"progressAria": "Загрузка модели: {percent}% завершено",
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1075,7 +1106,6 @@
 		"pleaseEnterApiKey": "Сначала введите API-ключ",
 		"consentGranted": "Согласие получено — загрузка моделей с HuggingFace будет продолжена.",
 		"consentRevoked": "Согласие отозвано — загрузка моделей с HuggingFace заблокирована.",
-		"speed": "Скорость",
 		"size": "Размер",
 		"language": "Язык",
 		"fastest": "Самый быстрый",
@@ -1096,7 +1126,21 @@
 			"running": "Выполняется...",
 			"run": "Запустить тест"
 		},
-		"benchmarkNotImplemented": "Benchmark not yet implemented."
+		"benchmarkNotImplemented": "Benchmark not yet implemented.",
+		"speed": {
+			"fastest": "Fastest",
+			"variable": "Variable",
+			"slow": "Slow",
+			"fast": "Fast"
+		},
+		"openFolderAria": "Open the models directory in your file manager",
+		"openFolderFailed": "Open folder failed",
+		"disk": {
+			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model.",
+			"lowSpaceTitle": "Low disk space"
+		},
+		"loading": "Loading models…",
+		"openFolder": "Open models folder"
 	},
 	"tooltips": {
 		"toggleRecording": "Начать или остановить голосовую диктовку",
@@ -1128,7 +1172,8 @@
 		"noiseSuppressionMethod": "Метод подавления шума",
 		"importNotAvailableOutsideElectron": "Импорт недоступен вне Electron",
 		"transcriptionComplete": "Транскрипция завершена.",
-		"moreInfoAbout": "More info about {label}"
+		"moreInfoAbout": "More info about {label}",
+		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
 	},
 	"help": {
 		"title": "Горячие клавиши",
@@ -1299,7 +1344,11 @@
 		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
 		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
-		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
+		"modelOption": "{description} — {size} ({speed})",
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step5Item": "Start dictating",
+		"step4Item": "Choose your model"
 	},
 	"titleBar": {
 		"minimize": "Свернуть",
@@ -1307,7 +1356,9 @@
 		"restore": "Восстановить",
 		"close": "Закрыть",
 		"back": "Назад (или кнопка мыши «Назад»)",
-		"forward": "Вперёд (или кнопка мыши «Вперёд»)"
+		"forward": "Вперёд (или кнопка мыши «Вперёд»)",
+		"forwardWithShortcut": "Forward ({shortcut})",
+		"backWithShortcut": "Back ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Индикатор записи Voice Typer",
@@ -1322,7 +1373,16 @@
 		"description": "Приложение столкнулось с непредвиденной ошибкой. Ваши данные в безопасности.",
 		"unknownError": "Неизвестная ошибка",
 		"tryAgain": "Повторить",
-		"reloadApp": "Перезагрузить приложение"
+		"reloadApp": "Перезагрузить приложение",
+		"copyError": "Copy error",
+		"componentStackLabel": "Component stack:",
+		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
+		"openLogs": "Open logs",
+		"reportBug": "Report this bug",
+		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
+		"resetSettings": "Reset settings",
+		"copied": "Copied!",
+		"resetting": "Resetting…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "Нажмите клавишу",
@@ -1332,7 +1392,12 @@
 		"cancelRecordingAria": "Отменить запись — {label}",
 		"recordNewAria": "Записать новую горячую клавишу — {label}",
 		"presetHotkeysAria": "Предустановленные горячие клавиши — {label}",
-		"assignHint": "Нажмите клавишу для назначения или Esc для отмены"
+		"assignHint": "Нажмите клавишу для назначения или Esc для отмены",
+		"defaultAriaLabel": "Hotkey picker",
+		"secondsRemainingSuffix": "({count}s)",
+		"clearAria": "Clear hotkey — {label}",
+		"holdingPrefix": "Holding: {modifiers}",
+		"clearTitle": "Clear hotkey"
 	},
 	"activityList": {
 		"failedToCopy": "Не удалось скопировать",
@@ -1456,7 +1521,25 @@
 			"up": "↑",
 			"down": "↓",
 			"left": "←",
-			"right": "→"
+			"right": "→",
+			"alt_r": "Alt",
+			"cmd_r": "Cmd",
+			"print_screen": "Print Screen",
+			"alt_l": "Alt",
+			"page_down": "Page Down",
+			"page_up": "Page Up",
+			"scroll_lock": "Scroll Lock",
+			"shift_l": "Shift",
+			"caps_lock": "Caps Lock",
+			"shift_r": "Shift",
+			"cmd_l": "Cmd",
+			"ctrl_l": "Ctrl",
+			"return": "Enter",
+			"num_lock": "Num Lock",
+			"escape": "Esc",
+			"alt_gr": "AltGr",
+			"meta": "Super",
+			"ctrl_r": "Ctrl"
 		},
 		"combos": {
 			"ctrlShiftV": "Ctrl+Shift+V",
@@ -1464,6 +1547,38 @@
 			"ctrlSpace": "Ctrl+Space",
 			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
 			"superSpace": "Super+Space"
+		},
+		"presets": {
+			"combo": {
+				"ctrlAltV": "Ctrl+Alt+V",
+				"superSpace": "Super+Space",
+				"cmdShiftV": "Cmd+Shift+V (macOS)",
+				"ctrlSpace": "Ctrl+Space",
+				"ctrlShiftV": "Ctrl+Shift+V"
+			},
+			"single": {
+				"fn": "Fn / Globe 🌐 (macOS only)",
+				"alt": "Alt",
+				"ctrl": "Ctrl",
+				"caps_lock": "Caps Lock"
+			}
+		},
+		"errors": {
+			"empty": "Hotkey is empty",
+			"comboMustEndNonModifier": "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+			"fnMacOnly": "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.",
+			"invalid": "Invalid hotkey",
+			"noKeys": "Hotkey has no keys",
+			"fnMacOnlyShort": "Fn key is only supported on macOS.",
+			"singleKeyOnly": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos."
+		},
+		"none": "None"
+	},
+	"format": {
+		"duration": {
+			"hourShort": "h",
+			"secondShort": "s",
+			"minuteShort": "m"
 		}
 	}
 }

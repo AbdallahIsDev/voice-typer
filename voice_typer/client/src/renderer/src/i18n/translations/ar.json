@@ -34,7 +34,9 @@
 			"step1StartingPython": "جارٍ تشغيل Python",
 			"step2LoadingModel": "جارٍ تحميل النموذج",
 			"step3Ready": "جاهز"
-		}
+		},
+		"pageNotFoundDescription": "Unknown page: {page}",
+		"pageNotFoundTitle": "Page not found"
 	},
 	"nav": {
 		"home": "الرئيسية",
@@ -45,7 +47,12 @@
 		"models": "النماذج",
 		"microphone": "الميكروفون",
 		"settings": "الإعدادات",
-		"about": "حول"
+		"about": "حول",
+		"group": {
+			"power": "Power features",
+			"system": "System",
+			"main": "Main"
+		}
 	},
 	"home": {
 		"ready": "جاهز",
@@ -76,7 +83,9 @@
 		"undoFailed": "تعذر التراجع عن آخر إملاء",
 		"repasteFailed": "تعذرت إعادة لصق آخر إملاء",
 		"errorTitle": "خطأ في التسجيل",
-		"retry": "إعادة المحاولة"
+		"retry": "إعادة المحاولة",
+		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
+		"toggleFailed": "Failed to toggle dictation. Please check your connection."
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -100,7 +109,9 @@
 		"sortAZ": "أ → ي",
 		"sortZA": "ي → أ",
 		"import": "استيراد",
-		"importAria": "استيراد من ملف"
+		"importAria": "استيراد من ملف",
+		"lastUpdatedWithValue": "Last updated: {value}",
+		"close": "Close"
 	},
 	"microphone": {
 		"levelBarAria": "مستوى مدخل الميكروفون",
@@ -152,7 +163,14 @@
 		"permissionDeniedMessageLinux": "Voice Typer لا يمكنه الوصول إلى الميكروفون. تأكد من أن أي تطبيق آخر لا يستخدمه حصريًا وأن PulseAudio/PipeWire يعمل.",
 		"permissionDeniedMessage": "Voice Typer لا يمكنه الوصول إلى الميكروفون. امنح إذن الوصول إلى الميكروفون في إعدادات الخصوصية بالنظام.",
 		"openSettings": "فتح الإعدادات",
-		"openSettingsAria": "فتح إعدادات خصوصية الميكروفون في نظام التشغيل"
+		"openSettingsAria": "فتح إعدادات خصوصية الميكروفون في نظام التشغيل",
+		"loading": "Loading microphones…",
+		"test": {
+			"qualityPoor": "Poor",
+			"qualityGood": "Good",
+			"qualityOk": "OK"
+		},
+		"stopPlaybackFirst": "Stop audio playback before starting a new test"
 	},
 	"vocabulary": {
 		"title": "المفردات المخصصة",
@@ -215,7 +233,8 @@
 		"importFailed": "فشل الاستيراد: {error}",
 		"importEmpty": "الملف لا يحتوي على إدخالات مفردات",
 		"loadFailedTitle": "فشل تحميل المفردات",
-		"retry": "إعادة المحاولة"
+		"retry": "إعادة المحاولة",
+		"loading": "Loading vocabulary…"
 	},
 	"templates": {
 		"title": "القوالب",
@@ -259,7 +278,8 @@
 		"importEmpty": "الملف لا يحتوي على قوالب",
 		"matchModeExactLabel": "تام",
 		"matchModeContainsLabel": "يحتوي",
-		"matchModeAria": "Match mode: {mode}"
+		"matchModeAria": "Match mode: {mode}",
+		"loading": "Loading templates…"
 	},
 	"analytics": {
 		"title": "تحليلات",
@@ -407,7 +427,8 @@
 		"creditsFontsValue": "Geist",
 		"creditsIconsLabel": "الأيقونات",
 		"creditsIconsValue": "Hugeicons",
-		"documentationLink": "التوثيق"
+		"documentationLink": "التوثيق",
+		"loading": "Loading…"
 	},
 	"settings": {
 		"title": "الإعدادات",
@@ -654,7 +675,12 @@
 			"maxRecordingTimeAria": "أقصى مدة تسجيل",
 			"stopOnSilence": "الإيقاف التلقائي",
 			"stopOnSilenceInfo": "أوقف التسجيل تلقائيًا بعد هذا العدد من الثواني من الصمت.",
-			"stopOnSilenceAria": "الإيقاف التلقائي"
+			"stopOnSilenceAria": "الإيقاف التلقائي",
+			"rangeErrorMinutes": "Must be between {min} and {max}",
+			"rangeHintSeconds": "Range: {min}–{max} s",
+			"parseError": "Enter a whole number",
+			"rangeHintMinutes": "Range: {min}–{max} min",
+			"rangeErrorSeconds": "Must be between {min} and {max}"
 		},
 		"audioEnhancement": {
 			"title": "تحسين الصوت",
@@ -916,11 +942,13 @@
 			"available": "مخزّن بأمان في سلسلة مفاتيح النظام.",
 			"availableWithBackend": "مخزّن بأمان في سلسلة مفاتيح النظام (الخلفية: {backend}).",
 			"fallback": "الخلفية غير متاحة — سيتم تخزين الأسرار كنص عادي مع صلاحيات 0o600.",
-			"fallbackWithReason": "الخلفية غير متاحة ({reason}) — سيتم تخزين الأسرار كنص عادي مع صلاحيات 0o600."
+			"fallbackWithReason": "الخلفية غير متاحة ({reason}) — سيتم تخزين الأسرار كنص عادي مع صلاحيات 0o600.",
+			"statusLabel": "Keyring status"
 		},
 		"searchNoMatch": "No settings match \"{query}\"",
 		"bubbleMicButton": "زر الميكروفون في الفقاعة",
-		"bubbleMicButtonDescription": "إظهار زر ميكروفون على الفقاعة الظاهرة دائمًا لبدء/إيقاف الإملاء بنقرة"
+		"bubbleMicButtonDescription": "إظهار زر ميكروفون على الفقاعة الظاهرة دائمًا لبدء/إيقاف الإملاء بنقرة",
+		"pending": "Pending…"
 	},
 	"models": {
 		"asrTitle": "نماذج ASR",
@@ -967,7 +995,8 @@
 			"resumeFailed": "فشل الاستئناف: {error}",
 			"pauseFailed": "فشل الإيقاف المؤقت: {error}",
 			"cancelled": "تم إلغاء التحميل. ستتم إعادة استخدام الملفات الجزئية عند إعادة المحاولة.",
-			"cancelFailed": "فشل الإلغاء: {error}"
+			"cancelFailed": "فشل الإلغاء: {error}",
+			"parakeetDepsInstalled": "Parakeet dependencies installed successfully."
 		},
 		"test": {
 			"needApiKey": "الرجاء إدخال مفتاح API أولاً",
@@ -980,7 +1009,8 @@
 			"active": "نشط",
 			"downloaded": "محمّل",
 			"depsRequired": "التبعيات مطلوبة",
-			"available": "متاح"
+			"available": "متاح",
+			"insufficientDisk": "Insufficient disk space"
 		},
 		"import": {
 			"title": "استيراد نموذج",
@@ -1012,7 +1042,8 @@
 			"cancel": "إلغاء",
 			"depsAria": "تحميل التبعيات لـ {name}",
 			"deps": "تحميل التبعيات",
-			"progressAria": "تنزيل النموذج: {percent}% مكتمل"
+			"progressAria": "تنزيل النموذج: {percent}% مكتمل",
+			"oneAtATime": "Only one download at a time — wait for the current download to finish or cancel it"
 		},
 		"card": {
 			"parakeetLabel": "NVIDIA Parakeet TDT v3  ·  ",
@@ -1075,7 +1106,6 @@
 		"pleaseEnterApiKey": "الرجاء إدخال مفتاح API أولاً",
 		"consentGranted": "تم منح الموافقة — ستستمر تحميلات النماذج من HuggingFace.",
 		"consentRevoked": "تم إلغاء الموافقة — تحميلات النماذج من HuggingFace محظورة.",
-		"speed": "السرعة",
 		"size": "الحجم",
 		"language": "اللغة",
 		"fastest": "الأسرع",
@@ -1096,7 +1126,21 @@
 			"running": "جارٍ التشغيل...",
 			"run": "تشغيل المعيار"
 		},
-		"benchmarkNotImplemented": "Benchmark not yet implemented."
+		"benchmarkNotImplemented": "Benchmark not yet implemented.",
+		"speed": {
+			"fastest": "Fastest",
+			"variable": "Variable",
+			"slow": "Slow",
+			"fast": "Fast"
+		},
+		"openFolderAria": "Open the models directory in your file manager",
+		"openFolderFailed": "Open folder failed",
+		"disk": {
+			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model.",
+			"lowSpaceTitle": "Low disk space"
+		},
+		"loading": "Loading models…",
+		"openFolder": "Open models folder"
 	},
 	"tooltips": {
 		"toggleRecording": "بدء أو إيقاف الإملاء الصوتي",
@@ -1128,7 +1172,8 @@
 		"noiseSuppressionMethod": "طريقة قمع الضوضاء",
 		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron",
 		"transcriptionComplete": "اكتمل التدوين.",
-		"moreInfoAbout": "More info about {label}"
+		"moreInfoAbout": "More info about {label}",
+		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
 	},
 	"help": {
 		"title": "اختصارات لوحة المفاتيح",
@@ -1299,7 +1344,11 @@
 		"permissionsInstructionsLinuxTitle": "Input Group + udev Rule Required",
 		"permissionsInstructionsLinuxStep1": "Add yourself to the 'input' group",
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
-		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect"
+		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
+		"modelOption": "{description} — {size} ({speed})",
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step5Item": "Start dictating",
+		"step4Item": "Choose your model"
 	},
 	"titleBar": {
 		"minimize": "تصغير",
@@ -1307,7 +1356,9 @@
 		"restore": "استعادة",
 		"close": "إغلاق",
 		"back": "رجوع (أو زر الرجوع في الفأرة)",
-		"forward": "للأمام (أو زر الأمام في الفأرة)"
+		"forward": "للأمام (أو زر الأمام في الفأرة)",
+		"forwardWithShortcut": "Forward ({shortcut})",
+		"backWithShortcut": "Back ({shortcut})"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "مؤشر تسجيل Voice Typer",
@@ -1322,7 +1373,16 @@
 		"description": "واجه التطبيق خطأ غير متوقع. بياناتك آمنة.",
 		"unknownError": "خطأ غير معروف",
 		"tryAgain": "إعادة المحاولة",
-		"reloadApp": "إعادة تحميل التطبيق"
+		"reloadApp": "إعادة تحميل التطبيق",
+		"copyError": "Copy error",
+		"componentStackLabel": "Component stack:",
+		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
+		"openLogs": "Open logs",
+		"reportBug": "Report this bug",
+		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
+		"resetSettings": "Reset settings",
+		"copied": "Copied!",
+		"resetting": "Resetting…"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "اضغط مفتاحًا",
@@ -1332,7 +1392,12 @@
 		"cancelRecordingAria": "إلغاء التسجيل — {label}",
 		"recordNewAria": "تسجيل اختصار جديد — {label}",
 		"presetHotkeysAria": "اختصارات مسبقة — {label}",
-		"assignHint": "اضغط مفتاحًا للتعيين، أو اضغط Esc للإلغاء"
+		"assignHint": "اضغط مفتاحًا للتعيين، أو اضغط Esc للإلغاء",
+		"defaultAriaLabel": "Hotkey picker",
+		"secondsRemainingSuffix": "({count}s)",
+		"clearAria": "Clear hotkey — {label}",
+		"holdingPrefix": "Holding: {modifiers}",
+		"clearTitle": "Clear hotkey"
 	},
 	"activityList": {
 		"failedToCopy": "فشل النسخ",
@@ -1456,7 +1521,25 @@
 			"up": "↑",
 			"down": "↓",
 			"left": "←",
-			"right": "→"
+			"right": "→",
+			"alt_r": "Alt",
+			"cmd_r": "Cmd",
+			"print_screen": "Print Screen",
+			"alt_l": "Alt",
+			"page_down": "Page Down",
+			"page_up": "Page Up",
+			"scroll_lock": "Scroll Lock",
+			"shift_l": "Shift",
+			"caps_lock": "Caps Lock",
+			"shift_r": "Shift",
+			"cmd_l": "Cmd",
+			"ctrl_l": "Ctrl",
+			"return": "Enter",
+			"num_lock": "Num Lock",
+			"escape": "Esc",
+			"alt_gr": "AltGr",
+			"meta": "Super",
+			"ctrl_r": "Ctrl"
 		},
 		"combos": {
 			"ctrlShiftV": "Ctrl+Shift+V",
@@ -1464,6 +1547,38 @@
 			"ctrlSpace": "Ctrl+Space",
 			"cmdShiftVMacOS": "Cmd+Shift+V (macOS)",
 			"superSpace": "Super+Space"
+		},
+		"presets": {
+			"combo": {
+				"ctrlAltV": "Ctrl+Alt+V",
+				"superSpace": "Super+Space",
+				"cmdShiftV": "Cmd+Shift+V (macOS)",
+				"ctrlSpace": "Ctrl+Space",
+				"ctrlShiftV": "Ctrl+Shift+V"
+			},
+			"single": {
+				"fn": "Fn / Globe 🌐 (macOS only)",
+				"alt": "Alt",
+				"ctrl": "Ctrl",
+				"caps_lock": "Caps Lock"
+			}
+		},
+		"errors": {
+			"empty": "Hotkey is empty",
+			"comboMustEndNonModifier": "Combo must end with a non-modifier key (e.g. Ctrl+Alt+V, not Ctrl+Alt+V+Shift)",
+			"fnMacOnly": "Fn key is only supported on macOS. On Windows/Linux, Fn isn't visible to apps.",
+			"invalid": "Invalid hotkey",
+			"noKeys": "Hotkey has no keys",
+			"fnMacOnlyShort": "Fn key is only supported on macOS.",
+			"singleKeyOnly": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos."
+		},
+		"none": "None"
+	},
+	"format": {
+		"duration": {
+			"hourShort": "h",
+			"secondShort": "s",
+			"minuteShort": "m"
 		}
 	}
 }
