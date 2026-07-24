@@ -21,11 +21,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
-import type {
-	DiskInfo,
-	ModelFamily,
-	ModelMetadata,
-} from "@/lib/utils/models";
+import type { DiskInfo, ModelFamily, ModelMetadata } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // Mock the HugeiconsIcon wrapper so the test doesn't depend on the SVG
@@ -179,14 +175,22 @@ describe("LocalModelsPanel — BG-21 (low-disk banner uses correct i18n keys)", 
 	afterEach(() => cleanup());
 
 	it("low-disk banner shows 'Low disk space' title (NOT 'Dependencies required')", () => {
-		const disk: DiskInfo = { free_bytes: 500 * 1024 * 1024, total_bytes: 1024 ** 3 };
+		const disk: DiskInfo = {
+			free_bytes: 500 * 1024 * 1024,
+			total_bytes: 1024 ** 3,
+			models_dir: "",
+		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
 		expect(screen.getByText("Low disk space")).toBeInTheDocument();
 		expect(screen.queryByText("Dependencies required")).toBeNull();
 	});
 
 	it("low-disk banner body uses models.disk.lowSpaceBody (NOT hfConsent.blockedHint)", () => {
-		const disk: DiskInfo = { free_bytes: 500 * 1024 * 1024, total_bytes: 1024 ** 3 };
+		const disk: DiskInfo = {
+			free_bytes: 500 * 1024 * 1024,
+			total_bytes: 1024 ** 3,
+			models_dir: "",
+		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
 		expect(
 			screen.getByText(/Not enough free space to download models/i),
@@ -195,12 +199,18 @@ describe("LocalModelsPanel — BG-21 (low-disk banner uses correct i18n keys)", 
 		// are blocked until you grant consent." — must NOT appear in the
 		// low-disk banner.
 		expect(
-			screen.queryByText(/Model downloads are blocked until you grant consent/i),
+			screen.queryByText(
+				/Model downloads are blocked until you grant consent/i,
+			),
 		).toBeNull();
 	});
 
 	it("low-disk banner surfaces the free-bytes count via models.disk.freeSpace (no English 'free)' literal)", () => {
-		const disk: DiskInfo = { free_bytes: 500 * 1024 * 1024, total_bytes: 1024 ** 3 };
+		const disk: DiskInfo = {
+			free_bytes: 500 * 1024 * 1024,
+			total_bytes: 1024 ** 3,
+			models_dir: "",
+		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
 		// models.disk.freeSpace = "{size} free" — for 500 MB the {size}
 		// placeholder is the locale-aware "500 MB" string. Asserting the
@@ -210,7 +220,11 @@ describe("LocalModelsPanel — BG-21 (low-disk banner uses correct i18n keys)", 
 	});
 
 	it("low-disk banner is hidden when free_bytes >= 1GB threshold", () => {
-		const disk: DiskInfo = { free_bytes: 2 * 1024 ** 3, total_bytes: 4 * 1024 ** 3 };
+		const disk: DiskInfo = {
+			free_bytes: 2 * 1024 ** 3,
+			total_bytes: 4 * 1024 ** 3,
+			models_dir: "",
+		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
 		expect(screen.queryByText("Low disk space")).toBeNull();
 	});
@@ -225,7 +239,9 @@ describe("LocalModelsPanel — HuggingFace consent banner", () => {
 	afterEach(() => cleanup());
 
 	it("renders the consent banner when huggingface_consent is false", () => {
-		const config = { huggingface_consent: false } as unknown as VoiceTyperConfig;
+		const config = {
+			huggingface_consent: false,
+		} as unknown as VoiceTyperConfig;
 		render(<LocalModelsPanel {...baseProps} config={config} />);
 		expect(
 			screen.getByText("HuggingFace download consent required"),
@@ -234,7 +250,7 @@ describe("LocalModelsPanel — HuggingFace consent banner", () => {
 		expect(
 			screen.getByRole("button", {
 				name: /Grant HuggingFace download consent/i,
-		}),
+			}),
 		).toBeInTheDocument();
 	});
 
@@ -248,7 +264,9 @@ describe("LocalModelsPanel — HuggingFace consent banner", () => {
 
 	it("clicking 'Grant consent' invokes onGrantConsent", () => {
 		const onGrantConsent = vi.fn();
-		const config = { huggingface_consent: false } as unknown as VoiceTyperConfig;
+		const config = {
+			huggingface_consent: false,
+		} as unknown as VoiceTyperConfig;
 		render(
 			<LocalModelsPanel
 				{...baseProps}
@@ -256,7 +274,9 @@ describe("LocalModelsPanel — HuggingFace consent banner", () => {
 				onGrantConsent={onGrantConsent}
 			/>,
 		);
-		screen.getByRole("button", { name: /Grant HuggingFace download consent/i }).click();
+		screen
+			.getByRole("button", { name: /Grant HuggingFace download consent/i })
+			.click();
 		expect(onGrantConsent).toHaveBeenCalledTimes(1);
 	});
 });
@@ -267,7 +287,9 @@ describe("LocalModelsPanel — BG-23 (Open models folder button)", () => {
 	it("renders 'Open models folder' button (NOT 'Import Model') when modelsFolderSupported=true", () => {
 		render(<LocalModelsPanel {...baseProps} modelsFolderSupported={true} />);
 		expect(
-			screen.getByRole("button", { name: /Open the folder containing downloaded models/i }),
+			screen.getByRole("button", {
+				name: /Open the folder containing downloaded models/i,
+			}),
 		).toBeInTheDocument();
 		expect(screen.getByText("Open models folder")).toBeInTheDocument();
 		expect(screen.queryByText("Import Model")).toBeNull();
@@ -276,7 +298,9 @@ describe("LocalModelsPanel — BG-23 (Open models folder button)", () => {
 	it("hides the 'Open models folder' button when modelsFolderSupported=false", () => {
 		render(<LocalModelsPanel {...baseProps} modelsFolderSupported={false} />);
 		expect(
-			screen.queryByRole("button", { name: /Open the folder containing downloaded models/i }),
+			screen.queryByRole("button", {
+				name: /Open the folder containing downloaded models/i,
+			}),
 		).toBeNull();
 		expect(screen.queryByText("Open models folder")).toBeNull();
 	});
@@ -291,7 +315,9 @@ describe("LocalModelsPanel — BG-23 (Open models folder button)", () => {
 			/>,
 		);
 		screen
-			.getByRole("button", { name: /Open the folder containing downloaded models/i })
+			.getByRole("button", {
+				name: /Open the folder containing downloaded models/i,
+			})
 			.click();
 		expect(onOpenModelsFolder).toHaveBeenCalledTimes(1);
 	});
@@ -302,7 +328,11 @@ describe("LocalModelsPanel — BG-21 line 261 (insufficient-disk badge per model
 
 	it("renders 'Insufficient disk space' badge when model size > free_bytes (NOT 'Dependencies required')", () => {
 		// 500 MB free, medium.en requires 1500 MB → insufficient.
-		const disk: DiskInfo = { free_bytes: 500 * 1024 * 1024, total_bytes: 1024 ** 3 };
+		const disk: DiskInfo = {
+			free_bytes: 500 * 1024 * 1024,
+			total_bytes: 1024 ** 3,
+			models_dir: "",
+		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
 		expect(screen.getByText("Insufficient disk space")).toBeInTheDocument();
 		// The old wrong key (depsRequired) must NOT be rendered as the
@@ -312,7 +342,11 @@ describe("LocalModelsPanel — BG-21 line 261 (insufficient-disk badge per model
 	});
 
 	it("does NOT render the insufficient-disk badge when free_bytes comfortably exceeds model size", () => {
-		const disk: DiskInfo = { free_bytes: 8 * 1024 ** 3, total_bytes: 16 * 1024 ** 3 };
+		const disk: DiskInfo = {
+			free_bytes: 8 * 1024 ** 3,
+			total_bytes: 16 * 1024 ** 3,
+			models_dir: "",
+		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
 		expect(screen.queryByText("Insufficient disk space")).toBeNull();
 	});

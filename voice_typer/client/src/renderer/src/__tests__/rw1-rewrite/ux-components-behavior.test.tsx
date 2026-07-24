@@ -117,7 +117,7 @@ const { mockCall, mockPythonEvent, mockNavigate, mockNavState } = vi.hoisted(
 		mockCall: vi.fn(),
 		mockPythonEvent: vi.fn(),
 		mockNavigate: vi.fn(),
-		mockNavState: { page: "home" as const },
+		mockNavState: { page: "home" as Page },
 	}),
 );
 

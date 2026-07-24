@@ -122,7 +122,20 @@ class VoiceTyperApp:
     """The main application."""
 
     def __init__(self):
-        self.config = Config.load()
+        # DE-48: catch unexpected exceptions from Config.load() (e.g.
+        # KeyError from a data[...] access without a default, or
+        # AttributeError from a None dereference during schema
+        # migration).  Log at ERROR with exc_info=True, fall back to
+        # Config() defaults, and flag the failure so a tray notification
+        # can be surfaced once the tray is built later in __init__.
+        try:
+            self.config = Config.load()
+        except Exception:
+            log.error("[INIT] Config.load() raised", exc_info=True)
+            self.config = Config()
+            self._config_load_failed = True
+        else:
+            self._config_load_failed = False
 
         # THREAD-REGISTRY: create the central registry FIRST so all
         # subsystems constructed below (Recorder, CrashRecovery,
@@ -215,6 +228,19 @@ class VoiceTyperApp:
             controller=self,
             config=self.config,
         )
+
+        # DE-48: if Config.load() failed earlier, surface a tray
+        # notification so the user knows their settings were reset to
+        # defaults.  Wrapped in try/except so a tray.backend failure
+        # (e.g. notification daemon not ready) doesn't crash init.
+        if self._config_load_failed:
+            try:
+                self.tray.notify(
+                    "Config load failed",
+                    "Settings were reset to defaults. Check the logs for details.",
+                )
+            except Exception:
+                log.debug("[INIT] tray.notify for config load failure failed", exc_info=True)
 
         # RW-9 Phase 6: settings side-effects (autostart, notifications,
         # microphone selection) extracted to SettingsController. The app
@@ -911,7 +937,10 @@ class VoiceTyperApp:
         # APP-10: re-entry guard sits AFTER the push so the quit event
         # is always published, even on a double-quit. Only the actual
         # ``self.quit()`` cleanup is skipped on the second call.
-        if self._shutting_down:
+        # DE-49: use _shutting_down_event.is_set() for cross-thread memory
+        # ordering (the threading.Event version provides acquire/release
+        # semantics — the plain boolean has no such guarantee).
+        if self._shutting_down_event.is_set():
             log.debug("[QUIT] Already shutting down, ignoring duplicate quit_app call")
             return
 
@@ -947,7 +976,10 @@ class VoiceTyperApp:
         ``[RESTART] Restarting %s...`` log line.
         """
         # CR-013: re-entry guard.
-        if self._shutting_down:
+        # DE-49: use _shutting_down_event.is_set() for cross-thread memory
+        # ordering (the threading.Event version provides acquire/release
+        # semantics — the plain boolean has no such guarantee).
+        if self._shutting_down_event.is_set():
             log.debug("[RESTART] ignoring duplicate restart_app call (already shutting down)")
             return
         # CR-014: pass APP_NAME as the format argument.
@@ -960,8 +992,17 @@ class VoiceTyperApp:
         # restart sequence begins.  This ensures the new Python process
         # loads the latest config, preventing the theme from reverting
         # to default after a restart.
-        if not self.config.save():
-            log.warning("[RESTART] config.save() before push failed")
+        # DE-47: wrap in try/except so an unexpected exception from
+        # save() (e.g. RecursionError from asdict on a cyclic dataclass)
+        # does not abort the restart sequence — the user's "Restart"
+        # tray click must still work.
+        try:
+            save_ok = self.config.save()
+        except Exception:
+            log.warning("[RESTART] config.save() raised", exc_info=True)
+        else:
+            if not save_ok:
+                log.warning("[RESTART] config.save() before push failed")
 
         # ── CRITICAL ORDERING FIX ────────────────────────────────────
         #
@@ -1097,9 +1138,7 @@ class VoiceTyperApp:
         is_main_thread = threading.current_thread() is threading.main_thread()
         if not is_main_thread:
             try:
-                self.shutdown._arm_shutdown_watchdog(
-                    self._shutdown_watchdog_timeout_s
-                )
+                self.shutdown._arm_shutdown_watchdog(self._shutdown_watchdog_timeout_s)
             except Exception:
                 log.debug(
                     "[RESTART] GT-43: failed to arm shutdown watchdog",
@@ -1273,7 +1312,14 @@ def main() -> None:
 
     from voice_typer.server.ipc_server import main as ipc_main
 
-    ipc_main()
+    # DE-50: wrap in try/except so a backend crash logs at ERROR with
+    # the full traceback and the process exits with code 1 (rather than
+    # propagating to the console-script wrapper with no structured log).
+    try:
+        ipc_main()
+    except Exception:
+        log.exception("[FATAL] backend crashed")
+        sys.exit(1)
 
 
 # REF-3: extraction — Windows editor-launch helpers moved to

@@ -31,7 +31,7 @@
  * reload in dev mode), so a freshly-spawned backend can be stopped
  * again after a relaunch. `state._stopPythonCalled` is mirrored
  * alongside the flags for cross-module observability; resetting it on
- * `startPython()` is handled by `_resetStopPythonFlags()` (GT-A3-10,
+ * `startPython()` is handled by `_resetStopPythonFlagsForRestart()` (GT-A3-10,
  * exported below) which `start-python.ts` should call at the top of
  * `startPython()`.
  *
@@ -54,7 +54,7 @@ import { sendToPython } from "./send-to-python";
 // re-stoppable without requiring `start-python.ts` to know about the
 // flags.
 //
-// GT-A3-10: `_resetStopPythonFlags()` is exported below.
+// GT-A3-10: `_resetStopPythonFlagsForRestart()` is exported below.
 let isStopping = false;
 let isStopped = false;
 
@@ -168,7 +168,7 @@ export function stopPython() {
  * assigning `state.pythonProcess`.
  * @internal
  */
-export function _resetStopPythonFlags(): void {
+export function _resetStopPythonFlagsForRestart(): void {
 	isStopping = false;
 	isStopped = false;
 	if (armedKillTimer) {

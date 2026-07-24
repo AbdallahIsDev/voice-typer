@@ -298,7 +298,7 @@ describe("GT-A3-10: _resetStopPythonFlags() resets the idempotency guard", () =>
 		vi.resetModules();
 		const mod = await import("../python/stop-python");
 		stopPython = mod.stopPython;
-		_resetStopPythonFlags = mod._resetStopPythonFlags;
+		_resetStopPythonFlags = mod._resetStopPythonFlagsForRestart;
 		mockProc = new MockChildProcess();
 		mockState.pythonProcess = mockProc as unknown as MainState["pythonProcess"];
 	});

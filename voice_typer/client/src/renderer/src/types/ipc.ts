@@ -911,6 +911,8 @@ export type ModelStatusMap = Record<string, ModelStatusEntry>;
 export interface DiskInfo {
 	/** Bytes free on the volume that holds the models directory. */
 	free_bytes: number;
+	/** Total capacity bytes of the volume that holds the models directory. */
+	total_bytes?: number;
 	/** Absolute path of the models directory. */
 	models_dir: string;
 }

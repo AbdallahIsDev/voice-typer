@@ -52,6 +52,8 @@ export interface ModelCardActionsProps {
 	onDelete: () => void;
 	/** PVT-003 fix #7: triggered by the "Download Deps" button. */
 	onInstallDeps?: () => void;
+	/** True while THIS model is installing dependencies. */
+	isInstallingDepsThis?: boolean;
 }
 
 /**

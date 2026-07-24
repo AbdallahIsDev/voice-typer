@@ -425,9 +425,25 @@ function _productionExit(code: number): void {
 	}, 2000).unref();
 }
 
-function setupErrorHandlers(): void {
+// ER-86: stores the dispose handle from the last `setupErrorHandlers` call so a
+// subsequent call can dispose old listeners before stacking new ones.
+let _errorHandlersDispose: (() => void) | undefined;
+
+export function _resetErrorHandlersDisposeForTest(): void {
+	_errorHandlersDispose = undefined;
+}
+
+export function setupErrorHandlers(): void {
+	// ER-86: dispose previously installed handlers before adding new ones
+	// so repeated calls (e.g. in tests) don't accumulate listeners.
+	if (_errorHandlersDispose) {
+		_errorHandlersDispose();
+	}
 	const userDataDir = app?.getPath("userData") ?? process.cwd();
-	_installErrorHandlers({ userDataDir, exit: _productionExit });
+	_errorHandlersDispose = _installErrorHandlers({
+		userDataDir,
+		exit: _productionExit,
+	}).dispose;
 }
 
 /**

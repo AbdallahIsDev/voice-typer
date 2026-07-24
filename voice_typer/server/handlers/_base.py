@@ -51,9 +51,43 @@ IPC contract that the renderer switches on. Only the catch-all
 
 from __future__ import annotations
 
+import os
+import traceback
 from typing import Any
 
+from voice_typer.server._secrets import redact_secret
 from voice_typer.server.handlers._log import log
+
+
+def _scrub_traceback(exc: BaseException) -> tuple[str, str]:
+    """Scrub secrets and home-directory paths from an exception message
+    and its formatted traceback before logging.
+
+    Parameters
+    ----------
+    exc :
+        The exception to scrub.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(scrubbed_str, scrubbed_tb)`` where *scrubbed_str* is the
+        redacted ``str(exc)`` and *scrubbed_tb* is the redacted
+        formatted traceback.  Both have home-directory paths replaced
+        with ``~`` and known secret patterns (API keys, bearer tokens)
+        replaced via :func:`~voice_typer.server._secrets.redact_secret`.
+    """
+    home = os.path.expanduser("~")
+    exc_str = str(exc)
+    scrubbed_str = redact_secret(exc_str)
+    if home and home != "~":
+        scrubbed_str = scrubbed_str.replace(home, "~")
+    tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    tb_text = "".join(tb_lines)
+    scrubbed_tb = redact_secret(tb_text)
+    if home and home != "~":
+        scrubbed_tb = scrubbed_tb.replace(home, "~")
+    return scrubbed_str, scrubbed_tb
 
 
 class HandlerMixinBase:
@@ -190,4 +224,4 @@ class HandlerBase(HandlerMixinBase):
         return resp
 
 
-__all__ = ["HandlerBase", "HandlerMixinBase", "log"]
+__all__ = ["HandlerBase", "HandlerMixinBase", "_scrub_traceback", "log"]

@@ -393,6 +393,10 @@ class TestAppQuitAppAlwaysPushesEvent:
         quit_calls = []
         monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
         app._shutting_down = True
+        # DE-49: the re-entry guard now reads _shutting_down_event.is_set()
+        # instead of the plain boolean.  Set the Event too so the guard
+        # triggers (mirrors production — quit() / restart_app() set both).
+        app._shutting_down_event.set()
 
         app.quit_app()
 

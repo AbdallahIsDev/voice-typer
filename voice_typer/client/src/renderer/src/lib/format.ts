@@ -145,6 +145,53 @@ function resolveLocale(locale?: Locale): Locale {
  *   - ``formatVram(2048)`` → ``"2 GB"``
  *   - ``formatVram(1536)`` → ``"1.5 GB"``
  */
+/** Format bytes to human-readable string (e.g., "1.5 MB"). */
+export function formatBytes(bytes: number, locale?: Locale): string {
+	if (!Number.isFinite(bytes) || bytes < 0) {
+		return new Intl.NumberFormat(resolveLocale(locale), {
+			style: "unit",
+			unit: "byte",
+			unitDisplay: "narrow",
+			maximumFractionDigits: 0,
+		}).format(0);
+	}
+	const loc = resolveLocale(locale);
+	const units: [number, Intl.NumberFormatOptions["unit"]][] = [
+		[1024 ** 3, "gigabyte"],
+		[1024 ** 2, "megabyte"],
+		[1024, "kilobyte"],
+		[1, "byte"],
+	];
+	for (const [threshold, unit] of units) {
+		if (bytes >= threshold) {
+			return new Intl.NumberFormat(loc, {
+				style: "unit",
+				unit,
+				maximumFractionDigits: threshold > 1 ? 1 : 0,
+			}).format(bytes / threshold);
+		}
+	}
+	return new Intl.NumberFormat(loc, {
+		style: "unit",
+		unit: "byte",
+		unitDisplay: "narrow",
+		maximumFractionDigits: 0,
+	}).format(0);
+}
+
+/** Format seconds to human-readable duration (e.g., "2m 30s"). */
+export function formatDuration(seconds: number): string {
+	if (!Number.isFinite(seconds) || seconds < 0) return "0s";
+	const h = Math.floor(seconds / 3600);
+	const m = Math.floor((seconds % 3600) / 60);
+	const s = Math.floor(seconds % 60);
+	const parts: string[] = [];
+	if (h > 0) parts.push(`${h}h`);
+	if (m > 0) parts.push(`${m}m`);
+	if (s > 0 || parts.length === 0) parts.push(`${s}s`);
+	return parts.join(" ");
+}
+
 export function formatVram(mb: number, locale?: Locale): string {
 	if (!Number.isFinite(mb) || mb <= 0) {
 		return new Intl.NumberFormat(resolveLocale(locale), {

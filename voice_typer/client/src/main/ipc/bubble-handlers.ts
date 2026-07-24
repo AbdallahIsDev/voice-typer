@@ -65,6 +65,19 @@ export const MAX_BUBBLE_W = 400;
 export const MAX_BUBBLE_H = 200;
 
 /**
+ * ER-22: the 5 bubble-only Python event types. These events must NOT be
+ * broadcast to the main window — they are consumed exclusively by the
+ * bubble window. `handle-message.ts` imports this set to filter events.
+ */
+export const BUBBLE_ONLY_TYPES: ReadonlySet<string> = new Set([
+	"bubble_show",
+	"bubble_hide",
+	"bubble_set_state",
+	"bubble_level",
+	"bubble_config",
+]);
+
+/**
  * SEC-016: helper that rejects IPC messages not coming from the bubble
  * window's webContents.  Without this check, any XSS'd renderer (or a
  * malicious third party that got code into the main window) could

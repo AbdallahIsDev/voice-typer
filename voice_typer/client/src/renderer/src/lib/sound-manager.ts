@@ -417,6 +417,18 @@ export function playSoundCue(kind: "start" | "stop" | "error"): void {
 }
 
 /**
+ * Close and release the shared AudioContext, if one exists.
+ */
+export function closeAudioContext(): void {
+	if (_sharedAudioContext) {
+		_sharedAudioContext.close();
+		_sharedAudioContext = null;
+		_initAttempted = false;
+		_initSucceeded = false;
+	}
+}
+
+/**
  * Reset all state — used by tests to ensure isolation between cases.
  */
 export function _resetSoundManagerForTests(): void {
