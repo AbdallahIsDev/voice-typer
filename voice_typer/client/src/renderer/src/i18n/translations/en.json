@@ -1358,8 +1358,6 @@
 		"skipConfirmLabel": "Skip anyway",
 		"stepProgress": "Step {current} of {total}",
 		"progressAria": "Onboarding step {current} of {total}",
-		"step4Item": "Choose your model",
-		"step5Item": "Start dictating",
 		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
 		"modelOption": "{description} — {size} ({speed})"
 	},

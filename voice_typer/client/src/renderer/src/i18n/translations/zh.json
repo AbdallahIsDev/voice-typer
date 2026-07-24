@@ -1352,9 +1352,7 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"modelOption": "{description} — {size} ({speed})",
-		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
-		"step5Item": "Start dictating",
-		"step4Item": "Choose your model"
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again."
 	},
 	"titleBar": {
 		"minimize": "最小化",
