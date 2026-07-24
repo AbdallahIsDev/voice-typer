@@ -1,7 +1,7 @@
 //! WebSocket reconnect + reader/writer tasks (ADR-0020 §1 + §9 + §10).
 
 // PVT-1 (session 1): Tauri-side heartbeat dispatches a `heartbeat`
-// command every 10s; on 3 consecutive misses it triggers FT-1 respawn
+// command every 10s; on 3 consecutive misses it triggers supervisor respawn
 // to detect application-level sidecar hangs (GIL contention, infinite
 // loop, blocking C call) that keep the WS socket open but don't
 // respond to dispatches.
@@ -17,7 +17,7 @@ use crate::commands::sidecar_cmds::{dispatch_inner, DispatchArgs};
 use crate::state::SidecarState;
 // G4-H-27 (session 4): poison-safe Mutex helper for the cleanup block.
 use crate::state::lock as mutex_lock;
-use crate::sidecar::supervisor::{bubble_coalesce_should_emit, ft1_respawn};
+use crate::sidecar::supervisor::{bubble_coalesce_should_emit, respawn};
 use crate::util::{BUBBLE_LEVEL_COALESCE_HZ, MAX_FRAME_BYTES};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::Ordering;
@@ -62,7 +62,7 @@ type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 const ALLOWED_EVENT_TYPES: &[&str] = &[
     // ── G4-H-32 spec list (verbatim) ──
     "status_change", "bubble_level", "notification", "relaunch_app",
-    "tray_menu", "tray_state", "ft1_relaunching", "ft1_reconnected", "crash_recovery",
+    "tray_menu", "tray_state", "supervisor_relaunching", "supervisor_reconnected", "crash_recovery",
     "transcription_partial", "transcription_final", "transcription_interim",
     "recording_state", "vocabulary_suggestion", "model_download_progress",
     "audio_status", "server_started",
@@ -99,7 +99,7 @@ const ALLOWED_EVENT_TYPES: &[&str] = &[
 
 // G4-M-64: bound the WS connect attempt so a hung sidecar that
 // accepts the TCP connection but never completes the WS handshake
-// doesn't stall FT-1 forever.
+// doesn't stall the supervisor forever.
 const WS_CONNECT_TIMEOUT_SECS: u64 = 5;
 
 // G4-L-02: bound the wait for the `auth_ok` frame so a sidecar that
@@ -111,13 +111,13 @@ const WS_AUTH_OK_TIMEOUT_SECS: u64 = 3;
 // G4-L-02: helper for the auth-failed / auth-timeout path. Clears
 // `state.ws_tx` (so the writer task exits when its channel drains and
 // new dispatch calls fail fast with "sidecar not connected") and
-// spawns FT-1 respawn on a separate thread (same pattern as the
+// spawns supervisor respawn on a separate thread (same pattern as the
 // reader task's cleanup at the bottom of `reconnect_ws`).
 //
 // Mirrors the reader task's cleanup shape but WITHOUT draining
 // `pending` — at auth time no dispatch requests have been queued
 // yet (auth is the very first frame), so there's nothing to drain.
-fn cleanup_and_trigger_ft1_respawn(
+fn cleanup_and_trigger_respawn(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) {
@@ -130,13 +130,13 @@ fn cleanup_and_trigger_ft1_respawn(
         *ws_tx_guard = None;
     }
     let _ = app.emit(
-        "ft1_relaunching",
+        "supervisor_relaunching",
         json!({"reason": "auth_failed_or_timeout"}),
     );
-    trigger_ft1_respawn_off_thread(app.clone(), state.clone());
+    trigger_respawn_off_thread(app.clone(), state.clone());
 }
 
-// EC-FIX-5 (EC-18): extracted helper for the FT-1 respawn trigger
+// EC-FIX-5 (EC-18): extracted helper for the respawn trigger
 // pattern that was duplicated at the WS-reader cleanup site and the
 // two heartbeat-miss arms (`Ok(Err(_))` and `Err(_)` from the 15s
 // timeout). All three sites had the identical block:
@@ -145,11 +145,11 @@ fn cleanup_and_trigger_ft1_respawn(
 //   let state_clone = <state>.clone();
 //   std::thread::spawn(move || {
 //       tauri::async_runtime::block_on(async move {
-//           let _ = ft1_respawn(&app_clone, &state_clone).await;
+//           let _ = respawn(&app_clone, &state_clone).await;
 //       });
 //   });
 //
-// The thread + `block_on` bridge is required because `ft1_respawn`
+// The thread + `block_on` bridge is required because `respawn`
 // awaits `reconnect_ws`, whose future is `!Send` (tokio-tungstenite
 // holds a `!Send` across an await). `tokio::spawn` requires `Send`
 // futures, so we drive the `!Send` future on a dedicated std thread
@@ -158,15 +158,14 @@ fn cleanup_and_trigger_ft1_respawn(
 //
 // This helper takes ownership (`app: AppHandle`, `state: Arc<SidecarState>`)
 // so callers pass `.clone()`d handles in and the helper moves them
-// into the spawned thread. Returns nothing — FT-1 is best-effort and
-// the caller has already logged the triggering event.
-fn trigger_ft1_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
+// into the spawned thread. Returns nothing — the supervisor is best-effort.
+fn trigger_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState>) {
     // GT-C4-4: send on the long-lived supervisor channel instead of
     // spawning a new OS thread per call. The supervisor thread is
     // lazily spawned on first use via `respawn_supervisor_sender()`.
     if let Err(e) = respawn_supervisor_sender().send((app, state)) {
         log::error!(
-            "[FT-1] failed to enqueue respawn request to supervisor thread (it may have panicked): {}",
+            "[SUPERVISOR] failed to enqueue respawn request to supervisor thread (it may have panicked): {}",
             e
         );
     }
@@ -174,12 +173,12 @@ fn trigger_ft1_respawn_off_thread(app: tauri::AppHandle, state: Arc<SidecarState
 
 // GT-C4-4: single long-lived supervisor thread, lazily spawned on
 // first use via a `OnceLock<mpsc::Sender>`. Replaces the prior
-// pattern of spawning a NEW OS thread per FT-1 trigger (WS reader
+// pattern of spawning a NEW OS thread per trigger (WS reader
 // cleanup, heartbeat miss #3, auth failure). Thread creation is
 // ~50µs but the real cost is observability noise and a subtle
 // pile-up risk if `respawn_in_progress` gets stuck. The supervisor
-// loops on `rx.recv()` and runs `block_on(ft1_respawn)` for each
-// request sequentially. Since `ft1_respawn` is already serialized
+// loops on `rx.recv()` and runs `block_on(respawn)` for each
+// request sequentially. Since `respawn` is already serialized
 // by the `respawn_in_progress` compare_exchange, concurrent requests
 // just queue in the channel buffer and no-op when the supervisor
 // gets to them. The supervisor thread lives for the process
@@ -192,15 +191,15 @@ fn respawn_supervisor_sender() -> &'static std::sync::mpsc::Sender<RespawnReques
     RESPAWN_SUPERVISOR_TX.get_or_init(|| {
         let (tx, rx) = std::sync::mpsc::channel::<RespawnRequest>();
         std::thread::Builder::new()
-            .name("ft1-respawn-supervisor".into())
+            .name("respawn-supervisor".into())
             .spawn(move || {
                 for (app, state) in rx {
                     let _ = tauri::async_runtime::block_on(async move {
-                        let _ = ft1_respawn(&app, &state).await;
+                        let _ = respawn(&app, &state).await;
                     });
                 }
             })
-            .expect("GT-C4-4: failed to spawn ft1-respawn-supervisor thread");
+            .expect("GT-C4-4: failed to spawn respawn-supervisor thread");
         tx
     })
 }
@@ -215,7 +214,7 @@ fn respawn_supervisor_sender() -> &'static std::sync::mpsc::Sender<RespawnReques
 // a focused helper; `reconnect_ws` is a thin orchestrator that calls
 // them in order. Behavior is preserved EXACTLY — same error strings,
 // same retry/backoff semantics, same logging, same panic-safety
-// wrappers, same FT-1 trigger pattern.
+// wrappers, same supervisor trigger pattern.
 
 /// XZ-11 (was inline in `reconnect_ws`): TCP-connect to the sidecar's
 /// WS endpoint and complete the WS handshake with a bounded timeout
@@ -224,10 +223,10 @@ fn respawn_supervisor_sender() -> &'static std::sync::mpsc::Sender<RespawnReques
 /// caller can hand them off to the writer and reader tasks.
 ///
 /// A hung sidecar that accepts the TCP connection but never completes
-/// the WS handshake would otherwise stall FT-1 forever (the previous
-/// `connect_async_with_config` call had no timeout). The timeout is
-/// mapped to a descriptive error so the FT-1 backoff schedule logs
-/// something actionable.
+/// the WS handshake would otherwise stall the supervisor forever (the
+/// previous `connect_async_with_config` call had no timeout). The
+/// timeout is mapped to a descriptive error so the backoff schedule
+/// logs something actionable.
 async fn ws_connect(
     port: u16,
 ) -> Result<(SplitSink<WsStream, Message>, SplitStream<WsStream>), String> {
@@ -350,7 +349,7 @@ fn spawn_writer_task(write: SplitSink<WsStream, Message>, mut ws_rx: mpsc::Recei
 /// reader task. On success returns `read` so the caller can pass it
 /// to `spawn_reader_task`. On any failure (timeout, stream close,
 /// error, invalid frame, `auth_failed`) calls
-/// `cleanup_and_trigger_ft1_respawn` and returns `Err`.
+/// `cleanup_and_trigger_respawn` and returns `Err`.
 ///
 /// G4-L-02: the Python sidecar's `_handle_connection` flow is:
 /// (1) accept WS, (2) call `_authenticate` (validates the auth frame
@@ -363,11 +362,11 @@ fn spawn_writer_task(write: SplitSink<WsStream, Message>, mut ws_rx: mpsc::Recei
 /// contract) OR `ready` (current contract) as the auth-success
 /// signal. On `auth_failed`, stream close, or timeout, we clear
 /// `ws_tx` (which causes the writer task above to exit when its
-/// channel drains) and trigger FT-1 respawn.
+/// channel drains) and trigger supervisor respawn.
 ///
 /// This is a best-effort improvement: if the server sends neither
 /// `auth_ok` nor `ready` within the timeout but the connection is
-/// actually fine, we tear it down and let FT-1 try again. The
+/// actually fine, we tear it down and let the supervisor try again. The
 /// 3s timeout is generous enough that a healthy sidecar should
 /// always respond within it.
 async fn wait_for_auth_ok(
@@ -384,10 +383,10 @@ async fn wait_for_auth_ok(
         Err(_) => {
             log::error!(
                 "[WS-AUTH] auth_ok/ready timeout ({}s) — closing WS and \
-                 triggering FT-1",
+                 triggering supervisor",
                 WS_AUTH_OK_TIMEOUT_SECS
             );
-            cleanup_and_trigger_ft1_respawn(app, state);
+            cleanup_and_trigger_respawn(app, state);
             Err(format!(
                 "WS auth timed out after {}s",
                 WS_AUTH_OK_TIMEOUT_SECS
@@ -395,12 +394,12 @@ async fn wait_for_auth_ok(
         }
         Ok(None) => {
             log::error!("[WS-AUTH] stream closed before auth_ok/ready");
-            cleanup_and_trigger_ft1_respawn(app, state);
+            cleanup_and_trigger_respawn(app, state);
             Err("WS stream closed during auth".to_string())
         }
         Ok(Some(Err(e))) => {
             log::error!("[WS-AUTH] error reading auth_ok/ready: {}", e);
-            cleanup_and_trigger_ft1_respawn(app, state);
+            cleanup_and_trigger_respawn(app, state);
             Err(format!("WS auth read error: {}", e))
         }
         Ok(Some(Ok(msg))) => {
@@ -415,7 +414,7 @@ async fn wait_for_auth_ok(
                             log::warn!(
                                 "[WS-AUTH] unexpected binary frame during auth"
                             );
-                            cleanup_and_trigger_ft1_respawn(app, state);
+                            cleanup_and_trigger_respawn(app, state);
                             return Err(
                                 "WS auth received non-UTF8 binary".to_string()
                             );
@@ -424,14 +423,14 @@ async fn wait_for_auth_ok(
                 }
                 Message::Close(_) => {
                     log::warn!("[WS-AUTH] server closed during auth");
-                    cleanup_and_trigger_ft1_respawn(app, state);
+                    cleanup_and_trigger_respawn(app, state);
                     return Err("WS closed during auth".to_string());
                 }
                 _ => {
                     log::warn!(
                         "[WS-AUTH] unexpected frame type (ping/pong) during auth"
                     );
-                    cleanup_and_trigger_ft1_respawn(app, state);
+                    cleanup_and_trigger_respawn(app, state);
                     return Err("WS auth unexpected frame type".to_string());
                 }
             };
@@ -442,14 +441,14 @@ async fn wait_for_auth_ok(
                         "[WS-AUTH] invalid JSON in auth response: {}",
                         text
                     );
-                    cleanup_and_trigger_ft1_respawn(app, state);
+                    cleanup_and_trigger_respawn(app, state);
                     return Err(format!("WS auth invalid JSON: {}", text));
                 }
             };
             let t = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
             if t == "auth_failed" {
                 log::error!("[WS-AUTH] auth_failed received from server");
-                cleanup_and_trigger_ft1_respawn(app, state);
+                cleanup_and_trigger_respawn(app, state);
                 return Err("WS auth rejected by server".to_string());
             }
             // Accept either `auth_ok` (future contract) or `ready`
@@ -507,8 +506,8 @@ async fn wait_for_auth_ok(
 /// pending dispatch requests hanging until their 120s timeout. With
 /// the wrapper, the panic is caught, logged at ERROR, and the
 /// cleanup block below runs identically to the normal-exit path
-/// (drain pending, clear ws_tx, emit `ft1_relaunching`, spawn
-/// FT-1 respawn).
+/// (drain pending, clear ws_tx, emit `supervisor_relaunching`, spawn
+/// supervisor respawn).
 fn spawn_reader_task(
     app: tauri::AppHandle,
     state: Arc<SidecarState>,
@@ -655,15 +654,15 @@ fn spawn_reader_task(
         if let Err(_panic_payload) = &result {
             log::error!(
                 "[WS-READER] reader task panicked during body — running \
-                 cleanup (drain pending, clear ws_tx, emit ft1_relaunching, \
-                 trigger FT-1)"
+                 cleanup (drain pending, clear ws_tx, emit supervisor_relaunching, \
+                 trigger supervisor respawn)"
             );
         }
 
         // WS reader exited (normally or via caught panic) — drain
         // pending dispatch requests + clear ws_tx so new dispatch
         // calls fail fast instead of queueing onto a dead channel
-        // (CR-Finding 1 + 3). Then trigger FT-1 respawn (unless we're
+        // (CR-Finding 1 + 3). Then trigger supervisor respawn (unless we're
         // shutting down). This cleanup runs UNCONDITIONALLY — even if
         // the body panicked — because it uses the cloned
         // `state_for_cleanup` / `app_for_cleanup` handles (not the
@@ -686,7 +685,7 @@ fn spawn_reader_task(
                     "type": "error",
                     "data": {
                         "code": "sidecar_disconnected",
-                        "message": "sidecar WS disconnected (FT-1 respawn in progress)"
+                        "message": "sidecar WS disconnected (supervisor respawn in progress)"
                     }
                 }));
             }
@@ -695,26 +694,26 @@ fn spawn_reader_task(
             }
         }
         if !state_for_cleanup.shutting_down.load(Ordering::SeqCst) {
-            // CR-5 (ADR-0020 §10): emit `ft1_relaunching` IMMEDIATELY
+            // CR-5 (ADR-0020 §10): emit `supervisor_relaunching` IMMEDIATELY
             // at disconnect start so the UI can show a "reconnecting…"
             // banner before the backoff schedule runs. The eventual
-            // `ft1_reconnected` (on success) or second `ft1_relaunching`
+            // `supervisor_reconnected` (on success) or second `supervisor_relaunching`
             // (on exhaustion) supersedes this event.
             let _ = app_for_cleanup.emit(
-                "ft1_relaunching",
+                "supervisor_relaunching",
                 json!({"reason": "disconnected"}),
             );
-            log::warn!("[WS-READER] unexpected close — triggering FT-1");
-            // EC-FIX-5 (EC-18): spawn FT-1 on a separate thread via the
-            // shared `trigger_ft1_respawn_off_thread` helper. The thread
-            // + `block_on` bridge is required because `ft1_respawn`
+            log::warn!("[WS-READER] unexpected close — triggering supervisor");
+            // EC-FIX-5 (EC-18): spawn supervisor respawn on a separate thread via the
+            // shared `trigger_respawn_off_thread` helper. The thread
+            // + `block_on` bridge is required because `respawn`
             // awaits `reconnect_ws`, whose future is `!Send`
             // (tokio-tungstenite holds a `!Send` across an await), and
             // `tokio::spawn` requires `Send` futures. NF-R19-1
             // documents the failed attempt to use a direct
             // `tokio::spawn` here. See the helper's doc comment for
             // the full rationale.
-            trigger_ft1_respawn_off_thread(
+            trigger_respawn_off_thread(
                 app_for_cleanup.clone(),
                 state_for_cleanup.clone(),
             );
@@ -727,7 +726,7 @@ fn spawn_reader_task(
 ///
 /// Detects application-level sidecar hangs (GIL contention, infinite
 /// loop, blocking C call) that keep the WS socket open but don't
-/// respond to dispatches. Without this, the FT-1 supervisor only
+/// respond to dispatches. Without this, the supervisor only
 /// triggers on WS-close/process exit, so a hung sidecar leaves the
 /// UI frozen for the full 120s dispatch timeout on EVERY
 /// `invoke('dispatch', ...)` call.
@@ -737,21 +736,21 @@ fn spawn_reader_task(
 /// — see `voice_typer/server/ipc_server.py:2013`). We wrap the call
 /// in a 15s timeout — `dispatch_frame`'s own 120s timeout is too
 /// long for a liveness probe. On 3 consecutive misses (≥30s of
-/// unresponsiveness) we trigger FT-1 respawn via the same
+/// unresponsiveness) we trigger supervisor respawn via the same
 /// `std::thread::spawn` + `block_on` bridge used by the WS reader
-/// above (the FT-1 supervisor's `reconnect_ws` future is `!Send` —
+/// above (the supervisor's `reconnect_ws` future is `!Send` —
 /// tokio-tungstenite holds a `!Send` across an await — so it can't
 /// be awaited from a `tokio::spawn` directly).
 ///
 /// The 15s outer timeout may leak a pending entry inside
 /// `dispatch_frame` until its internal 120s timeout fires, but the
-/// FT-1 respawn triggered at miss #3 kills the sidecar, which drops
+/// supervisor respawn triggered at miss #3 kills the sidecar, which drops
 /// the TCP socket, which makes the WS reader's drain loop clear all
 /// pending entries. So the leak is bounded and self-healing.
 fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<SidecarState>) {
     // GT-8 / GT-C4-3: abort any previous heartbeat task before spawning
-    // the new one. `reconnect_ws` is called on every successful FT-1
-    // respawn (and on initial cold start), so without this abort the
+    // the new one. `reconnect_ws` is called on every successful
+    // supervisor respawn (and on initial cold start), so without this abort the
     // PRIOR heartbeat task would leak — it loops forever on a 10s
     // `interval.tick()`. After N reconnects you'd have N concurrent
     // heartbeat tasks all dispatching `heartbeat` frames at 10s
@@ -762,7 +761,7 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
     // by GT-FIX-20). The heartbeat task here does NOT know the id, so
     // it can't manually remove the pending entry from `state.pending`
     // on the 15s timeout. Mitigation (existing behavior, preserved):
-    //   - On miss #3, FT-1 respawn kills the sidecar → WS socket
+    //   - On miss #3, supervisor respawn kills the sidecar → WS socket
     //     drops → WS reader's drain loop clears ALL pending entries.
     //   - On miss #1/#2, `dispatch_frame`'s internal 120s timeout
     //     eventually removes the entry. Bounded leak.
@@ -808,9 +807,9 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
                         log::warn!("[HEARTBEAT] dispatch error (miss #{}/3): {}", missed, e);
                         if missed >= 3 {
                             log::warn!(
-                                "[HEARTBEAT] 3 consecutive misses — triggering FT-1 respawn"
+                                "[HEARTBEAT] 3 consecutive misses — triggering supervisor respawn"
                             );
-                            trigger_ft1_respawn_off_thread(
+                            trigger_respawn_off_thread(
                                 heartbeat_app.clone(),
                                 heartbeat_state.clone(),
                             );
@@ -822,9 +821,9 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
                         log::warn!("[HEARTBEAT] 15s response timeout (miss #{}/3)", missed);
                         if missed >= 3 {
                             log::warn!(
-                                "[HEARTBEAT] 3 consecutive misses — triggering FT-1 respawn"
+                                "[HEARTBEAT] 3 consecutive misses — triggering supervisor respawn"
                             );
-                            trigger_ft1_respawn_off_thread(
+                            trigger_respawn_off_thread(
                                 heartbeat_app.clone(),
                                 heartbeat_state.clone(),
                             );
@@ -849,8 +848,8 @@ fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<Si
 // focused helpers above. This function calls them in sequence,
 // propagating errors via `?`. Behavior is preserved EXACTLY: same
 // error strings, same retry/backoff semantics (which live in the
-// FT-1 supervisor that calls this), same logging, same panic-safety
-// wrappers, same FT-1 trigger pattern.
+// supervisor that calls this), same logging, same panic-safety
+// wrappers, same supervisor trigger pattern.
 pub(crate) async fn reconnect_ws(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,

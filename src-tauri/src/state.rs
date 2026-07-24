@@ -13,7 +13,7 @@ use serde_json::Value;
 // `Mutex::lock().unwrap()` panics if the lock is poisoned (a thread
 // panicked while holding it). Poisoning permanently bricks the lock —
 // every subsequent `.lock().unwrap()` re-panics with the original
-// poison error, taking down the FT-1 resilience layer itself. This
+// poison error, taking down the resilience layer itself. This
 // helper recovers the inner value via `into_inner()` so a poisoned
 // lock is downgraded to "the value may be in an inconsistent state,
 // but we can still make progress". For our state fields (child handle,
@@ -23,7 +23,7 @@ use serde_json::Value;
 //
 // Usage: replace `state.<field>.lock().unwrap()` → `lock(&state.<field>)`.
 //
-// Used by `state.rs`, `ft1.rs`, `ws.rs`, `main.rs`, `commands/sidecar_cmds.rs`,
+// Used by `state.rs`, `supervisor.rs`, `ws.rs`, `main.rs`, `commands/sidecar_cmds.rs`,
 // `commands/bubble.rs`, and `platform/logging.rs` (the latter via its own
 // `mutex_lock` alias).
 // PVT-G5-018 originally used the inline `.unwrap_or_else(|e| e.into_inner())`
@@ -34,7 +34,7 @@ use serde_json::Value;
 //
 // EC-FIX-5 (EC-16 / EC-24): the `#[allow(dead_code)]` that used to live
 // here was STALE — the helper IS used at 10+ production call sites
-// (`ws.rs`, `main.rs`, `sidecar_cmds.rs`, `ft1.rs`, `state.rs`,
+// (`ws.rs`, `main.rs`, `sidecar_cmds.rs`, `supervisor.rs`, `state.rs`,
 // `bubble.rs`). Removed the suppression so the compiler will report any
 // future drift toward "unused" as a real warning.
 pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -86,8 +86,8 @@ impl SidecarHandle {
     /// to also reap grandchildren (native hotkey binary, model processes)
     /// that the Python sidecar does not reap on its own exit.
     ///
-    /// CR-14: exposed as `pub(crate)` so the FT-1 retry-loop tests in
-    /// `ft1.rs` can verify that `state.child` holds the NEW child (not
+    /// CR-14: exposed as `pub(crate)` so the retry-loop tests in
+    /// `supervisor.rs` can verify that `state.child` holds the NEW child (not
     /// a stale reference to the old one) after the take-kill-store
     /// pattern runs. Previously private; the visibility bump is the
     /// minimal change needed to make the CR-14 fix testable without
@@ -318,13 +318,13 @@ pub(crate) struct SidecarState {
     pub(crate) pending: PendingMap,
     /// Next request id.
     pub(crate) next_id: AtomicU64,
-    /// Shutdown signal — set when the app is quitting so FT-1 doesn't
+    /// Shutdown signal — set when the app is quitting so the supervisor doesn't
     /// respawn the sidecar during shutdown.
     pub(crate) shutting_down: AtomicBool,
-    /// FT-1 respawn serialization flag. Set when a respawn is in flight
+    /// Respawn serialization flag. Set when a respawn is in flight
     /// so concurrent WS-reader exits (e.g., a flapping sidecar that dies
     /// immediately after reconnect) don't launch multiple parallel
-    /// `ft1_respawn` supervisors that would corrupt `child`/`ws_tx`.
+    /// `respawn` supervisors that would corrupt `child`/`ws_tx`.
     /// Acquired with `compare_exchange(false → true)` on entry; cleared on
     /// exit (both Ok and restart paths).
     pub(crate) respawn_in_progress: AtomicBool,
@@ -388,7 +388,7 @@ impl Default for SidecarState {
 /// **Idempotent** via `shutting_down.swap(true, SeqCst)` — returns
 /// immediately if a shutdown is already in flight (either the
 /// renderer's `shutdown_sidecar` command, a prior `ExitRequested`,
-/// or the FT-1 supervisor already set the flag). This makes it safe
+/// or the supervisor already set the flag). This makes it safe
 /// to call from both `ExitRequested` AND `Exit` (which can fire
 /// back-to-back) without double-killing.
 ///

@@ -419,13 +419,13 @@ fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
 
 /// M-65: write `contents` to `path` atomically (temp + fsync + rename).
 ///
-/// PVT-G5-033: promoted from `fn` to `pub(crate) fn` so the FT-1
-/// supervisor (`ft1.rs::write_ft1_restart_counter`) can reuse it for
-/// atomic persistence of the restart counter. Previously the FT-1
+/// PVT-G5-033: promoted from `fn` to `pub(crate) fn` so the
+/// supervisor (`supervisor.rs::write_restart_counter`) can reuse it for
+/// atomic persistence of the restart counter. Previously the
 /// counter used `std::fs::write` (non-atomic: truncate-then-write),
 /// which on a crash mid-write could leave a partially-written
-/// `ft1_restart_counter.json` that fails to parse — falling back to 0
-/// (the fail-open default in `read_ft1_restart_counter`), silently
+/// `restart_counter.json` that fails to parse — falling back to 0
+/// (the fail-open default in `read_restart_counter`), silently
 /// bypassing the circuit breaker on the next launch.
 pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
     use std::io::Write;

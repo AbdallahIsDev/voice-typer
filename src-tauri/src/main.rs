@@ -16,7 +16,7 @@
 //!    frame, awaits the per-id response, returns it.
 //! 5. Subscribes to server-initiated events (channel 2) and re-emits
 //!    them as Tauri events the React UI already subscribes to.
-//! 6. Runs the FT-1 supervisor: on unexpected WS-close / sidecar
+//! 6. Runs the supervisor: on unexpected WS-close / sidecar
 //!    exit, respawns with backoff (500ms → 1s → 2s, cap 5 retries),
 //!    then falls back to full-app relaunch.
 //! 7. Coalesces `bubble_level` events from ~60 Hz to ≤30 Hz to
@@ -48,7 +48,7 @@
 //!   `shutdown_sidecar_for_exit` (PVT-G5-007)
 //! - `util` — ADR-0020 constants, `generate_token`, `hex`, `now_timestamp`
 //! - `sidecar::spawn` — spawn variants + stdout handshake (§1 + §4.1 + §14)
-//! - `sidecar::supervisor` — FT-1 supervisor + bubble coalesce predicate (§9 + §10)
+//! - `sidecar::supervisor` — supervisor + bubble coalesce predicate (§9 + §10)
 //! - `sidecar::ws` — WebSocket reconnect + reader/writer tasks + heartbeat (§1 + §9 + §10)
 //! - `commands::sidecar_cmds` — `dispatch`, `paste_text`, `shutdown_sidecar` (§6.2 + §7 + §10)
 //! - `commands::export` — `export_history`, `export_vocabulary`, CSV helpers (§6 + MIG-1.1)
@@ -110,7 +110,7 @@ use commands::system_cmds::{
 };
 use platform::logging::init_file_logger;
 use platform::paths::config_dir;
-use sidecar::supervisor::ft1_respawn;
+use sidecar::supervisor::respawn;
 use sidecar::spawn::spawn_sidecar_and_get_port;
 use sidecar::ws::reconnect_ws;
 use state::SidecarState;
@@ -345,22 +345,22 @@ fn main() {
             if let Err(e) = crate::tray::create_tray(app.handle()) {
                 log::error!("[TRAY] init failed: {}", e);
             }
-            // GT-1 (Critical): the unconditional `write_ft1_restart_counter(0)`
-            // that used to live here DEFEATED the FT-1 circuit breaker.
+            // GT-1 (Critical): the unconditional `write_restart_counter(0)`
+            // that used to live here DEFEATED the circuit breaker.
             // Every fresh app launch reset the persisted counter to 0,
             // so 3 consecutive bad cold-starts never accumulated to the
             // breaker threshold across launches.
             //
-            // The G4-H-28 staleness check in `read_ft1_restart_counter`
+            // The G4-H-28 staleness check in `read_restart_counter`
             // (supervisor.rs) ALREADY handles the stale-count case:
             // if the counter file's `ts` field is older than
-            // `FT1_COUNTER_STALE_SECS` (10 minutes) — or missing
+            // `COUNTER_STALE_SECS` (10 minutes) — or missing
             // entirely (legacy file) — the read returns 0. So a fresh
             // launch after a 10+ minute gap reads 0 naturally.
             //
             // The reset is now ONLY done on successful `reconnect_ws`
-            // (supervisor.rs:375 — GT-FIX-19's file) so the in-session
-            // counter faithfully tracks FT-1 retries without being
+            // (supervisor.rs) so the in-session
+            // counter faithfully tracks retries without being
             // wiped by an unconditional reset at startup.
             // Spawn the sidecar + WS bridge in a background tokio task.
             tauri::async_runtime::spawn(async move {
@@ -379,7 +379,7 @@ fn main() {
                         // kill (state.child was still None). Kill the
                         // freshly-spawned sidecar here so it doesn't
                         // outlive the host, then bail before installing
-                        // it into state (which would fool FT-1 into
+                        // it into state (which would fool into
                         // thinking the sidecar is healthy).
                         if state.shutting_down.load(Ordering::SeqCst) {
                             log::info!(
@@ -401,12 +401,12 @@ fn main() {
                         *state.child_exit_rx.lock().await = exit_rx;
                         if let Err(e) = reconnect_ws(&app_handle, &state, port, &token).await {
                             log::error!("[SETUP] initial WS connect failed: {}", e);
-                            let _ = ft1_respawn(&app_handle, &state).await;
+                            let _ = respawn(&app_handle, &state).await;
                         }
                     }
                     Err(e) => {
                         log::error!("[SETUP] sidecar spawn failed: {}", e);
-                        let _ = ft1_respawn(&app_handle, &state).await;
+                        let _ = respawn(&app_handle, &state).await;
                     }
                 }
             });

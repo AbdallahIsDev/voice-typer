@@ -239,7 +239,7 @@ impl RotatingFileWriter {
         // through the panic hook (which itself calls `log::error!` →
         // this writer) and abort the process. Use the shared poison-safe
         // `crate::state::lock` helper (G4-H-27) for consistency with
-        // `state.rs` + `ft1.rs` + `ws.rs`.
+        // `state.rs` + `supervisor.rs` + `ws.rs`.
         let mut guard = crate::state::lock(&self.inner);
         // Open the file lazily so we don't create `voice-typer.log`
         // until the first log line is emitted. If the guard was None

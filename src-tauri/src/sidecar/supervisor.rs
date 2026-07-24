@@ -1,20 +1,20 @@
 //! Sidecar supervisor: respawn + bubble-level coalesce (ADR-0020 §9 + §10).
-//! Renamed from `ft1.rs` — the old name was an opaque internal task ID.
+//! Previously named `supervisor.rs` — the old name was an opaque internal task ID.
 
 use crate::state::{SidecarHandle, SidecarState};
 // G4-H-27 (session 4): poison-safe Mutex helper. Replacing
 // `state.X.lock().unwrap()` with `mutex_lock(&state.X)` so a poisoned
 // mutex (a prior panic while holding the lock) doesn't re-panic and
-// brick the FT-1 resilience layer.
+// brick the resilience layer.
 use crate::state::lock as mutex_lock;
 use crate::sidecar::spawn::spawn_sidecar_and_get_port;
 use crate::sidecar::ws::reconnect_ws;
-use crate::util::{generate_token, FT1_BACKOFF_MS, PRE_RESTART_DELAY_MS};
+use crate::util::{generate_token, SUPERVISOR_BACKOFF_MS, PRE_RESTART_DELAY_MS};
 // PVT-G5-033: reuse the migration module's atomic write helper so the
 // restart counter is durable against mid-write crashes (see
-// `write_ft1_restart_counter` below).
+// `write_restart_counter` below).
 use crate::migrate::atomic_write_bytes;
-// GT-9: `AssertUnwindSafe` + `catch_unwind` for the ft1_respawn_inner
+// GT-9: `AssertUnwindSafe` + `catch_unwind` for the respawn_inner
 // panic-safety wrapper. `FutureExt` brings `.catch_unwind()` into scope.
 use std::panic::AssertUnwindSafe;
 use futures_util::FutureExt;
@@ -24,23 +24,23 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 use tauri::Emitter;
 
-/// CR-29: max number of `app.restart()` attempts before the FT-1
-/// supervisor gives up and emits `ft1_failed` instead of looping
-/// forever. Each `ft1_respawn` call increments a disk-persisted
-/// counter; on successful `ft1_reconnected` the counter resets to 0.
+/// CR-29: max number of `app.restart()` attempts before the supervisor
+/// gives up and emits `supervisor_failed` instead of looping
+/// forever. Each `respawn` call increments a disk-persisted
+/// counter; on successful `supervisor_reconnected` the counter resets to 0.
 /// 3 attempts is enough to ride out transient sidecar crashes without
 /// masking a permanently-broken install (missing binary, corrupt env).
-const FT1_MAX_RESTART_ATTEMPTS: u32 = 3;
+const MAX_RESTART_ATTEMPTS: u32 = 3;
 
-/// G4-H-28: stale-count cutoff. The disk-persisted FT-1 restart
+/// G4-H-28: stale-count cutoff. The disk-persisted restart
 /// counter now carries a Unix timestamp (seconds). If the timestamp
 /// is older than this many seconds, the count is treated as 0 — a
-/// stale counter from a previous session (e.g., the user had 2 FT-1
+/// stale counter from a previous session (e.g., the user had 2
 /// failures last week) doesn't trip the circuit breaker on a single
 /// new crash. 10 minutes is long enough to catch a tight flap loop
 /// (3 crashes within 10 minutes is clearly a broken install) but
 /// short enough to not accumulate across sessions.
-const FT1_COUNTER_STALE_SECS: u64 = 10 * 60;
+const COUNTER_STALE_SECS: u64 = 10 * 60;
 
 /// G4-H-28 helper: current Unix time in seconds. Returns 0 on
 /// pre-epoch clock skew (won't happen in practice but the
@@ -52,24 +52,24 @@ fn now_unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// PVT-G5-051: parse the FT-1 restart counter from a JSON value with
+/// PVT-G5-051: parse the restart counter from a JSON value with
 /// a SATURATING cast. Previously the reader used `c as u32` after
 /// `as_u64()`, which silently truncates any u64 value above `u32::MAX`
 /// (e.g., a corrupted counter file with an absurdly large `count`
 /// field would wrap to a small number, bypassing the circuit breaker).
 /// Saturating at `u32::MAX` keeps the value well above
-/// `FT1_MAX_RESTART_ATTEMPTS` (3) so the breaker trips correctly.
+/// `MAX_RESTART_ATTEMPTS` (3) so the breaker trips correctly.
 ///
 /// Extracted as a `pub(crate)` helper so unit tests can verify the
 /// saturating behavior without touching the filesystem.
-pub(crate) fn parse_ft1_counter(v: &serde_json::Value) -> u32 {
+pub(crate) fn parse_restart_counter(v: &serde_json::Value) -> u32 {
     v.get("count")
         .and_then(|c| c.as_u64())
         .map(|c| u32::try_from(c).unwrap_or(u32::MAX))
         .unwrap_or(0)
 }
 
-/// CR-29: read the disk-persisted FT-1 restart counter. Returns 0 on
+/// CR-29: read the disk-persisted restart counter. Returns 0 on
 /// any error (missing file, parse error, etc.) — fail-open is safer
 /// than blocking recovery on a transient disk issue.
 ///
@@ -78,10 +78,10 @@ pub(crate) fn parse_ft1_counter(v: &serde_json::Value) -> u32 {
 /// the shared state. All call sites updated.
 ///
 /// G4-H-28: the counter file now carries a `ts` field (Unix seconds).
-/// If `ts` is older than `FT1_COUNTER_STALE_SECS` (10 minutes), the
+/// If `ts` is older than `COUNTER_STALE_SECS` (10 minutes), the
 /// count is treated as 0 — a stale count from a previous session
 /// doesn't trip the circuit breaker on a single new crash.
-fn read_ft1_restart_counter() -> u32 {
+fn read_restart_counter() -> u32 {
     let path = match crate::platform::paths::config_dir_from_env(
         std::env::var("HOME").ok().as_deref(),
         std::env::var("APPDATA").ok().as_deref(),
@@ -89,7 +89,7 @@ fn read_ft1_restart_counter() -> u32 {
         std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
     ) {
         p if p.as_os_str().is_empty() => return 0,
-        p => p.join("ft1_restart_counter.json"),
+        p => p.join("restart_counter.json"),
     };
     match std::fs::read_to_string(&path) {
         Ok(s) => {
@@ -99,7 +99,7 @@ fn read_ft1_restart_counter() -> u32 {
             };
             // G4-H-28: stale-count cutoff. If the timestamp is missing
             // (legacy file from before this fix) or older than
-            // FT1_COUNTER_STALE_SECS, treat the count as 0.
+            // COUNTER_STALE_SECS, treat the count as 0.
             let ts = v.get("ts").and_then(|t| t.as_u64()).unwrap_or(0);
             if ts == 0 {
                 // No timestamp → legacy file. Assume fresh (count=0) to
@@ -107,23 +107,23 @@ fn read_ft1_restart_counter() -> u32 {
                 return 0;
             }
             let now = now_unix_secs();
-            if now < ts || now - ts > FT1_COUNTER_STALE_SECS {
+            if now < ts || now - ts > COUNTER_STALE_SECS {
                 log::info!(
-                    "[FT-1] restart counter stale (ts={}, now={}, age={}s > {}s) — resetting to 0",
+                    "[SUPERVISOR] restart counter stale (ts={}, now={}, age={}s > {}s) — resetting to 0",
                     ts,
                     now,
                     now.saturating_sub(ts),
-                    FT1_COUNTER_STALE_SECS
+                    COUNTER_STALE_SECS
                 );
                 return 0;
             }
-            parse_ft1_counter(&v)
+            parse_restart_counter(&v)
         }
         Err(_) => 0,
     }
 }
 
-/// CR-29: write the disk-persisted FT-1 restart counter. Best-effort
+/// CR-29: write the disk-persisted restart counter. Best-effort
 /// — if the write fails, log and continue (the counter is a safety
 /// gate, not a correctness requirement).
 ///
@@ -134,26 +134,17 @@ fn read_ft1_restart_counter() -> u32 {
 /// PVT-G5-033: switched from non-atomic `std::fs::write` (truncate-
 /// then-write) to `atomic_write_bytes` (temp + fsync + rename). A
 /// crash mid-write previously could leave a partially-written
-/// counter file that fails to parse on next launch — `read_ft1_restart_counter`
+/// counter file that fails to parse on next launch — `read_restart_counter`
 /// then returns 0, silently bypassing the circuit breaker. Atomic
 /// write guarantees the counter is either fully-old or fully-new.
 ///
-/// PVT-3 (session 1): promoted from `fn` to `pub(crate) fn` so
-/// `main.rs` can reset the counter to 0 at the start of each fresh
-/// app launch (in `.setup`, before `spawn_sidecar_and_get_port`).
-/// Without that reset, 3 consecutive bad cold-starts (transient AV
-/// quarantine, slow disk, etc.) brick the install permanently — the
-/// 4th launch reads `count: 3`, trips the breaker, emits `ft1_failed`,
-/// and the user has no recovery short of manually deleting
-/// `ft1_restart_counter.json`.
-///
 /// G4-H-28 (session 4): the counter file now includes a `ts` field
-/// (Unix seconds) so `read_ft1_restart_counter` can detect + ignore
-/// stale counts from previous sessions. `write_ft1_restart_counter(0)`
-/// is called both on successful FT-1 reconnect (the existing CR-29
+/// (Unix seconds) so `read_restart_counter` can detect + ignore
+/// stale counts from previous sessions. `write_restart_counter(0)`
+/// is called both on successful reconnect (the existing CR-29
 /// path) AND on successful cold start (the new G4-H-28 path) so the
 /// counter doesn't accumulate stale failures across sessions.
-pub(crate) fn write_ft1_restart_counter(count: u32) {
+pub(crate) fn write_restart_counter(count: u32) {
     let path = match crate::platform::paths::config_dir_from_env(
         std::env::var("HOME").ok().as_deref(),
         std::env::var("APPDATA").ok().as_deref(),
@@ -161,22 +152,22 @@ pub(crate) fn write_ft1_restart_counter(count: u32) {
         std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
     ) {
         p if p.as_os_str().is_empty() => return,
-        p => p.join("ft1_restart_counter.json"),
+        p => p.join("restart_counter.json"),
     };
     // G4-H-28: include `ts` so future reads can detect staleness.
     let payload = json!({"count": count, "ts": now_unix_secs()});
     if let Err(e) = atomic_write_bytes(&path, payload.to_string().as_bytes()) {
-        log::warn!("[FT-1] failed to persist restart counter to {:?}: {}", path, e);
+        log::warn!("[SUPERVISOR] failed to persist restart counter to {:?}: {}", path, e);
     }
 }
 
-// ─── FT-1 supervisor (ADR-0020 §10) ───────────────────────────────────
+// ─── Supervisor (ADR-0020 §10) ───────────────────────────────────
 
-pub(crate) async fn ft1_respawn(
+pub(crate) async fn respawn(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
-    // Serialize: only one ft1_respawn may run at a time. If a previous
+    // Serialize: only one respawn may run at a time. If a previous
     // respawn is still in flight (e.g., the sidecar died again mid-
     // reconnect), bail out — the in-flight supervisor owns the recovery.
     if state
@@ -184,26 +175,26 @@ pub(crate) async fn ft1_respawn(
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        log::info!("[FT-1] respawn already in progress — skipping");
+        log::info!("[SUPERVISOR] respawn already in progress — skipping");
         return Ok(());
     }
     // CR-29: circuit breaker — persist restart-attempt counter to
     // disk so we don't enter an infinite restart loop on a broken
     // install (missing sidecar binary, corrupted Python env, etc.).
-    // If counter >= FT1_MAX_RESTART_ATTEMPTS, STOP the loop and emit
-    // a `ft1_failed` event so the UI can surface the error instead of
+    // If counter >= MAX_RESTART_ATTEMPTS, STOP the loop and emit
+    // a `supervisor_failed` event so the UI can surface the error instead of
     // silently restart-looping forever. Counter is reset on successful
-    // `ft1_reconnected` event.
-    let restart_count = read_ft1_restart_counter();
-    if restart_count >= FT1_MAX_RESTART_ATTEMPTS {
+    // `supervisor_reconnected` event.
+    let restart_count = read_restart_counter();
+    if restart_count >= MAX_RESTART_ATTEMPTS {
         log::error!(
-            "[FT-1] circuit breaker tripped — restart count {} >= max {}. Stopping FT-1 supervisor.",
+            "[SUPERVISOR] circuit breaker tripped — restart count {} >= max {}. Stopping supervisor.",
             restart_count,
-            FT1_MAX_RESTART_ATTEMPTS
+            MAX_RESTART_ATTEMPTS
         );
         state.respawn_in_progress.store(false, Ordering::SeqCst);
         let _ = app.emit(
-            "ft1_failed",
+            "supervisor_failed",
             json!({
                 "reason": "circuit_breaker_tripped",
                 "restart_count": restart_count,
@@ -211,81 +202,75 @@ pub(crate) async fn ft1_respawn(
             }),
         );
         return Err(format!(
-            "FT-1 circuit breaker tripped (restart_count={})",
+            "Supervisor circuit breaker tripped (restart_count={})",
             restart_count
         ));
     }
     // Increment counter before attempting restart — will be reset on
     // successful reconnect.
-    write_ft1_restart_counter(restart_count + 1);
+    write_restart_counter(restart_count + 1);
     // PVT-G5-031: DO NOT clear `respawn_in_progress` here unconditionally.
-    // The inner function `ft1_respawn_inner` is responsible for clearing
-    // the flag on its success path (line ~269, before `return Ok(())`)
+    // The inner function `respawn_inner` is responsible for clearing
+    // the flag on its success path (before `return Ok(())`)
     // so that a fast-double-crash disconnect detected by the freshly-
     // spawned WS reader can immediately acquire the flag and start its
-    // own respawn. The circuit-breaker path above (line ~96) clears the
+    // own respawn. The circuit-breaker path above clears the
     // flag itself before returning Err. The `app.restart()` exhaustion
-    // path at the bottom of `ft1_respawn_inner` is `-> !` (never
+    // path at the bottom of `respawn_inner` is `-> !` (never
     // returns), so no clear is needed there.
     //
-    // The previous unconditional clear here was a double-clear race:
-    // if the inner had ALREADY cleared the flag (success path) and a
-    // concurrent reader had already acquired it for a NEW respawn,
-    // this stale clear would clobber the new owner's flag — letting a
-    // THIRD concurrent respawn slip through the serialization gate.
-    //
-    // GT-9: wrap the `ft1_respawn_inner` call in
+    // GT-9: wrap the `respawn_inner` call in
     // `AssertUnwindSafe(...).catch_unwind()` so a panic inside the
     // inner function doesn't leave `respawn_in_progress` set forever
-    // — which would permanently brick the FT-1 resilience layer. On
+    // — which would permanently brick the resilience layer. On
     // caught panic we clear the flag and return Err. Mirrors the
     // `spawn_reader_task` pattern (ws.rs).
-    let inner_result = AssertUnwindSafe(ft1_respawn_inner(app, state))
+    let inner_result = AssertUnwindSafe(respawn_inner(app, state))
         .catch_unwind()
         .await;
     match inner_result {
         Ok(r) => r,
         Err(_panic_payload) => {
             log::error!(
-                "[FT-1] ft1_respawn_inner panicked — clearing respawn_in_progress \
+                "[SUPERVISOR] respawn_inner panicked — clearing respawn_in_progress \
                  so future respawns can proceed"
             );
             // GT-9: clear the flag in the Err(panic) arm.
             state.respawn_in_progress.store(false, Ordering::SeqCst);
-            Err("ft1_respawn_inner panicked".to_string())
+            Err("respawn_inner panicked".to_string())
         }
     }
 }
 
-pub(crate) async fn ft1_respawn_inner(
+pub(crate) async fn respawn_inner(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
-    for (attempt, delay_ms) in FT1_BACKOFF_MS.iter().enumerate() {
+    for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate() {
         // NF-R19-2: there used to be an in-loop `if attempt as u32 >=
-        // FT1_MAX_RETRIES { app.restart(); }` guard here, but it was
-        // dead code — `FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES == 5`
+        // SUPERVISOR_MAX_RETRIES { app.restart(); }` guard here, but it was
+        // dead code — `SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5`
         // so `attempt` ranges `0..=4` and the condition
-        // `attempt >= FT1_MAX_RETRIES` was always false. The real
+        // `attempt >= SUPERVISOR_MAX_RETRIES` was always false. The real
         // exhaustion path is the post-loop `app.restart()` at the
         // bottom of this function.
         if state.shutting_down.load(Ordering::SeqCst) {
-            log::info!("[FT-1] shutting down — skipping respawn");
+            log::info!("[SUPERVISOR] shutting down — skipping respawn");
             return Ok(());
         }
-        log::warn!("[FT-1] respawn attempt {} after {}ms", attempt + 1, delay_ms);
+        log::warn!("[SUPERVISOR] respawn attempt {} after {}ms", attempt + 1, delay_ms);
         tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
 
         // CR-81: re-check `shutting_down` immediately before spawning a
-        // new sidecar. The check at the top of the loop (line ~54 above)
-        // could be stale — the user might have closed the main window
-        // (triggering `shutdown_sidecar`) during the backoff sleep. If
-        // we spawn a fresh sidecar here, we'd be installing it into a
-        // host that is already tearing down, racing the shutdown path
-        // (which calls `state.child.lock().take()` + `kill_tree`) and
-        // potentially overwriting the killed child with a live one.
+        // new sidecar. The check at the top of the loop could be stale
+        // — the user might have closed the main window (triggering
+        // `shutdown_sidecar`) during the backoff sleep. If we spawn a
+        // fresh sidecar here, we'd be installing it into a host that
+        // is already tearing down, racing the shutdown path (which calls
+        // `state.child.lock().take()` + `kill_tree`) and potentially
+        // overwriting the killed child with a live one.
         if state.shutting_down.load(Ordering::SeqCst) {
-            log::info!("[FT-1] shutting down (pre-spawn re-check) — skipping respawn");
+            log::info!("[SUPERVISOR] shutting down (pre-spawn re-check) — skipping respawn");
             return Ok(());
         }
 
@@ -299,41 +284,37 @@ pub(crate) async fn ft1_respawn_inner(
         // could accumulate. See CR-3 in comprehensive-review.md.
         let old_child = mutex_lock(&state.child).take();
         if let Some(old) = old_child {
-            log::info!("[FT-1] killing old sidecar before respawn");
+            log::info!("[SUPERVISOR] killing old sidecar before respawn");
             let _ = old.kill_tree().await;
         }
 
         // Rotate the auth token for the fresh sidecar instance.
         let new_token = generate_token();
         match spawn_sidecar_and_get_port(app, &new_token).await {
-            Ok((port, child, exit_rx)) => {
-                // CR-3: take AND kill_tree the PREVIOUS child before
-                // installing the new one. Without this, every successful
-                // respawn overwrites `state.child` with the new
-                // `SidecarHandle` and the previous child is leaked:
-                // `SidecarHandle::ShellPlugin(CommandChild)` has NO
-                // `Drop` impl and `SidecarHandle::DevMode` only kills
-                // on drop via `kill_on_drop(true)`. After 5 backoff
-                // retries, up to 5 zombie Python sidecar processes can
-                // run concurrently — each holding the microphone, the
-                // native hotkey binary, and model subprocesses. The
-                // single-instance mutex is disabled under
-                // `TAURI_SIDECAR=1`, so nothing else gates them.
-                //
-                // `kill_tree` (state.rs) reaps the entire process tree
-                // (sidecar + grandchildren: native hotkey binary, model
-                // subprocesses) — `kill()` alone would orphan the
-                // grandchildren. Best-effort: errors are logged but do
-                // not abort the respawn (a kill failure here is
-                // recoverable — the OS may reap the zombie on its own
-                // once the parent exits, but we want it gone NOW so
-                // the new sidecar can re-acquire the mic).
-                let prev = mutex_lock(&state.child).take();
-                if let Some(prev) = prev {
-                    log::info!("[FT-1] killing previous sidecar handle before respawn install");
-                    if let Err(e) = prev.kill_tree().await {
-                        log::warn!("[FT-1] prev child kill_tree failed (best-effort): {}", e);
-                    }
+            Ok((port, child, exit_rx)) => {                // CR-3: take AND kill_tree the PREVIOUS child before
+            // installing the new one. Without this, every successful
+            // respawn overwrites `state.child` with the new
+            // `SidecarHandle` and the previous child is leaked.
+            // After 5 backoff retries, up to 5 zombie Python sidecar
+            // processes can run concurrently — each holding the
+            // microphone, the native hotkey binary, and model
+            // subprocesses. The single-instance mutex is disabled
+            // under `TAURI_SIDECAR=1`, so nothing else gates them.
+            //
+            // `kill_tree` (state.rs) reaps the entire process tree
+            // (sidecar + grandchildren: native hotkey binary, model
+            // subprocesses) — `kill()` alone would orphan the
+            // grandchildren. Best-effort: errors are logged but do
+            // not abort the respawn (a kill failure here is
+            // recoverable — the OS may reap the zombie on its own
+            // once the parent exits, but we want it gone NOW so
+            // the new sidecar can re-acquire the mic).
+            let prev = mutex_lock(&state.child).take();
+            if let Some(prev) = prev {
+                log::info!("[SUPERVISOR] killing previous sidecar handle before respawn install");
+                if let Err(e) = prev.kill_tree().await {
+                    log::warn!("[SUPERVISOR] prev child kill_tree failed (best-effort): {}", e);
+                }
                 }
 
                 // CR-81: second re-check — install-time guard. If the
@@ -347,12 +328,12 @@ pub(crate) async fn ft1_respawn_inner(
                 // need a live sidecar.
                 if state.shutting_down.load(Ordering::SeqCst) {
                     log::info!(
-                        "[FT-1] shutting down (post-spawn re-check) — killing freshly-spawned sidecar instead of installing"
+                        "[SUPERVISOR] shutting down (post-spawn re-check) — killing freshly-spawned sidecar instead of installing"
                     );
                     // Best-effort kill of the new child we just spawned.
                     if let Err(e) = child.kill_tree().await {
                         log::warn!(
-                            "[FT-1] freshly-spawned child kill_tree failed (best-effort): {}",
+                            "[SUPERVISOR] freshly-spawned child kill_tree failed (best-effort): {}",
                             e
                         );
                     }
@@ -371,7 +352,7 @@ pub(crate) async fn ft1_respawn_inner(
                     old
                 };
                 if let Some(old) = old_handle {
-                    log::info!("[FT-1] killing old sidecar before installing new one (CR-28)");
+                    log::info!("[SUPERVISOR] killing old sidecar before installing new one (CR-28)");
                     let _ = old.kill_tree().await;
                 }
                 // EC-FIX-5 (EC-24): the dead `state.token: Mutex<String>`
@@ -395,20 +376,20 @@ pub(crate) async fn ft1_respawn_inner(
                 // Reconnect WS + re-auth.
                 match reconnect_ws(app, state, port, &new_token).await {
                     Ok(()) => {
-                        log::info!("[FT-1] respawn succeeded on attempt {}", attempt + 1);
+                        log::info!("[SUPERVISOR] respawn succeeded on attempt {}", attempt + 1);
                         // CR-29: reset the restart counter on success.
-                        write_ft1_restart_counter(0);
+                        write_restart_counter(0);
                         // Emit a Tauri event so the UI can clear its
                         // "reconnecting…" banner.
-                        let _ = app.emit("ft1_reconnected", json!({}));
+                        let _ = app.emit("supervisor_reconnected", json!({}));
                         // CR-13: Clear the flag BEFORE returning Ok(()).
                         // `reconnect_ws` has already spawned the new WS
                         // reader task, which owns the new connection. If
                         // the new sidecar dies immediately (fast-double-
                         // crash), the new reader will detect the
-                        // disconnect and try `ft1_respawn` — clearing
+                        // disconnect and try `respawn` — clearing
                         // the flag here (before the reader can run)
-                        // ensures the reader's `ft1_respawn` proceeds
+                        // ensures the reader's `respawn` proceeds
                         // instead of bailing with "already in progress".
                         // The `app.restart()` exhaustion path at the
                         // bottom of this function is `-> !` (never
@@ -417,14 +398,14 @@ pub(crate) async fn ft1_respawn_inner(
                         return Ok(());
                     }
                     Err(e) => {
-                        log::warn!("[FT-1] WS reconnect failed: {}", e);
+                        log::warn!("[SUPERVISOR] WS reconnect failed: {}", e);
                         // CR-3 fix: kill the just-spawned child before
                         // continuing to the next retry iteration,
                         // otherwise it would be orphaned when the next
                         // iteration overwrites state.child.
                         let orphan = mutex_lock(&state.child).take();
                         if let Some(c) = orphan {
-                            log::info!("[FT-1] killing respawned sidecar after WS reconnect failure");
+                            log::info!("[SUPERVISOR] killing respawned sidecar after WS reconnect failure");
                             let _ = c.kill_tree().await;
                         }
                         continue;
@@ -432,23 +413,21 @@ pub(crate) async fn ft1_respawn_inner(
                 }
             }
             Err(e) => {
-                log::warn!("[FT-1] sidecar spawn failed: {}", e);
+                log::warn!("[SUPERVISOR] sidecar spawn failed: {}", e);
                 continue;
             }
         }
     }
-    // Loop exited without returning — this happens if FT1_BACKOFF_MS
-    // is shorter than FT1_MAX_RETRIES. Treat as exhaustion.
+    // Loop exited without returning — treat as exhaustion.
     //
     // NF-R19-2: THIS is the actual exhaustion path — the post-loop
-    // `app.restart()` at line 106 below. (The in-loop guard that used
-    // to live above was dead code — see the comment in the loop body.)
+    // `app.restart()`. The in-loop guard was dead code.
     // ADR-0020 §10: full-app relaunch. Emit a Tauri event so the UI
     // can show a "restarting…" banner, then call `app.restart()` which
     // exits the current process and relaunches a fresh one. Returns
     // `!` (never type) so the implicit `Ok(())` return is unreachable.
-    log::error!("[FT-1] backoff schedule exhausted — full-app relaunch");
-    let _ = app.emit("ft1_relaunching", json!({"reason": "backoff_exhausted"}));
+    log::error!("[SUPERVISOR] backoff schedule exhausted — full-app relaunch");
+    let _ = app.emit("supervisor_relaunching", json!({"reason": "backoff_exhausted"}));
     tokio::time::sleep(Duration::from_millis(PRE_RESTART_DELAY_MS)).await;
     app.restart();
 }
@@ -486,89 +465,89 @@ mod tests {
     use std::time::{Duration, Instant};
     use tokio::sync::Mutex as AsyncMutex;
 
-    // ── PVT-G5-051: parse_ft1_counter saturating cast ──────────────
+    // ── PVT-G5-051: parse_restart_counter saturating cast ──────────────
 
     #[test]
-    fn test_parse_ft1_counter_normal_value() {
+    fn test_parse_restart_counter_normal_value() {
         // A normal count value parses unchanged.
         let v = json!({"count": 2u32});
-        assert_eq!(parse_ft1_counter(&v), 2);
+        assert_eq!(parse_restart_counter(&v), 2);
     }
 
     #[test]
-    fn test_parse_ft1_counter_zero() {
+    fn test_parse_restart_counter_zero() {
         // Zero is the fail-open default and the post-success reset value.
         let v = json!({"count": 0u32});
-        assert_eq!(parse_ft1_counter(&v), 0);
+        assert_eq!(parse_restart_counter(&v), 0);
     }
 
     #[test]
-    fn test_parse_ft1_counter_missing_count_field() {
+    fn test_parse_restart_counter_missing_count_field() {
         // No "count" key → return 0 (fail-open).
         let v = json!({"other": "metadata"});
-        assert_eq!(parse_ft1_counter(&v), 0);
+        assert_eq!(parse_restart_counter(&v), 0);
     }
 
     #[test]
-    fn test_parse_ft1_counter_non_numeric_count() {
+    fn test_parse_restart_counter_non_numeric_count() {
         // A non-numeric count (string, bool, object, array) → as_u64()
         // returns None → return 0 (fail-open).
-        assert_eq!(parse_ft1_counter(&json!({"count": "three"})), 0);
-        assert_eq!(parse_ft1_counter(&json!({"count": true})), 0);
-        assert_eq!(parse_ft1_counter(&json!({"count": [1, 2, 3]})), 0);
-        assert_eq!(parse_ft1_counter(&json!({"count": {"nested": 1}})), 0);
-        assert_eq!(parse_ft1_counter(&json!({"count": null})), 0);
+        assert_eq!(parse_restart_counter(&json!({"count": "three"})), 0);
+        assert_eq!(parse_restart_counter(&json!({"count": true})), 0);
+        assert_eq!(parse_restart_counter(&json!({"count": [1, 2, 3]})), 0);
+        assert_eq!(parse_restart_counter(&json!({"count": {"nested": 1}})), 0);
+        assert_eq!(parse_restart_counter(&json!({"count": null})), 0);
     }
 
     #[test]
-    fn test_parse_ft1_counter_float_truncates() {
+    fn test_parse_restart_counter_float_truncates() {
         // `as_u64()` returns None for floats — JSON numbers are parsed
         // as f64 by serde_json::Value, and `as_u64()` only succeeds for
         // integer-valued numbers. A 1.5 count is malformed → return 0.
         // (This matches the pre-PVT-G5-051 behavior — the saturating
         // cast only kicks in for integer values that overflow u32.)
         let v = json!({"count": 1.5f64});
-        assert_eq!(parse_ft1_counter(&v), 0);
+        assert_eq!(parse_restart_counter(&v), 0);
     }
 
     #[test]
-    fn test_parse_ft1_counter_u32_max_passthrough() {
+    fn test_parse_restart_counter_u32_max_passthrough() {
         // u32::MAX exactly fits in u32 — passes through unchanged.
         let v = json!({"count": u32::MAX as u64});
-        assert_eq!(parse_ft1_counter(&v), u32::MAX);
+        assert_eq!(parse_restart_counter(&v), u32::MAX);
     }
 
     #[test]
-    fn test_parse_ft1_counter_saturates_above_u32_max() {
+    fn test_parse_restart_counter_saturates_above_u32_max() {
         // PVT-G5-051 core: a corrupted counter with a u64 value above
         // u32::MAX must SATURATE at u32::MAX (not truncate to a small
         // number via `c as u32`, which would bypass the circuit
-        // breaker). u32::MAX >> FT1_MAX_RESTART_ATTEMPTS (3) so the
+        // breaker). u32::MAX >> MAX_RESTART_ATTEMPTS (3) so the
         // breaker trips correctly.
         let v = json!({"count": u64::from(u32::MAX) + 1});
         assert_eq!(
-            parse_ft1_counter(&v),
+            parse_restart_counter(&v),
             u32::MAX,
             "value above u32::MAX must saturate (not truncate)"
         );
 
         // An absurdly large value also saturates.
         let v = json!({"count": u64::MAX});
-        assert_eq!(parse_ft1_counter(&v), u32::MAX);
+        assert_eq!(parse_restart_counter(&v), u32::MAX);
     }
 
     #[test]
-    fn test_parse_ft1_counter_saturating_trips_circuit_breaker() {
-        // The whole point of PVT-G5-051: a corrupted counter value
-        // must NOT silently bypass the circuit breaker. Verify the
-        // saturating result is well above FT1_MAX_RESTART_ATTEMPTS.
+    fn test_parse_restart_counter_saturating_trips_circuit_breaker() {
+        // PVT-G5-051: a corrupted counter value must NOT silently
+        // bypass the circuit breaker. Verify the saturating result
+        // is well above MAX_RESTART_ATTEMPTS.
         let v = json!({"count": u64::MAX});
-        let parsed = parse_ft1_counter(&v);
+        let parsed = parse_restart_counter(&v);
         assert!(
-            parsed >= FT1_MAX_RESTART_ATTEMPTS,
+            parsed >= MAX_RESTART_ATTEMPTS,
             "saturated counter ({}) must trip the breaker (max={})",
             parsed,
-            FT1_MAX_RESTART_ATTEMPTS
+            MAX_RESTART_ATTEMPTS
         );
     }
 
@@ -641,16 +620,16 @@ mod tests {
         );
     }
 
-    // ── CR-13: FT-1 respawn race — flag cleared before inner returns ──
+    // ── CR-13: respawn race — flag cleared before inner returns ──
     //
-    // The fast-double-crash race (CR-13): `ft1_respawn_inner` spawns a
+    // The fast-double-crash race (CR-13): `respawn_inner` spawns a
     // new sidecar + starts a new WS reader task (via `reconnect_ws`)
     // BEFORE returning Ok(()). If the new sidecar dies immediately, the
-    // new WS reader tries `ft1_respawn` — but if the flag is still set
+    // new WS reader tries `respawn` — but if the flag is still set
     // (cleared in the wrapper AFTER the inner returns), the reader bails
     // with "already in progress" and the sidecar is permanently dead.
     //
-    // Fix: clear the flag INSIDE `ft1_respawn_inner` before `return Ok(())`.
+    // Fix: clear the flag INSIDE `respawn_inner` before `return Ok(())`.
     // These tests verify the flag semantics that make the fix work.
 
     /// Helper: build a fresh `SidecarState` for testing. All fields
@@ -677,17 +656,17 @@ mod tests {
         // uses the CR-13 fix (flag cleared inside the inner function
         // before returning Ok(())).
         //
-        // Step 1: ft1_respawn entry — acquire the flag.
-        // Step 2: ft1_respawn_inner runs, spawns new sidecar, starts WS
+        // Step 1: respawn entry — acquire the flag.
+        // Step 2: respawn_inner runs, spawns new sidecar, starts WS
         //          reader, reconnects WS, succeeds.
-        // Step 3: ft1_respawn_inner clears the flag (CR-13 fix) BEFORE
+        // Step 3: respawn_inner clears the flag (CR-13 fix) BEFORE
         //          returning Ok(()).
-        // Step 4: A concurrent ft1_respawn call (from the new WS reader,
+        // Step 4: A concurrent respawn call (from the new WS reader,
         //          which detected a fast-double-crash disconnect) must
         //          be able to acquire the flag.
         let state = make_test_state();
 
-        // Step 1: ft1_respawn entry.
+        // Step 1: respawn entry.
         assert!(
             state
                 .respawn_in_progress
@@ -697,7 +676,7 @@ mod tests {
         );
 
         // Step 2 (simulated): inner function runs. While it's running,
-        // a concurrent ft1_respawn call would bail:
+        // a concurrent respawn call would bail:
         assert!(
             state
                 .respawn_in_progress
@@ -712,10 +691,10 @@ mod tests {
         state.respawn_in_progress.store(false, Ordering::SeqCst);
 
         // Step 4: after the inner function returns (flag already clear),
-        // a concurrent ft1_respawn call from the new WS reader SUCCEEDS.
+        // a concurrent respawn call from the new WS reader SUCCEEDS.
         // This is the behavior that was BROKEN before CR-13: the flag
         // was still set (cleared in the wrapper, which hadn't run yet),
-        // so the reader's ft1_respawn bailed and the sidecar was
+        // so the reader's respawn bailed and the sidecar was
         // permanently dead.
         assert!(
             state
@@ -723,7 +702,7 @@ mod tests {
                 .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                 .is_ok(),
             "compare_exchange after CR-13 clear should succeed — \
-             the new WS reader's ft1_respawn must be able to proceed"
+             the new WS reader's respawn must be able to proceed"
         );
     }
 
@@ -737,7 +716,7 @@ mod tests {
         // the wrapper after it returns).
         let state = make_test_state();
 
-        // First ft1_respawn acquires the flag.
+        // First respawn acquires the flag.
         assert!(
             state
                 .respawn_in_progress
@@ -745,14 +724,14 @@ mod tests {
                 .is_ok()
         );
 
-        // A concurrent ft1_respawn (e.g. from a second WS reader task
+        // A concurrent respawn (e.g. from a second WS reader task
         // that also detected a disconnect) must bail.
         let concurrent_result = state
             .respawn_in_progress
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
         assert!(
             concurrent_result.is_err(),
-            "concurrent ft1_respawn must bail when flag is already set"
+            "concurrent respawn must bail when flag is already set"
         );
 
         // The flag must still be set (the bail path does NOT clear it).
@@ -764,7 +743,7 @@ mod tests {
 
     // ── CR-14: retry loop kills old child before storing new ──────────
     //
-    // The retry loop in `ft1_respawn_inner` spawns a new sidecar on each
+    // The retry loop in `respawn_inner` spawns a new sidecar on each
     // iteration and stores it in `state.child`. Without the CR-14 fix,
     // overwriting `state.child` orphans the old sidecar process (no Drop
     // kill on `SidecarHandle`). These tests verify the take-kill-store
@@ -855,7 +834,7 @@ mod tests {
         // 3. The NEW child is alive.
         //
         // This is the exact pattern added by the CR-14 fix in
-        // `ft1_respawn_inner`'s retry loop.
+        // `respawn_inner`'s retry loop.
         let state = make_test_state();
 
         // Setup: store an "old" sidecar in state.child (simulating a
@@ -977,7 +956,7 @@ mod tests {
 
     // ── GT-9: catch_unwind clears respawn_in_progress ────────────────
     //
-    // `ft1_respawn` wraps `ft1_respawn_inner` in
+    // `respawn` wraps `respawn_inner` in
     // `AssertUnwindSafe(...).catch_unwind()` so a panic inside the
     // inner function doesn't leave `respawn_in_progress` set forever.
     // We simulate the panic by wrapping a panicking future in the same
@@ -995,7 +974,7 @@ mod tests {
         assert!(state.respawn_in_progress.load(Ordering::SeqCst));
 
         let panicking_inner = async fn() -> Result<(), String> {
-            panic!("simulated ft1_respawn_inner panic (GT-9 test)");
+            panic!("simulated respawn_inner panic (GT-9 test)");
         };
         let result = AssertUnwindSafe(panicking_inner()).catch_unwind().await;
 

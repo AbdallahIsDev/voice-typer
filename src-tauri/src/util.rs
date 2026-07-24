@@ -6,18 +6,18 @@ use rand::RngCore;
 
 /// ADR-0020 §3: 256-bit bearer token (despite the ADR's "HMAC" wording,
 /// the host uses bearer-token auth — see `Cargo.toml` note). Regenerated
-/// per launch + per FT-1 respawn; never logged.
+/// per launch + per respawn; never logged.
 pub(crate) const TOKEN_BYTES: usize = 32;
 
-/// ADR-0020 §10: FT-1 supervisor backoff schedule (ms). Cap 5 retries
+/// ADR-0020 §10: supervisor backoff schedule (ms). Cap 5 retries
 /// before falling back to full-app relaunch.
-pub(crate) const FT1_BACKOFF_MS: &[u64] = &[500, 1000, 2000, 4000, 8000];
-// PVT-G5-089: FT1_MAX_RETRIES moved into the `#[cfg(test)] mod tests`
+pub(crate) const SUPERVISOR_BACKOFF_MS: &[u64] = &[500, 1000, 2000, 4000, 8000];
+// PVT-G5-089: SUPERVISOR_MAX_RETRIES moved into the `#[cfg(test)] mod tests`
 // block below — no runtime code path reads it (the in-loop retry cap
 // was removed in NF-R19-2), so keeping it at module scope triggered
 // `#[allow(dead_code)]`. It's still `pub(crate)` inside the test
 // module so the Python source-inspection regex
-// `pub\(crate\)\s+const\s+FT1_MAX_RETRIES` (test_shutdown_windows.py)
+// `pub\(crate\)\s+const\s+SUPERVISOR_MAX_RETRIES` (test_shutdown_windows.py)
 // keeps matching.
 
 /// ADR-0020 §10: cooperative shutdown hard timeout. The sidecar must
@@ -45,7 +45,7 @@ pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// (so the UI can show a retry banner instead of hanging indefinitely).
 pub(crate) const DISPATCH_TIMEOUT_SECS: u64 = 120;
 
-/// ADR-0020 §10: brief delay between emitting `ft1_relaunching` and
+/// ADR-0020 §10: brief delay between emitting `supervisor_relaunching` and
 /// calling `app.restart()`, so the webview has time to render the
 /// "restarting…" banner before the process exits.
 pub(crate) const PRE_RESTART_DELAY_MS: u64 = 500;
@@ -163,9 +163,9 @@ mod tests {
     // runtime code path reads it after NF-R19-2 — the in-loop retry
     // cap was removed). Moved here so the dead-code lint doesn't fire
     // at module scope. Still `pub(crate)` so the Python source-
-    // inspection regex `pub\(crate\)\s+const\s+FT1_MAX_RETRIES`
+    // inspection regex `pub\(crate\)\s+const\s+SUPERVISOR_MAX_RETRIES`
     // (test_shutdown_windows.py) keeps matching.
-    pub(crate) const FT1_MAX_RETRIES: u32 = 5;
+    pub(crate) const SUPERVISOR_MAX_RETRIES: u32 = 5;
 
     // ── CR-13: generate_token (ADR-0020 §3) ──────────────────────────
 
@@ -219,42 +219,42 @@ mod tests {
         assert!(t2 >= t1, "timestamp went backwards: t1={} t2={}", t1, t2);
     }
 
-    // ── CR-13: FT-1 backoff constants (ADR-0020 §10) ─────────────────
+    // ── CR-13: supervisor backoff constants (ADR-0020 §10) ─────────────────
 
     #[test]
-    fn test_ft1_backoff_constants() {
-        // ADR-0020 §10: FT-1 supervisor backoff schedule + retry cap.
+    fn test_supervisor_backoff_constants() {
+        // ADR-0020 §10: supervisor backoff schedule + retry cap.
         // The schedule doubles each step (500ms → 1s → 2s → 4s → 8s)
         // and the cap is 5 retries before full-app relaunch.
         assert_eq!(
-            FT1_BACKOFF_MS,
+            SUPERVISOR_BACKOFF_MS,
             &[500, 1000, 2000, 4000, 8000],
-            "FT1_BACKOFF_MS must be [500, 1000, 2000, 4000, 8000] (doubling schedule)"
+            "SUPERVISOR_BACKOFF_MS must be [500, 1000, 2000, 4000, 8000] (doubling schedule)"
         );
         assert_eq!(
-            FT1_MAX_RETRIES, 5,
-            "FT1_MAX_RETRIES must be 5 (then fall back to full-app relaunch)"
+            SUPERVISOR_MAX_RETRIES, 5,
+            "SUPERVISOR_MAX_RETRIES must be 5 (then fall back to full-app relaunch)"
         );
         // The schedule length must match the retry cap so the loop in
-        // `ft1_respawn_inner` actually iterates FT1_MAX_RETRIES times
+        // `respawn_inner` actually iterates SUPERVISOR_MAX_RETRIES times
         // (each iteration sleeps delay_ms[attempt] before retrying)
         // before falling back to `app.restart()`.
         assert_eq!(
-            FT1_BACKOFF_MS.len() as u32,
-            FT1_MAX_RETRIES,
-            "FT1_BACKOFF_MS.len() must equal FT1_MAX_RETRIES so the loop iterates exactly N times"
+            SUPERVISOR_BACKOFF_MS.len() as u32,
+            SUPERVISOR_MAX_RETRIES,
+            "SUPERVISOR_BACKOFF_MS.len() must equal SUPERVISOR_MAX_RETRIES so the loop iterates exactly N times"
         );
         // Verify the doubling property explicitly — guards against an
         // accidental edit that breaks the geometric progression.
-        for i in 1..FT1_BACKOFF_MS.len() {
+        for i in 1..SUPERVISOR_BACKOFF_MS.len() {
             assert_eq!(
-                FT1_BACKOFF_MS[i],
-                FT1_BACKOFF_MS[i - 1] * 2,
+                SUPERVISOR_BACKOFF_MS[i],
+                SUPERVISOR_BACKOFF_MS[i - 1] * 2,
                 "backoff step {} must be 2x step {} (got {} vs {})",
                 i,
                 i - 1,
-                FT1_BACKOFF_MS[i],
-                FT1_BACKOFF_MS[i - 1]
+                SUPERVISOR_BACKOFF_MS[i],
+                SUPERVISOR_BACKOFF_MS[i - 1]
             );
         }
     }
