@@ -15,8 +15,10 @@ from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 
 from .base import SubprocessHotkeyBackend
 
+
 # See base.py for the rationale.
-is_linux = lambda: _native_hotkeys_pkg.is_linux()
+def is_linux() -> bool:
+    return _native_hotkeys_pkg.is_linux()
 
 
 class LinuxEvdevHotkey(SubprocessHotkeyBackend):

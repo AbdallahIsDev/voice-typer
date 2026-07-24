@@ -37,12 +37,14 @@ from .win32_vk import (
     parse_hotkey_to_win32,
 )
 
+
 # PLAT-020 / patch-target: tests patch
 # ``voice_typer.server.hotkeys.is_windows`` and expect the patch to take
 # effect on ``WindowsNativeHotkey._is_ime_composing()`` (a static method
 # on the class defined here).  The wrapper delegates to the package's
 # binding at call time so the patch propagates.
-is_windows = lambda: _hotkeys_pkg.is_windows()
+def is_windows() -> bool:
+    return _hotkeys_pkg.is_windows()
 
 
 class WindowsNativeHotkey(HotkeyBackend):

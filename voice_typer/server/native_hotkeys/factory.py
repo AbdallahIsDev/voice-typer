@@ -10,9 +10,17 @@ from .linux_backend import LinuxEvdevHotkey
 from .mac_backend import MacNativeHotkey
 from .windows_backend import WindowsHookHotkey
 
-is_windows = lambda: _native_hotkeys_pkg.is_windows()
-is_macos = lambda: _native_hotkeys_pkg.is_macos()
-is_linux = lambda: _native_hotkeys_pkg.is_linux()
+
+def is_windows() -> bool:
+    return _native_hotkeys_pkg.is_windows()
+
+
+def is_macos() -> bool:
+    return _native_hotkeys_pkg.is_macos()
+
+
+def is_linux() -> bool:
+    return _native_hotkeys_pkg.is_linux()
 
 
 def create_native_backend(hotkey_str: str) -> SubprocessHotkeyBackend | None:

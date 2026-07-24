@@ -12,10 +12,12 @@ from voice_typer.server import hotkeys as _hotkeys_pkg
 
 from .base import log
 
+
 # See pynput_backend.py for the rationale: tests patch
 # ``voice_typer.server.hotkeys.is_windows`` and expect the patch to
 # affect calls made from this submodule.
-is_windows = lambda: _hotkeys_pkg.is_windows()
+def is_windows() -> bool:
+    return _hotkeys_pkg.is_windows()
 
 
 # ─── Windows native backend ──────────────────────────────────────────────────

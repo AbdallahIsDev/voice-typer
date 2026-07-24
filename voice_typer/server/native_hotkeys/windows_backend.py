@@ -15,8 +15,10 @@ from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 
 from .base import SubprocessHotkeyBackend
 
+
 # See base.py for the rationale.
-is_windows = lambda: _native_hotkeys_pkg.is_windows()
+def is_windows() -> bool:
+    return _native_hotkeys_pkg.is_windows()
 
 
 class WindowsHookHotkey(SubprocessHotkeyBackend):

@@ -14,8 +14,10 @@ from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 
 from .base import SubprocessHotkeyBackend
 
+
 # See base.py for the rationale.
-is_macos = lambda: _native_hotkeys_pkg.is_macos()
+def is_macos() -> bool:
+    return _native_hotkeys_pkg.is_macos()
 
 
 class MacNativeHotkey(SubprocessHotkeyBackend):

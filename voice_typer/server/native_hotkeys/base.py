@@ -35,10 +35,18 @@ from .binary_path import get_native_binary_path
 from .modifiers import _canonical_modifier, _canonical_modifier_name_for_token
 from .spec_parser import log, parse_hotkey_spec
 
+
 # See factory.py / mac_backend.py / etc. for the rationale.
-is_windows = lambda: _native_hotkeys_pkg.is_windows()
-is_macos = lambda: _native_hotkeys_pkg.is_macos()
-is_linux = lambda: _native_hotkeys_pkg.is_linux()
+def is_windows() -> bool:
+    return _native_hotkeys_pkg.is_windows()
+
+
+def is_macos() -> bool:
+    return _native_hotkeys_pkg.is_macos()
+
+
+def is_linux() -> bool:
+    return _native_hotkeys_pkg.is_linux()
 
 # ─── Constants ─────────────────────────────────────────────────────────────
 

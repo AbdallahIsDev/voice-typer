@@ -19,9 +19,14 @@ from .pynput_backend import PynputHotkey
 from .wayland import WaylandHotkey
 from .windows_native import WindowsNativeHotkey
 
+
 # See pynput_backend.py for the rationale.
-is_windows = lambda: _hotkeys_pkg.is_windows()
-is_linux = lambda: _hotkeys_pkg.is_linux()
+def is_windows() -> bool:
+    return _hotkeys_pkg.is_windows()
+
+
+def is_linux() -> bool:
+    return _hotkeys_pkg.is_linux()
 
 
 class _NativeBackendAdapter(HotkeyBackend):

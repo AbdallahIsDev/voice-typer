@@ -12,6 +12,7 @@ from voice_typer.server import hotkeys as _hotkeys_pkg
 
 from .base import HotkeyBackend, log
 
+
 # PLAT-030 / patch-target: tests do ``patch("voice_typer.server.hotkeys.is_macos")``
 # (and is_windows / is_linux).  For the patch to take effect on calls
 # made from *this* submodule, the bare ``is_macos()`` references must
@@ -19,9 +20,16 @@ from .base import HotkeyBackend, log
 # replaces).  We therefore expose them as thin wrappers that delegate
 # to the package's binding at call time, rather than capturing the
 # function object at import time.
-is_macos = lambda: _hotkeys_pkg.is_macos()
-is_windows = lambda: _hotkeys_pkg.is_windows()
-is_linux = lambda: _hotkeys_pkg.is_linux()
+def is_macos() -> bool:
+    return _hotkeys_pkg.is_macos()
+
+
+def is_windows() -> bool:
+    return _hotkeys_pkg.is_windows()
+
+
+def is_linux() -> bool:
+    return _hotkeys_pkg.is_linux()
 
 
 class PynputHotkey(HotkeyBackend):
