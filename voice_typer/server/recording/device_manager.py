@@ -262,13 +262,20 @@ class DeviceManager:
         thread = self._device_health_checker_thread
         if thread is not None:
             thread.join(timeout=1.0)
-            if thread.is_alive():
+            health_exited = not thread.is_alive()
+            if not health_exited:
                 log.debug(
                     "[RECORDING] Device health checker thread did not exit within 1s "
-                    "(it will exit as a daemon on next sleep cycle)"
+                    "(stop event left SET; thread NOT nulled to prevent duplicate spawn)"
                 )
-            self._device_health_checker_thread = None
-        self._device_health_stop_event.clear()
+            # ER-3: only null the thread reference + clear stop event if the
+            # thread actually exited. If still alive (stuck in sd.query_devices),
+            # leave the stop event SET so the loop exits on its next wait()
+            # return, and keep the thread reference so _start_device_health_checker's
+            # is_alive() guard prevents spawning a duplicate.
+            if health_exited:
+                self._device_health_checker_thread = None
+                self._device_health_stop_event.clear()
 
     def _device_health_checker_loop(self) -> None:
         """Device health checker daemon thread main loop.

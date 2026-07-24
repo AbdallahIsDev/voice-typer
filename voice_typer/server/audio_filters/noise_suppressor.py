@@ -123,20 +123,29 @@ class NoiseSuppressor(AudioFilter):
 
         if self._method == "rnnoise":
             return self._process_rnnoise(samples, sample_rate, original_shape)
-        # CR-6: DeepFilterNet and Speex backends are initialized but not
-        # yet wired to actual processing. Previously this was a silent
-        # passthrough — users selecting `noisy_room` preset (which picks
-        # `deepfilternet`) got ZERO noise suppression with no UI signal.
-        # Now we mark the filter as degraded so the UI surfaces the gap
-        # and the user knows their audio is not being processed.
+        # ER-2 (Critical): DeepFilterNet and Speex backends are not yet wired
+        # to actual processing. Previously this was a silent passthrough — users
+        # selecting `noisy_room` preset (which picks `deepfilternet`) got ZERO
+        # noise suppression with no UI signal. Now we fall back to rnnoise so
+        # the user gets neural noise suppression instead of nothing.
         if not self._degraded:
             self._degraded = True
             self._degraded_reason = (
-                f"{self._method} backend not yet implemented — using passthrough "
-                "(fall back to rnnoise for actual noise suppression)"
+                f"{self._method} backend not yet implemented — falling back to rnnoise"
             )
-            log.warning("[AUDIO] NoiseSuppressor: %s", self._degraded_reason)
-        return audio.reshape(original_shape)
+            log.warning(
+                "[AUDIO] NoiseSuppressor: %s backend not yet wired; "
+                "falling back to rnnoise for neural noise suppression",
+                self._method,
+            )
+        try:
+            self._method = "rnnoise"
+            if self._backend is None or not self._backend.get("rnnoise"):
+                self._init_rnnoise()
+            return self._process_rnnoise(samples, sample_rate, original_shape)
+        except Exception:
+            # If rnnoise also fails, return the original audio (last resort).
+            return audio.reshape(original_shape)
 
     def _process_rnnoise(
         self,

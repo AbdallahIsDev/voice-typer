@@ -21,6 +21,7 @@ back-compat with callers (hotkey backend, tray menu, IPC, tests).
 from __future__ import annotations
 
 import contextlib
+import gc
 import logging
 import os
 import threading
@@ -60,7 +61,13 @@ class RecordingController:
         # RACE-025: toggle serialization lock. Prevents concurrent toggle_dictation
         # calls from different threads (hotkey thread + tray thread) from both
         # passing the _busy_event check before either modifies it.
-        self._toggle_lock = threading.Lock()
+        #
+        # DE-12: this is an RLock (reentrant) because ``stop()`` and
+        # ``cancel()`` also acquire it, and they are invoked from inside
+        # ``_toggle_impl()`` (which already holds the lock) via the
+        # ``app._stop_dictation`` / delegate path. A non-reentrant Lock
+        # would deadlock the calling thread on re-entry.
+        self._toggle_lock = threading.RLock()
         # ERR-002: watchdog firing counter for the current transcription
         # cycle. Reset to 0 whenever a new transcription thread starts.
         # After _watchdog_max_firings consecutive watchdog expirations
@@ -201,7 +208,21 @@ class RecordingController:
             app._start_dictation()
 
     def start(self) -> None:
-        """Start a recording session."""
+        """Start a recording session.
+
+        GT-22: acquires ``_toggle_lock`` (an RLock) so the auto-stop
+        Timer thread's ``_stop_dictation`` -> ``self.stop()`` call (or
+        the ESC cancel hotkey's ``cancel()``) serializes against an
+        in-flight ``toggle()`` / ``start()`` / ``stop()`` / ``cancel()``
+        on any other thread. RLock allows the re-entrant path
+        ``toggle() -> app._start_dictation() -> self.start()`` to
+        re-acquire without deadlocking.
+        """
+        with self._toggle_lock:
+            self._start_impl()
+
+    def _start_impl(self) -> None:
+        """Inner start implementation, called under _toggle_lock."""
         app = self._app
         if app.recorder.recording:
             log.info("[DICTATION] _start_dictation: already recording, no-op")
@@ -235,10 +256,24 @@ class RecordingController:
                     log.debug("[DICTATION] failed to notify about missing consent", exc_info=True)
                 return
         except Exception:
-            # If we can't read the config, fail open (allow recording)
-            # to avoid locking the user out of their own app due to a
-            # config read error. Log the failure for diagnosis.
-            log.exception("[DICTATION] Failed to check voice_biometric_consent - failing open")
+            # DE-9 (GDPR Art. 9): fail CLOSED. Previously this block failed
+            # OPEN (allowed recording), which inverted the consent posture
+            # — a corrupted config or transient attribute error would
+            # silently enable biometric-data capture without consent. We
+            # now refuse to start recording if we cannot positively
+            # verify consent.
+            log.exception(
+                "[DICTATION] Failed to check voice_biometric_consent - failing CLOSED "
+                "(refusing to record)"
+            )
+            try:
+                app.tray.set_state(AppState.ERROR, "Consent check failed")
+            except Exception:
+                log.debug(
+                    "[DICTATION] failed to set ERROR state on consent check failure",
+                    exc_info=True,
+                )
+            return
 
         # Cancel any stale pending timers from previous sessions
         app._cancel_pending_timers()
@@ -351,24 +386,65 @@ class RecordingController:
                 )
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
+            # DE-8: if recorder.start() succeeded (opened the PortAudio
+            # input stream and set recording=True) but a subsequent step
+            # in this try block raised (e.g. _start_streaming_session_if_enabled,
+            # tray.set_state, _duck_volume), the mic device stays open
+            # and recording stays True — permanently locking the user
+            # out of starting a new recording (the next start() short-
+            # circuits on recording==True) and exclusive-locking the mic
+            # from other apps (Zoom/OBS). Best-effort discard + reset
+            # the recording flag so the next F2 press can recover.
+            try:
+                app.recorder.discard()
+                app.recorder.recording = False
+            except Exception:
+                log.debug(
+                    "[DICTATION] recorder.discard() after partial-start failure raised "
+                    "(mic device may be leaked until process exit)",
+                    exc_info=True,
+                )
             self._cancel_streaming_session()
             app.tray.set_state(AppState.ERROR, "Recording failed")
-            app.tray.notify(
-                APP_NAME,
-                f"Could not start recording.\n{e}\n\nCheck voice-typer.log for traceback.",
-            )
+            # DE-51: do NOT interpolate the exception into the user-facing
+            # or IPC-published message. PortAudio / sounddevice / ctranslate2
+            # exception strings can contain absolute file paths (model
+            # paths, temp dirs), device names, hostnames, or partial audio
+            # metadata. The full exception is captured in the server-side
+            # log via log.exception above; the renderer (separate process
+            # with its own log + crash-reporting pipeline) and the user
+            # notification receive only a generic message.
+            generic_msg = "Could not start recording. See voice-typer.log for details."
+            app.tray.notify(APP_NAME, generic_msg)
             try:
                 from voice_typer.server import event_bus
 
                 event_bus.publish(
-                    {"type": "error", "data": {"message": f"Could not start recording: {e}", "kind": "recording_start"}}
+                    {"type": "error", "data": {"message": generic_msg, "kind": "recording_start"}}
                 )
             except Exception:
                 pass
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
 
     def stop(self) -> None:
-        """Stop recording and transcribe in background."""
+        """Stop recording and transcribe in background.
+
+        DE-12: acquires ``_toggle_lock`` to serialize against concurrent
+        ``toggle()`` calls and the deferred ``_stop_dictation`` dispatch
+        from ``on_silence_auto_stop`` / ``on_max_duration_auto_stop``
+        (which run on a Timer thread, NOT under the lock). Without this,
+        two near-simultaneous stop() callers could both pass the
+        ``recorder.recording`` check, both call ``recorder.stop()``, and
+        both start a transcription thread with the same audio — leading
+        to duplicate paste events. The lock is an RLock so the call
+        path ``toggle() → _toggle_impl() → app._stop_dictation() →
+        stop()`` does not self-deadlock.
+        """
+        with self._toggle_lock:
+            self._stop_impl()
+
+    def _stop_impl(self) -> None:
+        """Inner stop implementation, called under _toggle_lock."""
         app = self._app
         if not app.recorder.recording:
             log.info("[DICTATION] _stop_dictation: not recording, no-op")
@@ -480,6 +556,34 @@ class RecordingController:
 
         # PERF-NEW-005: signal the streaming session to cancel BEFORE
         # starting the final transcription thread.
+        #
+        # DE-52 (NOT FULLY APPLIED — see note): the review suggested
+        # using ``pop_streaming_session()`` here (atomic get-and-clear)
+        # to prevent the session reference from being held until the
+        # pipeline's finally block runs. However, ``DictationPipeline.
+        # _transcribe`` (dictation_pipeline.py:590) reads the session
+        # via ``self._app.recording.get_streaming_session()`` and
+        # calls ``session.finalize(self._audio)`` on it to produce
+        # the streamed transcript. Popping the session here would
+        # break that contract — the pipeline would see ``None`` and
+        # fall back to direct batch transcription, silently
+        # disabling the streaming-finalize feature
+        # (cf. tests/app/test_dictation.py::TestStreamingIntegration::
+        # test_stop_dictation_uses_streaming_final_text).
+        #
+        # The full fix requires coordinated changes:
+        #   1. Pop the session here.
+        #   2. Pass the popped session to ``DictationPipeline.run`` via
+        #      a new parameter (or a stashed ``self._finalize_session``
+        #      attribute).
+        #   3. Update ``_transcribe`` to read from the new source
+        #      instead of ``get_streaming_session``.
+        # Step 2 + 3 require editing ``dictation_pipeline.py`` (outside
+        # this file's ownership) and are tracked as a follow-up. For
+        # now, we keep the get-then-set_cancel_event pattern; the
+        # pipeline's finally block (dictation_pipeline.py:355-360)
+        # clears the slot in normal operation, and the leak window
+        # is bounded to ``transcribe_thread`` runtime.
         session = self.get_streaming_session()
         if session is not None:
             with contextlib.suppress(Exception):
@@ -512,12 +616,20 @@ class RecordingController:
                 watchdog=None,  # RACE-013: no longer using Timer-based watchdog
             )
 
-        self._transcription_thread = threading.Thread(
-            target=transcribe_thread,
-            name="Transcription",
-            daemon=True,
-        )
-        self._transcription_thread.start()
+        # GT-46: write ``self._transcription_thread`` under
+        # ``_watchdog_lock`` so the watchdog daemon thread's read in
+        # ``_force_recover_from_stuck_transcription`` (which also
+        # acquires the same lock) cannot observe a stale ``None`` mid-
+        # assignment or a torn reference. The lock is short-held (just
+        # the assignment + start() returning quickly) and start() never
+        # blocks, so there is no risk of holding it during model work.
+        with self._watchdog_lock:
+            self._transcription_thread = threading.Thread(
+                target=transcribe_thread,
+                name="Transcription",
+                daemon=True,
+            )
+            self._transcription_thread.start()
 
     def cancel(self) -> None:
         """Feature: ESC to cancel -- cancel current recording/transcription.
@@ -530,7 +642,20 @@ class RecordingController:
         ARCH-042: set AppState.CANCELLING for ~200ms during cancel so
         the tray icon shows a distinct "cancelling" state instead of
         instantly transitioning RECORDING → IDLE (which flickers).
+
+        DE-12: acquires ``_toggle_lock`` to serialize against concurrent
+        ``toggle()`` / ``stop()`` calls. The ESC hotkey fires on every
+        Escape press; without the lock, a cancel racing with a
+        ``stop()`` (e.g. user double-taps ESC during a silence-auto-stop
+        dispatch) could both pass the ``recorder.recording`` check and
+        both call ``recorder.discard()`` / ``recorder.stop()``. RLock so
+        the call path through ``_toggle_impl`` does not self-deadlock.
         """
+        with self._toggle_lock:
+            self._cancel_impl()
+
+    def _cancel_impl(self) -> None:
+        """Inner cancel implementation, called under _toggle_lock."""
         app = self._app
 
         # ESC-FIX-001: If no recording is active, the ESC cancel is a no-op.
@@ -798,11 +923,26 @@ class RecordingController:
         app = self._app
         if app._busy_event.is_set():  # not busy
             return  # Already recovered, nothing to do
-        if not force and self._transcription_thread is not None and self._transcription_thread.is_alive():
+        # GT-46: snapshot ``_transcription_thread`` and ``_watchdog_firings``
+        # under ``_watchdog_lock`` for the duration of the read-check-notify
+        # block. Previously the read of ``self._transcription_thread`` and
+        # the subsequent ``is_alive()`` call happened without the lock — a
+        # concurrent ``stop()`` on the Timer/hotkey thread could be
+        # mid-assignment of ``self._transcription_thread`` (now also done
+        # under this lock, see ``_stop_impl``), letting the watchdog see a
+        # stale ``None`` (treats dead thread as recovered) or the previous
+        # cycle's thread (incorrectly leaves app busy).
+        # ``_watchdog_firings`` is mutated under this lock in
+        # ``_watchdog_loop`` and ``_start_watchdog_thread`` — read it here
+        # under the same lock to pair the snapshot with the check.
+        with self._watchdog_lock:
+            transcription_thread = self._transcription_thread
+            firings = self._watchdog_firings
+        if not force and transcription_thread is not None and transcription_thread.is_alive():
             log.warning(
                 "Transcription watchdog fired (%d/%d), but worker is still "
                 "alive; leaving app busy to avoid overlapping model calls",
-                self._watchdog_firings,
+                firings,
                 self._watchdog_max_firings,
             )
             app.tray.set_state(AppState.TRANSCRIBING, "Still transcribing...")
@@ -810,7 +950,7 @@ class RecordingController:
             # on the second firing (second notification = 180s+ elapsed)
             # to avoid alarming the user when transcription is simply
             # taking a bit longer than usual.
-            if self._watchdog_firings >= 2:
+            if firings >= 2:
                 app.tray.notify(
                     APP_NAME,
                     "Transcription is still running.\nLong recordings or CPU fallback can take extra time.",
@@ -824,7 +964,7 @@ class RecordingController:
             log.warning(
                 "[RECOVERY] FORCE RECOVER: watchdog fired %d times with "
                 "worker still alive; assuming deadlock and resetting state",
-                self._watchdog_firings,
+                firings,
             )
         else:
             log.warning("[RECOVERY] FORCE RECOVER: transcription watchdog fired, resetting state")
@@ -851,6 +991,34 @@ class RecordingController:
             "Transcription took too long and was cancelled.\nPress F2 to try again.",
         )
         app._schedule_timer(5.0, lambda: app.tray.set_state(AppState.IDLE))
+        # DE-13 (privacy): the stuck transcription thread still holds a
+        # reference to the captured ``audio`` bytes via the
+        # ``transcribe_thread`` closure → ``pipeline.run(audio=audio, ...)``.
+        # Python has no way to forcibly release a stuck thread's locals,
+        # so we cannot guarantee the audio bytes are freed until the
+        # ctranslate2 call eventually returns (5–30 min later per the
+        # docstring above). The mitigation here is best-effort:
+        #
+        # 1. ``gc.collect()`` releases any orphaned cycles (streaming-
+        #    session audio chunk buffers, transcriber-internal buffers
+        #    reachable only via the streaming session that was just
+        #    cancelled) that would otherwise linger until the next
+        #    gc sweep.
+        # 2. The honest documentation above + the cycle_id mark in
+        #    ``_cancelled_cycle_ids`` ensures the late transcription
+        #    result (when it eventually lands) is NOT pasted — preventing
+        #    data corruption, even though the audio bytes themselves
+        #    remain resident in process memory.
+        #
+        # The full fix (restructure ``transcribe_thread`` to read audio
+        # from a clearable ``self._current_audio`` slot at each pipeline
+        # step, and have ``DictationPipeline.run`` re-fetch on each
+        # iteration) requires touching ``dictation_pipeline.py`` (outside
+        # this file's ownership) and is tracked as a follow-up.
+        try:
+            gc.collect()
+        except Exception:
+            log.debug("[RECOVERY] gc.collect() after force-recovery raised", exc_info=True)
 
     # ── Persistent watchdog thread (RACE-013) ───────────────────────────
 
@@ -863,14 +1031,34 @@ class RecordingController:
         the event, causing wait() to return early and the loop to reset
         firings + clear the event for the next cycle. When wait() times
         out (transcription hung), the watchdog fires the recovery action.
+
+        DE-55: if the previous watchdog thread is ``is_alive()`` but in
+        the process of exiting (the race window between
+        ``_watchdog_stop_event.set()`` and thread exit), we
+        ``join(timeout=0.1)`` it before deciding to reuse vs create a
+        new one. Without this, transcription B could see ``is_alive()
+        == True`` on a dying thread, return early, and end up with NO
+        watchdog when the dying thread exits a few microseconds later.
         """
         with self._watchdog_lock:
             self._watchdog_firings = 0
         # Clear any previous reset signal
         self._watchdog_event.clear()
-        # If the thread is already running, just reset the counter
+        # DE-55: if the previous thread is alive, try to join it briefly
+        # to distinguish "actively running" from "in the process of
+        # exiting." A successful join (thread exited within 0.1s) means
+        # the thread was dying — fall through to create a new one. A
+        # timed-out join (thread still alive) means it's actively
+        # running — reuse it.
         if self._watchdog_thread is not None and self._watchdog_thread.is_alive():
-            return
+            self._watchdog_thread.join(timeout=0.1)
+            if self._watchdog_thread.is_alive():
+                # Still alive after join — genuinely running, reuse.
+                return
+            # Else: thread has exited — fall through to create a new one.
+            log.debug(
+                "[WATCHDOG] previous watchdog thread exited during join window — creating new one"
+            )
         self._watchdog_stop_event.clear()
         self._watchdog_thread = threading.Thread(
             target=self._watchdog_loop,
@@ -921,6 +1109,26 @@ class RecordingController:
         self._watchdog_event.set()
 
     def _stop_watchdog_thread(self) -> None:
-        """Stop the persistent watchdog thread."""
+        """Stop the persistent watchdog thread.
+
+        ER-3 / ER-47: join the thread with a short timeout and clear the
+        thread reference so the next _start_watchdog_thread() can spawn a
+        fresh one. Without the join, there's a race window where
+        _start_watchdog_thread sees is_alive()=True on a dying thread and
+        returns without spawning, leaving NO watchdog for the next cycle.
+        """
         self._watchdog_stop_event.set()
         self._watchdog_event.set()  # break out of wait()
+        thread = self._watchdog_thread
+        if thread is not None:
+            thread.join(timeout=0.5)
+            if thread.is_alive():
+                log.warning(
+                    "[RECORDING] Watchdog thread did not exit within 0.5s "
+                    "(stop event left SET; thread NOT nulled to prevent duplicate spawn)"
+                )
+            else:
+                # ER-3: only null + clear if the thread actually exited.
+                self._watchdog_thread = None
+                self._watchdog_stop_event.clear()
+                self._watchdog_event.clear()

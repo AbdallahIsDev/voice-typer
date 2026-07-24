@@ -119,6 +119,72 @@ _WRITE_QUEUE_MAXSIZE = 10000
 # Sentinel enqueued to ask the writer thread to drain and exit.
 _SHUTDOWN_SENTINEL: Any = object()
 
+# ER-78: maximum number of transcription rows bundled into a single
+# multi-row INSERT. SQLite's default ``SQLITE_MAX_VARIABLE_NUMBER`` is
+# 999 (or 32766 on newer builds); 7 placeholder columns × 100 rows =
+# 700 placeholders — well under the conservative 999 bound. Capping the
+# batch size also bounds the peak memory used by the parameter list and
+# the WAL frame count of a single transaction.
+_BATCH_INSERT_CAP = 100
+
+# ER-78: minimum number of pending _BatchableInsert items required to
+# trigger the multi-row INSERT path. Below this threshold each row is
+# inserted individually (the per-transaction overhead saving doesn't
+# justify the multi-row SQL construction for 1-2 rows).
+_BATCH_INSERT_MIN = 3
+
+
+class _BatchableInsert:
+    """ER-78: structured payload for batchable transcription INSERTs.
+
+    Instead of enqueuing a closure that does its own INSERT+COMMIT (one
+    transaction per row — the original behavior), ``add_transcription``
+    enqueues this structured payload. The writer thread peeks the queue;
+    if ``_BATCH_INSERT_MIN`` or more such items are pending, they're
+    drained into a single multi-row INSERT inside one transaction:
+    ``INSERT INTO transcriptions (...) VALUES (?,?,?...), (?,?,?...)``.
+
+    Fire-and-forget semantics are preserved: ``future`` is ``None`` for
+    ``add_transcription`` (the transcription pipeline never waits on
+    the DB write). The field is present so the same batching path can
+    serve a future caller that does want the row_id back.
+
+    The class uses ``__slots__`` to minimize per-row memory overhead
+    (the queue can hold thousands of these under bursty dictation).
+    """
+
+    __slots__ = (
+        "text",
+        "duration",
+        "model",
+        "device",
+        "word_count",
+        "char_count",
+        "language",
+        "future",
+    )
+
+    def __init__(
+        self,
+        *,
+        text: str,
+        duration: float,
+        model: str,
+        device: str,
+        word_count: int,
+        char_count: int,
+        language: str,
+        future: concurrent.futures.Future | None = None,
+    ) -> None:
+        self.text = text
+        self.duration = duration
+        self.model = model
+        self.device = device
+        self.word_count = word_count
+        self.char_count = char_count
+        self.language = language
+        self.future = future
+
 
 class HistoryDBError(RuntimeError):
     """Raised by HistoryDB methods on unrecoverable failures.
@@ -313,9 +379,10 @@ class HistoryDB:
         # 20 MB read connection that's never released until close().
         self._all_read_connections: list[tuple[int, sqlite3.Connection]] = []
         self._connections_lock = threading.Lock()
-        # Write queue: items are (callable, future) tuples, or the
-        # _SHUTDOWN_SENTINEL to ask the writer to exit. ``future`` is
-        # None for fire-and-forget writes (e.g. add_transcription).
+        # Write queue: items are (callable, future) tuples, OR
+        # _BatchableInsert instances (ER-78), OR the _SHUTDOWN_SENTINEL
+        # to ask the writer to exit. ``future`` is None for
+        # fire-and-forget writes (e.g. add_transcription).
         # PERF-5: bound the queue so a stalled writer thread can't let
         # the in-memory queue grow without limit. On queue.Full we drop
         # the oldest non-sentinel item and log a warning. See
@@ -331,6 +398,19 @@ class HistoryDB:
         # If the writer thread failed during schema init, the exception
         # is stored here so __init__ can log it.
         self._init_error: BaseException | None = None
+        # ER-36: re-entrancy guard for apply_retention. The periodic
+        # retention scheduler spawns a daemon thread that calls
+        # apply_retention on a fixed interval; if a previous run is
+        # still in flight (e.g. a multi-batch VACUUM on a huge DB),
+        # the next tick acquires this lock non-blocking and skips
+        # rather than queueing a second concurrent sweep.
+        self._retention_lock = threading.Lock()
+        # ER-36: stop event for the periodic retention thread. Set by
+        # close() (and by re-scheduling) to ask the daemon loop to exit.
+        self._retention_stop_event: threading.Event | None = None
+        # ER-36: handle to the periodic retention daemon thread (for
+        # join-on-close).
+        self._retention_thread: threading.Thread | None = None
         # Start the writer thread last — it signals _writer_ready once
         # the schema is set up.
         self._writer_thread = threading.Thread(
@@ -429,57 +509,232 @@ class HistoryDB:
             if item is _SHUTDOWN_SENTINEL:
                 self._drain_remaining(conn)
                 break
+            # ER-78: structured batchable INSERT payload — drain pending
+            # inserts into a single multi-row INSERT when 3+ are queued.
+            if isinstance(item, _BatchableInsert):
+                self._drain_batchable_inserts(conn, item)
+                # WAL-CHECKPOINT-FIX: post-write cleanup (same as the
+                # normal closure path).
+                with contextlib.suppress(sqlite3.Error):
+                    conn.rollback()
+                continue
             callable_, future = item
-            try:
-                result = callable_(conn)
-                if future is not None:
-                    future.set_result(result)
-            except BaseException as e:  # noqa: BLE001 — propagate to future
-                # DB-LOCK-FIX: rollback any uncommitted transaction left
-                # by the failed closure. If we don't, the next WAL
-                # checkpoint will fail with "database table is locked"
-                # because the writer's own connection has a pending
-                # uncommitted transaction.
-                with contextlib.suppress(sqlite3.Error):
-                    conn.rollback()
-                if future is not None:
-                    # PVT-005 (session-2): Suppress InvalidStateError on
-                    # set_exception. If the future was already resolved
-                    # (e.g. by a prior duplicate-enqueue race in
-                    # _drop_oldest_for_overflow, or by a coding bug),
-                    # set_exception raises InvalidStateError which would
-                    # propagate out of this except block and KILL the
-                    # writer thread permanently. That converts a single
-                    # write failure into permanent data loss for all
-                    # subsequent writes until app restart.
-                    with contextlib.suppress(concurrent.futures.InvalidStateError):
-                        future.set_exception(e)
-                else:
-                    # Fire-and-forget write failed — log so it's visible.
-                    log.error("[HISTORY_DB] Fire-and-forget write failed: %s", e)
-            else:
-                # WAL-CHECKPOINT-FIX: After a SUCCESSFUL write, ensure
-                # no lingering transaction remains on the connection.
-                # All write closures call conn.commit(), but if the
-                # closure's commit succeeded and the method then raised
-                # an exception (e.g. cursor.lastrowid access on a
-                # closed cursor), the transaction is committed but the
-                # connection might be in an unexpected state. A
-                # rollback here is a safe no-op if there's no open
-                # transaction.
-                with contextlib.suppress(sqlite3.Error):
-                    conn.rollback()
+            self._execute_write_item(conn, callable_, future)
         # Drain loop exited — close the writer's connection.
         try:
             conn.close()
         except sqlite3.Error as e:
             log.warning("[HISTORY_DB] Error closing writer connection: %s", e)
 
+    def _execute_write_item(
+        self,
+        conn: sqlite3.Connection,
+        callable_: Callable[[sqlite3.Connection], Any],
+        future: concurrent.futures.Future | None,
+    ) -> None:
+        """Execute a single queued write closure and resolve its future.
+
+        AC-68 (DRY): the item-handling block was previously duplicated
+        verbatim between ``_writer_loop`` and ``_drain_remaining``,
+        with one critical divergence — ``_drain_remaining`` was
+        MISSING the PVT-005 ``InvalidStateError`` suppression on
+        ``future.set_exception(e)``. That made the shutdown drain
+        fragile: if a duplicate-enqueue race resolved the future
+        before the except block ran, ``set_exception`` would raise
+        ``InvalidStateError`` → kill the drain → fire-and-forget
+        writes silently dropped during shutdown.
+
+        Centralizing the logic here guarantees both call sites share
+        the PVT-005 suppression (and the DB-LOCK-FIX rollback, and
+        the WAL-CHECKPOINT-FIX post-write rollback).
+        """
+        try:
+            result = callable_(conn)
+            if future is not None:
+                future.set_result(result)
+        except BaseException as e:  # noqa: BLE001 — propagate to future
+            # DB-LOCK-FIX: rollback any uncommitted transaction left
+            # by the failed closure. If we don't, the next WAL
+            # checkpoint will fail with "database table is locked"
+            # because the writer's own connection has a pending
+            # uncommitted transaction.
+            with contextlib.suppress(sqlite3.Error):
+                conn.rollback()
+            if future is not None:
+                # PVT-005 (session-2): Suppress InvalidStateError on
+                # set_exception. If the future was already resolved
+                # (e.g. by a prior duplicate-enqueue race in
+                # _drop_oldest_for_overflow, or by a coding bug),
+                # set_exception raises InvalidStateError which would
+                # propagate out of this except block and KILL the
+                # writer thread permanently. That converts a single
+                # write failure into permanent data loss for all
+                # subsequent writes until app restart.
+                with contextlib.suppress(concurrent.futures.InvalidStateError):
+                    future.set_exception(e)
+            else:
+                # Fire-and-forget write failed — log so it's visible.
+                log.error("[HISTORY_DB] Fire-and-forget write failed: %s", e)
+        else:
+            # WAL-CHECKPOINT-FIX: After a SUCCESSFUL write, ensure
+            # no lingering transaction remains on the connection.
+            # All write closures call conn.commit(), but if the
+            # closure's commit succeeded and the method then raised
+            # an exception (e.g. cursor.lastrowid access on a
+            # closed cursor), the transaction is committed but the
+            # connection might be in an unexpected state. A
+            # rollback here is a safe no-op if there's no open
+            # transaction.
+            with contextlib.suppress(sqlite3.Error):
+                conn.rollback()
+
+    def _drain_batchable_inserts(
+        self,
+        conn: sqlite3.Connection,
+        first_item: _BatchableInsert,
+    ) -> None:
+        """ER-78: drain pending ``_BatchableInsert`` items into one INSERT.
+
+        Called from :meth:`_writer_loop` (and :meth:`_drain_remaining`
+        during shutdown) when the writer pulls a ``_BatchableInsert``
+        off the queue. Peeks the queue for additional
+        ``_BatchableInsert`` items (up to ``_BATCH_INSERT_CAP``).
+
+        * If ``_BATCH_INSERT_MIN`` or more items are collected (including
+          ``first_item``), they're batched into a single multi-row
+          ``INSERT INTO transcriptions (...) VALUES (?,?,?...), (?,?,?...)``
+          inside one transaction (one COMMIT for the whole batch).
+        * Otherwise each collected row is inserted individually
+          (preserving the original one-INSERT-per-row behavior for
+          low-contention cases where the batching optimization isn't
+          worth the multi-row SQL construction).
+
+        Non-``_BatchableInsert`` items pulled off the queue during the
+        peek are put back so the main writer loop processes them in
+        order. The ``_SHUTDOWN_SENTINEL`` is likewise put back so the
+        shutdown path still fires.
+
+        Fire-and-forget semantics are preserved: each item's ``future``
+        (if any — ``add_transcription`` always passes ``None``) is
+        resolved with the inserted row_id (or -1 on failure). On
+        exception, all futures are resolved with the exception.
+        """
+        batch: list[_BatchableInsert] = [first_item]
+        while len(batch) < _BATCH_INSERT_CAP:
+            try:
+                item = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if item is _SHUTDOWN_SENTINEL:
+                # Put the sentinel back so the main loop sees it and
+                # triggers _drain_remaining.
+                with contextlib.suppress(queue.Full):
+                    self._queue.put_nowait(item)
+                break
+            if isinstance(item, _BatchableInsert):
+                batch.append(item)
+            else:
+                # Non-batchable item — put it back for the main loop.
+                with contextlib.suppress(queue.Full):
+                    self._queue.put_nowait(item)
+                break
+
+        cursor = conn.cursor()
+        try:
+            if len(batch) >= _BATCH_INSERT_MIN:
+                # ER-78: multi-row INSERT inside one transaction.
+                placeholders = ",".join(["(?, ?, ?, ?, ?, ?, ?)"] * len(batch))
+                params: list[Any] = []
+                for it in batch:
+                    params.extend(
+                        (
+                            it.text,
+                            it.duration,
+                            it.model,
+                            it.device,
+                            it.word_count,
+                            it.char_count,
+                            it.language,
+                        )
+                    )
+                cursor.execute(
+                    f"INSERT INTO transcriptions "
+                    f"(text, duration, model, device, word_count, char_count, language) "
+                    f"VALUES {placeholders}",
+                    params,
+                )
+                conn.commit()
+                last_row_id = cursor.lastrowid
+                for it in batch:
+                    if it.future is not None:
+                        with contextlib.suppress(
+                            concurrent.futures.InvalidStateError
+                        ):
+                            it.future.set_result(
+                                last_row_id if last_row_id is not None else -1
+                            )
+                log.debug(
+                    "[HISTORY_DB] batched %d transcription INSERTs into one transaction",
+                    len(batch),
+                )
+            else:
+                # Below the batching threshold — insert each row
+                # individually (original behavior). Still one COMMIT
+                # per row, but the per-row overhead is negligible for
+                # 1-2 rows.
+                for it in batch:
+                    cursor.execute(
+                        "INSERT INTO transcriptions "
+                        "(text, duration, model, device, word_count, char_count, language) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            it.text,
+                            it.duration,
+                            it.model,
+                            it.device,
+                            it.word_count,
+                            it.char_count,
+                            it.language,
+                        ),
+                    )
+                    conn.commit()
+                    row_id = cursor.lastrowid
+                    if it.future is not None:
+                        with contextlib.suppress(
+                            concurrent.futures.InvalidStateError
+                        ):
+                            it.future.set_result(
+                                row_id if row_id is not None else -1
+                            )
+                    if row_id is not None:
+                        log.debug(
+                            "Added transcription %d: %d chars", row_id, it.char_count
+                        )
+        except BaseException as e:  # noqa: BLE001 — propagate to futures
+            # Resolve all futures with the exception so wait=True
+            # callers (if any — add_transcription is fire-and-forget)
+            # don't hang.
+            for it in batch:
+                if it.future is not None:
+                    with contextlib.suppress(
+                        concurrent.futures.InvalidStateError
+                    ):
+                        it.future.set_exception(e)
+            # Re-raise so the caller (_writer_loop / _drain_remaining)
+            # sees the failure and runs its standard rollback +
+            # fire-and-forget log path.
+            raise
+
     def _drain_remaining(self, conn: sqlite3.Connection) -> None:
         """Drain any remaining queued items before shutdown.
 
         Called after the shutdown sentinel is received. Ensures
         fire-and-forget writes submitted before close() are persisted.
+
+        ER-78: ``_BatchableInsert`` items are routed through
+        :meth:`_drain_batchable_inserts` so the shutdown drain also
+        benefits from the multi-row INSERT optimization when 3+ inserts
+        are queued at shutdown time.
         """
         while True:
             try:
@@ -487,6 +742,21 @@ class HistoryDB:
             except queue.Empty:
                 break
             if item is _SHUTDOWN_SENTINEL:
+                continue
+            # ER-78: route batchable inserts through the batching path.
+            if isinstance(item, _BatchableInsert):
+                try:
+                    self._drain_batchable_inserts(conn, item)
+                except BaseException as e:  # noqa: BLE001
+                    with contextlib.suppress(sqlite3.Error):
+                        conn.rollback()
+                    log.error(
+                        "[HISTORY_DB] Fire-and-forget batched insert failed during shutdown drain: %s",
+                        e,
+                    )
+                else:
+                    with contextlib.suppress(sqlite3.Error):
+                        conn.rollback()
                 continue
             callable_, future = item
             try:
@@ -1103,8 +1373,14 @@ class HistoryDB:
                     current_future.set_exception(HistoryDBError("Writer is shutting down; new write dropped"))
             log.warning("[HISTORY_DB] Queue full during shutdown — new write dropped.")
             return
-        # Dropped a real (fn, future) tuple. Signal its future.
-        dropped_fn, dropped_future = dropped
+        # ER-78: the dropped item may be a (fn, future) tuple OR a
+        # _BatchableInsert structured payload. Extract the future (if
+        # any) from either shape and resolve it with HistoryDBError so
+        # wait=True callers don't hang.
+        if isinstance(dropped, _BatchableInsert):
+            dropped_future = dropped.future
+        else:
+            _, dropped_future = dropped
         if dropped_future is not None:
             try:
                 # CR-78 / PERF-5: the dropped future must be resolved
@@ -1235,7 +1511,16 @@ class HistoryDB:
         IMPL-A: sends the shutdown sentinel, waits (with timeout) for
         the writer to drain remaining items and exit, then closes all
         read connections. Idempotent — safe to call multiple times.
+
+        ER-36: also signals + joins the periodic retention thread
+        (if :meth:`schedule_periodic_retention` was called) so close()
+        fully quiesces the HistoryDB's daemon threads.
         """
+        # ER-36: stop the periodic retention thread BEFORE setting
+        # _shutdown so its inner loop sees a clean stop_event signal
+        # and exits without trying to call apply_retention (which
+        # would no-op on a shutdown DB but would still log noise).
+        self._stop_periodic_retention()
         if self._shutdown.is_set():
             # Already closed — just make sure read conns are gone.
             with self._connections_lock:
@@ -1343,27 +1628,37 @@ class HistoryDB:
         try:
             word_count = len(text.split())
             char_count = len(text)
-
-            def _do_insert(conn: sqlite3.Connection) -> int:
-                cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    INSERT INTO transcriptions
-                    (text, duration, model, device, word_count, char_count, language)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (text, duration, model, device, word_count, char_count, language),
+            if self._shutdown.is_set():
+                log.debug(
+                    "[HISTORY_DB] add_transcription submitted after shutdown — dropped."
                 )
-                conn.commit()
-                row_id = cursor.lastrowid
-                if row_id is not None:
-                    log.debug("Added transcription %d: %d chars", row_id, char_count)
-                return row_id if row_id is not None else -1
-
-            # Fire-and-forget: enqueue and return immediately.
-            result = self._submit_write(_do_insert, wait=False)
-            if result is None and self._shutdown.is_set():
                 return -1
+            item = _BatchableInsert(
+                text=text,
+                duration=duration,
+                model=model,
+                device=device,
+                word_count=word_count,
+                char_count=char_count,
+                language=language,
+                future=None,  # fire-and-forget
+            )
+            # PERF-5: bounded queue (maxsize=_WRITE_QUEUE_MAXSIZE). Use
+            # put_nowait + drop-oldest so a stalled writer doesn't block
+            # the calling thread indefinitely. We can't reuse
+            # _submit_write here because it enqueues (callable, future)
+            # tuples — _BatchableInsert is its own queue item shape.
+            try:
+                self._queue.put_nowait(item)
+            except queue.Full:
+                self._drop_oldest_for_overflow(None)
+                try:
+                    self._queue.put_nowait(item)
+                except queue.Full:
+                    log.warning(
+                        "[HISTORY_DB] Queue still full after drop-oldest — add_transcription dropped."
+                    )
+                    return -1
             # Placeholder row_id — callers that check ``> 0`` see success.
             return 1
         except Exception as e:
@@ -1685,6 +1980,197 @@ class HistoryDB:
         except Exception as e:
             log.error("[HISTORY] Failed to apply retention: %s", e)
             return 0
+
+    # ──────────────────────────────────────────────────────────────
+    # Periodic retention scheduling (ER-36)
+    # ──────────────────────────────────────────────────────────────
+
+    def schedule_periodic_retention(
+        self,
+        interval_s: float = 600.0,
+        app: Any = None,
+        *,
+        retention_days: int = 0,
+        max_entries: int = 0,
+        retention_count: int = 0,
+    ) -> None:
+        """ER-36: spawn a daemon thread that periodically calls ``apply_retention``.
+
+        Before this method existed, ``apply_retention`` only ran once
+        at startup (from ``startup_sequence._apply_retention_bg``). On
+        a long dictation session (8h at ~1 transcription/minute ≈ 480
+        new rows), the DB grew monotonically because the next
+        ``apply_retention`` (and the conditional ``VACUUM`` that
+        reclaims disk space) only fired on the NEXT app launch.
+
+        This method spawns a daemon thread that loops:
+
+        1. ``self._retention_stop_event.wait(timeout=interval_s)`` —
+           blocks for ``interval_s`` seconds (or until stop is signaled).
+        2. If the stop event fired (close() was called), exit.
+        3. Try to acquire ``self._retention_lock`` non-blocking. If a
+           previous retention is still running (e.g. a multi-batch
+           ``VACUUM`` on a huge DB took longer than ``interval_s``),
+           skip this tick and wait for the next one. This is the
+           re-entrancy guard required by ER-36.
+        4. Resolve retention parameters from ``app.config`` if ``app``
+           is provided (preferred — picks up config changes the user
+           made at runtime), else use the keyword arguments.
+        5. Call ``self.apply_retention(...)`` inside the lock.
+
+        The thread is registered with ``app._thread_registry`` (when
+        available) so the central shutdown coordinator can signal +
+        join it. ``close()`` also signals the local stop event and
+        joins with a 2s timeout as a fallback (so the thread exits
+        even if the app has no ThreadRegistry).
+
+        Parameters
+        ----------
+        interval_s : float
+            Seconds between retention sweeps. Default 600s (10 min) —
+            matches the ER-36 recommendation. The first sweep fires
+            after ``interval_s`` seconds (NOT immediately), because
+            ``startup_sequence`` already runs ``apply_retention`` once
+            at startup; running it again immediately would duplicate
+            that work.
+        app : object, optional
+            The ``VoiceTyperApp`` instance. Used to look up
+            ``app.config.history_retention_days``,
+            ``app.config.history_max_entries``,
+            ``app.config.history_retention_count``, and
+            ``app._thread_registry``. If ``None``, the keyword
+            arguments below are used as static defaults.
+        retention_days, max_entries, retention_count : int
+            Static fallback values used when ``app`` is None or when
+            ``app.config`` doesn't expose the corresponding attribute.
+            Default 0 (no retention — caller must supply real values
+            either via ``app`` or via these keyword args).
+
+        Notes
+        -----
+        Calling this method while a periodic retention is already
+        running stops the previous thread (signals + joins) before
+        spawning the new one. This makes the method idempotent and
+        safe to call from ``startup_sequence`` even if the app
+        restarts in place (e.g. after a config reload).
+
+        The actual wiring (calling this method from
+        ``startup_sequence``) is owned by ER-FIX-F; this method just
+        exposes the API.
+        """
+        # Stop any existing periodic retention thread before spawning a
+        # new one — idempotent re-scheduling.
+        self._stop_periodic_retention()
+
+        stop_event = threading.Event()
+        self._retention_stop_event = stop_event
+
+        def _periodic_retention_loop() -> None:
+            """ER-36: inner loop — wait, skip-if-busy, run, repeat."""
+            while not stop_event.wait(timeout=interval_s):
+                if self._shutdown.is_set() or stop_event.is_set():
+                    break
+                # Re-entrancy guard: skip this tick if a previous
+                # retention sweep is still running. ``acquire(blocking=False)``
+                # returns False immediately if the lock is held.
+                if not self._retention_lock.acquire(blocking=False):
+                    log.debug(
+                        "[HISTORY_DB] periodic retention tick skipped — "
+                        "previous run still active (interval_s=%.1f)",
+                        interval_s,
+                    )
+                    continue
+                try:
+                    # Resolve retention parameters from app.config
+                    # (preferred — picks up runtime config changes)
+                    # or fall back to the static kwargs.
+                    days = retention_days
+                    max_ent = max_entries
+                    ret_count = retention_count
+                    if app is not None:
+                        cfg = getattr(app, "config", None)
+                        if cfg is not None:
+                            days = int(
+                                getattr(cfg, "history_retention_days", days)
+                            )
+                            max_ent = int(
+                                getattr(cfg, "history_max_entries", max_ent)
+                            )
+                            ret_count = int(
+                                getattr(
+                                    cfg,
+                                    "history_retention_count",
+                                    ret_count,
+                                )
+                            )
+                    self.apply_retention(
+                        retention_days=days,
+                        max_entries=max_ent,
+                        retention_count=ret_count,
+                    )
+                except Exception:
+                    log.warning(
+                        "[HISTORY_DB] periodic retention run failed",
+                        exc_info=True,
+                    )
+                finally:
+                    self._retention_lock.release()
+
+        thread = threading.Thread(
+            target=_periodic_retention_loop,
+            name="HistoryDBPeriodicRetention",
+            daemon=True,
+        )
+        self._retention_thread = thread
+        thread.start()
+
+        # Register with ThreadRegistry if available on app — this lets
+        # the central shutdown coordinator signal + join the thread
+        # alongside the other app-owned daemon threads.
+        registry = getattr(app, "_thread_registry", None) if app is not None else None
+        if registry is not None:
+            try:
+                # Lazy import to avoid any chance of circular import
+                # (history_db is imported very early in app startup).
+                from voice_typer.server.thread_registry import ThreadRegistry  # noqa: F401
+
+                registry.register(
+                    name="history-periodic-retention",
+                    thread=thread,
+                    stop_event=stop_event,
+                    join_timeout=2.0,
+                )
+            except Exception:
+                log.debug(
+                    "[HISTORY_DB] could not register periodic retention "
+                    "thread with ThreadRegistry",
+                    exc_info=True,
+                )
+
+    def _stop_periodic_retention(self) -> None:
+        """ER-36: signal the periodic retention thread to stop and join it.
+
+        Called by :meth:`close` and by :meth:`schedule_periodic_retention`
+        (to support idempotent re-scheduling). Best-effort — if the
+        thread doesn't exit within 2s (e.g. stuck in a long VACUUM), it
+        is left to die as a daemon at process exit.
+        """
+        stop_event = self._retention_stop_event
+        thread = self._retention_thread
+        if stop_event is not None:
+            try:
+                stop_event.set()
+            except Exception:
+                pass
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2.0)
+            if thread.is_alive():
+                log.debug(
+                    "[HISTORY_DB] periodic retention thread did not exit "
+                    "within 2s — it is a daemon and will exit at process shutdown."
+                )
+        self._retention_thread = None
+        self._retention_stop_event = None
 
     # ──────────────────────────────────────────────────────────────
     # Public read methods

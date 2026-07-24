@@ -158,16 +158,25 @@ export function useTemplates({
 			// from localStorage (or migration), surface a load error
 			// so the user knows to retry. Otherwise the empty list
 			// would be indistinguishable from "no templates exist".
+			//
+			// BG-62: previously this was a hardcoded English string.
+			// Use the i18n key so the message localises with the UI
+			// locale.
 			if (backendFailed && backendTemplates.length === 0) {
-				setLoadError(
-					"Failed to load templates from the backend. Check your connection and try again.",
-				);
+				setLoadError(t("templates.loadFailedDescription"));
 			}
 		} catch (err) {
 			console.error("Failed to load templates", err);
 			setTemplates([]);
+			// BG-62: replace hardcoded English fallback with the
+			// localised i18n key. If the caught error is a real
+			// Error instance we still surface its .message (which
+			// may come from the backend and carry useful detail);
+			// otherwise we fall back to the localised description.
 			setLoadError(
-				err instanceof Error ? err.message : "Failed to load templates",
+				err instanceof Error
+					? err.message
+					: t("templates.loadFailedDescription"),
 			);
 		} finally {
 			setLoading(false);

@@ -91,6 +91,7 @@ export default function TemplatesPage() {
 					description={loadError}
 					actionLabel={t("templates.retry")}
 					onAction={() => loadRows()}
+					variant="error"
 				/>
 			</div>
 		);
@@ -107,7 +108,13 @@ export default function TemplatesPage() {
 						importInputRef={importInputRef}
 						onImportClick={handleImportClick}
 						onImportFile={handleImportFile}
-						onExport={() => doExport()}
+						// BG-63: forward the format chosen by the
+						// ExportFormatMenu (json | csv) through to
+						// doExport so the IPC bridge receives it.
+						// Previously the arrow function
+						// `() => doExport()` dropped the format arg,
+						// silently making CSV export behave like JSON.
+						onExport={(format) => doExport(format)}
 						onAdd={openAddDialog}
 						exportDisabled={templates.length === 0}
 					/>

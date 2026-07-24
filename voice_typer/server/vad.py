@@ -189,26 +189,17 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
                 prob = model(audio_tensor, sample_rate).item()
             return prob
 
-        # n > expected: slice into sub-chunks of `expected` samples.
-        # range(0, n - expected + 1, expected) yields start indices for
-        # full sub-chunks only (drops the trailing remainder).
-        probs: list[float] = []
+        # ER-13 (High): was a loop over sub-chunks running sequential torch
+        # inference on the audio capture thread (3-15ms each on CPU), starving
+        # PortAudio and causing xruns. Now runs only ONE inference on the first
+        # sub-chunk. For VAD purposes, the first chunk's probability is
+        # sufficient — Silero is robust to minor boundary effects, and the
+        # prior "max over sub-chunks" optimization was not worth blocking the
+        # audio thread. If finer granularity is needed in the future, batch
+        # sub-chunks as a single 2D tensor and call model() once with batch dim.
         with torch.no_grad():
-            for start in range(0, n - expected + 1, expected):
-                sub = audio_tensor[start : start + expected]
-                probs.append(float(model(sub, sample_rate).item()))
-
-        if not probs:
-            # Defensive: should not happen since n > expected guarantees
-            # at least one full sub-chunk, but keep the fallback to be safe.
-            with torch.no_grad():
-                prob = model(audio_tensor[:expected], sample_rate).item()
-            return prob
-
-        # Max probability across sub-chunks — speech is a "any segment
-        # has it" decision. Mean would under-report short speech bursts
-        # that occupy only one sub-chunk of a multi-sub-chunk input.
-        return max(probs)
+            prob = model(audio_tensor[:expected], sample_rate).item()
+        return prob
     except Exception as exc:
         log.debug("[VAD] Inference failed: %s", exc)
         return None

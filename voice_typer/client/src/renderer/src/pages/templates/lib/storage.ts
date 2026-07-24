@@ -100,6 +100,15 @@ export async function loadTemplatesFromBackend(
 // BEFORE the save landed — racing the just-saved list out of the UI
 // and re-rendering the pre-save state.  Awaiting guarantees the load
 // sees the new state.
+//
+// BG-61: the IPC error path previously swallowed the rejection after
+// logging it — callers had no way to know the save failed, so they
+// showed a success toast even when the backend rejected the write.
+// We now rethrow after logging so the calling hook (e.g.
+// useTemplateDialog.saveTemplate, useTemplates.instantDeleteTemplate,
+// useTemplateImportExport.handleImportFile) can catch the rejection
+// and surface an error toast instead of (or in addition to) the
+// success toast.
 export async function saveTemplates(
 	items: Template[],
 	callFn?: <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>,
@@ -118,7 +127,12 @@ export async function saveTemplates(
 		try {
 			await callFn("save_templates", { templates: items });
 		} catch (err: unknown) {
+			// BG-61: log the IPC failure for diagnostics, then rethrow so
+			// the caller can show an error toast instead of the success
+			// toast it likely already queued (the success toast is fired
+			// before the await in some callers — see useTemplateDialog).
 			console.error("IPC save_templates failed:", err);
+			throw err;
 		}
 	}
 }

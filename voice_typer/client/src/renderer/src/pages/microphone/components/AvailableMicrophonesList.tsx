@@ -54,13 +54,22 @@ export function AvailableMicrophonesList({
 			<p className="text-xs font-semibold capitalize tracking-wide text-(--text-muted) mb-2 px-1">
 				{t("microphone.otherMicrophones")}
 			</p>
-			<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+			{/* BG-72: native <ul>/<li> list semantics (with explicit role
+			    attributes for screen readers that don't convey <ul> as
+			    a list — notably Safari + VoiceOver). Tailwind's divide-y
+			    and the rounded/border classes apply identically to
+			    <ul>/<li> as they did to the previous <div>/<div>. */}
+			<ul
+				role="list"
+				className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border"
+			>
 				{/* PVT-034 (Fix 1): "Use System Default" button — the only
 				    way (other than refreshing and hoping) to revert
 				    from a named microphone back to the OS default.
 				    Disabled while a test is running so the user can't
 				    swap mics mid-recording. */}
-				<div
+				<li
+					role="listitem"
 					className={cn(
 						"flex items-center gap-3 px-3.5 py-2.5",
 						testRunning && "opacity-50 pointer-events-none",
@@ -89,15 +98,19 @@ export function AvailableMicrophonesList({
 					>
 						{t("microphone.use")}
 					</Button>
-				</div>
+				</li>
 				{otherMicrophones.length === 0 ? (
-					<div className="px-3.5 py-3 text-xs text-(--text-muted)">
+					<li
+						role="listitem"
+						className="px-3.5 py-3 text-xs text-(--text-muted)"
+					>
 						{t("microphone.noOtherMicrophones")}
-					</div>
+					</li>
 				) : (
 					otherMicrophones.map((mic) => (
-						<div
+						<li
 							key={mic.id ?? String(mic.index)}
+							role="listitem"
 							className={cn(testRunning && "opacity-50 pointer-events-none")}
 						>
 							<MicrophoneListItem
@@ -105,10 +118,10 @@ export function AvailableMicrophonesList({
 								isSystemDefault={isSystemDefault}
 								onSelect={(micId) => onSelectMicrophone(micId)}
 							/>
-						</div>
+						</li>
 					))
 				)}
-			</div>
+			</ul>
 		</div>
 	);
 }

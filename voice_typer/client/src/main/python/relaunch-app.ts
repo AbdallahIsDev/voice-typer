@@ -20,16 +20,32 @@
  * `stopPython()` and try to send `quit_app` to a Python that's
  * already exiting — a waste of 3 seconds on the kill timer).  The
  * Python process is force-killed directly here instead.
+ *
+ * ER-26: dev-mode relaunch now AWAITS the old proc's exit event (with
+ * a 3s SIGKILL fallback) BEFORE spawning a fresh backend, reuses
+ * `stopPython()` instead of duplicating the kill logic, and resets
+ * `_relaunching` only AFTER `startPython()` completes. Production
+ * mode still uses the synchronous `app.relaunch()` + `app.exit(0)`
+ * path. The function is `async` so the dev-mode branch can `await`
+ * the proc exit.
+ *
+ * ER-29: calls `clearTcpStartupTimeout()` before `startPython()` so
+ * the fresh backend gets a fresh 60s startup window.
  */
 import path from "node:path";
 import { app } from "electron";
+import { log } from "../logging";
 import { state } from "../state";
 import { startPython } from "./start-python";
+import { stopPython } from "./stop-python";
+import { clearTcpStartupTimeout } from "./tcp-connect";
 
-export function relaunchApp(): void {
+const RESTART_KILL_TIMEOUT_MS = 3000;
+
+export async function relaunchApp(): Promise<void> {
 	// Idempotency guard: if a relaunch is already in flight, do nothing.
 	if (state._relaunching) {
-		console.warn(
+		log.warn(
 			"[RESTART] relaunchApp() called but already relaunching — no-op",
 		);
 		return;
@@ -45,46 +61,66 @@ export function relaunchApp(): void {
 	// the window instead of hiding it (close-to-tray).  Moved into
 	// the production-only branch below.
 
+	// Reject pending IPC and clear TCP retry timer synchronously
+	// (before the await) so the tcp-retry-timer contract holds.
+	for (const [id, entry] of state.pendingRequests) {
+		state.pendingRequests.delete(id);
+		entry.reject(new Error("Application is restarting"));
+	}
+	if (state._tcpRetryTimer) {
+		clearTimeout(state._tcpRetryTimer);
+		state._tcpRetryTimer = null;
+	}
+
 	// ── Dev mode: keep Electron alive, just restart Python ──────────
 	// Production: app.relaunch() + app.exit(0) fully replaces the OS process.
 	if (!app.isPackaged) {
-		console.warn(
+		log.warn(
 			"[RESTART] Dev mode: restarting Python backend (Electron stays alive)",
 		);
 
-		// Kill old Python (remove exit listener first to prevent race)
-		try {
-			if (state.pythonProcess) {
-				const proc = state.pythonProcess;
-				proc.removeAllListeners("exit");
-				if (!proc.killed) proc.kill("SIGTERM");
-				// PVT-G5-039: SIGKILL fallback — if Python
-				// doesn't exit within 3s (stuck in a C
-				// extension like torch/sounddevice),
-				// force-kill it so the old process
-				// doesn't survive and hold the
-				// VoiceTyperSingleInstance mutex.
-				const killTimer = setTimeout(() => {
-					if (!proc.killed) {
+		// ER-26: reuse stopPython() to kill the old proc instead of
+		// duplicating the SIGTERM + 3s SIGKILL fallback logic. This
+		// guarantees `quit_app` is sent once, the killTimer is armed
+		// once, and the idempotency flags are flipped correctly.
+		// stopPython() returns synchronously but arms an async kill.
+		// We then await the proc's exit event (or the 3s SIGKILL
+		// fallback) before spawning the fresh backend so the old proc
+		// doesn't hold the VoiceTyperSingleInstance mutex when the new
+		// one tries to acquire it.
+		const oldProc = state.pythonProcess;
+		if (oldProc) {
+			stopPython();
+			await new Promise<void>((resolve) => {
+				let settled = false;
+				const done = () => {
+					if (settled) return;
+					settled = true;
+					resolve();
+				};
+				oldProc.once("exit", () => done());
+				// SIGKILL fallback if the proc is stuck in a C
+				// extension and ignores the SIGTERM from stopPython().
+				setTimeout(() => {
+					if (state.pythonProcess) {
 						try {
-							proc.kill("SIGKILL");
+							state.pythonProcess.kill("SIGKILL");
 						} catch {
 							/* best-effort */
 						}
 					}
-				}, 3000);
-				proc.once("exit", () => clearTimeout(killTimer));
-			}
-		} catch {
-			/* best-effort */
+					done();
+				}, RESTART_KILL_TIMEOUT_MS).unref();
+			});
 		}
 		state.pythonProcess = null;
 
 		// Clean up TCP + state
 		try {
 			if (state.tcpSocket) state.tcpSocket.destroy();
-		} catch {
-			// best-effort cleanup — ignore errors
+		} catch (e) {
+			// GT-B3-7: surface the destroy failure instead of swallowing.
+			log.warn("[RESTART] dev: tcpSocket.destroy failed:", e);
 		}
 		state.tcpSocket = null;
 		// PVT-G5-007: reset the TCP line buffer so stale partial
@@ -114,11 +150,10 @@ export function relaunchApp(): void {
 			state.heartbeatInterval = null;
 		}
 
-		// Reject pending IPC, reload renderer, spawn fresh Python
-		for (const [id, entry] of state.pendingRequests) {
-			state.pendingRequests.delete(id);
-			entry.reject(new Error("Application is restarting"));
-		}
+		// ER-29: clear the TCP startup timeout so the fresh backend
+		// gets a fresh 60s startup window.
+		clearTcpStartupTimeout();
+
 		try {
 			if (state.mainWindow && !state.mainWindow.isDestroyed()) {
 				if (process.env.ELECTRON_RENDERER_URL) {
@@ -129,19 +164,21 @@ export function relaunchApp(): void {
 					);
 				}
 			}
-		} catch {
-			// best-effort cleanup — ignore errors
+		} catch (e) {
+			// GT-B3-7: surface the reload failure instead of swallowing.
+			log.warn("[RESTART] dev: mainWindow reload failed:", e);
 		}
 
 		startPython();
+		// ER-26: reset _relaunching only AFTER startPython() completes.
 		state._relaunching = false;
-		console.warn(
+		log.warn(
 			"[RESTART] Dev mode restart complete -- waiting for new backend",
 		);
 		return;
 	}
 
-	console.warn(
+	log.warn(
 		"[RESTART] Production mode: relaunching entire Electron application",
 	);
 
@@ -151,6 +188,9 @@ export function relaunchApp(): void {
 	// Electron alive and must preserve close-to-tray behavior).
 	app.isQuitting = true;
 
+	// ER-29: clear the TCP startup timeout (production exit path).
+	clearTcpStartupTimeout();
+
 	// Kill old Python (remove exit listener first to prevent race)
 	try {
 		if (state.pythonProcess) {
@@ -158,7 +198,7 @@ export function relaunchApp(): void {
 			proc.removeAllListeners("exit");
 			if (!proc.killed) proc.kill();
 			// PVT-G5-039: SIGKILL fallback — same pattern as
-			// the dev branch above and stop-python.ts:38-43.
+			// the dev branch above and stop-python.ts.
 			// If Python is stuck in a C extension and ignores
 			// SIGTERM, force-kill after 3s so the old process
 			// doesn't hold the single-instance mutex.
@@ -170,17 +210,19 @@ export function relaunchApp(): void {
 						/* best-effort */
 					}
 				}
-			}, 3000);
+			}, RESTART_KILL_TIMEOUT_MS);
 			proc.once("exit", () => clearTimeout(killTimer));
 		}
-	} catch {
-		// best-effort cleanup — ignore errors
+	} catch (e) {
+		// GT-B3-7: surface the kill failure instead of swallowing.
+		log.warn("[RESTART] prod: kill old Python failed:", e);
 	}
 	state.pythonProcess = null;
 	try {
 		if (state.tcpSocket) state.tcpSocket.destroy();
-	} catch {
-		// best-effort cleanup — ignore errors
+	} catch (e) {
+		// GT-B3-7: surface the destroy failure instead of swallowing.
+		log.warn("[RESTART] prod: tcpSocket.destroy failed:", e);
 	}
 	state.tcpSocket = null;
 	// PVT-G5-007: reset the TCP line buffer (see dev branch above).

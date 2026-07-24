@@ -41,12 +41,27 @@ import { state } from "../state";
  * (not-connected), or escalate to a full app-restart prompt
  * (backend-exited). The codes are stable across versions — never rename
  * an existing code (only add new ones).
+ *
+ * Exported so the renderer (usePython.ts) can narrow the `_code` field
+ * against this union.
  */
-type PythonCallErrorCode =
+export type PythonCallErrorCode =
 	| "backend_not_connected"
 	| "backend_exited_early"
 	| "command_failed"
 	| "command_timeout";
+
+/**
+ * Per-code English fallback messages for `_error` (log/dev-facing).
+ * The renderer uses `_code` for its own localized lookup.
+ * "Critical Error" string is reserved for the breaker dialog only.
+ */
+const ERROR_MESSAGES: Record<PythonCallErrorCode, string> = {
+	backend_not_connected: "Python backend is not connected.",
+	backend_exited_early: "Python backend exited during startup.",
+	command_failed: "Python command failed.",
+	command_timeout: "Python command timed out.",
+};
 
 export function registerPythonCallHandler(): void {
 	ipcMain.handle(
@@ -59,25 +74,13 @@ export function registerPythonCallHandler(): void {
 
 			if (!state.tcpSocket) {
 				if (state.pythonExitedEarly) {
-					// G4-M-68: log the failure for post-mortem
-					// diagnosis (previously vanished silently).
-					logger.warn("python-call rejected", {
-						cmd,
-						code: "backend_exited_early",
-					});
-					return {
-						_error: mainT("dialog.criticalError.title"),
-						_code: "backend_exited_early" satisfies PythonCallErrorCode,
-					};
+					const code: PythonCallErrorCode = "backend_exited_early";
+					logger.warn("python-call rejected", { cmd, code });
+					return { _error: ERROR_MESSAGES[code], _code: code };
 				}
-				logger.warn("python-call rejected", {
-					cmd,
-					code: "backend_not_connected",
-				});
-				return {
-					_error: mainT("dialog.criticalError.title"),
-					_code: "backend_not_connected" satisfies PythonCallErrorCode,
-				};
+				const code: PythonCallErrorCode = "backend_not_connected";
+				logger.warn("python-call rejected", { cmd, code });
+				return { _error: ERROR_MESSAGES[code], _code: code };
 			}
 			try {
 				return await sendToPython(msg);
@@ -92,13 +95,30 @@ export function registerPythonCallHandler(): void {
 				const code: PythonCallErrorCode = isTimeout
 					? "command_timeout"
 					: "command_failed";
+				// Log the full errMsg server-side for post-mortem
+				// diagnosis. Python tracebacks can include internal
+				// filesystem paths, server-side stack frames, and
+				// occasionally user data embedded in exception
+				// messages — these must NOT be forwarded to the
+				// renderer (path disclosure / PII leak risk). The
+				// renderer receives a generic localized message +
+				// the machine-readable `_code`.
 				logger.warn("python-call failed", {
 					cmd,
 					code,
 					error: errMsg,
 				});
+				// For command_failed, return a generic localized
+				// message instead of the raw errMsg (which may
+				// contain paths / user data). For command_timeout,
+				// the rejection message is already generic
+				// ("Timeout") and safe to forward — the renderer
+				// uses it to decide whether to retry.
+				const rendererMsg = isTimeout
+					? `${ERROR_MESSAGES[code]} ${errMsg}`
+					: mainT("dialog.criticalError.title");
 				return {
-					_error: errMsg,
+					_error: rendererMsg,
 					_code: code,
 				};
 			}

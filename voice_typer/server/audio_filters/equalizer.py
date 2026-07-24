@@ -94,7 +94,10 @@ class Equalizer(AudioFilter):
             d2 = d1
             d1 = s
 
-            output[i] = (low_s * low_gain + mid * mid_gain + high * high_gain) * 0.5
+            # ER-9: removed the `* 0.5` factor — at unity gain (low_db=mid_db=high_db=0),
+        # low_gain=mid_gain=high_gain=1.0 and low_s + mid + high = d3 (3-sample
+        # delayed input), so the old `* 0.5` caused -6.02 dB attenuation at unity.
+        output[i] = low_s * low_gain + mid * mid_gain + high * high_gain
 
         self._delay1 = d1
         self._delay2 = d2

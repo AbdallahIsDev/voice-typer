@@ -669,10 +669,7 @@ describe("R7-F12: Models.tsx — display_name fallback for variant heading", () 
 	it("ModelMetadata interface includes display_name field", async () => {
 		const fs = await import("node:fs");
 		// The ModelMetadata interface lives in lib/utils/models.ts.
-		const src = fs.readFileSync(
-			"src/renderer/src/lib/utils/models.ts",
-			"utf8",
-		);
+		const src = fs.readFileSync("src/renderer/src/lib/utils/models.ts", "utf8");
 		// Locate the ModelMetadata interface body and verify display_name is declared.
 		const idx = src.indexOf("interface ModelMetadata");
 		expect(idx).toBeGreaterThanOrEqual(0);
@@ -874,9 +871,7 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 		// Sanity: the renderTabPanel helper is called once per tab
 		// value (appearance, general, aiAudio, privacy).
 		for (const tabId of ["appearance", "general", "aiAudio", "privacy"]) {
-			expect(src).toMatch(
-				new RegExp(`renderTabPanel\\(\\s*["']${tabId}["']`),
-			);
+			expect(src).toMatch(new RegExp(`renderTabPanel\\(\\s*["']${tabId}["']`));
 		}
 	});
 

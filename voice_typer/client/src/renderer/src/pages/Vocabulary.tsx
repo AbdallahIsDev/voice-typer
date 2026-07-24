@@ -108,6 +108,7 @@ export default function VocabularyPage() {
 					description={loadError}
 					actionLabel={t("vocabulary.retry")}
 					onAction={() => loadVocabulary()}
+					variant="error"
 				/>
 			</div>
 		);

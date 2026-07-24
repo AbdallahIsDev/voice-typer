@@ -25,181 +25,55 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { showUndoableToast } from "@/hooks/useSnackbar";
 import { getLocale, t } from "@/i18n/i18n";
-import type { HistoryRecord, TodayStats, WindowBridge } from "@/types/ipc";
-
-// Module-level cache — persists across page navigations so the records list
-// and stats render instantly on re-visit instead of showing a spinner.
-let _cachedRecords: HistoryRecord[] = [];
-let _cachedStats: TodayStats | null = null;
-
-const PAGE_SIZE = 50;
-
-/**
- * Sort history records client-side. The backend always returns records
- * newest-first; this lets the user re-sort the displayed list (and the
- * exported payload) without an extra round-trip.
- *
- * Sort orders:
- *  - ``newest``  — timestamp DESC (backend default; identity for an
- *                  already-newest-first array, but we sort defensively
- *                  in case the array was concatenated from multiple
- *                  batches in `doExport`).
- *  - ``oldest``  — timestamp ASC.
- *  - ``az``      — text ASC (case-insensitive locale-aware compare).
- *  - ``za``      — text DESC (case-insensitive locale-aware compare).
- *
- * Uses `getLocale()` so the A→Z / Z→A ordering respects the user's
- * selected UI locale (e.g. accented characters sort correctly in
- * French/Spanish).
- */
-type HistorySortOrder = "newest" | "oldest" | "az" | "za";
-
-function sortRecords(
-	items: HistoryRecord[],
-	order: HistorySortOrder,
-): HistoryRecord[] {
-	const locale = getLocale();
-	const collator = new Intl.Collator(locale, {
-		sensitivity: "base",
-		numeric: true,
-	});
-	const sorted = [...items];
-	switch (order) {
-		case "oldest":
-			sorted.sort((a, b) => {
-				const ta = new Date(a.timestamp).getTime();
-				const tb = new Date(b.timestamp).getTime();
-				return ta - tb;
-			});
-			break;
-		case "az":
-			sorted.sort((a, b) => collator.compare(a.text ?? "", b.text ?? ""));
-			break;
-		case "za":
-			sorted.sort((a, b) => collator.compare(b.text ?? "", a.text ?? ""));
-			break;
-		default:
-			sorted.sort((a, b) => {
-				const ta = new Date(a.timestamp).getTime();
-				const tb = new Date(b.timestamp).getTime();
-				return tb - ta;
-			});
-			break;
-	}
-	return sorted;
-}
+import { useHistoryCache } from "./history/hooks/useHistoryCache";
+import { useHistoryExport } from "./history/hooks/useHistoryExport";
+import {
+	type HistorySortOrder,
+	sortRecords,
+} from "./history/utils/historySort";
 
 // NOTE: App.tsx prop passing will be removed by EC-FIX-13.
 // EC-FIX-14 (BACKLOG-004): HistoryPage now obtains `navigate` via the
-// useNavigation hook directly, eliminating the `onNavigate` prop drill
-// from App.tsx.
+// useNavigation hook directly, eliminating the `onNavigate` prop drill.
+//
+// BG-54 (spaghetti split): the cache + IPC lifecycle (load / loadMore /
+// event refresh) lives in `useHistoryCache`, the export paging loop
+// lives in `useHistoryExport`, and the client-side sort lives in
+// `historySort.ts`. This file is the thin view component.
 export default function HistoryPage() {
-	// EC-FIX-14: obtain `navigate` directly from the navigation hook
-	// instead of receiving it as an `onNavigate` prop from App.tsx.
 	const { navigate } = useNavigation();
 	const { call } = usePython();
-	const [records, setRecords] = useState<HistoryRecord[]>(_cachedRecords);
-	const [stats, setStats] = useState<TodayStats | null>(_cachedStats);
-	const [loading, setLoading] = useState(true);
-	// NF-R10-1: surface backend-load failures to the user instead of
-	// silently masking them. The previous implementation only logged to
-	// console, leaving the user with an empty list and no indication
-	// that the backend was unreachable (vs. genuinely empty history).
-	const [loadError, setLoadError] = useState<string | null>(null);
-	const [loadingMore, setLoadingMore] = useState(false);
-	const [hasMore, setHasMore] = useState(true);
+	const {
+		records,
+		stats,
+		loading,
+		loadError,
+		loadingMore,
+		hasMore,
+		agoLabel,
+		setRecords,
+		setStats,
+		setHasMore,
+		load,
+		loadMore,
+		refreshFromEvent,
+		setFilter,
+	} = useHistoryCache();
 	const [searchQuery, setSearchQuery] = useState("");
 	const [favoritesOnly, setFavoritesOnly] = useState(false);
-	// Sort order applied client-side to the records returned by the backend.
-	// The backend always returns records newest-first; the user can re-sort
-	// the displayed list (and the exported payload) via this dropdown.
 	const [sortOrder, setSortOrder] = useState<HistorySortOrder>("newest");
-	// Refs so load() and the event handler always read current filter values
-	// without being recreated on every state change (which would break the
-	// mount-only useEffect and cause duplicate subscriptions).
-	const searchQueryRef = useRef(searchQuery);
-	const favoritesOnlyRef = useRef(favoritesOnly);
-	searchQueryRef.current = searchQuery;
-	favoritesOnlyRef.current = favoritesOnly;
 	const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// F4 (b-review Finding 11): "Last updated" indicator state. The
-	// module-level cache (`_cachedRecords`, `_cachedStats`) survives
-	// page navigations, so we mark the timestamp after each successful
-	// load to surface staleness to the user. The indicator is rendered
-	// near the top of the page with a manual refresh button.
-	const { agoLabel, markUpdated } = useLastUpdated();
-	// `refreshing` is true while a manual refresh is in-flight so the
-	// indicator's refresh button can show a spinner + disable itself.
 	const [refreshing, setRefreshing] = useState(false);
 
-	const load = useCallback(
-		async (query?: string, favs?: boolean) => {
-			setLoading(true);
-			// NF-R10-1: clear any prior load error before retrying so
-			// the EmptyState swaps back to the spinner during the
-			// retry attempt.
-			setLoadError(null);
-			try {
-				const isFav = favs ?? favoritesOnlyRef.current;
-				const q = query ?? searchQueryRef.current;
+	// Keep the cache hook's filter refs in sync with the page state.
+	setFilter(searchQuery, favoritesOnly);
 
-				let recs: HistoryRecord[];
-				if (q.trim()) {
-					recs = await call<HistoryRecord[]>("search_history", {
-						query: q.trim(),
-						limit: PAGE_SIZE,
-						offset: 0,
-					});
-				} else if (isFav) {
-					recs = await call<HistoryRecord[]>("get_favorites", {
-						limit: PAGE_SIZE,
-						offset: 0,
-					});
-				} else {
-					recs = await call<HistoryRecord[]>("get_history", {
-						limit: PAGE_SIZE,
-						offset: 0,
-					});
-				}
-				// Only cache the all-records view — search/filter results are transient
-				// and shouldn't pollute the cache that initializes the page on re-visit.
-				if (!q.trim() && !isFav) {
-					_cachedRecords = recs;
-				}
-				setHasMore(recs.length >= PAGE_SIZE);
-				setRecords(recs);
-
-				const todayStats = await call<TodayStats>("get_today_stats");
-				_cachedStats = todayStats;
-				setStats(todayStats);
-				// F4: bump the "last updated" timestamp after a successful load.
-				markUpdated();
-			} catch (err) {
-				console.error("Failed to load history:", err);
-				// NF-R10-1: capture the error message so the render
-				// path can show a retry EmptyState instead of an
-				// ambiguous empty list.
-				setLoadError(
-					err instanceof Error ? err.message : "Failed to load history",
-				);
-			} finally {
-				setLoading(false);
-			}
-		},
-		[call, markUpdated],
-	);
-
-	// F4: manual refresh handler for the LastUpdatedIndicator button.
-	// Wraps `load()` so we can flip a `refreshing` flag for the button's
-	// spinner state without disturbing `loading` (which gates the page's
-	// main spinner when there's no cached data to show).
 	const handleManualRefresh = useCallback(async () => {
 		setRefreshing(true);
 		try {
@@ -209,83 +83,34 @@ export default function HistoryPage() {
 		}
 	}, [load]);
 
-	const loadMore = useCallback(async () => {
-		setLoadingMore(true);
-		try {
-			const isFav = favoritesOnlyRef.current;
-			const q = searchQueryRef.current;
-			const offset = records.length;
-
-			let newRecs: HistoryRecord[];
-			if (q.trim()) {
-				newRecs = await call<HistoryRecord[]>("search_history", {
-					query: q.trim(),
-					limit: PAGE_SIZE,
-					offset,
-				});
-			} else if (isFav) {
-				newRecs = await call<HistoryRecord[]>("get_favorites", {
-					limit: PAGE_SIZE,
-					offset,
-				});
-			} else {
-				newRecs = await call<HistoryRecord[]>("get_history", {
-					limit: PAGE_SIZE,
-					offset,
-				});
-			}
-			setHasMore(newRecs.length >= PAGE_SIZE);
-			if (newRecs.length > 0) {
-				setRecords((prev) => [...prev, ...newRecs]);
-			}
-		} catch (err) {
-			console.error("Failed to load more history:", err);
-		} finally {
-			setLoadingMore(false);
-		}
-	}, [call, records.length]);
-
 	// R7-F13: extracted `debouncedRefreshFromEvent` via useCallback.
+	// Wraps `refreshFromEvent` (owned by useHistoryCache) in a 500ms
+	// debounce so rapid transcription_final / history_changed events
+	// coalesce into a single backend fetch.
 	const debouncedRefreshFromEvent = useCallback(():
 		| (() => void)
 		| undefined => {
 		if (refreshTimer.current) clearTimeout(refreshTimer.current);
 		refreshTimer.current = setTimeout(async () => {
 			try {
-				const [newStats, newRecs] = await Promise.all([
-					call<TodayStats>("get_today_stats"),
-					call<HistoryRecord[]>("get_history", {
-						limit: PAGE_SIZE,
-						offset: 0,
-					}),
-				]);
-				_cachedStats = newStats;
-				_cachedRecords = newRecs;
-				setStats(newStats);
-				if (!searchQueryRef.current && !favoritesOnlyRef.current) {
-					setHasMore(newRecs.length >= PAGE_SIZE);
-					setRecords(newRecs);
-				}
+				await refreshFromEvent();
 			} catch (e) {
-				// Silently ignore — next manual load will pick up fresh data.
 				console.warn("[History] background refresh failed:", e);
 			}
 		}, 500);
 		return undefined;
-	}, [call]);
+	}, [refreshFromEvent]);
 
 	usePythonEvent("transcription_final", debouncedRefreshFromEvent);
-
 	// F11-FIX: invalidate cache on external history_changed events.
 	usePythonEvent("history_changed", debouncedRefreshFromEvent);
 
-	// Clean up pending refresh timer on unmount
+	// Clean up pending refresh + search timers on unmount.
 	useEffect(() => {
 		return () => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			// PVT-045 (session 2): also clear searchTimer to prevent
-			// load() firing on an unmounted component if the user
-			// typed in the search box within 200ms of navigation.
+			// PVT-045 (session 2): clear searchTimer to prevent load()
+			// firing on an unmounted component.
 			if (searchTimer.current) {
 				clearTimeout(searchTimer.current);
 				searchTimer.current = null;
@@ -316,23 +141,17 @@ export default function HistoryPage() {
 
 	const handleDelete = useCallback(
 		async (id: number) => {
-			// NEW-UX-004: capture the record before delete so we can offer Undo.
+			// NEW-UX-004: capture the record before delete for Undo.
 			const deleted = records.find((r) => r.id === id);
 			try {
 				await call("delete_history", { id });
 				setRecords((prev) => prev.filter((r) => r.id !== id));
-				// NEW-UX-004: show an undoable toast.  When the user clicks
-				// Undo, we re-add the record via the `restore_history` IPC
-				// command (added to the backend below).  This matches the
-				// macOS Mail / iOS Photos "delete now, undo for 6 seconds"
-				// pattern.
 				if (deleted) {
 					showUndoableToast(
 						t("history.entryDeleted"),
 						async () => {
 							try {
 								await call("restore_history", { record: deleted });
-								// Reload to reflect the restored entry.
 								load();
 								toast.success(t("history.entryRestored"));
 							} catch {
@@ -350,7 +169,7 @@ export default function HistoryPage() {
 				toast.error(t("history.deleteFailed"));
 			}
 		},
-		[call, records, load],
+		[call, records, load, setRecords],
 	);
 
 	const handleToggleFavorite = useCallback(
@@ -364,23 +183,31 @@ export default function HistoryPage() {
 				toast.error(t("history.favoriteFailed"));
 			}
 		},
-		[call],
+		[call, setRecords],
 	);
 
-	const handleClearAll = useCallback(async () => {
-		// Nothing to clear — don't call backend, don't show dialog
-		if (records.length === 0) return;
+	// BG-53: Clear All is ambiguous under an active filter (the visible
+	// list is a subset of ALL history).  When a filter is active:
+	//   - Skip the `records.length === 0` short-circuit using the cached
+	//     stats count instead (visible list may be empty while total is not).
+	//   - Show a different confirmation message that makes it clear ALL
+	//     history (including hidden entries) will be deleted.
+	const filterActive = searchQuery.trim() !== "" || favoritesOnly;
 
-		// #7: Show ConfirmDialog instead of the old two-click pattern
+	const handleClearAll = useCallback(() => {
+		const totalCount = stats?.count ?? records.length;
+		if (filterActive) {
+			if (totalCount === 0) return;
+		} else {
+			if (records.length === 0) return;
+		}
 		setShowClearConfirm(true);
-	}, [records.length]);
+	}, [records.length, stats, filterActive]);
 
 	const confirmClearAll = useCallback(async () => {
 		try {
 			await call("clear_history");
 			const emptyStats = { count: 0, chars: 0, word_count: 0, duration: 0 };
-			_cachedStats = emptyStats;
-			_cachedRecords = [];
 			setRecords([]);
 			setStats(emptyStats);
 			setHasMore(false);
@@ -390,78 +217,23 @@ export default function HistoryPage() {
 		} finally {
 			setShowClearConfirm(false);
 		}
-	}, [call]);
+	}, [call, setRecords, setStats, setHasMore]);
 
-	const doExport = useCallback(
-		async (format: "json" | "csv") => {
-			if (records.length === 0) {
-				toast.error(t("history.exportEmpty"));
-				return;
-			}
-			try {
-				// Page through ALL records so the export is not silently
-				// truncated at an arbitrary cap.  Previously this fetched a
-				// single batch of 10000 records; if the user had more, the
-				// export was silently missing the older entries with no
-				// indication.  We now loop in PAGE_SIZE batches until the
-				// backend returns a short page, then warn the user if the
-				// total still appears capped (defensive — the loop should
-				// terminate naturally).
-				const all: HistoryRecord[] = [];
-				const EXPORT_PAGE_SIZE = 500;
-				let offset = 0;
-				// Safety cap to avoid an unbounded loop if the backend ever
-				// returns full pages forever due to a bug.  200k records is
-				// well beyond any realistic local-history size.
-				const MAX_EXPORT_RECORDS = 200_000;
-				let maybeTruncated = false;
-				while (offset < MAX_EXPORT_RECORDS) {
-					const batch = await call<HistoryRecord[]>("get_history", {
-						limit: EXPORT_PAGE_SIZE,
-						offset,
-					});
-					if (!Array.isArray(batch) || batch.length === 0) break;
-					all.push(...batch);
-					offset += batch.length;
-					if (batch.length < EXPORT_PAGE_SIZE) break;
-					if (offset >= MAX_EXPORT_RECORDS) {
-						maybeTruncated = true;
-						break;
-					}
-				}
-				// Apply the same sort order the user has selected for the
-				// displayed list so the exported file matches what they see.
-				const sorted = sortRecords(all, sortOrder);
-				const result = await (window.window_ as WindowBridge).exportHistory(
-					sorted as unknown as Record<string, unknown>[],
-					format,
-				);
-				if (result.success) {
-					// ERR-ERR-005 (fix): null-safe path handling instead of `!` assertions
-					const path = result.path ?? "";
-					const filename = path.split(/[\\/]/).pop() || "untitled";
-					toast.success(t("history.exportSaved", { filename }));
-					if (maybeTruncated) {
-						toast.warning(
-							t("history.exportTruncatedWarning", {
-								count: String(MAX_EXPORT_RECORDS),
-							}),
-						);
-					}
-				}
-			} catch (err) {
-				console.error("History export failed:", err);
-				toast.error(t("history.exportFailed"));
-			}
-		},
-		[call, records.length, sortOrder],
-	);
+	// BG-54: doExport (filter-aware paging loop) extracted to
+	// useHistoryExport.  BG-52: the hook branches on
+	// searchQuery / favoritesOnly so the export matches the active
+	// filter instead of silently dumping ALL history.
+	const { doExport } = useHistoryExport({
+		call,
+		records,
+		sortOrder,
+		searchQuery,
+		favoritesOnly,
+	});
 
-	// Sorted view of the loaded records — applied client-side so the user
-	// can re-order the displayed list (and the export) without an extra
-	// backend round-trip.  Memoised so the sort only re-runs when the
-	// records array or sortOrder changes (not on every keystroke in the
-	// search field).
+	// Sorted view of the loaded records — applied client-side so the
+	// user can re-order the displayed list (and the export) without an
+	// extra backend round-trip.
 	const sortedRecords = useMemo(
 		() => sortRecords(records, sortOrder),
 		[records, sortOrder],
@@ -476,14 +248,9 @@ export default function HistoryPage() {
 						stats
 							? t("history.transcriptionsToday", {
 									count: String(stats.count),
-									// PVT-087: previously hardcoded the English
-									// word "chars" and called .toLocaleString()
-									// with no locale argument (so it used the
-									// browser default, not the user-selected
-									// UI locale).  Now we resolve the suffix
-									// template via t() so other locales can
-									// translate "chars" (and the digit
-									// grouping respects getLocale()).
+									// PVT-087: resolve the "chars" suffix via t() so
+									// other locales can translate it and the digit
+									// grouping respects getLocale().
 									chars:
 										stats.chars > 0
 											? t("history.charsSuffix", {
@@ -495,9 +262,7 @@ export default function HistoryPage() {
 					}
 				/>
 
-				{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-				    refresh button. The module-level cache survives page
-				    navigations, so we surface staleness here. */}
+				{/* F4: "Last updated" indicator + manual refresh. */}
 				<div className="flex justify-end pb-1">
 					<LastUpdatedIndicator
 						agoLabel={agoLabel}
@@ -521,9 +286,14 @@ export default function HistoryPage() {
 						variant="outline"
 						size="sm"
 						onClick={toggleFavorites}
-						aria-label={
-							favoritesOnly ? t("history.showAll") : t("history.showFavorites")
-						}
+						// BG-51: aria-pressed conveys the toggle state to
+						// assistive tech. The accessible name stays stable
+						// (always "Favorites") so the visible label matches
+						// the announced name (Label-in-Name). The toggle
+						// state is communicated via aria-pressed rather
+						// than by swapping the label.
+						aria-pressed={favoritesOnly}
+						aria-label={t("history.favorites")}
 						className={`gap-2 ${
 							favoritesOnly
 								? "bg-amber-400/15 text-amber-700 border-amber-400/30 hover:bg-amber-400/20 dark:text-amber-400"
@@ -551,10 +321,7 @@ export default function HistoryPage() {
 						/>
 						{t("history.clearAll")}
 					</Button>
-					{/* Sort dropdown — client-side re-order of the loaded
-					    records.  Placed inline so it groups with the other
-					    list-action buttons; the Radix Select trigger
-					    inherits the same muted outline-button styling. */}
+					{/* Sort dropdown — client-side re-order of the loaded records. */}
 					<Select
 						value={sortOrder}
 						onValueChange={(v) => setSortOrder(v as HistorySortOrder)}
@@ -587,9 +354,7 @@ export default function HistoryPage() {
 					</div>
 				) : loadError && records.length === 0 ? (
 					// NF-R10-1: distinguish "backend failed to load" from
-					// "history is genuinely empty" so the user knows to
-					// retry instead of being presented with the
-					// start-dictation empty state.
+					// "history is genuinely empty".
 					<EmptyState
 						icon={AlertCircleIcon}
 						title={t("history.loadFailedTitle")}
@@ -630,8 +395,6 @@ export default function HistoryPage() {
 					<>
 						<ActivityList
 							// R7-F16: cap visible list at 200 items.
-							// Apply the user-selected sort order client-side
-							// (sortedRecords is memoised above).
 							items={sortedRecords.slice(0, 200)}
 							lineClamp={3}
 							onDelete={handleDelete}
@@ -653,10 +416,7 @@ export default function HistoryPage() {
 						*/}
 						{records.length >= 200 && hasMore ? (
 							<p className="mt-4 text-center text-xs text-(--text-muted)">
-								{t("history.showingCap", {
-									shown: "200",
-									total: "N+",
-								})}
+								{t("history.showingCap", { shown: "200", total: "N+" })}
 							</p>
 						) : hasMore ? (
 							<Button
@@ -691,7 +451,15 @@ export default function HistoryPage() {
 			<ConfirmDialog
 				open={showClearConfirm}
 				title={t("history.clearAllHistory")}
-				message={t("history.clearAllMessage")}
+				// BG-53: when a filter is active, the default message is
+				// ambiguous (the user might think only the visible subset
+				// will be deleted).  Use a clearer message that calls out
+				// the hidden entries.
+				message={
+					filterActive
+						? t("history.clearAllWithFilterMessage")
+						: t("history.clearAllMessage")
+				}
 				confirmLabel={t("history.clearAllConfirm")}
 				onConfirm={confirmClearAll}
 				onCancel={() => setShowClearConfirm(false)}

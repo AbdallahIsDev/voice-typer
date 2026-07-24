@@ -18,6 +18,12 @@ export interface ModelOption {
 	size: string;
 	speed: string;
 	description: string;
+	// BG-100: VRAM requirement (in GB) and language coverage, so the
+	// Model step can surface per-option badges (e.g. "~1 GB VRAM" /
+	// "EN" / "Multilingual") to help users compare options. Both
+	// fields are optional — older backends don't return them.
+	vram_gb?: number;
+	languages?: string[] | null;
 }
 
 // PVT-052: backend returns i18n keys (`title_key` / `steps_keys`); the

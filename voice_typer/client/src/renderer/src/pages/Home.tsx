@@ -19,7 +19,11 @@ import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 // SOUND-FIX-004 / RW-10: sound feedback moved to App-level useSoundFeedback
 // hook so cues play on every page (delegates to @/lib/sound-manager).
-import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
+import {
+	canShareStats,
+	computeShareStats,
+	useStatsShare,
+} from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import { useAppStore } from "@/stores/appStore";
@@ -770,12 +774,21 @@ export default function Home() {
 				<span>{t("home.pressOrClick")}</span>
 			</p>
 
+			{/* BG-6 (PVT-047): wrap LastTranscriptionPreview in an
+			    aria-live="polite" region so screen readers announce
+			    the just-transcribed text. Previously the App-level
+			    live region only announced recording-state transitions
+			    ("RECORDING" → "TRANSCRIBING" → "READY"); SR users
+			    never heard what was transcribed. The polite politeness
+			    setting avoids interrupting in-flight speech. */}
 			{lastText && (
-				<LastTranscriptionPreview
-					text={lastText}
-					onUndo={handleUndo}
-					onRepaste={handleRepaste}
-				/>
+				<div aria-live="polite">
+					<LastTranscriptionPreview
+						text={lastText}
+						onUndo={handleUndo}
+						onRepaste={handleRepaste}
+					/>
+				</div>
 			)}
 
 			{stats && (
@@ -795,7 +808,26 @@ export default function Home() {
 								variant="outline"
 								size="sm"
 								onClick={shareStats}
-								disabled={!cfg || stats.count === 0}
+								disabled={
+									!cfg ||
+									!canShareStats({
+										todayCount: stats.count,
+										// BG-10 (partial): Home.tsx
+										// doesn't have a dedicated
+										// totalCount field (TodayStats
+										// only includes today's
+										// count/chars/words/duration),
+										// so we use `recent.length > 0`
+										// as a proxy for "has past
+										// transcriptions". This keeps
+										// the Share button enabled on
+										// days when the user hasn't
+										// dictated yet but has past
+										// history — the canShareStats
+										// helper's documented intent.
+										totalCount: recent.length > 0 ? 1 : 0,
+									})
+								}
 								className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 							>
 								<HugeiconsIcon
@@ -844,7 +876,25 @@ export default function Home() {
 				)}
 			</div>
 
-			{recent.length > 0 ? (
+			{/* BG-7: render <ActivityList items={recent} /> for both
+			    the populated and empty cases so the component's own
+			    empty-state branch (title + "No recent activity"
+			    message + "View all" link) is reachable when
+			    `recent.length === 0 && !initialLoading`. Previously
+			    this block short-circuited on `recent.length > 0`,
+			    which left a blank gap below the stats on first run
+			    and after deleting all history — and removed the
+			    only Home → History navigation affordance. The
+			    spinner overlay is shown ONLY while initial data is
+			    loading AND we have no recent records to render. */}
+			{initialLoading && recent.length === 0 ? (
+				<section
+					className="mt-4 w-full flex items-center justify-center py-6"
+					aria-label={t("home.loadingRecentAria")}
+				>
+					<Spinner />
+				</section>
+			) : (
 				<ActivityList
 					items={recent}
 					lineClamp={2}
@@ -852,15 +902,6 @@ export default function Home() {
 					showViewAll
 					onViewAll={() => navigate("history")}
 				/>
-			) : (
-				initialLoading && (
-					<section
-						className="mt-4 w-full flex items-center justify-center py-6"
-						aria-label={t("home.loadingRecentAria")}
-					>
-						<Spinner />
-					</section>
-				)
 			)}
 		</div>
 	);

@@ -245,7 +245,10 @@ class LLMPolisher:
         req = Request(self.api_url, data=payload, headers=headers, method="POST")
 
         try:
-            with _opener.open(req, timeout=30) as resp:
+            # ER-40: was timeout=30 — on a stalled connection the user waited
+            # up to 30s before their text was pasted. 10s is generous for
+            # <500 char dictations (LLM completions typically finish in <3s).
+            with _opener.open(req, timeout=10) as resp:
                 # SEC-030: cap response at 50 MB to prevent OOM from
                 # a malicious / buggy LLM endpoint.
                 from voice_typer.server.cloud_engines import _read_capped

@@ -26,19 +26,19 @@
  * module-level `isStopping` / `isStopped` flags ensure only the FIRST
  * call performs any work; subsequent calls return immediately.
  *
- * The flags reset automatically when this module is re-evaluated
- * (e.g. by `vi.resetModules()` in tests, or by Electron's renderer
- * reload in dev mode), so a freshly-spawned backend can be stopped
- * again after a relaunch. `state._stopPythonCalled` is mirrored
- * alongside the flags for cross-module observability; resetting it on
- * `startPython()` is tracked separately (would require touching
- * `start-python.ts`, which is outside this task's scope).
+ * Flags are reset by `_resetStopPythonFlagsForRestart()`, called from
+ * `startPython()` after the retry-generation bump. Tests can call it
+ * directly instead of relying on `vi.resetModules()`.
+ * `state._stopPythonCalled` is mirrored alongside the flags for
+ * cross-module observability and is also reset by
+ * `_resetStopPythonFlagsForRestart()`.
  *
  * XV-156: the armed `killTimer` is `.unref()`'d so it doesn't keep the
  * Node event loop alive if the process is otherwise ready to exit
  * (e.g. Python exits cleanly before the 3s grace period elapses).
  */
 import { state } from "../state";
+import { clearTcpStartupTimeout } from "./tcp-connect";
 import { sendToPython } from "./send-to-python";
 
 // XV-157 (XZ-14): idempotency state. `isStopping` is true while a stop
@@ -62,6 +62,33 @@ let isStopped = false;
 // the case where the guard is bypassed (e.g. by a future code path
 // that resets `isStopping`/`isStopped` mid-cycle).
 let armedKillTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Reset the idempotency flags so a freshly-spawned backend can be
+ * stopped again after a relaunch. Called from `startPython()` (after the
+ * retry-generation bump) so each new backend lifecycle starts with a
+ * clean stop state. Tests can call this directly instead of relying on
+ * `vi.resetModules()` to re-evaluate the module.
+ *
+ * Also clears any armed `killTimer` left over from a prior stop cycle
+ * (defense-in-depth — the timer should already have been cleared by the
+ * `killTimer` callback or the `.once('exit')` listener, but if neither
+ * fired e.g. because the prior backend was adopted via `VT_PYTHON_PORT`,
+ * the handle would otherwise leak).
+ *
+ * ER-29: also clears the TCP startup timeout timer so a fresh 60s
+ * window begins with the new backend lifecycle.
+ */
+export function _resetStopPythonFlagsForRestart(): void {
+	if (armedKillTimer) {
+		clearTimeout(armedKillTimer);
+		armedKillTimer = null;
+	}
+	isStopping = false;
+	isStopped = false;
+	state._stopPythonCalled = false;
+	clearTcpStartupTimeout();
+}
 
 export function stopPython() {
 	// XV-157 (XZ-14): idempotency guard. If a stop is already in
@@ -96,6 +123,9 @@ export function stopPython() {
 		clearTimeout(state._tcpRetryTimer);
 		state._tcpRetryTimer = null;
 	}
+	// ER-29: clear the TCP startup timeout so the 60s startup
+	// dialog doesn't fire while we're shutting down.
+	clearTcpStartupTimeout();
 	// No live process to kill — shutdown is "complete" immediately.
 	// Flip the flags so any subsequent call (e.g. will-quit firing
 	// after before-quit) is a no-op.
@@ -123,7 +153,15 @@ export function stopPython() {
 	}
 	const killTimer = setTimeout(() => {
 		if (state.pythonProcess) {
-			state.pythonProcess.kill();
+			// DE-84: use SIGKILL (not the default SIGTERM) to
+			// match the file-header docstring's "force-kill"
+			// promise and the parallel pattern in
+			// `relaunch-app.ts`. A Python backend stuck in a C
+			// extension (torch/sounddevice import) will ignore
+			// SIGTERM exactly as it ignored `quit_app`; SIGKILL is
+			// uncatchable and guarantees the process exits,
+			// releasing the single-instance mutex.
+			state.pythonProcess.kill("SIGKILL");
 			state.pythonProcess = null;
 		}
 		armedKillTimer = null;
@@ -150,6 +188,11 @@ export function stopPython() {
 	state.pythonProcess.once("exit", () => {
 		clearTimeout(killTimer);
 		armedKillTimer = null;
+		// GT-60: null `state.pythonProcess` so downstream callers
+		// (notably `index.ts::will-quit`) see that Python is already
+		// gone — previously this only flipped `isStopped`, causing
+		// will-quit to register a stale `.once("exit")` listener.
+		state.pythonProcess = null;
 		// XV-157 (XZ-14): Python exited gracefully — shutdown
 		// is complete. Flip the flags so subsequent stopPython()
 		// calls are no-ops.

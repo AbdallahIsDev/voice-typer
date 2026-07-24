@@ -23,6 +23,7 @@ import { mainT } from "../i18n";
 import { state } from "../state";
 import { pythonArgs } from "./python-args";
 import { relaunchApp } from "./relaunch-app";
+import { _resetStopPythonFlagsForRestart } from "./stop-python";
 import { tcpConnect } from "./tcp-connect";
 
 /**
@@ -57,6 +58,17 @@ export function startPython() {
 		state._tcpRetryTimer = null;
 	}
 	state._tcpRetryGeneration++;
+
+	// AC-10: reset the stop-python idempotency flags so the new
+	// backend lifecycle starts with a clean stop state. Without
+	// this, any prior `stopPython()` call (e.g. from a circuit-
+	// breaker trip during the previous backend lifecycle) would
+	// leave `isStopping`/`isStopped` latched, making all future
+	// `stopPython()` calls permanent no-ops — the backend could
+	// not be stopped again after a relaunch. Also clears any
+	// armed `killTimer` left over from the prior stop cycle and
+	// clears the TCP startup timeout (ER-29 fresh 60s window).
+	_resetStopPythonFlagsForRestart();
 
 	// P1-1.2: if VT_PYTHON_PORT is set, a Python backend spawned us
 	// (standalone mode — user ran `VoiceTyper` from a terminal).
@@ -107,6 +119,18 @@ export function startPython() {
 
 	proc.on("exit", (code) => {
 		console.warn("Python process exited:", code);
+		// AC-11: short-circuit when the spawn-failure `error`
+		// handler has already fired. Node emits `error` then
+		// `exit` (with a negative code) on spawn failure
+		// (ENOENT/EACCES). The `error` handler sets
+		// `state.pythonExitedEarly = true` and shows a clear
+		// "backend not found" dialog. Without this guard the
+		// `exit` handler would fall through to the early-exit
+		// branch below and show a *second*, misleading
+		// "single instance already running" dialog. Both
+		// handlers fire synchronously in the same tick; this
+		// check makes the second a no-op.
+		if (state.pythonExitedEarly) return;
 		if (!state.pythonReady) {
 			state.pythonExitedEarly = true;
 			state.pythonProcess = null;

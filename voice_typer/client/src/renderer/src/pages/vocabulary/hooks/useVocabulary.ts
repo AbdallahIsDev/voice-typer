@@ -117,8 +117,17 @@ export function useVocabulary({
 			// NF-R10-1 / fix #8: capture the error message so the render
 			// path can show a retry EmptyState instead of an ambiguous
 			// empty list.
+			//
+			// BG-62: previously this was a hardcoded English string.
+			// Use the i18n key so the message localises with the UI
+			// locale. If the caught error is a real Error instance we
+			// still surface its .message (which may come from the
+			// backend); otherwise we fall back to the localised
+			// description.
 			setLoadError(
-				err instanceof Error ? err.message : "Failed to load vocabulary",
+				err instanceof Error
+					? err.message
+					: t("vocabulary.loadFailedDescription"),
 			);
 		} finally {
 			setLoading(false);

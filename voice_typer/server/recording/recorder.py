@@ -294,6 +294,25 @@ class Recorder:
         self._stream: sd.InputStream | None = None
         self._buffer: collections.deque = collections.deque(maxlen=DEFAULT_MAX_BUFFER_CHUNKS)
         self._lock = threading.Lock()
+        # GT-23: serializes the read-check-create-start sequence in
+        # ``_start_audio_worker`` / ``_start_event_worker`` and the
+        # read-check-clear-join-unregister sequence in the
+        # corresponding ``_stop_*`` methods so concurrent
+        # start()/stop()/discard() (toggle thread, auto-stop Timer
+        # thread, ESC-cancel thread, device-disconnect handler thread)
+        # cannot race on ``self._worker_thread`` /
+        # ``self._event_worker_thread``. This is a SEPARATE lock from
+        # ``self._lock`` — never hold ``self._lock`` across
+        # ``thread.join()`` or ``_process_audio_chunk`` would deadlock
+        # when the worker tries to acquire ``self._lock`` for the
+        # buffer append.
+        self._worker_lifecycle_lock = threading.Lock()
+        # GT-24: serializes stream teardown (``_teardown_stream``)
+        # against the stream-restart block of
+        # ``_handle_device_disconnect`` so a concurrent ``stop()`` /
+        # ``discard()`` cannot mutate ``self._stream`` mid-flight of
+        # the disconnect handler's restart, and vice-versa.
+        self._stream_lifecycle_lock = threading.Lock()
 
         # XRUN and clipping tracking
         self._xruns: int = 0
@@ -706,6 +725,16 @@ class Recorder:
         The finished_callback is the correct way to detect stream termination
         in sounddevice. The primary disconnect detection is done in the audio
         callback via zero-filled indata detection (see _audio_callback_record).
+
+        GT-24: capture ``gen = self._stop_generation`` at scheduling time
+        and pass it via ``kwargs={'_captured_generation': gen}`` so the
+        spawned ``_handle_device_disconnect`` can bail out if a deliberate
+        stop/start cycle happened between scheduling and execution (mirrors
+        the pattern in ``_process_audio_chunk`` at the zero-filled-indata
+        spawn site). Pre-fix, the handler was scheduled with the default
+        ``_captured_generation=0``, which matched the initial
+        ``_stop_generation=0`` on the first session — defeating the
+        bouncer for any stop() that landed between scheduling and execution.
         """
         if self._device_disconnected:
             return  # already handling disconnect via callback detection
@@ -719,9 +748,15 @@ class Recorder:
         if self._stream is not None and not self._recording_event.is_set():
             log.warning("[RECORDING] Stream finished unexpectedly — possible device disconnect")
             self._device_disconnected = True
+            # GT-24: capture the current stop_generation so the handler
+            # can detect a deliberate stop/start cycle that happened
+            # between scheduling and execution. Mirrors the
+            # _process_audio_chunk spawn site.
+            _captured_gen = self._stop_generation
             with contextlib.suppress(Exception):
                 threading.Thread(
                     target=self._handle_device_disconnect,
+                    kwargs={"_captured_generation": _captured_gen},
                     name="stream-finished-handler",
                     daemon=True,
                 ).start()
@@ -778,11 +813,35 @@ class Recorder:
         # disconnect handler is spawned FROM the audio callback / worker
         # thread on a fresh daemon thread — the callback may still be
         # running when we close). ``_teardown_stream`` is idempotent.
+        # GT-24: ``_teardown_stream`` acquires+releases
+        # ``_stream_lifecycle_lock`` internally; the restart block below
+        # re-acquires it for the new-stream creation+assignment.
         self._teardown_stream()
 
-        # Try to open with default device
-        try:
-            candidate_sr, _ = self._resolve_effective_sample_rate(None)
+        # GT-24: hold the stream-lifecycle lock across the restart so a
+        # concurrent ``stop()`` / ``discard()`` cannot mutate
+        # ``self._stream`` mid-restart. A concurrent stop() may have run
+        # between the ``_teardown_stream()`` call above (which released
+        # the lock) and the acquire below — re-check the bouncer
+        # conditions before creating a new stream so we don't restart
+        # on top of a deliberately-stopped recorder.
+        with self._stream_lifecycle_lock:
+            if _captured_generation != self._stop_generation:
+                log.debug(
+                    "[RECORDING] Disconnect restart skipped — stop_generation changed (%d != %d)",
+                    _captured_generation,
+                    self._stop_generation,
+                )
+                return
+            if not self._recording_event.is_set():
+                log.debug(
+                    "[RECORDING] Disconnect restart skipped — recording was deliberately stopped"
+                )
+                return
+
+            # Try to open with default device
+            try:
+                candidate_sr, _ = self._resolve_effective_sample_rate(None)
             # AUDIO-CH (revised): The previous code did
             # ``channels = min(1, default_dev.get("max_input_channels", 1))``
             # which ALWAYS returned 1 for any valid device (min(1, N>=1) == 1).
@@ -794,36 +853,36 @@ class Recorder:
             # and ASR pipelines expect mono or stereo). If the device reports
             # 0 channels (broken driver), we fall back to 1 (mono).
             # See FORENSIC_REVIEW_COMPLETE.md → AUDIO-HOT.
-            try:
-                default_dev = sd.query_devices(kind="input")
-                max_ch = int(default_dev.get("max_input_channels", 1) or 1)
-                if max_ch < 1:
-                    max_ch = 1
-                elif max_ch > 2:
-                    max_ch = 2
-                channels = max_ch
-            except Exception:
-                channels = 1
+                try:
+                    default_dev = sd.query_devices(kind="input")
+                    max_ch = int(default_dev.get("max_input_channels", 1) or 1)
+                    if max_ch < 1:
+                        max_ch = 1
+                    elif max_ch > 2:
+                        max_ch = 2
+                    channels = max_ch
+                except Exception:
+                    channels = 1
 
-            stream = sd.InputStream(
-                samplerate=candidate_sr,
-                channels=channels,
-                dtype=np.float32,
-                device=None,  # default device
-                callback=self._current_callback,
-                blocksize=512,
-                # AUDIO-HOT: finished_callback detects unexpected stream termination
-                finished_callback=self._stream_finished_callback,
-            )
-            stream.start()
-            self._stream = stream
-            with self._lock:
-                self._effective_sr = candidate_sr
-            self._actual_channels = channels
-            self._device_disconnected = False
-            log.info("[RECORDING] Successfully restarted with default device at %d Hz", candidate_sr)
-        except Exception as e:
-            log.error("[RECORDING] Failed to restart with default device: %s", e)
+                stream = sd.InputStream(
+                    samplerate=candidate_sr,
+                    channels=channels,
+                    dtype=np.float32,
+                    device=None,  # default device
+                    callback=self._current_callback,
+                    blocksize=512,
+                    # AUDIO-HOT: finished_callback detects unexpected stream termination
+                    finished_callback=self._stream_finished_callback,
+                )
+                stream.start()
+                self._stream = stream
+                with self._lock:
+                    self._effective_sr = candidate_sr
+                self._actual_channels = channels
+                self._device_disconnected = False
+                log.info("[RECORDING] Successfully restarted with default device at %d Hz", candidate_sr)
+            except Exception as e:
+                log.error("[RECORDING] Failed to restart with default device: %s", e)
 
     # ── CPU-03: Device health checker thread ─────────────────────────
     #
@@ -1762,46 +1821,67 @@ class Recorder:
 
         Idempotent: safe to call when the stream is already None (e.g.
         when ``discard()`` is invoked twice, or after ``stop()``).
+
+        GT-24: the teardown sequence is wrapped in
+        ``self._stream_lifecycle_lock`` so a concurrent
+        ``_handle_device_disconnect`` restart block cannot mutate
+        ``self._stream`` mid-teardown (and vice-versa). Non-blocking
+        acquire so ``__del__`` (best-effort cleanup, wrapped in
+        ``contextlib.suppress``) never blocks on a long-running
+        ``stop()``/``discard()``/disconnect-handler holding the lock —
+        the holder will finish the teardown.
         """
-        if not self._stream:
+        # GT-24: serialize teardown w.r.t. concurrent
+        # _handle_device_disconnect restart. Non-blocking so __del__
+        # can't deadlock on a long-running stop()/discard().
+        if not self._stream_lifecycle_lock.acquire(blocking=False):
+            # Another thread is holding the lock — it will complete
+            # the teardown. Idempotent contract: returning here is
+            # safe because the holder guarantees ``self._stream`` is
+            # torn down before releasing.
             return
-        self._stream.stop()
-        # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
-        # callback to complete before closing the stream. This prevents
-        # PortAudio from calling the callback during/after stream.stop()
-        # which can cause use-after-free or deadlock.
-        #
-        # PERF-FIX-002 (Round 0): the previous "exponential backoff"
-        # implementation was inverted. It used::
-        #
-        #     if self._is_in_audio_callback.wait(timeout=_timeout):
-        #         break  # callback completed
-        #
-        # but ``threading.Event.wait(timeout)`` returns ``True`` when the
-        # flag is *set* — and the flag is set while the callback is
-        # *running* (see lines 1082/1086: set on entry, clear on exit).
-        # So the loop broke immediately when the callback WAS running
-        # (defeating the safety guard) and blocked for the full
-        # 20+30+50+80+130+200 = 510ms when the callback was NOT running
-        # (the common case).  Every dictation paid a half-second penalty.
-        #
-        # The fix: poll for the flag to become *clear* (callback not
-        # running), with a 5ms interval and a 300ms hard budget (matching
-        # the original 6×50ms worst case).  On a healthy system the flag
-        # is already clear on the first check → 0ms wait.  When the
-        # callback genuinely runs past ``stream.stop()``, the poll loop
-        # waits for it to finish (restoring the AUDIO-009/AUDIO-015
-        # safety contract).
-        _backoff_budget_s = 0.300  # total worst-case wait, same as pre-fix
-        _poll_interval_s = 0.005  # 5ms poll
-        _deadline = time.perf_counter() + _backoff_budget_s
-        while self._is_in_audio_callback.is_set():
-            remaining = _deadline - time.perf_counter()
-            if remaining <= 0:
-                break
-            time.sleep(min(_poll_interval_s, remaining))
-        self._stream.close()
-        self._stream = None
+        try:
+            if not self._stream:
+                return
+            self._stream.stop()
+            # AUDIO-009/AUDIO-015: wait briefly for any in-flight audio
+            # callback to complete before closing the stream. This prevents
+            # PortAudio from calling the callback during/after stream.stop()
+            # which can cause use-after-free or deadlock.
+            #
+            # PERF-FIX-002 (Round 0): the previous "exponential backoff"
+            # implementation was inverted. It used::
+            #
+            #     if self._is_in_audio_callback.wait(timeout=_timeout):
+            #         break  # callback completed
+            #
+            # but ``threading.Event.wait(timeout)`` returns ``True`` when the
+            # flag is *set* — and the flag is set while the callback is
+            # *running* (see lines 1082/1086: set on entry, clear on exit).
+            # So the loop broke immediately when the callback WAS running
+            # (defeating the safety guard) and blocked for the full
+            # 20+30+50+80+130+200 = 510ms when the callback was NOT running
+            # (the common case).  Every dictation paid a half-second penalty.
+            #
+            # The fix: poll for the flag to become *clear* (callback not
+            # running), with a 5ms interval and a 300ms hard budget (matching
+            # the original 6×50ms worst case).  On a healthy system the flag
+            # is already clear on the first check → 0ms wait.  When the
+            # callback genuinely runs past ``stream.stop()``, the poll loop
+            # waits for it to finish (restoring the AUDIO-009/AUDIO-015
+            # safety contract).
+            _backoff_budget_s = 0.300  # total worst-case wait, same as pre-fix
+            _poll_interval_s = 0.005  # 5ms poll
+            _deadline = time.perf_counter() + _backoff_budget_s
+            while self._is_in_audio_callback.is_set():
+                remaining = _deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                time.sleep(min(_poll_interval_s, remaining))
+            self._stream.close()
+            self._stream = None
+        finally:
+            self._stream_lifecycle_lock.release()
 
     # ── RT-SAFE-001: Audio worker thread lifecycle ──────────────────
 
@@ -1824,30 +1904,42 @@ class Recorder:
         the join completes (or times out) so a subsequent start()
         re-registers cleanly without triggering the
         "Re-registering name" warning.
+
+        GT-23: the entire read-check-create-start sequence is wrapped
+        in ``self._worker_lifecycle_lock`` so concurrent
+        start()/stop()/discard() callers cannot race on
+        ``self._worker_thread`` (both readers seeing ``None``, the
+        starter creating+assigning a fresh worker, the stopper
+        returning early and leaving that worker untracked).
         """
-        if self._worker_thread is not None and self._worker_thread.is_alive():
-            return
-        # Reset stop event (in case a previous stop() left it set)
-        self._worker_stop_event.clear()
-        self._worker_wake_event.clear()
-        # Clear the ring buffer of any stale chunks from a previous session
-        self._ring_buffer.clear()
-        self._worker_thread = threading.Thread(
-            target=self._audio_worker_loop,
-            name=_AUDIO_WORKER_THREAD_NAME,
-            daemon=True,
-        )
-        self._worker_thread.start()
-        # THREAD-REGISTRY: register the freshly-started worker so the
-        # central registry can signal/join it on shutdown. The join
-        # timeout matches the worst-case stop() path (drain=True).
-        if self._thread_registry is not None:
-            self._thread_registry.register(
+        # GT-23: hold the lifecycle lock across the entire
+        # read-check-create-start sequence so a concurrent
+        # _stop_audio_worker() cannot observe a stale ``None``
+        # mid-create.
+        with self._worker_lifecycle_lock:
+            if self._worker_thread is not None and self._worker_thread.is_alive():
+                return
+            # Reset stop event (in case a previous stop() left it set)
+            self._worker_stop_event.clear()
+            self._worker_wake_event.clear()
+            # Clear the ring buffer of any stale chunks from a previous session
+            self._ring_buffer.clear()
+            self._worker_thread = threading.Thread(
+                target=self._audio_worker_loop,
                 name=_AUDIO_WORKER_THREAD_NAME,
-                thread=self._worker_thread,
-                stop_event=self._worker_stop_event,
-                join_timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S,
+                daemon=True,
             )
+            self._worker_thread.start()
+            # THREAD-REGISTRY: register the freshly-started worker so the
+            # central registry can signal/join it on shutdown. The join
+            # timeout matches the worst-case stop() path (drain=True).
+            if self._thread_registry is not None:
+                self._thread_registry.register(
+                    name=_AUDIO_WORKER_THREAD_NAME,
+                    thread=self._worker_thread,
+                    stop_event=self._worker_stop_event,
+                    join_timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S,
+                )
 
     def _stop_audio_worker(self, *, timeout: float, drain: bool = True) -> None:
         """Signal the audio worker thread to stop and join it.
@@ -1867,44 +1959,57 @@ class Recorder:
 
         THREAD-REGISTRY: unregisters the worker after the join so a
         subsequent ``_start_audio_worker()`` re-registers cleanly.
+
+        GT-23: the entire read-check-clear-join-unregister sequence is
+        wrapped in ``self._worker_lifecycle_lock`` (NOT ``self._lock``)
+        so concurrent stop()/discard() callers cannot both read
+        ``self._worker_thread is None`` and both return early leaving
+        a fresh worker untracked. ``self._lock`` is intentionally NOT
+        held across ``thread.join()`` — the worker thread acquires
+        ``self._lock`` inside ``_process_audio_chunk`` for the buffer
+        append, so holding it across ``join()`` would deadlock.
         """
-        if self._worker_thread is None:
-            # Still reset the stop event so the next start() is clean.
+        # GT-23: hold the lifecycle lock across the entire
+        # read-check-clear-join-unregister sequence. This is a
+        # separate lock from self._lock — see the docstring above.
+        with self._worker_lifecycle_lock:
+            if self._worker_thread is None:
+                # Still reset the stop event so the next start() is clean.
+                self._worker_stop_event.clear()
+                return
+            if not drain:
+                # discard() path: clear the ring buffer so the worker has
+                # nothing left to process. It will finish its current chunk
+                # (if any) and then exit on the next iteration.
+                self._ring_buffer.clear()
+            # Signal the worker to stop.
+            self._worker_stop_event.set()
+            # Wake the worker in case it's blocked on the wait event.
+            self._worker_wake_event.set()
+            # Join with timeout. If the worker doesn't exit in time (e.g.,
+            # stuck in VAD inference), we proceed anyway — the worker is a
+            # daemon, so it won't block process exit. A stale worker is
+            # harmless because the stop event is set; it will exit on its
+            # next iteration boundary.
+            self._worker_thread.join(timeout=timeout)
+            if self._worker_thread.is_alive():
+                log.warning(
+                    "[RECORDING] Audio worker thread did not exit within %.1fs "
+                    "(it will exit as a daemon on next iteration)",
+                    timeout,
+                )
+            else:
+                log.debug("[RECORDING] Audio worker thread exited cleanly")
+            # THREAD-REGISTRY: remove the entry so a subsequent start()
+            # re-registers cleanly. If shutdown_all() already ran and
+            # joined the thread, this is a no-op (the entry was already
+            # used). Safe to call when no entry exists.
+            if self._thread_registry is not None:
+                self._thread_registry.unregister(_AUDIO_WORKER_THREAD_NAME)
+            # Clear the stop event so the next start() can reuse the fields.
             self._worker_stop_event.clear()
-            return
-        if not drain:
-            # discard() path: clear the ring buffer so the worker has
-            # nothing left to process. It will finish its current chunk
-            # (if any) and then exit on the next iteration.
-            self._ring_buffer.clear()
-        # Signal the worker to stop.
-        self._worker_stop_event.set()
-        # Wake the worker in case it's blocked on the wait event.
-        self._worker_wake_event.set()
-        # Join with timeout. If the worker doesn't exit in time (e.g.,
-        # stuck in VAD inference), we proceed anyway — the worker is a
-        # daemon, so it won't block process exit. A stale worker is
-        # harmless because the stop event is set; it will exit on its
-        # next iteration boundary.
-        self._worker_thread.join(timeout=timeout)
-        if self._worker_thread.is_alive():
-            log.warning(
-                "[RECORDING] Audio worker thread did not exit within %.1fs "
-                "(it will exit as a daemon on next iteration)",
-                timeout,
-            )
-        else:
-            log.debug("[RECORDING] Audio worker thread exited cleanly")
-        # THREAD-REGISTRY: remove the entry so a subsequent start()
-        # re-registers cleanly. If shutdown_all() already ran and
-        # joined the thread, this is a no-op (the entry was already
-        # used). Safe to call when no entry exists.
-        if self._thread_registry is not None:
-            self._thread_registry.unregister(_AUDIO_WORKER_THREAD_NAME)
-        # Clear the stop event so the next start() can reuse the fields.
-        self._worker_stop_event.clear()
-        self._worker_wake_event.clear()
-        self._worker_thread = None
+            self._worker_wake_event.clear()
+            self._worker_thread = None
 
     # ── RW-8: IPC event worker thread lifecycle ─────────────────────
 
@@ -1925,30 +2030,41 @@ class Recorder:
         THREAD-REGISTRY: when a registry was provided to ``__init__``,
         the event worker thread is registered so ``shutdown_all()`` can
         signal and join it during ``VoiceTyperApp.quit()``.
+
+        GT-23: the entire read-check-create-start sequence is wrapped
+        in ``self._worker_lifecycle_lock`` (the same lock used by the
+        audio worker lifecycle methods) so concurrent
+        start()/stop()/discard() callers cannot race on
+        ``self._event_worker_thread``.
         """
-        if self._event_worker_thread is not None and self._event_worker_thread.is_alive():
-            return
-        self._event_stop_event.clear()
-        # Drain any stale events from a previous session.
-        with contextlib.suppress(Exception):
-            while True:
-                try:
-                    self._event_queue.get_nowait()
-                except queue.Empty:
-                    break
-        self._event_worker_thread = threading.Thread(
-            target=self._event_worker_loop,
-            name=_EVENT_WORKER_THREAD_NAME,
-            daemon=True,
-        )
-        self._event_worker_thread.start()
-        if self._thread_registry is not None:
-            self._thread_registry.register(
+        # GT-23: hold the lifecycle lock across the entire
+        # read-check-create-start sequence so a concurrent
+        # _stop_event_worker() cannot observe a stale ``None``
+        # mid-create.
+        with self._worker_lifecycle_lock:
+            if self._event_worker_thread is not None and self._event_worker_thread.is_alive():
+                return
+            self._event_stop_event.clear()
+            # Drain any stale events from a previous session.
+            with contextlib.suppress(Exception):
+                while True:
+                    try:
+                        self._event_queue.get_nowait()
+                    except queue.Empty:
+                        break
+            self._event_worker_thread = threading.Thread(
+                target=self._event_worker_loop,
                 name=_EVENT_WORKER_THREAD_NAME,
-                thread=self._event_worker_thread,
-                stop_event=self._event_stop_event,
-                join_timeout=_EVENT_WORKER_JOIN_TIMEOUT_S,
+                daemon=True,
             )
+            self._event_worker_thread.start()
+            if self._thread_registry is not None:
+                self._thread_registry.register(
+                    name=_EVENT_WORKER_THREAD_NAME,
+                    thread=self._event_worker_thread,
+                    stop_event=self._event_stop_event,
+                    join_timeout=_EVENT_WORKER_JOIN_TIMEOUT_S,
+                )
 
     def _stop_event_worker(self, *, timeout: float, drain: bool = True) -> None:
         """Signal the event worker thread to stop and join it.
@@ -1970,41 +2086,50 @@ class Recorder:
         subsequent ``_start_event_worker()`` re-registers cleanly.
 
         Safe to call when the worker is not running (no-op).
+
+        GT-23: the entire read-check-clear-join-unregister sequence is
+        wrapped in ``self._worker_lifecycle_lock`` so concurrent
+        stop()/discard() callers cannot both read
+        ``self._event_worker_thread is None`` and both return early
+        leaving a fresh worker untracked.
         """
-        if self._event_worker_thread is None:
-            # Still reset the stop event so the next start() is clean.
+        # GT-23: hold the lifecycle lock across the entire
+        # read-check-clear-join-unregister sequence.
+        with self._worker_lifecycle_lock:
+            if self._event_worker_thread is None:
+                # Still reset the stop event so the next start() is clean.
+                self._event_stop_event.clear()
+                return
+            if not drain:
+                # discard() path: clear the queue so the worker has nothing
+                # left to publish. It will finish its current publish (if
+                # any) and then exit on the next iteration.
+                with contextlib.suppress(Exception):
+                    while True:
+                        try:
+                            self._event_queue.get_nowait()
+                        except queue.Empty:
+                            break
+            # Signal the worker to stop.
+            self._event_stop_event.set()
+            # Join with timeout. If the worker doesn't exit in time (e.g.,
+            # stuck in a slow publish), we proceed anyway — the worker is a
+            # daemon, so it won't block process exit. A stale worker is
+            # harmless because the stop event is set; it will exit on its
+            # next iteration boundary.
+            self._event_worker_thread.join(timeout=timeout)
+            if self._event_worker_thread.is_alive():
+                log.warning(
+                    "[RECORDING] Event worker thread did not exit within %.1fs "
+                    "(it will exit as a daemon on next iteration)",
+                    timeout,
+                )
+            else:
+                log.debug("[RECORDING] Event worker thread exited cleanly")
+            if self._thread_registry is not None:
+                self._thread_registry.unregister(_EVENT_WORKER_THREAD_NAME)
             self._event_stop_event.clear()
-            return
-        if not drain:
-            # discard() path: clear the queue so the worker has nothing
-            # left to publish. It will finish its current publish (if
-            # any) and then exit on the next iteration.
-            with contextlib.suppress(Exception):
-                while True:
-                    try:
-                        self._event_queue.get_nowait()
-                    except queue.Empty:
-                        break
-        # Signal the worker to stop.
-        self._event_stop_event.set()
-        # Join with timeout. If the worker doesn't exit in time (e.g.,
-        # stuck in a slow publish), we proceed anyway — the worker is a
-        # daemon, so it won't block process exit. A stale worker is
-        # harmless because the stop event is set; it will exit on its
-        # next iteration boundary.
-        self._event_worker_thread.join(timeout=timeout)
-        if self._event_worker_thread.is_alive():
-            log.warning(
-                "[RECORDING] Event worker thread did not exit within %.1fs "
-                "(it will exit as a daemon on next iteration)",
-                timeout,
-            )
-        else:
-            log.debug("[RECORDING] Event worker thread exited cleanly")
-        if self._thread_registry is not None:
-            self._thread_registry.unregister(_EVENT_WORKER_THREAD_NAME)
-        self._event_stop_event.clear()
-        self._event_worker_thread = None
+            self._event_worker_thread = None
 
     def _event_worker_loop(self) -> None:
         """IPC event worker thread main loop (RW-8).

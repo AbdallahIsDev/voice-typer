@@ -15,10 +15,41 @@
  */
 import { ipcMain, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
-import { BUBBLE_CLR, RESET, ts } from "../logging";
 import { sendToPython } from "../python";
 import { state } from "../state";
 import { centerOnPrimaryDisplay, showBubbleWindow } from "../windows";
+
+// AC-108: structured logger. Resolved defensively via `require()` so
+// unit-test environments that mock `../logging` minimally (without
+// the `log` export) still pass — `require()` returns the mocked
+// module, `.log` is undefined, and we fall back to the legacy
+// `console.*` pattern. In production the real `log` is used (with
+// stdout + electron-runtime.log file tee).
+let log: {
+	info: (...args: unknown[]) => void;
+	warn: (...args: unknown[]) => void;
+	error: (...args: unknown[]) => void;
+};
+try {
+	// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+	log = require("../logging").log;
+} catch {
+	log = {
+		info: (...args: unknown[]) => console.info("[BUBBLE]", ...args),
+		warn: (...args: unknown[]) => console.warn("[BUBBLE]", ...args),
+		error: (...args: unknown[]) => console.error("[BUBBLE]", ...args),
+	};
+}
+// Defense-in-depth: if `require("../logging")` succeeded but returned a
+// module object without `.log` (e.g. a minimal test mock), fall back to
+// the console.* pattern so the warn calls below never crash.
+if (!log) {
+	log = {
+		info: (...args: unknown[]) => console.info("[BUBBLE]", ...args),
+		warn: (...args: unknown[]) => console.warn("[BUBBLE]", ...args),
+		error: (...args: unknown[]) => console.error("[BUBBLE]", ...args),
+	};
+}
 
 // PVT fix (#11): min/max resize constraints for the bubble pill. The
 // renderer's auto-resize useLayoutEffect measures the pill content and
@@ -171,9 +202,7 @@ export function registerBubbleHandlers(): void {
 		// `toggle_dictation` is in ALLOWED_COMMANDS, so this is a
 		// sanctioned backend call (never an arbitrary command).
 		void sendToPython({ type: "toggle_dictation" }).catch((err) => {
-			console.warn(
-				`${ts()}  ${BUBBLE_CLR}[BUBBLE] toggle_dictation failed: ${String(err)}${RESET}`,
-			);
+			log.warn("[BUBBLE] toggle_dictation failed:", String(err));
 		});
 	});
 
@@ -213,9 +242,7 @@ export function registerBubbleHandlers(): void {
 	ipcMain.on("bubble:ready", (event) => {
 		// SEC-016: only the bubble window signals readiness.
 		if (!assertFromBubble(event)) return;
-		console.warn(
-			`${ts()}  ${BUBBLE_CLR}[BUBBLE] renderer reports ready${RESET}`,
-		);
+		log.warn("[BUBBLE] renderer reports ready");
 		state._bubblePageReady = true;
 	});
 }

@@ -31,10 +31,20 @@ interface UseTemplateImportExportArgs {
 
 interface UseTemplateImportExportResult {
 	importInputRef: React.RefObject<HTMLInputElement | null>;
-	doExport: () => Promise<void>;
+	doExport: (format?: "json" | "csv") => Promise<void>;
 	handleImportFile: (file: File | undefined | null) => Promise<void>;
 	handleImportClick: () => void;
 }
+
+// BG-63: bridge.exportTemplates in types/ipc.ts doesn't yet accept a
+// `format` parameter (F20 owns types/ipc.ts and will extend the
+// signature). We pass `format` at runtime anyway so the IPC payload
+// reaches the backend correctly once F20 ships the type extension;
+// this local alias keeps TypeScript happy in the meantime.
+type ExportTemplatesWithFormat = (
+	data: unknown,
+	format: "json" | "csv",
+) => Promise<{ success: boolean; path?: string; error?: string }>;
 
 export function useTemplateImportExport({
 	call,
@@ -49,27 +59,42 @@ export function useTemplateImportExport({
 	// (NEW-PRIV-007 GDPR right-to-export) when available.  Falls back
 	// to a no-op toast if the bridge is missing (e.g. running outside
 	// Electron) so the button isn't a silent dead control.
-	const doExport = useCallback(async () => {
-		try {
-			const items = rowsToTemplates(templatesRef.current);
-			const bridge = window.window_;
-			if (!bridge?.exportTemplates) {
-				toast.error(t("vocabulary.exportNotAvailable"));
-				return;
+	//
+	// BG-63: ``format`` is forwarded from the ExportFormatMenu (JSON /
+	// CSV).  Defaults to ``"json"`` so callers that don't care about
+	// the format (e.g. an ad-hoc test or a future "quick-export"
+	// shortcut) preserve the previous behaviour bit-for-bit.
+	const doExport = useCallback(
+		async (format: "json" | "csv" = "json") => {
+			try {
+				const items = rowsToTemplates(templatesRef.current);
+				const bridge = window.window_;
+				if (!bridge?.exportTemplates) {
+					toast.error(t("vocabulary.exportNotAvailable"));
+					return;
+				}
+				// BG-63: pass ``format`` to the IPC bridge so the
+				// backend can pick the right serialiser. The
+				// WindowBridge type in types/ipc.ts doesn't yet
+				// declare the second arg (F20 owns that file) — the
+				// local cast above is the temporary bridge.
+				const result = await (
+					bridge.exportTemplates as ExportTemplatesWithFormat
+				)({ templates: items }, format);
+				if (result.success) {
+					const path = result.path ?? "";
+					const filename = path.split(/[\\/]/).pop() || "untitled";
+					toast.success(t("history.exportSaved", { filename }));
+				} else {
+					toast.error(result.error || t("history.exportFailed"));
+				}
+			} catch (err) {
+				console.error("Templates export failed:", err);
+				toast.error(t("history.exportFailed"));
 			}
-			const result = await bridge.exportTemplates({ templates: items });
-			if (result.success) {
-				const path = result.path ?? "";
-				const filename = path.split(/[\\/]/).pop() || "untitled";
-				toast.success(t("history.exportSaved", { filename }));
-			} else {
-				toast.error(result.error || t("history.exportFailed"));
-			}
-		} catch (err) {
-			console.error("Templates export failed:", err);
-			toast.error(t("history.exportFailed"));
-		}
-	}, [templatesRef]);
+		},
+		[templatesRef],
+	);
 
 	// Import: hidden ``<input type="file">`` opens the OS-native picker.
 	// We read the file via ``File.text()`` (Chromium ≥ 76, Electron

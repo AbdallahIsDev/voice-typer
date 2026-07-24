@@ -45,9 +45,13 @@ const CONTRIBUTING_URL =
 // folder holds deeper references (FEATURES.md, ADRs, debugging guide).
 const DOCUMENTATION_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md";
-// NEW-PRIV-004 / NEW-UX-021: in-app documentation links.
-const PRIVACY_POLICY_URL =
-	"https://github.com/AbdallahIsDev/voice-typer/blob/main/SECURITY.md";
+// BG-59: SECURITY.md is the canonical privacy + security policy doc
+// in this repo (there is no separate PRIVACY.md). Previously the About
+// page rendered two byte-identical buttons ("Full Privacy Policy" and
+// "Security Policy") that both pointed at SECURITY.md — confusing UX.
+// We now render only the Security Policy button (in Resources) and add
+// a one-line note in the Privacy section body explaining that
+// SECURITY.md covers privacy practices too.
 
 // Small label/value row that matches the visual rhythm of SettingRow
 // but doesn't carry the input-association machinery (we're read-only).
@@ -321,17 +325,20 @@ export default function AboutPage() {
 								configDir: configDir || t("about.loading"),
 							})}
 						</p>
-					</div>
-					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
-						<Button asChild variant="outline" size="sm">
-							<a
-								href={PRIVACY_POLICY_URL}
-								target="_blank"
-								rel="noreferrer noopener"
-							>
-								{t("about.fullPrivacyPolicy")}
-							</a>
-						</Button>
+						{/* BG-59: SECURITY.md is the canonical privacy +
+						 * security policy doc in this repo (there is no
+						 * separate PRIVACY.md). Previously this section
+						 * had a "Full Privacy Policy" button that pointed
+						 * at the same SECURITY.md as the Resources section's
+						 * "Security Policy" button — confusing UX. We now
+						 * point users to the Security Policy button below
+						 * instead of rendering a duplicate. */}
+						<p>
+							<span className="font-medium text-(--text-primary)">
+								{t("about.privacyPolicyNoteLabel")}
+							</span>{" "}
+							{t("about.privacyPolicyNote")}
+						</p>
 					</div>
 				</SettingsSection>
 

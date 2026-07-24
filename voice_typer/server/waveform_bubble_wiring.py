@@ -255,13 +255,19 @@ class WaveformBubbleWiring:
             )
 
         def _push_bubble_config(cfg: Any) -> None:
-            """UX-10: push the bubble-relevant subset of config to the
+            """UX-10 / BG-29: push the bubble-relevant subset of config to the
             Electron bubble renderer so it can decide whether to show the
             mic button (the bubble is sandboxed and receives NO get_config
-            otherwise). Emits a ``bubble_config`` event carrying just the
-            two keys the bubble needs. Fires once at startup and again on
-            every ``set_config`` that touches either key (see
-            ``config_handlers`` / service ``apply_config`` push path).
+            otherwise). Emits a ``bubble_config`` event carrying the
+            bubble-behavior keys plus the theme triplet (``theme_mode``,
+            ``theme_preset``, ``custom_theme``) so the bubble renderer's
+            ``useThemeSync`` hook (PVT-017) can paint with the same preset
+            as the main app instead of always falling through to the OS
+            ``prefers-color-scheme`` default. Fires once at startup and
+            again on every ``set_config`` that touches any of these keys
+            (see ``config_handlers`` push path — the trigger list there
+            must include the theme keys for the bubble to actually receive
+            theme updates; see BG-29 handoff note in the worklog).
             """
             event_bus.publish(
                 {
@@ -270,6 +276,13 @@ class WaveformBubbleWiring:
                         "bubble_behavior": getattr(cfg, "bubble_behavior", "show_on_record"),
                         "bubble_click_to_toggle": getattr(cfg, "bubble_click_to_toggle", True),
                         "bubble_mic_button": getattr(cfg, "bubble_mic_button", True),
+                        # BG-29: theme sync. The renderer's useThemeSync hook
+                        # (bubble-components.tsx) already consumes these three
+                        # fields; previously the backend never sent them, so
+                        # the bubble always fell through to OS prefs.
+                        "theme_mode": getattr(cfg, "theme_mode", "system"),
+                        "theme_preset": getattr(cfg, "theme_preset", "default"),
+                        "custom_theme": getattr(cfg, "custom_theme", None),
                     },
                 }
             )

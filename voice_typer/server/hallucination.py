@@ -70,8 +70,13 @@ def should_reject_low_audio_hallucination(
         return False
 
     # Tier 1: simple check (always available)
+    # ER-41 (Medium): raised silence_pct threshold from 90→95 to avoid cutting
+    # legitimate quiet "thank you"/"bye" utterances that happen to have
+    # silence_pct in the 90-95 range. The rms < 0.001 check alone is kept
+    # (it's a strong signal — -60 dBFS is extremely quiet) but the silence_pct
+    # gate is stricter so borderline cases aren't auto-rejected.
     if rms < 0.001:
-        if silence_pct is not None and silence_pct > 90.0:
+        if silence_pct is not None and silence_pct >= 95.0:
             return True
         # Very low RMS without silence info — still suspicious for known hallucination
         if silence_pct is None and rms < 0.001:

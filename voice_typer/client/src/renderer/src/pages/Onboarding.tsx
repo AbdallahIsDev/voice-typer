@@ -130,7 +130,11 @@ export default function OnboardingPage({
 							total: String(step.total_steps),
 						})}
 					</span>
-					<span>{step.step_name}</span>
+					{/* BG-12: localize the visible step-name label
+					    (was raw backend enum string like "Permissions"). */}
+					<span>
+						{t(STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle")}
+					</span>
 				</div>
 				<div
 					className="h-1.5 w-full rounded-full bg-(--bg-subtle)"
@@ -138,7 +142,10 @@ export default function OnboardingPage({
 					aria-valuenow={step.step + 1}
 					aria-valuemin={1}
 					aria-valuemax={step.total_steps}
-					aria-label={t("onboarding.progressAria")}
+					aria-label={t("onboarding.progressAria", {
+						current: String(step.step + 1),
+						total: String(step.total_steps),
+					})}
 				>
 					<div
 						className="h-1.5 rounded-full bg-accent transition-all duration-300"
@@ -148,10 +155,10 @@ export default function OnboardingPage({
 			</div>
 
 			{/* Fix 14: sr-only page heading. Uses the localized step title
-                                        (was raw `step.step_name` like "Permissions"). The step-
-                                        progress prefix keeps this text distinct from the visible
-                                        per-step heading so `getByText` in tests resolves to a
-                                        single element, and gives screen readers the step context. */}
+					(was raw `step.step_name` like "Permissions"). The step-
+					progress prefix keeps this text distinct from the visible
+					per-step heading so `getByText` in tests resolves to a
+					single element, and gives screen readers the step context. */}
 			<h1 className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),

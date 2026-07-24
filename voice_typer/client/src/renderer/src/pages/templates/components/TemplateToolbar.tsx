@@ -18,7 +18,14 @@ interface TemplateToolbarProps {
 	importInputRef: RefObject<HTMLInputElement | null>;
 	onImportClick: () => void;
 	onImportFile: (file: File | undefined | null) => void;
-	onExport: () => void;
+	/**
+	 * Export callback. The format ("json" | "csv") is chosen by the
+	 * ExportFormatMenu and forwarded here so the parent can pass it
+	 * through to the IPC bridge. BG-63: previously the parent's
+	 * arrow function `() => doExport()` dropped the format arg, so
+	 * CSV export silently behaved like JSON export.
+	 */
+	onExport: (format: "json" | "csv") => void | Promise<void>;
 	onAdd: () => void;
 	exportDisabled: boolean;
 }

@@ -1,4 +1,4 @@
-"""RW-9 god-class decomposition: AudioQualityController — extracted from VoiceTyperApp.
+"""RW-9 god-class decomposition: AudioQualityController -- extracted from VoiceTyperApp.
 
 Owns the audio-quality concern: per-chunk quality accumulation, on-the-fly
 filter-chain rebuilds on config change, and the final post-recording
@@ -10,13 +10,13 @@ Previously these three private methods lived on ``VoiceTyperApp``:
     - ``_rebuild_audio_processor``
     - ``_finalize_audio_quality_report``
 
-The behaviour is preserved verbatim — only the class boundary moved.
+The behaviour is preserved verbatim -- only the class boundary moved.
 ``VoiceTyperApp`` keeps thin delegate methods so existing callers (the
 ``AudioProcessor`` quality-callback wiring in ``__init__``,
 ``service.apply_config_side_effects``, and
 ``RecordingController.stop()``) keep working unchanged.
 
-RW-9 §5.2 risk: LOW — these methods are cohesive (all about audio
+RW- 9 risk: LOW -- these methods are cohesive (all about audio
 quality) and only touch ``self._app._audio_quality`` /
 ``self._app._audio_processor`` / ``self._app.tray`` /
 ``self._app.recorder`` / ``self._app.config``.
@@ -24,7 +24,7 @@ quality) and only touch ``self._app._audio_quality`` /
 A note on the PortAudio thread contract (mirrors the original
 docstring on ``_on_audio_quality_chunk``): that callback runs inside
 the PortAudio audio callback thread, so it MUST be non-blocking. The
-body only updates cheap running statistics — no I/O, no allocation of
+body only updates cheap running statistics -- no I/O, no allocation of
 large structures, no per-chunk logging. Full analysis runs in
 ``_finalize_audio_quality_report`` after ``recorder.stop()``.
 """
@@ -48,17 +48,17 @@ log = logging.getLogger(__name__)
 class AudioQualityController:
     """Owns per-chunk + post-recording audio-quality analysis + filter rebuilds.
 
-    RW-9 §5.2: extracted from ``VoiceTyperApp``. The app passes itself
+    RW-9: extracted from ``VoiceTyperApp``. The app passes itself
     (``app``) so ``AudioQualityController`` can:
     - Read/write ``app._audio_quality`` (the :class:`AudioQualityAnalyzer`
-      instance) — per-chunk accumulators and post-recording analysis.
+      instance) -- per-chunk accumulators and post-recording analysis.
     - Read/write ``app._audio_processor`` (the :class:`AudioProcessor`)
-      — rebuilt atomically when filter-chain config fields change.
+      -- rebuilt atomically when filter-chain config fields change.
     - Read ``app.config`` (``audio_quality_warnings`` kill-switch,
       plus the config consumed by ``rebuild_from_config``).
-    - Read ``app.recorder`` — refreshes the ``_vad_enabled`` cache
+    - Read ``app.recorder`` -- refreshes the ``_vad_enabled`` cache
       after a rebuild via ``recorder.on_config_changed`` (PERF-02 / R8).
-    - (Historically) call ``app.tray.notify`` — but the post-recording
+    - (Historically) call ``app.tray.notify`` -- but the post-recording
       report deliberately never surfaces a tray notification anymore
       (see :meth:`_finalize_audio_quality_report`).
     """
@@ -66,21 +66,21 @@ class AudioQualityController:
     def __init__(self, app: Any) -> None:
         self._app = app
 
-    # ── Per-chunk quality callback (PortAudio thread — MUST be non-blocking) ──
+    # Per-chunk quality callback (PortAudio thread -- MUST be non-blocking)
 
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Per-chunk quality callback wired to AudioProcessor.
 
         Runs inside the PortAudio audio callback (via
-        ``AudioProcessor.process_chunk`` → ``_run_quality_check``), so
+        ``AudioProcessor.process_chunk`` -> ``_run_quality_check``), so
         it MUST be non-blocking.  We only update cheap running
-        statistics — no I/O, no allocation of large structures, no
+        statistics -- no I/O, no allocation of large structures, no
         logging per chunk.  Full analysis runs in
         :meth:`_finalize_audio_quality_report` after stop().
 
         The analyzer's :meth:`analyze_chunk` would normally take the
         raw numpy chunk, but we already have (rms, peak) computed by
-        the AudioProcessor — reconstructing the chunk just to compute
+        the AudioProcessor -- reconstructing the chunk just to compute
         the same metrics again would waste cycles.  Instead we feed
         the precomputed values into the analyzer's internal accumulators
         directly.
@@ -91,13 +91,13 @@ class AudioQualityController:
         clipping detection). When the EMA stays below
         :attr:`AudioQualityAnalyzer.LOW_VOLUME_THRESHOLD` for
         :attr:`AudioQualityAnalyzer.LOW_VOLUME_SUSTAINED_CHUNKS`
-        consecutive chunks, a single "low input level — increase mic
+        consecutive chunks, a single "low input level -- increase mic
         gain" WARNING is logged. The warning is latched per episode
         (suppresses repeats) and resets on recovery.
         """
         try:
             aq = self._app._audio_quality
-            # Mirror analyze_chunk() without the numpy work — we
+            # Mirror analyze_chunk() without the numpy work -- we
             # already have rms and peak from the AudioProcessor.
             # 17-C-FIX-3: _rms_values was removed (write-only list);
             # we no longer append to it here.
@@ -108,7 +108,7 @@ class AudioQualityController:
                 aq._clip_count += 1
             # AUDIO-8: feed the precomputed rms into the EMA accumulator
             # and surface a single low-volume warning if sustained. The
-            # EMA update is two float multiplies + one add — well within
+            # EMA update is two float multiplies + one add -- well within
             # the PortAudio non-blocking budget.
             warning = aq.update_live_rms(rms)
             if warning is not None:
@@ -125,16 +125,16 @@ class AudioQualityController:
             # Quality analysis must NEVER break the audio callback.
             log.debug("[AUDIO_QUALITY] per-chunk update failed", exc_info=True)
 
-    # ── Filter-chain rebuild (called from service.apply_config_side_effects) ──
+    # Filter-chain rebuild (called from service.apply_config_side_effects)
 
     def _rebuild_audio_processor(self, force_sr: int | None = None) -> None:
-        """ADR 0007 §6.1: Rebuild the audio filter chain from current config.
+        """ADR 0007: Rebuild the audio filter chain from current config.
 
         Called by ``service.apply_config_side_effects`` when any
         ``noise_filter_*`` or ``audio_preset`` or
         ``noise_suppression_method`` config field changes. Atomically
         swaps the filter chain so the next ``process_chunk()`` call
-        uses the new filters — no restart required.
+        uses the new filters -- no restart required.
 
         AUDIO-6 (High) + AUDIO-9 (Medium): ``force_sr`` parameter
         rebuilds the chain at a specific sample rate before applying
@@ -142,7 +142,7 @@ class AudioQualityController:
         rate changes (e.g. on hot-plug or when ``Recorder`` resolves a
         new ``candidate_sr`` that differs from ``config.sample_rate``).
         The wiring (calling this method with the new ``candidate_sr``)
-        is owned by FIX-2 in ``recording.py`` — this method just
+        is owned by FIX-2 in ``recording.py`` -- this method just
         exposes the API. When ``force_sr`` is None (the default,
         used by all existing callers), behavior is unchanged.
 
@@ -159,10 +159,10 @@ class AudioQualityController:
                 # builds filters with coefficients tuned to the actual
                 # device rate. ``AudioProcessor.set_sample_rate`` now
                 # exists (FA5-FIX), so the ``getattr`` lookup succeeds
-                # and the call is made for real — previously this branch
+                # and the call is made for real -- previously this branch
                 # silently fell through to the dead-fallback log line
                 # below, leaving all filter coefficients tuned to the
-                # original sample rate (hot-plug → mistuned filter chain).
+                # original sample rate (hot-plug -> mistuned filter chain).
                 # The ``getattr`` guard is retained only as a defensive
                 # measure for spec-limited test doubles that omit the
                 # method; production code paths always have it.
@@ -185,7 +185,7 @@ class AudioQualityController:
         except Exception:
             log.exception("[APP] Failed to rebuild audio processor")
 
-    # ── Post-recording analysis (called from RecordingController.stop()) ──
+    # Post-recording analysis (called from RecordingController.stop())
 
     def _finalize_audio_quality_report(self, audio: np.ndarray) -> None:
         """Run final audio-quality analysis and surface warnings.
@@ -197,28 +197,45 @@ class AudioQualityController:
         fire here ("Low volume (RMS=...). Increase mic gain or move
         closer. | High noise (ratio=...). Try a quieter environment")
         was deemed annoying by users. We now short-circuit at the top of
-        this method so NO tray notification is ever shown — even if a
+        this method so NO tray notification is ever shown -- even if a
         user manually sets ``audio_quality_warnings = True`` in their
         config file. The internal ``AudioQualityAnalyzer`` may still
         run for logging purposes (below), but it MUST NOT surface any
         user-facing notification.
+
+        ER-44: the per-chunk accumulator state (clip_count, peak,
+        rms_ema, low_volume_chunks) is now reset in a ``finally:`` block
+        so it ALWAYS runs -- even when ``audio_quality_warnings=False``
+        (the early-return guard used to skip reset, leaking state across
+        recording sessions) or when ``analyze_full_audio`` raises. The
+        per-chunk callback accumulates state regardless of the warnings
+        flag, so failing to reset would carry the previous session's
+        clipping/low-volume stats into the next session's report.
         """
         # Hard short-circuit: NEVER show a tray notification. The
         # ``audio_quality_warnings`` config field is honored here only
         # as a kill-switch (when False, we skip the analysis entirely
         # for efficiency); when True we still run the analysis for
         # internal logging but DO NOT call ``self.tray.notify``.
-        if not getattr(self._app.config, "audio_quality_warnings", False):
-            return
-        # Even when the flag is True, we deliberately do NOT call
-        # ``self.tray.notify``. Run the analysis for internal logging
-        # only, then bail out.
         try:
-            report = self._app._audio_quality.analyze_full_audio(audio)
-            if report.has_issues:
-                summary = report.get_summary()
-                log.info("[AUDIO_QUALITY] Issues detected: %s", summary)
-            # Reset for the next session.
-            self._app._audio_quality.reset()
-        except Exception:
-            log.debug("[AUDIO_QUALITY] finalize report failed", exc_info=True)
+            if not getattr(self._app.config, "audio_quality_warnings", False):
+                return
+            # Even when the flag is True, we deliberately do NOT call
+            # ``self.tray.notify``. Run the analysis for internal logging
+            # only, then bail out.
+            try:
+                report = self._app._audio_quality.analyze_full_audio(audio)
+                if report.has_issues:
+                    summary = report.get_summary()
+                    log.info("[AUDIO_QUALITY] Issues detected: %s", summary)
+            except Exception:
+                log.debug("[AUDIO_QUALITY] finalize report failed", exc_info=True)
+        finally:
+            # ER-44: reset for the next session ALWAYS runs -- even on
+            # the early-return path (warnings disabled) and on exception
+            # from analyze_full_audio. Wrap in suppress so a buggy
+            # analyzer.reset() can't break RecordingController.stop().
+            try:
+                self._app._audio_quality.reset()
+            except Exception:
+                log.debug("[AUDIO_QUALITY] reset() during finalize failed", exc_info=True)

@@ -22,6 +22,15 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# ER-55: precompiled regexes — was `re.sub(r"\s+", ...)` recompiled per call
+# (Python's re module has an internal cache, but with MAX_TEMPLATES=1000 the
+# inner loop re-looks-up the cached pattern 1000 times per dictation).
+_WHITESPACE_RE = re.compile(r"\s+")
+# ER-55: single regex pass for variable substitution with lazy resolution.
+# Was: 4 eager str.replace() calls, including a potentially-blocking
+# _get_clipboard_text() even when the output had no {clipboard} placeholder.
+_TEMPLATE_VAR_RE = re.compile(r"\{(today|now|clipboard|username)\}")
+
 TEMPLATES_FILENAME = "voice-typer-templates.json"
 
 # G4-M-38: SEC-011-style caps for templates to prevent resource
@@ -52,16 +61,37 @@ def substitute_variables(text: str) -> str:
         {now}       — time in HH:MM
         {clipboard} — current clipboard content
         {username}  — OS username
+
+    ER-55: single regex pass with lazy variable resolution. The old code
+    eagerly computed all 4 values (including a potentially-blocking
+    _get_clipboard_text() call) even when the output text contained none
+    of the variables. Now each variable is resolved only when its
+    placeholder is actually present, and datetime.now() is called at most
+    once (shared between {today} and {now}).
     """
-    replacements = {
-        "today": datetime.now().strftime("%Y-%m-%d"),
-        "now": datetime.now().strftime("%H:%M"),
-        "clipboard": _get_clipboard_text(),
-        "username": _safe_getuser(),
-    }
-    for var, value in replacements.items():
-        text = text.replace("{" + var + "}", value)
-    return text
+    if "{" not in text:
+        # Fast path: no placeholders at all.
+        return text
+    # Lazy: only fetch when the placeholder is present.
+    _now: datetime | None = None
+
+    def _resolve(match: re.Match) -> str:
+        nonlocal _now
+        var = match.group(1)
+        if var == "today":
+            if _now is None:
+                _now = datetime.now()
+            return _now.strftime("%Y-%m-%d")
+        if var == "now":
+            if _now is None:
+                _now = datetime.now()
+            return _now.strftime("%H:%M")
+        if var == "clipboard":
+            return _get_clipboard_text()
+        # username
+        return _safe_getuser()
+
+    return _TEMPLATE_VAR_RE.sub(_resolve, text)
 
 
 def _safe_getuser() -> str:
@@ -387,7 +417,7 @@ class TemplateManager:
         if not text or not self._templates:
             return None
 
-        normalized = re.sub(r"\s+", " ", text.strip()).lower()
+        normalized = _WHITESPACE_RE.sub(" ", text.strip()).lower()  # ER-55
 
         best_match: dict | None = None
         best_len = float("inf")
@@ -396,7 +426,7 @@ class TemplateManager:
             trigger = t.get("trigger", "")
             if not trigger:
                 continue
-            trigger_norm = re.sub(r"\s+", " ", trigger.strip()).lower()
+            trigger_norm = _WHITESPACE_RE.sub(" ", trigger.strip()).lower()  # ER-55
             mode = t.get("match_mode", "exact")
 
             matched = trigger_norm in normalized if mode == "contains" else normalized == trigger_norm

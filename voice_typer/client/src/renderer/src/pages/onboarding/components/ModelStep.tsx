@@ -6,6 +6,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
+import { formatVram } from "@/lib/format";
 import { t } from "@/i18n/i18n";
 import { HEADING_CLASS } from "../lib/constants";
 import type { ModelOption } from "../lib/types";
@@ -15,6 +16,29 @@ export interface ModelStepProps {
 	modelOptions: ModelOption[];
 	selectedModel: string;
 	setSelectedModel: (v: string) => void;
+}
+
+/**
+ * BG-100: derive the language-coverage badge key for a model option.
+ *
+ * `languages` follows the same convention as
+ * `ModelMetadata.supported_languages` in `lib/utils/models.ts`:
+ *   - `undefined` → field not sent by backend → no badge (caller skips)
+ *   - `null`      → all languages (multilingual)
+ *   - `[]`        → treat as "no explicit list" → multilingual fallback
+ *   - `['en']` (length 1, only English) → English-only badge
+ *   - any other non-empty array → multilingual badge
+ */
+function languageBadgeKey(
+	languages: string[] | null | undefined,
+): string | null {
+	if (languages === undefined) return null;
+	if (languages === null) return "onboarding.multilingualBadge";
+	if (languages.length === 0) return "onboarding.multilingualBadge";
+	const onlyEnglish = languages.every((l) => l.toLowerCase() === "en");
+	return onlyEnglish
+		? "onboarding.englishOnlyBadge"
+		: "onboarding.multilingualBadge";
 }
 
 export function ModelStep({
@@ -39,11 +63,46 @@ export function ModelStep({
 					<SelectValue placeholder={t("onboarding.modelSelectAria")} />
 				</SelectTrigger>
 				<SelectContent>
-					{modelOptions.map((m) => (
-						<SelectItem key={m.name} value={m.name}>
-							{m.description} — {m.size} ({m.speed})
-						</SelectItem>
-					))}
+					{modelOptions.map((m) => {
+						const langKey = languageBadgeKey(m.languages);
+						return (
+							<SelectItem
+								key={m.name}
+								value={m.name}
+								textValue={`${m.description} — ${m.size} (${m.speed})`}
+							>
+								<span className="flex flex-wrap items-center gap-1.5">
+									<span>
+										{m.description} — {m.size} ({m.speed})
+									</span>
+									{/* BG-100: per-option badge row showing VRAM
+									    requirement and language coverage. Both
+									    badges are optional — older backends don't
+									    return these fields. */}
+									{m.vram_gb != null && (
+										<span
+											aria-label={t("onboarding.vramBadge", {
+												vram: formatVram(m.vram_gb * 1024),
+											})}
+											className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)"
+										>
+											{t("onboarding.vramBadge", {
+												vram: formatVram(m.vram_gb * 1024),
+											})}
+										</span>
+									)}
+									{langKey != null && (
+										<span
+											aria-label={t(langKey)}
+											className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-(--text-muted)"
+										>
+											{t(langKey)}
+										</span>
+									)}
+								</span>
+							</SelectItem>
+						);
+					})}
 				</SelectContent>
 			</Select>
 		</>

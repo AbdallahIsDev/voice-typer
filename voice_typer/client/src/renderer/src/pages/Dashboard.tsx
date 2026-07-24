@@ -22,9 +22,13 @@ import { Button } from "@/components/ui/button.tsx";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
-import { computeShareStats, useStatsShare } from "@/hooks/useStatsShare";
+import {
+	canShareStats,
+	computeShareStats,
+	useStatsShare,
+} from "@/hooks/useStatsShare";
 import { getLocale, t } from "@/i18n/i18n";
-import { compactNumber } from "@/lib/format";
+import { compactNumber, formatDuration } from "@/lib/format";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
 
@@ -54,21 +58,18 @@ interface DashboardData {
 	activeDays: number;
 }
 
-/** Format seconds into a human-readable duration string. */
-function formatDuration(seconds: number): string {
-	if (seconds <= 0) return "0m";
-	const totalMinutes = Math.round(seconds / 60);
-	if (totalMinutes < 60) return `${totalMinutes}m`;
-	const h = Math.floor(totalMinutes / 60);
-	const m = totalMinutes % 60;
-	return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
-// PVT-090 / Task #17: ``compactNumber`` is now imported from the shared
-// ``lib/format.ts`` module so Dashboard and StatCards use the same
-// locale-aware implementation.  The previous local copy hardcoded
-// English suffixes and called ``String(n)`` for sub-1000 values,
-// ignoring the user-selected UI locale.
+// PVT-090 / Task #17: ``compactNumber`` and ``formatDuration`` are now
+// imported from the shared ``lib/format.ts`` module so Dashboard and
+// StatCards use the same locale-aware implementation.  The previous
+// local copies hardcoded English suffixes (``"h"`` / ``"m"`` for
+// durations, ``String(n)`` for sub-1000 counts) and ignored the
+// user-selected UI locale.
+//
+// BG-9: ``formatDuration`` in particular now resolves the ``h`` / ``m``
+// glyphs through ``t()`` (``analytics.durationHours`` /
+// ``durationMinutes`` / ``durationHoursMinutes`` / ``durationZero``)
+// so non-English locales see translated suffixes once F1 translates
+// the new keys.
 
 /** Determine the max bar height based on data range. */
 function barHeight(count: number, max: number): number {
@@ -475,29 +476,34 @@ export default function DashboardPage() {
 				title={t("analytics.title")}
 				description={t("analytics.description")}
 			>
-				{data && configRaw && data.todayCount > 0 && (
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={handleShare}
-						// FIX: muted text/icon by default, white on hover —
-						// matches the muted style used by outline buttons
-						// elsewhere (History action row, Templates add, etc.).
-						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-					>
-						<HugeiconsIcon
-							icon={Share08Icon}
-							strokeWidth={1.625}
-							className="h-4 w-4 shrink-0"
-						/>
-						{t("home.shareStats")}
-					</Button>
-				)}
+				{data &&
+					configRaw &&
+					canShareStats({
+						todayCount: data.todayCount,
+						totalCount: data.totalCount,
+					}) && (
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleShare}
+							// FIX: muted text/icon by default, white on hover —
+							// matches the muted style used by outline buttons
+							// elsewhere (History action row, Templates add, etc.).
+							className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
+						>
+							<HugeiconsIcon
+								icon={Share08Icon}
+								strokeWidth={1.625}
+								className="h-4 w-4 shrink-0"
+							/>
+							{t("home.shareStats")}
+						</Button>
+					)}
 			</PageHeading>
 
 			{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-                            refresh button. The module-level `_cachedData` survives page
-                            navigations, so we surface staleness here. */}
+			    refresh button. The module-level `_cachedData` survives page
+			    navigations, so we surface staleness here. */}
 			<div className="flex justify-end pb-2">
 				<LastUpdatedIndicator
 					agoLabel={agoLabel}
@@ -507,10 +513,10 @@ export default function DashboardPage() {
 			</div>
 
 			{/* Fix #10: first-run empty state.  When the user has never
-                            dictated (totalCount === 0), show an EmptyState with a CTA
-                            to start dictation instead of four zero-value stat cards
-                            and an empty 7-day chart.  The CTA navigates to the Home
-                            page (matches the History page's empty-state pattern). */}
+			    dictated (totalCount === 0), show an EmptyState with a CTA
+			    to start dictation instead of four zero-value stat cards
+			    and an empty 7-day chart.  The CTA navigates to the Home
+			    page (matches the History page's empty-state pattern). */}
 			{isFirstRun ? (
 				<EmptyState
 					icon={Mic02Icon}
@@ -575,22 +581,30 @@ export default function DashboardPage() {
 								className="h-4 w-4 text-(--text-muted)"
 							/>
 						</div>
-						<div className="flex items-end justify-between gap-2 h-20">
+						<div
+							className="flex items-end justify-between gap-2 h-20"
+							role="img"
+							aria-label={t("analytics.sevenDayActivityChartAria", {
+								counts: d.dailyActivity
+									.map((a) => `${a.label}: ${a.count}`)
+									.join(", "),
+							})}
+						>
 							{d.dailyActivity.map((day) => {
-								// Fix #18: wrap each bar in a <button> so the
-								// 7-day chart is keyboard-accessible.  Each
-								// bar gets an aria-label with the day label +
-								// transcription count so screen readers
-								// announce "Mon: 5 transcriptions" instead of
-								// the raw count.  The button has no onClick
-								// handler (the bar is informational, not
-								// actionable) but is still focusable so AT
-								// users can navigate to it; the title
-								// attribute preserves the mouse hover tooltip.
-								const ariaLabel = t("analytics.dayActivityAria", {
-									label: day.label,
-									count: String(day.count),
-								});
+								// BG-3: the 7-day chart is informational, not
+								// interactive. Wrapping each bar in a <button>
+								// produced 7 dead-end tab stops and an SR
+								// announcement of "button, button, ..." with no
+								// chart context. We now expose the entire chart
+								// to AT as a single role="img" with a
+								// descriptive aria-label (set on the container
+								// above) and render each bar as a non-interactive
+								// <div> with a title attribute for the mouse
+								// hover tooltip (title is not announced by SRs
+								// but is available to sighted mouse users).
+								// Bumped bar opacity from /60 to /80 for
+								// WCAG 1.4.11 contrast against adjacent
+								// backgrounds.
 								return (
 									<div
 										key={day.date}
@@ -599,9 +613,7 @@ export default function DashboardPage() {
 										<span className="text-xs text-(--text-muted) font-medium tabular-nums">
 											{day.count}
 										</span>
-										<button
-											type="button"
-											aria-label={ariaLabel}
+										<div
 											title={
 												day.count === 1
 													? t("analytics.dayCountTooltipSingular", {
@@ -613,9 +625,8 @@ export default function DashboardPage() {
 															count: String(day.count),
 														})
 											}
-											className="w-full max-w-10 rounded-sm bg-accent/60 transition-all duration-300 hover:bg-accent/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-1 focus-visible:ring-offset-(--bg-subtle) cursor-default"
+											className="w-full max-w-10 rounded-sm bg-accent/80 transition-all duration-300"
 											style={{ height: `${barHeight(day.count, maxCount)}px` }}
-											tabIndex={0}
 										/>
 										<span className="text-[11px] text-(--text-muted)">
 											{day.dayName}
@@ -654,11 +665,11 @@ export default function DashboardPage() {
 
 			{/* ── Hidden share image capture target ──────────────── */}
 			{/* EXPORT-FIX: removed clipPath:inset(50%) —
-                            html-to-image copied it onto the cloned node and
-                            clipped the PNG to 0×0. See Home.tsx for full
-                            rationale. The toPng style override (clipPath:none)
-                            is the primary defense; removing clipPath here
-                            eliminates the footgun. */}
+			    html-to-image copied it onto the cloned node and
+			    clipped the PNG to 0×0. See Home.tsx for full
+			    rationale. The toPng style override (clipPath:none)
+			    is the primary defense; removing clipPath here
+			    eliminates the footgun. */}
 			<div
 				ref={imageRef}
 				aria-hidden

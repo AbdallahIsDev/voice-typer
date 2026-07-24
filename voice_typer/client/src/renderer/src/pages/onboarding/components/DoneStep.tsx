@@ -26,6 +26,16 @@ export function DoneStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.completeTitle")}
 			</h2>
+			{/* BG-14: surface the model-download warning so first-run
+			    users aren't surprised by a ~466 MB / ~1.5 GB download
+			    on a metered connection. The `completeDescription` key
+			    already exists in every locale; this is the only
+			    consumer. */}
+			<p className="mb-4 text-sm text-(--text-secondary)">
+				{t("onboarding.completeDescription", {
+					hotkey: selectedHotkey.replace(/[<>]/g, "").toUpperCase(),
+				})}
+			</p>
 			<div className="mb-6 space-y-2 text-sm text-(--text-secondary)">
 				<p>
 					{t("onboarding.summaryHotkey")}{" "}

@@ -64,6 +64,47 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
+// BG-100: mock the Radix Select wrapper so SelectItem children (the
+// VRAM/language badges) render inline in the DOM without needing to
+// drive the dropdown's pointer-capture / Portal machinery in jsdom.
+// The existing wizard tests don't assert on Select behaviour (they
+// check heading text + button labels), so this inline mock is safe
+// for the rest of the suite.
+vi.mock("@/components/ui/select", () => ({
+	Select: ({ children }: { children: React.ReactNode }) => (
+		<div data-testid="select-root">{children}</div>
+	),
+	SelectTrigger: ({
+		children,
+		...props
+	}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+		children?: React.ReactNode;
+	}) => (
+		<button type="button" {...props}>
+			{children}
+		</button>
+	),
+	SelectValue: ({ placeholder }: { placeholder?: string }) => (
+		<span>{placeholder ?? ""}</span>
+	),
+	SelectContent: ({ children }: { children: React.ReactNode }) => (
+		<div data-testid="select-content">{children}</div>
+	),
+	SelectItem: ({
+		children,
+		value,
+		textValue,
+	}: {
+		children?: React.ReactNode;
+		value: string;
+		textValue?: string;
+	}) => (
+		<div data-value={value} data-text-value={textValue} role="option">
+			{children}
+		</div>
+	),
+}));
+
 import OnboardingPage from "@/pages/Onboarding";
 
 const STEP_NAMES = [
@@ -74,6 +115,26 @@ const STEP_NAMES = [
 	"Model",
 	"Done",
 ] as const;
+
+// BG-100: Radix Select's pointerDown handler calls
+// `target.hasPointerCapture(pointerId)` to decide whether to release
+// the capture before opening the dropdown. jsdom doesn't implement
+// the Pointer Capture API, so we stub the three methods Radix touches
+// (hasPointerCapture / setPointerCapture / releasePointerCapture) on
+// Element.prototype. This is scoped to this test file (the project's
+// shared `test-setup.ts` doesn't include it because the only other
+// Radix Select consumers either don't open the dropdown in tests or
+// mock the Select component entirely).
+if (
+	typeof Element !== "undefined" &&
+	typeof Element.prototype.hasPointerCapture !== "function"
+) {
+	Element.prototype.hasPointerCapture = function hasPointerCapture() {
+		return false;
+	};
+	Element.prototype.setPointerCapture = function setPointerCapture() {};
+	Element.prototype.releasePointerCapture = function releasePointerCapture() {};
+}
 
 // ── F2: pre-select existing config values ────────────────────────────
 
@@ -397,8 +458,16 @@ describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 		// step_name === "Permissions", and (b) the server's
 		// step=2 (Permissions) no longer falls through to the
 		// Hotkey branch.
+		//
+		// BG-12: the visible step-name label in the progress bar
+		// now uses the localized title (`onboarding.permissionsTitle`
+		// = "Keyboard Monitoring Permission"), so the same text
+		// appears in both the <span> label and the <h2> heading —
+		// use getAllByText to accept the intentional duplication.
 		await waitFor(() => {
-			expect(screen.getByText("Keyboard Monitoring Permission")).toBeTruthy();
+			expect(
+				screen.getAllByText("Keyboard Monitoring Permission").length,
+			).toBeGreaterThan(0);
 		});
 		// The "Test hotkey" button should also be present.
 		expect(screen.getByRole("button", { name: "Test hotkey" })).toBeTruthy();
@@ -523,6 +592,11 @@ describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 		// [Welcome(0), Microphone(1), Permissions(2), Hotkey(3),
 		//  Model(4), Done(5)]. Verify each step renders the
 		// expected content when jumped to directly.
+		//
+		// BG-12: the visible step-name label in the progress bar
+		// now uses the localized title (e.g. "Choose Your Hotkey"),
+		// matching the per-step <h2> heading. Use getAllByText to
+		// accept the intentional duplication.
 		for (const [idx, expectedText] of [
 			[3, "Choose Your Hotkey"],
 			[4, "Choose Your Model"],
@@ -535,7 +609,7 @@ describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 			render(<OnboardingPage onComplete={() => {}} />);
 
 			await waitFor(() => {
-				expect(screen.getByText(expectedText)).toBeTruthy();
+				expect(screen.getAllByText(expectedText).length).toBeGreaterThan(0);
 			});
 
 			// The progress indicator should show "Step N of 6"
@@ -642,5 +716,207 @@ describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 		await waitFor(() => {
 			expect(screen.getByText("Hotkey detected! It works.")).toBeTruthy();
 		});
+	});
+});
+
+// ── BG-11 / BG-12 / BG-14 / BG-100: regression guards ────────────────
+
+describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockShowSnack.mockReset();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	/**
+	 * Helper identical to `mockStartAtStep` in the CR-6 suite but
+	 * parameterised so the BG regression tests can opt into
+	 * per-model VRAM/language metadata (BG-100). Older backends
+	 * don't return these fields — the default is to omit them.
+	 */
+	function mockStartAtStepWithModels(
+		stepIndex: number,
+		models: Array<Record<string, unknown>> = [
+			{
+				name: "small.en",
+				size: "~466MB",
+				speed: "Fast",
+				description: "Small",
+			},
+		],
+	) {
+		mockCall.mockImplementation((type: string) => {
+			switch (type) {
+				case "onboarding_start":
+					return Promise.resolve({
+						step: stepIndex,
+						total_steps: 6,
+						step_name: STEP_NAMES[stepIndex],
+					});
+				case "onboarding_next_step":
+				case "onboarding_prev_step":
+					return Promise.resolve({
+						step: stepIndex,
+						total_steps: 6,
+						step_name: STEP_NAMES[stepIndex],
+					});
+				case "get_config":
+					return Promise.resolve({
+						hotkey: "<f2>",
+						model_size: "small.en",
+						microphone: "",
+					});
+				case "onboarding_get_microphones":
+					return Promise.resolve({
+						microphones: [{ id: "mic-1", name: "Built-in Mic" }],
+					});
+				case "onboarding_get_hotkey_presets":
+					return Promise.resolve({
+						presets: ["<f2>", "<f4>", "<f6>"],
+					});
+				case "onboarding_get_model_options":
+					return Promise.resolve({ models });
+				case "onboarding_check_permissions":
+					return Promise.resolve({
+						platform: "linux",
+						state: "granted",
+						needed: false,
+						instructions: null,
+					});
+				case "onboarding_set_microphone":
+				case "onboarding_set_hotkey":
+				case "onboarding_set_model":
+				case "onboarding_apply":
+				case "onboarding_skip":
+					return Promise.resolve({});
+				default:
+					return Promise.resolve({});
+			}
+		});
+	}
+
+	// BG-11: progressAria i18n template contains {current}/{total}
+	// placeholders. The visible `stepProgress` span interpolates them
+	// correctly; the aria-label call must too, or screen readers
+	// announce the literal "{current}" / "{total}" tokens.
+	it("BG-11: progressbar aria-label interpolates {current}/{total} (no literal tokens)", async () => {
+		mockStartAtStepWithModels(2);
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		// Wait for the Permissions step to mount so the progressbar
+		// is rendered with step_index=2 (current=3).
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "Test hotkey" })).toBeTruthy();
+		});
+
+		const progressbar = screen.getByRole("progressbar");
+		const label = progressbar.getAttribute("aria-label") ?? "";
+
+		// On step index 2, current = step+1 = 3, total = 6.
+		// The interpolated aria-label should contain "3" and "6",
+		// and must NOT contain the literal template tokens.
+		expect(label).toMatch(/\b3\b/);
+		expect(label).toMatch(/\b6\b/);
+		expect(label).not.toContain("{current}");
+		expect(label).not.toContain("{total}");
+	});
+
+	// BG-12: visible right-side step-name label was rendering the raw
+	// backend enum ("Permissions" / "Done" / etc.). After the fix it
+	// uses the localized title. Assert the raw enum no longer leaks
+	// (Done step is the cleanest case — "Done" doesn't appear in any
+	// other visible string).
+	it("BG-12: visible step-name label is localized (no raw 'Done' enum)", async () => {
+		mockStartAtStepWithModels(5);
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
+		});
+
+		// The localized title for the Done step is "You're All Set!"
+		// (appears in both the sr-only h1 prefix, the visible <span>
+		// label, and the per-step <h2> heading). The raw enum "Done"
+		// must NOT appear as a standalone text node anywhere in the
+		// rendered wizard.
+		expect(screen.queryByText("Done", { exact: true })).toBeNull();
+	});
+
+	// BG-14: DoneStep must render the completeDescription paragraph
+	// (warning the user about the background model download). The key
+	// includes a {hotkey} interpolation that must be the
+	// uppercased, <>-stripped selected hotkey.
+	it("BG-14: DoneStep renders completeDescription with interpolated hotkey", async () => {
+		mockStartAtStepWithModels(5);
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
+		});
+
+		// The completeDescription string starts with "Your Voice
+		// Typer is configured and ready." (en.json). Match on the
+		// stable prefix so the test doesn't break if the trailing
+		// wording changes.
+		expect(
+			screen.getByText(/Your Voice Typer is configured and ready/),
+		).toBeTruthy();
+
+		// The hotkey interpolation: <f2> → "F2" (uppercase, <> stripped).
+		// The completeDescription contains "Press your hotkey (F2) to
+		// start dictating." — assert the parenthesised F2 appears.
+		expect(screen.getByText(/\(F2\)/)).toBeTruthy();
+	});
+
+	// BG-100: ModelStep must render per-option VRAM + language badges
+	// so users can compare models at a glance. The Select UI is mocked
+	// at the top of this file (vi.mock("@/components/ui/select")) so
+	// SelectItem children render inline in the DOM — no need to drive
+	// Radix's pointer-capture / Portal machinery.
+	it("BG-100: ModelStep renders VRAM + language badges per option", async () => {
+		mockStartAtStepWithModels(4, [
+			{
+				name: "tiny.en",
+				size: "~75MB",
+				speed: "Fastest",
+				description: "Tiny",
+				vram_gb: 1,
+				languages: ["en"],
+			},
+			{
+				name: "large-v3",
+				size: "~1.5GB",
+				speed: "Slow",
+				description: "Large",
+				vram_gb: 5,
+				languages: null,
+			},
+		]);
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		// Wait for the Model step heading to confirm we're on step 4.
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		// Assert the per-option badges appear inline (Select mock
+		// renders SelectItem children without opening a dropdown).
+		// formatVram(1 * 1024) = "1 GB" → badge text "~1 GB VRAM".
+		// formatVram(5 * 1024) = "5 GB" → badge text "~5 GB VRAM".
+		// English-only (languages=['en']) → "EN".
+		// Multilingual (languages=null) → "Multilingual".
+		expect(screen.getByText("~1 GB VRAM")).toBeTruthy();
+		expect(screen.getByText("~5 GB VRAM")).toBeTruthy();
+		expect(screen.getByText("EN")).toBeTruthy();
+		expect(screen.getByText("Multilingual")).toBeTruthy();
 	});
 });
