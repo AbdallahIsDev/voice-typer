@@ -131,14 +131,19 @@ dependencies = [
     "comtypes>=1.1; sys_platform == 'win32'",
     # Volume ducking on macOS (CoreAudio via pyobjc).
     # Lazy-imported in MacVolumeBackend — safe on other platforms.
-    "pyobjc-core>=11.0; sys_platform == 'darwin'",
-    "pyobjc-framework-CoreAudio>=11.0; sys_platform == 'darwin'",
+    # pyobjc 11+ has no wheels for Python 3.10/3.11 on macOS; use 9.x floor
+    # for older Python, 11.0+ for Python 3.12+ (which needs the newer ABI).
+    "pyobjc-core>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-core>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    "pyobjc-framework-CoreAudio>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-framework-CoreAudio>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # NEW-XPLAT-004: pystray on macOS uses Cocoa (AppKit) via pyobjc.
     # Without pyobjc-framework-Cocoa installed, pystray.Icon() raises
     # ImportError at runtime and the tray silently fails.  Adding the
     # explicit dep here so a fresh ``pip install voice-typer`` on
     # macOS gets a working tray out of the box.
-    "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # microphone_watcher_coreaudio.py imports CFRunLoopRun / CFRunLoopStop
     # / CFRunLoopGetCurrent from CoreFoundation for the event-driven
     # CoreAudio device-list listener. pyobjc-framework-CoreAudio declares
@@ -152,7 +157,8 @@ dependencies = [
     # .py:103-106 literally tells users to `pip install pyobjc-framework
     # -CoreFoundation` — but it was missing from both the main deps and
     # the [macos] extra.
-    "pyobjc-framework-CoreFoundation>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-CoreFoundation>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-framework-CoreFoundation>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # permissions.py:734 imports AXIsProcessTrustedWithOptions from
     # ApplicationServices for the pre-flight accessibility-trust probe.
     # Without this dep, the try/except ImportError at permissions.py
@@ -160,7 +166,8 @@ dependencies = [
     # told accessibility permission is missing until the native hotkey
     # listener fails at runtime. Adding the explicit dep makes the probe
     # actually work on a fresh `pip install voice-typer[macos]`.
-    "pyobjc-framework-ApplicationServices>=11.0; sys_platform == 'darwin'",
+    "pyobjc-framework-ApplicationServices>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
+    "pyobjc-framework-ApplicationServices>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
     # ADR 0007: RNNoise is now a default dependency (was optional).
     # BSD-licensed, ~2MB, <1ms per frame. Required for the NoiseSuppressor
     # filter in the audio filter chain.
@@ -235,11 +242,16 @@ windows = [
 # CoreFoundation is needed by microphone_watcher_coreaudio.py's CFRunLoop;
 # ApplicationServices is needed by permissions.py's AXIsProcessTrustedWithOptions.
 macos = [
-    "pyobjc-core>=11.0",
-    "pyobjc-framework-CoreAudio>=11.0",
-    "pyobjc-framework-Cocoa>=11.0",
-    "pyobjc-framework-CoreFoundation>=11.0",
-    "pyobjc-framework-ApplicationServices>=11.0",
+    "pyobjc-core>=9.0; python_version < '3.12'",
+    "pyobjc-core>=11.0; python_version >= '3.12'",
+    "pyobjc-framework-CoreAudio>=9.0; python_version < '3.12'",
+    "pyobjc-framework-CoreAudio>=11.0; python_version >= '3.12'",
+    "pyobjc-framework-Cocoa>=9.0; python_version < '3.12'",
+    "pyobjc-framework-Cocoa>=11.0; python_version >= '3.12'",
+    "pyobjc-framework-CoreFoundation>=9.0; python_version < '3.12'",
+    "pyobjc-framework-CoreFoundation>=11.0; python_version >= '3.12'",
+    "pyobjc-framework-ApplicationServices>=9.0; python_version < '3.12'",
+    "pyobjc-framework-ApplicationServices>=11.0; python_version >= '3.12'",
 ]
 # DEP-DEP-1: dbus-python is soft-guard-imported in tray.py (Linux Wayland
 # StatusNotifierItem detection) but was undeclared. It stays OPTIONAL, not
