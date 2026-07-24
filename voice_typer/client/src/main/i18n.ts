@@ -169,6 +169,11 @@ export function setMainLocale(locale: string): void {
 	if (typeof locale === "string" && Object.hasOwn(MAIN_STRINGS, locale)) {
 		currentLocale = locale as MainLocale;
 	} else {
+		// AC-115: emit a warning so a renderer-side locale bug (e.g.
+		// pushing "en-US" instead of "en") doesn't silently fall back
+		// to English. Without this, native dialogs would mysteriously
+		// be in English with no diagnostic in the logs.
+		console.warn(`[i18n] unknown locale "${locale}", falling back to en`);
 		currentLocale = "en";
 	}
 }

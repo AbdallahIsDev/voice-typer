@@ -19,6 +19,26 @@
  * `restart`, `save_config`, `save_vocabulary_with_diff`,
  * `complete_onboarding`) — none exist as server IPC commands.
  *
+ * GT-32 (session-6 fix): removed 17 stale entries that were never
+ * invoked from any renderer code (`apply_vocabulary_suggestion`,
+ * `check_accessibility`, `delete_all_personal_data`,
+ * `dismiss_vocabulary_suggestion`, `export_diagnostics`,
+ * `export_gdpr_bundle`, `get_audio_status`, `get_rms_level`,
+ * `get_vocabulary_suggestions`, `level_monitor_status`,
+ * `microphone_test_status`, `onboarding_get_model_catalog`,
+ * `onboarding_get_step`, `onboarding_request_keyboard_permission`,
+ * `refresh_microphones`, `show_electron_notification`,
+ * `test_llm_connection`). They appeared only in this Set and (for
+ * some) in a doc comment. Reducing the renderer-reachable surface.
+ * The matching Python-side `_COMMAND_REGISTRY` entries should be
+ * deleted by GT-FIX-05 (owns `ipc_server.py`); the cross-file
+ * parity test `tests/test_electron_ipc_and_build.py::
+ * TestAllowlistCorrectness::test_allowlist_matches_server_commands`
+ * will fail until GT-FIX-05 completes the server-side cleanup.
+ * TODO(GT-FIX-05): delete the 17 matching `"cmd": "_handle_*"`
+ * entries from `_COMMAND_REGISTRY` in `voice_typer/server/
+ * ipc_server.py` so the parity test passes.
+ *
  * UX-23 (renderer bits): `repaste_last` was previously in the
  * ERR-IPC-003 "removed" list, but it IS a real app method
  * (`service.repaste_last` / `app.repaste_last`) — it was previously
@@ -82,7 +102,6 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"save_vocabulary",
 	"onboarding_is_first_run",
 	"onboarding_start",
-	"onboarding_get_step",
 	"onboarding_next_step",
 	"onboarding_prev_step",
 	"onboarding_set_microphone",
@@ -106,7 +125,6 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// handler in `_COMMAND_REGISTRY` is unchanged (the Rust host
 	// still routes `tray_click` via `dispatch_inner`).
 	"onboarding_check_permissions",
-	"onboarding_get_model_catalog",
 	"onboarding_get_microphones",
 	"onboarding_get_model_options",
 	"onboarding_get_hotkey_presets",
@@ -118,9 +136,6 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// and resume in-progress model downloads from the Models page.
 	"pause_model_download",
 	"resume_model_download",
-	// NEW-DEAD-015: allow test_llm_connection so the renderer can
-	// wire up a "Test connection" button on the Settings page.
-	"test_llm_connection",
 	// NEW-UX-005: allow delete_model so the renderer can actually
 	// delete model files from disk (not just remove from UI list).
 	"delete_model",
@@ -131,12 +146,10 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"microphone_test_start",
 	"microphone_test_stop",
 	"microphone_test_cancel",
-	"microphone_test_status",
 	"microphone_test_get_level",
 	// Continuous level monitor
 	"level_monitor_start",
 	"level_monitor_stop",
-	"level_monitor_status",
 	// ESC-FIX-001: pause/resume the global ESC cancel hotkey so the
 	// frontend (HotkeyPicker in hotkey capture mode) can temporarily
 	// disable it, preventing the backend from processing Escape while
@@ -164,44 +177,18 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// _COMMAND_REGISTRY); until then the renderer call will return
 	// an "unknown command" error which the UI surfaces as a toast.
 	"repaste_last",
-	// d-review Finding 2: 10 server commands previously missing
-	// from the allowlist — renderer calls silently rejected.
-	"refresh_microphones",
-	"get_rms_level",
-	"get_audio_status",
-	"export_diagnostics",
-	"check_accessibility",
-	"show_electron_notification",
-	"get_vocabulary_suggestions",
-	"apply_vocabulary_suggestion",
-	"dismiss_vocabulary_suggestion",
+	// d-review Finding 2: server commands previously missing from
+	// the allowlist. GT-32 (session-6) removed 9 of the 10 original
+	// entries from this Set because they were never invoked from any
+	// renderer code — see the GT-32 note in the file header. Only
+	// `force_cancel_transcription` remains (it IS invoked by the
+	// renderer).
 	"force_cancel_transcription",
-	// G4-M-10 (session-4) + PVT-G5-025 (session-5): GDPR Art. 17
-	// (right to erasure) + Art. 20 (right to data portability) —
-	// invoked by the Settings → Privacy page. Both are registered in
-	// the Python-side `_COMMAND_REGISTRY` (ipc_server.py:2028-2029)
-	// and implemented in `handlers/privacy_handlers.py`
-	// (`_handle_delete_all_personal_data` /
-	// `_handle_export_gdpr_bundle`). Without these entries the
-	// renderer's Privacy page calls would be silently rejected at
-	// the Electron allowlist gate — the user clicks "Delete all
-	// personal data" or "Export GDPR bundle" and nothing happens.
-	// Mirrored in the Rust host's `ALLOWED_COMMANDS` literal in
-	// `src-tauri/src/commands/sidecar_cmds.rs` (defense-in-depth —
-	// the Rust host gates the same set on its `dispatch_inner` path).
-	// Mirrors the Python `_COMMAND_REGISTRY` exactly (no camelCase
-	// mapping — the IPC bridge sends the raw command name).
-	"delete_all_personal_data",
-	"export_gdpr_bundle",
-	// G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding keyboard
-	// permission request + reset — invoked by the Onboarding page.
-	// Both are registered in the Python-side `_COMMAND_REGISTRY`
-	// (ipc_server.py) and implemented in
-	// `handlers/onboarding_handlers.py`
-	// (`_handle_onboarding_request_keyboard_permission` /
-	// `_handle_onboarding_reset`). Without these entries the
-	// renderer's Onboarding page calls would be silently rejected
-	// at the Electron allowlist gate.
-	"onboarding_request_keyboard_permission",
+	// G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding reset —
+	// invoked by the Onboarding page. Registered in the Python-side
+	// `_COMMAND_REGISTRY` (ipc_server.py) and implemented in
+	// `handlers/onboarding_handlers.py` (`_handle_onboarding_reset`).
+	// (GT-32 session-6 removed the sibling `onboarding_request_
+	// keyboard_permission` entry — no renderer caller.)
 	"onboarding_reset",
 ]);

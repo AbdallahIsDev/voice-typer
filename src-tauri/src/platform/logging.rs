@@ -245,10 +245,42 @@ impl RotatingFileWriter {
         // renaming), open a fresh File in append mode.
         if guard.is_none() {
             std::fs::create_dir_all(&self.dir)?;
+            // DE-81: restrict the `logs/` dir to 0o700 on Unix. This
+            // runs on every fresh File open (first write + post-rotation
+            // reopen) so a user who deletes `logs/` between launches
+            // still gets 0o700 on the recreated dir. Best-effort:
+            // ignored on non-Unix, errors here are non-fatal (the file
+            // write itself is the critical path).
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(
+                    &self.dir,
+                    std::fs::Permissions::from_mode(0o700),
+                );
+            }
             let file = OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(self.current_path())?;
+            // DE-81: force the log file to 0o600 on Unix. `OpenOptions`
+            // inherits the process umask (typically 0o644 — world-
+            // and group-readable). The log contains file:line source
+            // locations, IPC error envelopes, sidecar stderr
+            // passthrough, and full panic payloads (PVT-G5-083) —
+            // none of which should be readable by other local users
+            // on a multi-user box. `set_permissions` is idempotent
+            // + cheap (one chmod(2) syscall per fresh File open,
+            // i.e. once at startup + once per rotation ≈ once per
+            // 5 MB of log output). Errors here are fatal: if we
+            // can't restrict the file's perms, fail the write so
+            // the caller sees the IO error rather than silently
+            // logging with world-readable perms.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            }
             *guard = Some(file);
         }
         // Borrow the File from the guard for the write/flush/metadata
@@ -281,14 +313,23 @@ impl RotatingFileWriter {
 
     /// Rotate: `.log.(N-1)` → `.log.N`, …, `.log` → `.log.1`.
     /// Files at index `ROTATE_MAX_FILES - 1` (the oldest) are deleted.
+    ///
+    /// GT-67: the previous loop bound was `(1..ROTATE_MAX_FILES).rev()`
+    /// (= 1,2,3,4) with delete check `i + 1 >= ROTATE_MAX_FILES` (=
+    /// `5 >= 5`). That kept 6 files total (`.log`, `.log.1`..`.log.5`),
+    /// one MORE than `ROTATE_MAX_FILES=5` — an off-by-one that grew
+    /// the disk cap from 25 MB to 30 MB. The fix tightens the loop to
+    /// `(1..ROTATE_MAX_FILES - 1).rev()` (= 1,2,3) and the delete check
+    /// to `i + 1 >= ROTATE_MAX_FILES - 1` (= `4 >= 4`), so the total
+    /// file count is exactly `ROTATE_MAX_FILES=5`.
     fn rotate(&self) -> std::io::Result<()> {
-        for i in (1..ROTATE_MAX_FILES).rev() {
+        for i in (1..ROTATE_MAX_FILES - 1).rev() {
             let from = self.dir.join(format!("{}.log.{}", self.base_name, i));
             let to = self
                 .dir
                 .join(format!("{}.log.{}", self.base_name, i + 1));
             if from.exists() {
-                if i + 1 >= ROTATE_MAX_FILES {
+                if i + 1 >= ROTATE_MAX_FILES - 1 {
                     // Oldest slot — delete what's there before renaming
                     // (best-effort; ignore errors if the file is gone).
                     let _ = std::fs::remove_file(&to);
@@ -366,6 +407,73 @@ mod tests {
             tmp.join("test-log.log.1").exists(),
             "first rotated log missing"
         );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ── GT-67: pin the exact file count after N rotations ────────────
+    //
+    // The previous rotation loop kept `ROTATE_MAX_FILES + 1` files on
+    // disk (off-by-one). This test writes enough data to trigger MANY
+    // rotations (well past the cap) and asserts the final file count
+    // is EXACTLY `ROTATE_MAX_FILES` — no more, no less.
+
+    #[test]
+    fn test_rotating_file_writer_pins_exact_file_count_after_many_rotations() {
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-gt67-count",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        // Write ~50 MB total (100 KB/line × 500 lines). With a 5 MB
+        // rotation threshold, this triggers ~10 rotations — well past
+        // the 5-file cap, so the rotate() function's delete-oldest
+        // path runs at least 5 times.
+        let big_line = "x".repeat(100_000);
+        for _ in 0..500 {
+            writer.write_line(&big_line).unwrap();
+        }
+        writer.flush().unwrap();
+
+        // Count the actual files on disk (current + rotated).
+        let mut file_count = 0;
+        for i in 0..=ROTATE_MAX_FILES {
+            let path = if i == 0 {
+                tmp.join("test-log.log")
+            } else {
+                tmp.join(format!("test-log.log.{}", i))
+            };
+            if path.exists() {
+                file_count += 1;
+            }
+        }
+
+        // GT-67 invariant: total file count must be EXACTLY
+        // ROTATE_MAX_FILES (=5). Pre-fix this was 6 (off-by-one).
+        assert_eq!(
+            file_count,
+            ROTATE_MAX_FILES,
+            "GT-67: rotating log must keep exactly {} files; found {}. Pre-fix this was {} (off-by-one).",
+            ROTATE_MAX_FILES,
+            file_count,
+            ROTATE_MAX_FILES + 1,
+        );
+
+        // The oldest KEPT slot is `.log.(ROTATE_MAX_FILES - 1)` (=4).
+        assert!(
+            tmp.join(format!("test-log.log.{}", ROTATE_MAX_FILES - 1)).exists(),
+            "GT-67: oldest kept slot `.log.{}` must exist after many rotations",
+            ROTATE_MAX_FILES - 1
+        );
+        // The next-oldest slot (`.log.ROTATE_MAX_FILES` = .log.5) must
+        // NOT exist — it's the one that gets deleted by the rotate()
+        // loop's `if i + 1 >= ROTATE_MAX_FILES - 1` branch.
+        assert!(
+            !tmp.join(format!("test-log.log.{}", ROTATE_MAX_FILES)).exists(),
+            "GT-67: `.log.{}` (one past the cap) must NOT exist",
+            ROTATE_MAX_FILES
+        );
+
         std::fs::remove_dir_all(&tmp).ok();
     }
 
@@ -611,6 +719,105 @@ mod tests {
             content.contains("?:0"),
             "fallback file:line missing from log line: {}",
             content
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    // ── DE-81: log file + logs/ dir permissions (Unix only) ──────────
+
+    #[cfg(unix)]
+    #[test]
+    fn test_de81_log_file_permissions_are_0600_after_first_write() {
+        // DE-81 regression guard: `RotatingFileWriter::write_line` must
+        // chmod the log file to 0o600 on Unix. The prior code left the
+        // file at the umask default (typically 0o644 — world- and
+        // group-readable), which on a multi-user Linux box lets any
+        // local user read the bearer-token-containing log. The fix
+        // calls `file.set_permissions(Permissions::from_mode(0o600))`
+        // after `OpenOptions::open`.
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-de81-perms",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        writer.write_line("de-81 perms check").unwrap();
+        let file_path = tmp.join("test-log.log");
+        let meta = std::fs::metadata(&file_path)
+            .expect("log file must exist after write_line");
+        let mode = meta.permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "DE-81: log file perms must be 0o600, got {:o}",
+            mode & 0o777
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_de81_log_dir_permissions_are_0700_after_first_write() {
+        // DE-81 regression guard: the `logs/` dir must be 0o700 on
+        // Unix so the log file's 0o600 perms aren't bypassed by a
+        // world-readable parent dir (a 0o644 log file inside a 0o700
+        // dir is unreachable by other users, but a 0o600 file inside a
+        // 0o755 dir can still be listed + stat'd by other users).
+        // `write_line` calls `create_dir_all` + `set_permissions(0o700)`
+        // on every fresh File open.
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-de81-dir-perms",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        writer.write_line("de-81 dir perms check").unwrap();
+        let dir_meta = std::fs::metadata(&tmp)
+            .expect("logs/ dir must exist after write_line");
+        let mode = dir_meta.permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o700,
+            "DE-81: logs/ dir perms must be 0o700, got {:o}",
+            mode & 0o777
+        );
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_de81_log_file_permissions_reapplied_after_rotation() {
+        // DE-81 regression guard: after a rotation, `write_line` opens
+        // a FRESH File handle (the prior handle was dropped by the
+        // rotation path setting `*guard = None`). The 0o600 chmod must
+        // be reapplied to the fresh file — otherwise the rotation
+        // creates a new file with the umask default (0o644), leaking
+        // the post-rotation log content to other local users.
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = std::env::temp_dir().join(format!(
+            "voice-typer-test-{}-de81-rotate",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&tmp).ok();
+        let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+        // Force a rotation: write enough data to cross ROTATE_MAX_BYTES.
+        // ROTATE_MAX_BYTES is 5 MB; write 6 MB in 100 KB lines.
+        let big_line = "x".repeat(100_000);
+        for _ in 0..60 {
+            writer.write_line(&big_line).unwrap();
+        }
+        let file_path = tmp.join("test-log.log");
+        assert!(file_path.exists(), "current log must exist after rotation");
+        let meta = std::fs::metadata(&file_path)
+            .expect("post-rotation log file must exist");
+        let mode = meta.permissions().mode();
+        assert_eq!(
+            mode & 0o777,
+            0o600,
+            "DE-81: post-rotation log file perms must be 0o600, got {:o}",
+            mode & 0o777
         );
         std::fs::remove_dir_all(&tmp).ok();
     }

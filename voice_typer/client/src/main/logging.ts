@@ -403,36 +403,99 @@ export type LogShape = {
 };
 
 /**
- * Resolve the path to `electron-runtime.log`. Lazy-`require`s
- * `electron` so this module can be imported in non-Electron contexts
- * (vitest unit tests that exercise `rotateIfNeeded` directly) without
- * crashing — `require` is wrapped in `try/catch` and the function
- * returns `null` if Electron is unavailable, in which case
- * {@link mainRuntimeLogger.write} silently no-ops.
+ * Resolve the path to `electron-runtime.log`. Uses the top-level
+ * `import { app } from "electron"` (line 38) directly.
+ *
+ * AC-117: the previous implementation lazily `require("electron")`
+ * inside a `try/catch` here, claiming it let unit tests import the
+ * module without mocking Electron. That was dead code — the top-level
+ * ESM `import { app }` already forces the Electron module to resolve
+ * at module-load time, so if Electron is unavailable the module never
+ * loads and this function is never reached. The lazy `require` was
+ * contradictory with the top-level import strategy and is removed.
+ *
+ * ER-63: memoized. The function is called on every `log.warn` / `log.error`
+ * invocation, and the underlying `app.getPath` resolution is non-trivial
+ * (Electron lazy-loads its `app` module, and `getPath("userData")` does a
+ * platform-specific dir computation). On a hot crash-loop path this added
+ * a few microseconds per line — pure overhead since the path is stable for
+ * the process lifetime (it changes only if `app.setPath("userData", …)` is
+ * called between two log calls, which never happens — `setupUserData()` in
+ * `bootstrap.ts` runs exactly once at startup BEFORE any `log.warn` call
+ * could fire).
+ *
+ * The cache uses `undefined` as the "not yet computed" sentinel so the
+ * cached value can be either a real path string or `null` (Electron
+ * unavailable). Subsequent calls return the cached value without touching
+ * `app.getPath` again. `_resetRuntimeLogPathForTest()` clears the cache
+ * for unit tests that need to re-resolve after swapping the Electron
+ * mock.
  *
  * XS-66: the previous `_runtimeLogPathOverride` + `_setRuntimeLogPathForTest`
  * test-override pair was removed — no test imported it. Tests that need to
  * assert against the file-tee path now mock `electron`'s `app.getPath` (as
  * `bootstrap.test.ts` already does).
  */
+// ER-63: undefined = "not yet computed"; string = cached path;
+// null = computed but Electron was unavailable.
+let _runtimeLogPath: string | null | undefined;
+
 function getRuntimeLogPath(): string | null {
-	try {
-		// Lazy require so unit tests that import this module
-		// (e.g. bootstrap.test.ts) don't need to mock Electron
-		// unless they exercise the file-tee path. Top-level
-		// `import { app } from "electron"` would force every
-		// test that transitively imports logging.ts to mock
-		// the entire Electron module.
-		//
-		// eslint-disable-next-line @typescript-eslint/no-var-requires
-		const electron = require("electron") as {
-			app?: { getPath?: (name: string) => string };
-		};
-		const userDataDir = electron?.app?.getPath?.("userData") ?? process.cwd();
-		return path.join(userDataDir, "electron-runtime.log");
-	} catch {
-		return null;
+	// ER-63: cache hit — return the previously resolved path (or null
+	// if a prior call found Electron unavailable). Avoids the
+	// `app.getPath` round-trip on every `log.warn` / `log.error`
+	// invocation.
+	if (_runtimeLogPath !== undefined) {
+		return _runtimeLogPath;
 	}
+	try {
+		// The top-level `import { app } from "electron"` on line 38
+		// is the canonical binding (vitest 4 intercepts static imports
+		// but NOT dynamic `require("electron")` in ESM-transpiled
+		// modules — so the previous lazy-require pattern was opaque
+		// to the mock system and untestable). The `?? process.cwd()`
+		// fallback preserves the original behaviour for non-Electron
+		// contexts.
+		const userDataDir = app?.getPath?.("userData") ?? process.cwd();
+		_runtimeLogPath = path.join(userDataDir, "electron-runtime.log");
+	} catch {
+		// Edge case: `app.getPath` can throw if the userData dir
+		// is unset/unavailable (e.g. very early in test setup
+		// where the Electron mock doesn't yet implement getPath).
+		// Return null so {@link mainRuntimeLogger.write} silently
+		// no-ops — the stdout tee already captured the message.
+		_runtimeLogPath = null;
+	}
+	return _runtimeLogPath;
+}
+
+/**
+ * ER-63: test-only export of the memoized path resolver. Exposed so
+ * unit tests can call `getRuntimeLogPath()` directly and assert that
+ * `app.getPath` is invoked exactly once across N calls — verifying
+ * the memoization. Production callers go through
+ * {@link mainRuntimeLogger.write} which calls `getRuntimeLogPath()`
+ * internally.
+ *
+ * Underscore-prefixed to signal "internal/test-only" — matching the
+ * existing `_resetFileSizeCacheForTest` / `_resetRuntimeLogPathForTest`
+ * / `_crashLogPaths` convention in this module.
+ */
+export function _getRuntimeLogPathForTest(): string | null {
+	return getRuntimeLogPath();
+}
+
+/**
+ * ER-63: clear the memoized runtime log path. Exported for unit tests
+ * so each test case starts with a fresh cache and can assert against
+ * the call count of `app.getPath`.
+ *
+ * Production code should NOT call this — `getRuntimeLogPath` is intended
+ * to memoize for the process lifetime, and the userData dir does not
+ * move after `bootstrapRuntime()`'s `setupUserData()` step.
+ */
+export function _resetRuntimeLogPathForTest(): void {
+	_runtimeLogPath = undefined;
 }
 
 /**
@@ -502,23 +565,18 @@ export const mainRuntimeLogger = {
 	write(level: "WARN" | "ERROR", args: unknown[]): void {
 		const logPath = getRuntimeLogPath();
 		if (!logPath) return;
-		try {
-			rotateIfNeeded(logPath, RUNTIME_LOG_MAX_BYTES);
-			const iso = new Date().toISOString();
-			const line = `${iso} [${level}] ${formatArgsForFile(args)}\n`;
-			fs.appendFileSync(logPath, line, { encoding: "utf-8" });
-		} catch (e) {
-			// Best-effort: file write failed. The stdout
-			// tee already captured the message — we lose
-			// durability but not visibility. Swallowing
-			// here is correct: a logging failure must not
-			// cascade into a runtime failure of the
-			// calling code.
-			console.warn(
-				`[logging] mainRuntimeLogger.write failed for ${logPath}:`,
-				e,
-			);
-		}
+		const iso = new Date().toISOString();
+		const line = `${iso} [${level}] ${formatArgsForFile(args)}\n`;
+		// AC-12: route through `appendLogLine` so the XV-154 file-size
+		// cache is populated after each successful append. Previously
+		// this site called `rotateIfNeeded` + `fs.appendFileSync` directly,
+		// which bypassed the cache and forced a synchronous `fs.statSync`
+		// on every `log.warn`/`log.error` call (the exact perf bug
+		// XV-154 described). `appendLogLine` swallows I/O errors
+		// internally (best-effort), so no surrounding try/catch is
+		// needed — a logging failure must not cascade into a runtime
+		// failure of the calling code.
+		appendLogLine(logPath, line, RUNTIME_LOG_MAX_BYTES);
 	},
 };
 

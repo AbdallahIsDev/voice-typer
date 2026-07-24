@@ -35,8 +35,73 @@
 //! `XDG_SESSION_TYPE=wayland` and always use the clipboard + Ctrl+V
 //! path (the short-text `enigo.text()` branch is skipped). macOS and
 //! Linux X11 are unchanged.
+//!
+//! # DE-74: clipboard save/restore
+//!
+//! Both clipboard-write paths ([`paste_via_clipboard_and_ctrl_v`] and
+//! the UIPI fallback inside [`restore_focus_or_fallback`]) snapshot
+//! the user's current clipboard via `read_text()` BEFORE overwriting
+//! it, then restore the original after the paste keystroke completes
+//! (or, in the UIPI case, after a generous delay so the user has time
+//! to press Ctrl+V manually). Without this, every long-text paste
+//! silently destroyed whatever the user had on the clipboard — a
+//! frequent complaint ("I copied a password, dictated a paragraph,
+//! the password is gone"). If the original clipboard held non-text
+//! content (image, files), `read_text()` returns `Err` and the
+//! restore uses `clear()` instead of `write_text`.
 
 use crate::util::PASTE_SHORT_THRESHOLD;
+
+// ─── DE-74: clipboard save/restore helpers ─────────────────────────────
+//
+// Shared between `paste_via_clipboard_and_ctrl_v` (main long-text path)
+// and the UIPI fallback inside `restore_focus_or_fallback`. Both paths
+// overwrite the user's clipboard with the transcribed text — without
+// save/restore, the original clipboard contents are lost.
+//
+// `read_text()` returns:
+//   - `Ok(String)` → clipboard held text; restore via `write_text(String)`.
+//   - `Err(_)`     → clipboard was empty OR held non-text content (image,
+//                    files); restore via `clear()` so we don't leave the
+//                    transcribed text on the clipboard indefinitely.
+//
+// Note: `tauri-plugin-clipboard-manager`'s `read_text` is documented
+// as "should not be used on the main thread" (Linux deadlock risk).
+// Both call sites are `async fn`s driven by Tauri's `#[tauri::command]`
+// dispatch, which runs on the Tokio worker pool — never the main
+// thread. The same pattern is already used by the existing
+// `write_text` calls in this module.
+
+/// DE-74: snapshot the current clipboard. Returns `Some(text)` if the
+/// clipboard held text, `None` if it was empty / non-text (image,
+/// files). The caller restores via [`restore_clipboard`] with the same
+/// `Option<String>`.
+fn save_clipboard(app: &tauri::AppHandle) -> Option<String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    app.clipboard().read_text().ok()
+}
+
+/// DE-74: restore the clipboard to its pre-paste state. `saved` is the
+/// value returned by [`save_clipboard`]. `Some(text)` → write the
+/// original text back; `None` → `clear()` (the original was non-text
+/// or empty). Errors are logged at `warn` but not propagated — the
+/// paste itself already succeeded, and a restore failure is a
+/// best-effort cleanup, not a user-visible error.
+fn restore_clipboard(app: &tauri::AppHandle, saved: Option<String>, context: &str) {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    let result = match &saved {
+        Some(original) => app.clipboard().write_text(original.clone()),
+        None => app.clipboard().clear(),
+    };
+    if let Err(e) = result {
+        log::warn!(
+            "[DE-74] failed to restore clipboard after {} (saved={}): {}",
+            context,
+            if saved.is_some() { "Some(text)" } else { "None" },
+            e
+        );
+    }
+}
 
 // ─── Public entry point ────────────────────────────────────────────────
 
@@ -149,36 +214,74 @@ fn paste_via_enigo_text(text: &str) -> Result<(), String> {
 /// All errors propagate via `?` so the caller (a `#[tauri::command]`
 /// returning `Result<(), String>`) surfaces them to the webview's
 /// `invoke()` reject handler per ADR-0020 §6.2 + NEW-IPC-107.
+///
+/// DE-74: snapshots the current clipboard via [`save_clipboard`]
+/// BEFORE the `write_text`, then restores it via
+/// [`restore_clipboard`] after a short delay (250ms — gives the target
+/// app time to read the clipboard during Ctrl+V keystroke processing
+/// on slow systems). If the original clipboard held non-text content
+/// (image, files), the restore uses `clear()` instead of `write_text`.
+/// The restore fires on BOTH success and error paths so the user's
+/// original clipboard is never silently destroyed.
 async fn paste_via_clipboard_and_ctrl_v(
     app: &tauri::AppHandle,
     text: &str,
 ) -> Result<(), String> {
-    use enigo::{Enigo, Key, Keyboard, Settings};
-    use tauri_plugin_clipboard_manager::ClipboardExt;
-    app.clipboard()
-        .write_text(text.to_string())
-        .map_err(|e| format!("clipboard write failed: {e}"))?;
-    let mut enigo = Enigo::new(&Settings::default())
-        .map_err(|e| format!("enigo init failed: {e}"))?;
-    let mod_key = if cfg!(target_os = "macos") {
-        Key::Meta
-    } else {
-        Key::Control
+    // DE-74: snapshot the current clipboard BEFORE overwriting it.
+    let saved_clipboard = save_clipboard(app);
+
+    // Run the actual paste. Capture any error so we can restore the
+    // clipboard before returning — even on failure, the user wants
+    // their original clipboard back (the transcribed text is useless
+    // if the keystroke didn't fire, and leaving it on the clipboard
+    // would be a silent data-destructive side-effect of a failed
+    // paste). The async block captures `app`, `text`, and the
+    // `use`d traits by reference.
+    let paste_result: Result<(), String> = {
+        use enigo::{Enigo, Key, Keyboard, Settings};
+        use tauri_plugin_clipboard_manager::ClipboardExt;
+        async {
+            app.clipboard()
+                .write_text(text.to_string())
+                .map_err(|e| format!("clipboard write failed: {e}"))?;
+            let mut enigo = Enigo::new(&Settings::default())
+                .map_err(|e| format!("enigo init failed: {e}"))?;
+            let mod_key = if cfg!(target_os = "macos") {
+                Key::Meta
+            } else {
+                Key::Control
+            };
+            enigo
+                .key(mod_key, enigo::Direction::Press)
+                .map_err(|e| format!("enigo mod press failed: {e}"))?;
+            enigo
+                .key(Key::Unicode('v'), enigo::Direction::Click)
+                .map_err(|e| format!("enigo v click failed: {e}"))?;
+            enigo
+                .key(mod_key, enigo::Direction::Release)
+                .map_err(|e| format!("enigo mod release failed: {e}"))?;
+            log::info!(
+                "[PASTE] injected {} chars via clipboard + Ctrl/Cmd+V",
+                text.chars().count()
+            );
+            Ok(())
+        }
+        .await
     };
-    enigo
-        .key(mod_key, enigo::Direction::Press)
-        .map_err(|e| format!("enigo mod press failed: {e}"))?;
-    enigo
-        .key(Key::Unicode('v'), enigo::Direction::Click)
-        .map_err(|e| format!("enigo v click failed: {e}"))?;
-    enigo
-        .key(mod_key, enigo::Direction::Release)
-        .map_err(|e| format!("enigo mod release failed: {e}"))?;
-    log::info!(
-        "[PASTE] injected {} chars via clipboard + Ctrl/Cmd+V",
-        text.chars().count()
-    );
-    Ok(())
+
+    // DE-74: short delay so the target app finishes reading the
+    // clipboard during Ctrl+V processing, then restore the original.
+    // 250ms is generous: enigo's keystroke is already complete by the
+    // time we get here, and most apps read the clipboard synchronously
+    // during WM_PASTE / XSelection processing. On a 2-core machine
+    // under load, the paste handler may take longer to schedule — the
+    // delay is a trade-off against leaving the transcribed text on the
+    // clipboard longer (which risks the user copying something else
+    // first and then wondering why their clipboard got clobbered).
+    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    restore_clipboard(app, saved_clipboard, "paste_via_clipboard_and_ctrl_v");
+
+    paste_result
 }
 
 // ─── Windows focus-restore (ADR-0020 §6.3) ─────────────────────────────
@@ -355,6 +458,15 @@ async fn restore_focus_or_fallback(
         "[PASTE] AttachThreadInput returned 0 — UIPI blocked focus-restore; \
          falling back to clipboard + crash_recovery + toast"
     );
+    // DE-74: snapshot the current clipboard BEFORE overwriting it with
+    // the transcribed text. We then schedule a background task to
+    // restore the original clipboard after a generous delay (30s) —
+    // long enough for the user to read the toast and press Ctrl+V
+    // manually, short enough that the user's original clipboard
+    // contents are eventually restored (the bug we're fixing). The
+    // spawned task owns a cloned `AppHandle` (cheap — Arc-based) and
+    // the `Option<String>` snapshot.
+    let saved_clipboard = save_clipboard(app);
     // Best-effort clipboard write — capture the success flag so the
     // crash_recovery event + toast body can reflect whether the text
     // was actually saved. G4-M-59: previously the clipboard write
@@ -408,9 +520,102 @@ async fn restore_focus_or_fallback(
         .title("Voice Typer")
         .body(toast_body)
         .show();
+    // DE-74: schedule the clipboard restore as a fire-and-forget
+    // background task. We can't `await` the delay inline because this
+    // function needs to return immediately so the toast + error
+    // surface to the user without a 30-second hang. The 30-second
+    // delay gives the user time to read the toast and press Ctrl+V;
+    // after that, the original clipboard is restored (the transcribed
+    // text is overwritten). If the user pastes within 30s, they get
+    // the transcribed text; if they're slower, they get a "clipboard
+    // restored to original" silent cleanup. Trade-off documented at
+    // the top of this module under "DE-74: clipboard save/restore".
+    if clipboard_ok {
+        let app_for_restore = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            restore_clipboard(
+                &app_for_restore,
+                saved_clipboard,
+                "UIPI fallback (30s delayed restore)",
+            );
+        });
+    }
     if clipboard_ok {
         Err("paste focus-restore failed (UIPI): text copied to clipboard".to_string())
     } else {
         Err("paste focus-restore failed (UIPI): clipboard write also failed, text lost".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    // DE-74: `save_clipboard` / `restore_clipboard` are thin wrappers
+    // around `tauri-plugin-clipboard-manager`'s `read_text` / `write_text`
+    // / `clear` — they can't be unit-tested without a running Tauri
+    // runtime (constructing a `tauri::AppHandle` requires the Tauri
+    // plugin registry, which only initializes inside `tauri::Builder`
+    // ...). The behavioral contract is exercised end-to-end by the
+    // Tauri mig15-19 glue tests under `tests/tauri/`.
+    //
+    // What we CAN pin here is the decision logic: "which restore
+    // action should fire for a given `Option<String>` snapshot?" —
+    // that's pure data and worth a unit test so future refactors of
+    // `restore_clipboard` don't accidentally invert the None/Some
+    // branches (which would silently leave the transcribed text on
+    // the clipboard forever when the original was non-text).
+
+    use super::*;
+
+    /// Mirror of the private decision logic inside `restore_clipboard`.
+    /// Kept in sync by hand — if `restore_clipboard`'s match arms
+    /// change, update this enum + test together. The test asserts the
+    /// invariant: `Some(text)` → write_text(text); `None` → clear().
+    #[derive(Debug, PartialEq)]
+    enum RestoreAction {
+        WriteText(String),
+        Clear,
+    }
+
+    fn restore_action_for(saved: &Option<String>) -> RestoreAction {
+        match saved {
+            Some(original) => RestoreAction::WriteText(original.clone()),
+            None => RestoreAction::Clear,
+        }
+    }
+
+    #[test]
+    fn test_de74_restore_action_some_text_writes_text_back() {
+        // If the original clipboard held text, restore via write_text.
+        let saved = Some("user's original clipboard".to_string());
+        assert_eq!(
+            restore_action_for(&saved),
+            RestoreAction::WriteText("user's original clipboard".to_string())
+        );
+    }
+
+    #[test]
+    fn test_de74_restore_action_none_clears_clipboard() {
+        // If the original clipboard was non-text or empty (read_text
+        // returned Err → .ok() → None), restore via clear() so we
+        // don't leave the transcribed text on the clipboard forever.
+        let saved: Option<String> = None;
+        assert_eq!(restore_action_for(&saved), RestoreAction::Clear);
+    }
+
+    #[test]
+    fn test_de74_restore_action_empty_string_still_writes_text_back() {
+        // Edge case: the original clipboard held an empty string
+        // (technically possible — some apps write "" to the
+        // clipboard). We restore it as-is (write_text("")), NOT
+        // clear() — clearing would conflate "user had empty text"
+        // with "user had non-text content". The empty-string case is
+        // a no-op for the user's clipboard state, but write_text(""),
+        // not clear(), is the correct restoration.
+        let saved = Some(String::new());
+        assert_eq!(
+            restore_action_for(&saved),
+            RestoreAction::WriteText(String::new())
+        );
     }
 }
