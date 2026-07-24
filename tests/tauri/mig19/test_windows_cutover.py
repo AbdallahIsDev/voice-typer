@@ -274,7 +274,7 @@ def test_playbook_documents_release_notes_update_step(playbook_text: str):
 
 def test_playbook_documents_evidence_trail(playbook_text: str):
     """The playbook must document the evidence trail that must be filed
-    before the flip (runbook checklist, FT-1 log, side-by-side smoke
+    before the flip (runbook checklist, log, side-by-side smoke
     test, bundle size + startup latency, signing verification, user
     acceptance sign-off, rollback plan confirmed).
     """
@@ -285,7 +285,7 @@ def test_playbook_documents_evidence_trail(playbook_text: str):
     for required in (
         "user acceptance",
         "signing",
-        "FT-1",
+        "supervisor",
         "smoke",
         "rollback",
     ):

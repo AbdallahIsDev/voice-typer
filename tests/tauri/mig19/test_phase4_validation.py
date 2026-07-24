@@ -90,7 +90,7 @@ VALIDATE ON WINDOWS HOST (x86_64-pc-windows-msvc):
        - Check sidecar.log for the line:
          "[IPC] TAURI_SIDECAR=1 — skipping heartbeat-watchdog thread"
        - Kill the webview (Task Manager → End Task on the app window).
-         Wait 130s. The sidecar process must EXIT (FT-1 supervisor
+         Wait 130s. The sidecar process must EXIT (supervisor
          detected the WS-close and force-respawned / killed it). It
          must NOT linger past 120s waiting for a heartbeat that never
          comes (that would prove the watchdog was not disabled).
@@ -763,7 +763,7 @@ def test_ws_bridge_forwards_all_21_event_names():
 def test_tauri_sidecar_env_disables_heartbeat_watchdog_in_source():
     """ADR-0020 §2 + §10: under ``TAURI_SIDECAR=1`` the Python
     heartbeat-watchdog thread (ADR-0018) is DISABLED — the Tauri
-    host's FT-1 supervisor replaces it. Source-inspect
+    host's supervisor replaces it. Source-inspect
     ``ipc/server.py`` (where ``IPCServer.__init__`` now lives after
     the Phase 4.5 split) for the env-var check + the
     ``_heartbeat_thread = None`` skip path."""

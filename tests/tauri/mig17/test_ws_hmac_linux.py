@@ -783,7 +783,7 @@ async def test_rate_limiter_is_shared_across_connections():
 async def test_rate_limiter_rejects_with_structured_error():
     """A rate-limited frame returns ``{"type":"error","data":{"code":"rate_limited",...}}``.
 
-    The host's FT-1 backoff relies on this exact error shape to
+    The host's backoff relies on this exact error shape to
     distinguish "slow down" from "internal error". A bare exception
     or a missing code field would trigger the wrong recovery path.
     """

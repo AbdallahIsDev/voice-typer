@@ -1,24 +1,24 @@
 """MIG-1.9 Phase 4 — Wire-swap + recovery validation (ADR-0020 §10).
 
 This test file validates the Tauri host's WebSocket disconnect →
-FT-1 respawn → backoff → recovery logic, which ADR-0020 §10 mandates
+respawn → backoff → recovery logic, which ADR-0020 §10 mandates
 as the crash-recovery path for the Python sidecar under Tauri.
 
-Scope (ADR-0020 §10 — "WebSocket disconnect / error handling + FT-1
+Scope (ADR-0020 §10 — "WebSocket disconnect / error handling + supervisor
 + rate limiter"):
 
-  1. FT-1 backoff schedule is ``500ms → 1s → 2s → 4s → 8s`` (5 steps,
+  1. backoff schedule is ``500ms → 1s → 2s → 4s → 8s`` (5 steps,
      doubling) before falling back to full-app relaunch.
-  2. FT-1 caps at 5 retries (``FT1_MAX_RETRIES``) then calls
+  2. supervisor caps at 5 retries (``SUPERVISOR_MAX_RETRIES``) then calls
      ``app.restart()`` for a full-app relaunch.
   3. The WS reader task detects disconnect via EOF (``read.next()``
      returns ``None``), ``Message::Close``, or ``Err`` on the stream.
-  4. The WS reader triggers ``ft1_respawn`` on unexpected disconnect
+  4. The WS reader triggers ``respawn`` on unexpected disconnect
      (unless ``shutting_down`` is set).
-  5. FT-1 uses an ``AtomicBool`` + ``compare_exchange`` to serialize
+  5. supervisor uses an ``AtomicBool`` + ``compare_exchange`` to serialize
      respawn (no double-respawn race when the sidecar flaps).
-  6. FT-1 resets the backoff schedule on successful reconnection
-     (attempt counter is local to each ``ft1_respawn_inner`` call).
+  6. supervisor resets the backoff schedule on successful reconnection
+     (attempt counter is local to each ``respawn_inner`` call).
   7. The 1 MiB WS frame cap (``MAX_FRAME_BYTES``) is enforced on BOTH
      the Rust client (``tokio-tungstenite`` ``WebSocketConfig``) and
      the Python server (``websockets.serve(max_size=...)``).
@@ -28,10 +28,10 @@ Scope (ADR-0020 §10 — "WebSocket disconnect / error handling + FT-1
 
 The Linux sandbox CANNOT compile/run the Rust host or the Nuitka-frozen
 sidecar, so all tests here are **source-inspection tests**: they read
-the Rust source (``src-tauri/src/sidecar/{ft1,ws}.rs`` + ``util.rs`` +
+the Rust source (``src-tauri/src/sidecar/{supervisor,ws}.rs`` + ``util.rs`` +
 ``state.rs``) and the Python sidecar source (``voice_typer/server/
 sidecar_ws.py``) and assert the recovery logic is wired correctly.
-End-to-end runtime validation (real WS disconnect → real FT-1 respawn
+End-to-end runtime validation (real WS disconnect → real respawn
 → real backoff sleep → real ``app.restart()``) is documented in the
 VALIDATE ON HOST block below — a human must run those commands on a
 real desktop host per platform.
@@ -44,7 +44,7 @@ wire-swap recovery end-to-end on a real desktop host
 These commands MUST be run on a real desktop host (Windows / macOS /
 Linux) with the Tauri toolchain + Python sidecar installed. The Linux
 sandbox cannot execute them. They validate the ADR-0020 §10 crash
-recovery state machine: WS disconnect → FT-1 backoff → reconnect OR
+recovery state machine: WS disconnect → backoff → reconnect OR
 full-app relaunch.
 
 Prerequisites (per platform — see tests/tauri/mig18/test_per_triple_freeze.py
@@ -57,7 +57,7 @@ for the full per-triple build runbook):
     install cleanly on the host).
 
 ---------------------------------------------------------------------
-A. FT-1 backoff schedule (500ms → 1s → 2s → 4s → 8s, cap 5)
+A. backoff schedule (500ms → 1s → 2s → 4s → 8s, cap 5)
 ---------------------------------------------------------------------
     1. cd <repo-root> && cargo tauri dev
        (or: VOICE_TYPER_SIDECAR_DEV=1 cargo tauri dev for the unfrozen
@@ -71,12 +71,12 @@ A. FT-1 backoff schedule (500ms → 1s → 2s → 4s → 8s, cap 5)
        taskkill /F /PID <pid> # Windows
     5. Watch the Tauri host logs — you MUST see exactly this sequence:
        [WS-READER] sidecar closed the WS       (or "error: ..." on kill -9)
-       [FT-1] respawn attempt 1 after 500ms
-       [FT-1] respawn attempt 2 after 1000ms
-       [FT-1] respawn attempt 3 after 2000ms
-       [FT-1] respawn attempt 4 after 4000ms
-       [FT-1] respawn attempt 5 after 8000ms
-       [FT-1] exhausted 5 retries — falling back to full-app relaunch
+       [supervisor] respawn attempt 1 after 500ms
+       [supervisor] respawn attempt 2 after 1000ms
+       [supervisor] respawn attempt 3 after 2000ms
+       [supervisor] respawn attempt 4 after 4000ms
+       [supervisor] respawn attempt 5 after 8000ms
+       [supervisor] exhausted 5 retries — falling back to full-app relaunch
        (then the app exits + relaunches via the Tauri launcher)
     6. BONUS: kill the sidecar, let it respawn successfully on attempt
        1, then kill it again — the second crash MUST start fresh at
@@ -84,16 +84,16 @@ A. FT-1 backoff schedule (500ms → 1s → 2s → 4s → 8s, cap 5)
        counter — see test_gap_no_persistent_crash_counter_across_invocations).
 
 ---------------------------------------------------------------------
-B. FT-1 respawn serialization (no double-respawn race)
+B. respawn serialization (no double-respawn race)
 ---------------------------------------------------------------------
     1. cargo tauri dev (as above).
     2. Kill the sidecar AND immediately trigger a second disconnect
        signal (e.g. kill the respawned sidecar before the first
-       ft1_respawn returns — within ~500ms).
+       respawn returns — within ~500ms).
     3. The host log MUST show exactly one:
-       [FT-1] respawn already in progress — skipping
-       (the second ft1_respawn call bails out via the AtomicBool).
-    4. Verify only ONE ft1_respawn_inner loop is running at a time
+       [supervisor] respawn already in progress — skipping
+       (the second respawn call bails out via the AtomicBool).
+    4. Verify only ONE respawn_inner loop is running at a time
        (no interleaved "attempt N" lines from two parallel loops).
 
 ---------------------------------------------------------------------
@@ -139,7 +139,7 @@ D. Rate limiter on WS accept path (ADR-0019)
        it MUST succeed (window has rolled forward).
 
 ---------------------------------------------------------------------
-E. Cooperative shutdown vs. FT-1 (regression guard)
+E. Cooperative shutdown vs. supervisor (regression guard)
 ---------------------------------------------------------------------
     1. cargo tauri dev (as above).
     2. Quit the app via the tray icon (or Cmd+Q on macOS).
@@ -147,21 +147,21 @@ E. Cooperative shutdown vs. FT-1 (regression guard)
        [SHUTDOWN] sending {"type":"shutdown"}
        [SHUTDOWN] sidecar exited cleanly
        and MUST NOT show:
-       [WS-READER] unexpected close — triggering FT-1
+       [WS-READER] unexpected close — triggering supervisor
        (because shutting_down is set BEFORE the WS reader exits,
-       the FT-1 respawn is correctly suppressed — see
+       the respawn is correctly suppressed — see
        test_ws_reader_skips_respawn_during_shutdown).
 
 References:
-  - ADR-0020 §10     — authoritative spec for WS disconnect / FT-1 /
+  - ADR-0020 §10     — authoritative spec for WS disconnect / supervisor /
                        rate limiter / frame cap / heartbeat removal.
   - ADR-0020 §1      — WS transport + server_started handshake.
   - ADR-0020 §9      — bubble_level coalesce (30 Hz cap).
   - ADR-0019         — per-connection rate limiter (200 burst / 60
                        sustained msg/s) — ported to the WS path here.
-  - src-tauri/src/sidecar/ft1.rs   — FT-1 supervisor implementation.
-  - src-tauri/src/sidecar/ws.rs    — WS reader/writer + FT-1 trigger.
-  - src-tauri/src/util.rs          — FT1_BACKOFF_MS / FT1_MAX_RETRIES /
+  - src-tauri/src/sidecar/supervisor.rs   — supervisor implementation.
+  - src-tauri/src/sidecar/ws.rs    — WS reader/writer + supervisor trigger.
+  - src-tauri/src/util.rs          — SUPERVISOR_BACKOFF_MS / SUPERVISOR_MAX_RETRIES /
                                      MAX_FRAME_BYTES / PRE_RESTART_DELAY_MS.
   - src-tauri/src/state.rs         — SidecarState (respawn_in_progress
                                      AtomicBool, shutting_down AtomicBool).
@@ -170,14 +170,14 @@ References:
 
 Gaps documented (report, do NOT fix — out of scope for MIG-1.9 check-3):
   - GAP-1: ADR-0020 §10 says the backoff schedule is "500→1000→2000 ms,
-    cap 5 retries" — but the implemented schedule (``FT1_BACKOFF_MS``)
+    cap 5 retries" — but the implemented schedule (``SUPERVISOR_BACKOFF_MS``)
     is 500→1000→2000→4000→8000 ms (5 entries, doubling). The ADR text
     is ambiguous (only 3 values shown but cap=5); the implementation's
     5-step doubling matches the *cap* but extends beyond the 3 values
     shown. This is a documentation/ADR wording gap, not a code bug.
-  - GAP-2: The FT-1 supervisor uses a per-call ``attempt`` counter
-    local to ``ft1_respawn_inner`` — there is NO persistent crash
-    counter across ``ft1_respawn`` invocations. A flapping sidecar
+  - GAP-2: The supervisor uses a per-call ``attempt`` counter
+    local to ``respawn_inner`` — there is NO persistent crash
+    counter across ``respawn`` invocations. A flapping sidecar
     that recovers on attempt 0 every time will NEVER escalate to
     ``app.restart()``, even if it flaps 1000 times in a minute. If
     ADR-0020 §10 intends a sustained-flap detector that escalates
@@ -209,7 +209,7 @@ import pytest
 # parents[3] = <project root>.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SRC_TAURI_DIR = PROJECT_ROOT / "src-tauri" / "src"
-FT1_RS = SRC_TAURI_DIR / "sidecar" / "ft1.rs"
+SUPERVISOR_RS = SRC_TAURI_DIR / "sidecar" / "supervisor.rs"
 WS_RS = SRC_TAURI_DIR / "sidecar" / "ws.rs"
 UTIL_RS = SRC_TAURI_DIR / "util.rs"
 STATE_RS = SRC_TAURI_DIR / "state.rs"
@@ -226,10 +226,10 @@ ADR_0020 = PROJECT_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analy
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 @pytest.fixture(scope="module")
-def ft1_source() -> str:
-    """Full text of src-tauri/src/sidecar/ft1.rs (read once per module)."""
-    assert FT1_RS.is_file(), f"missing: {FT1_RS}"
-    return FT1_RS.read_text(encoding="utf-8")
+def supervisor_source() -> str:
+    """Full text of src-tauri/src/sidecar/supervisor.rs (read once per module)."""
+    assert SUPERVISOR_RS.is_file(), f"missing: {SUPERVISOR_RS}"
+    return SUPERVISOR_RS.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -282,69 +282,69 @@ def adr_0020_source() -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 1. FT-1 backoff schedule (500ms → 1s → 2s → 4s → 8s, 5 steps doubling)
+# 1. backoff schedule (500ms → 1s → 2s → 4s → 8s, 5 steps doubling)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_ft1_backoff_schedule_is_5_steps_doubling(util_source: str) -> None:
-    """ADR-0020 §10: FT-1 backoff is 500ms→1s→2s→4s→8s (5 doubling steps).
+def test_supervisor_backoff_schedule_is_5_steps_doubling(util_source: str) -> None:
+    """ADR-0020 §10: backoff is 500ms→1s→2s→4s→8s (5 doubling steps).
 
     The schedule must be exactly ``&[500, 1000, 2000, 4000, 8000]`` — a
     doubling geometric progression with 5 entries. This is the literal
-    constant the FT-1 supervisor iterates over in ``ft1_respawn_inner``.
+    constant the supervisor iterates over in ``respawn_inner``.
     """
     # The const declaration line.
     match = re.search(
-        r"pub\(crate\)\s+const\s+FT1_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*"
+        r"pub\(crate\)\s+const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*"
         r"&\[(?P<vals>[^\]]+)\]",
         util_source,
     )
     assert match is not None, (
-        "FT1_BACKOFF_MS const declaration not found in util.rs — did the constant move or get renamed?"
+        "SUPERVISOR_BACKOFF_MS const declaration not found in util.rs — did the constant move or get renamed?"
     )
     vals = [int(v.strip()) for v in match.group("vals").split(",") if v.strip()]
     assert vals == [500, 1000, 2000, 4000, 8000], (
-        f"FT1_BACKOFF_MS must be [500, 1000, 2000, 4000, 8000] (5 doubling steps), got {vals}"
+        f"SUPERVISOR_BACKOFF_MS must be [500, 1000, 2000, 4000, 8000] (5 doubling steps), got {vals}"
     )
 
 
-def test_ft1_backoff_schedule_length_matches_max_retries(util_source: str) -> None:
-    """``FT1_BACKOFF_MS.len()`` must equal ``FT1_MAX_RETRIES`` (=5).
+def test_supervisor_backoff_schedule_length_matches_max_retries(util_source: str) -> None:
+    """``SUPERVISOR_BACKOFF_MS.len()`` must equal ``SUPERVISOR_MAX_RETRIES`` (=5).
 
-    The ``ft1_respawn_inner`` loop iterates over the schedule; if the
+    The ``respawn_inner`` loop iterates over the schedule; if the
     schedule were shorter than MAX_RETRIES, the exhaustion branch
-    (``attempt >= FT1_MAX_RETRIES``) would never fire and the loop
+    (``attempt >= SUPERVISOR_MAX_RETRIES``) would never fire and the loop
     would exit silently to the post-loop ``app.restart()`` fallback.
     Asserting equality guarantees the exhaustion branch is reachable.
     """
     sched_match = re.search(
-        r"FT1_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(?P<vals>[^\]]+)\]",
+        r"SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(?P<vals>[^\]]+)\]",
         util_source,
     )
     cap_match = re.search(
-        r"FT1_MAX_RETRIES\s*:\s*u32\s*=\s*(?P<val>\d+)",
+        r"SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(?P<val>\d+)",
         util_source,
     )
     assert sched_match is not None and cap_match is not None
     sched_len = len([v for v in sched_match.group("vals").split(",") if v.strip()])
     max_retries = int(cap_match.group("val"))
-    assert sched_len == 5, f"FT1_BACKOFF_MS must have 5 entries, got {sched_len}"
-    assert max_retries == 5, f"FT1_MAX_RETRIES must be 5, got {max_retries}"
+    assert sched_len == 5, f"SUPERVISOR_BACKOFF_MS must have 5 entries, got {sched_len}"
+    assert max_retries == 5, f"SUPERVISOR_MAX_RETRIES must be 5, got {max_retries}"
     assert sched_len == max_retries, (
-        f"FT1_BACKOFF_MS.len() ({sched_len}) must equal FT1_MAX_RETRIES "
+        f"SUPERVISOR_BACKOFF_MS.len() ({sched_len}) must equal SUPERVISOR_MAX_RETRIES "
         f"({max_retries}) so the loop iterates exactly N times before "
         f"falling back to app.restart()"
     )
 
 
-def test_ft1_backoff_implements_geometric_doubling(util_source: str) -> None:
+def test_supervisor_backoff_implements_geometric_doubling(util_source: str) -> None:
     """Each step must be exactly 2x the previous step (geometric, base 2).
 
     Guards against an accidental edit that breaks the progression
     (e.g. someone adding a 3000ms entry between 2000 and 4000).
     """
     match = re.search(
-        r"FT1_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(?P<vals>[^\]]+)\]",
+        r"SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[(?P<vals>[^\]]+)\]",
         util_source,
     )
     assert match is not None
@@ -355,68 +355,70 @@ def test_ft1_backoff_implements_geometric_doubling(util_source: str) -> None:
         )
 
 
-def test_ft1_respawn_inner_iterates_backoff_schedule(ft1_source: str) -> None:
-    """``ft1_respawn_inner`` must iterate ``FT1_BACKOFF_MS`` with enumerate.
+def test_supervisor_respawn_inner_iterates_backoff_schedule(supervisor_source: str) -> None:
+    """``respawn_inner`` must iterate ``SUPERVISOR_BACKOFF_MS`` with enumerate.
 
     This is the structural proof that the schedule constant is actually
     consumed by the supervisor (not just declared). The loop must use
     ``enumerate()`` so the attempt index is available for the cap check.
     """
-    assert "for (attempt, delay_ms) in FT1_BACKOFF_MS.iter().enumerate()" in ft1_source, (
-        "ft1_respawn_inner must iterate FT1_BACKOFF_MS with enumerate() — "
-        "the attempt index is needed for the FT1_MAX_RETRIES cap check"
+    assert "for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate()" in supervisor_source, (
+        "respawn_inner must iterate SUPERVISOR_BACKOFF_MS with enumerate() — "
+        "the attempt index is needed for the SUPERVISOR_MAX_RETRIES cap check"
     )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 2. FT-1 cap at 5 retries → app.restart() (full-app relaunch)
+# 2. supervisor cap at 5 retries → app.restart() (full-app relaunch)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_ft1_max_retries_constant_is_5(util_source: str) -> None:
-    """ADR-0020 §10: ``FT1_MAX_RETRIES`` must be exactly 5."""
-    match = re.search(r"FT1_MAX_RETRIES\s*:\s*u32\s*=\s*(?P<val>\d+)", util_source)
-    assert match is not None, "FT1_MAX_RETRIES const declaration not found"
+def test_supervisor_max_retries_constant_is_5(util_source: str) -> None:
+    """ADR-0020 §10: ``SUPERVISOR_MAX_RETRIES`` must be exactly 5."""
+    match = re.search(r"SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(?P<val>\d+)", util_source)
+    assert match is not None, "SUPERVISOR_MAX_RETRIES const declaration not found"
     assert int(match.group("val")) == 5, (
-        f"FT1_MAX_RETRIES must be 5 (then fall back to full-app relaunch), got {match.group('val')}"
+        f"SUPERVISOR_MAX_RETRIES must be 5 (then fall back to full-app relaunch), got {match.group('val')}"
     )
 
 
-def test_ft1_exhaustion_branch_calls_app_restart(ft1_source: str) -> None:
+def test_supervisor_exhaustion_branch_calls_app_restart(supervisor_source: str) -> None:
     """When the backoff schedule is exhausted, the supervisor MUST call
     ``app.restart()`` (the full-app relaunch fallback per ADR-0020 §10).
 
     The exhaustion path is the **post-loop** ``app.restart()`` at the
-    bottom of ``ft1_respawn_inner`` (the in-loop
-    ``attempt as u32 >= FT1_MAX_RETRIES`` guard was intentionally
-    removed as dead code — ``FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES ==
+    bottom of ``respawn_inner`` (the in-loop
+    ``attempt as u32 >= SUPERVISOR_MAX_RETRIES`` guard was intentionally
+    removed as dead code — ``SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES ==
     5``, so ``attempt`` ranges ``0..=4`` and that condition was always
-    false; see the NF-R19-2 comment in ft1.rs). The post-loop path emits
-    ``ft1_relaunching`` (reason="backoff_exhausted") and then calls
+    false; see the NF-R19-2 comment in supervisor.rs). The post-loop path emits
+    ``supervisor_relaunching`` (reason="backoff_exhausted") and then calls
     ``app.restart()``.
     """
     # The exhaustion branch must exist + call app.restart().
-    assert "backoff schedule exhausted" in ft1_source, (
-        "FT-1 post-loop exhaustion branch (``backoff schedule exhausted``) not found — the exhaustion path is missing"
+    assert "backoff schedule exhausted" in supervisor_source, (
+        "supervisor post-loop exhaustion branch (``backoff schedule exhausted``) not found — "
+        "the exhaustion path is missing"
     )
-    assert "app.restart()" in ft1_source, (
-        "app.restart() call not found in ft1.rs — full-app relaunch fallback is missing"
+    assert "app.restart()" in supervisor_source, (
+        "app.restart() call not found in supervisor.rs — full-app relaunch fallback is missing"
     )
     # The exhaustion branch must emit a Tauri event BEFORE restart so
     # the UI can render a "restarting…" banner.
-    assert '"ft1_relaunching"' in ft1_source, (
-        "ft1_relaunching event not emitted in ft1.rs — the UI cannot show a restarting banner before app.restart()"
+    assert '"supervisor_relaunching"' in supervisor_source, (
+        "supervisor_relaunching event not emitted in supervisor.rs — the UI cannot show a "
+        "restarting banner before app.restart()"
     )
 
 
-def test_ft1_exhaustion_branch_has_pre_restart_delay(ft1_source: str, util_source: str) -> None:
-    """ADR-0020 §10: a brief delay between emitting ``ft1_relaunching``
+def test_supervisor_exhaustion_branch_has_pre_restart_delay(supervisor_source: str, util_source: str) -> None:
+    """ADR-0020 §10: a brief delay between emitting ``supervisor_relaunching``
     and calling ``app.restart()`` so the webview can render the banner.
 
     The delay is ``PRE_RESTART_DELAY_MS`` (=500ms per util.rs).
     """
-    assert "PRE_RESTART_DELAY_MS" in ft1_source, (
-        "PRE_RESTART_DELAY_MS not referenced in ft1.rs — the pre-restart "
+    assert "PRE_RESTART_DELAY_MS" in supervisor_source, (
+        "PRE_RESTART_DELAY_MS not referenced in supervisor.rs — the pre-restart "
         "delay (so the UI can render the restarting banner) is missing"
     )
     match = re.search(
@@ -427,38 +429,38 @@ def test_ft1_exhaustion_branch_has_pre_restart_delay(ft1_source: str, util_sourc
     assert int(match.group("val")) == 500, f"PRE_RESTART_DELAY_MS must be 500ms, got {match.group('val')}"
 
 
-def test_ft1_loop_exit_falls_back_to_app_restart(ft1_source: str) -> None:
+def test_supervisor_loop_exit_falls_back_to_app_restart(supervisor_source: str) -> None:
     """If the backoff loop exits without returning (defensive — should
     not happen since the exhaustion branch fires first), the post-loop
     fallback MUST also call ``app.restart()``.
 
     This is the "belt and suspenders" guard for the case where
-    ``FT1_BACKOFF_MS.len() < FT1_MAX_RETRIES`` (a future edit bug).
+    ``SUPERVISOR_BACKOFF_MS.len() < SUPERVISOR_MAX_RETRIES`` (a future edit bug).
     """
     # Find the post-loop app.restart() (there should be at least 2
     # app.restart() calls: one inside the exhaustion branch, one
     # after the loop).
-    restart_count = ft1_source.count("app.restart()")
+    restart_count = supervisor_source.count("app.restart()")
     assert restart_count >= 2, (
-        f"expected at least 2 app.restart() calls in ft1.rs (exhaustion "
+        f"expected at least 2 app.restart() calls in supervisor.rs (exhaustion "
         f"branch + post-loop fallback), found {restart_count}"
     )
-    assert "backoff schedule exhausted" in ft1_source, (
+    assert "backoff schedule exhausted" in supervisor_source, (
         "post-loop exhaustion log message not found — the defensive "
-        "fallback for FT1_BACKOFF_MS.len() < FT1_MAX_RETRIES is missing"
+        "fallback for SUPERVISOR_BACKOFF_MS.len() < SUPERVISOR_MAX_RETRIES is missing"
     )
 
 
-def test_ft1_respawn_inner_respects_shutting_down_flag(ft1_source: str) -> None:
+def test_supervisor_respawn_inner_respects_shutting_down_flag(supervisor_source: str) -> None:
     """The supervisor MUST check ``shutting_down`` inside the backoff
     loop and bail out if the app is quitting mid-backoff (otherwise a
     slow backoff could respawn the sidecar DURING app shutdown)."""
-    assert "state.shutting_down.load" in ft1_source, (
-        "FT-1 supervisor must check state.shutting_down inside the backoff "
+    assert "state.shutting_down.load" in supervisor_source, (
+        "supervisor must check state.shutting_down inside the backoff "
         "loop — a respawn during shutdown would race with app.quit()"
     )
-    assert "shutting down — skipping respawn" in ft1_source, (
-        "FT-1 supervisor must log + return Ok(()) when shutting_down is set"
+    assert "shutting down — skipping respawn" in supervisor_source, (
+        "supervisor must log + return Ok(()) when shutting_down is set"
     )
 
 
@@ -475,7 +477,7 @@ def test_ws_reader_loop_breaks_on_eof_none(ws_source: str) -> None:
     """
     assert "while let Some(msg) = read.next().await" in ws_source, (
         "WS reader loop must use `while let Some(msg) = read.next().await` "
-        "— None (EOF) exits the loop, triggering the post-loop FT-1 path"
+        "— None (EOF) exits the loop, triggering the post-loop supervisor path"
     )
 
 
@@ -497,7 +499,7 @@ def test_ws_reader_loop_breaks_on_stream_error(ws_source: str) -> None:
     """A stream ``Err`` (e.g. TCP RST, broken pipe) must break the loop.
 
     The Err arm logs ``[WS-READER] error: <e>`` and then ``break;``s out
-    of the reader loop (which triggers the post-loop FT-1 path). We use
+    of the reader loop (which triggers the post-loop supervisor path). We use
     substring checks (not a regex block match) because the format string
     ``"{}"`` contains a literal ``}`` which would break a naive
     ``[^}]*`` block matcher.
@@ -519,48 +521,50 @@ def test_ws_reader_logs_disconnect_reasons(ws_source: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 4. WS reader triggers FT-1 respawn on disconnect
+# 4. WS reader triggers respawn on disconnect
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_ws_reader_triggers_ft1_respawn_after_loop_exit(ws_source: str) -> None:
+def test_ws_reader_triggers_respawn_after_loop_exit(ws_source: str) -> None:
     """After the reader loop exits (EOF/Close/Err), the reader task MUST
-    call ``ft1_respawn`` to start the backoff supervisor."""
-    assert "ft1_respawn(" in ws_source, (
-        "WS reader must call ft1_respawn() after the reader loop exits — the disconnect → FT-1 trigger is missing"
+    call ``respawn`` to start the backoff supervisor."""
+    assert "respawn(" in ws_source, (
+        "WS reader must call respawn() after the reader loop exits — the disconnect → supervisor trigger is missing"
     )
     # The call must be inside a std::thread::spawn + block_on bridge
     # (because the WS stream half is !Send so we can't tokio::spawn it
     # directly — see the inline comment in ws.rs).
     assert "std::thread::spawn" in ws_source, (
-        "WS reader must spawn FT-1 on a std::thread (the WS stream half "
+        "WS reader must spawn supervisor on a std::thread (the WS stream half "
         "is !Send so a tokio::spawn would fail the Send requirement)"
     )
     assert "tauri::async_runtime::block_on" in ws_source, (
-        "WS reader must use tauri::async_runtime::block_on to run the ft1_respawn future on the std::thread bridge"
+        "WS reader must use tauri::async_runtime::block_on to run the respawn future on the std::thread bridge"
     )
 
 
 def test_ws_reader_skips_respawn_during_shutdown(ws_source: str) -> None:
-    """The FT-1 trigger must be gated on ``!shutting_down`` — otherwise
+    """The supervisor trigger must be gated on ``!shutting_down`` — otherwise
     a normal app quit (which closes the WS) would spuriously respawn
     the sidecar DURING shutdown."""
     assert "state_for_reader.shutting_down.load" in ws_source, (
-        "WS reader must check shutting_down before triggering FT-1 — "
+        "WS reader must check shutting_down before triggering supervisor — "
         "a clean app quit would otherwise cause a spurious respawn"
     )
     assert "if !state_for_reader.shutting_down.load" in ws_source, (
-        "FT-1 trigger must be inside `if !shutting_down` — the spawn must be suppressed during shutdown"
+        "supervisor trigger must be inside `if !shutting_down` — the spawn must be suppressed during shutdown"
     )
 
 
 def test_ws_reader_emits_relaunching_with_reason_disconnected(ws_source: str) -> None:
-    """CR-5 (ADR-0020 §10): the WS reader must emit ``ft1_relaunching``
+    """CR-5 (ADR-0020 §10): the WS reader must emit ``supervisor_relaunching``
     with ``reason: "disconnected"`` IMMEDIATELY at disconnect start so
     the UI can show a "reconnecting…" banner BEFORE the backoff runs."""
-    assert '"ft1_relaunching"' in ws_source, "WS reader must emit 'ft1_relaunching' immediately at disconnect"
+    assert '"supervisor_relaunching"' in ws_source, (
+        "WS reader must emit 'supervisor_relaunching' immediately at disconnect"
+    )
     assert '"reason": "disconnected"' in ws_source or '"reason":"disconnected"' in ws_source, (
-        "WS reader must emit ft1_relaunching with reason='disconnected' "
+        "WS reader must emit supervisor_relaunching with reason='disconnected' "
         "so the UI shows the reconnecting banner before backoff runs"
     )
 
@@ -589,7 +593,7 @@ def test_ws_reader_clears_ws_tx_on_disconnect(ws_source: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 5. FT-1 atomic flag serialization (no double-respawn race)
+# 5. supervisor atomic flag serialization (no double-respawn race)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -599,28 +603,28 @@ def test_respawn_in_progress_is_atomic_bool(state_source: str) -> None:
     is lock-free + atomic across threads."""
     assert "respawn_in_progress: AtomicBool" in state_source, (
         "SidecarState.respawn_in_progress must be AtomicBool — a Mutex<bool> "
-        "would deadlock if ft1_respawn panics while holding the lock"
+        "would deadlock if respawn panics while holding the lock"
     )
 
 
-def test_ft1_uses_compare_exchange_to_acquire_flag(ft1_source: str) -> None:
-    """The FT-1 supervisor must use ``compare_exchange(false, true)``
+def test_supervisor_uses_compare_exchange_to_acquire_flag(supervisor_source: str) -> None:
+    """The supervisor must use ``compare_exchange(false, true)``
     to acquire the respawn flag — this is the only lock-free way to
     guarantee exactly one supervisor runs at a time."""
-    assert "compare_exchange(false, true" in ft1_source, (
-        "FT-1 supervisor must acquire respawn_in_progress with "
+    assert "compare_exchange(false, true" in supervisor_source, (
+        "supervisor must acquire respawn_in_progress with "
         "compare_exchange(false, true, ...) — test_and_set is not "
         "available on Rust's AtomicBool"
     )
-    assert "Ordering::SeqCst" in ft1_source, (
-        "FT-1 compare_exchange must use SeqCst ordering — the respawn "
+    assert "Ordering::SeqCst" in supervisor_source, (
+        "supervisor compare_exchange must use SeqCst ordering — the respawn "
         "flag is synchronized with shutting_down (also SeqCst) and the "
         "child/token/ws_tx Mutexes; weaker orderings could reorder the "
         "flag store relative to the Mutex unlocks"
     )
 
 
-def test_ft1_skips_when_respawn_already_in_progress(ft1_source: str) -> None:
+def test_supervisor_skips_when_respawn_already_in_progress(supervisor_source: str) -> None:
     """If ``compare_exchange`` fails (a previous respawn is in flight),
     the supervisor MUST bail out with ``Ok(())`` and log the skip —
     the in-flight supervisor owns the recovery.
@@ -630,24 +634,24 @@ def test_ft1_skips_when_respawn_already_in_progress(ft1_source: str) -> None:
     args, and the block contains a ``log::info!`` format string with
     literal braces that break a naive ``[^}]*`` matcher.
     """
-    assert "respawn already in progress" in ft1_source, (
-        "FT-1 supervisor must log 'respawn already in progress — skipping' when compare_exchange fails"
+    assert "respawn already in progress" in supervisor_source, (
+        "supervisor must log 'respawn already in progress — skipping' when compare_exchange fails"
     )
     # The skip block must `return Ok(())` (not Err — bailing out is not
     # an error). The compare_exchange's `.is_err()` branch is the skip
     # path; verify both substrings exist (their co-location in the same
-    # branch is verified by reading ft1.rs lines 22-29).
-    assert "compare_exchange(false, true" in ft1_source
-    assert ".is_err()" in ft1_source, (
-        "FT-1 supervisor must check `.is_err()` on the compare_exchange result to detect the 'already in progress' case"
+    # branch is verified by reading supervisor.rs lines 22-29).
+    assert "compare_exchange(false, true" in supervisor_source
+    assert ".is_err()" in supervisor_source, (
+        "supervisor must check `.is_err()` on the compare_exchange result to detect the 'already in progress' case"
     )
-    assert "return Ok(());" in ft1_source, (
-        "FT-1 supervisor must `return Ok(())` when compare_exchange fails — "
+    assert "return Ok(());" in supervisor_source, (
+        "supervisor must `return Ok(())` when compare_exchange fails — "
         "the in-flight supervisor owns the recovery (bail-out is not an error)"
     )
 
 
-def test_ft1_clears_flag_on_all_exit_paths(ft1_source: str) -> None:
+def test_supervisor_clears_flag_on_all_exit_paths(supervisor_source: str) -> None:
     """The ``respawn_in_progress`` flag MUST be cleared on EVERY exit
     path (Ok, Err) — otherwise a single respawn would permanently
     disable future recovery.
@@ -658,25 +662,25 @@ def test_ft1_clears_flag_on_all_exit_paths(ft1_source: str) -> None:
     the clear is unreachable there but harmless.
     """
     # The clear must use SeqCst (matches the acquire ordering).
-    assert "respawn_in_progress.store(false, Ordering::SeqCst)" in ft1_source, (
-        "FT-1 supervisor must clear respawn_in_progress with "
+    assert "respawn_in_progress.store(false, Ordering::SeqCst)" in supervisor_source, (
+        "supervisor must clear respawn_in_progress with "
         "store(false, SeqCst) — matching the compare_exchange acquire "
         "ordering, and on every exit path"
     )
-    # The clear must come AFTER ft1_respawn_inner resolves (so the
+    # The clear must come AFTER respawn_inner resolves (so the
     # inner body's MutexGuards are dropped first, maintaining the
     # "drop guards before await" Send-safety pattern).
-    assert "let result = ft1_respawn_inner" in ft1_source, (
-        "FT-1 supervisor must bind ft1_respawn_inner's result to a local "
+    assert "let result = respawn_inner" in supervisor_source, (
+        "supervisor must bind respawn_inner's result to a local "
         "before clearing the flag — this guarantees the clear runs AFTER "
         "the inner body resolves (Ok or Err)"
     )
 
 
-def test_ft1_respawn_in_progress_comment_documents_race(state_source: str) -> None:
+def test_supervisor_respawn_in_progress_comment_documents_race(state_source: str) -> None:
     """The ``respawn_in_progress`` field must have a doc comment
     explaining the race it prevents (flapping sidecar → multiple
-    parallel ft1_respawn supervisors corrupting child/token/ws_tx)."""
+    parallel respawn supervisors corrupting child/token/ws_tx)."""
     # Find the field declaration + look backwards for the doc comment.
     idx = state_source.find("respawn_in_progress: AtomicBool")
     assert idx != -1
@@ -684,22 +688,22 @@ def test_ft1_respawn_in_progress_comment_documents_race(state_source: str) -> No
     # The doc comment must mention the flapping/race scenario.
     assert "flapping" in preceding.lower() or "race" in preceding.lower() or "parallel" in preceding.lower(), (
         "respawn_in_progress doc comment must explain the race it prevents "
-        "(flapping sidecar → parallel ft1_respawn supervisors corrupting "
+        "(flapping sidecar → parallel respawn supervisors corrupting "
         "child/token/ws_tx)"
     )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 6. FT-1 resets the crash counter on successful reconnection
+# 6. supervisor resets the crash counter on successful reconnection
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_ft1_attempt_counter_is_local_to_invocation(ft1_source: str) -> None:
-    """The FT-1 attempt counter must be a LOCAL ``attempt`` variable
-    in the ``for (attempt, delay_ms) in FT1_BACKOFF_MS.iter().enumerate()``
+def test_supervisor_attempt_counter_is_local_to_invocation(supervisor_source: str) -> None:
+    """The supervisor attempt counter must be a LOCAL ``attempt`` variable
+    in the ``for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate()``
     loop — NOT a persistent field on ``SidecarState``.
 
-    This means each ``ft1_respawn`` call starts fresh at attempt 0, so
+    This means each ``respawn`` call starts fresh at attempt 0, so
     a successful reconnection (which returns Ok(()) immediately) leaves
     no residual state — the NEXT disconnect starts a fresh backoff
     schedule at 500ms. This is the implicit "crash counter reset on
@@ -707,63 +711,66 @@ def test_ft1_attempt_counter_is_local_to_invocation(ft1_source: str) -> None:
     """
     # The attempt variable must come from enumerate() (local), not from
     # a state field like state.crash_count.fetch_add(1).
-    assert "for (attempt, delay_ms) in FT1_BACKOFF_MS.iter().enumerate()" in ft1_source, (
-        "FT-1 attempt counter must be the `attempt` from enumerate() — a "
+    assert "for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate()" in supervisor_source, (
+        "supervisor attempt counter must be the `attempt` from enumerate() — a "
         "local loop variable, not a persistent SidecarState field"
     )
     # There must NOT be a persistent crash counter field on SidecarState.
-    assert "crash_count" not in ft1_source, (
-        "FT-1 supervisor must not use a persistent crash_count — the "
-        "attempt counter is per-call (local to ft1_respawn_inner)"
+    assert "crash_count" not in supervisor_source, (
+        "supervisor must not use a persistent crash_count — the "
+        "attempt counter is per-call (local to respawn_inner)"
     )
 
 
-def test_ft1_returns_on_successful_reconnect(ft1_source: str) -> None:
+def test_supervisor_returns_on_successful_reconnect(supervisor_source: str) -> None:
     """On a successful spawn + reconnect, the supervisor MUST return
     ``Ok(())`` immediately — this is the "reset" point. The next
     disconnect will start a fresh backoff schedule at attempt 0.
 
     We use substring checks (not a regex block match) because the
-    success arm contains ``app.emit("ft1_reconnected", json!({}))``
+    success arm contains ``app.emit("supervisor_reconnected", json!({}))``
     whose ``json!({})`` macro has literal braces that break a naive
     ``[^}]*`` matcher.
     """
-    # The success branch must emit ft1_reconnected AND return Ok(()).
+    # The success branch must emit supervisor_reconnected AND return Ok(()).
     # Both substrings must be present; their co-location in the same
-    # match arm is verified by reading ft1.rs lines 90-96 (the only
+    # match arm is verified by reading supervisor.rs lines 90-96 (the only
     # `return Ok(())` inside the for loop is in the reconnect_ws
     # Ok(()) arm).
-    assert '"ft1_reconnected"' in ft1_source, "FT-1 supervisor must emit 'ft1_reconnected' on successful respawn"
-    assert "return Ok(());" in ft1_source, (
-        "FT-1 supervisor must `return Ok(())` on successful reconnect_ws — "
+    assert '"supervisor_reconnected"' in supervisor_source, (
+        "supervisor must emit 'supervisor_reconnected' on successful respawn"
+    )
+    assert "return Ok(());" in supervisor_source, (
+        "supervisor must `return Ok(())` on successful reconnect_ws — "
         "this is the crash-counter reset point (next disconnect starts fresh)"
     )
     # The success branch must be inside the reconnect_ws Ok arm.
-    assert "reconnect_ws(app, state, port, &new_token)" in ft1_source
+    assert "reconnect_ws(app, state, port, &new_token)" in supervisor_source
 
 
-def test_ft1_emits_reconnected_event_on_success(ft1_source: str) -> None:
-    """On successful reconnect, the supervisor MUST emit ``ft1_reconnected``
+def test_supervisor_emits_reconnected_event_on_success(supervisor_source: str) -> None:
+    """On successful reconnect, the supervisor MUST emit ``supervisor_reconnected``
     so the UI can clear its "reconnecting…" banner."""
-    assert '"ft1_reconnected"' in ft1_source, (
-        "FT-1 supervisor must emit 'ft1_reconnected' on successful respawn so the UI can clear the reconnecting banner"
+    assert '"supervisor_reconnected"' in supervisor_source, (
+        "supervisor must emit 'supervisor_reconnected' on successful respawn "
+        "so the UI can clear the reconnecting banner"
     )
 
 
-def test_ft1_rotates_token_on_each_respawn_attempt(ft1_source: str) -> None:
+def test_supervisor_rotates_token_on_each_respawn_attempt(supervisor_source: str) -> None:
     """Each respawn attempt must rotate the bearer token (via
     ``generate_token()``) so a compromised old token is invalidated
     when the sidecar restarts. ADR-0020 §3."""
-    assert "generate_token()" in ft1_source, (
-        "FT-1 supervisor must call generate_token() on each respawn attempt "
+    assert "generate_token()" in supervisor_source, (
+        "supervisor must call generate_token() on each respawn attempt "
         "— the token rotates per respawn (ADR-0020 §3)"
     )
-    assert "new_token" in ft1_source, "FT-1 supervisor must use a `new_token` local for the rotated token"
+    assert "new_token" in supervisor_source, "supervisor must use a `new_token` local for the rotated token"
 
 
-def test_ft1_no_persistent_crash_counter_field_on_state(state_source: str) -> None:
+def test_supervisor_no_persistent_crash_counter_field_on_state(state_source: str) -> None:
     """``SidecarState`` must NOT have a persistent crash counter field
-    (e.g. ``crash_count: AtomicU32``). The FT-1 backoff schedule is
+    (e.g. ``crash_count: AtomicU32``). The backoff schedule is
     per-call (local ``attempt`` variable), so there is no shared
     counter that needs resetting.
 
@@ -774,22 +781,22 @@ def test_ft1_no_persistent_crash_counter_field_on_state(state_source: str) -> No
     test_gap_no_persistent_crash_counter_across_invocations.
     """
     # List of forbidden persistent-counter field names.
-    for forbidden in ("crash_count", "respawn_count", "ft1_attempt", "restart_count"):
+    for forbidden in ("crash_count", "respawn_count", "supervisor_attempt", "restart_count"):
         assert forbidden not in state_source, (
             f"SidecarState must NOT have a persistent {forbidden} field — "
-            f"the FT-1 attempt counter is per-call (local to ft1_respawn_inner)"
+            f"the supervisor attempt counter is per-call (local to respawn_inner)"
         )
 
 
-def test_gap_no_persistent_crash_counter_across_invocations(ft1_source: str, state_source: str) -> None:
-    """GAP-2 (documented, do NOT fix): the FT-1 supervisor has NO
-    persistent crash counter across ``ft1_respawn`` invocations.
+def test_gap_no_persistent_crash_counter_across_invocations(supervisor_source: str, state_source: str) -> None:
+    """GAP-2 (documented, do NOT fix): the supervisor has NO
+    persistent crash counter across ``respawn`` invocations.
 
     ADR-0020 §10's state machine says "running → (unexpected exit) →
     reconnecting → respawn with backoff (cap 5 retries) → running | give
     up → full-app relaunch". The implementation's "cap 5 retries"
     applies PER-CALL — a sidecar that flaps 1000 times in a minute but
-    recovers on attempt 0 every time will trigger 1000 ft1_respawn
+    recovers on attempt 0 every time will trigger 1000 respawn
     calls, each running 1 attempt (500ms backoff), never escalating
     to app.restart().
 
@@ -799,18 +806,18 @@ def test_gap_no_persistent_crash_counter_across_invocations(ft1_source: str, sta
     the shipped behavior.
     """
     # Proof the counter is local (per-call), not persistent.
-    assert "for (attempt, delay_ms) in FT1_BACKOFF_MS.iter().enumerate()" in ft1_source
+    assert "for (attempt, delay_ms) in SUPERVISOR_BACKOFF_MS.iter().enumerate()" in supervisor_source
     # Proof there is no SustainedFlapDetector or similar on SidecarState.
     assert "SustainedFlap" not in state_source
     assert "flap_count" not in state_source
     # The per-call exhaustion path lives in the post-loop branch (the
-    # in-loop ``attempt as u32 >= FT1_MAX_RETRIES`` guard was removed as
-    # dead code — see NF-R19-2 in ft1.rs). Assert the dead guard is GONE
+    # in-loop ``attempt as u32 >= SUPERVISOR_MAX_RETRIES`` guard was removed as
+    # dead code — see NF-R19-2 in supervisor.rs). Assert the dead guard is GONE
     # so a future edit that reintroduces it (which would never fire,
-    # since FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES == 5) is caught.
-    assert "attempt as u32 >= FT1_MAX_RETRIES" not in ft1_source, (
-        "The in-loop `attempt as u32 >= FT1_MAX_RETRIES` guard was "
-        "removed as dead code (FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES "
+    # since SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5) is caught.
+    assert "attempt as u32 >= SUPERVISOR_MAX_RETRIES" not in supervisor_source, (
+        "The in-loop `attempt as u32 >= SUPERVISOR_MAX_RETRIES` guard was "
+        "removed as dead code (SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES "
         "== 5, so the condition is always false). The real escalation "
         "path is the post-loop `backoff schedule exhausted` branch that "
         "calls app.restart(). Reintroducing the dead guard is misleading."
@@ -932,7 +939,8 @@ def test_sidecar_ws_calls_rate_limiter_allow_per_frame(sidecar_ws_source: str) -
         "sidecar_ws.py must look up the shared rate limiter via _get_rate_limiter(server) on every frame"
     )
     assert "rate_limiter.allow()" in sidecar_ws_source, (
-        "sidecar_ws.py must call rate_limiter.allow() per frame — the WS accept path rate-limiter is the ADR-0019 port"
+        "sidecar_ws.py must call rate_limiter.allow() per frame — the WS accept path "
+        "rate-limiter is the ADR-0019 port"
     )
     # SEC-6 / DOWNGRADE #2 fix: allow() now increments _rejected atomically
     # when it returns False. The separate .reject() call was removed from
@@ -1009,12 +1017,12 @@ def test_rate_limiter_burst_is_200_sustained_600(ipc_server_source: str) -> None
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_adr_0020_section_10_documents_ft1_backoff(adr_0020_source: str) -> None:
-    """ADR-0020 §10 must document the FT-1 backoff schedule + cap 5."""
-    assert "### 10. WebSocket disconnect / error handling + FT-1 + rate limiter" in adr_0020_source, (
+def test_adr_0020_section_10_documents_backoff(adr_0020_source: str) -> None:
+    """ADR-0020 §10 must document the backoff schedule + cap 5."""
+    assert "### 10. WebSocket disconnect / error handling + supervisor + rate limiter" in adr_0020_source, (
         "ADR-0020 §10 heading not found — the section was renamed or removed"
     )
-    # The FT-1 state machine + backoff must be documented.
+    # The supervisor state machine + backoff must be documented.
     assert "500" in adr_0020_source and "1000" in adr_0020_source and "2000" in adr_0020_source, (
         "ADR-0020 §10 must document the 500→1000→2000ms backoff schedule"
     )
@@ -1042,21 +1050,21 @@ def test_adr_0020_section_10_documents_rate_limiter_port(adr_0020_source: str) -
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 10. Source-inspection: FT-1 inner loop structure (additional guards)
+# 10. Source-inspection: supervisor inner loop structure (additional guards)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_ft1_respawn_inner_calls_reconnect_ws(ft1_source: str) -> None:
+def test_supervisor_respawn_inner_calls_reconnect_ws(supervisor_source: str) -> None:
     """Each respawn attempt must call ``reconnect_ws`` to re-establish
     the WS connection + re-auth with the new token. A successful
     reconnect is the only path to ``return Ok(())``."""
-    assert "reconnect_ws(app, state, port, &new_token)" in ft1_source, (
-        "FT-1 supervisor must call reconnect_ws(app, state, port, &new_token) "
+    assert "reconnect_ws(app, state, port, &new_token)" in supervisor_source, (
+        "supervisor must call reconnect_ws(app, state, port, &new_token) "
         "after each spawn — re-auth with the rotated token is mandatory"
     )
 
 
-def test_ft1_respawn_inner_handles_spawn_failure(ft1_source: str) -> None:
+def test_supervisor_respawn_inner_handles_spawn_failure(supervisor_source: str) -> None:
     """If ``spawn_sidecar_and_get_port`` fails (e.g. the binary is
     missing or the port handshake times out), the supervisor must
     ``continue`` to the next backoff attempt (not bail out).
@@ -1065,17 +1073,17 @@ def test_ft1_respawn_inner_handles_spawn_failure(ft1_source: str) -> None:
     spawn-error arm's ``log::warn!`` format string ``"{}"`` contains
     a literal ``}`` that breaks a naive ``[^}]*`` matcher.
     """
-    assert "sidecar spawn failed" in ft1_source, "FT-1 supervisor must log 'sidecar spawn failed' on spawn error"
+    assert "sidecar spawn failed" in supervisor_source, "supervisor must log 'sidecar spawn failed' on spawn error"
     # The spawn-error arm must `continue` (retry with backoff). The
     # `continue;` substring must be present; its co-location in the
-    # spawn-error arm is verified by reading ft1.rs lines 104-108.
-    assert "continue;" in ft1_source, (
-        "FT-1 supervisor must `continue` to the next backoff attempt on "
+    # spawn-error arm is verified by reading supervisor.rs lines 104-108.
+    assert "continue;" in supervisor_source, (
+        "supervisor must `continue` to the next backoff attempt on "
         "spawn failure (not bail out — a transient spawn error is recoverable)"
     )
 
 
-def test_ft1_respawn_inner_handles_reconnect_failure(ft1_source: str) -> None:
+def test_supervisor_respawn_inner_handles_reconnect_failure(supervisor_source: str) -> None:
     """If ``reconnect_ws`` fails (e.g. WS handshake timeout, auth
     rejected), the supervisor must ``continue`` to the next backoff
     attempt (the token was already rotated, so the next attempt
@@ -1085,27 +1093,27 @@ def test_ft1_respawn_inner_handles_reconnect_failure(ft1_source: str) -> None:
     reconnect-error arm's ``log::warn!`` format string ``"{}"``
     contains a literal ``}`` that breaks a naive ``[^}]*`` matcher.
     """
-    assert "WS reconnect failed" in ft1_source, "FT-1 supervisor must log 'WS reconnect failed' on reconnect error"
+    assert "WS reconnect failed" in supervisor_source, "supervisor must log 'WS reconnect failed' on reconnect error"
     # The reconnect-error arm must `continue` (retry with backoff).
     # Co-location in the reconnect_ws Err arm is verified by reading
-    # ft1.rs lines 98-101.
-    assert "continue;" in ft1_source, (
-        "FT-1 supervisor must `continue` to the next backoff attempt on "
+    # supervisor.rs lines 98-101.
+    assert "continue;" in supervisor_source, (
+        "supervisor must `continue` to the next backoff attempt on "
         "reconnect failure (token rotates fresh on the next attempt)"
     )
 
 
-def test_ft1_respawn_inner_swaps_child_handle_under_lock(ft1_source: str) -> None:
+def test_supervisor_respawn_inner_swaps_child_handle_under_lock(supervisor_source: str) -> None:
     """The new child handle must be stored under the ``state.child``
     Mutex (not via a shared mutable global) so the kill_children
     backstop sees the latest PID after a respawn.
 
-    G4-H-27: the production lock sites in ``ft1_respawn_inner`` now use
+    G4-H-27: the production lock sites in ``respawn_inner`` now use
     the poison-safe ``mutex_lock(&state.child)`` helper (defined in
     ``state.rs``) instead of the bare ``state.child.lock().unwrap()``
     pattern. Both forms acquire the same Mutex; the helper just
     downgrades poison into a recovered guard via ``unwrap_or_else(into_inner)``
-    so a panic on one lock doesn't permanently brick the FT-1 resilience
+    so a panic on one lock doesn't permanently brick the supervisor resilience
     layer. This test accepts EITHER form so it remains green during the
     migration (production code uses the new form; legacy test helpers
     inside ``#[cfg(test)]`` still use the old form).
@@ -1113,20 +1121,20 @@ def test_ft1_respawn_inner_swaps_child_handle_under_lock(ft1_source: str) -> Non
     # The child-handle swap must acquire state.child under a Mutex —
     # either the legacy `.lock().unwrap()` form OR the new poison-safe
     # `mutex_lock(&...)` helper (G4-H-27).
-    assert "state.child.lock().unwrap()" in ft1_source or "mutex_lock(&state.child)" in ft1_source, (
-        "FT-1 supervisor must store the new child handle under state.child's "
+    assert "state.child.lock().unwrap()" in supervisor_source or "mutex_lock(&state.child)" in supervisor_source, (
+        "supervisor must store the new child handle under state.child's "
         "Mutex (legacy .lock().unwrap() or new mutex_lock helper) — kill_children "
         "needs the latest PID"
     )
     # The token swap must acquire state.token under a Mutex — same
     # dual-form acceptance as above.
-    assert "state.token.lock().unwrap()" in ft1_source or "mutex_lock(&state.token)" in ft1_source, (
-        "FT-1 supervisor must store the new token under state.token's Mutex "
+    assert "state.token.lock().unwrap()" in supervisor_source or "mutex_lock(&state.token)" in supervisor_source, (
+        "supervisor must store the new token under state.token's Mutex "
         "(legacy .lock().unwrap() or new mutex_lock helper) — dispatch() reads "
         "the token to construct the auth frame"
     )
-    assert "state.child_exit_rx.lock().await" in ft1_source, (
-        "FT-1 supervisor must rotate the child_exit_rx (CR-2) so the next "
+    assert "state.child_exit_rx.lock().await" in supervisor_source, (
+        "supervisor must rotate the child_exit_rx (CR-2) so the next "
         "shutdown_sidecar polls the new sidecar's exit, not the old one"
     )
 

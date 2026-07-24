@@ -595,7 +595,7 @@ def test_capabilities_json_grants_shell_allow_kill(
 ) -> None:
     """ADR-0020 §7 + §10: the capability must grant ``shell:allow-kill``.
 
-    The FT-1 crash-supervisor backstop (ADR-0020 §10) force-kills the
+    The crash-supervisor backstop (ADR-0020 §10) force-kills the
     sidecar via the tauri-plugin-shell ``CommandChild::kill`` API when
     the cooperative ``{"type":"shutdown"}`` WS message does not ack
     within the shutdown timeout. Without ``shell:allow-kill``, the
@@ -604,7 +604,7 @@ def test_capabilities_json_grants_shell_allow_kill(
     """
     permissions = migrate_runtime_capability.get("permissions", [])
     assert "shell:allow-kill" in permissions, (
-        "migrate-runtime.json must grant 'shell:allow-kill' for the FT-1 force-kill backstop (ADR-0020 §7 + §10)"
+        "migrate-runtime.json must grant 'shell:allow-kill' for the force-kill backstop (ADR-0020 §7 + §10)"
     )
 
 

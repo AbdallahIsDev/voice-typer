@@ -1,8 +1,8 @@
 """MIG-1.9 Phase 4 — Reconnect UX validation (ADR-0020 §10).
 
 This file is the **Phase 4 reconnect-UX wiring check** for the MIG-1.9
-Tauri migration. ADR-0020 §10 mandates a WS-disconnect + FT-1 backoff
-supervisor (see ``src-tauri/src/sidecar/ft1.rs`` +
+Tauri migration. ADR-0020 §10 mandates a WS-disconnect + backoff
+supervisor (see ``src-tauri/src/sidecar/supervisor.rs`` +
 ``src-tauri/src/sidecar/ws.rs``). The **user-facing UX** for that
 backoff lives entirely in the React renderer:
 
@@ -12,8 +12,8 @@ backoff lives entirely in the React renderer:
      "Restarting…" banner).
 
   2. The Tauri bridge (``voice_typer/client/src/renderer/src/lib/
-     tauri-bridge.ts``) listens to the Rust host's ``ft1_relaunching``
-     + ``ft1_reconnected`` Tauri events and **synthesises** matching
+     tauri-bridge.ts``) listens to the Rust host's ``supervisor_relaunching``
+     + ``supervisor_reconnected`` Tauri events and **synthesises** matching
      ``python-event`` frames (``{type:"reconnecting", ...}`` and
      ``{type:"reconnected", ...}``) so the existing
      ``usePythonEvent`` React hook works unchanged on both Electron
@@ -42,7 +42,7 @@ Every test in this file is a **source-inspection** test (no JS runtime,
 no React testing library, no Tauri runtime) — it reads the actual
 TypeScript source as text + uses regex / AST-light assertions to
 verify the contract clauses survive refactoring. The end-to-end UX
-flow (real FT-1 respawn → real banner appears) is documented in the
+flow (real respawn → real banner appears) is documented in the
 ``VALIDATE ON HOST`` block below.
 
 KNOWN GAPS (report, do not fix)
@@ -66,11 +66,11 @@ sees a spinner either way), but semantically imprecise. Not blocking.
 
 GAP-B (Tauri bridge relies on ``as unknown as PythonPushEvent`` cast
 to inject the synthesised ``reconnecting`` / ``reconnected`` events).
-The bridge listens to the Rust host's ``ft1_relaunching`` /
-``ft1_reconnected`` Tauri events and re-emits them through the
+The bridge listens to the Rust host's ``supervisor_relaunching`` /
+``supervisor_reconnected`` Tauri events and re-emits them through the
 ``python-event`` callback so ``usePythonEvent`` (which only knows
 about the ``python-event`` channel) sees them. The synthesised frames
-``{type: "reconnecting", data: {reason: "ft1_relaunching"}}`` are not
+``{type: "reconnecting", data: {reason: "supervisor_relaunching"}}`` are not
 part of the ``PythonPushEvent`` discriminated union in
 ``types/ipc.ts`` (which only models server-published events, not
 host-bridged ones). The double cast through ``unknown`` is the
@@ -79,7 +79,7 @@ matches what ``useConnection``'s ``usePythonEvent("reconnecting", …)``
 handler expects — it ignores ``data`` entirely), but the type
 boundary is leaky. Not blocking.
 
-GAP-C (no automated integration test of the FT-1 disconnect → UI
+GAP-C (no automated integration test of the disconnect → UI
 banner flow). This file is source-inspection only. The actual
 "kill the sidecar process → observe the 'Restarting…' banner within
 ~500 ms → observe 'Retry Connection' button after 5 retries fail"
@@ -111,18 +111,18 @@ reconnect-UX validation MUST be executed by a human on a real host
     # 4. Within ~500 ms, the renderer MUST show the "Restarting Voice
     #    Typer backend…" spinner (connectionStatus="restarting"). Verify
     #    by tailing the renderer console log (open DevTools with
-    #    Ctrl+Shift+I) — you should see "[FT-1] respawn attempt 1 after
+    #    Ctrl+Shift+I) — you should see "[supervisor] respawn attempt 1 after
     #    500ms" in the host log:
-    tail -n 50 ~/.local/share/voice-typer/logs/voice-typer.log | grep FT-1
+    tail -n 50 ~/.local/share/voice-typer/logs/voice-typer.log | grep supervisor
 
-    # 5. After FT-1 succeeds (≤5 retries × ≤8 s each), the renderer
+    # 5. After supervisor succeeds (≤5 retries × ≤8 s each), the renderer
     #    MUST return to the Home page (connectionStatus="connected").
-    #    The transition is driven by the "ft1_reconnected" Tauri event
+    #    The transition is driven by the "supervisor_reconnected" Tauri event
     #    → synthesised "reconnected" python-event → useConnection's
     #    call("get_config") → setConnectionStatus("connected").
 
     # 6. To validate the "disconnected → Retry Connection" branch,
-    #    kill the sidecar AND prevent FT-1 from respawning (e.g. by
+    #    kill the sidecar AND prevent supervisor from respawning (e.g. by
     #    exhausting retries — rename the sidecar binary so respawn
     #    fails, then re-run the app). After 5 respawn failures the
     #    Rust host calls app.restart() which exits the process; the
@@ -196,7 +196,7 @@ _USE_CONNECTION_TS = _RENDERER_SRC / "hooks" / "useConnection.ts"
 _USE_PYTHON_TS = _RENDERER_SRC / "hooks" / "usePython.ts"
 _APP_TSX = _RENDERER_SRC / "App.tsx"
 _IPC_TS = _RENDERER_SRC / "types" / "ipc.ts"
-_FT1_RS = _SRC_TAURI / "src" / "sidecar" / "ft1.rs"
+_SUPERVISOR_RS = _SRC_TAURI / "src" / "sidecar" / "supervisor.rs"
 _WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 
 # ─── Expected connection-status literals (single source of truth) ──────
@@ -211,10 +211,10 @@ _REQUIRED_STATUS_LITERALS = ("connected", "disconnected", "restarting")
 _DESIRED_RECONNECTING_LITERAL = "reconnecting"
 
 # ─── Expected Tauri event names emitted by the Rust host ───────────────
-# These are the events the Rust FT-1 supervisor + WS reader emit on
-# disconnect / reconnect / exhaustion (see ft1.rs:52,95,113 + ws.rs:193).
-_TAURI_EVENT_RELAUNCHING = "ft1_relaunching"
-_TAURI_EVENT_RECONNECTED = "ft1_reconnected"
+# These are the events the Rust supervisor + WS reader emit on
+# disconnect / reconnect / exhaustion (see supervisor.rs:52,95,113 + ws.rs:193).
+_TAURI_EVENT_SUPERVISOR_RELAUNCHING = "supervisor_relaunching"
+_TAURI_EVENT_SUPERVISOR_RECONNECTED = "supervisor_reconnected"
 
 # ─── Expected synthesised python-event type names (bridge translation) ─
 # tauri-bridge.ts maps each Tauri event to a synthesised python-event
@@ -286,10 +286,10 @@ def ipc_ts_source() -> str:
 
 
 @pytest.fixture(scope="module")
-def ft1_rs_source() -> str:
-    """Read src-tauri/src/sidecar/ft1.rs as text (for static assertions)."""
-    assert _FT1_RS.is_file(), f"ft1.rs not found: {_FT1_RS}"
-    return _FT1_RS.read_text(encoding="utf-8")
+def supervisor_rs_source() -> str:
+    """Read src-tauri/src/sidecar/supervisor.rs as text (for static assertions)."""
+    assert _SUPERVISOR_RS.is_file(), f"supervisor.rs not found: {_SUPERVISOR_RS}"
+    return _SUPERVISOR_RS.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -323,7 +323,7 @@ def test_connection_status_union_includes_required_literals(
                                 ``get_config`` probe.
       - ``"disconnected"``   — fatal state showing the "Lost
                                 connection" + retry button UI.
-      - ``"restarting"``     — transient state during FT-1 respawn,
+      - ``"restarting"``     — transient state during respawn,
                                 shows the "Restarting Voice Typer
                                 backend…" spinner.
       - ``"reconnecting"``   — desired-but-missing (GAP-A): currently
@@ -402,67 +402,67 @@ def test_connection_status_union_documents_reconnecting_gap(
 # ─── Test 2: bridge emits "reconnecting" event when WS disconnects ────
 
 
-def test_bridge_subscribes_to_ft1_relaunching_event(
+def test_bridge_subscribes_to_supervisor_relaunching_event(
     tauri_bridge_source: str,
 ) -> None:
     """ADR-0020 §10 + MIG-1.9: the Tauri bridge must subscribe to the
-    Rust host's ``ft1_relaunching`` Tauri event and synthesise a
+    Rust host's ``supervisor_relaunching`` Tauri event and synthesise a
     matching ``python-event`` frame so the ``useConnection`` hook's
     ``usePythonEvent("reconnecting", ...)`` subscription fires.
 
-    The Rust host emits ``ft1_relaunching`` in two places:
-      - ``ft1.rs:52``  — FT-1 supervisor exhausted retries (full-app
+    The Rust host emits ``supervisor_relaunching`` in two places:
+      - ``supervisor.rs:52``  — supervisor exhausted retries (full-app
                           relaunch path).
-      - ``ft1.rs:113`` — backoff schedule exhausted (same path).
+      - ``supervisor.rs:113`` — backoff schedule exhausted (same path).
       - ``ws.rs:193``  — CR-5: emit IMMEDIATELY at disconnect start so
                           the UI can show a "reconnecting…" banner
                           BEFORE the backoff schedule runs.
 
-    The bridge must call ``tauri.event.listen("ft1_relaunching", …)``
+    The bridge must call ``tauri.event.listen("supervisor_relaunching", …)``
     and re-emit a synthesised frame of the form
-    ``{type: "reconnecting", data: {reason: "ft1_relaunching"}}`` via
+    ``{type: "reconnecting", data: {reason: "supervisor_relaunching"}}`` via
     the ``onEvent`` callback (so usePythonEvent sees it).
     """
-    # The bridge must register a Tauri event listener for the FT-1 events.
+    # The bridge must register a Tauri event listener for the supervisor events.
     # Post-PVT-30 split, the bridge inlines TWO separate
-    # `tauri.event.listen("ft1_relaunching", ...)` and
-    # `tauri.event.listen("ft1_reconnected", ...)` calls (one per event)
-    # in python-namespace.ts, rather than iterating an `ft1Events` table
+    # `tauri.event.listen("supervisor_relaunching", ...)` and
+    # `tauri.event.listen("supervisor_reconnected", ...)` calls (one per event)
+    # in python-namespace.ts, rather than iterating an `supervisorEvents` table
     # with a loop variable. We verify the literal string subscription:
-    #   (a) `.listen("ft1_relaunching"` appears (subscription happens)
-    #   (b) the mapping to `type: "reconnecting"` + `reason: "ft1_relaunching"`
+    #   (a) `.listen("supervisor_relaunching"` appears (subscription happens)
+    #   (b) the mapping to `type: "reconnecting"` + `reason: "supervisor_relaunching"`
     #       appears nearby (covered by the mapping_re assertion below).
     listen_re = re.compile(
-        r'\.listen\s*\(\s*["\']' + re.escape(_TAURI_EVENT_RELAUNCHING) + r'["\']',
+        r'\.listen\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE | re.DOTALL,
     )
     assert listen_re.search(tauri_bridge_source), (
-        'tauri-bridge must call tauri.event.listen("ft1_relaunching", ...) — '
+        'tauri-bridge must call tauri.event.listen("supervisor_relaunching", ...) — '
         "without this subscription the renderer never learns the WS "
         "disconnected + the UI stays frozen on 'connected' while the "
         "sidecar is dead."
     )
 
-    # The bridge must map ft1_relaunching → synthesised "reconnecting" frame.
+    # The bridge must map supervisor_relaunching → synthesised "reconnecting" frame.
     # Post-split, the mapping is inlined as:
-    #   const event = { type: "reconnecting", data: { reason: "ft1_relaunching" } };
-    # We look for `type: "reconnecting"` + `reason: "ft1_relaunching"` in
+    #   const event = { type: "reconnecting", data: { reason: "supervisor_relaunching" } };
+    # We look for `type: "reconnecting"` + `reason: "supervisor_relaunching"` in
     # the same source (both literals must appear).
     mapping_type_re = re.compile(
         r'type:\s*["\']' + re.escape(_PY_EVENT_RECONNECTING) + r'["\']',
         re.MULTILINE,
     )
     mapping_reason_re = re.compile(
-        r'reason:\s*["\']' + re.escape(_TAURI_EVENT_RELAUNCHING) + r'["\']',
+        r'reason:\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE,
     )
     assert mapping_type_re.search(tauri_bridge_source), (
         f"tauri-bridge must synthesise type: {_PY_EVENT_RECONNECTING!r} — "
         f"this is the translation that lets usePythonEvent('reconnecting', ...) "
-        f"see the Rust host's FT-1 disconnect signal."
+        f"see the Rust host's disconnect signal."
     )
     assert mapping_reason_re.search(tauri_bridge_source), (
-        f"tauri-bridge must include reason: {_TAURI_EVENT_RELAUNCHING!r} in the synthesised event data."
+        f"tauri-bridge must include reason: {_TAURI_EVENT_SUPERVISOR_RELAUNCHING!r} in the synthesised event data."
     )
 
     # The synthesised frame must be passed to the onEvent callback.
@@ -476,39 +476,39 @@ def test_bridge_subscribes_to_ft1_relaunching_event(
     )
     assert callback_re.search(tauri_bridge_source), (
         "tauri-bridge must invoke the handler with the synthesised event "
-        "object so usePythonEvent subscribers see the FT-1 events."
+        "object so usePythonEvent subscribers see the supervisor events."
     )
 
 
-def test_ws_rs_emits_ft1_relaunching_on_disconnect(ws_rs_source: str) -> None:
-    """ADR-0020 §10 CR-5: the WS reader task must emit ``ft1_relaunching``
+def test_ws_rs_emits_supervisor_relaunching_on_disconnect(ws_rs_source: str) -> None:
+    """ADR-0020 §10 CR-5: the WS reader task must emit ``supervisor_relaunching``
     IMMEDIATELY when the sidecar closes the WebSocket, BEFORE the
     backoff schedule runs.
 
     The comment at ``ws.rs:187-191`` documents the contract:
-    "emit ``ft1_relaunching`` IMMEDIATELY at disconnect start so the
+    "emit ``supervisor_relaunching`` IMMEDIATELY at disconnect start so the
     UI can show a 'reconnecting…' banner before the backoff schedule
     runs." Without this immediate emit, the renderer would stay on
     "connected" for the duration of the first backoff sleep (500 ms)
     + the respawn attempt — visible as a frozen UI with no feedback.
     """
-    # The emit call site must reference ft1_relaunching with reason
-    # "disconnected" (the CR-5 path — distinct from ft1.rs:52,113
+    # The emit call site must reference supervisor_relaunching with reason
+    # "disconnected" (the CR-5 path — distinct from supervisor.rs:52,113
     # which use "exhausted_retries" / "backoff_exhausted").
     emit_re = re.compile(
-        r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_RELAUNCHING) + r'["\']',
+        r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE,
     )
     assert emit_re.search(ws_rs_source), (
-        f"ws.rs must emit {_TAURI_EVENT_RELAUNCHING!r} when the WS reader "
+        f"ws.rs must emit {_TAURI_EVENT_SUPERVISOR_RELAUNCHING!r} when the WS reader "
         f"task detects an unexpected close — this is the CR-5 immediate-"
         f"emit path that lets the UI show a 'reconnecting…' banner before "
         f"the backoff schedule runs."
     )
     # Verify the "disconnected" reason (the CR-5 path).
     assert '"disconnected"' in ws_rs_source, (
-        "ws.rs must emit ft1_relaunching with reason='disconnected' on "
-        "the CR-5 immediate-emit path (distinct from ft1.rs's "
+        "ws.rs must emit supervisor_relaunching with reason='disconnected' on "
+        "the CR-5 immediate-emit path (distinct from supervisor.rs's "
         "'exhausted_retries' / 'backoff_exhausted' reasons)."
     )
 
@@ -516,69 +516,69 @@ def test_ws_rs_emits_ft1_relaunching_on_disconnect(ws_rs_source: str) -> None:
 # ─── Test 3: bridge emits "connected" event when WS reconnects ────────
 
 
-def test_bridge_subscribes_to_ft1_reconnected_event(
+def test_bridge_subscribes_to_supervisor_reconnected_event(
     tauri_bridge_source: str,
 ) -> None:
     """ADR-0020 §10: the Tauri bridge must subscribe to the Rust host's
-    ``ft1_reconnected`` Tauri event and synthesise a matching
+    ``supervisor_reconnected`` Tauri event and synthesise a matching
     ``python-event`` frame so the ``useConnection`` hook's
     ``usePythonEvent("reconnected", ...)`` subscription fires.
 
-    The Rust host emits ``ft1_reconnected`` at ``ft1.rs:95`` after a
-    successful WS reconnect + re-auth (the FT-1 supervisor's happy
+    The Rust host emits ``supervisor_reconnected`` at ``supervisor.rs:95`` after a
+    successful WS reconnect + re-auth (the supervisor's happy
     path). The bridge translates it to a synthesised
     ``{type: "reconnected", ...}`` frame.
     """
     # Post-PVT-30 split: the bridge inlines a separate
-    # `tauri.event.listen("ft1_reconnected", ...)` call. We verify the
+    # `tauri.event.listen("supervisor_reconnected", ...)` call. We verify the
     # literal string subscription (not a loop variable).
     listen_re = re.compile(
-        r'\.listen\s*\(\s*["\']' + re.escape(_TAURI_EVENT_RECONNECTED) + r'["\']',
+        r'\.listen\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RECONNECTED) + r'["\']',
         re.MULTILINE | re.DOTALL,
     )
     assert listen_re.search(tauri_bridge_source), (
-        'tauri-bridge must call tauri.event.listen("ft1_reconnected", ...) — '
+        'tauri-bridge must call tauri.event.listen("supervisor_reconnected", ...) — '
         "without this the renderer would stay on 'restarting' forever after "
-        "a successful FT-1 respawn (the 'reconnected' python-event would "
+        "a successful respawn (the 'reconnected' python-event would "
         "never fire)."
     )
 
     # Post-split, the mapping is inlined as:
-    #   const event = { type: "reconnected", data: { reason: "ft1_reconnected" } };
+    #   const event = { type: "reconnected", data: { reason: "supervisor_reconnected" } };
     mapping_type_re = re.compile(
         r'type:\s*["\']' + re.escape(_PY_EVENT_RECONNECTED) + r'["\']',
         re.MULTILINE,
     )
     mapping_reason_re = re.compile(
-        r'reason:\s*["\']' + re.escape(_TAURI_EVENT_RECONNECTED) + r'["\']',
+        r'reason:\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RECONNECTED) + r'["\']',
         re.MULTILINE,
     )
     assert mapping_type_re.search(tauri_bridge_source), (
         f"tauri-bridge must synthesise type: {_PY_EVENT_RECONNECTED!r} — "
         f"this is the translation that lets usePythonEvent('reconnected', ...) "
-        f"see the Rust host's FT-1 success signal."
+        f"see the Rust host's supervisor success signal."
     )
     assert mapping_reason_re.search(tauri_bridge_source), (
-        f"tauri-bridge must include reason: {_TAURI_EVENT_RECONNECTED!r} in the synthesised event data."
+        f"tauri-bridge must include reason: {_TAURI_EVENT_SUPERVISOR_RECONNECTED!r} in the synthesised event data."
     )
 
 
-def test_ft1_rs_emits_reconnected_on_success(ft1_rs_source: str) -> None:
-    """ADR-0020 §10: the FT-1 supervisor must emit ``ft1_reconnected``
+def test_supervisor_rs_emits_reconnected_on_success(supervisor_rs_source: str) -> None:
+    """ADR-0020 §10: the supervisor must emit ``supervisor_reconnected``
     on a successful WS reconnect + re-auth.
 
-    The emit at ``ft1.rs:95`` runs only on the happy path — after
+    The emit at ``supervisor.rs:95`` runs only on the happy path — after
     ``spawn_sidecar_and_get_port`` succeeds AND ``reconnect_ws``
     succeeds. Without this emit, the bridge would never synthesise
     the ``"reconnected"`` python-event, and the renderer would stay
     stuck on ``"restarting"`` forever.
     """
     emit_re = re.compile(
-        r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_RECONNECTED) + r'["\']',
+        r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RECONNECTED) + r'["\']',
         re.MULTILINE,
     )
-    assert emit_re.search(ft1_rs_source), (
-        f"ft1.rs must emit {_TAURI_EVENT_RECONNECTED!r} on a successful "
+    assert emit_re.search(supervisor_rs_source), (
+        f"supervisor.rs must emit {_TAURI_EVENT_SUPERVISOR_RECONNECTED!r} on a successful "
         f"respawn — this is the success signal that lets the renderer "
         f"transition out of 'restarting' back to 'connected'."
     )
@@ -596,7 +596,7 @@ def test_use_connection_handles_reconnected_event(
     ``call("get_config")`` and on success flips to ``"connected"``,
     on failure flips to ``"disconnected"``. This double-check is
     important: the WS being up does NOT guarantee the Python IPC
-    server is ready to dispatch commands (the FT-1 supervisor
+    server is ready to dispatch commands (the supervisor
     reconnects the WS before the IPC server has finished booting
     its handlers). The probe validates end-to-end readiness.
     """
@@ -608,7 +608,7 @@ def test_use_connection_handles_reconnected_event(
     assert sub_re.search(use_connection_source), (
         "useConnection.ts must subscribe to the 'reconnected' python-event "
         "via usePythonEvent('reconnected', ...). Without this the renderer "
-        "would stay on 'restarting' forever after a successful FT-1 respawn."
+        "would stay on 'restarting' forever after a successful respawn."
     )
 
     # On success: setConnectionStatus("connected")
@@ -635,7 +635,7 @@ def test_use_connection_handles_reconnected_event(
     )
 
 
-# ─── Test 4: bridge emits "restarting" event when FT-1 relaunches app ─
+# ─── Test 4: bridge emits "restarting" event when supervisor relaunches app ─
 
 
 @pytest.mark.xfail(
@@ -654,7 +654,7 @@ def test_use_connection_maps_reconnecting_event_to_restarting_status(
 ) -> None:
     """ADR-0020 §10: the ``useConnection`` hook must subscribe to the
     synthesised ``"reconnecting"`` python-event (which the bridge
-    emits when the Rust host fires ``ft1_relaunching``) and transition
+    emits when the Rust host fires ``supervisor_relaunching``) and transition
     the status to ``"reconnecting"``.
 
     The handler at ``useConnection.ts:237-243`` currently calls
@@ -681,7 +681,7 @@ def test_use_connection_maps_reconnecting_event_to_restarting_status(
         "useConnection.ts must subscribe to the 'reconnecting' python-event "
         "via usePythonEvent('reconnecting', ...). This is the bridge-"
         "synthesised event that fires when the Rust host detects a WS "
-        "disconnect (CR-5) or exhausts FT-1 retries (full-app relaunch)."
+        "disconnect (CR-5) or exhausts supervisor retries (full-app relaunch)."
     )
 
     # The handler must transition to "reconnecting" (the literal GAP-A
@@ -702,44 +702,44 @@ def test_use_connection_maps_reconnecting_event_to_restarting_status(
     )
 
 
-def test_ft1_rs_emits_relaunching_on_exhaustion(ft1_rs_source: str) -> None:
-    """ADR-0020 §10: the FT-1 supervisor must emit ``ft1_relaunching``
+def test_supervisor_rs_emits_relaunching_on_exhaustion(supervisor_rs_source: str) -> None:
+    """ADR-0020 §10: the supervisor must emit ``supervisor_relaunching``
     when the backoff schedule is exhausted (before calling
     ``app.restart()`` for the full-app relaunch).
 
-    The emit site in ``ft1.rs`` is the **post-loop** exhaustion branch
-    (reason='backoff_exhausted') at the bottom of ``ft1_respawn_inner``.
-    The in-loop ``attempt >= FT1_MAX_RETRIES`` guard that used to emit
+    The emit site in ``supervisor.rs`` is the **post-loop** exhaustion branch
+    (reason='backoff_exhausted') at the bottom of ``respawn_inner``.
+    The in-loop ``attempt >= SUPERVISOR_MAX_RETRIES`` guard that used to emit
     ``reason='exhausted_retries'`` was intentionally removed as dead
-    code (``FT1_BACKOFF_MS.len() == FT1_MAX_RETRIES == 5``, so the
-    condition was always false — see the NF-R19-2 comment in ft1.rs).
+    code (``SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5``, so the
+    condition was always false — see the NF-R19-2 comment in supervisor.rs).
     The single post-loop emit fires before ``app.restart()`` so the
     renderer has a chance to render a "restarting…" banner during the
     ``PRE_RESTART_DELAY_MS`` (500 ms) window before the process exits.
 
-    (The WS reader in ``ws.rs`` emits a *second* ``ft1_relaunching``
+    (The WS reader in ``ws.rs`` emits a *second* ``supervisor_relaunching``
     with reason='disconnected' immediately at disconnect start — that
-    is verified separately in ``test_ws_rs_emits_ft1_relaunching_on_disconnect``.)
+    is verified separately in ``test_ws_rs_emits_supervisor_relaunching_on_disconnect``.)
     """
     emit_re = re.compile(
-        r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_RELAUNCHING) + r'["\']',
+        r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE,
     )
-    matches = emit_re.findall(ft1_rs_source)
+    matches = emit_re.findall(supervisor_rs_source)
     assert len(matches) >= 1, (
-        f"ft1.rs must emit {_TAURI_EVENT_RELAUNCHING!r} on backoff-schedule "
+        f"supervisor.rs must emit {_TAURI_EVENT_SUPERVISOR_RELAUNCHING!r} on backoff-schedule "
         f"exhaustion (reason='backoff_exhausted') before app.restart(). "
         f"Found {len(matches)} emit call(s)."
     )
-    assert "backoff_exhausted" in ft1_rs_source, (
-        "ft1.rs must emit ft1_relaunching with reason='backoff_exhausted' "
+    assert "backoff_exhausted" in supervisor_rs_source, (
+        "supervisor.rs must emit supervisor_relaunching with reason='backoff_exhausted' "
         "when the backoff schedule loop exits without a successful respawn."
     )
 
 
-def test_ft1_rs_calls_app_restart_after_exhaustion(ft1_rs_source: str) -> None:
-    """ADR-0020 §10: after emitting ``ft1_relaunching`` on exhaustion,
-    the FT-1 supervisor must call ``app.restart()`` (full-app relaunch).
+def test_supervisor_rs_calls_app_restart_after_exhaustion(supervisor_rs_source: str) -> None:
+    """ADR-0020 §10: after emitting ``supervisor_relaunching`` on exhaustion,
+    the supervisor must call ``app.restart()`` (full-app relaunch).
 
     ``app.restart()`` exits the current process with the Tauri-
     defined RESTART_EXIT_CODE so the Tauri launcher spawns a fresh
@@ -747,10 +747,10 @@ def test_ft1_rs_calls_app_restart_after_exhaustion(ft1_rs_source: str) -> None:
     ``PRE_RESTART_DELAY_MS`` sleep before the call gives the renderer
     time to render the "restarting…" banner.
     """
-    assert "app.restart()" in ft1_rs_source, (
-        "ft1.rs must call app.restart() after emitting ft1_relaunching "
+    assert "app.restart()" in supervisor_rs_source, (
+        "supervisor.rs must call app.restart() after emitting supervisor_relaunching "
         "on exhaustion — this is the full-app relaunch fallback when "
-        "FT-1's in-process respawn has failed."
+        "supervisor's in-process respawn has failed."
     )
 
 
@@ -885,7 +885,7 @@ def test_app_tsx_renders_spinner_when_connecting(app_tsx_source: str) -> None:
 
 def test_app_tsx_renders_spinner_when_restarting(app_tsx_source: str) -> None:
     """``App.tsx`` must render the ``<Spinner />`` component when
-    ``connectionStatus === "restarting"`` (the FT-1 respawn state,
+    ``connectionStatus === "restarting"`` (the respawn state,
     driven by the bridge's synthesised "reconnecting" python-event
     → useConnection's ``setConnectionStatus("restarting")``).
 
@@ -901,7 +901,7 @@ def test_app_tsx_renders_spinner_when_restarting(app_tsx_source: str) -> None:
         re.MULTILINE | re.DOTALL,
     )
     assert restarting_branch_re.search(app_tsx_source), (
-        "App.tsx must render <Spinner /> when connectionStatus === 'restarting' (FT-1 respawn UI)."
+        "App.tsx must render <Spinner /> when connectionStatus === 'restarting' (respawn UI)."
     )
     # The restarting branch must use the dedicated i18n copy (NOT the
     # cold-start "firstLaunchHint" key which advertises a model download).

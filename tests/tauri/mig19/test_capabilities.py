@@ -27,7 +27,7 @@ Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
    ``cmd.exe`` / ``sh``).
 
 4. The capability grants **``shell:allow-kill``** (or the more
-   scoped ``shell:allow-kill-children``) — this is the FT-1
+   scoped ``shell:allow-kill-children``) — this is the supervisor
    force-kill backstop (ADR-0020 §10 — the Rust supervisor kills the
    sidecar child on crash / shutdown to prevent zombie processes).
 
@@ -65,7 +65,7 @@ Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
      the sidecar owns FS access; the Rust host has no FS commands).
    - No ``http:default`` (would grant unrestricted HTTP fetch —
      cloud engines stay in the Python sidecar, ADR-0020 §6.5).
-   - No ``process:default`` / ``process:allow-restart`` (FT-1
+   - No ``process:default`` / ``process:allow-restart`` (supervisor
      full-app relaunch uses ``AppHandle::restart()`` from the core
      tauri crate, not the plugin — ADR-0020 §15 + the capability
      description).
@@ -171,7 +171,7 @@ References:
 - ADR-0020 §7 — Tauri config + capabilities + least-privilege contract.
 - ADR-0020 §6.1 — toast / notification path (tauri-plugin-notification).
 - ADR-0020 §6.2 — paste path (clipboard-manager + enigo).
-- ADR-0020 §10 — FT-1 force-kill backstop (shell:allow-kill).
+- ADR-0020 §10 — force-kill backstop (shell:allow-kill).
 - ADR-0020 §12 — single-instance behavior + ordering.
 - ADR-0020 §15 — auto-update intentionally NOT granted (updater plugin
   out of scope for v1).
@@ -226,7 +226,7 @@ FORBIDDEN_BROAD_PERMISSIONS = (
     "http:default",  # unrestricted HTTP fetch (cloud engines in sidecar)
     "http:allow-fetch",  # same — HTTP stays in Python sidecar (ADR-0020 §6.5)
     "process:default",  # unrestricted process control
-    "process:allow-restart",  # FT-1 uses core AppHandle::restart() (not plugin)
+    "process:allow-restart",  # supervisor uses core AppHandle::restart() (not plugin)
     "global-shortcut:default",  # native hotkey binaries stay in Python (§6.4)
     "updater:default",  # auto-update out of scope for v1 (§15)
     "updater:allow-check",  # same
@@ -410,15 +410,15 @@ def test_grants_shell_allow_spawn_scoped_to_python_sidecar(
     assert sidecar_in_scope, f"shell.scope must include an entry for {EXPECTED_SIDECAR_BINARY!r} — got {scope!r}"
 
 
-# ─── Test 5: shell:allow-kill granted for FT-1 force-kill ──────────────
+# ─── Test 5: shell:allow-kill granted for force-kill ──────────────
 
 
-def test_grants_shell_allow_kill_for_ft1_force_kill(
+def test_grants_shell_allow_kill_for_force_kill(
     migrate_runtime_capability: dict,
 ) -> None:
     """ADR-0020 §7 + §10: ``shell:allow-kill`` (or kill-children) granted.
 
-    The FT-1 supervisor (``src-tauri/src/sidecar/ft1.rs``) force-kills
+    The supervisor (``src-tauri/src/sidecar/supervisor.rs``) force-kills
     the sidecar child on crash / shutdown to prevent zombie processes
     (ADR-0020 §10). Without ``shell:allow-kill`` or the more scoped
     ``shell:allow-kill-children``, the kill call silently no-ops and
@@ -437,7 +437,7 @@ def test_grants_shell_allow_kill_for_ft1_force_kill(
     granted_kill_perms = acceptable_kill_perms & set(permissions)
     assert granted_kill_perms, (
         f"capability must grant at least one of {acceptable_kill_perms} "
-        f"(ADR-0020 §7 + §10 — FT-1 force-kill backstop) — permissions: "
+        f"(ADR-0020 §7 + §10 — force-kill backstop) — permissions: "
         f"{permissions!r}"
     )
 
@@ -578,7 +578,7 @@ def test_does_not_grant_overly_broad_permissions(
 
     Auto-update (``updater:*``) is intentionally NOT granted — v1
     ships without auto-update (ADR-0020 §15). Process control
-    (``process:*``) is unnecessary — FT-1 uses the core
+    (``process:*``) is unnecessary — supervisor uses the core
     ``AppHandle::restart()`` API, not the process plugin.
     """
     permissions = migrate_runtime_capability["permissions"]

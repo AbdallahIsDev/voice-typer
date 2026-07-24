@@ -39,7 +39,7 @@ VALIDATE ON LINUX HOST (X11 + Wayland + both archs):
     5.  Verify the postinst-installed udev rule + input group:
             groups | grep input
             ls -l /etc/udev/rules.d/99-voice-typer.rules
-    6.  Verify FT-1 crash isolation: ``kill -9 $(pgrep -f python-sidecar)``
+    6.  Verify crash isolation: ``kill -9 $(pgrep -f python-sidecar)``
         → UI shows "reconnecting…"; Rust supervisor respawns the sidecar;
         dictation resumes within the backoff window.
     7.  Verify rollback to Electron (reversible fallback):

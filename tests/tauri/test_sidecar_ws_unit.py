@@ -95,7 +95,7 @@ async def test_authenticate_accepts_matching_token(monkeypatch):
 
 
 async def test_authenticate_rejects_mismatched_token(monkeypatch):
-    """Wrong token → reject (host treats as crash → FT-1 respawn)."""
+    """Wrong token → reject (host treats as crash → respawn)."""
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "deadbeef" * 8)
     sw = _import_sidecar_ws()
 

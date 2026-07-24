@@ -69,7 +69,7 @@ Bridge contract (identical on both paths):
 
   ``window.python.onEvent(callback) → () => void``
       Tauri:    ``tauri.event.listen('python-event', …)``
-                (tauri-bridge.ts:164-175). Also listens for FT-1 host
+                (tauri-bridge.ts:164-175). Also listens for supervisor host
                 events and synthesizes ``python-event`` frames
                 (tauri-bridge.ts:182-202).
       Electron: ``ipcRenderer.on('python-event', handler)``
@@ -1177,13 +1177,13 @@ def test_tauri_bridge_idempotent_install(tauri_bridge_source) -> None:
     )
 
 
-def test_tauri_bridge_installs_ft1_event_synthesis(tauri_bridge_source) -> None:
-    """ADR-0020 §6.3 / Phase 3 + FT-1: ``window.python.onEvent`` also
-    listens for FT-1 host events and synthesizes ``python-event``
+def test_tauri_bridge_installs_supervisor_event_synthesis(tauri_bridge_source) -> None:
+    """ADR-0020 §6.3 / Phase 3 + supervisor: ``window.python.onEvent`` also
+    listens for supervisor host events and synthesizes ``python-event``
     frames.
 
-    FT-1 (crash isolation) relaunches the sidecar on unexpected exit.
-    The Rust host emits ``ft1_relaunching`` and ``ft1_reconnected``
+    supervisor (crash isolation) relaunches the sidecar on unexpected exit.
+    The Rust host emits ``supervisor_relaunching`` and ``supervisor_reconnected``
     Tauri events during the respawn cycle; the bridge synthesizes
     ``reconnecting`` / ``reconnected`` ``python-event`` frames so the
     renderer's ``useConnection`` hook updates the UI during the
@@ -1191,17 +1191,17 @@ def test_tauri_bridge_installs_ft1_event_synthesis(tauri_bridge_source) -> None:
     "connected" while the sidecar is dead, and the user sees a frozen
     UI with no feedback.
 
-    The Electron path has no equivalent — FT-1 is a Tauri-only feature
+    The Electron path has no equivalent — supervisor is a Tauri-only feature
     (the Electron build uses the older full-app relaunch path).
     """
-    assert "ft1_relaunching" in tauri_bridge_source, (
-        "tauri-bridge.ts must listen for `ft1_relaunching` Tauri events "
-        "and synthesize a `reconnecting` python-event frame (FT-1 crash "
+    assert "supervisor_relaunching" in tauri_bridge_source, (
+        "tauri-bridge.ts must listen for `supervisor_relaunching` Tauri events "
+        "and synthesize a `reconnecting` python-event frame (crash "
         "isolation, Tauri-only)."
     )
-    assert "ft1_reconnected" in tauri_bridge_source, (
-        "tauri-bridge.ts must listen for `ft1_reconnected` Tauri events "
-        "and synthesize a `reconnected` python-event frame (FT-1 crash "
+    assert "supervisor_reconnected" in tauri_bridge_source, (
+        "tauri-bridge.ts must listen for `supervisor_reconnected` Tauri events "
+        "and synthesize a `reconnected` python-event frame (crash "
         "isolation, Tauri-only)."
     )
 

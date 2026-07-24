@@ -59,7 +59,7 @@ to confirm the full glue holds end-to-end:
     #    The Tauri host log (rotating file under config_dir/voice-typer/)
     #    should show exactly one "[SETUP] config_dir resolved to: ..." line
     #    followed by a successful WS connect (no "[SETUP] initial WS connect
-    #    failed" + ft1_respawn retry storm).
+    #    failed" + respawn retry storm).
     tail -f "$(config_dir)/voice-typer/voice-typer.log"   # macOS/Linux
     Get-Content "$env:APPDATA\voice-typer\voice-typer.log" -Wait  # Windows
 
@@ -749,7 +749,7 @@ def test_main_rs_has_no_business_logic_patterns(main_rs_source) -> None:
     The wiring-only contract means no:
       - ``tokio::spawn(async move {...})`` blocks with non-trivial bodies
         (the .setup spawn is the ONE allowed exception — it forwards
-        to spawn_sidecar_and_get_port + reconnect_ws + ft1_respawn,
+        to spawn_sidecar_and_get_port + reconnect_ws + respawn,
         all of which live in focused modules)
       - ``match`` statements on sidecar protocol fields (lives in
         sidecar/ws.rs)

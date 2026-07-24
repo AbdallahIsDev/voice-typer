@@ -28,7 +28,7 @@ Scope of this check (ADR-0020 §1 + §4.1 + §7 + §10 + §14):
    does not expose Win32 ``CREATE_NO_WINDOW`` / ``CREATED_NO_WINDOW``
    creation flags — see "Implementation gaps" below.)
 
-5. The FT-1 crash supervisor (in ``src-tauri/src/sidecar/ft1.rs``,
+5. The supervisor (in ``src-tauri/src/sidecar/supervisor.rs``,
    backed by constants in ``src-tauri/src/util.rs``) restarts the
    sidecar on crash with a doubling backoff schedule starting at
    500 ms and a cap of 5 retries before falling back to a full-app
@@ -77,7 +77,7 @@ References:
   ``server_started`` stdout handshake.
 - ADR-0020 §4.1 — per-arch ``externalBin`` binary naming.
 - ADR-0020 §7 — Tauri config + capabilities + ``externalBin`` list.
-- ADR-0020 §10 — FT-1 supervisor backoff schedule + cap.
+- ADR-0020 §10 — supervisor backoff schedule + cap.
 - ADR-0020 §14 — dev-mode spawn fallback (out of scope for this
   Windows release-path check, but verified as a code path).
 - runbook §6.1 — host-side validation commands.
@@ -100,7 +100,7 @@ _REPO_ROOT = _THIS_FILE.parents[3]
 _SRC_TAURI = _REPO_ROOT / "src-tauri"
 _TAURI_CONF = _SRC_TAURI / "tauri.conf.json"
 _SPAWN_RS = _SRC_TAURI / "src" / "sidecar" / "spawn.rs"
-_FT1_RS = _SRC_TAURI / "src" / "sidecar" / "ft1.rs"
+_SUPERVISOR_RS = _SRC_TAURI / "src" / "sidecar" / "supervisor.rs"
 _UTIL_RS = _SRC_TAURI / "src" / "util.rs"
 _MAIN_RS = _SRC_TAURI / "src" / "main.rs"
 _SIDECAR_WS_PY = _REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
@@ -124,15 +124,15 @@ def spawn_rs_source() -> str:
 
 
 @pytest.fixture(scope="module")
-def ft1_rs_source() -> str:
-    """Read src-tauri/src/sidecar/ft1.rs as text."""
-    assert _FT1_RS.exists(), f"ft1.rs not found: {_FT1_RS}"
-    return _FT1_RS.read_text(encoding="utf-8")
+def supervisor_rs_source() -> str:
+    """Read src-tauri/src/sidecar/supervisor.rs as text."""
+    assert _SUPERVISOR_RS.exists(), f"supervisor.rs not found: {_SUPERVISOR_RS}"
+    return _SUPERVISOR_RS.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
 def util_rs_source() -> str:
-    """Read src-tauri/src/util.rs as text (for the FT-1 constants)."""
+    """Read src-tauri/src/util.rs as text (for the supervisor constants)."""
     assert _UTIL_RS.exists(), f"util.rs not found: {_UTIL_RS}"
     return _UTIL_RS.read_text(encoding="utf-8")
 
@@ -358,7 +358,7 @@ def test_spawn_rs_server_started_log_line_format(spawn_rs_source) -> None:
     Per ADR-0020 §3 ("never logged"), the bearer token must not appear
     in any log line. spawn.rs logs ``[SIDECAR] server_started port={}``
     — port only, never the token. The token is rotated per launch and
-    per FT-1 respawn and is only ever held in-memory in the Rust host.
+    per supervisor respawn and is only ever held in-memory in the Rust host.
     """
     # The log line must mention port but must NOT include token=.
     port_log_re = re.compile(r"\[SIDECAR\]\s*server_started\s*port=\{[^}]*\}")
@@ -469,98 +469,98 @@ def test_spawn_rs_no_creation_flags_gap_documented(spawn_rs_source) -> None:
     )
 
 
-# ─── Test 5: FT-1 crash supervisor (backoff 500ms → 2s, cap 5) ────────
+# ─── Test 5: supervisor (backoff 500ms → 2s, cap 5) ────────
 
 
-def test_ft1_backoff_constants(util_rs_source) -> None:
-    """ADR-0020 §10: FT-1 supervisor backoff schedule + cap.
+def test_supervisor_backoff_constants(util_rs_source) -> None:
+    """ADR-0020 §10: supervisor backoff schedule + cap.
 
     The schedule is a doubling series starting at 500 ms and capped at
     5 retries before falling back to a full-app ``app.restart()``.
     The first three steps (500ms, 1s, 2s) cover the task's
     "500ms → 2s" range; the full schedule goes to 8s for resilience.
     """
-    # FT1_BACKOFF_MS constant must be defined as a slice of u64.
-    backoff_re = re.compile(r"(?:pub\s*\(\s*crate\s*\)\s*)?const\s+FT1_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[([^\]]+)\]")
+    # SUPERVISOR_BACKOFF_MS constant must be defined as a slice of u64.
+    backoff_re = re.compile(r"(?:pub\s*\(\s*crate\s*\)\s*)?const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[([^\]]+)\]")
     m = backoff_re.search(util_rs_source)
-    assert m, "util.rs must define `const FT1_BACKOFF_MS: &[u64] = &[...]`"
+    assert m, "util.rs must define `const SUPERVISOR_BACKOFF_MS: &[u64] = &[...]`"
     steps = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
     # First step must be 500 ms (ADR-0020 §10 + runbook §6.1).
-    assert steps[0] == 500, f"FT1_BACKOFF_MS[0] must be 500 (got {steps[0]}); ADR-0020 §10 schedule starts at 500 ms"
+    assert steps[0] == 500, f"SUPERVISOR_BACKOFF_MS[0] must be 500 (got {steps[0]}); ADR-0020 §10 schedule starts at 500 ms"
     # The schedule must include a 2000 ms step (the task's "2s" cap).
-    assert 2000 in steps, f"FT1_BACKOFF_MS must include a 2000 ms step (got {steps}); task specifies '500ms→2s' range"
+    assert 2000 in steps, f"SUPERVISOR_BACKOFF_MS must include a 2000 ms step (got {steps}); task specifies '500ms→2s' range"
     # Doubling property — each step is 2x the previous.
     for i in range(1, len(steps)):
         assert steps[i] == steps[i - 1] * 2, (
-            f"FT1_BACKOFF_MS[{i}] must be 2x [{i - 1}] "
+            f"SUPERVISOR_BACKOFF_MS[{i}] must be 2x [{i - 1}] "
             f"(got {steps[i]} vs {steps[i - 1]}); ADR-0020 §10 doubling schedule"
         )
 
 
-def test_ft1_max_retries_is_5(util_rs_source) -> None:
-    """ADR-0020 §10: FT-1 retry cap must be 5 before full-app relaunch."""
-    cap_re = re.compile(r"(?:pub\s*\(\s*crate\s*\)\s*)?const\s+FT1_MAX_RETRIES\s*:\s*u32\s*=\s*(\d+)")
+def test_supervisor_max_retries_is_5(util_rs_source) -> None:
+    """ADR-0020 §10: supervisor retry cap must be 5 before full-app relaunch."""
+    cap_re = re.compile(r"(?:pub\s*\(\s*crate\s*\)\s*)?const\s+SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(\d+)")
     m = cap_re.search(util_rs_source)
-    assert m, "util.rs must define `const FT1_MAX_RETRIES: u32 = N`"
+    assert m, "util.rs must define `const SUPERVISOR_MAX_RETRIES: u32 = N`"
     cap = int(m.group(1))
-    assert cap == 5, f"FT1_MAX_RETRIES must be 5 (got {cap}); ADR-0020 §10 cap"
+    assert cap == 5, f"SUPERVISOR_MAX_RETRIES must be 5 (got {cap}); ADR-0020 §10 cap"
 
 
-def test_ft1_backoff_schedule_length_matches_cap(util_rs_source) -> None:
+def test_supervisor_backoff_schedule_length_matches_cap(util_rs_source) -> None:
     """The backoff schedule length must equal the retry cap.
 
     Each retry attempts one spawn; the schedule provides the per-attempt
     delay. If the schedule is shorter than the cap, the loop body would
     index out of bounds. If longer, the extra steps are unreachable.
     """
-    backoff_re = re.compile(r"const\s+FT1_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[([^\]]+)\]")
-    cap_re = re.compile(r"const\s+FT1_MAX_RETRIES\s*:\s*u32\s*=\s*(\d+)")
+    backoff_re = re.compile(r"const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[([^\]]+)\]")
+    cap_re = re.compile(r"const\s+SUPERVISOR_MAX_RETRIES\s*:\s*u32\s*=\s*(\d+)")
     m_back = backoff_re.search(util_rs_source)
     m_cap = cap_re.search(util_rs_source)
-    assert m_back and m_cap, "FT1 constants must be defined in util.rs"
+    assert m_back and m_cap, "supervisor constants must be defined in util.rs"
     steps = [int(x.strip()) for x in m_back.group(1).split(",") if x.strip()]
     cap = int(m_cap.group(1))
     assert len(steps) == cap, (
-        f"FT1_BACKOFF_MS.len() ({len(steps)}) must equal FT1_MAX_RETRIES ({cap}) so the loop iterates exactly N times"
+        f"SUPERVISOR_BACKOFF_MS.len() ({len(steps)}) must equal SUPERVISOR_MAX_RETRIES ({cap}) so the loop iterates exactly N times"
     )
 
 
-def test_ft1_respawn_calls_spawn_sidecar(ft1_rs_source) -> None:
-    """ADR-0020 §10: ft1_respawn must call spawn_sidecar_and_get_port.
+def test_supervisor_respawn_calls_spawn_sidecar(supervisor_rs_source) -> None:
+    """ADR-0020 §10: respawn must call spawn_sidecar_and_get_port.
 
-    The FT-1 supervisor in ``ft1.rs`` is the loop that retries on
+    The supervisor in ``supervisor.rs`` is the loop that retries on
     crash; it calls back into ``spawn.rs``'s spawn function each
     iteration. The two modules together implement the crash-supervisor
     contract (spawn → on crash → backoff → respawn).
     """
-    assert "fn ft1_respawn" in ft1_rs_source, "ft1.rs must define `ft1_respawn` (the supervisor entry point)"
-    assert "spawn_sidecar_and_get_port" in ft1_rs_source, (
-        "ft1.rs must call `spawn_sidecar_and_get_port` to respawn (the FT-1 supervisor delegates spawn to spawn.rs)"
+    assert "pub(crate) async fn respawn" in supervisor_rs_source, "supervisor.rs must define `respawn` (the supervisor entry point)"
+    assert "spawn_sidecar_and_get_port" in supervisor_rs_source, (
+        "supervisor.rs must call `spawn_sidecar_and_get_port` to respawn (the supervisor delegates spawn to spawn.rs)"
     )
     # The supervisor must emit a Tauri event when exhausted (so the UI
     # can show a "restarting…" banner before app.restart()).
-    assert "ft1_relaunching" in ft1_rs_source, (
-        "ft1.rs must emit 'ft1_relaunching' event before app.restart() (ADR-0020 §10 UI banner)"
+    assert "supervisor_relaunching" in supervisor_rs_source, (
+        "supervisor.rs must emit 'supervisor_relaunching' event before app.restart() (ADR-0020 §10 UI banner)"
     )
     # And a reconnected event on success.
-    assert "ft1_reconnected" in ft1_rs_source, (
-        "ft1.rs must emit 'ft1_reconnected' on successful respawn (so the UI can clear the 'reconnecting…' banner)"
+    assert "supervisor_reconnected" in supervisor_rs_source, (
+        "supervisor.rs must emit 'supervisor_reconnected' on successful respawn (so the UI can clear the 'reconnecting…' banner)"
     )
 
 
-def test_ft1_respawn_serializes_with_atomic_flag(ft1_rs_source) -> None:
-    """ADR-0020 §10: FT-1 must serialize concurrent respawn attempts.
+def test_supervisor_respawn_serializes_with_atomic_flag(supervisor_rs_source) -> None:
+    """ADR-0020 §10: supervisor must serialize concurrent respawn attempts.
 
     If the WS reader and the stdout reader both detect a crash
     simultaneously, only ONE respawn may run (the other bails out).
     This is enforced via a ``respawn_in_progress`` atomic flag with
     a compare_exchange.
     """
-    assert "respawn_in_progress" in ft1_rs_source, (
-        "ft1.rs must use a `respawn_in_progress` atomic flag to serialize concurrent respawn attempts (ADR-0020 §10)"
+    assert "respawn_in_progress" in supervisor_rs_source, (
+        "supervisor.rs must use a `respawn_in_progress` atomic flag to serialize concurrent respawn attempts (ADR-0020 §10)"
     )
-    assert "compare_exchange" in ft1_rs_source, (
-        "ft1.rs must use compare_exchange on the respawn_in_progress flag to atomically claim the respawn slot"
+    assert "compare_exchange" in supervisor_rs_source, (
+        "supervisor.rs must use compare_exchange on the respawn_in_progress flag to atomically claim the respawn slot"
     )
 
 

@@ -232,19 +232,6 @@ def test_entitlements_has_exactly_three_entitlements(entitlements_text: str):
 
 
 # ─── 2. CI workflow — codesign --force --deep --entitlements ────────────────
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "GAP-1: tauri-macos-build.yml invokes 'codesign' but NOT with "
-        "'--deep' --entitlements. ADR-0020 §13.2 step 3 mandates --deep "
-        "(or leaf-to-root manual signing) for the .app bundle. The "
-        "workflow currently relies on cargo tauri build's internal "
-        "signing via MAC_SIGNING_IDENTITY. When the workflow is updated "
-        "to explicitly sign with --deep --entitlements, this xfail will "
-        "become XPASS and the suite will fail (strict=True) — remove "
-        "the marker at that point."
-    ),
-)
 def test_workflow_runs_codesign_deep_entitlements(workflow_text: str):
     """CI workflow must run codesign --force --deep --entitlements <plist>.
 
