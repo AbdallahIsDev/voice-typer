@@ -220,8 +220,7 @@ def _linux_wayland_paste() -> str:
         proc = subprocess.run(
             ["wl-paste", "--no-newline"],
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=False,
             timeout=5,
         )

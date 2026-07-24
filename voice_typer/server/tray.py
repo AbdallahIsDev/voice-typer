@@ -69,7 +69,7 @@ pystray = lazy_module("pystray")
 # TRAY-008: Localization extracted to tray_i18n.py.
 # Re-exported here via # noqa: F401 for backward compat with tests that
 # monkeypatch voice_typer.server.tray.set_tray_locale / .get_tray_locale.
-from voice_typer.server.tray_i18n import (  # noqa: F401
+from voice_typer.server.tray_i18n import (  # noqa: E402,F401
     _TRAY_LABELS_EN,
     _TRAY_LABELS_ES,
     _TRAY_LABELS_LOCALES,

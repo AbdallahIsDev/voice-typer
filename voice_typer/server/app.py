@@ -114,8 +114,8 @@ log = logging.getLogger(__name__)
 # SEC-audit-011: _validate_env_vars calls _validate_systemroot from
 # voice_typer.server.config to reject attacker-controlled SystemRoot values
 # that could enable DLL injection.  # ruff: noqa: F401
-from voice_typer.server.env_validation import _validate_env_vars
-from voice_typer.server.logging_setup import _setup_logging
+from voice_typer.server.env_validation import _validate_env_vars  # noqa: E402
+from voice_typer.server.logging_setup import _setup_logging  # noqa: E402
 
 
 class VoiceTyperApp:
@@ -1208,7 +1208,7 @@ class VoiceTyperApp:
 # DEAD-013: _another_voice_typer_alive() was deleted; the Win32 named
 # mutex (VoiceTyperSingleInstance) already proves a duplicate exists when
 # error_already_exists is returned — the scan had zero decision power.
-from voice_typer.server.single_instance import (  # noqa: F401
+from voice_typer.server.single_instance import (  # noqa: E402,F401
     _backend_pid_file,
     _clear_backend_pid_file,
     _ensure_single_instance,
@@ -1250,7 +1250,7 @@ def main() -> None:
 # test_config_editor_lock.py). The bare PATH-resolved "notepad" pattern
 # is intentionally NOT used — _systemroot_notepad_path validates the path
 # via %SYSTEMROOT%\\System32\\notepad.exe (SEC-audit-011 / XPLAT-01).
-from voice_typer.server.platform_launch import (  # noqa: F401
+from voice_typer.server.platform_launch import (  # noqa: E402,F401
     _systemroot_notepad_path,
     _windows_close_process_handle,
     _windows_open_with_default_app,

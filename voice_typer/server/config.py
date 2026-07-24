@@ -446,7 +446,7 @@ def _acquire_config_lock(timeout: float | None = None):
                             raise TimeoutError(
                                 f"Config.save() could not acquire config.json.lock "
                                 f"within {timeout}s -- another process is holding the lock."
-                            )
+                            ) from e
                         time.sleep(0.05)
                         continue
                     log.debug("[CONFIG] flock failed (%s) -- proceeding without lock", e)
@@ -482,13 +482,13 @@ def _acquire_config_lock(timeout: float | None = None):
                 try:
                     msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
                     break
-                except OSError:
+                except OSError as e:
                     if time.monotonic() >= deadline:
                         _os.close(fd)
                         raise TimeoutError(
                             f"Config.save() could not acquire config.json.lock "
                             f"within {timeout}s -- another process is holding the lock."
-                        )
+                        ) from e
                     time.sleep(0.05)
             try:
                 yield

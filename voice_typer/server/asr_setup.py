@@ -151,7 +151,7 @@ def wait_while_paused(timeout_s: float = 1.0) -> bool:
 # sync requirement with ``model_hashes.json`` — pinned files in the
 # manifest MUST be a subset of these allow-patterns, otherwise
 # ``verify_model_integrity()`` hard-fails on every download.
-from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _HF_ALLOW_PATTERNS
+from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _HF_ALLOW_PATTERNS  # noqa: E402
 
 # NEW-DEAD-027: removed the module-level ``_CONFIG_DIR`` cache.
 # It was a one-line indirection over ``config._config_dir()`` that

@@ -654,7 +654,7 @@ class CrashRecovery:
 
                     devices = sounddevice.query_devices()
                     sys_info.append(f"Audio devices (count): {len(devices)}")
-                    for idx, dev in enumerate(devices):
+                    for dev in devices:
                         # Each device is a dict; guard against malformed entries.
                         if not isinstance(dev, dict):
                             continue

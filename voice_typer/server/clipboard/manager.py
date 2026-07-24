@@ -270,7 +270,7 @@ class ClipboardManager:
                     if _cb._is_password_field_macos():
                         _cb.log.info("[CLIPBOARD] Paste blocked — macOS password field is focused (G4-H-05)")
                         return False
-                elif _cb.is_linux():
+                elif _cb.is_linux():  # noqa: SIM102
                     if _cb._is_password_field_linux():
                         _cb.log.info("[CLIPBOARD] Paste blocked — Linux password field is focused (G4-H-05)")
                         return False

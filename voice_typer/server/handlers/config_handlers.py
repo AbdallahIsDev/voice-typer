@@ -216,7 +216,7 @@ class ConfigHandlersMixin(HandlerBase):
                 # set_active_backend, apply_config) see a consistent
                 # config snapshot across the entire handler body.
                 self.service.apply_config(validated)
-                applied.extend(k for k in validated.keys() if k not in applied)
+                applied.extend(k for k in validated if k not in applied)
             # ARCH-007: also invalidate the tray models submenu's
             # HF download cache so the next right-click reflects the
             # current model download/active state immediately (rather

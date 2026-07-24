@@ -29,7 +29,7 @@ that introspects ``inspect.getsource(service)`` still finds it.)
 import contextlib
 import logging
 import threading
-from typing import TYPE_CHECKING, TypedDict, Union
+from typing import TYPE_CHECKING, TypedDict
 
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.branding import APP_NAME
@@ -103,12 +103,12 @@ class DownloadError(TypedDict):
     error: str
 
 
-DownloadResult = Union[
-    DownloadSuccess,
-    DownloadCancelled,
-    DownloadConsentRequired,
-    DownloadError,
-]
+DownloadResult = (
+    DownloadSuccess
+    | DownloadCancelled
+    | DownloadConsentRequired
+    | DownloadError
+)
 
 
 class ForceCancelResult(TypedDict):

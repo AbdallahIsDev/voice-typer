@@ -85,12 +85,12 @@ from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 is_windows = lambda: sys.platform == "win32"  # noqa: E731
 is_linux = lambda: sys.platform.startswith("linux")  # noqa: E731
 is_macos = lambda: sys.platform == "darwin"  # noqa: E731
-from voice_typer.server.hotkeys.pynput_backend import (
+from voice_typer.server.hotkeys.pynput_backend import (  # noqa: E402
     PynputHotkey,
     _parse_hotkey_to_pynput,
 )
-from voice_typer.server.hotkeys.wayland import WaylandHotkey
-from voice_typer.server.hotkeys.win32_vk import (
+from voice_typer.server.hotkeys.wayland import WaylandHotkey  # noqa: E402
+from voice_typer.server.hotkeys.win32_vk import (  # noqa: E402
     _MOD_ALT,
     _MOD_ALTGR,
     _MOD_CONTROL,
@@ -102,7 +102,7 @@ from voice_typer.server.hotkeys.win32_vk import (
     parse_hotkey_to_vk,
     parse_hotkey_to_win32,
 )
-from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
+from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey  # noqa: E402
 
 __all__ = [
     "sys",

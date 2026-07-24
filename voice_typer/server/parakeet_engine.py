@@ -86,7 +86,7 @@ _PARAKERT_WEIGHTS_MB = 2400
 # sync requirement with ``model_hashes.json`` — pinned files in the
 # manifest MUST be a subset of these allow-patterns, otherwise
 # ``verify_model_integrity()`` hard-fails on every download.
-from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _PARAKEET_ALLOW_PATTERNS
+from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _PARAKEET_ALLOW_PATTERNS  # noqa: E402
 
 # SEC-audit-005: Pin to a specific revision for reproducibility.
 # Use the centralized MODEL_HASHES manifest from security.py.
