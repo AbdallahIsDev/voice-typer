@@ -398,8 +398,12 @@ class TestHeartbeatThreadLifecycle:
             patch.object(s, "_check_heartbeat_timeout", spy),
         ):
             s.start()
-            # Wait long enough for at least 2 ticks.
-            time.sleep(0.2)
+            # Wait for at least 2 ticks (poll instead of fixed sleep).
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if len(check_calls) >= 2:
+                    break
+                time.sleep(0.02)
             s.stop()
 
         assert len(check_calls) >= 2, (
@@ -429,8 +433,12 @@ class TestHeartbeatThreadLifecycle:
             patch.object(s, "_check_heartbeat_timeout", always_fires),
         ):
             s.start()
-            # Wait long enough for the first tick to fire.
-            time.sleep(0.2)
+            # Wait for the first tick to fire (poll instead of fixed sleep).
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if check_calls:
+                    break
+                time.sleep(0.02)
 
         # The loop should have called _check_heartbeat_timeout exactly
         # once (returned True → loop exited).  We don't call stop()

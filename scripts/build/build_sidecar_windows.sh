@@ -129,6 +129,11 @@ NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
     --enable-plugin=numpy
+    --enable-plugin=anti-bloat
+    --nofollow-import-to=torch._dynamo
+    --nofollow-import-to=torch._inductor
+    --nofollow-import-to=torch.export
+    --nofollow-import-to=torch._functorch
     --include-package=faster_whisper
     --include-package=ctranslate2
     --include-package=voice_typer

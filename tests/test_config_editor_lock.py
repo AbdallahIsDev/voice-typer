@@ -1,307 +1,238 @@
 """B-4: Config editor mutation lock regression tests.
 
-The Windows notepad path in ``VoiceTyperApp._open_config_file`` has
-always acquired ``_config_mutation_lock`` for the full editor session
-so a concurrent IPC ``set_config`` call can't atomically overwrite
-``config.json`` while Notepad is mid-edit (SEC-audit-011).
+The Windows notepad path in ``VoiceTyperApp._open_config_file`` (now
+delegated to :class:`voice_typer.server.config_editor.ConfigEditorLauncher`)
+has always acquired ``_config_mutation_lock`` for the full editor
+session so a concurrent IPC ``set_config`` call can't atomically
+overwrite ``config.json`` while Notepad is mid-edit (SEC-audit-011).
 
 B-4 fixes the same TOCTOU race on the macOS (``open``) and Linux
 (``xdg-open``) paths: they previously used non-blocking
 ``subprocess.Popen`` and did NOT acquire the lock, so a concurrent IPC
 ``set_config`` call (which goes through ``service.apply_config`` →
-``with app._config_mutation_lock``) could silently overwrite the
-user's manual edits while the editor was still open.
+``with app._config_mutation_lock``) could silently overwrite the user's
+manual edits while the editor was still open.
 
-These tests pin the fix:
+These tests pin the fix BEHAVIORALLY (no ``inspect.getsource``):
 
-1. Source-level invariants (cross-platform): every platform branch
-   must acquire ``_config_mutation_lock`` BEFORE spawning the editor
-   and reload the config from disk AFTER the editor closes.
+1. For every platform branch: when the editor is open, a concurrent
+   ``set_config`` call (mimicked by trying to acquire the same lock from
+   another thread) blocks until the editor closes, then proceeds.
 
-2. Runtime behavior (macOS, Linux, Windows): when the editor is open,
-   a concurrent ``set_config`` call (mimicked by trying to acquire the
-   same lock from another thread) blocks until the editor closes, then
-   proceeds.
+2. ``config.save()`` happens INSIDE ``_config_mutation_lock`` (the lock
+   is held when save is called) — pins CR-015.
+
+3. The macOS branch uses ``open -W`` (not vanilla ``open``) and the
+   macOS/Linux branches do NOT use non-blocking ``subprocess.Popen``.
+
+4. After the editor closes, the config is reloaded from disk so the
+   user's saved edits are picked up (all three platforms).
 """
 
 from __future__ import annotations
 
-import inspect
+import json
 import threading
 import time
 from unittest.mock import MagicMock
 
 import pytest
 
-# ── Source-level invariants ────────────────────────────────────────────
+pytestmark = pytest.mark.real_torch
+
+# ── APP-3 / CR-015: config.save() must happen inside _config_mutation_lock ─
 
 
-class TestB4SourceInvariants:
-    """Pin the source-level structure of _open_config_file.
+class TestSaveInsideLock:
+    """Behavioral replacement for the source-string APP-3 tests.
 
-    These tests survive even on platforms where the runtime tests
-    below can't exercise the platform-specific branch (e.g. we can't
-    really run ``open`` on Linux). They verify the fix is structurally
-    present for every platform.
+    Verifies ``config.save()`` is called WHILE ``_config_mutation_lock``
+    is held (not before the lock is acquired) and exactly once per
+    launch — for every platform branch.
     """
 
-    def _src(self) -> str:
-        from voice_typer.server.app import VoiceTyperApp
+    @pytest.mark.parametrize("platform", ["windows", "macos", "linux"])
+    def test_save_called_inside_lock(self, tmp_config_dir, monkeypatch, platform):
+        app = _make_app(tmp_config_dir, monkeypatch)
+        _force_platform(monkeypatch, platform)
 
-        return inspect.getsource(VoiceTyperApp._open_config_file)
+        save_lock_states: list[bool] = []
+        original_save = app.config.save
 
-    def test_macos_branch_acquires_lock(self):
-        src = self._src()
-        # Find the macOS branch
-        macos_idx = src.find("elif is_macos():")
-        assert macos_idx != -1, "macOS branch must exist in _open_config_file"
-        # Find the next branch (Linux `else:`) AFTER the macOS branch
-        linux_idx = src.find("\n            else:", macos_idx)
-        assert linux_idx != -1, "Linux else branch must exist after macOS branch"
-        macos_block = src[macos_idx:linux_idx]
-        assert "with self._config_mutation_lock:" in macos_block, (
-            "B-4: macOS branch of _open_config_file must acquire "
-            "_config_mutation_lock so a concurrent IPC set_config call "
-            "can't overwrite config.json while the user is editing it."
+        def _tracking_save():
+            owned = _lock_owned(app)
+            save_lock_states.append(owned)
+            return original_save()
+
+        app.config.save = _tracking_save
+
+        editor = _FakeEditor()
+        _install_fake_editor(monkeypatch, editor, platform)
+
+        thread, errors = _run_open_config_in_thread(app)
+        assert editor.opened.wait(timeout=5.0)
+        editor.close_event.set()
+        thread.join(timeout=5.0)
+
+        assert errors == [], f"_open_config_file raised: {errors}"
+        assert len(save_lock_states) == 1, (
+            "CR-015: config.save() must be called exactly once per "
+            f"_open_config_file launch (got {len(save_lock_states)} calls)."
         )
-        assert "type(self.config).load()" in macos_block, (
-            "B-4: macOS branch must reload the config from disk after "
-            "the editor closes so any saved edits are picked up."
-        )
-
-    def test_linux_branch_acquires_lock(self):
-        src = self._src()
-        # The Linux branch is the trailing `else:` (after Windows + macOS).
-        # Find the LAST `with self._config_mutation_lock:` in the source —
-        # it must be inside the Linux block (the third one).
-        lock_indices = []
-        start = 0
-        while True:
-            idx = src.find("with self._config_mutation_lock:", start)
-            if idx == -1:
-                break
-            lock_indices.append(idx)
-            start = idx + 1
-        assert len(lock_indices) >= 3, (
-            "B-4: _open_config_file must acquire _config_mutation_lock in "
-            "ALL THREE platform branches (Windows, macOS, Linux). Found "
-            f"{len(lock_indices)} occurrences; expected >= 3."
-        )
-
-    def test_macos_branch_uses_open_w(self):
-        """On macOS, ``open -W`` blocks until the editor exits.
-
-        Vanilla ``open`` returns immediately after launching the editor,
-        so calling ``proc.wait()`` on it would NOT block for the editor
-        session. The ``-W`` flag is required to make the spawn block.
-        """
-        src = self._src()
-        assert '"-W"' in src or "'-W'" in src, (
-            "B-4: macOS branch must use 'open -W' so the spawn blocks "
-            "until the editor exits (vanilla 'open' returns immediately)."
-        )
-
-    def test_macos_and_linux_branches_do_not_use_bare_popen(self):
-        """The macOS/Linux branches must not use non-blocking Popen.
-
-        B-4 explicitly replaces the non-blocking ``subprocess.Popen``
-        pattern with ``subprocess.run`` (blocking). The Windows branch
-        still uses ``Popen().wait()`` which is also blocking, so it's
-        allowed.
-        """
-        src = self._src()
-        macos_idx = src.find("elif is_macos():")
-        linux_idx = src.find("\n            else:", macos_idx)
-        # Linux block runs to the end of the try (the `except Exception`)
-        except_idx = src.find("except Exception as e:", linux_idx)
-        macos_block = src[macos_idx:linux_idx]
-        linux_block = src[linux_idx:except_idx]
-        assert "subprocess.Popen" not in macos_block, (
-            "B-4: macOS branch must NOT use non-blocking subprocess.Popen; "
-            "use subprocess.run (blocking) inside the lock instead."
-        )
-        assert "subprocess.Popen" not in linux_block, (
-            "B-4: Linux branch must NOT use non-blocking subprocess.Popen; "
-            "use subprocess.run (blocking) inside the lock instead."
-        )
-
-    def test_all_branches_reload_config_after_editor(self):
-        """Every platform branch must reload config after the editor closes.
-
-        This is what picks up the user's saved edits and (importantly)
-        happens INSIDE the lock so the reload is consistent with the
-        lock-release point.
-        """
-        src = self._src()
-        reload_count = src.count("type(self.config).load()")
-        assert reload_count >= 3, (
-            "B-4: all three platform branches (Windows, macOS, Linux) "
-            "must reload the config from disk after the editor closes. "
-            f"Found {reload_count} occurrences; expected >= 3."
+        assert save_lock_states[0] is True, (
+            "CR-015: config.save() must be called INSIDE "
+            "_config_mutation_lock (the lock must be held when save runs) "
+            "so a concurrent IPC set_config can't overwrite the file "
+            "between our save and the editor launch (TOCTOU race)."
         )
 
 
-# ── APP-3: config.save() must happen inside _config_mutation_lock ─────
+# ── B-4: macOS must use `open -W`, macOS/Linux must not use bare Popen ────
 
 
-class TestApp3SaveInsideLock:
-    """APP-3: ``_open_config_file`` previously called
-    ``self.config.save()`` OUTSIDE ``_config_mutation_lock`` (before the
-    platform-specific ``with`` block). This opened a TOCTOU race:
+class TestB4MacosLinuxCommandShape:
+    """Behavioral replacement for the source-string command-shape tests.
 
-    1. Our save() writes the in-memory config to disk.
-    2. A concurrent IPC ``set_config`` call (which acquires
-       ``_config_mutation_lock`` via ``service.apply_config``) writes
-       its OWN version to disk via ``_secure_atomic_write``.
-    3. The editor opens the file written by step 2, NOT by step 1 —
-       so the user edits a config that doesn't include our pending
-       in-memory changes.
-
-    The fix moves ``self.config.save()`` INSIDE the
-    ``with self._config_mutation_lock:`` block in each platform branch,
-    so the save and the editor launch are atomic with respect to
-    concurrent set_config calls.
-
-    These tests pin the source-level invariant: there must be NO
-    ``self.config.save()`` call OUTSIDE the lock, and EXACTLY ONE
-    ``self.config.save()`` call INSIDE each platform branch's lock.
+    Verifies:
+    - macOS uses ``open -W`` (not vanilla ``open``).
+    - macOS and Linux do NOT spawn a non-blocking ``subprocess.Popen``.
     """
 
-    def _src(self) -> str:
-        from voice_typer.server.app import VoiceTyperApp
+    def test_macos_uses_open_w(self, tmp_config_dir, monkeypatch):
+        app = _make_app(tmp_config_dir, monkeypatch)
+        _force_platform(monkeypatch, "macos")
 
-        return inspect.getsource(VoiceTyperApp._open_config_file)
+        editor = _FakeEditor()
+        _install_fake_editor(monkeypatch, editor, "macos")
 
-    def _strip_docstring(self, src: str) -> str:
-        """Return ``src`` with the leading triple-quoted docstring AND
-        all comment lines removed.
+        thread, errors = _run_open_config_in_thread(app)
+        assert editor.opened.wait(timeout=5.0)
+        editor.close_event.set()
+        thread.join(timeout=5.0)
 
-        Tests that count ``self.config.save()`` or
-        ``type(self.config).load()`` occurrences must not match mentions
-        in the docstring or in inline comments (which would inflate the
-        count and let a real regression slip through).
-        """
-        doc_start = src.find('"""')
-        if doc_start == -1:
-            return self._strip_comments(src)
-        doc_end = src.find('"""', doc_start + 3)
-        assert doc_end != -1, "_open_config_file must close its docstring"
-        body = src[doc_end + 3 :]
-        return self._strip_comments(body)
-
-    def _strip_comments(self, src: str) -> str:
-        """Strip Python ``#`` comments from each line of ``src``.
-
-        We deliberately do NOT use ``tokenize`` here because the source
-        we receive from ``inspect.getsource`` is a string fragment, not
-        a complete module. A line-by-line approach is sufficient and
-        robust for the assertions we need to make.
-        """
-        out_lines = []
-        for line in src.splitlines():
-            # Naive: strip everything after the first '#' that isn't
-            # inside a string literal. For our test source (which has
-            # no string literals containing '#' on the same line as a
-            # comment), this is correct.
-            hash_idx = line.find("#")
-            if hash_idx != -1:
-                line = line[:hash_idx]
-            out_lines.append(line)
-        return "\n".join(out_lines)
-
-    def test_no_save_call_outside_lock(self):
-        """There must be NO ``self.config.save()`` call that runs
-        unconditionally before the platform ``try`` block. The pre-fix
-        code had:
-
-            config_file = self.config.config_dir / "config.json"
-            if not self.config.save():  # ← ran outside the lock
-                log.warning(...)
-            import subprocess
-            try:
-                if is_windows():
-                    with self._config_mutation_lock:
-                        ...
-
-        After the fix, the save call is inside each branch's ``with``
-        block. This test verifies the "outside the lock" call is gone.
-        """
-        src = self._src()
-        body = self._strip_docstring(src)
-
-        first_lock_idx = body.find("with self._config_mutation_lock:")
-        assert first_lock_idx != -1, (
-            "APP-3: _open_config_file must acquire _config_mutation_lock in at least one platform branch"
-        )
-        # Slice the body BEFORE the first lock-acquire — this is the
-        # "outside the lock" region. There must be no save() call there.
-        before_lock = body[:first_lock_idx]
-        assert "self.config.save()" not in before_lock, (
-            "APP-3: _open_config_file must NOT call self.config.save() "
-            "outside _config_mutation_lock. The save must happen INSIDE "
-            "each platform branch's ``with`` block so a concurrent IPC "
-            "set_config call can't overwrite the file between our save "
-            "and the editor launch (TOCTOU race)."
+        assert errors == [], f"_open_config_file raised: {errors}"
+        assert editor.call_args is not None
+        assert editor.call_args[0] == "open", f"macOS path must invoke 'open'; got {editor.call_args[0]!r}"
+        assert "-W" in editor.call_args, (
+            "B-4: macOS path must use 'open -W' so the spawn blocks until "
+            f"the editor exits. Args were: {editor.call_args!r}"
         )
 
-    def test_save_call_inside_each_branch_lock(self):
-        """Each platform branch's ``with self._config_mutation_lock:``
-        block must contain a ``self.config.save()`` call.
+    @pytest.mark.parametrize("platform", ["macos", "linux"])
+    def test_no_bare_popen(self, tmp_config_dir, monkeypatch, platform):
+        app = _make_app(tmp_config_dir, monkeypatch)
+        _force_platform(monkeypatch, platform)
 
-        We split the source into the three branch blocks (Windows /
-        macOS / Linux) and verify each block has both
-        ``with self._config_mutation_lock:`` AND ``self.config.save()``.
-        """
-        src = self._src()
-        # Windows branch starts at "if is_windows():"
-        win_idx = src.find("if is_windows():")
-        assert win_idx != -1, "Windows branch must exist in _open_config_file"
-        macos_idx = src.find("elif is_macos():", win_idx)
-        assert macos_idx != -1, "macOS branch must exist after Windows branch"
-        # The Linux branch is the trailing ``else:`` after macOS.
-        linux_idx = src.find("\n            else:", macos_idx)
-        assert linux_idx != -1, "Linux else branch must exist after macOS branch"
-        # The Linux block runs to the end of the try (the ``except Exception as e:``).
-        except_idx = src.find("except Exception as e:", linux_idx)
-        assert except_idx != -1, "outer try must have an except clause"
+        popen_calls: list = []
+        import subprocess as _subprocess
 
-        win_block = src[win_idx:macos_idx]
-        macos_block = src[macos_idx:linux_idx]
-        linux_block = src[linux_idx:except_idx]
+        original_popen = _subprocess.Popen
 
-        for branch_name, block in [
-            ("Windows", win_block),
-            ("macOS", macos_block),
-            ("Linux", linux_block),
-        ]:
-            assert "with self._config_mutation_lock:" in block, (
-                f"APP-3: {branch_name} branch must acquire _config_mutation_lock (B-4 invariant, preserved by APP-3)"
+        def _tracking_popen(*args, **kwargs):
+            popen_calls.append(args)
+            return original_popen(*args, **kwargs)
+
+        monkeypatch.setattr(_subprocess, "Popen", _tracking_popen)
+
+        editor = _FakeEditor()
+        _install_fake_editor(monkeypatch, editor, platform)
+
+        thread, errors = _run_open_config_in_thread(app)
+        assert editor.opened.wait(timeout=5.0)
+        editor.close_event.set()
+        thread.join(timeout=5.0)
+
+        assert errors == [], f"_open_config_file raised: {errors}"
+        assert popen_calls == [], (
+            f"B-4: {platform} branch must NOT use non-blocking "
+            f"subprocess.Popen; use subprocess.run (blocking) inside the "
+            f"lock instead. Popen calls: {popen_calls}"
+        )
+
+
+# ── B-4: all platforms reload config after editor closes ─────────────────
+
+
+class TestB4ReloadAfterEditor:
+    """Behavioral replacement for the source-string reload-count test.
+
+    Verifies every platform branch reloads the config from disk after
+    the editor closes (picks up the user's saved edits). Writes a
+    different value to disk while the editor is "open" and checks the
+    in-memory config reflects it after the launch returns.
+    """
+
+    @pytest.mark.parametrize("platform", ["windows", "macos", "linux"])
+    def test_config_reloaded_after_editor_closes(self, tmp_config_dir, monkeypatch, platform):
+        app = _make_app(tmp_config_dir, monkeypatch)
+        _force_platform(monkeypatch, platform)
+
+        if platform == "windows":
+            monkeypatch.setattr(
+                "voice_typer.server.app._windows_open_with_default_app",
+                lambda path: None,
             )
-            assert "self.config.save()" in block, (
-                f"APP-3: {branch_name} branch must call self.config.save() "
-                f"INSIDE the _config_mutation_lock block so the save and "
-                f"the editor launch are atomic with respect to concurrent "
-                f"set_config calls (TOCTOU race)."
-            )
+            monkeypatch.setattr("pathlib.Path.exists", lambda self: True)
 
-    def test_save_call_count_matches_branch_count(self):
-        """There must be exactly 3 ``self.config.save()`` calls in
-        _open_config_file — one per platform branch. (Not 1 outside the
-        lock + 0 inside, which was the pre-fix bug; not 4+ which would
-        indicate a copy-paste duplication.)
-        """
-        src = self._src()
-        body = self._strip_docstring(src)
-        save_count = body.count("self.config.save()")
-        assert save_count == 3, (
-            "APP-3: _open_config_file must contain exactly 3 "
-            "self.config.save() calls (one per platform branch, each "
-            f"inside its _config_mutation_lock block). Got {save_count}; "
-            "expected 3."
+        from voice_typer.server.config import Config
+
+        original_load = Config.load
+        load_calls: list = []
+
+        def _tracking_load(*args, **kwargs):
+            result = original_load(*args, **kwargs)
+            load_calls.append(result)
+            return result
+
+        monkeypatch.setattr(Config, "load", _tracking_load)
+
+        editor = _FakeEditor()
+
+        config_path = app.config.config_dir / "config.json"
+
+        def _run_with_disk_write(args, **kwargs):
+            result = editor.run(args, **kwargs)
+            config_path.write_text(json.dumps({"show_notifications": False}), encoding="utf-8")
+            return result
+
+        def _popen_wait_with_disk_write(args, **kwargs):
+            result = editor.popen_wait(args, **kwargs)
+            config_path.write_text(json.dumps({"show_notifications": False}), encoding="utf-8")
+            return result
+
+        import subprocess as _subprocess
+
+        if platform == "windows":
+
+            class _FakeProc:
+                def __init__(self, a):
+                    self._a = a
+
+                def wait(self):
+                    return _popen_wait_with_disk_write(self._a)
+
+            def _popen(args, **kwargs):
+                return _FakeProc(args)
+
+            monkeypatch.setattr(_subprocess, "Popen", _popen)
+        else:
+            monkeypatch.setattr(_subprocess, "run", _run_with_disk_write)
+
+        assert app.config.show_notifications is True
+
+        app._open_config_file()
+
+        assert len(load_calls) >= 1, (
+            f"B-4: {platform} branch must call Config.load() after the "
+            "editor closes so the user's saved edits are picked up."
+        )
+        assert app.config.show_notifications is False, (
+            f"B-4: {platform} branch: after the editor closes, the "
+            "in-memory config must reflect the user's saved edits on disk."
         )
 
 
-# ── Runtime behavior ───────────────────────────────────────────────────
+# ── Runtime behavior (lock held for full editor session) ─────────────────
 
 
 def _make_app(tmp_config_dir, monkeypatch):
@@ -325,6 +256,26 @@ def _make_app(tmp_config_dir, monkeypatch):
     instance.models.transcriber.is_loaded = True
     instance.models._sync_registry_from_fields()
     return instance
+
+
+def _force_platform(monkeypatch, platform: str) -> None:
+    """Monkeypatch the platform helpers in voice_typer.server.app."""
+    flags = {
+        "windows": (True, False, False),
+        "macos": (False, True, False),
+        "linux": (False, False, True),
+    }
+    win, mac, lin = flags[platform]
+    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: win)
+    monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: mac)
+    monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: lin)
+
+
+def _lock_owned(app) -> bool:
+    lock = app._config_mutation_lock
+    if hasattr(lock, "_is_owned"):
+        return lock._is_owned()
+    return True
 
 
 class _FakeEditor:
@@ -351,13 +302,7 @@ class _FakeEditor:
     def run(self, args, **kwargs):
         self.call_count += 1
         self.call_args = args
-        # Record whether the caller holds the lock at the moment we're
-        # called — this is the core B-4 invariant.
-        # We can't access the lock here directly; the test wires this up
-        # via a closure that captures the app.
         self.opened.set()
-        # Block until the test signals the editor to close. Use a short
-        # timeout so a buggy test doesn't hang forever.
         self.close_event.wait(timeout=10.0)
         return MagicMock(returncode=0)
 
@@ -368,6 +313,29 @@ class _FakeEditor:
         self.opened.set()
         self.close_event.wait(timeout=10.0)
         return MagicMock(returncode=0)
+
+
+def _install_fake_editor(monkeypatch, editor: _FakeEditor, platform: str) -> None:
+    """Wire ``editor`` into the right subprocess hook for ``platform``."""
+    import subprocess as _subprocess
+
+    if platform == "windows":
+        monkeypatch.setattr(
+            "voice_typer.server.app._windows_open_with_default_app",
+            lambda path: None,
+        )
+        monkeypatch.setattr("pathlib.Path.exists", lambda self: True)
+
+        class _FakeProc:
+            def __init__(self, a):
+                self._a = a
+
+            def wait(self):
+                return editor.popen_wait(self._a)
+
+        monkeypatch.setattr(_subprocess, "Popen", lambda a, **k: _FakeProc(a))
+    else:
+        monkeypatch.setattr(_subprocess, "run", lambda a, **k: editor.run(a, **k))
 
 
 def _run_open_config_in_thread(app):
@@ -406,9 +374,6 @@ def _assert_concurrent_set_config_blocks(app, editor, timeout=5.0):
     setter_thread = threading.Thread(target=_acquire_lock, daemon=True)
     setter_thread.start()
 
-    # Give the setter thread a chance to (try to) acquire the lock.
-    # If B-4 is in place, the editor holds the lock so the setter
-    # should NOT be able to acquire it yet.
     time.sleep(0.15)
     assert not acquired.is_set(), (
         "B-4: a concurrent set_config call (acquiring _config_mutation_lock) "
@@ -417,8 +382,6 @@ def _assert_concurrent_set_config_blocks(app, editor, timeout=5.0):
         "the lock for the full editor session."
     )
 
-    # Signal the editor to close — the setter thread should now be able
-    # to acquire the lock.
     editor.close_event.set()
 
     assert acquired.wait(timeout=timeout), (
@@ -433,15 +396,12 @@ class TestB4MacosRuntime:
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: False)
+        _force_platform(monkeypatch, "macos")
 
         editor = _FakeEditor()
 
         def _run(args, **kwargs):
-            # Verify the lock is held when subprocess.run is called.
-            assert app._config_mutation_lock._is_owned() if hasattr(app._config_mutation_lock, "_is_owned") else True, (
+            assert _lock_owned(app), (
                 "B-4: _config_mutation_lock must be acquired by the "
                 "current thread BEFORE subprocess.run is called on macOS."
             )
@@ -453,19 +413,14 @@ class TestB4MacosRuntime:
 
         thread, errors = _run_open_config_in_thread(app)
 
-        # Wait for the editor to actually be opened.
         assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.run called) within 5s."
 
-        # A concurrent set_config call must block.
         _assert_concurrent_set_config_blocks(app, editor)
 
-        # The _open_config_file thread should now finish too (editor closed
-        # → subprocess.run returns → reload → lock released → method exits).
         thread.join(timeout=5.0)
         assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
         assert errors == [], f"_open_config_file raised: {errors}"
 
-        # Verify 'open -W' was used (not vanilla 'open').
         assert editor.call_args is not None
         assert editor.call_args[0] == "open", f"Expected 'open' command, got {editor.call_args[0]!r}"
         assert "-W" in editor.call_args, (
@@ -479,15 +434,12 @@ class TestB4LinuxRuntime:
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: True)
+        _force_platform(monkeypatch, "linux")
 
         editor = _FakeEditor()
 
         def _run(args, **kwargs):
-            # Lock must be held when subprocess.run is called.
-            assert app._config_mutation_lock._is_owned() if hasattr(app._config_mutation_lock, "_is_owned") else True, (
+            assert _lock_owned(app), (
                 "B-4: _config_mutation_lock must be acquired by the "
                 "current thread BEFORE subprocess.run is called on Linux."
             )
@@ -507,7 +459,6 @@ class TestB4LinuxRuntime:
         assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
         assert errors == [], f"_open_config_file raised: {errors}"
 
-        # Verify 'xdg-open' was used.
         assert editor.call_args is not None
         assert editor.call_args[0] == "xdg-open", f"Expected 'xdg-open' command, got {editor.call_args[0]!r}"
 
@@ -521,17 +472,11 @@ class TestB4WindowsRuntime:
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: False)
-
-        # Force the validated-Notepad fallback path so the test exercises
-        # Popen+wait under the lock instead of really launching an editor
-        # via ShellExecuteEx on the host (which would block indefinitely).
-        monkeypatch.setattr("voice_typer.server.app._windows_open_with_default_app", lambda path: None)
-
-        # Make the notepad path appear to exist so we enter the
-        # Popen+wait code path (instead of the os.startfile fallback).
+        _force_platform(monkeypatch, "windows")
+        monkeypatch.setattr(
+            "voice_typer.server.app._windows_open_with_default_app",
+            lambda path: None,
+        )
         monkeypatch.setattr("pathlib.Path.exists", lambda self: True)
 
         editor = _FakeEditor()
@@ -546,8 +491,7 @@ class TestB4WindowsRuntime:
         import subprocess as _subprocess
 
         def _popen(args, **kwargs):
-            # Lock must be held when Popen is called.
-            assert app._config_mutation_lock._is_owned() if hasattr(app._config_mutation_lock, "_is_owned") else True, (
+            assert _lock_owned(app), (
                 "SEC-audit-011: _config_mutation_lock must be acquired BEFORE subprocess.Popen is called on Windows."
             )
             return _FakeProc(args)
@@ -575,11 +519,8 @@ class TestB4ReloadPicksUpDiskChanges:
 
     def test_config_reloaded_after_macos_editor_closes(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
-        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: False)
+        _force_platform(monkeypatch, "macos")
 
-        # Track whether Config.load() is called after the editor closes.
         from voice_typer.server.config import Config
 
         original_load = Config.load
@@ -596,32 +537,21 @@ class TestB4ReloadPicksUpDiskChanges:
 
         import subprocess as _subprocess
 
-        # When the editor closes, write a marker to disk so the reload
-        # picks up a different value than the in-memory config had.
         def _run(args, **kwargs):
             result = editor.run(args, **kwargs)
-            # Simulate the user saving a new value to disk while the
-            # editor was open. We do this BEFORE the reload (which
-            # happens after subprocess.run returns).
-            import json
-
             config_path = app.config.config_dir / "config.json"
             config_path.write_text(json.dumps({"show_notifications": False}), encoding="utf-8")
             return result
 
         monkeypatch.setattr(_subprocess, "run", _run)
 
-        # Pre-condition: in-memory config has show_notifications=True
-        # (the default). The user will "save" False to disk while editing.
         assert app.config.show_notifications is True
 
         app._open_config_file()
 
-        # Config.load() must have been called after the editor closed.
         assert len(load_calls) >= 1, (
             "B-4: Config.load() must be called after the editor closes so the user's saved edits are picked up."
         )
-        # The in-memory config should now reflect the disk state.
         assert app.config.show_notifications is False, (
             "B-4: after the editor closes, the in-memory config must reflect the user's saved edits on disk."
         )

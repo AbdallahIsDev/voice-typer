@@ -250,8 +250,13 @@ class TestRetroactiveDuck:
         ducker.initialize()
 
         ducker.duck(0.25)
-        # Let the monitor poll a few times.
-        time.sleep(0.3)  # ~6 polls at 50ms
+        # Poll for several poll intervals — audio never starts, so the
+        # monitor should never duck.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if ducker.actually_ducked:
+                break
+            time.sleep(0.02)
 
         assert not ducker.actually_ducked, "Monitor should NOT have ducked if audio never started"
         assert backend.fade_calls == []
@@ -318,7 +323,12 @@ class TestMonitorDisableMidDictation:
 
         # Audio starts — but monitor is gone, so no retroactive duck.
         backend.set_speaker_active(True)
-        time.sleep(0.3)
+        # Poll for a few intervals — monitor is gone, so no duck.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if ducker.actually_ducked:
+                break
+            time.sleep(0.02)
         assert not ducker.actually_ducked
         assert backend.fade_calls == []
 
@@ -458,8 +468,8 @@ class TestMonitorConcurrency:
 
         # Restore immediately — race with the monitor's first poll.
         ducker.restore()
-        # Let any in-flight poll complete.
-        time.sleep(0.2)
+        # Wait for the monitor to stop (poll instead of fixed sleep).
+        assert _wait_for(lambda: not ducker.is_monitor_running, timeout=2.0)
 
         assert not ducker.is_monitor_running
         assert not ducker.actually_ducked
@@ -479,9 +489,9 @@ class TestMonitorConcurrency:
             try:
                 for _ in range(5):
                     ducker.duck(0.25)
-                    time.sleep(0.05)
+                    time.sleep(0.05)  # intentional fixed delay (stress-test pacing)
                     ducker.restore()
-                    time.sleep(0.02)
+                    time.sleep(0.02)  # intentional fixed delay (stress-test pacing)
             except Exception as e:
                 errors.append(e)
 
@@ -525,7 +535,7 @@ class TestMonitorConcurrency:
                     errors.append(e)
                     return
                 # Brief sleep so restore can race with us.
-                time.sleep(0.001)
+                time.sleep(0.001)  # intentional fixed delay (race-stress pacing)
 
         def restore_loop():
             """Hammer restore() to try to catch an unstarted thread."""
@@ -535,7 +545,7 @@ class TestMonitorConcurrency:
                 except Exception as e:
                     errors.append(e)
                     return
-                time.sleep(0.001)
+                time.sleep(0.001)  # intentional fixed delay (race-stress pacing)
 
         # 4 duckers + 4 restorers = 8 threads racing for 2 seconds.
         duckers = [threading.Thread(target=duck_loop, daemon=True) for _ in range(4)]
@@ -543,7 +553,7 @@ class TestMonitorConcurrency:
         for t in duckers + restorers:
             t.start()
 
-        time.sleep(2.0)
+        time.sleep(2.0)  # intentional fixed delay (stress-test duration)
         stop.set()
         for t in duckers + restorers:
             t.join(timeout=2.0)

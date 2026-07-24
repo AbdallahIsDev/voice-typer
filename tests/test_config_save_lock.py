@@ -114,11 +114,20 @@ class TestConfigSaveLock:
             t = threading.Thread(target=save_thread, daemon=True)
             t.start()
 
-            # Give save() a moment to attempt the lock.
-            time.sleep(0.3)
-
-            # save() should still be blocked (thread alive).
-            assert t.is_alive(), (
+            # Poll until save() has attempted and is blocked on the lock.
+            # The save thread should still be alive (blocked on lock).
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if t.is_alive():
+                    # Give it a moment to reach the lock, then confirm
+                    # it's still blocked by checking result_holder.
+                    if result_holder:
+                        break
+                    time.sleep(0.05)
+                else:
+                    break
+            # save() should still be blocked (thread alive, no result yet).
+            assert t.is_alive() and not result_holder, (
                 "CR-37 regression: Config.save() did not block on the "
                 "lock — it must serialize with migrate_secrets_to_keyring "
                 "via config.json.lock to avoid overwriting the migration's "

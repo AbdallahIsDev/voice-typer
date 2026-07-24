@@ -342,7 +342,7 @@ class TestConcurrentLockUseNoDeadlock:
                     # fires after `delay`). Use a tiny delay so the timers
                     # actually fire and self-remove from the daemon thread.
                     app_shell._schedule_timer(0.001, lambda: None)
-                    time.sleep(0.0005)
+                    time.sleep(0.0005)  # intentional fixed delay (stress-test pacing)
             except Exception as e:  # noqa: BLE001
                 errors.append(e)
 
@@ -353,7 +353,7 @@ class TestConcurrentLockUseNoDeadlock:
                     # to snapshot+clear, then cancels each timer OUTSIDE
                     # the lock.
                     app_shell._cancel_pending_timers()
-                    time.sleep(0.0005)
+                    time.sleep(0.0005)  # intentional fixed delay (stress-test pacing)
             except Exception as e:  # noqa: BLE001
                 errors.append(e)
 
@@ -367,7 +367,7 @@ class TestConcurrentLockUseNoDeadlock:
             t.start()
         # Let them run for 1s; if any thread is stuck in a deadlock the
         # join(timeout=2) below will fail.
-        time.sleep(1.0)
+        time.sleep(1.0)  # intentional fixed delay (stress-test duration)
         stop.set()
         for t in threads:
             t.join(timeout=2.0)
@@ -477,7 +477,7 @@ class TestConcurrentLockUseNoDeadlock:
         )
         for t in threads:
             t.start()
-        time.sleep(1.0)
+        time.sleep(1.0)  # intentional fixed delay (stress-test duration)
         stop.set()
         for t in threads:
             t.join(timeout=2.0)
@@ -534,7 +534,7 @@ class TestReverseOrderAcquisitionNoDeadlock:
                     # lock the other holds, and the join will time out.
                     for lock in order:
                         with lock:
-                            time.sleep(0.0001)
+                            time.sleep(0.0001)  # intentional fixed delay (brief lock hold for race window)
             except Exception as e:  # noqa: BLE001
                 errors.append(e)
 

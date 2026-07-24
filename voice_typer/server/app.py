@@ -42,6 +42,7 @@ from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.clipboard import ClipboardCopyError, ClipboardManager
 from voice_typer.server.config import Config, _config_dir, _migrate_from_legacy
+from voice_typer.server.config_editor import ConfigEditorLauncher
 from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.history_db import HistoryDB
@@ -815,121 +816,15 @@ class VoiceTyperApp:
     def _open_config_file(self):
         """Open the config file in the user's default editor.
 
-        XPLAT-01: on Windows the file opens in the user's ``.json`` file
-        association (e.g. VS Code, Notepad++, Sublime) instead of being
-        forced into Notepad. We obtain the editor process handle via
-        ``ShellExecuteEx`` so we can still block until it exits and reload
-        afterwards — ``os.startfile`` cannot do this (it returns
-        immediately with no handle, which is what caused the old
-        reload-after-close / lock-coverage regressions).
-
-        SEC-audit-011 / B-4: ``_config_mutation_lock`` is acquired BEFORE
-        spawning the editor and held for the entire editor session (until
-        the editor process exits), so a concurrent IPC ``set_config``
-        cannot atomically replace ``config.json`` via ``_secure_atomic_write``
-        while the user is mid-edit (a TOCTOU race). After the editor exits
-        we reload the config from disk so the user's saved edits take
-        effect.
-
-        On the rare Windows path where no ``.json`` handler is associated,
-        we fall back to the SystemRoot-validated Notepad path (never a bare
-        PATH-resolved ``notepad``). macOS uses ``open -W`` and Linux uses
-        ``xdg-open``; both block on the editor and reload afterwards.
+        Delegates to :class:`voice_typer.server.config_editor.ConfigEditorLauncher`
+        (extracted from this method). The launcher holds
+        ``_config_mutation_lock`` for the full editor session (XPLAT-01 /
+        SEC-audit-011 / B-4 / CR-015) and reloads the config from disk
+        after the editor exits. See ``config_editor.py`` for the full
+        platform-specific behavior and the security invariants it pins.
         """
         config_file = self.config.config_dir / "config.json"
-        # CR-015 (IMPROVE-mode run, 2026-07-21): the pre-fix code called
-        # ``self.config.save()`` OUTSIDE ``_config_mutation_lock`` — opening
-        # a TOCTOU race where a concurrent IPC ``set_config`` could write
-        # its own version to disk AFTER our save and BEFORE the editor opens,
-        # so the user edits a stale file. The save is now performed INSIDE
-        # each platform branch's ``with self._config_mutation_lock:`` block
-        # so the save + editor launch are atomic w.r.t. concurrent set_config.
-        import subprocess
-
-        try:
-            if is_windows():
-                # XPLAT-01 + SEC-audit-011 / B-4: open with the user's
-                # default editor (respects .json associations — VS Code,
-                # Notepad++, Sublime) and obtain a process handle so we can
-                # block until it exits and reload afterward. ``os.startfile``
-                # returns immediately with no handle (the cause of the old
-                # reload/lock regression), so we use ShellExecuteEx instead.
-                # Hold _config_mutation_lock for the whole editor session so
-                # a concurrent IPC set_config cannot atomically clobber
-                # config.json mid-edit (TOCTOU, SEC-audit-011).
-                with self._config_mutation_lock:
-                    # CR-015: save INSIDE the lock so concurrent set_config
-                    # can't interleave with the editor launch.
-                    if not self.config.save():
-                        log.warning("[CONFIG] Failed to save config before opening editor")
-                    handle = _windows_open_with_default_app(str(config_file))
-                    if handle is not None:
-                        try:
-                            _windows_wait_for_process_exit(handle)
-                        finally:
-                            _windows_close_process_handle(handle)
-                    else:
-                        # No associated handler for .json: use the
-                        # SystemRoot-validated Notepad path (SEC-audit-011),
-                        # never a bare PATH-resolved "notepad" (cwd tamperable).
-                        notepad = _systemroot_notepad_path()
-                        if notepad is not None:
-                            subprocess.Popen([str(notepad), str(config_file)]).wait()
-                        else:
-                            # Last resort: no Notepad at the validated path.
-                            # os.startfile is non-blocking, so the reload below
-                            # runs immediately; the user can re-trigger a reload
-                            # via the UI after editing.
-                            os.startfile(str(config_file))  # type: ignore[attr-defined]
-                    # Reload config from disk after the editor closes / launches.
-                    try:
-                        self.config = type(self.config).load()
-                    except Exception as exc:
-                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
-            elif is_macos():
-                # B-4: ``open -W`` blocks until the editor exits (vanilla
-                # ``open`` returns immediately after launching). Hold the
-                # lock for the full editor session so a concurrent IPC
-                # ``set_config`` call (which goes through
-                # ``service.apply_config`` → ``with app._config_mutation_lock``)
-                # blocks until the user finishes editing.
-                with self._config_mutation_lock:
-                    # CR-015: save INSIDE the lock.
-                    if not self.config.save():
-                        log.warning("[CONFIG] Failed to save config before opening editor")
-                    with contextlib.suppress(Exception):
-                        subprocess.run(
-                            ["open", "-W", str(config_file)],
-                            check=False,
-                        )
-                    try:
-                        self.config = type(self.config).load()
-                    except Exception as exc:
-                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
-            else:
-                # B-4: Linux. ``xdg-open`` may return before the editor
-                # closes (depends on the desktop environment — some DEs
-                # spawn the editor as a detached process), but we still
-                # block on its exit and hold the lock during that window
-                # so a concurrent IPC ``set_config`` call can't interleave
-                # with the launch. After the spawn returns we reload the
-                # config from disk so any saved edits are picked up.
-                with self._config_mutation_lock:
-                    # CR-015: save INSIDE the lock.
-                    if not self.config.save():
-                        log.warning("[CONFIG] Failed to save config before opening editor")
-                    with contextlib.suppress(Exception):
-                        subprocess.run(
-                            ["xdg-open", str(config_file)],
-                            check=False,
-                        )
-                    try:
-                        self.config = type(self.config).load()
-                    except Exception as exc:
-                        log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
-        except Exception as e:
-            log.warning("[CONFIG] Could not open editor: %s", e)
-            self.tray.notify(APP_NAME, f"Config file:\n{config_file}")
+        ConfigEditorLauncher(self).launch(config_file)
 
     # ─── TrayController Protocol Methods (P3) ────────────────────────
 

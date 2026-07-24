@@ -504,51 +504,19 @@ def clear_binary_path_cache():
         cache_clear()
 
 
-# ── FT-2: close leaked HistoryDB / CrashRecovery instances after each test ─
+# ── FT-2: daemon-thread leak prevention ──────────────────────────────────
 #
-# Several test files construct ``HistoryDB()`` / ``CrashRecovery()`` via
-# ``_MockApp``-style helpers whose fixtures only call ``server.stop()`` on
-# teardown. ``IPCServer.stop()`` tears down the TCP accept loop + worker
-# pool but does NOT close the app's ``history_db`` (which owns a long-lived
-# ``HistoryDBWriter`` daemon thread) or ``_crash_recovery`` (which owns a
-# ``crash-recovery-saver`` daemon thread). Each leaked instance
-# accumulates one daemon thread for the remainder of the session.
+# The original per-test autouse cleanup (iterating a WeakSet of all live
+# HistoryDB/CrashRecovery instances and calling close()/shutdown() on each)
+# was unsound: it closed instances still held by module-scoped fixtures,
+# breaking subsequent tests in the same module and causing an EARLIER
+# native crash (53% vs the original 59%). gc.get_referrers() could not
+# reliably distinguish "leaked" from "held by a live fixture" because
+# fixture-local variables survive on the frame/closure even after teardown.
 #
-# On Windows, the cumulative daemon-thread count across the full suite
-# eventually trips a native limit (~150+ threads + their kernel handles),
-# causing a silent process crash at ~59% through the run (FT-2). The crash
-# manifests mid-test (no faulthandler traceback, exit code 1) because the
-# next ``CreateThread`` call fails at the Win32 level.
-#
-# Fix: both ``HistoryDB`` and ``CrashRecovery`` register themselves in a
-# module-level ``weakref.WeakSet`` on construction (see the production
-# modules). This autouse fixture iterates those cheap registries after each
-# test and calls ``close()`` / ``shutdown()`` on any still-alive instance.
-# ``close``/``shutdown`` are idempotent on both classes, so tests that
-# already clean up their own instances are unaffected.
-@pytest.fixture(autouse=True)
-def _cleanup_leaked_daemon_thread_owners():
-    """FT-2: close leaked HistoryDB / CrashRecovery instances after each test."""
-    yield
-    import contextlib
-    import threading
-
-    try:
-        from voice_typer.server.history_db import _LIVE_INSTANCES as hdb_instances
-    except Exception:  # pragma: no cover - import guard
-        hdb_instances = ()
-    try:
-        from voice_typer.server.crash_recovery import _LIVE_INSTANCES as cr_instances
-    except Exception:  # pragma: no cover - import guard
-        cr_instances = ()
-
-    # Snapshot the WeakSet to avoid mutation during iteration.
-    for db in list(hdb_instances):
-        with contextlib.suppress(Exception):
-            # ``_shutdown`` event is set by close() — skip already-closed.
-            if not getattr(db, "_shutdown", threading.Event()).is_set():
-                db.close()
-    for cr in list(cr_instances):
-        with contextlib.suppress(Exception):
-            if getattr(cr, "_save_thread", None) is not None:
-                cr.shutdown()
+# The correct fix is at the source: each test fixture that constructs an
+# ``IPCServer(app)`` via a ``_MockApp`` helper MUST close ``app.history_db``
+# and shut down ``app._crash_recovery`` in its teardown. The leaking
+# fixtures are fixed individually below and in their respective test files.
+# The WeakSet registries (``_LIVE_INSTANCES``) remain in the production
+# modules as an observability aid, but no autouse fixture touches them.

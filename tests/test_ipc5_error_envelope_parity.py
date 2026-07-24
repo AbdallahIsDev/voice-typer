@@ -200,6 +200,16 @@ def live_server(tmp_path, monkeypatch):
     yield server, port, token
 
     server.stop()
+    # FT-2: close HistoryDB writer thread + shut down CrashRecovery saver
+    # thread so they don't leak across the pytest session (on Windows the
+    # accumulated daemon threads trip a native limit and crash the process
+    # mid-suite).
+    with suppress(Exception):
+        if hasattr(app, "history_db") and hasattr(app.history_db, "close"):
+            app.history_db.close()
+    with suppress(Exception):
+        if hasattr(app, "_crash_recovery") and hasattr(app._crash_recovery, "shutdown"):
+            app._crash_recovery.shutdown()
     deadline = time.time() + 1.0
     while time.time() < deadline:
         if server._tcp_server_socket is None:

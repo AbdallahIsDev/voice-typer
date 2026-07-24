@@ -72,8 +72,14 @@ class TestMicrophoneDeviceWatcher:
         ):
             watcher.start()
             try:
-                # Let the watcher read the initial state.
-                time.sleep(0.15)
+                # Let the watcher read the initial state — poll until at
+                # least one listdir call has occurred (confirms the
+                # baseline was captured).
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if callback_event.is_set():
+                        break
+                    time.sleep(0.02)
                 # Simulate a device plug — entries change.
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 # The next poll (within 50ms) should fire the callback.
@@ -200,8 +206,13 @@ class TestMicrophoneDeviceWatcher:
             ),
         ):
             watcher.start()
-            # Wait for the thread to enter _run and crash.
-            time.sleep(0.2)
+            # Wait for the thread to enter _run and crash. Poll until
+            # the thread is no longer alive.
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if watcher._thread is not None and not watcher._thread.is_alive():
+                    break
+                time.sleep(0.02)
             # Thread should have exited (not alive).
             assert watcher._thread is not None
             watcher._thread.join(timeout=1.0)
@@ -349,8 +360,13 @@ class TestMicrophoneDeviceWatcherMacOS:
         with patch.dict(sys.modules, {"sounddevice": mock_sd}):
             watcher.start()
             try:
-                # Let the watcher capture the baseline (2 devices).
-                time.sleep(0.15)
+                # Let the watcher capture the baseline (2 devices). Poll
+                # until at least one query_devices call has occurred.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if mock_sd.query_devices.called:
+                        break
+                    time.sleep(0.02)
                 # Simulate a device plug — count changes to 3.
                 mock_sd.query_devices.return_value = [
                     {"name": "dev1"},
@@ -378,7 +394,12 @@ class TestMicrophoneDeviceWatcherMacOS:
         with patch.dict(sys.modules, {"sounddevice": mock_sd}):
             watcher.start()
             # Let several poll cycles pass with a STABLE device count.
-            time.sleep(0.3)
+            # Poll for ~3 poll intervals (150ms) then assert no fire.
+            deadline = time.monotonic() + 0.6
+            while time.monotonic() < deadline:
+                if callback_event.is_set():
+                    break
+                time.sleep(0.02)
             watcher.stop()
 
         # No callback should have fired — count never changed.
@@ -395,9 +416,13 @@ class TestMicrophoneDeviceWatcherMacOS:
         # ImportError ("import of name halted; None in sys.modules").
         with patch.dict(sys.modules, {"sounddevice": None}):
             watcher.start()
-            # Give the thread time to run _run_macos and hit the
-            # ImportError early return.
-            time.sleep(0.2)
+            # Wait for the thread to run _run_macos and hit the
+            # ImportError early return. Poll until thread has exited.
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if watcher._thread is None:
+                    break
+                time.sleep(0.02)
             watcher.stop()
 
         # No callback should have fired — the watcher exited early.
@@ -427,8 +452,14 @@ class TestMicrophoneDeviceWatcherMacOS:
         with patch.dict(sys.modules, {"sounddevice": mock_sd}):
             watcher.start()
             # Let several poll cycles pass — the watcher should
-            # recover from the transient errors and NOT crash.
-            time.sleep(0.4)
+            # recover from the transient errors and NOT crash. Poll
+            # until call_count > 2 (past the flaky calls) and the
+            # thread is still alive.
+            deadline = time.monotonic() + 2.0
+            while time.monotonic() < deadline:
+                if call_count["n"] > 2:
+                    break
+                time.sleep(0.02)
             watcher.stop()
 
         # No callback should have fired (count went from None-baseline
@@ -662,8 +693,13 @@ class TestMicrophoneDeviceWatcherWindows:
         # Default mocks: RegisterClassExW → 1, CreateWindowExW → 0x20000,
         # PeekMessageW → 0 (no messages). The pump loops on _stop_event.
         watcher.start()
-        # Let the pump enter the message loop.
-        time.sleep(0.15)
+        # Let the pump enter the message loop. Poll until PeekMessageW
+        # has been called (confirms the pump is running).
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline:
+            if fake_windows_windll["user32"].PeekMessageW.called:
+                break
+            time.sleep(0.02)
         watcher.stop()
 
         user32 = fake_windows_windll["user32"]
@@ -779,8 +815,13 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                # Let the watcher read the initial state.
-                time.sleep(0.15)
+                # Let the watcher read the initial state. Poll until at
+                # least one listdir call has occurred.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if change_event.is_set():
+                        break
+                    time.sleep(0.02)
                 # Simulate a device change — entries change.  This
                 # triggers _invoke_callback, which (after on_change)
                 # calls _check_active_mic_lost.  The provider still
@@ -823,11 +864,20 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                time.sleep(0.15)
+                # Poll until baseline is captured.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if change_event.is_set():
+                        break
+                    time.sleep(0.02)
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 assert change_event.wait(timeout=2.0), "on_change should still fire on device change"
                 # Give the watcher a moment to (not) fire the lost cb.
-                time.sleep(0.2)
+                deadline = time.monotonic() + 1.0
+                while time.monotonic() < deadline:
+                    if lost_event.is_set():
+                        break
+                    time.sleep(0.02)
                 assert not lost_event.is_set(), (
                     "on_active_mic_lost must NOT fire when the active mic is still in the device list (false positive)"
                 )
@@ -852,7 +902,12 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                time.sleep(0.15)
+                # Poll until baseline is captured.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if change_event.is_set():
+                        break
+                    time.sleep(0.02)
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 assert change_event.wait(timeout=2.0), "on_change should fire even without active-mic-lost hooks"
                 # The check method must be a no-op without the hooks.
@@ -884,10 +939,20 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                time.sleep(0.15)
+                # Poll until baseline is captured.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if change_event.is_set():
+                        break
+                    time.sleep(0.02)
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 assert change_event.wait(timeout=2.0)
-                time.sleep(0.2)
+                # Poll for the lost_event (should NOT fire).
+                deadline = time.monotonic() + 1.0
+                while time.monotonic() < deadline:
+                    if lost_event.is_set():
+                        break
+                    time.sleep(0.02)
                 assert not lost_event.is_set(), (
                     "on_active_mic_lost must NOT fire after set_active_mic_id(None) (recording stopped)"
                 )
@@ -920,13 +985,26 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                time.sleep(0.15)
+                # Poll until baseline is captured.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if change_event.is_set():
+                        break
+                    time.sleep(0.02)
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 # Wait for the on_change callback to fire (prereq).
                 assert change_event.wait(timeout=2.0)
                 # Give the watcher time to call _check_active_mic_lost
-                # and run the raising callback.
-                time.sleep(0.3)
+                # and run the raising callback. Poll for the warning log.
+                deadline = time.monotonic() + 2.0
+                while time.monotonic() < deadline:
+                    if any(
+                        "on_active_mic_lost callback raised" in r.message
+                        for r in caplog.records
+                        if r.levelno >= logging.WARNING
+                    ):
+                        break
+                    time.sleep(0.02)
             finally:
                 watcher.stop()
 

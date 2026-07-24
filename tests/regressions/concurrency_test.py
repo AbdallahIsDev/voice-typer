@@ -138,39 +138,90 @@ class TestConfigEditHoldsMutationLock:
     any file locking, creating a TOCTOU race with the app's atomic
     writes. Fix: hold ``_config_mutation_lock`` for the duration of
     the notepad session so IPC ``set_config`` cannot race.
+
+    Behavioral replacement for the former ``inspect.getsource`` test:
+    instead of pinning source structure, we drive
+    ``VoiceTyperApp._open_config_file`` on Linux (the platform this
+    test host runs on) with a fake blocking editor and verify a
+    concurrent acquirer of ``_config_mutation_lock`` blocks while the
+    editor is open and proceeds after it closes. This catches the same
+    regressions the source-string test did (lock removed, or lock
+    released before the editor exits / before the reload).
     """
 
-    def test_open_config_file_holds_config_mutation_lock(self):
-        # RW-8: KEEP — pins SEC-audit-011 fix (lock held for the
-        # duration of the Notepad editing session). A behavioral test
-        # would need to spawn two threads (one editing config in
-        # Notepad, one doing set_config IPC) and detect a race, which
-        # is non-deterministic; the source-string check catches
-        # removal of the lock or reordering of lock/Popen/reload.
+    def test_open_config_file_holds_config_mutation_lock(self, tmp_path, monkeypatch):
+        import threading
+        import time as _time
+        from unittest.mock import MagicMock
+
+        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
+        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: True)
+
         from voice_typer.server.app import VoiceTyperApp
 
-        src = inspect.getsource(VoiceTyperApp._open_config_file)
-        assert "_config_mutation_lock" in src, (
-            "SEC-audit-011: _open_config_file must hold _config_mutation_lock "
-            "for the duration of the notepad editing session so IPC set_config "
-            "cannot atomically replace config.json while Notepad is mid-edit."
+        app = VoiceTyperApp()
+        app.config.esc_cancel_enabled = False
+        app.config.voice_biometric_consent = True
+        app.models.transcriber = MagicMock()
+        app.models.transcriber.is_loaded = True
+        app.models._sync_registry_from_fields()
+
+        editor_opened = threading.Event()
+        editor_close = threading.Event()
+
+        def _fake_run(args, **kwargs):
+            editor_opened.set()
+            editor_close.wait(timeout=10.0)
+            return MagicMock(returncode=0)
+
+        import subprocess as _subprocess
+
+        monkeypatch.setattr(_subprocess, "run", _fake_run)
+
+        errors: list = []
+
+        def _open():
+            try:
+                app._open_config_file()
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        thread = threading.Thread(target=_open, daemon=True)
+        thread.start()
+
+        assert editor_opened.wait(timeout=5.0), "editor should have launched"
+
+        acquired = threading.Event()
+
+        def _acquire():
+            with app._config_mutation_lock:
+                acquired.set()
+
+        setter = threading.Thread(target=_acquire, daemon=True)
+        setter.start()
+
+        _time.sleep(0.15)
+        assert not acquired.is_set(), (
+            "SEC-audit-011: _open_config_file must hold "
+            "_config_mutation_lock for the duration of the editor session "
+            "so a concurrent IPC set_config cannot atomically replace "
+            "config.json while the editor is mid-edit."
         )
-        # The lock must be acquired BEFORE Popen and released AFTER reload.
-        # Anchor to the *assignment* form (``proc = subprocess.Popen(``)
-        # — the docstring prose also mentions ``subprocess.Popen([...])``,
-        # but only the real call site is preceded by ``proc = ``, so
-        # this skips the docstring mention that otherwise appears
-        # *before* the lock block and poisons the ordering check.
-        popen_idx = src.find("proc = subprocess.Popen(")
-        if popen_idx == -1:
-            # Defensive: fall back to the bracketed call form.
-            popen_idx = src.rfind("subprocess.Popen([")
-        lock_idx = src.find("with self._config_mutation_lock:")
-        reload_idx = src.find("type(self.config).load()")
-        assert popen_idx != -1 and lock_idx != -1 and reload_idx != -1
-        assert lock_idx < popen_idx < reload_idx, (
-            "SEC-audit-011: _config_mutation_lock must be acquired before Popen and held through the config reload."
+
+        editor_close.set()
+
+        assert acquired.wait(timeout=5.0), (
+            "after the editor closes, the blocked set_config call must proceed and acquire _config_mutation_lock."
         )
+        setter.join(timeout=2.0)
+        thread.join(timeout=5.0)
+        assert not thread.is_alive()
+        assert errors == [], f"_open_config_file raised: {errors}"
 
 
 class TestBackpressureIncrementsOnBufferOverflow:

@@ -163,6 +163,27 @@ class MockApp:
         return self._service
 
 
+def _teardown_app_subsystems(app):
+    """FT-2: close HistoryDB + shut down CrashRecovery owned by ``app``.
+
+    ``IPCServer.stop()`` tears down the TCP accept loop and worker pool
+    but does NOT close ``app.history_db`` (which owns a
+    ``HistoryDBWriter`` daemon thread) or ``app._crash_recovery`` (which
+    owns a ``crash-recovery-saver`` daemon thread). Without this teardown
+    each test leaks two daemon threads for the remainder of the pytest
+    session; on Windows the cumulative count trips a native limit and
+    crashes the process mid-suite (FT-2).
+    """
+    with contextlib.suppress(Exception):
+        hdb = getattr(app, "history_db", None)
+        if hdb is not None and hasattr(hdb, "close"):
+            hdb.close()
+    with contextlib.suppress(Exception):
+        cr = getattr(app, "_crash_recovery", None)
+        if cr is not None and hasattr(cr, "shutdown"):
+            cr.shutdown()
+
+
 @pytest.fixture
 def live_server(tmp_path, monkeypatch):
     """Start a real IPCServer on an ephemeral port.
@@ -218,6 +239,11 @@ def live_server(tmp_path, monkeypatch):
         if server._tcp_server_socket is None:
             break
         time.sleep(0.02)
+    # FT-2: close the HistoryDB writer thread and shut down the
+    # CrashRecovery saver thread so their daemon threads don't accumulate
+    # across the full pytest run (on Windows the accumulated threads trip
+    # a native limit and crash the process mid-suite).
+    _teardown_app_subsystems(app)
 
 
 @pytest.fixture
