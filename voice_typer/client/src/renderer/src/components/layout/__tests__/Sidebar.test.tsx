@@ -79,9 +79,9 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 		const activeButton = screen.getByText("Settings").closest("button");
 		expect(activeButton).toBeTruthy();
 		const cls = activeButton?.className ?? "";
-		// 2px inline-start accent bar using --accent (border-s = logical left in LTR).
+		// 2px inline-start accent bar via before:bg-accent pseudo-element.
 		expect(cls).toContain("border-s-2");
-		expect(cls).toContain("border-s-(--accent)");
+		expect(cls).toContain("before:bg-accent");
 		// Soft accent background (vs the old solid --bg).
 		expect(cls).toContain("bg-(--accent-soft)");
 		// Text color + weight bumped to primary/medium.

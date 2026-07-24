@@ -67,7 +67,10 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 		expect(bar).toBeInTheDocument();
 		expect(bar).toHaveAttribute("aria-valuemin", "0");
 		expect(bar).toHaveAttribute("aria-valuemax", "100");
-		expect(bar).toHaveAttribute("aria-valuenow", "42");
+		// NF-R15-17: aria-valuenow is throttled to the nearest 10% so
+		// screen readers don't broadcast a stream of percentage updates
+		// every frame. 42 → 40.
+		expect(bar).toHaveAttribute("aria-valuenow", "40");
 	});
 
 	it("aria-label is sourced from models.download.progressAria (matches en.json catalog value)", () => {
@@ -88,9 +91,12 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 		expect(bar).toHaveAttribute("aria-label", "SENTINEL_PROGRESS_ARIA");
 	});
 
-	it("rounds the aria-valuenow to the nearest integer", () => {
+	it("rounds the aria-valuenow to the nearest 10 (throttled for SR)", () => {
+		// NF-R15-17: aria-valuenow is throttled to the nearest 10% so
+		// screen readers don't broadcast a stream of percentage updates
+		// every frame. 42.7 → 40 (Math.round(42.7 / 10) * 10 === 40).
 		render(<DownloadProgressBar {...baseProps} progress={42.7} />);
 		const bar = screen.getByRole("progressbar");
-		expect(bar).toHaveAttribute("aria-valuenow", "43");
+		expect(bar).toHaveAttribute("aria-valuenow", "40");
 	});
 });

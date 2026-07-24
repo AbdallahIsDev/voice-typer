@@ -74,7 +74,11 @@ vi.mock("../state", () => ({
 // `app.getPath` which is mocked, but we want explicit control over the
 // tmp dir).
 import { _crashLogPaths, _installErrorHandlers } from "../bootstrap";
-import { DEFAULT_CRASH_LOG_MAX_BYTES, rotateIfNeeded } from "../logging";
+import {
+	_resetFileSizeCacheForTest,
+	DEFAULT_CRASH_LOG_MAX_BYTES,
+	rotateIfNeeded,
+} from "../logging";
 
 /**
  * Recursively remove a directory, ignoring "ENOENT" (already gone).
@@ -126,6 +130,11 @@ describe("rotateIfNeeded (CR-9)", () => {
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-rotate-test-"));
+		// XV-154: reset the file-size cache so prior tests' cached stat
+		// results don't prevent rotation (the cache keys by file path,
+		// but reusing the same tmpDir root could produce stale hits if
+		// the OS recycles inode-backed paths).
+		_resetFileSizeCacheForTest();
 	});
 
 	afterEach(() => {
@@ -178,7 +187,12 @@ describe("rotateIfNeeded (CR-9)", () => {
 		rotateIfNeeded(target);
 		expect(fs.existsSync(target)).toBe(true);
 		expect(fs.existsSync(`${target}.1`)).toBe(false);
-		// One byte over the cap → rotate.
+		// One byte over the cap → rotate. XV-154: reset the cache
+		// first — the prior rotateIfNeeded call cached the file size
+		// (1048576), and fs.appendFileSync doesn't update the cache,
+		// so the second call would see the stale cached size and skip
+		// rotation.
+		_resetFileSizeCacheForTest();
 		fs.appendFileSync(target, "y");
 		rotateIfNeeded(target);
 		expect(fs.existsSync(target)).toBe(false);

@@ -126,8 +126,11 @@ describe("Sidebar", () => {
 			/>,
 		);
 		// ThemeSwitch exposes its current mode via aria-label.
+		// en.json: theme.switchAriaLabel = "Current theme: {mode}. Click to switch to {next}."
+		// For themeMode="light", next is "dark", so the label is
+		// "Current theme: Light. Click to switch to Dark."
 		const themeButton = screen.getByLabelText(
-			"Current theme: Light. Click to switch.",
+			"Current theme: Light. Click to switch to Dark.",
 		);
 		expect(themeButton).toBeTruthy();
 		fireEvent.click(themeButton);

@@ -200,11 +200,21 @@ describe("tauri-bridge detection", () => {
 			event: { listen: vi.fn() },
 		};
 
+		// test-setup.ts installs a default no-op `window.bubble` stub
+		// so components that touch it at import time don't crash. Clear
+		// the pre-existing stubs so we can assert the bridge did NOT
+		// install its own namespaces (the assertion below would otherwise
+		// see the test-setup default and fail).
+		const w = window as unknown as WindowBridgeState;
+		delete w.python;
+		delete w.bubble;
+		delete w.window_;
+
 		await import("@/lib/tauri-bridge");
 
 		// No namespaces should have been installed by the bridge.
-		expect((window as unknown as WindowBridgeState).python).toBeUndefined();
-		expect((window as unknown as WindowBridgeState).bubble).toBeUndefined();
-		expect((window as unknown as WindowBridgeState).window_).toBeUndefined();
+		expect(w.python).toBeUndefined();
+		expect(w.bubble).toBeUndefined();
+		expect(w.window_).toBeUndefined();
 	});
 });

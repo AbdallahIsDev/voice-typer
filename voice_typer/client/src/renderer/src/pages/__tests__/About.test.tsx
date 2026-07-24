@@ -118,13 +118,20 @@ describe("formatRelativeTime", () => {
 		expect(formatRelativeTime(threeDaysAgo)).toBe("3 d ago");
 	});
 
-	it("returns the raw ISO string for timestamps older than 7 days", () => {
+	it("returns a localized medium-format date for timestamps older than 7 days", () => {
 		const tenDaysAgo = new Date(
 			Date.now() - 10 * 24 * 60 * 60_000,
 		).toISOString();
 		const result = formatRelativeTime(tenDaysAgo);
-		// Should fall back to the raw ISO string (not a relative format).
-		expect(result).toBe(tenDaysAgo);
+		// PVT-089: >7-day fallback now uses Intl.DateTimeFormat with
+		// dateStyle:"medium" (e.g. "Jul 14, 2026" in en) instead of the
+		// raw ISO 8601 string. Assert it's a non-empty localized date,
+		// NOT the raw ISO and NOT a relative format.
+		expect(result).not.toBe(tenDaysAgo);
+		expect(result.length).toBeGreaterThan(0);
+		// The medium-format date contains the year (4 digits) so the
+		// fallback is distinguishable from a relative "N d ago" string.
+		expect(result).toMatch(/\d{4}/);
 	});
 
 	it("returns the raw string for unparseable input", () => {

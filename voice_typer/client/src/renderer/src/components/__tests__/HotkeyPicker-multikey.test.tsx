@@ -22,8 +22,8 @@
  * window, not the button). All dispatches are wrapped in `act()` to
  * ensure React flushes state updates synchronously between events.
  */
-import { act, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HotkeyPicker } from "../hotkey/HotkeyPicker";
 
 interface DispatchOpts {
@@ -70,6 +70,10 @@ async function waitForError(): Promise<string> {
 }
 
 describe("HotkeyPicker — HOTKEY-MULTIKEY-001 multi-key capture", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
 	it("captures a single non-modifier key in single mode (Delete)", async () => {
 		const onChange = vi.fn();
 		render(

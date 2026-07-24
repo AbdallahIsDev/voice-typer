@@ -3,7 +3,7 @@
  *
  * The pre-fix component hardcoded the English SVG <title> text
  * "Background waveform" inside the decorative waveform SVG. After the
- * fix the title text comes from the `dashboard.statsShare.backgroundWaveformAria`
+ * fix the title text comes from the `stats.shareImage.backgroundWaveform`
  * i18n key, so non-English users get a localized tooltip when hovering
  * the waveform or reading it via AT.
  *
@@ -16,7 +16,7 @@
  *
  * The test verifies:
  *   1. The SVG <title> text matches the en.json catalog value
- *      `dashboard.statsShare.backgroundWaveformAria`.
+ *      `stats.shareImage.backgroundWaveform`.
  *   2. Mocking `t()` to return a sentinel makes the title flip to the
  *      sentinel — proving the title is NOT a hardcoded literal.
  */
@@ -35,7 +35,7 @@ vi.mock("@/i18n/i18n", async (importOriginal) => {
 		t: (key: string, params?: Record<string, string>) => {
 			if (
 				useSentinel &&
-				key === "dashboard.statsShare.backgroundWaveformAria"
+				key === "stats.shareImage.backgroundWaveform"
 			) {
 				return "SENTINEL_WAVEFORM_TITLE";
 			}
@@ -68,10 +68,10 @@ describe("StatsShareImage — A11Y-10 (i18n SVG title)", () => {
 		useSentinel = false;
 	});
 
-	it("renders an SVG <title> sourced from dashboard.statsShare.backgroundWaveformAria", () => {
+	it("renders an SVG <title> sourced from stats.shareImage.backgroundWaveform", () => {
 		render(<StatsShareImage stats={stats} />);
-		// en.json: dashboard.statsShare.backgroundWaveformAria = "Background waveform".
-		const expected = t("dashboard.statsShare.backgroundWaveformAria");
+		// en.json: stats.shareImage.backgroundWaveform = "Background waveform".
+		const expected = t("stats.shareImage.backgroundWaveform");
 		const titleEl = screen.getByText(expected);
 		expect(titleEl).toBeInTheDocument();
 		expect(titleEl.tagName.toLowerCase()).toBe("title");

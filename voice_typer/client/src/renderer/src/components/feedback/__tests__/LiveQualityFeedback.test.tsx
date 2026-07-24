@@ -128,11 +128,18 @@ describe("LiveQualityFeedback — A11Y-5 (aria-live + i18n)", () => {
 		// key. If the component used a hardcoded literal, the sentinel
 		// would NOT appear — the test would fail because getByText
 		// wouldn't find "SENTINEL:liveQuality.recording:...".
+		// The component renders ``t("microphoneTest.qualityFeedback.recording")``
+		// followed by the formatted time. When the sentinel mock is active,
+		// ``t()`` returns ``SENTINEL:<key>:<params>`` for EVERY key, so the
+		// rendered text is the sentinel for ``microphoneTest.qualityFeedback.recording``
+		// (with empty params since the template is a plain string, no
+		// interpolation). The time "00:30 / 01:00" is rendered as sibling
+		// text nodes, so we match by a regex that allows text between them.
 		useSentinel = true;
 		render(<LiveQualityFeedback {...baseProps} />);
 		expect(
 			screen.getByText(
-				'SENTINEL:liveQuality.recording:{"time":"00:30","total":"01:00"}',
+				"SENTINEL:microphoneTest.qualityFeedback.recording:{}",
 			),
 		).toBeInTheDocument();
 		// The old hardcoded literal "Recording..." must NOT be present.

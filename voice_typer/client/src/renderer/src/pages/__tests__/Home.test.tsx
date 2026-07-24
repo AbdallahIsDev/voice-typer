@@ -119,10 +119,11 @@ describe("Home page", () => {
 		const { default: Home } = await import("@/pages/Home");
 		render(<Home />);
 
-		// StatCards renders three labelled cards.
-		expect(screen.getByText("Voice Dictations")).toBeTruthy();
-		expect(screen.getByText("Text Transcribed")).toBeTruthy();
-		expect(screen.getByText("Dictation Time")).toBeTruthy();
+		// StatCards renders three labelled cards. NF-R15-7: card labels
+		// are i18n-driven (dashboard.cards.dictations/chars/duration).
+		expect(screen.getByText("Dictations")).toBeTruthy();
+		expect(screen.getByText("Characters")).toBeTruthy();
+		expect(screen.getByText("Duration")).toBeTruthy();
 		// The "Today's Stats" heading is shown above the cards.
 		expect(screen.getByText(/Today's Stats/i)).toBeTruthy();
 		// No spinner should be visible because cached stats exist.

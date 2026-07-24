@@ -338,9 +338,12 @@ describe('RW-1: dictation key HotkeyPicker uses mode="combo" with DICTATION_KEY_
 		expect(dictationPicker?.presets).toBeDefined();
 		expect(dictationPicker?.presets?.length).toBeGreaterThan(0);
 		const presetValues = (dictationPicker?.presets ?? []).map((p) => p.value);
-		// The four safe single-key presets from DICTATION_KEY_PRESETS.
+		// The safe single-key presets from DICTATION_KEY_PRESETS, derived
+		// from ``getSingleKeyPresets()`` (platform-aware). On Windows the
+		// list is ``<caps_lock>``, ``<alt>``, ``<ctrl>`` (no ``<shift>``
+		// — it would fire on every capital letter). On macOS an extra
+		// ``<fn>`` entry is appended. Assert the Windows baseline set.
 		expect(presetValues).toContain("<caps_lock>");
-		expect(presetValues).toContain("<shift>");
 		expect(presetValues).toContain("<ctrl>");
 		expect(presetValues).toContain("<alt>");
 	});

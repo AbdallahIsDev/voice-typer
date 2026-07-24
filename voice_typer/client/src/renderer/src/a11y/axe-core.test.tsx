@@ -446,18 +446,12 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 		await expectNoAxeViolations(container);
 	});
 
-	it.fails("Dashboard page (empty state): no axe violations", async () => {
-		// PVT-046: known violation — the Dashboard loading state
-		// uses `<div aria-label="Loading dashboard" aria-busy="true">`
-		// without a role attribute, triggering axe's
-		// `aria-prohibited-attr` rule (aria-label cannot be used
-		// on a div with no valid role).  The fix (add
-		// `role="progressbar"` or similar, OR drop aria-label and
-		// use a visible text label) is owned by agent 8
-		// (Dashboard.tsx is in agent 8's file scope).  Marked
-		// `it.fails` so the test exists as a regression spec
-		// without breaking validation; flip back to `it` once the
-		// aria-prohibited-attr fix lands.
+	it("Dashboard page (empty state): no axe violations", async () => {
+		// PVT-046: previously the Dashboard loading state used
+		// `<div aria-label="Loading dashboard" aria-busy="true">` without a
+		// role attribute, triggering axe's `aria-prohibited-attr` rule. The
+		// fix (add a valid role or drop aria-label) has landed, so the
+		// test now passes. Flip back from `it.fails` to `it`.
 		const DashboardPage = (await import("@/pages/Dashboard")).default;
 		const { container } = render(<DashboardPage />);
 		await expectNoAxeViolations(container);

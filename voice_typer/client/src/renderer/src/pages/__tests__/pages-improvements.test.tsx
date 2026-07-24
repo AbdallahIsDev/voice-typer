@@ -391,16 +391,21 @@ describe("CR-37: Vocabulary categoryLabels re-resolve on locale switch", () => {
 		// Static check: the module exports a function (CR-37 specifically
 		// converts a const to a function so the labels are re-resolved
 		// at every render). We verify by importing the module source
-		// and grepping for the function declaration.
+		// and grepping for the function declaration. CR-37 moved the
+		// category labels into vocabulary/lib/categories.ts.
 		const fs = await import("node:fs");
 		const src = fs.readFileSync(
-			"src/renderer/src/pages/Vocabulary.tsx",
+			"src/renderer/src/pages/vocabulary/lib/categories.ts",
 			"utf8",
 		);
 		expect(src).toContain("function getCategoryLabels()");
 		expect(src).not.toContain("const CATEGORY_LABELS");
 		// And the consumers call the function at render time:
-		expect(src).toContain("const categoryLabels = getCategoryLabels();");
+		const vocabSrc = fs.readFileSync(
+			"src/renderer/src/pages/Vocabulary.tsx",
+			"utf8",
+		);
+		expect(vocabSrc).toContain("const categoryLabels = getCategoryLabels();");
 	});
 });
 
@@ -645,7 +650,13 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 describe("R7-F12: Models.tsx — display_name fallback for variant heading", () => {
 	it("source uses `meta?.display_name ?? model.name` (no hardcoded strings)", async () => {
 		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/pages/Models.tsx", "utf8");
+		// R7-F12: the display_name fallback lives in LocalModelsPanel
+		// (extracted from the former Models.tsx monolith). Read the
+		// actual source file that renders the variant heading.
+		const src = fs.readFileSync(
+			"src/renderer/src/components/models/LocalModelsPanel.tsx",
+			"utf8",
+		);
 		const stripped = src
 			.replace(/\/\*[\s\S]*?\*\//g, "")
 			.replace(/\/\/.*$/gm, "");
@@ -657,7 +668,11 @@ describe("R7-F12: Models.tsx — display_name fallback for variant heading", () 
 
 	it("ModelMetadata interface includes display_name field", async () => {
 		const fs = await import("node:fs");
-		const src = fs.readFileSync("src/renderer/src/pages/Models.tsx", "utf8");
+		// The ModelMetadata interface lives in lib/utils/models.ts.
+		const src = fs.readFileSync(
+			"src/renderer/src/lib/utils/models.ts",
+			"utf8",
+		);
 		// Locate the ModelMetadata interface body and verify display_name is declared.
 		const idx = src.indexOf("interface ModelMetadata");
 		expect(idx).toBeGreaterThanOrEqual(0);
@@ -773,8 +788,11 @@ describe("R7-F18: Dashboard.tsx — dead setLoading removed", () => {
 describe("CR-57: Microphone.tsx — polling gated on visibility + active state", () => {
 	it("source checks document.visibilityState and the testRunning/micMonitoring refs inside the interval", async () => {
 		const fs = await import("node:fs");
+		// CR-57: the polling logic lives in useMicrophoneTest.ts
+		// (extracted from the former Microphone.tsx monolith). Read
+		// the actual source file that contains the interval closure.
 		const src = fs.readFileSync(
-			"src/renderer/src/pages/Microphone.tsx",
+			"src/renderer/src/pages/microphone/hooks/useMicrophoneTest.ts",
 			"utf8",
 		);
 		// The visibility check.
@@ -844,11 +862,21 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 	it("source wraps each activeTab === ... block in a div[role=tabpanel]", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync("src/renderer/src/pages/Settings.tsx", "utf8");
-		// Four tab panels — one per tab value.
+		// CR-19-F2: the tab panels are rendered via a renderTabPanel
+		// helper that wraps children in a div with role="tabpanel",
+		// id={`panel-${tab}`}, and aria-labelledby={`tab-${tab}`}.
+		// The literal per-tab ids (panel-appearance, panel-general,
+		// etc.) are produced at runtime by the template literal, so we
+		// assert on the template pattern + the role attribute instead.
+		expect(src).toContain('role="tabpanel"');
+		expect(src).toContain("id={`panel-${tab}`}");
+		expect(src).toContain("aria-labelledby={`tab-${tab}`}");
+		// Sanity: the renderTabPanel helper is called once per tab
+		// value (appearance, general, aiAudio, privacy).
 		for (const tabId of ["appearance", "general", "aiAudio", "privacy"]) {
-			expect(src).toContain(`role="tabpanel"`);
-			expect(src).toContain(`id="panel-${tabId}"`);
-			expect(src).toContain(`aria-labelledby="tab-${tabId}"`);
+			expect(src).toMatch(
+				new RegExp(`renderTabPanel\\(\\s*["']${tabId}["']`),
+			);
 		}
 	});
 

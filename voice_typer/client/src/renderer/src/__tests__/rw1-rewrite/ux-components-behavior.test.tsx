@@ -112,10 +112,11 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
 }
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
-const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
+const { mockCall, mockPythonEvent, mockNavigate, mockNavState } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
 	mockNavigate: vi.fn(),
+	mockNavState: { page: "home" as const },
 }));
 
 vi.mock("@/hooks/usePython", () => ({
@@ -124,7 +125,15 @@ vi.mock("@/hooks/usePython", () => ({
 }));
 
 vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({ navigate: mockNavigate }),
+	useNavigation: () => ({
+		navigate: mockNavigate,
+		currentPage: mockNavState.page,
+		replace: vi.fn(),
+		goBack: vi.fn(),
+		goForward: vi.fn(),
+		canGoBack: false,
+		canGoForward: false,
+	}),
 }));
 
 vi.mock("@hugeicons/react", () => ({
@@ -156,6 +165,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Analytics01Icon: make("Analytics01Icon"),
 		ArrowDown01Icon: make("ArrowDown01Icon"),
 		ArrowRight01Icon: make("ArrowRight01Icon"),
+		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
 		ArrowUp01Icon: make("ArrowUp01Icon"),
 		Book02Icon: make("Book02Icon"),
 		BookOpen02Icon: make("BookOpen02Icon"),
@@ -196,6 +206,14 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		ZapIcon: make("ZapIcon"),
 	};
 });
+
+// Stub the layout chrome + ErrorBoundary for the App tests below so
+// App's render doesn't pull in the real Sidebar / TitleBar /
+// ErrorBoundary (which have their own heavy transitive icon deps
+// beyond the mock above).  These stubs are registered via vi.doMock
+// (NOT hoisted) inside registerAppPageStubs() so they apply ONLY to
+// the App tests — the direct-mount tests (Sidebar, TitleBar) that
+// import the real components are unaffected.
 
 // sonner is imported transitively via useSnackbar → toast.  Stub it so
 // the test doesn't depend on sonner's portal/DOM rendering.
@@ -1110,8 +1128,10 @@ describe("About — RW-1 rewrite of loaded_via tests", () => {
 			expect(screen.getByText("Loaded Via")).toBeTruthy();
 		});
 
-		// The fallback is t("about.unknown") → "Unknown".
-		expect(screen.getByText("Unknown")).toBeTruthy();
+		// The fallback is t("about.unknown") → "—" (em-dash) per en.json.
+		// (about.unknown is "—", NOT "Unknown" — the "Unknown" string is
+		// used elsewhere, e.g. about.errorUnknown.)
+		expect(screen.getByText("—")).toBeTruthy();
 	});
 });
 
@@ -1237,14 +1257,17 @@ describe("Vocabulary — RW-1 rewrite of help-text + category-picker tests", () 
 
 		// All five human-readable category labels must be present as
 		// options.  These are the en.json values for the i18n keys
-		// the Python test asserted on.
+		// the Python test asserted on.  Use getAllByText because the
+		// same label may also appear as a category badge on an
+		// existing list row (the seeded "recieve" entry's badge
+		// renders "Misspellings" too).
 		await waitFor(() => {
-			expect(screen.getByText("Misspellings")).toBeTruthy();
+			expect(screen.getAllByText("Misspellings").length).toBeGreaterThanOrEqual(1);
 		});
-		expect(screen.getByText("Phrase Corrections")).toBeTruthy();
-		expect(screen.getByText("Technical Terms")).toBeTruthy();
-		expect(screen.getByText("Names")).toBeTruthy();
-		expect(screen.getByText("Products")).toBeTruthy();
+		expect(screen.getAllByText("Phrase Corrections").length).toBeGreaterThanOrEqual(1);
+		expect(screen.getAllByText("Technical Terms").length).toBeGreaterThanOrEqual(1);
+		expect(screen.getAllByText("Names").length).toBeGreaterThanOrEqual(1);
+		expect(screen.getAllByText("Products").length).toBeGreaterThanOrEqual(1);
 	});
 });
 
@@ -1333,8 +1356,13 @@ describe("Templates — RW-1 rewrite of help-text + variable-tooltip tests", () 
 		//   - "used_variables" in src
 		//   - '"templates.variablesTooltip"' in src
 		// Behavioral: a seeded template with used_variables=["{username}"]
-		// renders a row whose title attribute carries the i18n
-		// variablesTooltip text ("Variables: {username}").
+		// renders a row whose InfoTooltip carries the i18n
+		// variablesTooltip text ("Variables: {username}").  The
+		// InfoTooltip component (components/feedback/InfoTooltip.tsx)
+		// renders the text inside a Radix TooltipContent (portaled),
+		// which only mounts in the DOM when the trigger button is
+		// focused/hovered.  We focus the trigger (aria-label "More
+		// info") to open the tooltip, then assert the text appears.
 		const { default: TemplatesPage } = await import("@/pages/Templates");
 		render(<TemplatesPage />);
 
@@ -1343,14 +1371,20 @@ describe("Templates — RW-1 rewrite of help-text + variable-tooltip tests", () 
 			expect(screen.getByText("signoff")).toBeTruthy();
 		});
 
-		// The row (or a child of it) should carry a title attribute
-		// whose value matches the i18n template
-		// `templates.variablesTooltip` interpolated with the
+		// The InfoTooltip trigger button has aria-label "More info"
+		// (t("a11y.moreInfo")).  Focus it to open the Radix Tooltip.
+		const tooltipTrigger = screen.getByRole("button", { name: "More info" });
+		tooltipTrigger.focus();
+
+		// The tooltip content (portaled into document.body) now
+		// contains the variablesTooltip text interpolated with the
 		// used_variables list.  en.json value:
 		//   "Variables: {vars}"  →  "Variables: {username}"
-		const titled = screen.getAllByTitle(/Variables:/u);
-		expect(titled.length).toBeGreaterThanOrEqual(1);
-		expect(titled[0]?.getAttribute("title")).toContain("{username}");
+		await waitFor(() => {
+			const nodes = screen.getAllByText(/Variables:/u);
+			expect(nodes.length).toBeGreaterThanOrEqual(1);
+			expect(nodes[0]?.textContent).toContain("{username}");
+		});
 	});
 });
 
@@ -1489,6 +1523,22 @@ function dispatchKey(
  * page is currently mounted.
  */
 async function registerAppPageStubs() {
+	// Stub the layout chrome + ErrorBoundary so App's render doesn't
+	// pull in the real Sidebar / TitleBar / ErrorBoundary (which have
+	// their own heavy transitive icon deps).  These doMock calls are
+	// NOT hoisted, so they only affect subsequent dynamic imports —
+	// the direct-mount Sidebar/TitleBar tests above are unaffected.
+	vi.doMock("@/components/layout/Sidebar", () => ({
+		Sidebar: () => <nav data-testid="sidebar" />,
+	}));
+	vi.doMock("@/components/layout/TitleBar", () => ({
+		TitleBar: () => <div data-testid="titlebar" />,
+	}));
+	vi.doMock("@/components/feedback/ErrorBoundary", () => ({
+		ErrorBoundary: ({ children }: { children: React.ReactNode }) => (
+			<>{children}</>
+		),
+	}));
 	vi.doMock("@/pages/Home", () => ({
 		default: () => <div data-testid="home-page">Home</div>,
 	}));
@@ -1556,20 +1606,16 @@ describe("App routing + chrome — RW-1 rewrite of routing + ErrorBoundary tests
 		//
 		// Python invariants: About.tsx has `export default`, App.tsx
 		// has `case 'about'` AND `AboutPage`.
-		// Behavioral: navigate to "about" via the Sidebar, assert the
-		// About page test-id mounts.
+		// Behavioral: set currentPage to "about" via the navigation
+		// mock, assert the About page test-id mounts.  (The Sidebar
+		// is stubbed in the App tests so we can't click a real nav
+		// button — instead we drive the mock directly, which is what
+		// the Sidebar would do internally.)
 		await registerAppPageStubs();
+		mockNavState.page = "about";
 		vi.resetModules();
 		const { default: App } = await import("@/App");
 		render(<App />);
-
-		await waitFor(() => {
-			expect(screen.getByTestId("home-page")).toBeTruthy();
-		});
-
-		// Click the "About" nav button in the real Sidebar.
-		const aboutBtn = screen.getByRole("button", { name: "About" });
-		fireEvent.click(aboutBtn);
 
 		await waitFor(() => {
 			expect(screen.getByTestId("about-page")).toBeTruthy();
