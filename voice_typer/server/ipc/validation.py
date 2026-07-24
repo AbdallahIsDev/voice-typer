@@ -78,6 +78,17 @@ ad-hoc:
 # use the namespaced form. The renderer must accept both forms (treat
 # the legacy form as an alias). The contract test in
 # ``tests/test_error_codes_registry.py`` is the regression guard.
+#
+# DE-36 (2026-10): the validation helper was migrated to emit the
+# namespaced form (client.invalid_payload / client.invalid_field /
+# client.missing_field) as the primary code field. The legacy bare
+# form is preserved in a sibling legacy_code field on the same error
+# envelope for one release cycle so the renderer (and any tests still
+# asserting the old form) can switch to the namespaced form without a
+# hard cutover. The three literals listed above are STILL emitted (as
+# legacy_code values), so the contract test's LEGACY_ALIASES registry
+# remains accurate. Drop the legacy_code field once the renderer
+# migrates.
 ERROR_CODES: frozenset[str] = frozenset(
     {
         # Client-originated errors (4xx analog).
@@ -118,8 +129,8 @@ def _validate_dict_payload(data, schema):
         - ``default``: default value when the field is absent.  Only
           valid when ``required=False``.
         - ``max_value_len`` (int, optional): if the value is a string
-          longer than N characters, return an ``invalid_field`` error.
-          R4-F5: replaces the ad-hoc per-value length loops in
+          longer than N characters, return an ``client.invalid_field``
+          error. R4-F5: replaces the ad-hoc per-value length loops in
           ``save_vocabulary`` and ``show_electron_notification``.
         - ``clamp_range`` (tuple ``(lo, hi)``, optional): if the
           value is a number, coerce it to ``max(lo, min(value, hi))``
@@ -128,7 +139,7 @@ def _validate_dict_payload(data, schema):
           ``show_electron_notification``.
         - ``max_payload_bytes`` (int, optional): if the WHOLE
           ``data`` dict serializes to more than N bytes, return an
-          ``invalid_payload`` error.  R4-F5: replaces the inline
+          ``client.invalid_payload`` error. R4-F5: replaces the inline
           1 MB cap in ``save_vocabulary``.  Note: this rule is keyed
           off any field but applies to the WHOLE payload — it's
           checked ONCE before the per-field loop, so it should be
@@ -146,7 +157,15 @@ def _validate_dict_payload(data, schema):
         return None, {
             "type": "error",
             "data": {
-                "code": "invalid_payload",
+                # DE-36: emit the namespaced ``client.invalid_payload``
+                # as the primary ``code`` (per G4-M-22). The legacy
+                # bare ``invalid_payload`` is preserved in
+                # ``legacy_code`` for one release cycle so the renderer
+                # (and any tests still asserting the old form) can
+                # switch to the namespaced form without a hard cutover.
+                # Drop ``legacy_code`` once the renderer migrates.
+                "code": "client.invalid_payload",
+                "legacy_code": "invalid_payload",
                 "message": "data must be an object",
             },
         }
@@ -167,7 +186,10 @@ def _validate_dict_payload(data, schema):
                 return None, {
                     "type": "error",
                     "data": {
-                        "code": "invalid_payload",
+                        # DE-36: namespaced form (primary) + legacy
+                        # alias (one-release-cycle compat).
+                        "code": "client.invalid_payload",
+                        "legacy_code": "invalid_payload",
                         "message": (f"payload too large ({payload_size} bytes; max {max_bytes})"),
                     },
                 }
@@ -195,7 +217,10 @@ def _validate_dict_payload(data, schema):
                 return None, {
                     "type": "error",
                     "data": {
-                        "code": "invalid_field",
+                        # DE-36: namespaced form (primary) + legacy
+                        # alias (one-release-cycle compat).
+                        "code": "client.invalid_field",
+                        "legacy_code": "invalid_field",
                         "field": field_name,
                         "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
                     },
@@ -208,7 +233,10 @@ def _validate_dict_payload(data, schema):
                 return None, {
                     "type": "error",
                     "data": {
-                        "code": "invalid_field",
+                        # DE-36: namespaced form (primary) + legacy
+                        # alias (one-release-cycle compat).
+                        "code": "client.invalid_field",
+                        "legacy_code": "invalid_field",
                         "field": field_name,
                         "message": (f"'{field_name}' value too long ({len(value)} > {max_value_len})"),
                     },
@@ -225,7 +253,10 @@ def _validate_dict_payload(data, schema):
             return None, {
                 "type": "error",
                 "data": {
-                    "code": "missing_field",
+                    # DE-36: namespaced form (primary) + legacy alias
+                    # (one-release-cycle compat).
+                    "code": "client.missing_field",
+                    "legacy_code": "missing_field",
                     "field": field_name,
                     "message": f"Missing required field '{field_name}'",
                 },

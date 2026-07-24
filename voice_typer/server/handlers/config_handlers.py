@@ -13,6 +13,13 @@ from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import _error_response
 
+# DE-37: module-level "warned once" flag for the missing
+# ``_config_mutation_lock`` case. The handler runs on every ``set_config``
+# IPC call, but the absence of the lock only happens on test fakes (real
+# AppProtocol always provides it). A WARNING per process is enough to
+# surface the misconfiguration without spamming the log on every save.
+_CONFIG_LOCK_MISSING_WARNED: bool = False
+
 
 class ConfigHandlersMixin(HandlerBase):
     """Mixin: config-related IPC handlers (get_config / get_defaults / set_config).
@@ -32,6 +39,19 @@ class ConfigHandlersMixin(HandlerBase):
     G4-M-20: surface ``change_model`` / ``set_active_backend`` failures
     via a partial-success envelope in the response data
     (``data.model_errors``) instead of swallowing them.
+
+    DE-6: when ``change_model`` / ``set_active_backend`` raises, the
+    failed key is dropped from the dict passed to ``apply_config`` AND
+    from the ``applied`` list echoed back to the renderer — otherwise
+    the failed model/backend value would be persisted to disk via
+    ``apply_config`` AND reported as "applied" in the partial-success
+    envelope, contradicting the ``model_errors`` entry. The dropped
+    key is also excluded from the ``config_changed`` event so the
+    renderer doesn't apply the stale value to its local config mirror.
+
+    DE-37: when ``self.app._config_mutation_lock`` is missing (test
+    fakes / misconfigured host), the handler logs a WARNING once per
+    process instead of silently falling back to lock-free execution.
     """
 
     def _handle_get_config(self, data, resp) -> dict | None:
@@ -128,6 +148,15 @@ class ConfigHandlersMixin(HandlerBase):
             # failed. Errors are logged at ERROR with ``exc_info=True``.
             model_errors: list[dict] = []
             applied: list[str] = []
+            # DE-6: track which keys failed their model/backend swap so
+            # we can DROP them from the dict passed to ``apply_config``
+            # (otherwise the failed model value gets persisted to disk)
+            # and from the ``applied`` list echoed to the renderer
+            # (otherwise the partial-success envelope lies — it claims
+            # ``model_size`` was applied while ``model_errors`` says it
+            # failed). Also excluded from the ``config_changed`` event
+            # below so the renderer doesn't mirror the stale value.
+            failed_keys: set[str] = set()
             # Defensive lock acquisition: read via a local ref so the
             # protocol-drift introspection test (which scans for
             # ``self.app.X`` attribute access) doesn't flag this as a
@@ -139,6 +168,21 @@ class ConfigHandlersMixin(HandlerBase):
             # and migrate this call site to use it.
             app_ref = self.app
             config_lock = getattr(app_ref, "_config_mutation_lock", None)
+            # DE-37: surface the missing-lock fallback at WARNING once
+            # per process instead of silently running lock-free. The
+            # fallback path is preserved (test fakes / misconfigured
+            # hosts still work), but operators get a one-shot signal
+            # that the concurrency guard is inactive — without that,
+            # ``set_config`` races with ``change_model`` /
+            # ``_open_config_file`` silently.
+            global _CONFIG_LOCK_MISSING_WARNED
+            if config_lock is None and not _CONFIG_LOCK_MISSING_WARNED:
+                _CONFIG_LOCK_MISSING_WARNED = True
+                log.warning(
+                    "[IPC] set_config: app has no _config_mutation_lock — "
+                    "running lock-free; concurrent set_config / change_model "
+                    "may interleave (this warning fires once per process)"
+                )
             with contextlib.ExitStack() as stack:
                 if config_lock is not None:
                     stack.enter_context(config_lock)
@@ -175,6 +219,11 @@ class ConfigHandlersMixin(HandlerBase):
                                 "value": validated["model_size"],
                             }
                         )
+                        # DE-6: drop the failed key from the persist set
+                        # so apply_config doesn't write the broken value
+                        # to disk, and so the ``applied`` list below
+                        # doesn't claim it succeeded.
+                        failed_keys.add("model_size")
                 if "asr_backend" in validated and validated["asr_backend"] != getattr(
                     self.app.config, "asr_backend", None
                 ):
@@ -199,6 +248,8 @@ class ConfigHandlersMixin(HandlerBase):
                                 "value": validated["asr_backend"],
                             }
                         )
+                        # DE-6: same rationale as the model_size branch.
+                        failed_keys.add("asr_backend")
                 # Apply only allowlisted, validated values.
                 # RACE-011 + AUDIO-PRESET-SAVE-FIX + ARCH-043:
                 # ``service.apply_config`` holds the app's config-mutation
@@ -215,8 +266,22 @@ class ConfigHandlersMixin(HandlerBase):
                 # ensures the three operations (change_model,
                 # set_active_backend, apply_config) see a consistent
                 # config snapshot across the entire handler body.
-                self.service.apply_config(validated)
-                applied.extend(k for k in validated if k not in applied)
+                #
+                # DE-6: build ``to_persist`` excluding failed keys so a
+                # ``change_model`` / ``set_active_backend`` failure
+                # doesn't get persisted to disk via ``apply_config``.
+                # The previous code passed ``validated`` verbatim, which
+                # meant a failed model swap still wrote the new
+                # ``model_size`` to config.json — leaving the on-disk
+                # config pointing at a model the running engine had
+                # refused to load.
+                to_persist = {k: v for k, v in validated.items() if k not in failed_keys}
+                self.service.apply_config(to_persist)
+                # DE-6: build the ``applied`` echo list from
+                # ``to_persist`` (not ``validated``) so the
+                # partial-success envelope doesn't claim a failed key
+                # was applied.
+                applied.extend(k for k in to_persist if k not in applied)
             # ARCH-007: also invalidate the tray models submenu's
             # HF download cache so the next right-click reflects the
             # current model download/active state immediately (rather
@@ -238,11 +303,17 @@ class ConfigHandlersMixin(HandlerBase):
             # immediately instead of waiting for the next mount.
             # The event carries the validated updates so the
             # renderer doesn't need an extra get_config round-trip.
+            #
+            # DE-6: publish ``to_persist`` (not ``validated``) so the
+            # renderer doesn't mirror a failed model/backend value into
+            # its local config state — that would leave the renderer's
+            # UI showing e.g. "model: medium" while the running engine
+            # is still on "small" because ``change_model`` raised.
             try:
                 event_bus.publish(
                     {
                         "type": "config_changed",
-                        "data": validated,
+                        "data": to_persist,
                     }
                 )
             except Exception:

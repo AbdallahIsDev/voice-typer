@@ -8,7 +8,8 @@ access ``self.app`` / ``self.service`` as before.
 from typing import Any
 
 from voice_typer.server.handlers._base import HandlerBase
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.handlers._log import log
+from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
 
 
 class OnboardingHandlersMixin(HandlerBase):
@@ -38,6 +39,30 @@ class OnboardingHandlersMixin(HandlerBase):
     below; a future refactor should switch the service to raising
     exceptions on failure (preferred per PVT-G5-095) so the catch-all
     ``except Exception`` envelope covers the failure path uniformly.
+
+    DE-40: when the service returns an ``{"error": ...}`` dict, the
+    handler additionally logs a WARNING with the command name and the
+    error string. Previously the failure surfaced only via the IPC
+    response envelope (``resp["type"] = "error"``) — server-side logs
+    were silent, so an operator investigating a hung wizard had no
+    breadcrumb tying the renderer's error toast back to the service
+    call that produced it.
+
+    DE-39: ``_handle_onboarding_start`` queries
+    :meth:`service.onboarding_is_first_run` first and refuses to
+    re-run the wizard after completion unless the caller passes
+    ``{"force": true}`` in the data payload. This prevents a stale
+    renderer (e.g. after a config reset) from re-launching the wizard
+    over an already-completed onboarding state and surprising the user
+    with a 6-step flow they thought was done.
+
+    DE-41: ``_handle_onboarding_start``'s ``mark_started()`` failure
+    is logged at WARNING with ``exc_info=True`` instead of being
+    swallowed by ``except Exception: pass``. PVT-006 rationale: a
+    missing ``.onboarding_started`` marker lets ``startup_sequence``'s
+    auto-heal clobber an in-progress wizard on next restart — that's
+    a real correctness risk, not "non-critical" as the prior comment
+    claimed.
     """
 
     # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
@@ -69,10 +94,38 @@ class OnboardingHandlersMixin(HandlerBase):
         ``startup_sequence.py``'s auto-heal logic can distinguish a
         genuine in-progress first-run wizard from a stale state. See
         :meth:`OnboardingController.mark_started` for the full rationale.
-        The marker write is best-effort — if it fails, the worst case
-        is the pre-fix auto-heal behavior (current production behavior).
+
+        DE-39: before delegating to the service, query
+        :meth:`service.onboarding_is_first_run` and refuse to re-run
+        the wizard after completion unless the caller passes
+        ``{"force": true}`` in the data payload. Without this guard,
+        a stale renderer (or any caller that forgets the
+        ``onboarding_reset`` step) can re-launch the 6-step wizard
+        over an already-completed onboarding state.
+
+        DE-41: the ``mark_started()`` marker write is logged at WARNING
+        with ``exc_info=True`` on failure (was silently swallowed).
+        PVT-006 rationale: a missing marker lets ``startup_sequence``'s
+        auto-heal clobber an in-progress wizard on next restart —
+        "non-critical" was wrong; this is a real correctness risk.
         """
         try:
+            # DE-39: re-run guard. ``data`` may be a non-dict (e.g. None
+            # from a renderer that sends no payload) — coerce safely
+            # before reading ``force``.
+            data_dict = data if isinstance(data, dict) else {}
+            force = bool(data_dict.get("force", False))
+            first_run_result = self.service.onboarding_is_first_run()
+            is_first_run = bool(first_run_result.get("is_first_run", True))
+            if not is_first_run and not force:
+                log.warning(
+                    "[IPC] onboarding_start: rejected — onboarding already complete; pass {force: true} to re-run"
+                )
+                return _error_response(
+                    resp,
+                    "Onboarding already complete; pass {force: true} to re-run",
+                    code="onboarding_already_complete",
+                )
             result = self.service.onboarding_start()
             # PVT-006: mark the wizard as started so auto-heal doesn't
             # clobber an in-progress first-run flow on restart.
@@ -81,7 +134,14 @@ class OnboardingHandlersMixin(HandlerBase):
 
                 OnboardingController().mark_started()
             except Exception:
-                pass  # Best-effort — marker creation is non-critical.
+                # DE-41: was ``pass``. Promoted to WARNING + exc_info so
+                # operators see when the auto-heal gate is left
+                # unprotected — a missing marker is the precondition for
+                # the auto-heal-clobbers-in-progress-wizard bug (PVT-006).
+                log.warning(
+                    "[IPC] onboarding_start: mark_started failed — auto-heal may clobber in-progress onboarding",
+                    exc_info=True,
+                )
             resp["type"] = "onboarding_step"
             resp["data"] = result
         except Exception as exc:
@@ -151,6 +211,15 @@ class OnboardingHandlersMixin(HandlerBase):
             # not found) and ``{...}`` (no ``"error"`` key) on success.
             # The handler delegates the ack-vs-error decision to that
             # key. See the class docstring for the full contract.
+            #
+            # DE-40: log the service-returned error at WARNING so the
+            # failure leaves a server-side breadcrumb (the IPC envelope
+            # alone is invisible to operators reading voice-typer.log).
+            if "error" in result:
+                log.warning(
+                    "[IPC] onboarding_set_microphone: service returned error: %s",
+                    result.get("error"),
+                )
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -182,6 +251,14 @@ class OnboardingHandlersMixin(HandlerBase):
             # returns ``{"error": "<message>"}`` on failure (e.g. hotkey
             # reserved by the OS) and ``{...}`` (no ``"error"`` key) on
             # success. See the class docstring for the full contract.
+            #
+            # DE-40: log the service-returned error at WARNING so the
+            # failure leaves a server-side breadcrumb.
+            if "error" in result:
+                log.warning(
+                    "[IPC] onboarding_set_hotkey: service returned error: %s",
+                    result.get("error"),
+                )
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -206,6 +283,14 @@ class OnboardingHandlersMixin(HandlerBase):
             # returns ``{"error": "<message>"}`` on failure (e.g. model
             # not available) and ``{...}`` (no ``"error"`` key) on
             # success. See the class docstring for the full contract.
+            #
+            # DE-40: log the service-returned error at WARNING so the
+            # failure leaves a server-side breadcrumb.
+            if "error" in result:
+                log.warning(
+                    "[IPC] onboarding_set_model: service returned error: %s",
+                    result.get("error"),
+                )
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -221,6 +306,14 @@ class OnboardingHandlersMixin(HandlerBase):
             # ``{"error": "<message>"}`` on failure and ``{...}`` (no
             # ``"error"`` key) on success. See the class docstring for
             # the full contract.
+            #
+            # DE-40: log the service-returned error at WARNING so the
+            # failure leaves a server-side breadcrumb.
+            if "error" in result:
+                log.warning(
+                    "[IPC] onboarding_skip: service returned error: %s",
+                    result.get("error"),
+                )
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:
@@ -236,6 +329,18 @@ class OnboardingHandlersMixin(HandlerBase):
             # ``{"error": "<message>"}`` on failure (e.g. config write
             # error) and ``{...}`` (no ``"error"`` key) on success. See
             # the class docstring for the full contract.
+            #
+            # DE-40: log the service-returned error at WARNING so the
+            # failure leaves a server-side breadcrumb. ``onboarding_apply``
+            # is the most consequential of the five (it writes
+            # config.json + re-registers the hotkey); a silent failure
+            # here is the worst-case "wizard says done but nothing
+            # actually saved" bug, so the breadcrumb is essential.
+            if "error" in result:
+                log.warning(
+                    "[IPC] onboarding_apply: service returned error: %s",
+                    result.get("error"),
+                )
             resp["type"] = "ack" if "error" not in result else "error"
             resp["data"] = result
         except Exception as exc:

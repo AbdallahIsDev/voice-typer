@@ -166,6 +166,10 @@ class _RateLimiter:
         # (each call counts as 1 unit).
         self._burst_timestamps: deque[tuple[float, int]] = deque()
         self._sustained_timestamps: deque[tuple[float, int]] = deque()
+        # ER-31: running totals maintained incrementally on append/popleft
+        # so allow() is O(1) per call instead of O(N) sum() over the deque.
+        self._burst_total: int = 0
+        self._sustained_total: int = 0
         self._rejected: int = 0
         self._lock = threading.Lock()
 
@@ -206,6 +210,13 @@ class _RateLimiter:
         (because each entry contributes 1 to the total). With
         ``cost == 50`` (e.g. ``download_model``), the limit is
         reached after 4 calls instead of 200.
+
+        ER-31: the running totals (``_burst_total`` /
+        ``_sustained_total``) are maintained incrementally on
+        append/popleft, so this method is O(1) per call instead of
+        O(N) ``sum()`` over the deque. The totals are mutated only
+        under ``self._lock``, so the incremental bookkeeping stays
+        consistent with the deque contents.
         """
         ts = now if now is not None else time.monotonic()
         cost = COMMAND_COSTS.get(command, DEFAULT_COST)
@@ -217,17 +228,20 @@ class _RateLimiter:
         burst_cutoff = ts - self._burst_window
         sustained_cutoff = ts - self._window
         with self._lock:
-            # Evict expired timestamps from both deques.
+            # Evict expired timestamps from both deques. ER-31: maintain
+            # running totals incrementally so allow() is O(1) per call
+            # instead of O(N) sum() over the deque.
             while self._burst_timestamps and self._burst_timestamps[0][0] < burst_cutoff:
-                self._burst_timestamps.popleft()
+                _old_ts, _old_cost = self._burst_timestamps.popleft()
+                self._burst_total -= _old_cost
             while self._sustained_timestamps and self._sustained_timestamps[0][0] < sustained_cutoff:
-                self._sustained_timestamps.popleft()
-            # G4-M-09: sum the per-entry costs (not just the entry
-            # count) so an expensive command consumes more of the
-            # budget per call. ``cost == 1`` reduces this to the
-            # pre-G4-M-09 count-based check.
-            burst_total = sum(c for _, c in self._burst_timestamps)
-            sustained_total = sum(c for _, c in self._sustained_timestamps)
+                _old_ts, _old_cost = self._sustained_timestamps.popleft()
+                self._sustained_total -= _old_cost
+            # G4-M-09: the cost-weighted check uses the running totals
+            # (ER-31) instead of sum() on every call. ``cost == 1``
+            # reduces this to the pre-G4-M-09 count-based check.
+            burst_total = self._burst_total
+            sustained_total = self._sustained_total
             # IPC-4: burst check (1s window, hard per-second cap).
             if burst_total + cost > self._burst:
                 self._rejected += 1
@@ -242,6 +256,9 @@ class _RateLimiter:
                 return False
             self._burst_timestamps.append((ts, cost))
             self._sustained_timestamps.append((ts, cost))
+            # ER-31: increment running totals on append.
+            self._burst_total += cost
+            self._sustained_total += cost
             return True
 
     @property
