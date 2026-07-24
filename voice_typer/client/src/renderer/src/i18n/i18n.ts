@@ -213,50 +213,46 @@ const _localeLoadPromises: Map<Locale, Promise<void>> = new Map();
  *          immediately for English / already-loaded locales).
  */
 export function ensureLocaleLoaded(locale: Locale): Promise<void> {
-        // English is always loaded synchronously at module init.
-        if (locale === "en") return Promise.resolve();
-        // Already loaded — nothing to do.
-        if (_translations.has(locale)) return Promise.resolve();
-        // Already in-flight — return the pending promise so callers can
-        // await it without spawning a duplicate request.
-        const existing = _localeLoadPromises.get(locale);
-        if (existing) return existing;
+	// English is always loaded synchronously at module init.
+	if (locale === "en") return Promise.resolve();
+	// Already loaded — nothing to do.
+	if (_translations.has(locale)) return Promise.resolve();
+	// Already in-flight — return the pending promise so callers can
+	// await it without spawning a duplicate request.
+	const existing = _localeLoadPromises.get(locale);
+	if (existing) return existing;
 
-        _localeLoadInitiated.add(locale);
-        const promise = (async () => {
-                try {
-                        const mod = await import(
-                                /* @vite-ignore */ `./translations/${locale}.json`
-                        );
-                        const data = (mod as { default: TranslationDict }).default;
-                        _translations.set(locale, flatten(data));
-                        // Notify subscribers (the ``useT`` hook) so every
-                        // subscribed component re-renders with the now-available
-                        // locale strings. We use the same path as ``setLocale()``.
-                        for (const cb of _localeSubscribers) {
-                                try {
-                                        cb();
-                                } catch (e) {
-                                        console.warn(
-                                                "[i18n] locale-ready subscriber callback failed:",
-                                                e,
-                                        );
-                                }
-                        }
-                } catch (e) {
-                        // Dynamic import failed (corrupt chunk, network error,
-                        // unsupported locale at runtime). Leave English as the
-                        // active fallback — ``t()`` already falls back to English
-                        // when the current locale's map is missing.
-                        console.warn(`[i18n] dynamic import for "${locale}" failed:`, e);
-                } finally {
-                        _localeLoadPromises.delete(locale);
-                }
-        })();
-        _localeLoadPromises.set(locale, promise);
-        return promise;
+	_localeLoadInitiated.add(locale);
+	const promise = (async () => {
+		try {
+			const mod = await import(
+				/* @vite-ignore */ `./translations/${locale}.json`
+			);
+			const data = (mod as { default: TranslationDict }).default;
+			_translations.set(locale, flatten(data));
+			// Notify subscribers (the ``useT`` hook) so every
+			// subscribed component re-renders with the now-available
+			// locale strings. We use the same path as ``setLocale()``.
+			for (const cb of _localeSubscribers) {
+				try {
+					cb();
+				} catch (e) {
+					console.warn("[i18n] locale-ready subscriber callback failed:", e);
+				}
+			}
+		} catch (e) {
+			// Dynamic import failed (corrupt chunk, network error,
+			// unsupported locale at runtime). Leave English as the
+			// active fallback — ``t()`` already falls back to English
+			// when the current locale's map is missing.
+			console.warn(`[i18n] dynamic import for "${locale}" failed:`, e);
+		} finally {
+			_localeLoadPromises.delete(locale);
+		}
+	})();
+	_localeLoadPromises.set(locale, promise);
+	return promise;
 }
-
 
 /**
  * Register translations for a locale.
@@ -455,12 +451,12 @@ const _interpCache = new Map<string, RegExp>();
  * passed to ``String.prototype.replace`` for substitution.
  */
 function interpRegex(key: string): RegExp {
-        let r = _interpCache.get(key);
-        if (!r) {
-                r = new RegExp(`\\{${key}\\}`, "g");
-                _interpCache.set(key, r);
-        }
-        return r;
+	let r = _interpCache.get(key);
+	if (!r) {
+		r = new RegExp(`\\{${key}\\}`, "g");
+		_interpCache.set(key, r);
+	}
+	return r;
 }
 
 // Cache Intl.PluralRules instances per locale — constructing one is
@@ -572,5 +568,5 @@ export function tChoice(
 // are notified and the UI repaints with the user's selected locale.
 // The fire-and-forget pattern means module load stays synchronous.
 if (_currentLocale !== "en") {
-        void ensureLocaleLoaded(_currentLocale);
+	void ensureLocaleLoaded(_currentLocale);
 }

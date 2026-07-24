@@ -932,7 +932,13 @@
 			"reRunWizard": "إعادة تشغيل معالج الإعداد",
 			"reRunWizardAria": "إعادة تشغيل معالج الإعداد",
 			"reRunWizardHint": "إعادة تشغيل معالج الإعداد لإعادة تكوين الميكروفون والاختصار والنموذج",
-			"reRunWizardToast": "تم إعادة تمكين معالج الإعداد — جارٍ التنقل إليه الآن"
+			"reRunWizardToast": "تم إعادة تمكين معالج الإعداد — جارٍ التنقل إليه الآن",
+			"exportDiagnosticBundle": "Export Diagnostic Bundle",
+			"exportDiagnosticBundleAria": "Export diagnostic bundle",
+			"exportDiagnosticBundleHint": "Save a zip of logs, config, and system info to attach to a bug report",
+			"diagnosticBundleExported": "Diagnostic bundle exported successfully",
+			"diagnosticBundleExportedWithPath": "Diagnostic bundle saved to: {path}",
+			"diagnosticBundleExportFailed": "Failed to export diagnostic bundle"
 		},
 		"fastStartup": "بدء سريع (تشغيل مسبق)",
 		"fastStartupDescription": "تسخين ذاكرة التخزين المؤقت لنظام الملفات عند بدء التشغيل بحيث يتم تحميل نموذج الكلام في ثوانٍ بدلاً من 30+ ثانية. قم بتعطيله إذا كنت بحاجة إلى مساحة القرص/الذاكرة لتطبيقات أخرى. يمكنك التسخين عند الطلب من صفحة حول.",
@@ -1580,5 +1586,15 @@
 			"secondShort": "s",
 			"minuteShort": "m"
 		}
+	},
+	"errors": {
+		"network": "Network connection issue. Check your internet connection and try again.",
+		"timeout": "The request timed out. Please try again in a moment.",
+		"storage": "Storage error. Check that you have enough disk space and the right permissions.",
+		"render": "The app hit a rendering error. Try reloading the page.",
+		"unknown": "The app encountered an unexpected error. Your data is safe.",
+		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
+		"rateLimited": "Too many requests. Please wait a moment and try again.",
+		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
 	}
 }

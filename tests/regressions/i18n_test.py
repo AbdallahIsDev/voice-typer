@@ -92,11 +92,14 @@ class TestSpanishTranslationComplete:
             / "i18n.ts"
         )
         src = i18n_path.read_text(encoding="utf-8")
-        assert 'import es from "./translations/es.json"' in src, "UX-015: i18n.ts must import Spanish translations"
-        assert '"en"' in src or '"es"' in src or '"en", "es"' in src or '"en","es"' in src, (
-            "UX-015: SUPPORTED_LOCALES must include 'es'"
+        # ER-65: non-English locales are now dynamically imported via
+        # ensureLocaleLoaded() rather than static `import es from ...`.
+        # Verify "es" is listed in SUPPORTED_LOCALES and that the dynamic
+        # import mechanism (ensureLocaleLoaded) exists.
+        assert '"es"' in src, "UX-015: SUPPORTED_LOCALES must include 'es'"
+        assert "ensureLocaleLoaded" in src, (
+            "UX-015: i18n.ts must define ensureLocaleLoaded for dynamic locale loading"
         )
-        assert '_translations.set("es"' in src, "UX-015: i18n.ts must register Spanish translations"
 
     def test_i18n_ts_exports_locale_helpers(self):
         # RW-8: KEEP — pins UX-015 (i18n.ts exports SUPPORTED_LOCALES and

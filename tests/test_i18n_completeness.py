@@ -582,6 +582,14 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "errorBoundary.resetSettings",
     "errorBoundary.resetSettingsHint",
     "errorBoundary.resetting",
+    "errors.cudaOom",
+    "errors.network",
+    "errors.rateLimited",
+    "errors.render",
+    "errors.storage",
+    "errors.timeout",
+    "errors.unknown",
+    "errors.unknownBackend",
     "format.duration.hourShort",
     "format.duration.minuteShort",
     "format.duration.secondShort",
@@ -659,6 +667,12 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.hotkeySection.rangeHintSeconds",
     "settings.keyring.statusLabel",
     "settings.pending",
+    "settings.troubleshooting.diagnosticBundleExportFailed",
+    "settings.troubleshooting.diagnosticBundleExported",
+    "settings.troubleshooting.diagnosticBundleExportedWithPath",
+    "settings.troubleshooting.exportDiagnosticBundle",
+    "settings.troubleshooting.exportDiagnosticBundleAria",
+    "settings.troubleshooting.exportDiagnosticBundleHint",
     "templates.loading",
     "titleBar.backWithShortcut",
     "titleBar.forwardWithShortcut",
@@ -897,8 +911,8 @@ class TestRW2BackfillSetIsMinimal:
         keeps the ratchet one-directional (shrinking is allowed, growing
         past 74 is a regression).
         """
-        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) <= 300, (
-            "RW2_BACKFILLED_PENDING_TRANSLATION set size grew past 300. The set "
+        assert len(RW2_BACKFILLED_PENDING_TRANSLATION) <= 305, (
+            "RW2_BACKFILLED_PENDING_TRANSLATION set size grew past 305. The set "
             "should only shrink over time as translations are commissioned. "
             "If new English-fallback keys were intentionally added, update this "
             "upper bound to match — otherwise investigate the unexpected growth."
