@@ -79,9 +79,9 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 		const activeButton = screen.getByText("Settings").closest("button");
 		expect(activeButton).toBeTruthy();
 		const cls = activeButton?.className ?? "";
-		// 2px left accent bar using --accent.
-		expect(cls).toContain("border-l-2");
-		expect(cls).toContain("border-l-(--accent)");
+		// 2px inline-start accent bar using --accent (border-s = logical left in LTR).
+		expect(cls).toContain("border-s-2");
+		expect(cls).toContain("border-s-(--accent)");
 		// Soft accent background (vs the old solid --bg).
 		expect(cls).toContain("bg-(--accent-soft)");
 		// Text color + weight bumped to primary/medium.
@@ -94,12 +94,12 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 		const inactiveButton = screen.getByText("Settings").closest("button");
 		expect(inactiveButton).toBeTruthy();
 		const cls = inactiveButton?.className ?? "";
-		// Inactive uses a transparent border-l-2 so heights stay aligned
+		// Inactive uses a transparent border-s-2 so heights stay aligned
 		// (no layout shift when the active item changes), but the bar
 		// itself is transparent, NOT --accent.
-		expect(cls).toContain("border-l-2");
-		expect(cls).toContain("border-l-transparent");
-		expect(cls).not.toContain("border-l-(--accent)");
+		expect(cls).toContain("border-s-2");
+		expect(cls).toContain("border-s-transparent");
+		expect(cls).not.toContain("border-s-(--accent)");
 		expect(cls).not.toContain("bg-(--accent-soft)");
 		expect(cls).not.toContain("font-medium");
 	});

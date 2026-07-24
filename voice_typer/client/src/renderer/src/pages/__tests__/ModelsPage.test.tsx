@@ -35,9 +35,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // any module-level const/let declarations.  Use vi.hoisted() for factory
 // dependencies so they're available when the factory runs.
 
-const { mockCall, showSnack } = vi.hoisted(() => ({
+const { mockCall, showSnack, mockToastError } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	showSnack: vi.fn(),
+	mockToastError: vi.fn(),
 }));
 
 vi.mock("@hugeicons/react", () => ({
@@ -88,6 +89,19 @@ vi.mock("@/hooks/useSnackbar", () => ({
 	useSnackbar: () => ({
 		showSnack,
 	}),
+}));
+
+// useModelLifecycle imports `toast` from sonner directly for download
+// failure toasts (with Retry action buttons). Mock it so we can assert.
+vi.mock("sonner", () => ({
+	toast: {
+		success: vi.fn(),
+		error: (...args: unknown[]) => mockToastError(...args),
+		warning: vi.fn(),
+		info: vi.fn(),
+		dismiss: vi.fn(),
+	},
+	Toaster: () => null,
 }));
 
 // We import en.json directly for assertion string lookups.
@@ -574,7 +588,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 		expect(showSnack).not.toHaveBeenCalled();
 	});
 
-	it("shows an error snackbar with the backend's message when download_model fails (not cancelled)", async () => {
+	it("shows an error toast with the backend's message when download_model fails (not cancelled)", async () => {
 		await renderPage();
 		const downloadButton = screen.getByRole("button", {
 			name: t("models.card.downloadAria").replace("{name}", "tiny.en"),
@@ -586,7 +600,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 			if (type === "download_model") {
 				return Promise.resolve({
 					success: false,
-					message: "Disk full",
+					error: "Disk full",
 				});
 			}
 			return Promise.resolve(MOCK_CONFIG);
@@ -594,8 +608,18 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 
 		fireEvent.click(downloadButton);
 
+		// useModelLifecycle uses toast.error (sonner) directly for
+		// download failures (with a Retry action button), NOT showSnack.
 		await waitFor(() => {
-			expect(showSnack).toHaveBeenCalledWith("Disk full", "error");
+			expect(mockToastError).toHaveBeenCalledWith(
+				"Disk full",
+				expect.objectContaining({
+					duration: 8000,
+					action: expect.objectContaining({
+						label: t("microphone.retry"),
+					}),
+				}),
+			);
 		});
 	});
 });

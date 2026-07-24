@@ -252,6 +252,7 @@ vi.mock("@/components/ui/sonner", () => ({
 const originalWindowOpen = window.open;
 beforeEach(() => {
 	window.open = vi.fn(() => null);
+	mockNavState.page = "home";
 });
 afterEach(() => {
 	window.open = originalWindowOpen;
@@ -827,7 +828,9 @@ let useNavigationHarness: () => {
 	canGoForward: boolean;
 };
 beforeAll(async () => {
-	const mod = await import("@/hooks/useNavigation");
+	const mod = (await vi.importActual("@/hooks/useNavigation")) as {
+		useNavigation: typeof useNavigationHarness;
+	};
 	useNavigationHarness = mod.useNavigation;
 });
 
