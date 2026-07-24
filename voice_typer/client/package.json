@@ -35,6 +35,7 @@
 		"python:dev": "python3 -m voice_typer.server.ipc_server || python -m voice_typer.server.ipc_server",
 		"lint": "biome check src",
 		"lint:fix": "biome check --write src",
+		"lint:fix:unsafe": "biome check --write --unsafe src",
 		"format": "biome format --write src",
 		"format:check": "biome format src",
 		"typecheck": "tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.node.json --noEmit",

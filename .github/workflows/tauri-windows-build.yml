@@ -205,6 +205,7 @@ jobs:
       - name: Build the sidecar with Nuitka (ADR-0020 §4.2)
         shell: pwsh
         run: |
+          $env:CLCACHE_DISABLE = "1"
           $PYBS = $env:PYBS
           $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[-1])"
           Write-Host "PYBS=$PYBS  SITE=$SITE"
@@ -221,19 +222,18 @@ jobs:
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
-              --enable-plugin=numpy `
-              --enable-plugin=anti-bloat `
+              --enable-plugin=numpy@cleanup `
               --nofollow-import-to=torch._dynamo `
               --nofollow-import-to=torch._inductor `
               --nofollow-import-to=torch.export `
               --nofollow-import-to=torch._functorch `
               --nofollow-import-to=transformers `
-              --include-package=faster_whisper `
-              --include-package=ctranslate2 `
-              --include-package=voice_typer `
-              --include-package=websockets `
+              --include-package=faster_whisper@cleanup `
+              --include-package=ctranslate2@cleanup `
+              --include-package=voice_typer@cleanup `
+              --include-package=websockets@cleanup `
               $($dataDirFlag) `
-              --windows-disable-console `
+              --windows-console-mode=disable `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp" `
               --output-filename=python-sidecar-x86_64-pc-windows-msvc.exe `
               --output-dir=src-tauri\bin `
@@ -248,6 +248,7 @@ jobs:
       - name: Build the prewarm binary with Nuitka (ADR-0020 §5)
         shell: pwsh
         run: |
+          $env:CLCACHE_DISABLE = "1"
           $PYBS = $env:PYBS
           $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[-1])"
           $ct2Dir = "$SITE\ctranslate2"
@@ -260,19 +261,18 @@ jobs:
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
-              --enable-plugin=numpy `
-              --enable-plugin=anti-bloat `
+              --enable-plugin=numpy@cleanup `
               --nofollow-import-to=torch._dynamo `
               --nofollow-import-to=torch._inductor `
               --nofollow-import-to=torch.export `
               --nofollow-import-to=torch._functorch `
               --nofollow-import-to=transformers `
-              --include-package=faster_whisper `
-              --include-package=ctranslate2 `
-              --include-package=voice_typer `
-              --include-package=websockets `
+              --include-package=faster_whisper@cleanup `
+              --include-package=ctranslate2@cleanup `
+              --include-package=voice_typer@cleanup `
+              --include-package=websockets@cleanup `
               $($dataDirFlag) `
-              --windows-disable-console `
+              --windows-console-mode=disable `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" `
               --output-filename=prewarm-x86_64-pc-windows-msvc.exe `
               --output-dir=src-tauri\resources `

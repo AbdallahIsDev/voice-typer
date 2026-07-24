@@ -388,6 +388,11 @@ jobs:
               echo "[codesign] SKIP (not found): $bin"
             fi
           done
+          # CI-4: Sign top-level .app bundle leaf-to-root with entitlements after signing nested binaries,
+          # BEFORE zipping and submitting to notarytool.
+          echo "[codesign] signing top-level app bundle (CI-4)"
+          codesign --force --deep --options runtime --sign "$MAC_SIGNING_IDENTITY" \
+            --entitlements src-tauri/entitlements.plist "$APP_PATH"
 
       - name: Notarize + staple (if secrets present)
         if: ${{ env.MAC_SIGNING_IDENTITY != '' }}
