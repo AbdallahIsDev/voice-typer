@@ -130,17 +130,16 @@ contextBridge.exposeInMainWorld("window_", {
 			path?: string;
 			error?: string;
 		}>,
-	// G4-M-71: open the ELECTRON log folder (userData dir) in the OS
-	// file manager. Distinct from `openLogs` above which opens the
-	// PYTHON backend's log dir. The Electron userData dir contains
-	// `electron-main.log`, `electron-crashes.log`,
-	// `electron-rejections.log`, and `electron-renderer-errors.log`.
-	openElectronLogs: () =>
-		ipcRenderer.invoke("window:open-electron-logs") as Promise<{
-			success: boolean;
-			path?: string;
-			error?: string;
-		}>,
+	// GT-54 (session-6): `openElectronLogs` was removed — no renderer
+	// call site existed (verified by grep across
+	// `voice_typer/client/src/renderer`). Cross-file cleanup:
+	//   - types/ipc.ts: `openElectronLogs?` field — GT-FIX-16
+	//   - tauri-bridge/window-namespace.ts: `openElectronLogs:` impl —
+	//     GT-FIX-17
+	//   - main/ipc/window-handlers.ts: `window:open-electron-logs`
+	//     ipcMain.handle — owned by main-process agent (coordinate
+	//     separately; leaving the handler installed is harmless since
+	//     the preload bridge no longer exposes a way to invoke it).
 	// G4-M-69: forward a renderer-caught error to the main process
 	// for persistence in `electron-renderer-errors.log`. The main
 	// process is the only side with filesystem access (sandboxed

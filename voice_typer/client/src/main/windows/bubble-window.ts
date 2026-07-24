@@ -23,10 +23,11 @@
  * of scope for this fix).
  */
 import path from "node:path";
-import { BrowserWindow, ipcMain, screen } from "electron";
+import { BrowserWindow, dialog, ipcMain, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
 import { BUBBLE_CLR, cleanConsoleMsg, RESET } from "../logging";
 import { state } from "../state";
+import { recordBubbleRenderCrash } from "./main-window";
 
 // PVT-G5-080: structured logger. Resolved defensively via `require()`
 // so unit-test environments that mock `../logging` minimally (without
@@ -297,20 +298,32 @@ export function createBubbleWindow(): BrowserWindow {
 	win.webContents.on("render-process-gone", (_e, details) => {
 		// PVT-G5-080: failure — log.error.
 		log.error(`${BUBBLE_CLR}[BUBBLE]${RESET} render-process-gone:`, details);
-		// SEC-024: reload the bubble window so it doesn't stay as a
-		// blank, invisible, always-on-top overlay. Without this, a
-		// crashed bubble renderer leaves a stuck overlay on the screen.
-		try {
-			if (!win.isDestroyed()) {
-				// PVT-G5-080: unexpected recovery action — log.warn.
-				log.warn(
-					`${BUBBLE_CLR}[BUBBLE]${RESET} reloading after render-process-gone`,
+		// GT-10: sliding-window crash storm detection (shared with main window).
+		const inStorm = recordBubbleRenderCrash();
+		if (inStorm) {
+			try {
+				dialog.showErrorBox(
+					"Voice Typer — Bubble crash loop",
+					"The bubble overlay renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch Voice Typer.",
 				);
-				win.reload();
+			} catch {
+				// dialog may not be available in headless mode.
 			}
-		} catch (e) {
-			log.error("[BUBBLE] failed to reload after render-process-gone:", e);
+			return;
 		}
+		// SEC-024: reload the bubble window. GT-10: 2s backoff.
+		setTimeout(() => {
+			try {
+				if (!win.isDestroyed()) {
+					log.warn(
+						`${BUBBLE_CLR}[BUBBLE]${RESET} reloading after render-process-gone (2s backoff)`,
+					);
+					win.reload();
+				}
+			} catch (e) {
+				log.error("[BUBBLE] failed to reload after render-process-gone:", e);
+			}
+		}, 2000);
 	});
 	win.webContents.on("preload-error", (_e, file, err) => {
 		// PVT-G5-080: failure — log.error.

@@ -79,7 +79,7 @@ describe("XV-151: index.ts will-quit else-branch for null pythonProcess", () => 
 		// handler references state.pythonProcess AND app.exit(0).
 		expect(block).toContain("state.pythonProcess");
 		expect(block).toContain("app.exit(0)");
-		expect(block).toMatch(/setTimeout/);
+		expect(block).toMatch(/else\s*\{/);
 	});
 });
 
@@ -317,9 +317,9 @@ describe("XV-155: main-window ERROR routes through log.error (runtime.log)", () 
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-156: shutdown-path timers unref status", () => {
-	it("stop-python.ts: killTimer.unref() is called", () => {
+	it("stop-python.ts: killTimer is NOT unref'd (GT-71)", () => {
 		const src = readSrc("../python/stop-python.ts");
-		expect(src).toMatch(/killTimer\.unref\(\)/);
+		expect(src).not.toMatch(/killTimer\.unref\(\)/);
 	});
 
 	it("relaunch-app.ts: killTimer is NOT unref'd (no .unref() calls in source)", () => {

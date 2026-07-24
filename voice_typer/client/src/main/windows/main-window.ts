@@ -13,7 +13,7 @@
  *     at module load and cleaned up when the main window is destroyed.
  */
 import path from "node:path";
-import { app, BrowserWindow, Menu, nativeTheme } from "electron";
+import { app, BrowserWindow, dialog, Menu, nativeTheme } from "electron";
 import { START_HIDDEN } from "../constants";
 import { cleanConsoleMsg, RENDERER_CLR, RESET } from "../logging";
 import { state } from "../state";
@@ -132,6 +132,30 @@ export function broadcastMaximized(maximized: boolean): void {
 }
 
 /**
+ * GT-A3-8: explicit broadcast helper for the main window. Replaces the
+ * previous `webContents.send` monkey-patch that intercepted outbound
+ * `python-event` messages. Centralizes the CR-28 `pythonReady` flip on
+ * the first `{ type: "ready" }` push and the destroyed-window guard.
+ */
+export function broadcastToMainWindow(channel: string, msg: unknown): void {
+	if (
+		!state.pythonReady &&
+		channel === "python-event" &&
+		typeof msg === "object" &&
+		msg !== null &&
+		(msg as Record<string, unknown>).type === "ready"
+	) {
+		state.pythonReady = true;
+		log.info(
+			"[STARTUP] backend sent {type:'ready'} — pythonReady = true (backend fully initialized)",
+		);
+	}
+	if (state.mainWindow && !state.mainWindow.isDestroyed()) {
+		state.mainWindow.webContents.send(channel, msg);
+	}
+}
+
+/**
  * R6-F3: the `nativeTheme.on("updated", ...)` listener is registered ONCE
  * at module load (see `registerNativeThemeListener()` below) instead of
  * being re-registered inside `createMainWindow()` on every window
@@ -195,6 +219,38 @@ export function _resetNativeThemeListenerForTest(): void {
  */
 export function _nativeThemeListenerRegistered(): boolean {
 	return _nativeThemeHandler !== null;
+}
+
+// GT-10: render-process-gone crash-storm tracking. Sliding 60s window;
+// if >5 crashes land in that window, stop reloading and show a dialog.
+const RENDER_CRASH_WINDOW_MS = 60_000;
+const RENDER_CRASH_THRESHOLD = 5;
+const _mainWindowCrashTimestamps: number[] = [];
+const _bubbleWindowCrashTimestamps: number[] = [];
+
+function recordRenderCrash(timestamps: number[], label: string): boolean {
+	const now = Date.now();
+	timestamps.push(now);
+	while (timestamps.length > 0 && now - timestamps[0]! > RENDER_CRASH_WINDOW_MS) {
+		timestamps.shift();
+	}
+	if (timestamps.length > RENDER_CRASH_THRESHOLD) {
+		log.error(
+			`[MAIN] ${label} render-process-gone storm: ${timestamps.length} crashes in ${RENDER_CRASH_WINDOW_MS / 1000}s - stopping reload`,
+		);
+		return true;
+	}
+	return false;
+}
+
+export function _resetRenderCrashTrackingForTest(): void {
+	_mainWindowCrashTimestamps.length = 0;
+	_bubbleWindowCrashTimestamps.length = 0;
+}
+
+/** GT-10: bubble-window-side wrapper (imported by bubble-window.ts). */
+export function recordBubbleRenderCrash(): boolean {
+	return recordRenderCrash(_bubbleWindowCrashTimestamps, "Bubble");
 }
 
 export function createMainWindow(forceShow = false): void {
@@ -288,50 +344,12 @@ export function createMainWindow(forceShow = false): void {
 		},
 	});
 
-	// CR-28 (session-1): intercept outbound `python-event` broadcasts
-	// to the renderer so we can flip `state.pythonReady = true` the
-	// moment the backend signals it has finished initialization.
-	// The handle-message.ts module broadcasts *every* Python push
-	// event to the renderer via `state.mainWindow.webContents.send(
-	// "python-event", msg)` — by wrapping that single chokepoint we
-	// catch the `ready` event without needing to modify
-	// handle-message.ts. The wrapper is a no-op for every other
-	// event and for subsequent `ready` events (idempotent).
-	//
-	// We use a wrapper-instead-of-ipcMain because `webContents.send`
-	// is main → renderer; `ipcMain.on` only catches renderer → main.
-	// There is no native Electron hook for "outgoing message
-	// observed" so we override `send` on this specific webContents
-	// instance. The original is captured via `.bind()` so the
-	// wrapper can delegate without losing `this`.
-	const wc = state.mainWindow.webContents;
-	const origSend = wc.send.bind(wc) as (
-		channel: string,
-		...args: unknown[]
-	) => void;
-	// Cast through unknown to satisfy TS: Electron's `send` overload
-	// set is complex; we only need to preserve call-through
-	// behavior. The runtime contract is identical to the original.
-	wc.send = ((channel: string, ...args: unknown[]) => {
-		if (
-			!state.pythonReady &&
-			channel === "python-event" &&
-			args.length > 0 &&
-			typeof args[0] === "object" &&
-			args[0] !== null &&
-			(args[0] as Record<string, unknown>).type === "ready"
-		) {
-			state.pythonReady = true;
-			// PVT-G5-080: route this lifecycle milestone through the
-			// structured logger so it lands in `electron-main.log`
-			// for post-mortem diagnosis (previously went only to
-			// stdout, which is closed in packaged builds).
-			log.info(
-				"[STARTUP] backend sent {type:'ready'} — pythonReady = true (backend fully initialized)",
-			);
-		}
-		return origSend(channel, ...args);
-	}) as typeof wc.send;
+	// GT-A3-8: the previous `webContents.send` monkey-patch has been
+	// replaced with the explicit `broadcastToMainWindow(channel, msg)`
+	// helper (see the export above). Callers in handle-message.ts and
+	// tcp-connect.ts now route their `python-event` broadcasts through
+	// that helper, which centralizes the CR-28 `pythonReady` flip and
+	// the destroyed-window guard.
 
 	// R6-F3 (session-3): register the module-level nativeTheme
 	// listener once. Previously this was an inline
@@ -457,16 +475,32 @@ export function createMainWindow(forceShow = false): void {
 	// running, so session state is preserved on the backend side).
 	state.mainWindow.webContents.on("render-process-gone", (_e, details) => {
 		log.error("[MAIN] render-process-gone", details);
-		try {
-			if (state.mainWindow && !state.mainWindow.isDestroyed()) {
-				log.warn("[MAIN] reloading after render-process-gone");
-				state.mainWindow.reload();
+		// GT-10: sliding-window crash storm detection.
+		const inStorm = recordRenderCrash(_mainWindowCrashTimestamps, "Main");
+		if (inStorm) {
+			try {
+				dialog.showErrorBox(
+					"Voice Typer — Renderer crash loop",
+					"The main window renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch Voice Typer.",
+				);
+			} catch {
+				// dialog may not be available in headless mode.
 			}
-		} catch (err) {
-			log.error("[MAIN] failed to reload after render-process-gone", {
-				error: (err as Error).message,
-			});
+			return;
 		}
+		// GT-10: 2s backoff before reload to avoid CPU-bound crash loops.
+		setTimeout(() => {
+			try {
+				if (state.mainWindow && !state.mainWindow.isDestroyed()) {
+					log.warn("[MAIN] reloading after render-process-gone (2s backoff)");
+					state.mainWindow.reload();
+				}
+			} catch (err) {
+				log.error("[MAIN] failed to reload after render-process-gone", {
+					error: (err as Error).message,
+				});
+			}
+		}, 2000);
 	});
 
 	// `preload-error` fires when the preload script throws at module

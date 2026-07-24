@@ -27,7 +27,6 @@ describe("R6-F10: allowed-commands.ts", () => {
 			"heartbeat",
 			"relaunch_ack",
 			"force_cancel_transcription",
-			"refresh_microphones",
 		];
 		for (const cmd of mustHave) {
 			expect(ALLOWED_COMMANDS.has(cmd), `expected ${cmd} in allowlist`).toBe(
@@ -52,11 +51,47 @@ describe("R6-F10: allowed-commands.ts", () => {
 		}
 	});
 
+	it("does NOT contain the GT-32 (session-6) removed stale entries", () => {
+		// GT-32: 17 entries removed because no renderer code invokes them.
+		// They previously appeared only in this Set (sometimes also in a
+		// doc comment). The matching Python-side `_COMMAND_REGISTRY`
+		// entries should also be removed by GT-FIX-05 (owns ipc_server.py);
+		// until that lands the cross-file parity test in
+		// `tests/test_electron_ipc_and_build.py` will flag them as
+		// "missing from allowlist".
+		const gt32Removed = [
+			"apply_vocabulary_suggestion",
+			"check_accessibility",
+			"delete_all_personal_data",
+			"dismiss_vocabulary_suggestion",
+			"export_diagnostics",
+			"export_gdpr_bundle",
+			"get_audio_status",
+			"get_rms_level",
+			"get_vocabulary_suggestions",
+			"level_monitor_status",
+			"microphone_test_status",
+			"onboarding_get_model_catalog",
+			"onboarding_get_step",
+			"onboarding_request_keyboard_permission",
+			"refresh_microphones",
+			"show_electron_notification",
+			"test_llm_connection",
+		];
+		for (const cmd of gt32Removed) {
+			expect(
+				ALLOWED_COMMANDS.has(cmd),
+				`expected ${cmd} NOT in allowlist (GT-32 removed)`,
+			).toBe(false);
+		}
+	});
+
 	it("contains a non-trivial number of commands (sanity)", () => {
-		// As of the R6-F10 move there are ~80 commands; this guards against
-		// an accidental wholesale drop. The exact count is allowed to grow
-		// over time, so we assert a lower bound.
-		expect(ALLOWED_COMMANDS.size).toBeGreaterThanOrEqual(70);
+		// As of the R6-F10 move there were ~76 commands; GT-32 (session-6)
+		// removed 17 stale entries, bringing the count to ~59. This guard
+		// prevents an accidental wholesale drop. The exact count is
+		// allowed to grow over time, so we assert a lower bound.
+		expect(ALLOWED_COMMANDS.size).toBeGreaterThanOrEqual(50);
 	});
 
 	it("every entry is a non-empty string with no surrounding whitespace", () => {
