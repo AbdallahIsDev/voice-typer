@@ -6,11 +6,9 @@
  */
 import type { ThemePreset } from "../themes";
 
-export const tokyoNightTheme: ThemePreset = {
+export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 	id: "tokyo-night",
 	name: "Tokyo Night",
-	description:
-		"Deep blue-black backgrounds with vibrant cyan, purple, and pink highlights — inspired by the Tokyo Night code theme.",
 	swatch: "oklch(0.55 0.14 280)",
 	light: {
 		// Core
@@ -22,7 +20,6 @@ export const tokyoNightTheme: ThemePreset = {
 		"--surface-page": "oklch(0.96 0.01 250)",
 		// Text (PVT-001: backfill --text-primary).
 		"--text-primary": "oklch(0.18 0.015 260)",
-		"--text-muted": "oklch(0.45 0.01 260)",
 		"--text-secondary": "oklch(0.35 0.01 260)",
 		// Borders / inputs / rings
 		"--border": "oklch(0.84 0.008 250)",
@@ -57,7 +54,7 @@ export const tokyoNightTheme: ThemePreset = {
 		"--sidebar-accent": "oklch(0.9 0.008 250)",
 		"--sidebar-accent-foreground": "oklch(0.22 0.015 260)",
 		"--sidebar-border": "oklch(0.84 0.008 250)",
-		"--sidebar-ring": "oklch(0.6 0.1 280)",
+		"--sidebar-ring": "oklch(0.48 0.1 280)",
 		// Charts
 		"--chart-1": "oklch(0.55 0.16 280)",
 		"--chart-2": "oklch(0.6 0.12 210)",
@@ -74,33 +71,32 @@ export const tokyoNightTheme: ThemePreset = {
 		"--bg-subtle": "oklch(0.09 0.015 270)",
 		"--surface-hover": "oklch(0.16 0.02 270)",
 		"--text-primary": "oklch(0.92 0.01 250)",
-		"--text-muted": "oklch(0.48 0.015 270)",
 		"--text-secondary": "oklch(0.78 0.01 250)",
 		"--card": "oklch(0.14 0.02 270)",
 		"--card-foreground": "oklch(0.92 0.01 250)",
 		"--popover": "oklch(0.14 0.02 270)",
 		"--popover-foreground": "oklch(0.92 0.01 250)",
-		"--primary": "oklch(0.65 0.14 280)",
+		"--primary": "oklch(0.5 0.14 280)",
 		"--primary-foreground": "oklch(0.97 0 0)",
 		"--secondary": "oklch(0.18 0.018 270)",
 		"--secondary-foreground": "oklch(0.92 0.01 250)",
 		"--muted": "oklch(0.16 0.015 270)",
-		"--muted-foreground": "oklch(0.48 0.015 270)",
+		"--muted-foreground": "oklch(0.65 0.015 270)",
 		"--accent": "oklch(0.65 0.12 210)",
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.65 0.14 280 / 0.12)",
 		"--accent-muted": "oklch(0.65 0.14 280 / 0.38)",
 		"--border": "oklch(0.22 0.02 270)",
 		"--input": "oklch(0.24 0.02 270)",
-		"--ring": "oklch(0.55 0.08 280)",
+		"--ring": "oklch(0.7 0.15 280)",
 		"--sidebar": "oklch(0.1 0.02 270)",
 		"--sidebar-foreground": "oklch(0.92 0.01 250)",
-		"--sidebar-primary": "oklch(0.65 0.14 280)",
+		"--sidebar-primary": "oklch(0.5 0.14 280)",
 		"--sidebar-primary-foreground": "oklch(0.97 0 0)",
 		"--sidebar-accent": "oklch(0.16 0.02 270)",
 		"--sidebar-accent-foreground": "oklch(0.92 0.01 250)",
 		"--sidebar-border": "oklch(0.2 0.02 270)",
-		"--sidebar-ring": "oklch(0.55 0.08 280)",
+		"--sidebar-ring": "oklch(0.7 0.15 280)",
 		"--destructive": "oklch(0.55 0.22 15)",
 		// PVT-002: backfill --destructive-foreground so destructive button text
 		// is readable without relying on the stylesheet default.

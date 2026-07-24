@@ -570,10 +570,17 @@ class WindowsNativeHotkey(HotkeyBackend):
                 if not is_pressed and was_pressed:
                     if is_ptt:
                         log.info("[HOTKEY] Key released (PTT on_release)")
-                        try:
-                            self._on_release_callback()
-                        except Exception:
-                            log.exception("[HOTKEY] on_release callback raised in polling loop")
+                        # WR-14: pyrefly not-callable — ``_on_release_callback``
+                        # is typed as ``Callable[[], None] | None`` and pyrefly
+                        # can't propagate the narrowing from ``is_ptt =
+                        # self._on_release_callback is not None`` (line 559)
+                        # into this branch. Explicit None guard makes the
+                        # narrowing local and silences the false positive.
+                        if self._on_release_callback is not None:
+                            try:
+                                self._on_release_callback()
+                            except Exception:
+                                log.exception("[HOTKEY] on_release callback raised in polling loop")
                     elif toggle_on_keyup:
                         log.info("[HOTKEY FIRED] GetAsyncKeyState detected key-up (toggle)")
                         try:

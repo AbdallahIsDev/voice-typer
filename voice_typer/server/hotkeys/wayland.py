@@ -106,6 +106,18 @@ class WaylandHotkey(HotkeyBackend):
     NO_CLIENT_GRACE_SECONDS: float = 30.0
 
     def __init__(self, hotkey_str: str):
+        # AC-23: call super().__init__() so the base class initializes
+        # ``self.hotkey_str`` (the public attribute used by every other
+        # backend via the ``HotkeyBackend`` interface),
+        # ``self._on_release_callback``, and ``self._toggle_on_keyup``.
+        # Previously this subclass set only ``self._hotkey_str`` (with
+        # underscore) and skipped ``super().__init__()``, which broke
+        # the abstract contract: polymorphic code that did
+        # ``backend.hotkey_str`` raised ``AttributeError`` on a
+        # ``WaylandHotkey`` instance. Keep ``self._hotkey_str`` as a
+        # private alias for backward compat with the two internal
+        # ``PynputHotkey(self._hotkey_str)`` call sites below.
+        super().__init__(hotkey_str)
         self._hotkey_str = hotkey_str
         self._callback: Callable[[], None] | None = None
         # TASK-10: typed as Any — socket is created lazily inside start()

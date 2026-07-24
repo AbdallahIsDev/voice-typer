@@ -53,10 +53,6 @@ _INTENTIONAL_REPEAT_WORDS = {
 # A minimal fallback is provided in _active_corrections() if corrections.json
 # is somehow missing.
 
-_WHISPER_MISSPELLINGS: dict[str, str] = {}
-_WHISPER_PHRASE_CORRECTIONS: list[tuple[str, str]] = []
-_COMMON_EXTRA_WORD_PATTERNS: list[tuple[str, str]] = []
-
 # ─── External corrections loader ─────────────────────────────────────────
 # When a corrections.json exists in the config directory (or at the path
 # specified by config.corrections_path), its entries OVERRIDE the built-in
@@ -706,18 +702,31 @@ def _remove_extra_words(text: str) -> str:
 
     XV-42: same ``pattern.search`` → ``bad.lower() in lower`` optimisation
     as ``_correct_whisper_phrases`` (see its docstring for the rationale).
+
+    AC-9: mirror the XZ-3 fix applied to ``_correct_whisper_phrases``.
+    Always resolve the pattern via the LRU-cached
+    ``_get_compiled_phrase_pattern(bad)`` keyed on the bad string itself,
+    instead of indexing ``_active_extra_word_patterns`` in parallel with
+    ``_active_extra_words``. The parallel-lists indexing reintroduced the
+    XZ-3 race here: if ``configure_corrections()`` ran between reading
+    ``_active_extra_words`` and ``_active_extra_word_patterns``,
+    ``patterns[idx]`` could be a compiled regex for a DIFFERENT bad
+    string than ``phrases[idx]``, producing corrupted text. The LRU
+    cache keyed on the bad string itself guarantees the pattern always
+    matches the phrase, at O(1) cost after warmup.
     """
     phrases = _active_extra_words
-    patterns = _active_extra_word_patterns
     if not phrases:
         return text
 
     lower = text.lower()
-    n_patterns = len(patterns)
-    for idx, (bad, good) in enumerate(phrases):
+    for bad, good in phrases:
         if bad.lower() not in lower:
             continue
-        pattern = patterns[idx] if idx < n_patterns else _get_compiled_phrase_pattern(bad)
+        # AC-9 + XZ-3: always resolve the pattern via the LRU cache
+        # keyed on the bad string. This is O(1) after warmup and
+        # eliminates the parallel-lists race entirely.
+        pattern = _get_compiled_phrase_pattern(bad)
         text = pattern.sub(good, text)
     return text
 

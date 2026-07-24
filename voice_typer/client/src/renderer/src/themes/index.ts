@@ -30,35 +30,16 @@ import { solarizedTheme } from "./solarized";
 import { tokyoNightTheme } from "./tokyo-night";
 
 /**
- * All built-in theme presets keyed by their ``id``.
+ * BG-5: raw preset list (no ``nameKey``). The individual preset files
+ * declare only ``id``, ``name``, ``swatch``, ``light``, ``dark`` — the
+ * ``nameKey`` field is added here in the aggregator so there is a
+ * single source of truth for the ``theme.preset.<id>`` i18n key shape.
  *
- * Use this when you need O(1) id → preset lookup. The order of keys is
- * not guaranteed — use ``THEMES`` if you need the canonical display
- * order.
+ * The list below is the source of both ``THEME_PRESETS`` (record) and
+ * ``THEMES`` (ordered array) — keeping them in sync is enforced by
+ * deriving both from the same constant.
  */
-export const THEME_PRESETS: Record<string, ThemePreset> = {
-	[defaultTheme.id]: defaultTheme,
-	[amoledTheme.id]: amoledTheme,
-	[nordTheme.id]: nordTheme,
-	[draculaTheme.id]: draculaTheme,
-	[sepiaTheme.id]: sepiaTheme,
-	[customTheme.id]: customTheme,
-	[monokaiTheme.id]: monokaiTheme,
-	[ayuTheme.id]: ayuTheme,
-	[githubTheme.id]: githubTheme,
-	[catppuccinTheme.id]: catppuccinTheme,
-	[tokyoNightTheme.id]: tokyoNightTheme,
-	[solarizedTheme.id]: solarizedTheme,
-};
-
-/**
- * Canonical ordered list of all built-in theme presets.
- *
- * Order matches the pre-refactor array literal in ``themes.ts`` so the
- * Settings dropdown, default fallback (``THEMES[0]``), and any other
- * index-sensitive callers continue to behave identically.
- */
-export const THEMES: ThemePreset[] = [
+const RAW_THEMES: Omit<ThemePreset, "nameKey">[] = [
 	defaultTheme,
 	amoledTheme,
 	nordTheme,
@@ -72,6 +53,40 @@ export const THEMES: ThemePreset[] = [
 	tokyoNightTheme,
 	solarizedTheme,
 ];
+
+/**
+ * BG-5: inject ``nameKey: `theme.preset.${id}` `` for every preset.
+ * Consumers (``ThemeSettingsSection.tsx``) render the localised preset
+ * name via ``t(preset.nameKey)``, falling back to the hardcoded English
+ * ``name`` only when the locale file is missing the key. The parity
+ * test in ``themes/__tests__/parity.test.ts`` asserts every preset
+ * carries a ``nameKey`` matching this exact shape and that the key
+ * exists in every locale file.
+ */
+const THEMES_WITH_NAME_KEY: ThemePreset[] = RAW_THEMES.map((t) => ({
+	...t,
+	nameKey: `theme.preset.${t.id}`,
+}));
+
+/**
+ * All built-in theme presets keyed by their ``id``.
+ *
+ * Use this when you need O(1) id → preset lookup. The order of keys is
+ * not guaranteed — use ``THEMES`` if you need the canonical display
+ * order.
+ */
+export const THEME_PRESETS: Record<string, ThemePreset> = Object.fromEntries(
+	THEMES_WITH_NAME_KEY.map((t) => [t.id, t]),
+);
+
+/**
+ * Canonical ordered list of all built-in theme presets.
+ *
+ * Order matches the pre-refactor array literal in ``themes.ts`` so the
+ * Settings dropdown, default fallback (``THEMES[0]``), and any other
+ * index-sensitive callers continue to behave identically.
+ */
+export const THEMES: ThemePreset[] = THEMES_WITH_NAME_KEY;
 
 /** Re-export each preset for direct (lazy-loadable) access. */
 export {

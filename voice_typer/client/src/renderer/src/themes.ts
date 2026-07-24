@@ -16,6 +16,7 @@
  * existing consumers can keep importing from ``@/themes`` unchanged.
  */
 
+import { contrastRatio } from "@/lib/color-utils";
 import { THEME_PRESETS, THEMES } from "./themes/index";
 
 export interface ThemePreset {
@@ -23,8 +24,15 @@ export interface ThemePreset {
 	id: string;
 	/** Human-readable label shown in the Settings dropdown. */
 	name: string;
-	/** Short description shown as tooltip/hint. */
-	description: string;
+	/**
+	 * i18n key for the localised preset name (e.g. ``"theme.preset.amoled"``).
+	 *
+	 * BG-5: populated by the ``themes/index.ts`` aggregator for every
+	 * built-in preset. Consumers (``ThemeSettingsSection.tsx``) render
+	 * ``t(preset.nameKey)`` for the visible label, falling back to
+	 * ``preset.name`` when the key is missing.
+	 */
+	nameKey: string;
 	/** A CSS colour value used as a preview swatch in the dropdown. */
 	swatch: string;
 	/** CSS variable overrides for light mode (``:root``). */
@@ -55,9 +63,9 @@ export const THEME_VARIABLES: readonly string[] = [
 	"--surface-hover",
 	"--surface-page",
 
-	// Text
+	// Text (BG-80: --text-muted removed — aliased to --muted-foreground
+	// in index.css. Only --muted-foreground is the canonical token now.)
 	"--text-primary",
-	"--text-muted",
 	"--text-secondary",
 
 	// Cards, popovers, dialogs
@@ -185,40 +193,60 @@ export function getThemeById(id: string): ThemePreset {
  * Other variables (card, popover, sidebar, chart, scrollbar) are
  * auto-derived from these core values.
  */
+/**
+ * BG-18: each entry now carries ``labelKey`` / ``descriptionKey`` — i18n
+ * keys resolved via ``t()`` in ``ThemeSettingsSection.tsx``. The legacy
+ * ``label`` / ``description`` English strings are kept as fallbacks for
+ * the rare caller that reads them outside a React context (e.g. tests).
+ */
 export const CUSTOM_COLOR_KEYS: {
 	var: string;
 	label: string;
 	description: string;
+	labelKey: string;
+	descriptionKey: string;
 }[] = [
 	{
 		var: "--background",
 		label: "Background",
 		description: "Main page and app background",
+		labelKey: "settings.appearance.colorLabel.background",
+		descriptionKey: "settings.appearance.colorDescription.background",
 	},
 	{
 		var: "--foreground",
 		label: "Text",
 		description: "Primary text colour",
+		labelKey: "settings.appearance.colorLabel.foreground",
+		descriptionKey: "settings.appearance.colorDescription.foreground",
 	},
 	{
 		var: "--primary",
 		label: "Accent",
 		description: "Primary accent / highlight colour",
+		labelKey: "settings.appearance.colorLabel.primary",
+		descriptionKey: "settings.appearance.colorDescription.primary",
 	},
 	{
 		var: "--bg-subtle",
 		label: "Surface",
 		description: "Card / sidebar / secondary background",
+		labelKey: "settings.appearance.colorLabel.bg-subtle",
+		descriptionKey: "settings.appearance.colorDescription.bg-subtle",
 	},
 	{
 		var: "--border",
 		label: "Border",
 		description: "Lines, dividers, and input borders",
+		labelKey: "settings.appearance.colorLabel.border",
+		descriptionKey: "settings.appearance.colorDescription.border",
 	},
 	{
 		var: "--text-muted",
 		label: "Muted Text",
 		description: "Secondary / dimmed text colour",
+		labelKey: "settings.appearance.colorLabel.text-muted",
+		descriptionKey: "settings.appearance.colorDescription.text-muted",
 	},
 ];
 
@@ -290,20 +318,23 @@ export function deriveCustomVars(
 		"--surface-hover": isDark ? lighten(subtle, 0.08) : darken(subtle, 0.06),
 		"--surface-page": isDark ? darken(bg, 0.03) : lighten(bg, 0.005),
 		"--text-primary": fg,
-		"--text-muted": muted,
 		"--text-secondary": isDark ? lighten(muted, 0.3) : darken(muted, 0.2),
 		"--card": isDark ? lighten(bg, 0.03) : darken(bg, 0.02),
 		"--card-foreground": fg,
 		"--popover": isDark ? lighten(bg, 0.03) : darken(bg, 0.02),
 		"--popover-foreground": fg,
 		"--primary": primary,
-		"--primary-foreground": isDark ? "#ffffff" : "#ffffff",
+		/* BG-R18: deriveCustomVars used to hardcode --primary-foreground to
+		   white in both modes. For mid-tone primaries (green/amber/teal),
+		   white fails WCAG AA 4.5:1. Pick whichever of white/black has
+		   better contrast with the user-chosen primary. */
+		"--primary-foreground": _pickContrastForeground(primary),
 		"--secondary": isDark ? lighten(bg, 0.05) : darken(subtle, 0.03),
 		"--secondary-foreground": fg,
 		"--muted": isDark ? lighten(bg, 0.05) : darken(subtle, 0.02),
 		"--muted-foreground": muted,
 		"--accent": primary,
-		"--accent-foreground": "#ffffff",
+		"--accent-foreground": _pickContrastForeground(primary),
 		"--accent-soft": `${primary}1a`,
 		"--accent-muted": `${primary}66`,
 		"--border": border,
@@ -312,7 +343,7 @@ export function deriveCustomVars(
 		"--sidebar": isDark ? subtle : lighten(subtle, 0.03),
 		"--sidebar-foreground": fg,
 		"--sidebar-primary": primary,
-		"--sidebar-primary-foreground": "#ffffff",
+		"--sidebar-primary-foreground": _pickContrastForeground(primary),
 		"--sidebar-accent": isDark ? lighten(subtle, 0.05) : darken(subtle, 0.03),
 		"--sidebar-accent-foreground": fg,
 		"--sidebar-border": border,
@@ -322,6 +353,21 @@ export function deriveCustomVars(
 		"--scrollbar-thumb": scrollbar,
 		"--scrollbar-thumb-hover": scrollbarHover,
 	};
+}
+
+/**
+ * BG-R18: pick the foreground (white or black) that yields the higher
+ * WCAG 2.1 contrast ratio against ``bgHex``. Used by ``deriveCustomVars``
+ * so that mid-tone user-chosen primaries (green, amber, teal) get a
+ * readable foreground instead of an unreadable white-on-yellow pair.
+ *
+ * When the input is unparseable (``contrastRatio`` treats it as black),
+ * white wins and is returned. The function never throws.
+ */
+function _pickContrastForeground(bgHex: string): string {
+	const whiteRatio = contrastRatio("#ffffff", bgHex);
+	const blackRatio = contrastRatio("#000000", bgHex);
+	return whiteRatio >= blackRatio ? "#ffffff" : "#000000";
 }
 
 // ─── Tiny colour helpers ───────────────────────────────────────────────

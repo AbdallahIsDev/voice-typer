@@ -24,10 +24,15 @@
  * `voice_typer/client/src/main/windows/bubble-window.ts`), so the
  * renderer never receives keyboard focus and window-level `keydown`
  * events never fire in the shipped app.  Agent 12 (PVT-048 + PVT-067)
- * removed the handler from `Bubble.tsx` entirely; the proper
- * re-implementation is a MAIN-PROCESS global hotkey that sends
- * `bubble:move-by` IPC (see the comment block at the top of the new
- * `Bubble.tsx` for the full migration plan).
+ * removed the handler from `Bubble.tsx` entirely.
+ *
+ * BG-30 DECISION (option b — document as mouse-drag-only): the
+ * keyboard-move feature was DELIBERATELY NOT RE-IMPLEMENTED.  The
+ * bubble is now documented in user-facing help as mouse-drag-only.
+ * This is a deliberate product decision (see the BG-30 comment block
+ * at the top of `Bubble.tsx` for the rationale).  The main-process
+ * `bubble:move-by` IPC handler is preserved so a future product
+ * change can wire a global hotkey without renderer work.
  *
  * The original 7 vitest tests are kept below as `it.skip` placeholders
  * so the test names still appear in the runner output as a historical
@@ -132,19 +137,24 @@ function dispatchArrowKey(key: string, opts: { shiftKey?: boolean } = {}) {
 	});
 }
 
-// PVT-048 (Sub-agent 16): the original RW-0 tests below are SKIPPED
-// because agent 12 (PVT-048 + PVT-067) removed the renderer-side
-// `window.addEventListener("keydown", ...)` handler from `Bubble.tsx`.
-// The handler was dead code in production (the bubble BrowserWindow is
-// `focusable: false`, so renderer keydown events never fire in the
-// shipped app).  The proper re-implementation is a MAIN-PROCESS
-// global hotkey that sends `bubble:move-by` IPC — see the comment
-// block at the top of the new `Bubble.tsx` for the full migration
-// plan.  The test names are preserved as `it.skip` placeholders so the
-// RW-0 coverage map stays readable; flip them back to `it` only if a
-// renderer-side keyboard-move handler is re-introduced (and verify
-// `focusable: false` is also flipped in `bubble-window.ts`).
-describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_by (SKIPPED: handler removed in PVT-048)", () => {
+// BG-30 DECISION: the original RW-0 tests below are SKIPPED because the
+// keyboard-move feature was DELIBERATELY NOT RE-IMPLEMENTED.  The
+// renderer-side `window.addEventListener("keydown", ...)` handler was
+// removed by agent 12 (PVT-048 + PVT-067) because it was dead code in
+// production (the bubble BrowserWindow is `focusable: false`, so
+// renderer keydown events never fire in the shipped app).
+//
+// BG-30 option (b) was chosen: document the bubble as mouse-drag-only
+// rather than add a MAIN-PROCESS global hotkey.  The `bubble:move-by`
+// IPC handler in `main/ipc/bubble-handlers.ts` is preserved so a future
+// product decision can wire a global hotkey without renderer work.
+//
+// The test names are preserved as `it.skip` placeholders so the RW-0
+// coverage map stays readable; flip them back to `it` ONLY if a
+// renderer-side keyboard-move handler is re-introduced (which also
+// requires flipping `focusable: false` to `true` in `bubble-window.ts`
+// — see the BG-31 trade-off note in `bubble-components.tsx`).
+describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_by (SKIPPED: BG-30 mouse-drag-only decision)", () => {
 	it("calls moveBy with negative deltaX on ArrowLeft", () => {
 		render(<Bubble />);
 		mockBubble.moveBy.mockClear();
@@ -208,7 +218,7 @@ describe.skip("Bubble keyboard move — RW-0 rewrite of test_bubble_calls_move_b
 	});
 });
 
-describe.skip("Bubble draggable gate — RW-0 rewrite of test_bubble_respects_draggable_gate (SKIPPED: handler removed in PVT-048)", () => {
+describe.skip("Bubble draggable gate — RW-0 rewrite of test_bubble_respects_draggable_gate (SKIPPED: BG-30 mouse-drag-only decision)", () => {
 	it("does NOT call moveBy when draggable is false", () => {
 		render(<Bubble />);
 		mockBubble.moveBy.mockClear();
@@ -246,24 +256,20 @@ describe.skip("Bubble draggable gate — RW-0 rewrite of test_bubble_respects_dr
 	});
 });
 
-// PVT-048 (Sub-agent 16): the keyboard-move handler tested above was
-// DEAD CODE in production.  The bubble BrowserWindow is created with
-// `focusable: false` (see
-// `voice_typer/client/src/main/windows/bubble-window.ts`), so the
-// renderer never receives keyboard focus and window-level `keydown`
-// events never fire in the shipped app.  Agent 12 (PVT-048 + PVT-067)
-// removed the handler from `Bubble.tsx` entirely; the proper
-// re-implementation is a MAIN-PROCESS global hotkey that sends
-// `bubble:move-by` IPC.
+// BG-30: the keyboard-move handler tested above was DEAD CODE in
+// production (the bubble BrowserWindow is created with `focusable: false`,
+// see `voice_typer/client/src/main/windows/bubble-window.ts`).  The
+// feature was DELIBERATELY NOT RE-IMPLEMENTED (BG-30 option b — document
+// as mouse-drag-only); see the comment block at the top of `Bubble.tsx`
+// for the rationale.
 //
 // This test scans `bubble-window.ts` and asserts that `focusable: false`
 // is still set.  If a future refactor flips it to `true` (or removes
 // the option), this test will FAIL — at which point a renderer-side
-// keyboard-move handler becomes reachable in production and the
-// dead-code comment block at the top of `Bubble.tsx` is no longer
-// accurate.  The test also prints a warning to make the dead-code
-// status loud in test output.
-describe("PVT-048: Bubble keyboard-move is dead code in production (focusable: false)", () => {
+// keyboard-move handler becomes reachable in production and the BG-30
+// decision should be revisited.  The test also prints a warning to make
+// the dead-code status loud in test output.
+describe("BG-30: Bubble keyboard-move deliberately not implemented (focusable: false, mouse-drag-only)", () => {
 	const bubbleWindowPath = path.resolve(
 		__dirname,
 		"..",
@@ -277,7 +283,7 @@ describe("PVT-048: Bubble keyboard-move is dead code in production (focusable: f
 		"bubble-window.ts",
 	);
 
-	it("bubble-window.ts still sets `focusable: false` (keyboard-move handler is dead code)", () => {
+	it("bubble-window.ts still sets `focusable: false` (keyboard-move deliberately not implemented — BG-30)", () => {
 		// The path above resolves to
 		//   voice_typer/client/src/main/windows/bubble-window.ts
 		// (five ".." segments climb from
@@ -301,21 +307,22 @@ describe("PVT-048: Bubble keyboard-move is dead code in production (focusable: f
 		if (hasFocusableFalse) {
 			// eslint-disable-next-line no-console
 			console.warn(
-				"[PVT-048] Bubble BrowserWindow is created with `focusable: false` — " +
+				"[BG-30] Bubble BrowserWindow is created with `focusable: false` — " +
 					"the renderer-side keyboard arrow-move handler has been REMOVED from " +
-					"Bubble.tsx (PVT-048 + PVT-067 fix by agent 12).  Keyboard-move is " +
-					"DEAD in production; to re-implement it correctly, register a MAIN-PROCESS " +
-					"global hotkey (Electron globalShortcut.register or X11 grab) that sends " +
-					"bubble:move-by IPC to the main process (the handler already exists in " +
-					"main/ipc/bubble-handlers.ts).  Do NOT re-add a window keydown handler " +
-					"unless `focusable: false` is also flipped.",
+					"Bubble.tsx (PVT-048 + PVT-067 fix by agent 12).  BG-30 DECISION: " +
+					"keyboard-move was DELIBERATELY NOT re-implemented; the bubble is " +
+					"documented in user-facing help as mouse-drag-only.  The main-process " +
+					"`bubble:move-by` IPC handler (main/ipc/bubble-handlers.ts) is preserved " +
+					"so a future product change can wire a global hotkey without renderer " +
+					"work.  Do NOT re-add a window keydown handler unless `focusable: false` " +
+					"is also flipped in bubble-window.ts.",
 			);
 		}
 
 		expect(hasFocusableFalse).toBe(true);
 	});
 
-	it("Bubble.tsx documents the keyboard-move handler as dead code (PVT-048 comment block)", () => {
+	it("Bubble.tsx documents the keyboard-move handler as deliberately not implemented (BG-30 comment block)", () => {
 		// Companion assertion: Bubble.tsx itself must carry a
 		// comment block explaining WHY the keyboard-move handler
 		// was removed and HOW to re-implement it correctly.  This

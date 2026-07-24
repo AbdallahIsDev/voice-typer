@@ -55,6 +55,8 @@ function makeMockBubble() {
 			};
 		}),
 		toggleDictation: vi.fn(),
+		// BG-96: dismiss IPC send (sandboxed renderer).
+		dismiss: vi.fn(),
 		_listeners: listeners,
 	};
 }
@@ -338,5 +340,118 @@ describe("Bubble", () => {
 		setBubbleState("idle");
 		expect(screen.getByLabelText("Start dictation")).toBeTruthy();
 		expect(screen.queryByLabelText("Stop dictation")).toBeNull();
+	});
+
+	// ── BG-95: state-aware aria-label on outer <output> ──────────
+
+	it("BG-95: aria-label reflects recording mode by default", () => {
+		render(<Bubble />);
+		const output = document.querySelector('output[aria-live="polite"]');
+		// Default mode is "recording".
+		expect(output?.getAttribute("aria-label")).toBe(
+			"Voice Typer recording indicator",
+		);
+	});
+
+	it("BG-95: aria-label switches to transcribing indicator when mode changes", () => {
+		render(<Bubble />);
+
+		setBubbleState("transcribing");
+
+		const output = document.querySelector('output[aria-live="polite"]');
+		expect(output?.getAttribute("aria-label")).toBe(
+			"Voice Typer transcribing indicator",
+		);
+	});
+
+	it("BG-95: aria-label switches to error indicator in error mode", () => {
+		render(<Bubble />);
+
+		setBubbleState("error");
+
+		const output = document.querySelector('output[aria-live="polite"]');
+		expect(output?.getAttribute("aria-label")).toBe(
+			"Voice Typer error indicator",
+		);
+	});
+
+	it("BG-95: aria-label switches to idle indicator in idle mode", () => {
+		render(<Bubble />);
+
+		setBubbleState("idle");
+
+		const output = document.querySelector('output[aria-live="polite"]');
+		expect(output?.getAttribute("aria-label")).toBe(
+			"Voice Typer idle indicator",
+		);
+	});
+
+	// ── BG-96: dismiss '×' button ─────────────────────────────────
+
+	it("BG-96: does NOT show a dismiss button by default (no config received)", () => {
+		render(<Bubble />);
+		// Without a bubble:config push, the dismiss button must stay hidden.
+		expect(screen.queryByLabelText("Dismiss bubble")).toBeNull();
+	});
+
+	it("BG-96: shows a dismiss button when bubble_behavior is always_visible", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "always_visible",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: true,
+		});
+
+		const btn = screen.getByLabelText("Dismiss bubble");
+		expect(btn).toBeTruthy();
+		expect(btn.tagName).toBe("BUTTON");
+	});
+
+	it("BG-96: shows a dismiss button in always_visible mode even when mic_button is off", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "always_visible",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: false,
+		});
+
+		// Mic button should be hidden, but dismiss button still shown
+		// (always_visible bubble needs a manual dismiss affordance).
+		expect(screen.queryByLabelText("Start dictation")).toBeNull();
+		expect(screen.queryByLabelText("Stop dictation")).toBeNull();
+		expect(screen.getByLabelText("Dismiss bubble")).toBeTruthy();
+	});
+
+	it("BG-96: hides the dismiss button when bubble_behavior is show_on_record", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "show_on_record",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: true,
+		});
+
+		// show_on_record auto-hides when recording stops, so no
+		// manual dismiss affordance is needed.
+		expect(screen.queryByLabelText("Dismiss bubble")).toBeNull();
+	});
+
+	it("BG-96: clicking the dismiss button calls window.bubble.dismiss", () => {
+		render(<Bubble />);
+
+		pushBubbleConfig({
+			bubble_behavior: "always_visible",
+			bubble_click_to_toggle: true,
+			bubble_mic_button: true,
+		});
+
+		const btn = screen.getByLabelText("Dismiss bubble");
+		act(() => {
+			btn.click();
+		});
+
+		expect(mockBubble.dismiss).toHaveBeenCalledTimes(1);
 	});
 });

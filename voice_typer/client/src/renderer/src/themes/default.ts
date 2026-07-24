@@ -7,10 +7,9 @@
  */
 import type { ThemePreset } from "../themes";
 
-export const defaultTheme: ThemePreset = {
+export const defaultTheme: Omit<ThemePreset, "nameKey"> = {
 	id: "default",
 	name: "Default",
-	description: "The standard Voice Typer look — clean, neutral, and familiar.",
 	swatch: "oklch(0.488 0.243 264.376)", // primary blue
 	light: {}, // no overrides → use what's in the stylesheet
 	dark: {},

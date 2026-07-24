@@ -64,7 +64,26 @@ vi.mock("@/hooks/useSoundFeedback", () => ({
 }));
 
 vi.mock("@/components/layout/Sidebar", () => ({
-	Sidebar: () => <nav data-testid="sidebar" />,
+	Sidebar: ({
+		onNavigate,
+	}: {
+		onNavigate?: (page: string) => void;
+		currentPage?: string;
+	}) => (
+		<nav data-testid="sidebar">
+			{onNavigate && (
+				// BG-25 / BG-26: nav button so tests can trigger a real
+				// `navigate()` call (and thus App's document.title +
+				// focus-management effects) without mocking useNavigation.
+				// Label is intentionally "Switch to Settings" (not "Go to
+				// Settings") to avoid clashing with the page-not-found
+				// fallback's "Go to Home" button tested in UX-19.
+				<button type="button" onClick={() => onNavigate("settings")}>
+					Switch to Settings
+				</button>
+			)}
+		</nav>
+	),
 }));
 
 vi.mock("@/components/layout/TitleBar", () => ({
@@ -93,6 +112,11 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Moon02Icon: make("Moon02Icon"),
 		RefreshIcon: make("RefreshIcon"),
 		Sun01Icon: make("Sun01Icon"),
+		// BG-27: PunctuationCheatSheet (rendered inside the extracted
+		// <HelpOverlay />) transitively imports SearchField, which
+		// imports Search01Icon. Without this mock entry, opening the
+		// help overlay crashes the test.
+		Search01Icon: make("Search01Icon"),
 	};
 });
 
@@ -307,6 +331,13 @@ describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () 
 
 	afterEach(() => {
 		cleanup();
+		// BG-24: vi.resetModules() resets the module registry but does
+		// NOT undo vi.doMock registrations from the test body. Without
+		// this doUnmock, the UX-19 test's `vi.doMock("@/hooks/useNavigation",
+		// ...)` (which forces currentPage to an invalid page literal)
+		// leaks into subsequent UX-24 / UX-25 tests, breaking their
+		// assumption that App renders the home page on mount.
+		vi.doUnmock("@/hooks/useNavigation");
 		vi.resetModules();
 	});
 
@@ -329,13 +360,16 @@ describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () 
 		const { default: App } = await import("@/App");
 		render(<App />);
 
-		// UX-19: the heading uses t("app.pageNotFound") = "Page not found".
+		// BG-24 / UX-19: the heading uses t("app.pageNotFoundTitle") =
+		// "Page not found". The key is translated across all 8 locales;
+		// the fallback resolves to the active locale's translation.
 		await waitFor(() => {
 			expect(screen.getByText("Page not found")).toBeTruthy();
 		});
 
-		// UX-19: the unknown-page value uses t("app.unknownPage", { page })
-		// which interpolates to "Unknown page: totally_invalid_page".
+		// BG-24 / UX-19: the unknown-page value uses
+		// t("app.pageNotFoundDescription", { page }) which interpolates
+		// to "Unknown page: totally_invalid_page".
 		expect(screen.getByText("Unknown page: totally_invalid_page")).toBeTruthy();
 	});
 
@@ -561,5 +595,134 @@ describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 		await waitFor(() => {
 			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
 		});
+	});
+});
+
+// ── BG-25: document.title updates on route change ──────────────────────
+
+describe("BG-25: document.title updates on route change", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockPythonEvent.mockReset();
+		localStorage.clear();
+		document.title = "";
+		useAppStore.setState({
+			connectionStatus: "connected",
+			recordingState: "idle",
+			lastError: null,
+			config: makeConfig({ onboarding_completed: true }),
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+		vi.resetModules();
+		document.title = "";
+	});
+
+	it("sets document.title on initial mount based on the active page", async () => {
+		// useNavigation defaults to "home" on a clean localStorage, so
+		// the initial title should be "Home — Voice Typer".
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		// BG-25: title is `t("nav.<page>") + " — " + APP_NAME`.
+		// APP_NAME is "Voice Typer" (src/renderer/src/branding.ts).
+		expect(document.title).toBe("Home — Voice Typer");
+	});
+
+	it("updates document.title when the user navigates to a different page", async () => {
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+		expect(document.title).toBe("Home — Voice Typer");
+
+		// Click the mocked Sidebar's "Switch to Settings" button to
+		// trigger a real `navigate("settings")` call (useNavigation
+		// is NOT mocked here — the real hook handles the state
+		// transition so App's document.title effect re-fires).
+		fireEvent.click(screen.getByText("Switch to Settings"));
+
+		await waitFor(() => {
+			expect(screen.getByTestId("settings-page")).toBeTruthy();
+		});
+
+		// BG-25: title updated to the Settings page's nav label.
+		expect(document.title).toBe("Settings — Voice Typer");
+	});
+});
+
+// ── BG-26: focus management on route change ────────────────────────────
+
+describe("BG-26: focus moves to <main> on route change (skip link + tabIndex plumbing)", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockPythonEvent.mockReset();
+		localStorage.clear();
+		useAppStore.setState({
+			connectionStatus: "connected",
+			recordingState: "idle",
+			lastError: null,
+			config: makeConfig({ onboarding_completed: true }),
+		});
+	});
+
+	afterEach(() => {
+		cleanup();
+		vi.resetModules();
+	});
+
+	it("does NOT steal focus on the initial mount (skipFirstRun guard)", async () => {
+		// On mount, the user hasn't navigated yet — stealing focus from
+		// whatever they were doing (URL bar, bookmark, etc.) would be
+		// rude. The skipFirstRun ref suppresses the focus call on the
+		// first run of the effect.
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		// Active element should remain <body> (the default after render)
+		// — NOT the main-content element. This is the skipFirstRun guard.
+		const mainEl = document.getElementById("main-content");
+		expect(mainEl).toBeTruthy();
+		expect(document.activeElement).not.toBe(mainEl);
+	});
+
+	it("moves focus to <main id='main-content'> after a navigation event", async () => {
+		const { default: App } = await import("@/App");
+		render(<App />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("home-page")).toBeTruthy();
+		});
+
+		// Before navigation, focus is NOT on main-content.
+		const mainEl = document.getElementById("main-content");
+		expect(mainEl).toBeTruthy();
+		expect(document.activeElement).not.toBe(mainEl);
+
+		// Navigate to Settings via the mocked Sidebar button. Clicking
+		// the button moves focus to the button itself, then App's
+		// focus-management effect fires and moves focus to main-content.
+		fireEvent.click(screen.getByText("Switch to Settings"));
+
+		await waitFor(() => {
+			expect(screen.getByTestId("settings-page")).toBeTruthy();
+		});
+
+		// BG-26: focus moved to <main id="main-content"> after the
+		// route change. The element has tabIndex={-1} so it can
+		// receive programmatic focus without being in the tab order.
+		expect(document.activeElement).toBe(mainEl);
 	});
 });

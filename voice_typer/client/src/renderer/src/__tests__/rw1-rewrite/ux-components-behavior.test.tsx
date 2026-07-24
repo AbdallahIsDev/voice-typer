@@ -112,12 +112,14 @@ if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
 }
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
-const { mockCall, mockPythonEvent, mockNavigate, mockNavState } = vi.hoisted(() => ({
-	mockCall: vi.fn(),
-	mockPythonEvent: vi.fn(),
-	mockNavigate: vi.fn(),
-	mockNavState: { page: "home" as const },
-}));
+const { mockCall, mockPythonEvent, mockNavigate, mockNavState } = vi.hoisted(
+	() => ({
+		mockCall: vi.fn(),
+		mockPythonEvent: vi.fn(),
+		mockNavigate: vi.fn(),
+		mockNavState: { page: "home" as const },
+	}),
+);
 
 vi.mock("@/hooks/usePython", () => ({
 	usePython: () => ({ call: mockCall }),
@@ -1262,10 +1264,16 @@ describe("Vocabulary — RW-1 rewrite of help-text + category-picker tests", () 
 		// existing list row (the seeded "recieve" entry's badge
 		// renders "Misspellings" too).
 		await waitFor(() => {
-			expect(screen.getAllByText("Misspellings").length).toBeGreaterThanOrEqual(1);
+			expect(screen.getAllByText("Misspellings").length).toBeGreaterThanOrEqual(
+				1,
+			);
 		});
-		expect(screen.getAllByText("Phrase Corrections").length).toBeGreaterThanOrEqual(1);
-		expect(screen.getAllByText("Technical Terms").length).toBeGreaterThanOrEqual(1);
+		expect(
+			screen.getAllByText("Phrase Corrections").length,
+		).toBeGreaterThanOrEqual(1);
+		expect(
+			screen.getAllByText("Technical Terms").length,
+		).toBeGreaterThanOrEqual(1);
 		expect(screen.getAllByText("Names").length).toBeGreaterThanOrEqual(1);
 		expect(screen.getAllByText("Products").length).toBeGreaterThanOrEqual(1);
 	});
@@ -1428,12 +1436,12 @@ describe("TitleBar — RW-1 rewrite of isMaximized prop tests", () => {
 	it("skips the bridge.isMaximized() subscription when isMaximized prop is provided", async () => {
 		// Replaces test_titlebar_skips_subscription_when_prop_provided.
 		//
-		// Python invariant: `"isMaximizedProp !== undefined" in src`.
-		// Behavioral: when isMaximized is passed as a prop, TitleBar
-		// must NOT call window.window_.isMaximized() (the prop wins).
-		// We install a mock window bridge with spied isMaximized +
-		// onMaximizedChanged, render TitleBar with isMaximized={true},
-		// and assert neither spy was called.
+		// GT-E2-10 (session-6): TitleBar no longer has its own local
+		// isMaximized subscription at all — App.tsx owns the single
+		// subscription and always passes the prop. This test now asserts
+		// the simpler invariant: even when a mock bridge with isMaximized
+		// + onMaximizedChanged spies is installed, TitleBar never invokes
+		// either (because the auto-subscribe path was deleted).
 		const isMaximizedSpy = vi.fn(() => Promise.resolve(false));
 		const onMaximizedChangedSpy = vi.fn(() => vi.fn());
 		const minimizeSpy = vi.fn(() => Promise.resolve());
@@ -1453,8 +1461,8 @@ describe("TitleBar — RW-1 rewrite of isMaximized prop tests", () => {
 			render(<TitleBar isMaximized={true} />);
 
 			// Neither the one-shot isMaximized() probe nor the
-			// onMaximizedChanged subscription should fire when the
-			// prop is provided.
+			// onMaximizedChanged subscription should fire — the prop
+			// is the single source of truth after GT-E2-10.
 			expect(isMaximizedSpy).not.toHaveBeenCalled();
 			expect(onMaximizedChangedSpy).not.toHaveBeenCalled();
 		} finally {
@@ -1462,32 +1470,12 @@ describe("TitleBar — RW-1 rewrite of isMaximized prop tests", () => {
 		}
 	});
 
-	it("subscribes to bridge.isMaximized() when isMaximized prop is omitted", async () => {
-		// Extra behavioural coverage — locks down the other branch of
-		// the subscription gate so a future refactor can't silently
-		// break the auto-subscribe path.
-		const isMaximizedSpy = vi.fn(() => Promise.resolve(true));
-		const onMaximizedChangedSpy = vi.fn(() => vi.fn());
-		(window as unknown as Record<string, unknown>).window_ = {
-			isMaximized: isMaximizedSpy,
-			onMaximizedChanged: onMaximizedChangedSpy,
-			minimize: vi.fn(() => Promise.resolve()),
-			toggleMaximize: vi.fn(() => Promise.resolve()),
-			close: vi.fn(() => Promise.resolve()),
-		};
-
-		try {
-			const { TitleBar } = await import("@/components/layout/TitleBar");
-			render(<TitleBar />);
-
-			// The subscription path runs the one-shot probe AND
-			// registers the onMaximizedChanged listener.
-			expect(isMaximizedSpy).toHaveBeenCalled();
-			expect(onMaximizedChangedSpy).toHaveBeenCalled();
-		} finally {
-			delete (window as unknown as Record<string, unknown>).window_;
-		}
-	});
+	// GT-E2-10 (session-6): the "subscribes to bridge.isMaximized() when
+	// isMaximized prop is omitted" test was deleted — the auto-subscribe
+	// fallback path it covered no longer exists. App.tsx (lines 161-189)
+	// owns the single maximize-state subscription and always passes the
+	// prop; TitleBar's local useState + useEffect subscription was removed
+	// as duplicate/dead code.
 });
 
 // ────────────────────────────────────────────────────────────────────

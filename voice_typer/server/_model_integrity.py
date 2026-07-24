@@ -42,9 +42,6 @@ either pin or ignore).  The list is now split per backend:
   and never via ``torch.load`` (the pickle-vector path), so the
   risk is bounded.  Used by ``transcription.py::_pre_download_model``.
 
-A backward-compat alias ``ALLOW_PATTERNS = ALLOW_PATTERNS_WHISPER`` is
-kept so existing third-party imports don't break; new code should
-import the backend-specific list explicitly.
 """
 
 # SEC-audit-005 / G4-M-39: Allowlist of file patterns permitted in
@@ -98,11 +95,3 @@ ALLOW_PATTERNS_WHISPER: list[str] = [
     "model.safetensors.index.json",
     "*.model",
 ]
-
-# Backward-compat alias.  Pre-G4-M-39 the single ``ALLOW_PATTERNS``
-# list was used by both Parakeet and Whisper paths.  The original
-# list contained ``*.bin``, so the alias points at the Whisper list
-# (the larger of the two).  New call sites should import the
-# backend-specific list explicitly — see ``parakeet_engine.py`` and
-# ``transcription.py`` for the migration.
-ALLOW_PATTERNS: list[str] = ALLOW_PATTERNS_WHISPER

@@ -230,7 +230,11 @@ def t(key: str, **fmt: Any) -> str:
     if fmt:
         try:
             return text.format(**fmt)
-        except (KeyError, IndexError):
+        except (KeyError, IndexError, ValueError):
+            # AC-22: also catch ValueError — str.format() raises it for
+            # bad format specs (e.g. "{name:bad}" in a translation).
+            # The docstring promises "a bad translation never crashes a
+            # notification path"; broaden the catch so it actually holds.
             return text
     return text
 

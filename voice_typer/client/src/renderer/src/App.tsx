@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Modal } from "@/components/common/Modal";
+import { APP_NAME } from "@/branding";
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
-import { Spinner } from "@/components/feedback/Spinner";
-import { PunctuationCheatSheet } from "@/components/help/PunctuationCheatSheet";
+import { HelpOverlay } from "@/components/help/HelpOverlay";
+import { ConnectionStatusScreen } from "@/components/layout/ConnectionStatusScreen";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
 import { useConnection } from "@/hooks/useConnection";
+import { useConnectionToasts } from "@/hooks/useConnectionToasts";
+import { useGlobalKeyboardShortcuts } from "@/hooks/useGlobalKeyboardShortcuts";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
@@ -63,6 +66,36 @@ export default function App() {
 		}
 	}, [currentPage, config, replace]);
 
+	// BG-25 (a11y / WCAG 2.4.2 Page Titled): keep `document.title` in sync
+	// with the active route so screen-reader users (who announce the window
+	// title to orient) and OS taskbar users can tell which page is active
+	// without reading into main content. The title is composed as
+	// `t("nav.<page>") — APP_NAME` so it localises with the rest of the UI.
+	// Runs on mount AND whenever `currentPage` or `t` (i.e. the active
+	// locale) changes — a locale switch re-titles the window.
+	useEffect(() => {
+		document.title = t(`nav.${currentPage}`) + " — " + APP_NAME;
+	}, [currentPage, t]);
+
+	// BG-26 (a11y / focus management on route change): move keyboard focus
+	// to `<main id="main-content">` whenever `currentPage` changes so screen
+	// reader + keyboard users aren't stranded on the previously-focused
+	// nav item after a route transition. The skip link + `tabIndex={-1}`
+	// plumbing was already in place; this is the missing focus call.
+	// `skipFirstRun` suppresses the focus call on the initial mount (the
+	// user hasn't navigated yet, so stealing focus from whatever they were
+	// doing would be rude — e.g. if they opened the app and immediately
+	// focused the URL bar or a bookmark).
+	const skipFirstRun = useRef(true);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: currentPage is the effect's trigger — the body doesn't read it, but the effect MUST fire on every route change to move focus to <main>.
+	useEffect(() => {
+		if (skipFirstRun.current) {
+			skipFirstRun.current = false;
+			return;
+		}
+		document.getElementById("main-content")?.focus();
+	}, [currentPage]);
+
 	useSoundFeedback();
 
 	// NEW-UX-043: "?" key opens a help overlay listing keyboard shortcuts.
@@ -102,6 +135,27 @@ export default function App() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const [isMaximized, setIsMaximized] = useState(false);
 
+	// BG-64 (partial): auto-collapse the sidebar when the window narrows
+	// below the `640px` breakpoint. Only the wide→narrow TRANSITION (and
+	// the initial narrow mount) forces a collapse — once collapsed, the
+	// user's manual expand (Ctrl+B or TitleBar toggle) is respected until
+	// the next wide→narrow transition. Narrow→wide transitions do NOT
+	// auto-expand (the user may have intentionally collapsed the sidebar
+	// on a wide window).
+	const isNarrowViewport = useMediaQuery("(max-width: 640px)");
+	const prevNarrowRef = useRef<boolean | null>(null);
+	useEffect(() => {
+		const prev = prevNarrowRef.current;
+		// `prev !== true` covers BOTH the initial mount (prev === null)
+		// and the wide→narrow transition (prev === false). On the
+		// narrow→wide transition and on re-renders while narrow, prev
+		// === true and we no-op so the user's manual toggle wins.
+		if (isNarrowViewport && prev !== true) {
+			setSidebarCollapsed(true);
+		}
+		prevNarrowRef.current = isNarrowViewport;
+	}, [isNarrowViewport]);
+
 	const { call } = usePython();
 
 	// ── Theme + connection ────────────────────────────────────────
@@ -115,48 +169,15 @@ export default function App() {
 	const { recordingState, connectionStatus, lastError, handleRetryConnection } =
 		useConnection({ call, currentPage, navigate });
 
-	const prevConnectionRef = useRef(connectionStatus);
-	useEffect(() => {
-		const prev = prevConnectionRef.current;
-		prevConnectionRef.current = connectionStatus;
-		if (prev !== "connected" && connectionStatus === "connected") {
-			reloadThemeFromConfig();
-		}
-
-		// PVT-fix-20: surface connection-state transitions as toasts
-		// so the user gets immediate visual feedback when the backend
-		// drops out, restarts, or recovers — previously the only
-		// feedback was the connecting/disconnected/restarting swap
-		// inside the main content area, which a user looking at the
-		// Home mic button could easily miss. Toasts reuse existing
-		// i18n keys (`app.lostConnection`, `app.restartingBackend`,
-		// `about.connected`) so no new translation keys are required.
-		//
-		// Transitions are tracked via the `prev` ref so each toast
-		// fires exactly once per transition (not on every re-render).
-		// The initial mount path (prev === connectionStatus ===
-		// "connecting") doesn't fire a toast — only state CHANGES do.
-		if (prev !== connectionStatus) {
-			if (connectionStatus === "disconnected") {
-				toast.error(t("app.lostConnection"), {
-					description: t("app.lostConnectionHint"),
-					duration: 6000,
-				});
-			} else if (connectionStatus === "restarting") {
-				toast.warning(t("app.restartingBackend"), {
-					description: t("app.restartingHint"),
-					duration: 4000,
-				});
-			} else if (connectionStatus === "connected" && prev !== "connecting") {
-				// Don't toast on the initial connect (prev ===
-				// "connecting") — the user just launched the app
-				// and doesn't need a "Connected!" toast. Only
-				// surface RECOVERIES from a disconnected/restarting
-				// state.
-				toast.success(t("about.connected"), { duration: 3000 });
-			}
-		}
-	}, [connectionStatus, reloadThemeFromConfig, t]);
+	// BG-27: connection-state toasts + theme-reload-on-recover extracted
+	// to `useConnectionToasts`. Returns the prev-connection ref so the
+	// aria-live region below can announce RECOVERIES only (not the
+	// initial connecting → connected transition).
+	const prevConnectionRef = useConnectionToasts({
+		connectionStatus,
+		reloadThemeFromConfig,
+		t,
+	});
 
 	// ── Window maximize state ─────────────────────────────────────
 	const bridge =
@@ -188,99 +209,17 @@ export default function App() {
 		};
 	}, [bridge]);
 
-	// Keyboard shortcuts: Ctrl+B (sidebar), Ctrl+, (settings), Ctrl+H (home),
-	// Ctrl+=/Ctrl+- (text size), Ctrl+Wheel (text size)
-	useEffect(() => {
-		const keyHandler = (e: KeyboardEvent) => {
-			if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-				const target = e.target as HTMLElement | null;
-				const tag = target?.tagName?.toLowerCase() ?? "";
-				const typing =
-					tag === "input" ||
-					tag === "textarea" ||
-					target?.isContentEditable === true;
-
-				if (e.key === "b" && !typing) {
-					e.preventDefault();
-					setSidebarCollapsed((c) => !c);
-					return;
-				}
-				if (e.key === "," && !typing) {
-					e.preventDefault();
-					navigate("settings");
-					return;
-				}
-				if (e.key === "h" && !typing) {
-					e.preventDefault();
-					navigate("home");
-					return;
-				}
-
-				// PVT-fix-11: zoom shortcuts (Ctrl+= / Ctrl+-) moved
-				// inside the `!typing` guard so Ctrl+=/Ctrl+- pressed
-				// while focus is inside an <input>/<textarea>/
-				// contentEditable (e.g. the Settings search field) does
-				// NOT hijack the keystroke to bump text size. The
-				// browser's native zoom remains available via Ctrl++
-				// (different key) outside the app's text-size shortcut
-				// namespace. Behaviour is otherwise preserved (same
-				// min/max bounds, same `set_config` IPC).
-				if ((e.key === "=" || e.key === "+") && !typing) {
-					e.preventDefault();
-					const current = textSize ?? 14;
-					const next = Math.min(current + 1, 20);
-					if (next !== current) {
-						setTextSize(next);
-						call("set_config", { text_size: next }).catch((err) => {
-							console.warn("[IPC] set_config failed:", err);
-							toast.error(t("errorBoundary.unknownError"));
-						});
-					}
-					return;
-				}
-
-				if (e.key === "-" && !typing) {
-					e.preventDefault();
-					const current = textSize ?? 14;
-					const next = Math.max(current - 1, 10);
-					if (next !== current) {
-						setTextSize(next);
-						call("set_config", { text_size: next }).catch((err) => {
-							console.warn("[IPC] set_config failed:", err);
-							toast.error(t("errorBoundary.unknownError"));
-						});
-					}
-					return;
-				}
-			}
-		};
-
-		const wheelHandler = (e: WheelEvent) => {
-			if (!e.ctrlKey && !e.metaKey) return;
-			e.preventDefault();
-			const current = textSize ?? 14;
-			if (e.deltaY < 0) {
-				const next = Math.min(current + 1, 20);
-				if (next !== current) {
-					setTextSize(next);
-					call("set_config", { text_size: next }).catch(() => {});
-				}
-			} else if (e.deltaY > 0) {
-				const next = Math.max(current - 1, 10);
-				if (next !== current) {
-					setTextSize(next);
-					call("set_config", { text_size: next }).catch(() => {});
-				}
-			}
-		};
-
-		window.addEventListener("keydown", keyHandler);
-		window.addEventListener("wheel", wheelHandler, { passive: false });
-		return () => {
-			window.removeEventListener("keydown", keyHandler);
-			window.removeEventListener("wheel", wheelHandler);
-		};
-	}, [navigate, textSize, call, setTextSize, t]);
+	// BG-27: app-wide keyboard shortcuts (Ctrl+B/,/H/=/-/wheel) extracted
+	// to `useGlobalKeyboardShortcuts`. Behaviour byte-identical to the
+	// original inline effect.
+	useGlobalKeyboardShortcuts({
+		navigate,
+		textSize,
+		setTextSize,
+		call,
+		t,
+		setSidebarCollapsed,
+	});
 
 	// ── Listen for navigate events from Python ────────────────────
 	// EC-FIX-13: page validation uses the single route table in
@@ -418,13 +357,19 @@ export default function App() {
 			case "onboarding":
 				return <OnboardingPage onComplete={handleOnboardingComplete} />;
 			default:
+				// BG-24: page-not-found fallback now resolves via i18n
+				// (`app.pageNotFoundTitle` / `app.pageNotFoundDescription`)
+				// so non-English users see the fallback in their locale.
+				// Both keys ship translated across all 8 locales.
 				return (
 					<div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
 						<p className="text-sm font-medium text-(--text-primary)">
-							Page not found
+							{t("app.pageNotFoundTitle")}
 						</p>
 						<p className="text-xs text-(--text-muted)">
-							Unknown page: {String(currentPage)}
+							{t("app.pageNotFoundDescription", {
+								page: String(currentPage),
+							})}
 						</p>
 						<Button variant="default" onClick={() => navigate("home")}>
 							{t("app.goHome")}
@@ -475,153 +420,28 @@ export default function App() {
 							className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none"
 							style={{ scrollbarGutter: "stable" }}
 						>
-							{connectionStatus === "connecting" ? (
-								<div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
-									<Spinner />
-									<div className="space-y-2">
-										<p className="text-sm font-medium text-(--text-primary)">
-											{t("app.startingBackend")}
-										</p>
-										{/* NF-R10-5: 3-step progress indicator */}
-										<ol className="text-xs text-(--text-muted) max-w-md space-y-1 list-none">
-											<li>
-												{connectingProgress !== null ? "✓" : "①"}{" "}
-												{t("app.connecting.step1StartingPython")}
-											</li>
-											<li>
-												{connectingProgress !== null &&
-												connectingProgress >= 100
-													? "✓"
-													: "②"}{" "}
-												{t("app.connecting.step2LoadingModel", {
-													percent:
-														connectingProgress !== null &&
-														connectingProgress < 100
-															? ` (${Math.round(connectingProgress)}%)`
-															: "",
-												})}
-											</li>
-											<li>
-												{"③"} {t("app.connecting.step3Ready")}
-											</li>
-										</ol>
-										{/* PVT-fix-19: wire the existing
-										    `app.firstLaunchHint` key into the
-										    connecting UI. The key has shipped in
-										    translations/en.json since the early
-										    i18n rollout ("First launch can take
-										    30–60 seconds while we download the
-										    speech model (~466 MB for small.en)…")
-										    but was never rendered — the connecting
-										    screen only showed the 3-step progress
-										    list, leaving first-time users wondering
-										    whether the 30–60s wait was normal. The
-										    hint is shown ONLY on the `connecting`
-										    screen (not `restarting` or
-										    `disconnected`) because it specifically
-										    describes the model-download path. */}
-										<p className="text-xs text-(--text-muted) max-w-md">
-											{t("app.firstLaunchHint")}
-										</p>
-									</div>
-								</div>
-							) : connectionStatus === "restarting" ? (
-								// Issue 1E: dedicated restart UI.  Deliberately does NOT
-								// reuse the "connecting" branch because that one advertises
-								// a 30–60 s model download that doesn't apply here — the
-								// model is already cached, only the Python process is being
-								// re-spawned.  Showing the download hint here made users
-								// think the restart was hung on a 466 MB re-download.
-								<div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
-									<Spinner />
-									<div className="space-y-2">
-										<p className="text-sm font-medium text-(--text-primary)">
-											{t("app.restartingBackend")}
-										</p>
-										<p className="text-xs text-(--text-muted) max-w-md">
-											{t("app.restartingHint")}
-										</p>
-									</div>
-								</div>
-							) : connectionStatus === "disconnected" ? (
-								<div className="flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
-									<div className="space-y-2">
-										<p className="text-sm font-medium text-(--text-primary)">
-											{t("app.lostConnection")}
-										</p>
-										{/* NF-R10-5: show the actual error message when
-											available (e.g. "Python crashed: exit code 137")
-											so the user can act on it instead of seeing a
-											generic "lost connection" message. */}
-										<p className="text-xs text-(--text-muted) max-w-md">
-											{lastError ?? t("app.lostConnectionHint")}
-										</p>
-										<Button
-											variant="outline"
-											size="sm"
-											onClick={handleRetryConnection}
-										>
-											{t("app.retryConnection")}
-										</Button>
-									</div>
-								</div>
-							) : (
+							{connectionStatus === "connected" ? (
 								renderPage()
+							) : (
+								<ConnectionStatusScreen
+									status={connectionStatus}
+									lastError={lastError}
+									onRetry={handleRetryConnection}
+									connectingProgress={connectingProgress}
+								/>
 							)}
 						</main>
 					</div>
 				</div>
 				<Toaster />
 
-				{/* Help overlay */}
-				<Modal
+				{/* BG-27: help overlay extracted to <HelpOverlay /> */}
+				<HelpOverlay
 					open={showHelpOverlay}
 					onClose={() => setShowHelpOverlay(false)}
-					title={t("help.title")}
-					description={t("help.description")}
-					size="sm"
-					className="w-110"
-				>
-					<ul className="space-y-2 text-sm">
-						{[
-							{ keys: dictationLabel, desc: t("help.dictation") },
-							{ keys: t("help.keys.cancel"), desc: t("help.cancel") },
-							{ keys: repasteLabel, desc: t("help.repaste") },
-							{
-								keys: t("help.keys.toggleSidebar"),
-								desc: t("help.toggleSidebar"),
-							},
-							{
-								keys: t("help.keys.openSettings"),
-								desc: t("help.openSettings"),
-							},
-							{ keys: t("help.keys.goHome"), desc: t("help.goHome") },
-							{ keys: t("help.keys.navigate"), desc: t("help.navigate") },
-							{ keys: t("help.keys.toggle"), desc: t("help.toggle") },
-							{ keys: t("help.keys.activate"), desc: t("help.activate") },
-							{
-								keys: t("help.keys.zoomTextSize"),
-								desc: t("help.zoomTextSize"),
-							},
-							{ keys: t("help.keys.openHelp"), desc: t("help.openHelp") },
-							{ keys: t("help.keys.navBack"), desc: t("help.navBack") },
-						].map((shortcut) => (
-							<li
-								key={shortcut.keys}
-								className="flex items-center justify-between gap-4"
-							>
-								<span className="text-(--text-muted)">{shortcut.desc}</span>
-								<kbd className="rounded border border-border bg-(--bg-subtle) px-2 py-0.5 font-mono text-xs text-(--text-primary)">
-									{shortcut.keys}
-								</kbd>
-							</li>
-						))}
-					</ul>
-					<PunctuationCheatSheet />
-					<p className="text-xs text-(--text-muted)">
-						{t("help.closeHint", { key: "Esc" })}
-					</p>
-				</Modal>
+					dictationLabel={dictationLabel}
+					repasteLabel={repasteLabel}
+				/>
 
 				{/* Screen reader live region */}
 				<div aria-live="polite" aria-atomic="true" className="sr-only">

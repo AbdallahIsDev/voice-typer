@@ -42,12 +42,13 @@ class PynputHotkey(HotkeyBackend):
     def __init__(self, hotkey_str: str):
         super().__init__(hotkey_str)
         self._listener = None
-        self._on_release_callback: Callable[[], None] | None = None
-        # Toggle-mode flag: when True (set by HotkeyDispatcher for the main
-        # dictation hotkey in toggle mode), the toggle fires on key-UP
-        # (release) instead of key-down. Prevents a press-and-hold from
-        # starting and then immediately stopping recording.
-        self._toggle_on_keyup: bool = False
+        # AC-26: the redundant redeclarations of
+        # ``self._on_release_callback`` and ``self._toggle_on_keyup``
+        # that used to live here have been deleted —
+        # ``super().__init__(hotkey_str)`` already initializes both
+        # (see ``HotkeyBackend.__init__`` in base.py). The previous
+        # redeclarations were no-ops that could mask a future base-class
+        # refactor.
 
     def start(self, callback: Callable[[], None]) -> None:
         # PERF-012: On Linux/macOS, use pynput's event-driven Listener

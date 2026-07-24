@@ -60,6 +60,7 @@ from voice_typer.server.hotkeys.base import HotkeyBackend
 from voice_typer.server.hotkeys.factory import create_hotkey_backend
 from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 
+
 # =====================================================================
 # CRITICAL — DO NOT REMOVE (2026-07-20)
 # =====================================================================
@@ -82,9 +83,22 @@ from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 # call, and so ``monkeypatch.setattr("...sys.platform", "linux")`` propagates
 # through ``sys.platform`` lookups to every submodule caller.
 # =====================================================================
-is_windows = lambda: sys.platform == "win32"  # noqa: E731
-is_linux = lambda: sys.platform.startswith("linux")  # noqa: E731
-is_macos = lambda: sys.platform == "darwin"  # noqa: E731
+# AC-27: previously these were ``is_windows = lambda: sys.platform == "win32"``
+# assignments with ``# noqa: E731`` suppressions (PEP 8 E731 discourages
+# assigning lambdas to names). Replaced with regular ``def``s — same
+# call-site behaviour (zero-arg callable), no lint suppression.
+def is_windows() -> bool:
+    return sys.platform == "win32"
+
+
+def is_linux() -> bool:
+    return sys.platform.startswith("linux")
+
+
+def is_macos() -> bool:
+    return sys.platform == "darwin"
+
+
 from voice_typer.server.hotkeys.pynput_backend import (  # noqa: E402
     PynputHotkey,
     _parse_hotkey_to_pynput,

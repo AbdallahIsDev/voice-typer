@@ -300,6 +300,25 @@ class ClipboardSnapshot:
         the original because Windows assigns IDs dynamically). Skips
         GDI-handle formats (CF_BITMAP, CF_METAFILEPICT, CF_ENHMETAFILE)
         which cannot be round-tripped through GlobalAlloc.
+
+        DE-62 (session-DE, Medium, Data integrity): the pre-fix code
+        called ``EmptyClipboard()`` unconditionally, then iterated
+        ``self.items`` calling ``SetClipboardData`` per format. Per-item
+        failures were logged at DEBUG and the item skipped; the function
+        returned ``True`` unconditionally — even if EVERY
+        ``SetClipboardData`` call failed (e.g. all ``GlobalAlloc``
+        returned 0 due to memory pressure). After ``EmptyClipboard()``
+        ran, the user's original clipboard content was gone, but the
+        caller logged "Restored snapshot" — false success with silent
+        permanent data loss.
+
+        Fix: track a success count during the loop. If zero items were
+        successfully set, return ``False`` and log at WARNING so the
+        caller logs failure instead of "Restored snapshot". The
+        ``EmptyClipboard()`` call is preserved (the capture-then-swap
+        pattern would be more complex and is left as a future
+        improvement); the fix narrows the false-success case from
+        "zero items set → True" to "zero items set → False + WARNING".
         """
         import ctypes
 
@@ -315,6 +334,7 @@ class ClipboardSnapshot:
             return False
         try:
             user32.EmptyClipboard()
+            success_count = 0
             for fmt, name, data in self.items:
                 # Skip GDI-handle formats — they cannot be restored from
                 # raw bytes. Image data is preserved via CF_DIB / CF_DIBV5.
@@ -357,6 +377,20 @@ class ClipboardSnapshot:
                         target_fmt,
                         name,
                     )
+                    continue
+                success_count += 1
+            if success_count == 0:
+                # DE-62: zero items were successfully set. EmptyClipboard()
+                # has already cleared the clipboard, so the user's prior
+                # content is gone. Return False so the caller logs failure
+                # instead of "Restored snapshot" — at least the audit
+                # trail is honest about the data loss.
+                log.warning(
+                    "[CLIPBOARD-SNAPSHOT] _restore_windows: 0/%d formats set — "
+                    "clipboard is empty after EmptyClipboard (DE-62)",
+                    len(self.items),
+                )
+                return False
             return True
         finally:
             user32.CloseClipboard()
@@ -482,7 +516,20 @@ class ClipboardSnapshot:
         )
 
     def _restore_x11(self) -> bool:
-        """Restore text content to the X11 clipboard via xclip."""
+        """Restore text content to the X11 clipboard via xclip.
+
+        DE-61 (session-DE, Medium, Data integrity): the pre-fix code
+        called ``subprocess.run(...)`` without ``check=True``, so a
+        non-zero ``xclip`` exit (no ``DISPLAY``, X11 connection
+        refused, compositor error) did NOT raise — the function
+        returned ``True`` unconditionally and the caller logged
+        "Restored snapshot" while the user's clipboard still contained
+        the dictated text. Silent data loss with false-success signal.
+        Now we pass ``check=True`` so non-zero exits raise
+        ``CalledProcessError``, catch it alongside
+        ``TimeoutExpired``/``FileNotFoundError``, and return ``False``
+        on failure with a WARNING log.
+        """
         import subprocess
 
         if not self.items:
@@ -494,10 +541,18 @@ class ClipboardSnapshot:
                 ["xclip", "-selection", "clipboard", "-t", target, "-i"],
                 input=data,
                 timeout=2.0,
+                check=True,
             )
             return True
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            log.debug("[CLIPBOARD-SNAPSHOT] xclip restore failed")
+            log.debug("[CLIPBOARD-SNAPSHOT] xclip restore failed (timeout or missing)")
+            return False
+        except subprocess.CalledProcessError as exc:
+            log.warning(
+                "[CLIPBOARD-SNAPSHOT] xclip restore failed (exit %d) — "
+                "clipboard may still contain dictated text (DE-61)",
+                exc.returncode,
+            )
             return False
 
     # ─── Linux Wayland (wl-copy/wl-paste, text-only — documented) ──────
@@ -543,7 +598,19 @@ class ClipboardSnapshot:
         )
 
     def _restore_wayland(self) -> bool:
-        """Restore text content to the Wayland clipboard via wl-copy."""
+        """Restore text content to the Wayland clipboard via wl-copy.
+
+        DE-61 (session-DE, Medium, Data integrity): the pre-fix code
+        called ``subprocess.run(...)`` without ``check=True``, so a
+        non-zero ``wl-copy`` exit (compositor error, no Wayland
+        display) did NOT raise — the function returned ``True``
+        unconditionally and the caller logged "Restored snapshot"
+        while the user's clipboard still contained the dictated text.
+        Silent data loss with false-success signal. Now we pass
+        ``check=True`` so non-zero exits raise ``CalledProcessError``,
+        catch it alongside ``TimeoutExpired``/``FileNotFoundError``,
+        and return ``False`` on failure with a WARNING log.
+        """
         import subprocess
 
         if not self.items:
@@ -555,8 +622,16 @@ class ClipboardSnapshot:
                 ["wl-copy", "--type", target],
                 input=data,
                 timeout=2.0,
+                check=True,
             )
             return True
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            log.debug("[CLIPBOARD-SNAPSHOT] wl-copy restore failed")
+            log.debug("[CLIPBOARD-SNAPSHOT] wl-copy restore failed (timeout or missing)")
+            return False
+        except subprocess.CalledProcessError as exc:
+            log.warning(
+                "[CLIPBOARD-SNAPSHOT] wl-copy restore failed (exit %d) — "
+                "clipboard may still contain dictated text (DE-61)",
+                exc.returncode,
+            )
             return False

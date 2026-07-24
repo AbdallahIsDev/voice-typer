@@ -13,11 +13,9 @@
  */
 import type { ThemePreset } from "../themes";
 
-export const sepiaTheme: ThemePreset = {
+export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 	id: "sepia",
 	name: "Sepia",
-	description:
-		"Warm amber tones and cream backgrounds — easy on the eyes, like reading a well-loved book.",
 	swatch: "oklch(0.6 0.08 50)",
 	light: {
 		// Core
@@ -28,7 +26,6 @@ export const sepiaTheme: ThemePreset = {
 		"--surface-page": "oklch(0.96 0.025 75)",
 		// Text
 		"--text-primary": "oklch(0.18 0.025 40)",
-		"--text-muted": "oklch(0.45 0.02 40)",
 		"--text-secondary": "oklch(0.35 0.02 40)",
 		// Cards / popovers
 		"--card": "oklch(0.97 0.025 75)",
@@ -64,7 +61,7 @@ export const sepiaTheme: ThemePreset = {
 		"--sidebar-accent": "oklch(0.9 0.02 75)",
 		"--sidebar-accent-foreground": "oklch(0.22 0.025 40)",
 		"--sidebar-border": "oklch(0.85 0.02 75)",
-		"--sidebar-ring": "oklch(0.6 0.08 50)",
+		"--sidebar-ring": "oklch(0.48 0.08 50)",
 		// Charts
 		"--chart-1": "oklch(0.6 0.12 50)",
 		"--chart-2": "oklch(0.55 0.1 160)",
@@ -84,7 +81,6 @@ export const sepiaTheme: ThemePreset = {
 		"--surface-page": "oklch(0.14 0.02 40)",
 		// Text
 		"--text-primary": "oklch(0.93 0.015 75)",
-		"--text-muted": "oklch(0.5 0.015 40)",
 		"--text-secondary": "oklch(0.75 0.01 75)",
 		// Cards / popovers
 		"--card": "oklch(0.16 0.02 40)",
@@ -93,7 +89,7 @@ export const sepiaTheme: ThemePreset = {
 		"--popover-foreground": "oklch(0.93 0.015 75)",
 		// Primary / accent
 		"--primary": "oklch(0.6 0.1 50)",
-		"--primary-foreground": "oklch(0.97 0 0)",
+		"--primary-foreground": "oklch(0.1 0 0)",
 		"--accent": "oklch(0.6 0.08 50)",
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.55 0.1 50 / 0.12)",
@@ -102,11 +98,11 @@ export const sepiaTheme: ThemePreset = {
 		"--secondary": "oklch(0.22 0.02 40)",
 		"--secondary-foreground": "oklch(0.93 0.015 75)",
 		"--muted": "oklch(0.2 0.015 40)",
-		"--muted-foreground": "oklch(0.5 0.015 40)",
+		"--muted-foreground": "oklch(0.65 0.015 40)",
 		// Borders / inputs / rings
 		"--border": "oklch(0.22 0.02 40)",
 		"--input": "oklch(0.24 0.02 40)",
-		"--ring": "oklch(0.5 0.06 50)",
+		"--ring": "oklch(0.7 0.08 60)",
 		// Destructive (CR-061: added --destructive-foreground so dark
 		// matches light coverage; previously only --destructive was set.)
 		"--destructive": "oklch(0.55 0.25 27)",
@@ -115,11 +111,11 @@ export const sepiaTheme: ThemePreset = {
 		"--sidebar": "oklch(0.12 0.02 40)",
 		"--sidebar-foreground": "oklch(0.93 0.015 75)",
 		"--sidebar-primary": "oklch(0.6 0.1 50)",
-		"--sidebar-primary-foreground": "oklch(0.97 0 0)",
+		"--sidebar-primary-foreground": "oklch(0.1 0 0)",
 		"--sidebar-accent": "oklch(0.18 0.02 40)",
 		"--sidebar-accent-foreground": "oklch(0.93 0.015 75)",
 		"--sidebar-border": "oklch(0.2 0.02 40)",
-		"--sidebar-ring": "oklch(0.5 0.06 50)",
+		"--sidebar-ring": "oklch(0.7 0.08 60)",
 		// Charts
 		"--chart-1": "oklch(0.65 0.12 50)",
 		"--chart-2": "oklch(0.6 0.1 160)",

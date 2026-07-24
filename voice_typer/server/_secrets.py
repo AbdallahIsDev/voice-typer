@@ -293,16 +293,19 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
     - Does **not** stringify non-string input. Callers must convert
       explicitly (or use :func:`redact_secret`).
     """
+
+    # ER-64: hoisted _sub out of the loop (was re-created per pattern per call
+    # — 4 function objects per call instead of 1). `replacement` is constant
+    # for the whole call, so standard closure capture works correctly.
+    def _sub(m: re.Match[str]) -> str:
+        if m.lastindex:
+            # Pattern has a prefix group (e.g. "Bearer ").  Keep
+            # the prefix, redact the rest.
+            return m.group(1) + replacement
+        # No prefix group — redact the whole match.
+        return replacement
+
     for pat in _KEY_PATTERNS:
-
-        def _sub(m: re.Match[str], _replacement: str = replacement) -> str:
-            if m.lastindex:
-                # Pattern has a prefix group (e.g. "Bearer ").  Keep
-                # the prefix, redact the rest.
-                return m.group(1) + _replacement
-            # No prefix group — redact the whole match.
-            return _replacement
-
         text = pat.sub(_sub, text)
     return text
 
@@ -338,6 +341,10 @@ def redact_url(url: str) -> str:
 # To extend the allowlist at runtime (e.g. for a self-hosted vLLM
 # endpoint), call ``extend_url_allowlist(["my-host.example.com"])``.
 # Extensions are process-global and apply to all HTTP clients.
+
+# ER-64: module-level constant — was a per-call `frozenset({...})` literal
+# in assert_url_allowed, re-evaluated on every cloud URL validation.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 _DEFAULT_ALLOWED_HOSTS = frozenset(
     {
@@ -530,8 +537,7 @@ def assert_url_allowed(
     # data flow never needed cleartext transmission. Now callers
     # must opt in via the kwarg, making the security posture
     # explicit.
-    _loopback_hosts = frozenset({"localhost", "127.0.0.1", "::1"})
-    is_loopback = host in _loopback_hosts
+    is_loopback = host in _LOOPBACK_HOSTS  # ER-64: was per-call frozenset literal
     if require_https and parsed.scheme == "http" and (not is_loopback or not allow_loopback_http):
         if is_loopback:
             # G4-M-56: loopback HTTP rejected because caller didn't opt in

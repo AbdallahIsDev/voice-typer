@@ -117,3 +117,117 @@ describe("theme preset light/dark var coverage parity (CR-061)", () => {
 		});
 	}
 });
+
+// ─── BG-5 / BG-33 / BG-35 / BG-36 regression tests ────────────────────
+//
+// These tests assert the design-system invariants introduced by the
+// BG-5 (nameKey), BG-33 (dark --ring WCAG 1.4.11), BG-35 (dark
+// --muted-foreground WCAG AA 4.5:1), and BG-36 (--primary vs
+// --primary-foreground WCAG AA 4.5:1) fixes. They use the WCAG 2.1
+// contrast-ratio implementation in ``@/lib/color-utils`` (which works
+// on hex strings) and the OKLCH → hex converter in the same module to
+// resolve the ``oklch(...)`` strings stored in the preset maps.
+
+import enLocale from "@/i18n/translations/en.json";
+import {
+	cssColorToHex,
+	contrastRatio as wcagContrastRatio,
+} from "@/lib/color-utils";
+
+describe("theme preset i18n nameKey (BG-5)", () => {
+	it("every preset carries a nameKey matching `theme.preset.${id}`", () => {
+		for (const preset of THEMES) {
+			expect(preset.nameKey, `preset ${preset.id} nameKey`).toBe(
+				`theme.preset.${preset.id}`,
+			);
+		}
+	});
+
+	it("every preset nameKey exists in en.json", () => {
+		const themeKeys: Record<string, string> =
+			(enLocale.theme?.preset as Record<string, string> | undefined) ?? {};
+		for (const preset of THEMES) {
+			expect(
+				themeKeys[preset.id],
+				`en.json missing key theme.preset.${preset.id}`,
+			).toBeTruthy();
+		}
+	});
+});
+
+describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => {
+	// WCAG 1.4.11 minimum for focus indicators (3:1) — but at /30 alpha
+	// the effective contrast is lower, so the threshold we assert here
+	// is a conservative proxy: the ring colour's luminance must differ
+	// from the background's luminance enough that even at /30 alpha it
+	// clears 3:1. We approximate by asserting the opaque ring vs
+	// background contrast is >= 3:1 (which guarantees the /30 blend
+	// also clears 3:1 when the background is near-black or near-white).
+	const RING_WCAG_THRESHOLD = 3.0;
+	const TEXT_AA_THRESHOLD = 4.5;
+
+	for (const preset of THEMES) {
+		// Skip 'default' (empty maps — relies on index.css) and 'custom'
+		// (runtime-computed — deriveCustomVars has its own contrast logic).
+		if (preset.id === "default" || preset.id === "custom") continue;
+
+		describe(`${preset.id} preset`, () => {
+			it("dark-mode --ring clears WCAG 1.4.11 3:1 against dark --background (BG-33)", () => {
+				const ring = cssColorToHex(preset.dark["--ring"] ?? "");
+				const bg = cssColorToHex(preset.dark["--background"] ?? "");
+				const ratio = wcagContrastRatio(ring, bg);
+				expect(ratio, `dark --ring contrast = ${ratio}`).toBeGreaterThanOrEqual(
+					RING_WCAG_THRESHOLD,
+				);
+			});
+
+			it("dark-mode --sidebar-ring mirrors dark-mode --ring (BG-79)", () => {
+				expect(preset.dark["--sidebar-ring"]).toBe(preset.dark["--ring"]);
+			});
+
+			it("light-mode --sidebar-ring mirrors light-mode --ring (BG-79)", () => {
+				expect(preset.light["--sidebar-ring"]).toBe(preset.light["--ring"]);
+			});
+
+			it("dark-mode --muted-foreground clears WCAG AA 4.5:1 against dark --background (BG-35)", () => {
+				const fg = cssColorToHex(preset.dark["--muted-foreground"] ?? "");
+				const bg = cssColorToHex(preset.dark["--background"] ?? "");
+				const ratio = wcagContrastRatio(fg, bg);
+				expect(
+					ratio,
+					`dark --muted-foreground contrast = ${ratio}`,
+				).toBeGreaterThanOrEqual(TEXT_AA_THRESHOLD);
+			});
+
+			it("light-mode --muted-foreground clears WCAG AA 4.5:1 against light --background (BG-34)", () => {
+				const fg = cssColorToHex(preset.light["--muted-foreground"] ?? "");
+				const bg = cssColorToHex(preset.light["--background"] ?? "");
+				const ratio = wcagContrastRatio(fg, bg);
+				expect(
+					ratio,
+					`light --muted-foreground contrast = ${ratio}`,
+				).toBeGreaterThanOrEqual(TEXT_AA_THRESHOLD);
+			});
+
+			it("light-mode --primary vs --primary-foreground clears WCAG AA 4.5:1 (BG-36)", () => {
+				const fg = cssColorToHex(preset.light["--primary-foreground"] ?? "");
+				const bg = cssColorToHex(preset.light["--primary"] ?? "");
+				const ratio = wcagContrastRatio(fg, bg);
+				expect(
+					ratio,
+					`light --primary-foreground vs --primary contrast = ${ratio}`,
+				).toBeGreaterThanOrEqual(TEXT_AA_THRESHOLD);
+			});
+
+			it("dark-mode --primary vs --primary-foreground clears WCAG AA 4.5:1 (BG-36)", () => {
+				const fg = cssColorToHex(preset.dark["--primary-foreground"] ?? "");
+				const bg = cssColorToHex(preset.dark["--primary"] ?? "");
+				const ratio = wcagContrastRatio(fg, bg);
+				expect(
+					ratio,
+					`dark --primary-foreground vs --primary contrast = ${ratio}`,
+				).toBeGreaterThanOrEqual(TEXT_AA_THRESHOLD);
+			});
+		});
+	}
+});

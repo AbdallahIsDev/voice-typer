@@ -14,8 +14,39 @@ process handle and block until the editor exits. The fallback path uses
 binary (never a bare PATH-resolved ``notepad``).
 """
 
+import logging
 import os
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
+
+# DE-68: finite timeout for ``_windows_wait_for_process_exit``.
+#
+# Pre-fix, the function called ``WaitForSingleObject(handle, 0xFFFFFFFF)``
+# (``INFINITE``). If the launched editor (e.g. Notepad opened for the
+# config file) hangs — or the user walks away with the editor open —
+# the calling thread blocked forever. The caller (``_open_config_file``
+# in ``app.py``) holds the server's IPC thread, so a hung editor wedges
+# the entire server: no further IPC requests are processed, the tray
+# icon becomes unresponsive, and the user must kill the process.
+#
+# 30 minutes is a generous upper bound for "the user is actively
+# editing a config file": it's long enough that no realistic edit
+# session will expire it, and short enough that a forgotten-open
+# editor doesn't wedge the server forever. The function still returns
+# control to the caller if the timeout expires (rather than blocking
+# indefinitely), logging a warning so the operator can diagnose.
+#
+# 1800000 ms = 30 minutes. Encoded as a literal (NOT ``0xFFFFFFFF``)
+# so the value is self-documenting at the call site.
+_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS = 30 * 60 * 1000  # 30 minutes
+
+# Win32 ``WaitForSingleObject`` return codes (subset relevant to the
+# finite-timeout fix). See:
+# https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject
+_WAIT_OBJECT_0 = 0  # The specified object is signaled.
+_WAIT_TIMEOUT = 0x00000102  # The time-out interval elapsed, object not signaled.
+_WAIT_FAILED = 0xFFFFFFFF  # The function failed (call GetLastError).
 
 
 def _windows_open_with_default_app(path: str):
@@ -81,7 +112,22 @@ def _windows_open_with_default_app(path: str):
 
 
 def _windows_wait_for_process_exit(handle) -> None:
-    """Block until the process behind *handle* exits."""
+    """Block until the process behind *handle* exits, or the finite
+    timeout expires.
+
+    DE-68: pre-fix this function called ``WaitForSingleObject(handle,
+    0xFFFFFFFF)`` (``INFINITE``). If the launched editor (e.g. Notepad
+    opened for the config file) hangs — or the user walks away with
+    the editor open — the calling thread blocked forever. The caller
+    (``_open_config_file`` in ``app.py``) holds the server's IPC
+    thread, so a hung editor wedged the entire server.
+
+    The function now waits with a finite timeout (30 minutes). If the
+    timeout expires (``WAIT_TIMEOUT``), the function logs a warning
+    and returns control to the caller rather than blocking forever.
+    The function still never raises (the broad ``except Exception``
+    is preserved so the editor flow doesn't crash on edge cases).
+    """
     try:
         import ctypes
         from ctypes.wintypes import DWORD, HANDLE
@@ -89,8 +135,34 @@ def _windows_wait_for_process_exit(handle) -> None:
         kernel32 = ctypes.windll.kernel32
         kernel32.WaitForSingleObject.argtypes = [HANDLE, DWORD]
         kernel32.WaitForSingleObject.restype = DWORD
-        kernel32.WaitForSingleObject(handle, 0xFFFFFFFF)  # INFINITE
+        # DE-68: finite timeout — see ``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS``
+        # comment for the rationale.
+        result = kernel32.WaitForSingleObject(handle, _WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS)
+        if result == _WAIT_TIMEOUT:
+            _log.warning(
+                "[DE-68] WaitForSingleObject timed out after %d ms while "
+                "waiting for launched editor to exit; returning control to "
+                "caller (the editor process is still running — the user may "
+                "need to close it manually).",
+                _WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS,
+            )
+        elif result == _WAIT_FAILED:
+            # WaitForSingleObject itself failed (e.g. invalid handle).
+            # Don't raise — the caller's contract is "never raise" — but
+            # log a warning so the failure is diagnosable.
+            _log.warning(
+                "[DE-68] WaitForSingleObject returned WAIT_FAILED; the "
+                "process handle may be invalid. Caller will proceed to "
+                "CloseHandle."
+            )
+        # ``_WAIT_OBJECT_0`` (0) is the normal "process exited" case —
+        # no log needed. Other positive values (WAIT_ABANDONED etc.)
+        # are not expected for process handles and are silently
+        # ignored to preserve the "never raise" contract.
     except Exception:
+        # Preserve the pre-fix contract: never raise (the broad
+        # ``except Exception`` is intentional so the editor flow
+        # doesn't crash on edge cases).
         pass
 
 

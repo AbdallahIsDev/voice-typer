@@ -186,9 +186,7 @@ __all__ = [
     "_copy_to_clipboard",
     "_ensure_pynput_imported",
     "_have_wl_clipboard",
-    "_have_wl_clipboard_cache",
     "_have_wtype",
-    "_have_wtype_cache",
     "_is_wayland_paste_session",
     "_is_wayland_session",
     "_linux_copy",
@@ -197,8 +195,6 @@ __all__ = [
     "_linux_wayland_copy",
     "_linux_wayland_paste",
     "_paste_from_clipboard",
-    "reset_have_wl_clipboard_cache",
-    "reset_have_wtype_cache",
     # Win32 primitives
     "_send_ctrl_v_win32",
     "_win32_empty_clipboard",

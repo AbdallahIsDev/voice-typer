@@ -20,7 +20,12 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger("voice_typer.server.config")
 
 
-def _secure_atomic_write(path: os.PathLike, content: str) -> None:
+def _secure_atomic_write(
+    path: os.PathLike,
+    content: str,
+    *,
+    durability: bool = True,
+) -> None:
     """Write content to ``path`` atomically and securely.
 
     G4-CR-01: the temp filename is now generated via
@@ -37,6 +42,21 @@ def _secure_atomic_write(path: os.PathLike, content: str) -> None:
 
     G4-M-01: on POSIX, after ``os.replace`` the parent directory is
     fsynced so the rename is durable across power loss.  Best-effort.
+
+    ER-80: ``durability`` controls whether the two ``fsync`` calls
+    (file data + parent directory) run.  The default ``True``
+    preserves the existing POSIX-durability behavior used by
+    ``Config.save()`` and ``credential_store._write_plaintext_fallback``
+    — both of which persist security-critical data (API keys, user
+    settings) where the fsync cost is justified.  Pass
+    ``durability=False`` for non-critical writes (cache files,
+    telemetry dumps, PID files, onboarding sentinels) where the
+    atomicity guarantee still matters but a power-loss window of a
+    few seconds is acceptable.  Trade-off: skipping fsync can lose
+    the most-recent write on power loss (the os.replace rename may
+    not be durable on disk), but saves ~2ms per write on SSDs and
+    ~10-50ms on spinning rust — significant for high-frequency
+    non-critical writes.
     """
     from pathlib import Path
 
@@ -60,7 +80,9 @@ def _secure_atomic_write(path: os.PathLike, content: str) -> None:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(content)
                 f.flush()
-                os.fsync(f.fileno())
+                # ER-80: skip fsync of the file data when durability=False.
+                if durability:
+                    os.fsync(f.fileno())
         except Exception:
             with contextlib.suppress(OSError):
                 os.close(fd)
@@ -73,7 +95,9 @@ def _secure_atomic_write(path: os.PathLike, content: str) -> None:
 
         # G4-M-01: fsync the parent directory so the rename is durable.
         # POSIX-only -- Windows has no equivalent.  Best-effort.
-        if not is_windows():
+        # ER-80: skip when durability=False (the rename still happens,
+        # but its durability across power loss is not guaranteed).
+        if durability and not is_windows():
             try:
                 dir_fd = os.open(str(parent), os.O_RDONLY)
                 try:

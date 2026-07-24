@@ -37,42 +37,6 @@ def config_dir() -> Path:
     return _config_dir()
 
 
-def pid_file() -> Path:
-    """Path to the autostart launcher's PID file (``autostart.pid``).
-
-    Written by :mod:`voice_typer.server.autostart_launcher` so the
-    Electron main process's ``killStalePython()`` reaper can discover
-    and clean up the autostarted session.
-    """
-    return _config_dir() / "autostart.pid"
-
-
-def prewarm_sentinel() -> Path:
-    """Path to the prewarm sentinel file (``.prewarm-sentinel``).
-
-    Written by :mod:`voice_typer.server.prewarm` after a successful
-    prewarm run; read by ``_already_warmed()`` to dedup prewarm
-    invocations within the same boot session.
-
-    Note: :func:`voice_typer.server.prewarm._sentinel_path` resolves
-    this lazily via its own BootTrigger-aware fallback chain (which
-    includes Windows registry and POSIX ``getpwuid`` lookups when env
-    vars are missing). This helper is the canonical path under normal
-    (post-logon) conditions.
-    """
-    return _config_dir() / ".prewarm-sentinel"
-
-
-def prewarm_log() -> Path:
-    """Path to the dedicated prewarm log file (``prewarm.log``).
-
-    Contains only ``[PREWARM]`` messages (via a logger-name filter),
-    written by :func:`voice_typer.server.prewarm._setup_logging`. The
-    About page's "Open prewarm log" button opens this file.
-    """
-    return _config_dir() / "prewarm.log"
-
-
 def prewarm_launchagent_log() -> Path:
     """Path to the macOS LaunchAgent's prewarm log file.
 

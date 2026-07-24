@@ -6,11 +6,9 @@
  */
 import type { ThemePreset } from "../themes";
 
-export const catppuccinTheme: ThemePreset = {
+export const catppuccinTheme: Omit<ThemePreset, "nameKey"> = {
 	id: "catppuccin",
 	name: "Catppuccin",
-	description:
-		"Soft, warm pastels with mauve, peach, and teal accents — inspired by the Catppuccin colour scheme.",
 	swatch: "oklch(0.65 0.12 330)",
 	light: {
 		// Core
@@ -22,7 +20,6 @@ export const catppuccinTheme: ThemePreset = {
 		"--surface-page": "oklch(0.96 0.012 80)",
 		// Text (PVT-001: backfill --text-primary).
 		"--text-primary": "oklch(0.2 0.015 350)",
-		"--text-muted": "oklch(0.48 0.01 350)",
 		"--text-secondary": "oklch(0.35 0.012 350)",
 		// Borders / inputs / rings
 		"--border": "oklch(0.85 0.01 80)",
@@ -36,7 +33,7 @@ export const catppuccinTheme: ThemePreset = {
 		"--popover": "oklch(0.97 0.01 80)",
 		"--popover-foreground": "oklch(0.2 0.015 350)",
 		// Primary / accent
-		"--primary": "oklch(0.6 0.14 330)",
+		"--primary": "oklch(0.45 0.14 330)",
 		"--primary-foreground": "oklch(0.97 0 0)",
 		"--secondary": "oklch(0.9 0.01 80)",
 		"--secondary-foreground": "oklch(0.22 0.015 350)",
@@ -52,12 +49,12 @@ export const catppuccinTheme: ThemePreset = {
 		// Sidebar
 		"--sidebar": "oklch(0.94 0.012 80)",
 		"--sidebar-foreground": "oklch(0.2 0.015 350)",
-		"--sidebar-primary": "oklch(0.6 0.14 330)",
+		"--sidebar-primary": "oklch(0.45 0.14 330)",
 		"--sidebar-primary-foreground": "oklch(0.97 0 0)",
 		"--sidebar-accent": "oklch(0.9 0.01 80)",
 		"--sidebar-accent-foreground": "oklch(0.22 0.015 350)",
 		"--sidebar-border": "oklch(0.84 0.01 80)",
-		"--sidebar-ring": "oklch(0.6 0.1 330)",
+		"--sidebar-ring": "oklch(0.48 0.1 330)",
 		// Charts
 		"--chart-1": "oklch(0.6 0.14 330)",
 		"--chart-2": "oklch(0.55 0.12 190)",
@@ -76,33 +73,32 @@ export const catppuccinTheme: ThemePreset = {
 		// PVT-001: backfill --surface-page so dark matches light coverage.
 		"--surface-page": "oklch(0.14 0.015 340)",
 		"--text-primary": "oklch(0.92 0.008 80)",
-		"--text-muted": "oklch(0.52 0.008 340)",
 		"--text-secondary": "oklch(0.76 0.006 80)",
 		"--card": "oklch(0.16 0.015 340)",
 		"--card-foreground": "oklch(0.92 0.008 80)",
 		"--popover": "oklch(0.16 0.015 340)",
 		"--popover-foreground": "oklch(0.92 0.008 80)",
-		"--primary": "oklch(0.65 0.13 330)",
+		"--primary": "oklch(0.5 0.13 330)",
 		"--primary-foreground": "oklch(0.97 0 0)",
 		"--secondary": "oklch(0.2 0.015 340)",
 		"--secondary-foreground": "oklch(0.92 0.008 80)",
 		"--muted": "oklch(0.18 0.012 340)",
-		"--muted-foreground": "oklch(0.52 0.008 340)",
+		"--muted-foreground": "oklch(0.65 0.008 340)",
 		"--accent": "oklch(0.6 0.1 190)",
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.65 0.13 330 / 0.12)",
 		"--accent-muted": "oklch(0.65 0.13 330 / 0.38)",
 		"--border": "oklch(0.23 0.015 340)",
 		"--input": "oklch(0.25 0.015 340)",
-		"--ring": "oklch(0.55 0.08 330)",
+		"--ring": "oklch(0.7 0.13 330)",
 		"--sidebar": "oklch(0.12 0.015 340)",
 		"--sidebar-foreground": "oklch(0.92 0.008 80)",
-		"--sidebar-primary": "oklch(0.65 0.13 330)",
+		"--sidebar-primary": "oklch(0.5 0.13 330)",
 		"--sidebar-primary-foreground": "oklch(0.97 0 0)",
 		"--sidebar-accent": "oklch(0.18 0.015 340)",
 		"--sidebar-accent-foreground": "oklch(0.92 0.008 80)",
 		"--sidebar-border": "oklch(0.2 0.015 340)",
-		"--sidebar-ring": "oklch(0.55 0.08 330)",
+		"--sidebar-ring": "oklch(0.7 0.13 330)",
 		"--destructive": "oklch(0.55 0.22 30)",
 		// PVT-002: backfill --destructive-foreground so destructive button text
 		// is readable without relying on the stylesheet default.

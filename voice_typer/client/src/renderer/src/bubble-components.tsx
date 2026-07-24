@@ -414,8 +414,8 @@ export function BubbleVisualizer({
 				{tf("bubble.recordingLabel", "REC")}
 			</span>
 			{/* `ms-1` is the RTL-safe logical replacement for the old
-			    physical `ml-1`. In LTR it renders as margin-left; in RTL
-			    (ar locale) it flips to margin-right automatically. */}
+                            physical `ml-1`. In LTR it renders as margin-left; in RTL
+                            (ar locale) it flips to margin-right automatically. */}
 			<div className="flex h-6 items-center gap-0.75 ms-1" aria-hidden>
 				{dots.map((i) => (
 					<span
@@ -441,6 +441,29 @@ export function BubbleVisualizer({
  * recording, shows a stop affordance; otherwise a mic. Clicking
  * toggles dictation via the sandboxed `bubble:toggle-dictation`
  * channel.
+ *
+ * BG-31 A11Y TRADE-OFF (focusable:false — keyboard inaccessible):
+ * The bubble `BrowserWindow` is created with `focusable: false` in
+ * `main/windows/bubble-window.ts` (intentional — prevents the bubble
+ * from stealing keyboard focus from the user's active text field).
+ * Because the window is non-focusable, this real `<button>` element
+ * is UNREACHABLE via Tab and cannot be activated via Enter/Space in
+ * the shipped app. It is effectively mouse-only.
+ *
+ * Decision (BG-31 option a — keep focusable:false, document trade-off):
+ * we accept the mouse-only limitation for now because making the
+ * bubble focusable would harm the primary UX (dictation into the
+ * user's active text field). The recommended future solution is a
+ * MAIN-PROCESS global hotkey (e.g. Ctrl+Shift+M) that routes to the
+ * same `bubble:toggle-dictation` channel — see the BG-31 handoff
+ * note for F11 (bubble-window.ts) in the F10 return report. When
+ * that hotkey lands, the BubbleMicButton's `aria-label` and `title`
+ * will already be correct; only the wiring changes.
+ *
+ * Note: this button still renders with `type="button"` and an
+ * `aria-label` so AT users navigating via screen-reader cursor (not
+ * keyboard focus) can still discover it, and so automated a11y
+ * audits (axe-core) see a properly-labelled control.
  */
 export function BubbleMicButton({
 	mode,
@@ -489,6 +512,57 @@ export function BubbleMicButton({
 					<line x1="12" y1="18" x2="12" y2="22" />
 				</svg>
 			)}
+		</button>
+	);
+}
+
+// ── BubbleDismissButton (BG-96) ──────────────────────────────────────
+
+/**
+ * The dismiss '×' button. Shown whenever the bubble is in
+ * `always_visible` mode (gated by the parent via the `dismissable`
+ * prop, which mirrors the bubble_behavior config). Clicking sends a
+ * `bubble:dismiss` IPC to the main process, which hides the bubble
+ * window until the next show() (typically the next dictation start).
+ *
+ * BG-96 A11Y: same focusable:false trade-off as BubbleMicButton (see
+ * the comment above that component) — the button is mouse-only in the
+ * shipped app. The `aria-label` and `title` are populated so AT users
+ * navigating via screen-reader cursor can still discover it.
+ *
+ * The `bubble:dismiss` IPC handler in `main/ipc/bubble-handlers.ts`
+ * is owned by F11 — see the F10 return report for the handoff note.
+ * Until F11 adds the handler, the IPC send is a no-op (Electron's
+ * default ipcMain behavior is to silently drop messages with no
+ * registered handler).
+ */
+export function BubbleDismissButton({ onClick }: { onClick: () => void }) {
+	const label = t("bubble.dismissAria");
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			aria-label={label}
+			title={label}
+			// `ms-1` (margin-inline-start) replaces `ml-1` for RTL safety.
+			// Matches the BubbleMicButton sizing/styling so the two
+			// affordances look like siblings.
+			className="no-drag ms-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-white"
+		>
+			<svg
+				width="10"
+				height="10"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="3"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+				aria-hidden="true"
+			>
+				<line x1="6" y1="6" x2="18" y2="18" />
+				<line x1="18" y1="6" x2="6" y2="18" />
+			</svg>
 		</button>
 	);
 }

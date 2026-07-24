@@ -318,6 +318,13 @@ _keyring_available_cache: bool | None = None
 # Cached backend name. Preserved even when unavailable (e.g. "fail"
 # or the broken backend's class name) for diagnostics.
 _keyring_backend_name_cache: str | None = None
+
+# ER-79: cache for parsed config.json in _read_plaintext_fallback. Keyed by
+# config_file path, value is (mtime_ns, parsed_dict). Config.load() resolves
+# `keyring://<provider>` references by calling load_secret() for each of the
+# 5 providers — without this cache, each call re-opens and re-parses the same
+# config.json (5 reads + 5 parses at startup when keyring is unavailable).
+_plaintext_config_cache: dict[str, tuple[int, dict]] = {}
 # Cached reason string (already redacted). None when available, or when
 # not yet probed. Cached alongside the available/backend fields so
 # get_keyring_status() returns a consistent snapshot without re-probing.
@@ -721,12 +728,27 @@ def _read_plaintext_fallback(provider: str) -> str | None:
     value lives in keychain — caller should have tried keyring first).
     """
     try:
+        import os
+
         from voice_typer.server.config import _config_dir, _secure_read_text
 
         config_file = _config_dir() / "config.json"
         if not config_file.exists():
             return None
-        data = json.loads(_secure_read_text(config_file))
+        config_file_str = str(config_file)
+        # ER-79: check mtime cache before re-reading + re-parsing config.json.
+        # Config.load() calls load_secret() for each of the 5 providers; without
+        # this cache, each call re-opens and re-parses the same file.
+        try:
+            mtime_ns = os.stat(config_file).st_mtime_ns
+        except OSError:
+            mtime_ns = 0
+        cached = _plaintext_config_cache.get(config_file_str)
+        if cached is not None and cached[0] == mtime_ns:
+            data = cached[1]
+        else:
+            data = json.loads(_secure_read_text(config_file))
+            _plaintext_config_cache[config_file_str] = (mtime_ns, data)
     except Exception as e:
         log.debug(
             "[CREDENTIAL_STORE] plaintext fallback read failed for provider=%s: %s",

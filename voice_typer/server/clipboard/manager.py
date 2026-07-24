@@ -536,7 +536,26 @@ class ClipboardManager:
                 _cb.log.error("[CLIPBOARD] Clipboard verification still failed after 3 retries")
 
             # ⑤ STORE METADATA (existing PLAT-CLIPRACE / PLAT-SECURE).
-            self._last_copied_text = text
+            #
+            # DE-59 (session-DE, Medium, Privacy): only cache
+            # ``_last_copied_text`` when a snapshot was captured (i.e.
+            # a restore IS scheduled, whose ``_delayed_restore`` finally
+            # block will clear it after the restore-delay window).
+            # When ``snapshot is None`` (clipboard_save_restore disabled
+            # OR capture failed), no restore will be scheduled, so
+            # caching the dictated text here would leak PII (which can
+            # be passwords, messages, financial data — anything the
+            # user dictated) into process memory for the entire process
+            # lifetime. The seq-mismatch re-copy path in ``paste()``
+            # threads ``pasted_text`` as a request-scoped value
+            # parameter (DE-60), so it does not depend on the instance
+            # attribute when ``snapshot is None``. The Wayland paste
+            # call sites also thread ``pasted_text`` (DE-60). Defensive
+            # clear of any stale value from a prior cycle.
+            if snapshot is not None:
+                self._last_copied_text = text
+            else:
+                self._last_copied_text = ""
             self._clipboard_seq = self._get_clipboard_sequence_number()
             _cb.log.info(
                 "[CLIPBOARD-AUDIT] Copied %d chars to clipboard (seq=%d, snapshot=%s)",
@@ -656,12 +675,31 @@ class ClipboardManager:
             _pending_entry = (self, snapshot, expected, delay)
             with _pending_restores_lock:
                 _pending_restores.append(_pending_entry)
-            threading.Thread(
-                target=self._delayed_restore,
-                args=(snapshot, expected, delay, _pending_entry),
-                daemon=True,
-                name="clipboard-restore",
-            ).start()
+            # ER-72: wrap Thread().start() in try/except — if start() fails
+            # (out of thread resources / fd exhaustion), remove the orphaned
+            # entry from _pending_restores so it doesn't hold the snapshot
+            # (potentially large image/file clipboard content) and dictated
+            # text for the process lifetime. Log a WARNING. Do NOT call
+            # snapshot.restore_now() — if thread start failed, the system is
+            # resource-starved and synchronous restore might also fail.
+            try:
+                threading.Thread(
+                    target=self._delayed_restore,
+                    args=(snapshot, expected, delay, _pending_entry),
+                    daemon=True,
+                    name="clipboard-restore",
+                ).start()
+            except (OSError, RuntimeError) as exc:
+                log.warning(
+                    "[CLIPBOARD] failed to start clipboard-restore thread: %s — "
+                    "removing orphaned _pending_restores entry to prevent leak",
+                    exc,
+                )
+                with _pending_restores_lock:
+                    try:
+                        _pending_restores.remove(_pending_entry)
+                    except ValueError:
+                        pass  # already removed by another path
 
         # PLAT-STUCK: release any stuck modifier keys before pasting
         self._release_stuck_modifiers()
@@ -727,8 +765,25 @@ class ClipboardManager:
                         expected_seq,
                         current_seq,
                     )
-                    # Re-copy the text we want to paste. Use the stored
-                    # _last_copied_text to avoid passing the wrong content.
+                    # Re-copy the text we want to paste.
+                    #
+                    # DE-60 (session-DE, Medium, Concurrency): thread the
+                    # request-scoped ``pasted_text`` parameter through
+                    # this re-copy path instead of reading the shared
+                    # mutable ``self._last_copied_text`` instance
+                    # attribute. A concurrent cycle (e.g. repaste_last()
+                    # triggered by hotkey during a dictation cycle) can
+                    # run ``copy(text_B)`` between this cycle's
+                    # ``copy(text_A)`` and ``paste()``, overwriting
+                    # ``self._last_copied_text`` with ``text_B``. Reading
+                    # the instance attribute here would then re-copy
+                    # ``text_B`` — wrong text pasted while the daemon's
+                    # ``expected=text_A`` no longer matches, triggering
+                    # an unwanted restore that clobbers ``text_B``. The
+                    # threaded parameter is the value THIS cycle copied;
+                    # it is safe. We fall back to the instance attribute
+                    # only if ``pasted_text`` is None (legacy callers
+                    # that don't thread it).
                     #
                     # CLIP-7 (Medium, Wayland): use _copy_to_clipboard()
                     # instead of pyperclip.copy() so the Wayland dispatcher
@@ -738,8 +793,9 @@ class ClipboardManager:
                     # which uses xclip/xsel (X11-only) and silently no-ops
                     # under native Wayland apps, leaving the re-copy stale.
                     try:
-                        if self._last_copied_text:
-                            _cb._copy_to_clipboard(self._last_copied_text)
+                        recopy_text = pasted_text if pasted_text is not None else self._last_copied_text
+                        if recopy_text:
+                            _cb._copy_to_clipboard(recopy_text)
                             # Brief delay to let the clipboard settle
                             _cb.time.sleep(0.02)
                             # Update seq so a subsequent mismatch check is accurate
@@ -843,11 +899,20 @@ class ClipboardManager:
             # for short text).
             use_wayland_wtype = _cb.is_linux() and _cb._is_wayland_paste_session() and _cb._have_wtype()
             paste_succeeded = True
+            # DE-60 (session-DE): thread ``pasted_text`` (request-scoped
+            # value parameter) through the Wayland paste call sites too,
+            # instead of reading the shared mutable
+            # ``self._last_copied_text`` instance attribute.
+            # ``_linux_paste_via_wtype`` currently ignores its ``text``
+            # argument (CLIP-10), but if CLIP-10 is ever reverted, the
+            # instance attribute would become a leak/race vector (same
+            # rationale as the seq-mismatch re-copy path above).
+            wtype_text = pasted_text if pasted_text is not None else self._last_copied_text
             if is_terminal:
                 if _cb.is_macos():
                     self._safe_key_press(_cb._Key.cmd, "v")
                 elif use_wayland_wtype:
-                    _cb._linux_paste_via_wtype(self._last_copied_text)
+                    _cb._linux_paste_via_wtype(wtype_text)
                 else:
                     self._safe_key_press(_cb._Key.shift, _cb._Key.insert)
             elif _cb.is_macos():
@@ -886,7 +951,7 @@ class ClipboardManager:
                 # paste failed.
                 paste_succeeded = self._send_ctrl_v_win32()
             elif use_wayland_wtype:
-                _cb._linux_paste_via_wtype(self._last_copied_text)
+                _cb._linux_paste_via_wtype(wtype_text)
             else:
                 self._safe_key_press(_cb._Key.ctrl, "v")
 
@@ -925,16 +990,64 @@ class ClipboardManager:
 
         CR-3 fix: the ``pending_entry`` parameter is the tuple that
         ``paste()`` appended to ``_pending_restores`` before spawning
-        this daemon thread. The entry is removed from the list in the
-        ``finally`` block below so the list does not grow unboundedly
-        across many paste invocations (memory leak) and so the atexit
-        handler does not double-restore an already-restored snapshot.
-        The default ``None`` preserves backward compatibility with
-        legacy 3-arg direct calls (e.g. existing tests at
+        this daemon thread. The entry is removed from the list (under
+        the lock) BEFORE ``snapshot.restore()`` runs so the list does
+        not grow unboundedly across many paste invocations (memory
+        leak) and so the atexit handler does not double-restore an
+        already-restored snapshot. The default ``None`` preserves
+        backward compatibility with legacy 3-arg direct calls (e.g.
+        existing tests at
         ``tests/test_clipboard_borrow_restore.py:301/318``).
+
+        DE-63 fix (session-DE, Medium, Concurrency): the pre-fix code
+        removed the entry in the ``finally`` block AFTER
+        ``snapshot.restore()`` completed. There was a window between
+        the daemon's ``snapshot.restore()`` call and the ``finally``
+        block's removal during which the entry was still in the list.
+        If ``_force_restore_pending_at_exit()`` (fired by atexit OR the
+        SIGTERM/SIGHUP handler in ``__init__.py``) fired in that
+        window, atexit would acquire the lock, copy the list (still
+        containing the daemon's entry), clear the list, then iterate
+        and call ``snapshot.restore()`` on the SAME snapshot the
+        daemon was concurrently restoring. Two threads inside
+        ``snapshot.restore()`` is unsafe on every platform (Win32
+        OpenClipboard fails on the second thread, X11 races on
+        selection ownership, macOS NSPasteboard is non-main-thread UB).
+
+        Fix: claim the ``pending_entry`` under the lock BEFORE calling
+        ``snapshot.restore()``. If the entry was already claimed by
+        atexit (ValueError on remove), short-circuit — atexit will
+        restore synchronously.
         """
         try:
             _cb.time.sleep(delay)
+
+            # DE-63: claim the pending_entry under the lock BEFORE
+            # calling snapshot.restore(). If atexit has already taken
+            # the entry (cleared the list), the remove() raises
+            # ValueError and we short-circuit — atexit will restore
+            # synchronously. This prevents the concurrent-restore race.
+            if pending_entry is not None:
+                try:
+                    with _pending_restores_lock:
+                        try:
+                            _pending_restores.remove(pending_entry)
+                        except ValueError:
+                            # Entry was already claimed by atexit (or
+                            # another path) — atexit will restore
+                            # synchronously. Bail out to avoid a
+                            # concurrent snapshot.restore() call.
+                            _cb.log.debug(
+                                "[CLIPBOARD-AUDIT] Pending entry already claimed "
+                                "by atexit — skipping daemon restore (DE-63)"
+                            )
+                            return  # CR-84 / DE-63: short-circuit
+                except Exception:  # pragma: no cover — catastrophic lock failure
+                    _cb.log.exception("[CLIPBOARD] Failed to claim pending restore entry — proceeding with restore")
+                    # Continue with restore anyway (best-effort). The
+                    # atexit race window is now narrowed to the
+                    # catastrophic-lock-failure case.
+
             try:
                 # ADR-0020 §6.6: on Linux Wayland, _paste_from_clipboard
                 # uses `wl-paste` so the defensive check actually reads
@@ -970,24 +1083,15 @@ class ClipboardManager:
             # restore-delay window (default 150 ms) instead of the
             # process lifetime.
             #
-            # Best-effort: never raise from the finally block — the
-            # pending_entry cleanup below must still run.
+            # Best-effort: never raise from the finally block.
+            #
+            # DE-63: the ``pending_entry`` removal has moved to BEFORE
+            # ``snapshot.restore()`` (above). The ``finally`` block
+            # now only clears ``_last_copied_text``.
             try:
                 self._last_copied_text = ""
             except Exception:  # pragma: no cover — attribute access broken
                 _cb.log.debug("[CLIPBOARD] Failed to clear _last_copied_text", exc_info=True)
-            # CR-3: remove this entry from _pending_restores under the
-            # lock. ValueError is benign — the atexit handler may have
-            # already cleared the list while the daemon thread slept.
-            if pending_entry is not None:
-                try:
-                    with _pending_restores_lock:
-                        try:
-                            _pending_restores.remove(pending_entry)
-                        except ValueError:
-                            pass  # already removed by atexit or another path
-                except Exception:  # pragma: no cover — catastrophic lock failure
-                    _cb.log.exception("[CLIPBOARD] Failed to remove pending restore entry")
 
     def restore_now(self, snapshot: ClipboardSnapshot | None) -> None:
         """Restore a snapshot immediately (no paste keystroke, no delay).
@@ -1006,6 +1110,23 @@ class ClipboardManager:
             _cb.log.info("[CLIPBOARD-AUDIT] Restored snapshot immediately (no paste)")
         except Exception:
             _cb.log.exception("[CLIPBOARD] Immediate restore failed")
+        finally:
+            # DE-59 (session-DE, Medium, Privacy): clear the cached
+            # last-copied text. ``restore_now()`` is the path used when
+            # ``paste_on_stop=False`` (no paste keystroke follows), so
+            # no ``_delayed_restore`` daemon thread will run to clear
+            # the cached text in its ``finally`` block. Without this
+            # clear, the dictated PII would remain in process memory
+            # for the process lifetime.
+            #
+            # Best-effort: never raise from the finally block.
+            try:
+                self._last_copied_text = ""
+            except Exception:  # pragma: no cover — attribute access broken
+                _cb.log.debug(
+                    "[CLIPBOARD] Failed to clear _last_copied_text in restore_now",
+                    exc_info=True,
+                )
 
     def _send_keystroke_sequence(self, modifier, char) -> None:
         # PLAT-STUCK: ensure modifier is always released even on exception.

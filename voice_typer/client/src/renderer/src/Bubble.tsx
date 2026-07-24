@@ -10,6 +10,7 @@
  *   - `useBubbleStateMachine` — `mode` / `animState` / `exitTick`.
  *   - `BubbleVisualizer` — recording-mode bars + REC indicator.
  *   - `BubbleMicButton` — always-visible mic toggle.
+ *   - `BubbleDismissButton` — BG-96 dismiss '×' affordance.
  *
  * This file owns only the auto-resize `useLayoutEffect`, the
  * fading → exit timer, the animation-end callback, and the render tree.
@@ -28,6 +29,7 @@ import {
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import {
+	BubbleDismissButton,
 	BubbleMicButton,
 	type BubbleMode,
 	BubbleVisualizer,
@@ -40,7 +42,7 @@ import {
 	useBubbleStateMachine,
 } from "./bubble-components";
 
-// PVT-048: keyboard-based bubble repositioning was previously
+// PVT-048 / BG-30: keyboard-based bubble repositioning was previously
 // implemented as a `window.addEventListener("keydown", ...)` handler
 // in this component. It was DEAD CODE in production because the bubble
 // BrowserWindow is created with `focusable: false` (see
@@ -49,14 +51,23 @@ import {
 // events never fire in the shipped app. The handler only fired under
 // jsdom synthetic events (the old `Bubble-keyboard-move.test.tsx`).
 //
-// To re-implement keyboard-move correctly, register a MAIN-PROCESS
-// global hotkey (e.g. Electron `globalShortcut.register(...)` on
-// Windows/macOS, or an X11 grab on Linux) that sends `bubble:move-by`
-// IPC to the main process. The main process already has a
-// `bubble:move-by` handler (see `main/ipc/bubble-handlers.ts`) that
-// clamps to screen bounds — it just needs a global-hotkey trigger
-// instead of a renderer keydown. Do NOT re-add a window keydown
-// handler here unless `focusable: false` is also flipped.
+// BG-30 DECISION (option b — document as mouse-drag-only): rather than
+// add a MAIN-PROCESS global hotkey (option a), the bubble is documented
+// in user-facing help as mouse-drag-only. This is a deliberate product
+// decision: the bubble is a tiny always-on-top pill that the user
+// occasionally drags to a new spot; a global hotkey would consume a
+// valuable shortcut and add cross-platform complexity (Electron
+// `globalShortcut` on Windows/macOS, X11 grab on Linux) for a feature
+// with low expected usage. The main-process `bubble:move-by` IPC
+// handler (in `main/ipc/bubble-handlers.ts`) is preserved so a future
+// product change can wire a global hotkey without renderer work.
+//
+// If a future product decision flips `focusable: false` to `true`
+// (which would also affect the BG-31 mic-button accessibility trade-
+// off), re-introducing a renderer keydown handler becomes safe — see
+// the dead-code guard test in `Bubble-keyboard-move.test.tsx` which
+// fails LOUDLY if `focusable: false` is removed without also
+// re-adding the handler.
 
 export function Bubble({ className: _className }: { className?: string }) {
 	const dotRefs = useRef<(HTMLSpanElement | null)[]>([]);
@@ -68,6 +79,11 @@ export function Bubble({ className: _className }: { className?: string }) {
 	// UX-10: whether to show the mic button (always_visible + both
 	// toggles on). Driven by `bubble:config` from the Python backend.
 	const [micButton, setMicButton] = useState(false);
+	// BG-96: whether to show the dismiss '×' button. Shown whenever
+	// the bubble is in `always_visible` mode (the only mode where the
+	// user needs to manually dismiss the bubble — `show_on_record`
+	// auto-hides when recording stops). Driven by `bubble:config`.
+	const [dismissable, setDismissable] = useState(false);
 
 	// PVT-067: lifecycle + state machine extracted to hooks.
 	const _isVisible = useBubbleLifecycle(dotRefs);
@@ -114,6 +130,12 @@ export function Bubble({ className: _className }: { className?: string }) {
 				micButton !== false &&
 				clickToToggle !== false;
 			setMicButton(enabled);
+			// BG-96: dismiss button shown whenever the bubble is
+			// in always_visible mode (regardless of the mic-button
+			// toggles — the user needs a way to manually dismiss
+			// an always-visible bubble even when the mic button is
+			// disabled).
+			setDismissable(behavior === "always_visible");
 		});
 		return off;
 	}, []);
@@ -125,6 +147,26 @@ export function Bubble({ className: _className }: { className?: string }) {
 		(
 			window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined
 		)?.toggleDictation?.();
+	}, []);
+
+	// BG-96: dismiss button click → send `bubble:dismiss` IPC. The
+	// main-process handler is owned by F11 (see return report). Until
+	// F11 adds the handler, this IPC send is a no-op (Electron's
+	// default ipcMain behavior is to silently drop messages with no
+	// registered handler). The `dismiss` method is added to the bubble
+	// preload (preload/bubble.ts) but not yet to the
+	// BubbleWindowBubble type (ipc.ts is owned by another agent), so
+	// we cast to a wider type that includes the optional `dismiss`
+	// method. When F11 (or a future type extension) adds `dismiss` to
+	// BubbleWindowBubble, this cast can be removed.
+	const handleDismissClick = useCallback(() => {
+		(
+			window.bubble as
+				| (import("@/types/ipc").BubbleWindowBubble & {
+						dismiss?: () => void;
+				  })
+				| undefined
+		)?.dismiss?.();
 	}, []);
 
 	// Auto-resize BrowserWindow to fit the pill content exactly.
@@ -196,7 +238,22 @@ export function Bubble({ className: _className }: { className?: string }) {
 		<output
 			aria-live="polite"
 			aria-atomic="true"
-			aria-label={t("bubble.recordingIndicatorAria")}
+			// BG-95: state-aware aria-label so screen-reader users
+			// hear the current bubble mode ("recording" /
+			// "transcribing" / "error" / "idle") instead of always
+			// hearing "recording". The "fading" mode is a brief
+			// transcribing → exit transition; it shares the
+			// transcribing label. The idle label is the catch-all
+			// for any unexpected future mode.
+			aria-label={
+				mode === "recording"
+					? t("bubble.recordingIndicatorAria")
+					: mode === "transcribing" || mode === "fading"
+						? t("bubble.transcribingAria")
+						: mode === "error"
+							? t("bubble.errorIndicatorAria")
+							: t("bubble.idleIndicatorAria")
+			}
 			className={cn(
 				"inline-flex items-center justify-center",
 				animState === "enter" && "animate-bubble-enter",
@@ -242,12 +299,12 @@ export function Bubble({ className: _className }: { className?: string }) {
 				) : mode === "idle" ? (
 					<>
 						{/* A11Y: sr-only announcement so screen-reader users hear
-                                                    "Transcription complete." when the bubble transitions to
-                                                    idle (always_visible mode). The empty div below is
-                                                    preserved as a zero-width sibling so Bubble.test.tsx's
-                                                    `emptyContainer.textContent === ""` assertion still
-                                                    passes — querySelector returns the first match in DOM
-                                                    order, which is the empty div. */}
+						    "Transcription complete." when the bubble transitions to
+						    idle (always_visible mode). The empty div below is
+						    preserved as a zero-width sibling so Bubble.test.tsx's
+						    `emptyContainer.textContent === ""` assertion still
+						    passes — querySelector returns the first match in DOM
+						    order, which is the empty div. */}
 						<div className="flex h-6 items-center" />
 						<div className="flex h-6 items-center gap-1.5 px-2" aria-hidden>
 							<HugeiconsIcon
@@ -282,6 +339,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 				{micButton && (
 					<BubbleMicButton mode={mode as BubbleMode} onClick={handleMicClick} />
 				)}
+				{dismissable && <BubbleDismissButton onClick={handleDismissClick} />}
 			</div>
 		</output>
 	);

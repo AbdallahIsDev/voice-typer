@@ -14,12 +14,10 @@
  */
 import type { ThemePreset } from "../themes";
 
-export const amoledTheme: ThemePreset = {
+export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 	id: "amoled",
 	name: "Amoled",
-	description:
-		"True-black backgrounds for deep contrast on OLED displays. Pure blacks save battery on AMOLED screens.",
-	swatch: "#000000",
+	swatch: "oklch(0 0 0)",
 	light: {
 		// Core
 		"--background": "oklch(1 0 0)",
@@ -29,7 +27,6 @@ export const amoledTheme: ThemePreset = {
 		"--surface-page": "oklch(1 0 0)",
 		// Text
 		"--text-primary": "oklch(0.1 0 0)",
-		"--text-muted": "oklch(0.5 0 0)",
 		"--text-secondary": "oklch(0.4 0 0)",
 		// Cards / popovers
 		"--card": "oklch(1 0 0)",
@@ -70,7 +67,7 @@ export const amoledTheme: ThemePreset = {
 		"--sidebar-accent": "oklch(0.92 0 0)",
 		"--sidebar-accent-foreground": "oklch(0.1 0 0)",
 		"--sidebar-border": "oklch(0.9 0 0)",
-		"--sidebar-ring": "oklch(0.488 0.243 264.376 / 0.5)",
+		"--sidebar-ring": "oklch(0.488 0.243 264.376)",
 		// Charts
 		"--chart-1": "oklch(0.55 0.22 264)",
 		"--chart-2": "oklch(0.6 0.18 145)",
@@ -90,7 +87,6 @@ export const amoledTheme: ThemePreset = {
 		"--surface-page": "oklch(0 0 0)",
 		// Text
 		"--text-primary": "oklch(0.985 0 0)",
-		"--text-muted": "oklch(0.55 0 0)",
 		"--text-secondary": "oklch(0.8 0 0)",
 		// Cards / popovers
 		"--card": "oklch(0.04 0 0)",
@@ -110,11 +106,11 @@ export const amoledTheme: ThemePreset = {
 		"--secondary": "oklch(0.1 0 0)",
 		"--secondary-foreground": "oklch(0.985 0 0)",
 		"--muted": "oklch(0.08 0 0)",
-		"--muted-foreground": "oklch(0.55 0 0)",
+		"--muted-foreground": "oklch(0.65 0 0)",
 		// Borders / inputs / rings
 		"--border": "oklch(0.15 0 0)",
 		"--input": "oklch(0.18 0 0)",
-		"--ring": "oklch(0.4 0 0)",
+		"--ring": "oklch(0.7 0 0)",
 		// Destructive (CR-061: added so dark matches light coverage.)
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
@@ -126,7 +122,7 @@ export const amoledTheme: ThemePreset = {
 		"--sidebar-accent": "oklch(0.08 0 0)",
 		"--sidebar-accent-foreground": "oklch(0.985 0 0)",
 		"--sidebar-border": "oklch(0.1 0 0)",
-		"--sidebar-ring": "oklch(0.4 0 0)",
+		"--sidebar-ring": "oklch(0.7 0 0)",
 		// Charts (CR-061: added so dark matches light coverage.)
 		"--chart-1": "oklch(0.6 0.22 264)",
 		"--chart-2": "oklch(0.65 0.18 145)",

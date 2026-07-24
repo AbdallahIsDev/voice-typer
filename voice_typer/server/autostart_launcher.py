@@ -208,9 +208,11 @@ def _config_dir() -> Path:
 def _pid_file() -> Path:
     """Return the path to the autostart launcher's PID file.
 
-    RW-7: derives from :func:`_config_dir` (not ``_paths.pid_file``
-    directly) so tests that monkeypatch this module's ``_config_dir``
-    continue to redirect the PID file as well.
+    RW-7: derives from :func:`_config_dir` so tests that monkeypatch
+    this module's ``_config_dir`` continue to redirect the PID file as
+    well. (The previous ``_paths.pid_file`` helper was removed in
+    GT-56 — production code never adopted it; this local helper
+    remains the single source of truth for the autostart PID file.)
     """
     return _config_dir() / "autostart.pid"
 

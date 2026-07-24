@@ -67,6 +67,7 @@ with proper ``ctypes.Structure`` definitions (``SID_AND_ATTRIBUTES``,
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import logging
 import weakref
@@ -228,7 +229,7 @@ def _create_restrictive_security_attributes():
             if not advapi32.SetSecurityDescriptorDacl(sd, True, new_acl, False):
                 # CR-134: free the ACL on the SetSecurityDescriptorDacl
                 # failure path too (LocalAlloc-allocated).
-                with __suppress__(Exception):
+                with contextlib.suppress(Exception):
                     kernel32.LocalFree(new_acl)
                 return None
 
@@ -274,21 +275,6 @@ def _create_restrictive_security_attributes():
             exc,
             exc_info=True,
         )
-        return None
-
-
-class __suppress__:  # noqa: N801
-    """Context manager that suppresses exceptions (private)."""
-
-    def __init__(self, *exc_types):
-        self._exc_types = exc_types or (Exception,)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if exc_type is not None and issubclass(exc_type, self._exc_types):
-            return True
         return None
 
 

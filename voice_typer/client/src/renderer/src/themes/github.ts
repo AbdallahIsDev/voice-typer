@@ -6,11 +6,9 @@
  */
 import type { ThemePreset } from "../themes";
 
-export const githubTheme: ThemePreset = {
+export const githubTheme: Omit<ThemePreset, "nameKey"> = {
 	id: "github",
 	name: "GitHub",
-	description:
-		"Clean, neutral greys with blue accents — the familiar look from GitHub's interface.",
 	swatch: "oklch(0.5 0.12 260)",
 	light: {
 		// Core
@@ -21,7 +19,6 @@ export const githubTheme: ThemePreset = {
 		"--surface-page": "oklch(0.99 0 0)",
 		// Text
 		"--text-primary": "oklch(0.12 0.008 0)",
-		"--text-muted": "oklch(0.5 0.006 0)",
 		"--text-secondary": "oklch(0.38 0.006 0)",
 		// Cards / popovers
 		"--card": "oklch(1 0 0)",
@@ -58,7 +55,7 @@ export const githubTheme: ThemePreset = {
 		"--sidebar-accent": "oklch(0.93 0.004 0)",
 		"--sidebar-accent-foreground": "oklch(0.22 0.008 0)",
 		"--sidebar-border": "oklch(0.85 0.004 0)",
-		"--sidebar-ring": "oklch(0.55 0.1 260)",
+		"--sidebar-ring": "oklch(0.48 0.1 260)",
 		// Charts
 		"--chart-1": "oklch(0.55 0.14 260)",
 		"--chart-2": "oklch(0.5 0.1 200)",
@@ -76,33 +73,32 @@ export const githubTheme: ThemePreset = {
 		"--surface-hover": "oklch(0.15 0.006 0)",
 		"--surface-page": "oklch(0.09 0.006 0)",
 		"--text-primary": "oklch(0.94 0.004 0)",
-		"--text-muted": "oklch(0.5 0.004 0)",
 		"--text-secondary": "oklch(0.78 0.004 0)",
 		"--card": "oklch(0.13 0.006 0)",
 		"--card-foreground": "oklch(0.94 0.004 0)",
 		"--popover": "oklch(0.13 0.006 0)",
 		"--popover-foreground": "oklch(0.94 0.004 0)",
 		"--primary": "oklch(0.6 0.12 260)",
-		"--primary-foreground": "oklch(0.97 0 0)",
+		"--primary-foreground": "oklch(0.1 0 0)",
 		"--secondary": "oklch(0.16 0.006 0)",
 		"--secondary-foreground": "oklch(0.94 0.004 0)",
 		"--muted": "oklch(0.15 0.006 0)",
-		"--muted-foreground": "oklch(0.5 0.004 0)",
+		"--muted-foreground": "oklch(0.65 0.004 0)",
 		"--accent": "oklch(0.55 0.1 260)",
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.6 0.12 260 / 0.12)",
 		"--accent-muted": "oklch(0.6 0.12 260 / 0.35)",
 		"--border": "oklch(0.2 0.006 0)",
 		"--input": "oklch(0.22 0.006 0)",
-		"--ring": "oklch(0.45 0.08 260)",
+		"--ring": "oklch(0.7 0.08 260)",
 		"--sidebar": "oklch(0.1 0.006 0)",
 		"--sidebar-foreground": "oklch(0.94 0.004 0)",
 		"--sidebar-primary": "oklch(0.6 0.12 260)",
-		"--sidebar-primary-foreground": "oklch(0.97 0 0)",
+		"--sidebar-primary-foreground": "oklch(0.1 0 0)",
 		"--sidebar-accent": "oklch(0.15 0.006 0)",
 		"--sidebar-accent-foreground": "oklch(0.94 0.004 0)",
 		"--sidebar-border": "oklch(0.18 0.006 0)",
-		"--sidebar-ring": "oklch(0.45 0.08 260)",
+		"--sidebar-ring": "oklch(0.7 0.08 260)",
 		"--destructive": "oklch(0.55 0.2 30)",
 		// PVT-002: backfill --destructive-foreground so destructive button text
 		// is readable without relying on the stylesheet default.

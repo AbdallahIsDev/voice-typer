@@ -16,11 +16,9 @@
  */
 import type { ThemePreset } from "../themes";
 
-export const nordTheme: ThemePreset = {
+export const nordTheme: Omit<ThemePreset, "nameKey"> = {
 	id: "nord",
 	name: "Nord",
-	description:
-		"Cool arctic blues and frosty greys — inspired by the popular Nord colour palette.",
 	swatch: "oklch(0.5 0.06 240)",
 	light: {
 		// Core
@@ -31,7 +29,6 @@ export const nordTheme: ThemePreset = {
 		"--surface-page": "oklch(0.97 0.006 240)",
 		// Text
 		"--text-primary": "oklch(0.2 0.015 240)",
-		"--text-muted": "oklch(0.5 0.01 240)",
 		"--text-secondary": "oklch(0.4 0.01 240)",
 		// Cards / popovers (CR-061: added --card-foreground +
 		// --popover-foreground so light matches dark coverage.)
@@ -72,7 +69,7 @@ export const nordTheme: ThemePreset = {
 		"--sidebar-accent": "oklch(0.9 0.008 240)",
 		"--sidebar-accent-foreground": "oklch(0.25 0.01 240)",
 		"--sidebar-border": "oklch(0.86 0.008 240)",
-		"--sidebar-ring": "oklch(0.6 0.06 240)",
+		"--sidebar-ring": "oklch(0.48 0.06 240)",
 		// Charts
 		"--chart-1": "oklch(0.6 0.15 240)",
 		"--chart-2": "oklch(0.55 0.1 200)",
@@ -92,7 +89,6 @@ export const nordTheme: ThemePreset = {
 		"--surface-page": "oklch(0.18 0.01 240)",
 		// Text
 		"--text-primary": "oklch(0.92 0.008 240)",
-		"--text-muted": "oklch(0.6 0.01 240)",
 		"--text-secondary": "oklch(0.8 0.008 240)",
 		// Cards / popovers
 		"--card": "oklch(0.2 0.01 240)",
@@ -101,7 +97,7 @@ export const nordTheme: ThemePreset = {
 		"--popover-foreground": "oklch(0.92 0.008 240)",
 		// Primary / accent
 		"--primary": "oklch(0.6 0.08 240)",
-		"--primary-foreground": "oklch(0.97 0.014 254.604)",
+		"--primary-foreground": "oklch(0.1 0 0)",
 		"--accent": "oklch(0.6 0.08 240)",
 		"--accent-foreground": "oklch(0.97 0 0)",
 		"--accent-soft": "oklch(0.6 0.08 240 / 0.12)",
@@ -114,7 +110,7 @@ export const nordTheme: ThemePreset = {
 		// Borders / inputs / rings
 		"--border": "oklch(0.26 0.01 240)",
 		"--input": "oklch(0.28 0.01 240)",
-		"--ring": "oklch(0.5 0.05 240)",
+		"--ring": "oklch(0.7 0.1 240)",
 		// Destructive (CR-061: added --destructive-foreground so dark
 		// matches light coverage; previously only --destructive was set.)
 		"--destructive": "oklch(0.55 0.25 27)",
@@ -123,11 +119,11 @@ export const nordTheme: ThemePreset = {
 		"--sidebar": "oklch(0.15 0.01 240)",
 		"--sidebar-foreground": "oklch(0.92 0.008 240)",
 		"--sidebar-primary": "oklch(0.6 0.08 240)",
-		"--sidebar-primary-foreground": "oklch(0.97 0.014 254.604)",
+		"--sidebar-primary-foreground": "oklch(0.1 0 0)",
 		"--sidebar-accent": "oklch(0.22 0.008 240)",
 		"--sidebar-accent-foreground": "oklch(0.92 0.008 240)",
 		"--sidebar-border": "oklch(0.22 0.01 240)",
-		"--sidebar-ring": "oklch(0.5 0.05 240)",
+		"--sidebar-ring": "oklch(0.7 0.1 240)",
 		// Charts
 		"--chart-1": "oklch(0.65 0.12 240)",
 		"--chart-2": "oklch(0.6 0.08 200)",
