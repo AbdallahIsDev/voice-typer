@@ -85,6 +85,7 @@ NUITKA_ARGS=(
     --nofollow-import-to=torch._inductor
     --nofollow-import-to=torch.export
     --nofollow-import-to=torch._functorch
+    --nofollow-import-to=transformers
     --include-package=faster_whisper
     --include-package=ctranslate2
     --include-package=voice_typer
