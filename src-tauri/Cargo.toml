@@ -114,17 +114,3 @@ all = "warn"
 cast_possible_truncation = "warn"
 unwrap_used = "warn"
 expect_used = "allow"
-
-# GT-D3-6: project-wide clippy lint gate.
-[lints.clippy]
-all = "warn"
-cast_possible_truncation = "warn"
-unwrap_used = "warn"
-expect_used = "allow"
-
-# GT-D3-6: project-wide clippy lint gate.
-[lints.clippy]
-all = "warn"
-cast_possible_truncation = "warn"
-unwrap_used = "warn"
-expect_used = "allow"

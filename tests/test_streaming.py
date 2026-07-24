@@ -776,3 +776,101 @@ class TestHypothesisAudioPipeline:
             assert np.all(int16 == 0)
 
         check()
+
+
+# ─── DE-57 (Session DE — Group 4): eviction log privacy ───────────────
+
+
+class TestDE57EvictionLogPrivacy:
+    """DE-57: the DEBUG-level eviction log in
+    ``StreamingTextAssembler._insert_word_unlocked`` must NOT emit the
+    evicted word's textual content.
+
+    Pre-fix: the WARNING-level log was sanitized per CR-74 (logged only
+    the structural fact: max + index), but a companion DEBUG log wrote
+    ``evicted_word.word`` verbatim ("Evicted word content (debug only):
+    %r").  When a support workflow enabled DEBUG logging (common for
+    support tickets), evicted user speech landed in the persistent log
+    file at ``~/.voice-typer/...``.
+
+    The fix: replace the DEBUG-level ``evicted_word.word`` content with
+    a PII-safe length metric (``len(evicted_word.word)``).
+    """
+
+    def _make_assembler_with_small_maxlen(self, maxlen: int = 2):
+        """Build an assembler whose internal deque evicts after ``maxlen``
+        words, so we can trigger an eviction in O(1) test setup instead
+        of pushing 10 000 words."""
+        import collections
+
+        assembler = StreamingTextAssembler()
+        # Replace the default 10 000-cap deque with a small one.  We
+        # keep ``_base_offset=0`` so the eviction logic still fires
+        # correctly.
+        assembler._words = collections.deque(maxlen=maxlen)
+        return assembler
+
+    def test_evicted_word_content_not_logged_at_debug(self, caplog):
+        """When eviction fires, the DEBUG log must NOT contain the evicted
+        word's textual content — only its length / index."""
+        import logging
+
+        assembler = self._make_assembler_with_small_maxlen(maxlen=2)
+        pii_word = "supersecretpassword123"
+        # Fill the deque, then trigger eviction with the PII word.
+        # _insert_word_unlocked is the function under test — call it
+        # directly to control timing.
+        assembler._insert_word_unlocked(WordTiming("first", start_seconds=0.0, end_seconds=0.2))
+        assembler._insert_word_unlocked(WordTiming("second", start_seconds=0.3, end_seconds=0.5))
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.streaming"):
+            # This third insert evicts "first".
+            assembler._insert_word_unlocked(WordTiming(pii_word, start_seconds=0.6, end_seconds=0.8))
+
+        # The PII string must NOT appear anywhere in the captured logs.
+        assert not any(pii_word in record.getMessage() for record in caplog.records), (
+            "DE-57: evicted word content must NOT be logged at DEBUG level; "
+            f"found {pii_word!r} in:\n" + "\n".join(r.getMessage() for r in caplog.records)
+        )
+
+    def test_evicted_word_length_still_logged_at_debug(self, caplog):
+        """DE-57 fix must NOT silence the DEBUG log entirely — the
+        PII-safe length metric must still be emitted so developers can
+        diagnose eviction storms."""
+        import logging
+
+        assembler = self._make_assembler_with_small_maxlen(maxlen=2)
+        assembler._insert_word_unlocked(WordTiming("first", start_seconds=0.0, end_seconds=0.2))
+        assembler._insert_word_unlocked(WordTiming("second", start_seconds=0.3, end_seconds=0.5))
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.streaming"):
+            assembler._insert_word_unlocked(WordTiming("third", start_seconds=0.6, end_seconds=0.8))
+
+        # The DEBUG log should mention "chars" (the PII-safe metric).
+        debug_msgs = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG and "Evicted word" in r.getMessage()
+        ]
+        assert debug_msgs, (
+            "DE-57: a DEBUG-level eviction log must still fire (with PII-safe length metric, not content)."
+        )
+        assert any("chars" in msg for msg in debug_msgs), (
+            "DE-57: DEBUG eviction log must include char count (PII-safe metric); got:\n" + "\n".join(debug_msgs)
+        )
+
+    def test_evicted_word_content_not_logged_at_warning_either(self, caplog):
+        """Regression guard for the existing CR-74 sanitization at WARNING
+        level — the fix for DE-57 must not regress it."""
+        import logging
+
+        assembler = self._make_assembler_with_small_maxlen(maxlen=2)
+        pii_word = "supersecretpassword123"
+        assembler._insert_word_unlocked(WordTiming("first", start_seconds=0.0, end_seconds=0.2))
+        assembler._insert_word_unlocked(WordTiming("second", start_seconds=0.3, end_seconds=0.5))
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.streaming"):
+            assembler._insert_word_unlocked(WordTiming(pii_word, start_seconds=0.6, end_seconds=0.8))
+
+        assert not any(pii_word in record.getMessage() for record in caplog.records), (
+            "DE-57 / CR-74: evicted word content must NOT be logged at "
+            f"WARNING level either; found {pii_word!r} in:\n" + "\n".join(r.getMessage() for r in caplog.records)
+        )
