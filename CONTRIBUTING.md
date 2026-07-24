@@ -183,7 +183,7 @@ The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`v
 
 | Variable | Purpose | When to set it |
 |---|---|---|
-| `TAURI_SIDECAR=1` | Tells the Python backend it is running under the Tauri host. Disables the Python-side heartbeat watchdog (ADR-0018) and the Win32 single-instance mutex — the Tauri host provides both via `tauri-plugin-single-instance` and the FT-1 supervisor. | Set automatically when the sidecar is launched with `--ws` (i.e. `python -m voice_typer.server.ipc_server --ws`). Set manually only when debugging the WS server in isolation. |
+| `TAURI_SIDECAR=1` | Tells the Python backend it is running under the Tauri host. Disables the Python-side heartbeat watchdog (ADR-0018) and the Win32 single-instance mutex — the Tauri host provides both via `tauri-plugin-single-instance` and the supervisor. | Set automatically when the sidecar is launched with `--ws` (i.e. `python -m voice_typer.server.ipc_server --ws`). Set manually only when debugging the WS server in isolation. |
 | `VOICE_TYPER_SIDECAR_DEV=1` | Tells the Tauri Rust host to spawn `python -m voice_typer.server.ipc_server --ws` as a subprocess instead of the Nuitka-frozen `externalBin` binary. Lets you iterate on UI/transport changes in seconds — no ~10-minute Nuitka rebuild required. | Set when running `cargo tauri dev` (see below). Do NOT set for `cargo tauri build` — production builds must use the frozen sidecar. |
 
 #### Common commands
@@ -213,7 +213,7 @@ cargo tauri build
 
 | Path | Purpose |
 |---|---|
-| `src-tauri/src/main.rs` | The Rust host (~250 lines): spawns sidecar via `externalBin`, opens WS client, performs bearer-token auth, exposes a generic `dispatch` Tauri command, bridges server-initiated events to Tauri events, coalesces `bubble_level` 60Hz→30Hz, runs FT-1 supervisor with 500ms→1s→2s→4s→8s backoff (cap 5 → full-app relaunch via `AppHandle::restart()`). |
+| `src-tauri/src/main.rs` | The Rust host (~250 lines): spawns sidecar via `externalBin`, opens WS client, performs bearer-token auth, exposes a generic `dispatch` Tauri command, bridges server-initiated events to Tauri events, coalesces `bubble_level` 60Hz→30Hz, runs supervisor with 500ms→1s→2s→4s→8s backoff (cap 5 → full-app relaunch via `AppHandle::restart()`). |
 | `src-tauri/Cargo.toml` | Tauri v2 + plugins (`shell`, `notification`, `clipboard-manager`, `single-instance`, `dialog`) + `enigo` (keystroke injection) + `tokio-tungstenite` (WS client). |
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |

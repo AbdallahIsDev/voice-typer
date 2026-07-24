@@ -52,7 +52,7 @@ that platform's target arch(s):
    - Prewarm still warms the cache (per the platform's prewarm scheduler —
      Task Scheduler / LaunchAgent / systemd user timer).
    - Native hotkey binary still toggles dictation.
-3. **FT-1 crash isolation** verified: kill the sidecar process from
+3. **crash isolation** verified: kill the sidecar process from
    Task Manager / Activity Monitor / `kill -9` — the UI shows the
    "reconnecting…" state, the Rust supervisor respawns the sidecar, and
    dictation resumes within the backoff window. After repeated kills
@@ -107,7 +107,7 @@ For each platform that flips, file the following in the release notes
 for that version:
 
 - [ ] Per-platform runbook checklist (all 9 points) — checked + dated.
-- [ ] FT-1 crash isolation test — log excerpt showing `ft1_relaunching`
+- [ ] crash isolation test — log excerpt showing `supervisor_relaunching`
       events + successful respawn.
 - [ ] Side-by-side smoke test — screenshot or video.
 - [ ] Bundle size + startup latency measurements (with comparison to

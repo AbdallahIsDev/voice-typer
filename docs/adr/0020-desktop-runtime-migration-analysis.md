@@ -72,7 +72,7 @@ These choices were decided before the Phase 0 spike and are fixed for the build:
 - **Transport: WebSocket, single choice.** UI → Rust (`invoke`) → sidecar over a **localhost WebSocket**. No HTTP/JSON-RPC alternative. The sidecar is reached at an **ephemeral `127.0.0.1:0`** port it binds itself and reports to Rust via a `server_started` JSON line on stdout (not the hardcoded `9876`; see §1). Auth is the existing **HMAC session token** scheme via env `VOICE_TYPER_IPC_TOKEN`, reused from ADR-0014 (TCP IPC session-token auth).
 - **Paste/keystroke injection: `enigo` + `tauri-plugin-clipboard-manager`.** The Rust bridge uses the **`enigo`** crate (cross-platform: Windows via `SendInput`, macOS via CGEvent, Linux via X11/XTest) for keystroke injection of transcribed text into the foreground window, **plus** `tauri-plugin-clipboard-manager` for the clipboard copy + `Ctrl+V`/`Cmd+V` long-text path. `enigo` is keyboard/mouse ONLY — it does NOT do toast notifications (see §6 of the Implementation Specification). The previous ADR's Win32-only focus-restore dance (`AttachThreadInput`, `SetForegroundWindow`, `GetForegroundWindow`) is the Windows implementation; macOS and Linux each need their own equivalent (see §6).
 - **Cooperative shutdown over the WebSocket**, not stdin/stdout. The Rust supervisor sends `{"type":"shutdown"}`; the sidecar releases the mic, acks, and exits. `kill_children` is the backstop only.
-- **Crash isolation (FT-1)** is a hard requirement before cutover on each platform: Rust respawns the sidecar only, shows "reconnecting…", with backoff 500 ms → 1 s → 2 s (cap 5 retries) then full-app relaunch. Treat FT-1 as a label defined by this ADR, not an external task ID.
+- **Crash isolation (supervisor)** is a hard requirement before cutover on each platform: Rust respawns the sidecar only, shows "reconnecting…", with backoff 500 ms → 1 s → 2 s (cap 5 retries) then full-app relaunch. Treat supervisor as a label defined by this ADR, not an external task ID.
 - **Heartbeat is removed on BOTH sides** (replaces ADR-0018's TCP heartbeat watchdog). Under Tauri, Rust is the supervisor: it detects sidecar death via WS-close / process exit, so the app→backend heartbeat is redundant. This invalidates ADR-0018 for the Tauri build path; ADR-0018 stays in force for the Electron fallback path until that fallback is removed. See §10.
 
 > **Honest process-model note:** post-migration the OS still runs **multiple processes** — Tauri host + Tauri WebView renderer child + Python sidecar + prewarm (3 → 2 net per session: one app + one boot helper). The user sees **one app** (one icon/install/start menu entry), but Task Manager / Activity Monitor / `ps` will show more than one entry. This migration resolves complaint (B) as "one app to launch", NOT "one OS process". Embedding Python (PyO3) was rejected precisely because it *would* yield one process but reintroduces GIL-freeze risk and kills crash isolation.
@@ -200,7 +200,7 @@ The plan runs **Windows → macOS → Linux** in sequence. Each platform has its
 ### Phase 4 — Wire swap + recovery (per platform)
 
 - Re-point the "wire" (UI → logic) from Electron→Python to Tauri→sidecar. Keep the Electron build path intact and runnable in parallel.
-- Implement **crash isolation** (FT-1): a Rust supervisor respawns the sidecar on unexpected exit, shows a "reconnecting…" state, and falls back to full-app relaunch if respawn fails repeatedly.
+- Implement **crash isolation** (supervisor): a Rust supervisor respawns the sidecar on unexpected exit, shows a "reconnecting…" state, and falls back to full-app relaunch if respawn fails repeatedly.
 - Enable the `single-instance` plugin so only one app instance runs. **On Windows, also remove the `VoiceTyperSingleInstance` Win32 mutex from `app.py` (locate by `class VoiceTyperSingleInstance`)** when running under Tauri — the Tauri plugin already provides the mutex, and double-locking would block the second-instance focus path.
 
 ### Phase 5 — Validation & cutover (per platform)
@@ -268,7 +268,7 @@ Closes the gaps called out in review: port-bind direction, command table, token 
   - **macOS:** trigger an Application Firewall prompt (System Settings → Network → Firewall) on first run.
   - **Linux:** be reachable from other hosts if `net.ipv4.conf.all.localhost_allow` is set; also no firewall prompt but a real exposure.
   Fail the launch if the configured bind is not loopback.
-- On FT-1 respawn Rust generates a **new** token and respawns the sidecar (which binds a fresh `:0`); token rotation per §3.
+- On respawn Rust generates a **new** token and respawns the sidecar (which binds a fresh `:0`); token rotation per §3.
 
 ### 2. Sidecar←UI Command Table (channel 1, extracted from `ipc_server._COMMAND_REGISTRY`)
 
@@ -352,7 +352,7 @@ Closes the gaps called out in review: port-bind direction, command table, token 
 
 > **`heartbeat` is removed from BOTH sides on the Tauri path.** The registry currently contains **78 commands** (incl. `heartbeat` — locate the registry entry by `heartbeat:` in `_COMMAND_REGISTRY`, handler `_handle_heartbeat` resident on `IPCServer`; and `relaunch_ack` — locate by `relaunch_ack:` in `_COMMAND_REGISTRY`, handler `_handle_relaunch_ack` resident on `IPCServer`, NOT in `handlers/`). The current Electron UI *still sends* `heartbeat` every 5 s (`client/src/main/index.ts`, ADR-0018) and `relaunch_ack` once per restart cycle (`client/src/main/python/relaunch-app.ts`). Under Tauri: (1) the Tauri UI port must **delete** the heartbeat interval (Rust is the supervisor — it detects death via WS-close / process exit, so no app→backend heartbeat is needed) and the `relaunch_ack` send (Rust owns the restart via `app.restart()`); (2) the Rust bridge must **not** forward `heartbeat` or `relaunch_ack` to Python (treat as no-op + debug log); (3) `_handle_heartbeat` and `_handle_relaunch_ack` stay in Python until the UI removal lands, so a stray frame never hits `_handle_unknown_command` and returns `unknown_command`. Verification task: `rg "heartbeat|relaunch_ack" voice_typer/client` → zero hits after the UI port. `show_electron_notification` renames to a Tauri notification emit. The 76 surviving commands (78 − `heartbeat` − `relaunch_ack`) keep their `data` schemas 1:1 — enumerate each `_handle_*` payload from `handlers/*` (do NOT redesign); `_validate_dict_payload` re-validates on the sidecar.
 
-> **Note on ADR-0018 reconciliation:** ADR-0018 (Electron-Alive Heartbeat Watchdog) stays in force for the Electron fallback path. Under Tauri, FT-1 (Rust supervisor + WS-close detection + backoff) replaces the 120-second-heartbeat-timeout watchdog. The two paths are mutually exclusive per build: the Tauri build defines `TAURI_SIDECAR=1` (or equivalent) and the Python sidecar, on seeing that env var, **disables** the `_heartbeat_loop` thread at startup so the watchdog does not false-positive during a slow WS-only reconnect. The Electron build keeps ADR-0018 unchanged.
+> **Note on ADR-0018 reconciliation:** ADR-0018 (Electron-Alive Heartbeat Watchdog) stays in force for the Electron fallback path. Under Tauri, Rust supervisor + WS-close detection + backoff) replaces the 120-second-heartbeat-timeout watchdog. The two paths are mutually exclusive per build: the Tauri build defines `TAURI_SIDECAR=1` (or equivalent) and the Python sidecar, on seeing that env var, **disables** the `_heartbeat_loop` thread at startup so the watchdog does not false-positive during a slow WS-only reconnect. The Electron build keeps ADR-0018 unchanged.
 
 ### 3. HMAC token lifecycle (cross-platform)
 
@@ -364,7 +364,7 @@ Closes the gaps called out in review: port-bind direction, command table, token 
   - **Linux:** env readable via `/proc/<pid>/environ` by the same user.
   Acceptable for a localhost single-user desktop app on all three platforms — the token only authorizes loopback WS connections; it is regenerated per launch and per respawn, the port is ephemeral + loopback-only (`127.0.0.1`), so a stolen token is useless after the process exits. If stronger isolation is later required, the per-platform options are: **Windows** — pass via a deleted temp file or a named-pipe handshake; **macOS** — pass via a Unix domain socket handshake or `launchctl setenv` scoped to the process; **Linux** — pass via an inherited file descriptor (`systemd` socket activation style) or a Unix domain socket.
 - WS handshake: client's first frame must be `{"type":"auth","token":"<token>"}`; sidecar compares with `hmac.compare_digest` (constant-time) against the env value; on mismatch it closes the socket. Subsequent frames skip re-auth (matches today's TCP handshake-once model from ADR-0014).
-- **Rotation:** on every FT-1 respawn Rust generates a new token + new port.
+- **Rotation:** on every respawn Rust generates a new token + new port.
 - **Never log the token.** Redact `VOICE_TYPER_IPC_TOKEN` from every sink (`tauri.log`, `sidecar.log`, `stdout`/`stderr`). Log at most `token_present=true` or a short hash. A token written to a log file defeats the per-launch rotation and is readable by any local user, so it must never appear verbatim.
 
 ### 4. Nuitka build (actionable, per platform)
@@ -652,7 +652,7 @@ Today the tray icon is `pystray` (Win32 / AppKit / GTK), with menu logic in `tra
       { "name": "bin/python-sidecar" }
     ] }
   ```
-  `shell:allow-kill-children` for the FT-1 force-kill backstop (§10).
+  `shell:allow-kill-children` for the force-kill backstop (§10).
 - `global-shortcut:allow-register` / `unregister` — **only if** you decide to also register hotkeys via Tauri (e.g., for a global "show settings" shortcut). The dictation toggle stays on the native binary (§6.4).
 - `clipboard-manager:allow-read-text` / `write-text` / `clear`
 - `notification:allow-notify`
@@ -695,15 +695,15 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 
 - Sidecar emits `bubble_level` at source ~60 Hz. **Rust coalesces**: keep only the latest `{rms,peak}` and emit a Tauri event at ≤ 30 Hz (or on `requestAnimationFrame`). Prevents WebView jank. The ~60 Hz source throttle in `app.py` stays; Rust adds a second coalescing throttle.
 
-### 10. WebSocket disconnect / error handling + FT-1 + rate limiter
+### 10. WebSocket disconnect / error handling + supervisor + rate limiter
 
 - **Clean shutdown:** Rust sends `{"type":"shutdown"}`; sidecar releases mic, acks `{"type":"result"}`, exits 0. **Hard timeout:** if the sidecar has not exited within **2.0 s** of the ack (e.g. it is stuck inside a native CTranslate2 call and cannot service the WS message), Rust force-kills the process tree via Tauri's `kill_children` handle. Never wait indefinitely on a blocked Python thread.
-- **Sidecar crash / WS close without shutdown:** Rust treats it as a crash → FT-1 respawn (backoff 500→1000→2000 ms, cap 5). In-flight chunk discarded.
-- **Token validation failure:** sidecar closes the socket immediately; Rust logs + shows "connection rejected", retries with a fresh token (counts toward FT-1 backoff).
-  - **Transient loopback blip:** Rust attempts one immediate reconnect; on failure, falls into FT-1 backoff.
+- **Sidecar crash / WS close without shutdown:** Rust treats it as a crash → respawn (backoff 500→1000→2000 ms, cap 5). In-flight chunk discarded.
+- **Token validation failure:** sidecar closes the socket immediately; Rust logs + shows "connection rejected", retries with a fresh token (counts toward backoff).
+  - **Transient loopback blip:** Rust attempts one immediate reconnect; on failure, falls into backoff.
   - **Frame-size limit:** cap WS messages at **1 MiB** (`tokio-tungstenite` `max_frame_size` on the Rust client; `websockets` `max_size` on the server). `download_progress` and `vocabulary_suggestion` can carry large payloads; without a limit a malformed/huge frame can OOM the client. Reject oversized frames with a clean error rather than buffering unbounded.
   - **Malformed frames:** a WS frame that is not valid JSON (or fails `_validate_dict_payload`) must yield `{"type":"error","code":"invalid_payload","data":{...}}` and leave the connection open — the sidecar must **never** crash on a bad frame. The Rust client treats a non-`result`/`error` response as a protocol error, not a crash.
-- **FT-1 state machine:** `running → (unexpected exit) → reconnecting (UI "reconnecting…") → respawn with backoff (500ms → 1s → 2s, cap 5 retries) → running | give up → full-app relaunch`. In-flight audio chunk on crash is discarded (next dictation re-opens capture); acceptable.
+- **supervisor state machine:** `running → (unexpected exit) → reconnecting (UI "reconnecting…") → respawn with backoff (500ms → 1s → 2s, cap 5 retries) → running | give up → full-app relaunch`. In-flight audio chunk on crash is discarded (next dictation re-opens capture); acceptable.
 - **Per-connection rate limiter (ADR-0019 port):** the existing limiter in `log_rate_limit.py` (200 burst / 60 sustained msg/s) was written for the TCP accept path. The WS server accept path must call the same limiter on every incoming frame. A client that exceeds the limit gets `{"type":"error","code":"rate_limited","data":{"retry_after_ms":...}}` and the connection stays open. **This is a hard porting requirement** — without it, a misbehaving UI (or a buggy Rust bridge that re-sends on timeout) can DoS the sidecar's dispatch loop.
 - **Heartbeat removal (replaces ADR-0018 on Tauri path):** the `_heartbeat_loop` daemon thread in `ipc_server.py` and the `_handle_heartbeat` command are **disabled on the Tauri path** via an env-var check at sidecar startup (`TAURI_SIDECAR=1` → skip `_heartbeat_loop` start). They stay enabled on the Electron fallback path. The Rust supervisor's WS-close detection replaces the 120-second heartbeat timeout. See §2.
 
@@ -863,7 +863,7 @@ Do NOT silently add commands/events during implementation — every addition wid
 - **One app / one icon per platform.** Tauri host + sidecar bundle into one app, installed/launched/stopped together. The user launches **one app** — directly addresses complaint (B) as "one thing to open", not "one OS process". Process count: today's 3 (Electron + Python + prewarm) → 2 (Tauri app + prewarm).
 - **No hand-rolled launcher.** Tauri owns the Python lifecycle; the `electron_launcher.py` (318 lines) + `autostart_launcher.py` (801 lines) relay behind complaint (A) is removed. (Note: the Rust↔sidecar bridge is still a thin IPC layer — complaint (A) is addressed by removing Electron's `ipcMain`/`contextBridge` middleware, replaced by a single Tauri `invoke`→WebSocket path.)
 - **No UI freeze.** The sidecar owns its own GIL, so continuous mic capture + inference never block the UI — matches today's smooth behavior.
-- **Crash isolation possible (FT-1).** A speech-engine crash can be recovered without killing the whole app — an upgrade over today's whole-app restart.
+- **Crash isolation possible (supervisor).** A speech-engine crash can be recovered without killing the whole app — an upgrade over today's whole-app restart.
 - **Smaller shell.** Tauri exe ~2–10 MB using system WebView (WebView2 / WKWebView / webkit2gtk), vs Electron's ~100 MB+ bundled Chromium.
 - **Python stays Python.** No ML rewrite; the existing backend is bundled as a sidecar (Nuitka-compiled).
 - **Cross-platform parity preserved.** The native hotkey binaries (Win/macOS/Linux), the platform-specific autostart, the platform-specific prewarm schedulers, the Linux udev/polkit scripts, and the macOS Accessibility flow all stay unchanged — the migration does not regress any feature in the `PLATFORM_STATUS.md` matrix.
@@ -924,7 +924,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - WebSocket client (connects to the sidecar's WS server).
 - `dispatch` command bridge (UI `invoke` → WS frame → response).
 - Event subscriber (subscribes to `event_bus` via the WS, re-emits as Tauri events).
-- FT-1 supervisor (respawn sidecar on crash, backoff, full-app relaunch).
+- supervisor (respawn sidecar on crash, backoff, full-app relaunch).
 - Sidecar lifecycle (spawn via `externalBin`, `kill_children` backstop, cooperative `{"type":"shutdown"}`).
 - HMAC token generation + rotation.
 - `server_started` JSON parsing from sidecar stdout.
@@ -980,7 +980,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 1. **Spike must pass on each platform's Phase 0** before any full build — the make-or-break step. Windows first, then macOS (both archs), then Linux (X11 + Wayland).
 2. **UI port effort (Phase 3)** is the largest unknown; mitigated by keeping React components shell-agnostic.
 3. **Transport bridge (Phase 2)** must preserve all current handler behaviors and the event flow exactly — the **Sidecar→UI Event Table** above enumerates every event so nothing is missed. The per-connection rate limiter (ADR-0019) must be ported to the WS path.
-4. **Recovery supervisor (FT-1)** must be implemented before cutover so a sidecar crash does not strand the user.
+4. **Recovery supervisor (supervisor)** must be implemented before cutover so a sidecar crash does not strand the user.
 5. **macOS notarization + entitlements** for the sidecar (which uses `pyobjc` + native dylibs) is the highest-risk unknown — Nuitka + `pyobjc` + hardened runtime + notarization has historical friction. Mitigation: Phase 0-M explicitly validates `faster-whisper` loads inside the notarized sidecar on both archs.
 6. **Wayland paste UX regression** — `enigo.text()` does not work on Wayland. Mitigation: clipboard + `Ctrl+V` fallback with `clipboard_snapshot.py` borrow/restore. User-facing doc must explain the clipboard-replacement behavior.
 7. **Linux ARM64 (aarch64-unknown-linux-gnu)** — the `python-build-standalone` aarch64 Linux builds + CTranslate2 aarch64 wheels + glibc pinning are less tested than x86_64. Mitigation: defer aarch64 Linux to a follow-up if Phase 0-L on x86_64 passes; document the deferral.
@@ -998,7 +998,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - **Global hotkey:** KEEP native binaries (do NOT switch to `tauri-plugin-global-shortcut`). Tauri plugin regresses key suppression, modifier-only hotkeys, Fn/Globe key, and Wayland support.
 - **Tray:** port to `tauri-plugin-tray`, but menu structure stays in Python (emit `tray_menu` event, Rust renders).
 - **Prewarm scheduling:** stays platform-specific (Windows Task Scheduler, macOS LaunchAgent, Linux systemd user timer) via the existing `task_scheduler.py` + `prewarm_scheduler_posix.py`. Only the prewarm *binary* changes (`pythonw -m voice_typer.server.prewarm` → `prewarm-<triple>[.exe]` via `resolve_prewarm_exe`).
-- **Heartbeat:** removed on Tauri path (FT-1 supervisor replaces ADR-0018). Stays on Electron fallback path. Disabled via `TAURI_SIDECAR=1` env var.
+- **Heartbeat:** removed on Tauri path (supervisor replaces ADR-0018). Stays on Electron fallback path. Disabled via `TAURI_SIDECAR=1` env var.
 - **Auto-update:** out of scope for v1 (not implemented today).
 
 ---
@@ -1025,7 +1025,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - **ADR-0015** — Electron command allowlist.
 - **ADR-0016** — Granular consent flags.
 - **ADR-0017** — Cloud URL allowlist + HTTPS.
-- **ADR-0018** — Electron-alive heartbeat watchdog. **Removed on the Tauri path (FT-1 supervisor replaces it). Stays on the Electron fallback path. Disabled via `TAURI_SIDECAR=1` env var.**
+- **ADR-0018** — Electron-alive heartbeat watchdog. **Removed on the Tauri path (supervisor replaces it). Stays on the Electron fallback path. Disabled via `TAURI_SIDECAR=1` env var.**
 - **ADR-0019** — Per-connection rate limiter. **Must be ported from the TCP accept path to the WS accept path.**
 
 ### External references

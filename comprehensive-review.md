@@ -99,11 +99,11 @@ These items are the highest-priority remaining work for the project — they blo
 
 ---
 
-### HP-8. MIG-1.4 — Prewarm packaging + FT-1 supervisor
+### HP-8. MIG-1.4 — Prewarm packaging + crash isolation supervisor
 
 **Status:** ⚠️ Partial — Rust supervisor code compiles; all prewarm binaries are 0-byte placeholders
 
-**Description:** Prewarm (model/asset warm-up) binary must launch at login/boot on each OS (LogonTrigger / LaunchAgent / systemd timer). FT-1 crash isolation must respawn the sidecar on crash without killing the UI.
+**Description:** Prewarm (model/asset warm-up) binary must launch at login/boot on each OS (LogonTrigger / LaunchAgent / systemd timer). Crash isolation must respawn the sidecar on crash without killing the UI.
 
 **Confirmed findings (2026-07-24):**
 - Rust supervisor code in `src-tauri/src/sidecar/` exists and compiles. `resolve_prewarm_exe()` exists.
@@ -287,34 +287,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Recommended fix**: Add focused unit-test files per module.
 - **Effort**: 🔴 **EXTRA HIGH** — Adding comprehensive tests for 12 large modules is a major effort. Cannot be done in one shot.
 - **Confidence for one-shot fix**: 20% — too many modules to cover in one shot.
-
----
-
-## CI/CD (all Pending)
-
-#### CI-1 — 5 `if: false` guards across 3 Tauri workflows (intentional, pre-Phase-0)
-- **Severity**: Low
-- **Status**: Pending (by design)
-- **Description**: Five `if: false` guards disable jobs across 3 Tauri workflows; intentional scaffolding.
-- **Recommended fix**: Remove guards progressively as each MIG phase lands.
-- **Effort**: 🟢 **LOW** — Just removing `if: false` guards when the corresponding phase is ready. But cannot do until phases are validated. ~5 min per guard.
-- **Confidence for one-shot fix**: 90% — simple YAML edits, but blocked on phase validation.
-
-#### CI-2 — Windows workflow x86_64-only (no aarch64 Windows-on-ARM)
-- **Severity**: Low
-- **Status**: Pending
-- **Description**: The Windows CI workflow builds only x86_64; Windows-on-ARM has no build/validate job.
-- **Recommended fix**: Add an aarch64 Windows job once a runner is available.
-- **Effort**: 🔴 **HIGH** — Blocked by runner availability. Cannot complete.
-- **Confidence for one-shot fix**: 10% — blocked by GHA runner availability.
-
-#### CI-4 — macOS signing order wrong (`.app` not signed before notarization)
-- **Severity**: Medium
-- **Status**: Pending
-- **Description**: The macOS workflow invokes notarization before the `.app` bundle is signed.
-- **Recommended fix**: Sign the `.app` first, then submit to notarytool.
-- **Effort**: 🟡 **MEDIUM** — Requires reordering CI steps in `tauri-macos-build.yml`. Cannot validate without a real macOS runner. ~0.5 day.
-- **Confidence for one-shot fix**: 60% — cannot verify without macOS runner.
 
 ---
 
@@ -780,7 +752,7 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 - R3-LOW: server_started uses 'event' key vs 'type' (S1-CR-78 captures this)
 - R3-LOW: WS reader treats any id field as dispatch response
 - R3-LOW: Shutdown response frame emitted as spurious Tauri event
-- R3-LOW: FT-1 respawn flag not panic-safe
+- R3-LOW: Respawn flag not panic-safe
 - R3-LOW: `_push_to_ws` queue manipulation not atomic
 - R4-LOW: Per-chunk `from math import gcd` import
 - R4-LOW: `indata_mono.copy()` allocated every chunk
@@ -796,7 +768,7 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 - R7-LOW: `redact_pii()` only catches structured patterns
 - R7-LOW: Stale `mic-test-*.wav` docs
 - R8-LOW: `globalErrorHandler.ts` uses CommonJS `require()` inside ESM/Vite renderer
-- R8-LOW: FT-1 user-facing events without attempt count or backoff timing
+- R8-LOW: User-facing events without attempt count or backoff timing
 - R8-LOW: `ipc/server.py:953-957` outer "unexpected error" catches `Exception` without re-raising
 - R9-LOW: `event_bus._get_deferred_executor` lazy init can leak ThreadPoolExecutors
 - R9-LOW: `prewarm.process_tracker.is_prewarm_running` TOCTOU on PID file + liveness
@@ -839,7 +811,7 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 
 The codebase has substantial prior engineering investment (RT-safe audio, secure atomic writes, keyring credential store, defense-in-depth security, comprehensive ADRs). However, the Tauri cutover migration (ADR-0020) is **half-finished** in multiple critical dimensions:
 
-1. **Tauri host-side integration broken end-to-end**: tray click handler (S1-CR-5), FT-1 zombie leak (S1-CR-3), dispatch allowlist regression (S1-CR-4), Tauri config schema mismatch (S1-CR-12), missing per-arch configs (S1-CR-13), missing bundle resources (S1-CR-15).
+1. **Tauri host-side integration broken end-to-end**: tray click handler (S1-CR-5), zombie leak (S1-CR-3), dispatch allowlist regression (S1-CR-4), Tauri config schema mismatch (S1-CR-12), missing per-arch configs (S1-CR-13), missing bundle resources (S1-CR-15).
 2. **Linux packaging broken under Tauri**: postinst/prerm hard-code legacy paths (S1-CR-39, S1-CR-41), no user-data cleanup on uninstall (S1-CR-43).
 3. **CI/CD quality gates are red**: ruff baseline out of sync (S1-CR-28), pyrefly baseline empty (S1-CR-30), 17 failing config tests (S1-CR-31), ~45 failing vitest tests (S1-CR-33), 14 failing i18n tests (S1-CR-49), 30 failing tray tests (S1-CR-7).
 4. **Privacy/consent regressions**: HuggingFace consent bypass (S1-CR-8), secret leak in diagnostics script (S1-CR-9), raw transcription in support bundle (S1-CR-23), GDPR delete/export incomplete (S1-CR-87, S1-CR-88).
@@ -1155,7 +1127,7 @@ The Critical/High findings (36 total) are the priority fix wave. Medium findings
 - **Evidence**: WS reader drains `pending` dispatch requests with `{"code": "sidecar_disconnected"}` on exit — but in-flight transcriptions (audio being captured + processed, both inside sidecar process) have NO entry in `pending`. crash_recovery.add() only runs AFTER transcription completes.
 - **Root cause**: Crash-recovery buffer's `add()` is called from `_store_result` AFTER successful transcription.
 - **Impact**: User dictates long passage, sidecar crashes (CUDA OOM, native hotkey listener SEH), entire dictation silently lost. User sees brief "reconnecting…" banner and must remember + re-dictate.
-- **Proposed fix**: Two-pronged. (a) Persist raw audio chunks to temp file as they're captured (recorder already has ring buffer — add fsync'd spill file every N chunks). On sidecar restart, prompt user "Your last recording was interrupted — recover?" (b) Emit `dictation_lost` push event from FT-1 supervisor to renderer when sidecar crash detected while recorder state was recording/transcribing.
+- **Proposed fix**: Two-pronged. (a) Persist raw audio chunks to temp file as they're captured (recorder already has ring buffer — add fsync'd spill file every N chunks). On sidecar restart, prompt user "Your last recording was interrupted — recover?" (b) Emit `dictation_lost` push event from supervisor to renderer when sidecar crash detected while recorder state was recording/transcribing.
 - **Confidence**: High
 - **Source**: R12
 
@@ -1768,7 +1740,7 @@ The Critical/High findings (36 total) are the priority fix wave. Medium findings
 
 **Performance / Resource (8)**: M-16 RNNoise round-trip resample 16k↔48k (1-3% CPU) · M-17 `level_monitor` allocation-heavy RMS computation (120-180 allocs/sec) · M-18 `level_monitor` config wiring missing `noise_suppression_method` field (always uses RNNoise + full dynamics) · M-19 `recorder._process_audio_chunk` uses `np.count_nonzero` instead of `.any()` · M-20 `level_monitor` holds `_monitor_lock` during full filter chain · M-21 `volume_backends._lock` declared but never acquired (dead code) · M-22 `_deferred_executor` ThreadPoolExecutor never shut down · M-23 Three thread-spawn sites in `recorder` for device-disconnect (not registered with thread_registry).
 
-**Reliability / Scalability (8)**: M-24 History DB retention runs ONCE at startup (no periodic sweep) · M-25 `_pending_tcp` cap=1000 drops content-bearing events (transcription_final, vocabulary_suggestion) under high-frequency bubble_level spam · M-26 History DB queue overflow silently discards fire-and-forget writes (no user notification) · M-27 Qwen `transcribe()` releases lock during inference — race with change_model · M-28 FT-1 supervisor fixed backoff with no jitter, no circuit breaker · M-29 TCP worker pool `max_workers=4` may delay legitimate connections · M-30 Recorder `_handle_device_disconnect` no backoff between retries · M-31 Heartbeat timeout 120s holds mic + ducked volume too long after Electron crash.
+**Reliability / Scalability (8)**: M-24 History DB retention runs ONCE at startup (no periodic sweep) · M-25 `_pending_tcp` cap=1000 drops content-bearing events (transcription_final, vocabulary_suggestion) under high-frequency bubble_level spam · M-26 History DB queue overflow silently discards fire-and-forget writes (no user notification) · M-27 Qwen `transcribe()` releases lock during inference — race with change_model · M-28 supervisor fixed backoff with no jitter, no circuit breaker · M-29 TCP worker pool `max_workers=4` may delay legitimate connections · M-30 Recorder `_handle_device_disconnect` no backoff between retries · M-31 Heartbeat timeout 120s holds mic + ducked volume too long after Electron crash.
 
 **UX / Discoverability / Product Experience (20)**: M-32 "Auto Duck Volume" / "Duck Level" labels are audio-engineering jargon · M-33 Models.tsx `Save Key` button vs Settings debounced auto-save (inconsistent API key UX) · M-34 Settings → Troubleshooting and About → Resources overlap "Report a Bug" · M-35 Templates.tsx uses native `title` tooltip vs `InfoTooltip` component elsewhere · M-36 Settings → Troubleshooting "Re-run Setup Wizard" and "Reset to Defaults" share RefreshIcon · M-37 Vocabulary.tsx count footer uses `text-[10px] opacity-50` (WCAG violation, fixed in Settings but not Vocabulary) · M-38 ConfirmDialog default `title = t("common.confirm")` but no `common.confirm` key in any locale · M-39 Microphone.tsx "Active" badge misleading (mic not actually recording) · M-40 Templates.tsx has no count footer (Vocabulary has one) · M-41 Vocabulary autoDetectDesc references internal category names (circular) · M-42 App.tsx "Retry Connection" button has no in-flight feedback · M-43 Settings → Privacy "Agree to All" banner dense legal prose · M-44 Onboarding "Get Started" button same variant as "Continue" (no visual finish line) · M-45 Microphone.tsx empty state uses `opacity-30` (WCAG 1.4.11 violation) vs EmptyState.tsx `opacity-50` · M-46 Templates add/edit dialog matchMode Select has no InfoTooltip · M-47 About → Privacy and Settings → Privacy & Consent duplicate same topics with different wording · M-48 Onboarding step 3 doesn't warn about large model download size · M-49 Onboarding hotkey step doesn't mention custom hotkeys available in Settings · M-50 Onboarding step 4 says "may take a minute" — for medium.en it's 20+ minutes.
 
@@ -1809,13 +1781,13 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** Change signature to `-> bool`. Add `return True` after successful SendInput(4,...). Add `return False` on partial-success branch. Add `return True/False` on pynput fallback. Add an integration test that does NOT mock `_send_ctrl_v_win32` and asserts `paste()` returns True on SendInput-returns-4 path.
 - **Confidence:** High (R2, R18 — duplicated finding, merged)
 
-### S3-CR-2 — FT-1 supervisor race with shutdown — zombie sidecar
+### S3-CR-2 — supervisor race with shutdown — zombie sidecar
 - **Severity:** Critical (zombie process holding mic + named mutex)
 - **Status:** Pending
-- **Locations:** `src-tauri/src/sidecar/ft1.rs:42-100, 68-69`
-- **Evidence:** `ft1_respawn_inner` checks `state.shutting_down` at top of loop, sleeps up to 5000ms, then `spawn_sidecar_and_get_port(...)` WITHOUT re-checking `shutting_down` after sleep. `shutdown_sidecar` sets `shutting_down=true` and force-kills the OLD child, but FT-1 then wakes and spawns a NEW sidecar.
+- **Locations:** `src-tauri/src/sidecar/supervisor.rs:42-100, 68-69`
+- **Evidence:** `respawn_inner` checks `state.shutting_down` at top of loop, sleeps up to 5000ms, then `spawn_sidecar_and_get_port(...)` WITHOUT re-checking `shutting_down` after sleep. `shutdown_sidecar` sets `shutting_down=true` and force-kills the OLD child, but supervisor then wakes and spawns a NEW sidecar.
 - **Root cause:** Missing second `shutting_down` check after sleep / before spawn.
-- **Impact:** Zombie sidecar process after window-close-during-FT-1-recovery. New sidecar holds mic, native hotkey binary, Windows named mutex → next launch hits `ERROR_ALREADY_EXISTS`.
+- **Impact:** Zombie sidecar process after window-close-during-recovery. New sidecar holds mic, native hotkey binary, Windows named mutex → next launch hits `ERROR_ALREADY_EXISTS`.
 - **Proposed fix:** Re-check `state.shutting_down` after sleep (return Ok if set). Also: kill the old child before installing the new one (related S3-CR-28). Add a `Drop` guard to clear `respawn_in_progress` on panic.
 - **Confidence:** High (R5, R12, R13)
 
@@ -2065,10 +2037,10 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** Single-point fix in `_dispatch` (server.py:1321-1327): `result["id"] = msg["id"]` after handler returns. Or have `_validate_dict_payload` accept and mutate `resp`.
 - **Confidence:** High (R4)
 
-### S3-CR-28 — FT-1 supervisor doesn't kill old child on respawn (orphaned sidecar)
+### S3-CR-28 — supervisor doesn't kill old child on respawn (orphaned sidecar)
 - **Severity:** High
 - **Status:** Pending
-- **Locations:** `src-tauri/src/sidecar/ft1.rs:68-69`
+- **Locations:** `src-tauri/src/sidecar/supervisor.rs:68-69`
 - **Evidence:** On successful spawn, new child handle replaces old: `let mut child_guard = state.child.lock().unwrap(); *child_guard = Some(child);`. `SidecarHandle::ShellPlugin(CommandChild)` has no `Drop` impl that kills process. Old child handle silently dropped.
 - **Root cause:** Verified. WS-reader task exit fires on WS close, which doesn't guarantee sidecar OS process has exited.
 - **Impact:** Orphaned sidecar processes holding mic, native hotkey binaries, Windows named mutex. New sidecar cannot acquire mutex → "Voice Typer is already running".
@@ -2076,14 +2048,14 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Proposed fix:** Before assigning new child, kill old one: `if let Some(old) = child_guard.take() { let _ = old.kill_tree().await; }`.
 - **Confidence:** High (R13)
 
-### S3-CR-29 — FT-1 supervisor: no circuit breaker on restart loop (infinite restart loop on broken install)
+### S3-CR-29 — supervisor: no circuit breaker on restart loop (infinite restart loop on broken install)
 - **Severity:** High
 - **Status:** Pending
-- **Locations:** `src-tauri/src/sidecar/ft1.rs:112-115`; `src-tauri/src/main.rs:191-206`
-- **Evidence:** When FT-1 backoff exhausted, supervisor unconditionally calls `app.restart()`. No counter persists across `app.restart()` invocations. If sidecar binary missing/corrupted/crashes immediately, same failure repeats: 5 FT-1 attempts → `app.restart()` → new host → 5 FT-1 attempts → `app.restart()` → ad infinitum.
+- **Locations:** `src-tauri/src/sidecar/supervisor.rs:112-115`; `src-tauri/src/main.rs:191-206`
+- **Evidence:** When backoff exhausted, supervisor unconditionally calls `app.restart()`. No counter persists across `app.restart()` invocations. If sidecar binary missing/corrupted/crashes immediately, same failure repeats: 5 attempts → `app.restart()` → new host → 5 attempts → `app.restart()` → ad infinitum.
 - **Root cause:** No counter persists across `app.restart()` invocations.
 - **Impact:** On broken install, app enters infinite restart loop — consuming CPU, spamming log file, making machine unresponsive. User has no way to know WHY it's restarting.
-- **Proposed fix:** Persist restart-attempt counter to `<config_dir>/ft1_restart_counter.json` before `app.restart()`. If counter ≥ 3, STOP loop and emit `ft1_failed` event with last spawn error so UI can show "Voice Typer could not start its backend. Last error: …. Please reinstall." Reset counter on successful `ft1_reconnected` event.
+- **Proposed fix:** Persist restart-attempt counter to `<config_dir>/restart_counter.json` before `app.restart()`. If counter ≥ 3, STOP loop and emit `respawn_failed` event with last spawn error so UI can show "Voice Typer could not start its backend. Last error: …. Please reinstall." Reset counter on successful `reconnected` event.
 - **Confidence:** High (R13)
 
 ### S3-CR-30 — `asyncio.Queue.put_nowait` called from non-loop threads (WS corruption)
@@ -2092,7 +2064,7 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 - **Locations:** `voice_typer/server/sidecar_ws.py:388-402` (`_push_to_ws` subscriber)
 - **Evidence:** `event_bus.publish` called synchronously from ANY thread (audio worker, transcription thread, tray thread). `_push_to_ws` calls `outbound.put_nowait(event)` on `asyncio.Queue`. `asyncio.Queue.put_nowait` is NOT thread-safe — asyncio docs require all queue operations to run on loop thread.
 - **Root cause:** asyncio Queue mutated from non-loop threads.
-- **Impact:** Under contention (60 Hz bubble_level + concurrent transcription_final), queue's internal linked list can be corrupted → dropped events, stuck writer task, or `RuntimeError` taking down WS connection → FT-1 respawn. Hard to reproduce.
+- **Impact:** Under contention (60 Hz bubble_level + concurrent transcription_final), queue's internal linked list can be corrupted → dropped events, stuck writer task, or `RuntimeError` taking down WS connection → respawn. Hard to reproduce.
 - **Proposed fix:** In `_push_to_ws`, capture loop at subscription time and enqueue via `loop.call_soon_threadsafe(outbound.put_nowait, event)`. Full-queue drop-oldest logic must also move into threadsafe callback.
 - **Confidence:** High (R12)
 
@@ -2215,14 +2187,14 @@ L-1 through L-49 (full list available in R-agent reports): includes items like `
 Key Medium findings (CR-42 through S3-CR-76):
 - S3-CR-42: `globalErrorHandler.ts` uses `require()` in ESM context (broken i18n)
 - S3-CR-43: i18n placeholders mismatch (`{percent}`, `{current}`, `{total}` not interpolated in 6 locales)
-- S3-CR-44: `tauri-bridge.ts` FT-1 events cast via `as unknown as PythonPushEvent`
+- S3-CR-44: `tauri-bridge.ts` events cast via `as unknown as PythonPushEvent`
 - S3-CR-45: `a11y/axe-core.test.tsx` STUB_CONFIG drift from `VoiceTyperConfig`
 - S3-CR-46: `a11y/` directory has no utility modules (only test files using source-string regex)
 - S3-CR-47: `useNavigation.ts` mouse back/forward: `mouseup` + `preventDefault` cannot cancel X1/X2
 - S3-CR-48: `useStatsShare.ts` debug logging left in production
 - S3-CR-49: `recorder.py` reentrancy: `start()` not protected by lock
 - S3-CR-50: `rate_limiter.py` lazy-init race condition
-- S3-CR-51: `dispatch` 120s hang under FT-1 race
+- S3-CR-51: `dispatch` 120s hang under race
 - S3-CR-52: post-auth socket no read timeout
 - S3-CR-53: `level_monitor.py` stop race
 - S3-CR-54: `crash_recovery.py` `_save_sync` no internal timeout
@@ -2312,7 +2284,7 @@ Low findings (CR-77 through S3-CR-100):
 - **Location**: `voice_typer/server/sidecar_ws.py:386-416` (`_push_to_ws`)
 - **Evidence**: `_push_to_ws` is registered as an `event_bus` subscriber; `event_bus.publish()` is called from many non-event-loop threads (transcription, hotkey, tray, IPC workers). `_push_to_ws` calls `outbound.full()`, `outbound.get_nowait()`, `outbound.put_nowait()` on an `asyncio.Queue`. asyncio.Queue is explicitly NOT thread-safe. No `loop.call_soon_threadsafe` anywhere in the file (grep-confirmed).
 - **Root cause**: Verified — WS path assumes all `publish` calls come from the asyncio event loop thread; this assumption is false.
-- **Impact**: Under concurrent publishers (transcription_final racing with bubble_level racing with state_changed), queue internal state corrupts. Symptoms: silently dropped events (transcription_final never reaches Tauri host → user sees no result), deadlocked writer task (writer's `await outbound.get()` never wakes), or hard asyncio loop crash killing the Tauri sidecar → FT-1 respawn loop.
+- **Impact**: Under concurrent publishers (transcription_final racing with bubble_level racing with state_changed), queue internal state corrupts. Symptoms: silently dropped events (transcription_final never reaches Tauri host → user sees no result), deadlocked writer task (writer's `await outbound.get()` never wakes), or hard asyncio loop crash killing the Tauri sidecar → respawn loop.
 - **Proposed fix**: Capture `loop = asyncio.get_running_loop()` at connection setup; in `_push_to_ws`, call `loop.call_soon_threadsafe(_enqueue_safe, outbound, event)` where `_enqueue_safe` does the full/get_nowait/put_nowait dance inside the event loop thread. Alternative: replace asyncio.Queue with stdlib `queue.Queue` consumed via `await loop.run_in_executor(None, outbound.get)`.
 - **Confidence**: High
 
@@ -2399,21 +2371,21 @@ Low findings (CR-77 through S3-CR-100):
 - **Proposed fix**: Replace the inline isinstance check with `_validate_dict_payload(data, {"id": {"type": str, "required": True}})`. Add a regression test exercising the non-string-id path.
 - **Confidence**: High
 
-### S4-CR-13 — FT-1 respawn race: sidecar permanently dead after fast double-crash
+### S4-CR-13 — respawn race: sidecar permanently dead after fast double-crash
 - **Category**: Reliability
 - **Severity**: High
-- **Location**: `src-tauri/src/sidecar/ft1.rs:33-35, 82-94`; `src-tauri/src/sidecar/ws.rs:210-217`
-- **Evidence**: `ft1_respawn` acquires `respawn_in_progress` via compare_exchange(false→true) at entry and only clears it AFTER `ft1_respawn_inner` returns. `ft1_respawn_inner`, on success, spawns a new sidecar, calls `reconnect_ws` (which starts a new WS reader task), logs "respawn succeeded", and returns Ok(()). The new WS reader task runs concurrently. If the new sidecar dies immediately (native hotkey binary crash, model load OOM, port bind race), the new reader's WS closes, it enters the cleanup block at ws.rs:162-185, and then spawns `std::thread::spawn(... ft1_respawn(...).await ...)` at ws.rs:212-216. At this instant, `respawn_in_progress` is STILL true. The new reader's ft1_respawn sees the flag set, logs "respawn already in progress — skipping", and returns Ok(()). The reader task exits. Then line 34 clears the flag. Result: sidecar is dead, WS reader is dead, no one is respawning, the UI shows "reconnecting…" forever.
+- **Location**: `src-tauri/src/sidecar/supervisor.rs:33-35, 82-94`; `src-tauri/src/sidecar/ws.rs:210-217`
+- **Evidence**: `respawn` acquires `respawn_in_progress` via compare_exchange(false→true) at entry and only clears it AFTER `respawn_inner` returns. `respawn_inner`, on success, spawns a new sidecar, calls `reconnect_ws` (which starts a new WS reader task), logs "respawn succeeded", and returns Ok(()). The new WS reader task runs concurrently. If the new sidecar dies immediately (native hotkey binary crash, model load OOM, port bind race), the new reader's WS closes, it enters the cleanup block at ws.rs:162-185, and then spawns `std::thread::spawn(... respawn(...).await ...)` at ws.rs:212-216. At this instant, `respawn_in_progress` is STILL true. The new reader's respawn sees the flag set, logs "respawn already in progress — skipping", and returns Ok(()). The reader task exits. Then line 34 clears the flag. Result: sidecar is dead, WS reader is dead, no one is respawning, the UI shows "reconnecting…" forever.
 - **Impact**: Sidecar permanently dead after a fast double-crash (crash-on-startup scenario). User must manually restart the entire app. Affects Tauri/WS path only; Electron/TCP path uses the heartbeat watchdog instead.
-- **Proposed fix**: Clear `respawn_in_progress` BEFORE returning Ok(()) from `ft1_respawn_inner` (move line 34 inside the inner function, before the `return Ok(())` at ft1.rs:88). This is safe because the new WS reader task is already running and owns the new connection; a subsequent disconnect will correctly start a fresh ft1_respawn.
+- **Proposed fix**: Clear `respawn_in_progress` BEFORE returning Ok(()) from `respawn_inner` (move line 34 inside the inner function, before the `return Ok(())` at supervisor.rs:88). This is safe because the new WS reader task is already running and owns the new connection; a subsequent disconnect will correctly start a fresh respawn.
 - **Confidence**: High
 
-### S4-CR-14 — FT-1 retry loop orphans the old sidecar process (no Drop kill)
+### S4-CR-14 — retry loop orphans the old sidecar process (no Drop kill)
 - **Category**: Concurrency / Reliability
 - **Severity**: High
-- **Location**: `src-tauri/src/sidecar/ft1.rs:62-100` (`ft1_respawn_inner` retry loop)
+- **Location**: `src-tauri/src/sidecar/supervisor.rs:62-100` (`respawn_inner` retry loop)
 - **Evidence**: The loop spawns a new sidecar (line 63), stores it in `state.child` (line 68-69), then calls `reconnect_ws` (line 82). If `reconnect_ws` returns Err, the loop continues to the next iteration (line 92). On the next iteration, a NEW child is spawned and stored, overwriting the OLD Some(child) — but `SidecarHandle` has NO Drop impl and the old child is never killed. The release-build variant `SidecarHandle::ShellPlugin(CommandChild)` does NOT kill the process on drop (Tauri's `CommandChild::kill` consumes self; drop is a no-op).
-- **Impact**: On FT-1 retry, the orphaned sidecar process keeps running with the microphone stream open, global hotkeys registered, and volume ducked. Each retry iteration can orphan another process. After N retries, N orphaned sidecars compete for the same hotkeys and the microphone.
+- **Impact**: On retry, the orphaned sidecar process keeps running with the microphone stream open, global hotkeys registered, and volume ducked. Each retry iteration can orphan another process. After N retries, N orphaned sidecars compete for the same hotkeys and the microphone.
 - **Proposed fix**: Before overwriting `state.child` on retry, kill the old child: `if let Some(old) = child_guard.take() { let _ = tauri::async_runtime::block_on(old.kill_tree()); }`. Alternatively, impl Drop for SidecarHandle that calls kill_tree on drop.
 - **Confidence**: High
 
@@ -2663,7 +2635,7 @@ Low findings (CR-77 through S3-CR-100):
 
 1. **CR-1** — Tauri tray menu clicks emit a `dispatch` EVENT instead of invoking the `dispatch` COMMAND → tray menu is completely non-functional on the Tauri path. `[verified]`
 2. **CR-2** — Two parallel `IPCServer` implementations (`ipc_server.py` 2609 LOC + `ipc/server.py` 1764 LOC) — ~2650 LOC of dead/duplicate code from a half-finished Phase 4.5 split. Production imports from the OLD god-module; the NEW package's `IPCServer` is dead. `[verified]`
-3. **CR-3** — FT-1 supervisor orphans the old Python sidecar process on WS-reconnect failure (no `kill_tree()` on the old `SidecarHandle` before reassignment; no `Drop` impl). Up to 5 zombie Python sidecars can accumulate per flap cycle. `[verified]`
+3. **CR-3** — supervisor orphans the old Python sidecar process on WS-reconnect failure (no `kill_tree()` on the old `SidecarHandle` before reassignment; no `Drop` impl). Up to 5 zombie Python sidecars can accumulate per flap cycle. `[verified]`
 4. **CR-4** — Tauri v2 Linux `.deb` and `.rpm` bundles silently skip udev-rule / input-group / Caps Lock setup because `install_permissions.py` is NOT in `tauri.conf.json:bundle.resources`. Native hotkeys broken on EVERY Linux install. RPM `postinst.rpm` was never updated with the NF-R9-2 path-probe fix. `[verified]`
 5. **CR-5** — AudioProcessor filter chain resamples each chunk to 16 kHz, then `Recorder.stop()`/`snapshot()` resample AGAIN from device native rate → every dictation on non-16 kHz mics produces 3×-too-short garbage audio. `[verified by code-flow]`
 6. **CR-6** — SECURITY.md says "69" `ALLOWED_COMMANDS`, actual is 70 — test failing every CI run, blocking builds/releases. `[verified by test execution]`
@@ -3512,7 +3484,7 @@ The comment justifies this as "avoids extra render with stale null" but React's 
 
 **Status:** ❌ Not Fixed
 
-**Description:** Single file installs THREE global namespaces (`window.python`, `window.bubble`, `window.window_`). The `bubble` object has 14 methods (~213 LOC). The `window_` object has 4 nearly-identical export wrappers (`exportHistory`, `exportVocabulary`, `exportTemplates`, `exportConfig` at lines 504, 534, 564, 593) — each ~28 LOC of duplicated try/catch + canceled/error mapping logic (~110 LOC of pure duplication). `python.onEvent` (lines 154-213) has nested cancellation logic + FT-1 relay pattern (~60 LOC of orchestration inline).
+**Description:** Single file installs THREE global namespaces (`window.python`, `window.bubble`, `window.window_`). The `bubble` object has 14 methods (~213 LOC). The `window_` object has 4 nearly-identical export wrappers (`exportHistory`, `exportVocabulary`, `exportTemplates`, `exportConfig` at lines 504, 534, 564, 593) — each ~28 LOC of duplicated try/catch + canceled/error mapping logic (~110 LOC of pure duplication). `python.onEvent` (lines 154-213) has nested cancellation logic + supervisor relay pattern (~60 LOC of orchestration inline).
 
 **Severity:** 🟡 Medium (god module, DRY violation)
 
@@ -3547,7 +3519,7 @@ The following findings were identified but are NOT being fixed in this session �
 - **`service.py` 8-sub-service extraction** — blocked by PVT-21 (config_applier wiring). Do PVT-21 first; the 8-sub-service extraction is a follow-up.
 - **App-level heartbeat** in `recorder.py` audio worker (PVT-1) — needs Tauri-side changes too. Defer to coordinated cross-layer session.
 - **`ipc_server.py` deeper split** (TCPServerMixin + HeartbeatHandlersMixin + ServerHandlersMixin + main extraction) — Phase 2 of PVT-19. Do PVT-19 first.
-- **`ft1.rs` split** (circuit_breaker + coalesce + tests) — Phase 2 of PVT-3. Do PVT-3 first.
+- **`supervisor.rs` split** (circuit_breaker + coalesce + tests) — Phase 2 of PVT-3. Do PVT-3 first.
 - **`tray.rs` split** (icon + menu + state + click + tests) — Phase 2 of PVT-16. Do PVT-16 first.
 - **`migrate.rs` split** — Phase 2 of PVT-4. Do PVT-4 first.
 - **`spawn.rs` split** — Phase 2 of PVT-3. Do PVT-3 first.
@@ -4140,7 +4112,7 @@ Verbatim copy of session-2's `comprehensive-review.md`:
 
 **Status:** ❌ Not Fixed
 
-**Description:** `src-tauri/src/sidecar/spawn.rs:141` returns `mpsc::Receiver<CommandEvent>`. `ft1.rs:244-247` stores in `state.child_exit_rx`. The ONLY consumer is `shutdown_sidecar`, which performs a single `rx.recv().await` inside a timeout window. Between handshake-success and shutdown, NO task drains the receiver. `tauri-plugin-shell` pumps every `Stdout`/`Stderr`/`Terminated`/`Error` event from the child into this receiver for the child's entire lifetime. The release sidecar sends all non-handshake logs to stderr (ADR-0020 §1), so stderr events flow continuously. With no drainer, they accumulate in channel buffer for the whole session.
+**Description:** `src-tauri/src/sidecar/spawn.rs:141` returns `mpsc::Receiver<CommandEvent>`. `supervisor.rs:244-247` stores in `state.child_exit_rx`. The ONLY consumer is `shutdown_sidecar`, which performs a single `rx.recv().await` inside a timeout window. Between handshake-success and shutdown, NO task drains the receiver. `tauri-plugin-shell` pumps every `Stdout`/`Stderr`/`Terminated`/`Error` event from the child into this receiver for the child's entire lifetime. The release sidecar sends all non-handshake logs to stderr (ADR-0020 §1), so stderr events flow continuously. With no drainer, they accumulate in channel buffer for the whole session.
 
 **Root Cause:** No background drainer task.
 
@@ -4148,7 +4120,7 @@ Verbatim copy of session-2's `comprehensive-review.md`:
 
 **Related Files:**
 - `src-tauri/src/sidecar/spawn.rs:141` (returns rx)
-- `src-tauri/src/sidecar/ft1.rs:244-247` (stores in state)
+- `src-tauri/src/sidecar/supervisor.rs:244-247` (stores in state)
 - `src-tauri/src/commands/sidecar_cmds.rs:425-450` (only polled at shutdown)
 
 **Fix:** Spawn a background task at handshake-success that drains `child_exit_rx` for the sidecar's lifetime, logging stderr lines and forwarding only `Terminated` to a oneshot channel that `shutdown_sidecar` awaits.
@@ -4893,7 +4865,7 @@ presumably runs with all deps installed.
 
 ---
 
-## [EC-14] — FT-1 events (`reconnecting`, `reconnected`) not in PythonPushEvent union (rule #26 violation)
+## [EC-14] — events (`reconnecting`, `reconnected`) not in PythonPushEvent union (rule #26 violation)
 
 **Status:** ❌ Not Fixed
 **Severity:** 🔴 High
@@ -4901,7 +4873,7 @@ presumably runs with all deps installed.
 
 **Description:** Tauri bridge synthesizes `reconnecting`/`reconnected` events and casts via `as unknown as PythonPushEvent`. Neither type is in the `PythonPushEvent` union (27 types). `usePythonEvent("reconnecting", ...)` compiles because `type` param is `string`, not `keyof PythonPushEvent`. Rule #26 (P4: every IPC message must have matching send/receive type definitions) is directly violated.
 
-**Root Cause:** FT-1 events are Tauri-only; the union was never extended to model them.
+**Root Cause:** events are Tauri-only; the union was never extended to model them.
 
 **Related Files:**
 - `voice_typer/client/src/renderer/src/lib/tauri-bridge/python-namespace.ts:73-91` (unsafe casts)
@@ -4934,7 +4906,7 @@ presumably runs with all deps installed.
 **Severity:** 🔴 High
 **Category:** Code quality
 
-**Description:** A poison-safe `lock()` helper exists at `state.rs:32` but 10 production sites still use inline `.lock().unwrap()`. A poisoned Mutex re-panics on every subsequent `.lock().unwrap()`, permanently bricking the FT-1 resilience layer. The helper is even marked `#[allow(dead_code)]` (stale — it IS used).
+**Description:** A poison-safe `lock()` helper exists at `state.rs:32` but 10 production sites still use inline `.lock().unwrap()`. A poisoned Mutex re-panics on every subsequent `.lock().unwrap()`, permanently bricking the resilience layer. The helper is even marked `#[allow(dead_code)]` (stale — it IS used).
 
 **Root Cause:** Migration was started but never completed.
 
@@ -4974,13 +4946,13 @@ presumably runs with all deps installed.
 **Severity:** 🟡 Medium
 **Category:** Spaghetti / monolith detection + Code quality
 
-**Description:** `reconnect_ws` (590 lines) performs connect, auth handshake, writer task, reader task, heartbeat task — all inline. `bubble.rs:629-674` duplicates the WS-send pattern from `dispatch_frame` (documented as PVT-25 TODO). FT-1 trigger block duplicated in ws.rs:686 and 703.
+**Description:** `reconnect_ws` (590 lines) performs connect, auth handshake, writer task, reader task, heartbeat task — all inline. `bubble.rs:629-674` duplicates the WS-send pattern from `dispatch_frame` (documented as PVT-25 TODO). trigger block duplicated in ws.rs:686 and 703.
 
 **Root Cause:** Functions grew organically; helpers were never extracted.
 
-**Related Files:** `src-tauri/src/sidecar/ws.rs`, `src-tauri/src/commands/bubble.rs`, `src-tauri/src/sidecar/ft1.rs`
+**Related Files:** `src-tauri/src/sidecar/ws.rs`, `src-tauri/src/commands/bubble.rs`, `src-tauri/src/sidecar/supervisor.rs`
 
-**Fix:** Extract `ws_auth_handshake`, `ws_reader_task`, `ws_writer_task`, `ws_heartbeat_supervisor` from reconnect_ws. Extract `dispatch_fire_and_forget` helper for bubble.rs. Extract `trigger_ft1_respawn_off_thread` for the duplicated FT-1 block.
+**Fix:** Extract `ws_auth_handshake`, `ws_reader_task`, `ws_writer_task`, `ws_heartbeat_supervisor` from reconnect_ws. Extract `dispatch_fire_and_forget` helper for bubble.rs. Extract `trigger_respawn_off_thread` for the duplicated block.
 
 ---
 
@@ -5229,7 +5201,7 @@ presumably runs with all deps installed.
 39. 12 monkey-patch `# type: ignore` suppressions (EC-E1)
 40. 155 empty TS `catch {}` blocks (EC-E2)
 41. `reconnect_ws` 590 lines (EC-E2)
-42. `ft1_respawn_inner` 187 lines (EC-E2)
+42. `respawn_inner` 187 lines (EC-E2)
 43. Late stdlib imports 11x (EC-G1)
 44. In-function `re.compile` 6x (EC-G1)
 45. Rotating logger constants 3x (EC-G1)
@@ -7640,26 +7612,26 @@ Severity breakdown: 🔴 Critical=2, 🔴 High=22, 🟡 Medium=64, 🟢 Low=75.
 **Related Files:**
 - `src-tauri/src/state.rs`
 - `src-tauri/src/main.rs`
-- `src-tauri/src/sidecar/ft1.rs`
+- `src-tauri/src/sidecar/supervisor.rs`
 
 **Fix:** Remove field + delete write sites. Local `token` / `new_token` variables already hold value where needed.
 
 **Severity:** 🟡 Medium
 
-## [XV-140] — `ws.rs` spawns fresh OS thread per disconnect (thread churn under FT-1 flap)
+## [XV-140] — `ws.rs` spawns fresh OS thread per disconnect (thread churn under flap)
 
 **Status:** ❌ Not Fixed
 
-**Description:** `ws.rs` spawns fresh OS thread per disconnect (thread churn under FT-1 flap). Category: CPU usage / Performance.
+**Description:** `ws.rs` spawns fresh OS thread per disconnect (thread churn under flap). Category: CPU usage / Performance.
 
-**Root Cause:** verified — `!Send` future forces thread::spawn+block_on bridge; no dedicated FT-1 worker.
+**Root Cause:** verified — `!Send` future forces thread::spawn+block_on bridge; no dedicated worker.
 
 **Progress:** None yet.
 
 **Related Files:**
 - `src-tauri/src/sidecar/ws.rs`
 
-**Fix:** Use single dedicated FT-1 worker thread receiving disconnect notifications via `tokio::sync::mpsc::UnboundedReceiver<FT1Trigger>`.
+**Fix:** Use single dedicated worker thread receiving disconnect notifications via `tokio::sync::mpsc::UnboundedReceiver<RespawnTrigger>`.
 
 **Severity:** 🟡 Medium
 
@@ -7692,25 +7664,25 @@ Severity breakdown: 🔴 Critical=2, 🔴 High=22, 🟡 Medium=64, 🟢 Low=75.
 
 **Related Files:**
 - `src-tauri/src/state.rs`
-- `src-tauri/src/sidecar/ft1.rs`
+- `src-tauri/src/sidecar/supervisor.rs`
 - `src-tauri/src/sidecar/ws.rs`
 
 **Fix:** Drop inner `Arc`; type as `AsyncMutex<HashMap<u64, oneshot::Sender<Value>>>`. Update 3 test sites.
 
 **Severity:** 🟡 Medium
 
-## [XV-143] — `ft1.rs` read/write restart counter not wrapped in `spawn_blocking` (fsync on tokio worker)
+## [XV-143] — `supervisor.rs` read/write restart counter not wrapped in `spawn_blocking` (fsync on tokio worker)
 
 **Status:** ❌ Not Fixed
 
-**Description:** `ft1.rs` read/write restart counter not wrapped in `spawn_blocking` (fsync on tokio worker). Category: CPU usage / Performance.
+**Description:** `supervisor.rs` read/write restart counter not wrapped in `spawn_blocking` (fsync on tokio worker). Category: CPU usage / Performance.
 
 **Root Cause:** verified — sync fs I/O including fsync on tokio worker.
 
 **Progress:** None yet.
 
 **Related Files:**
-- `src-tauri/src/sidecar/ft1.rs`
+- `src-tauri/src/sidecar/supervisor.rs`
 
 **Fix:** Wrap in `tauri::async_runtime::spawn_blocking`.
 
@@ -9149,7 +9121,7 @@ This file is APPENDED to the existing comprehensive-review.md from prior session
 - `voice_typer/server/sidecar_ws.py`
 - `src-tauri/src/sidecar/ws.rs`
 - `docs/adr/0017-cloud-url-allowlist-https.md` (or ADR-0020)
-**Fix:** Update ADR-0020 §3 to document bearer-token model. Add threat-model note: loopback-only bind + ephemeral port + token rotation on FT-1 respawn are compensating controls.
+**Fix:** Update ADR-0020 §3 to document bearer-token model. Add threat-model note: loopback-only bind + ephemeral port + token rotation on respawn are compensating controls.
 **Severity:** 🟡 Medium
 
 ## XZ-R4-002 — Bearer token via env var readable by same-user processes on Linux (Medium)
@@ -9209,19 +9181,19 @@ This file is APPENDED to the existing comprehensive-review.md from prior session
 ## XZ-R4-008 — `SidecarState.token` is write-only dead state held in plain String (Low)
 
 **Status:** ❌ Not Fixed
-**Description:** `state.rs:247-263` field is documented as WRITE-ONLY dead state — written at `main.rs:325` and `ft1.rs:352-353` but never read. Held in plain memory (no `zeroize`).
+**Description:** `state.rs:247-263` field is documented as WRITE-ONLY dead state — written at `main.rs:325` and `supervisor.rs:352-353` but never read. Held in plain memory (no `zeroize`).
 **Related Files:**
 - `src-tauri/src/state.rs`
 - `src-tauri/src/main.rs:325`
-- `src-tauri/src/sidecar/ft1.rs:352-353`
+- `src-tauri/src/sidecar/supervisor.rs:352-353`
 **Fix:** Remove field + write sites. If retained for future, add `zeroize::Zeroizing<String>`.
 **Severity:** 🟢 Low
 
-## XZ-R4-009 — FT-1 restart counter file has no integrity protection (Low)
+## XZ-R4-009 — restart counter file has no integrity protection (Low)
 
 **Status:** ❌ Not Fixed
-**Description:** `sidecar/ft1.rs:151-166` writes counter as plain JSON, no HMAC. Same-user attacker with write access to `<config_dir>/ft1_restart_counter.json` can reset count to 0 indefinitely, bypassing CR-29 breaker.
-**Related Files:** `src-tauri/src/sidecar/ft1.rs`
+**Description:** `sidecar/supervisor.rs:151-166` writes counter as plain JSON, no HMAC. Same-user attacker with write access to `<config_dir>/restart_counter.json` can reset count to 0 indefinitely, bypassing CR-29 breaker.
+**Related Files:** `src-tauri/src/sidecar/supervisor.rs`
 **Fix:** Add HMAC-SHA256 over `(count, ts)` using per-install random key in separate 0600 file. Verify on read; reject if mismatch.
 **Severity:** 🟢 Low
 
@@ -9249,7 +9221,7 @@ This file is APPENDED to the existing comprehensive-review.md from prior session
 **Status:** ❌ Not Fixed
 **Description:** `sidecar/ws.rs:266-382` auth wait + JSON parse + emit — NOT wrapped in `catch_unwind`. Reader/writer task bodies ARE wrapped. Asymmetry.
 **Related Files:** `src-tauri/src/sidecar/ws.rs`
-**Fix:** Wrap auth-read block in `AssertUnwindSafe(async {...}).catch_unwind()` with fallback calling `cleanup_and_trigger_ft1_respawn` on panic.
+**Fix:** Wrap auth-read block in `AssertUnwindSafe(async {...}).catch_unwind()` with fallback calling `cleanup_and_trigger_respawn` on panic.
 **Severity:** 🟢 Low
 
 ## XZ-R4-013 — `migrate.rs::copy_missing_recursive` follows symlinks (Low)
@@ -10106,14 +10078,14 @@ if attrs & 0x00000400:
 **Fix:** Before treating as Null, copy corrupt source to `config.json.corrupt-pre-migration.<timestamp>.bak`. Surface user notification.
 **Severity:** 🟢 Low
 
-## XZ-R12-13 — FT-1 docstring stale (Low)
+## XZ-R12-13 — docstring stale (Low)
 
 **Status:** ❌ Not Fixed
-**Description:** `ft1.rs:22-27` claims "disk-persisted counter". `main.rs:318` resets to 0 on every fresh launch. Counter only counts within-session.
+**Description:** `supervisor.rs:22-27` claims "disk-persisted counter". `main.rs:318` resets to 0 on every fresh launch. Counter only counts within-session.
 **Related Files:**
-- `src-tauri/src/sidecar/ft1.rs`
+- `src-tauri/src/sidecar/supervisor.rs`
 - `src-tauri/src/main.rs:318`
-**Fix:** Either remove `main.rs:318` reset, OR update `ft1.rs` docstring to say "counter is reset on every fresh app launch; breaker only protects against within-session flapping".
+**Fix:** Either remove `main.rs:318` reset, OR update `supervisor.rs` docstring to say "counter is reset on every fresh app launch; breaker only protects against within-session flapping".
 **Severity:** 🟢 Low
 
 ## XZ-R12-14 — Prewarm sentinel fail-open (Low)
@@ -10527,14 +10499,14 @@ with f:
 **Fix:** Folded into XZ-R4-003 fix.
 **Severity:** 🔴 High
 
-## XZ-R16-02 — `ft1_failed` event unconsumed by renderer (High)
+## XZ-R16-02 — `respawn_failed` event unconsumed by renderer (High)
 
 **Status:** ❌ Not Fixed
-**Description:** `ft1.rs:200-201` emits `ft1_failed` when FT-1 exhausts 5 respawn attempts. `python-namespace.ts:65-98` only synthesizes `ft1_relaunching` + `ft1_reconnected`. `useConnection.ts:276-294` sets `"restarting"` on `reconnecting`, only exits via `reconnected`. After `ft1_failed`, renderer UI stuck on "Restarting…" forever.
+**Description:** `supervisor.rs:200-201` emits `respawn_failed` when supervisor exhausts 5 respawn attempts. `python-namespace.ts:65-98` only synthesizes `relaunching` + `reconnected`. `useConnection.ts:276-294` sets `"restarting"` on `reconnecting`, only exits via `reconnected`. After `respawn_failed`, renderer UI stuck on "Restarting…" forever.
 **Related Files:**
 - `voice_typer/client/src/renderer/src/lib/tauri-bridge/python-namespace.ts`
 - `voice_typer/client/src/renderer/src/hooks/useConnection.ts`
-**Fix:** Add `makeListener` for `"ft1_failed"` synthesizing `{type: "error", data: {message: "FT-1 respawn exhausted"}}`. In `useConnection`, subscribe and call `setConnectionStatus("disconnected")` + `setLastError(t("connection.ft1Failed"))`. Add "Relaunch app" button to disconnected UI.
+**Fix:** Add `makeListener` for `"respawn_failed"` synthesizing `{type: "error", data: {message: "respawn exhausted"}}`. In `useConnection`, subscribe and call `setConnectionStatus("disconnected")` + `setLastError(t("connection.respawnFailed"))`. Add "Relaunch app" button to disconnected UI.
 **Severity:** 🔴 High
 
 ## XZ-R16-03 — Tauri/Electron error envelope inconsistency (Medium)
@@ -10645,12 +10617,12 @@ afterEach(() => {
 
 ---
 
-## XZ-R17-01 — FT-1 circuit breaker never trips (High)
+## XZ-R17-01 — circuit breaker never trips (High)
 
 **Status:** ❌ Not Fixed
-**Description:** `ft1.rs:192-215` + `main.rs:318` — three counter-reset paths defeat breaker: (a) success → write(0); (b) exhaustion → `app.restart()` → new process → main.rs:318 writes 0; (c) any fresh launch → main.rs:318 writes 0. Persistently-flapping sidecar triggers infinite `ft1_respawn` cycles without surfacing `ft1_failed`.
+**Description:** `supervisor.rs:192-215` + `main.rs:318` — three counter-reset paths defeat breaker: (a) success → write(0); (b) exhaustion → `app.restart()` → new process → main.rs:318 writes 0; (c) any fresh launch → main.rs:318 writes 0. Persistently-flapping sidecar triggers infinite `respawn` cycles without surfacing `respawn_failed`.
 **Related Files:**
-- `src-tauri/src/sidecar/ft1.rs`
+- `src-tauri/src/sidecar/supervisor.rs`
 - `src-tauri/src/main.rs:318`
 **Fix:** Decouple counter from success-reset. Decay counter (reduce by 1 every 60s of uptime). OR count DISTINCT crash events and reset only after sustained uptime threshold (5 min). Remove `main.rs:318` reset OR make conditional on "clean exit" flag.
 **Severity:** 🔴 High

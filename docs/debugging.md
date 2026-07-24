@@ -28,7 +28,7 @@ the app.
 | `VOICE_TYPER_NATIVE_BINARY` | path | Override the native hotkey binary path (single binary). Bypasses the `VOICE_TYPER_NATIVE_DIR` / dev-source-tree lookup. |
 | `VOICE_TYPER_NATIVE_DIR` | path | Directory containing all three native binaries (`{windows,macos,linux}-key-listener[.exe]`). Set by the Tauri host to `resourceDir/native/`. |
 | `VOICE_TYPER_PREWARM_EXE` | path | Override the prewarm binary path (frozen `prewarm-<triple>[.exe]`). Bypasses `resolve_prewarm_exe()`. |
-| `TAURI_SIDECAR` | `1` | Marks the process as running under the Tauri host. Skips ADR-0018 heartbeat-watchdog thread (FT-1 supervisor owns liveness instead) and the Win32 single-instance mutex (Tauri `single-instance` plugin owns it). |
+| `TAURI_SIDECAR` | `1` | Marks the process as running under the Tauri host. Skips ADR-0018 heartbeat-watchdog thread (supervisor owns liveness instead) and the Win32 single-instance mutex (Tauri `single-instance` plugin owns it). |
 
 ### Frontend (Electron host)
 
@@ -195,8 +195,7 @@ give you a `send(cmd)` / `recv()` pair.
 1. Check `<DATA_DIR>/logs/voice-typer.log` for
    `{"event":"server_started","port":N}` — if absent, the sidecar
    didn't bind the WebSocket.
-2. Check the Tauri devtools console (right-click → Inspect) for FT-1
-   supervisor backoff messages.
+2. Check the Tauri devtools console (right-click → Inspect) for supervisor backoff messages.
 3. Run the sidecar standalone: `python -m voice_typer.server.ipc_server
    --ws` — should print `{"event":"server_started","port":N}` to
    stdout.

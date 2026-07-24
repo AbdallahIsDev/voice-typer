@@ -97,7 +97,7 @@ The sidecar is a **normal Python program** (your existing `ipc_server` / `handle
 
 ### Phase 4 — Wire swap + recovery
 - Re-point the "wire" (UI → logic) from Electron→Python to Tauri→sidecar. Keep the Electron build path intact and runnable in parallel.
-- Implement **crash isolation** (tracked as FT-1 in `.workspace/TASKS.md`): a Rust supervisor respawns the sidecar on unexpected exit, shows a "reconnecting…" state, and falls back to full-app relaunch if respawn fails repeatedly.
+- Implement **crash isolation** (tracked as supervisor in `.workspace/TASKS.md`): a Rust supervisor respawns the sidecar on unexpected exit, shows a "reconnecting…" state, and falls back to full-app relaunch if respawn fails repeatedly.
 - Enable the `single-instance` plugin so only one app instance runs.
 
 ### Phase 5 — Validation & cutover
@@ -137,8 +137,8 @@ This section closes the contradictions and missing specs flagged in implementati
 - **Hotkey latency:** unchanged vs today (Rust global-shortcut → `invoke` → sidecar starts capture). Measure in spike.
 - **Autostart dedup:** keep the EXISTING Windows Task Scheduler `BootTrigger` (`task_scheduler.py`) as the sole autostart; **do NOT enable the Tauri `autostart` plugin for the app** (avoids duplicate entries). Prewarm stays on BootTrigger (ADR-0011).
 
-### P4 — Lifecycle, reliability, recovery (review §4 + FT-1)
-- **FT-1 supervisor state machine:** `running → (unexpected exit) → reconnecting (UI "reconnecting…") → respawn with backoff (500ms → 1s → 2s, cap 5 retries) → running | give up → full-app relaunch`. In-flight audio chunk on crash is discarded (next dictation re-opens capture); acceptable.
+### P4 — Lifecycle, reliability, recovery (review §4 + crash isolation)
+- **supervisor state machine:** `running → (unexpected exit) → reconnecting (UI "reconnecting…") → respawn with backoff (500ms → 1s → 2s, cap 5 retries) → running | give up → full-app relaunch`. In-flight audio chunk on crash is discarded (next dictation re-opens capture); acceptable.
 - **Mic release:** on `{"type":"shutdown"}` the sidecar calls `sounddevice`/`pyaudio` terminate within a timeout (~3s); if it doesn't exit, `kill_children` force-kills.
 - **Zombie prevention:** `kill_children: true` cleans the Tauri-spawned sidecar; the sidecar must NOT spawn its own long-lived subprocesses (CTranslate2 runs in-thread, dies with the process). Any subprocess must be tracked + killed explicitly.
 - **Code-signing:** sign BOTH the main exe and `python-sidecar-*.exe` separately (SmartScreen flags an unsigned sidecar even if the main is signed).
@@ -171,7 +171,7 @@ This section closes the contradictions and missing specs flagged in implementati
 - **One application (perceived), not one process.** Tauri host + sidecar are bundled and lifecycled together, so the user sees one icon/install and Task Manager groups them under one app. This addresses the *spirit* of the original "one app" wish, but the runtime remains **multiple OS processes** (Tauri host + sidecar + prewarm). The original "single process / one exe" goal is intentionally NOT met — traded for a freeze-free, crash-isolated design. Process count is similar to today (Electron + Python + prewarm ≈ Tauri host + sidecar + prewarm); what changes is the leaner host and Tauri-managed lifecycle, not the count.
 - **No hand-rolled launcher.** Tauri owns the Python lifecycle; the `electron_launcher.py` relay behind complaint (A) is removed.
 - **No UI freeze.** The sidecar owns its own GIL, so continuous mic capture + inference never block the UI — matches today's smooth behavior.
-- **Crash isolation possible (FT-1).** A speech-engine crash can be recovered without killing the whole app — an upgrade over today's whole-app restart.
+- **Crash isolation possible (supervisor).** A speech-engine crash can be recovered without killing the whole app — an upgrade over today's whole-app restart.
 - **Smaller shell.** Tauri exe ~2–10 MB using system WebView2, vs Electron's ~100 MB+ bundled Chromium.
 - **Python stays Python.** No ML rewrite; the existing backend is bundled as a sidecar.
 
@@ -196,7 +196,7 @@ Electron code is untouched throughout the migration. The Tauri + Sidecar build i
 1. **Spike must pass on the user's Windows machine** (Phase 0) before any full build — the make-or-break step.
 2. **UI port effort (Phase 3)** is the largest unknown; mitigated by keeping React components shell-agnostic.
 3. **Transport bridge (Phase 2)** must preserve all current handler behaviors and the event flow exactly.
-4. **Recovery supervisor (FT-1)** must be implemented before cutover so a sidecar crash does not strand the user.
+4. **Recovery supervisor (supervisor)** must be implemented before cutover so a sidecar crash does not strand the user.
 
 ## References
 
@@ -206,7 +206,7 @@ Electron code is untouched throughout the migration. The Tauri + Sidecar build i
 - Tauri discussion #1645 (github.com/tauri-apps/tauri/discussions/1645) — sidecar trade-offs.
 - `python-build-standalone` (by Gregory Szorc) — clean pre-built Python for sidecar bundling.
 - Tauri `kill_children` + `single-instance` plugin — lifecycle/cleanup correctness.
-- FT-1 in `.workspace/TASKS.md` — crash isolation (restart backend only, keep UI alive).
+- supervisor in `.workspace/TASKS.md` — crash isolation (restart backend only, keep UI alive).
 - `electron_launcher.py:13` — current spawn of `python -m voice_typer.server.ipc_server --port 9876` (replaced by sidecar in Phase 2).
 - `voice_typer/server/ipc_server.py`, `voice_typer/server/handlers/*` — TCP IPC + handler registry (bridged to sidecar WebSocket in Phase 2).
 - `voice_typer/server/prewarm.py`, `voice_typer/server/task_scheduler.py` — prewarm + BootTrigger (kept).

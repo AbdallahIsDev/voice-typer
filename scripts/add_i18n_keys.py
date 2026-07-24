@@ -129,7 +129,7 @@ def main() -> int:
         if args.all or args.locale:
             loc_data, added = add_missing_keys(en_data, loc_data)
             save_json(loc_file, loc_data)
-            print(f"  {loc}: added {len(added)} missing keys → {loc_file.name}")
+            print(f"  {loc}: added {len(added)} missing keys -> {loc_file.name}")
             any_added = True
         else:
             print(f"  {loc}: {len(missing)} missing keys (use --all to add)")

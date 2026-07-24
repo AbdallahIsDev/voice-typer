@@ -346,7 +346,7 @@ runs require per-platform host validation (Phase 0) first.
 | Tauri capabilities | `src-tauri/capabilities/migrate-runtime.json` | ✅ Least-privilege permissions. NO `updater:*` perms. `shell:allow-spawn` scoped to `bin/python-sidecar` via `plugins.shell.scope`. |
 | Cargo deps | `src-tauri/Cargo.toml` | ✅ NO `tauri-plugin-updater` dependency. |
 | Signing guide | `docs/migration/signing-guide.md` | ✅ Windows Authenticode (signtool + RFC-3161 timestamp + OV/EV cert tradeoff). macOS Developer ID + notarytool + stapler (Info.plist keys + entitlements). Linux unsigned by default. Updater audit results documented. |
-| Cutover playbook | `docs/migration/cutover-playbook.md` | ✅ Per-platform cutover criteria (9-point Phase 0 gate + FT-1 + side-by-side smoke + signing verification + user sign-off). Per-platform rollback procedure. Mixed-mode period support. |
+| Cutover playbook | `docs/migration/cutover-playbook.md` | ✅ Per-platform cutover criteria (9-point Phase 0 gate + supervisor + side-by-side smoke + signing verification + user sign-off). Per-platform rollback procedure. Mixed-mode period support. |
 | PyInstaller fallback | `scripts/build/voice-typer.spec` | ✅ Entry point is `voice_typer/server/ipc_server.py` (the same entry point the Nuitka builds use). Bundles native hotkey binaries + Linux permission scripts + Silero VAD JIT model. Used when Nuitka proves impractical on a target (ADR-0020 §4.5). |
 | Stub generator | `scripts/gen_tauri_icons_stub.py` | ✅ Generates RGBA PNGs (color_type=6) — required by Tauri v2 `generate_context!()`. Generates stub sidecar + prewarm + native binaries so `cargo tauri build` dry-runs succeed without real Nuitka artifacts. `--check` mode for CI gates; `--clean` mode preserves real artifacts. |
 
@@ -361,7 +361,7 @@ runs require per-platform host validation (Phase 0) first.
 | Actual Nuitka freeze run on Linux aarch64 | `ubuntu-22.04-arm` runner not generally available; qemu-user-static path untested. | Either wait for `ubuntu-22.04-arm`, or build on a real Linux-ARM device, or validate the qemu path on a real Linux host. |
 | CTranslate2 DLL/dylib/.so set per platform | ADR-0020 §4.2-4.4 mandate enumerating the exact runtime DLL set at build time on each host (libiomp5md.dll, mkl_*.dll, libgomp.so, libiomp5.dylib). | Run `import ctranslate2` in the build env on each platform + enumerate loaded companion DLLs (`listdlls`/`otool -L`/`ldd`). |
 | Code-signing end-to-end | Needs real certs + secrets in CI: `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD` (Windows), `MAC_SIGNING_IDENTITY`/`APPLE_ID`/`APPLE_APP_SPECIFIC_PASSWORD`/`APPLE_TEAM_ID` (macOS). | Provision secrets in GitHub Actions per `signing-guide.md` §"Reused signing identities". |
-| Per-platform cutover | Each platform must pass its Phase 0 gate + FT-1 + side-by-side smoke + signing verification + user acceptance. | `cutover-playbook.md` §"Cutover criteria per platform". |
+| Per-platform cutover | Each platform must pass its Phase 0 gate + supervisor + side-by-side smoke + signing verification + user acceptance. | `cutover-playbook.md` §"Cutover criteria per platform". |
 
 ### PyInstaller fallback path (ADR-0020 §4.5)
 
