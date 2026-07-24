@@ -2665,7 +2665,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         # CR-2: gettimeout() is called to capture the previous timeout
         # before overwriting it.  Mock it to return a distinctive
         # sentinel so we can verify the restore.
-        _PREV_TIMEOUT = 7.0  # simulates an auth-read deadline
+        _PREV_TIMEOUT = 7.0  # noqa: N806  simulates an auth-read deadline
         fake_conn.gettimeout = MagicMock(return_value=_PREV_TIMEOUT)
 
         class FakeClient:

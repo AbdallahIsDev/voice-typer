@@ -236,9 +236,9 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
         # Sanity: _push_to_ws IS subscribed (otherwise the test is moot).
         assert event_bus._subscriber_count() >= 1
 
-        N_THREADS = 4
-        N_PER_THREAD = 50  # 200 total < maxsize=256 → no drops
-        TOTAL = N_THREADS * N_PER_THREAD
+        N_THREADS = 4  # noqa: N806
+        N_PER_THREAD = 50  # noqa: N806  200 total < maxsize=256 → no drops
+        TOTAL = N_THREADS * N_PER_THREAD  # noqa: N806
 
         # Barrier so all threads start publishing simultaneously,
         # maximizing the chance of cross-thread contention on the
@@ -337,8 +337,8 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
         # Wait for the connection to authenticate + install _push_to_ws.
         await asyncio.sleep(0.15)
 
-        N_THREADS = 8
-        N_PER_THREAD = 500  # 4000 total >> 256 maxsize → heavy overflow
+        N_THREADS = 8  # noqa: N806
+        N_PER_THREAD = 500  # noqa: N806  4000 total >> 256 maxsize → heavy overflow
         N_THREADS * N_PER_THREAD
 
         barrier = threading.Barrier(N_THREADS)

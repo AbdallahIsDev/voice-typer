@@ -342,11 +342,12 @@ class TestPVT019ModuleConstants:
         default — operators can lower N for stricter matching or
         raise it for more aggressive dedup without touching the method.
         """
-        from voice_typer.server.qwen_engine import (
-            QwenEngine,
-            _QWEN_OVERLAP_DEDUP_WORDS,
-        )
         import inspect
+
+        from voice_typer.server.qwen_engine import (
+            _QWEN_OVERLAP_DEDUP_WORDS,
+            QwenEngine,
+        )
 
         sig = inspect.signature(QwenEngine._dedup_overlap)
         assert sig.parameters["n"].default == _QWEN_OVERLAP_DEDUP_WORDS

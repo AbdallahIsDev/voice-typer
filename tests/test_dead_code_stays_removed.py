@@ -649,7 +649,7 @@ class TestIpcDeadCodeStaysRemoved:
         ]:
             importlib.import_module(mod_path)
 
-    def test_ipc_server_imports_TCPLineIO_from_transport(self):
+    def test_ipc_server_imports_TCPLineIO_from_transport(self):  # noqa: N802
         """CR-2: ``ipc_server.py`` must import ``_TCPLineIO`` from
         ``voice_typer.server.ipc.transport`` (the canonical location with
         the deadlock fix in ``close``), not define a parallel copy.
@@ -672,7 +672,7 @@ class TestIpcDeadCodeStaysRemoved:
             f"_TCPLineIO source must be transport.py; got {src_file!r}."
         )
 
-    def test_ipc_server_TCPLineIO_close_uses_shutdown(self):
+    def test_ipc_server_TCPLineIO_close_uses_shutdown(self):  # noqa: N802
         """CR-2: ``_TCPLineIO.close`` must call ``shutdown(SHUT_RDWR)``
         BEFORE ``close()`` so an in-progress ``recv`` on another thread
         is interrupted and the ``BufferedReader.close()`` doesn't

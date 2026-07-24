@@ -17,6 +17,7 @@ This test runs two concurrent ``quit()`` calls and asserts that
 
 from __future__ import annotations
 
+import contextlib
 import threading
 from unittest.mock import MagicMock
 
@@ -91,12 +92,8 @@ def test_concurrent_quit_calls_dont_both_enter_shutdown_all() -> None:
         # Block both threads at the barrier so they enter quit()
         # as simultaneously as possible.
         barrier.wait()
-        try:
+        with contextlib.suppress(SystemExit):
             controller.quit()
-        except SystemExit:
-            # The main-thread variant calls sys.exit(0); swallow it
-            # in the test so the thread doesn't tear down pytest.
-            pass
 
     t1 = threading.Thread(target=_call_quit, name="quit-thread-1")
     t2 = threading.Thread(target=_call_quit, name="quit-thread-2")
@@ -129,10 +126,8 @@ def test_concurrent_quit_calls_cleanup_at_most_once() -> None:
 
     def _call_quit():
         barrier.wait()
-        try:
+        with contextlib.suppress(SystemExit):
             controller.quit()
-        except SystemExit:
-            pass
 
     t1 = threading.Thread(target=_call_quit, name="quit-thread-1")
     t2 = threading.Thread(target=_call_quit, name="quit-thread-2")
@@ -180,20 +175,16 @@ def test_quit_idempotent_when_called_twice_sequentially() -> None:
     app, shutdown_calls, cleanup_calls, event = _make_app_with_quit_lock()
     controller = ShutdownController(app)
 
-    try:
+    with contextlib.suppress(SystemExit):
         controller.quit()
-    except SystemExit:
-        pass
 
     # Reset the spy so we can observe the second call's effect.
     shutdown_calls.clear()
     cleanup_calls.clear()
 
     # Second call should be a no-op (already shutting down).
-    try:
+    with contextlib.suppress(SystemExit):
         controller.quit()
-    except SystemExit:
-        pass
 
     assert len(shutdown_calls) == 0, (
         f"Second sequential quit() should NOT call shutdown_all() again; got {len(shutdown_calls)} calls."

@@ -39,9 +39,7 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from voice_typer.server.native_hotkeys import binary_path
-
 
 # ─── Fixtures ────────────────────────────────────────────────────────────
 

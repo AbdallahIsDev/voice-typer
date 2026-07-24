@@ -91,7 +91,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
         uses this tuple to require ALL modifiers held before firing."""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
-        Key, KeyCode = self._make_fake_pynput()
+        Key, KeyCode = self._make_fake_pynput()  # noqa: N806
         result = _parse_hotkey_to_pynput("<ctrl>+1", Key, KeyCode)
         assert isinstance(result, tuple), f"expected (modifier_keys, target) tuple for combo, got {type(result)}"
         modifier_keys, match_key = result
@@ -103,7 +103,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
         target key — the fallback listener doesn't gate on modifiers."""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
-        Key, KeyCode = self._make_fake_pynput()
+        Key, KeyCode = self._make_fake_pynput()  # noqa: N806
         result = _parse_hotkey_to_pynput("1", Key, KeyCode)
         # Single-key hotkeys return the bare key (not a tuple).
         assert result is not None
@@ -115,7 +115,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
         before firing the callback."""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
-        Key, KeyCode = self._make_fake_pynput()
+        Key, KeyCode = self._make_fake_pynput()  # noqa: N806
         result = _parse_hotkey_to_pynput("<ctrl>+<alt>+v", Key, KeyCode)
         assert isinstance(result, tuple)
         modifier_keys, match_key = result
@@ -130,7 +130,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
         (single-modifier hotkey — no main key, no modifier tuple)."""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
-        Key, KeyCode = self._make_fake_pynput()
+        Key, KeyCode = self._make_fake_pynput()  # noqa: N806
         result = _parse_hotkey_to_pynput("<alt>", Key, KeyCode)
         # Single-modifier spec returns the bare modifier key, not a tuple.
         assert result is not None

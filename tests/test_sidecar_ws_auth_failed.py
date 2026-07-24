@@ -64,7 +64,6 @@ websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
 
-
 # ── Helpers ────────────────────────────────────────────────────────────
 
 

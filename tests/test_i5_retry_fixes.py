@@ -316,7 +316,7 @@ class TestR18F12PreRollFiltered:
         from voice_typer.server.recording import Recorder
 
         n_preroll_chunks = 5
-        StreamCls = self._make_preroll_firing_stream(n_chunks=n_preroll_chunks, amplitude=0.3)
+        StreamCls = self._make_preroll_firing_stream(n_chunks=n_preroll_chunks, amplitude=0.3)  # noqa: N806
         monkeypatch.setattr(recording_mod.sd, "InputStream", StreamCls)
         monkeypatch.setattr(
             recording_mod.sd,
@@ -416,7 +416,7 @@ class TestR18F12PreRollFiltered:
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
-        StreamCls = self._make_preroll_firing_stream(n_chunks=1, amplitude=0.3)
+        StreamCls = self._make_preroll_firing_stream(n_chunks=1, amplitude=0.3)  # noqa: N806
         monkeypatch.setattr(recording_mod.sd, "InputStream", StreamCls)
         monkeypatch.setattr(
             recording_mod.sd,

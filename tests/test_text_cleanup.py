@@ -685,8 +685,9 @@ class TestXZ3PhraseCorrectionPerformance:
 
     def test_eager_compiled_patterns_parallel_to_phrases(self):
         """configure_corrections eagerly builds one Pattern per phrase."""
-        from voice_typer.server import text_cleanup
         import re
+
+        from voice_typer.server import text_cleanup
         text_cleanup.configure_corrections()
         assert len(text_cleanup._active_phrase_patterns) == len(text_cleanup._active_phrases)
         for p in text_cleanup._active_phrase_patterns:
@@ -738,6 +739,7 @@ class TestXZ3PhraseCorrectionPerformance:
         change to either side is caught.
         """
         import re
+
         from voice_typer.server import text_cleanup
         text_cleanup.configure_corrections()
         # NOTE: these must be LOWERCASE to match the production code's
@@ -844,18 +846,21 @@ class TestXZ3PrecompiledRegexes:
     ``re.findall`` / ``re.split`` with uncompiled string patterns)."""
 
     def test_misspell_wrap_regex_is_precompiled(self):
-        from voice_typer.server import text_cleanup
         import re
+
+        from voice_typer.server import text_cleanup
         assert isinstance(text_cleanup._RE_MISSPELL_WRAP, re.Pattern)
 
     def test_sentence_split_regex_is_precompiled(self):
-        from voice_typer.server import text_cleanup
         import re
+
+        from voice_typer.server import text_cleanup
         assert isinstance(text_cleanup._RE_SENTENCE_SPLIT, re.Pattern)
 
     def test_word_chars_regex_is_precompiled(self):
-        from voice_typer.server import text_cleanup
         import re
+
+        from voice_typer.server import text_cleanup
         assert isinstance(text_cleanup._RE_WORD_CHARS, re.Pattern)
 
     def test_no_uncompiled_regex_calls_in_hot_path(self):
@@ -869,6 +874,7 @@ class TestXZ3PrecompiledRegexes:
         import ast
         import inspect
         import textwrap
+
         from voice_typer.server import text_cleanup
 
         src = textwrap.dedent(inspect.getsource(text_cleanup))

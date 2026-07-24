@@ -57,9 +57,161 @@ _TRAY_LABELS_ES: dict[str, str] = {
     "update_available_body": "{app} {version} está disponible (tienes {current})",
 }
 
+# S1-CR-47: server-side tray i18n only supported 2 of 8 locales (en, es).
+# Switching to any of ar/de/fr/hi/ru/zh fell back to English. These dicts
+# provide the fallback so the tray menu, notifications, and tooltip state
+# messages are localized even before the renderer pushes its full label
+# dict via the set_tray_locale IPC. The renderer's push (which includes
+# the 50+ notify.* and state.* keys from i18n.py) still takes precedence
+# via register_tray_labels() merging — these dicts are the floor, not
+# the ceiling.
+_TRAY_LABELS_AR: dict[str, str] = {
+    "app_name": APP_NAME,
+    "toggle_dictation": "تبديل الإملاء",
+    "open_app": "فتح التطبيق",
+    "models": "النماذج",
+    "restart": "إعادة التشغيل",
+    "quit": "خروج",
+    "about": "حول",
+    "diagnostics": "التشخيصات",
+    "recording_active": "التسجيل نشط",
+    "update_available": "تحديث متاح",
+    "version": "إصدار",
+    "force_cancel_transcription": "إلغاء النسخ",
+    "undo_last": "تراجع عن الأخير",
+    "microphones": "الميكروفونات",
+    "more_microphones": "ميكروفونات أخرى...",
+    "force_cancel_stuck_transcription": "إلغاء النسخ العالق قسراً",
+    "settings": "الإعدادات...",
+    "history": "السجل...",
+    "help": "مساعدة...",
+    "update_available_body": "{app} {version} متاح (لديك {current})",
+}
+
+_TRAY_LABELS_DE: dict[str, str] = {
+    "app_name": APP_NAME,
+    "toggle_dictation": "Diktat umschalten",
+    "open_app": "App öffnen",
+    "models": "Modelle",
+    "restart": "Neu starten",
+    "quit": "Beenden",
+    "about": "Über",
+    "diagnostics": "Diagnose",
+    "recording_active": "Aufnahme aktiv",
+    "update_available": "Update verfügbar",
+    "version": "Version",
+    "force_cancel_transcription": "Transkription abbrechen",
+    "undo_last": "Letztes rückgängig",
+    "microphones": "Mikrofone",
+    "more_microphones": "Weitere Mikrofone...",
+    "force_cancel_stuck_transcription": "Feststeckende Transkription abbrechen",
+    "settings": "Einstellungen...",
+    "history": "Verlauf...",
+    "help": "Hilfe...",
+    "update_available_body": "{app} {version} ist verfügbar (Sie haben {current})",
+}
+
+_TRAY_LABELS_FR: dict[str, str] = {
+    "app_name": APP_NAME,
+    "toggle_dictation": "Basculer la dictée",
+    "open_app": "Ouvrir l'application",
+    "models": "Modèles",
+    "restart": "Redémarrer",
+    "quit": "Quitter",
+    "about": "À propos",
+    "diagnostics": "Diagnostics",
+    "recording_active": "Enregistrement actif",
+    "update_available": "Mise à jour disponible",
+    "version": "version",
+    "force_cancel_transcription": "Annuler la transcription",
+    "undo_last": "Annuler le dernier",
+    "microphones": "Microphones",
+    "more_microphones": "Plus de microphones...",
+    "force_cancel_stuck_transcription": "Forcer l'annulation de la transcription bloquée",
+    "settings": "Paramètres...",
+    "history": "Historique...",
+    "help": "Aide...",
+    "update_available_body": "{app} {version} est disponible (vous avez {current})",
+}
+
+_TRAY_LABELS_HI: dict[str, str] = {
+    "app_name": APP_NAME,
+    "toggle_dictation": "डिक्टेशन टॉगल करें",
+    "open_app": "ऐप खोलें",
+    "models": "मॉडल",
+    "restart": "पुनः प्रारंभ करें",
+    "quit": "बाहर निकलें",
+    "about": "बारे में",
+    "diagnostics": "निदान",
+    "recording_active": "रिकॉर्डिंग सक्रिय",
+    "update_available": "अपडेट उपलब्ध",
+    "version": "संस्करण",
+    "force_cancel_transcription": "ट्रांसक्रिप्शन रद्द करें",
+    "undo_last": "अंतिम पूर्ववत करें",
+    "microphones": "माइक्रोफ़ोन",
+    "more_microphones": "अधिक माइक्रोफ़ोन...",
+    "force_cancel_stuck_transcription": "फंसी हुई ट्रांसक्रिप्शन को बलपूर्वक रद्द करें",
+    "settings": "सेटिंग्स...",
+    "history": "इतिहास...",
+    "help": "सहायता...",
+    "update_available_body": "{app} {version} उपलब्ध है (आपके पास {current} है)",
+}
+
+_TRAY_LABELS_RU: dict[str, str] = {
+    "app_name": APP_NAME,
+    "toggle_dictation": "Переключить диктовку",
+    "open_app": "Открыть приложение",
+    "models": "Модели",
+    "restart": "Перезапустить",
+    "quit": "Выход",
+    "about": "О программе",
+    "diagnostics": "Диагностика",
+    "recording_active": "Запись активна",
+    "update_available": "Доступно обновление",
+    "version": "версия",
+    "force_cancel_transcription": "Отменить транскрипцию",
+    "undo_last": "Отменить последнее",
+    "microphones": "Микрофоны",
+    "more_microphones": "Больше микрофонов...",
+    "force_cancel_stuck_transcription": "Принудительно отменить зависшую транскрипцию",
+    "settings": "Настройки...",
+    "history": "История...",
+    "help": "Справка...",
+    "update_available_body": "{app} {version} доступна (у вас {current})",
+}
+
+_TRAY_LABELS_ZH: dict[str, str] = {
+    "app_name": APP_NAME,
+    "toggle_dictation": "切换听写",
+    "open_app": "打开应用",
+    "models": "模型",
+    "restart": "重启",
+    "quit": "退出",
+    "about": "关于",
+    "diagnostics": "诊断",
+    "recording_active": "录音中",
+    "update_available": "有可用更新",
+    "version": "版本",
+    "force_cancel_transcription": "取消转录",
+    "undo_last": "撤销上一次",
+    "microphones": "麦克风",
+    "more_microphones": "更多麦克风...",
+    "force_cancel_stuck_transcription": "强制取消卡住的转录",
+    "settings": "设置...",
+    "history": "历史记录...",
+    "help": "帮助...",
+    "update_available_body": "{app} {version} 可用（您当前是 {current}）",
+}
+
 _TRAY_LABELS_LOCALES: dict[str, dict[str, str]] = {
     "en": _TRAY_LABELS_EN,
     "es": _TRAY_LABELS_ES,
+    "ar": _TRAY_LABELS_AR,
+    "de": _TRAY_LABELS_DE,
+    "fr": _TRAY_LABELS_FR,
+    "hi": _TRAY_LABELS_HI,
+    "ru": _TRAY_LABELS_RU,
+    "zh": _TRAY_LABELS_ZH,
 }
 
 _tray_locale: str = "en"

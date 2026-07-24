@@ -420,7 +420,7 @@ class TestXV95CheckpointLogBehaviour:
         'will retry in Ns' log line reports 300s (the actual
         ``_WAL_CHECKPOINT_INTERVAL``), not 60s.
         """
-        from voice_typer.server.history_db import HistoryDB, _WAL_CHECKPOINT_INTERVAL
+        from voice_typer.server.history_db import _WAL_CHECKPOINT_INTERVAL, HistoryDB
 
         # Sanity: the constant is what we expect.
         assert _WAL_CHECKPOINT_INTERVAL == 300.0

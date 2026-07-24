@@ -39,7 +39,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
 from voice_typer.server.recording import Recorder
 
 REPO_ROOT_CONTEXT = "voice_typer.server.recording"  # noqa: N816 (readability)

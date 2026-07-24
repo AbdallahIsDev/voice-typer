@@ -688,7 +688,7 @@ class TestProtocolStructuralCompat:
         # add explicit ``app._vocabulary_automation = None`` /
         # ``app._waveform_bubble = None`` assignments there and
         # remove this exemption.
-        _FAKE_APP_AUTO_STUB_OK = {
+        _FAKE_APP_AUTO_STUB_OK = {  # noqa: N806
             "_vocabulary_automation",
             "_waveform_bubble",
         }

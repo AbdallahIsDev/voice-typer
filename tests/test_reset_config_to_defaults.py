@@ -163,7 +163,7 @@ def test_reset_config_to_defaults_preserves_api_keys_by_default(tmp_path) -> Non
         mp.undo()
 
 
-def test_reset_config_to_defaults_wipes_api_keys_whenAsked(tmp_path) -> None:
+def test_reset_config_to_defaults_wipes_api_keys_whenAsked(tmp_path) -> None:  # noqa: N802
     """G4-L-25: ``preserve_api_keys=False`` also wipes the API key
     fields (rare; the GDPR delete path is the right tool for that —
     it also clears the keychain)."""

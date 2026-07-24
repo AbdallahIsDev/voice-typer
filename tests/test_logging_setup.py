@@ -155,7 +155,7 @@ def test_log_file_created_under_config_dir(config_dir, clean_env, stub_side_effe
     assert (config_dir / "voice-typer.log").exists()
 
 
-def test_handler_baseFilename_points_at_config_dir(config_dir, clean_env, stub_side_effects):
+def test_handler_baseFilename_points_at_config_dir(config_dir, clean_env, stub_side_effects):  # noqa: N802
     """The RotatingFileHandler's baseFilename is <config_dir>/voice-typer.log."""
     logging_setup._setup_logging()
     rotating = next(h for h in _vt_handlers() if isinstance(h, logging.handlers.RotatingFileHandler))

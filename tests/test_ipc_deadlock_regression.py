@@ -96,7 +96,7 @@ class TestSendRestoresPrevTimeout:
             # Set a non-None previous timeout (simulating the auth-read
             # deadline).  Use a distinctive value so we can detect it
             # after _send runs.
-            AUTH_DEADLINE = 7.0
+            AUTH_DEADLINE = 7.0  # noqa: N806
             srv.settimeout(AUTH_DEADLINE)
             assert srv.gettimeout() == AUTH_DEADLINE  # sanity
 

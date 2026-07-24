@@ -28,7 +28,7 @@ class TestTestLLMConnectionConsent:
         mock_app.config.llm_polish_consent = True
         mock_app.config.llm_api_key = "sk-test-key"
         # Mock LLMPolisher.test_connection to return success
-        with patch("voice_typer.server.llm_polish.LLMPolisher") as MockPolisher:
+        with patch("voice_typer.server.llm_polish.LLMPolisher") as MockPolisher:  # noqa: N806
             MockPolisher.return_value.test_connection.return_value = (True, "OK")
             service = VoiceTyperService(mock_app)
             result = service.test_llm_connection()
@@ -64,7 +64,7 @@ class TestServiceErrorRedaction:
         mock_app = MagicMock()
         mock_app.config.llm_polish_consent = True
         mock_app.config.llm_api_key = "sk-secret-key-12345"
-        with patch("voice_typer.server.llm_polish.LLMPolisher") as MockPolisher:
+        with patch("voice_typer.server.llm_polish.LLMPolisher") as MockPolisher:  # noqa: N806
             MockPolisher.return_value.test_connection.side_effect = RuntimeError("https://user:pass@evil.com/")
             service = VoiceTyperService(mock_app)
             result = service.test_llm_connection()
@@ -79,7 +79,7 @@ class TestServiceErrorRedaction:
         mock_app = MagicMock()
         mock_app.config.llm_polish_consent = True
         mock_app.config.llm_api_key = "sk-secret-key-12345"
-        with patch("voice_typer.server.llm_polish.LLMPolisher") as MockPolisher:
+        with patch("voice_typer.server.llm_polish.LLMPolisher") as MockPolisher:  # noqa: N806
             MockPolisher.return_value.test_connection.side_effect = RuntimeError(
                 "Authorization: Bearer sk-secret-key-12345 rejected"
             )

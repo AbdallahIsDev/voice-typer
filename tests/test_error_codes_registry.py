@@ -50,7 +50,6 @@ import re
 from pathlib import Path
 
 import pytest
-
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.ipc.validation import ERROR_CODES, _error_response
 

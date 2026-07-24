@@ -120,7 +120,7 @@ def test_force_exit_thread_scheduled_after_quit(server: IPCServer) -> None:
     )
 
 
-def test_force_exit_thread_NOT_scheduled_when_timeout_does_not_fire(
+def test_force_exit_thread_NOT_scheduled_when_timeout_does_not_fire(  # noqa: N802
     server: IPCServer,
 ) -> None:
     """When the watchdog returns False (no timeout), no force-exit thread is started.
@@ -157,7 +157,7 @@ def test_force_exit_thread_NOT_scheduled_when_timeout_does_not_fire(
     )
 
 
-def test_force_exit_thread_NOT_scheduled_before_first_heartbeat(
+def test_force_exit_thread_NOT_scheduled_before_first_heartbeat(  # noqa: N802
     server: IPCServer,
 ) -> None:
     """No force-exit thread before Electron's first heartbeat (slow cold-start guard).

@@ -45,7 +45,6 @@ import pytest
 from voice_typer.server.audio_filters import HighPassFilter
 from voice_typer.server.audio_processor import AudioProcessor
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Test config — mirrors the FakeConfig in tests/test_audio_processor.py but
 # kept local to avoid coupling to another test file's fixtures (DO NOT touch

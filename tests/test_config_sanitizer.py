@@ -11,7 +11,6 @@ redaction breaks loudly here.
 from __future__ import annotations
 
 import pytest
-
 from voice_typer.server.config_sanitizer import (
     REDACTED_SENTINEL,
     SECRET_CONFIG_FIELDS,
@@ -54,7 +53,7 @@ class TestSecretFieldsRedacted:
         echoed back to the IPC client in plaintext.  This test forces
         the explicit update by failing when the set changes.
         """
-        assert SECRET_CONFIG_FIELDS == frozenset(
+        assert frozenset(
             {
                 "cloud_api_key",
                 "openai_api_key",
@@ -62,7 +61,7 @@ class TestSecretFieldsRedacted:
                 "deepgram_api_key",
                 "llm_api_key",
             }
-        )
+        ) == SECRET_CONFIG_FIELDS
 
     def test_falsy_secret_value_preserved_not_redacted(self):
         """Empty-string / None secrets are preserved so the renderer can

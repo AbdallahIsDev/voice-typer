@@ -116,18 +116,18 @@ def _make_fake_pyatspi(*, focused_role: int) -> types.ModuleType:
             self._children = children or []
 
         @property
-        def childCount(self) -> int:
+        def childCount(self) -> int:  # noqa: N802
             return len(self._children)
 
-        def getChildAtIndex(self, i):
+        def getChildAtIndex(self, i):  # noqa: N802
             if 0 <= i < len(self._children):
                 return self._children[i]
             return None
 
-        def getState(self):
+        def getState(self):  # noqa: N802
             return self._state
 
-        def getRole(self):
+        def getRole(self):  # noqa: N802
             return self._role
 
     # Build the tree: desktop → app → window → focused leaf.
@@ -141,7 +141,7 @@ def _make_fake_pyatspi(*, focused_role: int) -> types.ModuleType:
 
     class _Registry:
         @staticmethod
-        def getDesktop(i):
+        def getDesktop(i):  # noqa: N802
             return desktop
 
     mod.Registry = _Registry
@@ -243,15 +243,15 @@ def _make_fake_pyobjc(*, role: str = "AXTextField", is_secure: bool = False) -> 
     appkit = types.ModuleType("AppKit")
 
     class _NSRunningApp:
-        def processIdentifier(self):
+        def processIdentifier(self):  # noqa: N802
             return 1234
 
     class _Workspace:
         @staticmethod
-        def sharedWorkspace():
+        def sharedWorkspace():  # noqa: N802
             return _Workspace()
 
-        def frontmostApplication(self):
+        def frontmostApplication(self):  # noqa: N802
             return _NSRunningApp()
 
     appkit.NSWorkspace = _Workspace
@@ -261,11 +261,11 @@ def _make_fake_pyobjc(*, role: str = "AXTextField", is_secure: bool = False) -> 
     # Track call counts so tests can assert on which attributes were queried.
     call_log: list = []
 
-    def _AXUIElementCreateApplication(pid):
+    def _AXUIElementCreateApplication(pid):  # noqa: N802
         call_log.append(("AXUIElementCreateApplication", pid))
         return MagicMock(name=f"app_elem[{pid}]")
 
-    def _AXUIElementCopyAttributeValue(element, attribute, _reserved):
+    def _AXUIElementCopyAttributeValue(element, attribute, _reserved):  # noqa: N802
         call_log.append(("AXUIElementCopyAttributeValue", attribute))
         if attribute == "AXFocusedUIElement":
             return (0, MagicMock(name="focused_elem"))
