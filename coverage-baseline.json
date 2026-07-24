@@ -1,0 +1,7 @@
+{
+  "_schema_version": 1,
+  "_comment": "WR-13: bootstrapped coverage baseline. The ratchet script (scripts/coverage_ratchet_check.py) hard-exits with code 2 if this file is missing, but no preceding CI step ever generated it — so every CI run on ubuntu-22.04 x Python 3.12 hard-failed at the 'Coverage ratchet check' step. This bootstrap uses the documented aspirational target of 65.23% (per pyproject.toml:391-392 comment 'Global coverage is 65.23%'). Run `python scripts/coverage_ratchet_check.py --regenerate` after a real pytest --cov run to lock in the actual current percentage as the new floor.",
+  "_updated": "2026-07-24",
+  "_source": "bootstrapped from pyproject.toml documented aspirational target (65.23%)",
+  "total_coverage": 65.23
+}
