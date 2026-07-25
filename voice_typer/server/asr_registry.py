@@ -94,6 +94,18 @@ class ConfigProtocol(Protocol):
 # independently without overwriting each other.
 BackendDisabledCallback = Callable[[str, int], None]
 
+# XZ-14-06: subscriber callback for the last-resort unloaded-backend
+# fallback path in get_active(). Pre-fix, that path logged a WARNING
+# ("returning unloaded backend %s (is_loaded=False) as last-resort
+# active — transcription may return empty silently") but fired no
+# tray notification — the user silently got empty transcriptions with
+# no visible feedback that voice recognition wasn't working. The
+# callback receives the configured backend name (the same value
+# passed to the WARNING log) so the tray can render a useful message
+# (e.g. "Voice Typer: Active backend '<name>' is not loaded —
+# transcription may be unavailable. Check your model settings.").
+LastResortCallback = Callable[[str], None]
+
 
 class AsrBackendRegistry:
     """Registry of ASR backends — single source of truth for "the model".
@@ -136,6 +148,18 @@ class AsrBackendRegistry:
         # legacy ``registry.on_backend_disabled = fn`` assignment pattern
         # by adding ``fn`` to the subscriber set.
         self._on_backend_disabled_subscribers: set[BackendDisabledCallback] = set()
+        # XZ-14-06: subscribers for the last-resort unloaded-backend
+        # event in get_active(). Same set-based pattern as
+        # _on_backend_disabled_subscribers so ModelManager (tray), the
+        # IPC layer (renderer event), and a telemetry sink can subscribe
+        # independently without overwriting each other.
+        self._on_last_resort_subscribers: set[LastResortCallback] = set()
+        # XZ-14-06: one-shot latch so we don't fire the tray notification
+        # on every get_active() call while the registry is stuck in the
+        # last-resort state. Reset to False whenever get_active() finds a
+        # ready backend (so a recovery → re-fallback sequence re-notifies)
+        # and in _record_success (primary-backend load success).
+        self._last_resort_notified: bool = False
 
     # GT-B2-10: backward-compatible property so existing
     # ``registry.on_backend_disabled = fn`` assignments continue to
@@ -161,6 +185,35 @@ class AsrBackendRegistry:
         """GT-B2-10: unregister a backend-disabled subscriber (no-op if absent)."""
         self._on_backend_disabled_subscribers.discard(fn)
 
+    # XZ-14-06: last-resort subscriber management. Mirrors the
+    # backend-disabled subscriber API so the app can wire a tray
+    # notification via the same path used for load_with_fallback
+    # failures (see _record_failure's subscriber loop + event_bus.publish).
+    @property
+    def on_last_resort(self) -> set[LastResortCallback]:
+        """XZ-14-06: set of subscribers fired when get_active() falls
+        through to an unloaded last-resort backend."""
+        return self._on_last_resort_subscribers
+
+    @on_last_resort.setter
+    def on_last_resort(self, fn: LastResortCallback | None) -> None:
+        """XZ-14-06: backward-compatible property setter mirroring
+        ``on_backend_disabled`` — assigning a callable adds it to the
+        subscriber set; assigning None clears the set."""
+        if fn is None:
+            self._on_last_resort_subscribers.clear()
+        elif callable(fn):
+            self._on_last_resort_subscribers.add(fn)
+
+    def add_last_resort_subscriber(self, fn: LastResortCallback) -> None:
+        """XZ-14-06: register a subscriber for last-resort-unloaded-backend events."""
+        if callable(fn):
+            self._on_last_resort_subscribers.add(fn)
+
+    def remove_last_resort_subscriber(self, fn: LastResortCallback) -> None:
+        """XZ-14-06: unregister a last-resort subscriber (no-op if absent)."""
+        self._on_last_resort_subscribers.discard(fn)
+
     def register(self, name: str, backend: AsrBackend) -> None:
         """Register a backend by name (e.g. 'whisper', 'qwen', 'parakeet')."""
         with self._lock:
@@ -179,30 +232,113 @@ class AsrBackendRegistry:
 
         Falls back to 'whisper' if the configured backend isn't loaded.
         Returns None if no backend is available.
+
+        XZ-14-06: when this method falls through to the last-resort
+        branch (no ready backend) and returns an *unloaded* backend, a
+        one-shot tray notification is fired via the
+        ``_on_last_resort_subscribers`` set + an ``asr_last_resort_unloaded``
+        event is published on the global ``event_bus``. The latch
+        (``_last_resort_notified``) ensures the notification fires only
+        ONCE per last-resort transition (not on every get_active() call)
+        and resets when a ready backend becomes available again so a
+        recovery → re-fallback sequence re-notifies the user.
         """
         name = getattr(self._config, "asr_backend", "whisper")
+        notify_last_resort = False
+        try:
+            with self._lock:
+                backend = self._backends.get(name)
+                if backend is not None and self._is_ready(backend):
+                    # XZ-14-06: a ready configured backend is available —
+                    # clear the last-resort latch so a future fall-through
+                    # re-notifies.
+                    self._last_resort_notified = False
+                    return backend
+
+                whisper = self._backends.get("whisper")
+                if whisper is not None and self._is_ready(whisper):
+                    if name != "whisper":
+                        log.info("[ASR_REGISTRY] %s backend not ready, falling back to whisper", name)
+                    # XZ-14-06: whisper is ready — clear the last-resort latch.
+                    self._last_resort_notified = False
+                    return whisper
+
+                for b in list(self._backends.values()):
+                    if b is not None:
+                        if not self._is_ready(b):
+                            log.warning(
+                                "[ASR_REGISTRY] returning unloaded backend %s "
+                                "(is_loaded=False) as last-resort active — "
+                                "transcription may return empty silently",
+                                name,
+                            )
+                            # XZ-14-06: fire one-shot tray notification
+                            # so the user knows voice transcription is
+                            # silently broken. The latch ensures we only
+                            # fire once per last-resort transition.
+                            if not self._last_resort_notified:
+                                self._last_resort_notified = True
+                                notify_last_resort = True
+                        return b
+            return None
+        finally:
+            # XZ-14-06: fire subscribers OUTSIDE the lock (the `with`
+            # block's __exit__ has already released it by the time
+            # `finally` runs) so a subscriber callback can safely
+            # re-enter the registry (e.g. to query active_name) without
+            # deadlock. Mirrors the `_record_failure` subscriber pattern.
+            if notify_last_resort:
+                self._fire_last_resort_subscribers(name)
+
+    def _fire_last_resort_subscribers(self, name: str) -> None:
+        """XZ-14-06: fire per-registry subscribers + publish an event_bus
+        event for the last-resort unloaded-backend fallback.
+
+        Called from :meth:`get_active`'s ``finally`` block, AFTER the
+        ``_last_resort_notified`` latch has been set under the lock.
+        Snapshotting the subscribers under the lock + firing them outside
+        mirrors the :meth:`_record_failure` pattern — a subscriber that
+        raises is logged and skipped so one buggy subscriber doesn't
+        block the others.
+        """
+        # Snapshot subscribers under the lock so a subscriber that calls
+        # remove_last_resort_subscriber from within its own callback
+        # doesn't mutate the set we're iterating.
         with self._lock:
-            backend = self._backends.get(name)
-            if backend is not None and self._is_ready(backend):
-                return backend
+            subscribers = list(self._on_last_resort_subscribers)
 
-            whisper = self._backends.get("whisper")
-            if whisper is not None and self._is_ready(whisper):
-                if name != "whisper":
-                    log.info("[ASR_REGISTRY] %s backend not ready, falling back to whisper", name)
-                return whisper
+        # Fire per-registry subscribers (tray notification, IPC push,
+        # telemetry sink, …). Defensive — a subscriber that raises is
+        # logged and skipped so one buggy subscriber doesn't block the
+        # others (same contract as _record_failure's subscriber loop).
+        for fn in subscribers:
+            try:
+                fn(name)
+            except Exception:
+                log.warning(
+                    "[ASR_REGISTRY] on_last_resort subscriber raised",
+                    exc_info=True,
+                )
 
-            for b in list(self._backends.values()):
-                if b is not None:
-                    if not self._is_ready(b):
-                        log.warning(
-                            "[ASR_REGISTRY] returning unloaded backend %s "
-                            "(is_loaded=False) as last-resort active — "
-                            "transcription may return empty silently",
-                            name,
-                        )
-                    return b
-        return None
+        # XZ-14-06: publish process-wide event on event_bus so the IPC
+        # push channel and any diagnostics aggregator are notified
+        # independently of the per-registry subscribers (mirrors the
+        # asr_backend_disabled event published from _record_failure).
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish(
+                {
+                    "type": "asr_last_resort_unloaded",
+                    "backend": name,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+        except Exception:
+            log.warning(
+                "[ASR_REGISTRY] failed to publish asr_last_resort_unloaded event",
+                exc_info=True,
+            )
 
     def _is_ready(self, backend: AsrBackend) -> bool:
         """Check if a backend is ready for transcription."""
@@ -330,6 +466,12 @@ class AsrBackendRegistry:
                 self._disabled_backends.discard(name)
                 log.info("[ASR_REGISTRY] backend %s re-enabled (load succeeded)", name)
                 self._persist_disabled()
+            # XZ-14-06: clear the last-resort notification latch — a
+            # successful primary-backend load means we've recovered
+            # from the last-resort state, so the next fall-through
+            # should re-notify the user (instead of being suppressed
+            # by the one-shot latch).
+            self._last_resort_notified = False
 
     def _record_failure(self, name: str) -> None:
         """Increment the failure counter for ``name``; disable if threshold reached.
@@ -547,6 +689,12 @@ class AsrBackendRegistry:
                 # G4-M-45 / XS-17: do NOT call ``_record_success("whisper")``
                 # here — whisper is a FALLBACK, not the user's configured
                 # backend.
+                # XZ-14-06: but DO clear the last-resort notification
+                # latch — the whisper fallback successfully loaded, so
+                # we've recovered from the last-resort state and the
+                # next fall-through should re-notify the user.
+                with self._lock:
+                    self._last_resort_notified = False
                 return whisper
             except Exception:
                 log.exception("[ASR_REGISTRY] whisper fallback also failed")
