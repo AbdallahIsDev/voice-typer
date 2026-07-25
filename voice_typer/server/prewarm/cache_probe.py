@@ -42,6 +42,7 @@ import os
 import random
 import sys
 import time
+from functools import lru_cache
 from pathlib import Path
 
 # Patch-path bridge: route lookups of cross-submodule helpers through
@@ -56,6 +57,14 @@ log = logging.getLogger("voice_typer.server.prewarm")
 # Read weights in this-sized chunk.  Small enough to keep the process's
 # own working set tiny, large enough to amortise per-read overhead.
 _READ_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MB
+
+# Only warm file types whose bytes actually contribute to import-time
+# disk I/O.  ``.py`` is excluded on purpose: when a ``.pyc`` is present
+# CPython never reads the ``.py`` at import time, so warming the source
+# file wastes disk bandwidth and standby-cache space.
+_WARM_PACKAGE_SUFFIXES: frozenset[str] = frozenset(
+    {".pyc", ".so", ".pyd", ".dll", ".json", ".txt"}
+)
 
 # ADR-0009 Issue 3: parameters for the _cache_ratio() probe. Reads this
 # many random 4K pages from the model file and counts how many return in
@@ -115,8 +124,11 @@ def _warm_package_files(pkg_name: str) -> int:
     total = 0
     t0 = time.perf_counter()
     for root in roots:
-        for path in sorted(root.rglob("*")):
-            if path.is_file():
+        # XV-15: iterate rglob directly — sorted() would force a full
+        # directory walk into memory before the first read, doubling
+        # peak RSS for large packages (torch has ~40k files).
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix in _WARM_PACKAGE_SUFFIXES:
                 try:
                     total += _pkg._warm_file(path)
                 except OSError as exc:
@@ -133,6 +145,25 @@ def _warm_package_files(pkg_name: str) -> int:
     return total
 
 
+@lru_cache(maxsize=1)
+def _cached_active_config():
+    """Return the active ``Config`` instance, cached per prewarm run (XV-19).
+
+    ``_warm_imports`` and ``_active_model_cache_dirs`` previously each
+    called ``Config.load()`` independently, doubling the prewarm
+    cold-start I/O. The config does not change during a prewarm
+    process's lifetime, so caching is safe. Returns ``None`` on load
+    failure so callers fall back to defaults without raising.
+    """
+    try:
+        from voice_typer.server.config import Config
+
+        return Config.load()
+    except Exception:
+        log.debug("[PREWARM] Config.load() failed — using default backend", exc_info=True)
+        return None
+
+
 def _warm_imports() -> None:
     """Page torch + transformers files into the OS cache (no import).
 
@@ -144,16 +175,11 @@ def _warm_imports() -> None:
     stack, but we warm its *files* rather than importing it, so prewarm
     finishes in seconds and the app executes torch exactly once, later.
     """
-    # STARTUP-3: determine which imports are needed based on the active
-    # backend. Whisper → only faster_whisper; parakeet/qwen → full stack.
-    active_backend = "whisper"  # default
-    try:
-        from voice_typer.server.config import Config
-
-        cfg = Config.load()
-        active_backend = getattr(cfg, "asr_backend", "whisper")
-    except Exception:
-        pass
+    # XV-19: share a single cached Config.load() result with
+    # ``_active_model_cache_dirs`` so a prewarm run parses the config
+    # file at most once instead of twice.
+    cfg = _cached_active_config()
+    active_backend = getattr(cfg, "asr_backend", "whisper") if cfg is not None else "whisper"
 
     needs_full_stack = active_backend in ("parakeet", "qwen")
 
@@ -197,8 +223,19 @@ def _warm_imports() -> None:
         log.debug("[PREWARM] faster_whisper/ctranslate2 not warmable (skipping): %s", exc)
 
 
+@lru_cache(maxsize=1)
 def _resolve_hf_cache_dir() -> Path:
     """Resolve the HF cache directory, robust to pre-session execution.
+
+    XV-19: wrapped with ``@lru_cache(maxsize=1)`` so a single prewarm
+    run resolves the directory at most once. Previously the function was
+    called from both ``_find_parakeet_weights`` and
+    ``_active_model_cache_dirs`` (and indirectly via ``_config_root()``
+    / ``_sentinel_path()`` / ``_pid_file_path()``), each call re-running
+    the env-var / registry / getpwuid fallback chain and re-stat'ing
+    the filesystem. The directory does not change during a prewarm
+    process's lifetime, so caching is safe. Tests clear the cache via
+    ``cache_clear()`` in the autouse fixture.
 
     ADR-0009 Issue 1: at BootTrigger time, the user session may not be
     fully initialized. ``Path.home()`` relies on ``%USERPROFILE%``
@@ -377,12 +414,16 @@ def _active_model_cache_dirs() -> list[Path]:
     ADR-0009 Issue 1: uses ``_resolve_hf_cache_dir()`` instead of
     ``_config_dir()`` so the lookup still works when prewarm is fired by
     the BootTrigger before the user session is fully initialized.
+
+    XV-19: ``Config.load()`` is shared with ``_warm_imports`` via
+    ``_cached_active_config()`` so a single prewarm run parses the
+    config file at most once.
     """
     dirs: list[Path] = []
+    cfg = _cached_active_config()
+    if cfg is None:
+        return dirs
     try:
-        from voice_typer.server.config import Config
-
-        cfg = Config.load()
         cache_root = _resolve_hf_cache_dir() / "hub"
         if not cache_root.exists():
             return dirs
@@ -442,10 +483,16 @@ def _warm_file(path: Path) -> int:
             if not chunk:
                 break
             read += len(chunk)
-            # ``del`` immediately so the buffer doesn't accumulate.
-            del chunk
+            # CPython's reference counting frees the previous bytes
+            # object on the next loop iteration's read assignment, so
+            # no explicit cleanup is needed here.
     rate = (read / (1024 * 1024)) / max(time.perf_counter() - t0, 1e-6)
-    log.info(
+    # XV-14: per-file log demoted to DEBUG. Large packages (torch,
+    # transformers) contain tens of thousands of files; an INFO line
+    # per file floods ``prewarm.log`` and drowns out the per-package
+    # summary. Operators who need per-file detail can enable DEBUG
+    # via ``--debug``.
+    log.debug(
         "[PREWARM] warmed %s: %.0f MB in %.1fs (%.0f MB/s)",
         path.name,
         read / (1024 * 1024),

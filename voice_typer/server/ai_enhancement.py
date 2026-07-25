@@ -165,6 +165,33 @@ _RE_PROPER_NOUN = re.compile(
     + r")(?![A-Za-z'])",
 )
 
+# XV-79: hoisted from ``auto_capitalize`` and ``auto_punctuate`` function
+# bodies. Re-compiling these patterns (and re-allocating the pronouns
+# frozenset) inside the hot dictation path contradicted the module-level
+# compile pattern documented at the top of this file and added ~1-3 µs
+# of avoidable overhead per call. Module-level compile also lets the
+# regex engine cache its internal DFA once.
+
+# Leading URL guard for ``auto_capitalize``: if the text starts with an
+# ``http://`` or ``https://`` scheme we skip the first-letter
+# capitalization step so we don't mangle the URL scheme.
+_RE_LEADING_URL = re.compile(r"^\s*https?://", re.IGNORECASE)
+
+# Subject pronouns used by ``auto_punctuate``'s conjunction-break
+# heuristic: a comma is inserted before ``and``/``but``/``or`` only when
+# the conjunction is followed by one of these pronouns (a conservative
+# signal for an independent-clause boundary). A ``frozenset`` is the
+# cheapest O(1) membership container.
+_PRONOUN_SUBJECTS = frozenset({"i", "you", "he", "she", "it", "we", "they"})
+
+# Match: (and|but|or) + space + pronoun, with no existing comma
+# before the conjunction.  We use a function replacement so we
+# can inspect the surrounding words and only insert when there
+# isn't already a comma.
+_RE_CONJUNCTION_BREAK = re.compile(
+    r"(?<![,\s])(\s+)(and|but|or)(\s+)([A-Za-z]+)\b"
+)
+
 
 # ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -220,8 +247,8 @@ def auto_capitalize(text: str) -> str:
     #    URL guard: if the text starts with `http://` or `https://`,
     #    we skip this step entirely so we don't mangle the scheme
     #    (capitalizing "h" in "https" would break the URL).
-    _leading_url = re.compile(r"^\s*https?://", re.IGNORECASE)
-    if not _leading_url.match(result):
+    # XV-79: pattern hoisted to module level (``_RE_LEADING_URL``).
+    if not _RE_LEADING_URL.match(result):
         for i, ch in enumerate(result):
             if ch.isalpha():
                 result = result[:i] + ch.upper() + result[i + 1:]
@@ -326,25 +353,18 @@ def auto_punctuate(text: str) -> str:
     # oranges" alone (no pronoun after "and").  We don't require the
     # word BEFORE the conjunction to be a pronoun because that would
     # miss the common "X-verb-object and I-verb-object" pattern.
-    pronouns = {"i", "you", "he", "she", "it", "we", "they"}
-
-    # Match: (and|but|or) + space + pronoun, with no existing comma
-    # before the conjunction.  We use a function replacement so we
-    # can inspect the surrounding words and only insert when there
-    # isn't already a comma.
-    _re_conjunction_break = re.compile(
-        r"(?<![,\s])(\s+)(and|but|or)(\s+)([A-Za-z]+)\b"
-    )
+    # XV-79: pattern + pronoun set hoisted to module level
+    # (``_RE_CONJUNCTION_BREAK`` / ``_PRONOUN_SUBJECTS``).
 
     def _maybe_insert_comma(match: re.Match[str]) -> str:
         conj = match.group(2)
         after = match.group(4).lower()
-        if after in pronouns:
+        if after in _PRONOUN_SUBJECTS:
             # Insert a comma before the conjunction.
             return f",{match.group(1)}{conj}{match.group(3)}{match.group(4)}"
         return match.group(0)
 
-    result = _re_conjunction_break.sub(_maybe_insert_comma, result)
+    result = _RE_CONJUNCTION_BREAK.sub(_maybe_insert_comma, result)
 
     return result
 

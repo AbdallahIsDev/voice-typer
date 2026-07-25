@@ -26,7 +26,7 @@ class MicrophoneTestMixin:
         return self._app._microphones
 
     # AUDIO-MIC: refresh the microphone list by re-querying PortAudio.
-    def refresh_microphones(self) -> list[dict]:
+    def refresh_microphones(self, force: bool = False) -> list[dict]:
         """AUDIO-MIC: Re-query PortAudio for available microphones.
 
         Called when the user clicks "Refresh Microphones" in the UI
@@ -38,6 +38,14 @@ class MicrophoneTestMixin:
         re-queries and refreshes the cache; subsequent calls within
         the window return the cached list. Errors fall back to the
         previously-known list (or the cache if available).
+
+        SVC-8: ``force=True`` bypasses the TTL cache so callers that
+        *know* a hot-plug event happened (e.g. the OS device-change
+        watcher) can refresh immediately without waiting up to 5 s.
+
+        XV-5: use ``is not None`` (not bare truthiness) so a cached
+        empty list (PortAudio returned 0 mics) is still served from
+        cache instead of re-querying PortAudio on every call.
         """
         import time
 
@@ -45,7 +53,12 @@ class MicrophoneTestMixin:
 
         now = time.monotonic()
         # PERF-FIX-1: serve from cache if fresher than 5s.
-        if self._microphones_cache and (now - self._microphones_cache_ts) < 5.0:
+        # SVC-8: skip the cache check when force=True.
+        if (
+            not force
+            and self._microphones_cache is not None
+            and (now - self._microphones_cache_ts) < 5.0
+        ):
             return self._microphones_cache
 
         try:

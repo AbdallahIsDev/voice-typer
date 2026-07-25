@@ -669,26 +669,96 @@ def spawn_background_prewarm(force: bool = True, trigger: str = "manual") -> int
 
 # ─── Status query (ADR-0009 Issue 3) ──────────────────────────────────────
 
+_cache_probe_cache: dict = {}
+_CACHE_PROBE_TTL_S: float = 30.0
+
+
+def _probe_cache_status(active_dirs: list[Path]) -> tuple[float, int, int]:
+    """Return ``(cache_ratio, cached_bytes, total_bytes)`` for *active_dirs*.
+
+    XV-18: results are memoized for ``_CACHE_PROBE_TTL_S`` seconds,
+    keyed on a fingerprint of each active dir's ``(path, mtime_ns,
+    size)``. The fingerprint detects new snapshot downloads (HF hub
+    bumps the model dir's mtime when it writes a new symlink) so a
+    freshly-downloaded model invalidates the cache immediately. Empty
+    ``active_dirs`` returns ``(0.0, 0, 0)`` without polluting the
+    cache (so a transient "no model" state doesn't shadow a
+    subsequent "model present" probe).
+    """
+    if not active_dirs:
+        return (0.0, 0, 0)
+
+    fingerprint_parts: list[tuple[str, int, int]] = []
+    for d in active_dirs:
+        try:
+            st = d.stat()
+            fingerprint_parts.append((str(d), st.st_mtime_ns, st.st_size))
+        except OSError:
+            fingerprint_parts.append((str(d), 0, 0))
+    fingerprint = tuple(fingerprint_parts)
+
+    now = time.monotonic()
+    cached = _cache_probe_cache.get(fingerprint)
+    if cached is not None:
+        ts, result = cached
+        if now - ts < _CACHE_PROBE_TTL_S:
+            return result
+
+    sizes: list[int] = []
+    ratios: list[float] = []
+    total_bytes = 0
+    for d in active_dirs:
+        snapshots_dir = d / "snapshots"
+        if not snapshots_dir.is_dir():
+            continue
+        try:
+            entries = list(snapshots_dir.iterdir())
+        except OSError:
+            continue
+        for snapshot in entries:
+            if not snapshot.is_dir():
+                continue
+            weights = snapshot / "model.safetensors"
+            if weights.exists():
+                try:
+                    size = weights.stat().st_size
+                except OSError:
+                    continue
+                sizes.append(size)
+                ratios.append(_pkg._cache_ratio(weights))
+                total_bytes += size
+    if sizes and total_bytes > 0:
+        cached_bytes = sum(int(s * r) for s, r in zip(sizes, ratios, strict=True))
+        cache_ratio = cached_bytes / total_bytes
+    else:
+        cached_bytes = 0
+        cache_ratio = 0.0
+
+    result = (cache_ratio, cached_bytes, total_bytes)
+    _cache_probe_cache[fingerprint] = (now, result)
+    return result
+
+
+def _invalidate_cache_probe_cache() -> None:
+    """Clear the ``_probe_cache_status`` TTL cache (XV-18).
+
+    Tests call this between assertions to force a re-probe. Production
+    code (``get_prewarm_status``) does NOT need to call this — the TTL
+    + mtime fingerprint handles invalidation automatically.
+    """
+    _cache_probe_cache.clear()
+
 
 def get_prewarm_status() -> dict:
     """Return a snapshot of the prewarm cache state for the UI.
 
     ADR-0009 Issue 3: called by the ``get_prewarm_status`` IPC handler
-    to populate the "Cache Status" card in the About page. Returns:
+    to populate the "Cache Status" card in the About page.
 
-      ``{
-        "last_run": "2026-07-08T13:48:49" | None,   # ISO timestamp
-        "elapsed_s": 20.4 | None,                    # float seconds
-        "cache_ratio": 0.73,                         # 0.0–1.0
-        "cache_label": "hot" | "partial" | "cold" | "unknown",
-        "cached_bytes": 1750000000,                  # estimated bytes in RAM
-        "total_bytes": 2400000000,                   # total model file size
-        "prewarm_running": False,                    # is prewarm running now?
-      }``
-
-    The probe is best-effort: if the sentinel is missing or the model
-    file is absent, the fields degrade gracefully to ``None`` / 0.0 /
-    ``"unknown"`` rather than raising.
+    XV-18: the cache-ratio probe is memoized via
+    ``_probe_cache_status`` (30 s TTL keyed on directory mtime) so
+    frequent IPC polls don't re-walk the HF cache and re-probe every
+    weights file each call.
     """
     # ── Sentinel: last_run + elapsed_s ──────────────────────────────
     last_run: str | None = None
@@ -699,30 +769,20 @@ def get_prewarm_status() -> dict:
         if sentinel_exists:
             content = sentinel.read_text()
             lines = content.split("\n")
-            # Line 1: boot timestamp (dedup key). Always present.
             boot_ts: int | None = None
             if lines and lines[0].strip():
                 try:
                     boot_ts = int(lines[0].strip())
                 except ValueError:
                     boot_ts = None
-            # Line 2: elapsed seconds (float). Present in 2-line and 3-line sentinels.
             if len(lines) > 1 and lines[1].strip():
                 try:
                     elapsed_s = float(lines[1].strip())
                 except ValueError:
                     elapsed_s = None
-            # Line 3: wall-clock completion time (ISO 8601). Present in
-            # 3-line sentinels only (review fix H2). This is the ACTUAL
-            # completion time, not the boot time — use it for last_run
-            # so the UI shows "3 hours ago" correctly.
             if len(lines) > 2 and lines[2].strip():
                 last_run = lines[2].strip()
             elif boot_ts is not None:
-                # Backward-compat with 1-line and 2-line sentinels:
-                # approximate last_run as boot_ts + elapsed_s. This is
-                # the boot time plus the prewarm duration, which is the
-                # best estimate of when prewarm completed.
                 from datetime import datetime
 
                 approx_ts = boot_ts + (elapsed_s if elapsed_s is not None else 0)
@@ -732,44 +792,19 @@ def get_prewarm_status() -> dict:
     except Exception:
         log.debug("[PREWARM] get_prewarm_status sentinel read failed", exc_info=True)
 
-    # ── Cache ratio probe (review fix H3: weighted by file size) ────
-    cache_ratio = 0.0
-    cached_bytes = 0
-    total_bytes = 0
+    # ── Cache ratio probe (XV-18: TTL-memoized via _probe_cache_status) ──
     active_dirs: list[Path] = []
     try:
         active_dirs = _pkg._active_model_cache_dirs()
-        sizes: list[int] = []
-        ratios: list[float] = []
-        for d in active_dirs:
-            snapshots_dir = d / "snapshots"
-            if not snapshots_dir.is_dir():
-                continue
-            for snapshot in snapshots_dir.iterdir():
-                if not snapshot.is_dir():
-                    continue
-                weights = snapshot / "model.safetensors"
-                if weights.exists():
-                    try:
-                        size = weights.stat().st_size
-                    except OSError:
-                        continue
-                    sizes.append(size)
-                    ratios.append(_pkg._cache_ratio(weights))
-                    total_bytes += size
-        if sizes and total_bytes > 0:
-            # H3: weighted sum — each file contributes size * ratio to
-            # cached_bytes. The overall cache_ratio is then
-            # cached_bytes / total_bytes, which correctly accounts for
-            # heterogeneous file sizes (a 2.4 GB file at 80% + a 1 MB
-            # file at 100% → 1.92 GB cached, not 2.16 GB).
-            cached_bytes = sum(int(s * r) for s, r in zip(sizes, ratios, strict=True))
-            cache_ratio = cached_bytes / total_bytes
+    except Exception:
+        log.debug("[PREWARM] get_prewarm_status active_dirs lookup failed", exc_info=True)
+    try:
+        cache_ratio, cached_bytes, total_bytes = _probe_cache_status(active_dirs)
     except Exception:
         log.debug("[PREWARM] get_prewarm_status cache probe failed", exc_info=True)
+        cache_ratio, cached_bytes, total_bytes = 0.0, 0, 0
 
     # ── Label: hot / partial / cold / unknown ───────────────────────
-    # M4: reuse sentinel_exists and active_dirs instead of re-calling.
     active_dirs_any = bool(active_dirs)
     if not sentinel_exists and not active_dirs_any:
         label = "unknown"

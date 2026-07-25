@@ -105,6 +105,19 @@ class WaylandHotkey(HotkeyBackend):
     # warnings 30s apart.
     NO_CLIENT_GRACE_SECONDS: float = 30.0
 
+    # XV-111: pynput is started as a belt-and-suspenders fallback for
+    # the (rare) case where XWayland or xdotool makes it partially
+    # work on a Wayland session. Previously ``start()`` launched
+    # pynput unconditionally and ran it for 30s on every start —
+    # wasting CPU even when the socket was already servicing a
+    # connected client. We now defer the pynput launch by this many
+    # seconds; if a client connects in that window, pynput is never
+    # started. 5s is short enough that a user with no IPC client
+    # still gets the fallback path promptly, but long enough that a
+    # healthy socket connection (systemd-issued ``ping`` on startup,
+    # wlr-which-key reconnect, etc.) suppresses the fallback.
+    PYNPUT_FALLBACK_DEFER_SECONDS: float = 5.0
+
     def __init__(self, hotkey_str: str):
         # AC-23: call super().__init__() so the base class initializes
         # ``self.hotkey_str`` (the public attribute used by every other
@@ -143,6 +156,13 @@ class WaylandHotkey(HotkeyBackend):
         # accept-loop thread, the timer thread, and the main thread.
         self._client_ever_connected: threading.Event = threading.Event()
         self._no_client_timer: threading.Timer | None = None
+        # XV-111: deferred-pynput-fallback timer. ``None`` when not
+        # scheduled (e.g. start() skipped pynput because the session
+        # is Wayland without DISPLAY, or the timer has already fired
+        # and pynput has been started). Canceled from ``_accept_loop``
+        # when the first client connects (no need for pynput if the
+        # socket is being used) and from ``stop()`` during teardown.
+        self._pynput_deferred_timer: threading.Timer | None = None
         # Optional callback (title, message) -> None, invoked once when
         # the no-client grace period elapses. Callers that own a tray
         # reference (e.g. the app) can register
@@ -211,9 +231,65 @@ class WaylandHotkey(HotkeyBackend):
         # _accept_loop as soon as the first client connects.
         self._start_no_client_timer()
 
-        # Also start pynput as a fallback — on some Wayland setups,
-        # XWayland or xdotool may make it partially work. Kill it
-        # after a timeout if it doesn't fire.
+        # XV-111: defer the pynput fallback by
+        # PYNPUT_FALLBACK_DEFER_SECONDS. If a client connects in that
+        # window, the fallback is suppressed entirely (the socket is
+        # already servicing commands, pynput would just waste CPU).
+        # The fallback is also skipped unconditionally when the session
+        # is Wayland without DISPLAY — pynput's X11 backend cannot
+        # initialize there, so starting it just delays the inevitable
+        # failure log.
+        self._schedule_deferred_pynput_fallback()
+
+    def _schedule_deferred_pynput_fallback(self) -> None:
+        """Schedule the pynput fallback to start after a short defer.
+
+        XV-111: previously ``start()`` launched pynput unconditionally
+        on every start, burning CPU for 30s even when the socket was
+        already servicing a client. We now defer the launch by
+        ``PYNPUT_FALLBACK_DEFER_SECONDS`` (5s). If an IPC client
+        connects in that window, ``_accept_loop`` cancels the deferred
+        timer and pynput is never started.
+
+        The fallback is also skipped when the session is Wayland AND
+        ``$DISPLAY`` is unset — pynput's X11 backend cannot initialize
+        without an X server (XWayland or otherwise), so starting it is
+        pure overhead with a guaranteed failure log. On a Wayland+
+        XWayland host (``DISPLAY=:0`` set), the fallback still runs
+        because pynput can sometimes hook XWayland keystrokes.
+        """
+        if os.environ.get("XDG_SESSION_TYPE") == "wayland" and not os.environ.get("DISPLAY"):
+            log.debug(
+                "[HOTKEY-WAYLAND] Skipping pynput fallback — Wayland session "
+                "with no DISPLAY (pynput's X11 backend cannot initialize)"
+            )
+            return
+        if self._pynput_deferred_timer is not None:
+            self._pynput_deferred_timer.cancel()
+        self._pynput_deferred_timer = threading.Timer(
+            self.PYNPUT_FALLBACK_DEFER_SECONDS,
+            self._on_pynput_deferred_timeout,
+        )
+        self._pynput_deferred_timer.daemon = True
+        self._pynput_deferred_timer.start()
+
+    def _on_pynput_deferred_timeout(self) -> None:
+        """Deferred-fallback timer callback: start pynput if no client yet.
+
+        Idempotent: if a client connected between the timer being
+        scheduled and firing, ``_client_ever_connected`` is set and we
+        skip the pynput launch — the socket is already working, pynput
+        would just waste CPU. Also no-ops if ``stop()`` was called
+        during the defer window (``_alive`` is False).
+        """
+        if not self._alive:
+            return
+        if self._client_ever_connected.is_set():
+            log.debug(
+                "[HOTKEY-WAYLAND] IPC client connected during pynput defer "
+                "window — suppressing pynput fallback"
+            )
+            return
         self._start_pynput_fallback_with_timeout()
 
     def _start_no_client_timer(self) -> None:
@@ -341,6 +417,12 @@ class WaylandHotkey(HotkeyBackend):
                     if self._no_client_timer is not None:
                         self._no_client_timer.cancel()
                         self._no_client_timer = None
+                    # XV-111: cancel the deferred pynput fallback —
+                    # the socket is servicing a client, so the pynput
+                    # fallback would just waste CPU.
+                    if self._pynput_deferred_timer is not None:
+                        self._pynput_deferred_timer.cancel()
+                        self._pynput_deferred_timer = None
                     log.info("[HOTKEY-WAYLAND] First IPC client connected; no-client grace timer canceled.")
                 try:
                     data = conn.recv(1024).decode("utf-8").strip()
@@ -425,6 +507,15 @@ class WaylandHotkey(HotkeyBackend):
         if self._no_client_timer is not None:
             self._no_client_timer.cancel()
             self._no_client_timer = None
+        # XV-111: cancel the deferred pynput fallback timer too — if
+        # stop() runs during the defer window, pynput should never be
+        # started. ``_on_pynput_deferred_timeout`` also re-checks
+        # ``_alive`` so a race between the timer firing and stop() is
+        # safe, but canceling the timer avoids the spurious "pynput
+        # fallback started" log line.
+        if self._pynput_deferred_timer is not None:
+            self._pynput_deferred_timer.cancel()
+            self._pynput_deferred_timer = None
         if self._pynput_timer:
             self._pynput_timer.cancel()
             self._pynput_timer = None

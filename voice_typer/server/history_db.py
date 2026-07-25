@@ -102,7 +102,14 @@ _WAL_CHECKPOINT_INTERVAL = 300.0  # 5 minutes — keeps WAL small with negligibl
 _WRITE_FUTURE_TIMEOUT = 30.0
 _WRITER_JOIN_TIMEOUT = 10.0
 _WRITER_READY_TIMEOUT = 30.0
-_CLEAR_ALL_BATCH_SIZE = 100
+# clear_all uses a larger batch than retention because it unconditionally
+# deletes every row — chunking only exists to let external readers see
+# progress and to bound WAL growth between commits. SQLite's default
+# ``wal_autocheckpoint=1000`` pages already bounds WAL size, so a 1000-row
+# batch (the query takes a single LIMIT arg, well under SQLite's 999-
+# placeholder default) is safe and 10x faster than the previous 100-row
+# batch on power-user databases with 50K+ rows.
+_CLEAR_ALL_BATCH_SIZE = 1000
 _RETENTION_BATCH = 100
 
 # PERF-5: maximum number of pending write closures enqueued on the
@@ -1910,11 +1917,17 @@ class HistoryDB:
                         conn.commit()  # release write lock between batches
 
                 if effective_max > 0:
-                    while True:
-                        cursor.execute("SELECT COUNT(*) FROM transcriptions")
-                        total = cursor.fetchone()[0]
-                        if total <= effective_max:
-                            break
+                    # Compute ``total`` once before the loop and decrement
+                    # by ``batch_deleted`` per iteration. Previously this
+                    # block re-ran ``SELECT COUNT(*) FROM transcriptions``
+                    # on every iteration — O(N^2) total (one full COUNT
+                    # scan per batch). For a power-user DB with 50K rows
+                    # and max_entries=1000, that's 490 COUNT scans; each
+                    # COUNT is O(N) on the favorite=0 subset, so the total
+                    # cost was O(N^2/batch_size).
+                    cursor.execute("SELECT COUNT(*) FROM transcriptions")
+                    total = cursor.fetchone()[0]
+                    while total > effective_max:
                         excess = min(total - effective_max, _RETENTION_BATCH)
                         cursor.execute(
                             """
@@ -1932,6 +1945,7 @@ class HistoryDB:
                         if batch_deleted == 0:
                             break
                         deleted += batch_deleted
+                        total -= batch_deleted
                         conn.commit()  # release write lock between batches
 
                 # Close any open transaction before VACUUM (the last
@@ -2340,6 +2354,16 @@ class HistoryDB:
         try:
             conn = self._get_read_conn()
             cursor = conn.cursor()
+            # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
+            # a function to every row's ``timestamp`` column, so SQLite
+            # cannot use ``idx_timestamp`` and falls back to a full table
+            # scan. The range form ``timestamp >= DATE('now') AND
+            # timestamp < DATE('now', '+1 day')`` lets the query planner
+            # use the index. ``timestamp`` is stored as an ISO-8601 string
+            # (``datetime.now().isoformat()``), so lexicographic comparison
+            # against the date-only ``DATE('now')`` boundary is correct:
+            # any ISO-8601 timestamp from today sorts after "YYYY-MM-DD"
+            # (today's midnight) and before "YYYY-MM-DD" of tomorrow.
             cursor.execute("""
                 SELECT
                     COUNT(*) as count,
@@ -2347,7 +2371,8 @@ class HistoryDB:
                     SUM(word_count) as word_count,
                     SUM(duration) as duration
                 FROM transcriptions
-                WHERE DATE(timestamp) = DATE('now')
+                WHERE timestamp >= DATE('now')
+                  AND timestamp < DATE('now', '+1 day')
             """)
             row = cursor.fetchone()
             return {

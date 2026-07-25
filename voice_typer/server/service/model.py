@@ -322,14 +322,27 @@ class ModelMixin:
             return {"success": False, "message": redact_secret(redact_url(str(exc)))}
 
     def _check_qwen_deps(self) -> bool:
-        """Check if qwen_asr package is importable."""
-        try:
-            import importlib
+        """Check if qwen_asr package is importable.
 
-            importlib.import_module("qwen_asr")
-            return True
-        except ImportError:
-            return False
+        Uses :func:`importlib.util.find_spec` so the package's top-level
+        code is NOT executed (qwen_asr pulls in heavy transitive deps
+        that allocate memory on import). The probe only resolves the
+        module spec — it doesn't run ``qwen_asr.__init__``.
+
+        ``find_spec`` raises :class:`ValueError` when the module is
+        already in ``sys.modules`` but its ``__spec__`` is ``None``
+        (some wheel layouts / namespace packages hit this). In that
+        case the module IS available, so we fall back to a
+        ``sys.modules`` membership check rather than reporting
+        ``deps_ok=False``.
+        """
+        import importlib.util
+        import sys
+
+        try:
+            return importlib.util.find_spec("qwen_asr") is not None
+        except ValueError:
+            return "qwen_asr" in sys.modules
 
     def _check_parakeet_deps(self) -> bool:
         """Check if the Parakeet engine's key runtime dependency is importable.
@@ -341,14 +354,25 @@ class ModelMixin:
         is not a dependency of the Parakeet engine in this codebase, causing
         ``deps_ok`` to always be ``False`` and blocking the "Select" button
         in the Models page even when the user was actively using Parakeet.
-        """
-        try:
-            import importlib
 
-            importlib.import_module("torch")
-            return True
-        except ImportError:
-            return False
+        Uses :func:`importlib.util.find_spec` so ``torch`` is not actually
+        imported — torch's ``__init__`` allocates hundreds of MB of memory
+        and inits CUDA contexts just to probe presence. ``find_spec`` only
+        resolves the module's file path via the import machinery, so it
+        has no side effects.
+
+        ``find_spec`` raises :class:`ValueError` when ``torch`` is already
+        in ``sys.modules`` but its ``__spec__`` is ``None`` (observed with
+        some torch wheel layouts in test envs). In that case torch IS
+        importable, so fall back to a ``sys.modules`` membership check.
+        """
+        import importlib.util
+        import sys
+
+        try:
+            return importlib.util.find_spec("torch") is not None
+        except ValueError:
+            return "torch" in sys.modules
 
     # ── Model import ──────────────────────────────────────────────────────
 
@@ -921,9 +945,18 @@ class ModelMixin:
                                 continue
                             t.join(timeout=1.0)
                             try:
-                                if cache_dir.exists():
+                                # PERF-21 / XV-2 / PVT-025: scope the filesystem
+                                # walk to the in-progress model's HF cache subdir,
+                                # NOT the entire HF hub cache root. Previously
+                                # ``cache_dir.rglob("*")`` ran once per second
+                                # and stat'd every file in every cached model
+                                # dir (thousands of stat() syscalls/s, 10-40%
+                                # CPU). Now we only walk the downloading
+                                # model's own directory.
+                                model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
+                                if model_dir.exists():
                                     total_bytes_seen = sum(
-                                        f.stat().st_size for f in cache_dir.rglob("*") if f.is_file()
+                                        f.stat().st_size for f in model_dir.rglob("*") if f.is_file()
                                     )
                                     total_mb_seen = total_bytes_seen // (1024 * 1024)
                                     pct = min(95, int(10 + (total_mb_seen / target_mb) * 85))

@@ -414,19 +414,33 @@ class _NativeBackendAdapter(HotkeyBackend):
 
         If the native backend restarts successfully, swap back and notify
         the user. If it fails, stay on legacy and schedule another retry.
+
+        XV-110: keep the stopped legacy backend as a "warm spare" while
+        attempting the native restart. Previously ``_retry_native`` nulled
+        ``self._legacy`` BEFORE attempting the native restart, so if the
+        native failed to come back up the code had to construct a brand
+        new legacy backend (``_create_legacy_backend()``) — during that
+        construction window the hotkey was completely dead. By keeping
+        the stopped legacy instance around, we can restart it directly
+        (``legacy.start(...)``) on native failure, shrinking the dead
+        window from "construct + start" to just "start". The warm spare
+        is dropped (``self._legacy = None``) only after the native
+        restart succeeds.
         """
         with self._swap_lock:
             if self._state != self._STATE_FALLBACK:
                 return  # Already recovered, failed, or stopped
 
         log.info("[HOTKEY] Retrying native backend...")
+        # XV-110: snapshot the legacy reference and stop it (frees any
+        # RegisterHotKey slot the native needs) WITHOUT nulling
+        # ``self._legacy`` — keep it as a warm spare so we can restart
+        # it quickly if the native restart fails.
+        warm_spare = self._legacy
         try:
-            # Stop the legacy backend first to free up any registered
-            # hotkeys (e.g. RegisterHotKey on Windows).
-            if self._legacy is not None:
+            if warm_spare is not None:
                 with contextlib.suppress(Exception):
-                    self._legacy.stop()
-                self._legacy = None
+                    warm_spare.stop()
             self._native.stop()
             self._native.start(self._callback)  # type: ignore[arg-type]
             if self._native.is_alive():
@@ -436,6 +450,9 @@ class _NativeBackendAdapter(HotkeyBackend):
                         self._native.stop()
                         return
                     self._state = self._STATE_NATIVE
+                    # Native succeeded — drop the warm spare; we don't
+                    # need two backends alive.
+                    self._legacy = None
                 if self._on_release_callback is not None:
                     self._native.set_on_release(self._on_release_callback)
                 log.info("[HOTKEY] Native backend recovered — swapped back from legacy")
@@ -445,20 +462,28 @@ class _NativeBackendAdapter(HotkeyBackend):
         except Exception as exc:
             log.warning("[HOTKEY] Native retry failed: %s — staying on legacy", exc)
 
-        # Retry failed — restart the legacy backend and schedule another retry
+        # Retry failed — restart the warm spare (or create a new legacy
+        # backend if we never had one) and schedule another retry.
+        # XV-110: prefer restarting the existing warm_spare instance —
+        # it's already constructed and its hotkey_str / state match the
+        # adapter, so the restart is faster than constructing a new one.
         try:
-            self._legacy = self._create_legacy_backend()
-            self._legacy.start(self._callback)  # type: ignore[arg-type]
+            if warm_spare is not None:
+                legacy = warm_spare
+            else:
+                legacy = self._create_legacy_backend()
+            legacy.start(self._callback)  # type: ignore[arg-type]
             if self._on_release_callback is not None:
-                self._legacy.set_on_release(self._on_release_callback)
+                legacy.set_on_release(self._on_release_callback)
             # CR-142 (cont.): propagate _tray
             with contextlib.suppress(AttributeError, TypeError):
-                self._legacy._tray = self._tray  # type: ignore[attr-defined]
+                legacy._tray = self._tray  # type: ignore[attr-defined]
             with self._swap_lock:
                 if self._state == self._STATE_STOPPED:
-                    self._legacy.stop()
+                    legacy.stop()
                     return
                 self._state = self._STATE_FALLBACK
+                self._legacy = legacy
             self._schedule_native_retry()
         except Exception:
             with self._swap_lock:

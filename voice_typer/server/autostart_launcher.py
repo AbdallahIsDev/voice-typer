@@ -145,7 +145,7 @@ def _read_ipc_port_from_pid_file() -> int | None:
     falls back to :data:`IPC_PORT`).
 
     NOTE: the full fix requires :mod:`voice_typer.server.single_instance`
-    to write the port line — see ``comprehensive-review.md`` MED-Y.
+    to write the port line — see ``review.md`` MED-Y.
     This function alone is forward-compatible: once
     ``single_instance._write_backend_pid_file`` is updated to also emit
     the port, the autostart launcher will pick it up without further
@@ -235,6 +235,51 @@ def _is_port_open(host: str, port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1.0)
         return s.connect_ex((host, port)) == 0
+
+
+# How long to wait for the freshly-spawned backend to bind its IPC port
+# before the launcher exits. The launcher's job is to spawn + detach the
+# child; the OS autostart parent (Windows Run key, macOS LaunchAgent,
+# Linux ``.desktop``) waits for the launcher to exit before considering
+# login complete. Polling the IPC port lets the launcher exit AS SOON AS
+# the backend is ready (typically 200-500 ms on a warm start with
+# prewarm) instead of a fixed 2 s sleep — saving up to 1.5 s on the
+# user's login critical path. The 5 s ceiling preserves the original
+# "give the child time to detach" safety net for slow systems where the
+# backend takes longer to start (cold start without prewarm, slow disk,
+# antivirus scan).
+_POST_SPAWN_PORT_POLL_TIMEOUT = 5.0
+_POST_SPAWN_PORT_POLL_INTERVAL = 0.1
+
+
+def _wait_for_backend_ready(timeout: float = _POST_SPAWN_PORT_POLL_TIMEOUT) -> None:
+    """Bounded poll for the backend's IPC port to open after spawning.
+
+    Polls ``_is_port_open`` every ``_POST_SPAWN_PORT_POLL_INTERVAL``
+    seconds for up to ``timeout`` seconds. Returns as soon as the port
+    opens (early-exit on fast systems) or after the timeout (preserves
+    the original "give the child time to detach" safety net on slow
+    systems). Never raises — a port that never opens is the backend's
+    problem to surface (crash dialog, log), not the launcher's.
+
+    The IPC port is re-read from the backend PID file on every iteration
+    (via ``_read_ipc_port_from_pid_file``) so the poll picks up the
+    actual port the backend bound to (which may differ from
+    :data:`IPC_PORT` if 9876 was busy and the backend auto-incremented).
+
+    The loop is bounded by an iteration count (derived from
+    ``timeout / interval``) rather than a ``time.monotonic()`` deadline
+    so that tests which monkeypatch ``time.sleep`` to a no-op don't
+    busy-wait for the full ``timeout`` in real time — the loop runs
+    ``int(timeout / interval)`` iterations and exits regardless of
+    wall-clock elapsed time.
+    """
+    max_iterations = max(1, int(timeout / _POST_SPAWN_PORT_POLL_INTERVAL))
+    for _ in range(max_iterations):
+        ipc_port = _read_ipc_port_from_pid_file() or IPC_PORT
+        if _is_port_open(IPC_HOST, ipc_port):
+            return
+        time.sleep(_POST_SPAWN_PORT_POLL_INTERVAL)
 
 
 def _client_dir_exists() -> bool:
@@ -751,7 +796,7 @@ def launch() -> int:
             child = _spawn_tauri_host(binary, hidden=hidden)
             if child is not None:
                 _write_pid_file(os.getpid(), getattr(child, "pid", None))
-                time.sleep(2)
+                _wait_for_backend_ready()
                 log.info("[AUTOSTART] launcher exiting; tauri child continues detached")
                 return 0
             # CR-44: no silent Electron fallback — if the Tauri spawn
@@ -779,7 +824,7 @@ def launch() -> int:
         log.info("[AUTOSTART] Trying build-first path...")
         if _ensure_built_and_launch(hidden=hidden):
             log.info("[AUTOSTART] Build-first launch succeeded")
-            time.sleep(2)
+            _wait_for_backend_ready()
             return 0
         log.warning("[AUTOSTART] Build-first path failed — falling back to dev mode")
 
@@ -790,7 +835,7 @@ def launch() -> int:
         return 1
 
     _write_pid_file(os.getpid(), getattr(child, "pid", None))
-    time.sleep(2)
+    _wait_for_backend_ready()
     log.info("[AUTOSTART] launcher exiting; child continues detached")
     return 0
 

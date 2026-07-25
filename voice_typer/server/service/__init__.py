@@ -206,7 +206,12 @@ class VoiceTyperService(
         # ``_download_cancel_events[download_id]`` / ``_is_download_cancelled``.
         # PERF-FIX-1: short-TTL cache (5s) for refresh_microphones so
         # rapid refresh clicks don't re-query PortAudio each time.
-        self._microphones_cache: list = []
+        # XV-5: initialised to ``None`` (not ``[]``) so the cache check
+        # can distinguish "never queried" from "queried and got 0 mics"
+        # via an ``is not None`` guard. A bare-truthiness check would
+        # bypass the cache when PortAudio legitimately returned an empty
+        # list, re-querying PortAudio on every refresh call.
+        self._microphones_cache: list | None = None
         self._microphones_cache_ts: float = 0.0
         # PERF-10 / SVC-9: short-TTL cache (5s) for get_model_status so the
         # renderer's 2s poll doesn't re-stat the filesystem for every model

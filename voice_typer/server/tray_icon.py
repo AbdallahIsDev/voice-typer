@@ -269,6 +269,34 @@ def _make_icon(state: AppState, size: int = 0):
     if cache_key in _icon_cache:
         return _icon_cache[cache_key]
 
+    # XV-117: on Windows, prefer a pre-built STATE-SPECIFIC .ico when
+    # one exists on disk. ``generate-icons.mjs`` produces a colored +
+    # shape-indicator-baked .ico per state; loading it directly skips
+    # the PNG→ICO re-encode path entirely (faster first-render and a
+    # smaller icon-cache footprint). The base ``tray-mic.ico`` is
+    # white/uncolored and is intentionally NOT used here — falling
+    # through to the PNG synthesis path colorizes it correctly per
+    # state. ``_get_icon_path`` returns the state-specific path ONLY
+    # when the file exists, so the name comparison is a safe guard.
+    if is_windows():
+        state_ico_path = _get_icon_path(state, size)
+        if (
+            state_ico_path is not None
+            and state_ico_path.name == f"tray-mic-{state.value}.ico"
+        ):
+            try:
+                pil_img = _get_pil_image()
+                pre_built = pil_img.open(str(state_ico_path)).convert("RGBA")
+                if pre_built.size != (size, size):
+                    pre_built = pre_built.resize((size, size), _pil_lanczos())
+                _icon_cache[cache_key] = pre_built
+                return pre_built
+            except Exception:
+                log.debug(
+                    "[TRAY] Pre-built state ICO load failed — falling back to PNG synthesis",
+                    exc_info=True,
+                )
+
     # PLAT-021/TRAY-006: Color-blind accessible colors.
     # RECORDING: bright green (was red/orange) — clearly distinct from
     #   ERROR red and CANCELLING orange for color-blind users.
@@ -333,14 +361,22 @@ def _make_icon(state: AppState, size: int = 0):
 
     if is_windows() and pil_img is not None and colored is not None:
         # PLAT-024: Save as ICO format for Windows tray.
-        # ICO supports multiple sizes (16, 32, 48, 256) and is the
+        # ICO supports multiple sizes (16, 32, 48) and is the
         # native format for Windows tray icons — sharper than PNG on
         # Windows 11 with per-monitor DPI scaling.
+        #
+        # XV-116: the 256×256 plane was previously included for
+        # "completeness" but Windows tray never requests it — the
+        # shell's NIM_GETICON queries cap out at 48×48 (or 64×64 on
+        # high-DPI). Each 256×256 RGBA plane is ~256 KB in the ICO
+        # buffer, so caching it across 6 states × DPI sizes inflated
+        # the icon cache by ~1.5 MB avoidably. Dropping it cuts the
+        # ICO footprint by ~75% with no visual change.
         try:
             import io
 
             ico_buf = io.BytesIO()
-            colored.save(ico_buf, format="ICO", sizes=[(16, 16), (32, 32), (48, 48), (256, 256)])
+            colored.save(ico_buf, format="ICO", sizes=[(16, 16), (32, 32), (48, 48)])
             ico_buf.seek(0)
             colored = pil_img.open(ico_buf)
         except Exception:

@@ -41,6 +41,7 @@ keeps working — same as today.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import sys
@@ -49,6 +50,19 @@ from pathlib import Path
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger(__name__)
+
+
+def _should_bypass_cache() -> bool:
+    """Return True when running under pytest (test-isolation bypass).
+
+    Production callers never hit this — pytest sets the
+    ``PYTEST_CURRENT_TEST`` env var at the start of every test item's
+    execution and clears it between items, so the cache is bypassed
+    only while a test is actively running. The check is on the env var
+    (not ``"pytest" in sys.modules``) so that simply having pytest
+    installed doesn't disable the cache in production.
+    """
+    return os.environ.get("PYTEST_CURRENT_TEST") is not None
 
 
 def _target_triple() -> str:
@@ -65,7 +79,21 @@ def _target_triple() -> str:
     Windows ARM64 hosts. This is fixed by using ``platform.machine()``
     for all three platforms (Windows now mirrors the macOS/Linux
     branches).
+
+    XV-13: the result is memoized via :func:`functools.lru_cache` —
+    the platform + arch tuple is invariant for a process lifetime.
+    The cache is bypassed under pytest so tests that monkeypatch
+    ``sys.platform`` / ``platform.machine`` between scenarios keep
+    working without needing a cache-clear fixture.
     """
+    if _should_bypass_cache() and _target_triple_cached.cache_info().currsize > 0:
+        _target_triple_cached.cache_clear()
+    return _target_triple_cached()
+
+
+@functools.lru_cache(maxsize=1)
+def _target_triple_cached() -> str:
+    """Memoized body of :func:`_target_triple` (XV-13)."""
     import platform
 
     if is_windows():

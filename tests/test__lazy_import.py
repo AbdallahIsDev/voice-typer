@@ -570,6 +570,109 @@ class TestImportErrorCaching:
         assert import_spy["calls"] == [name, name]
 
 
+# ── reset_cache() — recovery from a cached ImportError ────────────────
+
+
+class TestResetCache:
+    """``reset_cache()`` clears the cached ``ImportError`` so the next
+    attribute access re-attempts the real import.
+
+    This is the recovery path for proxies held as module-level
+    singletons (e.g. ``sd = lazy_module("sounddevice")`` at the top of
+    ``recording.py``). Without it, the only recovery was to construct a
+    new proxy — which is not always possible because the old proxy is
+    already bound at every call site.
+    """
+
+    def test_reset_cache_clears_cached_error(self, monkeypatch):
+        """After ``reset_cache()``, the next access re-invokes
+        ``importlib.import_module`` (rather than re-raising the cached
+        error).
+        """
+        call_count = {"n": 0}
+
+        def boom(name, *args, **kwargs):
+            call_count["n"] += 1
+            raise ModuleNotFoundError(f"No module named '{name}'")
+
+        monkeypatch.setattr(importlib, "import_module", boom)
+        proxy = lazy_module("nonexistent.module.recover")
+
+        # First access fails and caches the error.
+        with pytest.raises(ModuleNotFoundError):
+            _ = proxy.foo
+        assert call_count["n"] == 1
+
+        # Second access re-raises the cached error — import_module is
+        # NOT called again.
+        with pytest.raises(ModuleNotFoundError):
+            _ = proxy.bar
+        assert call_count["n"] == 1
+
+        # reset_cache() clears the cache.
+        proxy.reset_cache()
+        assert object.__getattribute__(proxy, "_cached_error") is None
+
+        # Third access re-attempts the import (and re-caches the new
+        # error since boom still raises).
+        with pytest.raises(ModuleNotFoundError):
+            _ = proxy.baz
+        assert call_count["n"] == 2
+
+    def test_reset_cache_recovers_when_module_becomes_available(
+        self, monkeypatch
+    ):
+        """If the underlying module becomes available after a failed
+        import (e.g. a deferred installer finished, or a test injected
+        a mock into ``sys.modules``), ``reset_cache()`` lets the next
+        access succeed without requiring a new proxy.
+        """
+        real_import = importlib.import_module
+
+        def boom(name, *args, **kwargs):
+            raise ModuleNotFoundError(f"No module named '{name}'")
+
+        monkeypatch.setattr(importlib, "import_module", boom)
+        proxy = lazy_module("nonexistent.module.recover2")
+
+        # First access fails — module is missing.
+        with pytest.raises(ModuleNotFoundError):
+            _ = proxy.foo
+
+        # Make the module available via sys.modules + restore the real
+        # import_module so the proxy can resolve the mock.
+        mock = MagicMock()
+        mock.value = "recovered"
+        monkeypatch.setitem(sys.modules, "nonexistent.module.recover2", mock)
+        monkeypatch.setattr(importlib, "import_module", real_import)
+
+        # Without reset_cache(), the cached error still re-raises.
+        with pytest.raises(ModuleNotFoundError):
+            _ = proxy.value
+
+        # With reset_cache(), the next access succeeds.
+        proxy.reset_cache()
+        assert proxy.value == "recovered"
+
+    def test_reset_cache_is_safe_when_no_error_cached(self, fake_module):
+        """Calling ``reset_cache()`` on a healthy proxy (no cached error)
+        is a no-op — the next access still resolves normally.
+        """
+        name, mock = fake_module
+        mock.value = "ok"
+        proxy = lazy_module(name)
+
+        # Successful access — no error cached.
+        assert proxy.value == "ok"
+
+        # reset_cache() is safe — clears the (already-None) cache slot.
+        proxy.reset_cache()
+        assert object.__getattribute__(proxy, "_cached_error") is None
+
+        # Next access still resolves normally.
+        assert proxy.value == "ok"
+
+
 # GT-57: ``probe_required_deps`` + ``_REQUIRED_DEPS`` were deleted from
 # ``_lazy_import.py`` (zero production callers — the promised startup
 # diagnostic was never wired). The five ``TestProbeRequiredDeps`` tests

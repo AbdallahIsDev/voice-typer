@@ -37,8 +37,54 @@ def _json_dumps_sorted(obj: Any) -> str:
     equal. Used by :meth:`ConfigApplier.apply_config` to detect no-op
     updates (where the post-setattr Config state matches the
     pre-setattr state) and skip the ``save_strict()`` call.
+
+    XV-120: retained for callers that introspect pre_state_dict for
+    rollback logging; the dirty-check itself now compares only the
+    ``updates`` keys via direct equality (no JSON serialization).
     """
     return json.dumps(obj, sort_keys=True, default=str)
+
+
+# XV-124: hoisted from ``apply_config_side_effects``'s method body.
+# Rebuilding a 30-element set literal on every IPC ``set_config`` call
+# was pure waste — the keys never change at runtime. A module-level
+# ``frozenset`` is built once at import and the ``&`` operator accepts
+# a ``dict_keys`` view directly, so we can drop the ``set(...)`` wrapper
+# on ``updates.keys()`` too.
+_FILTER_CHAIN_KEYS = frozenset({
+    # Preset
+    "audio_preset",
+    # Individual filter toggles
+    "noise_filter_enabled",
+    "noise_filter_highpass",
+    "noise_filter_gate",
+    "noise_filter_rnnoise",
+    "noise_filter_post_capture",
+    "noise_filter_eq",
+    "noise_filter_compressor",
+    "noise_filter_limiter",
+    "noise_filter_notch",
+    # Noise suppressor backend
+    "noise_suppression_method",
+    # Filter parameters
+    "noise_filter_highpass_cutoff_hz",
+    "noise_filter_gate_hold_ms",
+    "noise_filter_gate_open_threshold_db",
+    "noise_filter_gate_close_threshold_db",
+    "noise_filter_gate_attack_ms",
+    "noise_filter_gate_release_ms",
+    "noise_filter_eq_low_db",
+    "noise_filter_eq_mid_db",
+    "noise_filter_eq_high_db",
+    "noise_filter_compressor_threshold_db",
+    "noise_filter_compressor_ratio",
+    "noise_filter_compressor_attack_ms",
+    "noise_filter_compressor_release_ms",
+    "noise_filter_compressor_output_gain_db",
+    "noise_filter_limiter_ceiling_db",
+    "noise_filter_limiter_release_ms",
+    "noise_filter_notch_frequency_hz",
+})
 
 
 # CR-61: canonical audio-filter dict keys.  ADR 0007 §5 lists 8 filter
@@ -436,42 +482,11 @@ class ConfigApplier:
         # chain when any noise_filter_* / audio_preset / noise_suppression_method
         # config field changes. This fixes the bug where Settings UI
         # changes didn't take effect in dictation until app restart.
-        # All filter-chain-related config keys (old + new per ADR 0007 §5).
-        filter_chain_keys = {
-            # Preset
-            "audio_preset",
-            # Individual filter toggles
-            "noise_filter_enabled",
-            "noise_filter_highpass",
-            "noise_filter_gate",
-            "noise_filter_rnnoise",
-            "noise_filter_post_capture",
-            "noise_filter_eq",
-            "noise_filter_compressor",
-            "noise_filter_limiter",
-            "noise_filter_notch",
-            # Noise suppressor backend
-            "noise_suppression_method",
-            # Filter parameters
-            "noise_filter_highpass_cutoff_hz",
-            "noise_filter_gate_hold_ms",
-            "noise_filter_gate_open_threshold_db",
-            "noise_filter_gate_close_threshold_db",
-            "noise_filter_gate_attack_ms",
-            "noise_filter_gate_release_ms",
-            "noise_filter_eq_low_db",
-            "noise_filter_eq_mid_db",
-            "noise_filter_eq_high_db",
-            "noise_filter_compressor_threshold_db",
-            "noise_filter_compressor_ratio",
-            "noise_filter_compressor_attack_ms",
-            "noise_filter_compressor_release_ms",
-            "noise_filter_compressor_output_gain_db",
-            "noise_filter_limiter_ceiling_db",
-            "noise_filter_limiter_release_ms",
-            "noise_filter_notch_frequency_hz",
-        }
-        if filter_chain_keys & set(updates.keys()):
+        # XV-124: ``_FILTER_CHAIN_KEYS`` is a module-level frozenset; the
+        # ``&`` operator accepts the ``updates.keys()`` view directly so
+        # we no longer wrap it in ``set(...)`` (which would allocate a
+        # fresh set on every IPC call).
+        if _FILTER_CHAIN_KEYS & updates.keys():
             # ADR 0007: rebuild the dictation processor (the main fix).
             try:
                 if hasattr(app, "_rebuild_audio_processor"):
@@ -671,14 +686,25 @@ class ConfigApplier:
             # update or all values were already the same), skip the
             # save_strict() call entirely. This avoids an unnecessary
             # disk write + atomic-rename dance for no-op updates.
-            try:
-                post_state_dict = _asdict(app.config)
-            except Exception:
-                post_state_dict = None
+            #
+            # XV-120: previously this dirty-check did
+            # ``_json_dumps_sorted(pre_state_dict) == _json_dumps_sorted(post_state_dict)``
+            # which serialised the FULL Config (150+ fields) twice via
+            # ``dataclasses.asdict`` (deep-copy) and twice via
+            # ``json.dumps`` per IPC ``set_config`` call. The
+            # targeted check below compares only the ``updates`` keys
+            # via direct equality — O(len(updates)) instead of
+            # O(len(Config fields)). It reuses the pre-setattr values
+            # already captured in ``set_keys`` (G4-L-24 rollback log)
+            # so no extra getattr pass is needed before setattr.
+            # ``pre_state_dict`` is still captured (above) for the
+            # G4-H-12 rollback path — it's NOT used by the dirty-check
+            # any more.
+            post_values = {k: getattr(app.config, k, _MISSING) for k in updates}
+            pre_values = dict(set_keys)
             state_unchanged = (
                 pre_state_dict is not None
-                and post_state_dict is not None
-                and _json_dumps_sorted(pre_state_dict) == _json_dumps_sorted(post_state_dict)
+                and pre_values == post_values
             )
             if state_unchanged:
                 log.debug("[SERVICE] G4-L-20: apply_config detected no state change — skipping save_strict()")

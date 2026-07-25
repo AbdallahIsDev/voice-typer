@@ -35,6 +35,37 @@ _qwen_asr_cache_checked: bool = False
 # reflected on the next right-click within 5 seconds.
 _HF_DOWNLOAD_CACHE_TTL_SECONDS = 5.0
 _hf_download_cache: "dict[tuple[str, str], tuple[bool, float]]" = {}
+# XV-118: ``ensure_hf_env()`` mutates process-global environment
+# variables (``HF_HOME``, ``HF_HUB_CACHE``, ``TRANSFORMERS_CACHE``).
+# It is documented as idempotent and only needs to run ONCE per
+# process — the env state never changes mid-session. Calling it on
+# every tray right-click (which triggers a fresh ``import``
+# resolution + dict update + permission check on the cache dir) was
+# pure overhead. The flag is set on first invocation and short-
+# circuits all subsequent calls. ``invalidate_model_availability_cache``
+# does NOT reset this — env setup is process-lifetime, not
+# per-right-click.
+_hf_env_ensured: bool = False
+
+
+def _ensure_hf_env_once() -> None:
+    """XV-118: run ``asr_setup.ensure_hf_env()`` exactly once per process.
+
+    The function mutates ``os.environ`` (setting HF_HOME / HF_HUB_CACHE /
+    TRANSFORMERS_CACHE paths) — those values are process-global and never
+    change after the first call, so re-running on every tray right-click
+    was wasted work (a ``dict.update`` on ``os.environ`` + a pathlib
+    resolve + ``mkdir(parents=True, exist_ok=True)`` per call). Cached
+    behind a module-level bool so the second and subsequent invocations
+    are a single boolean check.
+    """
+    global _hf_env_ensured
+    if _hf_env_ensured:
+        return
+    from voice_typer.server.asr_setup import ensure_hf_env
+
+    ensure_hf_env()
+    _hf_env_ensured = True
 
 
 def _check_qwen_asr_available() -> bool:
@@ -112,9 +143,12 @@ def build_models_submenu_data(
             instead of re-parsing config.json from disk. Falls back to disk
             read when None.
     """
-    from voice_typer.server.asr_setup import ensure_hf_env
+    from voice_typer.server.asr_setup import ensure_hf_env  # noqa: F401 — re-exported for back-compat
 
-    ensure_hf_env()
+    # XV-118: ensure_hf_env() is process-global idempotent; cache it
+    # behind ``_ensure_hf_env_once`` so right-click menu rebuilds don't
+    # repeat the env-var setup work on every invocation.
+    _ensure_hf_env_once()
 
     # ARCH-037: prefer the in-memory Config object over a disk read.
     # Falls back to disk read when config_provider is None (e.g. tests).

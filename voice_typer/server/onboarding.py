@@ -156,7 +156,7 @@ class OnboardingController:
                     ...
 
         NOTE: ``startup_sequence.py`` is owned by another agent
-        (Agent 22's scope per the comprehensive-review fix plan). This
+        (Agent 22's scope per the review fix plan). This
         method + the ``onboarding_start`` IPC handler wiring are the
         renderer/controller-side prerequisites; the startup_sequence.py
         gate is the remaining piece.

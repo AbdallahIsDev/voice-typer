@@ -55,6 +55,16 @@ class _LazyModule:
     is NOT cached — the proxy re-resolves from ``sys.modules`` on every
     access so per-test ``monkeypatch`` mocks are always honoured (see
     the module docstring for the test-safety rationale).
+
+    Cache invalidation: ``reset_cache()`` clears the cached
+    ``ImportError`` so the next attribute access re-attempts the real
+    import. This is the recovery path for the case where a dependency
+    becomes available AFTER the first failed access (e.g. a deferred
+    installer finished, or a test fixed ``sys.modules`` after a
+    failure). Without this method, the only recovery was to construct a
+    new proxy — which is not always possible when the proxy is held as
+    a module-level singleton (e.g. ``sd = lazy_module("sounddevice")``
+    at the top of ``recording.py``).
     """
 
     __slots__ = ("_module_name", "_cached_error")
@@ -68,19 +78,36 @@ class _LazyModule:
         # ``None`` means "no error cached — caller may attempt import".
         object.__setattr__(self, "_cached_error", None)
 
+    def reset_cache(self) -> None:
+        """Clear the cached ``ImportError`` so the next access re-imports.
+
+        Safe to call at any time — clears the per-proxy error cache so
+        the next ``__getattr__`` / ``__setattr__`` / ``__delattr__``
+        re-resolves the wrapped module via ``importlib.import_module``.
+        If the underlying module is now available (e.g. a deferred
+        installer finished, or a test injected a mock into
+        ``sys.modules``), the next access succeeds; otherwise the
+        import fails again and the new error is cached afresh.
+
+        Use this instead of constructing a new proxy when the proxy is
+        held as a module-level singleton that cannot be re-bound
+        conveniently (e.g. ``sd = lazy_module("sounddevice")`` at the
+        top of ``recording.py`` — every callsite uses ``sd.X`` and
+        cannot be redirected to a fresh proxy without a code change).
+        """
+        # Bypass our own __setattr__ (which would delegate to the
+        # wrapped module — the very thing we're trying to recover from).
+        object.__setattr__(self, "_cached_error", None)
+
     def _resolve(self):
         # G4-M-43: if a previous attempt raised ImportError, re-raise
         # the cached error instead of re-attempting ``import_module``.
         # This prevents a flood of identical tracebacks when a missing
         # dependency is accessed from many call sites, and avoids the
         # CPU cost of repeated failed imports. The cache is reset only
-        # by constructing a new proxy (per-proxy, not per-module), so
-        # tests that fix the import via ``monkeypatch.setitem(sys.modules,
-        # name, mock)`` after a failure MUST construct a fresh proxy
-        # rather than reusing the cached one — see
-        # ``test_cached_error_does_not_resurface_after_sys_modules_fix``
-        # in ``tests/test__lazy_import.py`` for the documented escape
-        # hatch.
+        # by constructing a new proxy (per-proxy, not per-module) OR by
+        # calling ``reset_cache()`` (the recovery path for proxies held
+        # as module-level singletons).
         cached_error = object.__getattribute__(self, "_cached_error")
         if cached_error is not None:
             raise cached_error

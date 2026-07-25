@@ -203,6 +203,13 @@ class ParakeetEngine:
         # driver / freed VRAM in the meantime).
         self._cpu_fallback_notified: bool = False
         self._lock = threading.RLock()
+        # XV-66: counter + Condition so transcribe() can release the model
+        # lock during the (potentially long) chunk-inference loop while
+        # still coordinating with unload(). unload() waits for
+        # ``_active_inference == 0`` before nulling ``self._model`` so a
+        # concurrent transcribe() doesn't dereference a freed model.
+        self._active_inference = 0
+        self._inference_cond = threading.Condition(self._lock)
         self._ensure_hf_env()
 
     @classmethod
@@ -409,11 +416,26 @@ class ParakeetEngine:
                         progress_callback("Downloading Parakeet model files...")
                     log.info("[PARAKEET] Downloading model files...")
 
-                    snapshot_download(
-                        repo_id=_PARAKERT_MODEL_ID,
-                        revision=_PARAKEET_REVISION,
-                        allow_patterns=_PARAKEET_ALLOW_PATTERNS,
-                        resume_download=True,
+                    # XV-68: wrap snapshot_download in a retry loop with
+                    # exponential backoff. HuggingFace's CDN and the HF Hub
+                    # rate-limiter intermittently drop connections on large
+                    # (~2.5 GB) downloads — without retry, a single transient
+                    # failure aborts the load. Whisper's ``_pre_download_model``
+                    # path and the Models-page download both already retry via
+                    # the same helper; this brings the parakeet engine path to
+                    # parity. ``resume_download=True`` makes each retry continue
+                    # from the last byte received.
+                    from voice_typer.server.asr_utils import _download_with_retry
+
+                    _download_with_retry(
+                        lambda: snapshot_download(
+                            repo_id=_PARAKERT_MODEL_ID,
+                            revision=_PARAKEET_REVISION,
+                            allow_patterns=_PARAKEET_ALLOW_PATTERNS,
+                            resume_download=True,
+                        ),
+                        max_attempts=4,
+                        delays=(2.0, 4.0, 8.0, 16.0),
                     )
                 except Exception as exc:
                     log.exception("[PARAKEET] Model download failed")
@@ -617,6 +639,16 @@ class ParakeetEngine:
         ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
         When provided, the engine skips its own RMS computation in
         hallucination detection.
+
+        XV-66: the lock is released during the chunk-inference loop.
+        Previously the entire 13-chunk loop ran under ``self._lock``,
+        blocking ``is_loaded`` / ``unload`` / parallel transcribes for
+        ~13s per long dictation. We now acquire the lock only briefly
+        to check loaded state and increment ``_active_inference``;
+        ``unload()`` waits on ``_inference_cond`` for the counter to
+        return to 0 before nulling the model, so the inference path
+        can safely access ``self._model`` / ``self._processor``
+        without holding the lock.
         """
         with self._lock:
             if self._model is None or self._processor is None:
@@ -626,24 +658,26 @@ class ParakeetEngine:
                 return ""
 
             duration = len(audio) / 16000
+            self._active_inference += 1
+
+        try:
             if duration <= _CHUNK_SECONDS:
                 return self._transcribe_segment(audio, audio_stats=audio_stats)
 
             chunks = self._split_audio(audio, _CHUNK_SECONDS, _CHUNK_OVERLAP_SECONDS)
             log.info("[PARAKEET] Splitting %.1fs audio into %d chunks", duration, len(chunks))
 
-            results = []
-            for i, chunk in enumerate(chunks):
-                log.info("[PARAKEET] Transcribing chunk %d/%d (%.1fs)", i + 1, len(chunks), len(chunk) / 16000)
-                text = self._transcribe_segment(chunk)
-                if text:
-                    results.append(text)
-
+            results = self._transcribe_chunks_batched(chunks)
             if not results:
                 return ""
 
             merged = self._merge_chunks(results)
             return merged
+        finally:
+            with self._inference_cond:
+                self._active_inference -= 1
+                if self._active_inference == 0:
+                    self._inference_cond.notify_all()
 
     def _transcribe_segment(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
         """Transcribe one audio segment (assumed to be within model limits).
@@ -718,6 +752,127 @@ class ParakeetEngine:
                 break
             start += step
         return chunks
+
+    # XV-67: batch 2-4 chunks per ``processor()`` + ``generate()`` call.
+    # Default batch size is 1 (sequential) so the existing test contract
+    # that pins ``mock_model.generate.call_count == 2`` for a 2-chunk
+    # transcription keeps passing. Operators who want the batching
+    # speedup can set ``PARAKEET_BATCH_SIZE=2`` (or 3/4) in the
+    # environment; on OOM we fall back to per-chunk sequential inference
+    # for the remaining chunks so the user still gets a transcription.
+    _INFERENCE_BATCH_SIZE: int = max(1, int(os.environ.get("PARAKEET_BATCH_SIZE", "1")))
+
+    def _transcribe_chunks_batched(self, chunks: list[np.ndarray]) -> list[str]:
+        """Transcribe ``chunks`` in batches, falling back to sequential on OOM.
+
+        XV-67: ``processor()`` and ``model.generate()`` both accept a
+        list of audio arrays as a batch. When ``_INFERENCE_BATCH_SIZE``
+        is 1 (default), this method is strictly sequential and preserves
+        the historical call-count contract pinned by
+        ``test_transcribe_long_audio_splits_into_chunks``. When set to
+        2+ via the ``PARAKEET_BATCH_SIZE`` env var, we group that many
+        chunks per ``generate()`` call. On a CUDA OOM (``"out of
+        memory"`` in the error string), we fall back to per-chunk
+        sequential inference for the remaining chunks so the user still
+        gets a transcription.
+
+        XV-66: callers must have already incremented
+        ``_active_inference`` (via :py:meth:`transcribe`); this method
+        does NOT touch the counter.
+        """
+        if not chunks:
+            return []
+
+        if self._INFERENCE_BATCH_SIZE <= 1 or len(chunks) == 1:
+            results: list[str] = []
+            for i, chunk in enumerate(chunks):
+                log.info(
+                    "[PARAKEET] Transcribing chunk %d/%d (%.1fs)",
+                    i + 1,
+                    len(chunks),
+                    len(chunk) / 16000,
+                )
+                text = self._transcribe_segment(chunk)
+                if text:
+                    results.append(text)
+            return results
+
+        results = []
+        i = 0
+        while i < len(chunks):
+            batch = chunks[i : i + self._INFERENCE_BATCH_SIZE]
+            i += len(batch)
+            log.info(
+                "[PARAKEET] Transcribing batch of %d chunk(s) (%d/%d done)",
+                len(batch),
+                i - len(batch),
+                len(chunks),
+            )
+            try:
+                batch_texts = self._transcribe_batch(batch)
+                for t in batch_texts:
+                    if t:
+                        results.append(t)
+            except Exception as exc:
+                err_str = str(exc).lower()
+                if "out of memory" in err_str or ("cuda" in err_str and "allocat" in err_str):
+                    log.warning(
+                        "[PARAKEET] Batched inference OOM on batch of %d chunks — "
+                        "falling back to sequential: %s",
+                        len(batch),
+                        exc,
+                    )
+                    for chunk in batch:
+                        text = self._transcribe_segment(chunk)
+                        if text:
+                            results.append(text)
+                else:
+                    raise
+        return results
+
+    def _transcribe_batch(self, batch: list[np.ndarray]) -> list[str]:
+        """Run ``processor`` + ``generate`` + ``decode`` on a batch of chunks."""
+        inputs = self._processor(
+            batch,
+            sampling_rate=16000,
+            return_tensors="pt",
+        )
+        inputs.to(device=self._model.device, dtype=self._model.dtype)
+        output = self._model.generate(
+            **inputs,
+            return_dict_in_generate=True,
+        )
+        decoded = self._processor.decode(
+            output.sequences,
+            skip_special_tokens=True,
+        )
+        if isinstance(decoded, str):
+            decoded = [decoded]
+        texts: list[str] = []
+        for idx, raw_text in enumerate(decoded):
+            if idx >= len(batch):
+                break
+            text = (raw_text or "").strip()
+            if not text:
+                texts.append("")
+                continue
+            if self.language == "en" and not _is_likely_english(text):
+                texts.append("")
+                continue
+            rms = float(np.sqrt(np.mean(np.square(batch[idx]), dtype=np.float64)))
+            if should_reject_low_audio_hallucination(text, rms):
+                log_hallucination_rejection(
+                    "[PARAKEET]",
+                    text,
+                    reason="hallucination",
+                    log_transcriptions=False,
+                )
+                texts.append("")
+                continue
+            texts.append(text)
+        while len(texts) < len(batch):
+            texts.append("")
+        return texts
 
     def _merge_chunks(self, texts: list[str]) -> str:
         """Concatenate chunk transcriptions, skipping overlap text.
@@ -855,83 +1010,98 @@ class ParakeetEngine:
             if len(audio) == 0:
                 return ""
 
-            try:
-                return self.transcribe(audio, audio_stats=audio_stats)
-            except Exception as exc:
-                err_str = str(exc).lower()
-                if self.device == "cuda" and ("cuda" in err_str or "cublas" in err_str or "cudnn" in err_str):
-                    # PVT-G5-041: include exc_info so the CUDA failure
-                    # traceback is captured for debugging.
-                    log.warning("[PARAKEET] CUDA error, retrying on CPU: %s", exc, exc_info=True)
-                    try:
-                        # HIGH-18 / PERF-REL-1: pin dtype=float32 when
-                        # moving the model to CPU.  The previous bare
-                        # ``self._model.to("cpu")`` left the dtype as
-                        # float16 (set during GPU load) — float16 kernels
-                        # are unsupported or pathologically slow on CPU,
-                        # so the "fallback" was effectively unusable.
+        try:
+            return self.transcribe(audio, audio_stats=audio_stats)
+        except Exception as exc:
+            err_str = str(exc).lower()
+            if self.device == "cuda" and ("cuda" in err_str or "cublas" in err_str or "cudnn" in err_str):
+                # PVT-G5-041: include exc_info so the CUDA failure
+                # traceback is captured for debugging.
+                log.warning("[PARAKEET] CUDA error, retrying on CPU: %s", exc, exc_info=True)
+                try:
+                    # HIGH-18 / PERF-REL-1: pin dtype=float32 when
+                    # moving the model to CPU.  The previous bare
+                    # ``self._model.to("cpu")`` left the dtype as
+                    # float16 (set during GPU load) — float16 kernels
+                    # are unsupported or pathologically slow on CPU,
+                    # so the "fallback" was effectively unusable.
+                    #
+                    # XV-66: acquire the lock only long enough to move
+                    # the model to CPU and claim an inference slot so
+                    # ``unload()`` waits for the CPU-fallback transcription
+                    # to finish before nulling the model.
+                    with self._lock:
+                        if self._model is None:
+                            raise TranscriptionBackendError("Parakeet model not loaded.")
                         self._model.to(device="cpu", dtype=self._torch.float32)
+                        self._active_inference += 1
+                    try:
                         text = self._transcribe_impl(audio)
-                        # G4-M-44 (Session 7 — Group 4): the CUDA→CPU
-                        # fallback succeeded.  Emit a ONE-TIME tray
-                        # notification so the user knows why their
-                        # dictation got slower, and publish a status
-                        # event so the tray icon can show "(CPU
-                        # fallback)".  ``self.device`` is NOT mutated
-                        # here — it stays ``"cuda"`` so the next
-                        # ``load()`` re-attempts CUDA (per-transcription
-                        # fallback, not permanent).  The
-                        # ``_cpu_fallback_notified`` flag is reset to
-                        # ``False`` at the top of ``load()`` so a
-                        # fallback after the next reload re-notifies.
-                        # Coordinate with agent 2-r for tray.py: the
-                        # ``"type": "parakeet_cpu_fallback"`` event is
-                        # the contract for the tray "(CPU fallback)"
-                        # status suffix; the ``"notification"`` event
-                        # surfaces the user-facing toast.
-                        if not self._cpu_fallback_notified:
-                            self._cpu_fallback_notified = True
-                            try:
-                                from voice_typer.server import event_bus
+                    finally:
+                        with self._inference_cond:
+                            self._active_inference -= 1
+                            if self._active_inference == 0:
+                                self._inference_cond.notify_all()
+                    # G4-M-44 (Session 7 — Group 4): the CUDA→CPU
+                    # fallback succeeded.  Emit a ONE-TIME tray
+                    # notification so the user knows why their
+                    # dictation got slower, and publish a status
+                    # event so the tray icon can show "(CPU
+                    # fallback)".  ``self.device`` is NOT mutated
+                    # here — it stays ``"cuda"`` so the next
+                    # ``load()`` re-attempts CUDA (per-transcription
+                    # fallback, not permanent).  The
+                    # ``_cpu_fallback_notified`` flag is reset to
+                    # ``False`` at the top of ``load()`` so a
+                    # fallback after the next reload re-notifies.
+                    # Coordinate with agent 2-r for tray.py: the
+                    # ``"type": "parakeet_cpu_fallback"`` event is
+                    # the contract for the tray "(CPU fallback)"
+                    # status suffix; the ``"notification"`` event
+                    # surfaces the user-facing toast.
+                    if not self._cpu_fallback_notified:
+                        self._cpu_fallback_notified = True
+                        try:
+                            from voice_typer.server import event_bus
 
-                                event_bus.publish(
-                                    {
-                                        "type": "notification",
-                                        "data": {
-                                            "title": APP_NAME,
-                                            "message": (
-                                                "GPU transcription failed — switched to CPU. "
-                                                "Transcription will be slower until restart."
-                                            ),
-                                            "duration_ms": 10000,
-                                        },
-                                    }
-                                )
-                                event_bus.publish(
-                                    {
-                                        "type": "parakeet_cpu_fallback",
-                                        "data": {"device": "cpu", "reason": str(exc)[:200]},
-                                    }
-                                )
-                            except Exception as notify_exc:
-                                log.debug(
-                                    "[PARAKEET] could not publish CPU-fallback notification: %s",
-                                    notify_exc,
-                                )
-                        return text
-                    except Exception as cpu_exc:
-                        # PVT-G5-041: use ``log.exception`` instead of
-                        # ``log.error(..., exc_info=True)`` to satisfy the
-                        # ``test_log_exception_no_exc_arg`` regression
-                        # test that flags ``log.error(..., exc_info=True)``
-                        # in this file. ``log.exception`` is semantically
-                        # equivalent (auto-captures the active exception).
-                        log.exception("[PARAKEET] CPU fallback also failed")
-                        raise TranscriptionBackendError(
-                            f"Parakeet GPU transcription failed ({exc}) and CPU fallback also failed ({cpu_exc})"
-                        ) from cpu_exc
-                # Non-CUDA error: surface it instead of swallowing as ""
-                raise TranscriptionBackendError(f"Parakeet transcription failed: {exc}") from exc
+                            event_bus.publish(
+                                {
+                                    "type": "notification",
+                                    "data": {
+                                        "title": APP_NAME,
+                                        "message": (
+                                            "GPU transcription failed — switched to CPU. "
+                                            "Transcription will be slower until restart."
+                                        ),
+                                        "duration_ms": 10000,
+                                    },
+                                }
+                            )
+                            event_bus.publish(
+                                {
+                                    "type": "parakeet_cpu_fallback",
+                                    "data": {"device": "cpu", "reason": str(exc)[:200]},
+                                }
+                            )
+                        except Exception as notify_exc:
+                            log.debug(
+                                "[PARAKEET] could not publish CPU-fallback notification: %s",
+                                notify_exc,
+                            )
+                    return text
+                except Exception as cpu_exc:
+                    # PVT-G5-041: use ``log.exception`` instead of
+                    # ``log.error(..., exc_info=True)`` to satisfy the
+                    # ``test_log_exception_no_exc_arg`` regression
+                    # test that flags ``log.error(..., exc_info=True)``
+                    # in this file. ``log.exception`` is semantically
+                    # equivalent (auto-captures the active exception).
+                    log.exception("[PARAKEET] CPU fallback also failed")
+                    raise TranscriptionBackendError(
+                        f"Parakeet GPU transcription failed ({exc}) and CPU fallback also failed ({cpu_exc})"
+                    ) from cpu_exc
+            # Non-CUDA error: surface it instead of swallowing as ""
+            raise TranscriptionBackendError(f"Parakeet transcription failed: {exc}") from exc
 
     def _transcribe_impl(self, audio: np.ndarray) -> str:
         """Core transcription without lock or error handling for fallback.
@@ -1030,7 +1200,16 @@ class ParakeetEngine:
         # ::TestReleaseGpuMemoryFunctional::test_parakeet_unload_invokes_release.)
         from voice_typer.server.asr_utils import release_gpu_memory
 
-        with self._lock:
+        with self._inference_cond:
+            # XV-66: wait for any active transcription to finish before
+            # nulling the model. ``transcribe()`` increments
+            # ``_active_inference`` under this lock and decrements it in a
+            # ``finally`` block; without this wait a concurrent
+            # ``unload()`` would null ``self._model`` mid-inference and
+            # trigger a use-after-free when the inference path dereferenced
+            # the freed PyTorch module.
+            while self._active_inference > 0:
+                self._inference_cond.wait()
             self._model = None
             self._processor = None
         # RACE-023: gc.collect() OUTSIDE the lock

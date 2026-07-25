@@ -17,8 +17,18 @@ log = logging.getLogger(__name__)
 # Maximum chars to log from hallucination text (SEC-009)
 _HALLUCINATION_LOG_MAX_CHARS = 40
 
-# Known phrases that Whisper emits on near-silence audio
+# Known phrases that Whisper emits on near-silence audio.
+#
+# XV-48: widened to include common single-token hallucinations
+# observed in production Whisper / Qwen3-ASR logs. Whisper's
+# decoder frequently emits a single short word when fed near-silence
+# (the language model's most likely "starter" token), and Qwen3-ASR
+# (Whisper-derived) inherits the same failure mode. The single-token
+# entries here are safe to reject because the caller has already
+# gated on very low RMS (<0.01 linear, ~-40 dBFS) -- legitimate
+# single-word speech at that input level is essentially impossible.
 KNOWN_LOW_AUDIO_HALLUCINATIONS = {
+    # Multi-word phrases (original OBS / Whisper-decoding artifacts)
     "thanks for watching",
     "thank you for watching",
     "see you next time",
@@ -29,6 +39,13 @@ KNOWN_LOW_AUDIO_HALLUCINATIONS = {
     "please subscribe",
     "thanks for listening",
     "thank you for listening",
+    # XV-48: common single-token hallucinations
+    "you",          # Whisper's #1 most-likely starter token
+    "the",          # very common Whisper decoder artifact on silence
+    "so",           # common filler-token hallucination
+    "thanks",       # truncation of "thanks for watching"
+    "music",        # Whisper hallucinates [Music] tags on noise
+    "amara",        # amara.org subtitle watermark hallucination
 }
 
 
@@ -70,16 +87,24 @@ def should_reject_low_audio_hallucination(
         return False
 
     # Tier 1: simple check (always available)
-    # ER-41 (Medium): raised silence_pct threshold from 90→95 to avoid cutting
-    # legitimate quiet "thank you"/"bye" utterances that happen to have
-    # silence_pct in the 90-95 range. The rms < 0.001 check alone is kept
-    # (it's a strong signal — -60 dBFS is extremely quiet) but the silence_pct
-    # gate is stricter so borderline cases aren't auto-rejected.
-    if rms < 0.001:
-        if silence_pct is not None and silence_pct >= 95.0:
-            return True
-        # Very low RMS without silence info — still suspicious for known hallucination
-        if silence_pct is None and rms < 0.001:
+    #
+    # XV-48: relaxed from ``rms < 0.001`` (-60 dBFS) to ``rms < 0.01``
+    # (-40 dBFS). The strict 0.001 threshold missed real hallucinations
+    # on quiet-but-not-silent background noise (HVAC, fans) where RMS
+    # hovers around 0.003-0.005. -40 dBFS is still essentially inaudible
+    # for speech (normal speech is -30 to -10 dBFS), so the false-positive
+    # risk is negligible.
+    #
+    # XV-48: collapsed the redundant inner branch
+    # ``if silence_pct is None and rms < 0.001`` -- the ``rms < 0.001``
+    # clause was dead (we're already inside ``if rms < 0.01``), and the
+    # ``silence_pct is None`` case is now folded into the single
+    # ``silence_pct is None or silence_pct >= 95.0`` check. Behavior is
+    # preserved: when no silence info is available, very low RMS alone
+    # is suspicious; when silence info IS available, it must corroborate
+    # (>= 95% silence) before we reject.
+    if rms < 0.01:
+        if silence_pct is None or silence_pct >= 95.0:
             return True
 
     # Tier 2: extended check (requires segment timing info)
@@ -110,25 +135,14 @@ def log_hallucination_rejection(
     """SEC-009: Log a hallucination rejection with PII-safe output.
 
     When ``log_transcriptions`` is False (the default), only logs the
-    character count and rejection reason — never the text content.
+    character count and rejection reason -- never the text content.
     When True, logs the text but applies PII redaction using the
     existing PIIRedactionFilter patterns and truncates to 40 chars
     (down from the previous 80).
-
-    Parameters
-    ----------
-    engine_tag : str
-        Engine identifier (e.g. "[PARAKEET]", "[QWEN]", "[TRANSCRIBE]").
-    text : str
-        The rejected transcription text.
-    reason : str
-        Short reason for the rejection (e.g. "hallucination", "non-English").
-    log_transcriptions : bool
-        Whether the user has enabled transcription logging.
     """
     char_count = len(text)
     if not log_transcriptions:
-        # SEC-009: When logging is disabled, only log metadata — no text content
+        # SEC-009: When logging is disabled, only log metadata -- no text content
         log.warning(
             "%s Rejected likely %s (%d chars)",
             engine_tag,
@@ -147,7 +161,7 @@ def log_hallucination_rejection(
     # ``_redact_text``), so the redaction behavior is identical.
     #
     # Order: redact first, then truncate. The previous code truncated
-    # first then redacted — which could leak a partial PII pattern that
+    # first then redacted -- which could leak a partial PII pattern that
     # straddled the 40-char boundary (the regex wouldn't match the
     # truncated fragment). Redacting first guarantees ALL PII patterns
     # are fully replaced before truncation. Truncation can only cut into
@@ -159,7 +173,7 @@ def log_hallucination_rejection(
         safe_text = redact_pii(text)[:_HALLUCINATION_LOG_MAX_CHARS]
     except Exception:
         # If PII redaction fails, fall back to truncation only.
-        # PVT-G5-091: previously a silent fallback — log at DEBUG so a
+        # PVT-G5-091: previously a silent fallback -- log at DEBUG so a
         # non-trivial redaction-engine failure (e.g. security module
         # import error, regex bug) is at least visible in the log file
         # without spamming at WARNING/ERROR level on every hallucination.

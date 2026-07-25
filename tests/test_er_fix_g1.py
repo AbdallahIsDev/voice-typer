@@ -1,6 +1,6 @@
 """Tests for ER-FIX-G1 — Group-2 (Performance & Resources) fix wave.
 
-Covers four findings from comprehensive-review.md:
+Covers four findings from review.md:
 
 * **ER-36** — ``history_db.apply_retention`` only ran at startup.
   ``schedule_periodic_retention`` now exposes a daemon-thread API that
@@ -28,7 +28,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ----------------------------------------------------------------------
 # ER-36: schedule_periodic_retention
 # ----------------------------------------------------------------------
@@ -37,9 +36,7 @@ import pytest
 class TestSchedulePeriodicRetention:
     """ER-36: ``HistoryDB.schedule_periodic_retention`` API contract."""
 
-    def test_spawns_daemon_thread_that_calls_apply_retention(
-        self, tmp_path, monkeypatch
-    ):
+    def test_spawns_daemon_thread_that_calls_apply_retention(self, tmp_path, monkeypatch):
         """``schedule_periodic_retention`` spawns a daemon thread that
         periodically calls ``apply_retention``.
 
@@ -73,12 +70,9 @@ class TestSchedulePeriodicRetention:
             )
 
             # Verify a daemon thread was spawned.
-            assert db._retention_thread is not None, (
-                "schedule_periodic_retention should set _retention_thread"
-            )
+            assert db._retention_thread is not None, "schedule_periodic_retention should set _retention_thread"
             assert db._retention_thread.daemon is True, (
-                "periodic retention thread must be a daemon so it doesn't "
-                "block process exit"
+                "periodic retention thread must be a daemon so it doesn't block process exit"
             )
             assert db._retention_thread.name == "HistoryDBPeriodicRetention"
 
@@ -113,9 +107,7 @@ class TestSchedulePeriodicRetention:
             "close() must signal the stop_event and join the thread."
         )
 
-    def test_reentrancy_guard_skips_concurrent_retention(
-        self, tmp_path, monkeypatch
-    ):
+    def test_reentrancy_guard_skips_concurrent_retention(self, tmp_path, monkeypatch):
         """ER-36: if a previous retention is still running when the next
         tick fires, the new tick is skipped (not queued).
 
@@ -141,13 +133,9 @@ class TestSchedulePeriodicRetention:
                 release_retention.wait(timeout=2.0)
                 return 0
 
-            monkeypatch.setattr(
-                db, "apply_retention", _blocking_apply_retention
-            )
+            monkeypatch.setattr(db, "apply_retention", _blocking_apply_retention)
 
-            db.schedule_periodic_retention(
-                interval_s=0.05, app=None, max_entries=10
-            )
+            db.schedule_periodic_retention(interval_s=0.05, app=None, max_entries=10)
 
             # Wait for the first retention to start.
             assert in_retention.wait(timeout=5.0)
@@ -174,9 +162,7 @@ class TestSchedulePeriodicRetention:
             release_retention.set()
             db.close()
 
-    def test_registers_with_thread_registry_when_app_provides_one(
-        self, tmp_path, monkeypatch
-    ):
+    def test_registers_with_thread_registry_when_app_provides_one(self, tmp_path, monkeypatch):
         """When ``app._thread_registry`` is present, the periodic
         retention thread is registered with it for coordinated shutdown."""
         from voice_typer.server.history_db import HistoryDB
@@ -191,9 +177,7 @@ class TestSchedulePeriodicRetention:
                 {"_thread_registry": registry, "config": None},
             )()
             monkeypatch.setattr(db, "apply_retention", lambda **kw: 0)
-            db.schedule_periodic_retention(
-                interval_s=0.05, app=app_stub, max_entries=10
-            )
+            db.schedule_periodic_retention(interval_s=0.05, app=app_stub, max_entries=10)
             try:
                 assert "history-periodic-retention" in registry.list_all()
             finally:
@@ -214,9 +198,7 @@ class TestConfigSaveBackupSkip:
     @pytest.fixture(autouse=True)
     def _isolated_config_dir(self, tmp_path, monkeypatch):
         """Point ``_config_dir`` at a tmp_path so each test gets a clean slate."""
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         yield
 
     def test_backup_read_skipped_on_identical_resave(self, tmp_path, monkeypatch):
@@ -280,8 +262,7 @@ class TestConfigSaveBackupSkip:
         assert cfg.save() is True
 
         assert bak_file.exists(), (
-            "ER-53: backup block should run when content changes — "
-            "config.json.bak should exist after the second save."
+            "ER-53: backup block should run when content changes — config.json.bak should exist after the second save."
         )
         # The .bak should hold the PREVIOUS content (hotkey=<f3>).
         bak_data = json.loads(bak_file.read_text())
@@ -332,9 +313,7 @@ class TestHistoryDBMultiRowInsertBatching:
                 return self._real.execute(sql, parameters)
 
             def cursor(self):
-                return ExecuteCountingCursor(
-                    self._real.cursor(), insert_calls
-                )
+                return ExecuteCountingCursor(self._real.cursor(), insert_calls)
 
             def commit(self):
                 return self._real.commit()
@@ -394,9 +373,7 @@ class TestHistoryDBMultiRowInsertBatching:
         db = HistoryDB(db_path=tmp_path / "batched.db")
         return db, insert_calls
 
-    def test_three_pending_inserts_are_batched_into_one_multi_row_insert(
-        self, tmp_path, monkeypatch
-    ):
+    def test_three_pending_inserts_are_batched_into_one_multi_row_insert(self, tmp_path, monkeypatch):
         """Submit 3 add_transcription calls in rapid succession (without
         flushing between them) — the writer should drain them into ONE
         multi-row INSERT (one execute call with 3 value-tuples), not 3
@@ -431,15 +408,11 @@ class TestHistoryDBMultiRowInsertBatching:
             # Verify all 3 rows actually landed in the DB.
             recent = db.get_recent(limit=10)
             texts = {row["text"] for row in recent}
-            assert texts == {"first", "second", "third"}, (
-                f"batched INSERT didn't persist all rows; got texts={texts}"
-            )
+            assert texts == {"first", "second", "third"}, f"batched INSERT didn't persist all rows; got texts={texts}"
         finally:
             db.close()
 
-    def test_single_insert_below_threshold_is_not_batched(
-        self, tmp_path, monkeypatch
-    ):
+    def test_single_insert_below_threshold_is_not_batched(self, tmp_path, monkeypatch):
         """A single add_transcription (no other pending inserts) should
         produce exactly one INSERT statement (the single-row form)."""
         db, insert_calls = self._make_execute_counting_db(tmp_path, monkeypatch)
@@ -447,15 +420,11 @@ class TestHistoryDBMultiRowInsertBatching:
             db.add_transcription("only one", duration=1.0, model="m1")
             db.flush()
 
-            assert len(insert_calls) == 1, (
-                f"expected 1 INSERT for a single add_transcription, "
-                f"got {len(insert_calls)}"
-            )
+            assert len(insert_calls) == 1, f"expected 1 INSERT for a single add_transcription, got {len(insert_calls)}"
             sql = insert_calls[0]
             placeholder_tuple = "(?, ?, ?, ?, ?, ?, ?)"
             assert sql.count(placeholder_tuple) == 1, (
-                f"single-row INSERT should have 1 placeholder tuple, "
-                f"got {sql.count(placeholder_tuple)}. SQL: {sql}"
+                f"single-row INSERT should have 1 placeholder tuple, got {sql.count(placeholder_tuple)}. SQL: {sql}"
             )
         finally:
             db.close()
@@ -466,16 +435,25 @@ class TestHistoryDBMultiRowInsertBatching:
         db, _ = self._make_execute_counting_db(tmp_path, monkeypatch)
         try:
             db.add_transcription(
-                "hello world", duration=1.5, model="small.en",
-                device="cpu", language="en",
+                "hello world",
+                duration=1.5,
+                model="small.en",
+                device="cpu",
+                language="en",
             )
             db.add_transcription(
-                "second text here", duration=2.5, model="base",
-                device="cuda", language="fr",
+                "second text here",
+                duration=2.5,
+                model="base",
+                device="cuda",
+                language="fr",
             )
             db.add_transcription(
-                "third utterance today", duration=3.5, model="tiny",
-                device="cpu", language="de",
+                "third utterance today",
+                duration=3.5,
+                model="tiny",
+                device="cpu",
+                language="de",
             )
             db.flush()
 
@@ -527,13 +505,10 @@ class TestSecureAtomicWriteDurability:
         monkeypatch.setattr(os, "fsync", _counting_fsync)
 
         target = tmp_path / "nondurable.json"
-        secure_file_io._secure_atomic_write(
-            target, '{"hello": "world"}', durability=False
-        )
+        secure_file_io._secure_atomic_write(target, '{"hello": "world"}', durability=False)
 
         assert fsync_count["n"] == 0, (
-            "ER-80: durability=False should skip BOTH fsyncs, but "
-            f"os.fsync was called {fsync_count['n']} time(s)."
+            f"ER-80: durability=False should skip BOTH fsyncs, but os.fsync was called {fsync_count['n']} time(s)."
         )
         # The file should still exist with the right content (the
         # os.replace rename still happens).
@@ -554,21 +529,19 @@ class TestSecureAtomicWriteDurability:
         monkeypatch.setattr(os, "fsync", _counting_fsync)
 
         target = tmp_path / "durable.json"
-        secure_file_io._secure_atomic_write(
-            target, '{"hello": "world"}', durability=True
-        )
+        secure_file_io._secure_atomic_write(target, '{"hello": "world"}', durability=True)
 
         assert fsync_count["n"] >= 1, (
-            "ER-80: durability=True (the default) should call fsync at "
-            "least once (file data); got 0 calls."
+            "ER-80: durability=True (the default) should call fsync at least once (file data); got 0 calls."
         )
 
     def test_durability_default_is_true(self, tmp_path, monkeypatch):
         """The default value of ``durability`` must be ``True`` so the
         existing call sites (which don't pass the kwarg) preserve their
         POSIX-durability behavior."""
-        from voice_typer.server import secure_file_io
         import inspect
+
+        from voice_typer.server import secure_file_io
 
         sig = inspect.signature(secure_file_io._secure_atomic_write)
         durability_param = sig.parameters["durability"]
@@ -590,16 +563,12 @@ class TestSecureAtomicWriteDurability:
         from voice_typer.server import secure_file_io
 
         target = tmp_path / "concurrent.json"
-        contents = [f'{{"thread": {i}, "write": {j}}}'
-                    for i in range(3) for j in range(10)]
+        contents = [f'{{"thread": {i}, "write": {j}}}' for i in range(3) for j in range(10)]
 
         def _write(content):
             secure_file_io._secure_atomic_write(target, content, durability=False)
 
-        threads = [
-            threading.Thread(target=_write, args=(c,), daemon=True)
-            for c in contents
-        ]
+        threads = [threading.Thread(target=_write, args=(c,), daemon=True) for c in contents]
         for t in threads:
             t.start()
         for t in threads:
