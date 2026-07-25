@@ -148,6 +148,49 @@ def _run_with_timeout(description: str, func, timeout: float = 5.0):
     return result_holder.get("value")
 
 
+def _run_parallel_with_timeout(
+    items: list[tuple[str, object, float]],
+) -> list[tuple[str, object]]:
+    """XV-7: run several independent teardowns concurrently.
+
+    Each entry in *items* is ``(description, func, timeout)``. Returns a
+    list aligned with *items* of ``(description, result)`` where *result*
+    is either the function's return value, :data:`TIMEOUT`, or the
+    exception instance the function raised (caller decides whether to
+    re-raise / log / ignore). Exceptions are NEVER raised out of this
+    helper — every per-call failure is captured into the result tuple so
+    one slow teardown does not mask failures from its peers.
+
+    Used by ``_do_cleanup`` to parallelize teardowns that touch disjoint
+    resources (e.g. the three hotkey backends). The teardowns MUST be
+    genuinely independent — concurrent access to a shared resource
+    (PortAudio, SQLite connection, pystray loop) is unsafe.
+    """
+    import concurrent.futures
+
+    if not items:
+        return []
+    results: list[tuple[str, object]] = []
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(len(items), 8),
+        thread_name_prefix="cleanup-parallel",
+    ) as pool:
+        future_map: dict = {
+            pool.submit(_run_with_timeout, desc, func, timeout): (desc, func, timeout)
+            for (desc, func, timeout) in items
+        }
+        for fut in concurrent.futures.as_completed(future_map):
+            desc, _func, _timeout = future_map[fut]
+            try:
+                value = fut.result()
+            except BaseException as exc:  # noqa: BLE001 — captured per-call
+                value = exc
+            results.append((desc, value))
+    # Re-order to match input order so callers can index by position.
+    by_desc = {desc: value for (desc, value) in results}
+    return [(desc, by_desc[desc]) for (desc, _func, _timeout) in items]
+
+
 class ShutdownController:
     """Owns the shutdown / cleanup lifecycle of ``VoiceTyperApp``.
 
@@ -550,34 +593,32 @@ class ShutdownController:
             )
             log.info("[HOTKEY] Stopping hotkey listeners (%s)", _hk_info)
 
+            # XV-7: the three hotkey backends touch disjoint OS resources
+            # (RegisterHotKey handles on Windows, evdev/X11 sockets on
+            # Linux, CGEventTap on macOS) and are safe to stop in
+            # parallel. Sequential stop() took up to 15s (3x5s) worst
+            # case; parallel stop() finishes in <=5s.
+            parallel_stops: list[tuple[str, object, float]] = []
             if app.hotkeys._hotkey_backend:
-                _run_with_timeout(
-                    "hotkey_backend.stop",
-                    app.hotkeys._hotkey_backend.stop,
-                    timeout=5.0,
+                parallel_stops.append(
+                    ("hotkey_backend.stop", app.hotkeys._hotkey_backend.stop, 5.0)
                 )
-
             # RELIABILITY-003: also stop ESC cancel and repaste hotkey
             # backends so their RegisterHotKey / GlobalHotKeys registrations
             # are released before the next instance tries to claim them.
             if app.hotkeys._esc_backend:
-                try:
-                    _run_with_timeout(
-                        "esc_backend.stop",
-                        app.hotkeys._esc_backend.stop,
-                        timeout=5.0,
-                    )
-                except Exception as e:
-                    log.warning("[SHUTDOWN] ESC backend stop failed: %s", e)
+                parallel_stops.append(
+                    ("esc_backend.stop", app.hotkeys._esc_backend.stop, 5.0)
+                )
             if app.hotkeys._repaste_backend:
-                try:
-                    _run_with_timeout(
-                        "repaste_backend.stop",
-                        app.hotkeys._repaste_backend.stop,
-                        timeout=5.0,
-                    )
-                except Exception as e:
-                    log.warning("[SHUTDOWN] repaste backend stop failed: %s", e)
+                parallel_stops.append(
+                    ("repaste_backend.stop", app.hotkeys._repaste_backend.stop, 5.0)
+                )
+            for _desc, _result in _run_parallel_with_timeout(parallel_stops):
+                if isinstance(_result, BaseException):
+                    log.warning("[SHUTDOWN] %s failed: %s", _desc, _result)
+                elif _result is TIMEOUT:
+                    log.warning("[SHUTDOWN] %s timed out", _desc)
 
             log.info("[HOTKEY] All hotkey listeners stopped")
         except Exception:
@@ -666,13 +707,32 @@ class ShutdownController:
         # back to the legacy tray_window path for PID discovery so any
         # Electron launched via tray_window.open_electron_window() is also
         # cleaned up.
+        # XV-8: wrap BOTH branches in ``_run_with_timeout`` so a stuck
+        # ``terminate_electron`` (e.g. waiting on a child that ignores
+        # SIGTERM on POSIX, or a Windows process-tree walker that hangs)
+        # cannot extend shutdown indefinitely. ``terminate_electron``
+        # itself escalates to SIGKILL on POSIX after its own grace
+        # period; the wrapper here is the hard ceiling. On POSIX, if the
+        # wrapper still times out, we escalate directly to ``SIGKILL``.
+        # On Windows, ``terminate_electron`` already uses
+        # ``taskkill /F /T`` (force-kill) so a timeout there is a
+        # kernel/handle pathology — log and move on.
         try:
             from voice_typer.server import electron_launcher
 
             launched_pid = getattr(app, "_electron_pid", None)
             if launched_pid:
                 log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", launched_pid)
-                electron_launcher.terminate_electron(launched_pid)
+                _term_result = _run_with_timeout(
+                    "electron_launcher.terminate_electron",
+                    lambda: electron_launcher.terminate_electron(launched_pid),
+                    timeout=5.0,
+                )
+                if _term_result is TIMEOUT and sys.platform != "win32":
+                    import signal as _sig_kill
+
+                    with contextlib.suppress(OSError, ProcessLookupError):
+                        os.kill(launched_pid, _sig_kill.SIGKILL)
                 app._electron_pid = None
             else:
                 from voice_typer.server.tray_window import get_electron_pid
@@ -682,8 +742,14 @@ class ShutdownController:
                     import signal as _sig
 
                     log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
-                    with contextlib.suppress(OSError, ProcessLookupError):
-                        os.kill(electron_pid, _sig.SIGTERM)
+                    _kill_result = _run_with_timeout(
+                        "electron.kill_sigterm",
+                        lambda: os.kill(electron_pid, _sig.SIGTERM),
+                        timeout=5.0,
+                    )
+                    if _kill_result is TIMEOUT and sys.platform != "win32":
+                        with contextlib.suppress(OSError, ProcessLookupError):
+                            os.kill(electron_pid, _sig.SIGKILL)
         except Exception:
             log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
 
@@ -837,6 +903,17 @@ class ShutdownController:
         # arrives while we hold the lock will see
         # ``app._shutting_down == True`` once we release it (because
         # we set it inside the critical section) and short-circuit.
+        # CR-51 / PVT-024: hold _quit_lock ONLY around the check-then-set
+        # on ``_shutting_down``. ``shutdown_all()`` joins every registered
+        # daemon thread with its per-thread timeout (N threads x M-second
+        # timeouts); holding the lock across it blocked a concurrent
+        # ``quit()`` from the POSIX signal-watcher / Win32 console handler
+        # / IPC ``quit_app`` handler / atexit net for the entire join
+        # window. The ``_shutting_down`` flag (set inside the lock) plus
+        # ``shutdown_all()``'s own idempotency make it safe to release
+        # the lock BEFORE joining -- a second caller arriving mid-join
+        # short-circuits at the ``_shutting_down`` check above rather
+        # than blocking on the lock.
         with self._quit_lock:
             if app._shutting_down:
                 log.debug("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
@@ -847,26 +924,29 @@ class ShutdownController:
             app._shutting_down = True
             # RACE-020: also set the Event version so executor tasks can check it
             app._shutting_down_event.set()
-
-            # THREAD-REGISTRY: signal all registered threads to stop and
-            # join them with their per-thread timeouts. Runs BEFORE
-            # _do_cleanup() so the registry's centralized shutdown is the
-            # first pass; the per-site methods in _do_cleanup() then run
-            # as a safety net. Best-effort — failures here don't prevent
-            # the rest of shutdown from running.
-            try:
-                app._thread_registry.shutdown_all()
-            except Exception:
-                log.debug(
-                    "[SHUTDOWN] thread_registry.shutdown_all() failed",
-                    exc_info=True,
-                )
             # _quit_lock is released here (end of ``with`` block) BEFORE
-            # _do_cleanup() runs. _do_cleanup() has its own
-            # ``_cleanup_done`` idempotency guard, so a concurrent quit()
-            # that arrives during cleanup will short-circuit at the
+            # ``shutdown_all()`` and ``_do_cleanup()`` run. Both have
+            # their own idempotency guards (``_shutting_down`` /
+            # ``_cleanup_done``), so a concurrent quit() that arrives
+            # during the join / cleanup will short-circuit at the
             # ``_shutting_down`` check above (now True) rather than
             # block on _quit_lock.
+
+        # THREAD-REGISTRY: signal all registered threads to stop and
+        # join them with their per-thread timeouts. Runs BEFORE
+        # _do_cleanup() so the registry's centralized shutdown is the
+        # first pass; the per-site methods in _do_cleanup() then run
+        # as a safety net. Best-effort -- failures here don't prevent
+        # the rest of shutdown from running. Runs OUTSIDE _quit_lock
+        # (see PVT-024 note above) so a concurrent quit() doesn't
+        # block on the per-thread joins.
+        try:
+            app._thread_registry.shutdown_all()
+        except Exception:
+            log.debug(
+                "[SHUTDOWN] thread_registry.shutdown_all() failed",
+                exc_info=True,
+            )
 
         # RW-3: delegate to the shared, idempotent cleanup body. The
         # _cleanup_done flag inside _do_cleanup() guarantees that a

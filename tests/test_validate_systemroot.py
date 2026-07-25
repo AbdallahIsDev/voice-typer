@@ -18,7 +18,7 @@ matching the env var name the function reads on Linux).
 
 See:
 - ``voice_typer/server/config.py:_validate_systemroot``
-- ``comprehensive-review.md`` finding CR-19
+- ``review.md`` finding CR-19
 """
 
 import os

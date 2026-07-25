@@ -503,6 +503,24 @@ def clear_binary_path_cache():
     if cache_clear is not None:
         cache_clear()
 
+    # XV-100: clear the memoised ``shutil.which`` cache in
+    # ``voice_typer.server.clipboard.linux``.  Same rationale as above:
+    # tests that monkeypatch ``shutil.which`` to simulate different
+    # ``$PATH`` states need a fresh cache per test, otherwise the
+    # first test's results leak into subsequent tests.  Tests that
+    # monkeypatch ``_cb._have_wl_clipboard`` / ``_cb._have_wtype``
+    # directly bypass this cache entirely (the patched attribute
+    # replaces the function object on the package namespace), so the
+    # ``cache_clear`` is a no-op for them.
+    try:
+        from voice_typer.server.clipboard.linux import _shutil_which_cached
+    except ImportError:
+        pass
+    else:
+        which_cache_clear = getattr(_shutil_which_cached, "cache_clear", None)
+        if which_cache_clear is not None:
+            which_cache_clear()
+
 
 # ── FT-2: daemon-thread leak prevention ──────────────────────────────────
 #

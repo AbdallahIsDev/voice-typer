@@ -10,7 +10,9 @@ Verifies the contract documented in
   overrides get independent counters).
 - The function is thread-safe under concurrent access.
 - ``*args`` %-format arguments are forwarded to the configured-level
-  call and rendered into the DEBUG fallback message.
+  call and passed (lazily, XV-125) as positional ``%-format`` args to
+  the DEBUG fallback — the framework only renders them if DEBUG is
+  enabled.
 """
 
 from __future__ import annotations
@@ -135,16 +137,50 @@ def test_occurrences_2_through_99_log_at_debug_without_exc_info():
 
 
 def test_suppressed_occurrence_renders_format_args():
-    """When *args are passed, the DEBUG fallback renders the message."""
+    """When *args are passed, the DEBUG fallback forwards them lazily.
+
+    XV-125: the previous implementation eagerly rendered ``msg % args``
+    before calling ``logger.debug`` — defeating the lazy-formatting
+    guarantee that ``logging`` provides (the framework only renders the
+    format string when the level is enabled).  The fix passes the
+    caller's *msg* (with the suppressed-occurrence suffix appended) as
+    the format string and ``*args, count`` as positional ``%-format``
+    args, so the actual ``%`` substitution is deferred until the
+    framework confirms DEBUG is enabled.
+    """
     logger = FakeLogger()
 
     # First call (1st occurrence) → logger.log at ERROR with raw msg + args.
     log_rate_limited(logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True)
     logger.log.assert_called_once_with(logging.ERROR, "chunk %d failed", 7, exc_info=True)
 
-    # Second call (suppressed) → DEBUG with the rendered message.
+    # Second call (suppressed) → DEBUG with the caller's *msg* as the
+    # format string (suffix appended) and ``*args, count`` as positional
+    # %-format args.  The framework renders "chunk 7 failed (suppressed
+    # occurrence 2)" only if DEBUG is enabled.
     log_rate_limited(logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True)
-    logger.debug.assert_called_once_with("%s (suppressed occurrence %d)", "chunk 7 failed", 2)
+    logger.debug.assert_called_once_with(
+        "chunk %d failed (suppressed occurrence %d)", 7, 2
+    )
+
+
+def test_suppressed_occurrence_no_args_uses_literal_substitution():
+    """When *args is empty, the DEBUG fallback passes *msg* as a literal
+    ``%s`` substitution — so a literal ``%`` in *msg* (e.g. ``"100% done"``)
+    is NOT re-interpreted as a format spec.
+
+    XV-125: this branch preserves the pre-fix behaviour for callers that
+    pass a literal ``%`` in *msg* without any *args*.
+    """
+    logger = FakeLogger()
+
+    # First call (1st occurrence) → logger.log at ERROR.
+    log_rate_limited(logger, logging.ERROR, "100% done", every_n=100)
+    logger.log.assert_called_once_with(logging.ERROR, "100% done", exc_info=False)
+
+    # Second call (suppressed) → DEBUG with msg as a literal %s arg.
+    log_rate_limited(logger, logging.ERROR, "100% done", every_n=100)
+    logger.debug.assert_called_once_with("%s (suppressed occurrence %d)", "100% done", 2)
 
 
 # ── 3. Nth occurrence ────────────────────────────────────────────────

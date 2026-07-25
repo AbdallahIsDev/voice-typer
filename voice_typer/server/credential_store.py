@@ -85,11 +85,81 @@ import json
 import logging
 import re
 import threading
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 from voice_typer.server._secrets import redact_api_keys
 
 log = logging.getLogger("voice_typer.server.credential_store")
+
+# ── Keyring I/O timeout isolation ────────────────────────────────────────
+#
+# PVT-039: keyring backends call into platform IPC (D-Bus on Linux,
+# Keychain daemon on macOS, Credential Manager service on Windows).
+# Any of these can block for up to ~30s (D-Bus default timeout) or
+# indefinitely (Keychain waiting for an unlock prompt). When called
+# synchronously from the IPC ``set_config`` handler thread or from
+# ``Config.load()`` at startup (× 5 providers), a single hung backend
+# wedges the entire process for 30-150s.
+#
+# Mitigation: every keyring I/O call runs in a fresh worker thread
+# (not a pooled executor — a pooled executor's single worker would
+# queue subsequent calls behind a hung one, defeating the timeout).
+# The caller awaits the thread's result with a finite timeout (5s,
+# well under the worst-case D-Bus timeout). On timeout, the caller
+# treats it as a keyring failure and falls through to the existing
+# plaintext fallback (``store_secret`` / ``load_secret``) or skips
+# the provider (``migrate_secrets_to_keyring``). The orphaned thread
+# keeps running; when the backend eventually times out / unlocks, the
+# result is silently discarded (Python can't kill threads, but the
+# thread is daemonized so it won't block process exit).
+#
+# Thread-creation cost (~50 µs on Linux) is dwarfed by the keyring
+# I/O itself (ms-scale D-Bus round-trip even on the fast path), so
+# one-thread-per-call is the right tradeoff here.
+_KEYRING_TIMEOUT_SECONDS = 5.0
+
+_T = TypeVar("_T")
+
+
+def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
+    """Run a keyring backend call under a finite timeout.
+
+    Spawns a daemon worker thread for the call (a pooled executor's
+    single worker would queue subsequent calls behind a hung one,
+    defeating the timeout — see PVT-39 above). Raises ``TimeoutError``
+    if the call doesn't complete within :data:`_KEYRING_TIMEOUT_SECONDS`.
+    The caller is expected to handle both ``TimeoutError`` and the
+    backend's own exceptions by falling through to the plaintext / skip
+    path.
+    """
+    container: dict[str, Any] = {"result": None, "exc": None}
+
+    def _runner() -> None:
+        try:
+            container["result"] = func(*args, **kwargs)
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the caller
+            container["exc"] = exc
+
+    t = threading.Thread(
+        target=_runner,
+        name="keyring-io",
+        daemon=True,
+    )
+    t.start()
+    t.join(timeout=_KEYRING_TIMEOUT_SECONDS)
+    if t.is_alive():
+        # Thread is still running — the backend hung. Don't try to
+        # kill it (Python can't); just abandon and let the caller fall
+        # through to the plaintext fallback. The thread will eventually
+        # finish (D-Bus timeout / Keychain unlock) and its result will
+        # be discarded.
+        raise TimeoutError(
+            f"keyring call {getattr(func, '__name__', repr(func))} did not complete "
+            f"within {_KEYRING_TIMEOUT_SECONDS}s"
+        )
+    if container["exc"] is not None:
+        raise container["exc"]
+    return container["result"]
 
 # ── Constants ────────────────────────────────────────────────────────────
 
@@ -377,7 +447,13 @@ def _probe_keyring() -> tuple[bool, str | None, str | None]:
         # result (including None) means the backend is responsive.
         # We use a sentinel username that we never store under to avoid
         # accidentally returning a real secret.
-        backend.get_password(KEYRING_SERVICE_NAME, "__keyring_probe__")
+        #
+        # PVT-039: run the probe under a finite timeout so a hung
+        # D-Bus / Keychain doesn't stall is_keyring_available() (which
+        # runs once at startup and would otherwise block for ~30s).
+        _run_keyring_call(
+            backend.get_password, KEYRING_SERVICE_NAME, "__keyring_probe__"
+        )
     except Exception as e:
         return (
             False,
@@ -521,7 +597,13 @@ def store_secret(provider: str, value: str) -> bool:
             raise RuntimeError("keyring backend not available")
         import keyring  # type: ignore[import-not-found]
 
-        keyring.set_password(KEYRING_SERVICE_NAME, provider, value)
+        # PVT-039: wrap set_password in a finite timeout so a hung
+        # D-Bus / Keychain on the IPC set_config thread doesn't stall
+        # the server. On timeout we fall through to the plaintext
+        # fallback (the except branch below).
+        _run_keyring_call(
+            keyring.set_password, KEYRING_SERVICE_NAME, provider, value
+        )
         log.info(
             "[CREDENTIAL_STORE] stored secret for provider=%s (len=%d) in keyring backend=%s",
             provider,
@@ -577,7 +659,14 @@ def load_secret(provider: str) -> str | None:
         if is_keyring_available():
             import keyring  # type: ignore[import-not-found]
 
-            value = keyring.get_password(KEYRING_SERVICE_NAME, provider)
+            # PVT-039: wrap get_password in a finite timeout so a hung
+            # D-Bus / Keychain on the Config.load() path doesn't stall
+            # startup (load_secret runs once per provider × 5
+            # providers). On timeout we fall through to the plaintext
+            # fallback below.
+            value = _run_keyring_call(
+                keyring.get_password, KEYRING_SERVICE_NAME, provider
+            )
             if value:
                 return value
             # keyring returned None — secret not in keychain. Fall
@@ -622,7 +711,14 @@ def delete_secret(provider: str, config: Any = None) -> None:
             import keyring  # type: ignore[import-not-found]
 
             try:
-                keyring.delete_password(KEYRING_SERVICE_NAME, provider)
+                # PVT-039: wrap delete_password in a finite timeout.
+                # delete_secret is best-effort cleanup (failure here is
+                # non-fatal — the keyring is presumably already
+                # inaccessible), so a timeout just logs at debug and
+                # moves on.
+                _run_keyring_call(
+                    keyring.delete_password, KEYRING_SERVICE_NAME, provider
+                )
                 log.info(
                     "[CREDENTIAL_STORE] deleted secret for provider=%s from keyring",
                     provider,
@@ -1071,7 +1167,16 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
         try:
             import keyring  # type: ignore[import-not-found]
 
-            keyring.set_password(KEYRING_SERVICE_NAME, provider, value)
+            # PVT-039: wrap set_password in a finite timeout. Migration
+            # runs once per provider (× 5) at startup; without the
+            # timeout, a single hung backend would stall startup for up
+            # to 5 × 30s = 150s. On timeout we keep the plaintext value
+            # in `data` (the reference-token assignment is gated on
+            # set_password succeeding) and continue with the next
+            # provider.
+            _run_keyring_call(
+                keyring.set_password, KEYRING_SERVICE_NAME, provider, value
+            )
             log.info(
                 "[CREDENTIAL_STORE] migration: moved provider=%s (len=%d) from config.json to keyring",
                 provider,

@@ -1,7 +1,7 @@
 """DE-33 / DE-34 / DE-35 / DE-36 regression tests for the ``ipc/`` package.
 
 Each test class covers ONE finding from the comprehensive review
-(``comprehensive-review.md`` lines 695–775). The file is self-contained
+(``review.md`` lines 695–775). The file is self-contained
 — it does NOT depend on the conftest fixtures from ``tests/handlers/``
 so it can run in isolation and so the contract tests can import the
 canonical ``_COMMAND_REGISTRY`` without triggering the handler-mixin
@@ -69,7 +69,6 @@ from voice_typer.server.ipc.validation import (
 # (the mixins are designed to be imported at test-collection time).
 from voice_typer.server.ipc_server import IPCServer
 
-
 # ══════════════════════════════════════════════════════════════════════════
 # DE-33: pattern-based secret-field denylist + non-None redaction
 # ══════════════════════════════════════════════════════════════════════════
@@ -122,8 +121,7 @@ class TestIsSecretFieldName:
     )
     def test_matches_secret_patterns(self, name):
         assert _is_secret_field_name(name) is True, (
-            f"Field {name!r} should be classified as secret by either "
-            f"_SECRET_CONFIG_FIELDS or _SECRET_FIELD_PATTERNS."
+            f"Field {name!r} should be classified as secret by either _SECRET_CONFIG_FIELDS or _SECRET_FIELD_PATTERNS."
         )
 
     @pytest.mark.parametrize(
@@ -409,8 +407,7 @@ class TestSanitizeContractWithRealConfig:
         # ``hotkey`` is a plain config field — must not be redacted.
         assert "hotkey" in out, "hotkey field missing from sanitized output"
         assert out["hotkey"] != _REDACTED_SENTINEL, (
-            "hotkey was redacted — the pattern denylist is too broad "
-            "and is matching non-secret fields."
+            "hotkey was redacted — the pattern denylist is too broad and is matching non-secret fields."
         )
 
 
@@ -469,9 +466,7 @@ class TestCommandCostsContract:
         would let a client bypass the limiter entirely; a negative
         cost would corrupt the budget."""
         for cmd, cost in COMMAND_COSTS.items():
-            assert isinstance(cost, int), (
-                f"COMMAND_COSTS[{cmd!r}] = {cost!r} is not an int."
-            )
+            assert isinstance(cost, int), f"COMMAND_COSTS[{cmd!r}] = {cost!r} is not an int."
             assert cost >= 1, (
                 f"COMMAND_COSTS[{cmd!r}] = {cost} < 1 — costs must be "
                 f"positive integers (the limiter clamps <1 to 1, but "
@@ -563,9 +558,7 @@ class TestRateLimiterUsesElevatedCost:
         # ``sustained_per_sec`` is the TOTAL budget over the 10s window
         # (the parameter name is misleading — it's a count, not a rate).
         # Set it high so only the burst check trips in this test.
-        limiter = _RateLimiter(
-            burst=200, sustained_per_sec=10_000, window=10.0
-        )
+        limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
         accepted = 0
         # 25 calls at t=0 — should accept 20 (20*10=200=burst), reject 5.
         for _ in range(25):
@@ -582,16 +575,12 @@ class TestRateLimiterUsesElevatedCost:
         gets the full 200/s burst budget. Catches a regression where
         the cost map is applied incorrectly (e.g. every command gets
         cost=10)."""
-        limiter = _RateLimiter(
-            burst=200, sustained_per_sec=10_000, window=10.0
-        )
+        limiter = _RateLimiter(burst=200, sustained_per_sec=10_000, window=10.0)
         accepted = 0
         for _ in range(205):
             if limiter.allow(command="heartbeat", now=0.0):
                 accepted += 1
-        assert accepted == 200, (
-            f"Expected 200 acceptances (cost=1), got {accepted}."
-        )
+        assert accepted == 200, f"Expected 200 acceptances (cost=1), got {accepted}."
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -605,8 +594,7 @@ class TestHistoryOffsetMaxConstant:
 
     def test_offset_max_is_10_million(self):
         assert _HISTORY_OFFSET_MAX == 10_000_000, (
-            f"Expected _HISTORY_OFFSET_MAX == 10_000_000 (per DE-35 "
-            f"fix section), got {_HISTORY_OFFSET_MAX}."
+            f"Expected _HISTORY_OFFSET_MAX == 10_000_000 (per DE-35 fix section), got {_HISTORY_OFFSET_MAX}."
         )
 
 
@@ -715,8 +703,7 @@ class TestNamespacedInvalidPayload:
         assert error is not None
         assert error["type"] == "error"
         assert error["data"]["code"] == "client.invalid_payload", (
-            f"Expected 'client.invalid_payload' (namespaced form per "
-            f"DE-36 / G4-M-22), got {error['data']['code']!r}."
+            f"Expected 'client.invalid_payload' (namespaced form per DE-36 / G4-M-22), got {error['data']['code']!r}."
         )
 
     def test_non_dict_payload_also_emits_legacy_code(self):

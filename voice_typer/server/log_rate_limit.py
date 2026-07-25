@@ -235,13 +235,31 @@ def log_rate_limited(
         logger.log(level, msg, *args, exc_info=exc_info, **kwargs)
         return
 
-    # Suppressed occurrence: log at DEBUG without exc_info.  Rendering
-    # *msg* with *args* here (rather than passing them through to
-    # ``logger.debug``) lets us append the suppressed-count suffix as
-    # positional %-format args (so lazy formatting is preserved — the
-    # logging framework only renders the string if DEBUG is enabled).
-    rendered = msg % args if args else msg
-    logger.debug("%s (suppressed occurrence %d)", rendered, count)
+    # Suppressed occurrence: log at DEBUG without exc_info.  XV-125:
+    # the previous implementation did ``rendered = msg % args`` eagerly
+    # before the ``logger.debug`` call — defeating the lazy-formatting
+    # guarantee that ``logging`` provides (the framework only renders
+    # the format string when the level is enabled).  On hot paths where
+    # DEBUG is disabled (the default), the eager ``msg % args`` was
+    # pure waste — at high suppression counts (audio worker at ~16 Hz,
+    # ~960/min) it showed up as measurable CPU.  We now build a single
+    # format string and pass ``*args, count`` as positional %-format
+    # args.  The logging framework defers the actual ``%`` substitution
+    # until it has confirmed DEBUG is enabled, so the cost is zero when
+    # DEBUG is off.
+    #
+    # Two branches preserve the pre-fix behaviour for callers that pass
+    # a literal ``%`` in *msg* without any *args* (e.g. ``"100% done"``):
+    # the no-args path uses ``"%s (suppressed occurrence %d)"`` with
+    # *msg* as a literal ``%s`` substitution, so a literal ``%`` in
+    # *msg* is NOT re-interpreted as a format spec.  The with-args
+    # path concatenates *msg* with the suffix and relies on *msg*
+    # already being a valid format string (the pre-fix ``msg % args``
+    # required the same).
+    if args:
+        logger.debug(msg + " (suppressed occurrence %d)", *args, count)
+    else:
+        logger.debug("%s (suppressed occurrence %d)", msg, count)
 
     # GT-66: periodic INFO summary so chronic suppressed-occurrence
     # conditions surface at INFO level (the file-handler default) — not

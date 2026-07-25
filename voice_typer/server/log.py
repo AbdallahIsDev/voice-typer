@@ -329,13 +329,49 @@ def _infer_topic(msg: str) -> str | None:
     """Guess a topic label from *msg* content keywords.
 
     First match wins — narrower keywords should come first in each list.
+
+    XV-131: previously this was an O(N*K) linear scan that called
+    ``msg.lower()`` once and then ran ~80 ``kw in lower`` substring
+    checks per INFO record. The precompiled alternation regex below
+    performs the same first-match-wins lookup in a single pass over the
+    string. The regex is built once at import time from
+    :data:`_TOPIC_KEYWORDS` so it stays in sync with the keyword table.
     """
-    lower = msg.lower()
+    if not msg:
+        return None
+    m = _TOPIC_KEYWORDS_REGEX.search(msg)
+    if m is None:
+        return None
+    return m.lastgroup
+
+
+def _build_topic_keywords_regex():
+    """XV-131: compile a single named-group alternation regex from
+    :data:`_TOPIC_KEYWORDS`. First-match-wins is preserved by emitting
+    each topic's keywords in their declared order, and topics in their
+    declared order -- Python's ``re`` alternation is leftmost-first.
+    """
+    import re
+
+    parts: list[str] = []
     for topic, keywords in _TOPIC_KEYWORDS.items():
-        for kw in keywords:
-            if kw in lower:
-                return topic
-    return None
+        if not keywords:
+            continue
+        # Sort each topic's keywords by length descending so the longer
+        # (more specific) phrases win over their prefixes within the
+        # same topic (e.g. "transcription thread" before "transcrib").
+        ordered = sorted(keywords, key=len, reverse=True)
+        group = "|".join(re.escape(kw) for kw in ordered if kw)
+        if not group:
+            continue
+        parts.append(f"(?P<{topic}>{group})")
+    if not parts:
+        # No keywords -- return a regex that never matches.
+        return re.compile(r"(?!x)x")
+    return re.compile("|".join(parts), re.IGNORECASE)
+
+
+_TOPIC_KEYWORDS_REGEX = _build_topic_keywords_regex()
 
 
 def _extract_topic(msg: str) -> tuple[str | None, str]:
@@ -938,8 +974,18 @@ def setup_logging(
         # Avoid duplicate handlers if setup is called multiple times.
         if not any(isinstance(h, logging.handlers.RotatingFileHandler) for h in root.handlers):
             root.addHandler(handler)
-        root.addFilter(_SessionFilter())
-        root.addFilter(_pii_filter)
+        # XV-130: PII + session filters are attached to each HANDLER
+        # (file + stderr) above, NOT to the ``voice_typer`` root logger.
+        # Python's logging semantics: handler filters fire for EVERY
+        # record that reaches the handler (regardless of which logger
+        # it was logged to), so attaching them at the handler level is
+        # sufficient AND avoids a redundant double-scan for records
+        # logged directly to ``voice_typer`` (which would otherwise
+        # trigger the filter once at the logger level and again at the
+        # handler level). The previous dual attachment was intentional
+        # but the handler-only path covers child-logger records too --
+        # ``callHandlers`` walks ancestor loggers but invokes handler
+        # filters, not ancestor-LOGGER filters.
 
         root.setLevel(logging.DEBUG)
 

@@ -2448,66 +2448,35 @@ def _set_process_metadata() -> None:
     _set_windows_process_metadata(APP_NAME)
 
 
-def main() -> None:
-    """Create a ``VoiceTyperApp``, wrap it in an ``IPCServer``, and block.
+def parse_ipc_args() -> tuple[int | None, bool]:
+    """Parse the IPC server CLI args (EC-8 extraction from ``main()``).
 
-    Designed as the subprocess entry point for an Electron frontend::
+    Returns ``(port, ws_mode)`` where ``port`` is the ``--port N`` value
+    (or ``None`` for stdin/stdout mode) and ``ws_mode`` is True when
+    ``--ws`` was passed (Tauri sidecar WebSocket mode).
 
-        python -m voice_typer.server.ipc_server          # stdin/stdout
-        python -m voice_typer.server.ipc_server --port N  # TCP
+    Side effects:
+        - Sets ``VOICE_TYPER_DEBUG=1`` env var when ``--debug`` is passed
+          (must be set BEFORE ``_setup_logging()`` is called so the
+          debug level is honoured by the log config).
+        - Sets ``TAURI_SIDECAR=1`` env var when ``--ws`` is passed so
+          downstream gates (heartbeat watchdog, single-instance mutex)
+          know to defer to the Tauri host.
 
-    In TCP mode, stdout/stderr are NOT piped (Electron uses
-    ``stdio: "inherit"``) so there is no pipe-backpressure issue
-    during the heavy torch import.  Push events reach the frontend
-    via TCP, and the terminal sees normal log output.
+    Exits:
+        - ``--help`` / ``--version`` exit via argparse (exit code 0).
+        - Invalid combos (``--ws`` + ``--port``) or out-of-range ports
+          exit via ``sys.exit(EXIT_BAD_ARGS)``.
+
+    The args are parsed BEFORE the single-instance lock is acquired so
+    ``--version`` works even when another instance is already running
+    (mirrors ``voice_typer.__main__``).
     """
-    # BRAND-METADATA: set process metadata early, before any subsystem
-    # init, so the OS sees the correct identity from the start.
-    _set_process_metadata()
-
-    # NEW-CLI-003: import the standardized exit-code constants. Both
-    # EXIT_BAD_ARGS (bad --port) and EXIT_CRASH (uncaught exception in
-    # app.start()) are used below; previously EXIT_CRASH was imported
-    # but unused and the crash path called sys.exit with a raw literal.
-    from voice_typer.__main__ import EXIT_BAD_ARGS, EXIT_CRASH
-    # The canonical-name registration (``sys.modules[_CANONICAL]``)
-    # is handled at module level, before the mixin imports, so it
-    # applies to ALL execution modes (__main__, -m, and direct import).
-
-    # RACE-018: Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
-    # Invaluable for debugging production crashes with CUDA/GPU drivers.
-    try:
-        import faulthandler
-
-        faulthandler.enable()
-        # Optional: register SIGUSR1 for on-demand thread dumps (POSIX only)
-        import signal
-
-        if hasattr(signal, "SIGUSR1"):
-            # TASK-14: ``faulthandler.dump_traceback_later`` has the
-            # signature ``(timeout: float, repeat: bool = False, ...)
-            # -> None`` and does NOT match the ``signal.signal`` handler
-            # protocol ``(signum: int, frame: FrameType | None) -> Any``.
-            # Passing it directly would crash with TypeError the first
-            # time the signal fires (missing ``timeout`` positional).
-            # Wrap it in a closure that calls ``dump_traceback_later``
-            # with a 1-second delay — the documented use case for
-            # on-demand thread dumps from SIGUSR1.
-            def _on_sigusr1(_signum: int, _frame: FrameType | None) -> None:
-                faulthandler.dump_traceback_later(timeout=1.0)
-
-            signal.signal(signal.SIGUSR1, _on_sigusr1)
-    except Exception:
-        pass  # Not available on all platforms
-
-    # NEW-DOC-006: parse arguments BEFORE acquiring the single-instance
-    # lock, so ``--version`` works even when another instance is running
-    # (mirrors voice_typer.__main__, which parses args before app.main()).
     import argparse
     import importlib.metadata
     import os
 
-    from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging
+    from voice_typer.__main__ import EXIT_BAD_ARGS
 
     try:
         _pkg_version = importlib.metadata.version("voice-typer")
@@ -2574,6 +2543,73 @@ def main() -> None:
     if ws_mode:
         os.environ["TAURI_SIDECAR"] = "1"
         log.info("[IPC] --ws mode enabled (TAURI_SIDECAR=1 env set)")
+    return port, ws_mode
+
+
+def main() -> None:
+    """Create a ``VoiceTyperApp``, wrap it in an ``IPCServer``, and block.
+
+    Designed as the subprocess entry point for an Electron frontend::
+
+        python -m voice_typer.server.ipc_server          # stdin/stdout
+        python -m voice_typer.server.ipc_server --port N  # TCP
+
+    In TCP mode, stdout/stderr are NOT piped (Electron uses
+    ``stdio: "inherit"``) so there is no pipe-backpressure issue
+    during the heavy torch import.  Push events reach the frontend
+    via TCP, and the terminal sees normal log output.
+    """
+    # BRAND-METADATA: set process metadata early, before any subsystem
+    # init, so the OS sees the correct identity from the start.
+    _set_process_metadata()
+
+    # NEW-CLI-003: import the standardized exit-code constant.
+    # EXIT_BAD_ARGS is now used inside ``parse_ipc_args()`` (extracted
+    # EC-8); main() needs only EXIT_CRASH for the construction-failure
+    # and app.start()-failure paths. Previously EXIT_CRASH was imported
+    # but unused and the crash path called sys.exit with a raw literal.
+    from voice_typer.__main__ import EXIT_CRASH
+    # The canonical-name registration (``sys.modules[_CANONICAL]``)
+    # is handled at module level, before the mixin imports, so it
+    # applies to ALL execution modes (__main__, -m, and direct import).
+
+    # RACE-018: Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
+    # Invaluable for debugging production crashes with CUDA/GPU drivers.
+    try:
+        import faulthandler
+
+        faulthandler.enable()
+        # Optional: register SIGUSR1 for on-demand thread dumps (POSIX only)
+        import signal
+
+        if hasattr(signal, "SIGUSR1"):
+            # TASK-14: ``faulthandler.dump_traceback_later`` has the
+            # signature ``(timeout: float, repeat: bool = False, ...)
+            # -> None`` and does NOT match the ``signal.signal`` handler
+            # protocol ``(signum: int, frame: FrameType | None) -> Any``.
+            # Passing it directly would crash with TypeError the first
+            # time the signal fires (missing ``timeout`` positional).
+            # Wrap it in a closure that calls ``dump_traceback_later``
+            # with a 1-second delay — the documented use case for
+            # on-demand thread dumps from SIGUSR1.
+            def _on_sigusr1(_signum: int, _frame: FrameType | None) -> None:
+                faulthandler.dump_traceback_later(timeout=1.0)
+
+            signal.signal(signal.SIGUSR1, _on_sigusr1)
+    except Exception:
+        pass  # Not available on all platforms
+
+    # NEW-DOC-006: parse arguments BEFORE acquiring the single-instance
+    # lock, so ``--version`` works even when another instance is running
+    # (mirrors voice_typer.__main__, which parses args before app.main()).
+    # EC-8: the argparse setup + validation + env-var side effects are
+    # extracted to ``parse_ipc_args()`` above so ``main()`` no longer
+    # mixes CLI parsing with app construction / transport dispatch.
+    import os
+
+    from voice_typer.server.app import VoiceTyperApp, _ensure_single_instance, _setup_logging
+
+    port, ws_mode = parse_ipc_args()
 
     _setup_logging()
 

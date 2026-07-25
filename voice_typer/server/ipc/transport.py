@@ -10,6 +10,7 @@ line-based IO (``write()`` / ``flush()`` / ``readline()`` / ``__iter__``).
 """
 
 import contextlib
+import io
 import logging
 import socket
 
@@ -78,7 +79,18 @@ class _TCPLineIO:
 
     def __init__(self, conn: socket.socket) -> None:
         self.conn = conn
-        self._reader = conn.makefile("r", encoding="utf-8", buffering=1)
+        # XV-86: use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
+        # typically 8 KiB) rather than ``buffering=1``. ``buffering=1`` means
+        # "line buffered" in text mode — meaningful only for writes (flush
+        # when a newline is seen); for reads CPython silently treats it as
+        # the default, but the intent is non-obvious and linters flag it as
+        # a potential small-recv-buffer smell. An explicit
+        # ``io.DEFAULT_BUFFER_SIZE`` removes the ambiguity and ensures the
+        # BufferedReader pulls the largest chunk the kernel will hand over
+        # per ``recv()`` call, minimising syscalls under load.
+        self._reader = conn.makefile(
+            "r", encoding="utf-8", buffering=io.DEFAULT_BUFFER_SIZE
+        )
 
     def write(self, text: str) -> None:
         self.conn.sendall(text.encode("utf-8"))

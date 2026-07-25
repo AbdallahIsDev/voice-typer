@@ -37,7 +37,7 @@ import pytest
 # contents) to be skipped on the Linux CI sandbox — even though those
 # tests' own docstrings explicitly state "These tests run in the Linux
 # sandbox". The 9-point ADR-0020 behavioral gate still requires real
-# Windows/macOS/Linux host execution (see comprehensive-review.md
+# Windows/macOS/Linux host execution (see review.md
 # HP-1/HP-2/HP-3), but the structural source-grep scaffolding runs on
 # every platform so regressions in tauri.conf.json / spawn.rs / build
 # scripts are caught in CI, not just on real-host validation.

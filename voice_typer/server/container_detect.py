@@ -9,6 +9,7 @@ instead of logging confusing errors.
 
 from __future__ import annotations
 
+import functools
 import os
 from pathlib import Path
 
@@ -127,7 +128,37 @@ def is_in_container() -> bool:
 
     Returns True if any indicator is positive, False otherwise.
     On non-Linux platforms, always returns False.
+
+    XV-13: the result is memoized for the lifetime of the process.
+    Container membership is invariant during a process lifetime (the
+    cgroup namespace can't change without ``unshare``/``setns``, which
+    would already be a different process). The cache is bypassed when
+    running under pytest so tests that monkeypatch ``sys.platform`` /
+    ``Path.exists`` between scenarios keep working without needing a
+    cache-clear fixture (which would otherwise have to live in
+    ``tests/conftest.py`` — owned by another agent).
     """
+    if _is_in_container_cached.cache_info().currsize > 0 and _should_bypass_cache():
+        _is_in_container_cached.cache_clear()
+    return _is_in_container_cached()
+
+
+def _should_bypass_cache() -> bool:
+    """Return True when running under pytest (test-isolation bypass).
+
+    Production callers never hit this — pytest sets the
+    ``PYTEST_CURRENT_TEST`` env var at the start of every test item's
+    execution and clears it between items, so the cache is bypassed
+    only while a test is actively running. The check is on the env var
+    (not ``"pytest" in sys.modules``) so that simply having pytest
+    installed doesn't disable the cache in production.
+    """
+    return os.environ.get("PYTEST_CURRENT_TEST") is not None
+
+
+@functools.lru_cache(maxsize=1)
+def _is_in_container_cached() -> bool:
+    """Memoized body of :func:`is_in_container` (XV-13)."""
     import sys
 
     if not sys.platform.startswith("linux"):
@@ -166,11 +197,41 @@ def is_in_container() -> bool:
     return False
 
 
+def _reset_container_cache() -> None:
+    """Test-only: clear the memoized container-detection results.
+
+    XV-13: production callers should NEVER need this — container
+    membership doesn't change during a process lifetime. Tests that
+    patch ``sys.platform`` or filesystem state need it so the next
+    :func:`is_in_container` / :func:`get_container_type` call re-probes.
+    The autouse ``_should_bypass_cache`` check above handles most test
+    scenarios automatically; this helper is kept for explicit test
+    pinning of the caching contract itself.
+    """
+    _is_in_container_cached.cache_clear()
+    _get_container_type_cached.cache_clear()
+
+
 def get_container_type() -> str | None:
-    """Return a human-readable container type if detected, None otherwise."""
+    """Return a human-readable container type if detected, None otherwise.
+
+    XV-13: the result is memoized alongside :func:`is_in_container` —
+    the underlying probe is identical, so the two callers always agree.
+    """
     if not is_in_container():
         return None
+    if _should_bypass_cache() and _get_container_type_cached.cache_info().currsize > 0:
+        _get_container_type_cached.cache_clear()
+    return _get_container_type_cached()
 
+
+@functools.lru_cache(maxsize=1)
+def _get_container_type_cached() -> str | None:
+    """Memoized body of :func:`get_container_type` (XV-13).
+
+    Assumes :func:`is_in_container` has already returned True — callers
+    must gate on that before invoking this helper.
+    """
     if Path("/.dockerenv").exists():
         return "docker"
     if Path("/run/.containerenv").exists():

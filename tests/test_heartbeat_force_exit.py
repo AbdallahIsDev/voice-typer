@@ -382,5 +382,5 @@ def test_default_grace_period_is_10_seconds() -> None:
     assert _HEARTBEAT_FORCE_EXIT_GRACE_SECONDS == 10.0, (
         "default grace period must be 10s per CR-9 spec — if this is "
         "changed, update the comment in ipc_server.py and the CR-9 "
-        "rationale in comprehensive-review.md"
+        "rationale in review.md"
     )

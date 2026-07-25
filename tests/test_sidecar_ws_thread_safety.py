@@ -9,7 +9,7 @@ tray, IPC dispatch workers (``server._dispatch`` runs via
 ``loop.run_in_executor``), and the audio-worker deferred path — and
 ``asyncio.Queue`` is explicitly NOT thread-safe, the queue's
 internal deque + ``_getawaiter`` / ``_putawaiter`` futures could
-corrupt. Observed symptoms (per CR-4 in comprehensive-review.md):
+corrupt. Observed symptoms (per CR-4 in review.md):
 
 - silently dropped events (``transcription_final`` never reached the
   Tauri host → user sees no dictated text),

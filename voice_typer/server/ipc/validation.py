@@ -110,6 +110,43 @@ ERROR_CODES: frozenset[str] = frozenset(
     }
 )
 
+# EC-10: legacy non-namespaced aliases still emitted by some paths for
+# backward compat (TCP ``shutting_down``, dispatcher ``internal_error``,
+# handler ``handler_error``, etc.). New emitters MUST use the namespaced
+# form above. This registry is the single source of truth for the
+# renderer's ``ErrorCodes`` union (see
+# ``voice_typer/client/src/renderer/src/types/ipc.ts``) and for the
+# contract test in ``tests/test_error_codes_registry.py``. Keeping the
+# legacy set explicit (instead of an open-ended ``str``) lets us audit
+# which aliases are still emitted and remove them once the renderer
+# migrates fully to the namespaced form.
+LEGACY_ERROR_CODES: frozenset[str] = frozenset(
+    {
+        "internal_error",
+        "shutting_down",
+        "unknown_command",
+        "unknown_tray_item",
+        "auth_failed",
+        "rate_limited",
+        "invalid_payload",
+        "invalid_field",
+        "missing_field",
+        "model_switch_failed",
+        "payload_too_large",
+        "handler_error",
+        "not_initialized",
+        "disallowed_command",
+        "disallowed_window",
+        "sidecar_disconnected",
+    }
+)
+
+# EC-10: convenience union for validation / contract tests. Every
+# ``code`` value emitted on the wire MUST be in this set (the contract
+# test asserts this). Use ``ALL_ERROR_CODES`` for membership checks;
+# prefer ``ERROR_CODES`` for new emitters.
+ALL_ERROR_CODES: frozenset[str] = ERROR_CODES | LEGACY_ERROR_CODES
+
 
 def _validate_dict_payload(data, schema):
     """Validate IPC ``data`` against a declarative *schema*.
@@ -313,4 +350,4 @@ def _error_response(resp: dict, message: str, *, code: str = "server.handler_err
     return resp
 
 
-__all__ = ["_validate_dict_payload", "_error_response", "ERROR_CODES"]
+__all__ = ["_validate_dict_payload", "_error_response", "ERROR_CODES", "LEGACY_ERROR_CODES", "ALL_ERROR_CODES"]

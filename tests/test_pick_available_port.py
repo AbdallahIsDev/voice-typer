@@ -14,7 +14,7 @@ See:
 - ``voice_typer/server/ipc_server.py:_pick_available_port``
 - ``voice_typer/server/ipc_server.py:IPCServer.start_tcp``
 - ``voice_typer/server/ipc_server.py:IPCServer._accept_tcp``
-- ``comprehensive-review.md`` finding CR-7
+- ``review.md`` finding CR-7
 """
 
 import socket

@@ -139,6 +139,7 @@ from __future__ import annotations
 import logging
 import threading
 import typing
+import weakref
 from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol, runtime_checkable
 
@@ -178,15 +179,145 @@ def _subscriber_key(fn: typing.Callable[..., typing.Any]) -> str:
 
 log = logging.getLogger("voice_typer.server.event_bus")
 
-# Module-level singleton state.  No class instance needed — this is
-# process-global by design so that domain modules can publish without
-# holding a reference to any particular IPC server or app instance.
-#
-# A ``set`` (not a ``list``) so duplicate ``subscribe`` calls for the
-# same callable are deduplicated; this matters because ``IPCServer``'s
-# ``start()`` is idempotent across stop/start cycles in tests and we
-# do not want the same callable registered twice.
-_subscribers: set[typing.Callable[[dict], None]] = set()
+
+class _SubscriberSet:
+    """A set-like container for event-bus subscribers (PVT-031).
+
+    ``IPCServer`` subscribes with ``subscribe(self.push)`` — a *bound
+    method*. A plain ``set`` holds a strong ref to the bound method,
+    which holds a strong ref to the IPCServer via ``__self__``. If the
+    IPCServer is destroyed without calling ``unsubscribe(self.push)``
+    (exception during ``stop()``, crash, ``restart_app``), the bound
+    method keeps the IPCServer alive forever — a leak.
+
+    This container fixes the leak by storing bound methods via
+    ``weakref.WeakMethod`` (Python-level) or ``weakref.ref(__self__)``
+    (C-level like ``list.append``): when the owning instance is GC'd,
+    the weak ref's callback fires and the entry is evicted automatically.
+    Plain functions / lambdas are stored as strong refs (``weakref.ref``
+    of an ephemeral lambda would die immediately).
+    """
+
+    def __init__(self) -> None:
+        self._strong: set[typing.Callable[[dict], None]] = set()
+        # Python bound methods (have __func__), keyed by
+        # (id(__self__), id(__func__)). Value is a WeakMethod.
+        self._weak_py: dict[tuple[int, int], weakref.WeakMethod] = {}
+        # C-level bound methods (e.g. list.append — have __self__ +
+        # __name__ but no __func__). Keyed by (id(__self__), __name__).
+        # Value is (weakref to __self__, method_name).
+        self._weak_c: dict[tuple[int, str], tuple[weakref.ref, str]] = {}
+        # Fallback for C-level bound methods whose __self__ is not
+        # weakly referenceable (e.g. list, tuple). Same keying as
+        # _weak_c so discard finds entries regardless of bucket.
+        self._strong_c: dict[tuple[int, str], typing.Callable[[dict], None]] = {}
+
+    @staticmethod
+    def _classify(callback: typing.Any) -> str:
+        self_obj = getattr(callback, "__self__", None)
+        if self_obj is None:
+            return "plain"
+        if hasattr(callback, "__func__"):
+            return "py_bound"
+        if hasattr(callback, "__name__"):
+            return "c_bound"
+        return "plain"
+
+    def add(self, callback: typing.Callable[[dict], None]) -> None:
+        kind = self._classify(callback)
+        if kind == "py_bound":
+            key = (id(callback.__self__), id(callback.__func__))
+            if key not in self._weak_py or self._weak_py[key]() is None:
+                self._weak_py[key] = weakref.WeakMethod(
+                    callback, lambda _ref, k=key: self._weak_py.pop(k, None)
+                )
+        elif kind == "c_bound":
+            key = (id(callback.__self__), callback.__name__)
+            existing_weak = self._weak_c.get(key)
+            if existing_weak is not None and existing_weak[0]() is not None:
+                return
+            if key in self._strong_c:
+                return
+            try:
+                ref = weakref.ref(
+                    callback.__self__,
+                    lambda _r, k=key: self._weak_c.pop(k, None),
+                )
+            except TypeError:
+                self._strong_c[key] = callback
+            else:
+                self._weak_c[key] = (ref, callback.__name__)
+        else:
+            self._strong.add(callback)
+
+    def discard(self, callback: typing.Callable[[dict], None]) -> None:
+        kind = self._classify(callback)
+        if kind == "py_bound":
+            self._weak_py.pop((id(callback.__self__), id(callback.__func__)), None)
+        elif kind == "c_bound":
+            key = (id(callback.__self__), callback.__name__)
+            self._weak_c.pop(key, None)
+            self._strong_c.pop(key, None)
+        else:
+            self._strong.discard(callback)
+
+    def clear(self) -> None:
+        self._strong.clear()
+        self._weak_py.clear()
+        self._weak_c.clear()
+        self._strong_c.clear()
+
+    def update(self, items: typing.Iterable[typing.Callable[[dict], None]]) -> None:
+        for item in items:
+            self.add(item)
+
+    def __iter__(self) -> typing.Iterator[typing.Callable[[dict], None]]:
+        live: list[typing.Callable[[dict], None]] = list(self._strong)
+        for key, ref in list(self._weak_py.items()):
+            cb = ref()
+            if cb is not None:
+                live.append(cb)
+            else:
+                self._weak_py.pop(key, None)
+        for key, (ref, name) in list(self._weak_c.items()):
+            obj = ref()
+            if obj is not None:
+                cb = getattr(obj, name, None)
+                if cb is not None:
+                    live.append(cb)
+                else:
+                    self._weak_c.pop(key, None)
+            else:
+                self._weak_c.pop(key, None)
+        live.extend(self._strong_c.values())
+        return iter(live)
+
+    def __len__(self) -> int:
+        for key in [k for k, r in self._weak_py.items() if r() is None]:
+            self._weak_py.pop(key, None)
+        for key in [k for k, (r, _n) in self._weak_c.items() if r() is None]:
+            self._weak_c.pop(key, None)
+        return len(self._strong) + len(self._weak_py) + len(self._weak_c) + len(self._strong_c)
+
+    def __contains__(self, callback: typing.Callable[[dict], None]) -> bool:
+        kind = self._classify(callback)
+        if kind == "py_bound":
+            ref = self._weak_py.get((id(callback.__self__), id(callback.__func__)))
+            return ref is not None and ref() is not None
+        elif kind == "c_bound":
+            key = (id(callback.__self__), callback.__name__)
+            if key in self._strong_c:
+                return True
+            entry = self._weak_c.get(key)
+            return entry is not None and entry[0]() is not None
+        return callback in self._strong
+
+
+# PVT-031: weak-ref-aware subscriber set. Bound methods are stored via
+# WeakMethod so destroyed subscribers (e.g. an IPCServer that crashed
+# during stop() without calling unsubscribe) are GC'd instead of
+# leaking forever. Plain functions / lambdas stay strong-ref'd.
+_subscribers: _SubscriberSet = _SubscriberSet()
 
 # RLock (not Lock) so a subscriber that calls publish() re-entrantly
 # does not deadlock.  Re-entrant publish is discouraged but supported.
@@ -205,6 +336,21 @@ _RT_THREAD_NAME_PREFIXES: tuple[str, ...] = (
 )
 _deferred_executor: ThreadPoolExecutor | None = None
 _deferred_executor_lock = threading.Lock()
+
+# PVT-031: bound the deferred-publish queue. ``ThreadPoolExecutor`` uses
+# an unbounded ``SimpleQueue`` internally; a slow subscriber (stalled
+# socket.sendall to the Electron renderer) at 60 Hz ``bubble_level``
+# fan-out would queue 36,000 tasks over 10 minutes — unbounded memory
+# growth under backpressure. The counter tracks in-flight deferred
+# tasks; when it exceeds ``_DEFERRED_QUEUE_MAX`` new submissions are
+# dropped (with a rate-limited WARNING) so memory is bounded. Dropped
+# events are idempotent high-frequency UI updates (bubble_level,
+# recording_level) — losing some under backpressure is preferable to
+# OOM-killing the audio process.
+_DEFERRED_QUEUE_MAX = 256
+_deferred_in_flight: int = 0
+_deferred_in_flight_lock = threading.Lock()
+_deferred_drop_count: int = 0  # cumulative, for diagnostics
 
 
 def _get_deferred_executor() -> ThreadPoolExecutor:
@@ -318,6 +464,25 @@ def _deliver(event: dict, fns: list[typing.Callable[[dict], None]]) -> bool:
     return delivered
 
 
+def _deliver_deferred(event: dict, fns: list[typing.Callable[[dict], None]]) -> None:
+    """Deliver *event* on the deferred-executor thread, then decrement
+    the in-flight counter (PVT-031).
+
+    Pairs with the bounded-submit logic in ``publish()`` so the
+    in-flight counter is decremented exactly once per submitted task —
+    whether the delivery succeeded, a subscriber raised, or the
+    executor was shut down mid-flight. Failing to decrement would
+    re-introduce the unbounded-queue memory growth (the counter would
+    hit ``_DEFERRED_QUEUE_MAX`` and never recover).
+    """
+    global _deferred_in_flight
+    try:
+        _deliver(event, fns)
+    finally:
+        with _deferred_in_flight_lock:
+            _deferred_in_flight = max(0, _deferred_in_flight - 1)
+
+
 def publish(event: dict) -> bool:
     """Broadcast *event* to every subscriber, synchronously.
 
@@ -355,13 +520,40 @@ def publish(event: dict) -> bool:
         return False
     # PERF-2: defer fan-out when called from an RT thread.
     if _is_rt_thread():
+        global _deferred_in_flight, _deferred_drop_count
+        # PVT-031: bound the deferred queue. If the single worker is
+        # backed up (slow subscriber), drop new submissions rather than
+        # queuing them indefinitely. The drop is rate-limited so a
+        # persistently-slow subscriber produces one WARNING per minute,
+        # not 60/sec. Dropped events are idempotent high-frequency UI
+        # updates (bubble_level, recording_level); losing some under
+        # backpressure is preferable to unbounded memory growth.
+        with _deferred_in_flight_lock:
+            if _deferred_in_flight >= _DEFERRED_QUEUE_MAX:
+                _deferred_drop_count += 1
+                would_drop = True
+            else:
+                _deferred_in_flight += 1
+                would_drop = False
+        if would_drop:
+            log_rate_limited(
+                log,
+                logging.WARNING,
+                "[event_bus] deferred queue at capacity (%d); dropping event "
+                "(cumulative drops: %d)",
+                _DEFERRED_QUEUE_MAX,
+                _deferred_drop_count,
+                key="event_bus:deferred_drop",
+            )
+            return True
         try:
-            _get_deferred_executor().submit(_deliver, event, fns)
+            _get_deferred_executor().submit(_deliver_deferred, event, fns)
         except RuntimeError:
             # Executor was shut down (process exit); fall back to sync.
+            # Undo the in-flight increment so the counter doesn't leak.
+            with _deferred_in_flight_lock:
+                _deferred_in_flight = max(0, _deferred_in_flight - 1)
             return _deliver(event, fns)
-        # Best-effort: we can't know eventual per-subscriber outcome
-        # without blocking, so report True (subscribers are queued).
         return True
     return _deliver(event, fns)
 

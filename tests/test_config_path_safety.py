@@ -12,7 +12,7 @@ cross-drive Windows paths.
 See:
 - ``voice_typer/server/config.py:_validate_path_safety``
 - ``voice_typer/server/config.py:_is_path_within``
-- ``comprehensive-review.md`` finding CR-17
+- ``review.md`` finding CR-17
 """
 
 from pathlib import Path

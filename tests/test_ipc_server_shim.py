@@ -27,10 +27,7 @@ import pytest
 # ``ipc/server.py``) was the OPPOSITE direction and is explicitly
 # abandoned. These 4 tests are therefore skipped (XS-50): they document
 # the abandoned direction but are not expected to ever run.
-_SKIP_REASON = (
-    "abandoned — CR-1/Fix-A shim extraction deferred. "
-    "See comprehensive-review.md XS-50."
-)
+_SKIP_REASON = "abandoned — CR-1/Fix-A shim extraction deferred. See review.md XS-50."
 
 
 @pytest.mark.skip(reason=_SKIP_REASON)

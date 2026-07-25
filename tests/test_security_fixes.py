@@ -1,7 +1,7 @@
 """PIR-SEC-1: regression tests for SEC-8 / SEC-9 / SEC-10 security fixes.
 
 These three fixes close the security findings flagged in
-``comprehensive-review.md`` §"Security":
+``review.md`` §"Security":
 
   * **SEC-8** — TCP accept loop runs the auth handshake inline (soft
     DoS, 5s stall). Fix: hand off accepted connections to a worker

@@ -116,6 +116,15 @@ class TimerCoordinator:
           (b) is in the pending list with the current generation and
               no cancel happens before it fires (legitimate run).
         The previous race let a timer escape cancellation entirely.
+
+        XV-129: when a timer fires (the guarded callback runs),
+        ``guarded_func`` removes it from ``_pending_timers`` under
+        the lock. Previously fired timers stayed in the list forever
+        — a long-running app that schedules ~5 timers per dictation
+        cycle accumulated ~4,000 stale ``threading.Timer`` shells in
+        ``_pending_timers``, which ``_cancel_pending_timers`` would
+        then iterate (calling ``timer.cancel()`` on already-fired
+        timers — a no-op but still O(N) work) on every shutdown.
         """
         with self._pending_timers_lock:
             gen = self._timer_generation
@@ -153,6 +162,16 @@ class TimerCoordinator:
                 with self._pending_timers_lock:
                     if gen != self._timer_generation:
                         return
+                    # XV-129: evict this timer from ``_pending_timers``
+                    # BEFORE invoking ``func()`` so the list doesn't
+                    # accumulate fired-timer shells. Lock is held only
+                    # for the mutation, released before ``func()`` so a
+                    # slow callback doesn't block other threads. ``timer``
+                    # is captured via closure on the enclosing
+                    # ``_schedule_timer`` call (one ``guarded_func`` per
+                    # timer).
+                    if timer in self._pending_timers:
+                        self._pending_timers.remove(timer)
                 func()
 
             timer = threading.Timer(delay, guarded_func)
