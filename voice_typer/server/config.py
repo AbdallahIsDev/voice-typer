@@ -32,7 +32,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PureWindowsPath
 from typing import Any, Literal
 
-from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey
+from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey, cross_platform_hotkey_warnings
 from voice_typer.server.platform_utils import is_macos, is_windows
 from voice_typer.server.secure_file_io import (  # noqa: F401 — backward-compat re-export
     _secure_atomic_write,
@@ -1303,6 +1303,31 @@ class Config:
                     # loaded_version+1 up to _CURRENT_SCHEMA_VERSION.
                     # If loaded_version >= _CURRENT_SCHEMA_VERSION the
                     # range is empty (no migrations to run).
+                    #
+                    # XZ-14-16: On migrator exception, do NOT bump
+                    # schema_version to _CURRENT_SCHEMA_VERSION and do
+                    # NOT continue to the next migrator.  Leave
+                    # schema_version at ``last_successful_version``
+                    # (= ``loaded_version`` if no migrator has succeeded
+                    # yet) so the failed migration re-runs on the next
+                    # launch.  Previously the runner silently swallowed
+                    # the exception, kept the partially-migrated data,
+                    # and bumped the version to
+                    # ``_CURRENT_SCHEMA_VERSION`` -- that bricked the
+                    # config: the next launch saw version==current and
+                    # skipped the failed migrator permanently, leaving
+                    # the user with a half-migrated config that claimed
+                    # to be fully migrated.
+                    #
+                    # When ``loaded_version`` is missing or non-int
+                    # (fresh install / corrupt file), there is nothing
+                    # to migrate -- default to ``_CURRENT_SCHEMA_VERSION``
+                    # so a fresh config gets the current schema.
+                    last_successful_version = (
+                        loaded_version
+                        if isinstance(loaded_version, int)
+                        else _CURRENT_SCHEMA_VERSION
+                    )
                     if isinstance(loaded_version, int):
                         for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
                             migrator = _MIGRATIONS.get(version)
@@ -1314,29 +1339,75 @@ class Config:
                                     max(loaded_version, version - 1),
                                     version,
                                 )
-                                # G4-CR-07: wrap each migrator in
-                                # try/except so a buggy migrator doesn't
-                                # brick the user's config permanently.
-                                # KEEP the partially-migrated data and
-                                # continue with the next migrator.
+                                # G4-CR-07 / XZ-14-16: wrap each
+                                # migrator in try/except.  On exception:
+                                # log ERROR with the failed version and
+                                # exception type, save a timestamped +
+                                # version-stamped .bak so the user can
+                                # recover the pre-failure on-disk state,
+                                # then BREAK the loop.  Later migrators
+                                # expect the prior version's data shape
+                                # and would compound the corruption if
+                                # run.  schema_version is left at
+                                # ``last_successful_version`` (NOT bumped
+                                # to _CURRENT_SCHEMA_VERSION) so the
+                                # migration re-runs on next launch.
                                 try:
                                     data = migrator(data)
                                     migrations_ran = True
+                                    last_successful_version = version
                                 except Exception as migrator_exc:
                                     log.error(
                                         "[CONFIG] migrator v%d raised %s: %s -- "
-                                        "keeping partially-migrated data and continuing",
+                                        "aborting migration loop; schema_version will "
+                                        "remain at v%d so this migration re-runs on next launch",
                                         version,
                                         type(migrator_exc).__name__,
                                         migrator_exc,
+                                        last_successful_version,
                                     )
                                     data.setdefault("_load_warnings", []).append(
                                         f"schema migration v{version} raised "
                                         f"{type(migrator_exc).__name__}: {migrator_exc} -- "
-                                        "partially-migrated data kept"
+                                        f"schema_version kept at v{last_successful_version}; "
+                                        "migration will re-run on next launch"
                                     )
                                     migrations_ran = True
-                    final_schema_version = _CURRENT_SCHEMA_VERSION
+                                    # XZ-14-16: save a timestamped .bak
+                                    # with the failed target version in
+                                    # the filename so multiple failures
+                                    # across launches don't clobber each
+                                    # other and the user can identify
+                                    # which migration produced which
+                                    # backup.  Best-effort -- a backup
+                                    # failure must not mask the original
+                                    # migrator failure.
+                                    try:
+                                        import shutil
+
+                                        ts = time.strftime(
+                                            "%Y%m%d-%H%M%S", time.gmtime()
+                                        )
+                                        failed_bak = config_file.parent / (
+                                            f"config.json.bak.failed-migration-"
+                                            f"{ts}-to-v{version}"
+                                        )
+                                        shutil.copy2(config_file, failed_bak)
+                                        log.warning(
+                                            "[CONFIG] migrator to v%d failed; saved "
+                                            "pre-failure config.json backup to %s",
+                                            version,
+                                            failed_bak,
+                                        )
+                                    except OSError as backup_exc:
+                                        log.warning(
+                                            "[CONFIG] migrator to v%d failed AND pre-failure "
+                                            "backup also failed: %s",
+                                            version,
+                                            backup_exc,
+                                        )
+                                    break  # XZ-14-16: do NOT run later migrators
+                    final_schema_version = last_successful_version
                 data["schema_version"] = final_schema_version
 
                 # G4-CR-07: best-effort backup of config.json BEFORE
@@ -1639,6 +1710,7 @@ class Config:
                 load_warnings = data.pop("_load_warnings", [])
 
                 instance = cls(**data)
+                load_warnings.extend(cross_platform_hotkey_warnings(instance))
                 instance.last_load_warnings = load_warnings
 
                 # AUDIO-PRESET-LOAD-FIX: apply the audio preset's filter

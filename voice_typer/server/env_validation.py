@@ -65,6 +65,38 @@ def _validate_env_vars() -> None:
             "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=<redacted> -- expected valid path. Resetting to empty.",
         )
         os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
+    elif config_dir is not None:
+        # XZ-14-07: path-traversal / out-of-home check.  Mirror the
+        # SEC-HFHOME-001 (HIGH-12) pattern used for HF_HOME below —
+        # VOICE_TYPER_CONFIG_DIR is consumed by ``config._config_dir()``
+        # which already runs ``_validate_path_safety`` itself, but
+        # defense-in-depth requires the env-var entry point to reject
+        # traversal values *here* too (so the unsafe value never
+        # reaches a downstream consumer that forgets to re-validate).
+        # Import locally to avoid a circular import at module load time
+        # (config.py is heavy and pulls in many dependencies).
+        from pathlib import Path
+
+        from voice_typer.server.config import _validate_path_safety
+
+        try:
+            _validate_path_safety(Path(config_dir), Path.home())
+        except (ValueError, OSError, RuntimeError) as exc:
+            # GT-63: pre-redact the CONFIG_DIR value (path -> PII).
+            # GT-B1-14: include the exception *type name* so the operator
+            # knows which validation predicate failed (ValueError vs
+            # OSError vs RuntimeError) without having to grep the source.
+            # ``%s`` of the exception instance itself is safe -- the
+            # validation predicates raise with messages that describe the
+            # *rule* that failed ("path escapes home directory"), not the
+            # *value* that failed (the path itself stays redacted).
+            log.warning(
+                "[ENV] VOICE_TYPER_CONFIG_DIR=<redacted> failed path-safety validation (%s: %s) — "
+                "discarding to prevent config path traversal.",
+                type(exc).__name__,
+                exc,
+            )
+            os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
 
     ipc_token = os.environ.get("VOICE_TYPER_IPC_TOKEN")
     if ipc_token is not None and not _token_pattern.match(ipc_token):

@@ -257,14 +257,34 @@ def _make_custom_theme_validator() -> ValidatorFn:
             # line 128's pattern). The value itself could be a long
             # string, so we use type name rather than the value.
             return f"must be a dict, got {type(v).__name__}"
+        # XZ-14-15: cap the top-level dict size to prevent a malicious
+        # or buggy config from sending a 10000-key theme dict (the
+        # legitimate shape is exactly 2 keys: "light" and "dark").  64
+        # is a generous upper bound that catches attacks without
+        # rejecting any plausible hand-written theme.
+        if len(v) > 64:
+            return "too many top-level keys"
         for mode in ("light", "dark"):
             mode_dict = v.get(mode)
             if not isinstance(mode_dict, dict):
                 return f"field {mode!r} must be a dict"
+            # XZ-14-15: bound the per-mode dict size.  The legitimate
+            # shape has 6 required CSS-variable keys; 64 leaves room
+            # for future extensions while still rejecting pathological
+            # inputs.
+            if len(mode_dict) > 64:
+                return f"{mode} has too many keys"
             for key in key_keys:
                 val = mode_dict.get(key)
                 if not isinstance(val, str):
                     return f"{mode}.{key} must be a string, got {type(val).__name__}"
+                # XZ-14-15: bound the color value length.  Legitimate
+                # hex colors are 7 chars (#RRGGBB) or 9 chars
+                # (#RRGGBBAA); 32 is a generous upper bound that
+                # catches malicious 1000-char strings without
+                # rejecting anything legit.
+                if len(val) > 32:
+                    return f"{mode}.{key} color value too long"
                 if not val.startswith("#"):
                     return f"{mode}.{key} must be a hex colour (#rrggbb)"
                 # Basic hex validation: # followed by 6 hex digits, optionally 8 for alpha
@@ -667,8 +687,268 @@ def _validate_hotkey(value: object) -> str | None:
     return None
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# XZ-14-04 / XZ-14-05: cross-field hotkey conflict check and cross-platform
+# portability warnings.
+#
+# The per-field ``_validate_hotkey`` (above) only consults the *current*
+# platform's reserved list and only sees one hotkey field at a time.  These
+# two helpers layer on top of it:
+#
+#   - :func:`_check_cross_field_hotkey_conflicts` (XZ-14-04): detects when
+#     two of the three hotkey fields (``hotkey``, ``repaste_hotkey``,
+#     ``push_to_talk_hotkey``) are assigned the same value.  Called from
+#     both :func:`validate_config_update` and :func:`validate_config` so
+#     the conflict is caught at IPC-write time AND at config-load time.
+#
+#   - :func:`cross_platform_hotkey_warnings` (XZ-14-05): checks each hotkey
+#     value against the reserved lists of EVERY non-current platform and
+#     returns warning strings (NOT errors — the hotkey is valid on the
+#     user's current platform).  Callers (e.g. ``Config.load()`` in
+#     ``config.py``) should append the returned strings to
+#     ``Config._load_warnings`` / ``last_load_warnings`` so the UI can
+#     surface them as non-blocking portability notices.
+# ──────────────────────────────────────────────────────────────────────────
+
+# The three hotkey fields whose values must not collide.  Note that
+# ``push_to_talk_hotkey`` is NOT in :data:`IPC_CONFIG_ALLOWLIST` (removed
+# per GT-F2-8 — see comment at the allowlist entry for ``repaste_hotkey``),
+# so the IPC path's cross-field check will only see fields that survive
+# the per-field validator (i.e. ``hotkey`` and ``repaste_hotkey``).  The
+# full-config validator (:func:`validate_config`) DOES see all three
+# fields via ``getattr(cfg, name)``, so a hand-edited config.json that
+# sets a conflicting ``push_to_talk_hotkey`` is still caught at load time.
+_HOTKEY_FIELD_NAMES: tuple[str, ...] = ("hotkey", "repaste_hotkey", "push_to_talk_hotkey")
+
+
+def _check_cross_field_hotkey_conflicts(
+    field_values: dict[str, str | None],
+) -> list[str]:
+    """Detect duplicate hotkey assignments across the 3 hotkey fields.
+
+    XZ-14-04: without this cross-field check, a user could set
+    ``hotkey=<ctrl>+<space>`` AND ``push_to_talk_hotkey=<ctrl>+<space>``
+    simultaneously and the second assignment would silently overwrite
+    the first when both listeners register with pynput / Win32
+    ``RegisterHotKey`` / macOS ``CGEventTap``.
+
+    Parameters
+    ----------
+    field_values
+        A mapping from hotkey field name (``"hotkey"``,
+        ``"repaste_hotkey"``, ``"push_to_talk_hotkey"``) to its current
+        value (or ``None`` if not set).  Unknown field names are
+        ignored; missing field names are treated as ``None``.
+
+    Returns
+    -------
+    list[str]
+        A list of human-readable error strings, one per conflicting
+        pair.  Empty list means no conflicts.  Each error names BOTH
+        conflicting fields so the user can decide which one to change,
+        and includes the canonical hotkey spec (so ``<ctrl>+<space>``
+        and ``<ctrl>+<SPACE>`` are recognised as the same hotkey).
+    """
+    from voice_typer.server.hotkey_spec import parse_hotkey
+
+    # Map canonical spec string -> list of field names that have it.
+    # Skip empty/None values: a None hotkey means "not set", and two
+    # unset hotkeys don't conflict.
+    seen: dict[str, list[str]] = {}
+    for field_name in _HOTKEY_FIELD_NAMES:
+        value = field_values.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        spec = parse_hotkey(value)
+        if spec.is_empty:
+            continue
+        canonical = spec.to_spec_string()
+        seen.setdefault(canonical, []).append(field_name)
+
+    errors: list[str] = []
+    for canonical, fields in seen.items():
+        if len(fields) > 1:
+            # If 3 fields all share the same value, report two conflicts
+            # (fields[0] vs fields[1], fields[0] vs fields[2]) so the
+            # user sees every collision involving the first field.
+            for other in fields[1:]:
+                errors.append(
+                    f"Hotkey conflict: {canonical} is assigned to both "
+                    f"'{fields[0]}' and '{other}'"
+                )
+    return errors
+
+
+def _cross_platform_hotkey_warning(value: str, field_name: str) -> str | None:
+    """Return a portability warning if ``value`` is reserved on a non-current platform.
+
+    XZ-14-05: ``_validate_hotkey`` only consults the *current* platform's
+    reserved list (via :func:`_platform_key`), so a hotkey like
+    ``<cmd>+<q>`` passes on Linux but quits apps on macOS.  This helper
+    checks the value against EVERY platform's reserved list (except the
+    current one, which is already enforced by ``_validate_hotkey`` as a
+    hard rejection) and returns a warning string for the first non-current
+    conflict found.
+
+    Returns ``None`` if the value is valid on every non-current platform
+    (or if the value is empty / not a string).
+
+    The warning is informational only — the hotkey may be perfectly valid
+    on the user's current platform, and rejecting it would deny the user
+    the freedom to set platform-specific shortcuts.  The warning just
+    alerts them that the config won't be portable to the named platform.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip().lower()
+    current_platform = _platform_key()
+    for platform in _RESERVED_HOTKEYS:
+        if platform == current_platform:
+            continue
+        err = _check_platform_reserved(normalized, platform)
+        if err is not None:
+            return (
+                f"{field_name} ({value!r}) is {err} — "
+                "this config will not be portable to that platform"
+            )
+    return None
+
+
+def cross_platform_hotkey_warnings(cfg: object) -> list[str]:
+    """Produce portability warnings for every hotkey field on ``cfg``.
+
+    XZ-14-05: this is the warnings counterpart of :func:`validate_config`.
+    It checks each of the 3 hotkey fields (``hotkey``, ``repaste_hotkey``,
+    ``push_to_talk_hotkey``) against the reserved lists of every
+    non-current platform and returns a list of human-readable warning
+    strings.
+
+    Callers (e.g. ``Config.load()`` in :mod:`voice_typer.server.config`)
+    should append the returned strings to ``Config._load_warnings`` /
+    ``last_load_warnings`` so the UI can surface them as non-blocking
+    notices.  The mechanism mirrors how :func:`validate_config` errors
+    are surfaced (see the docstring of :func:`validate_config` for the
+    coordination note with agent 2-a / SA11).
+
+    Warnings (NOT errors) are emitted because the hotkey may be perfectly
+    valid on the user's current platform — rejecting it would deny the
+    user the freedom to set platform-specific shortcuts.  The warning
+    just alerts them that the config won't be portable.
+
+    Parameters
+    ----------
+    cfg
+        A :class:`Config` dataclass instance (duck-typed — only
+        ``getattr`` is used, so any object exposing the hotkey fields
+        as attributes works for testing).
+
+    Returns
+    -------
+    list[str]
+        A list of warning strings, one per non-current platform conflict.
+        Empty list means the config is portable (or no hotkeys are set).
+    """
+    warnings: list[str] = []
+    for field_name in _HOTKEY_FIELD_NAMES:
+        try:
+            value = getattr(cfg, field_name)
+        except AttributeError:
+            continue
+        if value is None:
+            continue
+        warning = _cross_platform_hotkey_warning(value, field_name)
+        if warning is not None:
+            warnings.append(warning)
+    return warnings
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# XZ-14-08: recognized Whisper language codes.
+#
+# Previously ``_VALIDATOR_LANGUAGE`` was just ``_make_str_validator(max_len=16)``,
+# which accepted any string up to 16 chars.  A typo like ``"english"`` or
+# ``"zzzzz"`` would pass validation, persist to config.json, and surface as
+# a cryptic Whisper load error at transcription time.  This allowlist
+# catches such typos at ``set_config`` time with a clear, actionable error.
+#
+# Source: ``whisper.tokenizer.LANGUAGES`` (a dict of 2-letter ISO 639-1
+# code → language name) if the ``whisper`` package is importable at module
+# init.  Otherwise a hardcoded fallback covering the same 99 codes from
+# openai-whisper's tokenizer.py (as of v20231117).  When whisper IS
+# importable we use the live dict so any new languages added upstream are
+# picked up automatically.
+# ──────────────────────────────────────────────────────────────────────────
+try:
+    from whisper.tokenizer import LANGUAGES as _whisper_languages  # type: ignore[import-not-found]
+
+    _ALLOWED_LANGUAGES: frozenset[str] = frozenset(_whisper_languages.keys())
+    _ALLOWED_LANGUAGES_SOURCE = "whisper.tokenizer.LANGUAGES"
+except ImportError:
+    # Hardcoded fallback — the 99 codes from openai-whisper's tokenizer.py.
+    # Kept in sync with the upstream list.  When whisper IS importable we
+    # use the live dict (above) so new languages are picked up automatically.
+    _ALLOWED_LANGUAGES = frozenset({
+        "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr",
+        "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi",
+        "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
+        "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk",
+        "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk",
+        "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
+        "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc",
+        "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo",
+        "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
+        "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue",
+    })
+    _ALLOWED_LANGUAGES_SOURCE = "hardcoded fallback (whisper not importable)"
+
+
+# Reuse the existing string validator for the basic shape checks (type,
+# length, control characters).  XZ-14-08 layers the language-code allowlist
+# on top so the existing ``test_str_validator_via_ipc_rejects_nul_in_language``
+# regression test (which expects the error to contain the word "control")
+# continues to pass.
+_LANGUAGE_BASE_VALIDATOR = _make_str_validator(max_len=16)
+
+
+def _validate_language(value: object) -> str | None:
+    """Validate a Whisper language code.
+
+    XZ-14-08: previously ``_VALIDATOR_LANGUAGE`` was just
+    ``_make_str_validator(max_len=16)`` which accepted any string up to
+    16 chars.  A typo like ``"english"`` or ``"zzzzz"`` would pass
+    validation, persist to config.json, and surface as a cryptic Whisper
+    load error at transcription time.
+
+    This validator:
+
+    1. Reuses :data:`_LANGUAGE_BASE_VALIDATOR` for type / length /
+       control-character checks (so the existing
+       ``test_str_validator_via_ipc_rejects_nul_in_language`` regression
+       test still passes — the error must contain the word "control").
+    2. Accepts the empty string as valid (interpreted as "auto-detect" —
+       the renderer's ``value={config.language || "auto"}`` fallback relies
+       on this).
+    3. Rejects any non-empty string that is not a 2-letter ISO 639-1 code
+       in :data:`_ALLOWED_LANGUAGES` with a clear, actionable error.
+    """
+    err = _LANGUAGE_BASE_VALIDATOR(value)
+    if err is not None:
+        return err
+    # ``err is None`` implies ``value`` is a str (per _make_str_validator).
+    assert isinstance(value, str)
+    # Empty string is interpreted as "auto-detect" — accept it.
+    if value == "":
+        return None
+    if value not in _ALLOWED_LANGUAGES:
+        return (
+            f"Invalid language code {value!r} — expected a 2-letter "
+            "ISO 639-1 code like 'en', 'zh', 'ja'"
+        )
+    return None
+
+
 _VALIDATOR_HOTKEY = _validate_hotkey
-_VALIDATOR_LANGUAGE = _make_str_validator(max_len=16)
+_VALIDATOR_LANGUAGE = _validate_language
 _VALIDATOR_API_KEY = _make_str_validator(max_len=_MAX_API_KEY_LEN)
 _VALIDATOR_API_URL = _make_url_validator(allow_empty=True)
 _VALIDATOR_LLM_API_URL = _make_url_validator(allow_empty=False)
@@ -803,7 +1083,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── History database ──────────────────────────────────────────────
     "history_retention_days": (int, _make_int_validator(lo=0, hi=36500)),
     "history_retention_count": (int, _make_int_validator(lo=0, hi=1_000_000)),
-    "history_max_entries": (int, _make_int_validator(lo=10, hi=1_000_000)),
+    "history_max_entries": (int, _make_int_validator(lo=0, hi=1_000_000)),
     # ── P3 Features / UX ──────────────────────────────────────────────
     "tray_left_click_action": (str, _make_enum_validator({"open_app", "toggle_dictation"})),
     "theme_mode": (str, _make_enum_validator({"system", "light", "dark"})),
@@ -831,7 +1111,11 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── Silent mic disconnection (H12) ────────────────────────────────
     "silence_warning_seconds": (float, _make_float_validator(lo=0.0, hi=600.0)),
     "stop_on_silence_seconds": (float, _make_float_validator(lo=0.0, hi=3600.0)),
-    "max_recording_time_seconds": (int, _make_int_validator(lo=300, hi=3600)),
+    # XZ-14-09: lower bound lowered from 300 to 30 (the prior 5-minute
+    # minimum was an arbitrary / likely-typo value; 30 seconds still
+    # guards against accidentally-zero values while allowing short
+    # recordings for testing).
+    "max_recording_time_seconds": (int, _make_int_validator(lo=30, hi=3600)),
     # GT-58: silence_rms_threshold / silence_peak_threshold REMOVED from
     # the IPC allowlist — they were also removed from the Config dataclass
     # (declared, validated, persisted, never read at runtime per ADR 0007
@@ -841,8 +1125,10 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "use_silero_vad": (bool, _bool_validator),
     "vad_speech_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     "vad_silence_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
-    # AUDIO-CH: recording channels
-    "recording_channels": (int, _make_int_validator(lo=0, hi=8)),
+    # AUDIO-CH: recording channels (XZ-14-09: lower bound raised from
+    # 0 to 1 — 0 channels is nonsensical and would crash the recorder at
+    # open-stream time with an obscure PyAudio / sounddevice error).
+    "recording_channels": (int, _make_int_validator(lo=1, hi=8)),
     # AUDIO-PRE: pre-roll buffer
     "pre_roll_buffer_seconds": (float, _make_float_validator(lo=0.0, hi=30.0)),
     # GT-58: normalize_audio / normalize_target_peak REMOVED from the IPC
@@ -995,6 +1281,21 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
             # CR-25: accumulate ALL errors, do not break on first.
             continue
         validated[k] = v
+    # XZ-14-04: cross-field hotkey conflict check.  Only fields that
+    # passed their per-field validator are in ``validated`` — invalid
+    # hotkeys don't participate in the cross-field check (they already
+    # produced their own per-field error and would just add noise).
+    # Note: ``push_to_talk_hotkey`` is NOT in IPC_CONFIG_ALLOWLIST
+    # (removed per GT-F2-8), so it's silently dropped above and never
+    # appears in ``validated`` — the IPC path can only catch conflicts
+    # between ``hotkey`` and ``repaste_hotkey``.  Conflicts involving
+    # ``push_to_talk_hotkey`` are caught by :func:`validate_config`
+    # at config-load time (it sees all 3 fields via getattr).
+    hotkey_values: dict[str, str | None] = {
+        name: (validated[name] if name in validated else None)
+        for name in _HOTKEY_FIELD_NAMES
+    }
+    errors.extend(_check_cross_field_hotkey_conflicts(hotkey_values))
     return validated, errors
 
 
@@ -1058,6 +1359,20 @@ def validate_config(cfg: object) -> list[str]:
         err = validator(value)
         if err:
             errors.append(f"{key}: {err}")
+    # XZ-14-04: cross-field hotkey conflict check on the FULL config.
+    # Unlike :func:`validate_config_update` (which can only see fields
+    # the renderer pushed), this function sees ALL 3 hotkey fields via
+    # getattr — so it catches conflicts involving ``push_to_talk_hotkey``
+    # (which is NOT in IPC_CONFIG_ALLOWLIST and therefore not settable
+    # via IPC, but IS a Config dataclass field that can be set by a
+    # hand-edited config.json).
+    hotkey_values: dict[str, str | None] = {}
+    for name in _HOTKEY_FIELD_NAMES:
+        try:
+            hotkey_values[name] = getattr(cfg, name)  # type: ignore[assignment]
+        except AttributeError:
+            hotkey_values[name] = None
+    errors.extend(_check_cross_field_hotkey_conflicts(hotkey_values))
     return errors
 
 
@@ -1116,4 +1431,15 @@ __all__ = [
     "_check_alt_shift",
     "_check_ctrl_letter",
     "_check_shift_letter",
+    # XZ-14-04: cross-field hotkey conflict check.
+    "_HOTKEY_FIELD_NAMES",
+    "_check_cross_field_hotkey_conflicts",
+    # XZ-14-05: cross-platform hotkey portability warnings.
+    "_cross_platform_hotkey_warning",
+    "cross_platform_hotkey_warnings",
+    # XZ-14-08: language code validator + allowlist.
+    "_ALLOWED_LANGUAGES",
+    "_ALLOWED_LANGUAGES_SOURCE",
+    "_LANGUAGE_BASE_VALIDATOR",
+    "_validate_language",
 ]

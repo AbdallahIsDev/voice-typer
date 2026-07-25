@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 import pytest
 from voice_typer.server.env_validation import _validate_env_vars
@@ -208,9 +209,15 @@ class TestPathVars:
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_valid_path_preserved(self, monkeypatch, var):
-        monkeypatch.setenv(var, "/home/user/.config/voice-typer")
+        # XZ-14-07: use a path under ``Path.home()`` because both
+        # VOICE_TYPER_CONFIG_DIR and HF_HOME now run
+        # ``_validate_path_safety(Path(val), Path.home())`` (mirroring
+        # the SEC-HFHOME-001 pattern). A path like ``/home/user/...`` is
+        # rejected on hosts where ``Path.home()`` is not ``/home/user``.
+        safe_path = str(Path.home() / ".config" / "voice-typer")
+        monkeypatch.setenv(var, safe_path)
         _validate_env_vars()
-        assert os.environ.get(var) == "/home/user/.config/voice-typer"
+        assert os.environ.get(var) == safe_path
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_empty_path_removed(self, monkeypatch, var):
@@ -230,9 +237,13 @@ class TestPathVars:
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_unicode_path_preserved(self, monkeypatch, var):
         # Non-ASCII chars are allowed (only NUL is forbidden).
-        monkeypatch.setenv(var, "/home/user/配置/voice-typer")
+        # XZ-14-07: keep the path under ``Path.home()`` so the
+        # ``_validate_path_safety`` check (run for both VOICE_TYPER_CONFIG_DIR
+        # and HF_HOME) does not reject it as an out-of-home traversal.
+        safe_path = str(Path.home() / "配置" / "voice-typer")
+        monkeypatch.setenv(var, safe_path)
         _validate_env_vars()
-        assert os.environ.get(var) == "/home/user/配置/voice-typer"
+        assert os.environ.get(var) == safe_path
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_path_at_max_length_preserved(self, monkeypatch, var):
@@ -255,19 +266,23 @@ class TestAllVarsSet:
     """End-to-end: every validated var present and valid — all preserved."""
 
     def test_all_valid_all_preserved(self, monkeypatch):
+        # XZ-14-07: ``/tmp/voice-typer`` is outside ``Path.home()`` so it
+        # is now rejected by the path-safety check for both
+        # VOICE_TYPER_CONFIG_DIR and HF_HOME. Use a path under home.
+        safe_path = str(Path.home() / ".voice-typer-test")
         for var in _BOOL_VARS:
             monkeypatch.setenv(var, "1")
         for var in _TOKEN_VARS:
             monkeypatch.setenv(var, "tok_123")
         for var in _PATH_VARS:
-            monkeypatch.setenv(var, "/tmp/voice-typer")
+            monkeypatch.setenv(var, safe_path)
         _validate_env_vars()
         for var in _BOOL_VARS:
             assert os.environ.get(var) == "1", f"{var} was modified"
         for var in _TOKEN_VARS:
             assert os.environ.get(var) == "tok_123", f"{var} was modified"
         for var in _PATH_VARS:
-            assert os.environ.get(var) == "/tmp/voice-typer", f"{var} modified"
+            assert os.environ.get(var) == safe_path, f"{var} modified"
 
     def test_all_invalid_all_removed(self, monkeypatch):
         for var in _BOOL_VARS:
