@@ -161,8 +161,13 @@ from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _HF_A
 # ~1 µs) and made the code harder to read.  Callers now use
 # ``config._config_dir()`` directly.
 
-# PROD-004: maximum number of download retries with exponential backoff.
-_MAX_DOWNLOAD_RETRIES = 4
+# PROD-004: maximum number of download attempts (1 initial + 3 retries)
+# with exponential backoff.  This value is passed as ``max_attempts=`` to
+# ``_download_with_retry`` (NOT ``max_retries=``), so the name reflects
+# total attempts, not retries-after-the-first.  Previously named
+# ``_MAX_DOWNLOAD_RETRIES`` which was ambiguous ("4 retries" could mean
+# 4 total or 5 total); renamed for clarity.
+_MAX_DOWNLOAD_ATTEMPTS = 4
 
 # PROD-005: the local ``_check_disk_space`` and ``_ESTIMATED_MODEL_SIZES``
 # duplicate was REMOVED. The canonical disk-space check lives in
@@ -323,7 +328,11 @@ def download_parakeet_weights(
     """Download Parakeet TDT v3 model weights via huggingface_hub.
 
     PROD-004: wraps snapshot_download in retry loop with exponential
-    backoff (1s, 2s, 4s, 8s, max 4 retries). Logs each retry attempt.
+    backoff.  Max 4 attempts total (1 initial + 3 retries); the delays
+    tuple passed to ``_download_with_retry`` is ``(1s, 2s, 4s, 8s)``
+    but only the first 3 entries are consumed (one delay before each
+    retry), so the user-visible backoff is 1s, 2s, 4s. Logs each
+    retry attempt.
 
     PROD-005: checks disk space before attempting download.
 
@@ -336,8 +345,8 @@ def download_parakeet_weights(
       - ``"huggingface_consent_false"`` — consent gate blocked download.
       - ``"huggingface_hub_missing"`` — ``huggingface_hub`` import failed.
       - ``"disk_space_insufficient"`` — canonical disk-space check raised.
-      - ``"download_retry_exhausted"`` — all ``_MAX_DOWNLOAD_RETRIES``
-        attempts failed.
+      - ``"download_retry_exhausted"`` — all ``_MAX_DOWNLOAD_ATTEMPTS``
+        attempts failed (1 initial + 3 retries with exponential backoff).
       - ``"integrity_check_failed"`` — post-download integrity check
         returned False (tampered or corrupted download).
     Success returns ``(True, "", None)``.
@@ -496,8 +505,8 @@ def download_parakeet_weights(
 
         local_dir = _download_with_retry(
             snapshot_download,
-            max_attempts=_MAX_DOWNLOAD_RETRIES,
-            delays=tuple(2**i for i in range(_MAX_DOWNLOAD_RETRIES)),  # keep exponential backoff
+            max_attempts=_MAX_DOWNLOAD_ATTEMPTS,
+            delays=tuple(2**i for i in range(_MAX_DOWNLOAD_ATTEMPTS)),  # keep exponential backoff
             repo_id=repo_id,
             revision=parakeet_revision,
             allow_patterns=_HF_ALLOW_PATTERNS,
@@ -515,12 +524,12 @@ def download_parakeet_weights(
         captured_exc_info = sys.exc_info()
         log.error(
             "[ASR_SETUP] All %d download attempts failed. Last error: %s",
-            _MAX_DOWNLOAD_RETRIES,
+            _MAX_DOWNLOAD_ATTEMPTS,
             e,
             exc_info=True,
         )
         if progress_callback:
-            progress_callback(f"Download failed after {_MAX_DOWNLOAD_RETRIES} attempts: {e}")
+            progress_callback(f"Download failed after {_MAX_DOWNLOAD_ATTEMPTS} attempts: {e}")
         return (False, "download_retry_exhausted", captured_exc_info)
 
     # PROD-006: Verify model integrity after download

@@ -279,6 +279,19 @@ dev = [
     "pre-commit>=3.7",
     # TEST-010: mutmut for mutation testing
     "mutmut>=2.4",
+    # XZ-CC-15(part a): pin pyrefly to the exact 1.1.1 release used by CI
+    # (see `.github/workflows/build.yml` → "Run pyrefly type check" step,
+    # which installs `pyrefly==1.1.1` via `uv pip install --system`).
+    # Without this pin, a local `pip install -e ".[dev]"` would pull the
+    # latest pyrefly release, whose error heuristics may differ from
+    # CI's, causing local-vs-CI drift on the baseline-audit gate. The
+    # baseline file (`pyrefly-baseline.json`) is regenerated against a
+    # specific pyrefly version and is meaningful ONLY when compared
+    # across runs of the same version. Per the Critical Architecture
+    # Rules, this pin must NEVER be loosened to a `>=` range — bump it
+    # only as an atomic coordinated change (pyproject.toml + build.yml
+    # + regenerated baseline).
+    "pyrefly==1.1.1",
 ]
 
 # ── pyrefly (fast Rust-based Python type checker) ─────────────────────

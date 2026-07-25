@@ -77,8 +77,11 @@ the mutable-state routing case).  All three packages together
 account for ~500 LOC of ``__init__.py`` boilerplate that exists
 purely for test-patch compatibility.
 
-TODO: migrate tests to patch submodules directly, then remove the
-``_pkg.X`` indirection.  Concretely: replace
+TODO (2026-07-25, CR-67 / TECH-DEBT — OPEN, awaiting migration):
+This ``__init__.py`` boilerplate exists for test-patch compatibility
+during the package reorganization.  Once CR-67 is complete, this
+file will be simplified.  Migrate tests to patch submodules directly,
+then remove the ``_pkg.X`` indirection.  Concretely: replace
 ``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
 with
 ``monkeypatch.setattr("voice_typer.server.server_platform.<submodule>.X", ...)``

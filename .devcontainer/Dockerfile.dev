@@ -28,7 +28,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - \
 WORKDIR /workspace
 
 # Install Python deps first (better layer caching)
-COPY pyproject.toml requirements.txt ./
+COPY pyproject.toml ./
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -e ".[test,dev]"
 

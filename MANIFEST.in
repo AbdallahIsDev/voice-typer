@@ -6,7 +6,6 @@ include CHANGELOG.md
 include CONTRIBUTING.md
 include FEATURES.md
 include pyproject.toml
-include requirements.txt
 
 # Server Python modules
 recursive-include voice_typer/server *.py

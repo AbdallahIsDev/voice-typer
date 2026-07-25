@@ -46,8 +46,11 @@ names via ``_pkg.X`` at call time).  All three packages together
 account for ~500 LOC of ``__init__.py`` boilerplate that exists
 purely for test-patch compatibility.
 
-TODO: migrate tests to patch submodules directly, then remove this
-class.  Concretely: replace
+TODO (2026-07-25, CR-67 / TECH-DEBT — OPEN, awaiting migration):
+This ``__init__.py`` boilerplate exists for test-patch compatibility
+during the package reorganization.  Once CR-67 is complete, this
+file will be simplified.  Migrate tests to patch submodules directly,
+then remove this class.  Concretely: replace
 ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
 with
 ``monkeypatch.setattr("voice_typer.server.recording.resampling._resample_poly_error", ...)``
@@ -326,8 +329,11 @@ __all__ = [
 # ``__setattr__`` overrides that route the mutable names through to
 # the owning submodule.
 #
-# TODO: migrate tests to patch submodules directly, then remove this
-# class.  Replace
+# TODO (2026-07-25, CR-67 / TECH-DEBT — OPEN, awaiting migration):
+# This ``__init__.py`` boilerplate exists for test-patch compatibility
+# during the package reorganization.  Once CR-67 is complete, this
+# file will be simplified.  Migrate tests to patch submodules directly,
+# then remove this class.  Replace
 # ``monkeypatch.setattr("voice_typer.server.recording._resample_poly_error", ...)``
 # with
 # ``monkeypatch.setattr("voice_typer.server.recording.resampling._resample_poly_error", ...)``

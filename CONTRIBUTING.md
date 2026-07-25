@@ -87,9 +87,11 @@ source .venv/bin/activate          # macOS / Linux
 #    and uv's lockfile resolves all extras). See README §"Using uv"
 #    for the full backstory.
 uv pip install -e ".[test,dev]"
-#    Option B — pin to the locked set used by CI:
-uv pip install -r requirements.txt
-uv pip install -r requirements-lock.txt   # reproducible exact versions
+#    Option B — pin to the hash-pinned locked set used by CI:
+#    (XZ-CC-9: requirements.txt was removed; pip-installable deps now
+#    live ONLY in pyproject.toml. For reproducible builds with
+#    --require-hashes, use requirements-lock.txt.)
+uv pip install -r requirements-lock.txt   # reproducible exact versions + sha256 hashes
 
 # 5. Install the Electron + React frontend
 cd voice_typer/client
@@ -131,9 +133,11 @@ source ~/.voice-typer/venv/bin/activate
 # 4. Install Python deps (editable + test + dev extras).
 #    Option A — extras syntax (preferred):
 pip install -e ".[test,dev]"
-#    Option B — pin to the locked set used by CI:
-pip install -r requirements.txt
-pip install -r requirements-lock.txt   # reproducible exact versions
+#    Option B — pin to the hash-pinned locked set used by CI:
+#    (XZ-CC-9: requirements.txt was removed; pip-installable deps now
+#    live ONLY in pyproject.toml. For reproducible builds with
+#    --require-hashes, use requirements-lock.txt.)
+pip install -r requirements-lock.txt   # reproducible exact versions + sha256 hashes
 
 # 5. Install the Electron + React frontend
 cd voice_typer/client
@@ -155,6 +159,50 @@ pip install -e ".[qwen]"       # experimental Qwen3-ASR-0.6B backend
 pip install -e ".[deepfilternet]"  # premium DeepFilterNet noise filter
 pip install -e ".[build]"      # PyInstaller for producing the .exe/.app
 ```
+
+### Dependency Management
+
+This project has a **single source of truth** for Python dependencies:
+`pyproject.toml`'s `[project.dependencies]` (runtime) and
+`[project.optional-dependencies]` (extras: `test`, `dev`, `build`, `windows`,
+`macos`, `linux`, `qwen`, `deepfilternet`). The legacy `requirements.txt`
+mirror file was **removed** (XZ-CC-9) because it drifted out of sync with
+`pyproject.toml` — most notably it omitted two macOS pyobjc frameworks
+(`pyobjc-framework-CoreFoundation`, `pyobjc-framework-ApplicationServices`)
+that `pyproject.toml` correctly declares, causing `pip install
+-r requirements.txt` on macOS to silently break the mic watcher and the
+accessibility probe (XZ-CC-8).
+
+For reproducible builds, use **`requirements-lock.txt`** — it is generated
+via `uv pip compile --generate-hashes` and is safe to install with
+`pip install --require-hashes -r requirements-lock.txt`. The completeness
+of the lockfile against `pyproject.toml` is enforced by
+`tests/test_requirements_lock_completeness.py` (regression guard for H-20).
+
+To regenerate the lockfile after adding/removing a dependency:
+
+```bash
+uv pip compile --generate-hashes --python-version 3.12 pyproject.toml -o requirements-lock.txt
+```
+
+#### Frontend: TypeScript pin policy (XZ-CC-14)
+
+> **DO NOT DOWNGRADE `typescript` below 7.x.** `typescript@7.0.2` is the
+> LATEST STABLE RELEASE (verify with `npm view typescript version`). A
+> prior agent wrongly assumed 7.x was unstable and pinned the lockfile to
+> `5.6.3`, which broke `npm ci`. The `typescript` entry in
+> `voice_typer/client/package.json` is pinned to the **exact** version
+> `"7.0.2"` (no `^` or `~` caret) so a fresh `npm install` cannot
+> accidentally float to a different release. If you upgrade TypeScript,
+> keep `package-lock.json` in sync (run `npm install --package-lock-only`
+> after any change) and verify `npm ci && npm run typecheck` succeeds
+> before committing.
+
+This warning was previously inlined as a `"//devDependencies_note"` key
+in `package.json`. It has been moved here because (a) JSON doesn't
+officially support comments, (b) `package.json` is not the right place
+for prose rationale, and (c) a contributor is more likely to read this
+section before touching deps than to read a JSON string field.
 
 ### Pre-commit hooks
 
@@ -295,9 +343,8 @@ voice-typer/
 │   └── linux/                        # udev rules, polkit, postinst
 │
 ├── bench/                            # startup + transcription benchmarks
-├── pyproject.toml                    # project metadata, ruff, mypy, pytest
-├── requirements.txt                  # pip-installable deps (mirror of pyproject)
-├── requirements-lock.txt             # pinned exact versions
+├── pyproject.toml                    # project metadata, ruff, mypy, pytest, ALL deps
+├── requirements-lock.txt             # hash-pinned exact versions (--require-hashes safe)
 ├── .pre-commit-config.yaml           # ruff + mypy + biome + sanity hooks
 ├── README.md
 ├── CONTRIBUTING.md                   # ← you are here

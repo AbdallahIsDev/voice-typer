@@ -62,3 +62,18 @@ repos:
         language: system
         files: ^voice_typer/(server|client/src)/.*\.(py|ts|tsx|html)$
         pass_filenames: false
+      # XZ-14-11: The reserved-hotkey JSON is intentionally duplicated
+      # (byte-identical copy) between voice_typer/server/ and
+      # voice_typer/client/src/renderer/src/data/ because the @server
+      # Vite alias resolved outside the renderer root and crashed Vite's
+      # dev server during HMR on locale switch. This hook runs the sync
+      # test so any drift between the two copies blocks the commit.
+      # If this hook fails, run:
+      #   cp voice_typer/server/hotkey_reserved.json \
+      #      voice_typer/client/src/renderer/src/data/hotkey_reserved.json
+      - id: hotkey-reserved-sync
+        name: Hotkey reserved JSON sync (server <-> client copy)
+        entry: bash -c 'python -m pytest tests/test_hotkey_reserved_sync.py -q --no-cov'
+        language: system
+        files: ^voice_typer/(server/hotkey_reserved\.json|client/src/renderer/src/data/hotkey_reserved\.json)$
+        pass_filenames: false

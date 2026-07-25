@@ -143,6 +143,24 @@ pip install .
 
 The package must be installed (not just run from source) for autostart to work.
 
+### Reproducible builds (hash-pinned)
+
+For a fully reproducible environment (e.g. for release engineering or
+bisecting a regression), install from the hash-pinned lockfile instead
+of resolving from `pyproject.toml`:
+
+```bash
+pip install --require-hashes -r requirements-lock.txt
+```
+
+The lockfile is generated via `uv pip compile --generate-hashes` and
+enforces sha256 verification of every wheel and sdist. Its completeness
+against `pyproject.toml` is verified by
+`tests/test_requirements_lock_completeness.py`. (XZ-CC-9: the legacy
+`requirements.txt` mirror file was removed because it drifted out of
+sync with `pyproject.toml` — `pyproject.toml` is now the single source
+of truth for Python dependencies.)
+
 ### Optional: Qwen ASR backend
 
 Voice Typer ships with Whisper by default. To also enable the experimental

@@ -1095,10 +1095,11 @@ class ModelManager:
         knows the active backend is in use (and therefore should NOT be
         the one evicted on the next ``load_active`` / ``load_with_fallback``).
 
-        Wiring this into the dictation pipeline is tracked under
-        FIX-15 / follow-up — this method is exposed now so the LRU
-        tracking added in HIGH-19 (``touch_model`` after load) has a
-        matching "after transcribe" entry point ready to call.
+        Wired into ``DictationPipeline._transcribe``
+        (``voice_typer/server/dictation_pipeline.py:636``) — called after
+        every successful ``transcribe()`` so the LRU tracking added in
+        HIGH-19 (``touch_model`` after load) has a matching "after
+        transcribe" entry point.
 
         Safe to call when no backend is active — ``touch_model`` is a
         no-op for unknown backend names (it just records the timestamp;

@@ -1058,12 +1058,17 @@ class VoiceTyperApp:
         # migrate.  The helper still uses ``getattr`` defensively
         # because the IPCServer may not be wired yet (early restart)
         # or may be a non-IPC test double.
-        # TODO Fix-A: replace ``_wait_for_relaunch_ack`` with a call
-        # to ``IPCServer.wait_for_relaunch_ack(timeout)`` — a public
-        # method on the IPCServer itself (Fix-A owns IPCServer).  Once
-        # that public method exists, ``_wait_for_relaunch_ack`` and
-        # the ``getattr(self._ipc_server, "_relaunch_ack_event")``
-        # lookup below can be deleted.
+        # TODO Fix-A (2026-07-25): replace ``_wait_for_relaunch_ack``
+        # with a call to ``IPCServer.wait_for_relaunch_ack(timeout)``
+        # — a public method on the IPCServer itself (Fix-A owns
+        # IPCServer).  Once that public method exists,
+        # ``_wait_for_relaunch_ack`` and the
+        # ``getattr(self._ipc_server, "_relaunch_ack_event")`` lookup
+        # below can be deleted.
+        # TRACKING: tech-debt/Fix-A — owner: TBD, ETA: TBD. Requires
+        # adding a public method to ``IPCServer`` in
+        # ``voice_typer/server/ipc_server.py`` (not owned by this
+        # sub-agent's file set: app.py + hotkey_dispatcher.py only).
         self._wait_for_relaunch_ack(timeout=2.0)
 
         # 3. RW-3: run the SAME audited cleanup as quit() — flushes
@@ -1179,11 +1184,14 @@ class VoiceTyperApp:
         attached, bounded ``timeout`` wait on the cleared event) while
         making the dependency explicit and easy to migrate.
 
-        TODO Fix-A: once ``IPCServer`` exposes a public
+        TODO Fix-A (2026-07-25): once ``IPCServer`` exposes a public
         ``wait_for_relaunch_ack(timeout)`` method (Fix-A owns
         IPCServer), this helper should delegate to it and the
         ``getattr(self._ipc_server, "_relaunch_ack_event")`` lookup
-        can be removed entirely.
+        can be removed entirely. TRACKING: tech-debt/Fix-A — owner:
+        TBD, ETA: TBD. Requires modifying ``ipc_server.py`` (not owned
+        by this sub-agent's file set: app.py + hotkey_dispatcher.py
+        only).
 
         Parameters
         ----------
@@ -1201,9 +1209,13 @@ class VoiceTyperApp:
             (the original inline code didn't return one either) — the
             contract is preserved for future use.
         """
-        # TODO Fix-A: replace this defensive ``getattr`` with a call
-        # to ``self._ipc_server.wait_for_relaunch_ack(timeout)`` once
+        # TODO Fix-A (2026-07-25): replace this defensive ``getattr``
+        # with a call to
+        # ``self._ipc_server.wait_for_relaunch_ack(timeout)`` once
         # that public method exists on the IPCServer (Fix-A owns it).
+        # TRACKING: tech-debt/Fix-A — owner: TBD, ETA: TBD. Requires
+        # modifying ``ipc_server.py`` (not owned by this sub-agent's
+        # file set: app.py + hotkey_dispatcher.py only).
         ipc_server = self._ipc_server
         if ipc_server is None:
             log.info("[RESTART] No IPC server available; pausing 300ms for Electron")

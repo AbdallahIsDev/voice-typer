@@ -7982,10 +7982,11 @@ Severity breakdown: 🔴 Critical=2, 🔴 High=22, 🟡 Medium=64, 🟢 Low=75.
 **Fix:** Group action selectors via `useShallow` (zustand v4.4+); OR extract actions via `useAppStore.getState()` for one-shot reads.
 
 **Severity:** 🟢 Low
-```
+
+---
 
 ### Findings from Session 3
-```
+
 # Comprehensive Review — Session XA (Group 3: UX & UI)
 
 **Session:** XA — Full-Review mode, GROUP 3 (UX & UI)
@@ -8690,10 +8691,11 @@ This file is APPENDED to the existing comprehensive-review.md from prior session
 16. XA-20-6 + XA-20-7: Use shared `formatDuration`/`formatBytes`/`formatSpeed` (High — locale formatting broken)
 
 **Platform qualifier:** All findings investigated ON LINUX (sandbox). Windows/macOS runtime validation pending where noted (XA-6-4 multi-monitor, XA-7-5 bubble keyboard, XA-9-11 forced-colors mode, XA-18-1 native dialogs, XA-20-19 tray RTL).
-```
+
+---
 
 ### Findings from Session 4
-```
+
 # Consolidated Comprehensive Review — XZ Session (Group 4: Security & Data)
 
 > Append-only. Findings use `XZ-` prefix to avoid collision with prior sessions. Deduplicated against existing entries.
@@ -10584,7 +10586,6 @@ afterEach(() => {
 ---
 
 ## XZ-R17-01 — circuit breaker never trips (High)
-
 **Status:** ❌ Not Fixed
 **Description:** `supervisor.rs:192-215` + `main.rs:318` — three counter-reset paths defeat breaker: (a) success → write(0); (b) exhaustion → `app.restart()` → new process → main.rs:318 writes 0; (c) any fresh launch → main.rs:318 writes 0. Persistently-flapping sidecar triggers infinite `respawn` cycles without surfacing `respawn_failed`.
 **Related Files:**
@@ -10594,7 +10595,6 @@ afterEach(() => {
 **Severity:** 🔴 High
 
 ## XZ-R17-02 — Hotkey callbacks no `_shutting_down` guard (High)
-
 **Status:** ❌ Not Fixed
 **Description:** `hotkey_dispatcher.py:220-226, 235-241, 279-295` callbacks call `toggle_dictation()` without checking `_shutting_down`. `recording_controller.py:148-201` `_toggle_impl` can START recording during shutdown. `shutdown_controller.py:436-475` stops backends with 5s timeout each but doesn't null refs.
 **Related Files:**
@@ -10605,7 +10605,6 @@ afterEach(() => {
 **Severity:** 🔴 High
 
 ## XZ-R17-03 — `_crash_excepthook` writes marker non-atomically (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `crash_handler.py:940-956` `marker_path.write_text(content)` — truncate-then-write, default umask (022 on Linux → 0644 = world-readable). Compare to `crash_recovery.py:191` and `duck_crash_recovery.py:68` which use `_secure_atomic_write`.
 **Related Files:** `voice_typer/server/crash_handler.py`
@@ -10613,7 +10612,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R17-04 — VEH handler only captures 4 of ~15 fatal Windows exception codes (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `crash_handler.py:59-71` `_CRASH_CODES` only includes STATUS_HEAP_CORRUPTION, STATUS_ACCESS_VIOLATION, STATUS_STACK_BUFFER_OVERRUN, STATUS_FATAL_APP_EXIT. Missing: STATUS_IN_PAGE_ERROR (0xC0000006), STATUS_ILLEGAL_INSTRUCTION (0xC000001D), STATUS_PRIVILEGED_INSTRUCTION (0xC0000096), STATUS_DATATYPE_MISALIGNMENT (0xC0000002), STATUS_BREAKPOINT (0x80000003), STATUS_SINGLE_STEP (0x80000004), etc.
 **Related Files:** `voice_typer/server/crash_handler.py`
@@ -10621,7 +10619,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R17-05 — `duck_crash_recovery.save()` fire-and-forget (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `duck_crash_recovery.py:53-70` save() called AFTER volume reduced. If write fails (disk full, permissions, NFS hang), crash recovery file NOT written. App crash → next launch `load_stale()` returns None → system volume NEVER restored. User's speakers stuck at 25%.
 **Related Files:** `voice_typer/server/duck_crash_recovery.py`
@@ -10629,7 +10626,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R17-06 — Windows logoff/shutdown: OS kills process before `_do_cleanup` finishes (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `shutdown_controller.py:963-1007` `_win32_console_handler` spawns `quit()` on daemon thread. `_do_cleanup` cumulative worst-case ~85s. Windows CTRL_LOGOFF/SHUTDOWN gives ~5 seconds.
 **Related Files:** `voice_typer/server/shutdown_controller.py`
@@ -10637,7 +10633,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R17-07 — SIGTERM during startup race (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `shutdown_controller.py:706-757` `quit()` checks `is_main = threading.current_thread() is threading.main_thread()`. Signal watcher spawns on daemon thread → `is_main` is False → `sys.exit(0)` never called. If signal arrives BEFORE main thread enters `tray.run()`, main thread continues startup with torn-down subsystems → None-reference crashes.
 **Related Files:** `voice_typer/server/shutdown_controller.py`
@@ -10645,7 +10640,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R17-08 — `_save_sync` redundant chmod per transcription (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `crash_recovery.py:177-191` `os.chmod(self._path.parent, 0o700)` called every save (after every transcription). Idempotent but wasteful syscall.
 **Related Files:** `voice_typer/server/crash_recovery.py`
@@ -10653,7 +10647,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R17-09 — `_save_loop` doesn't `task_done()` for None sentinel (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `crash_recovery.py:268-292` worker breaks out on None sentinel without calling `task_done()`. Latent — `Queue.join()` would block forever (currently unused).
 **Related Files:** `voice_typer/server/crash_recovery.py`
@@ -10661,7 +10654,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R17-10 — `duck_crash_recovery.load_stale()` doesn't clear file (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `duck_crash_recovery.py:72-96` returns saved state but does NOT clear file. If caller crashes between `load_stale()` and `clear()`, file persists. Next launch restores same state again — potentially to WRONG level.
 **Related Files:** `voice_typer/server/duck_crash_recovery.py`
@@ -10669,7 +10661,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R17-11 — `_do_cleanup` doesn't null hotkey backend refs (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `shutdown_controller.py:436-475` stops backends individually (with timeouts) but doesn't null refs. `hotkey_dispatcher.stop_all()` exists and nulls them, but NOT called from shutdown path.
 **Related Files:** `voice_typer/server/shutdown_controller.py`
@@ -10677,7 +10668,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R17-12 — Stale TODO Fix-A in `hotkey_dispatcher.py` (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `hotkey_dispatcher.py:51-58` references `ipc/server.py:1022` which doesn't exist. Actual file is `ipc_server.py`. Bug already fixed (file renamed, attribute updated).
 **Related Files:** `voice_typer/server/hotkey_dispatcher.py`
@@ -10685,7 +10675,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R17-13 — `__del__` and `atexit` redundant double-write (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `crash_recovery.py:96-113` (atexit) + `:484-516` (`__del__`) both call `_save_sync()` during shutdown. Both serialized by `_save_lock`. Redundant atomic-write.
 **Related Files:** `voice_typer/server/crash_recovery.py`
@@ -10693,7 +10682,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R17-14 — `python_crash.*.txt` world-readable on POSIX (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `crash_handler.py:940-956` `write_text` uses default umask (0644). File lives in config_dir root (typically 0755 on multi-user systems). Contains `exc_value` (truncated to 200 chars) — can include user speech fragments.
 **Related Files:** `voice_typer/server/crash_handler.py`
@@ -10703,7 +10691,6 @@ afterEach(() => {
 ---
 
 ## XZ-R18-01 — `relaunch_electron` vs `relaunch_app` event name mismatch (High)
-
 **Status:** ❌ Not Fixed
 **Description:** `app.py:1041` publishes `{"type": "relaunch_app"}`. `handle-message.ts:105` listens for `"relaunch_electron"`. PVT-2 renamed Python side but NOT Electron TCP path. `relaunch_ack` NEVER sent → `_wait_for_relaunch_ack(timeout=2.0)` ALWAYS times out (2s delay per restart). PERF-005 event-driven ack path is dead code on Electron.
 **Related Files:**
@@ -10713,7 +10700,6 @@ afterEach(() => {
 **Severity:** 🔴 High
 
 ## XZ-R18-02 — Partial-failure in `_clean_text`/`_apply_punctuation` loses transcription (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `dictation_pipeline.py:198, 213` — `_clean_text()` and `_apply_punctuation()` are the only two middle-pipeline steps NOT wrapped in try/except. If either throws, exception propagates to outer `run()` → tray error + abort. Transcription NEVER saved to crash recovery because `_store_result()` (line 233) runs AFTER.
 **Related Files:** `voice_typer/server/dictation_pipeline.py`
@@ -10721,7 +10707,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R18-03 — `stop-python.ts` missing SIGKILL fallback (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `stop-python.ts:38-43` sends SIGTERM only, immediately nulls `state.pythonProcess`. Stuck Python (in C extension) → orphaned process. Holds single-instance mutex → next launch fails. `relaunch-app.ts:67-76` has correct SIGKILL fallback pattern.
 **Related Files:** `voice_typer/client/src/main/python/stop-python.ts`
@@ -10729,7 +10714,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R18-04 — Early-exit dialog misleading for non-single-instance crashes (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `start-python.ts:134-137` shows "Only one instance can run" dialog for ALL early exits — including missing model, port collision, token mismatch, syntax error, OOM.
 **Related Files:** `voice_typer/client/src/main/python/start-python.ts`
@@ -10737,7 +10721,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R18-05 — LLM polish failure silent (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `dictation_pipeline.py:886-887` catches but does NOT notify. `llm_polish.py:163-168` same pattern. User pays for LLM API never used, or believes feature broken without diagnostic.
 **Related Files:**
@@ -10747,7 +10730,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R18-06 — Sidecar WS allows multiple simultaneous authenticated connections (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `sidecar_ws.py:462-514` `_handle_connection` — NO check for existing authenticated connection. Old + new connections coexist during overlap window. Both have separate `outbound` queues + writer tasks + event_bus subscribers.
 **Related Files:** `voice_typer/server/sidecar_ws.py`
@@ -10755,7 +10737,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-R18-07 — `_tcpStartupTimeoutTimer` not reset by `relaunchApp()` (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `tcp-connect.ts:29, 43` — module-level timer, NOT on `state`. `relaunchApp()` (dev mode) resets other state but NOT this timer. Premature timeout dialog + unexpected quit after manual restart during slow first connect.
 **Related Files:** `voice_typer/client/src/main/python/tcp-connect.ts`
@@ -10763,7 +10744,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R18-08 — Cloud engine fallback no user-visible signal (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `cloud_engines.py:484-489` logs WARNING but never surfaces to user. Cloud outage invisible until user checks logs.
 **Related Files:** `voice_typer/server/cloud_engines.py`
@@ -10771,7 +10751,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R18-09 — Dead triple `loop = asyncio.get_running_loop()` (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `sidecar_ws.py:534, 550, 560` — three assignments of running loop in same function. First stores on `server._ws_loop` (never read back). Second is dead local. Only third is captured by `_push_to_ws` closure.
 **Related Files:** `voice_typer/server/sidecar_ws.py`
@@ -10779,7 +10758,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R18-10 — Duplicated kill/cleanup logic (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `stop-python.ts:38-51` vs `relaunch-app.ts:56-113` (dev) and `:150-193` (prod) — kill-Python + clear-state pattern repeated 3× with subtle inconsistencies (SIGKILL fallback — see XZ-R18-03).
 **Related Files:**
@@ -10789,7 +10767,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R18-11 — No max-retries/cooldown on `relaunchApp()` (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `relaunch-app.ts:200-201` production branch — no retry counter, no cooldown. Deterministic Python-side `sys.exit(0)` loop would drain battery + spam system.
 **Related Files:** `voice_typer/client/src/main/python/relaunch-app.ts`
@@ -10797,7 +10774,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R18-12 — `handle-message.ts` broadcasts unknown push events without type validation (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `handle-message.ts:133-143` — no validation that `msg.type` is string or in known set. Unknown events fall through to broadcast-to-renderer.
 **Related Files:** `voice_typer/client/src/main/python/handle-message.ts`
@@ -10805,7 +10781,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-R18-13 — Stale docstring in `app.py` `restart_app()` (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `app.py:980, 985` docstring references `relaunch_electron` — actual code publishes `relaunch_app`.
 **Related Files:** `voice_typer/server/app.py`
@@ -10815,7 +10790,6 @@ afterEach(() => {
 ---
 
 ## XZ-LOG-01 — Python stderr fallback unredacted (High)
-
 **Status:** ❌ Not Fixed
 **Description:** `ipc_server.py:2350, 2546` `print(buf.getvalue(), file=sys.stderr)` — `buf` holds raw traceback from `traceback.print_exc(file=buf)`. `/tmp` fallback at line 2366 correctly redacts via `_redact_text`; stderr fallback does not. Rust `spawn.rs:120` captures sidecar stderr and logs via `log::info!` UNREDACTED (Rust `CombinedLogger` has no PII filter — XZ-LOG-02).
 **Related Files:** `voice_typer/server/ipc_server.py`
@@ -10823,7 +10797,6 @@ afterEach(() => {
 **Severity:** 🔴 High
 
 ## XZ-LOG-02 — No PII redaction in Rust `CombinedLogger::log` (High)
-
 **Status:** ❌ Not Fixed
 **Description:** `src-tauri/src/platform/logging.rs:109-143` `log()` writes `record.args()` verbatim to file + stderr. Python has `PIIRedactionFilter`; Rust has nothing. Most active vector is `spawn.rs:120 [SIDECAR] stderr: {}` piping arbitrary Python sidecar stderr into Rust file log.
 **Related Files:** `src-tauri/src/platform/logging.rs`
@@ -10831,7 +10804,6 @@ afterEach(() => {
 **Severity:** 🔴 High
 
 ## XZ-LOG-03 — No PII redaction in Electron loggers (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `logging.ts:218-233` `formatLine` + `:395-409` `formatArgsForFile` write raw to disk. `main-window.ts:400-421` `console-message` event forwards renderer console output to `electron-runtime.log` + `electron-renderer-errors.log` unredacted. `cleanConsoleMsg` only strips printf specifiers.
 **Related Files:**
@@ -10842,7 +10814,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-LOG-04 — Inconsistent log file locations (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** Python: `<config_dir>/voice-typer.log`. Prewarm: `<config_dir>/prewarm.log`. Rust: `<config_dir>/logs/voice-typer.log` (only one in `logs/` subdir). Electron: 5 files at config_dir root. 7 log files scattered across 2 directory levels.
 **Related Files:**
@@ -10855,7 +10826,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-LOG-05 — Inconsistent log line format (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** Python: `YYYY-MM-DD  HH:MM:SS [session_id] [thread] LEVEL [component] msg` (double space, no millis). Rust: `YYYY-MM-DD HH:MM:SS.mmm LEVEL target file:line -- msg` (single space, millis, no session_id). Electron: `ISO-8601Z [LEVEL] msg {json_args}`.
 **Related Files:** (same as XZ-LOG-04)
@@ -10863,7 +10833,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-LOG-06 — Duplicated Electron loggers (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** Same as XZ-R5-007.
 **Related Files:** `voice_typer/client/src/main/logging.ts`
@@ -10871,7 +10840,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-LOG-07 — Stale comment in `handlers/_log.py` (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `handlers/_log.py:21-30` claims consolidation aspirational, 10 of 13 handlers declare inline. Reality: 0 handlers declare inline; 9 of 15 import from `_log.py`; 6 inherit `HandlerBase`.
 **Related Files:** `voice_typer/server/handlers/_log.py`
@@ -10879,7 +10847,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-LOG-08 — No session_id/correlation_id in Rust/Electron (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** Python's `_SessionFilter` injects 8-char per-process session_id + `_correlation_id` contextvar. Rust `CombinedLogger` and Electron `formatLine` have neither. Cross-process correlation relies on timestamp proximity only.
 **Related Files:**
@@ -10891,7 +10858,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-LOG-09 — `log_rate_limited` unevenly applied (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `log_rate_limit.py` helper exists but used at only 3 call sites. Cloud retry loops, WS heartbeat-miss, WS invalid-JSON — all match flood-risk description but don't use helper.
 **Related Files:**
@@ -10902,7 +10868,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-LOG-10 — `RotatingFileHandler` not inter-process safe (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `log.py:674-680` `RotatingFileHandler` uses `threading.Lock` (thread-safe, NOT inter-process safe). Main app + prewarm process both write to same `voice-typer.log`.
 **Related Files:** `voice_typer/server/log.py`
@@ -10910,7 +10875,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-LOG-11 — `print()` in `recorder.py:40` (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `native_hotkeys/recorder.py:40` `print(f"Captured: {result}")` — debug print left in production. Under `--ws`/`--port` mode, triggers Rust host's "unexpected stdout line" warning per hotkey capture.
 **Related Files:** `voice_typer/server/native_hotkeys/recorder.py`
@@ -10918,7 +10882,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-LOG-12 — `PIIRedactionFilter` blind spots (Low, Informational)
-
 **Status:** ❌ Not Fixed
 **Description:** `security.py:178-204` redacts structured PII patterns but not free-form transcription text. Mitigated by logging only SHA-256 hash + length. Risk: future regression logging `text` directly.
 **Related Files:**
@@ -10930,7 +10893,6 @@ afterEach(() => {
 ---
 
 ## XZ-CC-1 — Duplicated VAD default constants (High)
-
 **Status:** ❌ Not Fixed
 **Description:** `vad_processor.py:73-78` (canonical) and `recording/recorder.py:160-165` (compat shim) define same 6 constants. Recorder comment admits "no longer referenced internally after VadProcessor extraction". 4 of 6 unused.
 **Related Files:**
@@ -10941,7 +10903,6 @@ afterEach(() => {
 **Severity:** 🔴 High
 
 ## XZ-CC-2 — Duplicated noise-filter defaults (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `audio_chain_builder.py:128-153` `_DEFAULTS` dict mirrors `config.py:942-986` Config dataclass defaults. No sync mechanism (no CI test).
 **Related Files:**
@@ -10951,7 +10912,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-CC-3 — Duplicated LLM default URL + model (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `llm_polish.py:110-111` `_DEFAULT_URL`/`_DEFAULT_MODEL` duplicate `config.py:696-697` Config dataclass defaults. `LLMPolish.__init__` accepts `api_url`/`model` as optional kwargs and falls back to module-level constants.
 **Related Files:**
@@ -10961,7 +10921,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-CC-4 — Duplicated secret-redaction implementation (High)
-
 **Status:** ❌ Not Fixed
 **Description:** `credential_store.py:253-279` `_redact_sensitive` parallel implementation. Threshold mismatch: 32+ char vs `_secrets._KEY_PATTERNS` 20+ char. Provider coverage mismatch: `gsk_` (Groq) only in credential_store. Flag-form coverage mismatch: `_secrets` has `_FLAG_VALUE_PATTERN`/`_BARE_KEY_VALUE_PATTERN`, credential_store doesn't.
 **Related Files:**
@@ -10971,7 +10930,6 @@ afterEach(() => {
 **Severity:** 🔴 High
 
 ## XZ-CC-5 — Dead compat-shim VAD constants (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** Same as XZ-CC-1 — 4 of 6 `_DEFAULT_VAD_*` in `recorder.py` unused.
 **Related Files:** (same as XZ-CC-1)
@@ -10979,7 +10937,6 @@ afterEach(() => {
 **Severity:** 🟢 Low
 
 ## XZ-CC-6 — `ToggleDictationResult.recording` phantom field (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** `ipc.ts:478-480` declares `recording: boolean` as REQUIRED. Python `_handle_toggle_dictation` returns `{"type": "ack"}` with NO `data` field. `Home.tsx:635` calls `await call("toggle_dictation")` with `T = unknown` — result discarded. Future contributor writing `const { recording } = await call<ToggleDictationResult>(...)` gets `recording: undefined` while TS type-checks as `boolean`.
 **Related Files:**
@@ -10989,7 +10946,6 @@ afterEach(() => {
 **Severity:** 🟡 Medium
 
 ## XZ-CC-7 — `TranscriptionFinalEvent.duration_ms?` never sent (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** `ipc.ts:105-108` declares optional `duration_ms?: number`. Python `dictation_pipeline.py:1091-1096` publishes `{text: string}` only. Comment claims "mirrors wire format" — misleading. Line reference `:911` stale (actual `:1093`).
 **Related Files:**
@@ -10998,102 +10954,23 @@ afterEach(() => {
 **Fix:** Either (a) populate `duration_ms` in Python sender, OR (b) delete `duration_ms?` from TS type. Update stale line reference.
 **Severity:** 🟢 Low
 
-## XZ-CC-8 — `requirements.txt` missing 2 macOS pyobjc deps (High)
-
-**Status:** ❌ Not Fixed
-**Description:** `pyproject.toml:155, 163` declares `pyobjc-framework-CoreFoundation` and `pyobjc-framework-ApplicationServices` (macOS-only). `requirements.txt:43-64` declares `pyobjc-core`, `pyobjc-framework-CoreAudio`, `pyobjc-framework-Cocoa` but NOT the two above. `pip install -r requirements.txt` on macOS → silently broken mic watcher + accessibility probe.
-**Related Files:**
-- `requirements.txt`
-- `pyproject.toml`
-**Fix:** Add `pyobjc-framework-CoreFoundation>=9.0; sys_platform == 'darwin'` and `pyobjc-framework-ApplicationServices>=9.0; sys_platform == 'darwin'` to `requirements.txt`. Better: delete `requirements.txt` entirely and document `pip install -r requirements-lock.txt` as only supported path.
-**Severity:** 🔴 High
-
-## XZ-CC-9 — Three competing requirements files (Medium)
-
-**Status:** ❌ Not Fixed
-**Description:** `requirements.txt` header claims hash-pinned but contains ZERO hashes. `pip install --require-hashes -r requirements.txt` will FAIL. `requirements-lock.txt` actually has hashes. Three sources of truth with no sync.
-**Related Files:**
-- `requirements.txt`
-- `requirements-lock.txt`
-- `pyproject.toml`
-**Fix:** Delete `requirements.txt`. Update `README.md`/`CONTRIBUTING.md` to point developers at `pip install -r requirements-lock.txt` or `uv sync`. If fast-path needed, document `pip install -e .` (reads `pyproject.toml` directly).
-**Severity:** 🟡 Medium
-
-## XZ-CC-10 — Cargo dep version drift (Medium)
-
-**Status:** ❌ Not Fixed
-**Description:** `Cargo.toml:62` `rand = "0.8"` → Cargo.lock has BOTH `rand 0.8.7` and `rand 0.9.5` (dual-resolution, ~50-100 KB bloat). `Cargo.toml:53` `tokio-tungstenite = "0.24"` (current 0.27.x, 3 minors behind). `Cargo.toml:49` `enigo = "0.2"` (current 0.14.x, 12 minors behind).
-**Related Files:** `src-tauri/Cargo.toml`
-**Fix:** Bump `rand = "0.9"` (update `thread_rng()` → `rng()`). Bump `tokio-tungstenite = "0.27"`. Leave `enigo` for separate PR (larger refactor).
-**Severity:** 🟡 Medium
-
 ## XZ-CC-11 — 62 `# type: ignore` / `pyrefly: ignore` in security-critical code (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** 62 occurrences across 29 Python files. Top concentrations: `native_adapter.py` (9), `clipboard_snapshot.py` (7), `credential_store.py` (6). Mix of legitimate platform-only import suppression + real type holes. Pyrefly baseline's `errors: []` hides 116 unsuppressed errors.
 **Related Files:** cross-cutting (29 files)
 **Fix:** Audit 62 suppression sites — verify each suppression reason documented inline. For 34 non-platform-specific pyrefly errors, fix one-by-one. Pin `pyrefly==1.1.1` in `pyproject.toml [dev]` + CI.
 **Severity:** 🟡 Medium
 
-## XZ-CC-12 — Stale TODO Fix-A cluster (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** 5 cross-file TODOs about replacing `_wait_for_relaunch_ack` with public IPCServer API: `app.py:1074, 1169, 1191`, `hotkey_dispatcher.py:51, 55`. None have date/PR reference.
-**Related Files:**
-- `voice_typer/server/app.py`
-- `voice_typer/server/hotkey_dispatcher.py`
-**Fix:** Either execute Fix-A (add `IPCServer.wait_for_relaunch_ack(timeout) -> bool` public method, replace 3 `app.py` getattr call sites, delete 5 TODOs), OR convert to tracked issue with owner + date.
-**Severity:** 🟢 Low
-
-## XZ-CC-13 — Stale TODO migrate-tests cluster (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** 4 identical TODOs across 3 packages: `prewarm/__init__.py:110`, `recording/__init__.py:49, 320`, `server_platform/__init__.py:80`. All reference "CR-67 / TECH-DEBT". ~500 LOC of `__init__.py` boilerplate for test-patch compatibility.
-**Related Files:**
-- `voice_typer/server/prewarm/__init__.py`
-- `voice_typer/server/recording/__init__.py`
-- `voice_typer/server/server_platform/__init__.py`
-**Fix:** Tracked separately as CR-67/TECH-DEBT. Update TODOs with current date + tracking issue link. OR if migration actively worked, annotate "IN PROGRESS by <owner>, ETA <date>".
-**Severity:** 🟢 Low
-
-## XZ-CC-14 — `package.json` `//devDependencies` "DO NOT DOWNGRADE" comment (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `package.json:53` comment exists because prior agent downgraded TS to 5.6.3, breaking `npm ci`. Project on bleeding edge (TS 7.0.2, electron-vite 6.0.0-beta.1 pre-release).
-**Related Files:** `voice_typer/client/package.json`
-**Fix:** Pin TypeScript to exact version (`"typescript": "7.0.2"` not `^7.0.2`). Migrate `electron-vite` off beta when 6.0.0 ships. Move warning to CONTRIBUTING.md.
-**Severity:** 🟢 Low
-
 ## XZ-CC-15 — `pyrefly-baseline.json` `errors: []` while CI reports 116 errors (High)
-
-**Status:** ❌ Not Fixed
+**Status:** ⚠️ Partial (verified on Linux; part (a) pyrefly pinned; parts (b)-(d) deferred)
 **Description:** Baseline file's own `_current_state_2026_07_22` comment admits: "Until those land, the pyrefly check step in CI will continue to exit 1 (because pyrefly reports 116 unsuppressed errors and the baseline is empty)". 34 non-platform-specific real type bugs hidden from CI.
 **Related Files:** `pyrefly-baseline.json`
 **Fix:** (a) Pin `pyrefly==1.1.1` in `pyproject.toml [dev]` + `.github/workflows/build.yml`. (b) Fix 34 non-platform-specific real type bugs. (c) For 82 platform-specific false positives, regenerate baseline from real `pyrefly check` run on platform-appropriate interpreter. (d) DO NOT keep `errors: []` as "conservative floor" — silence-by-deletion pattern.
 **Severity:** 🔴 High
 
-## XZ-CC-16 — `ResponseData<T>` mapped type exported but never imported (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `ipc.ts:524-549` 26-line conditional-types cascade. `grep ResponseData` returns 1 hit — the declaration. `usePython.call` uses `async <T = unknown>(type: string, ...)` — generic over `T` with default `unknown`, NOT constrained to `PythonRequest["type"]`.
-**Related Files:** `voice_typer/client/src/renderer/src/types/ipc.ts`
-**Fix:** Either (a) wire `ResponseData<T>` into `usePython.call` by constraining generic, OR (b) delete `ResponseData<T>` and dead result types (`ToggleDictationResult`, `ToggleFavoriteResult`, `SaveVocabularyResult`).
-**Severity:** 🟢 Low
-
 ---
 
-## XZ-14-01 — Circuit breaker public API missing (High)
-
-**Status:** ❌ Not Fixed
-**Description:** `asr_registry.py` lacks `reset_failures` and `failure_count` public methods. 4 tests in `test_asr_registry_lifecycle.py` fail with `AttributeError`. Disabled backend permanently unreachable for session.
-**Related Files:**
-- `voice_typer/server/asr_registry.py`
-- `tests/test_asr_registry_lifecycle.py`
-**Fix:** Add `failure_count(name) -> int` and `reset_failures(name) -> None` public methods. Add IPC handler `reset_backend`. Add Settings UI affordance.
-**Severity:** 🔴 High
-
 ## XZ-14-02 — `disabled_backends` persistence fictitious (High)
-
 **Status:** ❌ Not Fixed
 **Description:** Same as XZ-CFG-01 — Config dataclass has no `disabled_backends` field. `getattr` returns None, `setattr` raises AttributeError (silently swallowed).
 **Related Files:**
@@ -11103,7 +10980,6 @@ afterEach(() => {
 **Severity:** 🔴 High
 
 ## XZ-14-03 — `validate_config` dead code (Medium)
-
 **Status:** ❌ Not Fixed
 **Description:** Same as XZ-CFG-04.
 **Related Files:**
@@ -11112,129 +10988,24 @@ afterEach(() => {
 **Fix:** Folded into XZ-CFG-04 fix.
 **Severity:** 🟡 Medium
 
-## XZ-14-04 — No cross-field hotkey conflict check (Medium)
-
-**Status:** ❌ Not Fixed
-**Description:** `config_validators.py:618-662` `_validate_hotkey` only checks against reserved/system shortcuts. Never sees OTHER hotkey fields. User can set `hotkey=<ctrl>+<space>` AND `push_to_talk_hotkey=<ctrl>+<space>` simultaneously.
-**Related Files:** `voice_typer/server/config_validators.py`
-**Fix:** Add post-loop cross-field check in `validate_config_update`: collect 3 hotkey values, normalize via `hotkey_spec.parse_hotkey`, reject duplicates.
-**Severity:** 🟡 Medium
-
-## XZ-14-05 — Cross-platform hotkey portability not enforced (Medium)
-
-**Status:** ❌ Not Fixed
-**Description:** `config_validators.py:423-429, 487-509` `_platform_key()` returns current platform. `_check_platform_reserved` only consults current platform's reserved list. Config not portable across OSes — `<cmd>+<q>` passes on Linux but quits apps on macOS.
-**Related Files:**
-- `voice_typer/server/config_validators.py`
-- `voice_typer/server/hotkey_reserved.json`
-**Fix:** Either (a) check ALL platforms' reserved lists and warn (don't reject) on cross-platform conflicts, OR (b) tighten universal_reserved to cover union of all per-platform combos. Option (a): emit warning via `_load_warnings`.
-**Severity:** 🟡 Medium
-
-## XZ-14-06 — Silent unloaded-backend fallback (Medium)
-
-**Status:** ❌ Not Fixed
-**Description:** `asr_registry.py:111-134` `get_active()` last-resort branch returns unloaded backend, logs WARNING, `transcribe_with_fallback` returns empty string. No tray notification.
-**Related Files:** `voice_typer/server/asr_registry.py`
-**Fix:** When `get_active()` falls through to last-resort, fire tray notification via same path as `load_with_fallback` failures. OR have `transcribe_with_fallback` raise `BackendNotReadyError`.
-**Severity:** 🟡 Medium
-
-## XZ-14-07 — `VOICE_TYPER_CONFIG_DIR` validation weaker than `HF_HOME` (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `env_validation.py:52-58` only rejects NUL bytes via `_path_pattern = re.compile(r"^[^\0]+$")`. `HF_HOME` block at `:87-111` calls `_validate_path_safety(Path(hf_home), Path.home())`.
-**Related Files:** `voice_typer/server/env_validation.py`
-**Fix:** Add `_validate_path_safety(Path(config_dir), Path.home())` call to `VOICE_TYPER_CONFIG_DIR` block, mirroring `HF_HOME` pattern.
-**Severity:** 🟢 Low
-
-## XZ-14-08 — `language` field no format check (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `config_validators.py:666` `_VALIDATOR_LANGUAGE = _make_str_validator(max_len=16)` — no check that value is recognized language code. User can set `language="zzzzz"` or `language="english"` (both pass) → Whisper load fails with cryptic error.
-**Related Files:** `voice_typer/server/config_validators.py`
-**Fix:** Add regex validator accepting common Whisper language codes (2-letter ISO 639-1 + 3-letter extensions). Or source allowlist from `whisper.tokenizer.LANGUAGES` at module init.
-**Severity:** 🟢 Low
-
-## XZ-14-09 — Arbitrary lower bounds (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `config_validators.py:820` `max_recording_time_seconds lo=300` (5 min minimum, likely typo for 30). `:829` `recording_channels lo=0` (nonsensical 0 channels). `:792` `history_max_entries lo=10` inconsistent with `:791` `history_retention_count lo=0`.
-**Related Files:** `voice_typer/server/config_validators.py`
-**Fix:** `max_recording_time_seconds: lo=30`. `recording_channels: lo=1`. `history_max_entries: lo=0` (match retention_count semantics).
-**Severity:** 🟢 Low
-
 ## XZ-14-10 — `config_validators.py` 1102-line monolith (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** Mixes validator primitives, hotkey pipeline, IPC field schema in one file. `IPC_CONFIG_ALLOWLIST` is 220-line inline literal.
 **Related Files:** `voice_typer/server/config_validators.py`
 **Fix:** Split into `validators/` package: `_primitives.py`, `_hotkey.py`, `_schema.py`, `_api.py`. Re-export via package `__init__.py`.
 **Severity:** 🟢 Low
 
-## XZ-14-11 — Hotkey_reserved.json intentional duplication (Low, Informational)
-
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/hotkey_reserved.json` ↔ `voice_typer/client/src/renderer/src/data/hotkey_reserved.json` byte-identical. Documented as Vite HMR crash workaround. Drift caught by `tests/test_hotkey_reserved_sync.py`.
-**Related Files:**
-- `voice_typer/server/hotkey_reserved.json`
-- `voice_typer/client/src/renderer/src/data/hotkey_reserved.json`
-**Fix:** Re-test whether Vite HMR crash reproduces with current Vite version. If fixed, switch frontend to `@server/hotkey_reserved.json` import. If not fixed, add pre-commit hook running sync test.
-**Severity:** 🟢 Low
-
-## XZ-14-12 — Dead `_change_model_impl` shim (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `model_manager.py:968-994` deprecated shim with ZERO callers. Also broken signature: calls `_change_model_unload_phase(new_backend)` with one arg, but current signature requires two (`new_backend, old_backend`).
-**Related Files:** `voice_typer/server/model_manager.py`
-**Fix:** Delete `_change_model_impl` entirely.
-**Severity:** 🟢 Low
-
 ## XZ-14-13 — Path env vars leak username in logs (Low)
-
 **Status:** ❌ Not Fixed
 **Description:** Same as XZ-R3-10.
 **Related Files:** `voice_typer/server/env_validation.py`
 **Fix:** Folded into XZ-R3-10 fix.
 **Severity:** 🟢 Low
 
-## XZ-14-14 — Stale TODO in `model_manager.py:touch_active_model` (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `model_manager.py:1106-1131` docstring claims wiring tracked under "FIX-15 / follow-up". But `dictation_pipeline.py:631-636` already calls it.
-**Related Files:** `voice_typer/server/model_manager.py`
-**Fix:** Update docstring to "Wired into DictationPipeline._transcribe (dictation_pipeline.py:636)". Delete FIX-15 reference.
-**Severity:** 🟢 Low
-
-## XZ-14-15 — `_make_custom_theme_validator` no key-count cap (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `config_validators.py:245-275` validates 6 required keys per mode but doesn't reject extra keys, doesn't bound total dict size, doesn't bound length of hex color values.
-**Related Files:** `voice_typer/server/config_validators.py`
-**Fix:** Add `if len(v) > 64: return "too many top-level keys"` and `if len(mode_dict) > 64: return f"{mode} has too many keys"`.
-**Severity:** 🟢 Low
-
-## XZ-14-16 — Migration runner bumps schema_version even on failure (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `config.py:1224-1290` migration runner continues with partially-migrated data on migrator exception, bumps `schema_version` to `_CURRENT_SCHEMA_VERSION`. User's config stuck in half-migrated state.
-**Related Files:** `voice_typer/server/config.py`
-**Fix:** On migrator exception, do NOT bump `schema_version` — leave at `version - 1` so migration re-runs. Include timestamp or failed-version in `.bak` filename.
-**Severity:** 🟢 Low
-
-## XZ-14-17 — `asr_setup.py` docstring/count mismatch (Low)
-
-**Status:** ❌ Not Fixed
-**Description:** `asr_setup.py:162-163, 319-324, 412-420` `_MAX_DOWNLOAD_RETRIES = 4`. Docstring says "max 4 retries" (5 total attempts). Inline comment lists "1s, 2s, 4s, 8s" (4 delays = 4 attempts).
-**Related Files:** `voice_typer/server/asr_setup.py`
-**Fix:** Update docstring to "max 4 attempts (1 initial + 3 retries with exponential backoff 1s, 2s, 4s, 8s)". OR rename constant to `_MAX_DOWNLOAD_ATTEMPTS`.
-**Severity:** 🟢 Low
-
 ---
 
-End of XZ-session findings.
-```
-
 ### Findings from Session 6
-```
+
 # Comprehensive Review — Session XS (Group 6: Testing & CI)
 
 **Session:** XS (Full-Review mode, GROUP 6 — Testing & CI)
