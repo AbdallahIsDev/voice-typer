@@ -45,10 +45,10 @@ import { state } from "../state";
  * can narrow the `_code` field against this union.
  */
 export type PythonCallErrorCode =
-	| "backend_not_connected"
-	| "backend_exited_early"
-	| "command_failed"
-	| "command_timeout";
+        | "backend_not_connected"
+        | "backend_exited_early"
+        | "command_failed"
+        | "command_timeout";
 
 /**
  * GT-6: per-code English fallback messages for `_error` (log/dev-facing).
@@ -56,46 +56,54 @@ export type PythonCallErrorCode =
  * "Critical Error" string is now RESERVED for the breaker dialog only.
  */
 const ERROR_MESSAGES: Record<PythonCallErrorCode, string> = {
-	backend_not_connected: "Python backend is not connected.",
-	backend_exited_early: "Python backend exited during startup.",
-	command_failed: "Python command failed.",
-	command_timeout: "Python command timed out.",
+        backend_not_connected: "Python backend is not connected.",
+        backend_exited_early: "Python backend exited during startup.",
+        command_failed: "Python command failed.",
+        command_timeout: "Python command timed out.",
 };
 
 export function registerPythonCallHandler(): void {
-	ipcMain.handle(
-		"python-call",
-		async (_event, msg: Record<string, unknown>): Promise<unknown> => {
-			const cmd =
-				msg && typeof msg === "object" && "type" in msg
-					? String((msg as { type: unknown }).type)
-					: "<unknown>";
+        ipcMain.handle(
+                "python-call",
+                async (event, msg: Record<string, unknown>): Promise<unknown> => {
+                        const cmd =
+                                msg && typeof msg === "object" && "type" in msg
+                                        ? String((msg as { type: unknown }).type)
+                                        : "<unknown>";
 
-			if (!state.tcpSocket) {
-				if (state.pythonExitedEarly) {
-					const code: PythonCallErrorCode = "backend_exited_early";
-					logger.warn("python-call rejected", { cmd, code });
-					// GT-6: per-code message, NOT "Critical Error".
-					return { _error: ERROR_MESSAGES[code], _code: code };
-				}
-				const code: PythonCallErrorCode = "backend_not_connected";
-				logger.warn("python-call rejected", { cmd, code });
-				return { _error: ERROR_MESSAGES[code], _code: code };
-			}
-			try {
-				return await sendToPython(msg);
-			} catch (err) {
-				const errMsg = (err as Error).message ?? String(err);
-				const isTimeout = /timeout/i.test(errMsg);
-				const code: PythonCallErrorCode = isTimeout
-					? "command_timeout"
-					: "command_failed";
-				logger.warn("python-call failed", { cmd, code, error: errMsg });
-				return {
-					_error: isTimeout ? `${ERROR_MESSAGES[code]} ${errMsg}` : errMsg,
-					_code: code,
-				};
-			}
-		},
-	);
+                        if (!state.tcpSocket) {
+                                if (state.pythonExitedEarly) {
+                                        const code: PythonCallErrorCode = "backend_exited_early";
+                                        logger.warn("python-call rejected", { cmd, code });
+                                        // GT-6: per-code message, NOT "Critical Error".
+                                        return { _error: ERROR_MESSAGES[code], _code: code };
+                                }
+                                const code: PythonCallErrorCode = "backend_not_connected";
+                                logger.warn("python-call rejected", { cmd, code });
+                                return { _error: ERROR_MESSAGES[code], _code: code };
+                        }
+                        try {
+                                // Pass the sender's WebContents ID so sendToPython
+                                // can apply the per-renderer rate limit. Main-process-
+                                // internal callers (no event) pass null and skip the limit
+                                // but still hit the global MAX_PENDING_REQUESTS cap.
+                                const senderId =
+                                        event && event.sender && typeof event.sender.id === "number"
+                                                ? event.sender.id
+                                                : null;
+                                return await sendToPython(msg, senderId);
+                        } catch (err) {
+                                const errMsg = (err as Error).message ?? String(err);
+                                const isTimeout = /timeout/i.test(errMsg);
+                                const code: PythonCallErrorCode = isTimeout
+                                        ? "command_timeout"
+                                        : "command_failed";
+                                logger.warn("python-call failed", { cmd, code, error: errMsg });
+                                return {
+                                        _error: isTimeout ? `${ERROR_MESSAGES[code]} ${errMsg}` : errMsg,
+                                        _code: code,
+                                };
+                        }
+                },
+        );
 }

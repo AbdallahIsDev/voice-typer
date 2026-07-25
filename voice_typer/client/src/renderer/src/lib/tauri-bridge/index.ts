@@ -21,7 +21,7 @@
 //     (bubble window) `import "./lib/tauri-bridge"` for the side effect
 //     of auto-installing on module load.
 //
-// Internal layout (PVT-30 split — see comprehensive-review.md):
+// Internal layout (PVT-30 split — see review.md):
 //   • `detect.ts`           — `isTauri()` + `TauriGlobal` types + the
 //                              `makeListener()` factory (eliminates the
 //                              8× listener boilerplate previously

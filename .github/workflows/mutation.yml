@@ -20,7 +20,7 @@
 #     still does nothing useful and is kept retired.
 #   - The workflow is now retired: it keeps only a `workflow_dispatch`
 #     trigger and a single no-op step that prints a notice pointing at
-#     the comprehensive-review.md XS-87 finding. This preserves the
+#     the review.md XS-87 finding. This preserves the
 #     historical workflow name (so anyone who has bookmarked the
 #     Actions tab page or referenced it in docs lands somewhere with a
 #     clear "retired" message) without leaving the dead mutmut job,
@@ -59,6 +59,6 @@ jobs:
     steps:
       - name: Print retirement notice
         run: |
-          echo "::notice::Mutation testing has been retired. See comprehensive-review.md XS-87."
-          echo "Mutation testing has been retired. See comprehensive-review.md XS-87."
+          echo "::notice::Mutation testing has been retired. See review.md XS-87."
+          echo "Mutation testing has been retired. See review.md XS-87."
           exit 0

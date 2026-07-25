@@ -323,11 +323,19 @@ pub async fn open_model_import_dialog(
     window: tauri::Window,
 ) -> Result<Value, String> {
     require_main_window(&window)?;
+    // PVT-048: use the async ``pick_folder().await`` variant instead of
+    // ``blocking_pick_folder()``. The blocking variant parks the Tokio
+    // worker thread for the entire duration the user has the folder
+    // picker open; with Tauri's default 2-N worker pool, that stalls
+    // concurrent ``dispatch`` calls (heartbeat, status polling) queued
+    // behind the blocked worker. The async variant yields the worker
+    // while the dialog is open, letting other commands proceed.
     let file_path = app
         .dialog()
         .file()
         .set_title("Select Model Folder")
-        .blocking_pick_folder();
+        .pick_folder()
+        .await;
     let path = match file_path {
         Some(fp) => fp.into_path().map_err(|e| format!("invalid path: {e}"))?,
         None => return Ok(json!({"canceled": true})),

@@ -92,7 +92,6 @@ bubble.md
 archive/deleted_files.txt
 DONE.md
 instructions.md
-comprehensive-review.md
 # Verification-only stubs (cargo check on GNU target without MSVC) — do NOT commit
 src-tauri/bin/
 src-tauri/resources/native/

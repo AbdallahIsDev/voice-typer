@@ -361,6 +361,54 @@ jobs:
           echo "nsis_path=$($nsis.FullName)" >> $env:GITHUB_OUTPUT
           echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
 
+      - name: Post-build assertion — bundle has no non-Windows binaries
+        # tauri.windows-x86_64.conf.json narrows ``bundle.resources``
+        # to Windows-only files. If a future regression widens the resource
+        # list (or the --config flag silently stops being applied), the
+        # NSIS installer would bundle ~5 unnecessary prewarm binaries +
+        # 2 unnecessary native binaries (macOS + Linux variants), bloating
+        # the installer by ~50-100 MB. This step asserts the bundle
+        # directory does NOT contain any non-Windows prewarm or native
+        # binaries, failing the build if it does.
+        shell: pwsh
+        run: |
+          # The bundle resources land in src-tauri\target\release\resources\
+          # (per-target: target\<triple>\release\resources\ for cross builds).
+          # We check both because tauri's resource-copy step uses different
+          # paths for cross-target vs host-target builds.
+          $resourceDirs = @(
+            "src-tauri\target\x86_64-pc-windows-msvc\release\resources",
+            "src-tauri\target\release\resources"
+          )
+          # Forbidden substrings — any resource whose name contains one of
+          # these is a non-Windows binary that should not be in the bundle.
+          $forbidden = @(
+            "prewarm-aarch64-apple-darwin",
+            "prewarm-x86_64-apple-darwin",
+            "prewarm-x86_64-unknown-linux-gnu",
+            "prewarm-aarch64-unknown-linux-gnu",
+            "macos-key-listener",
+            "linux-key-listener"
+          )
+          $violations = @()
+          foreach ($dir in $resourceDirs) {
+            if (-not (Test-Path $dir)) { continue }
+            foreach ($file in Get-ChildItem $dir -File -ErrorAction SilentlyContinue) {
+              foreach ($bad in $forbidden) {
+                if ($file.Name -like "*$bad*") {
+                  $violations += "$($file.FullName) (matches forbidden pattern '$bad')"
+                }
+              }
+            }
+          }
+          if ($violations.Count -gt 0) {
+            Write-Error "Windows bundle contains non-Windows binaries:"
+            $violations | ForEach-Object { Write-Host "  - $_" }
+            Write-Error "Check tauri.windows-x86_64.conf.json bundle.resources list."
+            exit 1
+          }
+          Write-Host "Bundle contains only Windows binaries (assertion passed)"
+
       - name: Sign the final NSIS installer (optional — ADR-0020 §13.1)
         if: ${{ env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh

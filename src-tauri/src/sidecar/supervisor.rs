@@ -281,7 +281,7 @@ pub(crate) async fn respawn_inner(
         // silently ORPHAN the old Python sidecar — leaving it running with
         // the mic handle, IPC port, and native hotkey binary child still
         // held. After 5 exhausted retries, up to 5 zombie Python sidecars
-        // could accumulate. See CR-3 in comprehensive-review.md.
+        // could accumulate. See CR-3 in review.md.
         let old_child = mutex_lock(&state.child).take();
         if let Some(old) = old_child {
             log::info!("[SUPERVISOR] killing old sidecar before respawn");

@@ -96,7 +96,7 @@ dependencies = [
     # missing. Until parakeet_engine.py is migrated to a 5.x-supported
     # model API (e.g. AutoModelForImageTextToText or a manual class
     # lookup), the <5.0 pin is mandatory. Allow 4.50+ for the safe
-    # tensor / fp16 fixes. See comprehensive-review.md CR-25.
+    # tensor / fp16 fixes. See review.md CR-25.
     # CR-25 deviation: 4 known CVEs (PYSEC-2026-2288/2289/2290 + the
     # no-fix PYSEC-2025-217) cannot be cleared without migrating the
     # parakeet engine off AutoModelForTDT — tracked as a follow-up

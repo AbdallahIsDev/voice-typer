@@ -12,7 +12,7 @@ pub(crate) mod system_cmds;
 // GT-E3-1 (note): `paste_text` + `paste.rs` are dead in PRODUCTION
 // traffic (Python sidecar does its own paste internally). Retained
 // because tests source-grep the signature + DevTools uses. See
-// comprehensive-review.md GT-E3-1 for the full deletion plan.
+// review.md GT-E3-1 for the full deletion plan.
 pub(crate) mod paste;
 
 // CR-5: `dispatch_inner` + `DispatchArgs` are `pub(crate)` (NOT Tauri

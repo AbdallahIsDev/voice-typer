@@ -96,6 +96,14 @@ pub(crate) async fn export_data(
     default_filename: &str,
     title: &str,
 ) -> Result<Value, String> {
+    // PVT-048: use the async ``save_file().await`` variant instead of
+    // ``blocking_save_file()``. The blocking variant parks the Tokio worker
+    // thread for the entire duration the user has the save dialog open;
+    // with Tauri's default 2-N worker pool, that stalls concurrent
+    // ``dispatch`` calls (heartbeat, status polling) queued behind the
+    // blocked worker. On a 2-core machine the IPC layer can freeze while
+    // the dialog is open. The async variant yields the worker while the
+    // dialog is open, letting other commands proceed.
     let file_path = app
         .dialog()
         .file()
@@ -103,7 +111,8 @@ pub(crate) async fn export_data(
         .add_filter("JSON", &["json"])
         .add_filter("CSV", &["csv"])
         .set_file_name(default_filename)
-        .blocking_save_file();
+        .save_file()
+        .await;
     let path = match file_path {
         Some(fp) => fp.into_path().map_err(|e| format!("invalid path: {e}"))?,
         None => return Ok(json!({"canceled": true})),
