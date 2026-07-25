@@ -80,7 +80,7 @@ pub(crate) const ROTATE_MAX_FILES: usize = 5;
 
 pub(crate) fn generate_token() -> String {
     let mut bytes = [0u8; TOKEN_BYTES];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     hex::encode(&bytes)
 }
 
@@ -184,7 +184,8 @@ mod tests {
     #[test]
     fn test_generate_token_is_unique_across_calls() {
         // Two consecutive tokens must differ (vanishingly unlikely with
-        // thread_rng, but guards against a regression that e.g. seeds a
+        // the thread-local RNG (`rand::rng()` in 0.9, was `thread_rng()`
+        // in 0.8), but guards against a regression that e.g. seeds a
         // fixed value or reuses a buffer without clearing).
         let t1 = generate_token();
         let t2 = generate_token();

@@ -232,11 +232,13 @@ async fn ws_connect(
 ) -> Result<(SplitSink<WsStream, Message>, SplitStream<WsStream>), String> {
     let url = format!("ws://127.0.0.1:{}", port);
     // ADR-0020 §10: enforce 1 MiB WS frame cap.
-    let ws_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
-        max_message_size: Some(MAX_FRAME_BYTES),
-        max_frame_size: Some(MAX_FRAME_BYTES),
-        ..Default::default()
-    };
+    // XZ-CC-10: tungstenite 0.27 marked `WebSocketConfig` as
+    // `#[non_exhaustive]`, so we can no longer construct it with a
+    // struct expression. Use `Default::default()` and then set the
+    // two fields we care about.
+    let mut ws_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+    ws_config.max_message_size = Some(MAX_FRAME_BYTES);
+    ws_config.max_frame_size = Some(MAX_FRAME_BYTES);
     let connect_result = tokio::time::timeout(
         Duration::from_secs(WS_CONNECT_TIMEOUT_SECS),
         connect_async_with_config(&url, Some(ws_config), false),
@@ -262,7 +264,7 @@ async fn ws_connect(
 /// PVT-G5-059: previously `mpsc::unbounded_channel::<Message>()`.
 /// An unbounded channel provides NO backpressure — a runaway
 /// renderer (or a stuck WS writer task) could enqueue unbounded
-/// frames, each holding a `Message::Text(String)` of up to
+/// frames, each holding a `Message::Text(Utf8Bytes)` of up to
 /// MAX_FRAME_BYTES (1 MiB), eventually OOM-killing the host.
 /// Switched to a bounded channel of capacity 256: large enough to
 /// absorb brief bursts (e.g. config + state + bubble-init frames at
@@ -293,7 +295,7 @@ fn queue_auth_and_store_ws_tx(
     // microseconds — essentially impossible), but we handle it
     // defensively and map to the same error as before.
     ws_tx
-        .try_send(Message::Text(auth.to_string()))
+        .try_send(Message::Text(auth.to_string().into()))
         .map_err(|e| match e {
             mpsc::error::TrySendError::Full(_) => {
                 // Should be impossible at this point (channel is brand-
@@ -404,7 +406,13 @@ async fn wait_for_auth_ok(
         }
         Ok(Some(Ok(msg))) => {
             let text = match msg {
-                Message::Text(t) => t,
+                // XZ-CC-10: tungstenite 0.27 changed `Message::Text`'s
+                // inner type from `String` to `Utf8Bytes` (a smart
+                // pointer over `str`). `Utf8Bytes: Deref<Target=str>`,
+                // so `t.to_string()` works via the `str` impl and
+                // unifies the arm type with the `Message::Binary` arm
+                // (which produces a `String` from `String::from_utf8`).
+                Message::Text(t) => t.to_string(),
                 Message::Binary(b) => {
                     // Some clients send binary frames — try to decode
                     // as UTF-8 for the auth_ok check.

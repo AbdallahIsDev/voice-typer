@@ -50,16 +50,16 @@ enigo = "0.2"
 
 # ADR-0020 §1 + §10: WebSocket client + tokio runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "process"] }
-tokio-tungstenite = { version = "0.24", features = ["connect"] }
+tokio-tungstenite = { version = "0.27", features = ["connect"] }
 futures-util = "0.3"
 
 # ADR-0020 §3: per-launch bearer token (32 random bytes hex-encoded).
-# The token is generated via `rand::thread_rng().fill_bytes()` and
+# The token is generated via `rand::rng().fill_bytes()` and
 # passed to the sidecar via `VOICE_TYPER_IPC_TOKEN`. Despite the ADR's
 # "HMAC" wording, the Rust host treats it as a bearer token (the
 # sidecar's `ipc_server.py` validates the literal string match). The
 # `hmac`+`sha2` crates are therefore NOT needed in the host.
-rand = "0.8"
+rand = "0.9"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

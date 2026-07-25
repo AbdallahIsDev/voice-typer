@@ -301,7 +301,7 @@ pub(crate) fn dispatch_fire_and_forget(
     // `TrySendError::Full` if the writer is overwhelmed (256-cap) or
     // `TrySendError::Closed` if the writer task exited.
     ws_tx
-        .try_send(Message::Text(frame.to_string()))
+        .try_send(Message::Text(frame.to_string().into()))
         .map_err(|e| format!("WS send failed: {e}"))?;
     Ok(())
 }
@@ -434,7 +434,7 @@ async fn dispatch_frame(
     // the pending entry too — the writer task has exited so the WS
     // reader's drain loop is the only other remover and it may not have
     // run yet (race window).
-    if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string())) {
+    if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string().into())) {
         let mut pending = state.pending.lock().await;
         pending.remove(&id);
         log::warn!(
@@ -681,7 +681,7 @@ pub async fn shutdown_sidecar(
     // Send the shutdown frame.
     let frame = json!({"type": "shutdown"});
     if let Some(ws_tx) = mutex_lock(&state.ws_tx).clone() {
-        let _ = ws_tx.try_send(Message::Text(frame.to_string()));
+        let _ = ws_tx.try_send(Message::Text(frame.to_string().into()));
     }
     // CR-2: Wait up to SHUTDOWN_ACK_TIMEOUT_MS for the sidecar to exit.
     // Use the `CommandEvent` receiver captured at spawn time to detect

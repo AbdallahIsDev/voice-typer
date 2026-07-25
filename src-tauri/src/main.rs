@@ -306,7 +306,7 @@ fn main() {
                         "data": {},
                         "id": id,
                     });
-                    match ws_tx.try_send(WsMessage::Text(frame.to_string())) {
+                    match ws_tx.try_send(WsMessage::Text(frame.to_string().into())) {
                         Ok(_) => log::info!(
                             "[RESTART] relaunch_ack WS frame sent (id={})",
                             id

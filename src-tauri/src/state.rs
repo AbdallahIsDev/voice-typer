@@ -431,7 +431,7 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
     // GT-18: log on failure so a stuck writer task isn't silent.
     let frame = serde_json::json!({"type": "shutdown"});
     if let Some(ws_tx) = lock(&state.ws_tx).clone() {
-        if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string())) {
+        if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string().into())) {
             log::warn!(
                 "[EXIT-SHUTDOWN] try_send of shutdown frame failed (best-effort): {}",
                 e
