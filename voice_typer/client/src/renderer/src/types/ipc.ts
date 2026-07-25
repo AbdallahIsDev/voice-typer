@@ -1,5 +1,3 @@
-import type { MicrophoneDevice, VoiceTyperConfig } from "./config";
-
 // ── Recording states ──────────────────────────────────────────────
 
 // NEW-IPC-010: aligned with the Python ``AppState`` enum in
@@ -622,25 +620,26 @@ export type PythonRequest =
 	| GetVocabularyRequest
 	| SaveVocabularyRequest;
 
-// ── Response data shapes (the `data` field in Python responses) ───
-
-export interface ToggleDictationResult {
-	recording: boolean;
-}
-
-// NEW-IPC-009 / NEW-MISMATCH-002: removed ``RestartResult``.
-// ``restart_app`` / ``quit_app`` are not sent from the renderer (only
-// the Electron main process sends them), and the server returns
-// ``{type: "ack", data: {}}`` for these — there is no ``status``
-// field.  The dead type gave a false impression of the response shape.
-
-export interface ToggleFavoriteResult {
-	favorite: number;
-}
-
-export interface SaveVocabularyResult {
-	imported_categories: number;
-}
+// ── Response data shapes ────────────────────────────────────────────────────────────────
+//
+// XZ-CC-16: removed the dead ``ToggleDictationResult``,
+// ``ToggleFavoriteResult``, and ``SaveVocabularyResult`` interfaces.
+// They were only ever referenced by the now-removed ``ResponseData<T>``
+// mapped type (see the "Helper: map request type to its response data"
+// note below), which itself had zero consumers — ``usePython.call``
+// uses ``async <T = unknown>(type: string, ...)`` (generic over T with
+// default ``unknown``, NOT constrained to ``PythonRequest["type"]``),
+// so the conditional-types cascade never flowed into any call site.
+// Callers continue to pass explicit type arguments (e.g.
+// ``call<HistoryRecord[]>('get_history')``, ``call<MicrophoneDevice[]>(
+// 'get_microphones')``), which is the pattern actually used throughout
+// the renderer.  Keeping the dead types gave a false impression of
+// type safety while not actually being enforced anywhere.
+//
+// NEW-IPC-009 / NEW-MISMATCH-002: ``RestartResult`` was previously
+// removed for the same reason — ``restart_app`` / ``quit_app`` are not
+// sent from the renderer (only the Electron main process sends them),
+// and the server returns ``{type: "ack", data: {}}`` for these.
 
 // ── Vocabulary types (mirrors Python VocabularyManager) ────────────
 
@@ -662,40 +661,23 @@ export interface VocabularyEntry {
 
 // ── Helper: map request type to its response data ─────────────────
 //
-// NEW-IPC-009 / NEW-MISMATCH-002: removed the dead ``update_config``
-// and ``restart`` branches.  The server's actual commands are
-// ``set_config`` and ``restart_app``; the renderer uses untyped
+// XZ-CC-16: removed the dead ``ResponseData<T extends
+// PythonRequest["type"]>`` mapped type.  The 26-line conditional-types
+// cascade (mapping each request type to its response-data shape) had
+// ZERO consumers — ``usePython.call`` is generic over ``<T = unknown>``
+// with no constraint on ``PythonRequest["type"]``, so the cascade
+// never flowed into any call site.  Callers continue to pass explicit
+// type arguments (e.g. ``call<VoiceTyperConfig>('get_config')``),
+// which is the pattern actually used throughout the renderer.
+//
+// NEW-IPC-009 / NEW-MISMATCH-002: ``update_config`` and ``restart``
+// branches were already removed from this cascade in a prior cleanup
+// for the same reason — the server's actual commands are ``set_config``
+// and ``restart_app``, and the renderer uses untyped
 // ``call<T>('set_config', data)`` and never sends ``restart_app`` from
 // the renderer anyway.  ``set_config`` returns ``{type: "ack", data: {}}``
 // on success (or ``{type: "ack", data: {accepted: [...], rejected: [...]}}``
 // when some keys were silently dropped — see NEW-IPC-015 in the server).
-
-export type ResponseData<T extends PythonRequest["type"]> =
-	T extends "get_config"
-		? VoiceTyperConfig
-		: T extends "get_microphones"
-			? MicrophoneDevice[]
-			: T extends "toggle_dictation"
-				? ToggleDictationResult
-				: T extends "get_history"
-					? HistoryRecord[]
-					: T extends "delete_history"
-						? undefined
-						: T extends "clear_history"
-							? undefined
-							: T extends "toggle_favorite"
-								? ToggleFavoriteResult
-								: T extends "get_favorites"
-									? HistoryRecord[]
-									: T extends "search_history"
-										? HistoryRecord[]
-										: T extends "get_today_stats"
-											? TodayStats
-											: T extends "get_vocabulary"
-												? VocabularyData
-												: T extends "save_vocabulary"
-													? SaveVocabularyResult
-													: unknown;
 
 // ── Window augmentation for type-safe python bridge ───────────────
 
