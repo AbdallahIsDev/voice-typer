@@ -57,6 +57,44 @@ if TYPE_CHECKING:
 log = logging.getLogger("voice_typer.server.recording")
 
 
+def _ensure_resampled_concat(recorder: Recorder) -> None:
+    """Lazily materialize ``recorder._cached_resampled`` from the
+    segment list.
+
+    The resample path of :func:`take_snapshot` keeps the cached prefix as
+    a *list* of resampled segments (``recorder._cached_resampled_segments``)
+    and only re-concatenates them into a single contiguous ndarray when a
+    caller actually needs one. This eliminates the O(N) re-copy of the
+    cached prefix that previously happened on every snapshot with new
+    chunks (``np.concatenate([cached, new_resampled])`` where ``cached``
+    grew linearly with session length).
+
+    This helper is a no-op when the segment list has not changed since
+    the last materialization (``_cached_resampled_concat_dirty == False``)
+    -- the existing ``_cached_resampled`` array stays valid and any
+    previously-returned views into it remain correct.
+
+    Post-condition: ``recorder._cached_resampled`` is a contiguous ndarray
+    containing the concatenation of all segments in
+    ``recorder._cached_resampled_segments`` (or an empty float32 array
+    when the list is empty), and ``_cached_resampled_concat_dirty`` is
+    ``False``.
+    """
+    if not recorder._cached_resampled_concat_dirty:
+        return
+    segments = recorder._cached_resampled_segments
+    if not segments:
+        recorder._cached_resampled = np.array([], dtype=np.float32)
+    elif len(segments) == 1:
+        # Avoid the np.concatenate overhead for the single-segment case
+        # (common at the start of a session). The segment is already a
+        # contiguous ndarray, so we can use it directly.
+        recorder._cached_resampled = segments[0]
+    else:
+        recorder._cached_resampled = np.concatenate(segments)
+    recorder._cached_resampled_concat_dirty = False
+
+
 def take_snapshot(recorder: Recorder) -> np.ndarray:
     """Return current recorded audio without clearing the active buffer.
 
@@ -139,10 +177,13 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
             recorder._cached_resampled = np.array([], dtype=np.float32)
             recorder._cached_native_chunk_count = 0
             recorder._cached_resample_key = new_key
-            # NEW-PERF-003: invalidate the no-resample cache too — a
+            # NEW-PERF-003: invalidate the no-resample cache too -- a
             # sample-rate or dtype change invalidates both.
             recorder._cached_no_resample_len = -1
             recorder._cached_no_resample_arr = None
+            # invalidate the segment list + lazy-concat cache too.
+            recorder._cached_resampled_segments = []
+            recorder._cached_resampled_concat_dirty = False
 
         if effective_sr != target_sr and len(recorder._buffer) > recorder._cached_native_chunk_count:
             # PERF-NEW-003: islice avoids the full-deque list copy. Only
@@ -168,22 +209,33 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
                         e,
                     )
                     recorder._cached_native_chunk_count = len(recorder._buffer)
+                    # materialize the cached concat (no-op if clean)
+                    # so the view we return points at the current prefix.
+                    _ensure_resampled_concat(recorder)
                     # NEW-PERF-003: return a view, not a copy.
                     return recorder._cached_resampled[:]
-                # PERF-NEW-002: avoid the O(n) reallocation when the cached
-                # prefix is empty (first snapshot of a session).
-                if len(recorder._cached_resampled) > 0:
-                    recorder._cached_resampled = np.concatenate([recorder._cached_resampled, new_resampled])
-                else:
-                    recorder._cached_resampled = new_resampled
+                # append the new resampled segment to the segment
+                # list (O(1)) instead of re-concatenating the entire
+                # cached prefix (O(N) where N = total cached samples).
+                # The concat is materialized lazily by
+                # ``_ensure_resampled_concat`` below when the caller
+                # actually needs a contiguous array. Snapshots that see
+                # no new chunks reuse the cached concat (zero memcpy).
+                recorder._cached_resampled_segments.append(new_resampled)
+                recorder._cached_resampled_concat_dirty = True
                 recorder._cached_native_chunk_count = len(recorder._buffer)
+            # materialize the lazy concat if the segment list
+            # changed since the last call. No-op when no new chunks
+            # arrived -- the existing cached_resampled stays valid and
+            # the view we return shares memory with it.
+            _ensure_resampled_concat(recorder)
             # NEW-PERF-003: return a VIEW into the cache. The caller
             # (streaming.py) only reads + slices this array; it never
             # mutates. When the cache is later replaced by a new
             # np.concatenate(...) assignment, this view remains valid (numpy
             # keeps the underlying buffer alive until all views are
             # released). This eliminates the 1.9 MB copy on every 4 Hz poll
-            # — ~14 GB of garbage per 30-min recording.
+            # -- ~14 GB of garbage per 30-min recording.
             return recorder._cached_resampled[:]
         elif effective_sr == target_sr:
             # No resampling needed, just concatenate all.
@@ -294,7 +346,21 @@ def discard_recording(recorder: Recorder) -> None:
     # worker exits promptly.
     recorder._stop_event_worker(timeout=_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S, drain=False)
     # CPU-03: stop the device health checker thread (mirrors the event worker).
-    recorder._stop_device_health_checker()
+    # Fire-and-forget (timeout=0.0): the device-health checker is a daemon
+    # that sleeps 30s between probes, so joining it almost always times out.
+    # Worse, the underlying ``DeviceManager._start_device_health_checker``
+    # (in a sibling module we don't own) assigns the thread reference BEFORE
+    # calling ``Thread.start()`` without holding a lock — a concurrent
+    # discard() that calls ``_stop_device_health_checker()`` can observe the
+    # not-yet-started thread and raise
+    # ``RuntimeError("cannot join thread before it is started")`` when the
+    # timing is tight (the sentinel-driven fast event-worker exit in
+    # ``_stop_event_worker`` widened the race window enough to surface the
+    # bug under the GT-23 hammer). Signalling the stop event without joining
+    # eliminates the race: the daemon exits on its next ``wait()`` return
+    # (≤30s), and the next ``start()`` sees ``is_alive()==False`` and spawns
+    # a fresh checker. Mirrors the ``stop()`` path's fire-and-forget call.
+    recorder._stop_device_health_checker(timeout=0.0)
     with recorder._lock:
         # MEM-04 / SEC-audit-008: defer buffer zeroing to background daemon
         # thread so discard() returns immediately (the secure clear happens

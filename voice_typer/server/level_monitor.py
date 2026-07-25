@@ -112,29 +112,41 @@ _last_drop_log_time: float = 0.0
 # correct per-start maxlen; we never reassign them to ``[]``.
 _TEST_MAX_CHUNKS_CAP: int = int(30 * 48000 / 512) + 1  # absolute hard cap (~2813)
 _test_mode: bool = False
-# XZ-5 (XV-54 verification gate): the production data-duplication that
+# XV-54 / PVT-013 resolution: the ORIGINAL data-duplication that
 # XV-54 reported (worker thread appending every chunk to BOTH
-# ``_test_chunks`` and ``_test_raw_chunks``) is ALREADY ELIMINATED.
-# A grep for ``_test_chunks.append`` in this module returns ZERO hits —
-# the worker (``_process_level_chunk``) appends ONLY to
-# ``_test_raw_chunks`` (see line ~1201), and ``stop_test_recording``
-# derives the processed ``audio`` from ``raw_audio.copy()`` (see line
-# ~706). In production, ``_test_raw_chunks`` holds the captured chunks
-# and ``_test_chunks`` is ALWAYS EMPTY — they do NOT hold identical
-# data, so there is no redundant duplicate to remove at the data level.
-#
-# ``_test_chunks`` is retained as a backward-compat shim ONLY because
-# external test files outside this module's scope (specifically
-# ``tests/test_level_monitor.py::TestXV54OnlyRawChunksPopulated`` and
-# ``tests/test_g_perf_reliability_fixes.py::TestLevelMonitorTestChunkBounds``)
+# ``_test_chunks`` and ``_test_raw_chunks`` with IDENTICAL raw data) is
+# eliminated — a grep for ``_test_chunks.append`` in this module returns
+# ZERO hits. ``_test_chunks`` is retained as a backward-compat shim
+# ONLY because external test files outside this module's scope
+# (specifically ``tests/test_level_monitor.py::TestXV54OnlyRawChunksPopulated``
+# and ``tests/test_g_perf_reliability_fixes.py::TestLevelMonitorTestChunkBounds``)
 # reference it directly via ``lm._test_chunks.clear() / .append() /
-# .maxlen / len(...)``. Removing the symbol here would break those
-# tests, which are out of scope for XZ-5. The shim is bounded + cleared
-# alongside ``_test_raw_chunks`` (MEM-02) so it cannot leak even if a
-# test populates it. This is the minimal residual surface that preserves
-# test compatibility without reintroducing the production duplicate.
+# .maxlen / len(...)``. Removing the symbol here would break those tests.
+# The shim is bounded + cleared alongside ``_test_raw_chunks`` (MEM-02)
+# so it cannot leak.
+#
+# PVT-013: to eliminate the 7-70s synchronous filter-chain re-run that
+# previously blocked the IPC thread at ``stop_test_recording`` time, the
+# worker ALSO appends the FILTERED audio (the post-``process_chunk``
+# output used for the live RMS/peak bar) to ``_test_filtered_chunks``.
+# At stop time, when ``_test_filtered_chunks`` is populated, the returned
+# ``audio`` ("after" WAV) is concatenated directly from it and the
+# post-hoc filter is SKIPPED — no re-filter, no IPC-thread block.
+#
+# Tradeoff vs XV-54's literal Fix ("store only _test_raw_chunks; derive
+# audio from raw_audio.copy()"): when a live processor is active, TWO
+# per-chunk buffers are stored (raw + filtered) instead of one. PVT-013
+# (High — production-blocking 7-70s latency) wins over XV-54 (Medium —
+# 2x peak test-audio memory, ~11 MB at 48 kHz / 30 s). The two buffers
+# hold DIFFERENT data (raw vs filtered), so XV-54's specific concern
+# (IDENTICAL duplication in ``_test_chunks`` + ``_test_raw_chunks``) is
+# still resolved — ``_test_chunks`` remains empty in production.
+# When no live processor is active, ``_test_filtered_chunks`` is NOT
+# populated and stop falls back to ``raw_audio.copy()`` + post-hoc
+# filter (existing behavior), so the no-filter path keeps 1x storage.
 _test_chunks: collections.deque[np.ndarray] = collections.deque(maxlen=_TEST_MAX_CHUNKS_CAP)
 _test_raw_chunks: collections.deque[np.ndarray] = collections.deque(maxlen=_TEST_MAX_CHUNKS_CAP)
+_test_filtered_chunks: collections.deque[np.ndarray] = collections.deque(maxlen=_TEST_MAX_CHUNKS_CAP)
 _test_start_time: float = 0.0
 _test_duration: float = 10.0
 _test_filters: dict = {}
@@ -159,7 +171,8 @@ def _reset_test_chunks(locked: bool) -> None:
     ``_monitor_sample_rate`` are set to their final values BEFORE
     calling this (``start_test_recording`` does exactly that).
     """
-    global _test_chunks, _test_raw_chunks, _monitor_sample_rate, _test_duration
+    global _test_chunks, _test_raw_chunks, _test_filtered_chunks
+    global _monitor_sample_rate, _test_duration
     sr = _monitor_sample_rate
     # Chunks arrive at ``sr / 512`` per second (512-sample blocks @ sr).
     # +1 fudge so a duration that lands exactly on a block boundary
@@ -169,14 +182,17 @@ def _reset_test_chunks(locked: bool) -> None:
         cap = 1
     new_chunks = collections.deque(maxlen=cap)
     new_raw = collections.deque(maxlen=cap)
+    new_filtered = collections.deque(maxlen=cap)
 
     if locked:
         _test_chunks = new_chunks
         _test_raw_chunks = new_raw
+        _test_filtered_chunks = new_filtered
     else:
         with _monitor_lock:
             _test_chunks = new_chunks
             _test_raw_chunks = new_raw
+            _test_filtered_chunks = new_filtered
 
 
 # Quality metrics accumulated during test
@@ -652,7 +668,8 @@ def stop_test_recording() -> dict:
     Returns:
         dict with success, audio_base64, duration_ms, sample_rate, message.
     """
-    global _test_mode, _test_auto_stop_timer, _test_chunks, _test_raw_chunks, _test_start_time, _test_filters
+    global _test_mode, _test_auto_stop_timer, _test_chunks, _test_raw_chunks, _test_filtered_chunks
+    global _test_start_time, _test_filters
     global _test_peak_history, _test_rms_history, _test_clip_count, _test_silence_blocks
 
     # Cancel the auto-stop timer if it hasn't fired yet
@@ -664,14 +681,17 @@ def stop_test_recording() -> dict:
     with _monitor_lock:
         was_active = _test_mode
         sr = _monitor_sample_rate
-        # XV-54: only ``_test_raw_chunks`` is populated by the worker
-        # thread in production. ``_test_chunks`` is kept as a backward-
-        # compat shim (still bounded + cleared here) for tests outside
-        # this module's scope that append to it directly, but it is no
-        # longer the source of the processed ``audio`` -- that's derived
-        # from ``raw_audio.copy()`` below so we don't store two copies
-        # of every chunk in memory.
+        # Snapshot the three test-chunk buffers:
+        # - ``_test_chunks``: backward-compat shim, always empty in
+        #   production (kept for tests outside this module that append
+        #   to it directly).
+        # - ``_test_raw_chunks``: RAW audio — source for the "before" WAV.
+        # - ``_test_filtered_chunks``: FILTERED audio (post-``process_chunk``)
+        #   captured by the worker — source for the "after" WAV when
+        #   populated, eliminating the 7-70s synchronous re-filter that
+        #   previously blocked the IPC thread at stop time (PVT-013).
         raw_chunks = list(_test_raw_chunks)
+        filtered_chunks = list(_test_filtered_chunks)
         filters = dict(_test_filters)
         list(_test_peak_history)
         rms_hist = list(_test_rms_history)
@@ -686,6 +706,7 @@ def stop_test_recording() -> dict:
         _test_mode = False
         _test_chunks.clear()
         _test_raw_chunks.clear()
+        _test_filtered_chunks.clear()
         _test_start_time = 0.0
         _test_filters.clear()
         _test_peak_history = []
@@ -693,7 +714,13 @@ def stop_test_recording() -> dict:
         _test_clip_count = 0
         _test_silence_blocks = 0
 
-    if not was_active and not raw_chunks:
+    # ``_test_chunks`` is a backward-compat shim (kept for tests outside
+    # this module that append to it directly) and is NOT a source of audio.
+    # Only ``_test_raw_chunks`` ("before" WAV) and ``_test_filtered_chunks"
+    # ("after" WAV) are sources. If both are empty, return "No audio
+    # captured" — even if the legacy shim has data (test_stop_returns_
+    # no_audio_when_only_test_chunks_populated relies on this).
+    if not was_active and not raw_chunks and not filtered_chunks:
         return {
             "success": False,
             "audio_base64": "",
@@ -704,7 +731,7 @@ def stop_test_recording() -> dict:
             "quality": {},
         }
 
-    if not raw_chunks:
+    if not raw_chunks and not filtered_chunks:
         return {
             "success": True,
             "audio_base64": "",
@@ -715,16 +742,15 @@ def stop_test_recording() -> dict:
             "quality": {},
         }
 
-    # XV-54: derive ``audio`` from ``raw_audio.copy()`` before filtering.
-    # Previously both ``_test_chunks`` (filtered-then-stored) and
-    # ``_test_raw_chunks`` (raw) were populated by the worker thread,
-    # storing two copies of every chunk in memory (~2x peak test-audio
-    # footprint, up to ~22 MB at 48 kHz / 30 s). The filtered audio is
-    # now derived from the raw copy at stop time, so only one copy is
-    # stored during the test.
+    # Build ``raw_audio`` (the "before" WAV) from ``_test_raw_chunks``.
+    # Fall back to ``filtered_chunks`` (rare — raw buffer empty but
+    # filtered populated) so a valid WAV is always produced when any
+    # audio exists. ``_test_chunks`` is NOT used (legacy shim).
     try:
-        raw_audio = np.concatenate(raw_chunks, axis=0).reshape(-1)
-        audio = raw_audio.copy()
+        if raw_chunks:
+            raw_audio = np.concatenate(raw_chunks, axis=0).reshape(-1)
+        else:
+            raw_audio = np.concatenate(filtered_chunks, axis=0).reshape(-1)
     except Exception as exc:
         log.warning("[LEVEL-MON] Chunk concatenation failed: %s", exc)
         return {
@@ -736,6 +762,24 @@ def stop_test_recording() -> dict:
             "message": f"Audio processing failed: {exc}",
             "quality": {},
         }
+
+    # PVT-013: Build ``audio`` (the "after" WAV) from
+    # ``_test_filtered_chunks`` when the worker populated it. This is
+    # the audio that already went through the live ``_level_processor``
+    # filter chain during recording — concatenating it directly avoids
+    # the 7-70s synchronous re-filter that previously ran here. The
+    # post-hoc filter block below is SKIPPED in this case (would
+    # double-filter). Fallback: ``raw_audio.copy()`` — the post-hoc
+    # filter then runs on it (existing behavior, for the no-live-
+    # processor path).
+    if filtered_chunks:
+        try:
+            audio = np.concatenate(filtered_chunks, axis=0).reshape(-1)
+        except Exception as exc:
+            log.warning("[LEVEL-MON] Filtered chunk concatenation failed: %s", exc)
+            audio = raw_audio.copy()
+    else:
+        audio = raw_audio.copy()
 
     duration_ms = int(len(audio) / sr * 1000)
 
@@ -801,7 +845,14 @@ def stop_test_recording() -> dict:
     quality["estimated_transcription_quality"] = max(0, min(100, est_score))
 
     # ── Apply audio enhancement filters ─────────────────────────────
-    if filters and filters.get("noise_filter_enabled", True):
+    # PVT-013: skip the post-hoc filter when ``filtered_chunks`` was
+    # already populated by the worker (the live ``_level_processor``
+    # already filtered each chunk during recording). Running it again
+    # here would double-filter AND reintroduce the 7-70s synchronous
+    # block on the IPC thread. Only run when we fell back to
+    # ``raw_audio.copy()`` (no live processor was active during the
+    # test) and the user requested filters via ``_test_filters``.
+    if not filtered_chunks and filters and filters.get("noise_filter_enabled", True):
         try:
             # ADR 0007: AudioProcessor takes a config-like object directly.
             # ``process_full_audio()`` was removed (post-capture denoise
@@ -960,7 +1011,7 @@ def _cancel_test_locked() -> bool:
 
     Returns True if a test was actually active, False otherwise.
     """
-    global _test_mode, _test_chunks, _test_raw_chunks, _test_filters, _test_start_time, _test_auto_stop_timer
+    global _test_mode, _test_chunks, _test_raw_chunks, _test_filtered_chunks, _test_filters, _test_start_time, _test_auto_stop_timer
     global _test_peak_history, _test_rms_history, _test_clip_count, _test_silence_blocks
 
     # Stop auto-stop timer if running
@@ -969,7 +1020,7 @@ def _cancel_test_locked() -> bool:
         timer.cancel()
 
     with _monitor_lock:
-        if not _test_mode and not _test_chunks:
+        if not _test_mode and not _test_chunks and not _test_filtered_chunks:
             return False
         was_active = _test_mode
         _test_mode = False
@@ -977,6 +1028,7 @@ def _cancel_test_locked() -> bool:
         # reassigning to [] would make it an unbounded list again.
         _test_chunks.clear()
         _test_raw_chunks.clear()
+        _test_filtered_chunks.clear()
         _test_start_time = 0.0
         _test_filters.clear()
         _test_peak_history = []
@@ -1131,15 +1183,22 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     writes (``_monitor_level``, ``_monitor_peak``, ``_test_raw_chunks``
     append, quality-metric appends).
 
-    XV-54: only ``_test_raw_chunks`` is populated -- the processed
-    ``audio`` is derived from ``raw_audio.copy()`` in
-    ``stop_test_recording`` so we don't store two copies of every
-    chunk. ``_test_chunks`` is kept as a backward-compat shim (still
-    bounded + cleared) for tests outside this module's scope, but is
-    no longer appended to here.
+    XV-54: only ``_test_raw_chunks`` is populated with RAW audio.
+    ``_test_chunks`` is kept as a backward-compat shim (still bounded +
+    cleared) for tests outside this module's scope, but is no longer
+    appended to here.
+
+    PVT-013: the FILTERED audio (``flat_filtered``, the post-
+    ``process_chunk`` output) is ALSO appended to ``_test_filtered_chunks``
+    when a live processor is active and returned non-None. At
+    ``stop_test_recording`` time, this buffer is concatenated directly
+    into the returned ``audio`` ("after" WAV) so the 7-70s synchronous
+    re-filter is skipped. When no live processor is active,
+    ``_test_filtered_chunks`` stays empty and stop falls back to
+    ``raw_audio.copy()`` + post-hoc filter (existing behavior).
     """
     global _monitor_level, _monitor_peak, _monitor_active, _test_mode, _test_chunks
-    global _test_silence_blocks, _test_clip_count
+    global _test_filtered_chunks, _test_silence_blocks, _test_clip_count
 
     if status:
         log.debug("[LEVEL-MON] PortAudio status: %s", status)
@@ -1167,6 +1226,12 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     peak: float | None = None
     raw_rms_for_quality: float | None = None
     raw_peak_for_quality: float | None = None
+    # PVT-013: filtered audio to append to ``_test_filtered_chunks``
+    # under the lock. Populated ONLY when a live processor is active
+    # and returned non-None (otherwise the post-hoc filter at stop
+    # time handles the "after" WAV). Computed outside the lock (the
+    # ``.copy()`` is cheap — 512 float32 = 2 KB).
+    filtered_chunk_for_test: np.ndarray | None = None
     if len(flat) > 0:
         # Apply noise filters to the level bar audio if a processor is
         # active, so the bar reflects what the user hears after
@@ -1182,6 +1247,16 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             flat_filtered = filtered.ravel() if filtered is not None else flat
             abs_flat = np.abs(flat_filtered)
             rms = float(np.sqrt(np.mean(flat_filtered**2)))
+            # PVT-013: capture the filtered audio for the test's
+            # "after" WAV so stop_test_recording doesn't need to
+            # re-run the filter chain synchronously (7-70s block).
+            # ``flat_filtered`` may be a view of ``filtered`` (fresh
+            # array) or of ``indata`` (when ``filtered is None``);
+            # ``.copy()`` defends against both aliasing the RT
+            # callback's reusable buffer and the post-stop mutation
+            # of a transient array.
+            if test_mode and filtered is not None:
+                filtered_chunk_for_test = flat_filtered.copy()
         else:
             abs_flat = np.abs(flat)
             rms = float(np.sqrt(np.mean(flat**2)))
@@ -1196,8 +1271,9 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
 
     # -- Shared-state writes UNDER the lock (quick) --
     # XV-55: only the writes to ``_monitor_level``, ``_monitor_peak``,
-    # ``_test_raw_chunks`` (append), and the quality-metric lists are
-    # lock-protected. These are all O(1) -- the heavy work is done.
+    # ``_test_raw_chunks`` (append), ``_test_filtered_chunks`` (append),
+    # and the quality-metric lists are lock-protected. These are all
+    # O(1) -- the heavy work is done.
     with _monitor_lock:
         if not _monitor_active:
             return  # monitor stopped while we were computing
@@ -1212,8 +1288,11 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             _monitor_peak *= 0.85
 
         # If a test recording is active, also accumulate audio.
-        # XV-54: only ``_test_raw_chunks`` is populated -- ``audio`` is
-        # derived from ``raw_audio.copy()`` at stop time.
+        # XV-54: ``_test_raw_chunks`` holds the RAW audio ("before" WAV).
+        # PVT-013: ``_test_filtered_chunks`` holds the FILTERED audio
+        # ("after" WAV) — populated only when a live processor was
+        # active for this chunk. ``_test_chunks`` is NOT populated
+        # (kept as a backward-compat shim).
         if _test_mode and len(flat) > 0:
             # Track quality metrics from RAW audio (not filtered)
             # so the quality report reflects the true mic input
@@ -1221,6 +1300,11 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             if raw_rms_for_quality is not None:
                 _test_raw_chunks.append(indata.copy())
                 _test_rms_history.append(raw_rms_for_quality)
+            # PVT-013: append the filtered chunk (if captured) so
+            # stop_test_recording can build the "after" WAV without
+            # re-running the filter chain synchronously.
+            if filtered_chunk_for_test is not None:
+                _test_filtered_chunks.append(filtered_chunk_for_test)
             if raw_peak_for_quality is not None:
                 _test_peak_history.append(raw_peak_for_quality)
                 if raw_rms_for_quality is not None and raw_rms_for_quality < 0.0005:

@@ -89,6 +89,19 @@ _NON_RESTORABLE_FORMATS: frozenset[int] = frozenset(
     }
 )
 
+# Maximum bytes captured for a single clipboard format. Formats larger
+# than this are skipped (with a debug log) so a pathological clipboard
+# (e.g. a 200 MB RTF blob from a copied Excel range, or a huge
+# private-data format registered by an office suite) cannot exhaust
+# Python heap on every dictation. 16 MB comfortably covers every
+# realistic text/HTML/RTF format (the largest typical payload is a
+# richly-formatted document paste at ~1-2 MB) while still bounding
+# peak memory. Image formats (CF_DIB/CF_DIBV5) above the cap are also
+# skipped — they would have been restored as raw bytes anyway, which
+# for an oversized bitmap is slow and rarely what the user wants
+# restored (they typically want the *next* copy to replace it).
+_MAX_FORMAT_BYTES = 16 * 1024 * 1024
+
 
 def _builtin_format_name(fmt: int) -> str:
     """Return the standard name for a builtin clipboard format, or ''."""
@@ -271,6 +284,26 @@ class ClipboardSnapshot:
                 if size == 0:
                     continue
 
+                # Bounded RAM: skip formats whose payload exceeds the cap.
+                # ``ctypes.string_at(ptr, size)`` would otherwise copy the
+                # entire payload into a fresh Python ``bytes`` object on
+                # every capture — a 200 MB clipboard format (huge RTF
+                # from an office suite, oversized private-data format)
+                # would balloon Python RSS by 200 MB per dictation and
+                # not be released until the snapshot is restored (which
+                # may be never if the borrow-then-restore path is
+                # skipped due to a paste failure).
+                if size > _MAX_FORMAT_BYTES:
+                    log.debug(
+                        "[CLIPBOARD-SNAPSHOT] skipping fmt=%d name=%r: "
+                        "%d bytes exceeds %d-byte cap",
+                        fmt,
+                        name,
+                        size,
+                        _MAX_FORMAT_BYTES,
+                    )
+                    continue
+
                 ptr = kernel32.GlobalLock(handle)
                 if not ptr:
                     continue
@@ -420,6 +453,21 @@ class ClipboardSnapshot:
                 if nsdata is None:
                     continue
                 length = nsdata.length()
+                # Bounded RAM (mirrors the Windows path): skip formats
+                # whose payload exceeds the cap so a pathological
+                # pasteboard (huge image, large private data) cannot
+                # exhaust Python heap on every dictation. ``bytes(...)``
+                # below would otherwise copy the entire payload.
+                if length > _MAX_FORMAT_BYTES:
+                    log.debug(
+                        "[CLIPBOARD-SNAPSHOT] skipping type=%r idx=%d: "
+                        "%d bytes exceeds %d-byte cap",
+                        type_name,
+                        idx,
+                        length,
+                        _MAX_FORMAT_BYTES,
+                    )
+                    continue
                 # NSData.bytes() returns a pointer; .as_buffer(n) gives
                 # us a buffer we can convert to bytes.
                 data = b"" if length == 0 else bytes(nsdata.bytes().as_buffer(length))

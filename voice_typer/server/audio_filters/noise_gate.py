@@ -1,4 +1,12 @@
-"""Noise gate / downward expander (OBS-style)."""
+"""Noise gate / downward expander (OBS-style).
+
+The peak-hold level estimator is vectorized with
+``np.maximum.accumulate`` (linear-decay peak-hold trick -- see comment
+in ``process``). The open/close + attack/hold/release state machine
+remains a Python loop because its state transitions are inherently
+sequential, but it now operates on the pre-computed ``level`` array --
+no per-sample ``abs()`` or peak-hold bookkeeping in the loop body.
+"""
 
 from __future__ import annotations
 
@@ -21,15 +29,6 @@ class NoiseGate(AudioFilter):
     downward expander: below the close threshold, gain is reduced with
     attack/release smoothing. This preserves speech tails and avoids
     audible chopping.
-
-    Algorithm (ported from OBS ``noise-gate-filter.c``):
-    1. Compute per-sample peak level: ``level = max(level, |sample|) - decay_rate``
-    2. State machine:
-       - ``level > open_threshold`` → gate opens
-       - ``level < close_threshold`` → gate closes, hold timer resets
-       - Open: attenuation rises toward 1.0 at attack rate
-       - Closed (after hold): attenuation falls toward 0.0 at release rate
-    3. Each output sample multiplied by ``attenuation``.
     """
 
     def __init__(
@@ -49,24 +48,13 @@ class NoiseGate(AudioFilter):
         self._release_ms = float(release_ms)
         self._sample_rate = int(sample_rate)
 
-        # State (carried across process() calls)
-        # NOISE-GATE-INIT (Round 0 forward-port): the gate must start OPEN
-        # with full attenuation (1.0).  Starting closed (_is_open=False,
-        # _attenuation=0.0) silences the beginning of every recording
-        # until the input level exceeds the open threshold — the user
-        # would lose the first ~100-300ms of speech.  An open start lets
-        # audio pass immediately; the gate only closes after the level
-        # drops below the close threshold for the hold duration.  This
-        # matches the OBS noise gate behavior this filter is modeled
-        # after (ADR 0007).  Without this, ``test_reset_clears_state``
-        # fails (it asserts ``_is_open is True`` after ``reset()``).
+        # NOISE-GATE-INIT: gate must start OPEN with full attenuation (1.0).
+        # Starting closed silences the first 100-300ms of speech.
         self._is_open: bool = True
         self._attenuation: float = 1.0
         self._level: float = 0.0
         self._held_time: float = 0.0
 
-        # Precompute decay rate: level estimator decays across the
-        # open/close threshold gap in ~13ms (OBS: sample_rate/75).
         if self._open_threshold > self._close_threshold:
             self._decay_rate = (self._open_threshold - self._close_threshold) / (
                 self._sample_rate / 75.0
@@ -78,38 +66,48 @@ class NoiseGate(AudioFilter):
         if audio.size == 0:
             return audio
 
-        # Ensure 1-D float32
         original_shape = audio.shape
         samples = np.ravel(audio).astype(np.float32, copy=False)
         n = len(samples)
+        if n == 0:
+            return audio
         dt = 1.0 / sample_rate
 
         attack_rate = 1.0 / max(self._attack_ms / 1000.0, dt)
         release_rate = 1.0 / max(self._release_ms / 1000.0, dt)
         hold_time = self._hold_ms / 1000.0
 
-        output = np.empty(n, dtype=np.float32)
-        level = self._level
-        is_open = self._is_open
-        attenuation = self._attenuation
-        held_time = self._held_time
         open_thr = self._open_threshold
         close_thr = self._close_threshold
         decay = self._decay_rate
 
+        # Vectorized peak-hold level estimator (linear decay).
+        #
+        # The OBS recurrence is: level[i] = max(|x[i]|, level[i-1] - decay).
+        # Substituting z[i] = level[i] + i*decay gives
+        #   z[i] = max(|x[i]| + i*decay, z[i-1])
+        # which is a running maximum -- vectorizable with
+        # ``np.maximum.accumulate``. The carried ``self._level`` is the
+        # value of ``z[-1]`` from the previous chunk.
+        abs_x = np.abs(samples).astype(np.float64)
+        i_arr = np.arange(n, dtype=np.float64)
+        y = abs_x + i_arr * decay
+        y_with_init = np.empty(n + 1, dtype=np.float64)
+        y_with_init[0] = self._level
+        y_with_init[1:] = y
+        z = np.maximum.accumulate(y_with_init)[1:]
+        level_arr = np.maximum(z - i_arr * decay, 0.0)
+
+        # State machine (sequential -- inherently stateful). Operates on
+        # the pre-computed ``level_arr`` so the inner loop is cheap (a few
+        # float comparisons + arithmetic, no abs/max calls).
+        attenuation_arr = np.empty(n, dtype=np.float64)
+        is_open = self._is_open
+        attenuation = self._attenuation
+        held_time = self._held_time
+
         for i in range(n):
-            s = float(samples[i])
-            cur_level = abs(s)
-
-            # Peak-hold with leaky decay
-            if cur_level > level:
-                level = cur_level
-            else:
-                level -= decay
-                if level < 0.0:
-                    level = 0.0
-
-            # State machine
+            level = float(level_arr[i])
             if level > open_thr:
                 is_open = True
             elif level < close_thr and is_open:
@@ -127,9 +125,11 @@ class NoiseGate(AudioFilter):
                     if attenuation < 0.0:
                         attenuation = 0.0
 
-            output[i] = s * attenuation
+            attenuation_arr[i] = attenuation
 
-        self._level = level
+        output = (samples.astype(np.float64) * attenuation_arr).astype(np.float32)
+
+        self._level = float(level_arr[-1])
         self._is_open = is_open
         self._attenuation = attenuation
         self._held_time = held_time
@@ -137,8 +137,7 @@ class NoiseGate(AudioFilter):
         return output.reshape(original_shape)
 
     def reset(self) -> None:
-        # NOISE-GATE-INIT: reset to the same open-with-full-attenuation
-        # state as __init__ — see the comment there for rationale.
+        # NOISE-GATE-INIT: reset to the same open-with-full-attenuation state.
         self._is_open = True
         self._attenuation = 1.0
         self._level = 0.0

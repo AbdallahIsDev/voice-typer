@@ -138,24 +138,25 @@ class TestStartupErrorLogOverwrite:
         )
 
     def test_overwrite_matches_construction_failure_path(self):
-        """The ``app.start()`` failure path must use the SAME write
-        pattern as the ``VoiceTyperApp()`` construction failure path
-        (both overwrite, not append).  This guards against the two
-        paths diverging again.
+        """The ``app.start()`` failure path must use the SAME diagnostic
+        helper as the ``VoiceTyperApp()`` construction failure path
+        (both call ``write_startup_diagnostic``).  This guards against
+        the two paths diverging again — EC-8 extracted the duplicated
+        inline diagnostic blocks (which had already drifted: CR-10's
+        overwrite-vs-append fix was applied to only one) into
+        :func:`voice_typer.server.ipc_diagnostics.write_startup_diagnostic`.
         """
         src = inspect.getsource(ipc_server.main)
-        # Find both diagnostic-write calls.
-        # The construction-failure path (line ~2445 in the original)
-        # uses ``_secure_atomic_write(diag_path, buf.getvalue())``.
-        # The app.start()-failure path (line ~2585 in the original)
-        # must use the same pattern.
-        # Count occurrences of the overwrite pattern.
-        overwrite_count = src.count("_secure_atomic_write(diag_path, buf.getvalue())")
-        assert overwrite_count >= 2, (
+        # Both call sites must route through the shared helper instead of
+        # duplicating the ``_secure_atomic_write(diag_path, buf.getvalue())``
+        # pattern inline.  Counting the helper invocations guards against
+        # a future regression that re-inlines one of the call sites.
+        helper_count = src.count("write_startup_diagnostic(")
+        assert helper_count >= 2, (
             "Both the construction-failure path and the app.start()-failure "
-            "path must use _secure_atomic_write(diag_path, buf.getvalue()) "
-            "(overwrite, not append). Found "
-            f"{overwrite_count} occurrence(s); expected at least 2."
+            "path must call write_startup_diagnostic(...) (single source of "
+            "truth in ipc_diagnostics.py, EC-8). Found "
+            f"{helper_count} occurrence(s); expected at least 2."
         )
 
 
@@ -168,13 +169,15 @@ class TestStartupErrorLogConstructionFailureAlsoOverwrites:
 
     def test_construction_failure_path_uses_secure_atomic_write(self):
         """The ``except Exception`` clause around ``VoiceTyperApp()``
-        construction must use ``_secure_atomic_write`` (overwrite).
+        construction must route through the shared diagnostic helper
+        (which internally uses ``_secure_atomic_write`` to overwrite,
+        not append).
         """
         src = inspect.getsource(ipc_server.main)
-        assert "_secure_atomic_write(diag_path, buf.getvalue())" in src, (
-            "The construction-failure path must use "
-            "_secure_atomic_write(diag_path, buf.getvalue()) — overwrite, "
-            "not append."
+        assert "write_startup_diagnostic(" in src, (
+            "The construction-failure path must call "
+            "write_startup_diagnostic(...) (EC-8 shared helper) — "
+            "overwrite, not append."
         )
 
 

@@ -8,8 +8,10 @@ Platform support
 ----------------
 - **Windows**: ``WM_DEVICECHANGE`` via a hidden top-level window
   (created with ``ws_ex_toolwindow`` so it never appears in the
-  taskbar). A daemon thread runs a ``PeekMessage`` pump so the
-  ``stop_event`` can interrupt it.
+  taskbar). A daemon thread runs a blocking ``GetMessageW`` pump
+  that wakes the instant a window message arrives
+  (``WM_DEVICECHANGE`` on device add/remove, ``WM_QUIT`` posted by
+  ``stop()``).
 - **Linux**: polls ``/dev/snd`` directory listings at a configurable
   interval (default 1s) — lighter than PortAudio's 30s cache and
   doesn't require ``pyinotify`` as a dependency.
@@ -34,6 +36,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -203,6 +206,14 @@ class MicrophoneDeviceWatcher:
         started) on success. Any non-ImportError exception is logged
         and treated as "unavailable" — the polling watcher is the
         safe default.
+
+        XV-60: pass ``self._invoke_callback`` (the debounced dispatcher
+        that also runs the active-mic-lost check) instead of the raw
+        ``self._on_change`` callback. Without this, the CoreAudio path
+        fires the raw callback on every property-listener event,
+        bypassing the 0.5s debounce window (so a single USB plug event
+        can invalidate the cache 5+ times in 200ms) and skipping the
+        G4-M-41 active-mic-lost detection that the polling paths run.
         """
         # Late import — runtime selection so this module never imports
         # pyobjc at module load time (keeps Linux/Windows imports clean).
@@ -216,7 +227,7 @@ class MicrophoneDeviceWatcher:
             )
             return None
         try:
-            return CoreAudioMicrophoneWatcher(self._on_change, poll_interval=self._poll_interval)
+            return CoreAudioMicrophoneWatcher(self._invoke_callback, poll_interval=self._poll_interval)
         except ImportError:
             # _try_import_coreaudio raises ImportError on non-macOS or
             # when pyobjc-framework-CoreAudio is missing — this is the
@@ -264,7 +275,7 @@ class MicrophoneDeviceWatcher:
             return
         self._stop_event.set()
         # Post a WM_QUIT to wake up a Windows message pump that might
-        # be blocked in PeekMessage. On Linux this is a harmless no-op
+        # be blocked in GetMessageW. On Linux this is a harmless no-op
         # because the pump uses _stop_event.wait(timeout).
         if self._platform == "windows":
             try:
@@ -442,11 +453,22 @@ class MicrophoneDeviceWatcher:
                 exc_info=True,
             )
 
+        # XV-61: ``sd.query_devices()`` is a 10–50 ms CoreAudio round
+        # trip on macOS (vs <1 ms for ``os.listdir`` on /dev/snd on
+        # Linux). The default 1 s ``poll_interval`` is fine for the
+        # Linux directory-polling path but wasteful here — it spends
+        # 10–50 ms of CPU per second just to detect device changes
+        # that are rare in practice. Bump the macOS cadence to 3 s
+        # when the caller accepted the default (>=1.0 s). Tests that
+        # explicitly pass a smaller value (e.g. 0.05 s) keep their
+        # fast cadence so macOS polling tests stay deterministic.
+        effective_poll = self._poll_interval if self._poll_interval < 1.0 else 3.0
         log.debug(
-            "[MIC-WATCHER] watching macOS device count (initial=%s)",
+            "[MIC-WATCHER] watching macOS device count (initial=%s, poll=%.1fs)",
             last_count,
+            effective_poll,
         )
-        while not self._stop_event.wait(self._poll_interval):
+        while not self._stop_event.wait(effective_poll):
             try:
                 current_devices = sd.query_devices()
                 current_count = len(current_devices)
@@ -485,8 +507,10 @@ class MicrophoneDeviceWatcher:
 
         Uses ``ctypes`` to register a window class, create a hidden
         window (``ws_ex_toolwindow``, no ``WS_VISIBLE``), and pump
-        messages. A ``PeekMessage`` loop polls at 10Hz so the
-        ``stop_event`` can interrupt the pump within ~100ms.
+        messages with a blocking ``GetMessageW`` loop. The thread
+        sleeps with zero CPU until a window message arrives
+        (``WM_DEVICECHANGE`` for device add/remove, ``WM_QUIT`` posted
+        by ``stop()``).
 
         Note: message-only windows (``HWND_MESSAGE`` parent) do NOT
         receive broadcast messages like ``WM_DEVICECHANGE`` per the
@@ -515,7 +539,6 @@ class MicrophoneDeviceWatcher:
             return
 
         wm_devicechange = 0x0219
-        pm_remove = 1
         ws_ex_toolwindow = 0x00000080
 
         try:
@@ -550,6 +573,19 @@ class MicrophoneDeviceWatcher:
         ]
         user32.PeekMessageW.restype = wintypes.BOOL
         user32.PeekMessageW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT]
+        # PVT-030: ``GetMessageW`` is a BLOCKING call that returns
+        # immediately when a window message is available (so
+        # ``WM_DEVICECHANGE`` wakes the thread the instant a device is
+        # added/removed) and also when ``WM_QUIT`` is posted by
+        # ``_post_quit_to_windows`` during ``stop()``. Returns:
+        #   -1 on error (e.g. window destroyed) — caller exits the loop
+        #    0 on ``WM_QUIT`` — caller exits the loop
+        #   positive for any other message — caller dispatches it.
+        # ``restype`` is ``c_ssize_t`` (matches ``LRESULT``/``LONG_PTR``
+        # width) so the -1 sentinel is not truncated to 0xFFFFFFFF on
+        # 64-bit Windows.
+        user32.GetMessageW.restype = ctypes.c_ssize_t
+        user32.GetMessageW.argtypes = [ctypes.c_void_p, wintypes.HWND, wintypes.UINT, wintypes.UINT]
         user32.TranslateMessage.restype = wintypes.BOOL
         user32.TranslateMessage.argtypes = [ctypes.c_void_p]
         user32.DispatchMessageW.restype = ctypes.c_ssize_t
@@ -648,22 +684,32 @@ class MicrophoneDeviceWatcher:
                 "[MIC-WATCHER] Windows device-change watcher window created (hwnd=%d)",
                 hwnd,
             )
-            WM_QUIT = 0x0012  # noqa: N806
-            # Stash hwnd so stop() can post WM_QUIT to wake the pump.
             self._windows_hwnd = hwnd
 
             msg = wintypes.MSG()
-            # PeekMessage pump: polls at ~10Hz so stop_event can
-            # interrupt within ~100ms. PeekMessage with pm_remove
-            # is non-blocking, so the wait() between iterations is
-            # what throttles the loop.
-            while not self._stop_event.is_set():
-                while user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, pm_remove):
-                    if msg.message == WM_QUIT:
-                        return
-                    user32.TranslateMessage(ctypes.byref(msg))
-                    user32.DispatchMessageW(ctypes.byref(msg))
-                self._stop_event.wait(0.1)
+            # PVT-030: blocking ``GetMessageW`` pump. The thread sleeps
+            # with zero CPU until a window message arrives — either
+            # ``WM_DEVICECHANGE`` (device added/removed) or ``WM_QUIT``
+            # (posted by ``_post_quit_to_windows`` during ``stop()``).
+            # This eliminates the ~864k idle wakeups/day of the previous
+            # 10Hz ``PeekMessageW``+``wait(0.1)`` poll while preserving
+            # sub-ms stop response (``WM_QUIT`` wakes the thread
+            # immediately, no 100ms wait to elapse).
+            while True:
+                ret = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
+                if ret <= 0:
+                    # ret == 0: ``WM_QUIT`` retrieved (stop() posted it).
+                    # ret == -1: error (window destroyed, etc.) — exit
+                    # the pump gracefully so ``stop()``'s 2s join
+                    # succeeds and cleanup runs.
+                    if ret == -1:
+                        log.debug(
+                            "[MIC-WATCHER] GetMessageW returned -1 (err=%d), exiting pump",
+                            ctypes.get_last_error(),
+                        )
+                    return
+                user32.TranslateMessage(ctypes.byref(msg))
+                user32.DispatchMessageW(ctypes.byref(msg))
         finally:
             self._windows_hwnd = None
             if hwnd:
@@ -679,9 +725,9 @@ class MicrophoneDeviceWatcher:
     def _post_quit_to_windows(self) -> None:
         """Post ``WM_QUIT`` to the watcher window to wake the message pump.
 
-        Called from ``stop()`` so the pump exits immediately instead
-        of waiting up to 100ms for the next ``_stop_event.wait()``
-        timeout. No-op if the window hasn't been created yet.
+        Called from ``stop()`` so the blocking ``GetMessageW`` returns
+        immediately (with ``WM_QUIT``) and the pump exits. No-op if
+        the window hasn't been created yet.
         """
         hwnd = getattr(self, "_windows_hwnd", None)
         if not hwnd:
@@ -725,8 +771,6 @@ class MicrophoneDeviceWatcher:
         ``_on_active_mic_lost``, and ``_device_id_provider`` must be
         set for the check to run; otherwise it is a no-op.
         """
-        import time
-
         now = time.monotonic()
         last = getattr(self, "_last_callback_time", 0.0)
         if now - last < self._DEBOUNCE_SECONDS:

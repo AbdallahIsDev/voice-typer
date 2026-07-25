@@ -145,7 +145,17 @@ class AudioQualityAnalyzer:
     def analyze_chunk(self, chunk: np.ndarray) -> str | None:
         """Analyze a single audio chunk during recording.
 
-        Call this from the audio callback for each incoming chunk.
+        XV-40: RETAINED FOR TESTS / DIAGNOSTICS ONLY. Production code
+        (the live per-chunk callback in
+        :class:`AudioQualityController`) does NOT call this method --
+        it mirrors the accumulator logic inline (cheaper, no numpy work
+        since the AudioProcessor already computed `(rms, peak)`). This
+        method is preserved so unit tests and external diagnostics can
+        exercise the per-chunk peak/clipping accumulator in isolation,
+        and so the historical API contract is honoured. Do NOT add new
+        production callers -- prefer :meth:`update_live_rms` (EMA
+        path) or :meth:`analyze_full_audio` (post-recording report).
+
         Returns a warning string if an immediate issue is detected,
         or None if everything is fine.
         """

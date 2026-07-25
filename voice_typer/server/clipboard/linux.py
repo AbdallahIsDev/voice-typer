@@ -18,6 +18,7 @@ mock)`` actually take effect on the code paths in this module.
 
 from __future__ import annotations
 
+import functools
 import logging
 from typing import TYPE_CHECKING
 
@@ -38,6 +39,31 @@ if TYPE_CHECKING:  # pragma: no cover
 # with the same name (so handlers/levels configured on the package
 # logger still apply).
 log = logging.getLogger("voice_typer.server.clipboard")
+
+
+# XV-100: memoised ``shutil.which`` for invariant system binaries
+# (``wl-copy``, ``wl-paste``, ``wtype``).  Pre-fix, every paste
+# operation on a Wayland session re-probed ``$PATH`` for these
+# binaries via :func:`shutil.which` (~0.5–2 ms per call).  They are
+# installed by the distro package manager and do not appear or
+# disappear during a session, so caching is safe.  ``functools.lru_cache``
+# is keyed by the binary name; the cache is cleared by the
+# ``clear_binary_path_cache`` autouse fixture in ``tests/conftest.py``
+# between tests.  Tests that monkeypatch ``_cb._have_wl_clipboard``
+# (or ``_cb._have_wtype``) directly with a lambda bypass this cache
+# entirely (the patched attribute replaces the function object on the
+# package namespace), so caching is invisible to those tests.
+@functools.lru_cache(maxsize=None)
+def _shutil_which_cached(binary: str) -> str | None:
+    """Return ``shutil.which(binary)`` with the result memoised.
+
+    The cache key is the binary name; the lookup is performed once per
+    binary per process.  Returns ``None`` if the binary is not on
+    ``$PATH`` (same as :func:`shutil.which`).
+    """
+    import shutil  # noqa: PLC0415 — stdlib, kept lazy to mirror existing style
+
+    return shutil.which(binary)
 
 
 # ─── pynput lazy-import helpers ──────────────────────────────────────
@@ -153,10 +179,27 @@ def _is_wayland_session() -> bool:
 
 
 def _have_wl_clipboard() -> bool:
-    """Return True if both `wl-copy` and `wl-paste` are on PATH."""
-    import shutil
+    """Return True if both `wl-copy` and `wl-paste` are on PATH.
 
-    return bool(shutil.which("wl-copy") and shutil.which("wl-paste"))
+    XV-100: the result is memoised with :func:`functools.lru_cache` so
+    the two ``shutil.which`` calls (one for ``wl-copy``, one for
+    ``wl-paste``) run at most ONCE per process.  Pre-fix, every paste
+    operation re-probed ``$PATH`` for these invariant system binaries
+    (~0.5–2 ms per ``shutil.which`` call × 2 calls × every paste = a
+    measurable per-paste tax on top of the ``wl-copy``/``wl-paste``
+    subprocess itself).  The binaries do not appear or disappear during
+    a session (they're installed by the distro package manager), so
+    caching is safe.
+
+    Tests that need to simulate different PATH state MUST call
+    :meth:`_have_wl_clipboard.cache_clear` (or use the
+    ``clear_binary_path_cache`` autouse fixture in ``tests/conftest.py``
+    that clears all module-level lru_caches between tests).  Tests that
+    monkeypatch ``_cb._have_wl_clipboard`` directly with a lambda
+    bypass this cache entirely (the patched attribute replaces the
+    function object), so caching is invisible to those tests.
+    """
+    return bool(_shutil_which_cached("wl-copy") and _shutil_which_cached("wl-paste"))
 
 
 def _linux_wayland_copy(text: str) -> None:
@@ -267,10 +310,14 @@ def _is_wayland_paste_session() -> bool:
 
 
 def _have_wtype() -> bool:
-    """Return True if `wtype` (Wayland text-injection tool) is on PATH."""
-    import shutil
+    """Return True if `wtype` (Wayland text-injection tool) is on PATH.
 
-    return bool(shutil.which("wtype"))
+    XV-100: memoised with :func:`functools.lru_cache` — see
+    :func:`_have_wl_clipboard` for rationale.  ``wtype`` is an
+    invariant system binary (installed by the distro package manager)
+    so the result does not change during a session.
+    """
+    return bool(_shutil_which_cached("wtype"))
 
 
 def _linux_paste_via_wtype(text: str | None) -> None:
@@ -387,4 +434,5 @@ __all__ = [
     "_linux_wayland_copy",
     "_linux_wayland_paste",
     "_paste_from_clipboard",
+    "_shutil_which_cached",
 ]

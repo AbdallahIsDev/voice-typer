@@ -111,12 +111,20 @@ class VolumeBackend(ABC):
         The fade is **synchronous** — the caller blocks until complete.
         This is intentional: ``VolumeDucker`` calls this from a
         background thread, and a 150 ms block is acceptable.
+
+        Subprocess backends (``_set_linear_is_subprocess == True``)
+        collapse to a single :meth:`set_linear` call regardless of
+        *steps*: each subprocess spawn costs 10–200 ms, so a 10-step
+        fade would take 100 ms – 2 s and produce audible stepping
+        plus mute artifacts on some DACs.  In-process backends
+        (Windows pycaw, macOS CoreAudio) keep the multi-step ramp
+        for smooth perceptual fades.
         """
         current = self.get_state()
         if current is None:
             return self.set_linear(target_linear)
 
-        if duration_ms <= 0 or steps <= 1:
+        if duration_ms <= 0 or steps <= 1 or self._set_linear_is_subprocess:
             return self.set_linear(target_linear)
 
         start = current.linear
@@ -129,6 +137,29 @@ class VolumeBackend(ABC):
             if i < steps:
                 time.sleep(sleep_s)
         return True
+
+    # ── Subprocess-vs-in-process hint ──────────────────────────────────
+    #
+    # Used by ``fade_to`` to decide whether to multi-step (in-process
+    # backends, <1 ms per call) or collapse to a single set_linear
+    # (subprocess backends, 10–200 ms per call).  Subclasses that spawn
+    # a subprocess inside ``set_linear`` MUST override this to ``True``.
+    #
+    # Default ``False`` is the safe choice for in-process backends
+    # (Windows pycaw, macOS CoreAudio).  Subprocess backends (Linux
+    # pactl/wpctl/amixer, macOS osascript fallback) override to ``True``.
+    #
+    @property
+    def _set_linear_is_subprocess(self) -> bool:
+        """Return ``True`` if :meth:`set_linear` spawns a subprocess.
+
+        Subprocess backends have 10–200 ms latency per ``set_linear``
+        call.  ``fade_to`` collapses to a single call for these
+        backends to avoid 10× subprocess overhead (audible stepping +
+        multi-second latency).  In-process backends override to
+        ``False`` to keep the smooth multi-step ramp.
+        """
+        return False
 
     # ── Speaker-activity detection ────────────────────────────────
     #
@@ -182,6 +213,26 @@ class VolumeBackend(ABC):
         smaller value.
         """
         return 500
+
+    @property
+    def min_poll_interval_ms(self) -> int:
+        """Minimum safe smart-duck poll interval in milliseconds.
+
+        Backends that spawn an expensive subprocess per
+        :meth:`is_speaker_active` call (Linux ``pactl list sink-inputs``
+        ~50–100 ms, macOS osascript ~200–500 ms) override this to
+        advertise the *slowest* cadence the monitor should adopt.
+        ``VolumeDucker`` uses ``max(user_value, min_poll_interval_ms)``
+        so the monitor never polls *faster* than the backend can
+        handle — preventing CPU waste (10–20% on Linux pactl at the
+        default 500 ms cadence) and battery drain on laptops.
+
+        Default ``0`` means no minimum (the monitor can poll as fast
+        as the user configures).  In-process backends (Windows
+        IAudioMeterInformation, macOS CoreAudio) keep the default
+        because each poll is <1 ms.
+        """
+        return 0
 
     # ── Per-session support (Windows only) ──────────────────────────
 

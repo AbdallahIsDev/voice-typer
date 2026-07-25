@@ -85,20 +85,23 @@ class NotchFilter(AudioFilter):
     def reset(self) -> None:
         if self._state is not None:
             b, a, zi = self._state
-            # G4-L-05: zero the existing IIR state BEFORE replacing it
-            # (mirrors HighPassFilter.reset).  The notch filter's carry
-            # state is small (1 sample) but still encodes a residual of
-            # the previous audio, so zero it for symmetry with the
-            # highpass path and the same SEC-audit-008 guarantee.
+            # G4-L-05: zero the existing IIR state in place (mirrors
+            # HighPassFilter.reset).  The notch filter's carry state is
+            # small (1 sample) but still encodes a residual of the
+            # previous audio, so zero it for symmetry with the highpass
+            # path and the same SEC-audit-008 guarantee.
+            # XV-39: reuse the just-zeroed array instead of allocating a
+            # fresh ``np.zeros(...)`` block on every reset() — same
+            # rationale as HighPassFilter.reset.
             if zi.size > 0:
                 zi.fill(0)
-            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float32)
             # ANTIDENORMAL (Round 0 forward-port): re-apply epsilon to
             # the first state element (mirrors HighPassFilter.reset).
             # Without this, reset() leaves the IIR state at exact zero,
             # which on some CPUs triggers denormal float handling and
             # burns cycles in the audio callback.
-            zi[0] = ANTIDENORMAL_EPSILON
+            if zi.size > 0:
+                zi[0] = ANTIDENORMAL_EPSILON
             self._state = (b, a, zi)
 
     @property

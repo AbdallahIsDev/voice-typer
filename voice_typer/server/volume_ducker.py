@@ -185,6 +185,25 @@ class VolumeDucker:
             )
             self._smart_duck_poll_ms = recommended
 
+        # XV-57: subprocess backends (Linux pactl, macOS osascript) spawn
+        # an expensive subprocess per ``is_speaker_active()`` call.  At
+        # the default 500ms cadence, Linux pactl burns 10–20% CPU on one
+        # core just for smart-duck.  The backend's ``min_poll_interval_ms``
+        # advertises the *slowest* cadence the monitor should adopt; we
+        # use ``max(user_value, min_poll)`` so the monitor never polls
+        # *faster* than the backend can handle.  Users who explicitly
+        # configure a slower value are still honoured.
+        min_poll = getattr(self._backend, "min_poll_interval_ms", 0)
+        if min_poll > self._smart_duck_poll_ms:
+            log.info(
+                "[VOLUME] Backend %s requires %dms minimum poll interval "
+                "(was %dms) — adopting to avoid subprocess CPU waste",
+                self._backend.name,
+                min_poll,
+                self._smart_duck_poll_ms,
+            )
+            self._smart_duck_poll_ms = min_poll
+
         log.info(
             "[VOLUME] Backend ready: %s (per_session=%s)",
             self._backend.name,

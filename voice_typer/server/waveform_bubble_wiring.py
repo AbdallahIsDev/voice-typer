@@ -146,12 +146,17 @@ class WaveformBubbleWiring:
             # (~60 Hz) so every chunk is delivered; the bounded queue
             # (maxsize=64) and worker thread handle backpressure.  Each
             # message is ~40 bytes JSON, so 60 msg/s is trivial for TCP.
+            #
+            # XV-63: 16 ms still dropped ~36% of 48 kHz chunks (94 Hz
+            # source vs 60 Hz gate). Lowered to 8 ms (~125 Hz) so every
+            # chunk at 48 kHz passes the gate; the bounded queue +
+            # PERF-3 drain handle backpressure on the consumer side, so
+            # the gate no longer needs to be a backpressure mechanism.
             now = time.monotonic()
-            last = getattr(self, "_last_bubble_level_push_ts", 0.0)
-            if now - last < 0.016:  # 16 ms = ~60 Hz
+            if now - self._last_bubble_level_push_ts < 0.008:  # 8 ms = ~125 Hz
                 return
             self._last_bubble_level_push_ts = now
-            q = getattr(self, "_bubble_level_queue", None)
+            q = self._bubble_level_queue
             if q is None:
                 return  # wiring not complete yet
             with contextlib.suppress(queue.Full):
@@ -171,9 +176,13 @@ class WaveformBubbleWiring:
         # idempotently — if _wire_waveform_bubble is called twice
         # (e.g. in tests after a stop/start cycle), the existing
         # queue and worker are reused.
-        if not hasattr(self, "_bubble_level_queue") or self._bubble_level_queue is None:
+        #
+        # XV-62: __init__ pre-declares these attributes (as None), so
+        # the ``hasattr`` guards below are dead branches. Use direct
+        # ``is None`` checks instead — clearer intent, fewer ops.
+        if self._bubble_level_queue is None:
             self._bubble_level_queue: queue.Queue[dict | None] = queue.Queue(maxsize=64)
-        if not hasattr(self, "_bubble_level_worker_stop") or self._bubble_level_worker_stop is None:
+        if self._bubble_level_worker_stop is None:
             self._bubble_level_worker_stop = threading.Event()
 
         def _bubble_level_worker() -> None:
@@ -215,9 +224,13 @@ class WaveformBubbleWiring:
                 event_bus.publish(item)
                 q.task_done()
 
+        # XV-62: __init__ pre-declares _bubble_level_worker (as None),
+        # so the ``hasattr`` guard is a dead branch. Direct ``is None``
+        # check is sufficient — and re-creating the worker when the
+        # previous one has exited (e.g. after stop()) is still handled
+        # by the ``not is_alive()`` clause.
         if (
-            not hasattr(self, "_bubble_level_worker")
-            or self._bubble_level_worker is None
+            self._bubble_level_worker is None
             or not self._bubble_level_worker.is_alive()
         ):
             self._bubble_level_worker = threading.Thread(
@@ -312,13 +325,17 @@ class WaveformBubbleWiring:
         """
         # PERF-NEW-001: stop the bubble level worker so it doesn't
         # try to push to a torn-down IPC server during shutdown.
+        #
+        # XV-62: __init__ pre-declares all three attributes (as None),
+        # so the ``hasattr`` guards are dead branches. Direct ``is
+        # not None`` checks are clearer and faster.
         try:
-            if hasattr(self, "_bubble_level_worker_stop") and self._bubble_level_worker_stop is not None:
+            if self._bubble_level_worker_stop is not None:
                 self._bubble_level_worker_stop.set()
-                if hasattr(self, "_bubble_level_queue") and self._bubble_level_queue is not None:
+                if self._bubble_level_queue is not None:
                     with contextlib.suppress(queue.Full):
                         self._bubble_level_queue.put_nowait(None)  # sentinel
-                if hasattr(self, "_bubble_level_worker") and self._bubble_level_worker is not None:
+                if self._bubble_level_worker is not None:
                     self._bubble_level_worker.join(timeout=1.0)
         except Exception as e:
             log.debug("[SHUTDOWN] bubble level worker stop failed: %s", e)

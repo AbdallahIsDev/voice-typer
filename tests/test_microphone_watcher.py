@@ -503,12 +503,13 @@ def fake_windows_windll():
     mock_windll.kernel32 = mock_kernel32
 
     # Default, sane return values for a happy-path message pump that
-    # receives no messages (PeekMessageW returns 0 → inner loop exits
-    # immediately → outer loop waits on _stop_event).
+    # receives WM_QUIT immediately (GetMessageW returns 0 → the pump
+    # exits on the first call). Individual tests override
+    # ``GetMessageW.side_effect`` to feed real messages.
     mock_kernel32.GetModuleHandleW.return_value = 0x10000
     mock_user32.RegisterClassExW.return_value = 1  # non-zero atom
     mock_user32.CreateWindowExW.return_value = 0x20000  # non-zero hwnd
-    mock_user32.PeekMessageW.return_value = 0  # no messages by default
+    mock_user32.GetMessageW.return_value = 0  # WM_QUIT by default
     mock_user32.TranslateMessage.return_value = 1
     mock_user32.DispatchMessageW.return_value = 0
     mock_user32.DefWindowProcW.return_value = 0
@@ -540,7 +541,7 @@ def fake_windows_windll():
 def _set_msg(byref_obj, message: int, hwnd: int = 1, wparam: int = 0, lparam: int = 0) -> None:
     """Fill a ``wintypes.MSG`` wrapped by ``ctypes.byref`` with the given fields.
 
-    Mirrors what the real ``PeekMessageW`` would write into the MSG
+    Mirrors what the real ``GetMessageW`` would write into the MSG
     structure. ``byref_obj._obj`` is the underlying ``wintypes.MSG``
     instance.
     """
@@ -623,7 +624,7 @@ class TestMicrophoneDeviceWatcherWindows:
         watcher = MicrophoneDeviceWatcher(on_change=callback_event.set, poll_interval=0.05)
         watcher._platform = "windows"
 
-        captured = {"wnd_proc": None, "peek_count": 0}
+        captured = {"wnd_proc": None, "get_count": 0}
 
         def capture_register(wc_byref):
             # Grab the WNDPROC-wrapped _wnd_proc closure so we can
@@ -632,13 +633,18 @@ class TestMicrophoneDeviceWatcherWindows:
             captured["wnd_proc"] = wc_byref._obj.lpfnWndProc
             return 1
 
-        def fake_peek(msg_byref, hwnd_filter, msg_min, msg_max, remove):
-            captured["peek_count"] += 1
-            if captured["peek_count"] == 1:
+        def fake_get(msg_byref, hwnd_filter, msg_min, msg_max):
+            # GetMessageW signature: (LPMSG, HWND, UINT, UINT) — 4 args
+            # (no ``remove`` flag, unlike PeekMessageW). Returns:
+            #   0 → WM_QUIT (pump exits)
+            #  -1 → error (pump exits)
+            #   positive → message retrieved (dispatch it)
+            captured["get_count"] += 1
+            if captured["get_count"] == 1:
                 _set_msg(msg_byref, _WM_DEVICECHANGE)
                 return 1  # message available
-            # After the first message, return 0 so the inner loop
-            # exits and the outer loop re-checks _stop_event.
+            # After the first message, return 0 (WM_QUIT) so the
+            # blocking pump exits cleanly without needing stop().
             return 0
 
         def fake_dispatch(msg_byref):
@@ -650,7 +656,7 @@ class TestMicrophoneDeviceWatcherWindows:
             return 0
 
         fake_windows_windll["user32"].RegisterClassExW.side_effect = capture_register
-        fake_windows_windll["user32"].PeekMessageW.side_effect = fake_peek
+        fake_windows_windll["user32"].GetMessageW.side_effect = fake_get
         fake_windows_windll["user32"].DispatchMessageW.side_effect = fake_dispatch
 
         watcher.start()
@@ -667,11 +673,12 @@ class TestMicrophoneDeviceWatcherWindows:
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None, poll_interval=0.05)
         watcher._platform = "windows"
 
-        def fake_peek(msg_byref, hwnd_filter, msg_min, msg_max, remove):
+        def fake_get(msg_byref, hwnd_filter, msg_min, msg_max):
+            # GetMessageW returning 0 == WM_QUIT retrieved → pump exits.
             _set_msg(msg_byref, _WM_QUIT)
-            return 1  # message available
+            return 0
 
-        fake_windows_windll["user32"].PeekMessageW.side_effect = fake_peek
+        fake_windows_windll["user32"].GetMessageW.side_effect = fake_get
 
         watcher.start()
         # The thread should exit on its own (WM_QUIT → return) without
@@ -691,13 +698,13 @@ class TestMicrophoneDeviceWatcherWindows:
         watcher._platform = "windows"
 
         # Default mocks: RegisterClassExW → 1, CreateWindowExW → 0x20000,
-        # PeekMessageW → 0 (no messages). The pump loops on _stop_event.
+        # GetMessageW → 0 (WM_QUIT, pump exits on first call).
         watcher.start()
-        # Let the pump enter the message loop. Poll until PeekMessageW
-        # has been called (confirms the pump is running).
+        # Let the pump enter the message loop. Poll until GetMessageW
+        # has been called (confirms the pump ran at least once).
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
-            if fake_windows_windll["user32"].PeekMessageW.called:
+            if fake_windows_windll["user32"].GetMessageW.called:
                 break
             time.sleep(0.02)
         watcher.stop()
@@ -755,8 +762,8 @@ class TestMicrophoneDeviceWatcherWindows:
             f"Expected 'CreateWindowExW failed' warning, got: {warning_messages}"
         )
         # The message pump should NOT have started (early return).
-        assert not fake_windows_windll["user32"].PeekMessageW.called, (
-            "PeekMessageW should not be called when CreateWindowExW fails"
+        assert not fake_windows_windll["user32"].GetMessageW.called, (
+            "GetMessageW should not be called when CreateWindowExW fails"
         )
         watcher._thread = None  # already exited
 

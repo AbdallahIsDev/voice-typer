@@ -1,7 +1,7 @@
 """Regression test for CR-17: ``_secure_clear_array`` must be called via
 ``_recording_pkg._secure_clear_array``, not bare-name ``_secure_clear_array``.
 
-Pre-fix bug (verified by ruff F821 in comprehensive-review.md):
+Pre-fix bug (verified by ruff F821 in review.md):
   - ``recorder.py:1228`` and ``:1233`` used bare-name
     ``_secure_clear_array(self._cached_resampled)`` /
     ``_secure_clear_array(self._cached_no_resample_arr)``.

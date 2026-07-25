@@ -1,4 +1,11 @@
-"""Limiter (brick-wall, OBS-style)."""
+"""Limiter (brick-wall, OBS-style).
+
+Vectorized with the same two-parallel-IIR + max trick as the
+Compressor (see ``compressor.py``). The brick-wall behavior comes
+from ``slope = 1.0`` (infinity:1 ratio) so gain_db = threshold_db -
+env_db, clamped <= 0 -- when env >= ceiling, gain_db = threshold_db -
+env_db <= 0 and output is held at the ceiling.
+"""
 
 from __future__ import annotations
 
@@ -8,15 +15,12 @@ import numpy as np
 
 from voice_typer.server.audio_filters.base import (
     AudioFilter,
-    db_to_mul,
-    mul_to_db,
     one_pole_coeff,
 )
 
 log = logging.getLogger(__name__)
 
-# Hardcoded attack time (matches OBS limiter-filter.c)
-_ATTACK_TIME_SECONDS: float = 0.001  # 1 ms
+_ATTACK_TIME_SECONDS: float = 0.001  # 1 ms (matches OBS limiter-filter.c)
 
 
 class Limiter(AudioFilter):
@@ -25,9 +29,6 @@ class Limiter(AudioFilter):
     A compressor with ``slope=1.0`` (infinity:1 ratio) and 1ms attack.
     Absolutely refuses to let any sample exceed the ceiling. Prevents
     transient clicks/pops from saturating downstream stages.
-
-    Algorithm (ported from OBS ``limiter-filter.c``):
-    Same as Compressor but with ``slope=1.0`` and ``attack=1ms``.
     """
 
     def __init__(
@@ -40,7 +41,6 @@ class Limiter(AudioFilter):
         self._threshold_db = float(ceiling_db)
         self._slope = 1.0  # brick-wall
         self._sample_rate = int(sample_rate)
-
         self._attack_coeff = one_pole_coeff(self._sample_rate, _ATTACK_TIME_SECONDS)
         self._release_coeff = one_pole_coeff(self._sample_rate, release_ms / 1000.0)
         self._envelope: float = 0.0
@@ -52,36 +52,37 @@ class Limiter(AudioFilter):
         original_shape = audio.shape
         samples = np.ravel(audio).astype(np.float32, copy=False)
         n = len(samples)
+        if n == 0:
+            return audio
 
-        threshold_db = self._threshold_db
-        slope = self._slope
-        attack_c = self._attack_coeff
-        release_c = self._release_coeff
-        env = self._envelope
+        abs_x = np.abs(samples).astype(np.float64)
 
-        output = np.empty(n, dtype=np.float32)
+        from scipy.signal import lfilter
 
-        for i in range(n):
-            s = float(samples[i])
-            abs_s = abs(s)
+        attack_env, _ = lfilter(
+            [1.0 - self._attack_coeff],
+            [1.0, -self._attack_coeff],
+            abs_x,
+            zi=np.array([self._envelope], dtype=np.float64),
+        )
+        release_env, _ = lfilter(
+            [1.0 - self._release_coeff],
+            [1.0, -self._release_coeff],
+            abs_x,
+            zi=np.array([self._envelope], dtype=np.float64),
+        )
+        env = np.maximum(attack_env, release_env)
 
-            if abs_s > env:
-                env = attack_c * env + (1.0 - attack_c) * abs_s
-            else:
-                env = release_c * env + (1.0 - release_c) * abs_s
+        above_floor = env > 1e-10
+        safe_env = np.where(above_floor, env, 1.0)
+        env_db = 20.0 * np.log10(safe_env)
+        gain_db = self._slope * (self._threshold_db - env_db)
+        np.minimum(gain_db, 0.0, out=gain_db)
+        gain = np.power(10.0, gain_db / 20.0)
+        gain = np.where(above_floor, gain, 1.0)
 
-            if env > 1e-10:
-                env_db = mul_to_db(env)
-                gain_db = slope * (threshold_db - env_db)
-                if gain_db > 0.0:
-                    gain_db = 0.0
-                gain = db_to_mul(gain_db)
-            else:
-                gain = 1.0
-
-            output[i] = s * gain
-
-        self._envelope = env
+        output = (samples.astype(np.float64) * gain).astype(np.float32)
+        self._envelope = float(env[-1])
         return output.reshape(original_shape)
 
     def reset(self) -> None:

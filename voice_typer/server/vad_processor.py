@@ -133,7 +133,19 @@ class VadProcessor:
         # grey-zone frames, decay both counters by 1 so the state machine
         # can transition on the next clear frame.
         self._consecutive_grey_frames: int = 0
-        self._grey_zone_hold_limit: int = 30  # ~1s at 30 Hz; bound soft-speech stalls
+        # XV-47: grey-zone hold limit is now configurable so soft-spoken
+        # users (whose speech legitimately hovers in the 0.3-0.5 prob
+        # band) can extend the bound beyond the default ~1s instead of
+        # being force-transitioned to SILENCE mid-phrase. Reads
+        # ``config.vad_grey_zone_hold_limit`` when explicitly set as an
+        # int; falls back to 30 frames (~1s at 30 Hz) otherwise. The
+        # isinstance guard avoids tripping on MagicMock configs in tests
+        # (which auto-create attributes as MagicMock instances, not ints).
+        _grey_override = getattr(config, "vad_grey_zone_hold_limit", None)
+        if isinstance(_grey_override, int):
+            self._grey_zone_hold_limit: int = _grey_override
+        else:
+            self._grey_zone_hold_limit: int = 30  # ~1s at 30 Hz
 
         # RMS-dB thresholds (overridden by auto-calibration)
         self._speech_threshold_db: float = DEFAULT_VAD_SPEECH_THRESHOLD_DB
@@ -378,6 +390,10 @@ class VadProcessor:
         Called by ``Recorder.start()`` at the beginning of each session
         so counters and thresholds from the prior session don't bleed
         into the new one.
+
+        XV-46: also resets the Silero LSTM hidden state (if the model
+        is loaded) so prior-session speech patterns don't bias the
+        first probabilities of the new session.
         """
         self._state = VadState.UNKNOWN
         self._consecutive_speech_frames = 0
@@ -389,6 +405,16 @@ class VadProcessor:
         self._calibration_rms_values = []
         self._calibrated = False
         self._calibration_status = "pending"
+
+        # XV-46: reset Silero LSTM hidden state at session boundaries.
+        # No-op if the model isn't loaded (avoids triggering a load just
+        # to reset state — the model starts fresh on first load).
+        try:
+            from voice_typer.server.vad import reset_states as _vad_reset_states
+
+            _vad_reset_states()
+        except Exception:
+            log.debug("[VAD] Silero reset_states unavailable", exc_info=True)
 
     # ── VAD-enabled cache (VAD-GATE Task 4 + PERF-02) ────────────────
 
@@ -435,12 +461,32 @@ class VadProcessor:
         gate decision uses the new config without re-running 6
         ``getattr()`` calls per access.
 
+        XV-50: when VAD transitions enabled → disabled mid-session
+        (user selected the "Off" audio preset, or manually turned off
+        every noise filter), the Silero model is unloaded so the ~2MB
+        JIT graph isn't pinned in RAM for the rest of the process
+        lifetime. Reload happens lazily via ``vad._load_model`` on the
+        next VAD-enabled chunk.
+
         Safe to call from any thread (only reads ``self._config`` and
         writes two atomic Python attributes under the GIL). No-op if
         the processor has not been initialized yet.
         """
-        self._vad_enabled_cached = self.compute_vad_enabled(self._config)
+        was_enabled = self._vad_enabled_cached
+        new_enabled = self.compute_vad_enabled(self._config)
+        self._vad_enabled_cached = new_enabled
         self._vad_enabled_cache_ts = time.perf_counter()
+
+        # XV-50: release the Silero model when VAD transitions to
+        # disabled. ``unload`` is a no-op if the model isn't loaded.
+        if was_enabled and not new_enabled:
+            try:
+                from voice_typer.server.vad import unload as _vad_unload
+
+                _vad_unload()
+                log.info("[VAD] Silero model unloaded (VAD disabled mid-session)")
+            except Exception:
+                log.debug("[VAD] unload on config-change failed", exc_info=True)
 
     def compute_vad_enabled(self, config: Any) -> bool:
         """Compute whether VAD should run based on audio enhancement state.

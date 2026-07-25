@@ -2,7 +2,7 @@
 
 PVT-22 / Phase 4.5 — extracted from :mod:`.recorder` to shrink the
 3019-LOC ``recorder.py`` partial monolith (see PVT-22 in
-``comprehensive-review.md``). Owns all device-list caching,
+``review.md``). Owns all device-list caching,
 microphone-watcher lifecycle, sample-rate negotiation, and the periodic
 device-health-checker daemon thread.
 

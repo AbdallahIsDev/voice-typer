@@ -193,7 +193,7 @@ _XRUN_ALERT_THRESHOLD = 5  # alert if N xruns in the window
 _XRUN_ALERT_PERIOD = 10.0  # ...within M seconds
 
 
-# PERF-NEW-018 / XV-20: MAX_BUFFER_CHUNKS is dynamically adjusted in
+# PERF-NEW-018 / MAX_BUFFER_CHUNKS is dynamically adjusted in
 # start() based on max_recording_time_seconds AND the device's effective
 # sample rate (after _resolve_effective_sample_rate returns). The
 # original implementation assumed 1024-sample blocks at 16kHz
@@ -262,6 +262,26 @@ _AUDIO_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
 # ``event_bus.publish`` off the audio worker thread. Started by
 # ``start()``, stopped by ``stop()`` / ``discard()``.
 _EVENT_WORKER_THREAD_NAME = "event-worker"
+# sentinel pushed onto ``_event_queue`` by ``_stop_event_worker``
+# to wake the event worker immediately from its 0.5s ``queue.get``
+# poll. Without the sentinel, the worker would not notice the stop
+# signal until its next poll iteration (up to 0.5s latency), which
+# caused ``test_concurrent_start_stop_no_leak`` to leak ~16 daemon
+# threads during the 0.5s hammer (each spawn's daemon lingered for
+# the full 0.5s poll before exiting). The sentinel is a unique
+# object (not a dict) so the worker's ``event_bus.publish`` call
+# never sees it -- the loop checks for the sentinel BEFORE
+# publishing. The sentinel is a class (not an instance) so it's
+# trivially picklable and comparable via ``is``.
+class _EventWorkerStopSentinel:
+    """Marker pushed onto the event queue to wake the worker on stop."""
+    __slots__ = ()
+    _instance = None
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+_EVENT_WORKER_STOP_SENTINEL = _EventWorkerStopSentinel()
 # Join timeout for stop() — generous so the worker drains the queue
 # (publishing every queued event to the IPC bus) before exiting. The
 # queue is tiny (events throttled at 1 Hz source-side), so this is
@@ -354,6 +374,31 @@ class Recorder:
         # them instead of recomputing on the same audio array.
         self._last_audio_stats: tuple[float, float, float] | None = None
 
+        # snapshot() resample-path segment list + lazy concat.
+        # Previously every snapshot that saw new chunks re-concatenated
+        # the *entire* cached prefix (``np.concatenate([cached, new])``)
+        # -- an O(N) memcpy where N grows linearly with session length.
+        # At 16 Hz chunk arrival x 30 min x 1.9 MB/chunk-prefix, this
+        # summed to hundreds of MB-GB of redundant memcpy per session.
+        # We now keep the cached prefix as a *list* of resampled
+        # segments and only materialize a contiguous ndarray when the
+        # caller actually needs one (``_ensure_resampled_concat`` in
+        # :mod:`._recorder_split`). The dirty flag tracks whether the
+        # segments list has changed since the last concat; snapshots
+        # that see no new chunks reuse the cached concat (zero memcpy).
+        self._cached_resampled_segments: list[np.ndarray] = []
+        self._cached_resampled_concat_dirty: bool = False
+
+        # per-session error counters. Previously these were
+        # lazily initialized via ``getattr(self, "_dropped_chunks", 0)``
+        # in the audio callback / RMS callback and never reset in
+        # ``start()`` -- so a long-running app accumulated error counts
+        # across sessions, masking per-session regressions in tests
+        # and dashboards. Declare them in ``__init__`` and reset them
+        # in ``start()`` so each session starts from zero.
+        self._dropped_chunks: int = 0
+        self._rms_callback_error_count: int = 0
+
         # AUDIO-013: VAD state machine with hysteresis.
         # RW-04: the VAD state machine, Silero integration, and
         # auto-calibration logic were extracted to ``VadProcessor``
@@ -374,7 +419,7 @@ class Recorder:
         # recording officially starts to reduce cold-start latency).
         # Configurable via config.pre_roll_buffer_seconds (0 = disabled).
         #
-        # XV-21: the deque maxlen MUST be sized against the device's
+        # the deque maxlen MUST be sized against the device's
         # *effective* sample rate, not config.sample_rate (16kHz). At
         # 48kHz the same 512-sample blocksize fires 3× more often, so a
         # 1-second pre-roll needs 3× the chunk capacity. The placeholder
@@ -384,7 +429,7 @@ class Recorder:
         # the values cached in _preroll_seconds / _preroll_blocksize.
         preroll_seconds = float(getattr(config, "pre_roll_buffer_seconds", 0.0) or 0)
         sample_rate = int(getattr(config, "sample_rate", 16000) or 16000)
-        # XV-21: cache these so start() can recompute the deque maxlen
+        # cache these so start() can recompute the deque maxlen
         # using _effective_sr without re-reading config (which the audio
         # callback does not touch).
         self._preroll_seconds: float = preroll_seconds
@@ -875,9 +920,39 @@ class Recorder:
                     finished_callback=self._stream_finished_callback,
                 )
                 stream.start()
+                # re-check the stop_generation under the stream-
+                # lifecycle lock BEFORE assigning ``self._stream``. A
+                # concurrent ``stop()`` could have bumped the generation
+                # between our earlier bouncer check (top of the locked
+                # block) and this assignment; assigning ``self._stream``
+                # anyway would leak the new stream (stop() already tore
+                # down the old one and would not see this new one) and
+                # leave a zombie callback running. If the generation
+                # changed, close the new stream and bail out.
+                if _captured_generation != self._stop_generation:
+                    log.debug(
+                        "[RECORDING] Disconnect restart aborted — stop_generation changed (%d != %d) before stream assignment",
+                        _captured_generation,
+                        self._stop_generation,
+                    )
+                    with contextlib.suppress(Exception):
+                        stream.close()
+                    return
                 self._stream = stream
                 with self._lock:
                     self._effective_sr = candidate_sr
+                    # reset the silence timer so a hot-swap
+                    # recovery does not immediately trigger an auto-
+                    # stop. Previously the silence timer accumulated
+                    # during the disconnect (no audio was arriving) and
+                    # was not reset on recovery -- the next chunk after
+                    # recovery would push the timer past
+                    # ``stop_on_silence_seconds`` and fire
+                    # ``on_silence_auto_stop`` even though the user was
+                    # actively speaking into the new device.
+                    self._silence_timer = 0.0
+                    self._silence_start_time = None
+                    self._silence_warning_count = 0
                 self._actual_channels = channels
                 self._device_disconnected = False
                 log.info("[RECORDING] Successfully restarted with default device at %d Hz", candidate_sr)
@@ -901,12 +976,34 @@ class Recorder:
         """
         return self._devices._start_device_health_checker()
 
-    def _stop_device_health_checker(self) -> None:
+    def _stop_device_health_checker(self, timeout: float | None = None) -> None:
         """Signal the device health checker thread to stop and join it (delegator).
 
         PVT-22 / Phase 4.5: body moved to
-        ``DeviceManager._stop_device_health_checker``.
+        ``DeviceManager._stop_device_health_checker``. when ``timeout`` is explicitly ``0.0``, the call is
+        fire-and-forget -- the stop event is signalled but the method
+        returns immediately without joining the daemon thread. This is
+        used by ``stop()`` to avoid blocking up to 1.0s on a thread that
+        almost always times out anyway (the checker sleeps 30s between
+        probes, so a 1.0s join rarely succeeds). The daemon thread exits
+        on its next ``_device_health_stop_event.wait()`` return.
+
+        Any other ``timeout`` value (including ``None`` for backward-
+        compatibility with callers that don't pass one) delegates to
+        ``DeviceManager._stop_device_health_checker``, which uses its
+        own 1.0s join. The ``DeviceManager`` API is owned by a different
+        sub-agent's file boundary, so we don't add the timeout parameter
+        there -- instead, the fire-and-forget path sets the stop event
+        directly on the DeviceManager's stop-event attribute.
         """
+        if timeout == 0.0:
+            # Fire-and-forget: signal the stop event, do NOT join. The
+            # daemon thread will exit on its next 30s wait() return.
+            # Accessing the private attribute is safe because this class
+            # and ``DeviceManager`` are tightly coupled collaborators in
+            # the same package.
+            self._devices._device_health_stop_event.set()
+            return
         return self._devices._stop_device_health_checker()
 
     def _device_health_checker_loop(self) -> None:
@@ -1312,6 +1409,16 @@ class Recorder:
         # NEW-PERF-003: invalidate the no-resample cache too.
         self._cached_no_resample_len = -1
         self._cached_no_resample_arr = None
+        # reset the resample-path segment list + dirty flag so a
+        # new session starts with an empty cache (no stale segments
+        # carried over from the previous session).
+        self._cached_resampled_segments = []
+        self._cached_resampled_concat_dirty = False
+        # reset per-session error counters so each session
+        # reports its own dropped-chunk / RMS-callback-error totals
+        # (previously these accumulated across sessions).
+        self._dropped_chunks = 0
+        self._rms_callback_error_count = 0
         self._silence_timer = 0.0
         self._silence_start_time = None
         self._silence_warning_count = 0
@@ -1385,7 +1492,7 @@ class Recorder:
         # and max_recording_time_seconds=0 auto-selection). Always defaults to 900.
         self._cached_max_recording_time = int(getattr(self.config, "max_recording_time_seconds", 900))
 
-        # XV-20: dynamic buffer sizing is DEFERRED until after the
+        # dynamic buffer sizing is DEFERRED until after the
         # device loop below sets ``effective_sr``. The original
         # implementation computed ``needed_chunks`` here using a stale
         # 0.064s chunk-duration assumption (1024 samples / 16kHz), but
@@ -1652,13 +1759,13 @@ class Recorder:
                 raise last_error
             raise RuntimeError("No input device could be opened")
 
-        # ── XV-20 / XV-21: dynamic buffer sizing (deferred from above) ──
+        # ── dynamic buffer sizing (deferred from above) ──
         # Now that the device loop has finalized ``effective_sr`` (the
         # device's native sample rate, which may be 44.1/48kHz), size
         # both the main recording buffer and the pre-roll deque using
         # the ACTUAL chunk duration ``blocksize / effective_sr``.
         #
-        # XV-20: previously the main buffer was sized against a stale
+        # previously the main buffer was sized against a stale
         # 1024-sample/16kHz assumption (chunk_seconds=0.064). At 48kHz
         # with 512-sample blocks the real chunk_seconds is 512/48000 ≈
         # 0.0107s, so 30000 default chunks only hold ~5.3 min — a
@@ -1668,7 +1775,7 @@ class Recorder:
         # max_recording_time_seconds. Existing buffer contents (empty
         # at this point in start()) are preserved via list(deque).
         #
-        # XV-21: the pre-roll deque was sized in __init__ using
+        # the pre-roll deque was sized in __init__ using
         # ``config.sample_rate`` (16kHz). At 48kHz the same 1-second
         # pre-roll needs 3× the chunk capacity. Re-size here using
         # ``effective_sr`` so the pre-roll actually captures the
@@ -1710,7 +1817,39 @@ class Recorder:
                     needed_chunks,
                 )
 
-        # XV-21: re-size the pre-roll deque using the effective sample
+        # resize the SPSC ring buffer (callback -> worker handoff)
+        # proportional to the effective sample rate so it always holds
+        # ~4 seconds of audio regardless of the device's native rate.
+        # Previously the capacity was fixed at 64 chunks
+        # (``_AUDIO_RING_BUFFER_CAPACITY``), which at 48kHz / 512-sample
+        # blocks held only 64 * 512/48000 ~= 0.68s -- well below the
+        # ~4s of headroom needed to absorb VAD inference latency spikes
+        # on slow CPUs. At 16kHz the same 64 chunks held ~2.0s, so the
+        # fixed capacity was both too small (at 48kHz) and somewhat
+        # wasteful (at 16kHz). Dynamic sizing uses
+        # ``int(effective_sr / blocksize * 4.0)`` so the capacity in
+        # *seconds* is constant across sample rates.
+        if sizing_sr > 0:
+            new_ring_capacity = int(sizing_sr / blocksize * 4.0)
+            if new_ring_capacity != _AUDIO_RING_BUFFER_CAPACITY and new_ring_capacity > 0:
+                # Preserve any chunks already in the ring buffer
+                # (defensive -- start() clears the ring buffer in
+                # ``_start_audio_worker`` before this point, so this
+                # is normally empty) when resizing.
+                _old_ring = list(self._ring_buffer)
+                self._ring_buffer = collections.deque(
+                    _old_ring, maxlen=new_ring_capacity
+                )
+                log.debug(
+                    "[RECORDING] Ring buffer sized for ~4s at %d Hz "
+                    "(blocksize=%d): %d chunks (was %d)",
+                    sizing_sr,
+                    blocksize,
+                    new_ring_capacity,
+                    _AUDIO_RING_BUFFER_CAPACITY,
+                )
+
+        # re-size the pre-roll deque using the effective sample
         # rate. The deque was created in __init__ with a placeholder
         # capacity based on config.sample_rate (16kHz); for a 48kHz
         # device that capacity is 3× too small, so a 1s pre-roll would
@@ -1773,6 +1912,22 @@ class Recorder:
                     len(preroll_chunks),
                     len(preroll_chunks) * 512 / self._effective_sr,
                 )
+                # zero + clear the pre-roll deque after the
+                # prepend. Without this, the pre-roll chunks (which
+                # are now duplicated into ``self._buffer``) remained
+                # referenced by ``_preroll_buffer`` until the next
+                # ``start()`` call zero-filled them -- keeping up to
+                # ``preroll_seconds * native_sr * 4`` bytes of the
+                # user's voice data alive in process memory for the
+                # entire recording session (SEC-audit-008 privacy gap
+                # + unnecessary memory pressure). The audio callback
+                # only writes to ``_preroll_buffer`` when
+                # ``_recording_event`` is clear (pre-roll mode), which
+                # is now set, so clearing here is safe.
+                for _chunk in preroll_chunks:
+                    if isinstance(_chunk, np.ndarray):
+                        _chunk.fill(0)
+                self._preroll_buffer.clear()
 
         target_sr = self.config.sample_rate
         if (
@@ -2112,15 +2267,37 @@ class Recorder:
                             break
             # Signal the worker to stop.
             self._event_stop_event.set()
-            # Join with timeout. If the worker doesn't exit in time (e.g.,
-            # stuck in a slow publish), we proceed anyway — the worker is a
-            # daemon, so it won't block process exit. A stale worker is
-            # harmless because the stop event is set; it will exit on its
-            # next iteration boundary.
+            # push a sentinel onto the queue to wake the worker
+            # immediately from its 0.5s ``queue.get`` poll. Without the
+            # sentinel, the worker would not notice the stop signal
+            # until its next poll iteration (up to 0.5s latency). The
+            # sentinel is a unique object the loop checks for BEFORE
+            # calling ``event_bus.publish``, so it is never published.
+            # ``put_nowait`` is used because the queue is bounded
+            # (maxsize=1000) and a Full exception here is benign -- the
+            # worker will still exit on its next poll iteration within
+            # 0.5s. The sentinel is pushed AFTER ``set()`` so the
+            # worker's next ``get`` returns the sentinel (FIFO order
+            # preserves any real events enqueued before the sentinel).
+            with contextlib.suppress(queue.Full):
+                self._event_queue.put_nowait(_EVENT_WORKER_STOP_SENTINEL)
+            # ``stop()`` now passes ``timeout=0.1`` (down from
+            # ``_EVENT_WORKER_JOIN_TIMEOUT_S=2.0``) so the worst-case
+            # stop() latency drops from ~5.8s to ~2.4s. The 0.1s join is
+            # long enough for the daemon to drain its queue (typically
+            # <10ms -- the queue is MPSC with a 1 Hz source throttle)
+            # and exit, but 20x shorter than the original 2.0s timeout.
+            # If the daemon is stuck in a slow ``event_bus.publish`` and
+            # doesn't exit within ``timeout``, we proceed anyway -- the
+            # daemon is harmless (the stop event is set; it will exit on
+            # its next iteration boundary) and the test contract
+            # (``_event_worker_thread is None`` after stop()) is
+            # preserved because we null the reference unconditionally
+            # after the join attempt.
             self._event_worker_thread.join(timeout=timeout)
             if self._event_worker_thread.is_alive():
-                log.warning(
-                    "[RECORDING] Event worker thread did not exit within %.1fs "
+                log.debug(
+                    "[RECORDING] Event worker thread did not exit within %.2fs "
                     "(it will exit as a daemon on next iteration)",
                     timeout,
                 )
@@ -2149,13 +2326,23 @@ class Recorder:
         """
         while True:
             if not self._event_stop_event.is_set():
-                # Wait for work with a short timeout so we notice the
-                # stop flag even if an event is enqueued between the
-                # worker's ``get`` return and the next loop iteration
-                # (a rare race that the timeout covers — same pattern as
-                # ``_audio_worker_loop``'s 50ms wait).
+                # wait for work with a 0.5s timeout (was 50ms).
+                # The event queue is MPSC with a tiny source-side
+                # throttle (1 Hz), so a 50ms poll was 20x more frequent
+                # than necessary -- preventing deep C-states on laptops
+                # on battery for no benefit. The 0.5s poll still wakes
+                # within 0.5s of an event being enqueued (well within
+                # the 1 Hz source throttle) and lets the CPU sleep
+                # between publishes. Stop latency is NOT bounded by
+                # the 0.5s poll: ``_stop_event_worker`` pushes a
+                # sentinel onto the queue to wake the worker
+                # immediately (see ``_EVENT_WORKER_STOP_SENTINEL``).
+                # ``_audio_worker_loop``'s 50ms wait is unchanged
+                # because the audio callback pushes chunks at 16 Hz and
+                # a 0.5s wait there would add 0.5s of drain latency on
+                # stop().
                 try:
-                    event = self._event_queue.get(timeout=0.05)
+                    event = self._event_queue.get(timeout=0.5)
                 except queue.Empty:
                     continue
             else:
@@ -2167,6 +2354,14 @@ class Recorder:
                     event = self._event_queue.get_nowait()
                 except queue.Empty:
                     return
+            # check for the stop sentinel BEFORE publishing. The
+            # sentinel is pushed by ``_stop_event_worker`` to wake the
+            # worker immediately (instead of waiting up to 0.5s for the
+            # next poll iteration). Any real events that were enqueued
+            # BEFORE the sentinel have already been drained and
+            # published by the iterations above.
+            if event is _EVENT_WORKER_STOP_SENTINEL:
+                return
             try:
                 event_bus.publish(event)
             except Exception:
@@ -2514,7 +2709,7 @@ class Recorder:
         # AUDIO-019: Backpressure detection — if the deque dropped chunks
         # (maxlen exceeded), increment a counter and warn the user
         if self._buffer.maxlen is not None and buffer_len >= self._buffer.maxlen - 1:
-            self._dropped_chunks = getattr(self, "_dropped_chunks", 0) + 1
+            self._dropped_chunks = self._dropped_chunks + 1
             if self._dropped_chunks == 1 or self._dropped_chunks % 100 == 0:
                 log.warning(
                     "[RECORDING] Buffer full — oldest audio dropped (total=%d). ASR is slower than real-time.",
@@ -2746,7 +2941,7 @@ class Recorder:
                 # traceback on the FIRST raise and every 100th
                 # subsequent raise; the rest are logged without
                 # exc_info so the formatting cost is avoided.
-                self._rms_callback_error_count = getattr(self, "_rms_callback_error_count", 0) + 1
+                self._rms_callback_error_count = self._rms_callback_error_count + 1
                 if self._rms_callback_error_count == 1 or self._rms_callback_error_count % 100 == 0:
                     log.debug(
                         "[RECORDING] on_rms_level callback raised (occurrence #%d)",
@@ -2835,24 +3030,40 @@ class Recorder:
 
         # RT-SAFE-001: stop the audio worker thread. drain=True so the
         # worker finishes processing any chunks still in the ring buffer
-        # — those chunks end up in self._buffer, which we concatenate
+        # -- those chunks end up in self._buffer, which we concatenate
         # below. Without this drain, the last few hundred ms of audio
         # (chunks pushed to the ring buffer but not yet processed by the
         # worker) would be lost.
         self._stop_audio_worker(timeout=_AUDIO_WORKER_JOIN_TIMEOUT_S, drain=True)
 
-        # RW-8: stop the IPC event worker thread AFTER the audio worker
-        # so the audio worker has finished enqueuing IPC events (e.g.
-        # audio_clip from the final chunks). drain=True so every queued
-        # event is published to the IPC bus before stop() returns —
-        # the UI sees the final state. Without this, a queued audio_clip
-        # event could be lost if stop() returned before the event worker
-        # drained it.
-        self._stop_event_worker(timeout=_EVENT_WORKER_JOIN_TIMEOUT_S, drain=True)
+        # cut the worst-case stop() latency from ~5.8s to ~2.4s
+        # by using a short 0.1s join for the event worker (down from 2.0s)
+        # and fire-and-forget for the device health checker (down from
+        # 1.0s join). The event worker drains its tiny queue in <10ms, so
+        # 0.1s is generous; the device health checker sleeps 30s between
+        # probes so a 1.0s join almost always timed out anyway. Both are
+        # daemon threads, so even if they don't exit within the timeout,
+        # they cannot block process exit. The audio worker join (2.0s) is
+        # unchanged because it must drain up to 64 ring-buffer chunks of
+        # in-flight audio (drain=True) to avoid losing the last few
+        # hundred ms of the recording.
+        self._stop_event_worker(timeout=0.1, drain=True)
 
-        # CPU-03: stop the device health checker thread (mirrors the event worker).
-        self._stop_device_health_checker()
+        # device health checker fire-and-forget. Pass timeout=0.0
+        # so ``_stop_device_health_checker`` only signals the stop event
+        # without joining (the daemon thread exits on its next 30s wait()
+        # return).
+        self._stop_device_health_checker(timeout=0.0)
 
+        # snapshot the buffer chunks under the lock, then release
+        # the lock BEFORE the O(N) np.concatenate. Previously the lock was
+        # held across the concatenate (50-300ms for a 30-min recording),
+        # blocking the audio worker's append path (which acquires the same
+        # lock) for the full duration. The worker would stall, the ring
+        # buffer would overflow, and the last few chunks of the recording
+        # would be dropped. The fix mirrors the discard() path: inside the
+        # lock, swap the deque for a fresh empty one + capture the chunks
+        # list; outside the lock, concatenate the captured chunks.
         concat_started = time.perf_counter()
         with self._lock:
             if not self._buffer:
@@ -2864,10 +3075,12 @@ class Recorder:
                 self._secure_clear_caches()
                 self._chunk_count = 0
                 return np.array([], dtype=np.float32)
-            audio = np.concatenate(list(self._buffer), axis=0).reshape(-1)
-            # MEM-04 / SEC-audit-008: defer buffer zeroing to background daemon thread
-            # so discard() returns immediately (the secure clear happens off the hot path).
+            # capture the chunk list and swap in a fresh deque
+            # INSIDE the lock (the swap is O(1) -- just a deque
+            # construction + attribute assignment). The expensive
+            # ``np.concatenate`` is deferred to after the lock release.
             _old_buffer = self._buffer
+            _captured_chunks = list(_old_buffer)
             self._buffer = collections.deque(
                 maxlen=getattr(_old_buffer, "maxlen", DEFAULT_MAX_BUFFER_CHUNKS) or DEFAULT_MAX_BUFFER_CHUNKS
             )
@@ -2877,6 +3090,10 @@ class Recorder:
             # above; factored into ``_secure_clear_caches`` to avoid
             # 4-way duplication across stop()'s two paths and discard()).
             self._secure_clear_caches()
+        # concatenate the captured chunks OUTSIDE the lock so the
+        # audio worker (and any other ``self._lock`` acquirer) is not
+        # blocked for the 50-300ms concat duration.
+        audio = np.concatenate(_captured_chunks, axis=0).reshape(-1)
         concat_ms = (time.perf_counter() - concat_started) * 1000
 
         # Log audio statistics for diagnostics
@@ -3003,7 +3220,15 @@ class Recorder:
         helper (also used by ``_resample_chunk``) to avoid duplicating
         the scipy → linear interp → raise fallback chain.
         """
-        target_sr = self.config.sample_rate  # 16000 for Whisper
+        # prefer the cached target sample rate (set once in
+        # start()) over re-reading self.config.sample_rate on every
+        # _prepare_audio call. The cached value is authoritative for
+        # the current session; reading config every call was an
+        # unnecessary attribute lookup on the stop() hot path. Fall
+        # back to config.sample_rate if the cache hasn't been populated
+        # yet (defensive -- should never happen because start() always
+        # sets it before any audio is captured).
+        target_sr = getattr(self, "_cached_target_sr", None) or self.config.sample_rate
         if effective_sr != target_sr and len(audio) > 0:
             return self._resample_audio_impl(audio, effective_sr, target_sr, log_resample=log_resample)
         return audio

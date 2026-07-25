@@ -1,6 +1,6 @@
 """Regression test for CR-5: AudioProcessor active must NOT cause double-resampling in stop()/snapshot().
 
-Pre-fix bug (verified by code-flow in comprehensive-review.md):
+Pre-fix bug (verified by code-flow in review.md):
   1. ``AudioProcessor.process_chunk`` resamples each chunk from the device's
      native rate (e.g. 48 kHz) to the filter chain's construction rate
      (typically 16 kHz) BEFORE appending to the buffer.

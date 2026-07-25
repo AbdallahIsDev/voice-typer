@@ -85,14 +85,23 @@ class HighPassFilter(AudioFilter):
     def reset(self) -> None:
         if self._state is not None:
             b, a, zi = self._state
-            # G4-L-05: zero the existing IIR state BEFORE replacing it
-            # so carry-over samples (which encode filter memory of the
-            # previous audio) are securely cleared rather than left in
-            # process memory until the numpy allocator reuses the block.
+            # G4-L-05: zero the existing IIR state in place so carry-over
+            # samples (which encode filter memory of the previous audio)
+            # are securely cleared rather than left in process memory
+            # until the numpy allocator reuses the block.
+            # XV-39: reuse the just-zeroed array instead of allocating a
+            # fresh ``np.zeros(...)`` block on every reset(). The
+            # coefficients ``a`` and ``b`` don't change after init, so
+            # the existing ``zi`` array is already the correct length
+            # (``max(len(a), len(b)) - 1``) and dtype (float32). The
+            # redundant allocation showed up as heap churn on every
+            # device-disconnect / config-rebuild cycle.
             if zi.size > 0:
                 zi.fill(0)
-            zi = np.zeros(max(len(a), len(b)) - 1, dtype=np.float32)
-            zi[0] = ANTIDENORMAL_EPSILON
+            # Anti-denormal: re-apply epsilon to the first state element.
+            # Safe no-op when ``zi`` is empty (zero-size IIR state).
+            if zi.size > 0:
+                zi[0] = ANTIDENORMAL_EPSILON
             self._state = (b, a, zi)
 
     @property

@@ -142,6 +142,82 @@ class TestCaptureWindowsFailures:
         # CloseClipboard called once because OpenClipboard succeeded.
         user32.CloseClipboard.assert_called_once()
 
+    def test_capture_skips_format_exceeding_size_cap(self):
+        """A format whose GlobalSize exceeds the cap is skipped (no
+        ``string_at`` copy), protecting Python heap from pathological
+        clipboard payloads (200 MB RTF blob, oversized private data).
+        """
+        from voice_typer.server.clipboard_snapshot import _MAX_FORMAT_BYTES
+
+        user32 = MagicMock()
+        user32.OpenClipboard.return_value = 1
+        # First call returns CF_UNICODETEXT (13); second returns 0 (end).
+        user32.EnumClipboardFormats.side_effect = [13, 0]
+        # GetClipboardFormatNameW returns 0 for builtins (CF_UNICODETEXT
+        # is builtin → name lookup falls back to _builtin_format_name).
+        user32.GetClipboardFormatNameW.return_value = 0
+        user32.GetClipboardData.return_value = 1234  # non-zero handle
+
+        kernel32 = MagicMock()
+        # Report a size just over the cap — should be skipped.
+        kernel32.GlobalSize.return_value = _MAX_FORMAT_BYTES + 1
+
+        windll = MagicMock()
+        windll.user32 = user32
+        windll.kernel32 = kernel32
+
+        with patch("ctypes.windll", windll, create=True), patch(
+            "ctypes.create_unicode_buffer"
+        ), patch.object(snap_mod, "log") as mock_log:
+            result = ClipboardSnapshot._capture_windows()
+
+        # No items captured → None (empty clipboard contract).
+        assert result is None
+        # GlobalLock was NOT called (skipped before locking).
+        kernel32.GlobalLock.assert_not_called()
+        # A debug log was emitted explaining the skip.
+        mock_log.debug.assert_called_once()
+        log_msg = mock_log.debug.call_args[0][0]
+        assert "exceeds" in log_msg or "cap" in log_msg
+
+    def test_capture_keeps_format_under_size_cap(self):
+        """A format whose GlobalSize is under the cap is captured
+        normally (GlobalLock + string_at copy runs).
+        """
+        from voice_typer.server.clipboard_snapshot import _MAX_FORMAT_BYTES
+
+        user32 = MagicMock()
+        user32.OpenClipboard.return_value = 1
+        user32.EnumClipboardFormats.side_effect = [13, 0]
+        user32.GetClipboardFormatNameW.return_value = 0
+        user32.GetClipboardData.return_value = 1234
+
+        kernel32 = MagicMock()
+        kernel32.GlobalSize.return_value = _MAX_FORMAT_BYTES  # exactly at cap (inclusive)
+        kernel32.GlobalLock.return_value = 5678  # non-zero pointer
+        kernel32.GlobalUnlock.return_value = 1
+
+        windll = MagicMock()
+        windll.user32 = user32
+        windll.kernel32 = kernel32
+
+        payload = b"hello world" * 100  # arbitrary bytes under cap
+        with patch("ctypes.windll", windll, create=True), patch(
+            "ctypes.create_unicode_buffer"
+        ), patch("ctypes.string_at", return_value=payload):
+            result = ClipboardSnapshot._capture_windows()
+
+        # Captured exactly one item (CF_UNICODETEXT under the cap).
+        assert result is not None
+        assert len(result.items) == 1
+        fmt, name, data = result.items[0]
+        assert fmt == 13
+        assert name == "CF_UNICODETEXT"
+        assert data == payload
+        # GlobalLock + string_at were both called (normal path).
+        kernel32.GlobalLock.assert_called_once_with(1234)
+        kernel32.GlobalUnlock.assert_called_once_with(1234)
+
 
 # ---------------------------------------------------------------------------
 # Platform dispatch in restore()

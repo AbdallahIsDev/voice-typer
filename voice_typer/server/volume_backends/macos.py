@@ -135,6 +135,20 @@ class MacVolumeBackend(VolumeBackend):
         return False
 
     @property
+    def _set_linear_is_subprocess(self) -> bool:
+        """``True`` only on the osascript fallback path.
+
+        When CoreAudio (pyobjc) is active, ``set_linear`` is an
+        in-process C call (<1 ms) and the multi-step ``fade_to`` ramp
+        is smooth.  When pyobjc is unavailable and we fall back to
+        ``osascript``, each ``set_linear`` spawns an ``osascript``
+        subprocess (200–500 ms) — ``fade_to`` collapses to a single
+        call to avoid 10× subprocess overhead (2–5 s of audible
+        stepping).
+        """
+        return not self._use_coreaudio
+
+    @property
     def recommended_poll_interval_ms(self) -> int:
         """100ms when CoreAudio is active (in-process, <1ms per call),
         500ms when forced to osascript (subprocess, 200-500ms per call).
@@ -209,16 +223,18 @@ class MacVolumeBackend(VolumeBackend):
                same signal the macOS volume HUD uses to decide whether
                to show the now-playing indicator.
 
-        Fallback path (osascript, 200–500 ms subprocess):
-
-            The ``AudioDeviceList`` AppleScript suite that would let
-            osascript query the running state directly isn't available
-            on stock macOS, so the fallback is a best-effort check that
-            looks for known audio-producing process names (Spotify,
-            Safari, Chrome, etc.) in the foreground app list.  This is
-            imperfect (a browser tab with paused YouTube still counts
-            as "active"), but it's a reasonable heuristic when the
-            in-process CoreAudio path isn't available.
+        osascript fallback: returns ``True`` unconditionally.  Smart-duck
+        is disabled for the osascript backend by
+        :meth:`VolumeDucker.initialize` (the osascript
+        ``is_speaker_active`` heuristic was dead code — a 200–500 ms
+        per-call subprocess poll that was never invoked because the
+        ducker short-circuits smart-duck on osascript backends).  The
+        previous heuristic (matching foreground process names like
+        "Spotify" / "Safari" / "Chrome") was both expensive AND
+        unreliable (a paused YouTube tab still counted as "active"),
+        so removing it is strictly an improvement.  The default
+        ``True`` (duck anyway) preserves the safe behaviour the
+        ducker relies on when smart-duck is disabled.
 
         If neither path can determine activity, returns ``True`` (safe
         default — duck anyway).
@@ -234,69 +250,18 @@ class MacVolumeBackend(VolumeBackend):
                 return running
             except Exception as exc:
                 log.debug(
-                    "[VOLUME-MAC] CoreAudio is_speaker_active failed: %s — falling back to osascript",
+                    "[VOLUME-MAC] CoreAudio is_speaker_active failed: %s — "
+                    "returning True (duck anyway) since smart-duck is disabled "
+                    "on the osascript path",
                     exc,
                 )
-                # Fall through to osascript check below.
-
-        # osascript fallback: check if any common audio-producing app
-        # is running.  This is imperfect (a running app isn't necessarily
-        # playing audio), but it's the best we can do without the full
-        # CoreAudio pyobjc path.  Returns True (duck anyway) on any
-        # error so we never silently skip ducking when we should.
-        try:
-            # `osascript -e 'tell application "System Events" to get name of '
-            # `'every process whose background only is false'`
-            # returns a comma-separated list of foreground app names.
-            # We check for known audio-producing apps.  This isn't
-            # perfect (a browser tab with paused YouTube still counts),
-            # but it's a reasonable heuristic that avoids ducking when
-            # the user is just dictating in a text editor with no media
-            # app open.
-            result = self._osascript_run(
-                'tell application "System Events" to get name of every process whose background only is false',
-                timeout=1.5,
-            )
-            if result is None:
-                return True  # couldn't determine — duck to be safe
-            # Known audio-producing apps.  If any of these is in the
-            # foreground list, we assume audio *might* be playing and
-            # duck.  This is conservative (we'd rather duck unnecessarily
-            # than skip ducking when audio is actually playing).
-            audio_apps = (
-                "spotify",
-                "safari",
-                "chrome",
-                "firefox",
-                "edge",
-                "music",
-                "podcasts",
-                "tv",
-                "quicktime",
-                "vlc",
-                "youtube",
-                "netflix",
-                "disney",
-                "hbo",
-                "plex",
-                "audible",
-                "amazon music",
-                "tidal",
-                "deezer",
-                "obs",
-                "zoom",
-                "teams",
-                "discord",
-                "slack",
-                "meet",
-                "webex",
-                "google meet",
-            )
-            lower = result.lower()
-            return any(app in lower for app in audio_apps)
-        except Exception as exc:
-            log.debug("[VOLUME-MAC] osascript is_speaker_active failed: %s", exc)
-            return True  # safe default
+                # Fall through to the safe-default return below.
+        # osascript fallback: no cheap way to query speaker activity.
+        # Smart-duck is disabled on this path (see VolumeDucker.initialize),
+        # so the return value only matters as a safe default.  ``True``
+        # means "duck anyway" — the conservative choice that never
+        # silently skips a needed duck.
+        return True
 
     # ── CoreAudio (pyobjc) path ─────────────────────────────────────
 

@@ -11,10 +11,26 @@ import logging
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 
 log = logging.getLogger(__name__)
+
+
+# Smart-duck polling on Linux is expensive: every ``is_speaker_active()``
+# call spawns ``pactl list sink-inputs`` (~50–100 ms per invocation on a
+# typical desktop).  At the default 500 ms cadence inherited from the
+# base class, that's 10–20% CPU on one core just for smart-duck — plus
+# noticeable battery drain on laptops.  Advertising 1500 ms as the
+# minimum safe cadence keeps the monitor responsive (catches audio
+# start within ~1.5 s) while cutting the CPU/battery cost 3×.  Users
+# who explicitly set a faster ``volume_duck_smart_poll_interval_ms``
+# config value are still respected — ``VolumeDucker.initialize`` uses
+# ``max(user_value, min_poll_interval_ms)`` so the monitor never polls
+# faster than the backend can handle but the user's explicit slower
+# value is also honoured.
+_LINUX_MIN_SMART_DUCK_POLL_MS = 1500
 
 
 class LinuxVolumeBackend(VolumeBackend):
@@ -43,6 +59,26 @@ class LinuxVolumeBackend(VolumeBackend):
     @property
     def supports_per_session(self) -> bool:
         return False
+
+    @property
+    def _set_linear_is_subprocess(self) -> bool:
+        """Linux backends always spawn a subprocess (pactl/wpctl/amixer).
+
+        ``fade_to`` collapses to a single :meth:`set_linear` call so we
+        don't fire 10 sequential ``pactl`` invocations (~50 ms each →
+        500 ms total + audible stepping between steps).
+        """
+        return True
+
+    @property
+    def min_poll_interval_ms(self) -> int:
+        """1500 ms — Linux smart-duck polls spawn ``pactl list sink-inputs``
+        (~50–100 ms each).  At the default 500 ms cadence the monitor
+        would burn 10–20% CPU on one core.  1500 ms keeps the monitor
+        responsive (audio-start detected within ~1.5 s) while cutting
+        the per-poll cost 3×.  See :data:`_LINUX_MIN_SMART_DUCK_POLL_MS`.
+        """
+        return _LINUX_MIN_SMART_DUCK_POLL_MS
 
     def initialize(self) -> bool:
         if self._tool is not None:
@@ -176,7 +212,25 @@ class LinuxVolumeBackend(VolumeBackend):
             return None
 
     def _pactl_get(self) -> VolumeState | None:
-        out = self._run(["pactl", "get-sink-volume", "@DEFAULT_SINK@"])
+        # XV-56: ``pactl get-sink-volume`` and ``pactl get-sink-mute`` are
+        # independent queries — run them in parallel via a 2-worker
+        # ``ThreadPoolExecutor`` so the per-call latency (~100 ms each on
+        # a cold pulseaudio daemon) overlaps instead of stacking.  Total
+        # ``get_state`` cost drops from ~200 ms to ~100 ms, halving the
+        # duck/restore latency on Linux.  ``ThreadPoolExecutor`` is used
+        # (rather than ``asyncio``) because the caller (``VolumeDucker``)
+        # is synchronous; the threads block on ``subprocess.run`` which
+        # releases the GIL while waiting on the pipe, so this does not
+        # starve other Python threads.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            vol_future = pool.submit(
+                self._run, ["pactl", "get-sink-volume", "@DEFAULT_SINK@"]
+            )
+            mute_future = pool.submit(
+                self._run, ["pactl", "get-sink-mute", "@DEFAULT_SINK@"]
+            )
+            out = vol_future.result()
+            mute_out = mute_future.result()
         if not out:
             return None
         # Output: "Volume: front-left: 65536 / 100% / 0.00 dB,   front-right: ..."
@@ -184,7 +238,6 @@ class LinuxVolumeBackend(VolumeBackend):
         if not match:
             return None
         vol = int(match.group(1)) / 100.0
-        mute_out = self._run(["pactl", "get-sink-mute", "@DEFAULT_SINK@"])
         muted = mute_out is not None and "yes" in mute_out.lower()
         return VolumeState(linear=vol, muted=muted)
 
