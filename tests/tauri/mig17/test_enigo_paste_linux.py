@@ -41,14 +41,14 @@ verify the contract:
 - every ``enigo``/``clipboard`` call propagates errors via ``.map_err(...)?``
   so they surface as Rust errors (not silently swallowed)
 
-KNOWN GAP — XPLAT-2 (from comprehensive-review.md REVIEW-4):
+KNOWN GAP — XPLAT-2 (from review.md REVIEW-4):
 
 The current Rust ``paste_text`` does NOT detect Wayland + force the
 long-text clipboard path for short text. On Wayland, short-text
 injection via ``enigo.text()`` silently fails (X11-only). The fix is
 to detect ``WAYLAND_DISPLAY`` / ``XDG_SESSION_TYPE=wayland`` and shell
 out to ``wtype`` (or always use the clipboard + ``Ctrl+V`` path on
-Wayland). This is tracked as XPLAT-2 in ``comprehensive-review.md``
+Wayland). This is tracked as XPLAT-2 in ``review.md``
 (REVIEW-4 cross-platform section) and remains Pending. These tests
 document the gap explicitly (``test_xplat2_wayland_short_text_gap_*``)
 without attempting to fix it — the fix requires Wayland host
@@ -67,7 +67,7 @@ VALIDATE ON LINUX HOST (Wayland):
 Expected: text appears within 500ms on Wayland
 Note: enigo.text() is X11-only — on Wayland, the clipboard + Ctrl+V path is the only reliable option.
 GAP: the current Rust paste_text does NOT detect Wayland + force the long-text path for short text.
-This is tracked as XPLAT-2 in comprehensive-review.md.
+This is tracked as XPLAT-2 in review.md.
 """
 
 from __future__ import annotations
@@ -86,7 +86,7 @@ SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.r
 UTIL_RS = REPO_ROOT / "src-tauri" / "src" / "util.rs"
 ADR_0020_MD = REPO_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 LINUX_RUNBOOK_MD = REPO_ROOT / "docs" / "migration" / "linux-validation-runbook.md"
-COMPREHENSIVE_REVIEW_MD = REPO_ROOT / "comprehensive-review.md"
+COMPREHENSIVE_REVIEW_MD = REPO_ROOT / "review.md"
 
 
 # ─── Source-reading fixtures ─────────────────────────────────────────────
@@ -122,8 +122,8 @@ def linux_runbook_src() -> str:
 
 @pytest.fixture(scope="module")
 def comprehensive_review_src() -> str:
-    """Read ``comprehensive-review.md`` once per module (for XPLAT-2)."""
-    assert COMPREHENSIVE_REVIEW_MD.is_file(), f"missing comprehensive-review.md: {COMPREHENSIVE_REVIEW_MD}"
+    """Read ``review.md`` once per module (for XPLAT-2)."""
+    assert COMPREHENSIVE_REVIEW_MD.is_file(), f"missing review.md: {COMPREHENSIVE_REVIEW_MD}"
     return COMPREHENSIVE_REVIEW_MD.read_text(encoding="utf-8")
 
 
@@ -588,7 +588,7 @@ def test_xplat2_wayland_short_text_gap_documented(comprehensive_review_src: str,
 
     Originally the Rust ``paste_text`` used ``enigo.text()`` for short
     text and ``enigo.key(Control, v)`` for the Ctrl+V keystroke in the
-    long path — both X11-only. comprehensive-review.md XPLAT-2
+    long path — both X11-only. review.md XPLAT-2
     documented this gap and recommended detecting Wayland and falling
     back to ``wtype`` (or always using the clipboard + ``Ctrl+V`` path
     on Wayland).
@@ -600,22 +600,21 @@ def test_xplat2_wayland_short_text_gap_documented(comprehensive_review_src: str,
     is used for ALL text on Wayland (per ADR-0020 §6.6).
 
     This test verifies:
-      1. comprehensive-review.md still documents the XPLAT-2 entry
-         (status may be "Pending" or "Fixed" — the comprehensive-review
+      1. review.md still documents the XPLAT-2 entry
+         (status may be "Pending" or "Fixed" — the review
          owner is a separate sub-agent that updates the status field).
       2. The Rust source now HAS Wayland detection — the gap is closed.
          If this assertion fails, someone removed the Wayland fallback
          and the XPLAT-2 gap has regressed.
     """
-    # 1. comprehensive-review.md must document XPLAT-2.
+    # 1. review.md must document XPLAT-2.
     xplat2_match = re.search(
         r"#### XPLAT-2 — Rust `paste_text` doesn't handle Wayland.*?(?=\n#### XPLAT-|\Z)",
         comprehensive_review_src,
         re.DOTALL,
     )
     assert xplat2_match is not None, (
-        "comprehensive-review.md must have an 'XPLAT-2 — Rust paste_text "
-        "doesn't handle Wayland' section under REVIEW-4."
+        "review.md must have an 'XPLAT-2 — Rust paste_text doesn't handle Wayland' section under REVIEW-4."
     )
     xplat2 = xplat2_match.group(0)
     assert "Wayland" in xplat2 and "enigo.text()" in xplat2, (
@@ -626,7 +625,7 @@ def test_xplat2_wayland_short_text_gap_documented(comprehensive_review_src: str,
         "XPLAT-2 severity must be High (per REVIEW-4). Section:\n" + xplat2
     )
     # Status must be Pending or Fixed (Pending until the
-    # comprehensive-review.md owner flips it to Fixed after observing
+    # review.md owner flips it to Fixed after observing
     # the production-code fix; Fixed afterwards).
     assert re.search(r"Status.*(?:Pending|Fixed)", xplat2, re.DOTALL), (
         "XPLAT-2 status must be Pending or Fixed. Section:\n" + xplat2
@@ -700,12 +699,12 @@ def test_xplat2_wayland_short_text_simulation_fails(sidecar_cmds_src: str, adr_0
     condition = condition_match.group(1)
     assert "WAYLAND_DISPLAY" not in condition, (
         "XPLAT-2 gap closed? The short-text branch condition now checks "
-        "WAYLAND_DISPLAY. If so, update comprehensive-review.md XPLAT-2 "
+        "WAYLAND_DISPLAY. If so, update review.md XPLAT-2 "
         f"status. Condition: {condition}"
     )
     assert "XDG_SESSION_TYPE" not in condition, (
         "XPLAT-2 gap closed? The short-text branch condition now checks "
-        "XDG_SESSION_TYPE. If so, update comprehensive-review.md XPLAT-2 "
+        "XDG_SESSION_TYPE. If so, update review.md XPLAT-2 "
         f"status. Condition: {condition}"
     )
 
@@ -801,6 +800,7 @@ class _FakeClipboard:
 class _Key:
     Control = "Key::Control"
     Meta = "Key::Meta"
+
     def Unicode(self, ch):  # noqa: N802
         return f"Key::Unicode({ch!r})"
 
@@ -989,7 +989,7 @@ def test_simulate_xplat2_wayland_short_text_silently_fails() -> None:
     the simulation matches the (broken) Rust behaviour, so the gap
     is documented in the test suite.
 
-    The recommended fix (per comprehensive-review.md XPLAT-2):
+    The recommended fix (per review.md XPLAT-2):
     - Detect Wayland at runtime (``WAYLAND_DISPLAY`` env var or
       ``XDG_SESSION_TYPE=wayland``).
     - On Wayland, shell out to ``wtype -d 50 -- "<text>"`` for short
