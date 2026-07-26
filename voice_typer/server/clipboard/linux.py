@@ -53,7 +53,7 @@ log = logging.getLogger("voice_typer.server.clipboard")
 # (or ``_cb._have_wtype``) directly with a lambda bypass this cache
 # entirely (the patched attribute replaces the function object on the
 # package namespace), so caching is invisible to those tests.
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _shutil_which_cached(binary: str) -> str | None:
     """Return ``shutil.which(binary)`` with the result memoised.
 
