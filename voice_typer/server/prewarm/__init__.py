@@ -66,7 +66,8 @@ with one module per concern:
 - :func:`_completion_event_name` / :func:`_create_completion_event` /
   :func:`_signal_completion_event` / :func:`_close_completion_event` /
   :func:`_wait_for_completion_event` / :func:`_wait_completion_windows`
-  / :func:`_wait_completion_linux` (CPU-04 event-based completion) —
+  / :func:`_wait_completion_linux` / :func:`_wait_completion_macos`
+  (CPU-04 event-based completion) —
   :mod:`.completion_events`
 - :func:`run` / :func:`_run_warming_pipeline` (pipeline orchestration) —
   :mod:`.pipeline`
@@ -211,6 +212,7 @@ from .completion_events import (  # noqa: E402
     _create_completion_event,
     _signal_completion_event,
     _wait_completion_linux,
+    _wait_completion_macos,
     _wait_completion_windows,
     _wait_for_completion_event,
 )
@@ -300,6 +302,7 @@ __all__ = [
     "_wait_for_completion_event",
     "_wait_completion_windows",
     "_wait_completion_linux",
+    "_wait_completion_macos",
     # pipeline
     "run",
     "_run_warming_pipeline",

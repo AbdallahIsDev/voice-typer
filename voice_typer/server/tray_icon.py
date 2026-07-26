@@ -280,10 +280,7 @@ def _make_icon(state: AppState, size: int = 0):
     # when the file exists, so the name comparison is a safe guard.
     if is_windows():
         state_ico_path = _get_icon_path(state, size)
-        if (
-            state_ico_path is not None
-            and state_ico_path.name == f"tray-mic-{state.value}.ico"
-        ):
+        if state_ico_path is not None and state_ico_path.name == f"tray-mic-{state.value}.ico":
             try:
                 pil_img = _get_pil_image()
                 pre_built = pil_img.open(str(state_ico_path)).convert("RGBA")

@@ -129,7 +129,64 @@ class TemplateManager:
 
         self._store = PersistedJSON(self._path, default={"templates": []})
         self._templates: list[dict] = []
+        # S5-CR-60: match indexes for O(1) exact lookup + reduced-scan
+        # contains lookup. Rebuilt by ``_rebuild_indexes`` after every
+        # mutation (add/update/delete/import/load). Pre-fix ``match`` did
+        # an O(N) linear scan of ``self._templates`` on every dictation;
+        # with MAX_TEMPLATES=1000 that was 1000 iterations per call.
+        self._exact_index: dict[str, dict] = {}
+        self._contains_list: list[tuple[str, dict]] = []
+        # S5-CR-60: _load() calls _rebuild_indexes() at its end so the
+        # indexes are populated by the time __init__ returns.
         self._load()
+
+    # ── Match indexes (S5-CR-60) ─────────────────────────────────────
+
+    def _rebuild_indexes(self) -> None:
+        """S5-CR-60: rebuild the match indexes from ``self._templates``.
+
+        Called after ``_load`` and after every mutation (add/update/
+        delete/import). The indexes let ``match`` do an O(1) dict lookup
+        for exact-mode templates and a reduced-scan linear search over
+        ONLY contains-mode templates (sorted by trigger length ascending
+        so the early-exit in ``match`` is safe).
+
+        Behavior preservation:
+        - Exact mode: only one template can match a given input (the one
+          whose normalized trigger equals the normalized input). If two
+          templates share a normalized trigger, the FIRST one in
+          ``self._templates`` order wins (we skip the duplicate insert),
+          matching the pre-fix linear scan's strict ``<`` comparison.
+        - Contains mode: the list is sorted by trigger length ascending.
+          Python's ``sort`` is stable, so templates at the same length
+          preserve their original order — matching the pre-fix behavior
+          where the first template at the shortest matching length wins.
+        - Cross-mode: the docstring contract "shortest trigger wins when
+          multiple templates match" is preserved by checking the exact
+          index first (setting the upper-bound length) then scanning
+          contains templates strictly shorter than that bound.
+        """
+        self._exact_index = {}
+        self._contains_list = []
+        for t in self._templates:
+            trigger = t.get("trigger", "")
+            if not trigger:
+                continue
+            trigger_norm = _WHITESPACE_RE.sub(" ", trigger.strip()).lower()
+            mode = t.get("match_mode", "exact")
+            if mode == "contains":
+                self._contains_list.append((trigger_norm, t))
+            else:
+                # Exact: first-wins for duplicate normalized triggers
+                # (preserves the pre-fix linear scan's first-match-wins
+                # behavior under strict ``<`` comparison).
+                if trigger_norm not in self._exact_index:
+                    self._exact_index[trigger_norm] = t
+        # Sort contains list by trigger length ascending so ``match``
+        # can early-exit once it sees a trigger >= the current best
+        # length. Stable sort preserves original order for same-length
+        # triggers (first-wins semantics).
+        self._contains_list.sort(key=lambda pair: len(pair[0]))
 
     @property
     def templates(self) -> list[dict]:
@@ -183,6 +240,8 @@ class TemplateManager:
             self._templates = data["templates"]
         else:
             self._templates = []
+        # S5-CR-60: rebuild match indexes after load.
+        self._rebuild_indexes()
         log.info("[TEMPLATES] Loaded %d templates from %s", len(self._templates), self._path)
 
     def _save(self) -> None:
@@ -273,6 +332,8 @@ class TemplateManager:
                     del self._templates[i]
                     break
             raise
+        # S5-CR-60: rebuild match indexes after mutation.
+        self._rebuild_indexes()
         return template
 
     def update(self, index: int, trigger: str, output: str, *, match_mode: str = "exact") -> dict | None:
@@ -299,6 +360,8 @@ class TemplateManager:
             entry["output"] = old_output
             entry["match_mode"] = old_match_mode
             raise
+        # S5-CR-60: rebuild match indexes after mutation.
+        self._rebuild_indexes()
         return entry
 
     def delete(self, index: int) -> bool:
@@ -317,6 +380,8 @@ class TemplateManager:
             # Rollback: re-insert at the original index.
             self._templates.insert(index, removed)
             raise
+        # S5-CR-60: rebuild match indexes after mutation.
+        self._rebuild_indexes()
         return True
 
     # ── Import / Export ───────────────────────────────────────────────
@@ -394,6 +459,8 @@ class TemplateManager:
                 # Rollback: truncate back to the pre-import length.
                 del self._templates[old_len:]
                 raise
+            # S5-CR-60: rebuild match indexes after mutation.
+            self._rebuild_indexes()
             return len(to_add)
         except Exception:
             log.exception("[TEMPLATES] Import failed")
@@ -412,6 +479,19 @@ class TemplateManager:
         - "exact" mode: the whole text must match the trigger
         - "contains" mode: the trigger must be found anywhere in the text
         - Shortest trigger wins when multiple templates match
+
+        S5-CR-60: pre-fix this method did an O(N) linear scan of
+        ``self._templates`` on every dictation. With MAX_TEMPLATES=1000
+        that was up to 1000 iterations per call (re-normalizing each
+        trigger's text on every call too). Now the exact-mode templates
+        are in ``_exact_index`` (O(1) dict lookup) and the contains-mode
+        templates are in ``_contains_list`` (sorted by trigger length
+        ascending so we can early-exit once we see a trigger >= the
+        current best length). The docstring's "shortest trigger wins"
+        contract is preserved: the exact match (if any) sets the upper
+        bound, and contains templates strictly shorter than that bound
+        can still win — matching the pre-fix behavior where a short
+        contains trigger beats a long exact trigger.
         """
         if not text or not self._templates:
             return None
@@ -421,16 +501,22 @@ class TemplateManager:
         best_match: dict | None = None
         best_len = float("inf")
 
-        for t in self._templates:
-            trigger = t.get("trigger", "")
-            if not trigger:
-                continue
-            trigger_norm = _WHITESPACE_RE.sub(" ", trigger.strip()).lower()  # ER-55
-            mode = t.get("match_mode", "exact")
+        # S5-CR-60: O(1) exact lookup. The exact match (if any) sets
+        # the upper-bound length for the contains scan below.
+        exact_t = self._exact_index.get(normalized)
+        if exact_t is not None:
+            best_match = exact_t
+            best_len = len(normalized)
 
-            matched = trigger_norm in normalized if mode == "contains" else normalized == trigger_norm
-
-            if matched and len(trigger_norm) < best_len:
+        # S5-CR-60: reduced-scan contains lookup. The list is sorted by
+        # trigger length ascending; once we see a trigger whose length
+        # is >= best_len, no subsequent (longer) trigger can beat the
+        # current best, so we early-exit. Before any match is found
+        # (best_len == inf) we scan the entire contains list.
+        for trigger_norm, t in self._contains_list:
+            if len(trigger_norm) >= best_len:
+                break
+            if trigger_norm in normalized:
                 best_match = t
                 best_len = len(trigger_norm)
 

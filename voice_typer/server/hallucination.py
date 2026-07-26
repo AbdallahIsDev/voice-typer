@@ -40,12 +40,12 @@ KNOWN_LOW_AUDIO_HALLUCINATIONS = {
     "thanks for listening",
     "thank you for listening",
     # XV-48: common single-token hallucinations
-    "you",          # Whisper's #1 most-likely starter token
-    "the",          # very common Whisper decoder artifact on silence
-    "so",           # common filler-token hallucination
-    "thanks",       # truncation of "thanks for watching"
-    "music",        # Whisper hallucinates [Music] tags on noise
-    "amara",        # amara.org subtitle watermark hallucination
+    "you",  # Whisper's #1 most-likely starter token
+    "the",  # very common Whisper decoder artifact on silence
+    "so",  # common filler-token hallucination
+    "thanks",  # truncation of "thanks for watching"
+    "music",  # Whisper hallucinates [Music] tags on noise
+    "amara",  # amara.org subtitle watermark hallucination
 }
 
 
@@ -103,9 +103,8 @@ def should_reject_low_audio_hallucination(
     # preserved: when no silence info is available, very low RMS alone
     # is suspicious; when silence info IS available, it must corroborate
     # (>= 95% silence) before we reject.
-    if rms < 0.01:
-        if silence_pct is None or silence_pct >= 95.0:
-            return True
+    if rms < 0.01 and (silence_pct is None or silence_pct >= 95.0):
+        return True
 
     # Tier 2: extended check (requires segment timing info)
     if (

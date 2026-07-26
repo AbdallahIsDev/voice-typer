@@ -229,10 +229,7 @@ class WaveformBubbleWiring:
         # check is sufficient — and re-creating the worker when the
         # previous one has exited (e.g. after stop()) is still handled
         # by the ``not is_alive()`` clause.
-        if (
-            self._bubble_level_worker is None
-            or not self._bubble_level_worker.is_alive()
-        ):
+        if self._bubble_level_worker is None or not self._bubble_level_worker.is_alive():
             self._bubble_level_worker = threading.Thread(
                 target=_bubble_level_worker,
                 name="bubble-level-pusher",

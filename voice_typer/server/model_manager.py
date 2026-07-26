@@ -745,7 +745,7 @@ class ModelManager:
             # still held — concurrent IPC set_config calls can proceed.
             # Phase 2: construct + load the new engine OUTSIDE the
             # config lock (see above).
-            self._change_model_load_phase(new_backend)
+            self._change_model_load_phase(new_backend, model_size)
 
     def _change_model_setattr_phase(self, model_size: str) -> tuple[str, str, bool]:
         """Phase 1a: determine backend, setattr + save config.
@@ -839,11 +839,18 @@ class ModelManager:
                 self.transcriber.unload()
             self.transcriber = None
 
-    def _change_model_load_phase(self, new_backend: str) -> None:
+    def _change_model_load_phase(self, new_backend: str, model_size: str) -> None:
         """Phase 2: construct + load the new engine.
 
         Caller MUST hold ``_model_change_lock``. Must NOT hold
         ``_config_mutation_lock`` (see above).
+
+        CR-76: ``model_size`` is the user-requested model size (operation
+        input) — included in the failure log so a model-load failure
+        report shows the input that produced the failure, not just the
+        backend name. The underlying exception is already logged one
+        level down by ``AsrBackendRegistry.load_active`` via
+        ``log.exception`` (see ``asr_registry.py``).
         """
         # Create new engine object via registry.create()
         self._ensure_engine(new_backend)
@@ -877,7 +884,11 @@ class ModelManager:
                     self._app.tray.set_state(AppState.IDLE, f"Ready -- {new_backend.title()} ASR")
                 self._app.tray.invalidate_menu_cache()
             else:
-                log.warning("[MODEL] %s model failed to load", new_backend.title())
+                log.warning(
+                    "[MODEL] %s model failed to load (model_size=%s)",
+                    new_backend.title(),
+                    model_size,
+                )
                 self._app.tray.set_state(AppState.ERROR, f"{new_backend.title()} model failed to load")
         except Exception as exc:
             log.exception("[MODEL] Model load failed: %s", exc)

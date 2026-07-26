@@ -82,10 +82,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             except ConsentRequiredError:
                 raise
             except Exception:
-                log.exception(
-                    "[IPC] microphone_test_start: failed to read "
-                    "voice_biometric_consent — failing open"
-                )
+                log.exception("[IPC] microphone_test_start: failed to read voice_biometric_consent — failing open")
 
             # IPC-3: validate ``mic_id`` and ``filters`` types via the
             # shared ``_validate_dict_payload`` helper. Non-dict

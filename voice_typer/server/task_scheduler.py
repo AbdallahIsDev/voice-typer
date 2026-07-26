@@ -719,8 +719,7 @@ def register_prewarm_task() -> bool:
             _schtasks(["/Delete", "/TN", TASK_NAME, "/F"], capture=True)
         except (subprocess.SubprocessError, OSError) as exc:
             log.debug(
-                "[TASK] pre-create /Delete failed (task may not exist or "
-                "be locked): %s",
+                "[TASK] pre-create /Delete failed (task may not exist or be locked): %s",
                 exc,
             )
 

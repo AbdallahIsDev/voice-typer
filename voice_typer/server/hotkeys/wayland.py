@@ -285,10 +285,7 @@ class WaylandHotkey(HotkeyBackend):
         if not self._alive:
             return
         if self._client_ever_connected.is_set():
-            log.debug(
-                "[HOTKEY-WAYLAND] IPC client connected during pynput defer "
-                "window — suppressing pynput fallback"
-            )
+            log.debug("[HOTKEY-WAYLAND] IPC client connected during pynput defer window — suppressing pynput fallback")
             return
         self._start_pynput_fallback_with_timeout()
 

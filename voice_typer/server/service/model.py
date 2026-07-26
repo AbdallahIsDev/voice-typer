@@ -36,20 +36,16 @@ _MODEL_STATUS_CACHE_TTL_S = 5.0
 # "Download failed: <reason>" message at the call site.
 _PARAKEET_REASON_MESSAGES: dict[str, str] = {
     "huggingface_consent_false": (
-        "HuggingFace consent not given. Enable HuggingFace downloads in "
-        "Settings to download the Parakeet model."
+        "HuggingFace consent not given. Enable HuggingFace downloads in Settings to download the Parakeet model."
     ),
     "huggingface_hub_missing": (
-        "huggingface_hub is not installed. Install it with "
-        "`pip install huggingface_hub` and try again."
+        "huggingface_hub is not installed. Install it with `pip install huggingface_hub` and try again."
     ),
     "disk_space_insufficient": (
-        "Not enough disk space to download the Parakeet model (~2.5 GB). "
-        "Free up space and try again."
+        "Not enough disk space to download the Parakeet model (~2.5 GB). Free up space and try again."
     ),
     "download_retry_exhausted": (
-        "Download failed after multiple retries. Check your network "
-        "connection and try again."
+        "Download failed after multiple retries. Check your network connection and try again."
     ),
     "integrity_check_failed": (
         "Downloaded model failed integrity verification. The cached "
@@ -1181,9 +1177,7 @@ class ModelMixin(ServiceMixinBase):
                     success = bool(dpw_result)
                     reason = "" if success else "unknown"
                 if not success:
-                    msg = _PARAKEET_REASON_MESSAGES.get(
-                        reason, f"Download failed: {reason}"
-                    )
+                    msg = _PARAKEET_REASON_MESSAGES.get(reason, f"Download failed: {reason}")
                     log.error(
                         "[SERVICE] Parakeet download failed (reason=%s): %s",
                         reason,

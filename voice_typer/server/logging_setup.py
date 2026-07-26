@@ -69,8 +69,7 @@ def _setup_logging():
     )
     _root_level = logging.getLogger().level
     log.info(
-        "[STARTUP] logging initialized: file=%s, level=%s, json=%s, "
-        "debug=%s, quiet=%s, session=%s",
+        "[STARTUP] logging initialized: file=%s, level=%s, json=%s, debug=%s, quiet=%s, session=%s",
         _log_file,
         logging.getLevelName(_root_level),
         _json_mode,

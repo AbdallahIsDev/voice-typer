@@ -45,7 +45,7 @@ _DISPLAY_MAP: dict[str, str] = {
     "win": "Win",
     "super": "Super",
     "fn": "Fn",
-    "globe": "\U0001F310",  # 🌐
+    "globe": "\U0001f310",  # 🌐
     "space": "Space",
     "enter": "Enter",
     "tab": "Tab",
@@ -61,7 +61,7 @@ _DISPLAY_MAP: dict[str, str] = {
     "end": "End",
     "page_up": "Page Up",
     "page_down": "Page Down",
-    "up": "\u2191",   # ↑
+    "up": "\u2191",  # ↑
     "down": "\u2193",  # ↓
     "left": "\u2190",  # ←
     "right": "\u2192",  # →

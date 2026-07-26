@@ -55,10 +55,7 @@ class LevelMonitorHandlersMixin(HandlerBase):
             except ConsentRequiredError:
                 raise
             except Exception:
-                log.exception(
-                    "[IPC] level_monitor_start: failed to read "
-                    "voice_biometric_consent — failing open"
-                )
+                log.exception("[IPC] level_monitor_start: failed to read voice_biometric_consent — failing open")
 
             # IPC-3: validate ``mic_id`` type via the shared
             # ``_validate_dict_payload`` helper. Non-dict ``data`` is

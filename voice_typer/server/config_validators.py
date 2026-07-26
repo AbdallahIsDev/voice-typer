@@ -21,6 +21,7 @@ import.  ``config.py`` imports from this module (for
 backward compatibility.
 """
 
+import contextlib
 import json as _json
 import logging
 import sys as _sys
@@ -960,7 +961,7 @@ def cross_platform_hotkey_warnings(cfg: object) -> list[str]:
 # picked up automatically.
 # ──────────────────────────────────────────────────────────────────────────
 try:
-    from whisper.tokenizer import LANGUAGES as _whisper_languages  # type: ignore[import-not-found]
+    from whisper.tokenizer import LANGUAGES as _whisper_languages  # type: ignore[import-not-found]  # noqa: N811
 
     _ALLOWED_LANGUAGES: frozenset[str] = frozenset(_whisper_languages.keys())
     _ALLOWED_LANGUAGES_SOURCE = "whisper.tokenizer.LANGUAGES"
@@ -1594,12 +1595,10 @@ def validate_config(cfg: object) -> list[str]:
         "llm_polish_consent",
         *_CLOUD_CONSENT_FIELD_NAMES,
     ):
-        try:
+        # Field isn't present on the object — treat as "not set"
+        # and skip (mirrors the IPC validator's None handling).
+        with contextlib.suppress(AttributeError):
             cloud_field_values[cloud_name] = getattr(cfg, cloud_name)
-        except AttributeError:
-            # Field isn't present on the object — treat as "not set"
-            # and skip (mirrors the IPC validator's None handling).
-            pass
     errors.extend(_check_cross_field_cloud_config(cloud_field_values))
     return errors
 

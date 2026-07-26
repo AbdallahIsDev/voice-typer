@@ -85,6 +85,7 @@ def AudioObjectIsPropertySettable(
     inAddress: Any,
     outIsSettable: Any,
 ) -> int: ...
+
 # TASK-14: listener registration functions used by
 # ``microphone_watcher_coreaudio.py`` to subscribe to CoreAudio
 # property-change events.  Declared with permissive ``Any`` parameter

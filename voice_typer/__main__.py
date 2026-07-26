@@ -81,6 +81,7 @@ def _get_version():
     """Get the package version without importing the package (avoids side effects)."""
     try:
         from voice_typer import __version__
+
         return __version__
     except Exception:
         return "unknown"
@@ -92,11 +93,13 @@ def main():
 
     if args.debug:
         import os
+
         os.environ["VOICE_TYPER_DEBUG"] = "1"
 
     # NEW-CLI-004: pass operational flags via env vars so the IPC
     # server can read them without changing its signature.
     import os
+
     if args.quiet:
         os.environ["VOICE_TYPER_QUIET"] = "1"
     if args.no_tray:
@@ -105,6 +108,7 @@ def main():
         os.environ["VOICE_TYPER_CONFIG_DIR"] = args.config
 
     from voice_typer.server.app import main as app_main
+
     app_main()
 
 

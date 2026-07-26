@@ -56,9 +56,7 @@ class NoiseGate(AudioFilter):
         self._held_time: float = 0.0
 
         if self._open_threshold > self._close_threshold:
-            self._decay_rate = (self._open_threshold - self._close_threshold) / (
-                self._sample_rate / 75.0
-            )
+            self._decay_rate = (self._open_threshold - self._close_threshold) / (self._sample_rate / 75.0)
         else:
             self._decay_rate = 0.001
 

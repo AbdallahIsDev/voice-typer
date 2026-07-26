@@ -126,9 +126,7 @@ _CONTRACTION_FIXES: dict[str, str] = {
 # are substrings of each other, but this protects against future
 # additions).  Word boundaries on both sides prevent mid-word matches.
 _CONTRACTION_PATTERN = re.compile(
-    r"\b(" + "|".join(
-        re.escape(k) for k in sorted(_CONTRACTION_FIXES, key=len, reverse=True)
-    ) + r")\b",
+    r"\b(" + "|".join(re.escape(k) for k in sorted(_CONTRACTION_FIXES, key=len, reverse=True)) + r")\b",
     re.IGNORECASE,
 )
 
@@ -147,14 +145,38 @@ _CONTRACTION_PATTERN = re.compile(
 # the entry from ``_CONTRACTION_FIXES`` rather than adding a
 # heuristic — the disambiguation is too context-dependent to be
 # worth the complexity here.
-_PROPER_NOUN_SINGLE_WORDS: frozenset[str] = frozenset({
-    "monday", "tuesday", "wednesday", "thursday", "friday",
-    "saturday", "sunday",
-    "january", "february", "march", "april", "may", "june",
-    "july", "august", "september", "october", "november", "december",
-    "english", "spanish", "french", "german", "italian",
-    "american", "european", "african", "asian",
-})
+_PROPER_NOUN_SINGLE_WORDS: frozenset[str] = frozenset(
+    {
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "january",
+        "february",
+        "march",
+        "april",
+        "may",
+        "june",
+        "july",
+        "august",
+        "september",
+        "october",
+        "november",
+        "december",
+        "english",
+        "spanish",
+        "french",
+        "german",
+        "italian",
+        "american",
+        "european",
+        "african",
+        "asian",
+    }
+)
 
 # Word boundary regex for the proper-noun set.  We don't use a
 # capture group for the leading boundary because we want to preserve
@@ -188,9 +210,7 @@ _PRONOUN_SUBJECTS = frozenset({"i", "you", "he", "she", "it", "we", "they"})
 # before the conjunction.  We use a function replacement so we
 # can inspect the surrounding words and only insert when there
 # isn't already a comma.
-_RE_CONJUNCTION_BREAK = re.compile(
-    r"(?<![,\s])(\s+)(and|but|or)(\s+)([A-Za-z]+)\b"
-)
+_RE_CONJUNCTION_BREAK = re.compile(r"(?<![,\s])(\s+)(and|but|or)(\s+)([A-Za-z]+)\b")
 
 
 # ─── Public API ─────────────────────────────────────────────────────────────
@@ -251,7 +271,7 @@ def auto_capitalize(text: str) -> str:
     if not _RE_LEADING_URL.match(result):
         for i, ch in enumerate(result):
             if ch.isalpha():
-                result = result[:i] + ch.upper() + result[i + 1:]
+                result = result[:i] + ch.upper() + result[i + 1 :]
                 break
             if ch.isspace():
                 continue

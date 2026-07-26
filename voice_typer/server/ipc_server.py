@@ -2556,6 +2556,28 @@ class IPCServer(
                         with contextlib.suppress(Exception):
                             self._tcp_client.close()
                         self._tcp_client = None
+                    # CR-79: re-merge the pending snapshot back into
+                    # ``_pending_tcp`` so events queued for this (now-
+                    # closed) client are NOT silently lost during the
+                    # shutdown short-circuit. The snapshot+clear at the
+                    # top of ``_send`` removed them from ``_pending_tcp``;
+                    # without this re-merge they would be dropped even
+                    # though a fresh reconnect (e.g. Electron restarting
+                    # during shutdown) could still drain them. The
+                    # critical shutdown events in ``_SHUTDOWN_ALLOWLIST``
+                    # bypass this branch entirely and are written below.
+                    if pending:
+                        # FIFO order: snapshot events (oldest) first,
+                        # then any concurrent appends. The 1000-entry
+                        # cap from the ``tcp_mode`` branch is enforced
+                        # defensively here too so a long-disconnected
+                        # client doesn't grow the buffer unboundedly
+                        # during shutdown.
+                        self._pending_tcp = pending + self._pending_tcp
+                        _pending_cap_shutdown = 1000
+                        if len(self._pending_tcp) > _pending_cap_shutdown:
+                            _dropped = len(self._pending_tcp) - _pending_cap_shutdown
+                            del self._pending_tcp[:_dropped]
                 return
             # NEW-CONC-003: set a write timeout so a stalled renderer
             # can't block the worker thread indefinitely.  2 seconds is
@@ -2604,6 +2626,16 @@ class IPCServer(
             # out of scope. Leaving the behavior unchanged and
             # documenting the overhead here so the next pass has the
             # context.
+            # CR-79: track entries that were snapshotted but NOT
+            # written to the client (either because they exceeded the
+            # drain cap or because the drain failed mid-way). They are
+            # re-merged into ``_pending_tcp`` after the write block so
+            # the next reconnect's drain can pick them up — previously
+            # up to 900 of 1000 pending events could be silently lost
+            # per ``_send`` call when the drain cap was hit, and the
+            # ENTIRE pending snapshot was lost when the first write
+            # failed (dead client).
+            _undrained: list[str] = []
             with self._tcp_write_lock:
                 _prev_timeout = tcp_client.conn.gettimeout()
                 with contextlib.suppress(OSError, AttributeError):
@@ -2623,18 +2655,49 @@ class IPCServer(
                     # and blocked the audio thread.
                     _drain_cap = 100
                     if pending:
-                        # Already snapshot under lock — drain up to _drain_cap
-                        # of the most recent entries.
-                        recent = pending[-_drain_cap:]
-                        for p in recent:
+                        # CR-79: split the snapshot into ``older`` (the
+                        # entries that exceed the drain cap — these are
+                        # NEVER attempted) and ``recent`` (the last
+                        # ``_drain_cap`` entries that we'll try to write).
+                        # If the drain fails mid-``recent``, the
+                        # not-yet-written suffix is added to ``_undrained``
+                        # along with ``older`` so the next reconnect can
+                        # pick them up.
+                        if len(pending) > _drain_cap:
+                            older = list(pending[:-_drain_cap])
+                            recent = list(pending[-_drain_cap:])
+                        else:
+                            older = []
+                            recent = list(pending)
+                        _drain_failed_at: int | None = None
+                        for _i, p in enumerate(recent):
                             try:
                                 tcp_client.write(p + "\n")
                                 tcp_client.flush()
                             except Exception:
                                 log.debug("[IPC] client write failed during pending drain")
+                                _drain_failed_at = _i
                                 break
+                        if _drain_failed_at is not None:
+                            # The entries at/after the failure index were
+                            # never written; ``older`` was never attempted
+                            # either. Re-merge both so they survive.
+                            _undrained = older + recent[_drain_failed_at:]
+                        elif older:
+                            # Drain succeeded for ``recent``; ``older``
+                            # (entries that exceeded the cap) still need
+                            # to be re-merged.
+                            _undrained = older
                 except (TimeoutError, OSError) as exc:
                     log.debug("[IPC] client write failed: %s", exc)
+                    # CR-79: the first write failed before the drain loop
+                    # could run, so the ENTIRE ``pending`` snapshot is
+                    # undrained. Re-merge it so the next reconnect's drain
+                    # can pick it up (previously the whole snapshot was
+                    # silently dropped here — up to 1000 queued push
+                    # events lost per write failure).
+                    if pending:
+                        _undrained = list(pending)
                     # Mark the client as dead so the accept loop will pick
                     # up the next reconnect.  We do this under the lock to
                     # avoid a race with a concurrent _send that just
@@ -2655,6 +2718,24 @@ class IPCServer(
                     # in-progress ``recv``.
                     with contextlib.suppress(OSError, AttributeError):
                         tcp_client.conn.settimeout(_prev_timeout)
+            # CR-79: re-merge any undrained pending entries back into
+            # ``_pending_tcp`` so they survive for the next reconnect's
+            # drain. FIFO order is preserved: snapshot events (oldest)
+            # first, then any events a concurrent thread appended
+            # between our snapshot+clear and this re-acquire. The
+            # 1000-entry cap from the ``tcp_mode`` branch is enforced
+            # so we don't grow the buffer unboundedly.
+            if _undrained:
+                _pending_cap_remerge = 1000
+                with self._lock:
+                    self._pending_tcp = _undrained + self._pending_tcp
+                    if len(self._pending_tcp) > _pending_cap_remerge:
+                        _dropped = len(self._pending_tcp) - _pending_cap_remerge
+                        del self._pending_tcp[:_dropped]
+                log.debug(
+                    "[IPC] re-merged %d undrained pending entries",
+                    len(_undrained),
+                )
             return
 
         if tcp_mode:

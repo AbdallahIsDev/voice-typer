@@ -1489,22 +1489,19 @@ class HistoryDB:
             dropped_future = dropped.future
         else:
             _, dropped_future = dropped
-        if dropped_future is not None:
-            try:
-                # CR-78 / PERF-5: the dropped future must be resolved
-                # with a clear, machine-greppable message so callers
-                # that catch HistoryDBError can distinguish "queue full"
-                # from other failure modes (e.g. "Writer is shutting
-                # down" or "Dropped during shutdown sentinel enqueue").
-                # The literal "queue full" substring is part of the
-                # contract asserted by TestQueueBounded.
+        if dropped_future is not None:            # CR-78 / PERF-5: the dropped future must be resolved
+            # with a clear, machine-greppable message so callers
+            # that catch HistoryDBError can distinguish "queue full"
+            # from other failure modes (e.g. "Writer is shutting
+            # down" or "Dropped during shutdown sentinel enqueue").
+            # The literal "queue full" substring is part of the
+            # contract asserted by TestQueueBounded.
+            with contextlib.suppress(concurrent.futures.InvalidStateError):
                 dropped_future.set_exception(
                     HistoryDBError(
                         "queue full; dropped oldest write to make room for newer write (writer thread may be stalled)"
                     )
                 )
-            except concurrent.futures.InvalidStateError:
-                pass
         log.warning("[HISTORY_DB] queue full — dropped oldest write to make room. Writer thread may be stalled.")
         # The caller (_submit_write) retries the put_nowait after we
         # return — we've freed one slot by dropping the oldest item, so
@@ -2301,10 +2298,8 @@ class HistoryDB:
         stop_event = self._retention_stop_event
         thread = self._retention_thread
         if stop_event is not None:
-            try:
+            with contextlib.suppress(Exception):
                 stop_event.set()
-            except Exception:
-                pass
         if thread is not None and thread.is_alive():
             thread.join(timeout=2.0)
             if thread.is_alive():

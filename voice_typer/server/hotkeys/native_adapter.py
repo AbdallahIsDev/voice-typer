@@ -468,10 +468,7 @@ class _NativeBackendAdapter(HotkeyBackend):
         # it's already constructed and its hotkey_str / state match the
         # adapter, so the restart is faster than constructing a new one.
         try:
-            if warm_spare is not None:
-                legacy = warm_spare
-            else:
-                legacy = self._create_legacy_backend()
+            legacy = warm_spare if warm_spare is not None else self._create_legacy_backend()
             legacy.start(self._callback)  # type: ignore[arg-type]
             if self._on_release_callback is not None:
                 legacy.set_on_release(self._on_release_callback)

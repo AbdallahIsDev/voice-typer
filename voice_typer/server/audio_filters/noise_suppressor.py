@@ -308,10 +308,7 @@ class NoiseSuppressor(AudioFilter):
         self._ensure_resamplers(sample_rate)
 
         # Resample to 48kHz if needed (using streaming resamplers).
-        if self._upsampler is not None:
-            up = self._upsampler.process(samples)
-        else:
-            up = samples
+        up = self._upsampler.process(samples) if self._upsampler is not None else samples
 
         # Prepend carry from previous call
         combined = np.concatenate([self._carry, up])
@@ -352,10 +349,7 @@ class NoiseSuppressor(AudioFilter):
         result_48k = np.concatenate(output_frames)
 
         # Resample back to source rate (using streaming resamplers).
-        if self._downsampler is not None:
-            result = self._downsampler.process(result_48k)
-        else:
-            result = result_48k
+        result = self._downsampler.process(result_48k) if self._downsampler is not None else result_48k
 
         # The resampling may produce slightly different length than input.
         # Match the input length by padding/truncating.

@@ -419,13 +419,16 @@ class AsrBackendRegistry:
             )
             return None
         except Exception as exc:
-            # CR-91: include ``exc_info=True`` so the full traceback is
-            # logged (matches the ``log.exception`` pattern elsewhere).
-            log.error(
+            # CR-91 / S5-CR-41: use ``log.exception`` so the full
+            # traceback is captured (mechanical pass replacing
+            # ``log.error("...: %s", exc, exc_info=True)`` with the
+            # idiomatic ``log.exception("...")`` form — same behaviour,
+            # clearer intent, harder to drop the ``exc_info`` arg in a
+            # future refactor).
+            log.exception(
                 "[ASR_REGISTRY] failed to initialise %s backend: %s",
                 name,
                 exc,
-                exc_info=True,
             )
             return None
 

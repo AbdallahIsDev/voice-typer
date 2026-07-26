@@ -140,6 +140,7 @@ def open_electron_window() -> None:
     #    minimized.
     try:
         from voice_typer.server import event_bus
+
         if event_bus.publish({"type": "show_window"}):
             log.info("[TRAY] show_window pushed to Electron")
             return
@@ -153,6 +154,7 @@ def open_electron_window() -> None:
     # 3. Last resort: Electron isn't running — build + launch with
     #    electron . (production path, no Vite).
     from voice_typer.server.autostart_launcher import _ensure_built_and_launch
+
     if _ensure_built_and_launch(hidden=False):
         log.info("[TRAY] Electron app launched (build-first)")
         return
@@ -170,12 +172,10 @@ def open_electron_window() -> None:
         # resolves to ``npm.cmd``).  When npm truly cannot be resolved,
         # we log and skip — never fall back to ``shell=True``.
         from voice_typer.server._electron_build import _npm_command
+
         cmd = _npm_command("dev")
         if cmd is None:
-            log.error(
-                "[TRAY] npm not on PATH; cannot launch dev mode. "
-                "Install Node.js / npm or add it to PATH."
-            )
+            log.error("[TRAY] npm not on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH.")
             return
         proc = subprocess.Popen(cmd, cwd=client_dir)
         # PROD-003: track PID for cleanup on shutdown

@@ -534,9 +534,7 @@ def build_menu_for_tray(tray) -> tuple:
         items.append(
             pystray.MenuItem(
                 _("force_cancel_transcription"),
-                wrap_callback(
-                    lambda: tray._controller.recording._force_recover_from_stuck_transcription(force=True)
-                ),
+                wrap_callback(lambda: tray._controller.recording._force_recover_from_stuck_transcription(force=True)),
             )
         )
 
@@ -708,6 +706,26 @@ def maybe_publish_tray_menu(tray) -> bool:
     hotkey = tray._hotkey or getattr(tray._config, "hotkey", "<f2>") or "<f2>"
     left_click = getattr(tray._config, "tray_left_click_action", "open_app") or "open_app"
 
+    # CR-144: detect attribute drift on the TrayController Protocol.
+    # VoiceTyperApp._microphones is initialised to an empty list at
+    # construction (app.py:338), so a None return from getattr here
+    # means the attribute was renamed/removed — previously the
+    # Microphones submenu would silently disappear with no log line.
+    # The TrayController Protocol (tray_types.py) declares the typed
+    # ``microphones`` attribute; until VoiceTyperApp exposes a public
+    # ``microphones`` property (out of scope for this module), we keep
+    # reading the private ``_microphones`` attribute but log a warning
+    # when it's missing so the regression is visible in operator logs.
+    controller_mics = getattr(controller, "_microphones", None)
+    if controller_mics is None:
+        log.warning(
+            "controller has no _microphones attribute — microphones submenu "
+            "disabled (class=%s). Update TrayController Protocol or %s to "
+            "restore the submenu.",
+            type(controller).__name__,
+            type(controller).__name__,
+        )
+
     model, _id_map = build_tray_menu_model(
         hotkey=hotkey,
         toggle_dictation=controller.toggle_dictation,
@@ -715,14 +733,13 @@ def maybe_publish_tray_menu(tray) -> bool:
         repaste_last=getattr(controller, "repaste_last", lambda: None),
         force_cancel_transcription=lambda: controller.recording._force_recover_from_stuck_transcription(force=True),
         is_transcribing=lambda: (
-            getattr(tray._state, "name", "") == "TRANSCRIBING"
-            or getattr(tray._state, "value", "") == "TRANSCRIBING"
+            getattr(tray._state, "name", "") == "TRANSCRIBING" or getattr(tray._state, "value", "") == "TRANSCRIBING"
         ),
         restart_app=controller.restart_app,
         quit_app=tray._confirm_quit_while_recording,
         build_models_submenu=tray._build_models_submenu,
         left_click_action=left_click,
-        microphones=getattr(controller, "_microphones", None),
+        microphones=controller_mics,
         active_mic_id=getattr(controller, "active_microphone_id", None),
         on_select_mic=getattr(controller, "change_microphone", None),
         on_refresh_mics=getattr(controller, "refresh_microphones", None),

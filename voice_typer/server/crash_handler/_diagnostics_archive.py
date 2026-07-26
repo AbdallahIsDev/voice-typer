@@ -176,9 +176,7 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
         # invokes the VEH callback, but tests still inspect the cached
         # path).  Preserve the trailing NUL terminator required by
         # CreateFileW.
-        _ch._crash_file_path = (
-            os.path.join(str(archive_dir), f"crash_diagnostics.{_ch._PID}.txt") + "\0"
-        )
+        _ch._crash_file_path = os.path.join(str(archive_dir), f"crash_diagnostics.{_ch._PID}.txt") + "\0"
         _ch._python_crash_dir = resolved
         # Reset the rate-limit flag so a fresh process (or a re-init
         # in tests) can write a new crash record.
@@ -405,12 +403,7 @@ def report_pending_crash(config_dir: Path) -> str | None:
     # Short-circuit only when there are NO files to process in either
     # location. (We can't short-circuit on `not crash_files` alone
     # anymore because archive-subdir files might still need surfacing.)
-    if (
-        not crash_files
-        and not python_crash_files
-        and not archived_crash_files
-        and not archived_python_crash_files
-    ):
+    if not crash_files and not python_crash_files and not archived_crash_files and not archived_python_crash_files:
         return None
 
     summary_parts: list[str] = []

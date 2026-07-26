@@ -51,12 +51,21 @@ def _enable_autostart_linux() -> bool:
     # (e.g. "/usr/bin/python3" "/path/launcher.py" -> python3" "/path...).
     exec_field = _pkg._autostart_command()
 
+    # CR-145: align the autostart .desktop Icon with the bundled template
+    # (src-tauri/voice-typer.desktop.template uses `Icon=voice-typer`).
+    # Pre-fix this wrote `Icon=audio-input-microphone`, causing the same
+    # app to show two different icons (one in autostart, one in the
+    # Start Menu / launcher). The Exec field is intentionally different
+    # from the template: autostart launches `python launcher.py --hidden
+    # --delay 15` (hidden at login) whereas the template's Exec points at
+    # the interactive `voice-typer-tauri` app binary — aligning Exec
+    # would break the hidden-autostart behavior, so only Icon is aligned.
     desktop_content = f"""[Desktop Entry]
 Type=Application
 Name={APP_NAME}
 Comment=Background voice-to-text utility
 Exec={exec_field}
-Icon=audio-input-microphone
+Icon=voice-typer
 Hidden=false
 NoDisplay=true
 """

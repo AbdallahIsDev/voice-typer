@@ -191,10 +191,7 @@ def _is_in_container_cached() -> bool:
     # 6. DE-66: cgroup v2-aware — check /proc/self/mountinfo for overlayfs
     #    rooted at ``/`` (catches rootless Podman and other OCI runtimes
     #    that don't write a recognizable cgroup signature on v2).
-    if _detect_via_mountinfo_overlay():
-        return True
-
-    return False
+    return bool(_detect_via_mountinfo_overlay())
 
 
 def _reset_container_cache() -> None:

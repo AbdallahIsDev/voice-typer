@@ -188,9 +188,7 @@ class CoreAudioMicrophoneWatcher:
             name="mic-coreaudio-watcher",
         )
         self._thread.start()
-        log.info(
-            "[MIC-WATCHER-CA] Started CoreAudio property-listener watcher"
-        )
+        log.info("[MIC-WATCHER-CA] Started CoreAudio property-listener watcher")
 
     def stop(self) -> None:
         """Signal the watcher thread to stop and join it (timeout 2 s).
@@ -211,9 +209,7 @@ class CoreAudioMicrophoneWatcher:
             try:
                 ca.runloop_stop(run_loop)
             except Exception:
-                log.debug(
-                    "[MIC-WATCHER-CA] CFRunLoopStop failed", exc_info=True
-                )
+                log.debug("[MIC-WATCHER-CA] CFRunLoopStop failed", exc_info=True)
         self._thread.join(timeout=2.0)
         if self._thread.is_alive():
             log.warning(
@@ -242,8 +238,7 @@ class CoreAudioMicrophoneWatcher:
             self._run_impl(ca)
         except Exception:
             log.warning(
-                "[MIC-WATCHER-CA] Watcher thread crashed, falling back "
-                "to TTL polling",
+                "[MIC-WATCHER-CA] Watcher thread crashed, falling back to TTL polling",
                 exc_info=True,
             )
 
@@ -284,8 +279,7 @@ class CoreAudioMicrophoneWatcher:
             in_client_data: Any,
         ) -> int:
             log.debug(
-                "[MIC-WATCHER-CA] CoreAudio device-list changed "
-                "(object_id=%s, n_addresses=%s)",
+                "[MIC-WATCHER-CA] CoreAudio device-list changed (object_id=%s, n_addresses=%s)",
                 in_object_id,
                 in_number_addresses,
             )
@@ -316,16 +310,14 @@ class CoreAudioMicrophoneWatcher:
             # some failure modes — treat them all as "registration
             # failed" and fall back to TTL polling.
             log.warning(
-                "[MIC-WATCHER-CA] AudioObjectAddPropertyListener raised, "
-                "falling back to TTL polling",
+                "[MIC-WATCHER-CA] AudioObjectAddPropertyListener raised, falling back to TTL polling",
                 exc_info=True,
             )
             return
 
         if status != _NO_ERR:
             log.warning(
-                "[MIC-WATCHER-CA] AudioObjectAddPropertyListener failed "
-                "(status=%d), falling back to TTL polling",
+                "[MIC-WATCHER-CA] AudioObjectAddPropertyListener failed (status=%d), falling back to TTL polling",
                 status,
             )
             return
@@ -335,9 +327,7 @@ class CoreAudioMicrophoneWatcher:
         # ``CFRunLoopRun`` because ``CFRunLoopRun`` blocks.
         self._run_loop = ca.runloop_get_current()
 
-        log.debug(
-            "[MIC-WATCHER-CA] listener registered, entering CFRunLoop"
-        )
+        log.debug("[MIC-WATCHER-CA] listener registered, entering CFRunLoop")
         # ``CFRunLoopRun`` blocks until ``CFRunLoopStop`` is called
         # from another thread (or a run-loop source signals stop).
         ca.runloop_run()

@@ -44,6 +44,7 @@ from voice_typer.server.service.onboarding import OnboardingMixin
 from voice_typer.server.service.status import StatusMixin
 from voice_typer.server.service.template import TemplateMixin
 from voice_typer.server.service.vocabulary import VocabularyMixin
+
 from .config_service import ConfigMutationMixin
 from .diagnostics import DiagnosticsMixin
 from .privacy import PrivacyMixin

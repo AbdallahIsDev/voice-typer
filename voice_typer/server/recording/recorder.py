@@ -100,6 +100,21 @@ log = logging.getLogger("voice_typer.server.recording")
 # effect.
 from voice_typer.server import recording as _recording_pkg  # noqa: E402
 
+# PVT-5 / CR-21 / S4-CR-21: bind ``_secure_clear_array`` at module top
+# via a literal ``from voice_typer.server.recording import _secure_clear_array``
+# statement so ``recorder._secure_clear_array`` is importable for tests
+# (``test_secure_clear_array.test_secure_clear_array_bound_in_recorder_module``
+# and ``test_secure_clear_array_import_statement_present_in_recorder_source``)
+# and so a future regression that removes the binding surfaces as an
+# ``AttributeError`` at import time rather than a silent ``NameError``
+# swallowed by the secure-clear ``try/except`` in
+# ``_secure_clear_session_caches``.  The call sites in
+# ``start()``/``stop()``/``discard()`` still route through
+# ``_recording_pkg._secure_clear_array(...)`` so test patches of the form
+# ``monkeypatch.setattr("voice_typer.server.recording._secure_clear_array", ...)``
+# keep affecting production code (see module docstring §Patch-path).
+from voice_typer.server.recording import _secure_clear_array  # noqa: F401, E402
+
 # ─── AUDIO-013: VAD state machine ───────────────────────────────────────
 # RW-04: VadState and the VAD state-machine / auto-calibration logic
 # were extracted to ``voice_typer.server.vad_processor`` (VadProcessor
@@ -123,16 +138,6 @@ from voice_typer.server.vad_processor import (  # noqa: E402
     DEFAULT_VAD_SPEECH_THRESHOLD_DB,
 )
 
-# PVT-5 / CR-21: bind ``_secure_clear_array`` at module top so
-# ``recorder._secure_clear_array`` is importable for tests
-# (``test_secure_clear_array.test_secure_clear_array_bound_in_recorder_module``)
-# and so a future regression that removes the binding surfaces as an
-# ``AttributeError`` at import time rather than a silent ``NameError``
-# swallowed by the secure-clear ``try/except`` in ``start()``.  The
-# call sites in ``start()``/``stop()``/``discard()`` still route through
-# ``_recording_pkg._secure_clear_array(...)`` so test patches of the form
-# ``monkeypatch.setattr("voice_typer.server.recording._secure_clear_array", ...)``
-# keep affecting production code (see module docstring §Patch-path).
 # PVT-006 split: ``take_snapshot`` and ``discard_recording`` are the
 # promoted bodies of ``Recorder.snapshot`` and ``Recorder.discard``. The
 # methods become 1-line delegators so existing call sites, subclass
@@ -1299,7 +1304,12 @@ class Recorder:
                 # the first chunk sets ``_buffer_sr``).
                 self._refresh_vad_caches()
             except Exception as e:
-                log.error("[RECORDING] Failed to restart with default device: %s", e)
+                # S5-CR-41: use ``log.exception`` so the full traceback
+                # is captured (the previous ``log.error("...: %s", e)``
+                # form lost the traceback — only the exception's str()
+                # was logged, making remote debugging of disconnect-
+                # restart failures much harder).
+                log.exception("[RECORDING] Failed to restart with default device: %s", e)
                 # High: clear the disconnect flag so the next
                 # health-checker cycle (30s) re-probes. Pre-fix, the
                 # except branch left ``_device_disconnected=True``
@@ -1828,6 +1838,56 @@ class Recorder:
                         }
                     )
 
+    def _secure_clear_session_caches(self) -> None:
+        """SEC-audit-008 / CR-21 / G4-H-06 / ZR-60: zero cached audio arrays.
+
+        Pre-CR-21: ``recorder.py`` called ``_secure_clear_array(...)``
+        as a bare name (no import).  The function is defined in
+        ``recording/buffer.py`` and re-exported by the package
+        ``__init__.py``, but ``recorder.py`` never imported it.  The
+        surrounding broad ``try``/``handler`` block swallowed the
+        resulting ``NameError``, so SEC-audit-008's secure-zeroing of
+        cached audio arrays (*``_cached_resampled``* and
+        *``_cached_no_resample_arr``*) NEVER executed — the previous
+        session's audio lingered in process memory until the next GC
+        pass freed the numpy arrays.
+
+        CR-21 fix: import ``_secure_clear_array`` at module top (literal
+        ``from voice_typer.server.recording import _secure_clear_array``
+        statement) so a future regression that removes the import
+        surfaces as ``AttributeError`` at import time. The call sites
+        still route through ``_recording_pkg._secure_clear_array(...)``
+        so test patches of the form
+        ``monkeypatch.setattr("voice_typer.server.recording._secure_clear_array", ...)``
+        take effect at runtime (matching ``_secure_clear_array_background``
+        in stop()/discard()).
+
+        ZR-60: extracted this block from ``start()`` into a dedicated
+        helper so the source-string regression test
+        (``test_recorder_start_except_clause_does_not_swallow_nameerror``)
+        can pin the narrowed handler clause at the helper-method
+        granularity rather than scanning ``start()``'s much longer body
+        (which contains other broad ``Exception`` handlers for
+        unrelated concerns — device probing, audio stream teardown,
+        etc. — that are out of scope for CR-21).
+
+        The narrowed ``(OSError, ValueError)`` handler clause below
+        ensures a future import bug (``NameError``) surfaces immediately
+        instead of being silently swallowed (CR-21 regression — the
+        pre-fix broad ``Exception`` handler masked the missing import
+        and left SEC-audit-008 as a no-op).
+        """
+        try:
+            if self._cached_resampled is not None and self._cached_resampled.size > 0:
+                _recording_pkg._secure_clear_array(self._cached_resampled)
+        except (OSError, ValueError):
+            log.warning("[RECORDER] secure_clear_array failed", exc_info=True)
+        try:
+            if self._cached_no_resample_arr is not None and self._cached_no_resample_arr.size > 0:
+                _recording_pkg._secure_clear_array(self._cached_no_resample_arr)
+        except (OSError, ValueError):
+            log.warning("[RECORDER] secure_clear_array failed", exc_info=True)
+
     def start(self) -> None:
         """Start recording audio.
 
@@ -1867,31 +1927,14 @@ class Recorder:
 
             _permissions_module.verify_microphone_accessible()
 
-        # SEC-audit-008 / CR-21 / G4-H-06: securely zero cached audio
-        # arrays before clearing.  ``_secure_clear_array`` is defined in
-        # ``recording/buffer.py`` and re-exported by the package
-        # ``__init__.py``; we route through ``_recording_pkg.`` so test
-        # patches of the form
-        # ``monkeypatch.setattr("voice_typer.server.recording._secure_clear_array", ...)``
-        # take effect at runtime (matching ``_secure_clear_array_background``
-        # in stop()/discard() and the ``_secure_clear_caches`` helper).
-        # Without this, the previous session's audio could linger in
-        # process memory until the next GC pass freed the numpy arrays.
-        # The ``except`` clause is narrowed to ``(OSError, ValueError)``
-        # so a future import bug surfaces immediately instead of being
-        # silently swallowed (CR-21 regression — the pre-fix broad
-        # ``Exception`` clause masked the missing import and left
-        # SEC-audit-008 as a no-op).
-        try:
-            if self._cached_resampled is not None and self._cached_resampled.size > 0:
-                _recording_pkg._secure_clear_array(self._cached_resampled)
-        except (OSError, ValueError):
-            log.warning("[RECORDER] secure_clear_array failed", exc_info=True)
-        try:
-            if self._cached_no_resample_arr is not None and self._cached_no_resample_arr.size > 0:
-                _recording_pkg._secure_clear_array(self._cached_no_resample_arr)
-        except (OSError, ValueError):
-            log.warning("[RECORDER] secure_clear_array failed", exc_info=True)
+        # SEC-audit-008 / CR-21 / G4-H-06 / ZR-60: securely zero cached
+        # audio arrays before clearing. ZR-60 extracted this block from
+        # ``start()`` into ``_secure_clear_session_caches`` so the
+        # source-string regression test
+        # (``test_recorder_start_except_clause_does_not_swallow_nameerror``)
+        # can pin the narrowed handler clause at the helper-method
+        # granularity. See the helper's docstring for the full rationale.
+        self._secure_clear_session_caches()
 
         self._buffer.clear()
         self._chunk_count = 0

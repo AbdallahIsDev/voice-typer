@@ -513,7 +513,7 @@ class _FileFormatter(logging.Formatter):
 
         2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [MainThread]  INFO   [voice_typer.server.app]  RegisterHotKey OK
         2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [MainThread]  WARN   [voice_typer.server.app]  [ENV] Invalid value ...
-        2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [TranscribeThread]  ERROR  [voice_typer.server.dictation_pipeline]  Stream end
+        2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [Transcribe]  ERR  [voice_typer.server.dictation_pipeline]  Stream end
 
     Fields (left to right):
 

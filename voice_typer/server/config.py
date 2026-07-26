@@ -422,6 +422,144 @@ def _migrate_from_legacy():
     log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
 
 
+# S1-CR-43: enumerates the user-data files / subdirs that live under
+# ``_config_dir()`` and should be removed on a "purge" uninstall. The
+# list is sourced from the ``_config_dir()`` docstring + the actual
+# files created by ``Config.save()`` / ``history_db`` / ``logging_setup``
+# / ``model_manager`` / ``single_instance`` / ``credential_store`` /
+# ``crash_recovery`` / ``vocabulary`` / ``templates`` / ``onboarding``.
+# Keeping it in one place means the Linux prerm, the Windows NSIS
+# uninstall hook, and the macOS Uninstall helper can all call the same
+# Python entry point instead of each re-implementing (and drifting from)
+# the file list. See :func:`purge_user_data` for the entry point.
+_USER_DATA_FILES: tuple[str, ...] = (
+    "config.json",
+    "config.json.bak",
+    "config.json.lock",
+    "backend.pid",
+    "history.db",
+    "history.db-wal",
+    "history.db-shm",
+    "crash_recovery.json",
+    "diagnostic_bundle.json",
+    "onboarding.json",
+    "vocabulary.json",
+    "templates.json",
+    "corrections.json",
+    "renderer-errors.log",
+)
+
+_USER_DATA_DIRS: tuple[str, ...] = (
+    "logs",
+    "huggingface",  # HF model cache (potentially GB-sized)
+    "crashes",
+    "native_logs",
+)
+
+
+def purge_user_data(*, remove_config_dir: bool = False) -> dict[str, list[str]]:
+    """S1-CR-43: remove all user-data files / subdirs created by Voice Typer.
+
+    Intended to be called from uninstall scripts (Linux ``prerm --purge``,
+    Windows NSIS uninstaller hook, macOS ``Uninstall Voice Typer.app``
+    helper). The function is idempotent — missing files / dirs are
+    silently skipped (returning them in the ``missing`` list so the
+    caller can log a report if needed).
+
+    Parameters
+    ----------
+    remove_config_dir
+        If ``True``, also remove the config directory itself (after
+        emptying it). Defaults to ``False`` so a re-install preserves
+        the directory's permissions / ownership. Set to ``True`` for a
+        true "clean slate" uninstall.
+
+    Returns
+    -------
+    dict
+        ``{"removed": [...], "missing": [...], "errors": [...]}`` —
+        ``removed`` lists every file / dir that was successfully deleted,
+        ``missing`` lists every entry that did not exist (often the
+        common case for optional files like ``history.db-wal``), and
+        ``errors`` lists ``(path, error_message)`` tuples for entries
+        that existed but could not be removed (permission errors, etc.).
+        The function NEVER raises — uninstall scripts must not abort
+        mid-cleanup if a single file is locked.
+
+    The function is best-effort and platform-agnostic. It does NOT
+    remove the OS keychain entries (those live in
+    ``credential_store.PROVIDER_TO_CONFIG_FIELD`` — callers that want a
+    full secret purge should call
+    ``credential_store.delete_all_secrets()`` separately, since that
+    operation is irreversible and may require user interaction on some
+    platforms). It also does NOT remove autostart entries (LaunchAgent
+    plist, HKCU Run key, Task Scheduler entry, XDG autostart .desktop
+    file) — those are owned by ``autostart_launcher`` and have their own
+    ``disable_autostart()`` API.
+    """
+    import shutil
+
+    removed: list[str] = []
+    missing: list[str] = []
+    errors: list[str] = []
+
+    base = _config_dir()
+    for name in _USER_DATA_FILES:
+        path = base / name
+        if not path.exists():
+            missing.append(str(path))
+            continue
+        try:
+            path.unlink()
+            removed.append(str(path))
+        except OSError as e:
+            errors.append(f"{path}: {e}")
+
+    for name in _USER_DATA_DIRS:
+        path = base / name
+        if not path.exists():
+            missing.append(str(path))
+            continue
+        try:
+            shutil.rmtree(path)
+            removed.append(str(path))
+        except OSError as e:
+            errors.append(f"{path}: {e}")
+
+    # Also clean up any versioned / corrupt / pre-migration backups
+    # created by Config.load() / Config.save(). These follow the
+    # patterns: ``config.json.bak``, ``config.json.v<N>.bak``,
+    # ``config.json.pre-migration-v<N>.bak``,
+    # ``config.json.corrupt-<ts>``.
+    if base.exists():
+        for entry in base.iterdir():
+            name = entry.name
+            if name == "config.json":
+                continue  # already handled above
+            if not (
+                name.startswith("config.json.")
+                or name.startswith("history.db.corrupt-")
+                or name.startswith("crash_recovery.json.corrupt-")
+            ):
+                continue
+            if entry.is_dir():
+                continue
+            try:
+                entry.unlink()
+                removed.append(str(entry))
+            except OSError as e:
+                errors.append(f"{entry}: {e}")
+
+    if remove_config_dir and base.exists():
+        try:
+            shutil.rmtree(base)
+            removed.append(str(base))
+        except OSError as e:
+            errors.append(f"{base}: {e}")
+
+    return {"removed": removed, "missing": missing, "errors": errors}
+
+
 # G4-H-11: cross-process lock for Config.save().
 _CONFIG_LOCK_TIMEOUT_SECONDS = 5
 
@@ -737,7 +875,9 @@ class Config:
     # ``clipboard.py:paste()`` and refreshed at runtime via
     # ``refresh_config()`` when the user changes settings).
     clipboard_save_restore: bool = True  # save/restore previous clipboard content after paste
-    clipboard_restore_delay_ms: int = DEFAULT_CLIPBOARD_RESTORE_DELAY_MS  # delay between paste keystroke and clipboard restore (ms)
+    clipboard_restore_delay_ms: int = (
+        DEFAULT_CLIPBOARD_RESTORE_DELAY_MS  # delay between paste keystroke and clipboard restore (ms)
+    )
 
     # ─── P1 Features ───────────────────────────────────────────────
 
@@ -1328,21 +1468,21 @@ class Config:
         # saved) falls through to the full backup path.
         if self._last_saved_bytes != content_bytes and config_file.exists():
             # G4-H-09: best-effort backup before overwrite.
-                try:
-                    existing_bytes = config_file.read_bytes()
-                    if existing_bytes != content_bytes:
-                        bak_path = path / "config.json.bak"
-                        bak_path.write_bytes(existing_bytes)
-                        if not is_windows():
-                            try:
-                                os.chmod(bak_path, 0o600)
-                            except OSError as e:
-                                log.debug("[CONFIG] Failed to chmod config.json.bak: %s", e)
-                except OSError as e:
-                    log.debug(
-                        "[CONFIG] Failed to back up existing config.json to config.json.bak: %s",
-                        e,
-                    )
+            try:
+                existing_bytes = config_file.read_bytes()
+                if existing_bytes != content_bytes:
+                    bak_path = path / "config.json.bak"
+                    bak_path.write_bytes(existing_bytes)
+                    if not is_windows():
+                        try:
+                            os.chmod(bak_path, 0o600)
+                        except OSError as e:
+                            log.debug("[CONFIG] Failed to chmod config.json.bak: %s", e)
+            except OSError as e:
+                log.debug(
+                    "[CONFIG] Failed to back up existing config.json to config.json.bak: %s",
+                    e,
+                )
 
         _secure_atomic_write(config_file, content)
         # ER-53: record the bytes we just persisted so the next
@@ -1464,6 +1604,11 @@ class Config:
                     _CURRENT_SCHEMA_VERSION,
                 )
                 final_schema_version = loaded_version
+                # S5-CR-38: versioned backup BEFORE the in-memory data
+                # (with higher-version fields filtered out) gets written
+                # back to disk by the next Config.save(). See
+                # ``_backup_before_downgrade`` for the full rationale.
+                cls._backup_before_downgrade(config_file, loaded_version, data)
             else:
                 data, final_schema_version, migrations_ran = cls._run_migrations(data, loaded_version, config_file)
             data["schema_version"] = final_schema_version
@@ -1626,9 +1771,7 @@ class Config:
                 if full_config_errors:
                     for _err in full_config_errors:
                         log.warning("[CONFIG] validate_config: %s", _err)
-                    instance.last_load_warnings.extend(
-                        f"validate_config: {_err}" for _err in full_config_errors
-                    )
+                    instance.last_load_warnings.extend(f"validate_config: {_err}" for _err in full_config_errors)
             except Exception:
                 log.debug("[CONFIG] validate_config on load failed", exc_info=True)
 
@@ -1855,6 +1998,77 @@ class Config:
                     pre_bak,
                     e,
                 )
+
+    @classmethod
+    def _backup_before_downgrade(
+        cls,
+        config_file,
+        loaded_version: Any,
+        data: dict[str, Any],
+    ) -> None:
+        """S5-CR-38: best-effort versioned backup when an older build loads a
+        newer-version config.
+
+        Called from :meth:`load` ONLY when ``loaded_version >
+        _CURRENT_SCHEMA_VERSION`` (i.e. the user ran a newer build of
+        Voice Typer and then downgraded). The in-memory ``data`` dict
+        already has the higher-version fields filtered out by
+        :meth:`_filter_unknown_keys`; without a backup, the next
+        :meth:`save` would atomically overwrite the on-disk file with a
+        config that has the higher version number but is missing the
+        higher-version fields — silently destroying the user's data.
+
+        This method copies the on-disk ``config.json`` (NOT the in-memory
+        ``data`` — the on-disk bytes still have all the higher-version
+        fields) to ``config.json.v{loaded_version}.bak`` (single-slot —
+        a second downgrade from the same version overwrites the first
+        backup, which is acceptable because the on-disk file at that
+        point is already the older build's view and contains no new
+        information to preserve).
+
+        Also appends a non-blocking warning to ``data["_load_warnings"]``
+        so the renderer can surface it via ``last_load_warnings`` — the
+        user gets an honest signal that they ran an older build against
+        a newer config and that a backup was created at a specific path.
+
+        Best-effort: if the copy fails (read-only filesystem, out of
+        disk, etc.) the warning is logged at WARNING level so the
+        operator can investigate. The load itself is NOT aborted — the
+        user can still use the app with the older build's known fields.
+        """
+        if not isinstance(loaded_version, int):
+            return
+        versioned_bak = config_file.parent / f"config.json.v{loaded_version}.bak"
+        try:
+            import shutil
+
+            shutil.copy2(config_file, versioned_bak)
+            log.warning(
+                "[CONFIG] downgraded build loaded newer config schema_version=%d "
+                "(supported=%d); backed up original to %s before any save can overwrite",
+                loaded_version,
+                _CURRENT_SCHEMA_VERSION,
+                versioned_bak,
+            )
+            data.setdefault("_load_warnings", []).append(
+                f"Config file schema_version={loaded_version} is newer than this build "
+                f"supports ({_CURRENT_SCHEMA_VERSION}). Unknown fields were dropped from "
+                f"the in-memory config. The original file was backed up to "
+                f"{versioned_bak.name} before any save can overwrite it — restore this "
+                f"file manually after upgrading to a newer build."
+            )
+        except OSError as e:
+            log.warning(
+                "[CONFIG] failed to back up newer-version config to %s before downgrade save: %s",
+                versioned_bak,
+                e,
+            )
+            data.setdefault("_load_warnings", []).append(
+                f"Config file schema_version={loaded_version} is newer than this build "
+                f"supports ({_CURRENT_SCHEMA_VERSION}). Unknown fields were dropped. "
+                f"WARNING: backup of the original file failed ({e}) — downgrading and "
+                f"saving will irrecoverably lose the higher-version fields."
+            )
 
     @classmethod
     def _coerce_streaming_fields(cls, data: dict[str, Any]) -> None:
@@ -2182,10 +2396,7 @@ class Config:
             this back to ``data[field_name]``).
         """
         default_val = getattr(defaults, field_name)
-        msg = (
-            f"Config field '{field_name}' {reason} {val!r}, "
-            f"resetting to default {default_val!r}"
-        )
+        msg = f"Config field '{field_name}' {reason} {val!r}, resetting to default {default_val!r}"
         log.warning("[CONFIG] %s", msg)
         warnings.append(msg)
         return default_val
@@ -2229,10 +2440,7 @@ class Config:
             The coerced value (the caller assigns this back to
             ``data[field_name]``).
         """
-        msg = (
-            f"Config field '{field_name}' {reason} {val!r}, "
-            f"coerced to {coerced!r}"
-        )
+        msg = f"Config field '{field_name}' {reason} {val!r}, coerced to {coerced!r}"
         log.warning("[CONFIG] %s", msg)
         warnings.append(msg)
         return coerced
@@ -2418,7 +2626,19 @@ class Config:
                 )
 
         # NEW-CQ-016: stash warnings so load() can surface them
-        data["_load_warnings"] = warnings
+        # via the ``last_load_warnings`` instance attribute.
+        # S5-CR-38: APPEND to any existing ``_load_warnings`` rather
+        # than overwriting — earlier load() stages (e.g.
+        # ``_backup_before_downgrade``) may already have populated
+        # the list with non-blocking notices (e.g. "config schema is
+        # newer than this build supports"). Overwriting here would
+        # silently drop those notices, defeating the surface-via-
+        # last_load_warnings contract.
+        existing_warnings = data.get("_load_warnings")
+        if isinstance(existing_warnings, list):
+            existing_warnings.extend(warnings)
+        else:
+            data["_load_warnings"] = warnings
         return data
 
     @property

@@ -295,8 +295,7 @@ class ClipboardSnapshot:
                 # skipped due to a paste failure).
                 if size > _MAX_FORMAT_BYTES:
                     log.debug(
-                        "[CLIPBOARD-SNAPSHOT] skipping fmt=%d name=%r: "
-                        "%d bytes exceeds %d-byte cap",
+                        "[CLIPBOARD-SNAPSHOT] skipping fmt=%d name=%r: %d bytes exceeds %d-byte cap",
                         fmt,
                         name,
                         size,
@@ -460,8 +459,7 @@ class ClipboardSnapshot:
                 # below would otherwise copy the entire payload.
                 if length > _MAX_FORMAT_BYTES:
                     log.debug(
-                        "[CLIPBOARD-SNAPSHOT] skipping type=%r idx=%d: "
-                        "%d bytes exceeds %d-byte cap",
+                        "[CLIPBOARD-SNAPSHOT] skipping type=%r idx=%d: %d bytes exceeds %d-byte cap",
                         type_name,
                         idx,
                         length,

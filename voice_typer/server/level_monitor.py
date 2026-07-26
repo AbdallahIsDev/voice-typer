@@ -100,10 +100,10 @@ def _secure_clear_test_chunks(*deques: collections.deque) -> None:
             _secure_clear_array_background(snapshot)
         except Exception:
             log.debug(
-                "[LEVEL-MON] secure clear of test chunks failed for one "
-                "deque (best-effort; GC will reclaim)",
+                "[LEVEL-MON] secure clear of test chunks failed for one deque (best-effort; GC will reclaim)",
                 exc_info=True,
             )
+
 
 # ── Monitor session state ────────────────────────────────────────────
 

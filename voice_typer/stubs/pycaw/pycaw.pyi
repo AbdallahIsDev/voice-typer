@@ -42,6 +42,7 @@ class AudioUtilities:
 
 class IAudioEndpointVolume:
     """Stub for the COM `IAudioEndpointVolume` interface."""
+
     _iid_: Any
     _reg_clsid_: Any
     def GetMasterVolumeLevelScalar(self) -> float: ...
@@ -55,6 +56,7 @@ class IAudioEndpointVolume:
 
 class IAudioMeterInformation:
     """Stub for the COM `IAudioMeterInformation` interface."""
+
     _iid_: Any
     def GetPeakValue(self) -> float: ...
     def QueryInterface(self, interface: Any) -> Any: ...
@@ -68,6 +70,7 @@ class ISimpleAudioVolume:
 
 class AudioSession:
     """Stub for `pycaw.pycaw.AudioSession`."""
+
     Process: Any
     SimpleAudioVolume: Any
     _ctl: Any

@@ -57,7 +57,6 @@ class CDLL:
 # TASK-10: WinDLL / OleDLL declared unconditionally (see file header).
 class OleDLL(CDLL): ...
 class WinDLL(CDLL): ...
-
 class PyDLL(CDLL): ...
 
 class LibraryLoader(Generic[_DLLT]):
@@ -124,8 +123,11 @@ class _FuncPointer(_PointerLike, _CData):
     def __init__(self, func_spec: tuple[str | int, CDLL], paramflags: tuple[_PF, ...] = ...) -> None: ...
     @overload
     def __init__(
-        self, vtlb_index: int, name: str,
-        paramflags: tuple[_PF, ...] = ..., iid: pointer[c_int] = ...,
+        self,
+        vtlb_index: int,
+        name: str,
+        paramflags: tuple[_PF, ...] = ...,
+        iid: pointer[c_int] = ...,
     ) -> None: ...
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
 
@@ -143,7 +145,6 @@ def CFUNCTYPE(  # noqa: N802
 def WINFUNCTYPE(  # noqa: N802
     restype: Any, *argtypes: Any, use_errno: bool = ..., use_last_error: bool = ...
 ) -> type[_FuncPointer]: ...
-
 def PYFUNCTYPE(restype: Any, *argtypes: Any) -> type[_FuncPointer]: ...  # noqa: N802
 
 class _CArgObject: ...
@@ -159,6 +160,7 @@ _CVoidConstPLike = _CVoidPLike | bytes
 
 def addressof(obj: _CData) -> int: ...
 def alignment(obj_or_type: _CData | type[_CData]) -> int: ...
+
 # TASK-10: relaxed to Any — pyrefly's strict mode rejects c_ulong /
 # c_void_p instances as not _CData-typed when this stub is loaded from
 # the project search-path (vs. typeshed), even though they inherit from
@@ -180,14 +182,13 @@ def DllCanUnloadNow() -> int: ...  # noqa: N802
 def DllGetClassObject(rclsid: Any, riid: Any, ppv: Any) -> int: ...  # TODO not documented  # noqa: N802
 def FormatError(code: int) -> str: ...  # noqa: N802
 def GetLastError() -> int: ...  # noqa: N802
-
 def get_errno() -> int: ...
 
 # TASK-10: declared unconditionally (see file header).
 def get_last_error() -> int: ...
-
 def memmove(dst: _CVoidPLike, src: _CVoidConstPLike, count: int) -> None: ...
 def memset(dst: _CVoidPLike, c: int, count: int) -> None: ...
+
 # TASK-10: relaxed to Any — see byref() rationale above. pyrefly rejects
 # c_ulong / c_void_p instances as not _CData-typed when this stub is
 # loaded from the project search-path.
@@ -213,9 +214,6 @@ class pointer(Generic[_CT], _PointerLike, _CData):  # noqa: N801
     def __setitem__(self, s: slice, o: Iterable[_CT]) -> None: ...
 
 def resize(obj: _CData, size: int) -> None: ...
-
-
-
 def set_errno(value: int) -> int: ...
 
 # TASK-10: declared unconditionally (see file header).
@@ -229,7 +227,6 @@ def string_at(address: _CVoidConstPLike, size: int = ...) -> bytes: ...
 
 # TASK-10: declared unconditionally (see file header).
 def WinError(code: int | None = ..., descr: str | None = ...) -> OSError: ...  # noqa: N802
-
 def wstring_at(address: _CVoidConstPLike, size: int = ...) -> str: ...
 
 class _SimpleCData(Generic[_T], _CData):
@@ -277,7 +274,6 @@ class c_bool(_SimpleCData[bool]):  # noqa: N801
 
 # TASK-10: declared unconditionally (see file header).
 class HRESULT(_SimpleCData[int]): ...  # TODO undocumented
-
 class py_object(_CanCastTo, _SimpleCData[_T]): ...  # noqa: N801
 
 class _CField:

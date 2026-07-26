@@ -295,7 +295,8 @@ class RecordingController:
             if active is None or not getattr(active, "is_loaded", False):
                 log.error("[DICTATION] Whisper fallback also failed, cannot record")
                 app._schedule_timer(
-                    3.0, lambda: app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.model_failed_retry"))
+                    3.0,
+                    lambda: app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.model_failed_retry")),
                 )
                 return
 

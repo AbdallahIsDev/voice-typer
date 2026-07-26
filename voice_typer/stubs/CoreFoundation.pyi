@@ -38,6 +38,7 @@ def CFNumberCreate(
     theType: int,
     valuePtr: Any,
 ) -> Any: ...
+
 # TASK-14: CFRunLoop functions used by ``microphone_watcher_coreaudio``
 # to drive the CoreAudio property-listener thread.  Declared with
 # permissive ``Any`` parameter / return types to match the rest of this

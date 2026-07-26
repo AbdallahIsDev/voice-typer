@@ -88,9 +88,7 @@ class _TCPLineIO:
         # ``io.DEFAULT_BUFFER_SIZE`` removes the ambiguity and ensures the
         # BufferedReader pulls the largest chunk the kernel will hand over
         # per ``recv()`` call, minimising syscalls under load.
-        self._reader = conn.makefile(
-            "r", encoding="utf-8", buffering=io.DEFAULT_BUFFER_SIZE
-        )
+        self._reader = conn.makefile("r", encoding="utf-8", buffering=io.DEFAULT_BUFFER_SIZE)
 
     def write(self, text: str) -> None:
         self.conn.sendall(text.encode("utf-8"))

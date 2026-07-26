@@ -33,6 +33,7 @@ def GetClassObject(
     interface: Any = ...,
     clsctx: int = ...,
 ) -> Any: ...
+
 # TASK-14: COM apartment threading initialization.  Used by
 # ``clipboard.py`` to enter/leave the COM apartment before invoking
 # UI-Automation calls.  Permissive ``Any`` return matches the rest of

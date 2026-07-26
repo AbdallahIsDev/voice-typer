@@ -42,65 +42,79 @@ def build_chain(config: Any, sample_rate: int = 16000) -> FilterChain:
     # 1. Notch filter (optional, before high-pass to remove hum early)
     if config.noise_filter_notch:
         notch_freq = config.noise_filter_notch_frequency_hz
-        filters.append(NotchFilter(
-            frequency_hz=notch_freq,
-            sample_rate=sample_rate,
-        ))
+        filters.append(
+            NotchFilter(
+                frequency_hz=notch_freq,
+                sample_rate=sample_rate,
+            )
+        )
 
     # 2. High-pass filter
     if config.noise_filter_highpass:
         cutoff = config.noise_filter_highpass_cutoff_hz
-        filters.append(HighPassFilter(
-            cutoff_hz=cutoff,
-            sample_rate=sample_rate,
-        ))
+        filters.append(
+            HighPassFilter(
+                cutoff_hz=cutoff,
+                sample_rate=sample_rate,
+            )
+        )
 
     # 3. Noise suppressor (RNNoise / DeepFilterNet / Speex)
     method = config.noise_suppression_method
     if method != "none":
-        filters.append(NoiseSuppressor(
-            method=method,
-            sample_rate=sample_rate,
-        ))
+        filters.append(
+            NoiseSuppressor(
+                method=method,
+                sample_rate=sample_rate,
+            )
+        )
 
     # 4. Noise gate
     if config.noise_filter_gate:
-        filters.append(NoiseGate(
-            open_threshold_db=config.noise_filter_gate_open_threshold_db,
-            close_threshold_db=config.noise_filter_gate_close_threshold_db,
-            attack_ms=config.noise_filter_gate_attack_ms,
-            hold_ms=config.noise_filter_gate_hold_ms,
-            release_ms=config.noise_filter_gate_release_ms,
-            sample_rate=sample_rate,
-        ))
+        filters.append(
+            NoiseGate(
+                open_threshold_db=config.noise_filter_gate_open_threshold_db,
+                close_threshold_db=config.noise_filter_gate_close_threshold_db,
+                attack_ms=config.noise_filter_gate_attack_ms,
+                hold_ms=config.noise_filter_gate_hold_ms,
+                release_ms=config.noise_filter_gate_release_ms,
+                sample_rate=sample_rate,
+            )
+        )
 
     # 5. Equalizer
     if config.noise_filter_eq:
-        filters.append(Equalizer(
-            low_db=config.noise_filter_eq_low_db,
-            mid_db=config.noise_filter_eq_mid_db,
-            high_db=config.noise_filter_eq_high_db,
-            sample_rate=sample_rate,
-        ))
+        filters.append(
+            Equalizer(
+                low_db=config.noise_filter_eq_low_db,
+                mid_db=config.noise_filter_eq_mid_db,
+                high_db=config.noise_filter_eq_high_db,
+                sample_rate=sample_rate,
+            )
+        )
 
     # 6. Compressor
     if config.noise_filter_compressor:
-        filters.append(Compressor(
-            threshold_db=config.noise_filter_compressor_threshold_db,
-            ratio=config.noise_filter_compressor_ratio,
-            attack_ms=config.noise_filter_compressor_attack_ms,
-            release_ms=config.noise_filter_compressor_release_ms,
-            output_gain_db=config.noise_filter_compressor_output_gain_db,
-            sample_rate=sample_rate,
-        ))
+        filters.append(
+            Compressor(
+                threshold_db=config.noise_filter_compressor_threshold_db,
+                ratio=config.noise_filter_compressor_ratio,
+                attack_ms=config.noise_filter_compressor_attack_ms,
+                release_ms=config.noise_filter_compressor_release_ms,
+                output_gain_db=config.noise_filter_compressor_output_gain_db,
+                sample_rate=sample_rate,
+            )
+        )
 
     # 7. Limiter (always last — brick-wall safety net)
     if config.noise_filter_limiter:
-        filters.append(Limiter(
-            ceiling_db=config.noise_filter_limiter_ceiling_db,
-            release_ms=config.noise_filter_limiter_release_ms,
-            sample_rate=sample_rate,
-        ))
+        filters.append(
+            Limiter(
+                ceiling_db=config.noise_filter_limiter_ceiling_db,
+                release_ms=config.noise_filter_limiter_release_ms,
+                sample_rate=sample_rate,
+            )
+        )
 
     chain = FilterChain(filters)
     log.info(
@@ -118,9 +132,11 @@ def build_chain_from_dict(config_dict: dict, sample_rate: int = 16000) -> Filter
     Like :func:`build_chain` but accepts a plain dict instead of a
     Config object. Missing keys use the same defaults as :func:`build_chain`.
     """
+
     class _DictConfig:
         def __getattr__(self, name: str):
             return config_dict.get(name, _DEFAULTS.get(name))
+
     return build_chain(_DictConfig(), sample_rate=sample_rate)
 
 

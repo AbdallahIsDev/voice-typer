@@ -84,7 +84,7 @@ from voice_typer.server.hotkeys.native_adapter import _NativeBackendAdapter
 # through ``sys.platform`` lookups to every submodule caller.
 # =====================================================================
 # AC-27: previously these were ``is_windows = lambda: sys.platform == "win32"``
-# assignments with ``# noqa: E731`` suppressions (PEP 8 E731 discourages
+# assignments with ``noqa: E731`` suppressions (PEP 8 E731 discourages
 # assigning lambdas to names). Replaced with regular ``def``s — same
 # call-site behaviour (zero-arg callable), no lint suppression.
 def is_windows() -> bool:

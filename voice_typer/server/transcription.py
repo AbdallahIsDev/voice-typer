@@ -890,10 +890,7 @@ class TranscriptionEngine:
                 # documented PII patterns (email/phone/SSN/CC) are
                 # masked before the segment text hits the log file.
                 _seg_text = seg.text.strip()
-                _log_transcriptions_flag = (
-                    self.config is not None
-                    and getattr(self.config, "log_transcriptions", False)
-                )
+                _log_transcriptions_flag = self.config is not None and getattr(self.config, "log_transcriptions", False)
                 if _log_transcriptions_flag:
                     try:
                         from voice_typer.server.security import redact_pii

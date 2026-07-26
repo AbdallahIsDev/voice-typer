@@ -716,9 +716,8 @@ class ClipboardManager:
                     "removing orphaned _pending_restores entry to prevent leak",
                     exc,
                 )
-                with _pending_restores_lock:
-                    with contextlib.suppress(ValueError):
-                        _pending_restores.remove(_pending_entry)  # already removed by another path
+                with _pending_restores_lock, contextlib.suppress(ValueError):
+                    _pending_restores.remove(_pending_entry)  # already removed by another path
 
         # PLAT-STUCK: release any stuck modifier keys before pasting
         self._release_stuck_modifiers()

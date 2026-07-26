@@ -49,6 +49,7 @@ def is_macos() -> bool:
 def is_linux() -> bool:
     return _native_hotkeys_pkg.is_linux()
 
+
 # ─── Constants ─────────────────────────────────────────────────────────────
 
 MAX_RESTART_ATTEMPTS = 5
@@ -113,13 +114,13 @@ class SubprocessHotkeyBackend(ABC):
     #     per-backend restart counter (see ``_on_ready_event``).
     _WIRE_HANDLERS: ClassVar[list[tuple[str, str, bool | None]]] = [
         ("MOD_DOWN:", "_on_modifier_event", True),
-        ("MOD_UP:",   "_on_modifier_event", False),
-        ("KEY_DOWN:", "_on_key_event",      True),
-        ("KEY_UP:",   "_on_key_event",      False),
-        ("FN_DOWN",   "_on_fn_event",       True),
-        ("FN_UP",     "_on_fn_event",       False),
-        ("ERROR:",    "_on_error_event",    None),
-        ("WARN:",     "_on_warn_event",     None),
+        ("MOD_UP:", "_on_modifier_event", False),
+        ("KEY_DOWN:", "_on_key_event", True),
+        ("KEY_UP:", "_on_key_event", False),
+        ("FN_DOWN", "_on_fn_event", True),
+        ("FN_UP", "_on_fn_event", False),
+        ("ERROR:", "_on_error_event", None),
+        ("WARN:", "_on_warn_event", None),
     ]
 
     def __init__(self, hotkey_str: str):

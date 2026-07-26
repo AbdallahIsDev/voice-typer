@@ -974,7 +974,7 @@ def _trigger_macos_microphone_consent_prompt() -> None:
     av = _sys.modules.get("AVFoundation")
     if av is None:
         try:
-            import AVFoundation as av  # type: ignore[import-not-found]
+            import AVFoundation as av  # type: ignore[import-not-found]  # noqa: N813
         except ImportError:
             log.debug("[PERMISSION] AVFoundation not available - skipping macOS mic consent prompt")
             return

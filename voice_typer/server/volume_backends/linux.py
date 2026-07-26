@@ -223,12 +223,8 @@ class LinuxVolumeBackend(VolumeBackend):
         # releases the GIL while waiting on the pipe, so this does not
         # starve other Python threads.
         with ThreadPoolExecutor(max_workers=2) as pool:
-            vol_future = pool.submit(
-                self._run, ["pactl", "get-sink-volume", "@DEFAULT_SINK@"]
-            )
-            mute_future = pool.submit(
-                self._run, ["pactl", "get-sink-mute", "@DEFAULT_SINK@"]
-            )
+            vol_future = pool.submit(self._run, ["pactl", "get-sink-volume", "@DEFAULT_SINK@"])
+            mute_future = pool.submit(self._run, ["pactl", "get-sink-mute", "@DEFAULT_SINK@"])
             out = vol_future.result()
             mute_out = mute_future.result()
         if not out:

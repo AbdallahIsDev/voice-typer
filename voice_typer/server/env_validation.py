@@ -42,7 +42,8 @@ def _validate_env_vars() -> None:
             # are on the safe-list, but a *failed* boolean validation
             # means the value is NOT a boolean -- treat it as opaque.
             log.warning(
-                "[ENV] Invalid value for %s=<redacted> -- expected boolean (1/0/true/false/yes/no). Resetting to empty.",
+                "[ENV] Invalid value for %s=<redacted> -- expected boolean "
+                "(1/0/true/false/yes/no). Resetting to empty.",
                 var,
             )
             os.environ.pop(var, None)
@@ -247,7 +248,8 @@ def _validate_hf_endpoint(raw: str) -> None:
         return
     if not hostname:
         log.warning(
-            "[ENV] HF_ENDPOINT=<redacted> rejected — could not parse hostname. Discarding to prevent download redirection.",
+            "[ENV] HF_ENDPOINT=<redacted> rejected — could not parse hostname. "
+            "Discarding to prevent download redirection.",
         )
         os.environ.pop("HF_ENDPOINT", None)
         return
