@@ -12,11 +12,25 @@
 `voice_typer/server/app.py` `VoiceTyperApp` was the single biggest maintainability
 liability in the codebase. The pre-RW-9 baseline (per the task directive):
 
-| Metric                | Pre-RW-9 (directive) | Round-6 start (actual) | Round-6 end (this round) |
-| --------------------- | -------------------- | ---------------------- | ------------------------ |
-| `app.py` line count   | 2352                 | 2321                   | 2314                     |
-| `VoiceTyperApp` methods | 61                 | 35                     | 35                       |
-| `self.models` / `self.recording` / `self.hotkeys` / `self.tray` calls | ~82 | (not recounted) | (not recounted) |
+| Metric                | Pre-RW-9 (directive) | Round-6 start (actual) | Round-6 end (this round) | Current (post-round-6 follow-ups) |
+| --------------------- | -------------------- | ---------------------- | ------------------------ | --------------------------------- |
+| `app.py` line count   | 2352                 | 2321                   | 2314                     | **949** (`wc -l voice_typer/server/app.py` as of S1-CR-131 reconciliation) |
+| `VoiceTyperApp` methods | 61                 | 35                     | 35                       | 35 (unchanged — follow-ups moved whole controllers out, not methods) |
+| `self.models` / `self.recording` / `self.hotkeys` / `self.tray` calls | ~82 | (not recounted) | (not recounted) | (not recounted) |
+
+> **Post-round-6 update (S1-CR-131 reconciliation):** the 2314-line
+> figure above was the Round-6-end snapshot. Five subsequent RW-9
+> follow-up rounds (tracked in §5.1) extracted five more controllers
+> (`ServiceCoordinator`, `ShutdownController`, `CrashRecoveryController`,
+> `RecordingController` re-split, `LevelMonitorController`) **and**
+> completed the `voice_typer/server/service/` package split (history,
+> vocabulary, templates, dictation, model, microphone, status,
+> onboarding, privacy, system, level_monitor sub-services). Each
+> extraction moved real method bodies out of `VoiceTyperApp` into a
+> dedicated module, dropping `app.py` from 2314 → 949 lines (−59%
+> from Round-6-end, −60% from the pre-RW-9 directive baseline). The
+> ASCII-art snapshot in §8 below still shows the Round-6-end shape and
+> is preserved unchanged for historical context.
 
 The gap between the directive's "2352 lines / 61 methods" and the actual
 "2321 lines / 35 methods" at the start of this round is explained by the
@@ -275,6 +289,7 @@ logic to `SettingsController`.
 
 ```python
 from voice_typer.server import app as _app_module
+
 _app_module.enable_autostart()
 ```
 
@@ -282,6 +297,7 @@ instead of:
 
 ```python
 from voice_typer.server.app import enable_autostart
+
 enable_autostart()
 ```
 

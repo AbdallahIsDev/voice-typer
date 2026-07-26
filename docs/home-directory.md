@@ -18,29 +18,64 @@ variable (validated against path traversal in `config._config_dir()`).
 
 In the rest of this document, `<DATA_DIR>` refers to that resolved directory.
 
-## Log File Path (per-platform)
+## Log File Paths (per-platform)
 
 S5-CR-70: the log file path was previously inconsistent across docs —
 `README.md` mentioned only the Windows path (`%APPDATA%/voice-typer/voice-typer.log`),
 `CONTRIBUTING.md` mentioned only the Unix path (`$HOME/.voice-typer/voice-typer.log`),
-and `bug_report.md` mentioned only `~/.voice-typer/voice-typer.log`. The
-canonical per-platform paths are:
+and `bug_report.md` mentioned only `~/.voice-typer/voice-typer.log`. This
+section is the canonical source of truth — `README.md` and `CONTRIBUTING.md`
+both link here.
 
-| Platform | Log file path |
-|----------|---------------|
+There are **two** log files (one per process): the Python backend log
+and the Tauri Rust host log. They live at *different* paths — the
+Python log is at `<DATA_DIR>/voice-typer.log` (directly under the data
+dir), while the Rust host log is at `<DATA_DIR>/logs/voice-typer.log`
+(in a `logs/` subdir). Verified via:
+
+- Python: `voice_typer/server/log.py:898` — `log_file = config_dir / "voice-typer.log"`
+- Rust: `src-tauri/src/platform/logging.rs:22,47,61` — `config_dir.join("logs")` + writer prefix `"voice-typer"`
+
+### Python backend log
+
+Written by `RotatingFileHandler` in `voice_typer/server/log.py`. Rotates
+at 5 MiB with 5 backup files kept
+(`RotatingFileHandler(maxBytes=5_242_880, backupCount=5)` — ADR-0020 §11).
+
+| Platform | Python log file path |
+|----------|----------------------|
+| Windows (new installs) | `%APPDATA%\voice-typer\voice-typer.log` → `C:\Users\<you>\AppData\Roaming\voice-typer\voice-typer.log` |
+| Windows (existing users) | `%USERPROFILE%\.voice-typer\voice-typer.log` (legacy data directory is honored if it already exists — see above) |
+| macOS | `~/Library/Application Support/voice-typer/voice-typer.log` |
+| Linux | `$XDG_DATA_HOME/voice-typer/voice-typer.log` (falls back to `~/.local/share/voice-typer/voice-typer.log`) |
+
+Override the location by setting `VOICE_TYPER_CONFIG_DIR` (the log lives
+directly under the resolved `<DATA_DIR>` — **not** in a `logs/` subdir).
+An earlier draft of this doc claimed the Python log was at
+`<DATA_DIR>/logs/voice-typer.log`; that was a bug — the Python
+`RotatingFileHandler` writes at `<DATA_DIR>/voice-typer.log` directly
+(see `log.py:898`). The `logs/` subdir is reserved for the Rust host
+log (below).
+
+### Tauri Rust host log
+
+When running under the Tauri runtime (ADR-0020), the Rust host writes
+its own log at `<DATA_DIR>/logs/voice-typer.log` (rotating, 5 MB × 5
+backups — see `src-tauri/src/platform/logging.rs:22`). The file is
+named `voice-typer.log` (NOT `voice-typer-rust.log` — an earlier draft
+of this doc mis-named it; the diagnostics bundle renames it to
+`rust-voice-typer.log` only inside the exported zip so the two files
+don't collide, but on disk it's `voice-typer.log` in both processes).
+
+| Platform | Rust host log file path |
+|----------|-------------------------|
 | Windows (new installs) | `%APPDATA%\voice-typer\logs\voice-typer.log` → `C:\Users\<you>\AppData\Roaming\voice-typer\logs\voice-typer.log` |
 | Windows (existing users) | `%USERPROFILE%\.voice-typer\logs\voice-typer.log` (legacy data directory is honored if it already exists — see above) |
 | macOS | `~/Library/Application Support/voice-typer/logs/voice-typer.log` |
 | Linux | `$XDG_DATA_HOME/voice-typer/logs/voice-typer.log` (falls back to `~/.local/share/voice-typer/logs/voice-typer.log`) |
 
-The log is rotated when it reaches 5 MiB, with 5 backup files kept
-(`RotatingFileHandler(maxBytes=5_242_880, backupCount=5)` — see
-`voice_typer/server/log.py`). Override the location by setting
-`VOICE_TYPER_CONFIG_DIR` (the log lives under `<DATA_DIR>/logs/`).
-
-The Tauri host writes its own log at `<DATA_DIR>/logs/voice-typer-rust.log`
-(rotating, 5 MB × 5 backups). Electron crash logs (when running under the
-Electron host) land at `<userData>/electron-crashes.log`.
+Electron crash logs (when running under the Electron host) land at
+`<userData>/electron-crashes.log`.
 
 This design is:
 
@@ -68,8 +103,9 @@ This design is:
 │   ├── bin/python               #   Python executable (POSIX)
 │   ├── Lib/site-packages/       #   All Python deps (Windows)
 │   └── lib/python3.XY/site-packages/  # All Python deps (POSIX)
+├── voice-typer.log              # Python backend rotating log (5 MiB × 5 backups)
 ├── logs/
-│   └── voice-typer.log          # Rotating log (5 MB × 5 backups)
+│   └── voice-typer.log          # Tauri Rust host rotating log (5 MB × 5 backups) — ADR-0020 §11
 ├── voice-typer-vocabulary.json  # User vocabulary overrides (merged with bundled defaults)
 ├── voice-typer-corrections.json # User text-corrections overrides (optional; merged with bundled)
 └── crash_recovery/
@@ -153,7 +189,7 @@ When a user launches the app for the first time (no `<DATA_DIR>` exists yet):
 2. `_config_dir().mkdir(parents=True, exist_ok=True)` — creates `<DATA_DIR>`
 3. `Config.load()` detects missing config.json → creates with defaults
 4. `os.environ["HF_HOME"]` set to `<DATA_DIR>/huggingface/`
-5. Logging handler creates `<DATA_DIR>/logs/voice-typer.log`
+5. Logging handler creates `<DATA_DIR>/voice-typer.log` (Python backend log; the Tauri Rust host's `voice-typer.log` lives under `<DATA_DIR>/logs/` — see §Log File Paths above)
 6. Tray icon renders (assets from `voice_typer/server/assets/`)
 7. `create_launcher_shortcut()` creates desktop shortcut + `<DATA_DIR>/icon.ico`
 8. `models/` junction/symlink → `huggingface/hub/` is created if missing

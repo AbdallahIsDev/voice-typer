@@ -509,10 +509,18 @@ python -m nuitka --standalone --onefile \
       elif is_linux():
           # AppImage: /tmp/.mount_VoiceTy*/usr/resources/prewarm-<triple>
           # .deb/.rpm: /usr/lib/voice-typer/resources/prewarm-<triple>
-          candidates.append(Path(os.environ.get("APPDIR", "/usr/lib/voice-typer/resources")) / f"prewarm-{triple}{exe_suffix}")
+          candidates.append(
+              Path(os.environ.get("APPDIR", "/usr/lib/voice-typer/resources")) / f"prewarm-{triple}{exe_suffix}"
+          )
       elif is_windows():
           # %LOCALAPPDATA%\Programs\VoiceTyper\resources\prewarm-<triple>.exe
-          candidates.append(Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "VoiceTyper" / "resources" / f"prewarm-{triple}{exe_suffix}")
+          candidates.append(
+              Path(os.environ.get("LOCALAPPDATA", ""))
+              / "Programs"
+              / "VoiceTyper"
+              / "resources"
+              / f"prewarm-{triple}{exe_suffix}"
+          )
 
       for c in candidates:
           if c.exists():
@@ -527,15 +535,18 @@ python -m nuitka --standalone --onefile \
     ```python
     def _target_triple() -> str:
         import sys
+
         if sys.platform == "win32":
             arch = "x86_64" if sys.maxsize > 2**32 else "x86"
             return f"{arch}-pc-windows-msvc"
         elif sys.platform == "darwin":
             import platform
+
             arch = "arm64" if platform.machine() == "arm64" else "x86_64"
             return f"{arch}-apple-darwin"
         else:
             import platform
+
             arch = platform.machine() or "x86_64"
             return f"{arch}-unknown-linux-gnu"
     ```

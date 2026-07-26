@@ -132,16 +132,20 @@ PROVIDER_TO_CONFIG_FIELD = {
     "llm": "llm_api_key",
 }
 
+
 def store_secret(provider: str, value: str) -> bool:
     """Store a secret. Returns True if stored in keyring, False if
     fell back to plaintext in config.json. Never raises."""
+
 
 def load_secret(provider: str) -> str | None:
     """Load a secret. Returns the value, or None if not found.
     Tries keyring first, falls back to config.json. Never raises."""
 
+
 def delete_secret(provider: str) -> None:
     """Delete a secret from both keyring and config.json. Never raises."""
+
 
 def migrate_secrets_to_keyring() -> int:
     """One-time migration: read plaintext API keys from config.json,
@@ -149,9 +153,11 @@ def migrate_secrets_to_keyring() -> int:
     Returns count of secrets moved to keyring. Idempotent (gated by
     the secrets_migrated flag in config.json)."""
 
+
 def is_keyring_available() -> bool:
     """True if a usable keyring backend is installed (not the fail
     backend). Cached for the lifetime of the process."""
+
 
 def get_keyring_status() -> dict:
     """Returns {

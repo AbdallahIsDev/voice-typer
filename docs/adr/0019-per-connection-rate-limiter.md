@@ -110,12 +110,12 @@ the single-deque `len >= 200` check never tripped either).
 ```python
 # Burst window — fast-burst attack cap (per-second).
 _RATE_LIMIT_BURST_WINDOW_SECONDS = 1.0
-_RATE_LIMIT_BURST = 200             # Max msgs in any 1 s window
+_RATE_LIMIT_BURST = 200  # Max msgs in any 1 s window
 
 # Sustained window — slow-drip attack cap (10 s average rate).
 _RATE_LIMIT_WINDOW_SECONDS = 10.0
-_RATE_LIMIT_SUSTAINED = 600         # Max msgs in any 10 s window
-                                     # (= 60 msg/s average)
+_RATE_LIMIT_SUSTAINED = 600  # Max msgs in any 10 s window
+# (= 60 msg/s average)
 ```
 
 These limits are intentionally generous:

@@ -75,10 +75,11 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
   The Python-side `_handle_*` methods are retained (tests still call them
   directly via `ipc_server._handle_*`), but they are no longer reachable
-  via IPC dispatch. The new counts: TS allowlist = 59, Rust allowlist = 59,
-  Python registry = 61 (the +2 are `tray_click` and `shutdown`, which are
-  host-only commands the renderer never sends). The 4-way parity test
-  (`tests/test_security_doc_command_count.py` +
+  via IPC dispatch. The new counts: TS allowlist = 61, Rust allowlist = 61,
+  Python registry = 63 (the +2 are `tray_click` and `shutdown`, which are
+  host-only commands the renderer never sends — see the `_HOST_ONLY_COMMANDS`
+  frozenset in `tests/test_security_doc_command_count.py`). The 4-way parity
+  test (`tests/test_security_doc_command_count.py` +
   `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness`) now
   passes; previously it failed.
 

@@ -149,6 +149,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+
 @dataclass
 class ClipboardSnapshot:
     """A captured snapshot of clipboard content at a point in time.
@@ -168,9 +169,9 @@ class ClipboardSnapshot:
                 snap.restore()
     """
 
-    platform: str                          # "windows" | "macos" | "linux-x11" | "linux-wayland"
-    items: list[tuple[Any, ...]]           # platform-specific payload
-    captured_at: float                     # monotonic timestamp for debugging
+    platform: str  # "windows" | "macos" | "linux-x11" | "linux-wayland"
+    items: list[tuple[Any, ...]]  # platform-specific payload
+    captured_at: float  # monotonic timestamp for debugging
 
     @classmethod
     def capture(cls) -> "ClipboardSnapshot | None":
@@ -374,6 +375,7 @@ def _restore_macos(self) -> bool:
     # NSPasteboard can hold multiple NSPasteboardItem objects;
     # we restore the same structure.
     from collections import defaultdict
+
     grouped: dict[int, list[tuple[str, bytes]]] = defaultdict(list)
     for idx, type_name, data in self.items:
         grouped[idx].append((type_name, data))
@@ -383,9 +385,7 @@ def _restore_macos(self) -> bool:
         item = AppKit.NSPasteboardItem.alloc().init()
         for type_name, data in grouped[idx]:
             if data:
-                nsdata = Foundation.NSData.dataWithBytes_length_(
-                    data, len(data)
-                )
+                nsdata = Foundation.NSData.dataWithBytes_length_(data, len(data))
             else:
                 nsdata = Foundation.NSData.data()
             item.setData_forType_(nsdata, type_name)
@@ -544,6 +544,7 @@ def capture(cls) -> "ClipboardSnapshot | None":
             return cls._capture_macos()
         else:
             import os
+
             session = os.environ.get("XDG_SESSION_TYPE", "x11").lower()
             if session == "wayland":
                 snap = cls._capture_wayland()
@@ -613,10 +614,7 @@ def copy(self, text: str) -> "ClipboardSnapshot | None":
         # snapshot may be None if capture failed — that's OK, we
         # just won't restore. Log for debugging.
         if snapshot is None:
-            log.debug(
-                "[CLIPBOARD] Snapshot capture returned None "
-                "(clipboard locked or empty)"
-            )
+            log.debug("[CLIPBOARD] Snapshot capture returned None (clipboard locked or empty)")
 
     try:
         # ② WIN32 EMPTY (existing line 697)
@@ -650,7 +648,8 @@ def copy(self, text: str) -> "ClipboardSnapshot | None":
         self._clipboard_seq = self._get_clipboard_sequence_number()
         log.info(
             "[CLIPBOARD-AUDIT] Copied %d chars to clipboard (seq=%d, snapshot=%s)",
-            len(text), self._clipboard_seq,
+            len(text),
+            self._clipboard_seq,
             "captured" if snapshot is not None else "none",
         )
         return snapshot
@@ -734,6 +733,7 @@ def paste(
     if is_windows():
         try:
             from voice_typer.server.server_platform import is_remote_session
+
             if is_remote_session():
                 paste_delay = 0.10
         except Exception:
@@ -772,9 +772,9 @@ def paste(
 
     self._last_paste_time = time.monotonic()
     log.info(
-        "[CLIPBOARD-AUDIT] Sent paste keystroke "
-        "(terminal=%s, target=%s, restore_scheduled=%s)",
-        is_terminal, process_name or "unknown",
+        "[CLIPBOARD-AUDIT] Sent paste keystroke (terminal=%s, target=%s, restore_scheduled=%s)",
+        is_terminal,
+        process_name or "unknown",
         snapshot is not None,
     )
 
@@ -807,8 +807,7 @@ def _delayed_restore(
             )
         else:
             log.debug(
-                "[CLIPBOARD-AUDIT] Restore skipped — clipboard changed "
-                "(current=%d chars, expected=%d chars)",
+                "[CLIPBOARD-AUDIT] Restore skipped — clipboard changed (current=%d chars, expected=%d chars)",
                 len(current) if current else 0,
                 len(pasted_text),
             )
@@ -859,16 +858,12 @@ def refresh_config(self, config) -> None:
     is otherwise stale until restart.
     """
     try:
-        self._clipboard_save_restore_enabled = bool(
-            getattr(config, "clipboard_save_restore", True)
-        )
+        self._clipboard_save_restore_enabled = bool(getattr(config, "clipboard_save_restore", True))
     except Exception:
         self._clipboard_save_restore_enabled = True
 
     try:
-        self._restore_delay_ms = int(
-            getattr(config, "clipboard_restore_delay_ms", 150)
-        )
+        self._restore_delay_ms = int(getattr(config, "clipboard_restore_delay_ms", 150))
     except Exception:
         self._restore_delay_ms = 150
 
@@ -931,10 +926,7 @@ def _copy_and_paste(self, text: str) -> None:
     #    transcription is already persisted to the DB by _store_result()
     #    and reachable via the repaste hotkey. We only skip the clipboard
     #    borrow here — the UI teardown below (bubble/tray/timer) still runs.
-    skip_clipboard = (
-        not self._app.config.paste_on_stop
-        and self._app.config.clipboard_save_restore
-    )
+    skip_clipboard = not self._app.config.paste_on_stop and self._app.config.clipboard_save_restore
 
     pasted = False
     snapshot = None
@@ -1062,8 +1054,7 @@ def repaste_last(self) -> None:
         log.warning("[REPASTE] Clipboard copy failed: %s", e)
         self.tray.notify(
             APP_NAME,
-            "Could not copy the transcription to the clipboard. "
-            "Another app may be holding the clipboard lock.",
+            "Could not copy the transcription to the clipboard. Another app may be holding the clipboard lock.",
         )
         return
 
@@ -1354,7 +1345,7 @@ class TestCopyPasteRestoreCycle:
         pyperclip.copy("user's URL")
         cm.copy("transcription text")
         # paste() would send keystrokes — mock the keystroke sender
-        with patch.object(cm, '_send_ctrl_v_win32'):
+        with patch.object(cm, "_send_ctrl_v_win32"):
             cm.paste(snapshot=cm._last_snapshot)  # or however we wire it
         # Wait for restore thread
         time.sleep(0.3)
@@ -1401,7 +1392,7 @@ class TestCopyPasteRestoreCycle:
         cm = ClipboardManager(paste_enabled=False)
         pyperclip.copy("user's URL")
         snap = cm.copy("transcription")
-        with patch.object(cm, '_send_ctrl_v_win32') as mock_send:
+        with patch.object(cm, "_send_ctrl_v_win32") as mock_send:
             sent = cm.paste(snapshot=snap, force=True)
         assert sent is True
         mock_send.assert_called_once()
@@ -1426,7 +1417,7 @@ class TestCopyPasteRestoreCycle:
         pyperclip.copy("user's URL")
         snap = cm.copy("transcription")
         # Simulate paste + user copying something else during the window
-        with patch.object(cm, '_send_ctrl_v_win32'):
+        with patch.object(cm, "_send_ctrl_v_win32"):
             cm.paste(snapshot=snap)
         # User copies phone number during the 150ms window
         time.sleep(0.05)
@@ -1453,19 +1444,19 @@ class TestRepasteFromDB:
         assert app2._last_transcription == ""
 
         # Repaste reads from DB
-        with patch.object(app2.clipboard, 'paste') as mock_paste:
+        with patch.object(app2.clipboard, "paste") as mock_paste:
             app2.repaste_last()
             mock_paste.assert_called_once()
             # Verify the snapshot was created from "call mom"
-            snap = mock_paste.call_args.kwargs['snapshot']
+            snap = mock_paste.call_args.kwargs["snapshot"]
             # ... verify snap restores to prior content, paste sends "call mom" ...
 
     def test_repaste_fallback_to_memory_on_db_failure(self):
         """If DB read throws, repaste falls back to _last_transcription."""
         app = VoiceTyperApp(...)
         app._last_transcription = "from memory"
-        with patch.object(app.history_db, 'get_latest_text', side_effect=Exception("DB error")):
-            with patch.object(app.clipboard, 'paste') as mock_paste:
+        with patch.object(app.history_db, "get_latest_text", side_effect=Exception("DB error")):
+            with patch.object(app.clipboard, "paste") as mock_paste:
                 app.repaste_last()
                 mock_paste.assert_called_once()
 
@@ -1473,8 +1464,8 @@ class TestRepasteFromDB:
         """If DB is empty and memory is empty, user is notified."""
         app = VoiceTyperApp(...)
         app._last_transcription = ""
-        with patch.object(app.history_db, 'get_latest_text', return_value=""):
-            with patch.object(app.tray, 'notify') as mock_notify:
+        with patch.object(app.history_db, "get_latest_text", return_value=""):
+            with patch.object(app.tray, "notify") as mock_notify:
                 app.repaste_last()
                 mock_notify.assert_called_once()
                 assert "No previous transcription" in mock_notify.call_args[0][1]
@@ -1498,7 +1489,7 @@ class TestExistingBehaviorPreserved:
         """paste() still sends Ctrl+V (or platform equivalent)."""
         cm = ClipboardManager(paste_enabled=True)
         cm.copy("test")
-        with patch.object(cm, '_send_ctrl_v_win32') as mock_send:
+        with patch.object(cm, "_send_ctrl_v_win32") as mock_send:
             cm.paste()
             mock_send.assert_called_once()
 
@@ -1522,10 +1513,13 @@ class TestExistingBehaviorPreserved:
         """clipboard_save_restore / clipboard_restore_delay_ms are in the
         IPC allowlist and survive validate_config_update() (§2.11)."""
         from voice_typer.server.config_validators import validate_config_update
-        validated, errors = validate_config_update({
-            "clipboard_save_restore": False,
-            "clipboard_restore_delay_ms": 250,
-        })
+
+        validated, errors = validate_config_update(
+            {
+                "clipboard_save_restore": False,
+                "clipboard_restore_delay_ms": 250,
+            }
+        )
         assert "clipboard_save_restore" in validated
         assert "clipboard_restore_delay_ms" in validated
         assert validated["clipboard_restore_delay_ms"] == 250
@@ -1533,9 +1527,12 @@ class TestExistingBehaviorPreserved:
     def test_clipboard_restore_delay_ms_rejects_out_of_range(self):
         """clipboard_restore_delay_ms is bounded by the validator (0..2000)."""
         from voice_typer.server.config_validators import validate_config_update
-        validated, errors = validate_config_update({
-            "clipboard_restore_delay_ms": 999999,
-        })
+
+        validated, errors = validate_config_update(
+            {
+                "clipboard_restore_delay_ms": 999999,
+            }
+        )
         # Out-of-range value is rejected (not present in validated) or coerced.
         assert "clipboard_restore_delay_ms" not in validated
 

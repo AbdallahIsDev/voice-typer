@@ -185,6 +185,7 @@ At boot time, the user session may not be fully initialized. `Path.home()` relie
 ```python
 # prewarm.py
 
+
 def _resolve_hf_cache_dir() -> Path:
     """Resolve the HF cache directory, robust to pre-session execution.
 
@@ -205,10 +206,12 @@ def _resolve_hf_cache_dir() -> Path:
     if is_windows():
         try:
             import winreg
+
             key = winreg.OpenKey(
                 winreg.HKEY_CURRENT_USER,
                 r"Volatile Environment",
-                0, winreg.KEY_READ,
+                0,
+                winreg.KEY_READ,
             )
             profile = winreg.QueryValueEx(key, "USERPROFILE")[0]
             winreg.CloseKey(key)
@@ -221,6 +224,7 @@ def _resolve_hf_cache_dir() -> Path:
         try:
             import pwd
             import os as _os
+
             pw = pwd.getpwuid(_os.getuid())
             return Path(pw.pw_dir) / ".voice-typer" / "huggingface"
         except (KeyError, ImportError):
@@ -254,9 +258,9 @@ Additionally, the current code checks RAM **before** the sentinel, so the log sh
 # prewarm.py::run() — current order (WRONG)
 if not force:
     free = _free_ram_mb()
-    if free is not None and free < min_ram_mb:     # ← RAM check FIRST
-        return EXIT_LOW_RAM                         # ← exits here, shows RAM message
-if not force and _already_warmed():                # ← sentinel SECOND (never reached)
+    if free is not None and free < min_ram_mb:  # ← RAM check FIRST
+        return EXIT_LOW_RAM  # ← exits here, shows RAM message
+if not force and _already_warmed():  # ← sentinel SECOND (never reached)
     return EXIT_OK
 ```
 
@@ -321,8 +325,9 @@ def run(min_ram_mb, force=False, delay=0.0) -> int:
         free = _free_ram_mb()
         if free is not None and free < min_ram_mb:
             log.info(
-                "[PREWARM] free RAM %d MB < %d MB budget — skipping to avoid "
-                "evicting the user's working set", free, min_ram_mb,
+                "[PREWARM] free RAM %d MB < %d MB budget — skipping to avoid evicting the user's working set",
+                free,
+                min_ram_mb,
             )
             return EXIT_LOW_RAM
 
@@ -348,6 +353,7 @@ Read small random 4K pages from the model file and measure latency. Pages in the
 
 ```python
 import os, time, random
+
 
 def _cache_ratio(path: Path, samples: int = 20) -> float:
     """Estimate what fraction of `path` is in the OS standby cache.
@@ -389,8 +395,7 @@ def _cache_ratio(path: Path, samples: int = 20) -> float:
 def _handle_get_prewarm_status(app, data):
     sentinel = Path.home() / ".voice-typer" / ".prewarm-sentinel"
     if not sentinel.exists():
-        return {"last_run": None, "elapsed_s": None, "cache_ratio": 0.0,
-                "cache_label": "unknown"}
+        return {"last_run": None, "elapsed_s": None, "cache_ratio": 0.0, "cache_label": "unknown"}
 
     # Read sentinel: "boot_timestamp\nelapsed_seconds"
     content = sentinel.read_text().strip().split("\n")
@@ -410,9 +415,7 @@ def _handle_get_prewarm_status(app, data):
         if ratios:
             cache_ratio = sum(ratios) / len(ratios)
 
-    label = ("hot" if cache_ratio >= 0.9
-             else "partial" if cache_ratio >= 0.1
-             else "cold")
+    label = "hot" if cache_ratio >= 0.9 else "partial" if cache_ratio >= 0.1 else "cold"
 
     return {
         "last_run": datetime.fromtimestamp(boot_ts).isoformat(),
@@ -437,6 +440,7 @@ def _handle_get_prewarm_status(app, data):
 
 ```python
 # prewarm.py::_mark_warmed() — updated to store elapsed time
+
 
 def _mark_warmed(elapsed_s: float) -> None:
     """Record successful prewarm for this boot session.
@@ -489,6 +493,7 @@ Reduce the hardcoded delay from 30s to 15s (a reasonable middle ground), AND add
 # server_platform.py::_autostart_command()
 # Change --delay 30 to --delay 15
 
+
 def _autostart_command() -> str:
     launcher = Path(__file__).resolve().parent / "autostart_launcher.py"
     if sys.platform == "win32":
@@ -512,6 +517,7 @@ Add a `_wait_for_prewarm()` function that checks if prewarm is running. If it is
 ```python
 # prewarm.py — new public functions
 
+
 def is_prewarm_running() -> bool:
     """Return True if a prewarm process is currently running.
 
@@ -527,6 +533,7 @@ def is_prewarm_running() -> bool:
         # Check if the process is alive (cross-platform)
         if is_windows():
             import ctypes
+
             kernel32 = ctypes.windll.kernel32
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
             STILL_ACTIVE = 259
@@ -540,6 +547,7 @@ def is_prewarm_running() -> bool:
         else:
             # POSIX: os.kill(pid, 0) raises OSError if the process is dead
             import os as _os
+
             try:
                 _os.kill(pid, 0)
                 return True
@@ -573,6 +581,7 @@ def wait_for_prewarm(timeout_s: float = 60.0) -> bool:
 ```python
 # prewarm.py — write PID file at startup, remove on exit
 
+
 def _write_pid_file() -> None:
     """Write the current PID to the prewarm PID file."""
     try:
@@ -582,6 +591,7 @@ def _write_pid_file() -> None:
     except OSError:
         pass
 
+
 def _remove_pid_file() -> None:
     """Remove the prewarm PID file on exit."""
     try:
@@ -589,6 +599,7 @@ def _remove_pid_file() -> None:
         pid_file.unlink(missing_ok=True)
     except OSError:
         pass
+
 
 # In run():
 def run(min_ram_mb, force=False, delay=0.0) -> int:

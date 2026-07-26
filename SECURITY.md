@@ -44,15 +44,24 @@ are added or removed. The Tauri Rust host enforces a mirror allowlist
 entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 
 > The Python-side `_COMMAND_REGISTRY` in
-> `voice_typer/server/ipc_server.py` registers **78** handlers. 17 of those
-> are intentionally absent from the renderer allowlist: `tray_click` (a
-> Rust-only command routed via `dispatch_inner` — the tray handler invokes it
-> directly, bypassing the allowlist gate), `shutdown` (cooperative shutdown is
-> sent via `shutdown_sidecar` directly, NOT via the generic dispatch path),
-> and 17 stale entries that were removed from the renderer allowlist because
-> they were never invoked from any renderer code (see the docstring in
-> `allowed-commands.ts` for the full list). The remaining **61** handlers are
-> renderer-callable.
+> `voice_typer/server/ipc_server.py` registers **63** handlers. Two of
+> those are intentionally absent from the renderer allowlist:
+> `tray_click` (a Rust-only command routed via `dispatch_inner` — the
+> tray handler invokes it directly, bypassing the allowlist gate) and
+> `shutdown` (cooperative shutdown is sent via `shutdown_sidecar`
+> directly, NOT via the generic dispatch path). The remaining **61**
+> handlers are renderer-callable. The +2 host-only delta is asserted by
+> the `_HOST_ONLY_COMMANDS` frozenset in
+> `tests/test_security_doc_command_count.py`. (S4-CR-18 reconciliation
+> 2026-07-24: an earlier draft of this blockquote mentioned "78
+> handlers" + "17 stale entries" + "19 of the 78 handlers" — that
+> framing was a leftover from the pre-CR-18 78-entry registry. The 17
+> stale entries were deleted from all three sources of truth — the
+> Python `_COMMAND_REGISTRY`, the TS `ALLOWED_COMMANDS` set, and the
+> Rust `allowed_commands()` literal — in lockstep during CR-18, so
+> they no longer exist in any layer. The current counts are 63 Python
+> ↔ 61 TS ↔ 61 Rust, with the +2 host-only delta as the only
+> intentional divergence.)
 
 ### Secret Redaction (SEC-003)
 

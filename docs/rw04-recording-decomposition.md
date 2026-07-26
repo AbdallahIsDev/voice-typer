@@ -2,6 +2,22 @@
 
 ## Status
 
+> **Historical document.** This decomposition plan was authored when
+> `voice_typer/server/recording.py` was a single 3,208-line god class.
+> That file no longer exists — it has since been split into the
+> `voice_typer/server/recording/` package (`__init__.py`, `recorder.py`,
+> `buffer.py`, `device_manager.py`, `resampling.py`, `exceptions.py`,
+> `_recorder_split.py`). Wave 1 (`VadProcessor`) **and** Wave 2
+> (`AudioBuffer` extraction to `recording/buffer.py`, 316 lines) **and**
+> the `AudioDeviceManager` extraction to `recording/device_manager.py`
+> (535 lines) are all COMPLETE. **Reader note:** every reference to
+> `recording.py` in the prose body below is historical — read it as
+> "the code that now lives in `recording/recorder.py` (and its sibling
+> modules)". The prose is preserved unchanged because it documents the
+> historical decomposition work and the rationale for each extraction.
+
+### Original Wave Plan (for historical context)
+
 **In-progress (Wave 1 of 3)**: `VadProcessor` extracted.
 `AudioDeviceManager` and `AudioBuffer` remain in `Recorder` as
 follow-up waves.

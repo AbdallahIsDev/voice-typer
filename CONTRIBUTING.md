@@ -266,7 +266,7 @@ cargo tauri build
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 78-command registry unchanged — CR-18 reconciliation 2026-07-19), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs HMAC/bearer-token auth handshake, dispatches WS frames via `IPCServer._dispatch` (reuses the 63-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18, see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
 
 #### Cutover status
@@ -321,7 +321,7 @@ voice-typer/
 │       ├── biome.json                # formatter: tabs + double quotes
 │       └── electron-builder.yml
 │
-├── tests/                            # pytest suite (1300+ tests)
+├── tests/                            # pytest suite (6000+ tests; see `pytest --collect-only -q | tail -1` for the live count)
 │   ├── conftest.py                   # mock_heavy_imports autouse fixture
 │   ├── fixtures/                     # WAV files for audio tests
 │   ├── manual/                       # scripts you run by hand (cublas, etc.)
@@ -337,7 +337,7 @@ voice-typer/
 │   └── adr/                          # Architecture Decision Records
 │       ├── README.md                 # ADR index — read this first
 │       ├── template.md               # boilerplate scaffold for new ADRs
-│       └── 0000-0019                 # one file per decision (see index)
+│       └── 0000-0020                 # one file per decision (see index — ADR-0020 is the cross-platform Tauri migration ADR)
 │
 ├── scripts/
 │   ├── build/                        # PyInstaller spec, icon generators
@@ -706,6 +706,7 @@ or audio stack.  Two markers opt out:
 @pytest.mark.real_pynput
 def test_uses_real_pynput(): ...
 
+
 @pytest.mark.real_pil
 def test_renders_tray_bitmap(): ...
 ```
@@ -732,13 +733,13 @@ without coupling to the service implementation:
 from tests.fixtures.ipc_test_helpers import make_fake_service
 from voice_typer.server.ipc_server import IPCServer
 
+
 def test_get_history_bounds_limit(monkeypatch):
     app = MagicMock()
     app._config_mutation_lock = threading.RLock()
     fake = make_fake_service()
     server = IPCServer(app, service=fake)
-    resp = server._dispatch({"type": "get_history",
-                             "data": {"limit": 10**9}, "id": "x"})
+    resp = server._dispatch({"type": "get_history", "data": {"limit": 10**9}, "id": "x"})
     assert resp["type"] == "history"
     # SEC-010: limit was clamped to _HISTORY_LIMIT_MAX before reaching the service
     fake.get_history.assert_called_once()
@@ -765,11 +766,15 @@ spinning up a real TCP client:
 from voice_typer.server.event_bus import subscribe, unsubscribe
 
 captured = []
-def _capture(msg): captured.append(msg)
+
+
+def _capture(msg):
+    captured.append(msg)
+
+
 _set_push_event(_capture)
 try:
-    server._dispatch({"type": "show_electron_notification",
-                      "data": {"title": "Hi", "message": "Body"}, "id": "x"})
+    server._dispatch({"type": "show_electron_notification", "data": {"title": "Hi", "message": "Body"}, "id": "x"})
 finally:
     _clear_push_event(_capture)
 
@@ -897,7 +902,12 @@ and include:
 - Steps to reproduce.
 - Expected vs. actual behavior.
 - Log file — see the **About → Diagnostics** page in the app, or
-  `$HOME/.voice-typer/voice-typer.log` on disk.
+  `<DATA_DIR>/voice-typer.log` on disk (Python backend log; the Tauri
+  Rust host log is at `<DATA_DIR>/logs/voice-typer.log`). The data
+  directory resolves per-platform: `%APPDATA%\voice-typer` on Windows,
+  `~/Library/Application Support/voice-typer` on macOS,
+  `$XDG_DATA_HOME/voice-typer` on Linux — see `docs/home-directory.md`
+  §"Log File Paths" for the canonical per-platform table.
 
 ---
 

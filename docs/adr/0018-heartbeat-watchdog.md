@@ -87,8 +87,8 @@ When `app.quit()` is called from the watchdog:
 
 - `voice_typer/server/ipc_server.py` — `_HEARTBEAT_INTERVAL_SECONDS`, `_HEARTBEAT_TIMEOUT_SECONDS`, `_heartbeat_loop()`, `_check_heartbeat_timeout()`, `_handle_heartbeat()`.
 - `voice_typer/client/src/main/index.ts` — heartbeat `setInterval` in TCP connect callback.
-- `tests/test_ipc_server.py` — `test_heartbeat_timeout_calls_quit()` test.
-- `tests/test_feature_hardening_regressions.py` — `test_e2e_heartbeat_timeout()` E2E test.
+- `tests/test_heartbeat.py` — heartbeat watchdog regression suite. The 10 tests in `_HeartbeatWatchdogTests` (e.g. `test_fires_after_timeout`) plus the function-level `test_heartbeat_over_real_tcp_socket_updates_timestamp` exercise the watchdog logic directly via the extracted `_check_heartbeat_timeout()` method (no 120-second real-time wait). The prior draft of this ADR pointed at `tests/test_ipc_server.py::test_heartbeat_timeout_calls_quit()` — that function name never existed; the real heartbeat tests have always lived in `tests/test_heartbeat.py`.
+- `tests/test_heartbeat_force_exit.py` — 8 force-exit backstop tests (`test_force_exit_*`) covering the `app.quit()` cleanup path the watchdog invokes once the 120-second timeout elapses. The prior draft pointed at `tests/test_feature_hardening_regressions.py::test_e2e_heartbeat_timeout()` — that file never existed; the force-exit backstop is the correct E2E-equivalent coverage.
 - SECURITY.md — RW-10 documentation.
 
 *End of document.*

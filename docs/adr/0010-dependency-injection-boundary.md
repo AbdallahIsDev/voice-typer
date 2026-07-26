@@ -118,9 +118,10 @@ member types. This is deliberate:
 def __init__(self, app, service: Optional[Any] = None) -> None:
     self.app = app
     if service is not None:
-        self.service = service           # DI mode: caller-provided fake
+        self.service = service  # DI mode: caller-provided fake
     else:
         from voice_typer.server.service import VoiceTyperService
+
         self.service = VoiceTyperService(app)  # Backward compat
 ```
 
@@ -148,6 +149,7 @@ burden for no behavioral gain.
 ```python
 def build_ipc_server(app: AppProtocol) -> IPCServer:
     from voice_typer.server.ipc_server import IPCServer
+
     return IPCServer(app)
 ```
 

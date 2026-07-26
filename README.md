@@ -522,9 +522,27 @@ Key design decisions:
 
 ## Log File
 
-Debug logs are written to `%APPDATA%/voice-typer/voice-typer.log`.
+Voice Typer writes **two** log files (one per process). The Python
+backend log lives directly under the data directory; the Tauri Rust
+host log lives under a `logs/` subdir. Both rotate at 5 MiB with 5
+backups kept (`RotatingFileHandler(maxBytes=5_242_880, backupCount=5)`
+in `voice_typer/server/log.py:915-922`; ADR-0020 §11 specifies the
+5 MiB × 5 cap).
 
-Uses `RotatingFileHandler` (1MB max, 2 backups) with structured logging (session ID, component name).
+| Platform | Python backend log | Tauri Rust host log |
+|----------|--------------------|---------------------|
+| Windows (new installs) | `%APPDATA%\voice-typer\voice-typer.log` | `%APPDATA%\voice-typer\logs\voice-typer.log` |
+| Windows (existing users) | `%USERPROFILE%\.voice-typer\voice-typer.log` (legacy path honored if it exists) | `%USERPROFILE%\.voice-typer\logs\voice-typer.log` |
+| macOS | `~/Library/Application Support/voice-typer/voice-typer.log` | `~/Library/Application Support/voice-typer/logs/voice-typer.log` |
+| Linux | `$XDG_DATA_HOME/voice-typer/voice-typer.log` (falls back to `~/.local/share/voice-typer/voice-typer.log`) | `$XDG_DATA_HOME/voice-typer/logs/voice-typer.log` |
+
+Override the location by setting `VOICE_TYPER_CONFIG_DIR` (the Python
+log lives directly under the resolved `<DATA_DIR>`; the Rust host log
+lives under `<DATA_DIR>/logs/`). See `docs/home-directory.md` §"Log
+File Paths" for the canonical per-platform reference and the source-of-
+truth constants.
+
+Uses `RotatingFileHandler` (5 MiB max, 5 backups) with structured logging (session ID, component name).
 
 ## Troubleshooting
 

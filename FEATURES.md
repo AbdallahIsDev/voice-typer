@@ -40,7 +40,7 @@ Last updated: 2026-06-22
 │  │  · Single-instance lock                          │   │
 │  │  · Spawns Python backend via pythonw             │   │
 │  │  · TCP IPC bridge (port 9876)                    │   │
-│  │  · 59 allowed IPC commands (allowlist)           │   │
+│  │  · 61 allowed IPC commands (allowlist)           │   │
 │  │  · Periodic health check (60s)                   │   │
 │  │  · Per-session auth token                        │   │
 │  │  · Event nonce verification                      │   │
@@ -271,7 +271,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |
 | 79 | Test suite (~280 pytest files, ~230 vitest test files; 2800+ Python tests) | ✅ | All major subsystems covered (counts grow over time — see `pytest --collect-only` and `npm run test` for the current totals) |
 | 80 | Ruff linting + mypy type checking | ✅ | Configured in pyproject.toml |
-| 81 | IPC command allowlist | ✅ | 59 allowed commands whitelisted in the Electron main process `ALLOWED_COMMANDS` set (`voice_typer/client/src/main/allowed-commands.ts`); the Python `_COMMAND_REGISTRY` registers 78 commands total (`tray_click` is Rust-only and `shutdown` is host-supervised, plus 17 stale entries that were removed from the renderer allowlist because they were never invoked from any renderer code; 19 of the 78 handlers are intentionally absent from the renderer allowlist). CR-18 reconciliation 2026-07-19; re-verified 2026-07-24. Count is enforced by `tests/test_security_doc_command_count.py`. |
+| 81 | IPC command allowlist | ✅ | 61 allowed commands whitelisted in the Electron main process `ALLOWED_COMMANDS` set (`voice_typer/client/src/main/allowed-commands.ts`); the Python `_COMMAND_REGISTRY` registers 63 commands total. Two of those are intentionally absent from the renderer allowlist — `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler) and `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path) — so the renderer-callable count is 61 (== the renderer allowlist count). The +2 host-only delta is asserted by `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 61/61/63). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_rust_allowlist_parity.py` + `tests/test_electron_ipc_and_build.py`. |
 | 82 | IPC rate limiter | ✅ | Sliding window: 60 msg/s sustained, 200 burst |
 | 83 | IPC auth token | ✅ | Per-launch random 256-bit token exchanged on TCP connect |
 | 84 | Config secret redaction | ✅ | API keys replaced with `<redacted>` sentinel in IPC responses |

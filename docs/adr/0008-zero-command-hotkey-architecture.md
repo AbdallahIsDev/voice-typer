@@ -176,6 +176,7 @@ This module centralizes all OS permission logic. It's the single source of truth
 ```python
 # Pseudocode — full implementation in the next phase
 
+
 def check_keyboard_permission() -> PermissionState:
     """Return the current keyboard-monitoring permission state."""
     if is_macos():
@@ -186,6 +187,7 @@ def check_keyboard_permission() -> PermissionState:
         return _check_linux_input_group()
     return PermissionState.UNKNOWN
 
+
 def request_keyboard_permission(callback: Callable[[], None]) -> None:
     """Open the OS permission UI. *callback* is invoked when the user
     returns to the app (best-effort detection)."""
@@ -195,11 +197,14 @@ def request_keyboard_permission(callback: Callable[[], None]) -> None:
         _open_linux_pkexec_prompt(callback)
     # Windows: no-op (no permission needed)
 
+
 def permission_error_is_permission_denied(error_message: str) -> bool:
     """Classify a native binary ERROR: line as a permission issue."""
-    return ("Accessibility" in error_message
-            or "permission denied" in error_message.lower()
-            or "input group" in error_message.lower())
+    return (
+        "Accessibility" in error_message
+        or "permission denied" in error_message.lower()
+        or "input group" in error_message.lower()
+    )
 ```
 
 ### B.3 Detection Flow
@@ -213,7 +218,7 @@ def permission_error_is_permission_denied(error_message: str) -> bool:
 ```python
 def _handle_line(self, line: str) -> None:
     if line.startswith("ERROR:"):
-        msg = line[len("ERROR:"):]
+        msg = line[len("ERROR:") :]
         self._failed = True
         self._error_message = msg
         self._ready_event.set()
@@ -261,6 +266,7 @@ def _schedule_permission_retry(self) -> None:
     timer.daemon = True
     timer.start()
     self._permission_retry_timer = timer
+
 
 def _retry_native_backend(self) -> None:
     # Try to restart the native backend
@@ -507,10 +513,13 @@ exit 0
 4. Function shows a dialog via the tray: "Voice Typer needs keyboard permission. Click OK to grant it."
 5. User clicks OK → app runs:
    ```python
-   subprocess.Popen([
-       "pkexec",
-       "/usr/share/voice-typer/scripts/install_permissions.py",
-   ], env={"PKEXEC_UID": str(os.getuid())})
+   subprocess.Popen(
+       [
+           "pkexec",
+           "/usr/share/voice-typer/scripts/install_permissions.py",
+       ],
+       env={"PKEXEC_UID": str(os.getuid())},
+   )
    ```
 6. polkit shows GUI password prompt (native, OS-provided)
 7. User types password → script runs as root → installs udev rule, adds user to group, configures Caps Lock
@@ -806,9 +815,7 @@ class _NativeBackendAdapter(HotkeyBackend):
 ```python
 if attempts > MAX_RESTART_ATTEMPTS:
     self._failed = True
-    self._error_message = (
-        f"{self.platform_name} binary crashed {attempts} times; giving up"
-    )
+    self._error_message = f"{self.platform_name} binary crashed {attempts} times; giving up"
     log.error("[NATIVE-HOTKEY] %s", self._error_message)
     self._ready_event.set()
     # NEW: notify the adapter so it can swap to legacy
