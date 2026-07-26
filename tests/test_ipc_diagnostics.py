@@ -71,9 +71,7 @@ class TestGt14CriticalLevel:
     and must NOT carry a ``[FATAL]`` prefix in the message body.
     """
 
-    def test_successful_write_logs_at_critical(
-        self, diag_dir: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_successful_write_logs_at_critical(self, diag_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
         """When ``_secure_atomic_write`` succeeds, the log line is
         ``CRITICAL`` (50) and the message body contains neither the
         historical ``[FATAL]`` prefix nor the ``ERROR`` level name.
@@ -86,21 +84,17 @@ class TestGt14CriticalLevel:
             patch(
                 "voice_typer.server.config._secure_atomic_write",
                 return_value=None,
-            ),caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server")
+            ),
+            caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server"),
         ):
             write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
-        critical_records = [
-            r for r in caplog.records if r.levelno == logging.CRITICAL
-        ]
+        critical_records = [r for r in caplog.records if r.levelno == logging.CRITICAL]
         assert critical_records, (
-            "expected at least one CRITICAL record; got levels="
-            f"{[r.levelname for r in caplog.records]}"
+            f"expected at least one CRITICAL record; got levels={[r.levelname for r in caplog.records]}"
         )
         msg = critical_records[0].getMessage()
-        assert "[FATAL]" not in msg, (
-            f"GT-14 regression: [FATAL] prefix still in message body: {msg!r}"
-        )
+        assert "[FATAL]" not in msg, f"GT-14 regression: [FATAL] prefix still in message body: {msg!r}"
         assert "Diagnostic written to" in msg
 
     def test_tempfile_fallback_logs_at_critical(
@@ -121,13 +115,12 @@ class TestGt14CriticalLevel:
             patch(
                 "voice_typer.server.config._secure_atomic_write",
                 side_effect=OSError("read-only filesystem"),
-            ),caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server")
+            ),
+            caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server"),
         ):
             write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
-        critical_records = [
-            r for r in caplog.records if r.levelno == logging.CRITICAL
-        ]
+        critical_records = [r for r in caplog.records if r.levelno == logging.CRITICAL]
         assert critical_records, (
             "expected a CRITICAL record for the tempfile-fallback path; "
             f"got levels={[r.levelname for r in caplog.records]}"
@@ -160,13 +153,12 @@ class TestGt14CriticalLevel:
             patch(
                 "voice_typer.server.config._secure_atomic_write",
                 side_effect=OSError("read-only filesystem"),
-            ),caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server")
+            ),
+            caplog.at_level(logging.CRITICAL, logger="voice_typer.server.ipc_server"),
         ):
             write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
-        critical_records = [
-            r for r in caplog.records if r.levelno == logging.CRITICAL
-        ]
+        critical_records = [r for r in caplog.records if r.levelno == logging.CRITICAL]
         assert critical_records, (
             "expected a CRITICAL record for the all-fallbacks-failed path; "
             f"got levels={[r.levelname for r in caplog.records]}"
@@ -175,9 +167,7 @@ class TestGt14CriticalLevel:
         assert "[FATAL]" not in msg
         assert "Could not write diagnostic anywhere" in msg
 
-    def test_no_error_level_records_emitted(
-        self, diag_dir: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_no_error_level_records_emitted(self, diag_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
         """Defensive: no ERROR-level records should be emitted at all on
         the success path — the level was bumped to CRITICAL wholesale.
         """
@@ -189,30 +179,28 @@ class TestGt14CriticalLevel:
             patch(
                 "voice_typer.server.config._secure_atomic_write",
                 return_value=None,
-            ),caplog.at_level(logging.DEBUG, logger="voice_typer.server.ipc_server")
+            ),
+            caplog.at_level(logging.DEBUG, logger="voice_typer.server.ipc_server"),
         ):
             write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
         error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert not error_records, (
-            f"GT-14 regression: ERROR-level records emitted: "
-            f"{[(r.levelname, r.getMessage()) for r in error_records]}"
+            f"GT-14 regression: ERROR-level records emitted: {[(r.levelname, r.getMessage()) for r in error_records]}"
         )
 
 
 # ─── GT-B1-5: stderr print fallback must pipe through _redact_text ────
 
 
-class TestGtB1_5StderrRedaction:
+class TestGTB15StderrRedaction:
     """GT-B1-5: the ``print(buf.getvalue(), file=sys.stderr)`` third-tier
     fallback must call ``_redact_text`` on the payload BEFORE the print
     so secrets embedded in the traceback are masked the same way they
     would be in a ``log.critical`` record.
     """
 
-    def test_redact_text_called_on_stderr_payload(
-        self, diag_dir: Path, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_redact_text_called_on_stderr_payload(self, diag_dir: Path, tmp_path: Path, monkeypatch) -> None:
         """When the primary write fails, ``_redact_text`` MUST be invoked
         on the buffer payload before it is printed to stderr.
 
@@ -258,12 +246,9 @@ class TestGtB1_5StderrRedaction:
         # payload by checking that at least one call saw the
         # "Voice Typer startup failed at" header.
         assert call_count["n"] >= 2, (
-            f"expected _redact_text to be called ≥2 times (primary write + "
-            f"stderr fallback); got {call_count['n']}"
+            f"expected _redact_text to be called ≥2 times (primary write + stderr fallback); got {call_count['n']}"
         )
-        assert any(
-            "Voice Typer startup failed at" in p for p in captured_payloads
-        ), (
+        assert any("Voice Typer startup failed at" in p for p in captured_payloads), (
             "expected at least one _redact_text call to receive the "
             "diagnostic payload (with the 'Voice Typer startup failed at' "
             f"header); captured payloads: {captured_payloads!r}"
@@ -477,9 +462,7 @@ class TestPi12TmpFallbackOverwrite:
     primary path) doesn't silently regress PI-12.
     """
 
-    def test_second_consecutive_crash_dump_overwrites_first(
-        self, diag_dir: Path, tmp_path: Path, monkeypatch
-    ) -> None:
+    def test_second_consecutive_crash_dump_overwrites_first(self, diag_dir: Path, tmp_path: Path, monkeypatch) -> None:
         """PI-12: two consecutive calls to ``write_startup_diagnostic``
         that both fall through to the /tmp fallback must both succeed
         — the second call overwrites the first diagnostic file rather
@@ -518,8 +501,7 @@ class TestPi12TmpFallbackOverwrite:
         # The fallback file must still exist (not deleted by the second
         # call's failed os.open).
         assert tmp_file.exists(), (
-            "PI-12 regression: the /tmp fallback file should still exist "
-            "after the second consecutive crash dump"
+            "PI-12 regression: the /tmp fallback file should still exist after the second consecutive crash dump"
         )
         # The file content must be the SECOND crash's diagnostic (i.e.
         # the second call overwrote the first). Both payloads contain

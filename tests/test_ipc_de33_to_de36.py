@@ -218,7 +218,7 @@ class TestSanitizePatternDenylist:
         out = _sanitize_config_for_ipc(cfg)
         assert out["bearer"] == _REDACTED_SENTINEL
 
-    def test_warn_password_paste_NOT_redacted(self):
+    def test_warn_password_paste_not_redacted(self):
         """The boolean flag ``warn_password_paste`` (a real Config
         field) must NOT be redacted — the pattern is name-based, and
         the field ends in ``_paste``, not ``_password``. The renderer
@@ -230,7 +230,7 @@ class TestSanitizePatternDenylist:
             "it must not be redacted by the pattern-based denylist."
         )
 
-    def test_cloud_api_url_NOT_redacted(self):
+    def test_cloud_api_url_not_redacted(self):
         """``cloud_api_url`` ends in ``_url``, not ``_api_key`` — must
         not be redacted. The renderer needs the URL to display it."""
         cfg = _ConfigLike(cloud_api_url="https://api.example.com/v1")
@@ -461,7 +461,7 @@ class TestCommandCostsContract:
         """
         # Commands moved to Tauri Rust host (ZR-45) — kept in COMMAND_COSTS
         # for back-compat with older Electron builds.
-        ZR_45_MOVED_TO_RUST = {
+        zr_45_moved_to_rust = {
             "delete_all_personal_data",
             "export_diagnostics",
             "export_gdpr_bundle",
@@ -470,7 +470,7 @@ class TestCommandCostsContract:
         }
         registered = set(IPCServer._COMMAND_REGISTRY.keys())
         listed = set(COMMAND_COSTS.keys())
-        stale = (listed - registered) - ZR_45_MOVED_TO_RUST
+        stale = (listed - registered) - zr_45_moved_to_rust
         assert not stale, (
             f"COMMAND_COSTS contains entries for commands NOT in "
             f"_COMMAND_REGISTRY (and not in the ZR-45 moved-to-Rust "

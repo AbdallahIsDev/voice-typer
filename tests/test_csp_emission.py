@@ -84,7 +84,7 @@ def _extract_array_constant(source: str, name: str) -> list[str]:
             target = alias_match.group(1)
             if target != name:
                 return _extract_array_constant(source, target)
-        assert False, f"Could not find exported const {name} in {CSP_PLUGIN_PATH.name}"
+        raise AssertionError(f"Could not find exported const {name} in {CSP_PLUGIN_PATH.name}")
     body = m.group(1)
     # Extract quoted strings (single or double quotes).
     elements = re.findall(r'"([^"]*)"\s*,?|' r"'([^']*)'\s*,?", body)
@@ -192,8 +192,7 @@ class TestCspPluginConstants:
         # statically-extracted constant (which can't resolve the
         # function call).
         assert "https://api.github.com" in csp_plugin_source, (
-            "csp-plugin.ts must allow https://api.github.com in connect-src "
-            "for the main window (CSP_PROD_MAIN)"
+            "csp-plugin.ts must allow https://api.github.com in connect-src for the main window (CSP_PROD_MAIN)"
         )
 
     def test_csp_dev_has_unsafe_eval(self, csp_dev: str):
@@ -321,23 +320,17 @@ class TestMainIndexOnHeadersReceivedStrict:
     def test_main_uses_on_headers_received(self):
         src = _read_main_process_src()
         assert "onHeadersReceived" in src, (
-            "main process (index.ts or bootstrap.ts) must register "
-            "onHeadersReceived to set CSP via HTTP header"
+            "main process (index.ts or bootstrap.ts) must register onHeadersReceived to set CSP via HTTP header"
         )
 
     def test_main_csp_conditional_on_app_is_packaged(self):
         src = _read_main_process_src()
         # The script-src directive must be conditionally permissive only when
         # app.isPackaged === false (i.e. dev mode).
-        assert "app.isPackaged" in src, (
-            "main process CSP must branch on app.isPackaged"
-        )
+        assert "app.isPackaged" in src, "main process CSP must branch on app.isPackaged"
         # Find the script-src line — it should reference app.isPackaged.
         m = re.search(r"script-src[^;]*", src)
-        assert m, (
-            "main process must contain a script-src directive "
-            "(in index.ts or bootstrap.ts)"
-        )
+        assert m, "main process must contain a script-src directive (in index.ts or bootstrap.ts)"
         script_src_line = m.group(0)
         assert "isPackaged" in script_src_line, (
             f"main process script-src must conditionally add unsafe-eval/"
