@@ -467,9 +467,9 @@ def build_menu_for_tray(tray) -> tuple:
       - Models ▸
       - Microphones ▸                              (UX-2)
       - --- separator ---
-      - Settings...                                (UX-33)
-      - History...                                 (UX-33)
-      - Help...                                    (UX-33)
+      - Settings                                (UX-33)
+      - History                                 (UX-33)
+      - Help                                    (UX-33)
       - --- separator ---
       - Restart
       - Quit

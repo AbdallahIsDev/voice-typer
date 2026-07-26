@@ -1375,10 +1375,17 @@
 	"bubble": {
 		"recordingIndicatorAria": "مؤشر تسجيل Voice Typer",
 		"transcribingLabel": "جارٍ الكتابة",
-		"idleLabel": "Ready",
+		"idleLabel": "جاهز",
 		"recordingLabel": "REC",
-		"micButtonStartAria": "Start dictation",
-		"micButtonStopAria": "Stop dictation"
+		"micButtonStartAria": "بدء الإملاء",
+		"micButtonStopAria": "إيقاف الإملاء",
+		"transcribingAria": "مؤشر النسخ الصوتي لـ Voice Typer",
+		"errorIndicatorAria": "مؤشر الخطأ لـ Voice Typer",
+		"idleIndicatorAria": "مؤشر الخمول لـ Voice Typer",
+		"errorLabel": "⚠ Error",
+		"retryAria": "إعادة محاولة النسخ",
+		"stopRecordingAria": "إيقاف التسجيل",
+		"dismissAria": "إخفاء الفقاعة"
 	},
 	"errorBoundary": {
 		"title": "حدث خطأ ما",

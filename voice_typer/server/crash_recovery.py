@@ -281,8 +281,8 @@ class CrashRecovery:
                         ensure_ascii=False,
                     )
                 _secure_atomic_write(self._path, snapshot)
-            except Exception as exc:
-                log.error("[RECOVERY] Failed to save: %s", exc)
+            except Exception:
+                log.exception("[RECOVERY] Failed to save")
 
     def _enqueue_save(self) -> None:
         """Enqueue a save request to the background worker.
@@ -990,7 +990,7 @@ class CrashRecovery:
             os.replace(str(tmp_bundle_path), str(bundle_path))
             log.info("[RECOVERY] Diagnostic bundle created: %s", bundle_path)
             return str(bundle_path)
-        except Exception as exc:
+        except Exception:
             # Clean up the partial tmp file on failure so it doesn't
             # accumulate across failed exports.  Best-effort.
             try:
@@ -998,5 +998,5 @@ class CrashRecovery:
                     tmp_bundle_path.unlink()
             except OSError:
                 pass
-            log.error("[RECOVERY] Failed to create diagnostic bundle: %s", exc)
+            log.exception("[RECOVERY] Failed to create diagnostic bundle")
             return None

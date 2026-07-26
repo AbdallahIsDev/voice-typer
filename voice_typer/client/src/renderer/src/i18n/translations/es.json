@@ -1375,10 +1375,17 @@
 	"bubble": {
 		"recordingIndicatorAria": "Indicador de grabación de Voice Typer",
 		"transcribingLabel": "Transcribiendo",
-		"idleLabel": "Ready",
+		"idleLabel": "Listo",
 		"recordingLabel": "REC",
-		"micButtonStartAria": "Start dictation",
-		"micButtonStopAria": "Stop dictation"
+		"micButtonStartAria": "Iniciar dictado",
+		"micButtonStopAria": "Detener dictado",
+		"transcribingAria": "Indicador de transcripción de Voice Typer",
+		"errorIndicatorAria": "Indicador de error de Voice Typer",
+		"idleIndicatorAria": "Indicador de inactividad de Voice Typer",
+		"errorLabel": "⚠ Error",
+		"retryAria": "Reintentar transcripción",
+		"stopRecordingAria": "Detener grabación",
+		"dismissAria": "Descartar burbuja"
 	},
 	"errorBoundary": {
 		"title": "Algo salió mal",

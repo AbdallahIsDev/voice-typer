@@ -1375,10 +1375,17 @@
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer रिकॉर्डिंग संकेतक",
 		"transcribingLabel": "लिखा जा रहा है",
-		"idleLabel": "Ready",
+		"idleLabel": "तैयार",
 		"recordingLabel": "REC",
-		"micButtonStartAria": "Start dictation",
-		"micButtonStopAria": "Stop dictation"
+		"micButtonStartAria": "डिक्टेशन शुरू करें",
+		"micButtonStopAria": "डिक्टेशन रोकें",
+		"transcribingAria": "Voice Typer ट्रांसक्राइबिंग संकेतक",
+		"errorIndicatorAria": "Voice Typer त्रुटि संकेतक",
+		"idleIndicatorAria": "Voice Typer निष्क्रिय संकेतक",
+		"errorLabel": "⚠ Error",
+		"retryAria": "ट्रांसक्रिप्शन पुनः प्रयास करें",
+		"stopRecordingAria": "रिकॉर्डिंग रोकें",
+		"dismissAria": "बुलबुला हटाएं"
 	},
 	"errorBoundary": {
 		"title": "कुछ गलत हो गया",

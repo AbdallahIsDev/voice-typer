@@ -261,9 +261,9 @@ class TestTrayMenuHasMinimalOptions:
     def test_settings_history_help_items_in_menu(self, tray):
         """UX-33 (FIX-10): Settings/History/Help quick shortcuts present."""
         labels = _menu_labels(tray)
-        assert any("Settings" in lb for lb in labels), "UX-33: tray menu should include a 'Settings...' item"
-        assert any("History" in lb for lb in labels), "UX-33: tray menu should include a 'History...' item"
-        assert any("Help" in lb for lb in labels), "UX-33: tray menu should include a 'Help...' item"
+        assert any("Settings" in lb for lb in labels), "UX-33: tray menu should include a 'Settings' item"
+        assert any("History" in lb for lb in labels), "UX-33: tray menu should include a 'History' item"
+        assert any("Help" in lb for lb in labels), "UX-33: tray menu should include a 'Help' item"
 
     def test_force_cancel_not_in_menu_when_idle(self, tray):
         """UX-3 (FIX-10): the Force-cancel item is hidden when idle.

@@ -1375,10 +1375,17 @@
 	"bubble": {
 		"recordingIndicatorAria": "Voice-Typer-Aufnahmeanzeige",
 		"transcribingLabel": "Transkribieren",
-		"idleLabel": "Ready",
+		"idleLabel": "Bereit",
 		"recordingLabel": "REC",
-		"micButtonStartAria": "Start dictation",
-		"micButtonStopAria": "Stop dictation"
+		"micButtonStartAria": "Diktat starten",
+		"micButtonStopAria": "Diktat beenden",
+		"transcribingAria": "Voice Typer Transkriptionsanzeige",
+		"errorIndicatorAria": "Voice Typer Fehleranzeige",
+		"idleIndicatorAria": "Voice Typer Bereitschaftsanzeige",
+		"errorLabel": "⚠ Error",
+		"retryAria": "Transkription wiederholen",
+		"stopRecordingAria": "Aufnahme beenden",
+		"dismissAria": "Blase schließen"
 	},
 	"errorBoundary": {
 		"title": "Etwas ist schiefgegangen",

@@ -1192,6 +1192,21 @@
 		"importNotAvailableOutsideElectron": "Import not available outside Electron",
 		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
 	},
+	"bubble": {
+		"recordingIndicatorAria": "Voice Typer recording indicator",
+		"transcribingAria": "Voice Typer transcribing indicator",
+		"errorIndicatorAria": "Voice Typer error indicator",
+		"idleIndicatorAria": "Voice Typer idle indicator",
+		"transcribingLabel": "Transcribing",
+		"idleLabel": "Ready",
+		"errorLabel": "⚠ Error",
+		"recordingLabel": "REC",
+		"micButtonStopAria": "Stop dictation",
+		"micButtonStartAria": "Start dictation",
+		"retryAria": "Retry transcription",
+		"stopRecordingAria": "Stop recording",
+		"dismissAria": "Dismiss bubble"
+	},
 	"help": {
 		"title": "Keyboard Shortcuts",
 		"dictation": "Start / stop dictation",
@@ -1250,7 +1265,7 @@
 	},
 	"history": {
 		"title": "History",
-		"searchPlaceholder": "Search history...",
+		"searchPlaceholder": "Search History",
 		"favorites": "Favorites",
 		"clearAll": "Clear All",
 		"showAll": "Show all history",
@@ -1378,14 +1393,6 @@
 		"forward": "Forward (or mouse forward button)",
 		"backWithShortcut": "Back ({shortcut})",
 		"forwardWithShortcut": "Forward ({shortcut})"
-	},
-	"bubble": {
-		"recordingIndicatorAria": "Voice Typer recording indicator",
-		"transcribingLabel": "Transcribing",
-		"micButtonStartAria": "Start dictation",
-		"micButtonStopAria": "Stop dictation",
-		"idleLabel": "Ready",
-		"recordingLabel": "REC"
 	},
 	"errorBoundary": {
 		"title": "Something went wrong",

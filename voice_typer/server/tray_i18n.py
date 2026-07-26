@@ -27,9 +27,9 @@ _TRAY_LABELS_EN: dict[str, str] = {
     "undo_last": "Undo Last",
     "microphones": "Microphones",
     "more_microphones": "More microphones...",
-    "settings": "Settings...",
-    "history": "History...",
-    "help": "Help...",
+    "settings": "Settings",
+    "history": "History",
+    "help": "Help",
     "update_available_body": "{app} {version} is available (you have {current})",
 }
 

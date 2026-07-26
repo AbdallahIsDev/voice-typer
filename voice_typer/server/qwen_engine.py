@@ -326,18 +326,16 @@ class QwenEngine:
                     self.device,
                 )
                 return True
-            except ImportError as exc:
-                log.error(
-                    "[QWEN] qwen-asr package is not installed: %s",
-                    exc,
+            except ImportError:
+                log.exception(
+                    "[QWEN] qwen-asr package is not installed",
                 )
                 self._model = None
                 return False
-            except Exception as exc:
-                log.error(
-                    "[QWEN] Failed to load Qwen3-ASR model from %s: %s",
+            except Exception:
+                log.exception(
+                    "[QWEN] Failed to load Qwen3-ASR model from %s",
                     self.model_path,
-                    exc,
                 )
                 self._model = None
                 return False
@@ -660,10 +658,10 @@ class QwenEngine:
                             # Not all model wrappers expose .to(); ignore
                             self._model.to("cpu")
                     return self.transcribe(audio, audio_stats=audio_stats)
-                except Exception as cpu_exc:
+                except Exception:
                     # Restore device on failure so the next attempt starts fresh
                     self.device = original_device
-                    log.error("[QWEN] CPU fallback also failed: %s", cpu_exc)
+                    log.exception("[QWEN] CPU fallback also failed")
                     raise
             # Non-CUDA error: re-raise so caller can handle
             raise

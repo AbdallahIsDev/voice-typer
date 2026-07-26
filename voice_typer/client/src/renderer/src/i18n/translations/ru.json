@@ -1375,10 +1375,17 @@
 	"bubble": {
 		"recordingIndicatorAria": "Индикатор записи Voice Typer",
 		"transcribingLabel": "Расшифровка",
-		"idleLabel": "Ready",
+		"idleLabel": "Готов",
 		"recordingLabel": "REC",
-		"micButtonStartAria": "Start dictation",
-		"micButtonStopAria": "Stop dictation"
+		"micButtonStartAria": "Начать диктовку",
+		"micButtonStopAria": "Остановить диктовку",
+		"transcribingAria": "Индикатор транскрибации Voice Typer",
+		"errorIndicatorAria": "Индикатор ошибки Voice Typer",
+		"idleIndicatorAria": "Индикатор ожидания Voice Typer",
+		"errorLabel": "⚠ Error",
+		"retryAria": "Повторить транскрипцию",
+		"stopRecordingAria": "Остановить запись",
+		"dismissAria": "Закрыть пузырёк"
 	},
 	"errorBoundary": {
 		"title": "Что-то пошло не так",

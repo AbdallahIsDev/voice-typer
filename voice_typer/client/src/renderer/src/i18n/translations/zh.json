@@ -1375,10 +1375,17 @@
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer 录音指示器",
 		"transcribingLabel": "转写中",
-		"idleLabel": "Ready",
+		"idleLabel": "就绪",
 		"recordingLabel": "REC",
-		"micButtonStartAria": "Start dictation",
-		"micButtonStopAria": "Stop dictation"
+		"micButtonStartAria": "开始听写",
+		"micButtonStopAria": "停止听写",
+		"transcribingAria": "Voice Typer 转写指示器",
+		"errorIndicatorAria": "Voice Typer 错误指示器",
+		"idleIndicatorAria": "Voice Typer 空闲指示器",
+		"errorLabel": "⚠ Error",
+		"retryAria": "重试转写",
+		"stopRecordingAria": "停止录音",
+		"dismissAria": "关闭气泡"
 	},
 	"errorBoundary": {
 		"title": "出错了",
