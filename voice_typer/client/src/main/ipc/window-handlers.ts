@@ -5,26 +5,50 @@
  *   - window:minimize / window:toggle-maximize / window:close / window:is-maximized
  *     (custom title bar controls)
  *   - window:open-logs (UX-008: open the Python log directory in the OS file manager)
- *   - window:open-electron-logs (G4-M-71: open the Electron userData directory)
  *   - model:import-dialog (MODEL-IMPORT: native folder picker for HuggingFace imports)
  *   - renderer:log-error (G4-M-69: renderer → main error persistence)
+ *   - i18n:set-locale (NH-3: renderer pushes its locale to the main process so
+ *     native dialogs render in the user's selected language)
  *
- * PVT-G5-068: the stale `i18n:set-locale` and `window:show` handlers were
- * removed — grep across `voice_typer/client/src/preload/` and
- * `voice_typer/client/src/renderer/` returns zero callers for either
- * channel. `i18n:set-locale` was superseded by the `set_tray_locale`
- * dispatch command (which pushes the locale to the Python backend, and
- * the main process reads its own locale from disk on startup via
- * `setMainLocale`). `window:show` was a tray "Open app" bridge that no
- * longer has a caller (the tray path now goes through the Rust host
- * under Tauri, and Electron's tray path uses `showMainWindow()`
- * directly).
+ * PVT-G5-068 originally removed the `i18n:set-locale` handler because no
+ * caller existed. NH-3 re-adds it: the renderer's `setLocale()` now pushes
+ * the locale via this channel on every change AND on app startup (so a
+ * restart with a saved non-English locale propagates to native dialogs
+ * before the first dialog is shown). `window:show` is still removed —
+ * the tray path goes through `showMainWindow()` directly.
+ *
+ * DT-51: the `window:open-electron-logs` handler (G4-M-71: open the
+ * Electron userData directory) was removed — the preload bridge no
+ * longer exposes an `openElectronLogs` entry, so the handler was
+ * unreachable. The Tauri bridge's `openElectronLogs` impl (which
+ * invoked the Rust `open_host_logs` command) was deleted in lockstep,
+ * and `openElectronLogs?` was removed from the `WindowBridge` type
+ * contract in `types/ipc.ts`. See `preload/index.ts` for the cleanup
+ * index.
  */
-import { app, dialog, ipcMain, shell } from "electron";
+import { dialog, ipcMain, shell } from "electron";
 import { mainT } from "../i18n";
 import { appendLogLine, logger, rendererErrorsLogPath } from "../logging";
 import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
+
+// XA-20-10 / NH-3: `setMainLocale` is resolved lazily inside the
+// i18n:set-locale IPC handler (via dynamic `import("../i18n")`) rather
+// than via a top-level static import. This serves two purposes:
+//   1. Test isolation: the handler test (`i18n-set-locale-handler.test.ts`)
+//      mocks `../i18n` with `vi.mock` + `vi.resetModules()`. A static
+//      `import { setMainLocale }` captures the binding at module-load
+//      time; under `vi.resetModules()` the ESM binding can become
+//      stale, causing "setMainLocale is not defined" at handler
+//      invocation. The dynamic `import()` resolves against the
+//      CURRENT module registry at call time, so the mock is always
+//      in effect.
+//   2. Avoids a static-import cycle in environments that don't mock
+//      `../i18n` (e.g. integration tests that load the real i18n
+//      bundle). The static import would pull `../i18n` → `./branding`
+//      → ... into the window-handlers module graph eagerly; the
+//      dynamic import defers that cost to when the handler is
+//      actually invoked (which is rare — only on locale change).
 
 // Saved bounds for window:toggle-maximize to restore on unmaximize.
 // PVT-G5-FA15: this used to live on `state.preMaximizeBounds` but no
@@ -115,12 +139,12 @@ export function registerWindowHandlers(): void {
 	// `bootstrap.ts::setupUserData()`), and we NO LONGER create the
 	// directory — the Python backend creates it on its own startup.
 	//
-	// G4-M-71: this handler opens the PYTHON backend's log dir. The
-	// Electron main process has its own log folder (`app.getPath("userData")`)
-	// where `electron-main.log`, `electron-crashes.log`, and
-	// `electron-rejections.log` are written. That's exposed via the
-	// separate `window:open-electron-logs` handler below so the Settings
-	// UI can offer both as distinct buttons.
+	// DT-51: the sibling `window:open-electron-logs` handler (which
+	// opened the Electron userData dir) was removed — the preload
+	// bridge no longer exposes an `openElectronLogs` entry, so the
+	// handler was unreachable. The Tauri bridge's
+	// `openElectronLogs` impl (which invoked the Rust
+	// `open_host_logs` command) was deleted in lockstep.
 	ipcMain.handle("window:open-logs", async () => {
 		try {
 			const logDir = computeConfigDir();
@@ -132,30 +156,6 @@ export function registerWindowHandlers(): void {
 			return { success: true, path: logDir };
 		} catch (e: unknown) {
 			logger.warn("window:open-logs failed", {
-				error: (e as Error).message,
-			});
-			return { success: false, error: (e as Error).message };
-		}
-	});
-
-	// ── G4-M-71: Open Electron log folder ────────────────────────
-	// Opens `app.getPath("userData")` in the OS file manager. This is
-	// where `electron-main.log` (G4-H-37 structured logger), the
-	// `electron-crashes.log` / `electron-rejections.log` rotating
-	// crash logs, and `electron-renderer-errors.log` (G4-M-67) live.
-	// Distinct from `window:open-logs` above which opens the Python
-	// backend's config dir (where `voice-typer.log` lives). Support
-	// staff need BOTH locations to diagnose a crash end-to-end.
-	ipcMain.handle("window:open-electron-logs", async () => {
-		try {
-			const logDir = app.getPath("userData");
-			const result = await shell.openPath(logDir);
-			if (result) {
-				return { success: false, error: result, path: logDir };
-			}
-			return { success: true, path: logDir };
-		} catch (e: unknown) {
-			logger.warn("window:open-electron-logs failed", {
 				error: (e as Error).message,
 			});
 			return { success: false, error: (e as Error).message };
@@ -267,4 +267,79 @@ export function registerWindowHandlers(): void {
 			return { ok: true };
 		},
 	);
+
+	// ── XA-20-10 / NH-3: renderer → main locale sync ────────────────
+	// The renderer pushes its locale here so the main process can:
+	//   (1) Localize native Electron dialogs via `setMainLocale` (the
+	//       main-process i18n bundle in `main/i18n.ts`).
+	//   (2) Forward the locale to the bubble BrowserWindow via
+	//       `notifyBubbleLocaleChanged` so its separate JS context
+	//       re-renders in the new locale without a full reload.
+	//
+	// Payload shapes accepted (matches the existing
+	// `i18n-set-locale-handler.test.ts` contract):
+	//   - bare string: "ar"
+	//   - object: { locale: "ar" }
+	// Empty / null / non-string payloads return `{ ok: false, error:
+	// "empty locale" }` so the renderer's `.catch(() => {})` swallow
+	// doesn't fire — the push is best-effort.
+	//
+	// The handler is async because the bubble notification uses a
+	// dynamic import (to avoid a static-import cycle in test
+	// environments that don't mock the bubble-window module).
+	ipcMain.handle("i18n:set-locale", async (_event, payload) => {
+		let locale: string | undefined;
+		if (typeof payload === "string") {
+			locale = payload;
+		} else if (
+			payload !== null &&
+			typeof payload === "object" &&
+			typeof (payload as { locale?: unknown }).locale === "string"
+		) {
+			locale = (payload as { locale: string }).locale;
+		}
+		if (!locale) {
+			return { ok: false, error: "empty locale" };
+		}
+		// XA-20-10 / NH-3: resolve setMainLocale via dynamic
+		// import so the test's vi.mock is applied at call time
+		// (see the long comment near the top of this module).
+		let setMainLocale: (locale: string) => void;
+		try {
+			const i18nMod = await import("../i18n");
+			setMainLocale =
+				typeof i18nMod.setMainLocale === "function"
+					? i18nMod.setMainLocale
+					: () => {};
+		} catch {
+			setMainLocale = () => {};
+		}
+		try {
+			setMainLocale(locale);
+		} catch (e) {
+			// Defensive — setMainLocale currently never throws, but
+			// a future refactor must not crash the main process.
+			return { ok: false, error: (e as Error).message };
+		}
+		// XA-20-10: forward to the bubble BrowserWindow so its
+		// separate JS context can re-render in the new locale.
+		// Dynamic import avoids a static-import cycle in tests
+		// that mock `../i18n` + `../state` but not
+		// `../windows/bubble-window`.
+		try {
+			const { notifyBubbleLocaleChanged } = await import(
+				"../windows/bubble-window"
+			);
+			notifyBubbleLocaleChanged(locale);
+		} catch (e) {
+			// Best-effort — bubble may not be loaded yet (early
+			// startup) or the dynamic import may fail in test
+			// environments. The locale still took effect for
+			// native dialogs via setMainLocale above.
+			logger.warn("i18n:set-locale: bubble notification failed", {
+				error: (e as Error).message,
+			});
+		}
+		return { ok: true };
+	});
 }

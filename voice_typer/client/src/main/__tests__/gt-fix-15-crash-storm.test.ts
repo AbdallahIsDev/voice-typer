@@ -44,9 +44,12 @@ vi.mock("../logging", () => ({
 	RESET: "",
 	BUBBLE_CLR: "",
 	ts: () => "",
+	log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+	appendLogLine: vi.fn(),
+	rendererErrorsLogPath: vi.fn(() => ""),
 }));
 vi.mock("../state", () => ({
-	state: { mainWindow: null, bubbleWindow: null, bubblePosition: "top" },
+	state: { mainWindow: null, bubbleWindow: null, bubblePosition: "bottom" },
 }));
 
 import type { recordBubbleRenderCrash as _RBRC } from "../windows/main-window";

@@ -35,6 +35,7 @@
  */
 import { app } from "electron";
 import { bootstrapRuntime } from "./bootstrap";
+import { runBubbleTestDiagnostics } from "./dev/bubble-test";
 import { registerIpcHandlers } from "./ipc";
 import { BUBBLE_CLR, RESET, ts } from "./logging";
 import { startPython, stopPython } from "./python";
@@ -44,7 +45,7 @@ import {
 } from "./single_instance";
 import { state } from "./state";
 import { isLinuxWaylandWithoutSni } from "./tray_available";
-import { createWindows, showBubbleWindow, showMainWindow } from "./windows";
+import { createWindows, showMainWindow } from "./windows";
 
 // CR-063: the canonical ALLOWED_COMMANDS declaration lives in
 // `./allowed-commands` (a dependency-free leaf module). It is
@@ -94,6 +95,15 @@ registerIpcHandlers();
 // on the window knows to let the close proceed instead of hiding.
 app.isQuitting = false;
 
+// XV-153: cleanup handle for the dev-only `VT_BUBBLE_TEST=1` bubble
+// diagnostic harness (see `./dev/bubble-test.ts`). Assigned inside
+// `app.whenReady()` when the env var is set; invoked from the
+// `before-quit` handler so the diagnostic's 3 timers (1 setTimeout +
+// 1 setInterval + 1 setTimeout-stop) don't outlive a normal app
+// shutdown. `null` in production (env var never set) and on any code
+// path that didn't enter the diagnostic branch.
+let bubbleTestCleanup: (() => void) | null = null;
+
 app.whenReady().then(() => {
 	// SEC-029 nonce, NEW-PRIV-010 userData, SEC-012 CSP, SEC-021 error handlers.
 	bootstrapRuntime();
@@ -102,17 +112,10 @@ app.whenReady().then(() => {
 		console.warn(
 			`${ts()}  ${BUBBLE_CLR}[BUBBLE] VT_BUBBLE_TEST=1 -- showing bubble for diagnostics${RESET}`,
 		);
-		setTimeout(() => {
-			showBubbleWindow();
-			const id = setInterval(() => {
-				const rms = 0.05 + 0.4 * Math.abs(Math.sin(Date.now() / 200));
-				state.bubbleWindow?.webContents.send("bubble:level", {
-					rms,
-					peak: rms * 1.5,
-				});
-			}, 100);
-			setTimeout(() => clearInterval(id), 10_000);
-		}, 1500);
+		// XV-153: delegate the 3-timer diagnostic to `dev/bubble-test.ts`
+		// so the production wiring entry point stays wiring-only and the
+		// timers are tracked for cleanup on shutdown.
+		bubbleTestCleanup = runBubbleTestDiagnostics(state).cleanup;
 	}
 	startPython();
 	// CR-20: pre-warm the Wayland-without-SNI cache so the
@@ -145,6 +148,12 @@ process.on("SIGINT", signalQuitHandler);
 app.on("before-quit", () => {
 	app.isQuitting = true;
 	stopPython();
+	// XV-153: clear the dev-only bubble-test diagnostic timers so they
+	// don't fire `webContents.send` against a destroyed window during
+	// slow shutdown. Best-effort — `bubbleTestCleanup` is `null` in
+	// production (env var never set) and the cleanup function itself
+	// is idempotent (safe to call multiple times).
+	if (bubbleTestCleanup) bubbleTestCleanup();
 	// P1-1.4: clear our PID file so the next launch doesn't think
 	// we're still alive.  Best-effort — if the disk is gone, the
 	// stale-PID recovery path will handle it on next start.

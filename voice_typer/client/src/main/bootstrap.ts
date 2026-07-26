@@ -262,47 +262,73 @@ export function _installErrorHandlers(opts: {
 		return uncaughtCount >= MAX_UNCAUGHT;
 	};
 
-	const onUncaught = (err: unknown) => {
-		console.error("[VT] uncaughtException:", err);
-		logEvent(crashLogPath, "uncaughtException", err);
+	/**
+	 * DT-15: shared trip-breaker logic for `uncaughtException` and
+	 * `unhandledRejection`. Both event types share the same counter
+	 * (REVIEW-12 alignment — a rejected promise leaves the app in
+	 * the same half-broken state as an uncaught exception: the
+	 * caller's `await` never resolves, locks may be held, state may
+	 * be inconsistent) and the same exit-cleanup sequence
+	 * (G4-H-24 + PVT-G5-006). Only the log file path + the kind
+	 * label differ — those are passed in so the helper can route
+	 * the log line + dialog message correctly.
+	 *
+	 * Behaviour (mirrors the original `onUncaught` / `onRejection`):
+	 *   1. `console.error("[VT] <kind>:", err)` — surface on stderr.
+	 *   2. `logEvent(logPath, kind, err)` — append to the per-kind
+	 *      log file (CR-9: rotates independently).
+	 *   3. `bumpCount()` — increment + sliding-window reset
+	 *      (REVIEW-9). On trip (`>= MAX_UNCAUGHT`):
+	 *      a. `console.error` the trip message (with " (rejection)"
+	 *         suffix for `unhandledRejection` to preserve the
+	 *         original wording).
+	 *      b. `dialog.showErrorBox(...)` with the kind's log path.
+	 *      c. `stopPython()` + `clearElectronPidFile()` — inline
+	 *         defensive cleanup so the breaker doesn't orphan the
+	 *         Python backend (microphone, global hotkeys, volume
+	 *         duck, single-instance mutex). Best-effort — these are
+	 *         wrapped in try/catch internally, but we double-guard
+	 *         here so a throw in either cannot block the exit. The
+	 *         same defensive cleanup applies if a test injects an
+	 *         `exit` mock that bypasses `_productionExit`.
+	 *      d. `exit(1)`.
+	 */
+	const tripBreaker = (
+		logPath: string,
+		kind: "uncaughtException" | "unhandledRejection",
+		err: unknown,
+	): void => {
+		const suffix = kind === "unhandledRejection" ? " (rejection)" : "";
+		console.error(`[VT] ${kind}:`, err);
+		logEvent(logPath, kind, err);
 		if (bumpCount()) {
 			console.error(
-				`[VT] ${uncaughtCount} uncaught errors — exiting to avoid zombie state`,
+				`[VT] ${uncaughtCount} uncaught errors${suffix} — exiting to avoid zombie state`,
 			);
 			try {
 				dialog.showErrorBox(
 					mainT("dialog.criticalError.title"),
 					mainT("dialog.criticalError.body", {
 						count: uncaughtCount,
-						logPath: crashLogPath,
+						logPath,
 					}),
 				);
 			} catch {
 				// dialog may not be available in headless mode
 			}
-			// G4-H-24: inline-call stopPython + clearElectronPidFile
-			// before exit so the breaker doesn't orphan the
-			// Python backend. Best-effort — these are wrapped in
-			// try/catch internally (see stop-python.ts and
-			// single_instance.ts), but we double-guard here so
-			// a throw in either cannot block the exit.
-			//
-			// PVT-G5-006 (R6-F7): the same defensive cleanup
-			// applies if the test injects an `exit` mock that
-			// bypasses `_productionExit` — without this call,
-			// the Python backend (microphone, global hotkeys,
-			// volume duck, single-instance mutex) would be
-			// leaked across the breaker trip.
 			try {
 				stopPython();
 			} catch (e) {
-				console.error("[VT] stopPython() failed during breaker exit:", e);
+				console.error(
+					`[VT] stopPython() failed during breaker exit${suffix}:`,
+					e,
+				);
 			}
 			try {
 				clearElectronPidFile();
 			} catch (e) {
 				console.error(
-					"[VT] clearElectronPidFile() failed during breaker exit:",
+					`[VT] clearElectronPidFile() failed during breaker exit${suffix}:`,
 					e,
 				);
 			}
@@ -310,49 +336,10 @@ export function _installErrorHandlers(opts: {
 		}
 	};
 
-	const onRejection = (err: unknown) => {
-		console.error("[VT] unhandledRejection:", err);
-		logEvent(rejectionLogPath, "unhandledRejection", err);
-		// REVIEW-12 alignment: a rejected promise leaves the app
-		// in the same half-broken state as an uncaught exception
-		// (the caller's `await` never resolves, locks may be held,
-		// state may be inconsistent). Count it toward the breaker.
-		if (bumpCount()) {
-			console.error(
-				`[VT] ${uncaughtCount} uncaught errors (rejection) — exiting to avoid zombie state`,
-			);
-			try {
-				dialog.showErrorBox(
-					mainT("dialog.criticalError.title"),
-					mainT("dialog.criticalError.body", {
-						count: uncaughtCount,
-						logPath: rejectionLogPath,
-					}),
-				);
-			} catch {
-				// dialog may not be available in headless mode
-			}
-			// G4-H-24 + PVT-G5-006: same defensive stopPython +
-			// clearElectronPidFile as the uncaughtException branch.
-			try {
-				stopPython();
-			} catch (e) {
-				console.error(
-					"[VT] stopPython() failed during breaker exit (rejection):",
-					e,
-				);
-			}
-			try {
-				clearElectronPidFile();
-			} catch (e) {
-				console.error(
-					"[VT] clearElectronPidFile() failed during breaker exit (rejection):",
-					e,
-				);
-			}
-			exit(1);
-		}
-	};
+	const onUncaught = (err: unknown) =>
+		tripBreaker(crashLogPath, "uncaughtException", err);
+	const onRejection = (err: unknown) =>
+		tripBreaker(rejectionLogPath, "unhandledRejection", err);
 
 	process.on("uncaughtException", onUncaught);
 	process.on("unhandledRejection", onRejection);

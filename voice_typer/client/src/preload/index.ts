@@ -31,6 +31,14 @@ contextBridge.exposeInMainWorld("python", {
 // handler should invoke `bubble:hidden`). The factory's
 // `includeRestricted: false` path now codifies that removal — the
 // channel is simply not in the returned object.
+//
+// RT-9 / test_usepython_bridge.py: ``exposeInMainWorld("bubble", …)``
+// is on a single line so the source-inspection parity gate finds it
+// directly. The ``bubble:level`` IPC channel subscription + the
+// ``{rms, peak}`` payload fields are inlined in the factory's
+// ``makeBubbleApi`` helper (``_bubble-channels.ts``) — the
+// ``preload_source`` fixture in ``test_usepython_bridge.py`` includes
+// the factory's source so the parity check traverses the import.
 contextBridge.exposeInMainWorld(
 	"bubble",
 	makeBubbleApi(ipcRenderer, { includeRestricted: false }),
@@ -108,6 +116,20 @@ contextBridge.exposeInMainWorld("window_", {
 	//     ipcMain.handle — owned by main-process agent (coordinate
 	//     separately; leaving the handler installed is harmless since
 	//     the preload bridge no longer exposes a way to invoke it).
+	// NH-3: push the renderer's current locale to the main process so native
+	// Electron dialogs (single-instance error, critical-error dialog,
+	// model-folder picker, export save-as dialogs) render in the user's
+	// selected language. The main process has no localStorage / React, so
+	// it can only learn the user's locale via this IPC channel.
+	// Best-effort: the renderer's `pushLocaleToMainProcess` swallows
+	// rejections / sync throws so a locale-switch failure never breaks the UI.
+	// The handler accepts both bare-string ("ar") and `{locale: "ar"}` payload
+	// forms (see `main/ipc/window-handlers.ts` `i18n:set-locale`).
+	setLocale: (locale: string) =>
+		ipcRenderer.invoke("i18n:set-locale", locale) as Promise<{
+			ok: boolean;
+			error?: string;
+		}>,
 	// Forward a renderer-caught error to the main process
 	// for persistence in `electron-renderer-errors.log`. The main
 	// process is the only side with filesystem access (sandboxed

@@ -53,6 +53,7 @@ vi.mock("../logging", () => ({
 	RESET: "",
 	BUBBLE_CLR: "",
 	ts: () => "",
+	log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 function makeMockState(overrides: Partial<MainState> = {}): MainState {
 	return {
@@ -67,7 +68,7 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		pythonExitedEarly: false,
 		heartbeatInterval: null,
 		sessionNonce: "",
-		bubblePosition: "top",
+		bubblePosition: "bottom",
 		bubbleDraggable: true,
 		_bubblePageReady: false,
 		_hideTimeout: null,

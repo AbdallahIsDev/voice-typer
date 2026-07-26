@@ -16,7 +16,7 @@
  * The BrowserWindow's `moved` event persists the user's last drag
  * position to module-level state (`savedBubblePos`); on the next
  * `showBubbleWindow()` we restore those coordinates instead of
- * re-centering. A `set_bubble_position` IPC (top/bottom toggle from
+ * re-centering. A `bubble:set-position` IPC (top/bottom toggle from
  * the Settings page) resets the saved position so the new edge
  * default takes effect. In-session persistence only — durable
  * persistence to the Python config is a follow-up (config.py is out
@@ -25,49 +25,19 @@
 import path from "node:path";
 import { BrowserWindow, dialog, ipcMain, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
-import { BUBBLE_CLR, cleanConsoleMsg, RESET } from "../logging";
+// DT-13: converted from defensive `require("../logging")` to a static
+// ESM import — the previous try/catch + console.* fallback was added
+// to tolerate minimal test mocks, but the real logging module is now
+// always present and the test mocks have been updated to expose `log`.
+import { BUBBLE_CLR, cleanConsoleMsg, log, RESET } from "../logging";
 import { state } from "../state";
 import { recordBubbleRenderCrash } from "./main-window";
-
-// PVT-G5-080: structured logger. Resolved defensively via `require()`
-// so unit-test environments that mock `../logging` minimally (without
-// the new `log` export, e.g. bubble-window-fallback.test.ts) still
-// pass — `require()` returns the mocked module, `.log` is undefined,
-// and we fall back to the legacy console.* pattern. In production the
-// real `log` is used (with stdout + electron-runtime.log file tee).
-type _LogShape = {
-	info: (...a: unknown[]) => void;
-	warn: (...a: unknown[]) => void;
-	error: (...a: unknown[]) => void;
-};
-const log: _LogShape = (() => {
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-		const mod = require("../logging") as unknown as {
-			log?: _LogShape;
-		};
-		if (mod.log) return mod.log;
-	} catch (e) {
-		// ignore — fall through to fallback. `require()` may fail in
-		// bundlers that strip the dynamic require; the fallback logger
-		// below is sufficient for those environments.
-		console.warn(
-			"[bubble-window] structured logger require failed, using fallback:",
-			e,
-		);
-	}
-	return {
-		info: (...args: unknown[]) => console.log(...args),
-		warn: (...args: unknown[]) => console.warn(...args),
-		error: (...args: unknown[]) => console.error(...args),
-	};
-})();
 
 // PVT-068: in-session persistence of the bubble's last user-positioned
 // coordinates. `null` means "no saved position — use the default
 // center-on-active-display placement". Updated by the BrowserWindow
 // `moved` event (see createBubbleWindow) and cleared by the
-// `set_bubble_position` IPC handler (see bubble-handlers.ts) so a
+// `bubble:set-position` IPC handler (see bubble-handlers.ts) so a
 // top/bottom toggle re-centers instead of stranding the bubble at the
 // old y coordinate.
 let savedBubblePos: { x: number; y: number } | null = null;
@@ -75,11 +45,46 @@ let savedBubblePos: { x: number; y: number } | null = null;
 /**
  * PVT-068: reset the saved bubble position so the next
  * `showBubbleWindow()` falls back to the default placement. Called by
- * the `set_bubble_position` IPC handler when the user toggles between
+ * the `bubble:set-position` IPC handler when the user toggles between
  * top/bottom in Settings.
  */
 export function resetSavedBubblePosition(): void {
 	savedBubblePos = null;
+}
+
+/**
+ * XA-6-5: validate a candidate bubble position against the current
+ * set of displays' work areas. Returns true if the position's top-left
+ * corner lies inside at least one display's work area. Used by the
+ * `moved` handler to skip saving stale coordinates from a window that
+ * ended up off-screen (e.g. after a monitor unplug) and by
+ * `showBubbleWindow` to discard a saved position whose display no
+ * longer exists.
+ *
+ * Best-effort: if `screen.getAllDisplays()` throws (headless test
+ * environment), return true so the caller falls back to the existing
+ * "save whatever the OS gave us" behavior.
+ */
+function isPositionOnAnyDisplay(pos: { x: number; y: number }): boolean {
+	try {
+		const displays = screen.getAllDisplays();
+		for (const d of displays) {
+			const wa = d.workArea;
+			if (
+				pos.x >= wa.x &&
+				pos.x < wa.x + wa.width &&
+				pos.y >= wa.y &&
+				pos.y < wa.y + wa.height
+			) {
+				return true;
+			}
+		}
+		return false;
+	} catch {
+		// Headless / no screen — be permissive so tests that mock
+		// `screen` minimally don't break.
+		return true;
+	}
 }
 
 /**
@@ -91,18 +96,14 @@ export function getSavedBubblePosition(): { x: number; y: number } | null {
 	return savedBubblePos;
 }
 
-// PVT-013 (Python-config sync): the Python config defaults
-// `bubble_position` to "bottom". The Electron `state.ts` default is
-// "top" (legacy, pre-Python-config). Override once at module load so
-// the bubble appears at the bottom by default, matching the Python
-// config. Subsequent `set_bubble_position` IPC updates from the
-// renderer (Settings page) take precedence and are persisted to Python
-// config. This is a one-shot override: once any handler writes
-// `state.bubblePosition = "top"` (explicit user choice), the value is
-// no longer the default and this guard won't flip it back.
-if (state.bubblePosition === "top") {
-	state.bubblePosition = "bottom";
-}
+// XA-6-20: the Electron `state.ts` default for `bubblePosition` now
+// matches the Python config default ("bottom"). Previously the
+// Electron default was "top" and this module flipped it to "bottom"
+// at module load — a fragile one-shot override that masked the
+// inconsistency. The canonical default now lives in `state.ts`; the
+// runtime override block has been removed so `state.bubblePosition`
+// always reflects the last explicit user choice (or the canonical
+// default on first run).
 
 // SEC-025: helper that detects whether the foreground window is in
 // exclusive fullscreen mode. Returns false if detection fails (we err
@@ -202,7 +203,13 @@ export function createBubbleWindow(): BrowserWindow {
 	// PVT-068: use the multi-monitor-aware placement for the initial
 	// position so the bubble appears on the screen the user is currently
 	// on, not always the primary display.
-	const { x, y } = savedBubblePos ?? centerOnActiveDisplay();
+	// XA-6-5: discard a saved position that no longer lies on any
+	// currently-attached display (monitor-unplug safety).
+	const initialPos =
+		savedBubblePos && isPositionOnAnyDisplay(savedBubblePos)
+			? savedBubblePos
+			: centerOnActiveDisplay();
+	const { x, y } = initialPos;
 	// PVT-G5-080: routine lifecycle event — log.info (not console.warn).
 	log.info(
 		`${BUBBLE_CLR}[BUBBLE]${RESET} creating window at (${x}, ${y}) ${BUBBLE_WIDTH}x${BUBBLE_HEIGHT}`,
@@ -370,21 +377,87 @@ export function createBubbleWindow(): BrowserWindow {
 	// `showBubbleWindow()` restores it instead of re-centering. The
 	// `moved` event fires after the user finishes dragging the
 	// always-on-top pill (the pill uses a CSS `-webkit-app-region: drag`
-	// region so Electron handles the drag natively). We skip positions
-	// that are off-screen (defensive — shouldn't happen, but a
-	// multi-monitor unplug could leave stale coords).
+	// region so Electron handles the drag natively). XA-6-5: skip
+	// positions that are off-screen (defensive — a multi-monitor unplug
+	// could leave the window stranded on a display that no longer
+	// exists; saving those coords would make the bubble invisible on
+	// the next show).
 	win.on("moved", () => {
 		try {
 			if (win.isDestroyed()) return;
 			const [px, py] = win.getPosition();
-			savedBubblePos = { x: px, y: py };
+			const candidate = { x: px, y: py };
+			if (!isPositionOnAnyDisplay(candidate)) {
+				// Window ended up off-screen — don't poison the saved
+				// state. The next `showBubbleWindow()` will fall back
+				// to `centerOnActiveDisplay()`.
+				savedBubblePos = null;
+				return;
+			}
+			savedBubblePos = candidate;
 		} catch (e) {
 			// Best-effort — ignore read failures (e.g. window destroyed
 			// mid-event between the isDestroyed() check and getPosition()).
 			log.warn(`${BUBBLE_CLR}[BUBBLE]${RESET} 'moved' getPosition failed:`, e);
 		}
 	});
+
+	// XA-6-5: when a display is removed (monitor unplug / display
+	// reconfiguration), invalidate the saved bubble position so the
+	// next `showBubbleWindow()` re-centers on a display that still
+	// exists. Without this, the bubble would re-appear at the saved
+	// coordinates — which may now be off-screen if the saved display
+	// was the one that got unplugged — and the user would have no way
+	// to interact with it (the bubble is `focusable: false`).
+	//
+	// `removeAllListeners` first ensures we don't accumulate duplicate
+	// listeners across bubble window re-creations (the bubble window is
+	// destroyed + re-created on render-process-gone).
+	try {
+		screen.removeAllListeners("display-removed");
+	} catch {
+		// removeAllListeners can throw in test environments where
+		// `screen` is partially mocked — non-fatal.
+	}
+	screen.on("display-removed", () => {
+		savedBubblePos = null;
+		log.info(
+			`${BUBBLE_CLR}[BUBBLE]${RESET} display-removed: cleared saved bubble position`,
+		);
+	});
 	return win;
+}
+
+/**
+ * Notify the bubble BrowserWindow's renderer that the active locale changed
+ * so its separate JS context can re-render in the new locale without a full
+ * reload. Best-effort: no-op if the bubble window is not yet created, already
+ * destroyed, or its webContents is not yet ready.
+ *
+ * Called from `i18n:set-locale` IPC handler in `window-handlers.ts` after the
+ * main-process locale bundle has been updated via `setMainLocale`.
+ */
+export function notifyBubbleLocaleChanged(locale: string): void {
+	if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) {
+		// Bubble not yet created (early startup) or already torn down.
+		// The locale will be applied when the bubble is next created via
+		// the preload-injected initial locale.
+		return;
+	}
+	try {
+		if (!state.bubbleWindow.webContents) {
+			return;
+		}
+		state.bubbleWindow.webContents.send("bubble:locale-changed", locale);
+	} catch (e) {
+		// Best-effort — webContents may be in a transitional state
+		// (e.g. mid-navigation). The renderer will pick up the new locale
+		// on its next mount via the main-process locale getter.
+		log.warn(
+			`${BUBBLE_CLR}[BUBBLE]${RESET} notifyBubbleLocaleChanged failed:`,
+			e,
+		);
+	}
 }
 
 export function showBubbleWindow(): void {
@@ -424,7 +497,18 @@ export function showBubbleWindow(): void {
 	// `centerOnPrimaryDisplay()`, which stranded the bubble on the
 	// primary screen when the user was working on a secondary monitor
 	// AND blew away the user's last drag position on every show.
-	const c = savedBubblePos ?? centerOnActiveDisplay();
+	//
+	// XA-6-5: discard the saved position if it no longer lies on any
+	// currently-attached display (the saved display may have been
+	// unplugged since the position was saved). The `display-removed`
+	// listener also clears it on unplug, but this is the defensive
+	// second line for the case where the app was offline during the
+	// unplug event.
+	const savedPos =
+		savedBubblePos && isPositionOnAnyDisplay(savedBubblePos)
+			? savedBubblePos
+			: null;
+	const c = savedPos ?? centerOnActiveDisplay();
 	win.setBounds({ x: c.x, y: c.y, width: BUBBLE_WIDTH, height: BUBBLE_HEIGHT });
 
 	try {

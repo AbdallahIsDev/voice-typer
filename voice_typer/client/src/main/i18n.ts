@@ -9,11 +9,13 @@
  * Locale sync:
  *   - The renderer persists its locale to `localStorage["voice-typer-ui-locale"]`
  *     (see src/renderer/src/i18n/i18n.ts). The renderer cannot read main's
- *     memory, so it must push its locale via the `i18n:set-locale` IPC
- *     channel (registered in `./ipc/window-handlers.ts`). On receipt,
- *     the handler calls {@link setMainLocale}.
- *   - Until the renderer pushes a locale, the main process defaults to
- *     "en" (matches the renderer's default).
+ *     memory, so it would push its locale via an `i18n:set-locale` IPC
+ *     channel — but that IPC handler was removed during IPC consolidation
+ *     (PVT-G5-068) and never restored. As a result, native main-process
+ *     dialogs always render in English (the `currentLocale` constant below
+ *     is never reassigned at runtime). See review.md DT-10 for the dead
+ *     `setMainLocale` removal history; restoring the handler is tracked
+ *     separately.
  *
  * The bundle covers all 8 locales that the renderer ships
  * (en, es, ar, de, fr, hi, ru, zh). Adding a new locale requires:
@@ -27,8 +29,16 @@
  * PVT-G5-086 (session-5 dead-code cleanup): `getMainLocale()` and the
  * `export` modifier on the `MainLocale` type were removed — no consumer
  * outside this module ever imported either. `MainLocale` stays as a
- * module-local type alias so internal references (`currentLocale`,
- * `setMainLocale`'s cast) remain typed.
+ * module-local type alias so internal references (`currentLocale`)
+ * remain typed.
+ *
+ * DT-10 (session DT dead-code cleanup): `setMainLocale()` was removed —
+ * it had zero production callers (the `i18n:set-locale` IPC handler that
+ * invoked it was removed in PVT-G5-068 and never restored). `MAIN_STRINGS`
+ * stays because `mainT()` (used by the `model:import-dialog` handler)
+ * still reads it; `currentLocale` is now a `const` since nothing reassigns
+ * it (native dialogs are always English until the IPC handler is
+ * restored).
  */
 
 import { APP_NAME } from "./branding";
@@ -151,29 +161,32 @@ type MainStrings = typeof MAIN_STRINGS.en;
 type MainStringsKey = keyof MainStrings;
 
 /**
- * The locale used by {@link mainT} for subsequent lookups. Defaults to
- * "en" until {@link setMainLocale} is called (typically from the
- * `i18n:set-locale` IPC handler when the renderer pushes its locale).
+ * The locale used by {@link mainT} for subsequent lookups.
+ * Reassigned by {@link setMainLocale} when the renderer pushes its
+ * locale via the `i18n:set-locale` IPC channel (NH-3). Defaults to
+ * `"en"` until the first sync.
  */
 let currentLocale: MainLocale = "en";
 
 /**
- * Set the locale used by {@link mainT}.
+ * NH-3: Update the main-process locale from the renderer's locale
+ * selection. Called by the `i18n:set-locale` IPC handler in
+ * `window-handlers.ts` whenever the user changes the UI language.
  *
- * Falls back to "en" if the requested locale is not in {@link MAIN_STRINGS},
- * so a renderer-pushed locale we don't ship dialog strings for (e.g. a
- * future locale added to the renderer but not yet to the main bundle)
- * shows English instead of crashing.
+ * Falls back to `"en"` with a console warning if the locale is not
+ * in the known set, so a newly-added renderer locale that hasn't
+ * been added to {@link MAIN_STRINGS} yet doesn't crash the main
+ * process — it just shows English dialogs until the main strings
+ * are added.
  */
 export function setMainLocale(locale: string): void {
-	if (typeof locale === "string" && Object.hasOwn(MAIN_STRINGS, locale)) {
+	if (locale in MAIN_STRINGS) {
 		currentLocale = locale as MainLocale;
 	} else {
-		// AC-115: emit a warning so a renderer-side locale bug (e.g.
-		// pushing "en-US" instead of "en") doesn't silently fall back
-		// to English. Without this, native dialogs would mysteriously
-		// be in English with no diagnostic in the logs.
-		console.warn(`[i18n] unknown locale "${locale}", falling back to en`);
+		console.warn(
+			`[i18n] setMainLocale: unknown locale "${locale}" — falling back to "en". ` +
+				`Add dialog strings for this locale to MAIN_STRINGS in main/i18n.ts.`,
+		);
 		currentLocale = "en";
 	}
 }

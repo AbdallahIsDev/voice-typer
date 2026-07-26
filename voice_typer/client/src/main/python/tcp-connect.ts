@@ -203,7 +203,25 @@ export function tcpConnect(port: number): void {
 					}
 					handleMessage(msg as Record<string, unknown>);
 				} catch {
-					console.error("Invalid JSON from Python:", line);
+					// XZ-PII-04: never log the raw
+					// TCP line — invalid-JSON lines
+					// may contain transcription_final
+					// events with user speech (PII).
+					// Log only the length and, when
+					// VOICE_TYPER_DEBUG is explicitly
+					// enabled, a redacted preview
+					// (first 80 chars with control
+					// chars stripped) so a developer
+					// can still triage framing bugs.
+					console.error(
+						"[TCP] invalid JSON from Python, skipping line (len=%d)",
+						line.length,
+					);
+					if (process.env.VOICE_TYPER_DEBUG === "1") {
+						// biome-ignore lint/suspicious/noControlCharactersInRegex: intentional — strip control chars for safe console preview
+						const preview = line.slice(0, 80).replace(/[\x00-\x1f\x7f]/g, "?");
+						console.error("[TCP] invalid JSON preview: %s", preview);
+					}
 				}
 			}
 		});

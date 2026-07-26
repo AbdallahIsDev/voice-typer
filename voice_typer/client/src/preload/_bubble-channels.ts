@@ -23,7 +23,7 @@
 //   - bubble:level            (renderer ← main, level stream)
 //   - bubble:show-from-renderer (renderer → main, request show)
 //   - bubble:ready            (renderer → main, signal ready)
-//   - set_bubble_position     (renderer → main, top/bottom)
+//   - bubble:set-position    (renderer → main, top/bottom)
 //   - bubble:draggable        (both directions — send + on)
 //   - bubble:show             (renderer ← main, enter animation)
 //   - bubble:hide             (renderer ← main, exit animation)
@@ -152,7 +152,7 @@ export function makeBubbleApi(
 			ipc.send("bubble:ready");
 		},
 		setPosition: (position: "top" | "bottom") => {
-			ipc.send("set_bubble_position", position);
+			ipc.send("bubble:set-position", position);
 		},
 		setDraggable: (draggable: boolean) => {
 			ipc.send("bubble:draggable", draggable);

@@ -110,8 +110,6 @@ export function startPython() {
 	});
 	state.pythonProcess = proc;
 
-	// Record the spawned Python PID so the stale-killer doesn't kill it.
-	(globalThis as { __myPyPid?: number }).__myPyPid = proc.pid;
 	console.warn(`spawned Python backend (PID=${proc.pid})`);
 
 	// Connect via TCP (will retry until Python's TCP server is ready).

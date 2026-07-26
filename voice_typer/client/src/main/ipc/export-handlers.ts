@@ -91,6 +91,95 @@ function csvEscape(v: unknown): string {
 	return `"${s.replace(/"/g, '""')}"`;
 }
 
+/**
+ * Atomic file write helper for the Electron-side export IPC paths.
+ *
+ * Writes `content` to a sibling temp file (`<filePath>.tmp`) first,
+ * then renames the temp file into place. POSIX `rename(2)` is atomic
+ * (the destination is either the OLD file or the NEW file, never a
+ * truncated half). On Windows where `fs.renameSync` refuses to
+ * overwrite an existing destination, unlink the destination first
+ * (mirrors the pattern at `logging.ts:rotateIfNeeded` lines 246-252).
+ *
+ * The user-picked destination may be on a network drive, USB stick, or
+ * sync-client-watched folder (Dropbox/OneDrive). A non-atomic
+ * `fs.writeFileSync(filePath, ...)` truncates the destination first,
+ * so a crash or disk-full mid-write leaves a partial CSV/JSON that
+ * opens but is missing rows. The temp-then-rename pattern guarantees
+ * the destination is either the prior file or the new file (never a
+ * truncated half).
+ *
+ * Mirrors the Rust host's `crate::migrate::atomic_write_bytes` (used
+ * by `src-tauri/src/commands/export.rs:export_data`) and the Python
+ * backend's `_secure_atomic_write`. Three-language parity for the
+ * user-data export path (history, vocabulary, templates, config).
+ *
+ * Exported so unit tests can exercise it directly without going
+ * through the Electron-coupled `registerExportHandlers`.
+ *
+ * @param filePath Absolute destination path.
+ * @param content  String or Buffer to write.
+ * @param encoding Encoding used when `content` is a string (default
+ *                 `"utf-8"`). Ignored for Buffer content.
+ */
+export function atomicWriteFileSync(
+	filePath: string,
+	content: string | Buffer,
+	encoding: BufferEncoding = "utf-8",
+): void {
+	// The temp file is a sibling (same directory) so the
+	// rename(2) syscall stays within the same filesystem — cross-
+	// device renames fall back to copy+delete, which is non-atomic
+	// but still strictly better than truncate-in-place (the copy
+	// either completes or it doesn't; the destination is not
+	// modified mid-copy).
+	const tmpPath = `${filePath}.tmp`;
+	if (typeof content === "string") {
+		fs.writeFileSync(tmpPath, content, encoding);
+	} else {
+		fs.writeFileSync(tmpPath, content);
+	}
+	// POSIX `rename(2)` overwrites the destination atomically.
+	// Windows `MoveFileEx` refuses to overwrite an existing
+	// destination unless `MOVEFILE_REPLACE_EXISTING` is set,
+	// which Node's `fs.renameSync` does NOT set. Unlink the
+	// destination first on Windows so the rename succeeds.
+	if (process.platform === "win32") {
+		try {
+			fs.unlinkSync(filePath);
+		} catch (e) {
+			const code = (e as NodeJS.ErrnoException).code;
+			if (code !== "ENOENT") {
+				try {
+					fs.unlinkSync(tmpPath);
+				} catch {
+					/* best-effort cleanup */
+				}
+				throw e;
+			}
+		}
+	}
+	try {
+		fs.renameSync(tmpPath, filePath);
+	} catch (e) {
+		try {
+			fs.unlinkSync(tmpPath);
+		} catch {
+			/* best-effort cleanup */
+		}
+		throw e;
+	}
+}
+
+/**
+ * Build the temp path used by `atomicWriteFileSync`. Exposed for
+ * unit tests so they can predict the temp file's location without
+ * duplicating the suffix-derivation logic.
+ */
+export function _atomicWriteTempPath(filePath: string): string {
+	return `${filePath}.tmp`;
+}
+
 export function registerExportHandlers(): void {
 	// ── History export ──────────────────────────────────────────────
 	ipcMain.handle(
@@ -142,9 +231,13 @@ export function registerExportHandlers(): void {
 							.map((v) => csvEscape(v))
 							.join(","),
 					);
-					fs.writeFileSync(filePath, [header, ...csvRows].join("\n"), "utf-8");
+					atomicWriteFileSync(
+						filePath,
+						[header, ...csvRows].join("\n"),
+						"utf-8",
+					);
 				} else {
-					fs.writeFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
+					atomicWriteFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
 				}
 				return { success: true, path: filePath };
 			} catch (e: unknown) {
@@ -204,9 +297,13 @@ export function registerExportHandlers(): void {
 							`${csvEscape(entry.original ?? "")},${csvEscape(entry.correction ?? "")}`,
 						);
 					}
-					fs.writeFileSync(filePath, csvRows.join("\n"), "utf-8");
+					atomicWriteFileSync(filePath, csvRows.join("\n"), "utf-8");
 				} else {
-					fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), "utf-8");
+					atomicWriteFileSync(
+						filePath,
+						JSON.stringify(entries, null, 2),
+						"utf-8",
+					);
 				}
 				return { success: true, path: filePath };
 			} catch (e: unknown) {
@@ -249,7 +346,7 @@ export function registerExportHandlers(): void {
 
 				if (canceled || !filePath) return { success: false };
 
-				fs.writeFileSync(
+				atomicWriteFileSync(
 					filePath,
 					JSON.stringify(templatesData, null, 2),
 					"utf-8",
@@ -306,7 +403,7 @@ export function registerExportHandlers(): void {
 
 				if (canceled || !filePath) return { success: false };
 
-				fs.writeFileSync(filePath, serialized, "utf-8");
+				atomicWriteFileSync(filePath, serialized, "utf-8");
 				return { success: true, path: filePath };
 			} catch (e: unknown) {
 				return { success: false, error: (e as Error).message };

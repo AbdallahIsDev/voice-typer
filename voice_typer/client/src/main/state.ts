@@ -97,7 +97,7 @@ export interface MainState {
 	heartbeatInterval: ReturnType<typeof setInterval> | null;
 	/** SEC-029 per-session nonce tagged onto every python-event so the renderer can reject replays. */
 	sessionNonce: string;
-	/** Bubble screen position preference ("top" | "bottom"), synced from renderer via set_bubble_position. */
+	/** Bubble screen position preference ("top" | "bottom"), synced from renderer via bubble:set-position. */
 	bubblePosition: "top" | "bottom";
 	/** Config-driven toggle for whether the bubble pill is draggable. Synced to the bubble renderer. */
 	bubbleDraggable: boolean;
@@ -135,7 +135,7 @@ export const state: MainState = {
 	pythonExitedEarly: false,
 	heartbeatInterval: null,
 	sessionNonce: "",
-	bubblePosition: "top",
+	bubblePosition: "bottom",
 	bubbleDraggable: true,
 	_hideTimeout: null,
 	_tcpRetryCount: 0,

@@ -7,9 +7,9 @@
  *   - bubble:resize — fit pill content exactly (clamped to min/max)
  *   - bubble:show-from-renderer — show from the bubble's own UI
  *   - bubble:set-position — top/bottom config (synced to bubble renderer)
- *     (Channel-rename: `set_bubble_position` was renamed to
- *     `bubble:set-position`; legacy listener kept as a backward-compat
- *     shim until preload files are migrated.)
+ *     (Channel-rename: previously `set_bubble_position` (snake_case);
+ *     migrated to `bubble:set-position` to match the bubble:* convention.
+ *     The legacy listener was removed once the preload files were migrated.)
  *   - bubble:ready — renderer readiness signal
  *
  * SEC-016: `assertFromBubble()` rejects IPC messages not coming from the
@@ -18,41 +18,18 @@
  */
 import { ipcMain, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
+// DT-13: converted from defensive `require("../logging")` to a static
+// ESM import — the previous try/catch + console.* fallback was added
+// to tolerate minimal test mocks, but the real logging module is now
+// always present and the test mocks have been updated to expose `log`.
+import { log } from "../logging";
 import { sendToPython } from "../python";
 import { state } from "../state";
-import { centerOnPrimaryDisplay, showBubbleWindow } from "../windows";
-
-// AC-108: structured logger. Resolved defensively via `require()` so
-// unit-test environments that mock `../logging` minimally (without
-// the `log` export) still pass — `require()` returns the mocked
-// module, `.log` is undefined, and we fall back to the legacy
-// `console.*` pattern. In production the real `log` is used (with
-// stdout + electron-runtime.log file tee).
-let log: {
-	info: (...args: unknown[]) => void;
-	warn: (...args: unknown[]) => void;
-	error: (...args: unknown[]) => void;
-};
-try {
-	// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-	log = require("../logging").log;
-} catch {
-	log = {
-		info: (...args: unknown[]) => console.info("[BUBBLE]", ...args),
-		warn: (...args: unknown[]) => console.warn("[BUBBLE]", ...args),
-		error: (...args: unknown[]) => console.error("[BUBBLE]", ...args),
-	};
-}
-// Defense-in-depth: if `require("../logging")` succeeded but returned a
-// module object without `.log` (e.g. a minimal test mock), fall back to
-// the console.* pattern so the warn calls below never crash.
-if (!log) {
-	log = {
-		info: (...args: unknown[]) => console.info("[BUBBLE]", ...args),
-		warn: (...args: unknown[]) => console.warn("[BUBBLE]", ...args),
-		error: (...args: unknown[]) => console.error("[BUBBLE]", ...args),
-	};
-}
+import {
+	centerOnActiveDisplay,
+	resetSavedBubblePosition,
+	showBubbleWindow,
+} from "../windows/bubble-window";
 
 // Bubble resize bounds: min/max resize constraints for the bubble pill. The
 // renderer's auto-resize useLayoutEffect measures the pill content and
@@ -227,36 +204,33 @@ export function registerBubbleHandlers(): void {
 	// (snake_case) to `bubble:set-position` (matching the `bubble:*`
 	// kebab-case convention used by every other bubble IPC channel:
 	// `bubble:draggable`, `bubble:show-from-renderer`,
-	// `bubble:toggle-dictation`, `bubble:ready`). The new channel is
-	// the canonical name; a backward-compat listener on the legacy
-	// `set_bubble_position` name keeps preload files that haven't
-	// been migrated yet working (Fix-A owns `src/preload/*`; once
-	// both preload files are updated to send on
-	// `bubble:set-position`, the legacy listener can be removed).
+	// `bubble:toggle-dictation`, `bubble:ready`). The migration is
+	// complete: both preload files (`src/preload/index.ts`,
+	// `src/preload/bubble.ts`) now send on `bubble:set-position`.
+	// The legacy `set_bubble_position` listener was removed once the
+	// preload files stopped sending on it.
 	//
 	// Position is a config value that BOTH the main window (Settings
 	// page, via window.bubble.setPosition) and the bubble renderer need
 	// to sync, so it is NOT restricted to the bubble frame.  It is a
 	// benign enum ('top' | 'bottom'), not a hijack vector.
 	//
-	// NOTE (merge): a prior refactor intended to clear a saved
-	// bubble position and re-center on the active display here. The
-	// supporting helpers (`resetSavedBubblePosition` /
-	// `centerOnActiveDisplay`) were never added to
-	// `windows/bubble-window.ts` (or to `state`), so the change
-	// would not compile. We keep the base behavior (center on the
-	// primary display via `centerOnPrimaryDisplay`) until those
-	// helpers are introduced.
+	// XA-6-4: when the user toggles top/bottom, the previous saved
+	// drag position is no longer meaningful (its Y coordinate was
+	// computed against the OTHER edge). Reset it and re-center on the
+	// display the user is currently on (multi-monitor aware) instead
+	// of always stranding the bubble on the primary display.
 	const applyBubblePosition = (position: "top" | "bottom") => {
 		if (position === "top" || position === "bottom") {
 			state.bubblePosition = position;
+			resetSavedBubblePosition();
 			// If the bubble window is visible, reposition it immediately.
 			if (
 				state.bubbleWindow &&
 				!state.bubbleWindow.isDestroyed() &&
 				state.bubbleWindow.isVisible()
 			) {
-				const c = centerOnPrimaryDisplay();
+				const c = centerOnActiveDisplay();
 				state.bubbleWindow.setBounds({
 					x: c.x,
 					y: c.y,
@@ -269,26 +243,6 @@ export function registerBubbleHandlers(): void {
 
 	// Canonical channel (kebab-case `bubble:*` convention).
 	ipcMain.on("bubble:set-position", (_event, position: "top" | "bottom") => {
-		applyBubblePosition(position);
-	});
-
-	// Legacy snake_case channel — DEPRECATED. Retained as a
-	// backward-compat shim so preload files (`src/preload/index.ts`,
-	// `src/preload/bubble.ts`) that still send on `set_bubble_position`
-	// keep working until Fix-A's preload migration. Emits a one-shot
-	// deprecation warning so the migration is observable in dev logs
-	// (the warning is throttled via a module-level flag to avoid log
-	// spam on every position toggle).
-	let _legacySetBubblePositionWarned = false;
-	ipcMain.on("set_bubble_position", (_event, position: "top" | "bottom") => {
-		if (!_legacySetBubblePositionWarned) {
-			_legacySetBubblePositionWarned = true;
-			log.warn(
-				"[BUBBLE] received IPC on deprecated 'set_bubble_position' channel — " +
-					"preload files should migrate to 'bubble:set-position' (channel-rename). " +
-					"This warning fires once per session.",
-			);
-		}
 		applyBubblePosition(position);
 	});
 

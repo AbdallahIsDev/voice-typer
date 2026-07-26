@@ -15,83 +15,25 @@
 import path from "node:path";
 import { app, BrowserWindow, dialog, Menu, nativeTheme } from "electron";
 import { START_HIDDEN } from "../constants";
-import { cleanConsoleMsg, RENDERER_CLR, RESET } from "../logging";
+import {
+	appendLogLine,
+	cleanConsoleMsg,
+	log,
+	RENDERER_CLR,
+	RESET,
+	rendererErrorsLogPath,
+} from "../logging";
 import { state } from "../state";
-
-// Structured logger: resolved defensively via `require()`
-// so unit-test environments that mock `../logging` minimally (without
-// the new `log` export, e.g. main-window-native-theme.test.ts) still
-// pass — `require()` returns the mocked module, `.log` is undefined,
-// and we fall back to the legacy console.* pattern. In production the
-// real `log` is used (with stdout + electron-runtime.log file tee).
-type _LogShape = {
-	info: (...a: unknown[]) => void;
-	warn: (...a: unknown[]) => void;
-	error: (...a: unknown[]) => void;
-};
-const log: _LogShape = (() => {
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-		const mod = require("../logging") as unknown as {
-			log?: _LogShape;
-		};
-		if (mod.log) return mod.log;
-	} catch (e) {
-		// ignore — fall through to fallback. `require()` may fail in
-		// bundlers that strip the dynamic require; the fallback logger
-		// below is sufficient for those environments.
-		console.warn(
-			"[main-window] structured logger require failed, using fallback:",
-			e,
-		);
-	}
-	return {
-		info: (...args: unknown[]) => console.log(...args),
-		warn: (...args: unknown[]) => console.warn(...args),
-		error: (...args: unknown[]) => console.error(...args),
-	};
-})();
-
-// Defensive resolution of the renderer-error persistence
-// helpers from logging.ts additions. Resolved via
-// `require()` so this file compiles whether or not the merged
-// logging.ts keeps the `appendLogLine` / `rendererErrorsLogPath`
-// exports. When unavailable, `appendRendererError` is a no-op.
-type _AppendLogLine = (filePath: string, line: string) => void;
-type _RendererErrorsLogPath = () => string;
-const _appendLogLine: _AppendLogLine | null = (() => {
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-		const mod = require("../logging") as unknown as {
-			appendLogLine?: _AppendLogLine;
-		};
-		return mod.appendLogLine ?? null;
-	} catch {
-		return null;
-	}
-})();
-const _rendererErrorsLogPath: _RendererErrorsLogPath | null = (() => {
-	try {
-		// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
-		const mod = require("../logging") as unknown as {
-			rendererErrorsLogPath?: _RendererErrorsLogPath;
-		};
-		return mod.rendererErrorsLogPath ?? null;
-	} catch {
-		return null;
-	}
-})();
 
 /**
  * Renderer-error persistence: persist a renderer-error line to
- * `electron-renderer-errors.log` (when the logging helpers are
- * available). Best-effort: silently no-ops if the helpers aren't
- * merged into the final logging.ts.
+ * `electron-renderer-errors.log`. Best-effort: any I/O error is
+ * swallowed — logging must never break the renderer console
+ * forwarding path.
  */
 function appendRendererError(line: string): void {
-	if (!_appendLogLine || !_rendererErrorsLogPath) return;
 	try {
-		_appendLogLine(_rendererErrorsLogPath(), line);
+		appendLogLine(rendererErrorsLogPath(), line);
 	} catch (e) {
 		// Best-effort: a logging failure must not cascade into a runtime
 		// failure of the calling code. The console.warn keeps the failure
