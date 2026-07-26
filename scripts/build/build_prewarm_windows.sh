@@ -169,6 +169,8 @@ echo "[build_prewarm_windows] Running Nuitka..."
     --nofollow-import-to=torch._functorch \
     --nofollow-import-to=scipy._lib.cobyqa \
     --nofollow-import-to=scipy._lib.array_api_extra.testing \
+    --nofollow-import-to=sympy \
+    --nofollow-import-to=mpmath \
     --include-package=faster_whisper \
     --include-package=ctranslate2 \
     --include-package=voice_typer \
