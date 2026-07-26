@@ -17,6 +17,16 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
+# CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
+from voice_typer.server import crash_handler as _crash_handler
+
+# Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
+# and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
+from voice_typer.server import (
+    i18n,  # NF-R16-1: server-side i18n for tray notifications
+    task_scheduler,
+)
+
 # numpy was eagerly imported at module top but never used directly in
 # this module. The eager import added ~250-335ms cumulative to every
 # cold start because numpy performs heavy C-extension initialization at
@@ -31,18 +41,6 @@ from typing import TYPE_CHECKING, Any, Optional
 # ``np.ndarray`` annotation in this file stays as an unevaluated string
 # (PEP 563) and does NOT trigger the eager import we just eliminated.
 from voice_typer.server._lazy_import import lazy_module
-
-np = lazy_module("numpy")
-
-# CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
-from voice_typer.server import crash_handler as _crash_handler
-
-# Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
-# and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
-from voice_typer.server import (
-    i18n,  # NF-R16-1: server-side i18n for tray notifications
-    task_scheduler,
-)
 
 # SEC-001: restart token functions moved to voice_typer.server.security
 # COMPAT-001: backward-compat re-export for tests/test_pii_redaction.py
@@ -97,6 +95,8 @@ from voice_typer.server.transcription import TranscriptionEngine
 from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.volume_ducker import VolumeDucker
 from voice_typer.server.waveform import WaveformBubble
+
+np = lazy_module("numpy")
 
 if TYPE_CHECKING:
     # TASK-14: imported only for type annotations on ``_template_manager``
@@ -282,6 +282,32 @@ class VoiceTyperApp:
         # restart_app()'s non-main-thread branch can arm the watchdog
         # without re-importing the constant.
         self._shutdown_watchdog_timeout_s: float = SHUTDOWN_WATCHDOG_TIMEOUT_S
+
+        # DT-25 (Phase 4.5 spaghetti split): restart / quit /
+        # relaunch-ack lifecycle extracted to LifecycleController. The
+        # app keeps thin delegate methods (``restart_app``,
+        # ``_wait_for_relaunch_ack``, ``quit_app``) so tray menu
+        # callbacks (quit_app -> self.quit(), restart_app ->
+        # self._do_cleanup()) and tests calling ``app.restart_app()``
+        # / ``app.quit_app()`` directly keep working unchanged.
+        # ``restart_app`` keeps the re-entry guard inline so the
+        # source-level invariant pinned by
+        # ``tests/test_app_cleanup.py::test_restart_app_guard_is_first_statement_in_method``
+        # keeps holding; the rest of the body lives in
+        # ``LifecycleController.restart_app``.
+        from voice_typer.server.app_lifecycle import LifecycleController
+
+        self.lifecycle: LifecycleController = LifecycleController(self)
+
+        # DT-25: undo / repaste side effects extracted to
+        # UndoRepasteController. The app keeps thin delegate methods
+        # (``undo_last``, ``repaste_last``) so tray menu callbacks, the
+        # repaste hotkey backend's callback, and tests calling
+        # ``app.undo_last()`` / ``app.repaste_last()`` directly keep
+        # working unchanged.
+        from voice_typer.server.app_undo import UndoRepasteController
+
+        self.undo: UndoRepasteController = UndoRepasteController(self)
 
         # RW-9 Phase 7: audio-quality side-effects extracted to
         # AudioQualityController. The app keeps thin delegate methods so
@@ -591,17 +617,17 @@ class VoiceTyperApp:
         """#2 delegate to RecordingController.start()."""
         self.recording.start()
 
-    def _on_audio_quality_chunk(self, *a, **kw):
+    def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """RW-9 Phase 7: delegate to AudioQualityController."""
-        return self.audio_quality._on_audio_quality_chunk(*a, **kw)
+        return self.audio_quality._on_audio_quality_chunk(rms, peak)
 
-    def _rebuild_audio_processor(self, *a, **kw):
+    def _rebuild_audio_processor(self, force_sr: int | None = None) -> None:
         """RW-9 Phase 7: delegate to AudioQualityController."""
-        return self.audio_quality._rebuild_audio_processor(*a, **kw)
+        return self.audio_quality._rebuild_audio_processor(force_sr=force_sr)
 
-    def _finalize_audio_quality_report(self, *a, **kw):
+    def _finalize_audio_quality_report(self, audio: np.ndarray) -> None:
         """RW-9 Phase 7: delegate to AudioQualityController."""
-        return self.audio_quality._finalize_audio_quality_report(*a, **kw)
+        return self.audio_quality._finalize_audio_quality_report(audio)
 
     def _stop_dictation(self):
         """Stop recording and transcribe in background.
@@ -639,170 +665,20 @@ class VoiceTyperApp:
     def repaste_last(self) -> None:
         """Feature: Repaste last transcription (tray menu + hotkey).
 
-        ADR-0010 §7.1 / DP6 / DP4.
-
-        Reads from ``history_db.get_latest_text()`` (primary — survives
-        app restart), falling back to ``self._last_transcription`` if
-        the DB read fails. Uses the same snapshot/restore mechanism as
-        auto-paste so the user's clipboard is preserved.
-
-        ``paste(force=True)`` bypasses the ``paste_enabled`` gate (§2.12)
-        so a manual repaste works regardless of the auto-paste
-        (``paste_on_stop``) setting.
-
-        ERR-018: previously a single try/except collapsed clipboard-copy
-        failures and paste-keystroke failures into one generic toast.
-        We now split them so the user knows which step failed.
-
-        Fallback chain:
-          1. ``history_db.get_latest_text()``  (primary — survives restart)
-          2. ``self._last_transcription``        (fallback if DB read fails)
-          3. "No previous transcription" toast  (both empty)
+        DT-25 (Phase 4.5): body extracted to
+        :meth:`voice_typer.server.app_undo.UndoRepasteController.repaste_last`.
+        Behaviour preserved verbatim — only the class boundary moved.
         """
-        # ① READ FROM DB (primary — survives restart)
-        text = ""
-        try:
-            text = self.history_db.get_latest_text()
-        except Exception as e:
-            log.warning("[REPASTE] DB read failed, falling back to memory: %s", e)
-            text = self._last_transcription
-
-        if not text:
-            # i18n key for localized notification.
-            self.tray.notify(APP_NAME, i18n.t("notify.app.repaste_no_previous"))
-            return
-
-        # ② COPY (snapshot + empty + pyperclip.copy + verify).
-        # copy() returns None when save/restore is disabled; it raises
-        # ClipboardCopyError only on a genuine copy failure.
-        snapshot = None
-        try:
-            snapshot = self.clipboard.copy(text)
-            pasted_seq = self.clipboard._clipboard_seq
-        except ClipboardCopyError as e:
-            log.warning("[REPASTE] Clipboard copy failed: %s", e)
-            # i18n key for localized notification.
-            self.tray.notify(
-                APP_NAME,
-                i18n.t("notify.app.repaste_copy_failed"),
-            )
-            return
-
-        # ③ PASTE (keystroke + delayed restore scheduled inside paste()).
-        # paste() schedules the restore of the user's ORIGINAL clipboard
-        # at its top, before any early return (DP1). It returns False
-        # (does not raise) when the keystroke is skipped/blocked/rate-
-        # limited — and the restore is still scheduled. We therefore do
-        # NOT call restore_now() here: that would be redundant and would
-        # remove the transcription from the clipboard. The transcription
-        # is safely stored in the DB. ``force=True`` bypasses the
-        # ``paste_enabled`` gate (§2.12) so a manual repaste works
-        # regardless of the auto-paste (``paste_on_stop``) setting.
-        # pasted_seq is threaded per-request (CRIT-3) so a concurrent
-        # copy() can't clobber the seq validated in paste().
-        pasted = self.clipboard.paste(snapshot, pasted_text=text, force=True, pasted_seq=pasted_seq)
-        if pasted:
-            log.info("[REPASTE] Repasted transcription (%d chars)", len(text))
-            # Use the i18n key so the tray notification renders in the
-            # user's selected UI locale.
-            self.tray.notify(APP_NAME, i18n.t("notify.app.repaste_done"))
-        else:
-            log.warning("[REPASTE] Paste keystroke was skipped/blocked")
-            self.tray.notify(
-                APP_NAME,
-                i18n.t("notify.app.repaste_blocked"),
-            )
+        return self.undo.repaste_last()
 
     def undo_last(self) -> None:
         """UX-003: Undo last transcription by sending backspace keystrokes.
 
-        Sends one backspace per character in the last transcription.
-        Works by simulating keyboard input via the hotkey backend's
-        keyboard controller (pynput on all platforms).
-
-        CR-016 (IMPROVE-mode run, 2026-07-21): count grapheme clusters
-        (not Unicode code points) so emoji and combining-character
-        sequences are deleted with a single backspace (matching the
-        OS's grapheme-level delete behavior). Pre-fix, ``len(text)`` returned
-        14 for ``"Hello \U0001f468\u200d\U0001f469\u200d\U0001f467 world"``
-        (1 grapheme = 5 code points ZWJ-joined) but the OS only needs 11
-        backspaces — the extra 3 deleted the user's PREVIOUS text.
-
-        CR-017 (IMPROVE-mode run, 2026-07-21): check keyboard_ownership
-        before sending backspaces (mirror ``_cancel_dictation``). Pre-fix,
-        if the frontend HotkeyPicker was in capture mode, the backspaces
-        landed in the capture field instead of undoing the transcription.
+        DT-25 (Phase 4.5): body extracted to
+        :meth:`voice_typer.server.app_undo.UndoRepasteController.undo_last`.
+        Behaviour preserved verbatim — only the class boundary moved.
         """
-        # CR-017: keyboard-ownership check — mirror _cancel_dictation.
-        try:
-            from voice_typer.server.keyboard_ownership import keyboard_ownership
-
-            if keyboard_ownership().is_hotkey_capture_active():
-                log.debug("[UNDO] skipping undo — frontend hotkey capture active")
-                return
-        except Exception:
-            log.debug("[UNDO] keyboard ownership check failed", exc_info=True)
-        if not self._last_transcription:
-            self.tray.notify(APP_NAME, i18n.t("notify.app.undo_nothing"))
-            return
-        text = self._last_transcription
-        # CR-016: count grapheme clusters using the regex library (already
-        # in deps for text_cleanup.py). ``\X`` matches a single user-perceived
-        # grapheme (handles ZWJ emoji, combining marks, etc.).
-        try:
-            import regex as _regex
-
-            char_count = len(_regex.findall(r"\X", text))
-        except ImportError:
-            # Fallback: code-point count (pre-CR-016 behavior — buggy for
-            # multi-code-point graphemes but at least doesn't crash).
-            char_count = len(text)
-        log.info("[UNDO] Undoing last transcription (%d chars)", char_count)
-        try:
-            # CR-016 (cont.): use ``import pynput.keyboard as _pk_keyboard``
-            # + ``_pk_keyboard.Controller()`` (module-attribute access at
-            # call time) rather than ``from pynput.keyboard import Controller``
-            # (which binds the name at import time). Both are functionally
-            # identical in production, but the module-attribute form makes
-            # the existing test mock setup work: tests do
-            # ``pk.Controller = MagicMock(return_value=kb_instance)`` AFTER
-            # the autouse fixture installs the ``pynput.keyboard`` MagicMock,
-            # and the module-attribute access picks up that late assignment
-            # while the ``from`` import may bind to the auto-generated
-            # MagicMock child before the test's override lands.
-            import pynput.keyboard as _pk_keyboard
-
-            kb = _pk_keyboard.Controller()
-            # Select all text in the current field first (Ctrl+A), then
-            # Delete — this is more reliable than sending N backspaces
-            # because it handles multi-line text and doesn't leave
-            # partial characters.
-            # However, Ctrl+A selects ALL text in the field, which may
-            # be more than just our transcription.  So we send N
-            # backspaces instead — this is the standard "undo paste"
-            # behavior.
-            #
-            # APP-6: batch backspaces into chunks of ``_undo_chunk_size``
-            # (10) with a 10ms ``time.sleep(0.01)`` between chunks so we
-            # don't flood the OS keyboard event queue on long
-            # transcriptions (>200 chars). Without rate limiting,
-            # pynput can drop keystrokes silently. The sleep is omitted
-            # after the final (possibly partial) chunk — there's no
-            # subsequent chunk to space it from.
-            _undo_chunk_size = 10
-            for _i in range(char_count):
-                kb.press("\x08")  # Backspace
-                kb.release("\x08")
-                if (_i + 1) % _undo_chunk_size == 0 and (_i + 1) < char_count:
-                    time.sleep(0.01)
-            self._last_transcription = ""
-            self.tray.notify(APP_NAME, i18n.t("notify.app.undo_done", char_count=char_count))
-        except ImportError:
-            log.warning("[UNDO] pynput not available for undo")
-            self.tray.notify(APP_NAME, i18n.t("notify.app.undo_no_pynput"))
-        except Exception as e:
-            log.warning("[UNDO] Failed: %s", e)
-            self.tray.notify(APP_NAME, i18n.t("notify.app.undo_failed", error=e))
+        return self.undo.undo_last()
 
     def _cancel_dictation(self):
         """#2 delegate to RecordingController.cancel().
@@ -896,365 +772,62 @@ class VoiceTyperApp:
     def quit_app(self) -> None:
         """TrayController protocol: quit the app.
 
-        RELIABILITY-001: previously this method duplicated cleanup
-        inline and ended with ``os._exit(0)`` because ``_wrap`` in
-        ``tray.py`` swallowed ``SystemExit``, preventing the audited
-        ``self.quit()`` path from terminating the process.  ``os._exit``
-        skips Python atexit handlers, ``__del__`` methods, and
-        ``finally`` blocks — leaking the Win32 named mutex, leaving
-        PortAudio mic handles open, and not unregistering
-        ``RegisterHotKey`` registrations.
+        DT-25 (Phase 4.5): body extracted to
+        :meth:`voice_typer.server.app_lifecycle.LifecycleController.quit_app`.
+        Behaviour preserved verbatim — only the class boundary moved.
 
-        Now that ``_wrap`` suppresses ``SystemExit`` (see ERR-QUIT-002
-        fix in ``tray.py`` — ``tray.stop()`` inside ``quit()`` already
-        breaks the pystray loop, so re-raising just caused pystray to
-        print a noisy traceback), we delegate to ``self.quit()`` which
-        does the full cleanup (cancel timers, signal streaming cancel,
-        discard recorder, join transcription thread, stop all three
-        hotkey backends, ``self.tray.stop()`` to break the pystray
-        loop, close devnull FDs, ``sys.exit(0)``).
-
-        Before cleanup, pushes a ``quit_app`` event over the TCP channel
-        so the Electron frontend knows to call ``app.quit()`` and shut
-        down cleanly (instead of being left orphaned with no backend).
-
-        APP-10 (F-06): the ``event_bus.publish({"type": "quit_app"})``
-        call MUST come BEFORE the ``if self._shutting_down:`` re-entry
-        guard. Pre-fix, the guard sat at the top of the method and a
-        double-quit (e.g. user clicks the tray Quit item twice, or
-        SIGTERM races with the tray quit) silently dropped the second
-        push — leaving Electron with no shutdown signal if the first
-        push was lost in a TCP race. The fix pushes unconditionally on
-        every call and only guards the actual ``self.quit()`` call so
-        cleanup isn't run twice.
+        Preserved invariants (now in the controller):
+        - RELIABILITY-001: cleanup runs via ``self.quit()`` (the
+          audited ``SystemExit`` path) — never ``os._exit(0)``.
+        - APP-10 / DE-49: ``event_bus.publish({"type": "quit_app"})``
+          runs BEFORE the ``if self._shutting_down:`` re-entry guard
+          so a double-quit still pushes the event. (Historically the
+          guard was the plain ``if self._shutting_down:`` form; DE-49
+          migrated to the threading.Event version
+          ``if self._shutting_down_event.is_set():`` for cross-thread
+          memory ordering.)
         """
-        log.info("[QUIT] Quitting %s", APP_NAME)
-
-        # Item 12: If recording, discard the recording before quitting
-        # so we don't leave the mic open or lose the in-flight audio.
-        try:
-            if self.recorder and self.recorder.recording:
-                log.info("[QUIT] Recording in progress — discarding before quit")
-                self.recorder.discard()
-        except Exception:
-            log.debug("[QUIT] Could not discard recording", exc_info=True)
-
-        # 0. Notify Electron frontend over TCP so it can quit cleanly.
-        # APP-10: this MUST run BEFORE the _shutting_down guard so a
-        # double-quit still pushes the event (the first push may have
-        # been lost in a TCP race; the second push is the safety net).
-        from voice_typer.server import event_bus
-
-        event_bus.publish({"type": "quit_app"})
-
-        # APP-10: re-entry guard sits AFTER the push so the quit event
-        # is always published, even on a double-quit. Only the actual
-        # ``self.quit()`` cleanup is skipped on the second call.
-        # DE-49: use _shutting_down_event.is_set() for cross-thread memory
-        # ordering (the threading.Event version provides acquire/release
-        # semantics — the plain boolean has no such guarantee).
-        if self._shutting_down_event.is_set():
-            log.debug("[QUIT] Already shutting down, ignoring duplicate quit_app call")
-            return
-
-        # 1. Delegate to the audited cleanup path.  self.quit() raises
-        #    SystemExit(0) at the end; _wrap re-raises it, and pystray
-        #    unwinds because self.tray.stop() was called inside quit().
-        self.quit()
+        return self.lifecycle.quit_app()
 
     def restart_app(self) -> None:
         """TrayController protocol: restart the app.
 
-        Sends a ``relaunch_electron`` event to Electron over the active
-        TCP channel, then exits the current instance via the clean
-        ``sys.exit(0)`` path.  Electron's handler calls
-        ``app.relaunch()`` + ``app.exit(0)``, which spawns a fresh
-        Electron process (which in turn spawns a fresh Python backend).
-        If the ``relaunch_electron`` event is lost (TCP race),
-        Electron's ``pythonProcess.on("exit")`` handler sees exit code
-        0 and triggers the same relaunch as a fallback — see
-        ``client/src/main/index.ts``.
+        DT-25 (Phase 4.5): body extracted to
+        :meth:`voice_typer.server.app_lifecycle.LifecycleController.restart_app`.
 
-        CR-013 (IMPROVE-mode run, 2026-07-21): re-entry guard at the
-        top — mirror ``quit_app``. Pre-fix, a double-clicked tray
-        "Restart" item or a tray restart racing with SIGTERM-triggered
-        quit would push duplicate ``relaunch_electron`` events, re-acquire
-        ``_config_mutation_lock`` for a second ``config.save()``, re-enter
-        ``_do_cleanup()``, and fire a second ``sys.exit(0)`` while the
-        first call's finally blocks were still draining.
-
-        CR-014 (same run): pass ``APP_NAME`` as the format argument to
-        ``log.info("[RESTART] Restarting %s...", APP_NAME)``. Pre-fix,
-        the ``%s`` placeholder was never substituted, producing a literal
-        ``[RESTART] Restarting %s...`` log line.
+        Preserved invariants (now in the controller):
+        - APP-2: ``log.info("[RESTART] Restarting %s...", APP_NAME)``.
+        - DE-47: ``try:`` wraps ``self.config.save()`` so an unexpected
+          raise (e.g. RecursionError from a cyclic dataclass) does not
+          abort the restart — the ``except Exception:`` block logs
+          ``log.warning("config.save() raised", exc_info=True)``.
+        - APP-11: the redundant ``_restore_volume(fade_ms=0)`` call
+          was removed — ``_do_cleanup`` (now reached via
+          ``self.lifecycle.restart_app`` -> ``self._do_cleanup``) handles
+          the restore via the shared ShutdownController body.
+        - RW-3 / HIGH-36 / GT-43: ``self._thread_registry.shutdown_all()``
+          -> ``self._do_cleanup()`` -> main-thread ``sys.exit(0)`` (or
+          non-main-thread GT-43 watchdog fallback).
         """
-        # CR-013: re-entry guard.
-        # DE-49: use _shutting_down_event.is_set() for cross-thread memory
-        # ordering (the threading.Event version provides acquire/release
-        # semantics — the plain boolean has no such guarantee).
+        # APP-1 / DE-49: re-entry guard (must be the first executable
+        # statement — see
+        # tests/test_app_cleanup.py::test_restart_app_guard_is_first_statement_in_method).
+        # The rest of the body lives in LifecycleController.restart_app;
+        # the controller mirrors this guard (idempotent) so it is safe
+        # for direct calls from future code.
         if self._shutting_down_event.is_set():
             log.debug("[RESTART] ignoring duplicate restart_app call (already shutting down)")
             return
-        # CR-014: pass APP_NAME as the format argument.
-        log.info("[RESTART] Restarting %s...", APP_NAME)
-
-        # ── THEME-RESTART-FIX: save the config before push ───────────
-        # Save any pending in-memory config changes (e.g. a theme preset
-        # change that was set via `set_config` but whose save completed
-        # while the user navigated to the tray menu) to disk before the
-        # restart sequence begins.  This ensures the new Python process
-        # loads the latest config, preventing the theme from reverting
-        # to default after a restart.
-        # DE-47: wrap in try/except so an unexpected exception from
-        # save() (e.g. RecursionError from asdict on a cyclic dataclass)
-        # does not abort the restart sequence — the user's "Restart"
-        # tray click must still work.
-        try:
-            save_ok = self.config.save()
-        except Exception:
-            log.warning("[RESTART] config.save() raised", exc_info=True)
-        else:
-            if not save_ok:
-                log.warning("[RESTART] config.save() before push failed")
-
-        # ── CRITICAL ORDERING FIX ────────────────────────────────────
-        #
-        # _push_event_now() MUST be called BEFORE _shutting_down is set
-        # to True.  The _send() method in ipc_server.py checks
-        # _shutting_down and if True, closes the TCP socket WITHOUT
-        # writing the event — silently dropping it.  This was the root
-        # cause of the "restart does nothing" bug: the relaunch_electron
-        # event was never received by Electron, so _relaunching stayed
-        # false, and the fallback exit handler also failed because the
-        # Python process never actually exited (SystemExit was caught
-        # by wrap_callback without tray.stop() breaking the loop).
-        #
-        # 1. Push relaunch_app BEFORE marking _shutting_down.
-        # PVT-2 cleanup (this change): the published event name is now
-        # ``relaunch_app`` directly (no longer ``relaunch_electron``).
-        # The Rust WS bridge no longer renames it (the rename arm in
-        # ws.rs was dropped); main.rs listens for ``relaunch_app`` and
-        # calls ``app.restart()``.
-        from voice_typer.server import event_bus
-
-        try:
-            event_bus.publish({"type": "relaunch_app"})
-            log.info("[RESTART] relaunch_app pushed to host via event_bus")
-        except Exception as e:
-            log.warning("[RESTART] failed to push relaunch_app: %s", e)
-
-        # 2. NOW mark as shutting down, restore volume, and wait (event-driven)
-        #    for Electron to process the relaunch event before we close the
-        #    socket.  PERF-005: replaced the fixed time.sleep(0.3) with a
-        #    bounded wait on the ``relaunch_ack`` event that Electron sets when
-        #    it receives ``relaunch_electron``.  This unblocks the (tray)
-        #    calling thread as soon as Electron acks, instead of always
-        #    blocking 300ms; if no ack arrives (e.g. Electron already gone),
-        #    we fall back to the original 300ms pause so behaviour is unchanged.
-        self._shutting_down = True
-        # RACE-020: also set the Event version so executor tasks can
-        # check it (matches quit()'s shutdown signaling — important now
-        # that restart_app() shares the same _do_cleanup() body).
-        self._shutting_down_event.set()
-        # CR-018 (IMPROVE-mode run, 2026-07-21): the redundant
-        # ``self._restore_volume(fade_ms=0)`` call that lived here was
-        # deleted — ``_do_cleanup()`` (invoked further down via
-        # ``ShutdownController._do_cleanup``) already invokes the
-        # volume-restore path. Pre-fix, the double-restore wasted ~10ms
-        # and produced confusing log noise (two "volume restored" lines
-        # per restart). If the volume backend isn't reentrant, the second
-        # call could see a stale "ducked" state and re-apply the duck.
-        # CR-64: encapsulated the IPCServer's private
-        # ``_relaunch_ack_event`` access in ``_wait_for_relaunch_ack``
-        # so the backwards coupling (VoiceTyperApp reaching INTO the
-        # IPCServer's private state) is at least named and easy to
-        # migrate.  The helper now delegates to the public
-        # ``IPCServer.wait_for_relaunch_ack`` wrapper so app.py no
-        # longer reaches into ``_relaunch_ack_event`` private state.
-        # Lowered from 2.0s to 0.5s: the host acks in <100ms when it
-        # works (Tauri ``main.rs``'s ``tokio::time::sleep(10ms)`` before
-        # ``app.restart()``); 2.0s was the wrong ceiling — the worst
-        # case is the host-is-dead case where waiting accomplishes
-        # nothing and blocks the tray callback thread. 500ms is
-        # generous for the happy path and bounds the dead-host stall
-        # at 4× shorter. ``_wait_for_relaunch_ack`` itself
-        # short-circuits to a 0ms wait when no IPC server is attached
-        # OR no live WS dispatch pool is bound (see the helper below)
-        # so the 500ms ceiling only applies when there's actually
-        # someone to ack.
-        self._wait_for_relaunch_ack(timeout=0.5)
-
-        # 3. RW-3: run the SAME audited cleanup as quit() — flushes
-        #    history_db and _crash_recovery (so no pending writes are
-        #    silently lost on restart), stops recorder + mic watcher
-        #    (so PortAudio streams don't leak across the restart), stops
-        #    all three hotkey backends + the bubble level worker,
-        #    terminates any Electron subprocess we spawned, releases
-        #    the single-instance mutex + PID file, and closes devnull
-        #    streams.
-        #
-        #    Previously restart_app() did only a PARTIAL cleanup
-        #    (timers + hotkeys + tray) and skipped the rest, leaking
-        #    PortAudio streams / the Win32 mutex / the mic watcher
-        #    daemon thread and silently losing pending history_db +
-        #    crash_recovery writes on EVERY restart. The
-        #    _atexit_cleanup safety net couldn't pick up the slack
-        #    because its _shutting_down guard short-circuited as soon
-        #    as restart_app() set _shutting_down = True above.
-        #    Extracting the shared _do_cleanup() body fixes both bugs.
-        #
-        #    HIGH-36 / XCUT-1: mirror quit()'s ordering by running
-        #    ``self._thread_registry.shutdown_all()`` BEFORE
-        #    ``_do_cleanup()``. The registry's centralized
-        #    signal-and-join (per-thread stop_event + join-with-timeout)
-        #    must run on the restart path too — otherwise the
-        #    bubble-level-pusher and any other registered daemon threads
-        #    never receive their stop signal and are only cleaned up
-        #    implicitly when the process exits. The per-site shutdown
-        #    methods inside ``_do_cleanup()`` are idempotent safety
-        #    nets, but they don't cover every registered thread (e.g.
-        #    future additions registered only with the registry).
-        #    ``shutdown_all()`` is itself idempotent, so a subsequent
-        #    call from ``_atexit_cleanup()`` is a no-op.
-        try:
-            self._thread_registry.shutdown_all()
-        except Exception:
-            log.warning(
-                "[RESTART] thread_registry.shutdown_all failed",
-                exc_info=True,
-            )
-        self._do_cleanup()
-
-        # 4. Exit cleanly — electron will relaunch us.
-        # CR-17: mirror ShutdownController.quit()'s threading-aware exit.
-        # restart_app is invoked from the tray menu callback, which runs
-        # on pystray's worker thread (NOT the main thread). When
-        # sys.exit(0) is called from a non-main thread, CPython raises
-        # SystemExit in THAT thread only — the process does not exit.
-        # The tray's _wrap callback wrapper suppresses SystemExit, so
-        # the sys.exit(0) is silently swallowed and the process lingers
-        # for up to ~1s (holding the single-instance mutex / IPC port)
-        # until tray.stop() (called inside _do_cleanup above) breaks
-        # the pystray loop and app.start() returns. On the main thread,
-        # sys.exit(0) works normally. The conditional mirrors quit()'s
-        # pattern at shutdown_controller.py:464,497-498.
-        #
-        # GT-43: if restart_app() is running on a non-main thread (the
-        # common case — pystray tray menu callback), arm the same
-        # shutdown watchdog ``quit()`` uses. If ``tray.stop()`` (called
-        # inside ``_do_cleanup`` above) failed to break the pystray
-        # loop and the main thread is still parked in ``tray.run()``
-        # after ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` seconds, the watchdog
-        # calls ``os._exit(0)`` to unblock the process. Without this,
-        # a hung pystray backend leaves the old process unkillable
-        # after a Restart click — and the new process can't claim the
-        # single-instance mutex / IPC port, so the restart silently
-        # fails. The watchdog is a daemon thread, so it never blocks
-        # the normal exit path (if the main thread returns from
-        # ``tray.run()`` promptly, the process exits and the daemon
-        # is killed).
-        is_main_thread = threading.current_thread() is threading.main_thread()
-        if not is_main_thread:
-            try:
-                self.shutdown._arm_shutdown_watchdog(self._shutdown_watchdog_timeout_s)
-            except Exception:
-                log.debug(
-                    "[RESTART] GT-43: failed to arm shutdown watchdog",
-                    exc_info=True,
-                )
-        log.info("[RESTART] Old process exiting via sys.exit(0)")
-        if is_main_thread:
-            sys.exit(0)
-        # else: rely on tray.stop() (called inside _do_cleanup) to
-        # break the pystray loop so app.start() returns and
-        # ipc_server.main() falls through to process exit. If that
-        # doesn't happen within SHUTDOWN_WATCHDOG_TIMEOUT_S seconds,
-        # the GT-43 watchdog will call os._exit(0) as a last resort.
+        return self.lifecycle.restart_app()
 
     def _wait_for_relaunch_ack(self, timeout: float) -> bool:
-        """Wait for the host to ack the ``relaunch_app`` event.
+        """DT-25 (Phase 4.5): delegate to LifecycleController.
 
-        Delegates to the IPCServer's public
-        ``wait_for_relaunch_ack(timeout)`` wrapper so this module no
-        longer reaches into ``_relaunch_ack_event`` private state.
-        The wrapper clears the event before waiting (preserving the
-        stale-ack guard) and returns ``True``/``False`` on ack /
-        timeout — same contract as the previous inline ``wait``.
-
-        The previous implementation always blocked for 300ms
-        (``time.sleep(0.3)``) when no IPC server / no ack event was
-        attached, and ``restart_app`` waited up to 2.0s for the ack.
-        Both timeouts penalised the dead-host case (host already gone,
-        WS torn down, IPC server absent) where waiting accomplishes
-        nothing — the tray callback thread just sits in a sleep while
-        the IPC dispatch gate rejects all new requests for the same
-        window. This helper now:
-
-        1. Skips the wait entirely (0ms) when ``self._ipc_server`` is
-           ``None`` (early restart, no IPC wired yet) — no IPC server
-           means no one is listening for the ``relaunch_app`` event.
-        2. Otherwise delegates to ``ipc_server.wait_for_relaunch_ack``
-           which itself short-circuits to 0ms when the IPC server has
-           no live WS dispatch pool, no ``_relaunch_ack_event``
-           attribute, or the wait times out within ``timeout``
-           seconds (``restart_app`` now passes ``0.5`` — was ``2.0``).
-
-        Parameters
-        ----------
-        timeout :
-            Maximum seconds to wait for the host's ack. Callers now
-            pass ``0.5`` (was ``2.0``).
-
-        Returns
-        -------
-        bool
-            ``True`` if the ack event was signalled within ``timeout``;
-            ``False`` if no IPCServer is attached, no live WS dispatch
-            pool is bound, the IPCServer has no ``_relaunch_ack_event``
-            attribute (e.g. a test double), or the wait timed out.
-            Callers today ignore the return value (the original inline
-            code didn't return one either) — the contract is preserved
-            for future use.
+        Body extracted to
+        :meth:`voice_typer.server.app_lifecycle.LifecycleController._wait_for_relaunch_ack`.
+        Behaviour preserved verbatim — only the class boundary moved.
         """
-        ipc_server = self._ipc_server
-        # Short-circuit when no IPC server is attached. No IPC server
-        # means no one is listening for the ``relaunch_app`` event —
-        # waiting (the old ``time.sleep(0.3)`` fallback) just blocks
-        # the tray callback thread for nothing. The previous 300ms
-        # pause was a belt-and-suspenders fallback for the case where
-        # the host might still observe the relaunch intent via the
-        # ``pythonProcess.on("exit")`` handler — but that handler
-        # triggers on PROCESS EXIT, not on a 300ms sleep, so the sleep
-        # was pure waste.
-        if ipc_server is None:
-            log.debug("[RESTART] No IPC server attached; skipping relaunch_ack wait")
-            return False
-        log.info(
-            "[RESTART] Waiting for relaunch_ack from host (timeout %.3fs)",
-            timeout,
-        )
-        acked = False
-        # Delegate to the IPC server's ack-wait primitive, but tolerate
-        # test doubles / standalone modes that don't expose the public
-        # ``wait_for_relaunch_ack`` method or the ``_relaunch_ack_event``
-        # attribute. The defensive ``getattr`` lookups preserve the
-        # CR-64 encapsulation while not breaking tests that swap in a
-        # minimal fake server.
-        if not hasattr(ipc_server, "wait_for_relaunch_ack"):
-            ack_event = getattr(ipc_server, "_relaunch_ack_event", None)
-            if ack_event is None:
-                log.debug("[RESTART] IPC server has no relaunch_ack event; skipping wait")
-                return False
-            ack_event.clear()
-            acked = ack_event.wait(timeout=timeout)
-        else:
-            acked = ipc_server.wait_for_relaunch_ack(timeout=timeout)
-        if not acked:
-            log.debug(
-                "[RESTART] relaunch_ack timed out after %.3fs — host may be dead or slow; proceeding with cleanup",
-                timeout,
-            )
-        return acked
+        return self.lifecycle._wait_for_relaunch_ack(timeout)
 
     # DEAD-008: the following 6 TrayController protocol methods were
     # removed because no IPC route, tray menu item, or UI invoked them:
