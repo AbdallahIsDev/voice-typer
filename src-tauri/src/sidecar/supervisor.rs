@@ -1,4 +1,11 @@
-//! Sidecar supervisor: respawn + bubble-level coalesce (ADR-0020 §9 + §10).
+//! Sidecar supervisor: respawn + backoff (ADR-0020 §10).
+//!
+//! DT-53: the bubble-level coalesce predicate that previously lived here
+//! (`bubble_coalesce_should_emit` at line 474) has been moved to its own
+//! `sidecar/bubble_coalesce.rs` module. It was called only from
+//! `sidecar/ws.rs:599` (never from supervisor.rs itself) — a pure UI-
+//! rate-limiting predicate with nothing to do with sidecar supervision.
+//! This module now owns ONLY respawn / backoff / restart-counter logic.
 //! Previously named `supervisor.rs` — the old name was an opaque internal task ID.
 
 use crate::state::SidecarState;
@@ -22,7 +29,7 @@ use std::panic::AssertUnwindSafe;
 use futures_util::FutureExt;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::json;
 use tauri::Emitter;
 
@@ -459,35 +466,21 @@ pub(crate) async fn respawn_inner(
     app.restart();
 }
 
-// ─── Bubble-level coalesce predicate (ADR-0020 §9) ───────────────────
-
-/// Pure form of the bubble_level coalesce decision used by the WS
-/// reader task (ADR-0020 §9). Returns `true` if the current event
-/// should be emitted given the last-emitted timestamp and the target
-/// Hz rate. Extracted from `reconnect_ws`'s inline coalesce logic so
-/// unit tests can verify the 30 Hz cap without spinning up a Tauri
-/// runtime + mock WS server.
-///
-/// The min interval is `Duration::from_millis(1000 / hz)` — for the
-/// default `BUBBLE_LEVEL_COALESCE_HZ = 30`, that's 33ms (integer
-/// division), so a 60 Hz input stream emits every other event = 30 Hz.
-pub(crate) fn bubble_coalesce_should_emit(
-    last_emitted: Option<Instant>,
-    now: Instant,
-    hz: u64,
-) -> bool {
-    last_emitted.map_or(true, |t| {
-        now.duration_since(t) >= Duration::from_millis(1000 / hz)
-    })
-}
+// ─── DT-53: bubble_coalesce_should_emit MOVED ───────────────────────
+//
+// The `bubble_coalesce_should_emit` predicate that lived here has been
+// moved to its own `sidecar/bubble_coalesce.rs` module. It was called
+// only from `sidecar/ws.rs:599` (never from supervisor.rs itself) — a
+// pure UI-rate-limiting predicate with nothing to do with sidecar
+// supervision. See `sidecar/bubble_coalesce.rs` for the function +
+// its unit tests (3 tests moved with it).
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::state::SidecarState;
-    use crate::util::BUBBLE_LEVEL_COALESCE_HZ;
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     // ── PVT-G5-051: parse_restart_counter saturating cast ──────────────
 
@@ -575,74 +568,13 @@ mod tests {
         );
     }
 
-    // ── CR-13: bubble_level coalesce (ADR-0020 §9) ───────────────────
-
-    #[test]
-    fn test_bubble_coalesce_should_emit_first_event() {
-        // First event (no prior emit) → always emit.
-        let now = Instant::now();
-        assert!(bubble_coalesce_should_emit(None, now, BUBBLE_LEVEL_COALESCE_HZ));
-    }
-
-    #[test]
-    fn test_bubble_coalesce_should_emit_respects_min_interval() {
-        // With hz=30, min_interval = 33ms. An event 32ms after the last
-        // emit should be suppressed; an event 33ms after should pass.
-        let start = Instant::now();
-        let hz = BUBBLE_LEVEL_COALESCE_HZ;
-        // 32ms gap → suppressed.
-        let too_soon = start + Duration::from_millis(32);
-        assert!(
-            !bubble_coalesce_should_emit(Some(start), too_soon, hz),
-            "event 32ms after last emit should be suppressed (min_interval=33ms)"
-        );
-        // 33ms gap → emitted (>= comparison).
-        let just_enough = start + Duration::from_millis(33);
-        assert!(
-            bubble_coalesce_should_emit(Some(start), just_enough, hz),
-            "event 33ms after last emit should pass (min_interval=33ms, >= comparison)"
-        );
-        // 100ms gap → emitted.
-        let well_after = start + Duration::from_millis(100);
-        assert!(
-            bubble_coalesce_should_emit(Some(start), well_after, hz),
-            "event 100ms after last emit should pass"
-        );
-    }
-
-    #[test]
-    fn test_bubble_level_coalesce_respects_30hz_cap() {
-        // Simulate a 60 Hz event stream for ~1 second (60 events, ~16.67ms
-        // apart). With BUBBLE_LEVEL_COALESCE_HZ=30 (min interval 33ms),
-        // every other event passes the filter → exactly 30 emits per
-        // simulated second, hitting the cap without exceeding it.
-        let hz = BUBBLE_LEVEL_COALESCE_HZ;
-        let start = Instant::now();
-        let step_60hz = Duration::from_micros(16_667); // ~16.67ms = 1/60 s
-        let mut last_emitted: Option<Instant> = None;
-        let mut emitted = 0usize;
-        for i in 0..60u32 {
-            let now = start + step_60hz * i;
-            if bubble_coalesce_should_emit(last_emitted, now, hz) {
-                last_emitted = Some(now);
-                emitted += 1;
-            }
-        }
-        assert!(
-            emitted <= 30,
-            "emitted {} events in 1s, expected ≤30 (30 Hz cap)",
-            emitted
-        );
-        // The 60 Hz stream downsampled to a 30 Hz cap should emit ~30
-        // events per second (exactly 30 with 16.667ms spacing — every
-        // other event). Allow a small ±2 tolerance in case integer
-        // division edges shift the boundary by one.
-        assert!(
-            emitted >= 28,
-            "emitted {} events in 1s, expected ~30 — coalesce is too aggressive",
-            emitted
-        );
-    }
+    // ── DT-53: bubble_level coalesce tests MOVED ────────────────────
+    //
+    // The 3 `bubble_coalesce_should_emit` tests that lived here have
+    // been moved to `sidecar/bubble_coalesce.rs::tests` alongside the
+    // function itself. See that module for the test bodies — they're
+    // preserved EXACTLY (same assertions, same comments), only the
+    // module path changed.
 
     // ── CR-13: respawn race — flag cleared before inner returns ──
     //

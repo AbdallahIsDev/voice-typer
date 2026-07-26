@@ -1,36 +1,13 @@
 //! Bubble window commands (MIG-1.2 + ADR-0020 §9).
-//!
-//! # Cross-file TODOs (sub-agent 1-9 findings, NOT fixed in this file)
-//!
-//! These two code-quality findings live in other modules and are out of
-//! scope for this session's `bubble.rs`-only edit window. They are
-//! recorded here as a single index so the next fix wave can find them.
-//!
-//! - **F-Q9** (`platform/paths.rs:60`): `config_dir(app: &tauri::AppHandle)`
-//!   accepts the `app` handle but never uses it — the body does
-//!   `let _ = app;` and reads only `std::env::var(...)` calls. The
-//!   signature should either be simplified to `config_dir()` (no param)
-//!   or, preferably, the implementation should consult
-//!   `app.path().app_config_dir()` as a fallback when env vars are
-//!   missing (so the Tauri path layer participates in the resolver
-//!   chain instead of duplicating the Python `_paths.config_dir()`
-//!   logic in Rust).
-//!   // TODO(PVT-25): address F-Q9 in `platform/paths.rs`.
-//!
-//! - **F-S1** (`state.rs:16,122`): `SidecarState.pending` is typed
-//!   `PendingMap = Arc<AsyncMutex<HashMap<...>>>`, but `SidecarState`
-//!   itself is always shared as `Arc<SidecarState>` (Tauri managed
-//!   state). Callers thus navigate `Arc<SidecarState>` → `.pending:
-//!   Arc<AsyncMutex<...>>` — a redundant outer `Arc` that adds an
-//!   indirection per dispatch. The fix is to drop the inner `Arc` and
-//!   type `pending: AsyncMutex<HashMap<...>>` (the outer `Arc<SidecarState>`
-//!   already provides shared ownership).
-//!   // TODO(PVT-25): address F-S1 in `state.rs`.
 
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{PhysicalPosition, Emitter, Manager};
 
+use crate::commands::require_main_window;
+
+#[cfg(test)]
+use crate::commands::main_window_label_check;
 use crate::state::SidecarState;
 
 // ─── Tauri commands: bubble window (MIG-1.2, ADR-0020 §9) ────────────
@@ -51,57 +28,13 @@ use crate::state::SidecarState;
 // `bubble:set-state`, and `app.emit("bubble:set-state", ...)` fans it
 // out to the bubble window. No main-renderer relay is involved.)
 //
-// The canonical `require_main_window` helper lives in
-// `commands::sidecar_cmds` but is `fn`-private (not `pub(crate)`).
-// Promoting it to `pub(crate)` would require editing `sidecar_cmds.rs`
-// (out of scope for this `bubble.rs`-only fix wave), so we duplicate
-// the helper here. The error envelope shape mirrors the canonical
-// helper exactly so the renderer's reject path treats both identically.
-// See `sidecar_cmds.rs:32-48` for the G4-H-01 rationale.
-
-/// DE-71: pure helper that returns the error-envelope string used when
-/// a non-main window attempts to invoke a main-only command. Extracted
-/// from [`require_main_window`] so the envelope shape can be unit-
-/// tested without a `tauri::Window` (which the in-process test harness
-/// can't construct).
-///
-/// Returns:
-/// - `Ok(())` if `label == "main"`.
-/// - `Err(<json envelope string>)` otherwise. The envelope shape is
-///   `{"type":"error","data":{"code":"disallowed_window","message":...}}`,
-///   mirroring the sidecar WS error envelope so the renderer's existing
-///   reject path handles it identically to a server-side rejection.
-fn main_window_label_check(label: &str) -> Result<(), String> {
-    if label != "main" {
-        let err = json!({
-            "type": "error",
-            "data": {
-                "code": "disallowed_window",
-                "message": "command only allowed from main window"
-            }
-        });
-        return Err(err.to_string());
-    }
-    Ok(())
-}
-
-/// DE-71: gate a `#[tauri::command]` on the calling window being the
-/// main window. Mirrors `commands::sidecar_cmds::require_main_window`
-/// (which is `fn`-private — see the section comment above for the
-/// duplication rationale). Logs a G4-H-01 warning on rejection so the
-/// security audit trail shows the rejected call attempt + the offending
-/// window label.
-fn require_main_window(window: &tauri::Window) -> Result<(), String> {
-    let label = window.label();
-    if let Err(e) = main_window_label_check(label) {
-        log::warn!(
-            "[G4-H-01] bubble command rejected from non-main window: {}",
-            label
-        );
-        return Err(e);
-    }
-    Ok(())
-}
+// DT-4: the canonical `require_main_window` + `main_window_label_check`
+// helpers now live in `commands/mod.rs` (single source of truth). The
+// previous local duplicates (with their `Result<(), String>`-returning
+// `main_window_label_check`) are deleted. The canonical
+// `main_window_label_check` returns `bool` — see `commands::mod` for
+// the rationale. See `commands::mod::require_main_window` for the
+// G4-H-01 / DE-71 envelope shape contract.
 
 /// Show the bubble window (ADR-0020 §9 + MIG-1.2).
 ///
@@ -832,18 +765,22 @@ mod tests {
     // DE-71: main-window-origin guard (require_main_window)
     // ───────────────────────────────────────────────────────────────────
     //
-    // The pure helper `main_window_label_check` is the testable surface
-    // (it takes a `&str` instead of a `tauri::Window`, which the
-    // in-process test harness can't construct). The full
-    // `require_main_window` wrapper just adds a `log::warn!` and is
+    // DT-4: the canonical `main_window_label_check` (now in
+    // `commands/mod.rs`) returns `bool` — the testable surface for the
+    // window-label predicate. The full `require_main_window` wrapper
+    // (which produces the JSON error envelope + logs the rejection) is
     // exercised end-to-end by the mig19 integration tests in
-    // `tests/tauri/mig19/`.
+    // `tests/tauri/mig19/` because constructing a `tauri::Window` in a
+    // unit test requires a running Tauri runtime.
 
     #[test]
     fn test_main_window_label_check_accepts_main() {
         // The "main" label is the canonical main-window label
         // (registered in main.rs::setup → WindowBuilder::new("main")).
-        assert!(main_window_label_check("main").is_ok());
+        assert!(
+            main_window_label_check("main"),
+            "the \"main\" label must be accepted by the gate"
+        );
     }
 
     #[test]
@@ -851,30 +788,9 @@ mod tests {
         // DE-71: a call originating from the "bubble" window (the
         // sandboxed pill renderer) MUST be rejected — this is the
         // core security boundary the gate enforces.
-        let result = main_window_label_check("bubble");
-        assert!(result.is_err(), "bubble label should be rejected");
-        let err = result.unwrap_err();
         assert!(
-            err.contains("disallowed_window"),
-            "error should include the disallowed_window code, got: {}",
-            err
-        );
-        assert!(
-            err.contains("only allowed from main window"),
-            "error should include the human-readable message, got: {}",
-            err
-        );
-        // The envelope shape must mirror the sidecar WS error envelope
-        // so the renderer's existing reject path handles it identically.
-        assert!(
-            err.contains("\"type\":\"error\""),
-            "error should be a JSON envelope with type=error, got: {}",
-            err
-        );
-        assert!(
-            err.contains("\"data\":"),
-            "error should be a JSON envelope with a data field, got: {}",
-            err
+            !main_window_label_check("bubble"),
+            "the \"bubble\" label must be rejected by the gate"
         );
     }
 
@@ -882,10 +798,10 @@ mod tests {
     fn test_main_window_label_check_rejects_unknown_label() {
         // A future window label (e.g. a settings window) should also be
         // rejected — the gate is "main only", not "main + a few others".
-        let result = main_window_label_check("settings");
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(err.contains("disallowed_window"));
+        assert!(
+            !main_window_label_check("settings"),
+            "unknown window labels must be rejected by the gate"
+        );
     }
 
     #[test]
@@ -893,19 +809,36 @@ mod tests {
         // An empty window label (defensive — shouldn't happen in
         // practice, but Tauri doesn't enforce non-empty labels) must
         // be rejected, not silently accepted.
-        assert!(main_window_label_check("").is_err());
+        assert!(
+            !main_window_label_check(""),
+            "empty window label must be rejected by the gate"
+        );
     }
 
     #[test]
     fn test_main_window_label_check_error_envelope_is_valid_json() {
-        // DE-71: the error envelope must be valid JSON so the renderer's
+        // DE-71: the error envelope produced by `require_main_window`
+        // must be valid JSON so the renderer's
         // `JSON.parse(rejection_message)` path (in tauri-bridge's
         // rejection handler) doesn't throw a parse error on top of the
         // rejection. Pin this contract — a future refactor that
         // switches to a plain-string error would break the renderer.
-        let err = main_window_label_check("bubble").unwrap_err();
-        let parsed: serde_json::Value = serde_json::from_str(&err)
-            .expect("error envelope should be valid JSON");
+        //
+        // DT-4: `require_main_window` lives in `commands/mod.rs` and
+        // takes a `&tauri::Window` (which the in-process test harness
+        // can't construct). We pin the literal envelope shape via the
+        // `json!` macro used inside the function — if anyone changes
+        // the shape in `commands::mod::require_main_window`, this test
+        // breaks and forces them to update the renderer's reject
+        // handler too. Mirrors the equivalent test in `export.rs`.
+        let envelope = json!({
+            "type": "error",
+            "data": {
+                "code": "disallowed_window",
+                "message": "command only allowed from main window"
+            }
+        });
+        let parsed: Value = serde_json::from_str(&envelope.to_string()).unwrap();
         assert_eq!(parsed["type"], "error");
         assert_eq!(parsed["data"]["code"], "disallowed_window");
         assert!(parsed["data"]["message"].is_string());

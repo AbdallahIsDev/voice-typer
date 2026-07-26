@@ -86,9 +86,11 @@ use std::sync::Arc;
 use tauri::{Listener, Manager, RunEvent, WindowEvent};
 // PVT-2 completion: the relaunch_app listener sends a `relaunch_ack`
 // WS frame back to Python so `_wait_for_relaunch_ack` short-circuits
-// cleanly. `Message` is the WS frame type; `json!` builds the frame.
-use tokio_tungstenite::tungstenite::Message as WsMessage;
-use serde_json::json;
+// cleanly. RT-9 / ADR-0020 module-layout gate: the frame build + send
+// lives in `state::send_fire_and_forget_frame` so main.rs stays
+// wiring-only (no raw WS protocol or frame-serialization imports in
+// the host entrypoint — see the `test_main_rs_has_no_business_logic_patterns`
+// gate in `tests/tauri/mig19/test_final_glue.py`).
 
 use commands::bubble::{
     bubble_hide_complete, bubble_move_by, bubble_resize, bubble_set_draggable,
@@ -116,9 +118,14 @@ use platform::paths::config_dir;
 use sidecar::supervisor::respawn;
 use sidecar::spawn::spawn_sidecar_and_get_port;
 use sidecar::ws::reconnect_ws;
+// DT-44: 10ms pre-restart flush delay is now the named constant
+// `PRE_RESTART_FLUSH_DELAY_MS` in `util.rs` (was inline literal).
 use state::SidecarState;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+// DT-44: re-export the pre-restart flush delay so the inline literal
+// at the `relaunch_app` listener can be sourced from `util.rs`.
+use crate::util::PRE_RESTART_FLUSH_DELAY_MS;
 
 // GT-26 (High, partial): Host shutdown budget mismatched.
 //
@@ -283,33 +290,18 @@ fn main() {
                 log::info!(
                     "[RESTART] relaunch_app event received — sending relaunch_ack + calling app.restart()"
                 );
-                // Best-effort relaunch_ack: lock ws_tx, clone the
-                // Sender, drop the guard, then try_send the frame.
-                // `try_send` is non-blocking (bounded channel) and
-                // safe to call from the Tauri event-loop thread.
+                // Best-effort relaunch_ack: extracted to
+                // `state::send_fire_and_forget_frame` so main.rs stays
+                // wiring-only (no raw WS protocol reference in the
+                // host entrypoint).
                 let state: tauri::State<'_, Arc<SidecarState>> =
                     restart_handle.state();
                 let state_inner = state.inner().clone();
-                let ws_tx_opt = crate::state::lock(&state_inner.ws_tx).clone();
-                if let Some(ws_tx) = ws_tx_opt {
-                    let id = state_inner.next_id.fetch_add(1, Ordering::SeqCst);
-                    let frame = json!({
-                        "type": "relaunch_ack",
-                        "data": {},
-                        "id": id,
-                    });
-                    match ws_tx.try_send(WsMessage::Text(frame.to_string().into())) {
-                        Ok(_) => log::info!(
-                            "[RESTART] relaunch_ack WS frame sent (id={})",
-                            id
-                        ),
-                        Err(e) => log::warn!(
-                            "[RESTART] failed to send relaunch_ack WS frame (id={}): {} — Python will wait 2s timeout",
-                            id,
-                            e
-                        ),
-                    }
-                } else {
+                let ack_sent = crate::state::send_fire_and_forget_frame(
+                    &state_inner,
+                    "relaunch_ack",
+                );
+                if ack_sent.is_none() {
                     log::warn!(
                         "[RESTART] ws_tx is None — cannot send relaunch_ack; Python will wait 2s timeout"
                     );
@@ -324,9 +316,13 @@ fn main() {
                 //
                 // GT-87: spawn on the async runtime so the Tauri event-
                 // loop thread is NOT blocked for 10ms.
+                //
+                // DT-44: the 10ms literal is now the named constant
+                // `PRE_RESTART_FLUSH_DELAY_MS` in `util.rs`.
                 let restart_for_async = restart_handle.clone();
                 tauri::async_runtime::spawn(async move {
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    tokio::time::sleep(std::time::Duration::from_millis(PRE_RESTART_FLUSH_DELAY_MS))
+                        .await;
                     log::info!("[RESTART] calling app.restart()");
                     restart_for_async.restart();
                 });

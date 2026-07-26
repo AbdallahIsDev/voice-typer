@@ -7,7 +7,10 @@
 //! `OPENAI_API_KEY`, `http_proxy`) exported from the user's shell.
 
 use crate::state::SidecarHandle;
-use crate::util::SERVER_STARTED_TIMEOUT_MS;
+// DT-44: 500ms server-started poll interval is now the named constant
+// `SERVER_STARTED_POLL_INTERVAL_MS` in `util.rs` (was duplicated inline
+// at `spawn.rs:280` and `spawn.rs:495`).
+use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};
 use std::time::{Duration, Instant};
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
@@ -277,7 +280,7 @@ pub(crate) async fn spawn_sidecar_release(
 
     while Instant::now() < deadline {
         match tokio::time::timeout(
-            Duration::from_millis(500),
+            Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS),
             rx.recv(),
         )
         .await
@@ -492,7 +495,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(token: &str) -> Result<(u16, SidecarH
     let mut stdout_buf = String::new();
     while Instant::now() < deadline {
         let mut line = String::new();
-        match tokio::time::timeout(Duration::from_millis(500), reader.read_line(&mut line)).await {
+        match tokio::time::timeout(Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS), reader.read_line(&mut line)).await {
             Ok(Ok(0)) => {
                 return Err("dev sidecar stdout closed before server_started".into());
             }

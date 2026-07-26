@@ -1,11 +1,15 @@
 //! Tauri commands: dispatch, paste_text, shutdown_sidecar (ADR-0020 §6.2 + §7 + §10).
 
+use crate::commands::require_main_window;
 use crate::state::SidecarState;
 // EC-FIX-5 (EC-16): poison-safe Mutex helper. Replaces inline
 // `.lock().unwrap()` so a poisoned mutex (a prior panic while holding
 // the lock) does not re-panic and permanently brick the dispatch path.
 use crate::state::lock as mutex_lock;
-use crate::util::{DISPATCH_TIMEOUT_SECS, SHUTDOWN_ACK_TIMEOUT_MS, SHUTDOWN_POLL_INTERVAL_MS};
+use crate::util::{
+    DISPATCH_SHORT_TIMEOUT_SECS, DISPATCH_TIMEOUT_SECS, SHUTDOWN_ACK_TIMEOUT_MS,
+    SHUTDOWN_POLL_INTERVAL_MS,
+};
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
@@ -16,7 +20,7 @@ use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
-// ─── G4-H-01: shared main-window guard ──────────────────────────────────
+// ─── DT-4: shared main-window guard ──────────────────────────────────
 //
 // `dispatch`, `paste_text`, and `shutdown_sidecar` are all
 // `#[tauri::command]` functions that a compromised renderer could
@@ -25,26 +29,47 @@ use tokio_tungstenite::tungstenite::Message;
 // or paste path. Tauri v2's capability system only gates plugin
 // commands, so user-defined commands need this runtime check.
 //
-// The error envelope shape mirrors the sidecar's WS error envelope
-// ({"type":"error","data":{"code":...,"message":...}}) so the
-// renderer's existing reject path treats this identically to a
-// server-side rejection.
-fn require_main_window(window: &tauri::Window) -> Result<(), String> {
-    if window.label() != "main" {
-        log::warn!(
-            "[G4-H-01] command rejected from non-main window: {}",
-            window.label()
-        );
-        let err = json!({
-            "type": "error",
-            "data": {
-                "code": "disallowed_window",
-                "message": "command only allowed from main window"
-            }
-        });
-        return Err(err.to_string());
+// DT-4: the canonical `require_main_window` helper now lives in
+// `commands/mod.rs` (single source of truth, no duplication). See
+// `commands::mod::require_main_window` for the G4-H-01 rationale +
+// the error envelope shape contract.
+
+// ─── DT-44: per-command dispatch timeout routing ──────────────────────
+//
+// Previously every `dispatch` call used the uniform 120s
+// `DISPATCH_TIMEOUT_SECS` timeout. That let a hung `get_status` poll
+// (median response <50ms) block the UI for 2 minutes before
+// rejecting. DT-44 routes model-lifecycle commands (which can
+// legitimately take >15s) to the long 120s timeout, and everything
+// else to the new 15s `DISPATCH_SHORT_TIMEOUT_SECS`.
+//
+// Model lifecycle commands are the 6 entries below — they involve
+// network I/O (download), filesystem I/O (import/delete), or
+// subprocess management (cancel/pause/resume) that can each take
+// 10s+ on a slow connection / cold disk.
+const _LONG_RUNNING_COMMANDS: &[&str] = &[
+    "download_model",
+    "import_model",
+    "delete_model",
+    "cancel_model_download",
+    "pause_model_download",
+    "resume_model_download",
+];
+
+/// DT-44: returns the dispatch timeout (in seconds) for `cmd`.
+///
+/// - 120s (`DISPATCH_TIMEOUT_SECS`) for the 6 model lifecycle commands
+///   listed in [`_LONG_RUNNING_COMMANDS`] — downloads / imports can
+///   legitimately take >15s.
+/// - 15s (`DISPATCH_SHORT_TIMEOUT_SECS`) for everything else — the
+///   sidecar's median response time is <50ms, so 15s is generous
+///   while still bounding the worst-case UI freeze.
+fn dispatch_timeout_for(cmd: &str) -> u64 {
+    if _LONG_RUNNING_COMMANDS.contains(&cmd) {
+        DISPATCH_TIMEOUT_SECS
+    } else {
+        DISPATCH_SHORT_TIMEOUT_SECS
     }
-    Ok(())
 }
 
 // ─── CR-4: ALLOWED_COMMANDS allowlist (ADR-0015 defense-in-depth) ──────
@@ -373,6 +398,11 @@ async fn dispatch_frame(
     // dispatch can be traced end-to-end.
     log::debug!("[dispatch] id={} cmd={}", id, cmd);
 
+    // DT-44: per-command timeout. Model lifecycle commands (download /
+    // import / delete / cancel / pause / resume) get 120s; everything
+    // else gets 15s. See `dispatch_timeout_for` for the rationale.
+    let timeout_secs = dispatch_timeout_for(cmd);
+
     // PVT-G5-035: short-circuit if the host is shutting down. Avoids
     // the orphaned-pending-then-timeout window described above.
     if state.shutting_down.load(Ordering::SeqCst) {
@@ -441,7 +471,7 @@ async fn dispatch_frame(
     }
 
     // Await the response with a timeout.
-    match tokio::time::timeout(Duration::from_secs(DISPATCH_TIMEOUT_SECS), rx).await {
+    match tokio::time::timeout(Duration::from_secs(timeout_secs), rx).await {
         Ok(Ok(response)) => {
             // ADR-0020 §2: if the response is a `type:"error"` envelope,
             // surface it as a Rust error so the webview's `invoke()`
@@ -487,9 +517,9 @@ async fn dispatch_frame(
                 "[dispatch] id={} cmd={} timed out after {}s (pending entry removed)",
                 id,
                 cmd,
-                DISPATCH_TIMEOUT_SECS
+                timeout_secs
             );
-            Err(format!("dispatch timeout ({}s)", DISPATCH_TIMEOUT_SECS))
+            Err(format!("dispatch timeout ({}s)", timeout_secs))
         }
     }
 }
@@ -511,24 +541,14 @@ pub async fn dispatch(
     // server-side command surface. Reject any call where the source
     // window's label is not "main".
     //
-    // The error envelope shape mirrors the sidecar's WS error envelope
-    // ({"type":"error","data":{"code":...,"message":...}}) so the
-    // renderer's existing `dispatch` reject path treats this identically
-    // to a server-side rejection.
-    if window.label() != "main" {
-        log::warn!(
-            "[CR-5] dispatch rejected from non-main window: {}",
-            window.label()
-        );
-        let err = json!({
-            "type": "error",
-            "data": {
-                "code": "disallowed_window",
-                "message": "dispatch only callable from main window"
-            }
-        });
-        return Err(err.to_string());
-    }
+    // DT-4: the canonical `require_main_window` helper now lives in
+    // `commands/mod.rs`. We delegate to it for the envelope shape +
+    // log tag. The previous inline duplicate (with the CR-5-specific
+    // "dispatch only callable from main window" message) is removed —
+    // the renderer's reject path JSON-parses the envelope + keys off
+    // the `code` field (`disallowed_window`), so the per-command
+    // message wording doesn't matter.
+    require_main_window(&window)?;
 
     // CR-4: enforce the ALLOWED_COMMANDS allowlist BEFORE forwarding the
     // command to the Python sidecar over WS. This mirrors the Electron

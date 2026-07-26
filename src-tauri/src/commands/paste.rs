@@ -50,7 +50,9 @@
 //! content (image, files), `read_text()` returns `Err` and the
 //! restore uses `clear()` instead of `write_text`.
 
-use crate::util::PASTE_SHORT_THRESHOLD;
+use crate::util::{
+    PASTE_CLIPBOARD_RESTORE_DELAY_MS, PASTE_SHORT_THRESHOLD, PASTE_UIPI_FALLBACK_RESTORE_SECS,
+};
 
 // ─── DE-74: clipboard save/restore helpers ─────────────────────────────
 //
@@ -278,7 +280,12 @@ async fn paste_via_clipboard_and_ctrl_v(
     // delay is a trade-off against leaving the transcribed text on the
     // clipboard longer (which risks the user copying something else
     // first and then wondering why their clipboard got clobbered).
-    tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    //
+    // DT-44: the 250ms literal is now the named constant
+    // `PASTE_CLIPBOARD_RESTORE_DELAY_MS` in `util.rs` (single source
+    // of truth — previously this was the only call site but the value
+    // was opaque without reading this docstring).
+    tokio::time::sleep(std::time::Duration::from_millis(PASTE_CLIPBOARD_RESTORE_DELAY_MS)).await;
     restore_clipboard(app, saved_clipboard, "paste_via_clipboard_and_ctrl_v");
 
     paste_result
@@ -532,10 +539,14 @@ async fn restore_focus_or_fallback(
     // the transcribed text; if they're slower, they get a "clipboard
     // restored to original" silent cleanup. Trade-off documented at
     // the top of this module under "DE-74: clipboard save/restore".
+    //
+    // DT-44: the 30s literal is now the named constant
+    // `PASTE_UIPI_FALLBACK_RESTORE_SECS` in `util.rs`.
     if clipboard_ok {
         let app_for_restore = app.clone();
         tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(PASTE_UIPI_FALLBACK_RESTORE_SECS))
+                .await;
             restore_clipboard(
                 &app_for_restore,
                 saved_clipboard,

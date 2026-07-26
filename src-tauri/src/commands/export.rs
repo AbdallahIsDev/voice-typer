@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
 
-// ─── DE-18: shared main-window guard ──────────────────────────────────
+// ─── DT-4: shared main-window guard ──────────────────────────────────
 //
 // `export_history`, `export_vocabulary`, `export_templates`,
 // `export_config`, `open_logs`, and `open_model_import_dialog` are all
@@ -14,32 +14,24 @@ use tokio::sync::oneshot;
 // paths (a malicious bubble could exfiltrate history/vocabulary or
 // trigger OS file-manager opens). Tauri v2's capability system only
 // gates plugin commands, so user-defined commands need this runtime
-// check. See `sidecar_cmds.rs:629` (`require_main_window`) for the
-// canonical pattern — this is a sibling copy kept inside the export
-// module so this file's slice (export.rs + system_cmds.rs + paste.rs)
-// remains self-contained without touching sidecar_cmds.rs.
+// check.
+//
+// DT-4: the canonical `require_main_window` helper now lives in
+// `commands/mod.rs` (single source of truth). The previous local
+// `pub(crate) fn require_main_window` definition is deleted. We use a
+// `pub(crate) use` re-export here so `system_cmds.rs`'s existing import
+// (`use crate::commands::export::{export_data, require_main_window};`)
+// keeps resolving without editing `system_cmds.rs` (which is owned by
+// a different sub-agent). Once `system_cmds.rs` is updated to import
+// directly from `crate::commands::require_main_window`, this re-export
+// can be demoted to a private `use`.
 //
 // The error envelope shape mirrors the sidecar's WS error envelope
 // ({"type":"error","data":{"code":...,"message":...}}) so the
 // renderer's existing reject path treats this identically to a
-// server-side rejection.
-pub(crate) fn require_main_window(window: &tauri::Window) -> Result<(), String> {
-    if window.label() != "main" {
-        log::warn!(
-            "[DE-18] export/system command rejected from non-main window: {}",
-            window.label()
-        );
-        let err = json!({
-            "type": "error",
-            "data": {
-                "code": "disallowed_window",
-                "message": "command only allowed from main window"
-            }
-        });
-        return Err(err.to_string());
-    }
-    Ok(())
-}
+// server-side rejection. See `commands::mod::require_main_window` for
+// the G4-H-01 / DE-18 envelope shape contract.
+pub(crate) use crate::commands::require_main_window;
 
 // ─── Tauri command: export_history (MIG-1.1) ─────────────────────────
 

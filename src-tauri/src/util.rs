@@ -43,7 +43,22 @@ pub(crate) const MAX_FRAME_BYTES: usize = 1024 * 1024;
 /// ADR-0020 §7: per-dispatch response timeout. The sidecar must respond
 /// within this window or the host returns a timeout error to the webview
 /// (so the UI can show a retry banner instead of hanging indefinitely).
+///
+/// DT-44: this is now the LONG-RUNNING timeout — used only for model
+/// lifecycle commands (download/import/delete/cancel/pause/resume) that
+/// can legitimately take >15s (tens-of-MB-to-GB download + LFS clone,
+/// file copy + validation, filesystem rmtree). All other commands use
+/// [`DISPATCH_SHORT_TIMEOUT_SECS`] (15s). See `dispatch_timeout_for` in
+/// `commands/sidecar_cmds.rs` for the per-command routing.
 pub(crate) const DISPATCH_TIMEOUT_SECS: u64 = 120;
+
+/// DT-44: short per-dispatch response timeout (15s). Used for every
+/// command NOT in `_LONG_RUNNING_COMMANDS` (i.e. everything except
+/// model lifecycle commands). The prior uniform 120s timeout let a
+/// hung `get_status` poll block the UI for 2 minutes before rejecting;
+/// 15s is generous for any non-model command (the sidecar's median
+/// response time is <50ms) while still bounding the worst case.
+pub(crate) const DISPATCH_SHORT_TIMEOUT_SECS: u64 = 15;
 
 /// ADR-0020 §10: brief delay between emitting `supervisor_relaunching` and
 /// calling `app.restart()`, so the webview has time to render the
@@ -75,6 +90,84 @@ pub(crate) const ROTATE_MAX_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
 /// ADR-0020 §11: max rotated files to keep (current + N-1 rotated).
 /// Total disk cap ≈ 5 MB × 5 files = 25 MB.
 pub(crate) const ROTATE_MAX_FILES: usize = 5;
+
+// ─── DT-44: heartbeat / kill-tree / paste / poll / flush constants ──────
+//
+// Previously these were inline `Duration::from_secs(N)` / `from_millis(N)`
+// literals scattered across `sidecar/ws.rs`, `state.rs`, `commands/paste.rs`,
+// `sidecar/spawn.rs`, and `main.rs`. Each had to be tuned by reading the
+// surrounding docstring; `spawn.rs`'s 500ms poll was duplicated at two
+// sites so a fix to one path wouldn't propagate. Named here so a single
+// grep lands on the canonical value, and so the unit tests in
+// `util.rs::tests` can pin the values.
+
+/// PVT-1 (session 1) + ADR-0020 §10: Tauri-side heartbeat dispatches a
+/// `heartbeat` command every 10s to detect application-level sidecar
+/// hangs (GIL contention, infinite loop, blocking C call) that keep the
+/// WS socket open but don't respond to dispatches.
+pub(crate) const HEARTBEAT_INTERVAL_SECS: u64 = 10;
+
+/// PVT-1: per-heartbeat-dispatch response timeout. The sidecar must
+/// respond within 15s or this heartbeat counts as a miss. Generous
+/// enough to ride out a brief GIL stall; tight enough that 3 misses
+/// (45s total) reliably indicate a hang rather than transient load.
+pub(crate) const HEARTBEAT_RESPONSE_TIMEOUT_SECS: u64 = 15;
+
+/// PVT-1: consecutive heartbeat misses before triggering supervisor
+/// respawn. 3 misses × 10s interval ≈ 30s of unresponsiveness before
+/// the sidecar is killed + restarted.
+pub(crate) const HEARTBEAT_MAX_MISSES: u32 = 3;
+
+/// `state.rs::kill_tree` (Linux/Unix recursive-kill helper) sends
+/// SIGTERM to each descendant, then sleeps this grace period before
+/// sending SIGKILL. 200ms matches the systemd / `killall --wait`
+/// convention: enough time for a Python process to run `atexit`
+/// handlers + flush WAL, short enough that a stuck child doesn't
+/// block the host's shutdown path for seconds.
+///
+/// Gated behind `#[cfg(unix)]` because the only consumer is
+/// `state.rs::kill_tree` which is itself unix-only. On Windows this
+/// constant would be dead code and trigger the Rust `dead_code` lint.
+#[cfg(unix)]
+pub(crate) const KILL_TREE_SIGTERM_GRACE_MS: u64 = 200;
+
+/// `commands/paste.rs::paste_via_clipboard_and_ctrl_v`: delay between
+/// sending Ctrl+V and restoring the user's pre-paste clipboard
+/// contents. 250ms is the empirically-tuned value that lets the
+/// foreground app's paste handler read the clipboard before we
+/// overwrite it with the original contents. Too short → the paste
+/// inserts the user's original clipboard instead of the transcribed
+/// text; too long → the user's clipboard stays clobbered longer
+/// (risking they copy something else first and wonder where their
+/// transcription went).
+pub(crate) const PASTE_CLIPBOARD_RESTORE_DELAY_MS: u64 = 250;
+
+/// `commands/paste.rs::restore_focus_or_fallback`: when `AttachThreadInput`
+/// fails (UIPI blocks the attach — the foreground window is elevated),
+/// we write the text to the clipboard + post a toast telling the user
+/// to press Ctrl+V manually. We then delay restoring the original
+/// clipboard by 30s — generous enough for the user to read the toast
+/// + press Ctrl+V, short enough that the original clipboard isn't
+/// held "hostage" for too long.
+pub(crate) const PASTE_UIPI_FALLBACK_RESTORE_SECS: u64 = 30;
+
+/// `sidecar/spawn.rs::spawn_sidecar_and_get_port` (and the dev-mode
+/// `spawn_dev_sidecar` sibling): polling interval for the
+/// `server_started` JSON on the sidecar's stdout. 500ms balances
+/// startup latency (a fast sidecar acks in ~50ms, so we sleep ~450ms
+/// of that) against CPU cost (polling at 10ms would burn a core for
+/// the entire 30s startup window). DT-44: previously duplicated at
+/// `spawn.rs:280` and `spawn.rs:495` — now sourced from this single
+/// constant.
+pub(crate) const SERVER_STARTED_POLL_INTERVAL_MS: u64 = 500;
+
+/// `main.rs::setup` (`relaunch_app` listener): brief delay between
+/// emitting the `supervisor_relaunching` Tauri event and calling
+/// `app.restart()`. 10ms gives the webview's event loop one tick to
+/// render the "restarting…" banner before the process exits. Even on
+/// a loaded host the writer task schedules within 1ms, so 10ms is
+/// generous.
+pub(crate) const PRE_RESTART_FLUSH_DELAY_MS: u64 = 10;
 
 // ─── Token generation (ADR-0020 §3) ───────────────────────────────────
 

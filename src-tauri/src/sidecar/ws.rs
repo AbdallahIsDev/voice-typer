@@ -17,8 +17,19 @@ use crate::commands::sidecar_cmds::{dispatch_inner, DispatchArgs};
 use crate::state::SidecarState;
 // G4-H-27 (session 4): poison-safe Mutex helper for the cleanup block.
 use crate::state::lock as mutex_lock;
-use crate::sidecar::supervisor::{bubble_coalesce_should_emit, respawn};
-use crate::util::{BUBBLE_LEVEL_COALESCE_HZ, MAX_FRAME_BYTES};
+// DT-53: `bubble_coalesce_should_emit` moved out of `supervisor.rs` into
+// its own `sidecar/bubble_coalesce.rs` module — it's a pure UI-rate-
+// limiting predicate with nothing to do with sidecar supervision. The
+// supervisor module now owns ONLY respawn/backoff logic.
+use crate::sidecar::bubble_coalesce::bubble_coalesce_should_emit;
+use crate::sidecar::supervisor::respawn;
+// DT-44: heartbeat interval / response timeout / max misses are now named
+// constants in `util.rs` (previously inline `Duration::from_secs(10)` /
+// `Duration::from_secs(15)` / `>= 3` literals below).
+use crate::util::{
+    BUBBLE_LEVEL_COALESCE_HZ, HEARTBEAT_INTERVAL_SECS, HEARTBEAT_MAX_MISSES,
+    HEARTBEAT_RESPONSE_TIMEOUT_SECS, MAX_FRAME_BYTES,
+};
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
@@ -804,7 +815,7 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
     let handle: tauri::async_runtime::JoinHandle<()> =
         tauri::async_runtime::spawn(async move {
             let mut missed: u32 = 0;
-            let mut interval = tokio::time::interval(Duration::from_secs(10));
+            let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
             loop {
                 if heartbeat_state_for_task.shutting_down.load(Ordering::SeqCst) {
                     break;
@@ -818,7 +829,7 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                     data: None,
                 };
                 match tokio::time::timeout(
-                    Duration::from_secs(15),
+                    Duration::from_secs(HEARTBEAT_RESPONSE_TIMEOUT_SECS),
                     dispatch_inner(heartbeat_args, heartbeat_state_for_task.clone()),
                 )
                 .await
@@ -828,10 +839,16 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                     }
                     Ok(Err(e)) => {
                         missed += 1;
-                        log::warn!("[HEARTBEAT] dispatch error (miss #{}/3): {}", missed, e);
-                        if missed >= 3 {
+                        log::warn!(
+                            "[HEARTBEAT] dispatch error (miss #{}/{}): {}",
+                            missed,
+                            HEARTBEAT_MAX_MISSES,
+                            e
+                        );
+                        if missed >= HEARTBEAT_MAX_MISSES {
                             log::warn!(
-                                "[HEARTBEAT] 3 consecutive misses — triggering supervisor respawn"
+                                "[HEARTBEAT] {} consecutive misses — triggering supervisor respawn",
+                                HEARTBEAT_MAX_MISSES
                             );
                             trigger_respawn_off_thread(
                                 heartbeat_app.clone(),
@@ -842,10 +859,16 @@ async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: 
                     }
                     Err(_) => {
                         missed += 1;
-                        log::warn!("[HEARTBEAT] 15s response timeout (miss #{}/3)", missed);
-                        if missed >= 3 {
+                        log::warn!(
+                            "[HEARTBEAT] {}s response timeout (miss #{}/{})",
+                            HEARTBEAT_RESPONSE_TIMEOUT_SECS,
+                            missed,
+                            HEARTBEAT_MAX_MISSES
+                        );
+                        if missed >= HEARTBEAT_MAX_MISSES {
                             log::warn!(
-                                "[HEARTBEAT] 3 consecutive misses — triggering supervisor respawn"
+                                "[HEARTBEAT] {} consecutive misses — triggering supervisor respawn",
+                                HEARTBEAT_MAX_MISSES
                             );
                             trigger_respawn_off_thread(
                                 heartbeat_app.clone(),

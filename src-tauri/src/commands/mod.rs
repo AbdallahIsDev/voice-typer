@@ -1,8 +1,5 @@
 //! Tauri command handler modules (ADR-0020 §6 + §7 + §10 + MIG-1.1 + MIG-1.2 + CR-33).
 
-// GT-21: structured error type. See `errors.rs` for the migration plan.
-pub(crate) mod errors;
-
 pub(crate) mod sidecar_cmds;
 pub(crate) mod export;
 pub(crate) mod bubble;
@@ -27,3 +24,57 @@ pub(crate) mod paste;
 // annotations are deleted here; `cargo check` confirms `generate_handler!`
 // still resolves every command via the direct submodule imports.
 pub(crate) use sidecar_cmds::{dispatch_inner, DispatchArgs};
+
+// ─── DT-4: canonical main-window guard (ADR-0020 §7 + §9 + SEC-026) ────
+//
+// `dispatch`, `paste_text`, `shutdown_sidecar`, `export_*`, `bubble_signal_ready`
+// are all `#[tauri::command]` functions that a compromised renderer could
+// invoke over the IPC bridge. The bubble window is a sandboxed webview
+// (ADR-0020 §7 + §9 + SEC-026) that must NEVER drive the sidecar WS,
+// paste path, export path, or sidecar-level bubble readiness handshake.
+// Tauri v2's capability system only gates plugin commands, so user-defined
+// commands need this runtime check.
+//
+// Previously (`sidecar_cmds.rs:32`, `bubble.rs:67`, `export.rs:26`) this
+// helper was duplicated 3× with subtly different log tags, error messages,
+// and even different visibility (`fn`-private vs `pub(crate)`). DT-4
+// consolidates on a single canonical copy here. The error envelope shape
+// mirrors the sidecar's WS error envelope
+// ({"type":"error","data":{"code":...,"message":...}}) so the renderer's
+// existing reject path treats this identically to a server-side rejection.
+//
+// `main_window_label_check` is the pure-helper that does NOT require a
+// `tauri::Window` — extracted so unit tests can verify the gate logic
+// without constructing a Tauri runtime. Returns `true` iff `label == "main"`.
+
+/// DT-4: pure main-window label predicate. Returns `true` iff `label` is
+/// the canonical main-window label (`"main"`, registered in
+/// `main.rs::setup` via `WindowBuilder::new("main")`). Used by
+/// [`require_main_window`] as the testable surface.
+pub(crate) fn main_window_label_check(label: &str) -> bool {
+    label == "main"
+}
+
+/// DT-4: gate a `#[tauri::command]` on the calling window being the main
+/// window. Logs a `[window-guard]` warning on rejection so the security
+/// audit trail shows the rejected call attempt + the offending window
+/// label. Returns `Err(<json envelope string>)` for non-main windows so
+/// the renderer's reject path handles it identically to a server-side
+/// rejection.
+pub(crate) fn require_main_window(window: &tauri::Window) -> Result<(), String> {
+    if !main_window_label_check(window.label()) {
+        log::warn!(
+            "[window-guard] command rejected from non-main window: {}",
+            window.label()
+        );
+        let err = serde_json::json!({
+            "type": "error",
+            "data": {
+                "code": "disallowed_window",
+                "message": "command only allowed from main window"
+            }
+        });
+        return Err(err.to_string());
+    }
+    Ok(())
+}

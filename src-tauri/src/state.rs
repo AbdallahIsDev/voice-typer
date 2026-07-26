@@ -221,6 +221,9 @@ pub(crate) fn kill_process_tree(pid: u32) {
     {
         use std::process::Command;
         use std::time::Duration;
+        // DT-44: SIGTERM→SIGKILL grace period is now the named constant
+        // `KILL_TREE_SIGTERM_GRACE_MS` in `util.rs` (was inline 200ms).
+        use crate::util::KILL_TREE_SIGTERM_GRACE_MS;
 
         let mut all_descendants: Vec<u32> = Vec::new();
         let mut stack: Vec<u32> = vec![pid];
@@ -285,7 +288,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
             }
         }
 
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(KILL_TREE_SIGTERM_GRACE_MS));
 
         for &dpid in &all_descendants {
             match Command::new("kill")
@@ -503,6 +506,42 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
         "[EXIT-SHUTDOWN] sidecar teardown complete graceful={}",
         graceful
     );
+}
+
+/// RT-9 / ADR-0020 module-layout gate: fire-and-forget WS frame send
+/// used by ``main.rs``'s ``relaunch_app`` listener. Extracted from the
+/// host entrypoint so ``main.rs`` stays wiring-only (no direct
+/// ``tungstenite::`` reference — see the
+/// ``test_main_rs_has_no_business_logic_patterns`` gate in
+/// ``tests/tauri/mig19/test_final_glue.py``).
+///
+/// Assigns the next monotonic id, builds a ``{"type":<frame_type>,
+/// "data":{}, "id":<id>}`` frame, and enqueues it on the WS writer
+/// channel via ``try_send`` (non-blocking). Returns the assigned id
+/// (so the caller can log it) or ``None`` if there's no ``ws_tx``
+/// (WS already torn down — caller logs).
+pub(crate) fn send_fire_and_forget_frame(
+    state: &Arc<SidecarState>,
+    frame_type: &str,
+) -> Option<u64> {
+    use std::sync::atomic::Ordering;
+    let ws_tx = lock(&state.ws_tx).clone()?;
+    let id = state.next_id.fetch_add(1, Ordering::SeqCst);
+    let frame = serde_json::json!({
+        "type": frame_type,
+        "data": {},
+        "id": id,
+    });
+    match ws_tx.try_send(Message::Text(frame.to_string().into())) {
+        Ok(_) => log::info!("[WS] {} frame sent (id={})", frame_type, id),
+        Err(e) => log::warn!(
+            "[WS] failed to send {} frame (id={}): {} — peer will wait for its timeout",
+            frame_type,
+            id,
+            e
+        ),
+    }
+    Some(id)
 }
 
 #[cfg(test)]

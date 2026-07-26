@@ -2,8 +2,8 @@
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "resources": [
-      "resources/prewarm-aarch64-unknown-linux-gnu",
       "resources/native/linux-key-listener",
+      "resources/prewarm-aarch64-unknown-linux-gnu",
       "resources/linux-scripts/install_permissions.py",
       "resources/linux-scripts/uninstall_permissions.py",
       "resources/linux-scripts/99-voice-typer.rules",
