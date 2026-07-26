@@ -53,8 +53,7 @@ class TestStreamingResamplerLength:
         """16k→48k→16k: total output length matches total input length."""
         up = _StreamingResampler(3, 1)
         down = _StreamingResampler(1, 3)
-        chunk_sizes = [50, 80, 100, 200, 13, 100, 50, 250, 17, 100,
-                       50, 80, 100, 200, 13, 100, 50, 250, 17, 100]
+        chunk_sizes = [50, 80, 100, 200, 13, 100, 50, 250, 17, 100, 50, 80, 100, 200, 13, 100, 50, 250, 17, 100]
         total_in = 0
         total_out = 0
         for n in chunk_sizes:
@@ -77,7 +76,7 @@ class TestStreamingResamplerLength:
         chunk_size = 100
         y_chunks = []
         for i in range(0, x_full.size, chunk_size):
-            chunk = x_full[i:i + chunk_size]
+            chunk = x_full[i : i + chunk_size]
             y_chunks.append(down2.process(up2.process(chunk)))
         y_chunked = np.concatenate(y_chunks) if y_chunks else np.zeros(0, dtype=np.float32)
         assert y_oneshot.size == y_chunked.size
@@ -98,6 +97,7 @@ class TestStreamingResamplerFilterCaching:
             return original_firwin(*args, **kwargs)
 
         import scipy.signal as sig
+
         monkeypatch.setattr(sig, "firwin", counting_firwin)
 
         r = _StreamingResampler(3, 1)
@@ -197,9 +197,7 @@ class TestNoiseSuppressorClipBeforeInt16:
         result = ns.process(frame, _RNNOISE_SAMPLE_RATE)
         assert len(received_frames) == 1
         i16 = received_frames[0]
-        assert np.all(i16 == _INT16_SCALE), (
-            f"clip not applied: max={i16.max()}, min={i16.min()}"
-        )
+        assert np.all(i16 == _INT16_SCALE), f"clip not applied: max={i16.max()}, min={i16.min()}"
         assert result is not None
         assert np.allclose(np.ravel(result), 1.0, atol=1e-3)
 
@@ -208,9 +206,7 @@ class TestNoiseSuppressorClipBeforeInt16:
         frame = np.full(_RNNOISE_FRAME_SIZE, -1.5, dtype=np.float32)
         ns.process(frame, _RNNOISE_SAMPLE_RATE)
         i16 = received_frames[0]
-        assert np.all(i16 == -_INT16_SCALE), (
-            f"negative clip not applied: max={i16.max()}, min={i16.min()}"
-        )
+        assert np.all(i16 == -_INT16_SCALE), f"negative clip not applied: max={i16.max()}, min={i16.min()}"
 
     def test_in_range_audio_unchanged_by_clip(self):
         ns, received_frames = self._make_stub_ns()

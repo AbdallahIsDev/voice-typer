@@ -159,9 +159,7 @@ class _FakeRecorderForClassify:
     def __init__(self):
         from voice_typer.server.recording.recorder import Recorder
 
-        self._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS = (
-            Recorder._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS
-        )
+        self._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS = Recorder._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS
 
     def _classify_portaudio_open_error(self, exc):  # type: ignore[no-untyped-def]
         # Late-bound method resolution: pull the real implementation off
@@ -293,9 +291,7 @@ class TestRecorderStartPreflightGuard:
         def _raise_denied():
             raise MicrophonePermissionDeniedError("denied", state="denied")
 
-        monkeypatch.setattr(
-            permissions_mod, "verify_microphone_accessible", _raise_denied
-        )
+        monkeypatch.setattr(permissions_mod, "verify_microphone_accessible", _raise_denied)
 
         # Build a minimal recorder. ``_recording_event`` must be unset
         # for start() to proceed past the early-return.
@@ -320,9 +316,7 @@ class TestRecorderStartPreflightGuard:
         from voice_typer.server.recording import Recorder
 
         # verify_microphone_accessible — no-op.
-        monkeypatch.setattr(
-            permissions_mod, "verify_microphone_accessible", lambda: None
-        )
+        monkeypatch.setattr(permissions_mod, "verify_microphone_accessible", lambda: None)
 
         config = MagicMock(
             sample_rate=16000,
@@ -374,9 +368,7 @@ class TestRecorderStartPreflightGuard:
             }
 
         monkeypatch.setattr(recording_pkg.sd, "query_devices", _query_devices)
-        monkeypatch.setattr(
-            recording_pkg.sd, "query_hostapis", lambda idx=None: {"name": "MME"}
-        )
+        monkeypatch.setattr(recording_pkg.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
 
         # Should NOT raise from the permission guard. (It may raise later
         # from buffer/state setup if our minimal mock is missing an attr —
@@ -394,10 +386,7 @@ class TestRecorderStartPreflightGuard:
         try:
             rec.start()
         except MicrophonePermissionDeniedError as exc:
-            pytest.fail(
-                "start() raised MicrophonePermissionDeniedError despite "
-                f"verify being no-op: {exc}"
-            )
+            pytest.fail(f"start() raised MicrophonePermissionDeniedError despite verify being no-op: {exc}")
         except Exception as exc:  # noqa: BLE001 — intentional broad catch
             # Other exceptions (incomplete mock) are acceptable for this
             # test — we only care that the permission guard didn't fire.
@@ -430,12 +419,8 @@ class TestRequestMicrophonePermission:
 
         _set_platform(monkeypatch, permissions, macos=True)
         called = []
-        monkeypatch.setattr(
-            permissions, "_open_macos_microphone_settings", lambda: called.append("opened")
-        )
-        monkeypatch.setattr(
-            permissions, "_trigger_macos_microphone_consent_prompt", lambda: None
-        )
+        monkeypatch.setattr(permissions, "_open_macos_microphone_settings", lambda: called.append("opened"))
+        monkeypatch.setattr(permissions, "_trigger_macos_microphone_consent_prompt", lambda: None)
         monkeypatch.setattr(permissions, "schedule_permission_retry", lambda cb, **kw: None)
 
         permissions.request_microphone_permission()
@@ -446,9 +431,7 @@ class TestRequestMicrophonePermission:
 
         _set_platform(monkeypatch, permissions, macos=True)
         prompted = []
-        monkeypatch.setattr(
-            permissions, "_open_macos_microphone_settings", lambda: None
-        )
+        monkeypatch.setattr(permissions, "_open_macos_microphone_settings", lambda: None)
         monkeypatch.setattr(
             permissions,
             "_trigger_macos_microphone_consent_prompt",
@@ -502,9 +485,7 @@ class TestRequestMicrophonePermission:
 
         _set_platform(monkeypatch, permissions, macos=True)
         monkeypatch.setattr(permissions, "_open_macos_microphone_settings", lambda: None)
-        monkeypatch.setattr(
-            permissions, "_trigger_macos_microphone_consent_prompt", lambda: None
-        )
+        monkeypatch.setattr(permissions, "_trigger_macos_microphone_consent_prompt", lambda: None)
         scheduled = []
         monkeypatch.setattr(
             permissions,
@@ -538,9 +519,7 @@ class TestRequestMicrophonePermissionResult:
 
         _set_platform(monkeypatch, permissions, macos=True)
         monkeypatch.setattr(permissions, "_open_macos_microphone_settings", lambda: None)
-        monkeypatch.setattr(
-            permissions, "_trigger_macos_microphone_consent_prompt", lambda: None
-        )
+        monkeypatch.setattr(permissions, "_trigger_macos_microphone_consent_prompt", lambda: None)
         monkeypatch.setattr(permissions, "schedule_permission_retry", lambda cb, **kw: None)
 
         result = permissions.request_microphone_permission_result()
@@ -584,12 +563,12 @@ class TestRequestMicrophonePermissionResult:
         from voice_typer.server import permissions
 
         _set_platform(monkeypatch, permissions, macos=True)
+
         def _boom():
             raise OSError("subprocess failed")
+
         monkeypatch.setattr(permissions, "_open_macos_microphone_settings", _boom)
-        monkeypatch.setattr(
-            permissions, "_trigger_macos_microphone_consent_prompt", lambda: None
-        )
+        monkeypatch.setattr(permissions, "_trigger_macos_microphone_consent_prompt", lambda: None)
 
         result = permissions.request_microphone_permission_result()
         assert result["requested"] is False
@@ -679,9 +658,7 @@ class TestTriggerMacOSMicrophoneConsentPrompt:
         # ``AVMediaTypeAudio`` is a callable that returns the media-type
         # sentinel; the implementation calls ``AVMediaTypeAudio()``.
         media_type_sentinel = MagicMock(name="AVMediaTypeAudio-instance")
-        fake_av.AVMediaTypeAudio = MagicMock(
-            name="AVMediaTypeAudio-factory", return_value=media_type_sentinel
-        )
+        fake_av.AVMediaTypeAudio = MagicMock(name="AVMediaTypeAudio-factory", return_value=media_type_sentinel)
 
         import sys as _sys
 
@@ -731,9 +708,7 @@ class TestCancelledFlagBasics:
             lambda: permissions.PermissionState.DENIED,
         )
         try:
-            permissions.schedule_permission_retry(
-                MagicMock(), interval=10.0, max_attempts=1
-            )
+            permissions.schedule_permission_retry(MagicMock(), interval=10.0, max_attempts=1)
             assert permissions._cancelled is False
         finally:
             permissions.cancel_permission_retry()
@@ -773,8 +748,7 @@ class TestPollSkipsCallbackAfterCancel:
         time.sleep(0.10)
 
         assert callback.call_count == 0, (
-            "callback should NOT have been invoked because "
-            "cancel_permission_retry ran during the _poll window"
+            "callback should NOT have been invoked because cancel_permission_retry ran during the _poll window"
         )
         # Cleanup
         permissions.cancel_permission_retry()
@@ -888,6 +862,5 @@ class TestConcurrentCancelRace:
         # Wait another interval to make sure no stale poll fires.
         time.sleep(0.03)
         assert callback.call_count == call_count_after_cancel, (
-            "callback was invoked AFTER cancel_permission_retry returned — "
-            "DE-32 race regression"
+            "callback was invoked AFTER cancel_permission_retry returned — DE-32 race regression"
         )

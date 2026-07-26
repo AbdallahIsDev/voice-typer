@@ -150,7 +150,7 @@ class TestShutdownSidecarSource:
         assert m, "shutdown_sidecar function not found in sidecar_cmds.rs"
         body = m.group(0)
         assert "shutting_down.store(true, Ordering::SeqCst)" in body, (
-            "shutdown_sidecar must set state.shutting_down = true (atomic flag) so supervisor doesn't respawn during shutdown"
+            "shutdown_sidecar must set state.shutting_down = true (atomic flag) so supervisor doesn't respawn during shutdown"  # noqa: E501
         )
         # The flag set must come BEFORE the WS frame send.
         idx_flag = body.index("shutting_down.store(true")

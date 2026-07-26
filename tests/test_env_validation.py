@@ -421,11 +421,8 @@ class TestGt63EnvVarValuesRedacted:
         assert not any(secret_path in m for m in rendered), (
             f"GT-63 regression: raw CONFIG_DIR path leaked to log: {rendered!r}"
         )
-        assert any(
-            "<redacted>" in m and "VOICE_TYPER_CONFIG_DIR" in m for m in rendered
-        ), (
-            f"expected a redacted warning mentioning VOICE_TYPER_CONFIG_DIR; "
-            f"got {rendered!r}"
+        assert any("<redacted>" in m and "VOICE_TYPER_CONFIG_DIR" in m for m in rendered), (
+            f"expected a redacted warning mentioning VOICE_TYPER_CONFIG_DIR; got {rendered!r}"
         )
 
     def test_invalid_hf_home_value_redacted(self, monkeypatch, caplog):
@@ -458,13 +455,10 @@ class TestGt63EnvVarValuesRedacted:
         monkeypatch.setenv("HF_ENDPOINT", "http://huggingface.co")
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
-        scheme_records = [
-            r.getMessage() for r in caplog.records if "rejected" in r.getMessage()
-        ]
+        scheme_records = [r.getMessage() for r in caplog.records if "rejected" in r.getMessage()]
         assert scheme_records, "expected a rejection record for http:// scheme"
         assert all("http://huggingface.co" not in m for m in scheme_records), (
-            f"GT-63 regression: raw HF_ENDPOINT leaked in scheme rejection: "
-            f"{scheme_records!r}"
+            f"GT-63 regression: raw HF_ENDPOINT leaked in scheme rejection: {scheme_records!r}"
         )
         assert any("<redacted>" in m for m in scheme_records)
 
@@ -475,16 +469,10 @@ class TestGt63EnvVarValuesRedacted:
         monkeypatch.setenv("HF_ENDPOINT", "https://evil.example.com/secret/path/with/key=abc")
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
-        rejected = [
-            r.getMessage() for r in caplog.records if "rejected" in r.getMessage()
-        ]
+        rejected = [r.getMessage() for r in caplog.records if "rejected" in r.getMessage()]
         assert rejected, "expected a rejection record for non-allowlisted host"
-        assert all(
-            "https://evil.example.com/secret/path/with/key=abc" not in m
-            for m in rejected
-        ), (
-            f"GT-63 regression: raw HF_ENDPOINT URL leaked in allowlist "
-            f"rejection: {rejected!r}"
+        assert all("https://evil.example.com/secret/path/with/key=abc" not in m for m in rejected), (
+            f"GT-63 regression: raw HF_ENDPOINT URL leaked in allowlist rejection: {rejected!r}"
         )
         # Hostname is OK to log (allowlist metadata, not PII).
         assert any("evil.example.com" in m for m in rejected)
@@ -493,7 +481,7 @@ class TestGt63EnvVarValuesRedacted:
 # ─── GT-B1-14: path-safety validation failure includes exception type ──
 
 
-class TestGtB1_14PathSafetyExceptionType:
+class TestGtB1_14PathSafetyExceptionType:  # noqa: N801
     """GT-B1-14: when ``_validate_path_safety`` rejects ``HF_HOME``, the
     log message must include ``type(exc).__name__`` so the operator
     knows which validation predicate failed (``ValueError`` vs
@@ -504,9 +492,7 @@ class TestGtB1_14PathSafetyExceptionType:
     not the value) are logged.
     """
 
-    def test_path_safety_failure_includes_exception_type_name(
-        self, monkeypatch, caplog
-    ):
+    def test_path_safety_failure_includes_exception_type_name(self, monkeypatch, caplog):
         secret_path = "/tmp/some/path/that/escapes/home"
         monkeypatch.setenv("HF_HOME", secret_path)
 
@@ -521,23 +507,11 @@ class TestGtB1_14PathSafetyExceptionType:
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
 
-        matching = [
-            r for r in caplog.records
-            if "HF_HOME" in r.getMessage() and "path-safety" in r.getMessage()
-        ]
-        assert matching, (
-            "expected a path-safety failure record; got "
-            f"{[r.getMessage() for r in caplog.records]!r}"
-        )
+        matching = [r for r in caplog.records if "HF_HOME" in r.getMessage() and "path-safety" in r.getMessage()]
+        assert matching, f"expected a path-safety failure record; got {[r.getMessage() for r in caplog.records]!r}"
         msg = matching[0].getMessage()
-        assert "ValueError" in msg, (
-            f"GT-B1-14 regression: exception type name missing from log; "
-            f"got {msg!r}"
-        )
-        assert secret_path not in msg, (
-            f"GT-63 regression: raw HF_HOME path leaked in path-safety "
-            f"failure log: {msg!r}"
-        )
+        assert "ValueError" in msg, f"GT-B1-14 regression: exception type name missing from log; got {msg!r}"
+        assert secret_path not in msg, f"GT-63 regression: raw HF_HOME path leaked in path-safety failure log: {msg!r}"
         assert "path escapes home directory" in msg
 
     def test_path_safety_failure_with_oserror_includes_type(self, monkeypatch, caplog):
@@ -557,10 +531,7 @@ class TestGtB1_14PathSafetyExceptionType:
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
 
-        matching = [
-            r for r in caplog.records
-            if "path-safety" in r.getMessage()
-        ]
+        matching = [r for r in caplog.records if "path-safety" in r.getMessage()]
         assert matching
         msg = matching[0].getMessage()
         assert "OSError" in msg

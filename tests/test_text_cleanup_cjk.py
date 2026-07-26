@@ -106,10 +106,16 @@ class TestEmojiInCorrections:
         import json
 
         from voice_typer.server.text_cleanup import configure_corrections
+
         corrections_file = tmp_path / "voice-typer-corrections.json"
-        corrections_file.write_text(json.dumps({
-            "misspellings": {"teh": "the"},
-        }), encoding="utf-8")
+        corrections_file.write_text(
+            json.dumps(
+                {
+                    "misspellings": {"teh": "the"},
+                }
+            ),
+            encoding="utf-8",
+        )
         # Should not crash
         result = configure_corrections(config_dir=tmp_path)
         assert result is None

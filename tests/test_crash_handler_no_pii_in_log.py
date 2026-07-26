@@ -96,20 +96,14 @@ class TestCrashExcepthookNoPIIInLog:
         assert critical_records, "excepthook must emit at least one CRITICAL log record"
 
         # Find the "Unhandled Python exception" record (YJ-19 main line).
-        unhandled_records = [
-            r for r in critical_records if "Unhandled Python exception" in r.message
-        ]
-        assert unhandled_records, (
-            "excepthook must emit a CRITICAL log line containing "
-            "'Unhandled Python exception'"
-        )
+        unhandled_records = [r for r in critical_records if "Unhandled Python exception" in r.message]
+        assert unhandled_records, "excepthook must emit a CRITICAL log line containing 'Unhandled Python exception'"
 
         # YJ-19: the CRITICAL log line MUST contain "ValueError"
         # (exc_type.__name__).
         combined_critical_text = " ".join(r.getMessage() for r in critical_records)
         assert "ValueError" in combined_critical_text, (
-            "YJ-19: CRITICAL log line must contain exc_type.__name__ ('ValueError'); "
-            f"got: {combined_critical_text!r}"
+            f"YJ-19: CRITICAL log line must contain exc_type.__name__ ('ValueError'); got: {combined_critical_text!r}"
         )
 
         # YJ-19: the CRITICAL log line MUST NOT contain "John Smith"
@@ -144,9 +138,7 @@ class TestCrashExcepthookNoPIIInLog:
                 sys.excepthook(type(exc), exc, exc.__traceback__)
 
         unhandled_records = [
-            r
-            for r in caplog.records
-            if r.levelno >= logging.CRITICAL and "Unhandled Python exception" in r.message
+            r for r in caplog.records if r.levelno >= logging.CRITICAL and "Unhandled Python exception" in r.message
         ]
         assert unhandled_records
 
@@ -162,12 +154,8 @@ class TestCrashExcepthookNoPIIInLog:
             f"exc_type.__name__); got: {msg!r}"
         )
         # The secret / SSN embedded in exc_value must NOT appear.
-        assert "abc123" not in msg, (
-            f"YJ-19: exc_value's secret must NOT appear in CRITICAL log; got: {msg!r}"
-        )
-        assert "123-45-6789" not in msg, (
-            f"YJ-19: exc_value's SSN must NOT appear in CRITICAL log; got: {msg!r}"
-        )
+        assert "abc123" not in msg, f"YJ-19: exc_value's secret must NOT appear in CRITICAL log; got: {msg!r}"
+        assert "123-45-6789" not in msg, f"YJ-19: exc_value's SSN must NOT appear in CRITICAL log; got: {msg!r}"
 
     def test_redacted_traceback_emitted_unconditionally(self, restore_excepthook, caplog):
         """YJ-14: the PII-safe redacted traceback must be emitted
@@ -189,12 +177,8 @@ class TestCrashExcepthookNoPIIInLog:
         # YJ-14: the redacted traceback CRITICAL record must be present
         # (even though VOICE_TYPER_DEBUG is NOT set in the env).
         redacted_tb_records = [
-            r
-            for r in caplog.records
-            if r.levelno >= logging.CRITICAL
-            and "Redacted traceback" in r.getMessage()
+            r for r in caplog.records if r.levelno >= logging.CRITICAL and "Redacted traceback" in r.getMessage()
         ]
         assert redacted_tb_records, (
-            "YJ-14: redacted traceback must be emitted UNCONDITIONALLY "
-            "(not gated on VOICE_TYPER_DEBUG=1)"
+            "YJ-14: redacted traceback must be emitted UNCONDITIONALLY (not gated on VOICE_TYPER_DEBUG=1)"
         )

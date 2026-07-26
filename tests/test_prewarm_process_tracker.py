@@ -401,9 +401,7 @@ class TestYJ52SpawnSkipsWhenPrewarmRunning:
     in ``spawn_background_prewarm`` and these tests FAIL.
     """
 
-    def test_returns_existing_pid_and_skips_spawn_when_running(
-        self, monkeypatch, caplog
-    ):
+    def test_returns_existing_pid_and_skips_spawn_when_running(self, monkeypatch, caplog):
         """When ``is_prewarm_running()`` returns True, ``spawn_background_prewarm``
         returns the existing PID and does NOT call ``subprocess.Popen``.
 
@@ -434,12 +432,8 @@ class TestYJ52SpawnSkipsWhenPrewarmRunning:
             fake_popen,
         )
 
-        with caplog.at_level(
-            logging.INFO, logger="voice_typer.server.prewarm"
-        ):
-            result = process_tracker.spawn_background_prewarm(
-                force=True, trigger="manual"
-            )
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.prewarm"):
+            result = process_tracker.spawn_background_prewarm(force=True, trigger="manual")
 
         # (1) Return value is the existing PID, not a new spawn PID.
         assert result == 12345, (
@@ -453,14 +447,8 @@ class TestYJ52SpawnSkipsWhenPrewarmRunning:
             "should have been reused."
         )
         # (3) An INFO log mentioning "spawn skipped" was emitted.
-        info_messages = [
-            r.getMessage()
-            for r in caplog.records
-            if r.levelno == logging.INFO
-        ]
-        skipped_logs = [
-            m for m in info_messages if "spawn skipped" in m
-        ]
+        info_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+        skipped_logs = [m for m in info_messages if "spawn skipped" in m]
         assert skipped_logs, (
             f"YJ-52: expected an INFO log mentioning 'spawn skipped' "
             f"when is_prewarm_running() is True; got INFO logs: "
@@ -469,13 +457,10 @@ class TestYJ52SpawnSkipsWhenPrewarmRunning:
         # The log should mention the existing PID so operators can
         # trace which prewarm was reused.
         assert any("12345" in m for m in skipped_logs), (
-            f"YJ-52: 'spawn skipped' log should mention the existing "
-            f"PID 12345; got {skipped_logs!r}"
+            f"YJ-52: 'spawn skipped' log should mention the existing PID 12345; got {skipped_logs!r}"
         )
 
-    def test_falls_through_to_spawn_when_is_prewarm_running_false(
-        self, monkeypatch
-    ):
+    def test_falls_through_to_spawn_when_is_prewarm_running_false(self, monkeypatch):
         """When ``is_prewarm_running()`` returns False, spawn proceeds
         normally (the YJ-52 guard short-circuits cleanly).
 
@@ -495,9 +480,7 @@ class TestYJ52SpawnSkipsWhenPrewarmRunning:
             fake_popen,
         )
 
-        pid = process_tracker.spawn_background_prewarm(
-            force=True, trigger="manual"
-        )
+        pid = process_tracker.spawn_background_prewarm(force=True, trigger="manual")
         assert pid == 99999, (
             f"YJ-52: when is_prewarm_running() is False, spawn should "
             f"return the new subprocess PID (99999); got {pid!r}."

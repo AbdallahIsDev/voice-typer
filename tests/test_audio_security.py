@@ -1,4 +1,5 @@
 """Tests for SEC-audit-008: Audio buffer zeroing on stop/discard."""
+
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -42,7 +43,7 @@ def test_buffer_zeroed_on_stop():
 
     # Stop should zero the buffer before clearing
     # We can verify by checking that fill(0) was called
-    with patch.object(recorder, '_prepare_audio', return_value=np.array([], dtype=np.float32)):
+    with patch.object(recorder, "_prepare_audio", return_value=np.array([], dtype=np.float32)):
         recorder.stop()
 
     # Buffer should be empty after stop

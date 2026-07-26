@@ -1191,17 +1191,11 @@ class TestG4M55ExtendUrlAllowlistAuditLog:
         with caplog.at_level("INFO", logger="voice_typer.server._secrets"):
             extend_url_allowlist([], caller="test-empty-input")
         # An INFO record with the URL-Allowlist tag must be emitted.
-        assert any(
-            "[URL-Allowlist]" in r.message and r.levelname == "INFO"
-            for r in caplog.records
-        ), (
+        assert any("[URL-Allowlist]" in r.message and r.levelname == "INFO" for r in caplog.records), (
             "a no-op extend_url_allowlist call must emit an INFO audit record"
         )
         # And NO WARNING record should be emitted for the no-op case.
-        assert not any(
-            r.levelname == "WARNING" and "[URL-Allowlist]" in r.message
-            for r in caplog.records
-        ), (
+        assert not any(r.levelname == "WARNING" and "[URL-Allowlist]" in r.message for r in caplog.records), (
             "a no-op extend_url_allowlist call must NOT emit a WARNING "
             "(YJ-44: WARNING reserved for actual host additions)"
         )

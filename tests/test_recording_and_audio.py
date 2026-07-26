@@ -959,18 +959,10 @@ class TestAudioWorkerThreadLifecycle:
         # checks still find the heavy-pipeline call sites after the
         # split. All helpers are called synchronously from the
         # orchestrator on the same worker thread.
-        worker_src += "\n" + inspect.getsource(
-            recording.Recorder._apply_filter_chain
-        )
-        worker_src += "\n" + inspect.getsource(
-            recording.Recorder._run_silero_vad
-        )
-        worker_src += "\n" + inspect.getsource(
-            recording.Recorder._compute_rms_and_peak
-        )
-        worker_src += "\n" + inspect.getsource(
-            recording.Recorder._update_silence_state_machine
-        )
+        worker_src += "\n" + inspect.getsource(recording.Recorder._apply_filter_chain)
+        worker_src += "\n" + inspect.getsource(recording.Recorder._run_silero_vad)
+        worker_src += "\n" + inspect.getsource(recording.Recorder._compute_rms_and_peak)
+        worker_src += "\n" + inspect.getsource(recording.Recorder._update_silence_state_machine)
         # The worker thread MUST run these heavy operations
         assert "compute_vad_prob" in worker_src, "RT-SAFE-001: Silero VAD must run on the worker thread"
         assert "_get_resample_poly" in worker_src, "RT-SAFE-001: scipy resample must run on the worker thread"

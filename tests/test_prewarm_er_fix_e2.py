@@ -174,4 +174,3 @@ class TestOnBatteryAndLowCharge:
 class TestWarmPackageFilesFilter:
     """ER-51: ``_warm_package_files`` skips non-whitelisted extensions
     and files under skipped directory names."""
-

@@ -72,18 +72,8 @@ def _handle_message_ts_source() -> str:
     treat it as a string.  The path is resolved relative to the repo
     root so the test is location-independent.
     """
-    ts_path = (
-        _repo_root()
-        / "voice_typer"
-        / "client"
-        / "src"
-        / "main"
-        / "python"
-        / "handle-message.ts"
-    )
-    assert ts_path.is_file(), (
-        f"EC-3: expected Electron main module at {ts_path} — file not found"
-    )
+    ts_path = _repo_root() / "voice_typer" / "client" / "src" / "main" / "python" / "handle-message.ts"
+    assert ts_path.is_file(), f"EC-3: expected Electron main module at {ts_path} — file not found"
     return ts_path.read_text(encoding="utf-8")
 
 
@@ -158,7 +148,7 @@ class TestHandleMessageDispatchesOnRelaunchApp:
         src = _handle_message_ts_source()
         assert '"relaunch_app"' in src, (
             "EC-3: handle-message.ts must dispatch on the literal "
-            "\"relaunch_app\" (matching the Python publish call). "
+            '"relaunch_app" (matching the Python publish call). '
             "The wire-protocol event name must be identical on both sides."
         )
 
@@ -198,12 +188,9 @@ class TestRelaunchEventNameCrossSideParity:
     def test_both_sides_use_relaunch_app(self):
         py_src = _event_bus_source()
         ts_src = _handle_message_ts_source()
-        assert "relaunch_app" in py_src, (
-            "EC-3: Python event_bus.py must reference 'relaunch_app'"
-        )
+        assert "relaunch_app" in py_src, "EC-3: Python event_bus.py must reference 'relaunch_app'"
         assert '"relaunch_app"' in ts_src, (
-            "EC-3: Electron handle-message.ts must dispatch on "
-            "\"relaunch_app\" (matching Python's publish call)"
+            'EC-3: Electron handle-message.ts must dispatch on "relaunch_app" (matching Python\'s publish call)'
         )
 
 

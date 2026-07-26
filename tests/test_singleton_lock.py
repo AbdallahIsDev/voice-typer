@@ -43,6 +43,8 @@ sys.modules.setdefault("pynput", MagicMock())
 sys.modules.setdefault("pynput.keyboard", MagicMock())
 sys.modules.setdefault("pyperclip", MagicMock())
 
+import contextlib  # noqa: E402
+
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
 
@@ -247,10 +249,8 @@ class TestGetWeElevatedLockSemantics:
             # Defensive: ensure we don't leave the lock held if the assert
             # above fired before release(). Lock.release on an un-held lock
             # raises RuntimeError, so swallow it.
-            try:
+            with contextlib.suppress(RuntimeError):
                 lock.release()
-            except RuntimeError:
-                pass
 
     def test_concurrent_cold_path_calls_init_once(self, fake_win32_elevated, reset_caches):
         """N threads hitting the cold path → OpenProcessToken called once.
@@ -302,16 +302,13 @@ class TestGetWeElevatedLockSemantics:
 
         # All callers must observe the same cached value (elevated=True).
         assert len(results) == n_threads
-        assert all(r is True for r in results), (
-            f"All threads should see elevated=True; got {results}"
-        )
+        assert all(r is True for r in results), f"All threads should see elevated=True; got {results}"
 
         # XV-103 contract: the Win32 OpenProcessToken call must happen
         # EXACTLY once across all N threads. Before the lock, this would
         # be N calls.
         assert advapi32.OpenProcessToken.call_count == 1, (
-            f"OpenProcessToken should be called once (lock serializes init); "
-            f"got {advapi32.OpenProcessToken.call_count}"
+            f"OpenProcessToken should be called once (lock serializes init); got {advapi32.OpenProcessToken.call_count}"
         )
 
 
@@ -360,10 +357,8 @@ class TestGetUiaSingletonLockSemantics:
             assert not t.is_alive(), "Worker should have completed after lock release"
             assert result_holder["value"] is fake_comtypes_uia["uia"]
         finally:
-            try:
+            with contextlib.suppress(RuntimeError):
                 lock.release()
-            except RuntimeError:
-                pass
 
     def test_concurrent_cold_path_calls_init_once(self, fake_comtypes_uia, reset_caches):
         """N threads hitting the cold path → CoCreateInstance called once.
@@ -412,19 +407,15 @@ class TestGetUiaSingletonLockSemantics:
 
         # All callers must observe the same cached UIA proxy.
         assert len(results) == n_threads
-        assert all(r is expected_uia for r in results), (
-            "All threads should see the same cached UIA singleton"
-        )
+        assert all(r is expected_uia for r in results), "All threads should see the same cached UIA singleton"
 
         # XV-103 contract: CoCreateInstance must be called EXACTLY once.
         assert comtypes.CoCreateInstance.call_count == 1, (
-            f"CoCreateInstance should be called once (lock serializes init); "
-            f"got {comtypes.CoCreateInstance.call_count}"
+            f"CoCreateInstance should be called once (lock serializes init); got {comtypes.CoCreateInstance.call_count}"
         )
         # And GetModule (the heavier call) too.
         assert comtypes.client.GetModule.call_count == 1, (
-            f"comtypes.client.GetModule should be called once; "
-            f"got {comtypes.client.GetModule.call_count}"
+            f"comtypes.client.GetModule should be called once; got {comtypes.client.GetModule.call_count}"
         )
 
     def test_init_failure_does_not_deadlock(self, fake_win32_elevated, reset_caches):
@@ -455,9 +446,7 @@ class TestGetUiaSingletonLockSemantics:
         assert result is None
         # Lock must be free after the exception path.
         lock = safety_mod._UIA_SINGLETON_LOCK
-        assert lock.acquire(blocking=False), (
-            "Lock must be released after init exception (XV-103 context-manager fix)"
-        )
+        assert lock.acquire(blocking=False), "Lock must be released after init exception (XV-103 context-manager fix)"
         lock.release()
 
 
@@ -497,7 +486,4 @@ class TestLockReentrancy:
         assert result is True
         # max_depth == 1 means the function was called once and did NOT
         # re-enter itself (which would deadlock with a non-reentrant Lock).
-        assert state["max_depth"] == 1, (
-            f"_get_we_elevated must not re-enter itself; max depth = "
-            f"{state['max_depth']}"
-        )
+        assert state["max_depth"] == 1, f"_get_we_elevated must not re-enter itself; max depth = {state['max_depth']}"

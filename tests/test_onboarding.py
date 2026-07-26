@@ -771,19 +771,27 @@ class TestUX4UX27PermissionsStep:
         # back to literals if absent.
         assert "title_key" in instructions or "title" in instructions
         assert "steps_keys" in instructions or "steps" in instructions
-        steps = (
-            instructions["steps_keys"]
-            if "steps_keys" in instructions
-            else instructions["steps"]
-        )
+        steps = instructions["steps_keys"] if "steps_keys" in instructions else instructions["steps"]
         assert isinstance(steps, list)
         assert len(steps) >= 1
         # Resolve the i18n keys to their English values via en.json and
         # check the macOS walkthrough mentions Accessibility.
         import json
         from pathlib import Path
-        en_path = Path(__file__).parent.parent / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations" / "en.json"
+
+        en_path = (
+            Path(__file__).parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "i18n"
+            / "translations"
+            / "en.json"
+        )
         en = json.loads(en_path.read_text(encoding="utf-8"))
+
         def flat(d, p=""):
             out = {}
             for k, v in d.items():
@@ -793,6 +801,7 @@ class TestUX4UX27PermissionsStep:
                 else:
                     out[key] = v
             return out
+
         en_flat = flat(en)
         joined_parts = [en_flat.get(k, k) for k in steps]
         joined = " ".join(joined_parts).lower()

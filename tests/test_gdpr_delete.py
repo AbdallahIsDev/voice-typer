@@ -370,9 +370,7 @@ def test_delete_all_personal_data_erases_rotated_log_backups(tmp_path) -> None:
         )
         # ALL voice-typer.log.* files should be gone, not just .1 and .2.
         remaining = list(tmp_path.glob("voice-typer.log.*"))
-        assert remaining == [], (
-            f"voice-typer.log.* rotated backups still present after GDPR delete: {remaining}"
-        )
+        assert remaining == [], f"voice-typer.log.* rotated backups still present after GDPR delete: {remaining}"
     finally:
         mp.undo()
 
@@ -403,18 +401,13 @@ def test_delete_all_personal_data_erases_crash_dumps(tmp_path) -> None:
             "file written by crash_handler.py:722 (PI-5)."
         )
         assert not artifacts["python_crash.txt"].exists(), (
-            "python_crash.<PID>.txt must be deleted — Python excepthook marker "
-            "written by crash_handler.py:1190 (PI-5)."
+            "python_crash.<PID>.txt must be deleted — Python excepthook marker written by crash_handler.py:1190 (PI-5)."
         )
         # No crash_diagnostics.*.txt or python_crash.*.txt should remain.
         remaining_diag = list(tmp_path.glob("crash_diagnostics.*.txt"))
-        assert remaining_diag == [], (
-            f"crash_diagnostics.*.txt files still present after GDPR delete: {remaining_diag}"
-        )
+        assert remaining_diag == [], f"crash_diagnostics.*.txt files still present after GDPR delete: {remaining_diag}"
         remaining_py = list(tmp_path.glob("python_crash.*.txt"))
-        assert remaining_py == [], (
-            f"python_crash.*.txt files still present after GDPR delete: {remaining_py}"
-        )
+        assert remaining_py == [], f"python_crash.*.txt files still present after GDPR delete: {remaining_py}"
     finally:
         mp.undo()
 
@@ -433,17 +426,12 @@ def test_delete_all_personal_data_erases_prewarm_log(tmp_path) -> None:
             pytest.skip("Fix-D not yet landed")
         artifacts = _seed_personal_data(tmp_path)
         svc.delete_all_personal_data()
-        assert not artifacts["prewarm.log"].exists(), (
-            "prewarm.log must be deleted — prewarm process log (PI-6)."
-        )
+        assert not artifacts["prewarm.log"].exists(), "prewarm.log must be deleted — prewarm process log (PI-6)."
         assert not artifacts["prewarm.log.1"].exists(), (
-            "prewarm.log.1 (rotated backup) must be deleted — prewarm process "
-            "log rotation (PI-6)."
+            "prewarm.log.1 (rotated backup) must be deleted — prewarm process log rotation (PI-6)."
         )
         remaining = list(tmp_path.glob("prewarm.log*"))
-        assert remaining == [], (
-            f"prewarm.log* files still present after GDPR delete: {remaining}"
-        )
+        assert remaining == [], f"prewarm.log* files still present after GDPR delete: {remaining}"
     finally:
         mp.undo()
 
@@ -468,16 +456,12 @@ def test_delete_all_personal_data_erases_rust_logs_subdir(tmp_path) -> None:
         rust_log = artifacts["logs/voice-typer.log"]
         rust_log1 = artifacts["logs/voice-typer.log.1"]
         assert not rust_log.exists(), (
-            "<config_dir>/logs/voice-typer.log must be deleted — Rust host log "
-            "with no PII redaction (PI-6, XZ-LOG-02)."
+            "<config_dir>/logs/voice-typer.log must be deleted — Rust host log with no PII redaction (PI-6, XZ-LOG-02)."
         )
-        assert not rust_log1.exists(), (
-            "<config_dir>/logs/voice-typer.log.1 (rotated) must be deleted (PI-6)."
-        )
+        assert not rust_log1.exists(), "<config_dir>/logs/voice-typer.log.1 (rotated) must be deleted (PI-6)."
         # The entire logs/ subdirectory should be gone (rmtree).
         assert not (tmp_path / "logs").exists(), (
-            "<config_dir>/logs/ subdirectory still exists after GDPR delete "
-            "— should have been rmtree'd (PI-6)."
+            "<config_dir>/logs/ subdirectory still exists after GDPR delete — should have been rmtree'd (PI-6)."
         )
     finally:
         mp.undo()

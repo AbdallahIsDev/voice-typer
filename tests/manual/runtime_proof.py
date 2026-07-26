@@ -26,16 +26,12 @@ import numpy as np
 log_capture = io.StringIO()
 _capture_handler = logging.StreamHandler(log_capture)
 _capture_handler.setLevel(logging.DEBUG)
-_capture_handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-)
+_capture_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 logging.getLogger("voice_typer").addHandler(_capture_handler)
 # Also log to stderr so the user can see it live
 _stderr_handler = logging.StreamHandler(sys.stderr)
 _stderr_handler.setLevel(logging.DEBUG)
-_stderr_handler.setFormatter(
-    logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-)
+_stderr_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 logging.getLogger("voice_typer").addHandler(_stderr_handler)
 logging.getLogger("voice_typer").setLevel(logging.DEBUG)
 
@@ -65,6 +61,7 @@ class MockTrayIcon:
         # NEW-DEAD-002: AppState moved from voice_typer.tray to
         # voice_typer.server.tray_types.
         from voice_typer.server.tray_types import AppState
+
         state_name = state.value if isinstance(state, AppState) else str(state)
         ts = time.time()
         self.states.append((state_name, message, ts))
@@ -110,7 +107,10 @@ def run_runtime_proof():
     config = Config.load()
     log.info(
         "[STEP 1] Config: model=%s, device=%s, language=%s, sample_rate=%d",
-        config.model_size, config.device, config.language, config.sample_rate,
+        config.model_size,
+        config.device,
+        config.language,
+        config.sample_rate,
     )
 
     transcriber = TranscriptionEngine(
@@ -125,7 +125,8 @@ def run_runtime_proof():
         transcriber.load()
         log.info(
             "[STEP 2] Model loaded OK - device_info=%s, loaded_via=%s",
-            transcriber.device_info, transcriber.loaded_via,
+            transcriber.device_info,
+            transcriber.loaded_via,
         )
     except Exception as e:
         log.error("[STEP 2] Model load FAILED: %s", e)
@@ -146,7 +147,9 @@ def run_runtime_proof():
     rms = float(np.sqrt(np.mean(audio.astype(np.float64) ** 2)))
     log.info(
         "[STEP 3] Synthetic audio: duration=%.1fs, samples=%d, RMS=%.6f",
-        duration, len(audio), rms,
+        duration,
+        len(audio),
+        rms,
     )
 
     # --- Simulate: F2 pressed again → _stop_dictation ---

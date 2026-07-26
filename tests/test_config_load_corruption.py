@@ -632,9 +632,7 @@ class TestS2CR44CoercionHelpers:
         assert len(recs) == 1
         assert recs[0].levelno == logging.WARNING
 
-    def test_validate_non_numeric_fields_uses_helpers_for_bool_coercion(
-        self, caplog
-    ):
+    def test_validate_non_numeric_fields_uses_helpers_for_bool_coercion(self, caplog):
         """S2-CR-44 regression: bool coercion routes through
         ``_warn_and_coerce`` so the warning message format stays
         consistent with int/float coercion.

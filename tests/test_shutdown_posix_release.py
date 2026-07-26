@@ -110,9 +110,7 @@ class TestPosixMutexHandleRelease:
         controller._do_cleanup()
 
         handle.release.assert_called_once_with()
-        assert fake_app._mutex_handle is None, (
-            "YJ-2: _do_cleanup must clear app._mutex_handle after release() on POSIX"
-        )
+        assert fake_app._mutex_handle is None, "YJ-2: _do_cleanup must clear app._mutex_handle after release() on POSIX"
 
     def test_posix_release_skipped_when_handle_none(self, controller, fake_app, monkeypatch):
         """When ``app._mutex_handle`` is None, the POSIX branch must NOT
@@ -193,14 +191,13 @@ class TestPosixMutexHandleRelease:
             # lockfile). The handle is cleared on the app.
             assert fake_app._mutex_handle is None
             # The lockfile should have been unlinked by release().
-            assert not lock_path.exists(), (
-                "YJ-2: _PosixSingleInstanceHandle.release() must unlink the lockfile"
-            )
+            assert not lock_path.exists(), "YJ-2: _PosixSingleInstanceHandle.release() must unlink the lockfile"
         finally:
             # Defense in depth: if release() didn't run, close the fd
             # manually so the test doesn't leak a file descriptor.
             with contextlib.suppress(OSError):
                 import os
+
                 os.close(fd)
 
 

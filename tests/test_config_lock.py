@@ -43,6 +43,7 @@ These tests pin the new contract:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 from unittest.mock import patch
@@ -215,13 +216,11 @@ class TestConfigMutationLock:
                 # the mutation lock), the barrier times out and raises
                 # BrokenBarrierError — which is the EXPECTED case (the
                 # lock is serializing the saves).
-                try:
+                # Expected: the second thread is blocked on the
+                # mutation lock, so only one thread reached the
+                # barrier.  This proves the lock is being held.
+                with contextlib.suppress(threading.BrokenBarrierError):
                     barrier.wait(timeout=0.2)
-                except threading.BrokenBarrierError:
-                    # Expected: the second thread is blocked on the
-                    # mutation lock, so only one thread reached the
-                    # barrier.  This proves the lock is being held.
-                    pass
                 return original_unlocked()
             finally:
                 with state_lock:

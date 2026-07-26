@@ -56,12 +56,14 @@ class TestAdapterInitialState:
 
     def test_initial_state_is_native(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         assert adapter._state == _NativeBackendAdapter._STATE_NATIVE
 
     def test_hotkey_str_propagated(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend("<caps_lock>")
         adapter = _NativeBackendAdapter(native)
         assert adapter.hotkey_str == "<caps_lock>"
@@ -69,6 +71,7 @@ class TestAdapterInitialState:
     def test_callbacks_wired(self):
         """The adapter should set _on_error_callback and _on_permanent_failure_callback."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         _NativeBackendAdapter(native)
         assert native._on_error_callback is not None
@@ -80,6 +83,7 @@ class TestAdapterStart:
 
     def test_start_native_succeeds(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         cb = MagicMock()
@@ -90,6 +94,7 @@ class TestAdapterStart:
     def test_start_native_fails_swaps_to_legacy(self, monkeypatch):
         """If native.start() raises, swap to legacy backend."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         native.start.side_effect = RuntimeError("native failed")
         adapter = _NativeBackendAdapter(native)
@@ -111,6 +116,7 @@ class TestAdapterStop:
 
     def test_stop_in_native_state(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         adapter.start(MagicMock())
@@ -120,6 +126,7 @@ class TestAdapterStop:
 
     def test_stop_is_idempotent(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         adapter.start(MagicMock())
@@ -129,6 +136,7 @@ class TestAdapterStop:
 
     def test_stop_cancels_retry_timer(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         # Simulate a pending retry timer
@@ -141,6 +149,7 @@ class TestAdapterStop:
     def test_stop_stops_both_backends(self, monkeypatch):
         """If a swap happened, stop() should stop both native and legacy."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         legacy = _make_mock_legacy_backend()
@@ -163,6 +172,7 @@ class TestAdapterIsAlive:
 
     def test_is_alive_native(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         native.is_alive.return_value = True
         adapter = _NativeBackendAdapter(native)
@@ -171,6 +181,7 @@ class TestAdapterIsAlive:
 
     def test_is_alive_native_dead(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         native.is_alive.return_value = False
         adapter = _NativeBackendAdapter(native)
@@ -180,6 +191,7 @@ class TestAdapterIsAlive:
 
     def test_is_alive_fallback(self, monkeypatch):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         native.start.side_effect = RuntimeError("fail")
         adapter = _NativeBackendAdapter(native)
@@ -193,6 +205,7 @@ class TestAdapterIsAlive:
 
     def test_is_alive_failed_state(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         adapter._state = _NativeBackendAdapter._STATE_FAILED
@@ -200,6 +213,7 @@ class TestAdapterIsAlive:
 
     def test_is_alive_stopped_state(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         adapter._state = _NativeBackendAdapter._STATE_STOPPED
@@ -214,6 +228,7 @@ class TestSwapToLegacy:
 
     def test_swap_creates_legacy_and_starts_it(self, monkeypatch):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         legacy = _make_mock_legacy_backend()
@@ -228,6 +243,7 @@ class TestSwapToLegacy:
     def test_swap_fires_on_release_callback(self, monkeypatch):
         """If a recording is in progress, fire on_release so it doesn't get stuck."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         legacy = _make_mock_legacy_backend()
@@ -244,6 +260,7 @@ class TestSwapToLegacy:
     def test_swap_idempotent(self, monkeypatch):
         """Calling _swap_to_legacy twice should not create two legacy backends."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         legacy = _make_mock_legacy_backend()
@@ -258,6 +275,7 @@ class TestSwapToLegacy:
     def test_swap_when_legacy_also_fails(self, monkeypatch):
         """If the legacy backend also fails, state goes to FAILED."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         failing_legacy = _make_mock_legacy_backend()
@@ -272,6 +290,7 @@ class TestSwapToLegacy:
     def test_swap_when_already_stopped(self, monkeypatch):
         """If stop() was called, _swap_to_legacy should be a no-op."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         adapter._state = _NativeBackendAdapter._STATE_STOPPED
@@ -291,6 +310,7 @@ class TestPermanentFailureCallback:
 
     def test_permanent_failure_triggers_swap(self, monkeypatch):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         legacy = _make_mock_legacy_backend()
@@ -312,6 +332,7 @@ class TestNativeRetry:
     def test_retry_succeeds(self, monkeypatch):
         """If native restart succeeds, swap back to NATIVE state."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         native.is_alive.return_value = True
         adapter = _NativeBackendAdapter(native)
@@ -329,6 +350,7 @@ class TestNativeRetry:
     def test_retry_fails_stays_on_legacy(self, monkeypatch):
         """If native restart fails, stay on legacy and schedule another retry."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         native.start.side_effect = RuntimeError("still broken")
         adapter = _NativeBackendAdapter(native)
@@ -348,6 +370,7 @@ class TestNativeRetry:
     def test_retry_when_stopped_is_noop(self, monkeypatch):
         """If stop() was called, _retry_native should not restart anything."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         adapter._state = _NativeBackendAdapter._STATE_STOPPED
@@ -366,6 +389,7 @@ class TestSetOnRelease:
 
     def test_set_on_release_native_only(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         cb = MagicMock()
@@ -374,6 +398,7 @@ class TestSetOnRelease:
 
     def test_set_on_release_propagates_to_legacy(self, monkeypatch):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         legacy = _make_mock_legacy_backend()
@@ -397,6 +422,7 @@ class TestDiagnose:
 
     def test_diagnose_native_state(self):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         native.diagnose.return_value = "MockNative"
         adapter = _NativeBackendAdapter(native)
@@ -406,6 +432,7 @@ class TestDiagnose:
 
     def test_diagnose_fallback_state(self, monkeypatch):
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         legacy = _make_mock_legacy_backend()
@@ -429,6 +456,7 @@ class TestThreadSafety:
     def test_concurrent_stop_and_swap(self, monkeypatch):
         """stop() and _swap_to_legacy called concurrently should not deadlock."""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
+
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         legacy = _make_mock_legacy_backend()

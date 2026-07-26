@@ -68,9 +68,7 @@ class TestAutoEviction:
         assert cr.count == max_n
         # The newest max_n entries are retained (entry-5 .. entry-14).
         entries = cr.get_all()
-        assert [e["text"] for e in entries] == [
-            f"entry-{i}" for i in range(5, max_n + 5)
-        ]
+        assert [e["text"] for e in entries] == [f"entry-{i}" for i in range(5, max_n + 5)]
 
     def test_append_exactly_max_does_not_evict(self, cr):
         """Appending exactly ``maxlen`` entries evicts nothing."""
@@ -79,9 +77,7 @@ class TestAutoEviction:
             cr.add(f"entry-{i}", pasted=False)
         assert cr.count == max_n
         entries = cr.get_all()
-        assert [e["text"] for e in entries] == [
-            f"entry-{i}" for i in range(max_n)
-        ]
+        assert [e["text"] for e in entries] == [f"entry-{i}" for i in range(max_n)]
 
     def test_eviction_is_oldest_first(self, cr):
         """Repeated appends evict in FIFO order (oldest first)."""
@@ -177,9 +173,7 @@ class TestJsonRoundTrip:
         del cr1
 
         # Inspect the raw on-disk JSON shape (must still be a list of dicts).
-        raw = (recovery_dir / "voice-typer-recovery.json").read_text(
-            encoding="utf-8"
-        )
+        raw = (recovery_dir / "voice-typer-recovery.json").read_text(encoding="utf-8")
         parsed = json.loads(raw)
         assert isinstance(parsed, dict)
         assert "entries" in parsed
@@ -210,8 +204,7 @@ class TestJsonRoundTrip:
         # from an older version that had a higher bound.
         oversized = {
             "entries": [
-                {"text": f"old-{i}", "timestamp": "2026-01-01T00:00:00", "pasted": False}
-                for i in range(max_n * 2)
+                {"text": f"old-{i}", "timestamp": "2026-01-01T00:00:00", "pasted": False} for i in range(max_n * 2)
             ]
         }
         recovery_path = recovery_dir / "voice-typer-recovery.json"
@@ -223,6 +216,4 @@ class TestJsonRoundTrip:
         # constructor keeps the LAST ``maxlen`` items of the iterable).
         assert cr.count == max_n
         entries = cr.get_all()
-        assert [e["text"] for e in entries] == [
-            f"old-{i}" for i in range(max_n, max_n * 2)
-        ]
+        assert [e["text"] for e in entries] == [f"old-{i}" for i in range(max_n, max_n * 2)]

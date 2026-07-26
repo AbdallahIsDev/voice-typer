@@ -569,9 +569,7 @@ def test_ws_reader_skips_respawn_during_shutdown(ws_source: str) -> None:
     assert re.search(
         r"if\s*!\s*state_for_(?:reader|cleanup)\.shutting_down\.load",
         ws_source,
-    ), (
-        "supervisor trigger must be inside `if !shutting_down` — the spawn must be suppressed during shutdown"
-    )
+    ), "supervisor trigger must be inside `if !shutting_down` — the spawn must be suppressed during shutdown"
 
 
 def test_ws_reader_emits_relaunching_with_reason_disconnected(ws_source: str) -> None:
@@ -748,8 +746,7 @@ def test_supervisor_attempt_counter_is_local_to_invocation(supervisor_source: st
     )
     # There must NOT be a persistent crash counter field on SidecarState.
     assert "crash_count" not in supervisor_source, (
-        "supervisor must not use a persistent crash_count — the "
-        "attempt counter is per-call (local to respawn_inner)"
+        "supervisor must not use a persistent crash_count — the attempt counter is per-call (local to respawn_inner)"
     )
 
 
@@ -793,8 +790,7 @@ def test_supervisor_rotates_token_on_each_respawn_attempt(supervisor_source: str
     ``generate_token()``) so a compromised old token is invalidated
     when the sidecar restarts. ADR-0020 §3."""
     assert "generate_token()" in supervisor_source, (
-        "supervisor must call generate_token() on each respawn attempt "
-        "— the token rotates per respawn (ADR-0020 §3)"
+        "supervisor must call generate_token() on each respawn attempt — the token rotates per respawn (ADR-0020 §3)"
     )
     assert "new_token" in supervisor_source, "supervisor must use a `new_token` local for the rotated token"
 
@@ -902,9 +898,7 @@ def test_rust_ws_client_enforces_max_message_and_frame_size(ws_source: str) -> N
     assert re.search(
         r"\.max_message_size\s*=\s*Some\s*\(\s*MAX_FRAME_BYTES\s*\)",
         ws_source,
-    ), (
-        "Rust WS client must set max_message_size = Some(MAX_FRAME_BYTES) — guards against fragmented-message bypass"
-    )
+    ), "Rust WS client must set max_message_size = Some(MAX_FRAME_BYTES) — guards against fragmented-message bypass"
     assert re.search(
         r"\.max_frame_size\s*=\s*Some\s*\(\s*MAX_FRAME_BYTES\s*\)",
         ws_source,
@@ -986,8 +980,7 @@ def test_sidecar_ws_calls_rate_limiter_allow_per_frame(sidecar_ws_source: str) -
         "sidecar_ws.py must look up the shared rate limiter via _get_rate_limiter(server) on every frame"
     )
     assert "rate_limiter.allow()" in sidecar_ws_source, (
-        "sidecar_ws.py must call rate_limiter.allow() per frame — the WS accept path "
-        "rate-limiter is the ADR-0019 port"
+        "sidecar_ws.py must call rate_limiter.allow() per frame — the WS accept path rate-limiter is the ADR-0019 port"
     )
     # SEC-6 / DOWNGRADE #2 fix: allow() now increments _rejected atomically
     # when it returns False. The separate .reject() call was removed from
@@ -1332,9 +1325,7 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     # The block must also have a branch that kills the freshly-spawned
     # child when the inside-lock recheck sees shutting_down == true.
     # The pattern is: shutting_down recheck → if true → kill_tree.
-    kill_branch_re = re.compile(
-        r"shutting_down.*?\{[^}]*?kill_tree", re.DOTALL
-    )
+    kill_branch_re = re.compile(r"shutting_down.*?\{[^}]*?kill_tree", re.DOTALL)
     assert kill_branch_re.search(install_block), (
         "YJ-21 / CR-81: when the inside-lock recheck sees "
         "`shutting_down == true`, the freshly-spawned child must be "

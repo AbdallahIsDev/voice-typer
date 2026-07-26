@@ -26,6 +26,7 @@ import pytest
 @pytest.fixture
 def polisher():
     from voice_typer.server.llm_polish import LLMPolisher
+
     return LLMPolisher(
         api_key="test-key",
         api_url="https://api.openai.com/v1/chat/completions",
@@ -39,9 +40,7 @@ def _make_mock_response(content: str = "Polished") -> MagicMock:
     """Build a mock HTTP response suitable for ``_read_capped``'s
     read-in-a-loop pattern (returns body on first call, b"" after)."""
     mock_response = MagicMock()
-    body = json.dumps(
-        {"choices": [{"message": {"content": content}}]}
-    ).encode("utf-8")
+    body = json.dumps({"choices": [{"message": {"content": content}}]}).encode("utf-8")
     mock_response.read.side_effect = [body, b""]
     mock_response.__enter__ = lambda s: s
     mock_response.__exit__ = MagicMock(return_value=False)
@@ -56,6 +55,7 @@ class TestXV76MaxInputChars:
 
     def test_max_input_chars_constant(self):
         from voice_typer.server.llm_polish import MAX_INPUT_CHARS
+
         assert MAX_INPUT_CHARS == 8000
 
     def test_polish_returns_text_unchanged_when_input_exceeds_cap(self, polisher):
@@ -66,9 +66,7 @@ class TestXV76MaxInputChars:
         oversized = "word " * ((MAX_INPUT_CHARS // 5) + 1)  # ~8005 chars
         assert len(oversized) > MAX_INPUT_CHARS
 
-        with patch(
-            "voice_typer.server.llm_polish._opener.open"
-        ) as mock_open:
+        with patch("voice_typer.server.llm_polish._opener.open") as mock_open:
             result = polisher.polish(oversized)
 
         # Must return the input unchanged — no API call, no transformation.
@@ -108,15 +106,14 @@ class TestXV76MaxInputChars:
 
         oversized = "x" * (MAX_INPUT_CHARS + 100)
 
-        with patch("voice_typer.server.llm_polish._opener.open"), caplog.at_level(
-            logging.INFO, logger="voice_typer.server.llm_polish"
+        with (
+            patch("voice_typer.server.llm_polish._opener.open"),
+            caplog.at_level(logging.INFO, logger="voice_typer.server.llm_polish"),
         ):
             result = polisher.polish(oversized)
 
         assert result == oversized
-        skip_records = [
-            r for r in caplog.records if "Skipping polish" in r.getMessage()
-        ]
+        skip_records = [r for r in caplog.records if "Skipping polish" in r.getMessage()]
         assert len(skip_records) == 1
         msg = skip_records[0].getMessage()
         # Must include the actual input length and the cap.
@@ -133,6 +130,7 @@ class TestXV75ConfigurableTimeout:
 
     def test_default_timeout_s_constant(self):
         from voice_typer.server.llm_polish import LLMPolisher
+
         assert LLMPolisher.DEFAULT_TIMEOUT_S == 10
 
     def test_call_api_uses_10s_default_timeout(self, polisher):
@@ -151,8 +149,7 @@ class TestXV75ConfigurableTimeout:
         mock_open.assert_called_once()
         _pos_args, kwargs = mock_open.call_args
         assert kwargs.get("timeout") == 10, (
-            f"Expected timeout=10 (DEFAULT_TIMEOUT_S), got "
-            f"timeout={kwargs.get('timeout')!r}"
+            f"Expected timeout=10 (DEFAULT_TIMEOUT_S), got timeout={kwargs.get('timeout')!r}"
         )
 
     def test_polish_passes_default_timeout_to_call_api(self, polisher):
@@ -216,10 +213,7 @@ class TestXV75ConfigurableTimeout:
             )
 
         _pos_args, kwargs = mock_open.call_args
-        assert kwargs.get("timeout") != 30, (
-            "XV-75 regression: _call_api still uses the old hard-coded "
-            "30s timeout"
-        )
+        assert kwargs.get("timeout") != 30, "XV-75 regression: _call_api still uses the old hard-coded 30s timeout"
 
 
 # ── XV-76: flat max_tokens=1024 ──────────────────────────────────────
@@ -247,9 +241,7 @@ class TestXV76FlatMaxTokens:
         mock_open.assert_called_once()
         req = mock_open.call_args.args[0]
         payload = json.loads(req.data.decode("utf-8"))
-        assert payload["max_tokens"] == 1024, (
-            f"Expected flat max_tokens=1024, got {payload['max_tokens']!r}"
-        )
+        assert payload["max_tokens"] == 1024, f"Expected flat max_tokens=1024, got {payload['max_tokens']!r}"
 
     def test_max_tokens_is_flat_1024_for_long_text(self, polisher):
         """XV-76 (c): a long input (well above the old formula's
@@ -271,8 +263,7 @@ class TestXV76FlatMaxTokens:
         req = mock_open.call_args.args[0]
         payload = json.loads(req.data.decode("utf-8"))
         assert payload["max_tokens"] == 1024, (
-            f"Expected flat max_tokens=1024 (old formula would have "
-            f"yielded 4096 here), got {payload['max_tokens']!r}"
+            f"Expected flat max_tokens=1024 (old formula would have yielded 4096 here), got {payload['max_tokens']!r}"
         )
 
     def test_max_tokens_no_longer_depends_on_input_length(self, polisher):
@@ -294,6 +285,5 @@ class TestXV76FlatMaxTokens:
             observed_values.add(payload["max_tokens"])
 
         assert observed_values == {1024}, (
-            f"max_tokens varied with input length: {observed_values!r} "
-            f"(expected constant {{1024}})"
+            f"max_tokens varied with input length: {observed_values!r} (expected constant {{1024}})"
         )

@@ -189,8 +189,7 @@ class TestCloudEngineRaisesCloudConsentRequiredError:
             with pytest.raises(CloudConsentRequiredError) as exc_info:
                 eng.transcribe(audio)
             assert exc_info.value.provider == provider, (
-                f"Expected provider={provider!r} on the raised exception, "
-                f"got {exc_info.value.provider!r}"
+                f"Expected provider={provider!r} on the raised exception, got {exc_info.value.provider!r}"
             )
             assert exc_info.value.scope == "transcribe"
 
@@ -365,13 +364,9 @@ def _read_response_line(sock: socket.socket, timeout: float = 2.0) -> dict:
         try:
             chunk = sock.recv(4096)
         except TimeoutError as exc:
-            raise TimeoutError(
-                f"Timed out waiting for response. Got partial: {buf!r}"
-            ) from exc
+            raise TimeoutError(f"Timed out waiting for response. Got partial: {buf!r}") from exc
         if not chunk:
-            raise ConnectionError(
-                f"Server closed connection. Got partial: {buf!r}"
-            )
+            raise ConnectionError(f"Server closed connection. Got partial: {buf!r}")
         buf += chunk
     line, _ = buf.split(b"\n", 1)
     return json.loads(line.decode("utf-8"))
@@ -511,9 +506,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
     connection.
     """
 
-    def test_cloud_consent_error_produces_consent_required_envelope(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_cloud_consent_error_produces_consent_required_envelope(self, authenticated_client, monkeypatch):
         from voice_typer.server.asr_errors import CloudConsentRequiredError
 
         client, server = authenticated_client
@@ -534,9 +527,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         # The consent handler produces ``code: consent_required`` (NOT
         # ``server.internal_error`` — that would hide the consent signal
         # from the renderer's consent-dialog logic).
-        assert resp["data"]["code"] == "server.consent_required", (
-            f"Expected code=consent_required, got: {resp}"
-        )
+        assert resp["data"]["code"] == "server.consent_required", f"Expected code=consent_required, got: {resp}"
         # provider / scope are surfaced from the exception so the
         # renderer can show the correct provider-specific dialog.
         assert resp["data"]["provider"] == "openai"
@@ -545,9 +536,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         # are user-actionable, not internal server leakage).
         assert "consent not given" in resp["data"]["message"]
 
-    def test_huggingface_consent_error_produces_consent_required_envelope(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_huggingface_consent_error_produces_consent_required_envelope(self, authenticated_client, monkeypatch):
         from voice_typer.server.asr_errors import HuggingFaceConsentRequiredError
 
         client, server = authenticated_client
@@ -572,9 +561,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         assert resp["data"]["scope"] == "download"
         assert "HuggingFace consent not given" in resp["data"]["message"]
 
-    def test_legacy_base_consent_error_still_produces_envelope(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_legacy_base_consent_error_still_produces_envelope(self, authenticated_client, monkeypatch):
         """DE-30 backward compat: a legacy ``raise
         ConsentRequiredError("...")`` callsite (no provider/scope set)
         must still produce a ``consent_required`` envelope, with empty
@@ -605,9 +592,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         assert resp["data"]["scope"] == ""
         assert "legacy consent raise site" in resp["data"]["message"]
 
-    def test_consent_error_does_not_mask_as_internal_error(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_consent_error_does_not_mask_as_internal_error(self, authenticated_client, monkeypatch):
         """DE-31 regression: the ``except ConsentRequiredError`` clause
         MUST come BEFORE the generic ``except Exception`` — otherwise
         the consent signal would be swallowed into a generic
@@ -636,9 +621,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         assert resp["data"]["code"] == "server.consent_required"
         assert resp["data"]["provider"] == "groq"
 
-    def test_connection_survives_consent_error(
-        self, authenticated_client, monkeypatch
-    ):
+    def test_connection_survives_consent_error(self, authenticated_client, monkeypatch):
         """DE-31: after a ``consent_required`` envelope, the same TCP
         socket must accept and respond to a subsequent request — the
         connection survives (mirrors the B-6 contract for the generic

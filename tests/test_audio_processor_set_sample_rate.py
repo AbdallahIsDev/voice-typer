@@ -206,8 +206,7 @@ class TestSetSampleRateRebuildsFilters:
         initial_names = processor.filter_names
         processor.set_sample_rate(44100)
         assert processor.filter_names == initial_names, (
-            f"Filter set must be preserved across rate change: "
-            f"initial={initial_names}, after={processor.filter_names}"
+            f"Filter set must be preserved across rate change: initial={initial_names}, after={processor.filter_names}"
         )
 
     def test_chain_object_identity_preserved(self, processor):

@@ -49,6 +49,7 @@ def bundled(tmp_path):
 def vm(vocab_dir, bundled):
     """Create a VocabularyManager with bundled data."""
     from voice_typer.server.vocabulary import VocabularyManager
+
     return VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
 
 
@@ -66,6 +67,7 @@ def config():
 def automation(vm, config):
     """Create a VocabularyAutomation instance."""
     from voice_typer.server.vocabulary_automation import VocabularyAutomation
+
     return VocabularyAutomation(vm, config)
 
 
@@ -75,37 +77,45 @@ def automation(vm, config):
 class TestLevenshtein:
     def test_identical_strings(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
+
         assert _levenshtein("hello", "hello") == 0
 
     def test_single_substitution(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
+
         assert _levenshtein("cat", "cut") == 1
 
     def test_single_insertion(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
+
         assert _levenshtein("cat", "cats") == 1
 
     def test_single_deletion(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
+
         assert _levenshtein("cats", "cat") == 1
 
     def test_classic_example(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
+
         # kitten → sitting: 3 edits (k→s, e→i, +g)
         assert _levenshtein("kitten", "sitting") == 3
 
     def test_bounded_short_circuit(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
+
         # Length difference exceeds the bound — can't match.
         assert _levenshtein("cat", "abcdefg", max_distance=2) == 3
 
     def test_bounded_within_range(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
+
         # Distance is 1, within bound of 2.
         assert _levenshtein("cat", "cut", max_distance=2) == 1
 
     def test_empty_string(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
+
         assert _levenshtein("", "abc") == 3
         assert _levenshtein("abc", "") == 3
         assert _levenshtein("", "") == 0
@@ -117,6 +127,7 @@ class TestLevenshtein:
 class TestCorrectionSuggestion:
     def test_to_dict_excludes_internal_flags(self):
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         s = CorrectionSuggestion(
             original="teh",
             corrected="the",
@@ -163,6 +174,7 @@ class TestAnalyzeTranscription:
         vm.add_entry("misspellings", "definately", "definitely")
         # Re-create automation so it sees the updated vocabulary.
         from voice_typer.server.vocabulary_automation import VocabularyAutomation
+
         config = SimpleNamespace(
             vocabulary_automation_enabled=True,
             vocabulary_auto_confidence_threshold=0.7,
@@ -185,6 +197,7 @@ class TestAnalyzeTranscription:
     def test_analyze_transcription_respects_disabled_flag(self, vm):
         """When vocabulary_automation_enabled is False, no suggestions."""
         from voice_typer.server.vocabulary_automation import VocabularyAutomation
+
         config = SimpleNamespace(
             vocabulary_automation_enabled=False,  # disabled
             vocabulary_auto_confidence_threshold=0.7,
@@ -242,6 +255,7 @@ class TestApplySuggestion:
     def test_apply_suggestion_adds_to_vocabulary(self, automation, vm):
         """Applying a suggestion should add the correction to the vocabulary."""
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         suggestion = CorrectionSuggestion(
             original="definately",
             corrected="definitely",
@@ -260,6 +274,7 @@ class TestApplySuggestion:
     def test_apply_suggestion_removes_from_pending(self, automation):
         """Applied suggestions should no longer be in the pending list."""
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         suggestion = CorrectionSuggestion(
             original="teh",
             corrected="the",
@@ -276,6 +291,7 @@ class TestApplySuggestion:
     def test_apply_suggestion_idempotent(self, automation, vm):
         """Applying the same suggestion twice should be a no-op."""
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         suggestion = CorrectionSuggestion(
             original="teh",
             corrected="the",
@@ -300,6 +316,7 @@ class TestDismissSuggestion:
     def test_dismiss_suggestion_removes_from_pending(self, automation):
         """Dismissed suggestions should be removed from the pending list."""
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         suggestion = CorrectionSuggestion(
             original="teh",
             corrected="the",
@@ -316,6 +333,7 @@ class TestDismissSuggestion:
     def test_dismiss_does_not_add_to_vocabulary(self, automation, vm):
         """Dismissed suggestions should NOT be added to the vocabulary."""
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         suggestion = CorrectionSuggestion(
             original="definately",
             corrected="definitely",
@@ -338,9 +356,13 @@ class TestGetPendingSuggestions:
     def test_returns_copy_not_internal_list(self, automation):
         """get_pending_suggestions should return a copy so callers can't mutate internals."""
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         s = CorrectionSuggestion(
-            original="teh", corrected="the", confidence=0.5,
-            context="teh", timestamp=0.0,
+            original="teh",
+            corrected="the",
+            confidence=0.5,
+            context="teh",
+            timestamp=0.0,
         )
         automation._pending.append(s)
         pending = automation.get_pending_suggestions()
@@ -356,6 +378,7 @@ class TestAutoApplyHighConfidence:
     def test_auto_apply_high_confidence_suggestions(self, automation, vm):
         """Suggestions above the threshold should be auto-applied."""
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         # Two suggestions: one high-confidence, one low-confidence.
         high = CorrectionSuggestion(
             original="definately",
@@ -392,6 +415,7 @@ class TestAutoApplyHighConfidence:
         — the user needs to supply the correction themselves.
         """
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
+
         s = CorrectionSuggestion(
             original="xyzzy",
             corrected="xyzzy",  # no proposed correction
@@ -414,6 +438,7 @@ class TestRespectsDisabledFlag:
     def test_respects_disabled_flag(self, vm):
         """The full automation pipeline should be a no-op when disabled."""
         from voice_typer.server.vocabulary_automation import VocabularyAutomation
+
         config = SimpleNamespace(
             vocabulary_automation_enabled=False,
             vocabulary_auto_confidence_threshold=0.7,
@@ -422,7 +447,9 @@ class TestRespectsDisabledFlag:
         automation = VocabularyAutomation(vm, config)
         # Analyze should return empty.
         suggestions = automation.analyze_transcription(
-            "suspicious words with low confidence", [], 0.1,
+            "suspicious words with low confidence",
+            [],
+            0.1,
         )
         assert suggestions == []
         # Auto-apply should return 0.

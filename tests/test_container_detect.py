@@ -468,7 +468,8 @@ class TestCgroupV2Detection:
         # is field 5 (``/``), fstype is the token after the ``-``
         # separator (``overlay``).
         mountinfo = (
-            "1 0 0:1 / / rw,relatime - overlay overlay rw,lowerdir=/var/lib/containers,upperdir=/var/lib/containers/overlay-containers/xyz/usr,diff\n"
+            "1 0 0:1 / / rw,relatime - overlay overlay "
+            "rw,lowerdir=/var/lib/containers,upperdir=/var/lib/containers/overlay-containers/xyz/usr,diff\n"
             "30 1 0:28 / /proc rw,nosuid,nodev,noexec - proc proc rw\n"
         )
         _set_proc_files(
@@ -491,9 +492,7 @@ class TestCgroupV2Detection:
         _force_linux(monkeypatch)
         _set_existing_paths(monkeypatch, set())
         # overlay mounted at /var/lib/docker, not /
-        mountinfo = (
-            "30 1 0:28 /var/lib/docker /var/lib/docker rw,relatime - overlay overlay rw\n"
-        )
+        mountinfo = "30 1 0:28 /var/lib/docker /var/lib/docker rw,relatime - overlay overlay rw\n"
         _set_proc_files(
             monkeypatch,
             {

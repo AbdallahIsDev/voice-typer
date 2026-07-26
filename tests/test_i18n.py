@@ -46,9 +46,7 @@ def _restore_i18n_state():
     them after — so each test sees a clean ``en``-only registry.
     """
     with i18n._LOCK:
-        saved_registry = {
-            loc: dict(labels) for loc, labels in i18n._REGISTRY.items()
-        }
+        saved_registry = {loc: dict(labels) for loc, labels in i18n._REGISTRY.items()}
         saved_locale = i18n._CURRENT_LOCALE
     try:
         yield
@@ -319,9 +317,7 @@ class TestThreadSafety:
             # Spin for ~50ms of concurrent set_locale calls; sample get_locale.
             for _ in range(500):
                 loc = get_locale()
-                assert loc in {"alpha", "beta", "gamma", "en"}, (
-                    f"get_locale returned unregistered code: {loc!r}"
-                )
+                assert loc in {"alpha", "beta", "gamma", "en"}, f"get_locale returned unregistered code: {loc!r}"
         finally:
             stop.set()
         for th in threads:

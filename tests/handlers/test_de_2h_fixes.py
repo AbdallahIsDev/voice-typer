@@ -66,9 +66,7 @@ class TestDE38ScrubTraceback:
         secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
         exc = RuntimeError(f"key not found: {secret}")
         scrubbed_str, _ = _scrub_traceback(exc)
-        assert secret not in scrubbed_str, (
-            f"API key leaked through scrub: {scrubbed_str!r}"
-        )
+        assert secret not in scrubbed_str, f"API key leaked through scrub: {scrubbed_str!r}"
         # The redaction marker should be present (the canonical
         # ``redact_secret`` helper substitutes ``***`` for bare keys).
         assert "***" in scrubbed_str or "[REDACTED]" in scrubbed_str, (
@@ -82,9 +80,7 @@ class TestDE38ScrubTraceback:
         secret = "gsk_" + "a" * 30
         exc = RuntimeError(f"invalid Groq key: {secret}")
         scrubbed_str, _ = _scrub_traceback(exc)
-        assert secret not in scrubbed_str, (
-            f"Groq API key leaked through scrub: {scrubbed_str!r}"
-        )
+        assert secret not in scrubbed_str, f"Groq API key leaked through scrub: {scrubbed_str!r}"
 
     def test_scrubs_bearer_token_from_exception_message(self):
         """A ``Bearer <token>`` string in ``str(exc)`` is redacted."""
@@ -93,9 +89,7 @@ class TestDE38ScrubTraceback:
         secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
         exc = RuntimeError(f"Authorization: Bearer {secret} rejected")
         scrubbed_str, _ = _scrub_traceback(exc)
-        assert secret not in scrubbed_str, (
-            f"Bearer token leaked through scrub: {scrubbed_str!r}"
-        )
+        assert secret not in scrubbed_str, f"Bearer token leaked through scrub: {scrubbed_str!r}"
 
     def test_scrubs_home_directory_path_from_exception_message(self):
         """Home-directory path components are replaced with ``~``."""
@@ -106,9 +100,7 @@ class TestDE38ScrubTraceback:
             pytest.skip("HOME is not set or is root — cannot test home-dir scrub")
         exc = RuntimeError(f"failed to open {home}/.config/voice-typer/config.json")
         scrubbed_str, _ = _scrub_traceback(exc)
-        assert home not in scrubbed_str, (
-            f"Home directory leaked through scrub: {scrubbed_str!r}"
-        )
+        assert home not in scrubbed_str, f"Home directory leaked through scrub: {scrubbed_str!r}"
 
     def test_scrubs_home_directory_path_from_traceback_text(self):
         """Home-directory paths in the formatted traceback are scrubbed."""
@@ -123,9 +115,7 @@ class TestDE38ScrubTraceback:
             raise RuntimeError(f"failed at {home}/.cache/model.bin")
         except RuntimeError as exc:
             _, scrubbed_tb = _scrub_traceback(exc)
-        assert home not in scrubbed_tb, (
-            f"Home directory leaked through traceback scrub: {scrubbed_tb!r}"
-        )
+        assert home not in scrubbed_tb, f"Home directory leaked through traceback scrub: {scrubbed_tb!r}"
 
     def test_respond_with_error_does_not_leak_secret_to_response(
         self,
@@ -143,17 +133,11 @@ class TestDE38ScrubTraceback:
         secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
         helper = HandlerBase()
         resp: dict = {"id": 1}
-        result = helper._respond_with_error(
-            resp, RuntimeError(f"key not found: {secret}"), "test_cmd"
-        )
-        assert secret not in str(result), (
-            f"Secret leaked into response envelope: {result!r}"
-        )
+        result = helper._respond_with_error(resp, RuntimeError(f"key not found: {secret}"), "test_cmd")
+        assert secret not in str(result), f"Secret leaked into response envelope: {result!r}"
         assert result["data"]["message"] == "internal error"
 
-    def test_respond_with_error_scrubs_secret_from_log(
-        self, ipc_server, fake_service, caplog
-    ):
+    def test_respond_with_error_scrubs_secret_from_log(self, ipc_server, fake_service, caplog):
         """DE-38: the log record's formatted message must not carry the secret.
 
         ``export_diagnostics`` ships the log file back to the renderer,
@@ -165,9 +149,7 @@ class TestDE38ScrubTraceback:
         assertions continue to hold.
         """
         secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
-        fake_service.export_diagnostics.side_effect = RuntimeError(
-            f"key not found: {secret}"
-        )
+        fake_service.export_diagnostics.side_effect = RuntimeError(f"key not found: {secret}")
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.ipc_server"):
             resp = ipc_server._handle_export_diagnostics({}, {})
 
@@ -176,21 +158,15 @@ class TestDE38ScrubTraceback:
         assert resp["data"]["message"] == "internal error"
 
         # The log record's formatted message must not carry the secret.
-        error_records = [
-            r for r in caplog.records if r.levelno >= logging.ERROR
-        ]
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
         assert error_records, "catch-all must log at ERROR level"
         for record in error_records:
             formatted = record.getMessage()
-            assert secret not in formatted, (
-                f"Secret leaked into log message: {formatted!r}"
-            )
+            assert secret not in formatted, f"Secret leaked into log message: {formatted!r}"
             # If a traceback was attached (record.exc_text or via
             # exc_info formatting), scrub it too.
             if record.exc_text:
-                assert secret not in record.exc_text, (
-                    f"Secret leaked into record.exc_text: {record.exc_text!r}"
-                )
+                assert secret not in record.exc_text, f"Secret leaked into record.exc_text: {record.exc_text!r}"
         # ``record.exc_info`` must still be set so structured-logging
         # consumers and the existing
         # ``test_catch_all_logs_at_error_level_with_exc_info``
@@ -200,9 +176,7 @@ class TestDE38ScrubTraceback:
             "error_level_with_exc_info asserts it is not None)."
         )
 
-    def test_respond_with_error_scrubs_home_dir_from_log(
-        self, ipc_server, fake_service, caplog, monkeypatch
-    ):
+    def test_respond_with_error_scrubs_home_dir_from_log(self, ipc_server, fake_service, caplog, monkeypatch):
         """DE-38: home-directory paths in the log are replaced with ``~``."""
         home = os.path.expanduser("~")
         if home in ("/", "~", ""):
@@ -213,15 +187,11 @@ class TestDE38ScrubTraceback:
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.ipc_server"):
             ipc_server._handle_export_diagnostics({}, {})
 
-        error_records = [
-            r for r in caplog.records if r.levelno >= logging.ERROR
-        ]
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
         assert error_records
         for record in error_records:
             formatted = record.getMessage()
-            assert home not in formatted, (
-                f"Home dir leaked into log message: {formatted!r}"
-            )
+            assert home not in formatted, f"Home dir leaked into log message: {formatted!r}"
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -317,9 +287,7 @@ class TestDE42ControlCharRejection:
             )
         finally:
             event_bus.unsubscribe(sub)
-        assert resp["type"] == "ack", (
-            f"Tab should be accepted, got error: {resp}"
-        )
+        assert resp["type"] == "ack", f"Tab should be accepted, got error: {resp}"
         assert captured[0]["data"]["message"] == "col1\tcol2"
 
     def test_clean_payload_is_accepted(self, ipc_server):
@@ -348,9 +316,7 @@ class TestDE42ControlCharRejection:
 class TestDE43GetStatusValidation:
     """DE-43: ``_handle_get_status`` validates payload + catches exceptions."""
 
-    def test_non_dict_payload_returns_invalid_payload_error(
-        self, ipc_server, fake_service
-    ):
+    def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server, fake_service):
         """A non-dict ``data`` (list) → ``code: invalid_payload``.
 
         Before DE-43, this was the only status handler that silently
@@ -363,26 +329,20 @@ class TestDE43GetStatusValidation:
         assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.get_status.assert_not_called()
 
-    def test_string_payload_returns_invalid_payload_error(
-        self, ipc_server, fake_service
-    ):
+    def test_string_payload_returns_invalid_payload_error(self, ipc_server, fake_service):
         """A string ``data`` → ``code: invalid_payload``."""
         resp = ipc_server._handle_get_status("not-a-dict", {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_payload"
 
-    def test_none_payload_is_coerced_to_empty_dict(
-        self, ipc_server, fake_service
-    ):
+    def test_none_payload_is_coerced_to_empty_dict(self, ipc_server, fake_service):
         """``None`` is pre-coerced to ``{}`` (matches the toggle_dictation pattern)."""
         fake_service.get_status.return_value = {"status": "idle"}
         resp = ipc_server._handle_get_status(None, {})
         assert resp["type"] == "status"
         assert resp["data"] == {"status": "idle"}
 
-    def test_service_raises_returns_internal_error_envelope(
-        self, ipc_server, fake_service
-    ):
+    def test_service_raises_returns_internal_error_envelope(self, ipc_server, fake_service):
         """``service.get_status()`` raising → catch-all envelope.
 
         Before DE-43, the exception propagated to the dispatcher's
@@ -405,9 +365,7 @@ class TestDE43GetStatusValidation:
 class TestDE44RestoreHistoryPayloadCap:
     """DE-44: ``restore_history`` caps payload size + ``record['text']`` length."""
 
-    def test_oversized_text_field_returns_payload_too_large(
-        self, ipc_server, fake_service
-    ):
+    def test_oversized_text_field_returns_payload_too_large(self, ipc_server, fake_service):
         """``record['text']`` > 8192 chars → ``code: payload_too_large``."""
         oversized_text = "x" * 10_000  # > 8192-char cap
         record = {"id": 1, "text": oversized_text}
@@ -417,9 +375,7 @@ class TestDE44RestoreHistoryPayloadCap:
         assert resp["data"]["field"] == "record.text"
         fake_service.restore_history.assert_not_called()
 
-    def test_oversized_whole_payload_returns_invalid_payload(
-        self, ipc_server, fake_service
-    ):
+    def test_oversized_whole_payload_returns_invalid_payload(self, ipc_server, fake_service):
         """A >256 KB serialized payload → ``code: invalid_payload``.
 
         The 256 KB whole-payload cap (``max_payload_bytes``) catches a
@@ -439,9 +395,7 @@ class TestDE44RestoreHistoryPayloadCap:
         assert resp["data"]["code"] == "client.invalid_payload"
         fake_service.restore_history.assert_not_called()
 
-    def test_text_at_exactly_8192_chars_is_accepted(
-        self, ipc_server, fake_service
-    ):
+    def test_text_at_exactly_8192_chars_is_accepted(self, ipc_server, fake_service):
         """``record['text']`` of exactly 8192 chars is on the boundary — accepted."""
         fake_service.restore_history.return_value = 42
         boundary_text = "x" * 8192
@@ -471,9 +425,7 @@ class TestDE45DurationClampRange:
     def test_huge_numeric_duration_is_clamped_to_60(self, ipc_server, fake_service):
         """``duration=1e300`` → clamped to 60.0 (DoS guard)."""
         fake_service.microphone_test_start.return_value = {"ok": True}
-        resp = ipc_server._handle_microphone_test_start(
-            {"duration": 1e300}, {}
-        )
+        resp = ipc_server._handle_microphone_test_start({"duration": 1e300}, {})
         assert resp["type"] == "microphone_test_result"
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
@@ -484,9 +436,7 @@ class TestDE45DurationClampRange:
     def test_negative_numeric_duration_is_clamped_to_1(self, ipc_server, fake_service):
         """``duration=-5.0`` → clamped to 1.0 (lower bound)."""
         fake_service.microphone_test_start.return_value = {"ok": True}
-        resp = ipc_server._handle_microphone_test_start(
-            {"duration": -5.0}, {}
-        )
+        resp = ipc_server._handle_microphone_test_start({"duration": -5.0}, {})
         assert resp["type"] == "microphone_test_result"
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
@@ -501,9 +451,7 @@ class TestDE45DurationClampRange:
         compatibility) must apply the same clamp as the numeric path.
         """
         fake_service.microphone_test_start.return_value = {"ok": True}
-        resp = ipc_server._handle_microphone_test_start(
-            {"duration": "1e300"}, {}
-        )
+        resp = ipc_server._handle_microphone_test_start({"duration": "1e300"}, {})
         assert resp["type"] == "microphone_test_result"
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
@@ -522,9 +470,7 @@ class TestDE45DurationClampRange:
         value.
         """
         fake_service.microphone_test_start.return_value = {"ok": True}
-        resp = ipc_server._handle_microphone_test_start(
-            {"duration": 0}, {}
-        )
+        resp = ipc_server._handle_microphone_test_start({"duration": 0}, {})
         assert resp["type"] == "microphone_test_result"
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
@@ -535,9 +481,7 @@ class TestDE45DurationClampRange:
     def test_in_bounds_numeric_duration_passes_through(self, ipc_server, fake_service):
         """``duration=7.5`` → 7.5 (no clamping needed)."""
         fake_service.microphone_test_start.return_value = {"ok": True}
-        resp = ipc_server._handle_microphone_test_start(
-            {"duration": 7.5}, {}
-        )
+        resp = ipc_server._handle_microphone_test_start({"duration": 7.5}, {})
         assert resp["type"] == "microphone_test_result"
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
@@ -548,9 +492,7 @@ class TestDE45DurationClampRange:
     def test_in_bounds_string_duration_is_coerced(self, ipc_server, fake_service):
         """``duration="7.5"`` → 7.5 (preserves the documented string coercion)."""
         fake_service.microphone_test_start.return_value = {"ok": True}
-        resp = ipc_server._handle_microphone_test_start(
-            {"duration": "7.5"}, {}
-        )
+        resp = ipc_server._handle_microphone_test_start({"duration": "7.5"}, {})
         assert resp["type"] == "microphone_test_result"
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
@@ -569,13 +511,9 @@ class TestDE45DurationClampRange:
             filters=None,
         )
 
-    def test_invalid_duration_type_returns_invalid_field(
-        self, ipc_server, fake_service
-    ):
+    def test_invalid_duration_type_returns_invalid_field(self, ipc_server, fake_service):
         """``duration=["list"]`` → ``code: invalid_field`` (not in (int, float, str))."""
-        resp = ipc_server._handle_microphone_test_start(
-            {"duration": ["not", "a", "number"]}, {}
-        )
+        resp = ipc_server._handle_microphone_test_start({"duration": ["not", "a", "number"]}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "duration"
@@ -602,9 +540,7 @@ class TestDE46RunPrewarmNoStrEcho:
         leaky_path = "/Users/leaked_username/AppData/Local/Programs/Python/python.exe"
         monkeypatch.setattr(
             "subprocess.Popen",
-            lambda *a, **kw: (_ for _ in ()).throw(
-                OSError(f"[Errno 13] Permission denied: '{leaky_path}'")
-            ),
+            lambda *a, **kw: (_ for _ in ()).throw(OSError(f"[Errno 13] Permission denied: '{leaky_path}'")),
         )
         resp = ipc_server._handle_run_prewarm({}, {})
         assert resp["type"] == "error"
@@ -616,16 +552,12 @@ class TestDE46RunPrewarmNoStrEcho:
         )
         assert leaky_path not in resp["data"]["message"]
 
-    def test_filenotfounderror_message_does_not_leak_path(
-        self, ipc_server, monkeypatch
-    ):
+    def test_filenotfounderror_message_does_not_leak_path(self, ipc_server, monkeypatch):
         """A ``FileNotFoundError`` whose ``str()`` includes a path → fixed string."""
         leaky_path = "/Users/leaked_username/.venv/bin/python"
         monkeypatch.setattr(
             "subprocess.Popen",
-            lambda *a, **kw: (_ for _ in ()).throw(
-                FileNotFoundError(f"[Errno 2] No such file: '{leaky_path}'")
-            ),
+            lambda *a, **kw: (_ for _ in ()).throw(FileNotFoundError(f"[Errno 2] No such file: '{leaky_path}'")),
         )
         resp = ipc_server._handle_run_prewarm({}, {})
         assert resp["type"] == "error"
@@ -638,9 +570,7 @@ class TestDE46RunPrewarmNoStrEcho:
 class TestDE46OpenPrewarmLogNoStrEcho:
     """DE-46: ``_handle_open_prewarm_log`` does not echo ``str(e)``."""
 
-    def test_oserror_message_does_not_leak_path(
-        self, ipc_server, monkeypatch, tmp_path
-    ):
+    def test_oserror_message_does_not_leak_path(self, ipc_server, monkeypatch, tmp_path):
         """``OSError`` from the editor ``Popen`` → fixed string."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -651,9 +581,7 @@ class TestDE46OpenPrewarmLogNoStrEcho:
         leaky_path = "/Users/leaked_username/bin/xdg-open"
         monkeypatch.setattr(
             "subprocess.Popen",
-            lambda cmd, **kw: (_ for _ in ()).throw(
-                OSError(f"[Errno 13] Permission denied: '{leaky_path}'")
-            ),
+            lambda cmd, **kw: (_ for _ in ()).throw(OSError(f"[Errno 13] Permission denied: '{leaky_path}'")),
         )
         # Ensure the Windows path (os.startfile) is a no-op so the
         # POSIX path runs on Linux test runners.
@@ -670,9 +598,7 @@ class TestDE46OpenPrewarmLogNoStrEcho:
         assert "leaked_username" not in resp["data"]["message"]
         assert leaky_path not in resp["data"]["message"]
 
-    def test_filenotfounderror_message_does_not_leak_path(
-        self, ipc_server, monkeypatch, tmp_path
-    ):
+    def test_filenotfounderror_message_does_not_leak_path(self, ipc_server, monkeypatch, tmp_path):
         """``FileNotFoundError`` from the editor ``Popen`` → fixed string."""
         log_dir = tmp_path / "logs"
         log_dir.mkdir()
@@ -683,9 +609,7 @@ class TestDE46OpenPrewarmLogNoStrEcho:
         leaky_path = "/Users/leaked_username/bin/xdg-open"
         monkeypatch.setattr(
             "subprocess.Popen",
-            lambda cmd, **kw: (_ for _ in ()).throw(
-                FileNotFoundError(f"[Errno 2] No such file: '{leaky_path}'")
-            ),
+            lambda cmd, **kw: (_ for _ in ()).throw(FileNotFoundError(f"[Errno 2] No such file: '{leaky_path}'")),
         )
         monkeypatch.setattr(
             "os.startfile",
@@ -709,9 +633,7 @@ class TestDE46OpenPrewarmLogNoStrEcho:
 class TestExistingContractsPreserved:
     """Regression guards: existing handler contracts still hold after the DE-2H fixes."""
 
-    def test_run_prewarm_oserror_still_returns_error_envelope(
-        self, ipc_server, monkeypatch
-    ):
+    def test_run_prewarm_oserror_still_returns_error_envelope(self, ipc_server, monkeypatch):
         """Existing contract: ``OSError`` → ``{type: error, data.code: handler_error}``.
 
         The existing ``test_popen_raises_oserror_returns_error`` test
@@ -727,9 +649,7 @@ class TestExistingContractsPreserved:
         assert resp["type"] == "error"
         assert "Failed to start prewarm" in resp["data"]["message"]
 
-    def test_microphone_test_string_duration_still_coerced(
-        self, ipc_server, fake_service
-    ):
+    def test_microphone_test_string_duration_still_coerced(self, ipc_server, fake_service):
         """Existing contract: ``"7.5" → 7.5`` (documented string coercion)."""
         fake_service.microphone_test_start.return_value = {"ok": True}
         resp = ipc_server._handle_microphone_test_start({"duration": "7.5"}, {})
@@ -740,9 +660,7 @@ class TestExistingContractsPreserved:
             filters=None,
         )
 
-    def test_get_status_dict_return_value_still_passes_through(
-        self, ipc_server, fake_service
-    ):
+    def test_get_status_dict_return_value_still_passes_through(self, ipc_server, fake_service):
         """Existing contract: dict return value passes through unchanged."""
         fake_service.get_status.return_value = {
             "status": "recording",
@@ -752,9 +670,7 @@ class TestExistingContractsPreserved:
         assert resp["type"] == "status"
         assert resp["data"] == {"status": "recording", "xruns_since_start": 2}
 
-    def test_get_status_legacy_string_return_value_wrapped(
-        self, ipc_server, fake_service
-    ):
+    def test_get_status_legacy_string_return_value_wrapped(self, ipc_server, fake_service):
         """Existing contract: legacy string return value wrapped in dict."""
         fake_service.get_status.return_value = "recording"
         resp = ipc_server._handle_get_status({}, {})

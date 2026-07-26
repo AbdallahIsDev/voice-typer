@@ -155,8 +155,7 @@ class TestDE59LastCopiedTextRetention:
             cm.copy("super-secret-password")
         # DE-59: text must NOT be cached when snapshot is None.
         assert cm._last_copied_text == "", (
-            f"_last_copied_text should be cleared when snapshot is None; "
-            f"got {cm._last_copied_text!r} (PII leak)"
+            f"_last_copied_text should be cleared when snapshot is None; got {cm._last_copied_text!r} (PII leak)"
         )
 
     def test_copy_does_cache_text_when_snapshot_captured(self):
@@ -194,8 +193,7 @@ class TestDE59LastCopiedTextRetention:
         mock_restore.assert_called_once()
         # DE-59: _last_copied_text must be cleared by restore_now().
         assert cm._last_copied_text == "", (
-            f"restore_now() should clear _last_copied_text; "
-            f"got {cm._last_copied_text!r} (PII leak)"
+            f"restore_now() should clear _last_copied_text; got {cm._last_copied_text!r} (PII leak)"
         )
 
     def test_restore_now_clears_last_copied_text_even_if_restore_raises(self):
@@ -413,17 +411,14 @@ class TestDE61LinuxRestoreReturnsFalseOnNonZeroExit:
         ):
             result = snap._restore_x11()
         assert result is False, (
-            "DE-61: xclip non-zero exit must return False, not True "
-            "(silent data loss with false-success signal)"
+            "DE-61: xclip non-zero exit must return False, not True (silent data loss with false-success signal)"
         )
         mock_run.assert_called_once()
         # DE-61: failure must be logged at WARNING (not DEBUG).
         mock_log.warning.assert_called_once()
         # The warning must mention DE-61 for traceability.
         warning_args = mock_log.warning.call_args
-        assert "DE-61" in str(warning_args), (
-            f"DE-61 warning must reference the finding ID; got {warning_args!r}"
-        )
+        assert "DE-61" in str(warning_args), f"DE-61 warning must reference the finding ID; got {warning_args!r}"
 
     def test_restore_x11_returns_true_on_success(self):
         """DE-61 sanity: xclip exits 0 → restore returns True (no regression)."""
@@ -499,9 +494,7 @@ class TestDE61LinuxRestoreReturnsFalseOnNonZeroExit:
             patch.object(snap_mod, "log") as mock_log,
         ):
             result = snap._restore_wayland()
-        assert result is False, (
-            "DE-61: wl-copy non-zero exit must return False, not True"
-        )
+        assert result is False, "DE-61: wl-copy non-zero exit must return False, not True"
         mock_log.warning.assert_called_once()
         warning_args = mock_log.warning.call_args
         assert "DE-61" in str(warning_args)
@@ -538,8 +531,7 @@ class TestDE61LinuxRestoreReturnsFalseOnNonZeroExit:
         def _fake_run(*args, **kwargs):
             # Verify check=True was passed.
             assert kwargs.get("check") is True, (
-                f"DE-61: subprocess.run must be called with check=True; "
-                f"got kwargs={kwargs!r}"
+                f"DE-61: subprocess.run must be called with check=True; got kwargs={kwargs!r}"
             )
             return subprocess.CompletedProcess(args=args[0], returncode=0)
 
@@ -559,8 +551,7 @@ class TestDE61LinuxRestoreReturnsFalseOnNonZeroExit:
 
         def _fake_run(*args, **kwargs):
             assert kwargs.get("check") is True, (
-                f"DE-61: subprocess.run must be called with check=True; "
-                f"got kwargs={kwargs!r}"
+                f"DE-61: subprocess.run must be called with check=True; got kwargs={kwargs!r}"
             )
             return subprocess.CompletedProcess(args=args[0], returncode=0)
 
@@ -641,9 +632,7 @@ class TestDE62WindowsRestoreReturnsFalseOnAllFailures:
         # DE-62: must log at WARNING (not DEBUG) for zero-items-set case.
         mock_log.warning.assert_called_once()
         warning_args = mock_log.warning.call_args
-        assert "DE-62" in str(warning_args), (
-            f"DE-62 warning must reference the finding ID; got {warning_args!r}"
-        )
+        assert "DE-62" in str(warning_args), f"DE-62 warning must reference the finding ID; got {warning_args!r}"
         # EmptyClipboard DID run (clipboard is now empty), but
         # SetClipboardData failed for every item.
         user32.EmptyClipboard.assert_called_once()
@@ -805,8 +794,7 @@ class TestDE63AtexitDoesNotRaceDaemonRestore:
         # Verify at least one debug call mentions DE-63.
         debug_calls = [str(c) for c in mock_log.debug.call_args_list]
         assert any("DE-63" in c for c in debug_calls), (
-            f"DE-63 short-circuit must log at DEBUG with the finding ID; "
-            f"got debug calls: {debug_calls!r}"
+            f"DE-63 short-circuit must log at DEBUG with the finding ID; got debug calls: {debug_calls!r}"
         )
 
     def test_atexit_handler_skips_entries_claimed_by_daemon(self):

@@ -105,9 +105,7 @@ class TestDeleteAllPersonalData:
         assert resp["data"]["code"] == "server.file_locked"
 
     @pytest.mark.parametrize("bad_payload", ["not-a-dict", [1, 2, 3], 42, ("tuple",)])
-    def test_non_dict_payload_returns_invalid_payload_envelope(
-        self, ipc_server, fake_service, bad_payload
-    ):
+    def test_non_dict_payload_returns_invalid_payload_envelope(self, ipc_server, fake_service, bad_payload):
         """Non-dict payload (string / list / int / tuple) → ``invalid_payload``.
 
         The handler's ``data is None`` → ``{}`` coercion means only
@@ -134,9 +132,7 @@ class TestDeleteAllPersonalData:
         # The raw exception text must NOT leak to the renderer.
         assert "service not wired" not in resp["data"]["message"]
 
-    def test_attribute_error_simulating_missing_service_method_returns_internal_error(
-        self, ipc_server, fake_service
-    ):
+    def test_attribute_error_simulating_missing_service_method_returns_internal_error(self, ipc_server, fake_service):
         """If the service is missing the method entirely (e.g. an old
         service implementation that pre-dates CR-87), the ``AttributeError``
         from ``self.service.delete_all_personal_data`` is caught by the
@@ -193,9 +189,7 @@ class TestExportGdprBundle:
         ZIP → ``server.file_locked`` envelope so the renderer can prompt
         the user to close the locking process and retry.
         """
-        fake_service.export_gdpr_bundle.side_effect = PermissionError(
-            "voice-typer.log is locked by another process"
-        )
+        fake_service.export_gdpr_bundle.side_effect = PermissionError("voice-typer.log is locked by another process")
 
         resp = ipc_server._handle_export_gdpr_bundle({}, {})
 
@@ -215,9 +209,7 @@ class TestExportGdprBundle:
         assert resp["data"]["code"] == "server.file_locked"
 
     @pytest.mark.parametrize("bad_payload", ["not-a-dict", [1, 2, 3], 42, ("tuple",)])
-    def test_non_dict_payload_returns_invalid_payload_envelope(
-        self, ipc_server, fake_service, bad_payload
-    ):
+    def test_non_dict_payload_returns_invalid_payload_envelope(self, ipc_server, fake_service, bad_payload):
         """Non-dict payload (string / list / int / tuple) → ``invalid_payload``."""
         resp = ipc_server._handle_export_gdpr_bundle(bad_payload, {})
 
@@ -239,9 +231,7 @@ class TestExportGdprBundle:
         # The raw exception text must NOT leak to the renderer.
         assert "disk full" not in resp["data"]["message"]
 
-    def test_attribute_error_simulating_missing_service_method_returns_internal_error(
-        self, ipc_server, fake_service
-    ):
+    def test_attribute_error_simulating_missing_service_method_returns_internal_error(self, ipc_server, fake_service):
         """If the service is missing the method entirely (e.g. an old
         service implementation that pre-dates CR-88), the ``AttributeError``
         from ``self.service.export_gdpr_bundle`` is caught by the

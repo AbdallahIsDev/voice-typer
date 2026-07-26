@@ -149,9 +149,7 @@ class TestAC2RuntimeErrorNotMisclassified:
 
         engine = self._make_engine(device="cpu")
         # Even a CUDA-keyword-laden RuntimeError must return False on CPU.
-        assert engine._is_gpu_runtime_error(
-            RuntimeError("CUDA error: cublas load library failed")
-        ) is False
+        assert engine._is_gpu_runtime_error(RuntimeError("CUDA error: cublas load library failed")) is False
 
     def test_source_does_not_check_runtime_error_class(self):
         """Source guard: the ctranslate2 class-check loop in
@@ -167,11 +165,11 @@ class TestAC2RuntimeErrorNotMisclassified:
         # The OLD buggy form must NOT appear in the source.
         # We check for ``("CUDAError", "RuntimeError")`` and the
         # ``for attr_name in (...):`` pattern with RuntimeError inside.
-        assert "RuntimeError" not in src.replace(
-            "# ``RuntimeError`` is the base class", ""
-        ).replace(
-            "# ``RuntimeError`` matched", ""
-        ) or "for attr_name in" not in src, (
+        assert (
+            "RuntimeError"
+            not in src.replace("# ``RuntimeError`` is the base class", "").replace("# ``RuntimeError`` matched", "")
+            or "for attr_name in" not in src
+        ), (
             "AC-2 regression: _is_gpu_runtime_error source still references "
             "RuntimeError as a class to check. The ctranslate2 loop must "
             "ONLY check CUDAError."
@@ -213,8 +211,7 @@ class TestAC3UnifiedGpuErrorKeywords:
             # All keywords must be lowercase so the substring check
             # against ``error_str.lower()`` matches correctly.
             assert kw == kw.lower(), (
-                f"AC-3: keyword {kw!r} must be lowercase (the substring "
-                f"check uses ``error_str.lower()``)."
+                f"AC-3: keyword {kw!r} must be lowercase (the substring check uses ``error_str.lower()``)."
             )
 
     def test_union_of_legacy_keywords(self):
@@ -235,8 +232,13 @@ class TestAC3UnifiedGpuErrorKeywords:
         from voice_typer.server.transcription import _GPU_ERROR_KEYWORDS
 
         legacy_probe = {
-            "cublas", "cuda", "cudnn", "dll",
-            "not found", "cannot be loaded", "load library",
+            "cublas",
+            "cuda",
+            "cudnn",
+            "dll",
+            "not found",
+            "cannot be loaded",
+            "load library",
         }
         # Legacy classifier keywords EXCLUDING the longer "not found or
         # cannot be loaded" (subsumed by "not found" in the unified list).

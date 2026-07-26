@@ -39,6 +39,7 @@ Tests:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import sys
 import threading
@@ -135,10 +136,8 @@ class TestConfigSaveLock:
             )
 
             # Release the lock — save() should now proceed.
-            try:
+            with contextlib.suppress(OSError):
                 lock_fd.close()
-            except OSError:
-                pass
             t.join(timeout=5.0)
 
             assert not t.is_alive(), (
@@ -149,10 +148,8 @@ class TestConfigSaveLock:
                 f"Config.save() returned {result_holder.get('result')} after the lock was released — expected True."
             )
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 lock_fd.close()
-            except OSError:
-                pass
 
     def test_save_returns_false_on_lock_timeout(self, tmp_path, monkeypatch):
         """When the lock cannot be acquired within the timeout,
@@ -187,10 +184,8 @@ class TestConfigSaveLock:
                 "before failing with False."
             )
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 lock_fd.close()
-            except OSError:
-                pass
 
     def test_save_serializes_with_migrate(self, tmp_path, monkeypatch):
         """Config.save() and migrate_secrets_to_keyring must serialize

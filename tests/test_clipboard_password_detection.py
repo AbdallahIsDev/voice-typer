@@ -496,20 +496,20 @@ class TestSignalHandlerRegistration:
             patch.object(clip_mod.os, "kill") as mock_kill,
             patch.object(clip_mod, "_signal_restore_handler", wraps=clip_mod._signal_restore_handler),
         ):
-                # Re-import the inner logic by calling the handler directly.
-                # We need to suppress the re-raise: patch the signal
-                # module so SIG_DFL is a sentinel and signal() is a noop.
-                import signal as signal_mod
+            # Re-import the inner logic by calling the handler directly.
+            # We need to suppress the re-raise: patch the signal
+            # module so SIG_DFL is a sentinel and signal() is a noop.
+            import signal as signal_mod
 
-                sentinel = object()
-                with (
-                    patch.object(signal_mod, "SIG_DFL", sentinel),
-                    patch.object(signal_mod, "signal", return_value=None),
-                ):
-                    # The handler should run _force_restore_pending_at_exit
-                    # then call os.kill (patched to noop). Should not raise.
-                    with contextlib.suppress(SystemExit):
-                        clip_mod._signal_restore_handler(signal_mod.SIGTERM, None)
+            sentinel = object()
+            with (
+                patch.object(signal_mod, "SIG_DFL", sentinel),
+                patch.object(signal_mod, "signal", return_value=None),
+                contextlib.suppress(SystemExit),
+            ):
+                # The handler should run _force_restore_pending_at_exit
+                # then call os.kill (patched to noop). Should not raise.
+                clip_mod._signal_restore_handler(signal_mod.SIGTERM, None)
         mock_force.assert_called_once()
         # os.kill was called with our PID and the signum.
         if mock_kill.called:

@@ -313,12 +313,8 @@ def test_export_gdpr_bundle_includes_rotated_log_backups(tmp_path) -> None:
         result = svc.export_gdpr_bundle()
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
-            assert "voice-typer.log.1" in names, (
-                f"voice-typer.log.1 (rotated backup) not in export: {names} (PI-4)"
-            )
-            assert "voice-typer.log.2" in names, (
-                f"voice-typer.log.2 (rotated backup) not in export: {names} (PI-4)"
-            )
+            assert "voice-typer.log.1" in names, f"voice-typer.log.1 (rotated backup) not in export: {names} (PI-4)"
+            assert "voice-typer.log.2" in names, f"voice-typer.log.2 (rotated backup) not in export: {names} (PI-4)"
     finally:
         mp.undo()
 

@@ -71,13 +71,9 @@ class TestYJ24NonStringHotkeyCoercion:
         # YJ-24: the non-string ``123`` was coerced to ``None`` (NOT
         # stored as-is). The pre-YJ-24 behaviour would have left
         # ``hotkey=123`` in the dict.
-        assert "field_values" in captured, (
-            "_check_cross_field_hotkey_conflicts was not invoked — patch failed"
-        )
+        assert "field_values" in captured, "_check_cross_field_hotkey_conflicts was not invoked — patch failed"
         fv = captured["field_values"]
-        assert fv["hotkey"] is None, (
-            f"expected hotkey coerced to None, got {fv['hotkey']!r}"
-        )
+        assert fv["hotkey"] is None, f"expected hotkey coerced to None, got {fv['hotkey']!r}"
         # The legitimate string hotkeys pass through unchanged.
         assert fv["repaste_hotkey"] == "<f6>"
         assert fv["push_to_talk_hotkey"] == "<f7>"
@@ -105,9 +101,7 @@ class TestYJ24NonStringHotkeyCoercion:
 
         assert isinstance(errors, list)
         fv = captured["field_values"]
-        assert fv["hotkey"] is None, (
-            f"expected bool hotkey coerced to None, got {fv['hotkey']!r}"
-        )
+        assert fv["hotkey"] is None, f"expected bool hotkey coerced to None, got {fv['hotkey']!r}"
 
     def test_list_hotkey_coerced_to_none(self) -> None:
         """A list value (e.g. from a botched migration that wrote a
@@ -132,9 +126,7 @@ class TestYJ24NonStringHotkeyCoercion:
 
         assert isinstance(errors, list)
         fv = captured["field_values"]
-        assert fv["hotkey"] is None, (
-            f"expected list hotkey coerced to None, got {fv['hotkey']!r}"
-        )
+        assert fv["hotkey"] is None, f"expected list hotkey coerced to None, got {fv['hotkey']!r}"
 
     def test_all_three_hotkeys_non_string_does_not_raise(self) -> None:
         """If ALL three hotkey fields are non-string (e.g. a corrupted
@@ -192,9 +184,7 @@ class TestYJ24NonStringHotkeyCoercion:
 
         assert isinstance(errors, list)
         fv = captured["field_values"]
-        assert fv["hotkey"] == "<f5>", (
-            f"string hotkey should pass through unchanged, got {fv['hotkey']!r}"
-        )
+        assert fv["hotkey"] == "<f5>", f"string hotkey should pass through unchanged, got {fv['hotkey']!r}"
 
     def test_mixed_string_and_non_string_hotkeys(self) -> None:
         """Mix of valid string hotkeys and non-string hotkeys in the
@@ -220,12 +210,8 @@ class TestYJ24NonStringHotkeyCoercion:
         assert isinstance(errors, list)
         fv = captured["field_values"]
         assert fv["hotkey"] == "<f5>", "string hotkey should pass through"
-        assert fv["repaste_hotkey"] is None, (
-            f"int 0 hotkey should be coerced to None, got {fv['repaste_hotkey']!r}"
-        )
-        assert fv["push_to_talk_hotkey"] is None, (
-            "explicit None hotkey should remain None"
-        )
+        assert fv["repaste_hotkey"] is None, f"int 0 hotkey should be coerced to None, got {fv['repaste_hotkey']!r}"
+        assert fv["push_to_talk_hotkey"] is None, "explicit None hotkey should remain None"
 
     def test_validate_config_returns_list_without_raising(self) -> None:
         """End-to-end: ``validate_config`` on a config with non-string
@@ -243,9 +229,7 @@ class TestYJ24NonStringHotkeyCoercion:
         errors = validate_config(cfg)
         assert isinstance(errors, list)
         # No conflict because the coerced None values are all skipped.
-        assert not any("Hotkey conflict" in e for e in errors), (
-            f"unexpected hotkey conflict from None values: {errors}"
-        )
+        assert not any("Hotkey conflict" in e for e in errors), f"unexpected hotkey conflict from None values: {errors}"
 
     def test_check_cross_field_helper_handles_none_directly(self) -> None:
         """Direct call to the real (un-patched)
@@ -259,6 +243,4 @@ class TestYJ24NonStringHotkeyCoercion:
                 "push_to_talk_hotkey": None,
             }
         )
-        assert errors == [], (
-            f"expected no conflicts for all-None hotkeys, got {errors}"
-        )
+        assert errors == [], f"expected no conflicts for all-None hotkeys, got {errors}"

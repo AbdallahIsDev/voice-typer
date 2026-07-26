@@ -1108,8 +1108,7 @@ class TestPythonShutdownHandler:
         assert result == {"type": "result", "data": {"ack": True}}
         # The background thread should call service.quit() shortly.
         assert quit_called.wait(timeout=2.0), (
-            "server.service.quit() must be called on the background thread "
-            "within 2s of the ack being returned"
+            "server.service.quit() must be called on the background thread within 2s of the ack being returned"
         )
 
     @pytest.mark.asyncio
@@ -1231,9 +1230,7 @@ class TestPythonShutdownHandler:
         # quit() never scheduled.
         # EC-FIX-3: the shutdown handler delegates to ``self.service.quit()``
         # (NOT ``self.app.quit()``); a non-shutdown frame must NOT trigger it.
-        assert server.service.quit.call_count == 0, (
-            "non-shutdown frames must NOT schedule server.service.quit()"
-        )
+        assert server.service.quit.call_count == 0, "non-shutdown frames must NOT schedule server.service.quit()"
         # And the frame dispatched normally.
         assert result == {"type": "result", "data": {}}
 

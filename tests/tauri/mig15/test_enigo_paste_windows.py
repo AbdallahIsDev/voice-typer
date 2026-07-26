@@ -554,6 +554,7 @@ class _FakeClipboard:
 class _Key:
     Control = "Key::Control"
     Meta = "Key::Meta"
+
     def Unicode(self, ch):  # noqa: N802
         return f"Key::Unicode({ch!r})"
 

@@ -57,6 +57,7 @@ def _mock_display_env(monkeypatch):
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     yield
 
+
 # ---------------------------------------------------------------------------
 # ClipboardManager.copy — regression: still writes text to clipboard
 # ---------------------------------------------------------------------------

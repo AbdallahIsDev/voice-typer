@@ -60,15 +60,19 @@ class TestAudioRMSBenchmarks:
     def test_benchmark_rms_short(self, benchmark):
         """Benchmark RMS on a short audio buffer (~0.5s at 16kHz)."""
         audio = np.random.randn(8000).astype(np.float32) * 0.01
+
         def compute_rms(a):
             return float(np.sqrt(np.mean(a.astype(np.float64) ** 2)))
+
         benchmark(compute_rms, audio)
 
     def test_benchmark_rms_long(self, benchmark):
         """Benchmark RMS on a long audio buffer (~10s at 16kHz)."""
         audio = np.random.randn(160000).astype(np.float32) * 0.01
+
         def compute_rms(a):
             return float(np.sqrt(np.mean(a.astype(np.float64) ** 2)))
+
         benchmark(compute_rms, audio)
 
 
@@ -78,6 +82,7 @@ class TestConfigLoadBenchmarks:
     def test_benchmark_config_parse(self, benchmark, tmp_path, monkeypatch):
         """Benchmark parsing a config file from disk."""
         from voice_typer.server.config import Config
+
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         c.save()

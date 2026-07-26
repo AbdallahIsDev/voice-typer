@@ -102,6 +102,7 @@ class TestDE8MicLeakOnPartialStartFailure:
 
     def test_discard_called_when_streaming_session_start_raises(self):
         ctrl, app = _make_controller()
+
         # Simulate recorder.start() succeeding (stream opened,
         # recording=True) but a subsequent step in the try block raising.
         def fake_recorder_start():
@@ -139,9 +140,7 @@ class TestDE8MicLeakOnPartialStartFailure:
             app.recorder.recording = True
 
         app.recorder.start.side_effect = fake_recorder_start
-        ctrl._start_streaming_session_if_enabled = MagicMock(
-            side_effect=RuntimeError("simulated failure")
-        )
+        ctrl._start_streaming_session_if_enabled = MagicMock(side_effect=RuntimeError("simulated failure"))
         app.recorder.discard = MagicMock(side_effect=OSError("PortAudio stream close failed"))
 
         # Must NOT raise.
@@ -184,8 +183,7 @@ class TestDE9ConsentCheckFailsClosed:
         from voice_typer.server.tray_types import AppState
 
         assert AppState.ERROR in tray_states, (
-            f"DE-9: tray state must include ERROR on consent-check failure "
-            f"(got {tray_states})"
+            f"DE-9: tray state must include ERROR on consent-check failure (got {tray_states})"
         )
 
     def test_consent_false_does_not_start_recording(self):
@@ -278,9 +276,7 @@ class TestDE12StopAndCancelSerialized:
 
             t = threading.Thread(target=run_toggle, name="toggle-thread")
             t.start()
-            assert done.wait(timeout=2.0), (
-                "DE-12: toggle() → stop() call path deadlocked (RLock not reentrant?)"
-            )
+            assert done.wait(timeout=2.0), "DE-12: toggle() → stop() call path deadlocked (RLock not reentrant?)"
             t.join(timeout=1.0)
 
 
@@ -337,8 +333,7 @@ class TestDE51GenericErrorMessage:
         ctrl, app = _make_controller()
         sensitive_path = "/home/user/.voice-typer/models/secret-model.bin"
         app.recorder.start.side_effect = RuntimeError(
-            f"PortAudio error opening stream on device 'Built-in Microphone' "
-            f"loading model from {sensitive_path}"
+            f"PortAudio error opening stream on device 'Built-in Microphone' loading model from {sensitive_path}"
         )
 
         with patch("voice_typer.server.event_bus.publish") as publish:
@@ -362,8 +357,7 @@ class TestDE51GenericErrorMessage:
         assert payload["type"] == "error"
         msg = payload["data"]["message"]
         assert sensitive_path not in msg, (
-            f"DE-51: event_bus.publish error message must NOT contain the raw "
-            f"exception text. Got: {msg!r}"
+            f"DE-51: event_bus.publish error message must NOT contain the raw exception text. Got: {msg!r}"
         )
         assert "Could not start recording" in msg
 
@@ -478,8 +472,7 @@ class TestDE55WatchdogThreadReuseRace:
         # Call _start_watchdog_thread again — should reuse the running thread.
         ctrl._start_watchdog_thread()
         assert ctrl._watchdog_thread is first_thread, (
-            "DE-55: an actively-running watchdog thread must be reused (the "
-            "join times out and we return early)."
+            "DE-55: an actively-running watchdog thread must be reused (the join times out and we return early)."
         )
 
         # Cleanup.

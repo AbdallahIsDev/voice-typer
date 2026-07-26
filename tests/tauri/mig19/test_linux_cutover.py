@@ -31,7 +31,7 @@ VALIDATE ON LINUX HOST (X11 + Wayland + both archs):
             chmod +x bundle/appimage/*.AppImage && ./bundle/appimage/*.AppImage   # AppImage
     3.  Verify the runtime is Tauri (NOT Electron):
             ps aux | grep voice-typer    # → 'voice-typer-tauri' (Tauri) vs 'voice-typer' (Electron)
-            head -1 ~/.config/voice-typer/voice-typer.log   # → 'runtime=tauri version=... target=x86_64-unknown-linux-gnu'
+            head -1 ~/.config/voice-typer/voice-typer.log   # → run=tauri version=... target=x86_64-unknown-linux-gnu
     4.  Launch the app, grant mic permission, toggle dictation via the
         global hotkey, dictate text into a foreground window
         (gnome-text-editor). Verify ``enigo.text()`` injects the dictated
@@ -308,15 +308,11 @@ def test_ci_workflow_builds_rpm_via_bundle_config(tauri_conf: dict) -> None:
     # keys are 'postInstall' and 'preRemove' (the 'Script' suffix is
     # the legacy Tauri v1 form). Strict v2-only assertions below catch
     # any regression to the v1 names.
-    assert "postInstall" in rpm_cfg, (
-        "bundle.linux.rpm.postInstall missing — Tauri v2 requires the 'postInstall' key"
-    )
+    assert "postInstall" in rpm_cfg, "bundle.linux.rpm.postInstall missing — Tauri v2 requires the 'postInstall' key"
     assert "postInstallScript" not in rpm_cfg, (
         "stale long-form 'postInstallScript' key present on bundle.linux.rpm — should use Tauri v2 'postInstall'"
     )
-    assert "preRemove" in rpm_cfg, (
-        "bundle.linux.rpm.preRemove missing — Tauri v2 requires the 'preRemove' key"
-    )
+    assert "preRemove" in rpm_cfg, "bundle.linux.rpm.preRemove missing — Tauri v2 requires the 'preRemove' key"
     assert "preRemoveScript" not in rpm_cfg, (
         "stale long-form 'preRemoveScript' key present on bundle.linux.rpm — should use Tauri v2 'preRemove'"
     )

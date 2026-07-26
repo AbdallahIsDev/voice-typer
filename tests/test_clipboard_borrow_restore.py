@@ -66,6 +66,7 @@ def _mock_display_env(monkeypatch):
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     yield
 
+
 # ---------------------------------------------------------------------------
 # Helper: build a ClipboardManager via __new__ so we control cached flags
 # without paying the pynput import cost.
@@ -333,6 +334,67 @@ class TestDelayedRestore:
             mock_time.sleep = MagicMock()
             cm._delayed_restore(snap, pasted_text="original text", delay=0.0)
         mock_restore.assert_called_once()
+
+    def test_delayed_restore_accepts_4_arg_pending_entry_from_paste_call_site(self):
+        """S4-CR-3 regression guard: ``paste()`` spawns the daemon thread
+        with 4 positional args ``(snapshot, expected, delay, _pending_entry)``,
+        so ``_delayed_restore`` MUST accept 4 positional args without
+        raising ``TypeError``.
+
+        The original S4-CR-3 bug was that the production signature was
+        3-arg while the call site passed 4 — the daemon thread died
+        immediately on every ``paste()`` invocation, silently breaking
+        clipboard restore. The fix added ``pending_entry: Any = None``
+        to the signature.
+
+        This test invokes the SUT with the EXACT 4-arg shape that
+        ``paste()`` uses (verified via static call-site inspection at
+        ``voice_typer/server/clipboard/manager.py``), so a future
+        regression that removes the 4th parameter from the signature
+        fails this test directly rather than silently breaking every
+        paste restore in production.
+        """
+        import inspect
+
+        from voice_typer.server.clipboard.manager import ClipboardManager
+
+        # (1) Static contract: the signature accepts 4 positional args.
+        sig = inspect.signature(ClipboardManager._delayed_restore)
+        positional_params = [
+            p
+            for p in sig.parameters.values()
+            if p.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+        assert len(positional_params) >= 4, (
+            "S4-CR-3 regression: _delayed_restore must accept 4 "
+            "positional args (self, snapshot, pasted_text, delay, "
+            "pending_entry) — paste() spawns the thread with "
+            "args=(snapshot, expected, delay, _pending_entry). "
+            f"Got {len(positional_params)} positional params: "
+            f"{list(sig.parameters)}"
+        )
+
+        # (2) Behavioral contract: calling with the 4-arg shape must
+        # not raise TypeError. This is the exact call shape ``paste()``
+        # uses at the Thread() constructor.
+        cm = _make_cm()
+        snap = _make_snapshot()
+        pending_entry = (cm, snap, "original text", 0.0)
+        mock_pyper = MagicMock()
+        mock_pyper.paste.return_value = "original text"
+        with (
+            patch.object(clip_mod, "pyperclip", mock_pyper),
+            patch.object(clip_mod, "time") as mock_time,
+            patch.object(snap, "restore", return_value=True),
+            patch.object(clip_mod, "log"),
+        ):
+            mock_time.sleep = MagicMock()
+            # Must not raise TypeError — the original bug.
+            cm._delayed_restore(snap, "original text", 0.0, pending_entry)
 
 
 # ===========================================================================

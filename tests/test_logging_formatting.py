@@ -22,8 +22,11 @@ from unittest.mock import MagicMock
 # would permanently pollute ``sys.modules`` and break later tests that
 # need real PIL (e.g. tests/test_tray_icon.py with @pytest.mark.real_pil).
 for _mod in (
-    "sounddevice", "pynput", "pynput.keyboard",
-    "pystray", "pyperclip",
+    "sounddevice",
+    "pynput",
+    "pynput.keyboard",
+    "pystray",
+    "pyperclip",
 ):
     if _mod not in sys.modules:
         sys.modules[_mod] = MagicMock()

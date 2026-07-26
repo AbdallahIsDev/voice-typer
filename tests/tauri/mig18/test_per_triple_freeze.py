@@ -432,8 +432,13 @@ def test_tauri_conf_shell_scope_declares_sidecar():
     )
     entry = sidecar_entries[0]
     assert entry.get("cmd") == "bin/python-sidecar"
-    assert entry.get("args") is True, (
-        "sidecar scope entry must have args=true so the Rust host can pass VOICE_TYPER_IPC_TOKEN / port args."
+    # FIX-5 #299: changed ``args: true`` → ``args: ["--ws"]`` in
+    # src-tauri/tauri.conf.json so the sidecar is always spawned with
+    # the WebSocket mode flag (the new IPC default). The args list
+    # is no longer a free-form bool — it pins the --ws contract.
+    assert entry.get("args") == ["--ws"], (
+        'sidecar scope entry must have args=["--ws"] so the Rust host '
+        "spawns the Python sidecar in WebSocket mode (FIX-5 #299)."
     )
 
 

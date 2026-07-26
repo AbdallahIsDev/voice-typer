@@ -607,9 +607,7 @@ def clear_binary_path_cache():
         # clear.
         pass
     else:
-        resolve_hf_cache_clear = getattr(
-            _resolve_hf_cache_dir, "cache_clear", None
-        )
+        resolve_hf_cache_clear = getattr(_resolve_hf_cache_dir, "cache_clear", None)
         if resolve_hf_cache_clear is not None:
             resolve_hf_cache_clear()
 
@@ -627,9 +625,7 @@ def clear_binary_path_cache():
     except ImportError:
         pass
     else:
-        cached_cfg_clear = getattr(
-            _cached_active_config, "cache_clear", None
-        )
+        cached_cfg_clear = getattr(_cached_active_config, "cache_clear", None)
         if cached_cfg_clear is not None:
             cached_cfg_clear()
 

@@ -71,14 +71,10 @@ PII_SAMPLE_TEXT = "Call me at user@example.com or +1 (415) 555-2671"
 class TestSegmentDebugLogPiiGating:
     """XZ-PRIV-04: segment DEBUG log must be gated + PII-redacted."""
 
-    def test_segment_debug_log_not_emitted_when_log_transcriptions_false(
-        self, caplog
-    ):
+    def test_segment_debug_log_not_emitted_when_log_transcriptions_false(self, caplog):
         """When ``config.log_transcriptions`` is False (the default), the
         raw segment text MUST NOT appear in the DEBUG log."""
-        engine, mock_model = _make_engine_with_model(
-            config=_FakeConfig(log_transcriptions=False)
-        )
+        engine, mock_model = _make_engine_with_model(config=_FakeConfig(log_transcriptions=False))
         mock_model.transcribe.return_value = (
             [MagicMock(text=PII_SAMPLE_TEXT, start=0.0, end=1.0)],
             MagicMock(language="en", language_probability=1.0),
@@ -90,23 +86,17 @@ class TestSegmentDebugLogPiiGating:
 
         # The raw segment text must not appear in any DEBUG record.
         segment_logs = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
         ]
         assert segment_logs == [], (
             "Segment DEBUG log emitted despite log_transcriptions=False — "
             f"got: {[r.getMessage() for r in segment_logs]}"
         )
 
-    def test_segment_debug_log_emitted_when_log_transcriptions_true(
-        self, caplog
-    ):
+    def test_segment_debug_log_emitted_when_log_transcriptions_true(self, caplog):
         """When the user opts in via ``log_transcriptions=True``, the
         segment DEBUG log IS emitted — but with PII redacted."""
-        engine, mock_model = _make_engine_with_model(
-            config=_FakeConfig(log_transcriptions=True)
-        )
+        engine, mock_model = _make_engine_with_model(config=_FakeConfig(log_transcriptions=True))
         mock_model.transcribe.return_value = (
             [MagicMock(text=PII_SAMPLE_TEXT, start=0.0, end=1.0)],
             MagicMock(language="en", language_probability=1.0),
@@ -117,29 +107,18 @@ class TestSegmentDebugLogPiiGating:
             engine.transcribe_with_fallback(audio)
 
         segment_logs = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
         ]
         assert len(segment_logs) == 1, (
-            "Expected exactly one segment DEBUG log when log_transcriptions=True; "
-            f"got {len(segment_logs)}"
+            f"Expected exactly one segment DEBUG log when log_transcriptions=True; got {len(segment_logs)}"
         )
         msg = segment_logs[0].getMessage()
         # PII must be redacted — the raw email and phone must NOT appear.
-        assert "user@example.com" not in msg, (
-            f"Raw email leaked into DEBUG log: {msg!r}"
-        )
-        assert "+1 (415) 555-2671" not in msg, (
-            f"Raw phone leaked into DEBUG log: {msg!r}"
-        )
+        assert "user@example.com" not in msg, f"Raw email leaked into DEBUG log: {msg!r}"
+        assert "+1 (415) 555-2671" not in msg, f"Raw phone leaked into DEBUG log: {msg!r}"
         # Redaction tokens SHOULD appear (proves redact_pii ran).
-        assert "[EMAIL]" in msg, (
-            f"Email not redacted to [EMAIL] token: {msg!r}"
-        )
-        assert "[PHONE]" in msg, (
-            f"Phone not redacted to [PHONE] token: {msg!r}"
-        )
+        assert "[EMAIL]" in msg, f"Email not redacted to [EMAIL] token: {msg!r}"
+        assert "[PHONE]" in msg, f"Phone not redacted to [PHONE] token: {msg!r}"
 
     def test_segment_debug_log_skipped_when_config_is_none(self, caplog):
         """When ``engine.config`` is None (e.g. benchmark path), the
@@ -155,22 +134,17 @@ class TestSegmentDebugLogPiiGating:
             engine.transcribe_with_fallback(audio)
 
         segment_logs = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.DEBUG and "[TRANSCRIBE] Segment" in r.getMessage()
         ]
         assert segment_logs == [], (
-            "Segment DEBUG log emitted despite config=None — "
-            f"got: {[r.getMessage() for r in segment_logs]}"
+            f"Segment DEBUG log emitted despite config=None — got: {[r.getMessage() for r in segment_logs]}"
         )
 
     def test_transcription_result_unchanged_by_gating(self):
         """The gating fix must NOT alter the transcription result — only
         the log output. The returned text must still contain the original
         (un-redacted) PII so the user's dictated text is preserved."""
-        engine, mock_model = _make_engine_with_model(
-            config=_FakeConfig(log_transcriptions=False)
-        )
+        engine, mock_model = _make_engine_with_model(config=_FakeConfig(log_transcriptions=False))
         mock_model.transcribe.return_value = (
             [MagicMock(text=PII_SAMPLE_TEXT, start=0.0, end=1.0)],
             MagicMock(language="en", language_probability=1.0),

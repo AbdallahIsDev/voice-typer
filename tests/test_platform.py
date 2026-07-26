@@ -37,9 +37,7 @@ class TestAutostartCommand:
         # verify the executable appears in the command and the
         # launcher is present.
         cmd = _autostart_command()
-        assert sys.executable in cmd, (
-            f"Expected sys.executable ({sys.executable}) in cmd: {cmd}"
-        )
+        assert sys.executable in cmd, f"Expected sys.executable ({sys.executable}) in cmd: {cmd}"
         assert "autostart_launcher.py" in cmd
 
 
@@ -53,7 +51,8 @@ class TestLinuxDesktopExec:
         monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
         monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(
-            platform_mod, "_autostart_command",
+            platform_mod,
+            "_autostart_command",
             lambda: '"/usr/bin/python3" "/opt/voice_typer/launcher.py"',
         )
         assert platform_mod._enable_autostart_linux() is True
@@ -65,7 +64,7 @@ class TestLinuxDesktopExec:
         # which is malformed per the Desktop Entry Spec.
         for line in desktop.splitlines():
             if line.startswith("Exec="):
-                exec_val = line[len("Exec="):]
+                exec_val = line[len("Exec=") :]
                 assert exec_val == '"/usr/bin/python3" "/opt/voice_typer/launcher.py"', (
                     f"Exec field must be the verbatim quoted command, got: {exec_val}"
                 )
@@ -78,7 +77,8 @@ class TestLinuxDesktopExec:
         monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
         monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(
-            platform_mod, "_autostart_command",
+            platform_mod,
+            "_autostart_command",
             lambda: '"/usr/bin/python3" "/home/my user/voice typer/launcher.py"',
         )
         assert platform_mod._enable_autostart_linux() is True
@@ -86,7 +86,7 @@ class TestLinuxDesktopExec:
         desktop = (tmp_path / "voice-typer.desktop").read_text()
         for line in desktop.splitlines():
             if line.startswith("Exec="):
-                exec_val = line[len("Exec="):]
+                exec_val = line[len("Exec=") :]
                 assert exec_val == '"/usr/bin/python3" "/home/my user/voice typer/launcher.py"', (
                     f"spaces in path must stay quoted, got: {exec_val}"
                 )
@@ -101,12 +101,14 @@ class TestMacOsAutostartUnload:
 
     def test_disable_calls_launchctl_bootout_then_remove(self, monkeypatch, tmp_path):
         import subprocess as _sp
+
         monkeypatch.setattr(platform_mod, "SYSTEM", "darwin")
         monkeypatch.setattr(platform_mod, "get_autostart_dir", lambda: tmp_path)
         # Pretend the plist exists so the unlink path runs.
         (tmp_path / "com.voicetyper.plist").write_text("dummy")
 
         calls: list[list[str]] = []
+
         def fake_run(args, **kw):
             calls.append(list(args))
             r = MagicMock()
@@ -114,6 +116,7 @@ class TestMacOsAutostartUnload:
             r.stdout = b""
             r.stderr = b""
             return r
+
         monkeypatch.setattr(_sp, "run", fake_run)
         # Ensure os.getuid is available even on Windows test host.
         monkeypatch.setattr(platform_mod, "_os_uid", lambda: 501)
@@ -121,8 +124,7 @@ class TestMacOsAutostartUnload:
         assert platform_mod._disable_autostart_macos() is True
 
         # Must have invoked launchctl to unload the job.
-        assert any("launchctl" in c and "bootout" in c for c in calls), \
-            f"expected launchctl bootout, got: {calls}"
+        assert any("launchctl" in c and "bootout" in c for c in calls), f"expected launchctl bootout, got: {calls}"
         # Plist must be deleted.
         assert not (tmp_path / "com.voicetyper.plist").exists()
 
@@ -179,16 +181,19 @@ class TestFindMicrophoneById:
         monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
 
         from voice_typer.server.server_platform import find_microphone_by_id
+
         result = find_microphone_by_id("7")
         assert result is not None
         assert result["index"] == 7
         assert result["host_api"] == "MME"
 
     def test_returns_none_for_bad_id(self, monkeypatch):
-        monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: [
-            {"id": "0", "index": 0, "name": "Mic", "host_api": "", "channels": 1, "default": True}
-        ])
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.list_microphones",
+            lambda: [{"id": "0", "index": 0, "name": "Mic", "host_api": "", "channels": 1, "default": True}],
+        )
         from voice_typer.server.server_platform import find_microphone_by_id
+
         assert find_microphone_by_id("99") is None
 
 
@@ -202,11 +207,12 @@ class TestDuplicateMicrophoneDisambiguation:
         monkeypatch.setattr("voice_typer.server.server_platform.list_microphones", lambda: fake_mics)
 
         from voice_typer.server.server_platform import find_microphone_by_id
+
         mic1 = find_microphone_by_id("3")
         mic2 = find_microphone_by_id("7")
         assert mic1 is not None and mic2 is not None
         assert mic1["name"] == mic2["name"]  # same display name
-        assert mic1["id"] != mic2["id"]      # different IDs
+        assert mic1["id"] != mic2["id"]  # different IDs
         assert mic1["host_api"] != mic2["host_api"]  # different host APIs
 
 
@@ -219,6 +225,7 @@ class TestCreateLauncherShortcut:
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
 
         import voice_typer.server.server_platform as mod
+
         monkeypatch.setattr(mod, "SYSTEM", "win32")
 
         desktop = tmp_path / "Desktop"
@@ -253,6 +260,7 @@ class TestCreateLauncherShortcut:
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
 
         import voice_typer.server.server_platform as mod
+
         monkeypatch.setattr(mod, "SYSTEM", "win32")
 
         desktop = tmp_path / "Desktop"
@@ -261,11 +269,14 @@ class TestCreateLauncherShortcut:
 
         # Make win32com raise ImportError
         import builtins
+
         real_import = builtins.__import__
+
         def mock_import(name, *args, **kwargs):
             if name == "win32com" or name.startswith("win32com."):
                 raise ImportError("no win32com")
             return real_import(name, *args, **kwargs)
+
         monkeypatch.setattr(builtins, "__import__", mock_import)
 
         result = create_launcher_shortcut()
@@ -275,6 +286,7 @@ class TestCreateLauncherShortcut:
 
     def test_returns_none_on_non_windows(self, monkeypatch):
         import voice_typer.server.server_platform as mod
+
         monkeypatch.setattr(mod, "SYSTEM", "linux")
         assert create_launcher_shortcut() is None
 
@@ -283,6 +295,7 @@ class TestCreateLauncherShortcut:
         """If pythonw.exe doesn't exist next to the interpreter, returns None."""
         monkeypatch.setattr(sys, "executable", str(tmp_path / "python.exe"))
         import voice_typer.server.server_platform as mod
+
         monkeypatch.setattr(mod, "SYSTEM", "win32")
         assert create_launcher_shortcut() is None
 
@@ -309,6 +322,7 @@ class TestUniversalLauncherPath:
     def test_points_at_autostart_launcher(self):
         """The universal launcher path must reference autostart_launcher.py."""
         from voice_typer.server.server_platform import _universal_launcher_path
+
         p = _universal_launcher_path()
         assert p.name == "autostart_launcher.py"
         assert p.exists()
@@ -322,6 +336,7 @@ class TestStartMenuProgramsDir:
 
     def test_returns_path_under_appdata(self, monkeypatch):
         from voice_typer.server.server_platform import _start_menu_programs_dir
+
         monkeypatch.setenv("APPDATA", "/fake/appdata")
         p = _start_menu_programs_dir()
         assert "Programs" in str(p)
@@ -356,6 +371,7 @@ class TestShortcutTarget:
         (not pythonw -m voice_typer, which starts backend-only without
         Electron, causing the bubble overlay to never appear)."""
         from voice_typer.server.server_platform import _universal_launcher_path
+
         launcher = _universal_launcher_path()
         # The launcher path should be autostart_launcher.py
         assert launcher.name == "autostart_launcher.py"

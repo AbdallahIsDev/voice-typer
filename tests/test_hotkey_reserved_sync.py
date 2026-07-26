@@ -26,12 +26,7 @@ from pathlib import Path
 import pytest
 
 # Path to the canonical JSON file (single source of truth).
-JSON_PATH = (
-    Path(__file__).resolve().parent.parent
-    / "voice_typer"
-    / "server"
-    / "hotkey_reserved.json"
-)
+JSON_PATH = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "hotkey_reserved.json"
 # Path to the client copy of the JSON (imported by hotkey-validation.ts).
 CLIENT_JSON_PATH = (
     Path(__file__).resolve().parent.parent
@@ -97,18 +92,16 @@ class TestClientCopyIsInSync:
                voice_typer/client/src/renderer/src/data/hotkey_reserved.json
         """
         import hashlib
+
         server_bytes = JSON_PATH.read_bytes()
         client_bytes = CLIENT_JSON_PATH.read_bytes()
         assert server_bytes == client_bytes, (
-            "Client copy of hotkey_reserved.json differs from server "
-            "original. Run the copy command above to sync them."
+            "Client copy of hotkey_reserved.json differs from server original. Run the copy command above to sync them."
         )
         # Double-check via hash for deterministic diagnostics
         server_hash = hashlib.sha256(server_bytes).hexdigest()
         client_hash = hashlib.sha256(client_bytes).hexdigest()
-        assert server_hash == client_hash, (
-            f"SHA256 mismatch: server={server_hash} client={client_hash}"
-        )
+        assert server_hash == client_hash, f"SHA256 mismatch: server={server_hash} client={client_hash}"
 
 
 class TestFrontendImportsFromJson:
@@ -126,9 +119,9 @@ class TestFrontendImportsFromJson:
         about quote style across versions.
         """
         assert (
-            "import hotkeyReserved from \"../data/hotkey_reserved.json\"" in ts_content
+            'import hotkeyReserved from "../data/hotkey_reserved.json"' in ts_content
             or "import hotkeyReserved from '../data/hotkey_reserved.json'" in ts_content
-            or "import hotkeyReserved from \"../../data/hotkey_reserved.json\"" in ts_content
+            or 'import hotkeyReserved from "../../data/hotkey_reserved.json"' in ts_content
             or "import hotkeyReserved from '../../data/hotkey_reserved.json'" in ts_content
         ), (
             "hotkey-validation.ts must import from ../data/hotkey_reserved.json "
@@ -173,34 +166,28 @@ class TestBackendLoadsFromJson:
         )
 
         # Universal reserved.
-        assert frozenset(
-            json_data["universal_reserved"]
-        ) == _UNIVERSAL_RESERVED_HOTKEYS, "Backend _UNIVERSAL_RESERVED_HOTKEYS does not match JSON"
+        assert frozenset(json_data["universal_reserved"]) == _UNIVERSAL_RESERVED_HOTKEYS, (
+            "Backend _UNIVERSAL_RESERVED_HOTKEYS does not match JSON"
+        )
 
         # Per-platform reserved.
         for platform, entries in json_data["per_platform_reserved"].items():
-            assert platform in _RESERVED_HOTKEYS, (
-                f"Platform {platform!r} missing from backend _RESERVED_HOTKEYS"
-            )
+            assert platform in _RESERVED_HOTKEYS, f"Platform {platform!r} missing from backend _RESERVED_HOTKEYS"
             assert _RESERVED_HOTKEYS[platform] == set(entries), (
                 f"Backend _RESERVED_HOTKEYS[{platform!r}] does not match JSON"
             )
 
         # Blocked Ctrl letters.
-        assert frozenset(
-            json_data["blocked_ctrl_letters"]
-        ) == _BLOCKED_CTRL_LETTERS, "Backend _BLOCKED_CTRL_LETTERS does not match JSON"
+        assert frozenset(json_data["blocked_ctrl_letters"]) == _BLOCKED_CTRL_LETTERS, (
+            "Backend _BLOCKED_CTRL_LETTERS does not match JSON"
+        )
 
         # Modifiers.
-        assert frozenset(json_data["modifiers"]) == _HOTKEY_MODIFIERS, (
-            "Backend _HOTKEY_MODIFIERS does not match JSON"
-        )
+        assert frozenset(json_data["modifiers"]) == _HOTKEY_MODIFIERS, "Backend _HOTKEY_MODIFIERS does not match JSON"
 
     def test_json_file_is_at_canonical_path(self) -> None:
         """The JSON file lives at voice_typer/server/hotkey_reserved.json."""
-        assert JSON_PATH.exists(), (
-            f"Canonical reserved-hotkey JSON file not found at {JSON_PATH}"
-        )
+        assert JSON_PATH.exists(), f"Canonical reserved-hotkey JSON file not found at {JSON_PATH}"
 
 
 class TestJsonStructure:
@@ -230,15 +217,10 @@ class TestJsonStructure:
 
     def test_all_entries_are_lowercase(self, json_data: dict) -> None:
         for entry in json_data["universal_reserved"]:
-            assert entry == entry.lower(), (
-                f"Universal reserved entry {entry!r} must be lowercase"
-            )
+            assert entry == entry.lower(), f"Universal reserved entry {entry!r} must be lowercase"
         for platform, entries in json_data["per_platform_reserved"].items():
             for entry in entries:
-                assert entry == entry.lower(), (
-                    f"Per-platform reserved entry {entry!r} for {platform} "
-                    "must be lowercase"
-                )
+                assert entry == entry.lower(), f"Per-platform reserved entry {entry!r} for {platform} must be lowercase"
 
     def test_blocked_ctrl_letters_are_single_lowercase(self, json_data: dict) -> None:
         for letter in json_data["blocked_ctrl_letters"]:
@@ -251,9 +233,7 @@ class TestJsonStructure:
         for mod in ("ctrl", "shift", "alt", "cmd", "win", "super", "fn"):
             assert mod in modifiers, f"Core modifier {mod!r} missing from JSON"
 
-    def test_modifiers_contains_left_right_variants(
-        self, json_data: dict
-    ) -> None:
+    def test_modifiers_contains_left_right_variants(self, json_data: dict) -> None:
         modifiers = set(json_data["modifiers"])
         for mod in (
             "ctrl_l",
@@ -265,9 +245,7 @@ class TestJsonStructure:
             "cmd_l",
             "cmd_r",
         ):
-            assert mod in modifiers, (
-                f"Modifier variant {mod!r} missing from JSON"
-            )
+            assert mod in modifiers, f"Modifier variant {mod!r} missing from JSON"
 
 
 if __name__ == "__main__":

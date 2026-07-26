@@ -5,6 +5,7 @@ Verifies that:
 - wrap_callback suppresses SystemExit (ERR-QUIT-002)
 - build_menu produces the expected menu structure
 """
+
 from unittest.mock import MagicMock
 
 import pytest
@@ -15,18 +16,22 @@ class TestDisplayHotkey:
 
     def test_f2_default(self):
         from voice_typer.server.tray_menu import display_hotkey
+
         assert display_hotkey("<f2>") == "F2"
 
     def test_custom_hotkey(self):
         from voice_typer.server.tray_menu import display_hotkey
+
         assert display_hotkey("<ctrl>+<shift>+d") == "Ctrl+Shift+D"
 
     def test_falls_back_to_default_when_empty(self):
         from voice_typer.server.tray_menu import display_hotkey
+
         assert display_hotkey("", fallback="<f4>") == "F4"
 
     def test_falls_back_to_default_when_none(self):
         from voice_typer.server.tray_menu import display_hotkey
+
         assert display_hotkey(None, fallback="<f9>") == "F9"
 
 
@@ -35,9 +40,12 @@ class TestWrapCallback:
 
     def test_normal_callback_invoked(self):
         from voice_typer.server.tray_menu import wrap_callback
+
         called = []
+
         def cb():
             called.append("yes")
+
         wrapped = wrap_callback(cb)
         wrapped("icon", "item")  # pystray passes (icon, item)
         assert called == ["yes"]
@@ -46,16 +54,20 @@ class TestWrapCallback:
         """ERR-QUIT-002: SystemExit must be suppressed (not re-raised)
         so pystray doesn't print a traceback."""
         from voice_typer.server.tray_menu import wrap_callback
+
         def cb():
             raise SystemExit(0)
+
         wrapped = wrap_callback(cb)
         # Should NOT raise — SystemExit is caught and suppressed.
         wrapped("icon", "item")
 
     def test_exceptions_other_than_system_exit_propagate(self):
         from voice_typer.server.tray_menu import wrap_callback
+
         def cb():
             raise RuntimeError("boom")
+
         wrapped = wrap_callback(cb)
         with pytest.raises(RuntimeError, match="boom"):
             wrapped("icon", "item")
@@ -69,6 +81,7 @@ class TestBuildMenu:
         # have pystray installed.
         import voice_typer.server.tray_menu as tray_menu_mod
         from voice_typer.server.tray_menu import build_menu
+
         mock_pystray = MagicMock()
         mock_pystray.Menu.SEPARATOR = "SEP"
         items_created = []
@@ -92,7 +105,7 @@ class TestBuildMenu:
             quit_app=lambda: None,
             build_models_submenu=lambda: [],
         )
-        labels = [it.label for it in result if hasattr(it, 'label')]
+        labels = [it.label for it in result if hasattr(it, "label")]
         # TRAY-008: labels now use localization keys by default
         assert any("toggle_dictation" in lbl for lbl in labels)
         assert "open_app" in labels
@@ -104,6 +117,7 @@ class TestBuildMenu:
         """The 'Toggle Dictation' label must include the formatted hotkey."""
         import voice_typer.server.tray_menu as tray_menu_mod
         from voice_typer.server.tray_menu import build_menu
+
         mock_pystray = MagicMock()
         mock_pystray.Menu.SEPARATOR = "SEP"
         items_created = []
@@ -125,19 +139,14 @@ class TestBuildMenu:
             quit_app=lambda: None,
             build_models_submenu=lambda: [],
         )
-        toggle_label = next(
-            it.label for it in items_created
-            if "toggle_dictation" in it.label
-        )
-        assert "F5" in toggle_label, (
-            f"Toggle Dictation label should include formatted hotkey 'F5', "
-            f"got: {toggle_label}"
-        )
+        toggle_label = next(it.label for it in items_created if "toggle_dictation" in it.label)
+        assert "F5" in toggle_label, f"Toggle Dictation label should include formatted hotkey 'F5', got: {toggle_label}"
 
     def test_toggle_dictation_is_default_action(self):
         """The 'Toggle Dictation' menu item must be the default action."""
         import voice_typer.server.tray_menu as tray_menu_mod
         from voice_typer.server.tray_menu import build_menu
+
         mock_pystray = MagicMock()
         mock_pystray.Menu.SEPARATOR = "SEP"
         items_created = []
@@ -164,7 +173,6 @@ class TestBuildMenu:
         assert len(default_items) == 1
         # Default action is "open_app" not "toggle_dictation" (BUGFIX)
         assert "open_app" in default_items[0].label or "toggle_dictation" in default_items[0].label
-
 
 
 # =============================================================================
@@ -224,6 +232,7 @@ class TestQwenAsrCache:
 
         # Mock the import system so "import qwen_asr" succeeds.
         import sys
+
         fake_module = MagicMock()
         with patch.dict(sys.modules, {"qwen_asr": fake_module}):
             result1 = _check_qwen_asr_available()
@@ -237,6 +246,7 @@ class TestQwenAsrCache:
     def test_import_failure_cached(self):
         """When qwen_asr is not installed, the ImportError is cached."""
         import sys
+
         # Remove qwen_asr from modules so import fails.
         original = sys.modules.pop("qwen_asr", None)
         try:
@@ -284,8 +294,7 @@ class TestHfDownloadCache:
 
         # Only the first call should have hit the filesystem.
         assert call_count[0] == 1, (
-            f"exists() called {call_count[0]} times; expected 1 (TTL cache "
-            "should serve subsequent calls)"
+            f"exists() called {call_count[0]} times; expected 1 (TTL cache should serve subsequent calls)"
         )
         # All three results must agree.
         assert result1 == result2 == result3
@@ -319,9 +328,7 @@ class TestHfDownloadCache:
         with patch.object(Path, "exists", counting_exists):
             result2 = _check_hf_model_downloaded(repo_id, config_dir)
 
-        assert call_count[0] == 1, (
-            "exists() should be called once after TTL expired"
-        )
+        assert call_count[0] == 1, "exists() should be called once after TTL expired"
         assert result2 == result1
 
     def test_different_repos_cached_separately(self, tmp_path):
@@ -401,9 +408,7 @@ class TestBuildModelsSubmenuUsesCache:
         config_provider.asr_backend = "whisper"
 
         # Mock ensure_hf_env to no-op.
-        with patch(
-            "voice_typer.server.asr_setup.ensure_hf_env", lambda: None
-        ):
+        with patch("voice_typer.server.asr_setup.ensure_hf_env", lambda: None):
             # First call triggers the import check.
             fake_module = MagicMock()
             with patch.dict(sys.modules, {"qwen_asr": fake_module}):

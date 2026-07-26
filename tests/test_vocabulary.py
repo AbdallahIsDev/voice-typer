@@ -356,14 +356,10 @@ class TestVocabularyBackupAndQuarantine:
         # The .bak must now exist and contain vocab A's content
         # (byte-for-byte), so the user can recover their previous
         # state if vocab B turns out to be wrong.
-        assert bak_file.exists(), (
-            "PI-8 regression: .bak file should exist after the second "
-            "save overwrites the first"
-        )
+        assert bak_file.exists(), "PI-8 regression: .bak file should exist after the second save overwrites the first"
         bak_content = bak_file.read_text(encoding="utf-8")
         assert bak_content == content_a, (
-            "PI-8 regression: .bak file should contain the PREVIOUS "
-            "vocab content (byte-for-byte), not the new content"
+            "PI-8 regression: .bak file should contain the PREVIOUS vocab content (byte-for-byte), not the new content"
         )
         assert '"teh"' in bak_content
         assert '"whitespace"' not in bak_content
@@ -395,14 +391,10 @@ class TestVocabularyBackupAndQuarantine:
 
         # The corrupt file must have been renamed to .corrupt-<ts>.
         assert not user_file.exists(), (
-            "PI-8 regression: corrupt vocab file should have been "
-            "renamed (quarantined), not left in place"
+            "PI-8 regression: corrupt vocab file should have been renamed (quarantined), not left in place"
         )
         corrupt_files = list(vocab_dir.glob(f"{VOCAB_FILENAME}.corrupt-*"))
-        assert len(corrupt_files) == 1, (
-            f"PI-8 regression: expected exactly one .corrupt-<ts> file, "
-            f"got {corrupt_files}"
-        )
+        assert len(corrupt_files) == 1, f"PI-8 regression: expected exactly one .corrupt-<ts> file, got {corrupt_files}"
         # The quarantined file must contain the original corrupt payload
         # (byte-for-byte) so the user can inspect what went wrong.
         assert corrupt_files[0].read_text(encoding="utf-8") == corrupt_payload
@@ -414,7 +406,6 @@ class TestVocabularyBackupAndQuarantine:
         assert "teh" in miss  # bundled
         # No user "broken" key leaked through.
         assert "broken" not in miss
-
 
 
 class TestTemplatesEnforcesCaps:

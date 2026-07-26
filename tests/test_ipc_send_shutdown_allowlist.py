@@ -56,8 +56,7 @@ def test_shutdown_allowlist_is_module_level_frozenset() -> None:
     3. The semantic intent ("a set of allowed types") is clearer.
     """
     assert isinstance(_SHUTDOWN_ALLOWLIST, frozenset), (
-        f"TY-24: _SHUTDOWN_ALLOWLIST must be a frozenset, got "
-        f"{type(_SHUTDOWN_ALLOWLIST).__name__}"
+        f"TY-24: _SHUTDOWN_ALLOWLIST must be a frozenset, got {type(_SHUTDOWN_ALLOWLIST).__name__}"
     )
     # The constant must be accessible at module level (not just as a
     # local variable inside _send). This is verified implicitly by the
@@ -85,8 +84,7 @@ def test_shutdown_allowlist_has_correct_membership() -> None:
         }
     )
     assert expected == _SHUTDOWN_ALLOWLIST, (
-        f"TY-24: _SHUTDOWN_ALLOWLIST drift. Expected {sorted(expected)}, "
-        f"got {sorted(_SHUTDOWN_ALLOWLIST)}."
+        f"TY-24: _SHUTDOWN_ALLOWLIST drift. Expected {sorted(expected)}, got {sorted(_SHUTDOWN_ALLOWLIST)}."
     )
 
 
@@ -108,6 +106,7 @@ def test_cached_shutting_down_initialized_in_init() -> None:
     to ``False``. This is the baseline state for a freshly-constructed
     server that has never been started.
     """
+
     # Minimal stand-in for the app attribute the constructor needs.
     class _FakeApp:
         pass
@@ -129,8 +128,7 @@ def test_cached_shutting_down_refreshed_in_start() -> None:
     """
     src = inspect.getsource(IPCServer.start)
     assert "_cached_shutting_down = False" in src, (
-        "TY-24: start() must set _cached_shutting_down = False "
-        "(the canonical 'we're not shutting down' transition)."
+        "TY-24: start() must set _cached_shutting_down = False (the canonical 'we're not shutting down' transition)."
     )
 
 
@@ -144,8 +142,7 @@ def test_cached_shutting_down_refreshed_in_stop() -> None:
     """
     src = inspect.getsource(IPCServer.stop)
     assert "_cached_shutting_down = True" in src, (
-        "TY-24: stop() must set _cached_shutting_down = True "
-        "(the canonical 'we're shutting down' transition)."
+        "TY-24: stop() must set _cached_shutting_down = True (the canonical 'we're shutting down' transition)."
     )
 
 
@@ -157,6 +154,7 @@ def test_cached_shutting_down_actually_changes_on_lifecycle() -> None:
     transitions through the expected values as the server goes through
     its lifecycle.
     """
+
     # Construct a minimal app that the IPCServer can be attached to.
     # We don't actually call start()/stop() (which would spawn threads);
     # instead we call the methods on a server that we've manually
@@ -189,8 +187,7 @@ def test_cached_shutting_down_actually_changes_on_lifecycle() -> None:
     # stop() should flip the cache to True.
     server.stop()
     assert server._cached_shutting_down is True, (
-        "TY-24: stop() must set _cached_shutting_down = True (got "
-        f"{server._cached_shutting_down!r})."
+        f"TY-24: stop() must set _cached_shutting_down = True (got {server._cached_shutting_down!r})."
     )
 
 
@@ -210,8 +207,7 @@ def test_send_uses_cached_shutting_down_not_getattr_self_app() -> None:
     """
     src = inspect.getsource(IPCServer._send)
     assert "_cached_shutting_down" in src, (
-        "TY-24: _send must reference _cached_shutting_down (the cached "
-        "field) instead of doing getattr(self.app, ...)."
+        "TY-24: _send must reference _cached_shutting_down (the cached field) instead of doing getattr(self.app, ...)."
     )
     # The previous per-call cross-object getattr must be GONE from the
     # shutdown-suppress gate. (It may still appear in comments
@@ -222,10 +218,7 @@ def test_send_uses_cached_shutting_down_not_getattr_self_app() -> None:
     # Simple heuristic: the executable pattern is
     # ``getattr(self.app, "_shutting_down", False) is True`` — search
     # for that exact substring OUTSIDE of comment lines.
-    executable_lines = [
-        line for line in src.splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
+    executable_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
     executable_src = "\n".join(executable_lines)
     assert 'getattr(self.app, "_shutting_down"' not in executable_src, (
         "TY-24: _send still has the per-call "
@@ -242,15 +235,11 @@ def test_send_uses_module_level_allowlist_not_inline_tuple() -> None:
     """
     src = inspect.getsource(IPCServer._send)
     assert "_SHUTDOWN_ALLOWLIST" in src, (
-        "TY-24: _send must reference the module-level _SHUTDOWN_ALLOWLIST "
-        "constant (not re-allocate the tuple inline)."
+        "TY-24: _send must reference the module-level _SHUTDOWN_ALLOWLIST constant (not re-allocate the tuple inline)."
     )
     # The inline tuple allocation pattern must NOT appear in executable
     # code (it's fine in comments explaining the change).
-    executable_lines = [
-        line for line in src.splitlines()
-        if line.strip() and not line.strip().startswith("#")
-    ]
+    executable_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
     executable_src = "\n".join(executable_lines)
     # The old pattern was a multi-line tuple literal:
     #     _shutdown_allowlist = (
@@ -261,7 +250,7 @@ def test_send_uses_module_level_allowlist_not_inline_tuple() -> None:
     # inline ``_shutdown_allowlist = (`` assignment with literal strings.
     # The new code is ``_shutdown_allowlist = _SHUTDOWN_ALLOWLIST`` —
     # that's a single token after ``=``.
-    assert '_shutdown_allowlist = (' not in executable_src, (
+    assert "_shutdown_allowlist = (" not in executable_src, (
         "TY-24: _send still has the inline tuple allocation pattern "
         "``_shutdown_allowlist = (...)`` in executable code. Replace "
         "with ``_shutdown_allowlist = _SHUTDOWN_ALLOWLIST``."
@@ -373,8 +362,7 @@ def test_send_delivers_allowlisted_push_when_shutting_down() -> None:
             "were received."
         )
         assert b"relaunch_app" in received[0], (
-            f"TY-24: expected 'relaunch_app' in the written bytes; "
-            f"got {received[0]!r}."
+            f"TY-24: expected 'relaunch_app' in the written bytes; got {received[0]!r}."
         )
     finally:
         srv.close()

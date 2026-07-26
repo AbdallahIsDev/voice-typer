@@ -430,7 +430,7 @@ def test_per_module_log_levels_ignores_invalid_entries(config_dir, clean_env, st
 # ─── GT-B1-15: startup banner logging the active log configuration ─────
 
 
-class TestGtB1_15StartupBanner:
+class TestGtB1_15StartupBanner:  # noqa: N801
     """GT-B1-15: after ``_setup_logging_shared`` returns, emit a single
     INFO-level banner so operators can see at a glance which logging
     configuration took effect::

@@ -193,9 +193,7 @@ class TestHistoryCountCache:
         assert db.get_history_count() == 1
         # Force the cache timestamp into the past so the TTL has expired.
         with db._history_count_cache_lock:
-            db._history_count_cache_ts = (
-                time.monotonic() - _HISTORY_COUNT_CACHE_TTL_S - 1
-            )
+            db._history_count_cache_ts = time.monotonic() - _HISTORY_COUNT_CACHE_TTL_S - 1
         # Add a row that the cache doesn't know about.
         db.add_transcription("two")
         db.flush()

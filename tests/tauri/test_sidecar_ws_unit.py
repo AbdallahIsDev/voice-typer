@@ -326,7 +326,8 @@ async def test_dispatch_rate_limit_enforced_under_burst():
         if (
             isinstance(result, dict)
             and result.get("type") == "error"
-            and result.get("data", {}).get("code") in (
+            and result.get("data", {}).get("code")
+            in (
                 "client.rate_limited",
                 "rate_limited",
             )

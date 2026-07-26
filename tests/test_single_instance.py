@@ -45,7 +45,7 @@ from voice_typer.server import single_instance as si_mod  # noqa: E402
 # test_startup_sequence.py rather than duplicating ~30 lines of
 # VoiceTyperApp construction + hardware mocking. Pytest discovers
 # fixtures imported into a test module's namespace.
-from tests.test_startup_sequence import app_for_startup  # noqa: E402,F401
+from tests.test_startup_sequence import app_for_startup  # noqa: E402,F401,F811
 
 # ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -152,9 +152,7 @@ class TestGT41FlockAcquiredAfterStaleOExcl:
                 with contextlib.suppress(OSError):
                     handle.release()
 
-    def test_flock_failure_ewouldblock_exits_with_pid_diagnostic(
-        self, isolated_config_dir, capsys
-    ):
+    def test_flock_failure_ewouldblock_exits_with_pid_diagnostic(self, isolated_config_dir, capsys):
         """When another LIVE process holds the flock (EWOULDBLOCK),
         the new code reads the PID for a diagnostic message and exits.
 
@@ -302,7 +300,9 @@ class TestGTA13StartupSharedBudget:
     """
 
     def test_concurrent_futures_wait_called_with_shared_timeout(
-        self, app_for_startup, monkeypatch  # noqa: F811 - pytest fixture injected by name (imported at module top)
+        self,
+        app_for_startup,  # noqa: F811 - pytest fixture injected by name (imported at module top)
+        monkeypatch,
     ):
         """The parallel work must call ``concurrent.futures.wait`` with
         ``timeout=10`` and a set containing BOTH futures — NOT
@@ -359,13 +359,9 @@ class TestGTA13StartupSharedBudget:
             f"(shared budget). Got {len(wait_calls)} calls."
         )
         call = wait_calls[0]
-        assert call["timeout"] == 10, (
-            "GT-A1-3: timeout must be 10 (single shared budget). "
-            f"Got {call['timeout']}."
-        )
+        assert call["timeout"] == 10, f"GT-A1-3: timeout must be 10 (single shared budget). Got {call['timeout']}."
         assert call["num_futures"] == 2, (
-            "GT-A1-3: wait must be called with BOTH futures (prewarm + mic). "
-            f"Got {call['num_futures']} futures."
+            f"GT-A1-3: wait must be called with BOTH futures (prewarm + mic). Got {call['num_futures']} futures."
         )
         assert call["return_when"] == concurrent.futures.ALL_COMPLETED
 

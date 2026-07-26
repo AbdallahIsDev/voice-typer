@@ -40,26 +40,16 @@ class TestElectronExposesDataExportHandlers:
     # main process (would use @vitest/electron or Playwright Electron).
     def test_main_has_templates_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        export_handlers_ts = (
-            CLIENT_SRC / "main" / "ipc" / "export-handlers.ts"
-        ).read_text(encoding="utf-8")
+        export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
         combined = main_ts + "\n" + export_handlers_ts
-        assert (
-            'ipcMain.handle("templates:export"' in combined
-            or '"templates:export"' in combined
-        )
+        assert 'ipcMain.handle("templates:export"' in combined or '"templates:export"' in combined
 
     # REQUIRES-ELECTRON-RUNNER: same as above — src/main/index.ts source check.
     def test_main_has_config_export_handler(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        export_handlers_ts = (
-            CLIENT_SRC / "main" / "ipc" / "export-handlers.ts"
-        ).read_text(encoding="utf-8")
+        export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
         combined = main_ts + "\n" + export_handlers_ts
-        assert (
-            'ipcMain.handle("config:export"' in combined
-            or '"config:export"' in combined
-        )
+        assert 'ipcMain.handle("config:export"' in combined or '"config:export"' in combined
 
     # REQUIRES-ELECTRON-RUNNER: asserts on src/preload/index.ts source which
     # imports `electron` + `node:*`; behavioral version needs a real Electron
@@ -72,26 +62,16 @@ class TestElectronExposesDataExportHandlers:
     # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
     def test_history_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        export_handlers_ts = (
-            CLIENT_SRC / "main" / "ipc" / "export-handlers.ts"
-        ).read_text(encoding="utf-8")
+        export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
         combined = main_ts + "\n" + export_handlers_ts
-        assert (
-            'ipcMain.handle("history:export"' in combined
-            or '"history:export"' in combined
-        )
+        assert 'ipcMain.handle("history:export"' in combined or '"history:export"' in combined
 
     # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
     def test_vocabulary_export_still_present(self):
         main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        export_handlers_ts = (
-            CLIENT_SRC / "main" / "ipc" / "export-handlers.ts"
-        ).read_text(encoding="utf-8")
+        export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
         combined = main_ts + "\n" + export_handlers_ts
-        assert (
-            'ipcMain.handle("vocabulary:export"' in combined
-            or '"vocabulary:export"' in combined
-        )
+        assert 'ipcMain.handle("vocabulary:export"' in combined or '"vocabulary:export"' in combined
 
 
 class TestVersionReadsFromPackageMetadata:

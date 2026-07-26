@@ -689,17 +689,13 @@ class TestGT58DeprecatedKeysSilentlyScrubbed:
         assert cfg.autostart is False
         assert cfg.schema_version == 3
         for key in self.DEPRECATED_KEYS:
-            assert not hasattr(cfg, key), (
-                f"Deprecated field {key!r} must not be on the Config instance"
-            )
+            assert not hasattr(cfg, key), f"Deprecated field {key!r} must not be on the Config instance"
         corrupt_backups = list(tmp_path.glob("config.json.corrupt-*"))
         assert corrupt_backups == [], (
             f"Stale v2 config should NOT trigger corrupt-config backup; found: {corrupt_backups}"
         )
 
-    def test_stale_v3_config_with_deprecated_keys_handled_gracefully(
-        self, tmp_path, monkeypatch
-    ):
+    def test_stale_v3_config_with_deprecated_keys_handled_gracefully(self, tmp_path, monkeypatch):
         """A schema-v3 config that *still* carries deprecated keys
         is handled gracefully by the unknown-key filter — the keys are
         silently dropped (with a WARNING log) and the remaining fields

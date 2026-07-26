@@ -156,14 +156,10 @@ class TestRunDrainLoop:
         tray.run()
 
         # Exactly one drain call after the first wait timeout.
-        assert len(drain_calls) == 1, (
-            f"Expected 1 drain call after timeout, got {len(drain_calls)}"
-        )
+        assert len(drain_calls) == 1, f"Expected 1 drain call after timeout, got {len(drain_calls)}"
         # The wait was called twice with timeout=60: once returns False
         # (timeout → drain), once returns True (stop → exit loop).
-        assert wait_calls == [60, 60], (
-            f"Expected wait called twice with timeout=60, got {wait_calls}"
-        )
+        assert wait_calls == [60, 60], f"Expected wait called twice with timeout=60, got {wait_calls}"
 
     def test_run_drains_accumulated_pending_states(self, monkeypatch):
         """Pending states accumulated during the wait are cleared by
@@ -186,9 +182,7 @@ class TestRunDrainLoop:
 
         tray.run()
 
-        assert tray._pending_states == [], (
-            f"Drain should have cleared _pending_states, got {tray._pending_states}"
-        )
+        assert tray._pending_states == [], f"Drain should have cleared _pending_states, got {tray._pending_states}"
         assert tray._pending_notifications == [], (
             f"Drain should have cleared _pending_notifications, got {tray._pending_notifications}"
         )
@@ -267,13 +261,9 @@ class TestDrainLoopBoundedGrowth:
 
         tray.run()
 
-        assert len(drain_calls) == 3, (
-            f"Expected 3 drain calls (one per timeout), got {len(drain_calls)}"
-        )
+        assert len(drain_calls) == 3, f"Expected 3 drain calls (one per timeout), got {len(drain_calls)}"
         # Each drain sees exactly 1 entry (the one appended between waits).
-        assert drain_calls == [1, 1, 1], (
-            f"Expected each drain to see exactly 1 entry, got {drain_calls}"
-        )
+        assert drain_calls == [1, 1, 1], f"Expected each drain to see exactly 1 entry, got {drain_calls}"
         # After run() returns, queues are empty (last drain cleared them).
         assert tray._pending_states == []
         assert tray._pending_notifications == []

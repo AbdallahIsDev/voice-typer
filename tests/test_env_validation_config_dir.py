@@ -107,9 +107,7 @@ class TestConfigDirTraversalRejected:
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
         matching = [
-            r for r in caplog.records
-            if "VOICE_TYPER_CONFIG_DIR" in r.getMessage()
-            and "path-safety" in r.getMessage()
+            r for r in caplog.records if "VOICE_TYPER_CONFIG_DIR" in r.getMessage() and "path-safety" in r.getMessage()
         ]
         assert matching, (
             "expected a path-safety WARNING mentioning "
@@ -117,9 +115,7 @@ class TestConfigDirTraversalRejected:
             f"{[r.getMessage() for r in caplog.records]!r}"
         )
 
-    def test_traversal_rejection_uses_redacted_placeholder(
-        self, monkeypatch, tmp_path, caplog
-    ):
+    def test_traversal_rejection_uses_redacted_placeholder(self, monkeypatch, tmp_path, caplog):
         """GT-63 (call-site redaction): the WARNING message MUST
         contain the literal ``<redacted>`` placeholder (proving the
         SUT pre-redacts the env-var value at the call site, mirroring
@@ -140,11 +136,8 @@ class TestConfigDirTraversalRejected:
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
         rendered = [r.getMessage() for r in caplog.records]
-        assert any(
-            "<redacted>" in m and "VOICE_TYPER_CONFIG_DIR" in m for m in rendered
-        ), (
-            f"expected a redacted WARNING mentioning VOICE_TYPER_CONFIG_DIR; "
-            f"got {rendered!r}"
+        assert any("<redacted>" in m and "VOICE_TYPER_CONFIG_DIR" in m for m in rendered), (
+            f"expected a redacted WARNING mentioning VOICE_TYPER_CONFIG_DIR; got {rendered!r}"
         )
 
     def test_absolute_path_outside_home_logs_warning(self, monkeypatch, caplog):
@@ -154,13 +147,10 @@ class TestConfigDirTraversalRejected:
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
         matching = [
-            r for r in caplog.records
-            if "VOICE_TYPER_CONFIG_DIR" in r.getMessage()
-            and "path-safety" in r.getMessage()
+            r for r in caplog.records if "VOICE_TYPER_CONFIG_DIR" in r.getMessage() and "path-safety" in r.getMessage()
         ]
         assert matching, (
-            "expected a path-safety WARNING for /etc/passwd; got "
-            f"{[r.getMessage() for r in caplog.records]!r}"
+            f"expected a path-safety WARNING for /etc/passwd; got {[r.getMessage() for r in caplog.records]!r}"
         )
 
 
@@ -235,23 +225,16 @@ class TestConfigDirPathSafetyExceptionType:
             _validate_env_vars()
 
         matching = [
-            r for r in caplog.records
-            if "VOICE_TYPER_CONFIG_DIR" in r.getMessage()
-            and "path-safety" in r.getMessage()
+            r for r in caplog.records if "VOICE_TYPER_CONFIG_DIR" in r.getMessage() and "path-safety" in r.getMessage()
         ]
         assert matching, (
             "expected a path-safety WARNING for VOICE_TYPER_CONFIG_DIR; "
             f"got {[r.getMessage() for r in caplog.records]!r}"
         )
         msg = matching[0].getMessage()
-        assert "ValueError" in msg, (
-            f"GT-B1-14 regression: exception type name missing from "
-            f"log; got {msg!r}"
-        )
+        assert "ValueError" in msg, f"GT-B1-14 regression: exception type name missing from log; got {msg!r}"
         assert "path escapes home directory" in msg
-        assert secret_path not in msg, (
-            f"GT-63 regression: raw CONFIG_DIR path leaked: {msg!r}"
-        )
+        assert secret_path not in msg, f"GT-63 regression: raw CONFIG_DIR path leaked: {msg!r}"
         assert "VOICE_TYPER_CONFIG_DIR" not in os.environ
 
     def test_oserror_includes_type_name(self, monkeypatch, caplog):
@@ -270,14 +253,8 @@ class TestConfigDirPathSafetyExceptionType:
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
 
-        matching = [
-            r for r in caplog.records
-            if "path-safety" in r.getMessage()
-        ]
-        assert matching, (
-            "expected a path-safety WARNING; got "
-            f"{[r.getMessage() for r in caplog.records]!r}"
-        )
+        matching = [r for r in caplog.records if "path-safety" in r.getMessage()]
+        assert matching, f"expected a path-safety WARNING; got {[r.getMessage() for r in caplog.records]!r}"
         msg = matching[0].getMessage()
         assert "OSError" in msg
         assert "permission denied" in msg
@@ -301,14 +278,8 @@ class TestConfigDirPathSafetyExceptionType:
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
 
-        matching = [
-            r for r in caplog.records
-            if "path-safety" in r.getMessage()
-        ]
-        assert matching, (
-            "expected a path-safety WARNING; got "
-            f"{[r.getMessage() for r in caplog.records]!r}"
-        )
+        matching = [r for r in caplog.records if "path-safety" in r.getMessage()]
+        assert matching, f"expected a path-safety WARNING; got {[r.getMessage() for r in caplog.records]!r}"
         msg = matching[0].getMessage()
         assert "RuntimeError" in msg
         assert "undecodable path" in msg
@@ -356,10 +327,7 @@ class TestConfigDirPatternCheckStillRunsFirst:
 
         def _fail_if_called(_path, _home):
             calls.append("called")
-            raise AssertionError(
-                "_validate_path_safety must not be called for "
-                "pattern-check failures"
-            )
+            raise AssertionError("_validate_path_safety must not be called for pattern-check failures")
 
         monkeypatch.setattr(
             "voice_typer.server.config._validate_path_safety",
@@ -367,9 +335,7 @@ class TestConfigDirPatternCheckStillRunsFirst:
         )
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", "a" * 5000)
         _validate_env_vars()
-        assert calls == [], (
-            "_validate_path_safety was invoked despite pattern failure"
-        )
+        assert calls == [], "_validate_path_safety was invoked despite pattern failure"
         assert "VOICE_TYPER_CONFIG_DIR" not in os.environ
 
     def test_empty_path_does_not_invoke_path_safety(self, monkeypatch):
@@ -379,10 +345,7 @@ class TestConfigDirPatternCheckStillRunsFirst:
 
         def _fail_if_called(_path, _home):
             calls.append("called")
-            raise AssertionError(
-                "_validate_path_safety must not be called for "
-                "pattern-check failures"
-            )
+            raise AssertionError("_validate_path_safety must not be called for pattern-check failures")
 
         monkeypatch.setattr(
             "voice_typer.server.config._validate_path_safety",
@@ -400,9 +363,7 @@ class TestConfigDirPatternCheckStillRunsFirst:
 
         def _fail_if_called(_path, _home):
             calls.append("called")
-            raise AssertionError(
-                "_validate_path_safety must not be called when var is unset"
-            )
+            raise AssertionError("_validate_path_safety must not be called when var is unset")
 
         monkeypatch.setattr(
             "voice_typer.server.config._validate_path_safety",

@@ -80,6 +80,7 @@ class TestSnapshotResamplePathReturnsView:
         """When no new chunks have arrived since the last snapshot, the
         return value must be a view of ``_cached_resampled`` (not a
         copy). This is the common case for the 4 Hz streaming poll."""
+
         # Stub _resample_chunk so we don't need scipy.
         def fake_resample(audio, effective_sr, target_sr):
             return audio[:: max(1, effective_sr // target_sr)].astype(np.float32, copy=False)
@@ -174,8 +175,7 @@ class TestSnapshotResamplePathReturnsView:
         snap = r.snapshot()
         # The return must still be a view of the (unchanged) cache.
         assert np.shares_memory(snap, r._cached_resampled), (
-            "XZ-8: snapshot() on the resample-failure path must return a "
-            "VIEW of _cached_resampled, not a copy."
+            "XZ-8: snapshot() on the resample-failure path must return a VIEW of _cached_resampled, not a copy."
         )
 
 

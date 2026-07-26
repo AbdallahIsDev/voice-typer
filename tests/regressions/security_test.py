@@ -487,7 +487,7 @@ class TestComtypesFallbackFailsClosed:
 
     @pytest.mark.skipif(
         sys.platform == "win32",
-        reason="Non-Windows path: _focused_window_is_credential_dialog short-circuits to False when Win32 FindWindowEx unavailable",
+        reason="Non-Windows path: _focused_window_is_credential_dialog short-circuits to False when Win32 FindWindowEx unavailable",  # noqa: E501
     )
     def test_focused_window_returns_false_on_non_windows(self):
         """On non-Windows platforms, the helper must return False

@@ -69,18 +69,20 @@ IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
 # routes them directly (they don't go through the renderer's
 # ``dispatch`` path). When a host-only command is added or removed,
 # this set MUST be updated in the same PR.
-_HOST_ONLY_COMMANDS = frozenset({
-    "shutdown": (
-        "Tauri cooperative-shutdown command (EC-FIX-2 / EC-9). The "
-        "Rust host invokes it via the WS transport's special-case "
-        "intercept; the renderer never dispatches it."
-    ),
-    "tray_click": (
-        "Tauri tray-menu click dispatch (ADR-0020 §6.5 / §16). The "
-        "Rust host forwards a clicked menu item id; the renderer has "
-        "no tray-menu UI."
-    ),
-})
+_HOST_ONLY_COMMANDS = frozenset(
+    {
+        "shutdown": (
+            "Tauri cooperative-shutdown command (EC-FIX-2 / EC-9). The "
+            "Rust host invokes it via the WS transport's special-case "
+            "intercept; the renderer never dispatches it."
+        ),
+        "tray_click": (
+            "Tauri tray-menu click dispatch (ADR-0020 §6.5 / §16). The "
+            "Rust host forwards a clicked menu item id; the renderer has "
+            "no tray-menu UI."
+        ),
+    }
+)
 
 
 def _count_allowed_commands() -> int:
@@ -336,6 +338,7 @@ def test_rust_allowlist_contains_key_commands() -> None:
         f"src-tauri/src/commands/sidecar_cmds.rs."
     )
 
+
 # ─── S4-CR-18 (this session): Python _COMMAND_REGISTRY ↔ TS allowlist parity ──
 
 
@@ -456,10 +459,7 @@ def test_security_md_documents_renderer_count_not_registry_count() -> None:
     documented = _documented_count()
     ts_count = _count_allowed_commands()
     registry_count = len(_command_registry_entries())
-    assert documented is not None, (
-        "SECURITY.md no longer documents the ALLOWED_COMMANDS count in a "
-        "parseable form."
-    )
+    assert documented is not None, "SECURITY.md no longer documents the ALLOWED_COMMANDS count in a parseable form."
     assert documented == ts_count, (
         f"SECURITY.md documents {documented} ALLOWED_COMMANDS but the "
         f"renderer source defines {ts_count}. SECURITY.md must document "

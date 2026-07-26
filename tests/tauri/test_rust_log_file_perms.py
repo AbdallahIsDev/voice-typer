@@ -47,13 +47,7 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-LOGGING_RS = (
-    REPO_ROOT
-    / "src-tauri"
-    / "src"
-    / "platform"
-    / "logging.rs"
-)
+LOGGING_RS = REPO_ROOT / "src-tauri" / "src" / "platform" / "logging.rs"
 SIDECAR_CARGO_TOML = REPO_ROOT / "src-tauri" / "Cargo.toml"
 
 
@@ -87,8 +81,7 @@ def test_pi7_openoptions_mode_0o600_present_in_write_line() -> None:
     # check to the write path, not the rotate path.
     m = re.search(r"fn write_line\([^)]*\)[^{]*\{", src)
     assert m is not None, (
-        "PI-7 regression: could not locate `fn write_line` in "
-        f"{LOGGING_RS}. Did the function signature change?"
+        f"PI-7 regression: could not locate `fn write_line` in {LOGGING_RS}. Did the function signature change?"
     )
     write_line_body_start = m.end()
     # Find the matching closing brace by counting braces from the
@@ -105,8 +98,7 @@ def test_pi7_openoptions_mode_0o600_present_in_write_line() -> None:
             depth -= 1
         i += 1
     assert depth == 0, (
-        "PI-7 regression: could not find the closing `}` of "
-        "`fn write_line` — the function body is malformed."
+        "PI-7 regression: could not find the closing `}` of `fn write_line` — the function body is malformed."
     )
     write_line_body = src[write_line_body_start:i]
     # The mode(0o600) call must be present AND gated by #[cfg(unix)].
@@ -130,10 +122,7 @@ def test_pi7_chmod_0o600_after_rename_in_rotate() -> None:
     """
     src = _logging_rs_source()
     m = re.search(r"fn rotate\([^)]*\)[^{]*\{", src)
-    assert m is not None, (
-        "PI-7 regression: could not locate `fn rotate` in "
-        f"{LOGGING_RS}."
-    )
+    assert m is not None, f"PI-7 regression: could not locate `fn rotate` in {LOGGING_RS}."
     rotate_body_start = m.end()
     depth = 1
     i = rotate_body_start
@@ -173,10 +162,7 @@ def test_pi7_chmod_0o700_on_logs_dir_in_init_file_logger() -> None:
     src = _logging_rs_source()
     # Slice the init_file_logger function body.
     m = re.search(r"fn init_file_logger\([^)]*\)[^{]*\{", src)
-    assert m is not None, (
-        "PI-7 regression: could not locate `fn init_file_logger` in "
-        f"{LOGGING_RS}."
-    )
+    assert m is not None, f"PI-7 regression: could not locate `fn init_file_logger` in {LOGGING_RS}."
     init_body_start = m.end()
     depth = 1
     i = init_body_start
@@ -213,9 +199,7 @@ def test_pi7_unix_cfg_gates_present() -> None:
     # Count the actual POSIX-only call sites: `.mode(0o600)`,
     # `Permissions::from_mode(0o600)`, `Permissions::from_mode(0o700)`.
     mode_calls = len(re.findall(r"\.mode\(0o[67]00\)", src))
-    perm_calls = len(
-        re.findall(r"Permissions::from_mode\(0o[67]00\)", src)
-    )
+    perm_calls = len(re.findall(r"Permissions::from_mode\(0o[67]00\)", src))
     total_calls = mode_calls + perm_calls
     # Each call site must be gated by a `#[cfg(unix)]`. The `from_mode`
     # calls inside the tests module (which have their own
@@ -330,7 +314,10 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
         )
 
     # The test passed — log file mode is 0o600 on this POSIX host.
-    assert b"test result: ok" in result.stdout or b"test_rotating_file_writer_log_file_mode_is_0o600_on_posix" in result.stdout, (
+    assert (
+        b"test result: ok" in result.stdout
+        or b"test_rotating_file_writer_log_file_mode_is_0o600_on_posix" in result.stdout
+    ), (
         "PI-7: cargo test returned 0 but the expected test name was "
         "not found in stdout. The test may have been renamed or "
         "removed — update this Python test's test-name filter.\n"

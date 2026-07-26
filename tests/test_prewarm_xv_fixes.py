@@ -60,8 +60,7 @@ class TestXV14WarmFileLogLevel:
         assert warm_msgs, "expected a per-file warm log message"
         # …and it must be at DEBUG level (NOT INFO).
         assert all(r.levelno == logging.DEBUG for r in warm_msgs), (
-            "XV-14: per-file warm log must be DEBUG, got levels "
-            f"{[r.levelname for r in warm_msgs]}"
+            f"XV-14: per-file warm log must be DEBUG, got levels {[r.levelname for r in warm_msgs]}"
         )
 
     def test_warm_file_no_info_log(self, tmp_path, caplog):
@@ -71,9 +70,7 @@ class TestXV14WarmFileLogLevel:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.prewarm"):
             prewarm._warm_file(f)
         info_warm_msgs = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and "warmed" in r.message and "MB/s" in r.message
+            r for r in caplog.records if r.levelno == logging.INFO and "warmed" in r.message and "MB/s" in r.message
         ]
         assert not info_warm_msgs, (
             "XV-14: per-file warm log must NOT appear at INFO level "
@@ -99,13 +96,8 @@ class TestXV14WarmFileLogLevel:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.prewarm"):
             prewarm._warm_package_files("fakepkg")
 
-        summary_msgs = [
-            r for r in caplog.records if "file-warmed" in r.message and "fakepkg" in r.message
-        ]
-        assert summary_msgs, (
-            "XV-14: per-package summary must still be at INFO — "
-            "only the per-file log was demoted."
-        )
+        summary_msgs = [r for r in caplog.records if "file-warmed" in r.message and "fakepkg" in r.message]
+        assert summary_msgs, "XV-14: per-package summary must still be at INFO — only the per-file log was demoted."
         assert all(r.levelno == logging.INFO for r in summary_msgs)
 
 
@@ -132,9 +124,7 @@ class TestXV16SuffixFilter:
         prewarm._warm_package_files("fakepkg")
 
         warmed_suffixes = {p.suffix for p in reads}
-        assert warmed_suffixes == set(suffixes), (
-            f"XV-16: expected all six suffixes warmed, got {warmed_suffixes}"
-        )
+        assert warmed_suffixes == set(suffixes), f"XV-16: expected all six suffixes warmed, got {warmed_suffixes}"
 
     def test_non_whitelisted_suffixes_are_skipped(self, monkeypatch, tmp_path):
         """Files with suffixes NOT in the whitelist are skipped."""
@@ -154,9 +144,7 @@ class TestXV16SuffixFilter:
 
         prewarm._warm_package_files("fakepkg")
 
-        assert reads == [tmp_path / "keep.pyc"], (
-            "XV-16: only .pyc should be warmed; got " + str(reads)
-        )
+        assert reads == [tmp_path / "keep.pyc"], "XV-16: only .pyc should be warmed; got " + str(reads)
 
     def test_warm_file_does_not_del_chunk(self):
         """XV-16: the ``del chunk`` line was removed from ``_warm_file``.
@@ -235,8 +223,7 @@ class TestXV18CacheProbeMemoization:
         # Second call within TTL → returns cached, does NOT call _cache_ratio.
         r2 = process_tracker._probe_cache_status(active_dirs)
         assert call_count["n"] == 1, (
-            "XV-18: second call within TTL must NOT re-invoke _cache_ratio "
-            f"(got {call_count['n']} calls)"
+            f"XV-18: second call within TTL must NOT re-invoke _cache_ratio (got {call_count['n']} calls)"
         )
         assert r1 == r2, "cached value must match the freshly-computed value"
 
@@ -259,8 +246,7 @@ class TestXV18CacheProbeMemoization:
 
         process_tracker._probe_cache_status(active_dirs)
         assert call_count["n"] == 2, (
-            "XV-18: after _invalidate_cache_probe_cache, the next call "
-            "must recompute (re-invoke _cache_ratio)."
+            "XV-18: after _invalidate_cache_probe_cache, the next call must recompute (re-invoke _cache_ratio)."
         )
 
     def test_empty_dirs_returns_zero_without_caching(self):
@@ -269,9 +255,7 @@ class TestXV18CacheProbeMemoization:
         result = process_tracker._probe_cache_status([])
         assert result == (0.0, 0, 0)
         # Cache must remain empty (nothing to cache for empty list).
-        assert process_tracker._cache_probe_cache == {}, (
-            "XV-18: empty active_dirs must not pollute the cache"
-        )
+        assert process_tracker._cache_probe_cache == {}, "XV-18: empty active_dirs must not pollute the cache"
 
     def test_fingerprint_changes_on_mtime_change(self, monkeypatch, tmp_path):
         """When a directory's mtime changes, the cache misses and recomputes."""
@@ -336,8 +320,7 @@ class TestXV18CacheProbeMemoization:
         # Second status call within TTL → cached probe (no _cache_ratio call).
         s2 = prewarm.get_prewarm_status()
         assert call_count["n"] == 1, (
-            "XV-18: get_prewarm_status second call must use cached probe "
-            f"(got {call_count['n']} _cache_ratio calls)"
+            f"XV-18: get_prewarm_status second call must use cached probe (got {call_count['n']} _cache_ratio calls)"
         )
         assert s2["cache_ratio"] == s1["cache_ratio"]
         assert s2["cached_bytes"] == s1["cached_bytes"]
@@ -354,12 +337,10 @@ class TestXV19LruCache:
         """``_resolve_hf_cache_dir`` must be wrapped with ``@lru_cache``."""
         func = prewarm._resolve_hf_cache_dir
         assert hasattr(func, "cache_clear"), (
-            "XV-19: _resolve_hf_cache_dir must be wrapped with @lru_cache "
-            "(missing cache_clear attribute)"
+            "XV-19: _resolve_hf_cache_dir must be wrapped with @lru_cache (missing cache_clear attribute)"
         )
         assert hasattr(func, "cache_info"), (
-            "XV-19: _resolve_hf_cache_dir must be wrapped with @lru_cache "
-            "(missing cache_info attribute)"
+            "XV-19: _resolve_hf_cache_dir must be wrapped with @lru_cache (missing cache_info attribute)"
         )
 
     def test_resolve_hf_cache_dir_cached_across_calls(self, monkeypatch, tmp_path):
@@ -385,10 +366,7 @@ class TestXV19LruCache:
 
         # Second call → cached, _config_dir NOT invoked.
         r2 = prewarm._resolve_hf_cache_dir()
-        assert call_count["n"] == 1, (
-            "XV-19: second call must NOT re-invoke _config_dir "
-            f"(got {call_count['n']} calls)"
-        )
+        assert call_count["n"] == 1, f"XV-19: second call must NOT re-invoke _config_dir (got {call_count['n']} calls)"
         assert r1 == r2
 
     def test_cached_active_config_exists(self):
@@ -397,13 +375,9 @@ class TestXV19LruCache:
             "XV-19: _cached_active_config helper must exist in cache_probe"
         )
         func = _cache_probe_mod._cached_active_config
-        assert hasattr(func, "cache_clear"), (
-            "XV-19: _cached_active_config must be wrapped with @lru_cache"
-        )
+        assert hasattr(func, "cache_clear"), "XV-19: _cached_active_config must be wrapped with @lru_cache"
 
-    def test_cached_active_config_shared_between_warm_imports_and_active_dirs(
-        self, monkeypatch, tmp_path
-    ):
+    def test_cached_active_config_shared_between_warm_imports_and_active_dirs(self, monkeypatch, tmp_path):
         """``_warm_imports`` and ``_active_model_cache_dirs`` share the same
         cached Config.load() result (Config.load runs at most once)."""
         # Build a fake HF cache.
@@ -430,9 +404,7 @@ class TestXV19LruCache:
 
         # Call _warm_imports (invokes _cached_active_config → Config.load).
         prewarm._warm_imports()
-        assert call_count["n"] == 1, (
-            f"_warm_imports should trigger one Config.load, got {call_count['n']}"
-        )
+        assert call_count["n"] == 1, f"_warm_imports should trigger one Config.load, got {call_count['n']}"
 
         # Call _active_model_cache_dirs (reuses cached Config, no new load).
         dirs = prewarm._active_model_cache_dirs()
@@ -464,6 +436,4 @@ class TestXV19LruCache:
         prewarm._resolve_hf_cache_dir.cache_clear()
 
         prewarm._resolve_hf_cache_dir()
-        assert call_count["n"] == 2, (
-            "XV-19: after cache_clear(), the next call must re-invoke _config_dir"
-        )
+        assert call_count["n"] == 2, "XV-19: after cache_clear(), the next call must re-invoke _config_dir"

@@ -98,6 +98,7 @@ class TestER96PruneInPlace:
         assembler._prune_old_entries(15.0)
         assert assembler._seen_timestamps_max_end == 20.5
 
+
 class TestER67IncrementalCommittedTextCache:
     """ER-67: ``committed_text`` cache reads should be incremental."""
 

@@ -62,9 +62,7 @@ def _load_script_module(script_path: Path, module_name: str) -> ModuleType:
     package marker.
     """
     spec = importlib.util.spec_from_file_location(module_name, script_path)
-    assert spec is not None and spec.loader is not None, (
-        f"could not build import spec for {script_path}"
-    )
+    assert spec is not None and spec.loader is not None, f"could not build import spec for {script_path}"
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[union-attr]
     return module
@@ -89,12 +87,9 @@ def test_diagnose_f2_deprecated_contract(capsys: pytest.CaptureFixture[str]) -> 
     assert exit_code == 2, f"expected exit code 2, got {exit_code}"
     captured = capsys.readouterr()
     assert "DEPRECATED" in captured.err, (
-        "diagnose_f2.run() must print a DEPRECATED notice on stderr; "
-        f"got stderr={captured.err!r}"
+        f"diagnose_f2.run() must print a DEPRECATED notice on stderr; got stderr={captured.err!r}"
     )
-    assert "test_e2e_smoke" in captured.err, (
-        "diagnose_f2.run() must point users at the modern replacement tests"
-    )
+    assert "test_e2e_smoke" in captured.err, "diagnose_f2.run() must point users at the modern replacement tests"
 
 
 @pytest.mark.slow
@@ -108,12 +103,9 @@ def test_cublas_fallback_deprecated_contract(capsys: pytest.CaptureFixture[str])
     assert exit_code == 2, f"expected exit code 2, got {exit_code}"
     captured = capsys.readouterr()
     assert "DEPRECATED" in captured.err, (
-        "cublas_fallback.run() must print a DEPRECATED notice on stderr; "
-        f"got stderr={captured.err!r}"
+        f"cublas_fallback.run() must print a DEPRECATED notice on stderr; got stderr={captured.err!r}"
     )
-    assert "TestFallbackChain" in captured.err, (
-        "cublas_fallback.run() must point users at TestFallbackChain"
-    )
+    assert "TestFallbackChain" in captured.err, "cublas_fallback.run() must point users at TestFallbackChain"
 
 
 # ─── runtime_proof.py end-to-end smoke ─────────────────────────────────
@@ -176,9 +168,7 @@ def test_runtime_proof_smoke() -> None:
 
     # Exit code 2 = crash; anything else is acceptable for this smoke test.
     assert result.returncode != 2, (
-        f"runtime_proof.py crashed (exit 2):\n"
-        f"--- stdout ---\n{result.stdout}\n"
-        f"--- stderr ---\n{result.stderr}"
+        f"runtime_proof.py crashed (exit 2):\n--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
     )
     # The script should always log its outcome line.
     combined = result.stdout + result.stderr
@@ -212,8 +202,7 @@ def test_runtime_test_runner_parses() -> None:
     # Quick sanity: the script still exposes the ``run`` alias added
     # in TASK-013 so this test module has a stable import target.
     assert "run = main" in source, (
-        "runtime_test_runner.py must expose ``run = main`` so the slow "
-        "test wrapper has a stable callable name"
+        "runtime_test_runner.py must expose ``run = main`` so the slow test wrapper has a stable callable name"
     )
 
 

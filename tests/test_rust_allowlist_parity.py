@@ -46,9 +46,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
-ALLOWED_COMMANDS_TS = (
-    REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
-)
+ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 
 
 def _rust_allowed_commands() -> set[str]:
@@ -77,7 +75,7 @@ def _rust_allowed_commands() -> set[str]:
         "Did the constructor shape change? Update this parser (and the "
         "primary parser in test_security_doc_command_count.py) to match."
     )
-    body = src[m_start.end():]
+    body = src[m_start.end() :]
     m_end = re.search(r"\];", body)
     assert m_end is not None, (
         "src-tauri/src/commands/sidecar_cmds.rs: could not find the "

@@ -849,8 +849,7 @@ class TestYJ50CancelTestRecordingLock:
 
         # The timer must have been cancelled AND the global cleared.
         assert fake_timer.cancel.called, (
-            "cancel_test_recording did not call timer.cancel() — the "
-            "auto-stop timer would leak (YJ-50 regression)."
+            "cancel_test_recording did not call timer.cancel() — the auto-stop timer would leak (YJ-50 regression)."
         )
         assert lm._test_auto_stop_timer is None, (
             f"cancel_test_recording did not clear _test_auto_stop_timer "
@@ -954,10 +953,7 @@ class TestYJ50CancelTestRecordingLock:
 
         # Release the lock — cancel_test_recording should now proceed.
         release_lock.set()
-        assert cancel_done.wait(timeout=2.0), (
-            "cancel_test_recording did not return after lock release — "
-            "deadlock?"
-        )
+        assert cancel_done.wait(timeout=2.0), "cancel_test_recording did not return after lock release — deadlock?"
 
         # After lock release, the timer MUST have been cancelled exactly
         # once (cancel_test_recording's wrap) and the global cleared.
@@ -965,8 +961,7 @@ class TestYJ50CancelTestRecordingLock:
         # global is None so the inner ``is not None`` guard short-circuits
         # and cancel() is NOT called a second time.
         assert len(cancel_timestamps) == 1, (
-            f"expected timer.cancel() to be called exactly once after "
-            f"lock release; got {len(cancel_timestamps)} calls."
+            f"expected timer.cancel() to be called exactly once after lock release; got {len(cancel_timestamps)} calls."
         )
         assert lm._test_auto_stop_timer is None
 

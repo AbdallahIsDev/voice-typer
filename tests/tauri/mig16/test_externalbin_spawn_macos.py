@@ -592,8 +592,7 @@ def test_supervisor_backoff_constants(util_rs_source) -> None:
     steps = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
     # First step must be 500 ms (ADR-0020 §10 + runbook §6.1).
     assert steps[0] == 500, (
-        f"SUPERVISOR_BACKOFF_MS[0] must be 500 (got {steps[0]}); "
-        "ADR-0020 §10 schedule starts at 500 ms"
+        f"SUPERVISOR_BACKOFF_MS[0] must be 500 (got {steps[0]}); ADR-0020 §10 schedule starts at 500 ms"
     )
     # The schedule must include an 8000 ms (8s) step (task's "8s" cap).
     assert 8000 in steps, (

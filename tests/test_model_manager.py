@@ -112,9 +112,9 @@ class TestAC5AvailableBackendsPropertyNoParens:
         # attempted backends + primary). Pre-fix, the TypeError raised
         # by ``available_backends()`` masked this warning.
         diagnostic_warnings = [
-            r for r in caplog.records
-            if r.levelno == logging.WARNING
-            and "All backends failed to load" in r.getMessage()
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "All backends failed to load" in r.getMessage()
         ]
         assert diagnostic_warnings, (
             "AC-5: when all backends fail to load, load_background must "
@@ -131,8 +131,7 @@ class TestAC5AvailableBackendsPropertyNoParens:
         )
         # The primary backend name must also be present.
         assert "primary=whisper" in warning_msg, (
-            f"AC-5: the diagnostic log.warning must include the primary "
-            f"backend name. Got: {warning_msg!r}"
+            f"AC-5: the diagnostic log.warning must include the primary backend name. Got: {warning_msg!r}"
         )
 
     def test_all_backends_fail_does_not_raise_typeerror(self, caplog):
@@ -147,10 +146,7 @@ class TestAC5AvailableBackendsPropertyNoParens:
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.model_manager"):
             mm.load_background()
 
-        crashed_logs = [
-            r for r in caplog.records
-            if "Background model load crashed" in r.getMessage()
-        ]
+        crashed_logs = [r for r in caplog.records if "Background model load crashed" in r.getMessage()]
         assert not crashed_logs, (
             "AC-5: load_background's outer ``except Exception`` caught "
             "an exception (logged as 'Background model load crashed'). "

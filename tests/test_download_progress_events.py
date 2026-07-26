@@ -7,6 +7,7 @@ Verifies that:
 - Tray notifications fire on completion and on failure.
 - The progress value is clamped to [0, 100].
 """
+
 import os
 from unittest.mock import MagicMock
 
@@ -28,6 +29,7 @@ def captured_events(monkeypatch):
     """Capture all events pushed via event_bus.publish."""
     events = []
     import voice_typer.server.event_bus as event_bus_mod
+
     monkeypatch.setattr(event_bus_mod, "publish", lambda msg: events.append(msg) or True)
     return events
 
@@ -85,12 +87,17 @@ class TestWhisperDownloadWithProgressEvents:
     """Whisper download path — mocks snapshot_download + TranscriptionEngine."""
 
     def test_whisper_already_cached_skips_download(
-        self, service, captured_events, monkeypatch,
+        self,
+        service,
+        captured_events,
+        monkeypatch,
     ):
         """When snapshot_download(local_files_only=True) succeeds, push 100 and verify."""
+
         # Mock huggingface_hub.snapshot_download to succeed on local_files_only
         def fake_snapshot(*args, **kwargs):
             return "/fake/path"
+
         monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot)
 
         # Mock TranscriptionEngine to avoid actually loading weights
@@ -120,14 +127,19 @@ class TestWhisperDownloadWithProgressEvents:
         assert "tiny.en" in notify_args[0][1]
 
     def test_whisper_download_failure_pushes_error_progress_and_notifies(
-        self, service, captured_events, monkeypatch,
+        self,
+        service,
+        captured_events,
+        monkeypatch,
     ):
         """When the download fails, push progress=0 with the error and notify."""
+
         # Mock snapshot_download to fail
         def fake_snapshot(*args, **kwargs):
             if kwargs.get("local_files_only"):
                 raise RuntimeError("not cached")
             raise RuntimeError("network error")
+
         monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot)
 
         result = service.download_model("small.en")

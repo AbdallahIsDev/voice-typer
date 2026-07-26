@@ -481,14 +481,20 @@ def test_supervisor_backoff_constants(util_rs_source) -> None:
     "500ms → 2s" range; the full schedule goes to 8s for resilience.
     """
     # SUPERVISOR_BACKOFF_MS constant must be defined as a slice of u64.
-    backoff_re = re.compile(r"(?:pub\s*\(\s*crate\s*\)\s*)?const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[([^\]]+)\]")
+    backoff_re = re.compile(
+        r"(?:pub\s*\(\s*crate\s*\)\s*)?const\s+SUPERVISOR_BACKOFF_MS\s*:\s*&\[u64\]\s*=\s*&\[([^\]]+)\]"
+    )
     m = backoff_re.search(util_rs_source)
     assert m, "util.rs must define `const SUPERVISOR_BACKOFF_MS: &[u64] = &[...]`"
     steps = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
     # First step must be 500 ms (ADR-0020 §10 + runbook §6.1).
-    assert steps[0] == 500, f"SUPERVISOR_BACKOFF_MS[0] must be 500 (got {steps[0]}); ADR-0020 §10 schedule starts at 500 ms"
+    assert steps[0] == 500, (
+        f"SUPERVISOR_BACKOFF_MS[0] must be 500 (got {steps[0]}); ADR-0020 §10 schedule starts at 500 ms"
+    )
     # The schedule must include a 2000 ms step (the task's "2s" cap).
-    assert 2000 in steps, f"SUPERVISOR_BACKOFF_MS must include a 2000 ms step (got {steps}); task specifies '500ms→2s' range"
+    assert 2000 in steps, (
+        f"SUPERVISOR_BACKOFF_MS must include a 2000 ms step (got {steps}); task specifies '500ms→2s' range"
+    )
     # Doubling property — each step is 2x the previous.
     for i in range(1, len(steps)):
         assert steps[i] == steps[i - 1] * 2, (
@@ -521,7 +527,7 @@ def test_supervisor_backoff_schedule_length_matches_cap(util_rs_source) -> None:
     steps = [int(x.strip()) for x in m_back.group(1).split(",") if x.strip()]
     cap = int(m_cap.group(1))
     assert len(steps) == cap, (
-        f"SUPERVISOR_BACKOFF_MS.len() ({len(steps)}) must equal SUPERVISOR_MAX_RETRIES ({cap}) so the loop iterates exactly N times"
+        f"SUPERVISOR_BACKOFF_MS.len() ({len(steps)}) must equal SUPERVISOR_MAX_RETRIES ({cap}) so the loop iterates exactly N times"  # noqa: E501
     )
 
 
@@ -533,7 +539,9 @@ def test_supervisor_respawn_calls_spawn_sidecar(supervisor_rs_source) -> None:
     iteration. The two modules together implement the crash-supervisor
     contract (spawn → on crash → backoff → respawn).
     """
-    assert "pub(crate) async fn respawn" in supervisor_rs_source, "supervisor.rs must define `respawn` (the supervisor entry point)"
+    assert "pub(crate) async fn respawn" in supervisor_rs_source, (
+        "supervisor.rs must define `respawn` (the supervisor entry point)"
+    )
     assert "spawn_sidecar_and_get_port" in supervisor_rs_source, (
         "supervisor.rs must call `spawn_sidecar_and_get_port` to respawn (the supervisor delegates spawn to spawn.rs)"
     )
@@ -544,7 +552,7 @@ def test_supervisor_respawn_calls_spawn_sidecar(supervisor_rs_source) -> None:
     )
     # And a reconnected event on success.
     assert "supervisor_reconnected" in supervisor_rs_source, (
-        "supervisor.rs must emit 'supervisor_reconnected' on successful respawn (so the UI can clear the 'reconnecting…' banner)"
+        "supervisor.rs must emit 'supervisor_reconnected' on successful respawn (so the UI can clear the 'reconnecting…' banner)"  # noqa: E501
     )
 
 
@@ -557,7 +565,7 @@ def test_supervisor_respawn_serializes_with_atomic_flag(supervisor_rs_source) ->
     a compare_exchange.
     """
     assert "respawn_in_progress" in supervisor_rs_source, (
-        "supervisor.rs must use a `respawn_in_progress` atomic flag to serialize concurrent respawn attempts (ADR-0020 §10)"
+        "supervisor.rs must use a `respawn_in_progress` atomic flag to serialize concurrent respawn attempts (ADR-0020 §10)"  # noqa: E501
     )
     assert "compare_exchange" in supervisor_rs_source, (
         "supervisor.rs must use compare_exchange on the respawn_in_progress flag to atomically claim the respawn slot"

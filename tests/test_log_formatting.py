@@ -189,6 +189,7 @@ def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monke
     :class:`_FlushingStreamHandler` to the ``voice_typer`` logger so
     early startup failures remain visible when the rotating-file write
     silently fails (disk full / read-only config dir / bad perms)."""
+
     # Stub isatty() so the code path under test is exercised — pytest
     # captures stderr via a non-TTY wrapper, but to make this test
     # resilient against a future pytest that does provide a TTY we
@@ -237,9 +238,7 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
 # ─── GT-65: warn on skipped per-module entries ────────────────────────────
 
 
-def test_apply_per_module_log_levels_warns_on_unknown_level(
-    tmp_path: Path, monkeypatch, caplog
-) -> None:
+def test_apply_per_module_log_levels_warns_on_unknown_level(tmp_path: Path, monkeypatch, caplog) -> None:
     """GT-65: an invalid level name logs a WARNING so the operator can
     see *which* entry was skipped (previously a silent trap — a typo
     silently disabled DEBUG output)."""
@@ -254,9 +253,7 @@ def test_apply_per_module_log_levels_warns_on_unknown_level(
         setup_logging(config_dir)
     try:
         skipped = [r for r in caplog.records if "skipping invalid" in r.getMessage()]
-        assert skipped, (
-            "GT-65 regression: no WARNING emitted for the invalid VOICE_TYPER_LOG_LEVEL_MODULES entry"
-        )
+        assert skipped, "GT-65 regression: no WARNING emitted for the invalid VOICE_TYPER_LOG_LEVEL_MODULES entry"
         # The skipped entry's raw text is included so the operator can
         # see which entry was ignored.
         assert any("BOGUS" in r.getMessage() for r in skipped)
@@ -266,9 +263,7 @@ def test_apply_per_module_log_levels_warns_on_unknown_level(
         reset()
 
 
-def test_apply_per_module_log_levels_warns_on_missing_equals(
-    tmp_path: Path, monkeypatch, caplog
-) -> None:
+def test_apply_per_module_log_levels_warns_on_missing_equals(tmp_path: Path, monkeypatch, caplog) -> None:
     """GT-65: an entry missing the ``=`` separator logs a WARNING."""
     monkeypatch.setenv(
         "VOICE_TYPER_LOG_LEVEL_MODULES",
@@ -281,9 +276,7 @@ def test_apply_per_module_log_levels_warns_on_missing_equals(
         setup_logging(config_dir)
     try:
         skipped = [r for r in caplog.records if "missing '='" in r.getMessage()]
-        assert skipped, (
-            "GT-65 regression: no WARNING emitted for entry missing '='"
-        )
+        assert skipped, "GT-65 regression: no WARNING emitted for entry missing '='"
         assert logging.getLogger("voice_typer.server.ok").level == logging.DEBUG
     finally:
         reset()
@@ -310,9 +303,7 @@ def test_file_formatter_iso_timestamp_with_millis_and_tz() -> None:
     )
     record.session_id = "deadbeef"
     line = _FileFormatter().format(record)
-    assert _ISO_RE_TEXT.search(line), (
-        f"GT-61 regression: text timestamp not ISO 8601 with millis+tz:\n{line!r}"
-    )
+    assert _ISO_RE_TEXT.search(line), f"GT-61 regression: text timestamp not ISO 8601 with millis+tz:\n{line!r}"
 
 
 def test_color_formatter_iso_timestamp_with_millis_and_tz() -> None:
@@ -481,9 +472,7 @@ def test_set_module_level_emits_info_audit_log(tmp_path: Path, caplog) -> None:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.log"):
             set_module_level("voice_typer.server.gt64_audit", "DEBUG")
         audit = [r for r in caplog.records if "runtime override" in r.getMessage()]
-        assert audit, (
-            "GT-64 regression: set_module_level did not emit an INFO audit log"
-        )
+        assert audit, "GT-64 regression: set_module_level did not emit an INFO audit log"
         assert "gt64_audit" in audit[0].getMessage()
         assert "DEBUG" in audit[0].getMessage()
     finally:

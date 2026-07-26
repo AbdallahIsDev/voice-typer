@@ -450,8 +450,7 @@ def test_xv_78_setattr_does_not_store_on_proxy_instance(fake_module):
 
     # 2. The only slots are the two internal-only fields.
     assert set(_LazyModule.__slots__) == {"_module_name", "_cached_error"}, (
-        f"_LazyModule.__slots__ must be exactly ('_module_name', '_cached_error'); "
-        f"got {_LazyModule.__slots__}"
+        f"_LazyModule.__slots__ must be exactly ('_module_name', '_cached_error'); got {_LazyModule.__slots__}"
     )
 
     # 3. After a setattr, both slot values are unchanged — the value
@@ -619,9 +618,7 @@ class TestResetCache:
             _ = proxy.baz
         assert call_count["n"] == 2
 
-    def test_reset_cache_recovers_when_module_becomes_available(
-        self, monkeypatch
-    ):
+    def test_reset_cache_recovers_when_module_becomes_available(self, monkeypatch):
         """If the underlying module becomes available after a failed
         import (e.g. a deferred installer finished, or a test injected
         a mock into ``sys.modules``), ``reset_cache()`` lets the next

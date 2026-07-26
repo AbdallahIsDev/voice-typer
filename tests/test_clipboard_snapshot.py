@@ -166,9 +166,11 @@ class TestCaptureWindowsFailures:
         windll.user32 = user32
         windll.kernel32 = kernel32
 
-        with patch("ctypes.windll", windll, create=True), patch(
-            "ctypes.create_unicode_buffer"
-        ), patch.object(snap_mod, "log") as mock_log:
+        with (
+            patch("ctypes.windll", windll, create=True),
+            patch("ctypes.create_unicode_buffer"),
+            patch.object(snap_mod, "log") as mock_log,
+        ):
             result = ClipboardSnapshot._capture_windows()
 
         # No items captured → None (empty clipboard contract).
@@ -202,9 +204,11 @@ class TestCaptureWindowsFailures:
         windll.kernel32 = kernel32
 
         payload = b"hello world" * 100  # arbitrary bytes under cap
-        with patch("ctypes.windll", windll, create=True), patch(
-            "ctypes.create_unicode_buffer"
-        ), patch("ctypes.string_at", return_value=payload):
+        with (
+            patch("ctypes.windll", windll, create=True),
+            patch("ctypes.create_unicode_buffer"),
+            patch("ctypes.string_at", return_value=payload),
+        ):
             result = ClipboardSnapshot._capture_windows()
 
         # Captured exactly one item (CF_UNICODETEXT under the cap).

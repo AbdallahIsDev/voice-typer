@@ -25,6 +25,7 @@ def _import_ime_check():
     """
     try:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
+
         return WindowsNativeHotkey
     except ImportError:
         return None
@@ -59,8 +60,10 @@ class TestIMEFalseFire:
         fake_windll.user32 = user32
         fake_windll.imm32 = imm32
 
-        with patch("voice_typer.server.hotkeys.is_windows", return_value=True), \
-             patch("ctypes.windll", fake_windll, create=True):
+        with (
+            patch("voice_typer.server.hotkeys.is_windows", return_value=True),
+            patch("ctypes.windll", fake_windll, create=True),
+        ):
             assert cls._is_ime_composing() is True
 
     def test_is_ime_composing_false_when_ime_closed(self):
@@ -79,8 +82,10 @@ class TestIMEFalseFire:
         fake_windll.user32 = user32
         fake_windll.imm32 = imm32
 
-        with patch("voice_typer.server.hotkeys.is_windows", return_value=True), \
-             patch("ctypes.windll", fake_windll, create=True):
+        with (
+            patch("voice_typer.server.hotkeys.is_windows", return_value=True),
+            patch("ctypes.windll", fake_windll, create=True),
+        ):
             assert cls._is_ime_composing() is False
 
     def test_is_ime_composing_false_when_no_composition_string(self):
@@ -100,8 +105,10 @@ class TestIMEFalseFire:
         fake_windll.user32 = user32
         fake_windll.imm32 = imm32
 
-        with patch("voice_typer.server.hotkeys.is_windows", return_value=True), \
-             patch("ctypes.windll", fake_windll, create=True):
+        with (
+            patch("voice_typer.server.hotkeys.is_windows", return_value=True),
+            patch("ctypes.windll", fake_windll, create=True),
+        ):
             assert cls._is_ime_composing() is False
 
 

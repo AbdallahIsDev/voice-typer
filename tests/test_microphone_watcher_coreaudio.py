@@ -64,10 +64,13 @@ def test_import_error_when_not_macos() -> None:
         _try_import_coreaudio,
     )
 
-    with patch(
-        "voice_typer.server.microphone_watcher_coreaudio._IS_MACOS",
-        False,
-    ), pytest.raises(ImportError, match="only available on macOS"):
+    with (
+        patch(
+            "voice_typer.server.microphone_watcher_coreaudio._IS_MACOS",
+            False,
+        ),
+        pytest.raises(ImportError, match="only available on macOS"),
+    ):
         _try_import_coreaudio()
 
 
@@ -87,12 +90,14 @@ def test_import_error_when_pyobjc_missing() -> None:
         _try_import_coreaudio,
     )
 
-    with patch(
-        "voice_typer.server.microphone_watcher_coreaudio._IS_MACOS",
-        True,
-    ), patch.dict(
-        sys.modules, {"CoreAudio": None, "CoreFoundation": None}
-    ), pytest.raises(ImportError, match="pyobjc-framework-CoreAudio"):
+    with (
+        patch(
+            "voice_typer.server.microphone_watcher_coreaudio._IS_MACOS",
+            True,
+        ),
+        patch.dict(sys.modules, {"CoreAudio": None, "CoreFoundation": None}),
+        pytest.raises(ImportError, match="pyobjc-framework-CoreAudio"),
+    ):
         _try_import_coreaudio()
 
 
@@ -139,9 +144,7 @@ def test_microphone_watcher_falls_back_to_polling_without_pyobjc() -> None:
     watcher._platform = "macos"
 
     # Stub _try_create_coreaudio_watcher to simulate "pyobjc missing".
-    with patch.object(
-        watcher, "_try_create_coreaudio_watcher", return_value=None
-    ):
+    with patch.object(watcher, "_try_create_coreaudio_watcher", return_value=None):
         # Stub _run_macos so it fires the callback once and returns —
         # this proves the polling fallback path was taken (rather than
         # start() returning early after a CoreAudio success).
@@ -150,9 +153,7 @@ def test_microphone_watcher_falls_back_to_polling_without_pyobjc() -> None:
             # Stop immediately so the test doesn't hang.
             self_arg._stop_event.set()
 
-        with patch.object(
-            MicrophoneDeviceWatcher, "_run_macos", fake_run_macos
-        ):
+        with patch.object(MicrophoneDeviceWatcher, "_run_macos", fake_run_macos):
             watcher.start()
             assert fired.wait(timeout=2.0), "polling fallback did not fire"
             watcher.stop()
@@ -165,9 +166,7 @@ def test_microphone_watcher_falls_back_to_polling_without_pyobjc() -> None:
 # ── macOS-only tests (skipped on Linux/Windows) ─────────────────────
 
 
-@pytest.mark.skipif(
-    sys.platform != "darwin", reason="macOS only — CoreAudio watcher is darwin-only"
-)
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS only — CoreAudio watcher is darwin-only")
 def test_instantiation_on_macos_with_pyobjc() -> None:
     """On macOS with pyobjc installed, the watcher instantiates cleanly.
 

@@ -106,9 +106,7 @@ class TestXZ1404CrossFieldHotkeyConflicts:
     def test_empty_strings_do_not_conflict(self) -> None:
         # Empty strings are treated as "not set" — two unset hotkeys
         # don't conflict.
-        errors = _check_cross_field_hotkey_conflicts(
-            {"hotkey": "", "repaste_hotkey": "", "push_to_talk_hotkey": ""}
-        )
+        errors = _check_cross_field_hotkey_conflicts({"hotkey": "", "repaste_hotkey": "", "push_to_talk_hotkey": ""})
         assert errors == []
 
     def test_case_insensitive_matching(self) -> None:
@@ -152,12 +150,8 @@ class TestXZ1404CrossFieldViaValidateConfigUpdate:
     """Integration: the cross-field check runs in ``validate_config_update``."""
 
     def test_conflict_between_hotkey_and_repaste_via_ipc(self) -> None:
-        validated, errors = validate_config_update(
-            {"hotkey": "<f5>", "repaste_hotkey": "<f5>"}
-        )
-        assert any("Hotkey conflict" in e for e in errors), (
-            f"expected a cross-field conflict error, got: {errors}"
-        )
+        validated, errors = validate_config_update({"hotkey": "<f5>", "repaste_hotkey": "<f5>"})
+        assert any("Hotkey conflict" in e for e in errors), f"expected a cross-field conflict error, got: {errors}"
         # Both fields passed their per-field validator (so they're in
         # ``validated``), but the cross-field check still added an error.
         # The dispatcher treats the payload atomically — it sees the
@@ -182,9 +176,7 @@ class TestXZ1404CrossFieldViaValidateConfigUpdate:
         # test_validate_config_update_silently_drops_push_to_talk_hotkey
         # in test_reserved_hotkeys.py — adding the cross-field check
         # must not regress it.)
-        validated, errors = validate_config_update(
-            {"push_to_talk_hotkey": "<cmd>+<q>"}
-        )
+        validated, errors = validate_config_update({"push_to_talk_hotkey": "<cmd>+<q>"})
         assert errors == []
         assert "push_to_talk_hotkey" not in validated
 
@@ -196,16 +188,12 @@ class TestXZ1404CrossFieldViaValidateConfigUpdate:
         # cross-field check should NOT see it and should NOT produce
         # a cross-field error (the per-field error is enough).
         # Use a hotkey that's reserved on the current (linux) platform.
-        validated, errors = validate_config_update(
-            {"hotkey": "<alt>+<tab>", "repaste_hotkey": "<alt>+<tab>"}
-        )
+        validated, errors = validate_config_update({"hotkey": "<alt>+<tab>", "repaste_hotkey": "<alt>+<tab>"})
         # Both should be rejected as reserved — the cross-field check
         # should add NO additional errors (since neither is in validated).
         per_field_errors = [e for e in errors if "Hotkey conflict" not in e]
         cross_field_errors = [e for e in errors if "Hotkey conflict" in e]
-        assert len(per_field_errors) >= 1, (
-            f"expected at least one per-field reserved-shortcut error, got: {errors}"
-        )
+        assert len(per_field_errors) >= 1, f"expected at least one per-field reserved-shortcut error, got: {errors}"
         assert cross_field_errors == [], (
             f"cross-field check should not run on invalid hotkeys, got: {cross_field_errors}"
         )
@@ -230,9 +218,9 @@ class TestXZ1404CrossFieldViaValidateConfig:
             push_to_talk_hotkey="<f5>",  # conflicts with hotkey
         )
         errors = validate_config(cfg)
-        assert any(
-            "'hotkey'" in e and "'push_to_talk_hotkey'" in e for e in errors
-        ), f"expected a hotkey/push_to_talk conflict, got: {errors}"
+        assert any("'hotkey'" in e and "'push_to_talk_hotkey'" in e for e in errors), (
+            f"expected a hotkey/push_to_talk conflict, got: {errors}"
+        )
 
     def test_no_conflict_in_clean_config(self) -> None:
         cfg = SimpleNamespace(
@@ -400,8 +388,24 @@ class TestXZ1408LanguageValidator:
     @pytest.mark.parametrize(
         "code",
         [
-            "en", "fr", "de", "es", "ru", "ko", "ja", "pt", "it", "ar",
-            "hi", "zh", "nl", "sv", "tr", "pl", "uk", "he",
+            "en",
+            "fr",
+            "de",
+            "es",
+            "ru",
+            "ko",
+            "ja",
+            "pt",
+            "it",
+            "ar",
+            "hi",
+            "zh",
+            "nl",
+            "sv",
+            "tr",
+            "pl",
+            "uk",
+            "he",
         ],
     )
     def test_valid_language_codes_accepted(self, code: str) -> None:
@@ -452,8 +456,7 @@ class TestXZ1408LanguageValidator:
         # Whisper's LANGUAGES dict has 99 entries; the hardcoded
         # fallback must have the same coverage.  50 is a sanity floor.
         assert len(_ALLOWED_LANGUAGES) >= 50, (
-            f"allowlist too small: {len(_ALLOWED_LANGUAGES)} codes "
-            f"(source={_ALLOWED_LANGUAGES_SOURCE})"
+            f"allowlist too small: {len(_ALLOWED_LANGUAGES)} codes (source={_ALLOWED_LANGUAGES_SOURCE})"
         )
 
     def test_allowlist_source_is_documented(self) -> None:
@@ -490,8 +493,7 @@ class TestXZ1408LanguageValidator:
         # rejected at IPC write time (not just at Whisper load time).
         validated, errors = validate_config_update({"language": "zzzzz"})
         assert errors == [
-            "field 'language' Invalid language code 'zzzzz' — "
-            "expected a 2-letter ISO 639-1 code like 'en', 'zh', 'ja'"
+            "field 'language' Invalid language code 'zzzzz' — expected a 2-letter ISO 639-1 code like 'en', 'zh', 'ja'"
         ]
         assert "language" not in validated
 
@@ -513,17 +515,13 @@ class TestXZ1409BoundsFixes:
 
     def test_max_recording_time_seconds_30_now_accepted(self) -> None:
         # Was rejected under the old lo=300; now accepted under lo=30.
-        validated, errors = validate_config_update(
-            {"max_recording_time_seconds": 30}
-        )
+        validated, errors = validate_config_update({"max_recording_time_seconds": 30})
         assert errors == []
         assert validated == {"max_recording_time_seconds": 30}
 
     def test_max_recording_time_seconds_29_still_rejected(self) -> None:
         # The new lower bound is 30, so 29 must still be rejected.
-        validated, errors = validate_config_update(
-            {"max_recording_time_seconds": 29}
-        )
+        validated, errors = validate_config_update({"max_recording_time_seconds": 29})
         assert len(errors) == 1
         assert "[30, 3600]" in errors[0]
         assert "29" in errors[0]
@@ -531,9 +529,7 @@ class TestXZ1409BoundsFixes:
 
     def test_max_recording_time_seconds_900_still_accepted(self) -> None:
         # Regression: existing tests use 900 (15 min) — must still pass.
-        validated, errors = validate_config_update(
-            {"max_recording_time_seconds": 900}
-        )
+        validated, errors = validate_config_update({"max_recording_time_seconds": 900})
         assert errors == []
         assert validated == {"max_recording_time_seconds": 900}
 
@@ -577,9 +573,7 @@ class TestXZ1409BoundsFixes:
         # The fix aligns history_max_entries lo with history_retention_count lo
         # (both should accept 0 = "disable history").  Verify both fields
         # accept 0 in the same payload.
-        validated, errors = validate_config_update(
-            {"history_max_entries": 0, "history_retention_count": 0}
-        )
+        validated, errors = validate_config_update({"history_max_entries": 0, "history_retention_count": 0})
         assert errors == []
         assert validated == {
             "history_max_entries": 0,

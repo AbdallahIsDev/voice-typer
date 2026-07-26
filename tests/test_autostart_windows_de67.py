@@ -107,7 +107,7 @@ def _enum_value_side_effect(entries: list[tuple[str, str, int]]):
         try:
             return next(iterator)
         except StopIteration:
-            raise OSError("no more values")
+            raise OSError("no more values") from None
 
     return _side_effect
 
@@ -139,9 +139,7 @@ class TestStaleEntryCleanupParsing:
     truncated at the first space (which would cause legitimate entries
     to be misidentified as stale and deleted)."""
 
-    def test_quoted_spaced_path_existing_not_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_quoted_spaced_path_existing_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """A QUOTED spaced path whose exe EXISTS must NOT be deleted.
 
         Pre-fix and post-fix behavior agrees on this case — the test
@@ -160,9 +158,7 @@ class TestStaleEntryCleanupParsing:
         # The exe file actually exists on disk (the other install is live).
         _make_path_existing(monkeypatch, {r"C:\Program Files\VoiceTyper\app.exe"})
 
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(other_name, other_value, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(other_name, other_value, fake_winreg.REG_SZ)])
 
         # The current install's own key name — different hash.
         current_name = _run_key_name()
@@ -179,9 +175,7 @@ class TestStaleEntryCleanupParsing:
         # The other install's entry must NOT have been deleted.
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_quoted_spaced_path_nonexistent_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_quoted_spaced_path_nonexistent_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """A QUOTED spaced path whose exe does NOT exist must be deleted
         (this is the legitimate stale-entry cleanup case)."""
         from voice_typer.server.server_platform import (
@@ -193,9 +187,7 @@ class TestStaleEntryCleanupParsing:
         # The exe file does NOT exist (the install was uninstalled).
         _make_path_existing(monkeypatch, set())
 
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(stale_name, stale_value, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(stale_name, stale_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
             "voice_typer.server.server_platform._autostart_command",
@@ -213,9 +205,7 @@ class TestStaleEntryCleanupParsing:
         deleted_name = call_args.args[1]
         assert deleted_name == stale_name
 
-    def test_unquoted_spaced_path_existing_not_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_unquoted_spaced_path_existing_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67 regression test: an UNQUOTED spaced path whose exe
         EXISTS must NOT be deleted.
 
@@ -237,9 +227,7 @@ class TestStaleEntryCleanupParsing:
         # The FULL exe path exists on disk.
         _make_path_existing(monkeypatch, {r"C:\Program Files\VoiceTyper\app.exe"})
 
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(live_name, live_value, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(live_name, live_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
             "voice_typer.server.server_platform._autostart_command",
@@ -252,9 +240,7 @@ class TestStaleEntryCleanupParsing:
         # CRITICAL: the legitimate entry must NOT be deleted.
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_unquoted_spaced_path_nonexistent_not_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_unquoted_spaced_path_nonexistent_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67: an UNQUOTED spaced path whose exe does NOT exist must
         NOT be deleted either — the parse is ambiguous (the actual exe
         might be a longer space-separated prefix we can't recover
@@ -297,9 +283,7 @@ class TestStaleEntryCleanupParsing:
         # are NEVER deleted, even if the first token doesn't exist.
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_unquoted_no_spaces_nonexistent_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_unquoted_no_spaces_nonexistent_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67: an UNQUOTED path with NO spaces (single token) that
         does NOT exist must be deleted (this is unambiguous — the
         parse is correct, and the file genuinely doesn't exist)."""
@@ -312,9 +296,7 @@ class TestStaleEntryCleanupParsing:
         stale_value = r"C:\nonexistent_path\app.exe"
         _make_path_existing(monkeypatch, set())
 
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(stale_name, stale_value, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(stale_name, stale_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
             "voice_typer.server.server_platform._autostart_command",
@@ -328,9 +310,7 @@ class TestStaleEntryCleanupParsing:
         call_args = fake_winreg.DeleteValue.call_args
         assert call_args.args[1] == stale_name
 
-    def test_unquoted_no_spaces_existing_not_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_unquoted_no_spaces_existing_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67: an UNQUOTED path with NO spaces (single token) that
         DOES exist must not be deleted (the parse is unambiguous and
         the file exists — the entry is live)."""
@@ -342,9 +322,7 @@ class TestStaleEntryCleanupParsing:
         live_value = r"C:\live\app.exe"
         _make_path_existing(monkeypatch, {r"C:\live\app.exe"})
 
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(live_name, live_value, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(live_name, live_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
             "voice_typer.server.server_platform._autostart_command",
@@ -356,9 +334,7 @@ class TestStaleEntryCleanupParsing:
         assert result is True
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_non_voicetyper_entries_not_touched(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_non_voicetyper_entries_not_touched(self, monkeypatch, fake_winreg, win32_platform):
         """Non-VoiceTyper entries (e.g. ``OneDrive``, ``Discord``) must
         NOT be touched by the cleanup — the loop filters on
         ``name.startswith("VoiceTyper")``.
@@ -387,9 +363,7 @@ class TestStaleEntryCleanupParsing:
         # Must NOT have deleted the OneDrive entry.
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_current_install_entry_not_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_current_install_entry_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """The current install's OWN entry must NOT be deleted by the
         cleanup loop (the ``name != reg_key_name`` guard prevents
         self-deletion)."""
@@ -405,9 +379,7 @@ class TestStaleEntryCleanupParsing:
         current_value = r"C:\nonexistent\python.exe launcher.py --hidden"
         _make_path_existing(monkeypatch, set())
 
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(current_name, current_value, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(current_name, current_value, fake_winreg.REG_SZ)])
 
         monkeypatch.setattr(
             "voice_typer.server.server_platform._autostart_command",
@@ -420,9 +392,7 @@ class TestStaleEntryCleanupParsing:
         # Must NOT have deleted the current install's own entry.
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_empty_value_not_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_empty_value_not_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67: a malformed / empty Run-key value must NOT be deleted.
 
         Pre-fix, an empty string would have caused
@@ -454,9 +424,7 @@ class TestStaleEntryCleanupParsing:
         assert result is True
         fake_winreg.DeleteValue.assert_not_called()
 
-    def test_multiple_entries_only_stale_deleted(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_multiple_entries_only_stale_deleted(self, monkeypatch, fake_winreg, win32_platform):
         """DE-67 integration: with a MIX of stale and live entries
         (both quoted and unquoted), only the genuinely stale ones are
         deleted. This is the real-world scenario: a stable install
@@ -532,25 +500,19 @@ class TestShlexParsingLogic:
         [
             # Quoted spaced path: shlex.split(posix=False) keeps the
             # quotes in the token; the production code strips them.
-            (r'"C:\Program Files\VoiceTyper\app.exe" --delay 15',
-             r'"C:\Program Files\VoiceTyper\app.exe"',
-             r"C:\Program Files\VoiceTyper\app.exe"),
+            (
+                r'"C:\Program Files\VoiceTyper\app.exe" --delay 15',
+                r'"C:\Program Files\VoiceTyper\app.exe"',
+                r"C:\Program Files\VoiceTyper\app.exe",
+            ),
             # Quoted path with no args
-            (r'"C:\app.exe"',
-             r'"C:\app.exe"',
-             r"C:\app.exe"),
+            (r'"C:\app.exe"', r'"C:\app.exe"', r"C:\app.exe"),
             # Unquoted path with no args, no spaces
-            (r"C:\app.exe",
-             r"C:\app.exe",
-             r"C:\app.exe"),
+            (r"C:\app.exe", r"C:\app.exe", r"C:\app.exe"),
             # Path with no spaces, no quotes, with args
-            (r"C:\app.exe --delay 15",
-             r"C:\app.exe",
-             r"C:\app.exe"),
+            (r"C:\app.exe --delay 15", r"C:\app.exe", r"C:\app.exe"),
             # Network-style path
-            (r"\\server\share\app.exe --delay 15",
-             r"\\server\share\app.exe",
-             r"\\server\share\app.exe"),
+            (r"\\server\share\app.exe --delay 15", r"\\server\share\app.exe", r"\\server\share\app.exe"),
             # Unquoted spaced path (DE-67 regression trigger): the
             # parse is AMBIGUOUS — shlex.split(posix=False) splits on
             # the space and returns just 'C:\\Program' as the first
@@ -560,14 +522,10 @@ class TestShlexParsingLogic:
             # path. This test pins the parse behavior so a future
             # change to a different parser doesn't silently break the
             # detection.
-            (r"C:\Program Files\VoiceTyper\app.exe --delay 15",
-             r"C:\Program",
-             r"C:\Program"),
+            (r"C:\Program Files\VoiceTyper\app.exe --delay 15", r"C:\Program", r"C:\Program"),
         ],
     )
-    def test_shlex_split_extracts_exe_token(
-        self, value, expected_exe_token, expected_exe_after_strip_quotes
-    ):
+    def test_shlex_split_extracts_exe_token(self, value, expected_exe_token, expected_exe_after_strip_quotes):
         """DE-67: ``shlex.split(value, posix=False)[0]`` extracts the
         first command-line token. For QUOTED paths, this is the full
         quoted path (with quotes preserved — the production code

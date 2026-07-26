@@ -181,16 +181,13 @@ class TestCrashHandlerConfigDir:
         # Strip the trailing NUL terminator for the path checks.
         path_no_nul = path.rstrip("\0")
         assert "crash_diagnostics_archive" in path_no_nul, (
-            f"YJ-47: VEH crash file path must be inside crash_diagnostics_archive/ "
-            f"(was: {path_no_nul!r})"
+            f"YJ-47: VEH crash file path must be inside crash_diagnostics_archive/ (was: {path_no_nul!r})"
         )
         # The archive subdir must have been pre-created so the VEH
         # callback (which can't safely mkdir during heap corruption)
         # can write directly to its target.
         archive_dir = tmp_path / "crash_diagnostics_archive"
-        assert archive_dir.is_dir(), (
-            "YJ-47: set_crash_handler_config_dir must pre-create the archive dir"
-        )
+        assert archive_dir.is_dir(), "YJ-47: set_crash_handler_config_dir must pre-create the archive dir"
 
     def test_yj47_header_max_modules_is_100(self):
         """YJ-47: ``_HEADER_MAX_MODULES`` is capped at 100 (was 500).
@@ -203,8 +200,7 @@ class TestCrashHandlerConfigDir:
         sorted top-level names.
         """
         assert crash_handler._HEADER_MAX_MODULES == 100, (
-            f"YJ-47: _HEADER_MAX_MODULES must be 100 (was 500); "
-            f"got {crash_handler._HEADER_MAX_MODULES}"
+            f"YJ-47: _HEADER_MAX_MODULES must be 100 (was 500); got {crash_handler._HEADER_MAX_MODULES}"
         )
 
     def test_yj47_report_pending_crash_surfaces_archive_subdir_file(self, tmp_path):
@@ -223,21 +219,15 @@ class TestCrashHandlerConfigDir:
         )
 
         result = crash_handler.report_pending_crash(tmp_path)
-        assert result is not None, (
-            "YJ-47: report_pending_crash must surface archive-subdir files"
-        )
+        assert result is not None, "YJ-47: report_pending_crash must surface archive-subdir files"
         assert "Access violation" in result
 
         # The crash file must still be in the archive (NOT moved out).
-        assert crash_file.exists(), (
-            "YJ-47: archive-subdir crash file must remain in place after surfacing"
-        )
+        assert crash_file.exists(), "YJ-47: archive-subdir crash file must remain in place after surfacing"
         # A sidecar ``.reported`` marker must be created so the next
         # startup scan skips this file (no re-notification).
         sidecar = archive_dir / "crash_diagnostics.1234.txt.reported"
-        assert sidecar.exists(), (
-            "YJ-47: report_pending_crash must create a .reported sidecar marker"
-        )
+        assert sidecar.exists(), "YJ-47: report_pending_crash must create a .reported sidecar marker"
 
     def test_yj47_report_pending_crash_skips_files_with_sidecar(self, tmp_path):
         """YJ-47: ``report_pending_crash`` does NOT re-surface crash
@@ -257,10 +247,7 @@ class TestCrashHandlerConfigDir:
         sidecar.touch()
 
         result = crash_handler.report_pending_crash(tmp_path)
-        assert result is None, (
-            "YJ-47: report_pending_crash must NOT re-surface files with a "
-            ".reported sidecar marker"
-        )
+        assert result is None, "YJ-47: report_pending_crash must NOT re-surface files with a .reported sidecar marker"
 
 
 # ─── report_pending_crash ───────────────────────────────────────────────
@@ -644,8 +631,7 @@ class TestCrashHandlerConstants:
             }
         )
         assert original_four <= crash_handler._CRASH_CODES, (
-            "YJ-42: the original four fatal codes MUST remain in _CRASH_CODES "
-            "after the extension (superset check)."
+            "YJ-42: the original four fatal codes MUST remain in _CRASH_CODES after the extension (superset check)."
         )
 
     def test_crash_codes_set_contains_yj42_extended_codes(self):
@@ -715,9 +701,7 @@ class TestCrashHandlerConstants:
                 f"YJ-42: _NAME_* for code {code:#x} must be pre-encoded bytes "
                 f"(VEH callback cannot allocate during heap corruption)"
             )
-            assert code in crash_handler._CRASH_CODES, (
-                f"YJ-42: STATUS_* code {code:#x} must be in _CRASH_CODES"
-            )
+            assert code in crash_handler._CRASH_CODES, f"YJ-42: STATUS_* code {code:#x} must be in _CRASH_CODES"
             # Each name MUST be ≤ 80 bytes — the ``name`` slot in
             # ``_CRASH_MSG_LAYOUT`` is 80 bytes wide.
             assert len(name) <= 80, (
@@ -939,12 +923,8 @@ class TestPythonCrashMarkerTraceback:
         assert tb_section, "GT-4: marker must contain a traceback section"
         import re as _re
 
-        frame_lines = [
-            line for line in tb_section.splitlines() if line.startswith('  File "')
-        ]
-        assert frame_lines, (
-            f"GT-4: traceback must contain at least one frame line; got:\n{tb_section}"
-        )
+        frame_lines = [line for line in tb_section.splitlines() if line.startswith('  File "')]
+        assert frame_lines, f"GT-4: traceback must contain at least one frame line; got:\n{tb_section}"
         for line in frame_lines:
             m = _re.match(r'  File "([^"]+)", line (\d+), in (\S+)', line)
             assert m is not None, f"GT-4: malformed frame line: {line!r}"
@@ -953,9 +933,7 @@ class TestPythonCrashMarkerTraceback:
                 f"GT-4: frame file must be basename only; got: {file_path!r}"
             )
 
-    def test_marker_includes_app_python_os_version_and_asr_backend(
-        self, restore_excepthook, tmp_path
-    ):
+    def test_marker_includes_app_python_os_version_and_asr_backend(self, restore_excepthook, tmp_path):
         """GT-4: the marker carries app_version, python_version,
         os_version, and asr_backend as key=value lines."""
         crash_handler.set_crash_handler_config_dir(tmp_path)
@@ -966,9 +944,7 @@ class TestPythonCrashMarkerTraceback:
         marker = tmp_path / f"python_crash.{os.getpid()}.txt"
         content = marker.read_text(encoding="utf-8")
         for key in ("app_version=", "python_version=", "os_version=", "asr_backend="):
-            assert key in content, (
-                f"GT-4: marker must include '{key}' line; got:\n{content}"
-            )
+            assert key in content, f"GT-4: marker must include '{key}' line; got:\n{content}"
         assert f"{sys.version_info.major}.{sys.version_info.minor}" in content, (
             "GT-4: python_version value must include the running Python major.minor"
         )
@@ -1027,16 +1003,13 @@ class TestCrashDiagnosticsHeader:
     def test_set_config_dir_precomputes_header(self, tmp_path):
         crash_handler.set_crash_handler_config_dir(tmp_path)
         assert crash_handler._crash_header_bytes, (
-            "GT-7: _crash_header_bytes must be non-empty after "
-            "set_crash_handler_config_dir()"
+            "GT-7: _crash_header_bytes must be non-empty after set_crash_handler_config_dir()"
         )
 
     def test_header_includes_app_version(self, tmp_path):
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
-        assert "App version:" in header, (
-            f"GT-7: header must include 'App version:' line; got:\n{header}"
-        )
+        assert "App version:" in header, f"GT-7: header must include 'App version:' line; got:\n{header}"
 
     def test_header_includes_python_version(self, tmp_path):
         crash_handler.set_crash_handler_config_dir(tmp_path)
@@ -1049,19 +1022,13 @@ class TestCrashDiagnosticsHeader:
     def test_header_includes_os_version(self, tmp_path):
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
-        assert "OS:" in header, (
-            f"GT-7: header must include 'OS:' line; got:\n{header}"
-        )
+        assert "OS:" in header, f"GT-7: header must include 'OS:' line; got:\n{header}"
 
     def test_header_includes_loaded_modules_snapshot(self, tmp_path):
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
-        assert "Loaded modules" in header, (
-            f"GT-7: header must include 'Loaded modules' section; got:\n{header}"
-        )
-        assert "voice_typer" in header, (
-            "GT-7: header module snapshot must include 'voice_typer'"
-        )
+        assert "Loaded modules" in header, f"GT-7: header must include 'Loaded modules' section; got:\n{header}"
+        assert "voice_typer" in header, "GT-7: header module snapshot must include 'voice_typer'"
 
     def test_header_is_recomputed_on_each_set_config_dir(self, tmp_path):
         crash_handler.set_crash_handler_config_dir(tmp_path)
@@ -1069,15 +1036,11 @@ class TestCrashDiagnosticsHeader:
         crash_handler.set_crash_handler_config_dir(tmp_path)
         second = crash_handler._crash_header_bytes
         assert first and second
-        assert first == second, (
-            "GT-7: header should be deterministic for the same module set"
-        )
+        assert first == second, "GT-7: header should be deterministic for the same module set"
 
     def test_compute_crash_header_returns_bytes(self):
         header = crash_handler._compute_crash_header()
-        assert isinstance(header, bytes), (
-            f"GT-7: _compute_crash_header must return bytes; got {type(header).__name__}"
-        )
+        assert isinstance(header, bytes), f"GT-7: _compute_crash_header must return bytes; got {type(header).__name__}"
         assert header.decode("utf-8", errors="replace")
 
 
@@ -1095,16 +1058,10 @@ class TestCrashBufferLayout:
         layout = crash_handler._CRASH_MSG_LAYOUT
         assert isinstance(layout, list) and layout, "layout must be a non-empty list"
         for entry in layout:
-            assert isinstance(entry, tuple) and len(entry) == 2, (
-                f"each layout entry must be a 2-tuple; got {entry!r}"
-            )
+            assert isinstance(entry, tuple) and len(entry) == 2, f"each layout entry must be a 2-tuple; got {entry!r}"
             label, width = entry
-            assert isinstance(label, str) and label, (
-                f"layout label must be a non-empty str; got {label!r}"
-            )
-            assert isinstance(width, int) and width > 0, (
-                f"layout width must be a positive int; got {width!r}"
-            )
+            assert isinstance(label, str) and label, f"layout label must be a non-empty str; got {label!r}"
+            assert isinstance(width, int) and width > 0, f"layout width must be a positive int; got {width!r}"
 
     def test_buffer_size_matches_layout_sum_plus_margin(self):
         layout_sum = sum(width for _, width in crash_handler._CRASH_MSG_LAYOUT)
@@ -1123,6 +1080,4 @@ class TestCrashBufferLayout:
     def test_layout_includes_all_required_segments(self):
         labels = {label for label, _ in crash_handler._CRASH_MSG_LAYOUT}
         for required in ("bom", "timestamp", "crash_label", "code", "addr", "pid", "tid", "name"):
-            assert required in labels, (
-                f"GT-B2-14: layout must include '{required}' segment; got {sorted(labels)}"
-            )
+            assert required in labels, f"GT-B2-14: layout must include '{required}' segment; got {sorted(labels)}"

@@ -95,9 +95,7 @@ class TestTY17NumericalEquivalence:
         old = _old_peak(flat)
         new = _new_peak(flat)
         # max/min are exact reductions — match to bit-level (use ==).
-        assert old == new, (
-            f"TY-17: NEW peak {new} != OLD peak {old} (size={size}, seed={seed})"
-        )
+        assert old == new, f"TY-17: NEW peak {new} != OLD peak {old} (size={size}, seed={seed})"
 
     def test_peak_handles_mixed_signs(self):
         """Peak is correct when min < 0 < max (the typical case).
@@ -108,9 +106,7 @@ class TestTY17NumericalEquivalence:
         flat = np.array([-0.5, 0.1, 0.3, -0.8, 0.2], dtype=np.float32)
         new_peak = _new_peak(flat)
         old_peak = _old_peak(flat)
-        assert abs(new_peak - old_peak) < 1e-7, (
-            f"TY-17: NEW peak {new_peak} != OLD peak {old_peak}"
-        )
+        assert abs(new_peak - old_peak) < 1e-7, f"TY-17: NEW peak {new_peak} != OLD peak {old_peak}"
         # Both should be ~0.8 (the abs value of -0.8 in float32).
         assert abs(new_peak - 0.8) < 1e-6
         assert abs(old_peak - 0.8) < 1e-6
@@ -148,9 +144,7 @@ class TestTY17NumericalEquivalence:
         old = _old_raw_rms(flat)
         # NEW path: same as _new_rms (no astype, np.dot).
         new = _new_rms(flat)
-        assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), (
-            f"TY-17: NEW raw RMS {new} (no astype) != OLD raw RMS {old}"
-        )
+        assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), f"TY-17: NEW raw RMS {new} (no astype) != OLD raw RMS {old}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -191,17 +185,14 @@ class TestTY17AllocationCount:
         mean_calls = 0
         _ = _old_rms(flat)
         old_mean_calls = mean_calls
-        assert old_mean_calls >= 1, (
-            f"OLD RMS path must call np.mean at least once; got {old_mean_calls}"
-        )
+        assert old_mean_calls >= 1, f"OLD RMS path must call np.mean at least once; got {old_mean_calls}"
 
         # NEW path: should call np.mean ZERO times (uses np.dot).
         mean_calls = 0
         _ = _new_rms(flat)
         new_mean_calls = mean_calls
         assert new_mean_calls == 0, (
-            f"TY-17: NEW RMS path must NOT call np.mean (uses np.dot); "
-            f"got {new_mean_calls} calls"
+            f"TY-17: NEW RMS path must NOT call np.mean (uses np.dot); got {new_mean_calls} calls"
         )
 
     def test_new_peak_does_not_call_np_abs(self, monkeypatch):
@@ -221,17 +212,14 @@ class TestTY17AllocationCount:
         abs_calls = 0
         _ = _old_peak(flat)
         old_abs_calls = abs_calls
-        assert old_abs_calls >= 1, (
-            f"OLD peak path must call np.abs at least once; got {old_abs_calls}"
-        )
+        assert old_abs_calls >= 1, f"OLD peak path must call np.abs at least once; got {old_abs_calls}"
 
         # NEW path: should call np.abs ZERO times (uses max/min).
         abs_calls = 0
         _ = _new_peak(flat)
         new_abs_calls = abs_calls
         assert new_abs_calls == 0, (
-            f"TY-17: NEW peak path must NOT call np.abs (uses max/min); "
-            f"got {new_abs_calls} calls"
+            f"TY-17: NEW peak path must NOT call np.abs (uses max/min); got {new_abs_calls} calls"
         )
 
     def test_combined_rms_peak_new_calls_fewer_allocating_fns(self, monkeypatch):
@@ -262,8 +250,7 @@ class TestTY17AllocationCount:
         _old_peak(flat)
         old_combined = alloc_calls
         assert old_combined >= 2, (
-            f"OLD combined RMS+peak must call >= 2 allocating functions "
-            f"(np.abs + np.mean); got {old_combined}"
+            f"OLD combined RMS+peak must call >= 2 allocating functions (np.abs + np.mean); got {old_combined}"
         )
 
         # NEW combined: np.dot + max + min — none of the spied funcs.
@@ -350,8 +337,7 @@ class TestTY17ProcessLevelChunkEndToEnd:
             # EMA: peak = max(0 * 0.8, 0.25) = 0.25.
             expected_peak = _new_peak(chunk.ravel())
             assert abs(lm._monitor_peak - expected_peak) < 1e-6, (
-                f"TY-17: _monitor_peak={lm._monitor_peak} != expected "
-                f"{expected_peak} (NEW peak path)"
+                f"TY-17: _monitor_peak={lm._monitor_peak} != expected {expected_peak} (NEW peak path)"
             )
         finally:
             lm.stop_monitoring()
@@ -398,9 +384,7 @@ class TestTY17ProcessLevelChunkEndToEnd:
         lm.start_monitoring(mic_id=None)
         try:
             # Mixed-sign chunk so peak is on the negative side.
-            chunk = np.array(
-                [[0.1], [-0.4], [0.3], [-0.2]] * 128, dtype=np.float32
-            )  # 512 samples
+            chunk = np.array([[0.1], [-0.4], [0.3], [-0.2]] * 128, dtype=np.float32)  # 512 samples
             holder["callback"](chunk, 512, None, None)
 
             deadline = time.perf_counter() + 1.0
@@ -419,12 +403,10 @@ class TestTY17ProcessLevelChunkEndToEnd:
 
             expected_level = 0.0 * 0.6 + expected_rms * 0.4
             assert abs(lm._monitor_level - expected_level) < 1e-6, (
-                f"TY-17 (processor branch): _monitor_level="
-                f"{lm._monitor_level} != expected {expected_level}"
+                f"TY-17 (processor branch): _monitor_level={lm._monitor_level} != expected {expected_level}"
             )
             assert abs(lm._monitor_peak - expected_peak) < 1e-6, (
-                f"TY-17 (processor branch): _monitor_peak="
-                f"{lm._monitor_peak} != expected {expected_peak}"
+                f"TY-17 (processor branch): _monitor_peak={lm._monitor_peak} != expected {expected_peak}"
             )
         finally:
             lm.stop_monitoring()

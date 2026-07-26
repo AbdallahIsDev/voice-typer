@@ -769,13 +769,9 @@ class TestCrashRecoveryQuarantineCorrupt:
         path.write_text('{"entries": [NOT VALID JSON', encoding="utf-8")
         cr = CrashRecovery(config_dir=recovery_dir)
         assert cr.count == 0, "GT-A1-5: corrupt file must yield _entries=[]"
-        assert not path.exists(), (
-            "GT-A1-5: original corrupt file must be moved out of the way"
-        )
+        assert not path.exists(), "GT-A1-5: original corrupt file must be moved out of the way"
         quarantined = list(recovery_dir.glob("voice-typer-recovery.json.corrupt.*"))
-        assert len(quarantined) == 1, (
-            f"GT-A1-5: expected exactly one quarantine file; got {quarantined}"
-        )
+        assert len(quarantined) == 1, f"GT-A1-5: expected exactly one quarantine file; got {quarantined}"
         assert "NOT VALID JSON" in quarantined[0].read_text(encoding="utf-8")
 
     def test_corrupt_shape_file_is_quarantined(self, recovery_dir):
@@ -861,12 +857,8 @@ class TestDiagnosticBundleLogRedaction:
         assert bundle_path is not None
         with zipfile.ZipFile(bundle_path, "r") as zf:
             bundled_log = zf.read("voice-typer.log").decode("utf-8")
-        assert "user@example.com" not in bundled_log, (
-            f"GT-B2-13: PII (email) must be redacted; got:\n{bundled_log}"
-        )
-        assert "[EMAIL]" in bundled_log, (
-            f"GT-B2-13: redacted log must contain [EMAIL] token; got:\n{bundled_log}"
-        )
+        assert "user@example.com" not in bundled_log, f"GT-B2-13: PII (email) must be redacted; got:\n{bundled_log}"
+        assert "[EMAIL]" in bundled_log, f"GT-B2-13: redacted log must contain [EMAIL] token; got:\n{bundled_log}"
         cr.shutdown()
 
     def test_log_in_zip_is_redacted_for_secrets(self, recovery_dir):
@@ -900,8 +892,7 @@ class TestDiagnosticBundleLogRedaction:
 
         log_path = recovery_dir / "voice-typer.log"
         log_path.write_text(
-            "2026-07-24 INFO model loaded successfully\n"
-            "2026-07-24 INFO audio device opened\n",
+            "2026-07-24 INFO model loaded successfully\n2026-07-24 INFO audio device opened\n",
             encoding="utf-8",
         )
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -933,12 +924,8 @@ class TestDiagnosticBundleLogRedaction:
 
         cr = CrashRecovery(config_dir=recovery_dir)
         bundle_path = cr.create_diagnostic_bundle()
-        assert bundle_path is not None, (
-            "GT-B2-13: bundle creation must not fail when redaction raises"
-        )
+        assert bundle_path is not None, "GT-B2-13: bundle creation must not fail when redaction raises"
         with zipfile.ZipFile(bundle_path, "r") as zf:
             names = zf.namelist()
-        assert "voice-typer.log" not in names, (
-            f"GT-B2-13: log must be skipped when redaction fails; got names: {names}"
-        )
+        assert "voice-typer.log" not in names, f"GT-B2-13: log must be skipped when redaction fails; got names: {names}"
         cr.shutdown()

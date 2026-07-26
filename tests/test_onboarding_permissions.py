@@ -122,8 +122,20 @@ class TestOnboardingCheckPermissions:
         # renderer to localize. Resolve them via en.json before checking.
         import json
         from pathlib import Path
-        _en_path = Path(__file__).parent.parent / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations" / "en.json"
+
+        _en_path = (
+            Path(__file__).parent.parent
+            / "voice_typer"
+            / "client"
+            / "src"
+            / "renderer"
+            / "src"
+            / "i18n"
+            / "translations"
+            / "en.json"
+        )
         _en = json.loads(_en_path.read_text(encoding="utf-8"))
+
         def _flat(d, p=""):
             out = {}
             for k, v in d.items():
@@ -133,6 +145,7 @@ class TestOnboardingCheckPermissions:
                 else:
                     out[key] = v
             return out
+
         _en_flat = _flat(_en)
         _steps_keys = data["instructions"].get("steps_keys") or data["instructions"].get("steps") or []
         _resolved = [_en_flat.get(k, k) for k in _steps_keys]

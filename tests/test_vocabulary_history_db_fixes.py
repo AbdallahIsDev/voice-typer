@@ -49,9 +49,7 @@ from unittest.mock import MagicMock
 import pytest
 
 VOCAB_SOURCE = Path(inspect.getsourcefile(__import__("voice_typer.server.vocabulary", fromlist=["x"]))).read_text()
-HISTORY_DB_SOURCE = Path(
-    inspect.getsourcefile(__import__("voice_typer.server.history_db", fromlist=["x"]))
-).read_text()
+HISTORY_DB_SOURCE = Path(inspect.getsourcefile(__import__("voice_typer.server.history_db", fromlist=["x"]))).read_text()
 
 
 # ── XV-88: dead duplicate retry loop removed from _save_user ───────────
@@ -90,8 +88,7 @@ class TestXV88DeadCodeRemoved:
             "retry loop). A count of 0 means the persistence call was "
             "lost; a count >1 indicates the dead duplicate block was "
             f"re-introduced. direct={direct_count}, helper={helper_count}, "
-            f"total={total}.\n--- source ---\n"
-            + src
+            f"total={total}.\n--- source ---\n" + src
         )
 
     def test_save_user_has_exactly_one_for_loop(self):
@@ -184,14 +181,11 @@ class TestXV88LiveRetryBehaviourPreserved:
             call_count += 1
             path.write_text(content, encoding="utf-8")
 
-        monkeypatch.setattr(
-            "voice_typer.server.config._secure_atomic_write", fake_write
-        )
+        monkeypatch.setattr("voice_typer.server.config._secure_atomic_write", fake_write)
         # Should not raise.
         vm._save_user()
         assert call_count == 1, (
-            f"_save_user should call _secure_atomic_write exactly once "
-            f"on first-try success; got {call_count} calls."
+            f"_save_user should call _secure_atomic_write exactly once on first-try success; got {call_count} calls."
         )
 
     def test_permission_error_is_retried_then_raised(self, vm, monkeypatch):
@@ -210,9 +204,7 @@ class TestXV88LiveRetryBehaviourPreserved:
 
         # Make the backoff sleep a no-op so the test is fast.
         monkeypatch.setattr("time.sleep", lambda _s: None)
-        monkeypatch.setattr(
-            "voice_typer.server.config._secure_atomic_write", always_fails
-        )
+        monkeypatch.setattr("voice_typer.server.config._secure_atomic_write", always_fails)
 
         with pytest.raises(PermissionError, match="simulated lock"):
             vm._save_user()
@@ -239,16 +231,13 @@ class TestXV88LiveRetryBehaviourPreserved:
             call_count += 1
             raise OSError("disk full (simulated)")
 
-        monkeypatch.setattr(
-            "voice_typer.server.config._secure_atomic_write", fails_with_oserror
-        )
+        monkeypatch.setattr("voice_typer.server.config._secure_atomic_write", fails_with_oserror)
 
         with pytest.raises(OSError, match="disk full"):
             vm._save_user()
 
         assert call_count == 1, (
-            f"_save_user should NOT retry a non-Permission OSError; "
-            f"got {call_count} calls (expected 1)."
+            f"_save_user should NOT retry a non-Permission OSError; got {call_count} calls (expected 1)."
         )
 
     def test_permission_error_then_success_retries_and_succeeds(self, vm, monkeypatch):
@@ -273,8 +262,7 @@ class TestXV88LiveRetryBehaviourPreserved:
 
         vm._save_user()  # must not raise
         assert call_count == 2, (
-            f"_save_user should retry once after a transient "
-            f"PermissionError then succeed; got {call_count} calls."
+            f"_save_user should retry once after a transient PermissionError then succeed; got {call_count} calls."
         )
 
 
@@ -306,8 +294,7 @@ class TestXV95CheckpointIntervalDocs:
         """
         # The docstring is the first statement in the module.
         assert "every 300s" in HISTORY_DB_SOURCE, (
-            "history_db.py module docstring must say 'every 300s' to "
-            "match _WAL_CHECKPOINT_INTERVAL = 300.0."
+            "history_db.py module docstring must say 'every 300s' to match _WAL_CHECKPOINT_INTERVAL = 300.0."
         )
         # The stale 'every 60s' (in the checkpoint context) must be
         # gone. We check the architecture-overview block specifically:
@@ -330,12 +317,10 @@ class TestXV95CheckpointIntervalDocs:
 
         src = inspect.getsource(HistoryDB._run_checkpoint)
         assert "every 300s" in src, (
-            "_run_checkpoint comment must say 'every 300s' to match "
-            "the actual checkpoint cadence."
+            "_run_checkpoint comment must say 'every 300s' to match the actual checkpoint cadence."
         )
         assert "every 60s" not in src, (
-            "_run_checkpoint comment still says 'every 60s' — the WAL "
-            "checkpoint actually runs every 300s."
+            "_run_checkpoint comment still says 'every 60s' — the WAL checkpoint actually runs every 300s."
         )
 
     def test_run_checkpoint_retry_comment_says_300s_not_60s(self):
@@ -369,8 +354,7 @@ class TestXV95CheckpointIntervalDocs:
         # The format string + the constant reference must both be
         # present in the log.debug call.
         assert "will retry in %.0fs" in src, (
-            "_run_checkpoint log message must use the %.0fs format "
-            "placeholder for the retry interval."
+            "_run_checkpoint log message must use the %.0fs format placeholder for the retry interval."
         )
         assert "_WAL_CHECKPOINT_INTERVAL" in src, (
             "_run_checkpoint log message must pass _WAL_CHECKPOINT_INTERVAL "
@@ -391,8 +375,7 @@ class TestXV95CheckpointIntervalDocs:
         run_checkpoint_src = inspect.getsource(HistoryDB._run_checkpoint)
         assert "60s" not in run_checkpoint_src, (
             "_run_checkpoint must not reference '60s' anywhere — the "
-            "actual cadence is 300s. Found stale 60s reference:\n"
-            + run_checkpoint_src
+            "actual cadence is 300s. Found stale 60s reference:\n" + run_checkpoint_src
         )
         # The module-level docstring's architecture overview block
         # (lines describing the writer thread cadence) must also be
@@ -400,8 +383,7 @@ class TestXV95CheckpointIntervalDocs:
         overview = HISTORY_DB_SOURCE.split("Architecture overview::", 1)[1]
         overview = overview.split("Why this design exists", 1)[0]
         assert "60s" not in overview, (
-            "The architecture-overview docstring must not reference "
-            "'60s' for the WAL checkpoint cadence."
+            "The architecture-overview docstring must not reference '60s' for the WAL checkpoint cadence."
         )
 
     def test_60s_for_write_future_timeout_is_preserved(self):
@@ -450,24 +432,17 @@ class TestXV95CheckpointLogBehaviour:
             # we've rigged to raise OperationalError on
             # PRAGMA wal_checkpoint.
             rigged = MagicMock(spec=sqlite3.Connection)
-            rigged.execute.side_effect = sqlite3.OperationalError(
-                "database table is locked (simulated)"
-            )
+            rigged.execute.side_effect = sqlite3.OperationalError("database table is locked (simulated)")
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.history_db"):
                 # _run_checkpoint must not raise — OperationalError is
                 # caught and logged at DEBUG level.
                 db._run_checkpoint(rigged)
             # The log line must report the actual interval (300s).
-            skipped_msgs = [
-                r.getMessage()
-                for r in caplog.records
-                if "WAL checkpoint skipped" in r.getMessage()
-            ]
+            skipped_msgs = [r.getMessage() for r in caplog.records if "WAL checkpoint skipped" in r.getMessage()]
             assert skipped_msgs, (
                 "Expected a 'WAL checkpoint skipped (will retry in Ns)' "
                 "log line at DEBUG level when checkpoint raises "
-                "OperationalError; got records: "
-                + repr([r.getMessage() for r in caplog.records])
+                "OperationalError; got records: " + repr([r.getMessage() for r in caplog.records])
             )
             # The interpolated value must be 300 (the actual
             # _WAL_CHECKPOINT_INTERVAL), NOT 60.

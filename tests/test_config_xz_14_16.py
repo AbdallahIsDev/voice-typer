@@ -84,15 +84,11 @@ class TestXZ1416MigratorFailureDoesNotBumpSchemaVersion:
     on-disk ``schema_version`` MUST stay at the pre-failure version so
     the failed migration re-runs on the next launch."""
 
-    def test_failure_at_v2_leaves_schema_version_at_loaded_version(
-        self, tmp_path, monkeypatch
-    ):
+    def test_failure_at_v2_leaves_schema_version_at_loaded_version(self, tmp_path, monkeypatch):
         """A v2 migrator that raises must leave schema_version at the
         loaded version (0), NOT bump it to _CURRENT_SCHEMA_VERSION (3)."""
         config_file = tmp_path / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<f5>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>"}))
 
         def _failing_v2(data):
             raise RuntimeError("XZ-14-16 simulated migrator failure")
@@ -109,16 +105,12 @@ class TestXZ1416MigratorFailureDoesNotBumpSchemaVersion:
             "permanently."
         )
 
-    def test_failure_at_v3_after_v2_succeeds_leaves_schema_version_at_v2(
-        self, tmp_path, monkeypatch
-    ):
+    def test_failure_at_v3_after_v2_succeeds_leaves_schema_version_at_v2(self, tmp_path, monkeypatch):
         """If v2 succeeds but v3 raises, schema_version must be left at
         2 (the last successful version), NOT 3 -- so only v3 re-runs on
         the next launch (v2 won't needlessly re-run)."""
         config_file = tmp_path / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<f5>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>"}))
 
         def _failing_v3(data):
             raise RuntimeError("XZ-14-16 v3 failure after v2 success")
@@ -141,9 +133,7 @@ class TestXZ1416MigratorFailureDoesNotBumpSchemaVersion:
         _CURRENT_SCHEMA_VERSION.  Guards against an over-correction that
         would never bump the version."""
         config_file = tmp_path / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<f5>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>"}))
 
         loaded = Config.load()
 
@@ -164,9 +154,7 @@ class TestXZ1416FailureBreaksMigrationLoop:
 
     def test_v3_does_not_run_after_v2_raises(self, tmp_path, monkeypatch):
         config_file = tmp_path / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<f5>"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>"}))
 
         call_log = {"v2": 0, "v3": 0}
 
@@ -199,16 +187,12 @@ class TestXZ1416FailedMigrationBackup:
     multiple failures across launches don't clobber each other and the
     user can identify which migration produced which backup."""
 
-    _BAK_RE = re.compile(
-        r"^config\.json\.bak\.failed-migration-\d{8}-\d{6}-to-v\d+$"
-    )
+    _BAK_RE = re.compile(r"^config\.json\.bak\.failed-migration-\d{8}-\d{6}-to-v\d+$")
 
     def test_failed_migration_creates_bak_file(self, tmp_path, monkeypatch):
         """A failed migrator must produce a .bak file in the config dir."""
         config_file = tmp_path / "config.json"
-        original_content = json.dumps(
-            {"schema_version": 0, "hotkey": "<f5>", "model_size": "small.en"}
-        )
+        original_content = json.dumps({"schema_version": 0, "hotkey": "<f5>", "model_size": "small.en"})
         config_file.write_text(original_content)
 
         def _failing_v2(data):
@@ -225,9 +209,7 @@ class TestXZ1416FailedMigrationBackup:
             f"{[p.name for p in bak_files]}"
         )
 
-    def test_bak_filename_has_timestamp_and_failed_version(
-        self, tmp_path, monkeypatch
-    ):
+    def test_bak_filename_has_timestamp_and_failed_version(self, tmp_path, monkeypatch):
         """The .bak filename must match the pattern
         ``config.json.bak.failed-migration-YYYYMMDD-HHMMSS-to-v<N>``
         where <N> is the failed target version."""
@@ -256,9 +238,7 @@ class TestXZ1416FailedMigrationBackup:
             "(the failed target version), not something else."
         )
 
-    def test_bak_contains_pre_migration_on_disk_content(
-        self, tmp_path, monkeypatch
-    ):
+    def test_bak_contains_pre_migration_on_disk_content(self, tmp_path, monkeypatch):
         """The .bak must be a copy of the on-disk config.json BEFORE the
         failed migration ran -- this is the user's recovery point."""
         config_file = tmp_path / "config.json"
@@ -286,9 +266,7 @@ class TestXZ1416FailedMigrationBackup:
             "config.json that was on disk BEFORE the migration ran."
         )
 
-    def test_repeated_failures_do_not_clobber_each_other(
-        self, tmp_path, monkeypatch
-    ):
+    def test_repeated_failures_do_not_clobber_each_other(self, tmp_path, monkeypatch):
         """Two failures in quick succession must produce TWO .bak files
         (the timestamp makes them unique).  Without the timestamp the
         second failure would silently overwrite the first .bak and the
@@ -311,9 +289,7 @@ class TestXZ1416FailedMigrationBackup:
         config_file.write_text(json.dumps({"schema_version": 0}))
         Config.load()
 
-        bak_files = sorted(
-            tmp_path.glob("config.json.bak.failed-migration-*")
-        )
+        bak_files = sorted(tmp_path.glob("config.json.bak.failed-migration-*"))
         assert len(bak_files) == 2, (
             "XZ-14-16: two failures should produce two .bak files (timestamp "
             f"makes them unique), got {len(bak_files)}.  Files: "
@@ -331,9 +307,7 @@ class TestXZ1416FailureIsLoggedAtError:
     identifying which migration failed and what exception was raised.
     The previous "silent swallow + bump" behaviour was the bug."""
 
-    def test_error_log_names_failed_version_and_exception_type(
-        self, tmp_path, monkeypatch, caplog
-    ):
+    def test_error_log_names_failed_version_and_exception_type(self, tmp_path, monkeypatch, caplog):
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"schema_version": 0}))
 
@@ -351,18 +325,14 @@ class TestXZ1416FailureIsLoggedAtError:
         error_records = [
             r
             for r in caplog.records
-            if r.levelno >= logging.ERROR
-            and "migrator v2 raised" in r.message
-            and "RuntimeError" in r.message
+            if r.levelno >= logging.ERROR and "migrator v2 raised" in r.message and "RuntimeError" in r.message
         ]
         assert len(error_records) >= 1, (
             "XZ-14-16: migrator failure was not loudly reported in logs. "
             f"Records: {[r.message for r in caplog.records]}"
         )
 
-    def test_load_does_not_raise_on_migrator_failure(
-        self, tmp_path, monkeypatch
-    ):
+    def test_load_does_not_raise_on_migrator_failure(self, tmp_path, monkeypatch):
         """XZ-14-16 design decision: ``Config.load()`` does NOT re-raise
         the migrator's exception.  Re-raising would crash the app on
         every launch until the underlying migrator bug is fixed -- a

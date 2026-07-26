@@ -878,7 +878,7 @@ def test_use_python_per_command_timeout_surfaces_hangs(
 
 
 def test_app_tsx_renders_connection_status_screen_when_connecting(
-        app_tsx_source: str,
+    app_tsx_source: str,
 ) -> None:
     """``App.tsx`` must render the ``<ConnectionStatusScreen />``
     component when ``connectionStatus === "connecting"`` (the initial
@@ -908,7 +908,7 @@ def test_app_tsx_renders_connection_status_screen_when_connecting(
     )
     # ConnectionStatusScreen must receive the connectionStatus prop.
     status_prop_re = re.compile(
-        r'<ConnectionStatusScreen[^>]*\bstatus=\{\s*connectionStatus\s*\}',
+        r"<ConnectionStatusScreen[^>]*\bstatus=\{\s*connectionStatus\s*\}",
         re.MULTILINE | re.DOTALL,
     )
     assert status_prop_re.search(app_tsx_source), (
@@ -923,13 +923,11 @@ def test_app_tsx_renders_connection_status_screen_when_connecting(
 # legacy test names as aliases so any external test-selection scripts
 # that reference them still resolve, but route them through the new
 # assertion.
-test_app_tsx_renders_spinner_when_connecting = (
-    test_app_tsx_renders_connection_status_screen_when_connecting
-)
+test_app_tsx_renders_spinner_when_connecting = test_app_tsx_renders_connection_status_screen_when_connecting
 
 
 def test_app_tsx_renders_connection_status_screen_when_restarting(
-        app_tsx_source: str,
+    app_tsx_source: str,
 ) -> None:
     """``App.tsx`` must render the ``<ConnectionStatusScreen />``
     component when ``connectionStatus === "restarting"`` (the respawn
@@ -958,9 +956,7 @@ def test_app_tsx_renders_connection_status_screen_when_restarting(
     )
 
 
-test_app_tsx_renders_spinner_when_restarting = (
-    test_app_tsx_renders_connection_status_screen_when_restarting
-)
+test_app_tsx_renders_spinner_when_restarting = test_app_tsx_renders_connection_status_screen_when_restarting
 
 
 def test_app_tsx_renders_retry_button_when_disconnected(
@@ -980,7 +976,7 @@ def test_app_tsx_renders_retry_button_when_disconnected(
     # <ConnectionStatusScreen> so the disconnected branch's Retry
     # button is wired up.
     on_retry_re = re.compile(
-        r'<ConnectionStatusScreen[^>]*\bonRetry=\{\s*handleRetryConnection\s*\}',
+        r"<ConnectionStatusScreen[^>]*\bonRetry=\{\s*handleRetryConnection\s*\}",
         re.MULTILINE | re.DOTALL,
     )
     assert on_retry_re.search(app_tsx_source), (

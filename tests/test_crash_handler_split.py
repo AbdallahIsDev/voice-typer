@@ -156,9 +156,7 @@ class TestBackwardCompatNames:
             assert hasattr(crash_handler, name), (
                 f"crash_handler.{name} is missing — public function not re-exported by facade"
             )
-            assert callable(getattr(crash_handler, name)), (
-                f"crash_handler.{name} is not callable"
-            )
+            assert callable(getattr(crash_handler, name)), f"crash_handler.{name} is not callable"
 
     def test_private_functions_importable(self):
         from voice_typer.server import crash_handler
@@ -167,17 +165,13 @@ class TestBackwardCompatNames:
             assert hasattr(crash_handler, name), (
                 f"crash_handler.{name} is missing — private function not re-exported by facade"
             )
-            assert callable(getattr(crash_handler, name)), (
-                f"crash_handler.{name} is not callable"
-            )
+            assert callable(getattr(crash_handler, name)), f"crash_handler.{name} is not callable"
 
     def test_constants_importable(self):
         from voice_typer.server import crash_handler
 
         for name in CONSTANTS:
-            assert hasattr(crash_handler, name), (
-                f"crash_handler.{name} is missing — constant not re-exported by facade"
-            )
+            assert hasattr(crash_handler, name), f"crash_handler.{name} is missing — constant not re-exported by facade"
 
     def test_constants_have_correct_values(self):
         """The status codes must match the original values exactly.
@@ -225,9 +219,7 @@ class TestBackwardCompatNames:
         from voice_typer.server import crash_handler
 
         for name in STRUCTS:
-            assert hasattr(crash_handler, name), (
-                f"crash_handler.{name} is missing — struct not re-exported by facade"
-            )
+            assert hasattr(crash_handler, name), f"crash_handler.{name} is missing — struct not re-exported by facade"
 
     def test_mutable_state_writable(self):
         """Test mutations on facade state must propagate (TY-39 invariant)."""
@@ -290,8 +282,7 @@ class TestPerPlatformGuard:
         mods_to_remove = [
             k
             for k in list(sys.modules)
-            if k == "voice_typer.server.crash_handler"
-            or k.startswith("voice_typer.server.crash_handler.")
+            if k == "voice_typer.server.crash_handler" or k.startswith("voice_typer.server.crash_handler.")
         ]
         for k in mods_to_remove:
             del sys.modules[k]
@@ -329,8 +320,7 @@ class TestPerPlatformGuard:
             sys.modules.pop("ctypes.wintypes", None)
             __import__(mod_name)
             assert "ctypes.wintypes" not in sys.modules, (
-                f"Importing {mod_name} on Linux loaded ctypes.wintypes — "
-                f"per-platform guard broken in this submodule."
+                f"Importing {mod_name} on Linux loaded ctypes.wintypes — per-platform guard broken in this submodule."
             )
 
 
@@ -451,14 +441,11 @@ class TestPackageStructure:
 
         # __path__ is set on packages (not modules).
         assert hasattr(ch, "__path__"), (
-            "crash_handler should be a package (directory with __init__.py), "
-            "not a single .py module"
+            "crash_handler should be a package (directory with __init__.py), not a single .py module"
         )
         pkg_dir = Path(ch.__file__).parent
         for sub in self.EXPECTED_SUBMODULES:
-            assert (pkg_dir / f"{sub}.py").exists(), (
-                f"Submodule {sub}.py is missing from the crash_handler package"
-            )
+            assert (pkg_dir / f"{sub}.py").exists(), f"Submodule {sub}.py is missing from the crash_handler package"
 
     def test_facade_is_not_the_old_monolith(self):
         """The facade __init__.py must be a thin re-export layer (~100 LOC),
@@ -576,9 +563,7 @@ class TestFunctionalSmoke:
             "name",
             "nl2",
         }
-        assert labels == expected, (
-            f"_CRASH_MSG_LAYOUT labels diverged from design: {labels ^ expected}"
-        )
+        assert labels == expected, f"_CRASH_MSG_LAYOUT labels diverged from design: {labels ^ expected}"
 
     def test_crash_msg_buf_size_exceeds_layout_sum(self):
         """``_CRASH_MSG_BUF_SIZE`` must exceed the layout sum (headroom)."""

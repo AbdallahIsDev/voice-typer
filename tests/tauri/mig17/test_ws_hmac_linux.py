@@ -766,7 +766,8 @@ async def test_rate_limiter_applied_to_ws_frames():
         if (
             isinstance(result, dict)
             and result.get("type") == "error"
-            and result.get("data", {}).get("code") in (
+            and result.get("data", {}).get("code")
+            in (
                 "client.rate_limited",
                 "rate_limited",
             )
@@ -835,9 +836,7 @@ async def test_rate_limiter_rejects_with_structured_error():
     assert result["data"]["code"] in (
         "client.rate_limited",
         "rate_limited",
-    ), (
-        f"expected rate_limited error code, got {result['data'].get('code')!r}"
-    )
+    ), f"expected rate_limited error code, got {result['data'].get('code')!r}"
     assert "message" in result["data"], "rate_limited error must include a message"
 
 

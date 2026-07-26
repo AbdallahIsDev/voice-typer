@@ -170,33 +170,23 @@ class TestTY18MicLevelPublishedWhenActive:
             expected=1,
             timeout=2.0,
         )
-        assert ok, (
-            f"TY-18: a single chunk must produce a mic_level event; "
-            f"captured={captured}"
-        )
+        assert ok, f"TY-18: a single chunk must produce a mic_level event; captured={captured}"
 
         mic_level_events = [e for e in captured if e.get("type") == "mic_level"]
         evt = mic_level_events[0]
         # Payload shape: {type, data: {level, peak, active}}.
-        assert "data" in evt, (
-            f"TY-18: mic_level event must have a 'data' field; got {evt}"
-        )
+        assert "data" in evt, f"TY-18: mic_level event must have a 'data' field; got {evt}"
         data = evt["data"]
         assert "level" in data, f"TY-18: data.level missing; got {data}"
         assert "peak" in data, f"TY-18: data.peak missing; got {data}"
         assert "active" in data, f"TY-18: data.active missing; got {data}"
         # active must reflect _monitor_active (True when monitoring).
         assert data["active"] is True, (
-            f"TY-18: data.active must be True when monitoring is active; "
-            f"got {data['active']}"
+            f"TY-18: data.active must be True when monitoring is active; got {data['active']}"
         )
         # level/peak are floats.
-        assert isinstance(data["level"], float), (
-            f"TY-18: data.level must be a float; got {type(data['level'])}"
-        )
-        assert isinstance(data["peak"], float), (
-            f"TY-18: data.peak must be a float; got {type(data['peak'])}"
-        )
+        assert isinstance(data["level"], float), f"TY-18: data.level must be a float; got {type(data['level'])}"
+        assert isinstance(data["peak"], float), f"TY-18: data.peak must be a float; got {type(data['peak'])}"
 
         lm.stop_monitoring()
 
@@ -227,12 +217,10 @@ class TestTY18MicLevelPublishedWhenActive:
         expected_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
         expected_peak = max(float(flat.max()), -float(flat.min()))
         assert abs(evt["data"]["level"] - expected_rms) < 1e-6, (
-            f"TY-18: data.level {evt['data']['level']} != expected "
-            f"rms {expected_rms}"
+            f"TY-18: data.level {evt['data']['level']} != expected rms {expected_rms}"
         )
         assert abs(evt["data"]["peak"] - expected_peak) < 1e-6, (
-            f"TY-18: data.peak {evt['data']['peak']} != expected "
-            f"peak {expected_peak}"
+            f"TY-18: data.peak {evt['data']['peak']} != expected peak {expected_peak}"
         )
 
         lm.stop_monitoring()
@@ -266,8 +254,7 @@ class TestTY18MicLevelNotPublishedWhenInactive:
         time.sleep(0.1)
         mic_level_events = [e for e in captured if e.get("type") == "mic_level"]
         assert len(mic_level_events) == 0, (
-            f"TY-18: mic_level must NOT be published when monitoring is "
-            f"inactive; got {mic_level_events}"
+            f"TY-18: mic_level must NOT be published when monitoring is inactive; got {mic_level_events}"
         )
 
     def test_no_mic_level_after_stop_monitoring(self, monkeypatch):
@@ -287,8 +274,7 @@ class TestTY18MicLevelNotPublishedWhenInactive:
 
         mic_level_events = [e for e in captured if e.get("type") == "mic_level"]
         assert len(mic_level_events) == 0, (
-            f"TY-18: mic_level must NOT be published after stop_monitoring; "
-            f"got {mic_level_events}"
+            f"TY-18: mic_level must NOT be published after stop_monitoring; got {mic_level_events}"
         )
 
 
@@ -339,15 +325,11 @@ class TestTY18Coalescing30Hz:
         # First call passes the gate.
         lm._push_mic_level(0.5, 0.7, True)
         first_qsize = len(lm._mic_level_queue)
-        assert first_qsize == 1, (
-            f"TY-18: first call must enqueue; got qsize={first_qsize}"
-        )
+        assert first_qsize == 1, f"TY-18: first call must enqueue; got qsize={first_qsize}"
 
         # Immediate second call is suppressed.
         lm._push_mic_level(0.5, 0.7, True)
-        assert len(lm._mic_level_queue) == 1, (
-            "TY-18: second call within coalesce window must be suppressed"
-        )
+        assert len(lm._mic_level_queue) == 1, "TY-18: second call within coalesce window must be suppressed"
 
         # Sleep past the 30 Hz window (33.3ms) + margin.
         time.sleep(lm._MIC_LEVEL_COALESCE_SEC + 0.005)
@@ -355,8 +337,7 @@ class TestTY18Coalescing30Hz:
         # Third call passes the gate again.
         lm._push_mic_level(0.5, 0.7, True)
         assert len(lm._mic_level_queue) == 2, (
-            f"TY-18: call after coalesce window must enqueue; "
-            f"got qsize={len(lm._mic_level_queue)}"
+            f"TY-18: call after coalesce window must enqueue; got qsize={len(lm._mic_level_queue)}"
         )
 
     def test_coalesced_rate_under_load(self, monkeypatch):
@@ -411,9 +392,7 @@ class TestTY18WorkerLifecycle:
         assert lm._mic_level_worker_thread is None, "fixture: worker not running"
 
         lm.start_monitoring(mic_id=None)
-        assert lm._mic_level_worker_thread is not None, (
-            "TY-18: start_monitoring must start the mic_level push worker"
-        )
+        assert lm._mic_level_worker_thread is not None, "TY-18: start_monitoring must start the mic_level push worker"
         assert lm._mic_level_worker_thread.is_alive(), (
             "TY-18: mic_level push worker must be alive after start_monitoring"
         )
@@ -429,14 +408,10 @@ class TestTY18WorkerLifecycle:
         thread_ref = lm._mic_level_worker_thread
         lm.stop_monitoring()
 
-        assert lm._mic_level_worker_thread is None, (
-            "TY-18: stop_monitoring must clear _mic_level_worker_thread"
-        )
+        assert lm._mic_level_worker_thread is None, "TY-18: stop_monitoring must clear _mic_level_worker_thread"
         # The thread should have exited (joined with timeout=1.0).
         if thread_ref is not None:
-            assert not thread_ref.is_alive(), (
-                "TY-18: mic_level push worker must be stopped after stop_monitoring"
-            )
+            assert not thread_ref.is_alive(), "TY-18: mic_level push worker must be stopped after stop_monitoring"
 
     def test_worker_idempotent_restart(self, monkeypatch):
         """Calling ``_ensure_mic_level_worker_running`` twice doesn't

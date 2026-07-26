@@ -73,9 +73,7 @@ class TestWsDispatchPoolDrain:
 
         # Mirror the production pattern from shutdown_controller._do_cleanup.
         pool.shutdown(wait=False, cancel_futures=True)
-        join_thread = threading.Thread(
-            target=pool.shutdown, kwargs={"wait": True}, daemon=True
-        )
+        join_thread = threading.Thread(target=pool.shutdown, kwargs={"wait": True}, daemon=True)
         join_thread.start()
         join_thread.join(timeout=5.0)
 
@@ -83,13 +81,9 @@ class TestWsDispatchPoolDrain:
 
         # The 2s handler should drain well within the 5s deadline.
         assert not join_thread.is_alive(), (
-            f"YJ-20: ws_dispatch_pool drain did not complete in 5s "
-            f"(elapsed={elapsed:.2f}s) — join_thread still alive"
+            f"YJ-20: ws_dispatch_pool drain did not complete in 5s (elapsed={elapsed:.2f}s) — join_thread still alive"
         )
-        assert elapsed < 6.0, (
-            f"YJ-20: pool drain took {elapsed:.2f}s — must be < 6s "
-            f"(5s deadline + 1s slack)"
-        )
+        assert elapsed < 6.0, f"YJ-20: pool drain took {elapsed:.2f}s — must be < 6s (5s deadline + 1s slack)"
 
         # The handler's result is still delivered (the in-flight task
         # was allowed to finish, not killed mid-execution).
@@ -115,9 +109,7 @@ class TestWsDispatchPoolDrain:
         start = time.monotonic()
 
         pool.shutdown(wait=False, cancel_futures=True)
-        join_thread = threading.Thread(
-            target=pool.shutdown, kwargs={"wait": True}, daemon=True
-        )
+        join_thread = threading.Thread(target=pool.shutdown, kwargs={"wait": True}, daemon=True)
         join_thread.start()
         join_thread.join(timeout=1.0)  # Use a SHORT deadline so the test is fast.
 
@@ -125,8 +117,7 @@ class TestWsDispatchPoolDrain:
 
         # The join thread is still alive — the 10s handler hasn't finished.
         assert join_thread.is_alive(), (
-            f"YJ-20: join_thread should still be alive after 1s deadline "
-            f"(elapsed={elapsed:.2f}s) — handler sleeps 10s"
+            f"YJ-20: join_thread should still be alive after 1s deadline (elapsed={elapsed:.2f}s) — handler sleeps 10s"
         )
 
         # Mirror the production warning emission.
@@ -136,9 +127,9 @@ class TestWsDispatchPoolDrain:
                     "[SHUTDOWN] ws_dispatch_pool did not drain in 5s — proceeding anyway"
                 )
 
-        assert any(
-            "ws_dispatch_pool did not drain" in r.message for r in caplog.records
-        ), "YJ-20: warning must be emitted when the drain deadline is exceeded"
+        assert any("ws_dispatch_pool did not drain" in r.message for r in caplog.records), (
+            "YJ-20: warning must be emitted when the drain deadline is exceeded"
+        )
 
         # NOTE: we deliberately leak the very_sleepy_handler's worker
         # thread — it's a daemon, so it won't block process exit. We
@@ -155,18 +146,14 @@ class TestWsDispatchPoolDrain:
         start = time.monotonic()
 
         pool.shutdown(wait=False, cancel_futures=True)
-        join_thread = threading.Thread(
-            target=pool.shutdown, kwargs={"wait": True}, daemon=True
-        )
+        join_thread = threading.Thread(target=pool.shutdown, kwargs={"wait": True}, daemon=True)
         join_thread.start()
         join_thread.join(timeout=5.0)
 
         elapsed = time.monotonic() - start
 
         assert not join_thread.is_alive()
-        assert elapsed < 1.0, (
-            f"YJ-20: idle pool drain should complete in < 1s; took {elapsed:.2f}s"
-        )
+        assert elapsed < 1.0, f"YJ-20: idle pool drain should complete in < 1s; took {elapsed:.2f}s"
 
     def test_pool_drain_cancels_queued_futures(self):
         """``cancel_futures=True`` cancels QUEUED (not-yet-started) tasks.
@@ -281,9 +268,7 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
     the mutation is detected.
     """
 
-    def test_do_cleanup_drains_ws_pool_via_production_path(
-        self, caplog, _stub_shutdown_environment
-    ):
+    def test_do_cleanup_drains_ws_pool_via_production_path(self, caplog, _stub_shutdown_environment):
         """YJ-20 production-path regression.
 
         Test plan:
@@ -358,9 +343,7 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         # (c)(2) Capture WARNING+ logs from the shutdown_controller logger.
         # ``caplog.at_level`` sets the level AND captures records at that
         # level for the specified logger.
-        with caplog.at_level(
-            logging.WARNING, logger="voice_typer.server.shutdown_controller"
-        ):
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.shutdown_controller"):
             controller._do_cleanup()
 
         do_cleanup_elapsed = time.monotonic() - do_cleanup_start
@@ -422,9 +405,7 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         # exactly once (the production code path invokes each subsystem
         # teardown exactly once per _do_cleanup call).
         for step in ("recorder.stop", "crash_recovery.flush", "history_db.flush"):
-            assert step in call_times, (
-                f"YJ-20: {step} must be called exactly once by _do_cleanup"
-            )
+            assert step in call_times, f"YJ-20: {step} must be called exactly once by _do_cleanup"
 
         # NOTE: the sleepy_handler's worker thread is still alive after
         # _do_cleanup returns (it sleeps 6s total; only ~5s elapsed

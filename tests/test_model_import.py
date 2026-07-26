@@ -90,12 +90,8 @@ class TestImportModelHappyPath:
         src_dir = tmp_path / "source"
         src_dir.mkdir()
 
-        tiny_dir = _make_model_cache_dir(
-            src_dir, "Systran/faster-whisper-tiny.en"
-        )
-        small_dir = _make_model_cache_dir(
-            src_dir, "Systran/faster-whisper-small.en"
-        )
+        tiny_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-tiny.en")
+        small_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-small.en")
 
         # Mock tray cache invalidation so it doesn't fail
         monkeypatch.setattr(
@@ -106,23 +102,13 @@ class TestImportModelHappyPath:
         result = service.import_model(str(src_dir))
 
         assert result["success"] is True
-        assert "tiny.en" in result["imported"], (
-            f"Expected tiny.en to be imported, got {result['imported']}"
-        )
-        assert "small.en" in result["imported"], (
-            f"Expected small.en to be imported, got {result['imported']}"
-        )
-        assert len(result["errors"]) == 0, (
-            f"Expected no errors, got {result['errors']}"
-        )
+        assert "tiny.en" in result["imported"], f"Expected tiny.en to be imported, got {result['imported']}"
+        assert "small.en" in result["imported"], f"Expected small.en to be imported, got {result['imported']}"
+        assert len(result["errors"]) == 0, f"Expected no errors, got {result['errors']}"
 
         # Verify the files were actually copied
-        assert (app_hf / tiny_dir.name).exists(), (
-            f"tiny.en cache dir not found at {app_hf / tiny_dir.name}"
-        )
-        assert (app_hf / small_dir.name).exists(), (
-            f"small.en cache dir not found at {app_hf / small_dir.name}"
-        )
+        assert (app_hf / tiny_dir.name).exists(), f"tiny.en cache dir not found at {app_hf / tiny_dir.name}"
+        assert (app_hf / small_dir.name).exists(), f"small.en cache dir not found at {app_hf / small_dir.name}"
         # Verify content was copied (the .no_exist placeholder)
         assert (app_hf / tiny_dir.name / ".no_exist").read_text() == "placeholder"
 
@@ -194,9 +180,7 @@ class TestImportModelEdgeCases:
         assert result["found"] == []
         assert result["errors"] == []
 
-    def test_selected_dir_is_itself_a_model_cache_dir(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_selected_dir_is_itself_a_model_cache_dir(self, service, tmp_path, monkeypatch):
         """User selects a ``models--Systran--faster-whisper-tiny.en`` directory
         directly (not its parent)."""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
@@ -208,9 +192,7 @@ class TestImportModelEdgeCases:
         # Create a model cache dir outside the app's cache
         src_parent = tmp_path / "portable_models"
         src_parent.mkdir()
-        model_dir = _make_model_cache_dir(
-            src_parent, "Systran/faster-whisper-tiny.en"
-        )
+        model_dir = _make_model_cache_dir(src_parent, "Systran/faster-whisper-tiny.en")
 
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
@@ -262,9 +244,8 @@ class TestImportModelEdgeCases:
         assert not (app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "old_version_marker.txt").exists()
         # The new content should be present
         assert (
-            (app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "new_version.txt").read_text()
-            == "this is the new version"
-        )
+            app_hf / _hf_cache_dir_name("Systran/faster-whisper-tiny.en") / "new_version.txt"
+        ).read_text() == "this is the new version"
 
     def test_permission_denied_on_scan(self, service, tmp_path, monkeypatch):
         """Simulate a PermissionError when reading the source directory."""
@@ -337,9 +318,7 @@ class TestImportModelEdgeCases:
         assert result["errors"][0]["model"] == "small.en"
         assert "Disk full" in result["errors"][0]["error"]
 
-    def test_tray_cache_invalidated_on_success(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_tray_cache_invalidated_on_success(self, service, tmp_path, monkeypatch):
         """When at least one model is imported, the tray models cache
         must be invalidated."""
         # Track whether invalidate was called
@@ -365,13 +344,9 @@ class TestImportModelEdgeCases:
 
         assert result["success"] is True
         assert "tiny.en" in result["imported"]
-        assert invalidate_called[0], (
-            "tray cache invalidation should have been called"
-        )
+        assert invalidate_called[0], "tray cache invalidation should have been called"
 
-    def test_tray_cache_not_invalidated_on_no_imports(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_tray_cache_not_invalidated_on_no_imports(self, service, tmp_path, monkeypatch):
         """No models imported → tray cache must NOT be invalidated."""
         invalidate_called = [False]
 
@@ -395,17 +370,14 @@ class TestImportModelEdgeCases:
         assert result["success"] is True
         assert result["imported"] == []
         assert not invalidate_called[0], (
-            "tray cache invalidation should NOT have been called when "
-            "no models were imported"
+            "tray cache invalidation should NOT have been called when no models were imported"
         )
 
 
 class TestImportModelIntegration:
     """Tests that exercise the full import_model path end-to-end."""
 
-    def test_import_creates_app_cache_dir_if_missing(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_import_creates_app_cache_dir_if_missing(self, service, tmp_path, monkeypatch):
         """The app's HF cache dir doesn't exist before the call;
         import_model must create it."""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
@@ -431,13 +403,9 @@ class TestImportModelIntegration:
         assert result["success"] is True
         assert "tiny.en" in result["imported"]
         # The app cache dir should have been created
-        assert app_hf.exists(), (
-            "import_model should create the app's HF cache dir if missing"
-        )
+        assert app_hf.exists(), "import_model should create the app's HF cache dir if missing"
 
-    def test_found_includes_all_matched_models(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_found_includes_all_matched_models(self, service, tmp_path, monkeypatch):
         """``found`` list includes all models matched in the registry,
         even if some fail to import."""
         monkeypatch.setattr(
@@ -487,27 +455,23 @@ class TestImportModelProtocolDrift:
         """``ServiceProtocol`` must declare ``import_model`` so the
         protocol-drift detection test passes."""
         from voice_typer.server.providers import ServiceProtocol
-        assert hasattr(ServiceProtocol, "import_model"), (
-            "ServiceProtocol must declare import_model method"
-        )
+
+        assert hasattr(ServiceProtocol, "import_model"), "ServiceProtocol must declare import_model method"
 
     def test_service_has_import_model_method(self):
         """``VoiceTyperService`` has the ``import_model`` method."""
         from voice_typer.server.service import VoiceTyperService
-        assert hasattr(VoiceTyperService, "import_model"), (
-            "VoiceTyperService must have import_model method"
-        )
+
+        assert hasattr(VoiceTyperService, "import_model"), "VoiceTyperService must have import_model method"
 
     def test_ipc_registers_import_model_command(self):
         """``IPCServer._COMMAND_REGISTRY`` includes ``import_model``."""
         from voice_typer.server.ipc_server import IPCServer
-        assert "import_model" in IPCServer._COMMAND_REGISTRY, (
-            "IPC _COMMAND_REGISTRY must include import_model"
-        )
+
+        assert "import_model" in IPCServer._COMMAND_REGISTRY, "IPC _COMMAND_REGISTRY must include import_model"
 
     def test_ipc_has_import_model_handler(self):
         """``IPCServer`` has ``_handle_import_model`` handler."""
         from voice_typer.server.ipc_server import IPCServer
-        assert hasattr(IPCServer, "_handle_import_model"), (
-            "IPCServer must have _handle_import_model method"
-        )
+
+        assert hasattr(IPCServer, "_handle_import_model"), "IPCServer must have _handle_import_model method"

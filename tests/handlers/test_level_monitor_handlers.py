@@ -50,9 +50,7 @@ class TestLevelMonitorStart:
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
-    def test_consent_missing_returns_consent_required_envelope(
-        self, ipc_server, fake_service, fake_app
-    ):
+    def test_consent_missing_returns_consent_required_envelope(self, ipc_server, fake_service, fake_app):
         """XZ-PRIV-03: ``voice_biometric_consent=False`` → ``client.consent_required``.
 
         The level monitor opens an InputStream that captures audio at
@@ -74,9 +72,7 @@ class TestLevelMonitorStart:
         # the validation/dispatch block.
         fake_service.level_monitor_start.assert_not_called()
 
-    def test_consent_present_proceeds_to_service(
-        self, ipc_server, fake_service, fake_app
-    ):
+    def test_consent_present_proceeds_to_service(self, ipc_server, fake_service, fake_app):
         """XZ-PRIV-03: ``voice_biometric_consent=True`` → service is called.
 
         Positive-path regression: the consent gate must NOT block

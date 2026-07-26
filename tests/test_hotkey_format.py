@@ -57,7 +57,7 @@ TEST_CASES: list[tuple[str, str]] = [
     ("<super>+<space>", "Super+Space"),
     ("<alt_gr>+<e>", "AltGr+E"),
     ("<fn>", "Fn"),
-    ("<globe>", "\U0001F310"),  # 🌐
+    ("<globe>", "\U0001f310"),  # 🌐
     ("<ctrl>+<alt>+<f2>", "Ctrl+Alt+F2"),
     ("<shift>+<tab>", "Shift+Tab"),
     ("", "None"),  # Empty → "None" (matches TS behavior)
@@ -83,8 +83,7 @@ def test_format_hotkey_label_parity(hotkey: str, expected: str) -> None:
     """
     actual = format_hotkey_label(hotkey)
     assert actual == expected, (
-        f"format_hotkey_label({hotkey!r}) returned {actual!r}, "
-        f"expected {expected!r} (must match TS formatHotkeyLabel)"
+        f"format_hotkey_label({hotkey!r}) returned {actual!r}, expected {expected!r} (must match TS formatHotkeyLabel)"
     )
 
 

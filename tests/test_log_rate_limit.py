@@ -159,9 +159,7 @@ def test_suppressed_occurrence_renders_format_args():
     # %-format args.  The framework renders "chunk 7 failed (suppressed
     # occurrence 2)" only if DEBUG is enabled.
     log_rate_limited(logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True)
-    logger.debug.assert_called_once_with(
-        "chunk %d failed (suppressed occurrence %d)", 7, 2
-    )
+    logger.debug.assert_called_once_with("chunk %d failed (suppressed occurrence %d)", 7, 2)
 
 
 def test_suppressed_occurrence_no_args_uses_literal_substitution():
@@ -533,8 +531,7 @@ class TestGt66PeriodicInfoSummary:
         # if production code reverts to ``%r``, pinning the YJ-45 fix.
         assert msg in msg_text, f"expected counter key {msg!r} in summary; got {msg_text!r}"
         assert repr(msg) not in msg_text, (
-            f"YJ-45 regression: log line contains repr() quotes "
-            f"(production code reverted %s → %r): {msg_text!r}"
+            f"YJ-45 regression: log line contains repr() quotes (production code reverted %s → %r): {msg_text!r}"
         )
         assert "in last 60s" in msg_text
 
@@ -658,12 +655,8 @@ class TestGt66PeriodicInfoSummary:
         # key appears in the message WITHOUT repr() quotes. Pin the fix
         # with both a positive (``msg in m``) and negative
         # (``repr(msg) not in m``) check per key.
-        assert any(msg_a in m for m in summary_msgs), (
-            f"key A summary missing; got: {summary_msgs!r}"
-        )
-        assert any(msg_b in m for m in summary_msgs), (
-            f"key B summary missing; got: {summary_msgs!r}"
-        )
+        assert any(msg_a in m for m in summary_msgs), f"key A summary missing; got: {summary_msgs!r}"
+        assert any(msg_b in m for m in summary_msgs), f"key B summary missing; got: {summary_msgs!r}"
         assert all(repr(msg_a) not in m for m in summary_msgs if msg_a in m), (
             f"YJ-45 regression: key A summary line contains repr() quotes "
             f"(production code reverted %s → %r): {summary_msgs!r}"

@@ -145,6 +145,7 @@ class TestLlmPolishFailureLogRedactsException:
         app.config.llm_polish_consent = True
 
         bearer = "Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890"
+
         class _BoomError(Exception):
             pass
 

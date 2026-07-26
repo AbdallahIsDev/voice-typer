@@ -55,6 +55,7 @@ def _make_model_cache_dir(parent: Path, repo_id: str) -> Path:
 def service():
     """Build a VoiceTyperService with a mock app for import_model tests."""
     from voice_typer.server.service import VoiceTyperService
+
     return VoiceTyperService(MagicMock())
 
 
@@ -86,6 +87,7 @@ class TestImportPathValidation:
         # ``_validate_import_path`` does ``import tempfile`` locally, so
         # we patch the global ``tempfile.gettempdir``.
         import tempfile as _tempfile_mod
+
         monkeypatch.setattr(_tempfile_mod, "gettempdir", lambda: str(fake_temp))
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.delenv("HF_HOME", raising=False)
@@ -109,6 +111,7 @@ class TestImportPathValidation:
 
         monkeypatch.setattr(cfg.Path, "home", lambda: fake_home)
         import tempfile as _tempfile_mod
+
         monkeypatch.setattr(_tempfile_mod, "gettempdir", lambda: str(fake_temp))
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.delenv("HF_HOME", raising=False)
@@ -132,6 +135,7 @@ class TestImportPathValidation:
 
         monkeypatch.setattr(cfg.Path, "home", lambda: fake_home)
         import tempfile as _tempfile_mod
+
         monkeypatch.setattr(_tempfile_mod, "gettempdir", lambda: str(fake_temp))
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.delenv("HF_HOME", raising=False)
@@ -155,6 +159,7 @@ class TestImportPathValidation:
 
         monkeypatch.setattr(cfg.Path, "home", lambda: fake_home)
         import tempfile as _tempfile_mod
+
         monkeypatch.setattr(_tempfile_mod, "gettempdir", lambda: str(fake_temp))
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.delenv("HF_HOME", raising=False)
@@ -180,6 +185,7 @@ class TestImportPathValidation:
 
         monkeypatch.setattr(cfg.Path, "home", lambda: fake_home)
         import tempfile as _tempfile_mod
+
         monkeypatch.setattr(_tempfile_mod, "gettempdir", lambda: str(fake_temp))
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.setenv("HF_HOME", str(fake_hf_home))
@@ -207,6 +213,7 @@ class TestImportPathValidation:
 
         monkeypatch.setattr(cfg.Path, "home", lambda: fake_home)
         import tempfile as _tempfile_mod
+
         monkeypatch.setattr(_tempfile_mod, "gettempdir", lambda: str(fake_temp))
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.delenv("HF_HOME", raising=False)
@@ -231,9 +238,7 @@ class TestImportPathValidationHandler:
     handlers package can resolve its dependencies.
     """
 
-    def test_handler_rejects_bad_path_with_error_response(
-        self, tmp_path, monkeypatch
-    ):
+    def test_handler_rejects_bad_path_with_error_response(self, tmp_path, monkeypatch):
         """End-to-end: ``_handle_import_model`` returns an error response
         for paths outside the allowed roots, without calling
         ``service.import_model``."""
@@ -253,6 +258,7 @@ class TestImportPathValidationHandler:
 
         monkeypatch.setattr(cfg.Path, "home", lambda: fake_home)
         import tempfile as _tempfile_mod
+
         monkeypatch.setattr(_tempfile_mod, "gettempdir", lambda: str(fake_temp))
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.delenv("HF_HOME", raising=False)
@@ -268,17 +274,13 @@ class TestImportPathValidationHandler:
 
         result = stub._handle_import_model({"dir_path": bad_path}, resp)
 
-        assert result["type"] == "error", (
-            f"Expected error response, got {result}"
-        )
+        assert result["type"] == "error", f"Expected error response, got {result}"
         assert "outside the allowed roots" in result["data"]["message"]
         # service.import_model must NOT have been called — the handler
         # short-circuits on validation failure.
         stub.service.import_model.assert_not_called()
 
-    def test_handler_accepts_path_under_home(
-        self, tmp_path, monkeypatch
-    ):
+    def test_handler_accepts_path_under_home(self, tmp_path, monkeypatch):
         """End-to-end: ``_handle_import_model`` accepts a path under home
         and delegates to ``service.import_model``."""
         # Prime the circular import.
@@ -295,6 +297,7 @@ class TestImportPathValidationHandler:
 
         monkeypatch.setattr(cfg.Path, "home", lambda: fake_home)
         import tempfile as _tempfile_mod
+
         monkeypatch.setattr(_tempfile_mod, "gettempdir", lambda: str(fake_temp))
         monkeypatch.setattr(cfg, "_config_dir", lambda: fake_cache_root)
         monkeypatch.delenv("HF_HOME", raising=False)
@@ -331,14 +334,10 @@ class TestImportModelSymlinkRejection:
     """RW-5: ``import_model`` refuses to copy a model cache that contains
     symlinks."""
 
-    def test_rejects_model_dir_with_symlinked_file(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_rejects_model_dir_with_symlinked_file(self, service, tmp_path, monkeypatch):
         """A model cache dir containing a symlink to an external file
         must be REJECTED — not silently copied into the app cache."""
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf"
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf")
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
             lambda: None,
@@ -364,8 +363,7 @@ class TestImportModelSymlinkRejection:
         # is reported in errors and NOT in imported.
         assert result["success"] is True
         assert "tiny.en" not in result["imported"], (
-            "Model containing a symlink must NOT be imported — "
-            f"got imported={result['imported']}"
+            f"Model containing a symlink must NOT be imported — got imported={result['imported']}"
         )
         assert len(result["errors"]) == 1
         assert result["errors"][0]["model"] == "tiny.en"
@@ -373,19 +371,13 @@ class TestImportModelSymlinkRejection:
 
         # The destination must NOT exist in the app's cache.
         dest = tmp_path / "app_hf" / "huggingface" / "hub" / model_dir.name
-        assert not dest.exists(), (
-            "Destination dir must not be created when a symlink is detected"
-        )
+        assert not dest.exists(), "Destination dir must not be created when a symlink is detected"
 
-    def test_rejects_model_dir_with_symlinked_subdir(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_rejects_model_dir_with_symlinked_subdir(self, service, tmp_path, monkeypatch):
         """A symlinked subdirectory inside the model cache must also be
         rejected (os.walk's default ``followlinks=False`` lists symlinked
         dirs in ``dirnames`` — the check must catch them)."""
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf"
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf")
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
             lambda: None,
@@ -412,16 +404,12 @@ class TestImportModelSymlinkRejection:
         assert result["errors"][0]["model"] == "tiny.en"
         assert "symlink" in result["errors"][0]["error"].lower()
 
-    def test_rejects_symlink_to_etc_hostname(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_rejects_symlink_to_etc_hostname(self, service, tmp_path, monkeypatch):
         """The exact attack scenario from the RW-5 brief: a symlink to
         ``/etc/hostname`` (a canonical "sensitive file" target).  The
         import must be rejected, and the destination must not contain a
         copy of /etc/hostname's contents."""
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf"
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf")
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
             lambda: None,
@@ -458,15 +446,11 @@ class TestImportModelSymlinkRejection:
         dest = tmp_path / "app_hf" / "huggingface" / "hub" / model_dir.name
         assert not dest.exists()
 
-    def test_legitimate_model_dir_imports_successfully(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_legitimate_model_dir_imports_successfully(self, service, tmp_path, monkeypatch):
         """False-positive guard: a model dir with NO symlinks must
         import normally.  This catches regressions where the symlink
         check is too aggressive."""
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf"
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf")
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
             lambda: None,
@@ -482,9 +466,7 @@ class TestImportModelSymlinkRejection:
 
         assert result["success"] is True
         assert "tiny.en" in result["imported"]
-        assert len(result["errors"]) == 0, (
-            f"Expected no errors for legitimate import, got {result['errors']}"
-        )
+        assert len(result["errors"]) == 0, f"Expected no errors for legitimate import, got {result['errors']}"
 
         # Verify the files were actually copied.
         dest = tmp_path / "app_hf" / "huggingface" / "hub" / model_dir.name
@@ -492,15 +474,11 @@ class TestImportModelSymlinkRejection:
         assert (dest / ".no_exist").read_text() == "placeholder"
         assert (dest / "config.json").read_text() == '{"model_type": "test"}'
 
-    def test_mixed_symlink_and_clean_models(
-        self, service, tmp_path, monkeypatch
-    ):
+    def test_mixed_symlink_and_clean_models(self, service, tmp_path, monkeypatch):
         """When the source dir contains both a poisoned model (with a
         symlink) and a clean model, the clean one must still import
         successfully while the poisoned one is rejected."""
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf"
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path / "app_hf")
         monkeypatch.setattr(
             "voice_typer.server.tray_models.invalidate_model_availability_cache",
             lambda: None,
@@ -548,6 +526,7 @@ class TestIsPathWithin:
 
     def test_descendant_is_within(self, tmp_path):
         from voice_typer.server.config import _is_path_within
+
         parent = tmp_path
         child = tmp_path / "sub" / "dir"
         child.mkdir(parents=True)
@@ -555,10 +534,12 @@ class TestIsPathWithin:
 
     def test_same_path_is_within(self, tmp_path):
         from voice_typer.server.config import _is_path_within
+
         assert _is_path_within(tmp_path, tmp_path) is True
 
     def test_sibling_is_not_within(self, tmp_path):
         from voice_typer.server.config import _is_path_within
+
         a = tmp_path / "a"
         b = tmp_path / "b"
         a.mkdir()
@@ -569,6 +550,7 @@ class TestIsPathWithin:
         """``/home/userX`` must NOT be considered within ``/home/user``
         — a naive ``str.startswith`` would incorrectly accept it."""
         from voice_typer.server.config import _is_path_within
+
         user = tmp_path / "user"
         user.mkdir()
         user_x = tmp_path / "userX"
@@ -579,6 +561,7 @@ class TestIsPathWithin:
         """``parent/sub/../sub`` resolves to ``parent/sub`` and is
         therefore within ``parent``."""
         from voice_typer.server.config import _is_path_within
+
         sub = tmp_path / "sub"
         sub.mkdir()
         dotted = tmp_path / "sub" / ".." / "sub"
@@ -586,6 +569,7 @@ class TestIsPathWithin:
 
     def test_parent_is_not_within_child(self, tmp_path):
         from voice_typer.server.config import _is_path_within
+
         child = tmp_path / "child"
         child.mkdir()
         assert _is_path_within(tmp_path, child) is False

@@ -33,10 +33,7 @@ class TestCleanTranscribedText:
 
     def test_collapses_high_confidence_whisper_duplicates(self):
         assert clean_transcribed_text("hello hello world") == "Hello world"
-        assert (
-            clean_transcribed_text("open settings open settings now")
-            == "Open settings now"
-        )
+        assert clean_transcribed_text("open settings open settings now") == "Open settings now"
 
     def test_removes_adjacent_duplicate_short_phrases(self):
         text = "right now right now I want to test this"
@@ -157,6 +154,7 @@ class TestExternalCorrectionsFallback:
     def test_load_external_corrections_returns_none_when_no_file(self, tmp_path, monkeypatch):
         """When no corrections file exists, _load_external_corrections returns None."""
         from voice_typer.server import text_cleanup
+
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = text_cleanup._load_external_corrections(config_dir=tmp_path)
         assert result is None
@@ -164,6 +162,7 @@ class TestExternalCorrectionsFallback:
     def test_load_external_corrections_returns_none_when_no_config_dir(self, monkeypatch):
         """When config_dir is None and corrections_path is None, returns None."""
         from voice_typer.server import text_cleanup
+
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", text_cleanup.Path("/nonexistent.json"))
         result = text_cleanup._load_external_corrections(config_dir=None, corrections_path=None)
         assert result is None
@@ -173,12 +172,17 @@ class TestExternalCorrectionsFallback:
         import json
 
         from voice_typer.server import text_cleanup
+
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         corrections_file = tmp_path / "voice-typer-corrections.json"
-        corrections_file.write_text(json.dumps({
-            "misspellings": {"fakespeling": "realword"},
-            "phrase_corrections": [["bad phrase", "good phrase"]],
-        }))
+        corrections_file.write_text(
+            json.dumps(
+                {
+                    "misspellings": {"fakespeling": "realword"},
+                    "phrase_corrections": [["bad phrase", "good phrase"]],
+                }
+            )
+        )
         result = text_cleanup._load_external_corrections(config_dir=tmp_path)
         assert result is not None
         misspellings, phrase_corrections, extra_word_patterns = result
@@ -187,6 +191,7 @@ class TestExternalCorrectionsFallback:
     def test_load_external_corrections_returns_none_on_invalid_path(self, tmp_path, monkeypatch):
         """When corrections_path points to a non-existent file, returns None."""
         from voice_typer.server import text_cleanup
+
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = text_cleanup._load_external_corrections(corrections_path="/nonexistent/file.json")
         assert result is None
@@ -201,10 +206,15 @@ class TestExternalCorrectionsFallback:
         import json
 
         from voice_typer.server.text_cleanup import configure_corrections
+
         corrections_file = tmp_path / "voice-typer-corrections.json"
-        corrections_file.write_text(json.dumps({
-            "misspellings": {"customerr": "customer"},
-        }))
+        corrections_file.write_text(
+            json.dumps(
+                {
+                    "misspellings": {"customerr": "customer"},
+                }
+            )
+        )
         configure_corrections(config_dir=tmp_path)
         result = clean_transcribed_text("customerr infestigate this")
         # Both custom and built-in corrections should be applied
@@ -256,12 +266,14 @@ class TestConfigureCorrectionsSurfacesLoadErrors:
     def test_returns_none_when_no_user_file(self, tmp_path):
         """No user corrections file → None (no error)."""
         from voice_typer.server.text_cleanup import configure_corrections
+
         result = configure_corrections(config_dir=tmp_path)
         assert result is None
 
     def test_returns_error_for_malformed_json(self, tmp_path):
         """Malformed user corrections file → error message string."""
         from voice_typer.server.text_cleanup import configure_corrections
+
         bad_file = tmp_path / "voice-typer-corrections.json"
         bad_file.write_text("{ this is not valid json", encoding="utf-8")
         result = configure_corrections(config_dir=tmp_path)
@@ -273,6 +285,7 @@ class TestConfigureCorrectionsSurfacesLoadErrors:
         import json
 
         from voice_typer.server.text_cleanup import configure_corrections
+
         good_file = tmp_path / "voice-typer-corrections.json"
         good_file.write_text(json.dumps({"misspellings": {"teh": "the"}}), encoding="utf-8")
         result = configure_corrections(config_dir=tmp_path)
@@ -281,6 +294,7 @@ class TestConfigureCorrectionsSurfacesLoadErrors:
     def test_returns_error_for_empty_file(self, tmp_path):
         """Empty file → error (not valid JSON)."""
         from voice_typer.server.text_cleanup import configure_corrections
+
         empty_file = tmp_path / "voice-typer-corrections.json"
         empty_file.write_text("", encoding="utf-8")
         result = configure_corrections(config_dir=tmp_path)
@@ -368,56 +382,71 @@ class TestTextCleanupEdgeCases:
 class TestTextCleanupParametrized:
     """TEST-032: Use @pytest.mark.parametrize for multiple correction patterns."""
 
-    @pytest.mark.parametrize("input_text,expected_substring", [
-        ("infestigate", "Investigate"),
-        ("grammer", "Grammar"),
-        ("recieve", "Receive"),
-        ("occured", "Occurred"),
-        ("seperate", "Separate"),
-        ("definately", "Definitely"),
-        ("wierd", "Weird"),
-        ("thier", "Their"),
-        ("goverment", "Government"),
-        ("enviroment", "Environment"),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,expected_substring",
+        [
+            ("infestigate", "Investigate"),
+            ("grammer", "Grammar"),
+            ("recieve", "Receive"),
+            ("occured", "Occurred"),
+            ("seperate", "Separate"),
+            ("definately", "Definitely"),
+            ("wierd", "Weird"),
+            ("thier", "Their"),
+            ("goverment", "Government"),
+            ("enviroment", "Environment"),
+        ],
+    )
     def test_misspelling_corrections(self, input_text, expected_substring):
         """Common misspellings should be corrected."""
         result = clean_transcribed_text(input_text)
         assert expected_substring in result
 
-    @pytest.mark.parametrize("input_text,should_not_contain", [
-        ("hello hello", "hello hello"),
-        ("right now right now", "right now right now"),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,should_not_contain",
+        [
+            ("hello hello", "hello hello"),
+            ("right now right now", "right now right now"),
+        ],
+    )
     def test_duplicate_phrase_removal(self, input_text, should_not_contain):
         """Duplicate phrases should be removed."""
         result = clean_transcribed_text(input_text)
         assert should_not_contain not in result
 
-    @pytest.mark.parametrize("input_text,expected", [
-        ("hello , world", "Hello, world"),
-        ("hello ! test", "Hello! Test"),
-        ("hello ? world", "Hello? World"),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,expected",
+        [
+            ("hello , world", "Hello, world"),
+            ("hello ! test", "Hello! Test"),
+            ("hello ? world", "Hello? World"),
+        ],
+    )
     def test_punctuation_spacing_fixes(self, input_text, expected):
         """Punctuation spacing should be fixed."""
         result = clean_transcribed_text(input_text)
         assert result == expected
 
-    @pytest.mark.parametrize("input_text", [
-        "",
-        "   ",
-        "\n\t",
-    ])
+    @pytest.mark.parametrize(
+        "input_text",
+        [
+            "",
+            "   ",
+            "\n\t",
+        ],
+    )
     def test_empty_and_whitespace_inputs(self, input_text):
         """Empty and whitespace-only inputs should return empty string."""
         assert clean_transcribed_text(input_text) == ""
 
-    @pytest.mark.parametrize("input_text,expected", [
-        ("i am here", "I am here"),
-        ("it is good", "It is good"),
-        ("i think i know", "I think I know"),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,expected",
+        [
+            ("i am here", "I am here"),
+            ("it is good", "It is good"),
+            ("i think i know", "I think I know"),
+        ],
+    )
     def test_pronoun_i_capitalization(self, input_text, expected):
         """The pronoun 'I' should be capitalized."""
         result = clean_transcribed_text(input_text)
@@ -470,9 +499,14 @@ class TestCorruptionsRecoveryWithBuiltins:
         assert result1 is not None  # Should return error message
 
         # Now replace with valid file
-        corrections_file.write_text(json.dumps({
-            "misspellings": {"teh": "the"},
-        }), encoding="utf-8")
+        corrections_file.write_text(
+            json.dumps(
+                {
+                    "misspellings": {"teh": "the"},
+                }
+            ),
+            encoding="utf-8",
+        )
         result2 = configure_corrections(config_dir=tmp_path)
         assert result2 is None  # Should succeed now
 
@@ -517,39 +551,45 @@ class TestCorrectionsJsonIsValid:
 class TestTextCleanupUnicode:
     """TEST-008/TEST-021: Unicode edge case tests for text cleanup."""
 
-    @pytest.mark.parametrize("input_text,expected_in_output", [
-        # CJK characters
-        ("你好世界", "你好世界"),
-        ("hello 你好 world", "你好"),
-        ("こんにちは", "こんにちは"),
-        ("안녕하세요", "안녕하세요"),
-        # RTL text
-        ("مرحبا بالعالم", "مرحبا"),
-        ("שלום עולם", "שלום"),
-        # Emoji
-        ("hello 🌍 world", "🌍"),
-        ("🎉 celebration", "🎉"),
-        # Combining characters (e + combining acute accent)
-        ("cafe\u0301", "\u0301"),
-        # Zero-width characters (note: cleanup capitalizes first word)
-        ("hello\u200Bworld", "Hello"),
-        # Surrogate-safe: emoji with skin tone modifier
-        ("👍🏽 thumbs up", "👍🏽"),
-        # Mixed CJK and Latin with punctuation (note: cleanup capitalizes)
-        ("hello。world", "Hello"),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,expected_in_output",
+        [
+            # CJK characters
+            ("你好世界", "你好世界"),
+            ("hello 你好 world", "你好"),
+            ("こんにちは", "こんにちは"),
+            ("안녕하세요", "안녕하세요"),
+            # RTL text
+            ("مرحبا بالعالم", "مرحبا"),
+            ("שלום עולם", "שלום"),
+            # Emoji
+            ("hello 🌍 world", "🌍"),
+            ("🎉 celebration", "🎉"),
+            # Combining characters (e + combining acute accent)
+            ("cafe\u0301", "\u0301"),
+            # Zero-width characters (note: cleanup capitalizes first word)
+            ("hello\u200bworld", "Hello"),
+            # Surrogate-safe: emoji with skin tone modifier
+            ("👍🏽 thumbs up", "👍🏽"),
+            # Mixed CJK and Latin with punctuation (note: cleanup capitalizes)
+            ("hello。world", "Hello"),
+        ],
+    )
     def test_unicode_preserved(self, input_text, expected_in_output):
         """Unicode text should be preserved in output."""
         result = clean_transcribed_text(input_text)
         assert expected_in_output in result
 
-    @pytest.mark.parametrize("input_text", [
-        "",           # empty string
-        "   ",        # whitespace only
-        "\n\t\r",    # control characters
-        "a",          # single character
-        "a" * 10000,  # very long string
-    ])
+    @pytest.mark.parametrize(
+        "input_text",
+        [
+            "",  # empty string
+            "   ",  # whitespace only
+            "\n\t\r",  # control characters
+            "a",  # single character
+            "a" * 10000,  # very long string
+        ],
+    )
     def test_boundary_inputs_never_crash(self, input_text):
         """Boundary inputs should never crash clean_transcribed_text."""
         result = clean_transcribed_text(input_text)
@@ -558,6 +598,7 @@ class TestTextCleanupUnicode:
     def test_concurrent_cleanup_calls(self):
         """TEST-008: Concurrent calls to clean_transcribed_text should be safe."""
         import threading
+
         results = []
         errors = []
 
@@ -587,22 +628,28 @@ class TestTextCleanupUnicode:
 class TestTextCleanupAdditionalParametrized:
     """TEST-032: More parametrized tests to reach 30+ parametrize uses."""
 
-    @pytest.mark.parametrize("input_text,expected", [
-        ("hello. world", "Hello. World"),
-        ("this is it. and that", "This is it. And that"),
-        ("first. second. third.", "First. Second. Third."),
-        ("end. new start", "End. New start"),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,expected",
+        [
+            ("hello. world", "Hello. World"),
+            ("this is it. and that", "This is it. And that"),
+            ("first. second. third.", "First. Second. Third."),
+            ("end. new start", "End. New start"),
+        ],
+    )
     def test_sentence_capitalization_after_period(self, input_text, expected):
         """Sentences after periods should be capitalized."""
         result = clean_transcribed_text(input_text)
         assert result == expected
 
-    @pytest.mark.parametrize("input_text", [
-        "hello hello",
-        "right now right now go",
-        "open settings open settings now",
-    ])
+    @pytest.mark.parametrize(
+        "input_text",
+        [
+            "hello hello",
+            "right now right now go",
+            "open settings open settings now",
+        ],
+    )
     def test_duplicate_phrase_removed(self, input_text):
         """Duplicate phrases should be removed."""
         result = clean_transcribed_text(input_text)
@@ -610,62 +657,77 @@ class TestTextCleanupAdditionalParametrized:
         words = result.lower().split()
         # Check that no adjacent duplicate bigrams exist
         for i in range(len(words) - 1):
-            f"{words[i]} {words[i+1]}"
+            f"{words[i]} {words[i + 1]}"
             if i + 3 <= len(words):
-                f"{words[i+2]} {words[i+3]}" if i + 3 < len(words) else ""
+                f"{words[i + 2]} {words[i + 3]}" if i + 3 < len(words) else ""
                 # Should not have identical consecutive bigrams
                 # (unless it's an intentional repeat like "no no")
                 pass
 
-    @pytest.mark.parametrize("input_text,should_contain", [
-        ("they working", "it's working"),
-        ("this me either", "I'm also"),
-        ("to 2 text", "to text"),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,should_contain",
+        [
+            ("they working", "it's working"),
+            ("this me either", "I'm also"),
+            ("to 2 text", "to text"),
+        ],
+    )
     def test_phrase_corrections_applied(self, input_text, should_contain):
         """Known phrase corrections should be applied."""
         result = clean_transcribed_text(input_text)
         assert should_contain.lower() in result.lower()
 
-    @pytest.mark.parametrize("input_text,expected_first_char", [
-        ("hello", "H"),
-        ("world", "W"),
-        ("test", "T"),
-        ("a test", "A"),
-        ("i think", "I"),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,expected_first_char",
+        [
+            ("hello", "H"),
+            ("world", "W"),
+            ("test", "T"),
+            ("a test", "A"),
+            ("i think", "I"),
+        ],
+    )
     def test_first_character_capitalized(self, input_text, expected_first_char):
         """First character of output should be capitalized."""
         result = clean_transcribed_text(input_text)
         assert result[0] == expected_first_char
 
-    @pytest.mark.parametrize("whitespace_input", [
-        "  hello",
-        "hello  ",
-        "  hello  ",
-        "\thello\t",
-        "\nhello\n",
-    ])
+    @pytest.mark.parametrize(
+        "whitespace_input",
+        [
+            "  hello",
+            "hello  ",
+            "  hello  ",
+            "\thello\t",
+            "\nhello\n",
+        ],
+    )
     def test_whitespace_trimmed(self, whitespace_input):
         """Leading and trailing whitespace should be removed."""
         result = clean_transcribed_text(whitespace_input)
         assert result == result.strip()
 
-    @pytest.mark.parametrize("input_text,expected_word_count", [
-        ("hello", 1),
-        ("hello world", 2),
-        ("a b c d", 4),
-    ])
+    @pytest.mark.parametrize(
+        "input_text,expected_word_count",
+        [
+            ("hello", 1),
+            ("hello world", 2),
+            ("a b c d", 4),
+        ],
+    )
     def test_word_count_preserved(self, input_text, expected_word_count):
         """Word count should be approximately preserved (no words lost except duplicates)."""
         result = clean_transcribed_text(input_text)
         assert len(result.split()) == expected_word_count
 
-    @pytest.mark.parametrize("input_text", [
-        "infestigate, please.",
-        "that is wierd!",
-        "grammer check?",
-    ])
+    @pytest.mark.parametrize(
+        "input_text",
+        [
+            "infestigate, please.",
+            "that is wierd!",
+            "grammer check?",
+        ],
+    )
     def test_misspelling_with_punctuation(self, input_text):
         """Misspellings should be corrected even with punctuation."""
         result = clean_transcribed_text(input_text)
@@ -688,6 +750,7 @@ class TestXZ3PhraseCorrectionPerformance:
         import re
 
         from voice_typer.server import text_cleanup
+
         text_cleanup.configure_corrections()
         assert len(text_cleanup._active_phrase_patterns) == len(text_cleanup._active_phrases)
         for p in text_cleanup._active_phrase_patterns:
@@ -702,6 +765,7 @@ class TestXZ3PhraseCorrectionPerformance:
         same result as the original regex-search filter would have.
         """
         from voice_typer.server import text_cleanup
+
         text_cleanup.configure_corrections()
         # Text that contains none of the known phrase corrections.
         text = "the quick brown fox jumps over the lazy dog"
@@ -711,6 +775,7 @@ class TestXZ3PhraseCorrectionPerformance:
     def test_phrase_correction_still_applies(self):
         """XV-42 refactor preserves the core phrase-correction behaviour."""
         from voice_typer.server import text_cleanup
+
         text_cleanup.configure_corrections()
         # 'they working' -> "it's working" is in the bundled corrections.
         out = text_cleanup._correct_whisper_phrases("looks like they working")
@@ -719,6 +784,7 @@ class TestXZ3PhraseCorrectionPerformance:
     def test_case_preserving_replacement_still_works(self):
         """XV-42 refactor preserves the L19 case-preserving substitution."""
         from voice_typer.server import text_cleanup
+
         text_cleanup.configure_corrections()
         # 'they working' is in corrections; uppercase input should map to
         # uppercase replacement (the 'I' in "it's" comes from the good
@@ -741,6 +807,7 @@ class TestXZ3PhraseCorrectionPerformance:
         import re
 
         from voice_typer.server import text_cleanup
+
         text_cleanup.configure_corrections()
         # NOTE: these must be LOWERCASE to match the production code's
         # ``lower = text.lower()`` precondition. The original
@@ -775,6 +842,7 @@ class TestXZ3PhraseCorrectionPerformance:
         phrase is NOT applied (because it wasn't in the original).
         """
         from voice_typer.server import text_cleanup
+
         saved = (
             text_cleanup._active_phrases,
             text_cleanup._active_phrase_patterns,
@@ -805,6 +873,7 @@ class TestXZ3SingleTokenization:
     def test_token_based_helpers_exist_and_are_callable(self):
         """The four ``*_tokens`` helpers exist and operate on token lists."""
         from voice_typer.server import text_cleanup
+
         for name in (
             "_clean_self_corrections_tokens",
             "_remove_adjacent_duplicate_phrases_tokens",
@@ -822,6 +891,7 @@ class TestXZ3SingleTokenization:
     def test_text_based_wrappers_still_work(self):
         """The original text-based helpers are preserved as thin wrappers."""
         from voice_typer.server import text_cleanup
+
         text_cleanup.configure_corrections()
         # These should produce the same output as before the refactor.
         assert text_cleanup._clean_self_corrections("talk talking") == "talking"
@@ -849,18 +919,21 @@ class TestXZ3PrecompiledRegexes:
         import re
 
         from voice_typer.server import text_cleanup
+
         assert isinstance(text_cleanup._RE_MISSPELL_WRAP, re.Pattern)
 
     def test_sentence_split_regex_is_precompiled(self):
         import re
 
         from voice_typer.server import text_cleanup
+
         assert isinstance(text_cleanup._RE_SENTENCE_SPLIT, re.Pattern)
 
     def test_word_chars_regex_is_precompiled(self):
         import re
 
         from voice_typer.server import text_cleanup
+
         assert isinstance(text_cleanup._RE_WORD_CHARS, re.Pattern)
 
     def test_no_uncompiled_regex_calls_in_hot_path(self):
@@ -894,18 +967,14 @@ class TestXZ3PrecompiledRegexes:
                 and func.attr in forbidden
             ):
                 if node.args and isinstance(node.args[0], ast.Constant | ast.Str):
-                    offenders.append(
-                        f"line {node.lineno}: re.{func.attr}({node.args[0].value!r})"
-                    )
-        assert not offenders, (
-            "XV-52: uncompiled re.* calls with string patterns still present: "
-            + "; ".join(offenders)
-        )
+                    offenders.append(f"line {node.lineno}: re.{func.attr}({node.args[0].value!r})")
+        assert not offenders, "XV-52: uncompiled re.* calls with string patterns still present: " + "; ".join(offenders)
 
     def test_looks_like_question_uses_precompiled_patterns(self):
         """_looks_like_question end-to-end still classifies questions
         correctly after switching to precompiled regexes."""
         from voice_typer.server import text_cleanup
+
         assert text_cleanup._looks_like_question("can you help me") is True
         assert text_cleanup._looks_like_question("the sky is blue") is False
         assert text_cleanup._looks_like_question("do you know. can you help") is True
@@ -930,6 +999,7 @@ class TestXZ3IdempotenceAndConcurrency:
     def test_concurrent_calls_safe(self):
         """Concurrent clean_transcribed_text calls must not crash."""
         import threading
+
         errors = []
         results = []
 

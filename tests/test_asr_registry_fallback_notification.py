@@ -117,8 +117,7 @@ class TestLastResortNotificationFires:
 
         # Return contract preserved (XZ-14-06 fix is ADDITIVE):
         assert result is primary, (
-            "get_active() must still return the last-resort backend "
-            "(return contract unchanged by XZ-14-06)."
+            "get_active() must still return the last-resort backend (return contract unchanged by XZ-14-06)."
         )
         # The notification must fire:
         assert notifications == ["parakeet"], (
@@ -144,8 +143,7 @@ class TestLastResortNotificationFires:
         registry.get_active()
 
         assert any(evt.get("type") == "asr_last_resort_unloaded" for evt in published), (
-            "XZ-14-06: event_bus.publish must be called with "
-            f"type='asr_last_resort_unloaded'. Got {published!r}."
+            f"XZ-14-06: event_bus.publish must be called with type='asr_last_resort_unloaded'. Got {published!r}."
         )
         # The event must include the backend name so the IPC push channel
         # can render a useful message in the renderer.
@@ -246,9 +244,7 @@ class TestLastResortNotificationOncePerTransition:
         result = registry.get_active()
         assert result is primary, "ready configured backend must be returned"
         # No new notification during recovery:
-        assert notifications == ["parakeet"], (
-            "No notification should fire when a ready backend is available."
-        )
+        assert notifications == ["parakeet"], "No notification should fire when a ready backend is available."
 
         # Step 3: backend breaks again — notification must fire AGAIN.
         primary.is_loaded = False
@@ -285,9 +281,7 @@ class TestLastResortNotificationOncePerTransition:
         registry._record_success("parakeet")
         # The latch must now be False — verified by the next fall-through
         # firing a NEW notification.
-        assert not registry._last_resort_notified, (
-            "XZ-14-06: _record_success must clear the last-resort latch."
-        )
+        assert not registry._last_resort_notified, "XZ-14-06: _record_success must clear the last-resort latch."
 
         # Next fall-through must re-notify.
         registry.get_active()
@@ -348,8 +342,7 @@ class TestLastResortNotificationOncePerTransition:
         # The latch must have been cleared by the whisper-fallback
         # success path.
         assert not registry._last_resort_notified, (
-            "XZ-14-06: load_with_fallback's whisper-fallback success "
-            "path must clear the last-resort latch."
+            "XZ-14-06: load_with_fallback's whisper-fallback success path must clear the last-resort latch."
         )
 
         # Now unload whisper and call get_active — must re-notify.
@@ -379,9 +372,7 @@ class TestLastResortNotificationDoesNotFire:
 
         result = registry.get_active()
         assert result is parakeet
-        assert notifications == [], (
-            "No notification should fire when the configured backend is ready."
-        )
+        assert notifications == [], "No notification should fire when the configured backend is ready."
 
     def test_no_notification_when_whisper_fallback_is_ready(self):
         """When the configured backend isn't ready but whisper is,
@@ -398,9 +389,7 @@ class TestLastResortNotificationDoesNotFire:
 
         result = registry.get_active()
         assert result is whisper
-        assert notifications == [], (
-            "No notification should fire when whisper fallback is ready."
-        )
+        assert notifications == [], "No notification should fire when whisper fallback is ready."
 
     def test_no_notification_when_last_resort_backend_is_loaded(self):
         """When ``get_active()`` reaches the last-resort loop but the
@@ -419,10 +408,7 @@ class TestLastResortNotificationDoesNotFire:
         registry.add_last_resort_subscriber(lambda name: notifications.append(name))
 
         result = registry.get_active()
-        assert result is qwen, (
-            "last-resort loop must still return the first non-None backend "
-            "even if it's loaded."
-        )
+        assert result is qwen, "last-resort loop must still return the first non-None backend even if it's loaded."
         assert notifications == [], (
             "No notification should fire when the last-resort backend is "
             "loaded — the notification is only for the UNLOADED case."
@@ -459,18 +445,13 @@ class TestLastResortSubscriberDefenceInDepth:
         )
         # The buggy subscriber's exception must be logged (defensive
         # visibility — same pattern as _record_failure).
-        assert any(
-            "on_last_resort subscriber raised" in rec.message
-            for rec in caplog.records
-        ), (
+        assert any("on_last_resort subscriber raised" in rec.message for rec in caplog.records), (
             "XZ-14-06: a subscriber exception must be logged with the "
             "message 'on_last_resort subscriber raised' so the failure is "
             "visible in the log file."
         )
 
-    def test_event_bus_publish_exception_does_not_break_get_active(
-        self, monkeypatch
-    ):
+    def test_event_bus_publish_exception_does_not_break_get_active(self, monkeypatch):
         """If ``event_bus.publish`` raises, ``get_active`` must still
         return the last-resort backend (return contract preserved) and
         the per-registry subscriber must still have fired (defence in
@@ -489,8 +470,7 @@ class TestLastResortSubscriberDefenceInDepth:
         result = registry.get_active()
 
         assert result is not None, (
-            "XZ-14-06: get_active() must still return the last-resort "
-            "backend even if event_bus.publish raises."
+            "XZ-14-06: get_active() must still return the last-resort backend even if event_bus.publish raises."
         )
         assert notifications == ["parakeet"], (
             "XZ-14-06: per-registry subscriber must fire INDEPENDENTLY of "
@@ -517,9 +497,7 @@ class TestLastResortSubscriberApi:
         assert sub not in registry.on_last_resort
 
         registry.get_active()
-        assert notifications == [], (
-            "Removed subscriber must NOT fire."
-        )
+        assert notifications == [], "Removed subscriber must NOT fire."
 
     def test_on_last_resort_property_setter_adds_to_set(self):
         """Assigning a callable to ``registry.on_last_resort = fn`` must
@@ -546,9 +524,7 @@ class TestLastResortSubscriberApi:
         assert len(registry.on_last_resort) == 1
 
         registry.on_last_resort = None
-        assert len(registry.on_last_resort) == 0, (
-            "Assigning None to on_last_resort must clear the subscriber set."
-        )
+        assert len(registry.on_last_resort) == 0, "Assigning None to on_last_resort must clear the subscriber set."
 
         registry.get_active()
         assert notifications == [], "No subscribers should fire after None-clear."
@@ -585,9 +561,7 @@ class TestLastResortReturnContractPreserved:
             "backend.transcribe_with_fallback(...) (which silently "
             "returns empty)."
         )
-        assert not primary.is_loaded, (
-            "Sanity: the returned backend IS unloaded (the trigger condition)."
-        )
+        assert not primary.is_loaded, "Sanity: the returned backend IS unloaded (the trigger condition)."
 
     def test_get_active_still_returns_none_when_no_backends_registered(self):
         """If no backends are registered at all, ``get_active`` returns
@@ -599,16 +573,10 @@ class TestLastResortReturnContractPreserved:
         registry.add_last_resort_subscriber(lambda name: notifications.append(name))
 
         result = registry.get_active()
-        assert result is None, (
-            "get_active must return None when no backends are registered."
-        )
-        assert notifications == [], (
-            "No notification should fire when no backends are registered."
-        )
+        assert result is None, "get_active must return None when no backends are registered."
+        assert notifications == [], "No notification should fire when no backends are registered."
 
     def test_latch_starts_false(self):
         """Sanity: the latch is initialized to False in __init__."""
         registry = AsrBackendRegistry(_Config("parakeet"))
-        assert registry._last_resort_notified is False, (
-            "XZ-14-06: _last_resort_notified latch must start as False."
-        )
+        assert registry._last_resort_notified is False, "XZ-14-06: _last_resort_notified latch must start as False."

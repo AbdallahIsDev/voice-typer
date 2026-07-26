@@ -121,8 +121,7 @@ class TestIdleUnloadDisabledByDefault:
         assert mm._idle_unload_timer is None
         mm.touch_active_model()
         assert mm._idle_unload_timer is None, (
-            "TY-11: model_idle_unload_minutes=0 must NOT arm the "
-            "idle-unload timer (current behaviour preserved)."
+            "TY-11: model_idle_unload_minutes=0 must NOT arm the idle-unload timer (current behaviour preserved)."
         )
 
     def test_zero_config_does_not_unload_even_after_long_wait(self):
@@ -236,8 +235,7 @@ class TestCancelIdleUnloadTimer:
         with contextlib.suppress(Exception):
             mm.change_model("parakeet")
         assert mm._idle_unload_timer is None, (
-            "TY-11: change_model must cancel the idle-unload timer "
-            "before starting the unload/reload cycle."
+            "TY-11: change_model must cancel the idle-unload timer before starting the unload/reload cycle."
         )
 
     def test_set_active_backend_cancels_timer(self):
@@ -251,9 +249,7 @@ class TestCancelIdleUnloadTimer:
         the cancel-then-reschedule cycle ran. Without the cancel,
         the OLD timer would still be alive and could fire mid-switch
         (the race TY-11 guards against)."""
-        mm, app, engine, _ = _make_mm_with_mock_backend(
-            idle_minutes=1, backend_name="whisper"
-        )
+        mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1, backend_name="whisper")
         mm._schedule_idle_unload_timer()
         old_timer = mm._idle_unload_timer
         assert old_timer is not None
@@ -301,9 +297,7 @@ class TestIdleUnloadFiresAndReleasesGpu:
         # ``release_gpu_memory`` is imported lazily inside
         # ``_do_idle_unload`` via ``from voice_typer.server.asr_utils
         # import release_gpu_memory``. Patch it at the source module.
-        with patch(
-            "voice_typer.server.asr_utils.release_gpu_memory"
-        ) as mock_release:
+        with patch("voice_typer.server.asr_utils.release_gpu_memory") as mock_release:
             mm._do_idle_unload()
 
             # The registry's unload() must have been called with the
@@ -325,22 +319,16 @@ class TestIdleUnloadFiresAndReleasesGpu:
         mm._do_idle_unload()
 
         # The tray.set_state call must include AppState.IDLE.
-        states_called = [
-            c.args[0] if c.args else c.kwargs.get("state")
-            for c in app.tray.set_state.call_args_list
-        ]
+        states_called = [c.args[0] if c.args else c.kwargs.get("state") for c in app.tray.set_state.call_args_list]
         assert AppState.IDLE in states_called, (
-            f"TY-11: tray.set_state must be called with AppState.IDLE. "
-            f"Got: {states_called}"
+            f"TY-11: tray.set_state must be called with AppState.IDLE. Got: {states_called}"
         )
         # At least one call must include the "Idle — model unloaded" msg.
         msgs = [
-            (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", ""))
-            for c in app.tray.set_state.call_args_list
+            (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", "")) for c in app.tray.set_state.call_args_list
         ]
         assert any("Idle — model unloaded" in (m or "") for m in msgs), (
-            f"TY-11: tray.set_state must be called with the 'Idle — model "
-            f"unloaded' message. Got: {msgs}"
+            f"TY-11: tray.set_state must be called with the 'Idle — model unloaded' message. Got: {msgs}"
         )
 
     def test_timer_fire_skipped_when_shutting_down(self):
@@ -355,9 +343,7 @@ class TestIdleUnloadFiresAndReleasesGpu:
     def test_timer_fire_skipped_when_already_unloaded(self):
         """If ``is_loaded`` is already False when the timer fires, the
         unload must be skipped (no double-unload)."""
-        mm, app, engine, mock_registry = _make_mm_with_mock_backend(
-            idle_minutes=1, is_loaded=False
-        )
+        mm, app, engine, mock_registry = _make_mm_with_mock_backend(idle_minutes=1, is_loaded=False)
         mm._do_idle_unload()
         mock_registry.unload.assert_not_called()
 
@@ -393,8 +379,7 @@ class TestIdleUnloadFiresAndReleasesGpu:
             mm._do_idle_unload()
         info_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
         assert any("TY-11" in m and "idle-unload" in m for m in info_msgs), (
-            f"TY-11: idle-unload must be logged at INFO level. "
-            f"Got: {info_msgs}"
+            f"TY-11: idle-unload must be logged at INFO level. Got: {info_msgs}"
         )
 
 
@@ -430,12 +415,10 @@ class TestTouchReschedulesTimer:
             mm.cancel_idle_unload_timer()
 
         assert len(captured_delays) == 1, (
-            f"TY-11: touch_active_model must arm exactly one Timer. "
-            f"Got {len(captured_delays)} Timer() calls."
+            f"TY-11: touch_active_model must arm exactly one Timer. Got {len(captured_delays)} Timer() calls."
         )
         assert captured_delays[0] == pytest.approx(60.0), (
-            f"TY-11: minutes=1 must produce a 60-second delay. "
-            f"Got {captured_delays[0]}."
+            f"TY-11: minutes=1 must produce a 60-second delay. Got {captured_delays[0]}."
         )
 
     def test_second_touch_replaces_first_timer(self):
@@ -449,23 +432,18 @@ class TestTouchReschedulesTimer:
             mm.touch_active_model()
             second = mm._idle_unload_timer
             assert second is not None
-            assert second is not first, (
-                "TY-11: second touch must replace the first timer (reschedule)."
-            )
+            assert second is not first, "TY-11: second touch must replace the first timer (reschedule)."
         finally:
             mm.cancel_idle_unload_timer()
 
     def test_inactive_backend_touch_does_not_arm_timer(self):
         """``touch_model(<inactive backend>)`` must NOT arm the timer
         (the timer is only for the *active* backend)."""
-        mm, app, engine, _ = _make_mm_with_mock_backend(
-            idle_minutes=1, backend_name="parakeet"
-        )
+        mm, app, engine, _ = _make_mm_with_mock_backend(idle_minutes=1, backend_name="parakeet")
         try:
             mm.touch_model("whisper")  # different from active (parakeet)
             assert mm._idle_unload_timer is None, (
-                "TY-11: touching an inactive backend must not arm the "
-                "idle-unload timer."
+                "TY-11: touching an inactive backend must not arm the idle-unload timer."
             )
         finally:
             mm.cancel_idle_unload_timer()
@@ -507,17 +485,11 @@ class TestReloadAfterIdleUnload:
         mock_registry.load_active.assert_called_once()
         # Tray must transition through LOADING ("Loading model...")
         # then back to IDLE ("Ready -- ...").
-        states = [
-            c.args[0] if c.args else c.kwargs.get("state")
-            for c in app.tray.set_state.call_args_list
-        ]
+        states = [c.args[0] if c.args else c.kwargs.get("state") for c in app.tray.set_state.call_args_list]
         msgs = [
-            (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", ""))
-            for c in app.tray.set_state.call_args_list
+            (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", "")) for c in app.tray.set_state.call_args_list
         ]
-        assert AppState.LOADING in states, (
-            f"TY-11: reload path must set tray to LOADING. Got: {states}"
-        )
+        assert AppState.LOADING in states, f"TY-11: reload path must set tray to LOADING. Got: {states}"
         assert any("Loading model..." in (m or "") for m in msgs), (
             f"TY-11: reload path must show 'Loading model...' message. Got: {msgs}"
         )
@@ -533,9 +505,7 @@ class TestReloadAfterIdleUnload:
         try:
             mm.ensure_active_engine_loaded()
             # After reload, touch_model is called → timer re-armed.
-            assert mm._idle_unload_timer is not None, (
-                "TY-11: after reload, the idle-unload timer must be re-armed."
-            )
+            assert mm._idle_unload_timer is not None, "TY-11: after reload, the idle-unload timer must be re-armed."
         finally:
             mm.cancel_idle_unload_timer()
 
@@ -562,8 +532,7 @@ class TestReloadAfterIdleUnload:
         # keyword arg.
         call_kwargs = mock_registry.load_active.call_args.kwargs
         assert "progress_callback" in call_kwargs, (
-            "TY-11: reload path must pass a progress_callback to "
-            "load_active so the tray shows progress during reload."
+            "TY-11: reload path must pass a progress_callback to load_active so the tray shows progress during reload."
         )
         assert callable(call_kwargs["progress_callback"])
 
@@ -606,8 +575,7 @@ class TestConfigField:
         from voice_typer.server.config_validators import IPC_CONFIG_ALLOWLIST
 
         assert "model_idle_unload_minutes" in IPC_CONFIG_ALLOWLIST, (
-            "TY-11: model_idle_unload_minutes must be in "
-            "IPC_CONFIG_ALLOWLIST so the renderer can change it via IPC."
+            "TY-11: model_idle_unload_minutes must be in IPC_CONFIG_ALLOWLIST so the renderer can change it via IPC."
         )
 
     def test_ipc_allowlist_validates_int_range(self):
@@ -617,36 +585,26 @@ class TestConfigField:
         from voice_typer.server.config_validators import validate_config_update
 
         # Negative rejected.
-        validated, errors = validate_config_update(
-            {"model_idle_unload_minutes": -1}
-        )
+        validated, errors = validate_config_update({"model_idle_unload_minutes": -1})
         assert "model_idle_unload_minutes" not in validated
         assert errors  # some error was reported
 
         # 0 accepted (disable sentinel).
-        validated, errors = validate_config_update(
-            {"model_idle_unload_minutes": 0}
-        )
+        validated, errors = validate_config_update({"model_idle_unload_minutes": 0})
         assert validated.get("model_idle_unload_minutes") == 0
         assert not errors
 
         # 15 accepted (typical value).
-        validated, errors = validate_config_update(
-            {"model_idle_unload_minutes": 15}
-        )
+        validated, errors = validate_config_update({"model_idle_unload_minutes": 15})
         assert validated.get("model_idle_unload_minutes") == 15
         assert not errors
 
         # 1440 accepted (24 h — upper bound).
-        validated, errors = validate_config_update(
-            {"model_idle_unload_minutes": 1440}
-        )
+        validated, errors = validate_config_update({"model_idle_unload_minutes": 1440})
         assert validated.get("model_idle_unload_minutes") == 1440
         assert not errors
 
         # 1441 rejected (above 24 h).
-        validated, errors = validate_config_update(
-            {"model_idle_unload_minutes": 1441}
-        )
+        validated, errors = validate_config_update({"model_idle_unload_minutes": 1441})
         assert "model_idle_unload_minutes" not in validated
         assert errors

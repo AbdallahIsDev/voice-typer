@@ -129,9 +129,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
     @pytest.fixture(scope="class")
     def component_source(self) -> str:
         if not self.PREWARM_UPDATES_TSX.exists():
-            pytest.skip(
-                f"PrewarmAndUpdates.tsx not found at {self.PREWARM_UPDATES_TSX}"
-            )
+            pytest.skip(f"PrewarmAndUpdates.tsx not found at {self.PREWARM_UPDATES_TSX}")
         return self.PREWARM_UPDATES_TSX.read_text(encoding="utf-8")
 
     def _use_effect_bodies(self, src: str) -> list[str]:
@@ -154,8 +152,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         """No ``useEffect`` body may call ``checkForUpdate``."""
         bodies = self._use_effect_bodies(component_source)
         assert bodies, (
-            "PrewarmAndUpdates.tsx should have at least one useEffect "
-            "(the mount-time get_prewarm_status fetch)."
+            "PrewarmAndUpdates.tsx should have at least one useEffect (the mount-time get_prewarm_status fetch)."
         )
         for idx, body in enumerate(bodies):
             assert "checkForUpdate" not in body, (
@@ -377,9 +374,7 @@ class TestEngineAcceptsConfigInRealConstructionPath:
         engine = TranscriptionEngine(model_size="small.en")
         progress_messages: list[str] = []
         with pytest.raises(ConsentRequiredError):
-            engine._pre_download_model(
-                "small.en", progress_callback=progress_messages.append
-            )
+            engine._pre_download_model("small.en", progress_callback=progress_messages.append)
         assert any("consent" in m.lower() for m in progress_messages)
 
     def test_pre_download_downloads_when_consent_given(self, tmp_path, monkeypatch):

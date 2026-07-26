@@ -62,16 +62,13 @@ class TestTextProjection:
         assert len(rows) == 10
         for row in rows:
             assert row["text_truncated"] is True, (
-                f"expected text_truncated=True for row id={row['id']}, "
-                f"got {row.get('text_truncated')!r}"
+                f"expected text_truncated=True for row id={row['id']}, got {row.get('text_truncated')!r}"
             )
             assert row["text_full_length"] == 2048, (
-                f"expected text_full_length=2048 for row id={row['id']}, "
-                f"got {row.get('text_full_length')!r}"
+                f"expected text_full_length=2048 for row id={row['id']}, got {row.get('text_full_length')!r}"
             )
             assert len(row["text"]) == 500, (
-                f"expected len(text)==500 for row id={row['id']}, "
-                f"got len={len(row['text'])}"
+                f"expected len(text)==500 for row id={row['id']}, got len={len(row['text'])}"
             )
             # The preview is the first 500 chars of the long text.
             assert row["text"] == long_text[:500]

@@ -333,17 +333,9 @@ class TestSettingsRendererCallsPythonBridgeCall:
         # ``onEvent``) does not break the build.
         client_root = Path(__file__).resolve().parent.parent.parent / "voice_typer" / "client"
         settings_path = (
-            client_root
-            / "src"
-            / "renderer"
-            / "src"
-            / "components"
-            / "settings"
-            / "GeneralSettingsSection.tsx"
+            client_root / "src" / "renderer" / "src" / "components" / "settings" / "GeneralSettingsSection.tsx"
         )
-        i18n_path = (
-            client_root / "src" / "renderer" / "src" / "i18n" / "i18n.ts"
-        )
+        i18n_path = client_root / "src" / "renderer" / "src" / "i18n" / "i18n.ts"
         settings_src = settings_path.read_text(encoding="utf-8")
         i18n_src = i18n_path.read_text(encoding="utf-8")
 

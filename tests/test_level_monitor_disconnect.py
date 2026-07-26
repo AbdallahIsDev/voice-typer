@@ -167,9 +167,7 @@ class TestTY4FinishedCallbackWiring:
             "TY-4: sd.InputStream must be constructed with a "
             "finished_callback kwarg so PortAudio can signal device loss"
         )
-        assert callable(holder["finished_callback"]), (
-            "TY-4: finished_callback must be a callable"
-        )
+        assert callable(holder["finished_callback"]), "TY-4: finished_callback must be a callable"
 
         lm.stop_monitoring()
 
@@ -186,9 +184,7 @@ class TestTY4FinishedCallbackWiring:
         # Simulate PortAudio firing the finished_callback (device lost).
         holder["finished_callback"]()
 
-        assert lm._monitor_active is False, (
-            "TY-4: _level_stream_finished must set _monitor_active=False"
-        )
+        assert lm._monitor_active is False, "TY-4: _level_stream_finished must set _monitor_active=False"
 
         lm.stop_monitoring()
 
@@ -228,8 +224,7 @@ class TestTY4DeviceLostEventEmitted:
         )
         evt = device_lost_events[0]
         assert evt["data"]["source"] == "stream_finished", (
-            f"TY-4: source must be 'stream_finished' for the callback path; "
-            f"got {evt['data']['source']!r}"
+            f"TY-4: source must be 'stream_finished' for the callback path; got {evt['data']['source']!r}"
         )
 
         lm.stop_monitoring()
@@ -267,8 +262,7 @@ class TestTY4DeviceLostEventEmitted:
         )
         evt = device_lost_events[0]
         assert evt["data"]["source"] == "zero_chunks", (
-            f"TY-4: source must be 'zero_chunks' for the worker path; "
-            f"got {evt['data']['source']!r}"
+            f"TY-4: source must be 'zero_chunks' for the worker path; got {evt['data']['source']!r}"
         )
 
         lm.stop_monitoring()

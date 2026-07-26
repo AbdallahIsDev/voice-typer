@@ -348,9 +348,7 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
     # Tauri v2 uses short-form keys `postInstall` / `preRemove` (NOT
     # `postInstallScript` / `preRemoveScript` which were Tauri v1 keys).
     # See https://v2.tauri.app/reference/config/#debconfig
-    assert "postInstall" in deb, (
-        "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
-    )
+    assert "postInstall" in deb, "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
     assert "postInstallScript" not in deb, (
         "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
     )
@@ -361,9 +359,7 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
         f"(reused verbatim from Electron per ADR-0020 §13.3), got {deb_post_install!r}"
     )
 
-    assert "preRemove" in deb, (
-        "bundle.linux.deb.preRemove missing — Tauri v2 requires the 'preRemove' key"
-    )
+    assert "preRemove" in deb, "bundle.linux.deb.preRemove missing — Tauri v2 requires the 'preRemove' key"
     assert "preRemoveScript" not in deb, (
         "stale long-form 'preRemoveScript' key present on bundle.linux.deb — should use Tauri v2 'preRemove'"
     )
@@ -374,9 +370,7 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
         f"(reused verbatim from Electron per ADR-0020 §13.3), got {deb_pre_remove!r}"
     )
 
-    assert "postInstall" in rpm, (
-        "bundle.linux.rpm.postInstall missing — Tauri v2 requires the 'postInstall' key"
-    )
+    assert "postInstall" in rpm, "bundle.linux.rpm.postInstall missing — Tauri v2 requires the 'postInstall' key"
     assert "postInstallScript" not in rpm, (
         "stale long-form 'postInstallScript' key present on bundle.linux.rpm — should use Tauri v2 'postInstall'"
     )
@@ -386,9 +380,7 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
         f"bundle.linux.rpm.postInstall must point at scripts/linux/postinst.rpm, got {rpm_post_install!r}"
     )
 
-    assert "preRemove" in rpm, (
-        "bundle.linux.rpm.preRemove missing — Tauri v2 requires the 'preRemove' key"
-    )
+    assert "preRemove" in rpm, "bundle.linux.rpm.preRemove missing — Tauri v2 requires the 'preRemove' key"
     assert "preRemoveScript" not in rpm, (
         "stale long-form 'preRemoveScript' key present on bundle.linux.rpm — should use Tauri v2 'preRemove'"
     )
@@ -691,8 +683,7 @@ def test_supervisor_backoff_constants(util_rs_source) -> None:
     steps = [int(x.strip()) for x in m.group(1).split(",") if x.strip()]
     # First step must be 500 ms (ADR-0020 §10 + runbook §5 fail-scenario).
     assert steps[0] == 500, (
-        f"SUPERVISOR_BACKOFF_MS[0] must be 500 (got {steps[0]}); "
-        "ADR-0020 §10 schedule starts at 500 ms"
+        f"SUPERVISOR_BACKOFF_MS[0] must be 500 (got {steps[0]}); ADR-0020 §10 schedule starts at 500 ms"
     )
     # The schedule must include an 8000 ms (8s) step (task's "8s" cap).
     assert 8000 in steps, (

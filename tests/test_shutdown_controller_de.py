@@ -386,8 +386,7 @@ class TestDE10FlushBeforeTeardown:
         controller._do_cleanup()
 
         assert call_order[-1] == "tray.stop", (
-            f"PVT-G5-003: tray.stop must be the LAST step in _do_cleanup; "
-            f"got order: {call_order}"
+            f"PVT-G5-003: tray.stop must be the LAST step in _do_cleanup; got order: {call_order}"
         )
         assert "event_bus.shutdown" in call_order
         assert call_order.index("event_bus.shutdown") < call_order.index("tray.stop")
@@ -407,8 +406,7 @@ class TestDE11ForceExitOnNonMainThread:
         """DE-11: the grace period must be 2.0s (matches the SIGKILL
         escalation window in the legacy Electron termination path)."""
         assert _DE11_GRACE_PERIOD_SECONDS == 2.0, (
-            f"DE-11: _DE11_GRACE_PERIOD_SECONDS must be 2.0; "
-            f"got {_DE11_GRACE_PERIOD_SECONDS}"
+            f"DE-11: _DE11_GRACE_PERIOD_SECONDS must be 2.0; got {_DE11_GRACE_PERIOD_SECONDS}"
         )
 
     def test_quit_on_main_thread_does_not_schedule_force_exit(self, controller, fake_app, monkeypatch):
@@ -425,13 +423,9 @@ class TestDE11ForceExitOnNonMainThread:
         # from the main thread.
         controller.quit()
 
-        assert exit_calls == [0], (
-            f"DE-11: quit() on main thread must call sys.exit(0); "
-            f"got exit_calls={exit_calls}"
-        )
+        assert exit_calls == [0], f"DE-11: quit() on main thread must call sys.exit(0); got exit_calls={exit_calls}"
         assert os_exit_calls == [], (
-            f"DE-11: quit() on main thread must NOT schedule os._exit; "
-            f"got os_exit_calls={os_exit_calls}"
+            f"DE-11: quit() on main thread must NOT schedule os._exit; got os_exit_calls={os_exit_calls}"
         )
 
     def test_quit_on_non_main_thread_schedules_force_exit(self, controller, fake_app, monkeypatch):
@@ -489,12 +483,10 @@ class TestDE11ForceExitOnNonMainThread:
             time.sleep(0.01)
 
         assert sleep_calls == [_DE11_GRACE_PERIOD_SECONDS], (
-            f"DE-11: watcher thread must call time.sleep({_DE11_GRACE_PERIOD_SECONDS}); "
-            f"got sleep_calls={sleep_calls}"
+            f"DE-11: watcher thread must call time.sleep({_DE11_GRACE_PERIOD_SECONDS}); got sleep_calls={sleep_calls}"
         )
         assert os_exit_calls == [0], (
-            f"DE-11: watcher thread must call os._exit(0) after grace period; "
-            f"got os_exit_calls={os_exit_calls}"
+            f"DE-11: watcher thread must call os._exit(0) after grace period; got os_exit_calls={os_exit_calls}"
         )
 
     def test_quit_on_non_main_thread_does_not_block(self, controller, fake_app, monkeypatch):
@@ -550,15 +542,8 @@ class TestDE11ForceExitOnNonMainThread:
             controller._do_cleanup()
 
         # Find the tray.stop failure log record.
-        tray_stop_errors = [
-            rec
-            for rec in caplog.records
-            if "tray.stop() failed" in rec.message
-        ]
-        assert tray_stop_errors, (
-            "DE-11: tray.stop() failure must produce a log record containing "
-            "'tray.stop() failed'"
-        )
+        tray_stop_errors = [rec for rec in caplog.records if "tray.stop() failed" in rec.message]
+        assert tray_stop_errors, "DE-11: tray.stop() failure must produce a log record containing 'tray.stop() failed'"
         assert tray_stop_errors[0].levelno >= logging.ERROR, (
             f"DE-11: tray.stop() failure must be logged at ERROR level "
             f"(or higher); got level={logging.getLevelName(tray_stop_errors[0].levelno)}"
@@ -584,8 +569,7 @@ class TestDE53ElectronPidLock:
         # A Lock's acquire/release should work; block=False should return
         # True on first acquire, False on second (held).
         assert lock.acquire(blocking=False), (
-            "DE-53: _electron_pid_lock must be a valid Lock — acquire(blocking=False) "
-            "should succeed when uncontended"
+            "DE-53: _electron_pid_lock must be a valid Lock — acquire(blocking=False) should succeed when uncontended"
         )
         try:
             assert not lock.acquire(blocking=False), (
@@ -609,12 +593,9 @@ class TestDE53ElectronPidLock:
         controller._do_cleanup()
 
         assert terminate_calls == [99999], (
-            f"DE-53: terminate_electron must be called with the tracked PID; "
-            f"got {terminate_calls}"
+            f"DE-53: terminate_electron must be called with the tracked PID; got {terminate_calls}"
         )
-        assert fake_app._electron_pid is None, (
-            "DE-53: _electron_pid must be cleared after termination"
-        )
+        assert fake_app._electron_pid is None, "DE-53: _electron_pid must be cleared after termination"
 
     def test_concurrent_callers_dont_double_terminate(self, controller, fake_app, monkeypatch):
         """DE-53: two concurrent ``_do_cleanup`` callers must NOT both
@@ -702,9 +683,7 @@ class TestDE54SkipSdStopOnRecorderTimeout:
         callers can compare with ``is``)."""
         import voice_typer.server.shutdown_controller as _sc
 
-        assert _sc._TIMEOUT is _TIMEOUT, (
-            "DE-54: _TIMEOUT must be a module-level singleton"
-        )
+        assert _sc._TIMEOUT is _TIMEOUT, "DE-54: _TIMEOUT must be a module-level singleton"
         # Must NOT be None — that's the whole point (distinguish from
         # a normal None return).
         assert _TIMEOUT is not None
@@ -726,10 +705,7 @@ class TestDE54SkipSdStopOnRecorderTimeout:
                 _blocking_func,
                 timeout=0.1,
             )
-            assert result is _TIMEOUT, (
-                f"DE-54: _run_with_timeout must return _TIMEOUT on timeout; "
-                f"got {result!r}"
-            )
+            assert result is _TIMEOUT, f"DE-54: _run_with_timeout must return _TIMEOUT on timeout; got {result!r}"
         finally:
             blocker.set()  # Unblock the worker so it doesn't linger.
 
@@ -746,10 +722,7 @@ class TestDE54SkipSdStopOnRecorderTimeout:
             _returning_func,
             timeout=1.0,
         )
-        assert result == "ok", (
-            f"_run_with_timeout must return the func's return value on success; "
-            f"got {result!r}"
-        )
+        assert result == "ok", f"_run_with_timeout must return the func's return value on success; got {result!r}"
 
     def test_run_with_timeout_returns_none_when_func_returns_none(self):
         """``_run_with_timeout`` must return ``None`` when the func
@@ -766,8 +739,7 @@ class TestDE54SkipSdStopOnRecorderTimeout:
             timeout=1.0,
         )
         assert result is None, (
-            f"_run_with_timeout must return None (not _TIMEOUT) when func "
-            f"returns None; got {result!r}"
+            f"_run_with_timeout must return None (not _TIMEOUT) when func returns None; got {result!r}"
         )
 
     def test_sd_stop_skipped_when_recorder_stop_times_out(self, controller, fake_app, monkeypatch):
@@ -813,9 +785,7 @@ class TestDE54SkipSdStopOnRecorderTimeout:
         finally:
             blocker.set()  # Unblock the leaked worker thread.
 
-        assert fake_sd.stop.assert_not_called, (
-            "DE-54: sd.stop() must NOT be called when recorder.stop() timed out"
-        )
+        assert fake_sd.stop.assert_not_called, "DE-54: sd.stop() must NOT be called when recorder.stop() timed out"
         fake_sd.stop.assert_not_called()
 
     def test_sd_stop_called_when_recorder_stop_succeeds(self, controller, fake_app, monkeypatch):

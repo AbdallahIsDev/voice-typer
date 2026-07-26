@@ -154,8 +154,7 @@ class TestCacheHitMiss:
         # The lookup chain ran exactly ONCE — the second call hit the
         # cache and did not call _candidate_binary_names again.
         assert call_count["n"] == 1, (
-            f"expected _candidate_binary_names to be called once (cached on 2nd call), "
-            f"got {call_count['n']}"
+            f"expected _candidate_binary_names to be called once (cached on 2nd call), got {call_count['n']}"
         )
         # cache_info confirms the hit.
         info = binary_path.get_native_binary_path.cache_info()
@@ -192,9 +191,7 @@ class TestCacheHitMiss:
         binary_path.get_native_binary_path.cache_clear()
 
         second = binary_path.get_native_binary_path()
-        assert second == binary_b, (
-            "after cache_clear(), the function must re-resolve and pick up the new env var"
-        )
+        assert second == binary_b, "after cache_clear(), the function must re-resolve and pick up the new env var"
 
     def test_cached_value_is_same_object_identity(self, monkeypatch):
         """``lru_cache`` returns the LITERAL first result (same object
@@ -248,9 +245,7 @@ class TestCacheHitMiss:
         assert second is None
         assert third is None
         # The lookup chain ran ONCE; the next two calls hit the cache.
-        assert call_count["n"] == 1, (
-            f"None result should be cached (called once, got {call_count['n']})"
-        )
+        assert call_count["n"] == 1, f"None result should be cached (called once, got {call_count['n']})"
 
 
 # ─── conftest autouse fixture contract ──────────────────────────────────
@@ -303,6 +298,5 @@ class TestConftestAutouseClearsCache:
 
         info_after = binary_path.get_native_binary_path.cache_info()
         assert info_after.currsize == 1, (
-            "expected cache to be populated after a call, "
-            "so the next test's autouse-clear assertion is meaningful"
+            "expected cache to be populated after a call, so the next test's autouse-clear assertion is meaningful"
         )

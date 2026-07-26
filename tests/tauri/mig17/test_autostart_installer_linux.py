@@ -405,9 +405,7 @@ def test_tauri_conf_has_linux_deb_postinstall():
     # `postInstall` / `preRemove` (NOT `postInstallScript` / `preRemoveScript`
     # which were Tauri v1 keys). See https://v2.tauri.app/reference/config/#debconfig
     # Assert the v2 form and reject the v1 form so any regression is caught here.
-    assert "postInstall" in deb, (
-        "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
-    )
+    assert "postInstall" in deb, "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
     assert "postInstallScript" not in deb, (
         "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
     )
@@ -438,9 +436,7 @@ def test_tauri_conf_has_linux_deb_preremove():
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
     # Tauri v2 uses the short-form `preRemove` key (NOT `preRemoveScript` which was Tauri v1).
     # See https://v2.tauri.app/reference/config/#debconfig
-    assert "preRemove" in deb, (
-        "bundle.linux.deb.preRemove missing — Tauri v2 requires the 'preRemove' key"
-    )
+    assert "preRemove" in deb, "bundle.linux.deb.preRemove missing — Tauri v2 requires the 'preRemove' key"
     assert "preRemoveScript" not in deb, (
         "stale long-form 'preRemoveScript' key present on bundle.linux.deb — should use Tauri v2 'preRemove'"
     )

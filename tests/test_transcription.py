@@ -248,6 +248,7 @@ class TestTranscribeWithFallback:
 
     def _make_engine_with_model(self):
         from voice_typer.server.transcription import TranscriptionEngine
+
         engine = TranscriptionEngine(model_size="small.en", device="cuda")
         engine._device = "cuda"
         engine._compute_type = "float16"
@@ -258,6 +259,7 @@ class TestTranscribeWithFallback:
     def test_successful_transcribe_no_fallback(self):
         """If transcribe succeeds, fallback is not triggered."""
         import numpy as np
+
         engine, mock_model = self._make_engine_with_model()
         mock_model.transcribe.return_value = ([MagicMock(text="hello")], MagicMock())
 
@@ -300,19 +302,16 @@ class TestTranscribeWithFallback:
     def test_gpu_error_triggers_cpu_fallback(self):
         """GPU cuBLAS error triggers model reload on CPU and retry."""
         import numpy as np
+
         mod_obj = sys.modules.get("faster_whisper")
 
         engine, mock_model = self._make_engine_with_model()
         # First call (GPU) raises CUDA error
-        mock_model.transcribe.side_effect = RuntimeError(
-            "Library cublas64_12.dll is not found or cannot be loaded"
-        )
+        mock_model.transcribe.side_effect = RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
 
         # After fallback, load() creates a new CPU model
         cpu_model = MagicMock()
-        cpu_model.transcribe.return_value = (
-            [MagicMock(text="fallback text")], MagicMock()
-        )
+        cpu_model.transcribe.return_value = ([MagicMock(text="fallback text")], MagicMock())
         # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = cpu_model
 
@@ -325,12 +324,11 @@ class TestTranscribeWithFallback:
         """Timestamped streaming transcription should use the same GPU fallback."""
         import numpy as np
         from voice_typer.server.streaming import WordTiming
+
         mod_obj = sys.modules.get("faster_whisper")
 
         engine, mock_model = self._make_engine_with_model()
-        mock_model.transcribe.side_effect = RuntimeError(
-            "Library cublas64_12.dll is not found or cannot be loaded"
-        )
+        mock_model.transcribe.side_effect = RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
 
         cpu_model = MagicMock()
         segment = MagicMock()
@@ -348,6 +346,7 @@ class TestTranscribeWithFallback:
     def test_non_gpu_error_propagates(self):
         """Non-GPU errors (e.g., ValueError) should NOT trigger fallback."""
         import numpy as np
+
         engine, mock_model = self._make_engine_with_model()
         mock_model.transcribe.side_effect = ValueError("bad audio format")
 
@@ -357,6 +356,7 @@ class TestTranscribeWithFallback:
     def test_cpu_model_error_no_fallback(self):
         """If already on CPU and transcription fails, no fallback attempted."""
         import numpy as np
+
         engine, mock_model = self._make_engine_with_model()
         engine._device = "cpu"  # already on CPU
         mock_model.transcribe.side_effect = RuntimeError("some runtime error")
@@ -367,6 +367,7 @@ class TestTranscribeWithFallback:
     def test_empty_audio_returns_empty(self):
         """Empty audio should return empty string without calling model."""
         import numpy as np
+
         engine, mock_model = self._make_engine_with_model()
         result = engine.transcribe_with_fallback(np.array([], dtype=np.float32))
         assert result == ""
@@ -413,9 +414,7 @@ class TestTranscribeWithFallback:
         # Simulate: mostly silence with low-amplitude noise, ~58% below 0.001 threshold
         audio = np.full(16000 * 30, 0.004, dtype=np.float32)
         # Make 60% of samples below 0.001 threshold
-        silence_indices = np.random.RandomState(42).choice(
-            len(audio), size=int(len(audio) * 0.60), replace=False
-        )
+        silence_indices = np.random.RandomState(42).choice(len(audio), size=int(len(audio) * 0.60), replace=False)
         audio[silence_indices] = 0.0
 
         result = engine.transcribe_with_fallback(audio)
@@ -533,15 +532,11 @@ class TestM9GpuMemoryFree:
         engine._model = mock_model
 
         # First call raises CUDA error
-        mock_model.transcribe.side_effect = RuntimeError(
-            "Library cublas64_12.dll is not found or cannot be loaded"
-        )
+        mock_model.transcribe.side_effect = RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
 
         # After fallback, load() creates a new CPU model
         cpu_model = MagicMock()
-        cpu_model.transcribe.return_value = (
-            [MagicMock(text="fallback text")], MagicMock()
-        )
+        cpu_model.transcribe.return_value = ([MagicMock(text="fallback text")], MagicMock())
         mod_obj = sys.modules.get("faster_whisper")
         mod_obj.WhisperModel.return_value = cpu_model
 
@@ -565,9 +560,7 @@ class TestM9GpuMemoryFree:
         mock_model = MagicMock()
         engine._model = mock_model
 
-        mock_model.transcribe.side_effect = RuntimeError(
-            "Library cublas64_12.dll is not found or cannot be loaded"
-        )
+        mock_model.transcribe.side_effect = RuntimeError("Library cublas64_12.dll is not found or cannot be loaded")
 
         cpu_model = MagicMock()
         segment = MagicMock()
@@ -662,11 +655,7 @@ class TestCudaDll001TorchLib:
             "users with GPU torch wheel but no nvidia-* pip packages "
             "will have all 3 primary candidate paths miss."
         )
-        assert str(torch_lib) in added, (
-            "CUDA-DLL-001 regression: torch/lib not registered with "
-            "os.add_dll_directory"
-        )
-
+        assert str(torch_lib) in added, "CUDA-DLL-001 regression: torch/lib not registered with os.add_dll_directory"
 
 
 # =============================================================================
@@ -754,15 +743,12 @@ class TestTranscriptionEngineAcceptsAudioStats:
         a valid call.  We verify by inspecting the signature.
         """
         import inspect
+
         sig = inspect.signature(TranscriptionEngine.transcribe_with_fallback)
-        assert "audio_stats" in sig.parameters, (
-            "transcribe_with_fallback must accept an audio_stats parameter"
-        )
+        assert "audio_stats" in sig.parameters, "transcribe_with_fallback must accept an audio_stats parameter"
         # The parameter must have a default of None (optional).
         param = sig.parameters["audio_stats"]
-        assert param.default is None, (
-            f"audio_stats must default to None; got default={param.default}"
-        )
+        assert param.default is None, f"audio_stats must default to None; got default={param.default}"
 
     def test_transcribe_skips_recomputation_when_stats_provided(self):
         """When audio_stats is provided, the engine must NOT recompute
@@ -794,8 +780,7 @@ class TestTranscriptionEngineAcceptsAudioStats:
             sqrt_calls.append(args)
             return original_sqrt(*args, **kwargs)
 
-        with patch("voice_typer.server.transcription.np.sqrt", counting_sqrt), \
-             contextlib.suppress(Exception):
+        with patch("voice_typer.server.transcription.np.sqrt", counting_sqrt), contextlib.suppress(Exception):
             # With audio_stats provided, sqrt should NOT be called for
             # the stats computation (it might still be called by the
             # whisper model, but the stats block is skipped).
@@ -811,10 +796,9 @@ class TestTranscriptionEngineAcceptsAudioStats:
         # path with audio_stats doesn't hit the np.sqrt line.
         # We verify by checking the source instead.
         import inspect
+
         source = inspect.getsource(TranscriptionEngine._transcribe_unlocked)
-        assert "if audio_stats is not None:" in source, (
-            "_transcribe_unlocked must check audio_stats before recomputing"
-        )
+        assert "if audio_stats is not None:" in source, "_transcribe_unlocked must check audio_stats before recomputing"
         assert "rms, peak, silence_pct = audio_stats" in source, (
             "_transcribe_unlocked must unpack the provided audio_stats"
         )
@@ -854,6 +838,5 @@ class TestPipelinePassesStatsThrough:
 
         source = inspect.getsource(DictationPipeline._transcribe)
         assert "audio_stats=self._audio_stats" in source, (
-            "DictationPipeline._transcribe must pass audio_stats to "
-            "transcribe_with_fallback"
+            "DictationPipeline._transcribe must pass audio_stats to transcribe_with_fallback"
         )

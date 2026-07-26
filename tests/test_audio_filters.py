@@ -110,8 +110,8 @@ class TestHighPassFilter:
         f.reset()
         high_result = f.process(high.copy(), 16000)
 
-        low_rms = float(np.sqrt(np.mean(low_result ** 2)))
-        high_rms = float(np.sqrt(np.mean(high_result ** 2)))
+        low_rms = float(np.sqrt(np.mean(low_result**2)))
+        high_rms = float(np.sqrt(np.mean(high_result**2)))
         # Low should be significantly attenuated vs high
         assert low_rms < high_rms * 0.5
 
@@ -160,8 +160,8 @@ class TestNoiseGate:
         # Very quiet audio (well below -32dB close threshold)
         silence = np.full(8192, 0.001, dtype=np.float32)
         result = g.process(silence, 16000)
-        output_rms = float(np.sqrt(np.mean(result ** 2)))
-        input_rms = float(np.sqrt(np.mean(silence ** 2)))
+        output_rms = float(np.sqrt(np.mean(result**2)))
+        input_rms = float(np.sqrt(np.mean(silence**2)))
         assert output_rms < input_rms
 
     def test_passes_loud_audio(self):
@@ -174,7 +174,7 @@ class TestNoiseGate:
         # Loud audio (0.5 = -6dB, well above -26dB open threshold)
         loud = np.full(8192, 0.5, dtype=np.float32)
         result = g.process(loud, 16000)
-        output_rms = float(np.sqrt(np.mean(result ** 2)))
+        output_rms = float(np.sqrt(np.mean(result**2)))
         # Should be close to input (gate is open)
         assert output_rms > 0.3
 
@@ -406,22 +406,26 @@ class TestFilterChain:
         assert result.shape == audio.shape
 
     def test_multiple_filters(self):
-        chain = FilterChain([
-            HighPassFilter(80.0, 16000),
-            NoiseGate(sample_rate=16000),
-            Compressor(sample_rate=16000),
-            Limiter(sample_rate=16000),
-        ])
+        chain = FilterChain(
+            [
+                HighPassFilter(80.0, 16000),
+                NoiseGate(sample_rate=16000),
+                Compressor(sample_rate=16000),
+                Limiter(sample_rate=16000),
+            ]
+        )
         audio = np.random.randn(1024).astype(np.float32) * 0.3
         result = chain.process(audio, 16000)
         assert result is not None
         assert result.shape == audio.shape
 
     def test_filter_names(self):
-        chain = FilterChain([
-            HighPassFilter(80.0, 16000),
-            NoiseGate(sample_rate=16000),
-        ])
+        chain = FilterChain(
+            [
+                HighPassFilter(80.0, 16000),
+                NoiseGate(sample_rate=16000),
+            ]
+        )
         names = chain.filter_names
         assert len(names) == 2
         assert "HighPass" in names[0]
@@ -461,41 +465,50 @@ class TestFilterChain:
 
 class TestChainBuilder:
     def test_builds_chain_from_dict(self):
-        chain = build_chain_from_dict({
-            "noise_filter_highpass": True,
-            "noise_suppression_method": "none",
-            "noise_filter_gate": True,
-            "noise_filter_eq": True,
-            "noise_filter_compressor": True,
-            "noise_filter_limiter": True,
-            "noise_filter_notch": False,
-        }, sample_rate=16000)
+        chain = build_chain_from_dict(
+            {
+                "noise_filter_highpass": True,
+                "noise_suppression_method": "none",
+                "noise_filter_gate": True,
+                "noise_filter_eq": True,
+                "noise_filter_compressor": True,
+                "noise_filter_limiter": True,
+                "noise_filter_notch": False,
+            },
+            sample_rate=16000,
+        )
         names = chain.filter_names
         assert len(names) == 5  # HP, Gate, EQ, Comp, Limiter
 
     def test_empty_chain_when_all_off(self):
-        chain = build_chain_from_dict({
-            "noise_filter_highpass": False,
-            "noise_suppression_method": "none",
-            "noise_filter_gate": False,
-            "noise_filter_eq": False,
-            "noise_filter_compressor": False,
-            "noise_filter_limiter": False,
-            "noise_filter_notch": False,
-        }, sample_rate=16000)
+        chain = build_chain_from_dict(
+            {
+                "noise_filter_highpass": False,
+                "noise_suppression_method": "none",
+                "noise_filter_gate": False,
+                "noise_filter_eq": False,
+                "noise_filter_compressor": False,
+                "noise_filter_limiter": False,
+                "noise_filter_notch": False,
+            },
+            sample_rate=16000,
+        )
         assert chain.filter_names == []
 
     def test_notch_added_when_enabled(self):
-        chain = build_chain_from_dict({
-            "noise_filter_highpass": True,
-            "noise_suppression_method": "none",
-            "noise_filter_gate": False,
-            "noise_filter_eq": False,
-            "noise_filter_compressor": False,
-            "noise_filter_limiter": False,
-            "noise_filter_notch": True,
-            "noise_filter_notch_frequency_hz": 50.0,
-        }, sample_rate=16000)
+        chain = build_chain_from_dict(
+            {
+                "noise_filter_highpass": True,
+                "noise_suppression_method": "none",
+                "noise_filter_gate": False,
+                "noise_filter_eq": False,
+                "noise_filter_compressor": False,
+                "noise_filter_limiter": False,
+                "noise_filter_notch": True,
+                "noise_filter_notch_frequency_hz": 50.0,
+            },
+            sample_rate=16000,
+        )
         names = chain.filter_names
         assert any("Notch" in n for n in names)
 

@@ -360,21 +360,15 @@ def tauri_bridge_source() -> str:
     rest alphabetically) so the static regex assertions authored against
     the monolith still match patterns spread across the split files.
     """
-    assert _TAURI_BRIDGE_DIR.is_dir(), (
-        f"tauri-bridge/ directory not found: {_TAURI_BRIDGE_DIR}"
-    )
+    assert _TAURI_BRIDGE_DIR.is_dir(), f"tauri-bridge/ directory not found: {_TAURI_BRIDGE_DIR}"
     sibling_files = sorted(p for p in _TAURI_BRIDGE_DIR.glob("*.ts"))
     # Put index.ts first so the orchestrator (which imports the
     # namespace factories + auto-installs) appears at the top of the
     # concatenated source — preserves the natural reading order.
-    ordered = [_TAURI_BRIDGE] + [
-        p for p in sibling_files if p.name != "index.ts"
-    ]
+    ordered = [_TAURI_BRIDGE] + [p for p in sibling_files if p.name != "index.ts"]
     parts: list[str] = []
     for path in ordered:
-        assert path.is_file(), (
-            f"tauri-bridge submodule not found: {path}"
-        )
+        assert path.is_file(), f"tauri-bridge submodule not found: {path}"
         parts.append(path.read_text(encoding="utf-8"))
     return "\n\n".join(parts)
 
@@ -401,7 +395,11 @@ def preload_source() -> str:
     text = _PRELOAD.read_text(encoding="utf-8")
     factory = _PRELOAD.parent / "_bubble-channels.ts"
     if factory.exists():
-        text = text + "\n// ── _bubble-channels.ts (factory used by preload/index.ts) ──\n" + factory.read_text(encoding="utf-8")
+        text = (
+            text
+            + "\n// ── _bubble-channels.ts (factory used by preload/index.ts) ──\n"
+            + factory.read_text(encoding="utf-8")
+        )
     return text
 
 
@@ -1014,11 +1012,11 @@ def test_electron_bubble_on_level_listens_to_ipc_channel(preload_source) -> None
     # (b) inline ``ipc.on('bubble:level', ...)``
     # (c) factory call ``makeListener<...>(ipc, "bubble:level", ...)``
     listen_re = re.compile(
-        r'(?:'
+        r"(?:"
         r'ipcRenderer\.on\(\s*["\']bubble:level["\']'
         r'|ipc\.on\(\s*["\']bubble:level["\']'
         r'|makeListener<[^>]*>\(\s*ipc\s*,\s*["\']bubble:level["\']'
-        r')',
+        r")",
         re.DOTALL,
     )
     assert listen_re.search(preload_source), (

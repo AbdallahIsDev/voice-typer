@@ -160,11 +160,36 @@ def canonicalise_pynput(result, key) -> tuple[frozenset[str], str | None] | None
         # via dir() inspection. We use a simpler heuristic: scan the
         # known attribute set.
         for attr in (
-            "ctrl", "ctrl_l", "ctrl_r", "alt", "alt_l", "alt_r", "alt_gr",
-            "shift", "shift_l", "shift_r", "cmd", "cmd_l", "cmd_r", "fn",
-            "space", "enter", "tab", "esc", "backspace", "delete", "insert",
-            "home", "end", "page_up", "page_down", "caps_lock",
-            "up", "down", "left", "right",
+            "ctrl",
+            "ctrl_l",
+            "ctrl_r",
+            "alt",
+            "alt_l",
+            "alt_r",
+            "alt_gr",
+            "shift",
+            "shift_l",
+            "shift_r",
+            "cmd",
+            "cmd_l",
+            "cmd_r",
+            "fn",
+            "space",
+            "enter",
+            "tab",
+            "esc",
+            "backspace",
+            "delete",
+            "insert",
+            "home",
+            "end",
+            "page_up",
+            "page_down",
+            "caps_lock",
+            "up",
+            "down",
+            "left",
+            "right",
         ):
             if hasattr(key, attr) and getattr(key, attr) is k:
                 return attr
@@ -327,7 +352,6 @@ CORPUS: list[str] = [
     "<down>",
     "<left>",
     "<right>",
-
     # ── Single-modifier + key combos ────────────────────────────────
     "<ctrl>+<v>",
     "<alt>+<q>",
@@ -335,14 +359,12 @@ CORPUS: list[str] = [
     "<ctrl>+<f2>",
     "<alt>+<space>",
     "<shift>+<tab>",
-
     # ── Multi-modifier + key combos ─────────────────────────────────
     "<ctrl>+<alt>+<v>",
     "<ctrl>+<alt>+<u>",
     "<ctrl>+<shift>+<f1>",
     "<ctrl>+<alt>+<shift>+<f2>",
     "<fn>+<space>",
-
     # ── Modifier-only ───────────────────────────────────────────────
     "<alt>",
     "<ctrl>",
@@ -353,35 +375,31 @@ CORPUS: list[str] = [
     "<cmd>",
     "<win>",
     "<super>",
-
     # ── AltGr variants ──────────────────────────────────────────────
     "<altgr>",
     "<right_alt>",
     "<ralt>",
-
     # ── Alias variants ──────────────────────────────────────────────
-    "<control>+<v>",   # 'control' → 'ctrl'
-    "<alt_l>",         # → 'alt'
-    "<alt_r>",         # → 'alt'
-    "<cmd_l>",         # → 'cmd'
-    "<super_l>",       # → 'super'
-    "<win_r>",         # → 'win'
-
+    "<control>+<v>",  # 'control' → 'ctrl'
+    "<alt_l>",  # → 'alt'
+    "<alt_r>",  # → 'alt'
+    "<cmd_l>",  # → 'cmd'
+    "<super_l>",  # → 'super'
+    "<win_r>",  # → 'win'
     # ── Multi-key combos (extras ignored) ───────────────────────────
     "<a>+<b>",
     "<f2>+<ctrl>+<v>",  # ctrl is modifier; f2 first key; v ignored
-
     # ── Edge cases ──────────────────────────────────────────────────
     "",
     "   ",
     "<>+<>",
     "++++",
     "<ctrl>+<ctrl>+<v>",  # duplicate modifier
-    "<Ctrl>+<ALT>+V",     # mixed case
-    "<CTRL>+<ALT>+V",     # uppercase
-    "f2",                 # no angle brackets
-    "ctrl+alt+v",         # no angle brackets, all lowercase
-    "Ctrl+Alt+V",         # no angle brackets, mixed case
+    "<Ctrl>+<ALT>+V",  # mixed case
+    "<CTRL>+<ALT>+V",  # uppercase
+    "f2",  # no angle brackets
+    "ctrl+alt+v",  # no angle brackets, all lowercase
+    "Ctrl+Alt+V",  # no angle brackets, mixed case
 ]
 
 
@@ -398,13 +416,19 @@ CORPUS: list[str] = [
 # pynput modifier on Linux/Windows), and the Win32 adapter also drops
 # it (no ``_MOD_FN`` bit exists). Skipping these adapters for
 # fn-containing specs avoids false-positive parity failures.
-SKIP_PYNPUT: frozenset[str] = frozenset({
-    "<fn>", "<globe>",
-})
+SKIP_PYNPUT: frozenset[str] = frozenset(
+    {
+        "<fn>",
+        "<globe>",
+    }
+)
 
-SKIP_WIN32: frozenset[str] = frozenset({
-    "<fn>", "<globe>",
-})
+SKIP_WIN32: frozenset[str] = frozenset(
+    {
+        "<fn>",
+        "<globe>",
+    }
+)
 
 
 def _spec_contains_fn(hotkey: str) -> bool:
@@ -425,14 +449,12 @@ class TestParityCorpus:
 
     def test_corpus_has_at_least_50_entries(self) -> None:
         assert len(CORPUS) >= 50, (
-            f"Corpus should have at least 50 entries for meaningful parity "
-            f"coverage; got {len(CORPUS)}"
+            f"Corpus should have at least 50 entries for meaningful parity coverage; got {len(CORPUS)}"
         )
 
     def test_corpus_has_no_duplicates(self) -> None:
         assert len(CORPUS) == len(set(CORPUS)), (
-            "Corpus must not contain duplicates (they waste test time "
-            "and obscure coverage)"
+            "Corpus must not contain duplicates (they waste test time and obscure coverage)"
         )
 
     def test_corpus_covers_edge_cases(self) -> None:
@@ -444,13 +466,9 @@ class TestParityCorpus:
         # Angle brackets absent
         assert "f2" in CORPUS
         # Mixed case
-        assert any(s != s.lower() and s != s.upper() for s in CORPUS), (
-            "Corpus should include mixed-case inputs"
-        )
+        assert any(s != s.lower() and s != s.upper() for s in CORPUS), "Corpus should include mixed-case inputs"
         # Uppercase only
-        assert any(s.isupper() and s for s in CORPUS if s), (
-            "Corpus should include uppercase inputs"
-        )
+        assert any(s.isupper() and s for s in CORPUS if s), "Corpus should include uppercase inputs"
         # Duplicate keys
         assert "<ctrl>+<ctrl>+<v>" in CORPUS
         # Modifier-only
@@ -549,13 +567,17 @@ class TestAdapterParity:
         ``getattr(Key, name)``, ``KeyCode.from_char(c)``, and
         ``KeyCode.from_vk(vk)``.
         """
+
         class _FakeKey:
             def __init__(self, name: str):
                 self.name = name
+
             def __repr__(self) -> str:
                 return f"Key.{self.name}"
+
             def __eq__(self, other) -> bool:
                 return isinstance(other, _FakeKey) and self.name == other.name
+
             def __hash__(self) -> int:
                 return hash(("Key", self.name))
 
@@ -563,19 +585,24 @@ class TestAdapterParity:
             def __init__(self, *, char: str | None = None, vk: int | None = None):
                 self.char = char
                 self.vk = vk
+
             def __repr__(self) -> str:
                 if self.char is not None:
                     return f"KeyCode(char={self.char!r})"
                 return f"KeyCode(vk={self.vk!r})"
+
             def __eq__(self, other) -> bool:
                 if not isinstance(other, _FakeKeyCode):
                     return False
                 return self.char == other.char and self.vk == other.vk
+
             def __hash__(self) -> int:
                 return hash(("KeyCode", self.char, self.vk))
+
             @classmethod
             def from_char(cls, c: str) -> _FakeKeyCode:
                 return cls(char=c)
+
             @classmethod
             def from_vk(cls, vk: int) -> _FakeKeyCode:
                 return cls(vk=vk)
@@ -584,15 +611,36 @@ class TestAdapterParity:
             def __init__(self):
                 # Mirror the pynput Key enum members used by the adapter.
                 for name in (
-                    "ctrl", "ctrl_l", "ctrl_r",
-                    "alt", "alt_l", "alt_r", "alt_gr",
-                    "shift", "shift_l", "shift_r",
-                    "cmd", "cmd_l", "cmd_r",
+                    "ctrl",
+                    "ctrl_l",
+                    "ctrl_r",
+                    "alt",
+                    "alt_l",
+                    "alt_r",
+                    "alt_gr",
+                    "shift",
+                    "shift_l",
+                    "shift_r",
+                    "cmd",
+                    "cmd_l",
+                    "cmd_r",
                     "fn",
-                    "space", "enter", "tab", "esc", "backspace",
-                    "delete", "insert", "home", "end",
-                    "page_up", "page_down", "caps_lock",
-                    "up", "down", "left", "right",
+                    "space",
+                    "enter",
+                    "tab",
+                    "esc",
+                    "backspace",
+                    "delete",
+                    "insert",
+                    "home",
+                    "end",
+                    "page_up",
+                    "page_down",
+                    "caps_lock",
+                    "up",
+                    "down",
+                    "left",
+                    "right",
                 ):
                     setattr(self, name, _FakeKey(name))
                 for n in range(1, 25):
@@ -604,9 +652,7 @@ class TestAdapterParity:
         return _FakeKeyEnum(), _FakeKeyCode
 
     @pytest.mark.parametrize("hotkey", CORPUS)
-    def test_all_adapters_agree_with_canonical(
-        self, hotkey: str, fake_pynput
-    ) -> None:
+    def test_all_adapters_agree_with_canonical(self, hotkey: str, fake_pynput) -> None:
         """All four adapters must produce the same canonical form."""
         key, key_code = fake_pynput
 
@@ -652,8 +698,7 @@ class TestAdapterParity:
         if not non_none:
             # All adapters returned None — the spec is genuinely empty.
             assert expected is None, (
-                f"For {hotkey!r}: all adapters returned None but canonical "
-                f"parser produced {expected!r}"
+                f"For {hotkey!r}: all adapters returned None but canonical parser produced {expected!r}"
             )
             return
 
@@ -670,8 +715,7 @@ class TestAdapterParity:
         # (if the canonical parser produced a non-None result).
         if expected is not None:
             assert first == expected, (
-                f"For {hotkey!r}: adapters agreed on {first!r} but "
-                f"canonical parser produced {expected!r}"
+                f"For {hotkey!r}: adapters agreed on {first!r} but canonical parser produced {expected!r}"
             )
 
 
@@ -781,9 +825,17 @@ class TestEdgeCaseParity:
 
         server_dir = Path(__file__).resolve().parent.parent / "voice_typer" / "server"
         alias_signatures = {
-            "control", "altgr", "right_alt", "ralt",
-            "super_l", "super_r", "win_l", "win_r",
-            "cmd_l", "cmd_r", "globe",
+            "control",
+            "altgr",
+            "right_alt",
+            "ralt",
+            "super_l",
+            "super_r",
+            "win_l",
+            "win_r",
+            "cmd_l",
+            "cmd_r",
+            "globe",
         }
         offenders: list[str] = []
 
@@ -806,15 +858,11 @@ class TestEdgeCaseParity:
                     # wire-canonical maps (≤1 overlap) while still
                     # catching a true duplicate alias table (≥8 overlap).
                     if len(overlap) >= 8:
-                        offenders.append(
-                            f"{py.name}: dict with {len(overlap)} alias-like keys "
-                            f"({sorted(overlap)})"
-                        )
+                        offenders.append(f"{py.name}: dict with {len(overlap)} alias-like keys ({sorted(overlap)})")
 
         assert not offenders, (
             "RW-1 violation: found spec-parsing alias dict(s) outside "
-            "hotkey_spec.py (the single source of truth): "
-            + "; ".join(offenders)
+            "hotkey_spec.py (the single source of truth): " + "; ".join(offenders)
         )
 
 

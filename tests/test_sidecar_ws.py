@@ -155,20 +155,12 @@ def test_graceful_shutdown_sends_close_1001_to_all_authenticated_conns(
     )
 
     # BOTH authenticated connections must have received close(1001).
-    assert len(fake_ws_1._close_calls) == 1, (
-        f"conn 1: expected one close call, got {fake_ws_1._close_calls}"
-    )
-    assert len(fake_ws_2._close_calls) == 1, (
-        f"conn 2: expected one close call, got {fake_ws_2._close_calls}"
-    )
+    assert len(fake_ws_1._close_calls) == 1, f"conn 1: expected one close call, got {fake_ws_1._close_calls}"
+    assert len(fake_ws_2._close_calls) == 1, f"conn 2: expected one close call, got {fake_ws_2._close_calls}"
     for ws in (fake_ws_1, fake_ws_2):
         args, kwargs = ws._close_calls[0]
-        assert kwargs.get("code") == 1001, (
-            f"expected close(code=1001), got kwargs={kwargs}"
-        )
-        assert kwargs.get("reason") == "going away", (
-            f"expected reason='going away', got kwargs={kwargs}"
-        )
+        assert kwargs.get("code") == 1001, f"expected close(code=1001), got kwargs={kwargs}"
+        assert kwargs.get("reason") == "going away", f"expected reason='going away', got kwargs={kwargs}"
 
 
 # ─── GT-27: loop stops within ~500ms + slack ───────────────────────────
@@ -308,9 +300,7 @@ def test_stop_wrapper_swallows_ws_graceful_shutdown_exceptions(monkeypatch) -> N
     # Must NOT raise — the wrapper catches the exception.
     server.stop()
 
-    assert original_stop_called == [True], (
-        "original stop() must still run even if ws_graceful_shutdown raised"
-    )
+    assert original_stop_called == [True], "original stop() must still run even if ws_graceful_shutdown raised"
 
 
 # ─── GT-C2-2: in-flight dispatch drain ─────────────────────────────────
@@ -377,16 +367,12 @@ def test_graceful_shutdown_drains_inflight_dispatch_futures(monkeypatch) -> None
     # been left dangling and ``elapsed`` would be < 100ms (just the
     # 500ms handshake is enough — but we want to assert the drain
     # actually observed completion, so check the future resolved).
-    assert cf_future.done(), (
-        "in-flight dispatch future should have completed within the "
-        "drain's 2.0s bounded wait"
-    )
+    assert cf_future.done(), "in-flight dispatch future should have completed within the drain's 2.0s bounded wait"
     assert cf_future.result() == "done"
     # Sanity: the drain happened — the future completed BEFORE
     # ws_graceful_shutdown returned.
     assert elapsed < 3.0, (
-        f"ws_graceful_shutdown took {elapsed:.2f}s — drain should have "
-        f"completed within 2.0s + handshake"
+        f"ws_graceful_shutdown took {elapsed:.2f}s — drain should have completed within 2.0s + handshake"
     )
 
 
@@ -417,9 +403,7 @@ async def test_dispatch_toctou_recheck_rejects_after_shutting_down_flips(
     try:
         from voice_typer.server.ipc_server import _get_rate_limiter  # noqa: F401
     except Exception as exc:  # noqa: BLE001 — broad on purpose
-        pytest.skip(
-            f"ipc_server.py not importable (transient GT-FIX-05 mid-edit state): {exc}"
-        )
+        pytest.skip(f"ipc_server.py not importable (transient GT-FIX-05 mid-edit state): {exc}")
 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
 
@@ -478,12 +462,8 @@ async def test_dispatch_toctou_recheck_rejects_after_shutting_down_flips(
     result = await dispatch(msg, websocket=MagicMock())
 
     # The TOCTOU re-check should have rejected the dispatch.
-    assert result is not None, (
-        "dispatch should have returned a server.shutting_down error envelope"
-    )
-    assert result.get("type") == "error", (
-        f"expected type='error', got {result!r}"
-    )
+    assert result is not None, "dispatch should have returned a server.shutting_down error envelope"
+    assert result.get("type") == "error", f"expected type='error', got {result!r}"
     data = result.get("data", {})
     assert data.get("code") == "server.shutting_down", (
         f"expected code='server.shutting_down' (TOCTOU re-check), got {data!r}"
@@ -570,16 +550,13 @@ async def test_auth_handshake_still_works_with_graceful_shutdown_installed(
 
     # No auth_failed frame should have been sent on a successful auth.
     auth_failed_frames = [f for f in sent_frames if "auth_failed" in f]
-    assert auth_failed_frames == [], (
-        f"successful auth must NOT send an auth_failed frame, got {auth_failed_frames}"
-    )
+    assert auth_failed_frames == [], f"successful auth must NOT send an auth_failed frame, got {auth_failed_frames}"
 
     # GT-27: the websocket must have been registered on
     # ``_ws_authenticated_conns`` after the successful auth, then
     # unregistered in the finally block when the connection closed.
     assert ws not in server._ws_authenticated_conns, (
-        "websocket should have been removed from _ws_authenticated_conns "
-        "when _handle_connection's finally block ran"
+        "websocket should have been removed from _ws_authenticated_conns when _handle_connection's finally block ran"
     )
 
 
@@ -606,6 +583,4 @@ def test_attach_ws_graceful_shutdown_is_idempotent() -> None:
         "idempotent re-install must NOT re-wrap server.stop (would create "
         "a chain of wrappers calling each other on every shutdown)"
     )
-    assert first_fn is second_fn, (
-        "idempotent re-install must NOT replace ws_graceful_shutdown"
-    )
+    assert first_fn is second_fn, "idempotent re-install must NOT replace ws_graceful_shutdown"

@@ -96,6 +96,7 @@ def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
     otherwise the worker may not have processed the chunks yet.
     """
     import time
+
     deadline = time.perf_counter() + timeout_s
     while time.perf_counter() < deadline:
         if len(rec._ring_buffer) == 0:
@@ -105,8 +106,7 @@ def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
     # assertion fail with a clear message rather than timing out here.
 
 
-def _make_sine(freq: float, duration_s: float, sr: int = 16000,
-               amp: float = 0.5) -> np.ndarray:
+def _make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5) -> np.ndarray:
     """Generate a mono sine wave reshaped to (frames, 1) for PortAudio."""
     t = np.linspace(0, duration_s, int(sr * duration_s), endpoint=False)
     return (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32).reshape(-1, 1)
@@ -160,24 +160,31 @@ class TestRecorderCallbackWithAudioProcessor:
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
+
         def fake_input_stream(*args, **kwargs):
             s = FakeInputStream(*args, **kwargs)
             captured_streams.append(s)
             return s
+
         monkeypatch.setattr(rec_mod.sd, "InputStream", fake_input_stream)
 
         config = MagicMock(
-            sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            sample_rate=16000,
+            microphone=None,
+            silence_warning_seconds=20.0,
+            stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=900, device="cpu",
-            use_silero_vad=False, vad_speech_threshold=0.5,
+            max_recording_time_seconds=900,
+            device="cpu",
+            use_silero_vad=False,
+            vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; build_chain reads
         # noise_filter_* attributes from the config via getattr.
         proc = AudioProcessor(
             _FilterConfig(
-                highpass=True, highpass_cutoff_hz=80.0,
+                highpass=True,
+                highpass_cutoff_hz=80.0,
                 noise_gate=False,
             ),
             sample_rate=16000,
@@ -200,9 +207,10 @@ class TestRecorderCallbackWithAudioProcessor:
         _drain_ring_buffer(r)
 
         # If the callback had raised, the buffer would be empty.
-        assert len(r._buffer) == 5, \
-            f"Expected 5 buffered chunks, got {len(r._buffer)} — " \
+        assert len(r._buffer) == 5, (
+            f"Expected 5 buffered chunks, got {len(r._buffer)} — "
             "callback may have raised NameError (the bug we're regression-testing)"
+        )
         r.stop()
 
     def test_buffer_contains_filtered_audio(self, monkeypatch):
@@ -214,23 +222,30 @@ class TestRecorderCallbackWithAudioProcessor:
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
+
         def fake_input_stream(*args, **kwargs):
             s = FakeInputStream(*args, **kwargs)
             captured_streams.append(s)
             return s
+
         monkeypatch.setattr(rec_mod.sd, "InputStream", fake_input_stream)
 
         config = MagicMock(
-            sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            sample_rate=16000,
+            microphone=None,
+            silence_warning_seconds=20.0,
+            stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=900, device="cpu",
-            use_silero_vad=False, vad_speech_threshold=0.5,
+            max_recording_time_seconds=900,
+            device="cpu",
+            use_silero_vad=False,
+            vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
             _FilterConfig(
-                highpass=True, highpass_cutoff_hz=80.0,
+                highpass=True,
+                highpass_cutoff_hz=80.0,
                 noise_gate=False,
             ),
             sample_rate=16000,
@@ -241,17 +256,17 @@ class TestRecorderCallbackWithAudioProcessor:
 
         # Push a 0.5s chunk of 30 Hz sine (below the 80 Hz cutoff).
         raw_chunk = _make_sine(freq=30, duration_s=0.5, amp=0.5)
-        raw_rms = float(np.sqrt(np.mean(raw_chunk ** 2)))
+        raw_rms = float(np.sqrt(np.mean(raw_chunk**2)))
         stream.push_chunk(raw_chunk)
 
         # Stop and inspect what was buffered.
         audio = r.stop()
-        filtered_rms = float(np.sqrt(np.mean(audio ** 2)))
+        filtered_rms = float(np.sqrt(np.mean(audio**2)))
 
         # The high-pass should have significantly attenuated 30 Hz.
-        assert filtered_rms < raw_rms * 0.5, \
-            f"High-pass filter not applied: raw RMS={raw_rms:.4f}, " \
-            f"filtered RMS={filtered_rms:.4f}"
+        assert filtered_rms < raw_rms * 0.5, (
+            f"High-pass filter not applied: raw RMS={raw_rms:.4f}, filtered RMS={filtered_rms:.4f}"
+        )
 
     def test_rms_callback_receives_filtered_values(self, monkeypatch):
         """The on_rms_level callback should fire with values derived
@@ -261,20 +276,28 @@ class TestRecorderCallbackWithAudioProcessor:
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
-        monkeypatch.setattr(rec_mod.sd, "InputStream",
-                            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1])
+        monkeypatch.setattr(
+            rec_mod.sd,
+            "InputStream",
+            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1],
+        )
 
         config = MagicMock(
-            sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            sample_rate=16000,
+            microphone=None,
+            silence_warning_seconds=20.0,
+            stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=900, device="cpu",
-            use_silero_vad=False, vad_speech_threshold=0.5,
+            max_recording_time_seconds=900,
+            device="cpu",
+            use_silero_vad=False,
+            vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
             _FilterConfig(
-                highpass=True, highpass_cutoff_hz=80.0,
+                highpass=True,
+                highpass_cutoff_hz=80.0,
                 noise_gate=False,
             ),
             sample_rate=16000,
@@ -305,20 +328,28 @@ class TestRecorderCallbackWithAudioProcessor:
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
-        monkeypatch.setattr(rec_mod.sd, "InputStream",
-                            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1])
+        monkeypatch.setattr(
+            rec_mod.sd,
+            "InputStream",
+            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1],
+        )
 
         config = MagicMock(
-            sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            sample_rate=16000,
+            microphone=None,
+            silence_warning_seconds=20.0,
+            stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=900, device="cpu",
-            use_silero_vad=False, vad_speech_threshold=0.5,
+            max_recording_time_seconds=900,
+            device="cpu",
+            use_silero_vad=False,
+            vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
             _FilterConfig(
-                highpass=False, noise_gate=False,
+                highpass=False,
+                noise_gate=False,
             ),
             sample_rate=16000,
         )
@@ -333,8 +364,9 @@ class TestRecorderCallbackWithAudioProcessor:
             stream.push_chunk(_make_sine(freq=440, duration_s=0.05, amp=0.3))
 
         r.stop()
-        assert len(quality_calls) == 3, \
+        assert len(quality_calls) == 3, (
             f"Quality callback should fire once per chunk; got {len(quality_calls)} calls for 3 chunks"
+        )
 
     # ADR-0007 §3.8: post-capture noisereduce (process_full_audio) was
     # removed. The real-time NoiseSuppressor filter in the chain now
@@ -351,15 +383,22 @@ class TestRecorderCallbackWithAudioProcessor:
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
-        monkeypatch.setattr(rec_mod.sd, "InputStream",
-                            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1])
+        monkeypatch.setattr(
+            rec_mod.sd,
+            "InputStream",
+            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1],
+        )
 
         config = MagicMock(
-            sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            sample_rate=16000,
+            microphone=None,
+            silence_warning_seconds=20.0,
+            stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=900, device="cpu",
-            use_silero_vad=False, vad_speech_threshold=0.5,
+            max_recording_time_seconds=900,
+            device="cpu",
+            use_silero_vad=False,
+            vad_speech_threshold=0.5,
         )
         r = Recorder(config, audio_processor=None)
         r.start()
@@ -382,20 +421,28 @@ class TestRecorderCallbackWithAudioProcessor:
         from voice_typer.server.recording import Recorder
 
         captured_streams = []
-        monkeypatch.setattr(rec_mod.sd, "InputStream",
-                            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1])
+        monkeypatch.setattr(
+            rec_mod.sd,
+            "InputStream",
+            lambda *a, **kw: captured_streams.append(FakeInputStream(*a, **kw)) or captured_streams[-1],
+        )
 
         config = MagicMock(
-            sample_rate=16000, microphone=None,
-            silence_warning_seconds=20.0, stop_on_silence_seconds=120.0,
+            sample_rate=16000,
+            microphone=None,
+            silence_warning_seconds=20.0,
+            stop_on_silence_seconds=120.0,
             # SIMPLIFY-001: single explicit field replaces the old 3-field split
-            max_recording_time_seconds=900, device="cpu",
-            use_silero_vad=False, vad_speech_threshold=0.5,
+            max_recording_time_seconds=900,
+            device="cpu",
+            use_silero_vad=False,
+            vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; use noise_filter_* config.
         proc = AudioProcessor(
             _FilterConfig(
-                highpass=False, noise_gate=False,
+                highpass=False,
+                noise_gate=False,
             ),
             sample_rate=16000,
         )

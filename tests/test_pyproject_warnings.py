@@ -32,8 +32,5 @@ def test_no_blanket_resource_warning_filter() -> None:
     for lineno, raw in enumerate(text.splitlines(), start=1):
         stripped = raw.strip()
         if stripped.startswith('"ignore::ResourceWarning"'):
-            msg = (
-                f"Blanket 'ignore::ResourceWarning' filter found at "
-                f"pyproject.toml:{lineno}: {stripped}"
-            )
+            msg = f"Blanket 'ignore::ResourceWarning' filter found at pyproject.toml:{lineno}: {stripped}"
             raise AssertionError(msg)

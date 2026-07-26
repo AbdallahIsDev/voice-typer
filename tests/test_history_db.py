@@ -786,9 +786,7 @@ class TestPreMigrationBackup:
         # Open with HistoryDB — triggers the v1 -> v2 -> v3 migration.
         db = HistoryDB(db_path=db_path)
         try:
-            assert db._init_error is None, (
-                f"Expected migration to succeed; got _init_error={db._init_error}"
-            )
+            assert db._init_error is None, f"Expected migration to succeed; got _init_error={db._init_error}"
         finally:
             db.close()
 
@@ -817,8 +815,7 @@ class TestPreMigrationBackup:
             cursor = bak_conn.execute("SELECT text FROM transcriptions")
             rows = [row[0] for row in cursor.fetchall()]
             assert "pre-migration data" in rows, (
-                "PI-10 regression: pre-migration backup should contain "
-                f"the pre-migration user data. Rows: {rows}"
+                f"PI-10 regression: pre-migration backup should contain the pre-migration user data. Rows: {rows}"
             )
             # The .bak's schema_meta.version must be 1 (the OLD version).
             cursor = bak_conn.execute("SELECT value FROM schema_meta WHERE key = 'version'")
@@ -928,8 +925,7 @@ class TestCloseWalCheckpoint:
         db.close()
 
         assert len(checkpoint_calls) == 1, (
-            "PI-11 regression: close() should call self.checkpoint() "
-            f"exactly once. Got {len(checkpoint_calls)} calls."
+            f"PI-11 regression: close() should call self.checkpoint() exactly once. Got {len(checkpoint_calls)} calls."
         )
         assert checkpoint_calls[0] is True, (
             "PI-11 regression: close() should call self.checkpoint("
@@ -937,9 +933,7 @@ class TestCloseWalCheckpoint:
             f"truncate={checkpoint_calls[0]}"
         )
 
-    def test_close_does_not_block_on_checkpoint_failure(
-        self, tmp_path, monkeypatch
-    ):
+    def test_close_does_not_block_on_checkpoint_failure(self, tmp_path, monkeypatch):
         """PI-11: if the checkpoint raises sqlite3.Error, close() must
         NOT block — the suppress wrapper swallows the error and
         proceeds to send the shutdown sentinel.
@@ -964,8 +958,7 @@ class TestCloseWalCheckpoint:
         # The writer thread must have exited despite the checkpoint
         # failure (proves close() proceeded to send the sentinel).
         assert not db._writer_thread.is_alive(), (
-            "PI-11 regression: writer thread should exit after close() "
-            "even if the pre-shutdown checkpoint fails"
+            "PI-11 regression: writer thread should exit after close() even if the pre-shutdown checkpoint fails"
         )
 
     def test_close_truncates_wal_file(self, tmp_path):
@@ -989,9 +982,7 @@ class TestCloseWalCheckpoint:
         wal_path = db_path.with_name(db_path.name + "-wal")
         # The WAL file should exist and be non-empty after the writes
         # (before close()).
-        assert wal_path.exists(), (
-            "Pre-close: WAL file should exist after writes (WAL mode is on)"
-        )
+        assert wal_path.exists(), "Pre-close: WAL file should exist after writes (WAL mode is on)"
 
         db.close()
 

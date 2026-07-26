@@ -251,9 +251,7 @@ class TestTauriBundleResources:
         deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
         # Tauri v2 uses the short-form `postInstall` key (NOT `postInstallScript` which was Tauri v1).
         # See https://v2.tauri.app/reference/config/#debconfig
-        assert "postInstall" in deb, (
-            "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
-        )
+        assert "postInstall" in deb, "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
         assert "postInstallScript" not in deb, (
             "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
         )
@@ -1120,9 +1118,7 @@ class TestSidecarOwnership:
         # Read the package __init__.py + the two submodules that define
         # the classes. The __init__.py re-exports them but doesn't define
         # them (the ``class`` keyword lives in the submodules).
-        assert NATIVE_HOTKEYS_PY.is_file(), (
-            f"native_hotkeys package __init__.py must exist: {NATIVE_HOTKEYS_PY}"
-        )
+        assert NATIVE_HOTKEYS_PY.is_file(), f"native_hotkeys package __init__.py must exist: {NATIVE_HOTKEYS_PY}"
         parts: list[str] = [NATIVE_HOTKEYS_PY.read_text(encoding="utf-8")]
         for sub in ("base.py", "linux_backend.py"):
             sub_path = NATIVE_HOTKEYS_PKG_DIR / sub
@@ -1133,7 +1129,9 @@ class TestSidecarOwnership:
             "native_hotkeys package must define SubprocessHotkeyBackend (the base class "
             "that spawns the native binary via subprocess.Popen)"
         )
-        assert "class LinuxEvdevHotkey" in src, "native_hotkeys package must define LinuxEvdevHotkey (the Linux subclass)"
+        assert "class LinuxEvdevHotkey" in src, (
+            "native_hotkeys package must define LinuxEvdevHotkey (the Linux subclass)"
+        )
         assert "subprocess.Popen" in src, "native_hotkeys package must use subprocess.Popen to spawn the binary"
 
     def test_linux_backend_uses_linux_binary_name(self, linux_env):

@@ -9,6 +9,7 @@ Root causes fixed:
 3. qwen_engine.transcribe had no chunking — passed entire multi-minute audio
    in one call, risking OOM or silent truncation.
 """
+
 import inspect
 import threading
 from unittest.mock import MagicMock
@@ -39,8 +40,7 @@ class TestParakeetNoMaxNewTokensCap:
         """Same cap must be removed from the CPU fallback path."""
         src = inspect.getsource(ParakeetEngine._transcribe_segment_unlocked)
         assert "max_new_tokens=256" not in src, (
-            "_transcribe_segment_unlocked must not use max_new_tokens=256 — "
-            "same truncation bug as the GPU path."
+            "_transcribe_segment_unlocked must not use max_new_tokens=256 — same truncation bug as the GPU path."
         )
 
 
@@ -55,15 +55,14 @@ class TestParakeetNoAllowanceSkip:
         upstream by should_reject_low_audio_hallucination.
         """
         skip = ParakeetEngine._compute_overlap_skip(
-            ["alpha", "bravo"], ["charlie", "delta"]  # no shared words
+            ["alpha", "bravo"],
+            ["charlie", "delta"],  # no shared words
         )
         assert skip == 0
 
     def test_actual_overlap_returns_match_length(self):
         """When there IS true overlap, skip equals the match length (unchanged behavior)."""
-        skip = ParakeetEngine._compute_overlap_skip(
-            ["alpha", "bravo", "charlie"], ["bravo", "charlie", "delta"]
-        )
+        skip = ParakeetEngine._compute_overlap_skip(["alpha", "bravo", "charlie"], ["bravo", "charlie", "delta"])
         assert skip == 2  # "bravo charlie" matches the tail of prev
 
     def test_merge_chunks_preserves_word_count_across_many_boundaries(self):
@@ -126,8 +125,7 @@ class TestQwenChunking:
         engine.transcribe(audio)
 
         assert engine._model.transcribe.call_count == 1, (
-            "Short audio must not be chunked — expected 1 call, got "
-            f"{engine._model.transcribe.call_count}"
+            f"Short audio must not be chunked — expected 1 call, got {engine._model.transcribe.call_count}"
         )
 
     def test_qwen_split_audio_covers_full_array(self):

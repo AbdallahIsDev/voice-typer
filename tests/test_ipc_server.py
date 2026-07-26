@@ -143,9 +143,7 @@ class TestGT29DispatchTableTyped:
         """
         original = IPCServer._COMMAND_REGISTRY.copy()
         try:
-            IPCServer._COMMAND_REGISTRY["__typo_probe__"] = (
-                "_handle_this_method_does_not_exist"
-            )
+            IPCServer._COMMAND_REGISTRY["__typo_probe__"] = "_handle_this_method_does_not_exist"
             with pytest.raises(RuntimeError, match="non-callable"):
                 _make_server()
         finally:
@@ -189,8 +187,7 @@ class TestGT30RateLimiterInstanceDeclared:
             "GT-30: IPCServer.__init__ must declare _rate_limiter_instance."
         )
         assert server._rate_limiter_instance is None, (
-            "GT-30: _rate_limiter_instance must start as None (lazy "
-            "initialization by _get_rate_limiter)."
+            "GT-30: _rate_limiter_instance must start as None (lazy initialization by _get_rate_limiter)."
         )
 
     def test_get_rate_limiter_no_type_ignore(self) -> None:
@@ -297,9 +294,7 @@ class TestGT25GT45DispatchLockAndTOCTOU:
         for t in threads:
             t.join(timeout=2.0)
 
-        assert call_count["n"] == 2, (
-            f"GT-25: expected 2 dispatches, got {call_count['n']}."
-        )
+        assert call_count["n"] == 2, f"GT-25: expected 2 dispatches, got {call_count['n']}."
         assert not overlap_detected.is_set(), (
             "GT-25: two concurrent state-mutating dispatches ran their "
             "handler bodies simultaneously — _dispatch_lock failed to "
@@ -323,9 +318,7 @@ class TestGT25GT45DispatchLockAndTOCTOU:
         # ``getattr(self, handler_name, None)`` at dispatch time, so
         # patching the instance attribute is observed directly.
         server._handle_get_status = lambda data, resp: (  # noqa: E731
-            resp.__setitem__("type", "status")
-            or resp.__setitem__("data", {"status": "idle"})
-            or resp
+            resp.__setitem__("type", "status") or resp.__setitem__("data", {"status": "idle"}) or resp
         )
 
         # Hold the dispatch lock on the test thread.
@@ -369,9 +362,7 @@ class TestGT25GT45DispatchLockAndTOCTOU:
 
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result is not None
-        assert result["type"] == "error", (
-            f"GT-45: dispatch during shutdown must return error; got {result}"
-        )
+        assert result["type"] == "error", f"GT-45: dispatch during shutdown must return error; got {result}"
         assert result["data"]["code"] == "server.shutting_down"
 
     def test_shutdown_recheck_inside_lock_closes_toctou(self) -> None:
@@ -439,17 +430,10 @@ class TestGT48FIFOReMerge:
         # token is ``#``). The GT-48 explanatory comment in the source
         # mentions the old buggy expression; the source-grep must look
         # only at actual Python statements.
-        code_lines = [
-            line
-            for line in src.splitlines()
-            if line.strip() and not line.strip().startswith("#")
-        ]
+        code_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
         code_only = "\n".join(code_lines)
 
-        assert (
-            "self._pending_tcp = pending + self._pending_tcp + [line]"
-            in code_only
-        ), (
+        assert "self._pending_tcp = pending + self._pending_tcp + [line]" in code_only, (
             "GT-48: _send must re-merge with correct FIFO ordering: "
             "self._pending_tcp = pending + self._pending_tcp + [line]. "
             "The previous extend(pending) + append(line) sequence placed "
@@ -458,9 +442,7 @@ class TestGT48FIFOReMerge:
         # The buggy extend-based re-merge must be GONE from code lines.
         # (Allow it in comments — the GT-48 explanation mentions the
         # old form to document the fix.)
-        buggy_pattern = re.compile(
-            r"^\s*self\._pending_tcp\.extend\(pending\)\s*$", re.MULTILINE
-        )
+        buggy_pattern = re.compile(r"^\s*self\._pending_tcp\.extend\(pending\)\s*$", re.MULTILINE)
         assert not buggy_pattern.search(code_only), (
             "GT-48 / XV-82: _send must NOT execute "
             "self._pending_tcp.extend(pending) as a Python statement — "
@@ -501,8 +483,7 @@ class TestGT48FIFOReMerge:
         server._send({"type": "test", "seq": 3})
 
         assert len(server._pending_tcp) == 3, (
-            f"GT-48: expected 3 entries (2 pre-existing + 1 new), "
-            f"got {len(server._pending_tcp)}."
+            f"GT-48: expected 3 entries (2 pre-existing + 1 new), got {len(server._pending_tcp)}."
         )
         # Old entries must come BEFORE the new one (FIFO).
         assert '"old":1' in server._pending_tcp[0]
@@ -511,12 +492,10 @@ class TestGT48FIFOReMerge:
         # serializer may emit ``"seq": 3`` or ``"seq":3`` depending on
         # default separators — accept either).
         assert '"seq"' in server._pending_tcp[2], (
-            f"GT-48: new event must be at the END (FIFO); got "
-            f"{server._pending_tcp[-1]!r}."
+            f"GT-48: new event must be at the END (FIFO); got {server._pending_tcp[-1]!r}."
         )
         assert server._pending_tcp[2].endswith("}"), (
-            f"GT-48: new event must be a complete JSON object at the END; "
-            f"got {server._pending_tcp[-1]!r}."
+            f"GT-48: new event must be a complete JSON object at the END; got {server._pending_tcp[-1]!r}."
         )
 
 
@@ -569,8 +548,7 @@ class TestGT5AckBeforeCleanup:
         while time.time() < deadline and "thread" not in captured:
             time.sleep(0.005)
         assert "thread" in captured, (
-            "GT-5: service.quit() was not called within 2s — the "
-            "background cleanup thread never started."
+            "GT-5: service.quit() was not called within 2s — the background cleanup thread never started."
         )
         assert captured["thread"] is not caller_thread, (
             "GT-5: service.quit() ran on the dispatch pool thread — the "
@@ -638,9 +616,7 @@ class TestGTD15ConcreteTypes:
         ``VoiceTyperService | None`` (not ``typing.Any | None``)."""
         sig = inspect.signature(IPCServer.__init__)
         service_ann = sig.parameters["service"].annotation
-        ann_str = (
-            service_ann if isinstance(service_ann, str) else str(service_ann)
-        )
+        ann_str = service_ann if isinstance(service_ann, str) else str(service_ann)
         assert "VoiceTyperService" in ann_str, (
             f"GT-D1-5: __init__'s service parameter must be annotated "
             f"VoiceTyperService | None (was Any); got {ann_str!r}."
@@ -679,10 +655,7 @@ class TestGTD110SendTypedParams:
         sig = inspect.signature(IPCServer._send)
         out_ann = sig.parameters["_out"].annotation
         ann_str = out_ann if isinstance(out_ann, str) else str(out_ann)
-        assert "TextIO" in ann_str, (
-            f"GT-D1-10: _send's _out parameter must be typed TextIO | None; "
-            f"got {ann_str!r}."
-        )
+        assert "TextIO" in ann_str, f"GT-D1-10: _send's _out parameter must be typed TextIO | None; got {ann_str!r}."
 
     def test_send_client_typed_as_object(self) -> None:
         sig = inspect.signature(IPCServer._send)
@@ -692,8 +665,7 @@ class TestGTD110SendTypedParams:
         # tests pass other fakes, so the wider type keeps call sites
         # type-checking cleanly).
         assert "object" in ann_str or "_TCPLineIO" in ann_str, (
-            f"GT-D1-10: _send's _client parameter must be typed "
-            f"(object | None or _TCPLineIO | None); got {ann_str!r}."
+            f"GT-D1-10: _send's _client parameter must be typed (object | None or _TCPLineIO | None); got {ann_str!r}."
         )
 
 
@@ -718,6 +690,7 @@ class TestYJ27DispatchCastNotSuppression:
         """Return the source of ``IPCServer._dispatch`` (the bound
         method, not the unbound function — easier in tests)."""
         import inspect
+
         return inspect.getsource(IPCServer._dispatch)
 
     def test_dispatch_assignment_has_no_type_ignore_suppression(self) -> None:
@@ -747,10 +720,7 @@ class TestYJ27DispatchCastNotSuppression:
         would silently re-introduce the type-error-suppression hole
         that YJ-27 closed."""
         src = self._dispatch_source()
-        assert (
-            "typing.cast(CommandHandler, _resolved)" in src
-            or "cast(CommandHandler, _resolved)" in src
-        ), (
+        assert "typing.cast(CommandHandler, _resolved)" in src or "cast(CommandHandler, _resolved)" in src, (
             "YJ-27 regression: dispatch no longer uses "
             "`typing.cast(CommandHandler, _resolved)`. The handler "
             "assignment must use the typed cast, NOT bare assignment."

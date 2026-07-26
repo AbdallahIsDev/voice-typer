@@ -27,6 +27,7 @@ contains the call sites.
 
 from __future__ import annotations
 
+import contextlib
 import inspect
 
 from voice_typer.server.recording import recorder
@@ -208,12 +209,10 @@ class TestSecureClearArrayBehavior:
         # We don't actually start a stream — just exercise the start()
         # method body up to the point where it tries to open an
         # InputStream (which will fail since sounddevice is mocked).
-        try:
+        # start() may fail later (no real device) — that's fine;
+        # we only care that the secure-clear call sites ran first.
+        with contextlib.suppress(Exception):
             r.start()
-        except Exception:
-            # start() may fail later (no real device) — that's fine;
-            # we only care that the secure-clear call sites ran first.
-            pass
 
         # Pre-fix: this assertion would fail because the bare-name call
         # raised NameError, which was swallowed by ``try/except: pass``,

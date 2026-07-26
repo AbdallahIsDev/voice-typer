@@ -178,9 +178,7 @@ class TestComputeVadProbNumericalEquivalence:
         class MockModel:
             def __call__(self, tensor, sr):
                 # Silero expects float32.
-                assert tensor.dtype == torch.float32, (
-                    f"Silero VAD expects float32; got {tensor.dtype}"
-                )
+                assert tensor.dtype == torch.float32, f"Silero VAD expects float32; got {tensor.dtype}"
 
                 class MockResult:
                     def item(self):

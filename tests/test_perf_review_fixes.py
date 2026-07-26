@@ -202,10 +202,7 @@ class TestWin32PollingLoopUsesSleepEight:
             or "8 ms" in doc.lower()
             or "Sleep(8)" in doc
             or "125hz" in doc.replace(" ", "").lower()
-        ), (
-            "_run_polling_loop docstring must document the 8 ms Sleep cadence "
-            "(~125 Hz with timeBeginPeriod(8)) — XV-107"
-        )
+        ), "_run_polling_loop docstring must document the 8 ms Sleep cadence (~125 Hz with timeBeginPeriod(8)) — XV-107"
         # The docstring must explicitly mention the previous 10 Hz /
         # 100 ms behavior was replaced — that's the audit trail showing
         # the PERF-012 fix was intentional.

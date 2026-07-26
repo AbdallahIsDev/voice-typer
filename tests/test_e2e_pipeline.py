@@ -115,13 +115,28 @@ class E2EMockApp:
 # ── Helpers ───────────────────────────────────────────────────────────
 
 
-def _free_port() -> int:
-    """Reserve and release an ephemeral port."""
+def _free_port() -> tuple[int, socket.socket]:
+    """Reserve an ephemeral port and return the *bound* socket.
+
+    S2-CR-59 (race-free port handoff): the legacy pattern
+    ``bind → getsockname → close → return port`` opened a race window
+    between the close and the subsequent ``start_tcp()`` rebind —
+    another local process could claim the port in that gap, breaking
+    the test intermittently on busy CI. The production gold-standard
+    fix (``voice_typer.server.ipc.transport._pick_available_port``)
+    returns the BOUND socket so the kernel guarantees no other process
+    can grab the port between probe and listen. ``IPCServer.start_tcp``
+    accepts a ``(port, bound_socket)`` tuple form for exactly this
+    handoff (see its docstring).
+
+    The socket is bound with ``SO_REUSEADDR`` set and is *not* yet
+    listening — ``start_tcp()`` will call ``listen()`` on it.
+    """
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("127.0.0.1", 0))
     port = s.getsockname()[1]
-    s.close()
-    return port
+    return port, s
 
 
 # Per-socket read buffer for _read_line. TCP may coalesce multiple
@@ -208,7 +223,7 @@ def _read_all_pending(sock: socket.socket, timeout: float = 0.5) -> list[dict]:
 @pytest.fixture
 def e2e_server(tmp_path, monkeypatch):
     """Start a real IPCServer on an ephemeral port for E2E testing."""
-    port = _free_port()
+    port, bound_sock = _free_port()
     token = "e2e-token-67890"
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", token)
     # Patch _config_dir to return tmp_path — avoids SEC-005 path traversal
@@ -233,7 +248,10 @@ def e2e_server(tmp_path, monkeypatch):
     _set_push_event(server._push_fn)
     server._running = True
     server._hook_tray_set_state()
-    server.start_tcp(port)
+    # S2-CR-59: pass the (port, bound_socket) tuple so start_tcp
+    # listens on the already-bound socket — no race window between
+    # _free_port()'s probe and the listen call.
+    server.start_tcp((port, bound_sock))
 
     # Wait for the TCP server to be ready
     deadline = time.time() + 5.0
@@ -245,7 +263,7 @@ def e2e_server(tmp_path, monkeypatch):
             test_sock.close()
             break
         except (TimeoutError, ConnectionRefusedError):
-            time.sleep(0.1)
+            time.sleep(0.01)
     else:
         server.stop()
         pytest.fail("TCP server did not start within 5 seconds")
@@ -271,10 +289,11 @@ def e2e_server(tmp_path, monkeypatch):
             server._tcp_client.close()
         server._tcp_client = None
     # Wait for the OS to release the listening port before the next test
-    # claims it. A fixed ``time.sleep(0.2)`` is flaky on slow CI (port
-    # still in TIME_WAIT) — instead retry-bind with SO_REUSEADDR until the
-    # port is free or the deadline expires.
-    deadline = time.monotonic() + 2.0
+    # claims it. With the S2-CR-59 bound-socket handoff the TIME_WAIT
+    # drain is much faster (the kernel saw a clean SO_REUSEADDR transfer),
+    # so the deadline is tightened from 2.0s to 1.0s. Retry-bind with
+    # SO_REUSEADDR until the port is free or the deadline expires.
+    deadline = time.monotonic() + 1.0
     while time.monotonic() < deadline:
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

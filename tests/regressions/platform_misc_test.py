@@ -147,8 +147,7 @@ class TestDuplicateDiskSpaceCheckRemoved:
         # ``success`` is False and ``reason`` is
         # ``"disk_space_insufficient"``.
         assert isinstance(result, tuple) and len(result) == 3, (
-            "PROD-005 / G4-M-46: download_parakeet_weights must return a "
-            "3-tuple (success, reason, exc_info)."
+            "PROD-005 / G4-M-46: download_parakeet_weights must return a 3-tuple (success, reason, exc_info)."
         )
         assert result[0] is False, (
             "PROD-005: download_parakeet_weights should return success=False "
@@ -256,7 +255,7 @@ class TestContainerEnvironmentDetection:
 
     @pytest.mark.skipif(
         sys.platform.startswith("linux"),
-        reason="Non-Linux only: is_in_container short-circuits to False when /proc/1/cgroup and cgroup v1/v2 signatures unavailable",
+        reason="Non-Linux only: is_in_container short-circuits to False when /proc/1/cgroup and cgroup v1/v2 signatures unavailable",  # noqa: E501
     )
     def test_is_in_container_returns_false_on_non_linux(self):
         from voice_typer.server.container_detect import is_in_container

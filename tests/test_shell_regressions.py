@@ -64,11 +64,7 @@ def _shell_true_call_count(source: str) -> int:
         if not isinstance(node, ast.Call):
             continue
         for kw in node.keywords:
-            if (
-                kw.arg == "shell"
-                and isinstance(kw.value, ast.Constant)
-                and kw.value.value is True
-            ):
+            if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
                 count += 1
     return count
 
@@ -104,6 +100,7 @@ class TestNpmCommandResolution:
     def test_posix_returns_resolved_path(self, monkeypatch):
         """On POSIX, when ``shutil.which("npm")`` finds npm, return [path, run, script]."""
         from voice_typer.server import _electron_build as eb
+
         monkeypatch.setattr(eb, "is_windows", lambda: False)
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/npm" if name == "npm" else None)
         assert eb._npm_command("dev") == ["/usr/bin/npm", "run", "dev"]
@@ -114,6 +111,7 @@ class TestNpmCommandResolution:
         Popen's PATH lookup may still find npm — no shell needed.
         """
         from voice_typer.server import _electron_build as eb
+
         monkeypatch.setattr(eb, "is_windows", lambda: False)
         monkeypatch.setattr("shutil.which", lambda name: None)
         assert eb._npm_command("build") == ["npm", "run", "build"]
@@ -125,13 +123,16 @@ class TestNpmCommandResolution:
         to ``npm.cmd`` automatically — that's the common case.
         """
         from voice_typer.server import _electron_build as eb
+
         monkeypatch.setattr(eb, "is_windows", lambda: True)
         monkeypatch.setattr(
             "shutil.which",
             lambda name: r"C:\Program Files\nodejs\npm.cmd" if name == "npm" else None,
         )
         assert eb._npm_command("dev") == [
-            r"C:\Program Files\nodejs\npm.cmd", "run", "dev",
+            r"C:\Program Files\nodejs\npm.cmd",
+            "run",
+            "dev",
         ]
 
     def test_windows_falls_back_to_explicit_npm_cmd(self, monkeypatch):
@@ -143,6 +144,7 @@ class TestNpmCommandResolution:
         list form (no shell).
         """
         from voice_typer.server import _electron_build as eb
+
         monkeypatch.setattr(eb, "is_windows", lambda: True)
 
         def fake_which(name: str):
@@ -161,6 +163,7 @@ class TestNpmCommandResolution:
         Caller MUST log and skip — no shell=True fallback.
         """
         from voice_typer.server import _electron_build as eb
+
         monkeypatch.setattr(eb, "is_windows", lambda: True)
         monkeypatch.setattr("shutil.which", lambda name: None)
         assert eb._npm_command("dev") is None
@@ -168,6 +171,7 @@ class TestNpmCommandResolution:
     def test_default_script_is_dev(self, monkeypatch):
         """Default ``script`` argument is ``"dev"`` (back-compat)."""
         from voice_typer.server import _electron_build as eb
+
         monkeypatch.setattr(eb, "is_windows", lambda: False)
         monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/npm")
         assert eb._npm_command() == ["/usr/bin/npm", "run", "dev"]
@@ -186,9 +190,11 @@ class TestElectronLauncherShellTrueRemoved:
         and ``shell`` is NOT set to True.
         """
         from voice_typer.server import electron_launcher as el
+
         monkeypatch.setattr(el, "_electron_binary", lambda: None)
         monkeypatch.setattr(
-            el, "_electron_log_files",
+            el,
+            "_electron_log_files",
             lambda: {
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.DEVNULL,
@@ -220,9 +226,11 @@ class TestElectronLauncherShellTrueRemoved:
         S-7: we log and bail instead.
         """
         from voice_typer.server import electron_launcher as el
+
         monkeypatch.setattr(el, "_electron_binary", lambda: None)
         monkeypatch.setattr(
-            el, "_electron_log_files",
+            el,
+            "_electron_log_files",
             lambda: {
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.DEVNULL,
@@ -233,15 +241,15 @@ class TestElectronLauncherShellTrueRemoved:
 
         popen_calls: list = []
         monkeypatch.setattr(
-            subprocess, "Popen",
+            subprocess,
+            "Popen",
             lambda *a, **kw: popen_calls.append((a, kw)) or MagicMock(pid=1),
         )
         pid = el.launch_electron_frontend(9876, "deadbeef" * 8)
         assert pid is None
         # CRITICAL: Popen must NOT have been called with shell=True.
         assert popen_calls == [], (
-            "S-7: when _npm_command returns None, Popen must not be called "
-            f"at all (got {popen_calls!r})."
+            f"S-7: when _npm_command returns None, Popen must not be called at all (got {popen_calls!r})."
         )
 
 
@@ -253,8 +261,10 @@ class TestAutostartLauncherShellTrueRemoved:
 
     def test_uses_resolved_npm_path_when_available(self, monkeypatch):
         from voice_typer.server import autostart_launcher as al
+
         monkeypatch.setattr(
-            al, "_electron_log_files",
+            al,
+            "_electron_log_files",
             lambda: {
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.DEVNULL,
@@ -282,8 +292,10 @@ class TestAutostartLauncherShellTrueRemoved:
     def test_returns_none_when_npm_unresolvable(self, monkeypatch):
         """When ``_npm_command`` returns None, return None without spawning a shell."""
         from voice_typer.server import autostart_launcher as al
+
         monkeypatch.setattr(
-            al, "_electron_log_files",
+            al,
+            "_electron_log_files",
             lambda: {
                 "stdout": subprocess.DEVNULL,
                 "stderr": subprocess.DEVNULL,
@@ -294,14 +306,14 @@ class TestAutostartLauncherShellTrueRemoved:
 
         popen_calls: list = []
         monkeypatch.setattr(
-            subprocess, "Popen",
+            subprocess,
+            "Popen",
             lambda *a, **kw: popen_calls.append((a, kw)) or MagicMock(pid=1),
         )
         child = al._spawn_npm_run_dev(hidden=False)
         assert child is None
         assert popen_calls == [], (
-            "S-7: when _npm_command returns None, Popen must not be called "
-            f"at all (got {popen_calls!r})."
+            f"S-7: when _npm_command returns None, Popen must not be called at all (got {popen_calls!r})."
         )
 
 
@@ -318,6 +330,7 @@ class TestTrayWindowShellTrueRemoved:
         the call args.
         """
         import voice_typer.server.tray_window as tw
+
         # 1. TCP push fails.
         # B-1: tray_window now calls event_bus.publish directly.
         monkeypatch.setattr(
@@ -335,6 +348,7 @@ class TestTrayWindowShellTrueRemoved:
     def test_uses_resolved_npm_path_when_available(self, monkeypatch):
         """When ``_npm_command`` returns a list, Popen is called with that list."""
         from voice_typer.server import tray_window as tw
+
         self._force_dev_mode_branch(monkeypatch)
 
         resolved = ["/resolved/npm", "run", "dev"]
@@ -362,6 +376,7 @@ class TestTrayWindowShellTrueRemoved:
         S-7: we log and return without spawning.
         """
         from voice_typer.server import tray_window as tw
+
         self._force_dev_mode_branch(monkeypatch)
         monkeypatch.setattr(
             "voice_typer.server._electron_build._npm_command",
@@ -370,14 +385,14 @@ class TestTrayWindowShellTrueRemoved:
 
         popen_calls: list = []
         monkeypatch.setattr(
-            subprocess, "Popen",
+            subprocess,
+            "Popen",
             lambda *a, **kw: popen_calls.append((a, kw)) or MagicMock(pid=1),
         )
         # Should not raise.
         tw.open_electron_window()
         assert popen_calls == [], (
-            "S-7: when _npm_command returns None, Popen must not be called "
-            f"at all (got {popen_calls!r})."
+            f"S-7: when _npm_command returns None, Popen must not be called at all (got {popen_calls!r})."
         )
 
 
@@ -390,6 +405,7 @@ class TestBuildElectronShellTrueRemoved:
     def test_uses_resolved_npm_path_when_available(self, monkeypatch):
         """When ``_npm_command`` returns a list, subprocess.run is called with that list."""
         from voice_typer.server import _electron_build as eb
+
         resolved = ["/resolved/npm", "run", "build"]
         monkeypatch.setattr(eb, "_npm_command", lambda script="build": resolved)
 
@@ -411,15 +427,16 @@ class TestBuildElectronShellTrueRemoved:
     def test_returns_false_when_npm_unresolvable(self, monkeypatch):
         """When ``_npm_command`` returns None, log and return False — no shell=True."""
         from voice_typer.server import _electron_build as eb
+
         monkeypatch.setattr(eb, "_npm_command", lambda script="build": None)
 
         run_calls: list = []
         monkeypatch.setattr(
-            subprocess, "run",
+            subprocess,
+            "run",
             lambda *a, **kw: run_calls.append((a, kw)) or MagicMock(returncode=0, stderr=b""),
         )
         assert eb._build_electron() is False
         assert run_calls == [], (
-            "S-7: when _npm_command returns None, subprocess.run must not "
-            f"be called at all (got {run_calls!r})."
+            f"S-7: when _npm_command returns None, subprocess.run must not be called at all (got {run_calls!r})."
         )

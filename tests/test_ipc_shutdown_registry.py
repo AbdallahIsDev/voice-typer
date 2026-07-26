@@ -88,9 +88,7 @@ class TestShutdownCommandRegistry:
             "method — the registry entry points at a non-existent "
             "handler and dispatch will raise AttributeError."
         )
-        assert callable(IPCServer._handle_shutdown), (
-            "EC-9 regression: IPCServer._handle_shutdown is not callable."
-        )
+        assert callable(IPCServer._handle_shutdown), "EC-9 regression: IPCServer._handle_shutdown is not callable."
 
     def test_handle_shutdown_delegates_to_service_quit(self) -> None:
         """``_handle_shutdown`` MUST call ``self.service.quit()`` (NOT
@@ -137,8 +135,7 @@ class TestShutdownCommandRegistry:
             f"_handle_shutdown must set resp['type'] = 'result'; got {result.get('type')!r}."
         )
         assert result["data"] == {"ack": True}, (
-            f"_handle_shutdown must set resp['data'] = {{'ack': True}}; "
-            f"got {result.get('data')!r}."
+            f"_handle_shutdown must set resp['data'] = {{'ack': True}}; got {result.get('data')!r}."
         )
 
     def test_handle_shutdown_returns_ack_even_if_service_quit_raises(self) -> None:

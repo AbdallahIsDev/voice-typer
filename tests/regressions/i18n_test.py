@@ -97,9 +97,7 @@ class TestSpanishTranslationComplete:
         # Verify "es" is listed in SUPPORTED_LOCALES and that the dynamic
         # import mechanism (ensureLocaleLoaded) exists.
         assert '"es"' in src, "UX-015: SUPPORTED_LOCALES must include 'es'"
-        assert "ensureLocaleLoaded" in src, (
-            "UX-015: i18n.ts must define ensureLocaleLoaded for dynamic locale loading"
-        )
+        assert "ensureLocaleLoaded" in src, "UX-015: i18n.ts must define ensureLocaleLoaded for dynamic locale loading"
 
     def test_i18n_ts_exports_locale_helpers(self):
         # RW-8: KEEP — pins UX-015 (i18n.ts exports SUPPORTED_LOCALES and

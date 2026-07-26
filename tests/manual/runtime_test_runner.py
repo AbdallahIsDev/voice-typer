@@ -26,6 +26,7 @@ VK_F2 = 0x71
 
 # ── Helpers ─────────────────────────────────────────────────────────────
 
+
 def simulate_f2():
     """Simulate an F2 keypress using Win32 keybd_event."""
     user32 = ctypes.windll.user32
@@ -37,6 +38,7 @@ def simulate_f2():
     # Key up
     user32.keybd_event(VK_F2, 0, keyeventf_keyup, 0)
     print(f"  [SIM] F2 keypress simulated at {time.strftime('%H:%M:%S')}")
+
 
 def tail_log(log_file, timeout=60, stop_on=None):
     """Tail the log file until stop_on string is found or timeout."""
@@ -66,6 +68,7 @@ def tail_log(log_file, timeout=60, stop_on=None):
         time.sleep(0.3)
 
     return seen_lines
+
 
 def wait_for_log(log_file, pattern, timeout=90):
     """Wait until a specific pattern appears in the log file."""
@@ -100,6 +103,7 @@ def wait_for_log(log_file, pattern, timeout=90):
 
 
 # ── Main ────────────────────────────────────────────────────────────────
+
 
 def main():
     print("=" * 70)
@@ -181,9 +185,8 @@ def main():
     # short-audio cases.  We look for either as the "cycle finished"
     # indicator.  When neither appears, we still check for FORCE
     # RECOVER (which is still emitted by recording_controller.py:623).
-    cycle_done = (
-        wait_for_log(LOG_FILE, "[TRANSCRIBE] Transcription complete", timeout=60)
-        or wait_for_log(LOG_FILE, "Audio too short, skipping transcription", timeout=5)
+    cycle_done = wait_for_log(LOG_FILE, "[TRANSCRIBE] Transcription complete", timeout=60) or wait_for_log(
+        LOG_FILE, "Audio too short, skipping transcription", timeout=5
     )
     if not cycle_done:
         print("  [WARN] transcription cycle did not complete — checking for force recover")
@@ -219,9 +222,7 @@ def main():
 
     # Check: transcribe_with_fallback exercised?
     fallback_exercised = any(
-        "transcribe_with_fallback" in line
-        or "GPU transcription failed" in line
-        or "falling back to CPU" in line
+        "transcribe_with_fallback" in line or "GPU transcription failed" in line or "falling back to CPU" in line
         for line in lines
     )
     transcribe_attempted = any("Starting transcription" in line for line in lines)
@@ -238,8 +239,7 @@ def main():
     # signal.
     busy_set = any("_busy=True" in line or "busy=True" in line for line in lines)
     busy_reset = any(
-        "[TRANSCRIBE] Transcription complete" in line
-        or "Audio too short, skipping transcription" in line
+        "[TRANSCRIBE] Transcription complete" in line or "Audio too short, skipping transcription" in line
         for line in lines
     )
     force_recover = any("FORCE RECOVER" in line for line in lines)
@@ -250,9 +250,13 @@ def main():
     # Check if Transcribing... was the last state
     last_tray_line = ""
     for line in lines:
-        if ("set_state" in line.lower() or "IDLE" in line
-                or "TRANSCRIBING" in line or "RECORDING" in line
-                or "ERROR" in line):
+        if (
+            "set_state" in line.lower()
+            or "IDLE" in line
+            or "TRANSCRIBING" in line
+            or "RECORDING" in line
+            or "ERROR" in line
+        ):
             last_tray_line = line
 
     # Check: F2 worked again after first cycle?
@@ -281,7 +285,7 @@ def main():
 
 3. Tray recovery:
    - Tray returned to IDLE:   {tray_idle}
-   - Final tray state line:   {last_tray_line[:80] if last_tray_line else 'N/A'}
+   - Final tray state line:   {last_tray_line[:80] if last_tray_line else "N/A"}
 
 4. F2 re-usable after cycle:
    - Second F2 fired:         {second_f2_fired}

@@ -107,8 +107,7 @@ class TestER54TrayMonotonicElapsed:
         # ``_recording_started_at`` should be 1000.0 (the first monotonic
         # value), NOT the wall-clock value.
         assert tray._recording_started_at == 1000.0, (
-            f"set_state should store time.monotonic() (1000.0), got "
-            f"{tray._recording_started_at!r}"
+            f"set_state should store time.monotonic() (1000.0), got {tray._recording_started_at!r}"
         )
 
         # Now compute tooltip — it should call ``time.monotonic()`` again
@@ -116,10 +115,7 @@ class TestER54TrayMonotonicElapsed:
         # ``time.time()``, elapsed would be ~1e9 and the format would
         # blow up or display nonsense.
         tooltip = tray._compute_tooltip(AppState.RECORDING, "recording")
-        assert "01:05" in tooltip, (
-            f"Tooltip should show mm:ss=01:05 (monotonic delta=65s), "
-            f"got {tooltip!r}"
-        )
+        assert "01:05" in tooltip, f"Tooltip should show mm:ss=01:05 (monotonic delta=65s), got {tooltip!r}"
 
         # Cleanup.
         tray.set_state(AppState.IDLE)
@@ -136,8 +132,10 @@ class TestER54TrayMonotonicElapsed:
         tray = TrayIcon(
             controller=controller,
             config=SimpleNamespace(
-                hotkey="<f2>", model_size="small.en",
-                autostart=True, show_notifications=True,
+                hotkey="<f2>",
+                model_size="small.en",
+                autostart=True,
+                show_notifications=True,
                 microphone=None,
                 silence_warning_seconds=20.0,
                 stop_on_silence_seconds=120.0,
@@ -274,12 +272,9 @@ class TestER55TemplatesWhitespaceRegexCompiledOnce:
     def test_whitespace_re_is_module_level_pattern(self):
         from voice_typer.server import templates as tmpl_mod
 
-        assert hasattr(tmpl_mod, "_WHITESPACE_RE"), (
-            "templates module must expose module-level _WHITESPACE_RE"
-        )
+        assert hasattr(tmpl_mod, "_WHITESPACE_RE"), "templates module must expose module-level _WHITESPACE_RE"
         assert isinstance(tmpl_mod._WHITESPACE_RE, re.Pattern), (
-            f"_WHITESPACE_RE must be a compiled re.Pattern, got "
-            f"{type(tmpl_mod._WHITESPACE_RE)!r}"
+            f"_WHITESPACE_RE must be a compiled re.Pattern, got {type(tmpl_mod._WHITESPACE_RE)!r}"
         )
 
     def test_match_does_not_recompile_regex(self, monkeypatch, tmp_path):
@@ -287,9 +282,7 @@ class TestER55TemplatesWhitespaceRegexCompiledOnce:
         must NOT trigger any additional ``re.compile`` calls — the
         module-level ``_WHITESPACE_RE`` is reused on every iteration.
         """
-        monkeypatch.setattr(
-            "voice_typer.server.config._config_dir", lambda: tmp_path
-        )
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         from voice_typer.server import templates as tmpl_mod
         from voice_typer.server.templates import TemplateManager
 
@@ -346,12 +339,9 @@ class TestER64LoopbackHostsModuleLevel:
     def test_loopback_hosts_is_module_level(self):
         from voice_typer.server import _secrets
 
-        assert hasattr(_secrets, "_LOOPBACK_HOSTS"), (
-            "_secrets module must expose module-level _LOOPBACK_HOSTS"
-        )
+        assert hasattr(_secrets, "_LOOPBACK_HOSTS"), "_secrets module must expose module-level _LOOPBACK_HOSTS"
         assert isinstance(_secrets._LOOPBACK_HOSTS, frozenset), (
-            f"_LOOPBACK_HOSTS must be a frozenset, got "
-            f"{type(_secrets._LOOPBACK_HOSTS)!r}"
+            f"_LOOPBACK_HOSTS must be a frozenset, got {type(_secrets._LOOPBACK_HOSTS)!r}"
         )
         assert "localhost" in _secrets._LOOPBACK_HOSTS
         assert "127.0.0.1" in _secrets._LOOPBACK_HOSTS
@@ -398,9 +388,7 @@ class TestER64LoopbackHostsModuleLevel:
                 url,
                 allow_loopback_http=True,
             )
-            assert id(_secrets._LOOPBACK_HOSTS) == first_id, (
-                f"_LOOPBACK_HOSTS id drifted after checking URL {url!r}"
-            )
+            assert id(_secrets._LOOPBACK_HOSTS) == first_id, f"_LOOPBACK_HOSTS id drifted after checking URL {url!r}"
 
 
 class TestER64RedactApiKeysSubHoisted:

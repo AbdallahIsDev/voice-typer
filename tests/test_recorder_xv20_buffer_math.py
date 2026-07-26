@@ -79,9 +79,7 @@ def _patch_sd(monkeypatch, recording_mod, native_rate: int) -> None:
         return device_dict
 
     monkeypatch.setattr(recording_mod.sd, "query_devices", _query_devices)
-    monkeypatch.setattr(
-        recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"}
-    )
+    monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
 
 
 def _make_recorder(max_rec: int = 1800, preroll_seconds: float = 1.0):
@@ -138,8 +136,7 @@ class TestXV20MainBufferSizing:
             r.start()
             # The device's native rate must be the effective rate.
             assert r._effective_sr == native_rate, (
-                f"expected _effective_sr={native_rate} (device native), "
-                f"got {r._effective_sr}"
+                f"expected _effective_sr={native_rate} (device native), got {r._effective_sr}"
             )
 
             chunk_seconds = 512 / native_rate
@@ -243,9 +240,7 @@ class TestXV21PrerollSizing:
         r = _make_recorder(max_rec=900, preroll_seconds=1.0)
         try:
             r.start()
-            assert r._effective_sr == native_rate, (
-                f"expected _effective_sr={native_rate}, got {r._effective_sr}"
-            )
+            assert r._effective_sr == native_rate, f"expected _effective_sr={native_rate}, got {r._effective_sr}"
 
             expected_min_preroll_chunks = int(1.0 * native_rate / 512)
             actual_maxlen = r._preroll_buffer.maxlen or 0
@@ -293,12 +288,9 @@ class TestXV21PrerollSizing:
         try:
             r.start()
             assert r._preroll_buffer.maxlen == 0, (
-                f"pre-roll disabled but maxlen is "
-                f"{r._preroll_buffer.maxlen} (expected 0)"
+                f"pre-roll disabled but maxlen is {r._preroll_buffer.maxlen} (expected 0)"
             )
-            assert not r._preroll_active, (
-                "pre-roll should be inactive when pre_roll_buffer_seconds=0"
-            )
+            assert not r._preroll_active, "pre-roll should be inactive when pre_roll_buffer_seconds=0"
         finally:
             r.stop()
 

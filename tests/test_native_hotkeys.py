@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+import contextlib
 import sys
 from pathlib import Path
 
@@ -732,10 +733,8 @@ class TestLivenessWatchdog:
             except Exception:
                 pass  # May fail on READY timeout — that's OK, we just check the Popen kwargs.
             finally:
-                try:
+                with contextlib.suppress(Exception):
                     b.stop()
-                except Exception:
-                    pass
 
         assert captured_kwargs.get("stdin") == subprocess.PIPE, (
             f"G4-H-31: _spawn_process must use stdin=subprocess.PIPE so the "

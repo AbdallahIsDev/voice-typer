@@ -375,13 +375,10 @@ class TestSubscriberExceptionLogLevel:
         with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
             event_bus.publish({"type": "test"})
         # Find the record emitted by the subscriber-exception path.
-        matching = [
-            r for r in caplog.records if "subscriber raised" in r.getMessage()
-        ]
+        matching = [r for r in caplog.records if "subscriber raised" in r.getMessage()]
         assert len(matching) == 1, f"expected 1 record, got {matching}"
         assert matching[0].levelno == logging.WARNING, (
-            f"GT-3: first occurrence must be WARNING, got "
-            f"{logging.getLevelName(matching[0].levelno)}"
+            f"GT-3: first occurrence must be WARNING, got {logging.getLevelName(matching[0].levelno)}"
         )
 
     def test_first_exception_includes_exc_info(self, caplog):
@@ -395,15 +392,11 @@ class TestSubscriberExceptionLogLevel:
         event_bus.subscribe(bad)
         with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
             event_bus.publish({"type": "test"})
-        matching = [
-            r for r in caplog.records if "subscriber raised" in r.getMessage()
-        ]
+        matching = [r for r in caplog.records if "subscriber raised" in r.getMessage()]
         assert matching, "no matching record captured"
         record = matching[0]
         assert record.levelno == logging.WARNING
-        assert record.exc_info is not None, (
-            "GT-3: first-occurrence WARNING must include exc_info"
-        )
+        assert record.exc_info is not None, "GT-3: first-occurrence WARNING must include exc_info"
         # exc_info is (type, value, tb); the value should be our RuntimeError.
         assert record.exc_info[0] is RuntimeError
         assert "traceback please" in str(record.exc_info[1])
@@ -421,9 +414,7 @@ class TestSubscriberExceptionLogLevel:
         with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
             event_bus.publish({"type": "first"})
             event_bus.publish({"type": "second"})
-        matching = [
-            r for r in caplog.records if "subscriber raised" in r.getMessage()
-        ]
+        matching = [r for r in caplog.records if "subscriber raised" in r.getMessage()]
         # Two records total: WARNING then DEBUG.
         assert len(matching) == 2, (
             f"expected 2 records (WARNING + DEBUG), got {len(matching)}: "
@@ -431,8 +422,7 @@ class TestSubscriberExceptionLogLevel:
         )
         assert matching[0].levelno == logging.WARNING
         assert matching[1].levelno == logging.DEBUG, (
-            f"GT-3: second occurrence must be DEBUG, got "
-            f"{logging.getLevelName(matching[1].levelno)}"
+            f"GT-3: second occurrence must be DEBUG, got {logging.getLevelName(matching[1].levelno)}"
         )
         # The DEBUG record carries no exc_info (rate-limit suppresses
         # the traceback on repeats — see log_rate_limit.log_rate_limited).
@@ -455,16 +445,11 @@ class TestSubscriberExceptionLogLevel:
         with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
             # Single publish: both raise for the first time.
             event_bus.publish({"type": "test"})
-        matching = [
-            r for r in caplog.records if "subscriber raised" in r.getMessage()
-        ]
-        assert len(matching) == 2, (
-            f"expected 2 records (one per subscriber), got {len(matching)}"
-        )
+        matching = [r for r in caplog.records if "subscriber raised" in r.getMessage()]
+        assert len(matching) == 2, f"expected 2 records (one per subscriber), got {len(matching)}"
         # Both should be WARNING (first occurrence for each subscriber).
         assert all(r.levelno == logging.WARNING for r in matching), (
-            f"GT-3: each subscriber's FIRST exception must be WARNING; "
-            f"got levels {[r.levelname for r in matching]}"
+            f"GT-3: each subscriber's FIRST exception must be WARNING; got levels {[r.levelname for r in matching]}"
         )
 
     def test_subsequent_occurrence_message_visible_at_debug(self, caplog):
@@ -480,9 +465,7 @@ class TestSubscriberExceptionLogLevel:
         with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
             for _ in range(5):
                 event_bus.publish({"type": "test"})
-        matching = [
-            r for r in caplog.records if "subscriber raised" in r.getMessage()
-        ]
+        matching = [r for r in caplog.records if "subscriber raised" in r.getMessage()]
         # 1 WARNING + 4 DEBUG suppressed occurrences.
         assert len(matching) == 5
         assert matching[0].levelno == logging.WARNING
@@ -506,11 +489,7 @@ class TestConfigChangeListenerExceptionLogLevel:
             result = event_bus._publish_config_change({"foo": 1})
         # No successful delivery (the only listener raised).
         assert result is False
-        matching = [
-            r
-            for r in caplog.records
-            if "config-change listener raised" in r.getMessage()
-        ]
+        matching = [r for r in caplog.records if "config-change listener raised" in r.getMessage()]
         assert len(matching) == 1
         assert matching[0].levelno == logging.WARNING
         assert matching[0].exc_info is not None
@@ -524,11 +503,7 @@ class TestConfigChangeListenerExceptionLogLevel:
         with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
             event_bus._publish_config_change({"foo": 1})
             event_bus._publish_config_change({"foo": 2})
-        matching = [
-            r
-            for r in caplog.records
-            if "config-change listener raised" in r.getMessage()
-        ]
+        matching = [r for r in caplog.records if "config-change listener raised" in r.getMessage()]
         assert len(matching) == 2
         assert matching[0].levelno == logging.WARNING
         assert matching[1].levelno == logging.DEBUG

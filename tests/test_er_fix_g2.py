@@ -95,13 +95,11 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
         vm.apply_to_text("foo hello alpha")
         first_batch = call_count["n"]
         assert first_batch == 3, (
-            f"first apply_to_text should compile 3 phrase patterns (one per entry), "
-            f"got {first_batch}"
+            f"first apply_to_text should compile 3 phrase patterns (one per entry), got {first_batch}"
         )
         vm.apply_to_text("foo hello alpha")
         assert call_count["n"] == first_batch, (
-            f"second apply_to_text should hit the cache (0 new compiles), "
-            f"but count rose to {call_count['n']}"
+            f"second apply_to_text should hit the cache (0 new compiles), but count rose to {call_count['n']}"
         )
 
 
@@ -289,8 +287,7 @@ def test_pending_restores_no_leak_when_thread_start_fails() -> None:
     # ER-72 core assertion: the orphaned entry must have been removed.
     with clip_mod._pending_restores_lock:
         assert clip_mod._pending_restores == [], (
-            f"_pending_restores should be empty after failed thread start (no leak); "
-            f"got {clip_mod._pending_restores!r}"
+            f"_pending_restores should be empty after failed thread start (no leak); got {clip_mod._pending_restores!r}"
         )
 
 
@@ -339,9 +336,11 @@ def test_pending_restores_no_leak_warning_logged() -> None:
         # via the manager-module-local ``log`` reference. Patch both
         # so the call is intercepted regardless of which reference
         # the production code uses.
-        with patch.object(clip_mod, "log", mock_log), patch.object(
-            mgr_mod, "log", mock_log
-        ), patch.object(mgr_mod.threading, "Thread", FakeThread):
+        with (
+            patch.object(clip_mod, "log", mock_log),
+            patch.object(mgr_mod, "log", mock_log),
+            patch.object(mgr_mod.threading, "Thread", FakeThread),
+        ):
             cm.paste(snapshot=snap, pasted_text="text")
     finally:
         for p in reversed(exits):
@@ -350,8 +349,7 @@ def test_pending_restores_no_leak_warning_logged() -> None:
     # A WARNING-level call should have been made.
     warning_calls = [c for c in mock_log.warning.call_args_list]
     assert len(warning_calls) >= 1, (
-        f"expected at least one log.warning call on failed thread start; "
-        f"got warning={warning_calls}"
+        f"expected at least one log.warning call on failed thread start; got warning={warning_calls}"
     )
 
 
@@ -400,16 +398,12 @@ def test_read_plaintext_fallback_uses_mtime_cache(monkeypatch, tmp_path) -> None
 
     # Second call — same mtime → cache hit, NO read.
     assert credential_store._read_plaintext_fallback("groq") == "sk-groq"
-    assert call_count["n"] == 1, (
-        f"second call should hit cache (0 new reads), got {call_count['n']}"
-    )
+    assert call_count["n"] == 1, f"second call should hit cache (0 new reads), got {call_count['n']}"
 
     # Change mtime → cache invalidated, next call reads again.
     fake_stat.st_mtime_ns = 1000
     assert credential_store._read_plaintext_fallback("openai") == "sk-openai"
-    assert call_count["n"] == 2, (
-        f"third call should re-read after mtime change, got {call_count['n']}"
-    )
+    assert call_count["n"] == 2, f"third call should re-read after mtime change, got {call_count['n']}"
 
 
 def test_read_plaintext_fallback_cache_is_per_path(monkeypatch, tmp_path) -> None:
@@ -424,12 +418,8 @@ def test_read_plaintext_fallback_cache_is_per_path(monkeypatch, tmp_path) -> Non
     dir_b = tmp_path / "b"
     dir_a.mkdir()
     dir_b.mkdir()
-    (dir_a / "config.json").write_text(
-        _json.dumps({"openai_api_key": "sk-a"}), encoding="utf-8"
-    )
-    (dir_b / "config.json").write_text(
-        _json.dumps({"openai_api_key": "sk-b"}), encoding="utf-8"
-    )
+    (dir_a / "config.json").write_text(_json.dumps({"openai_api_key": "sk-a"}), encoding="utf-8")
+    (dir_b / "config.json").write_text(_json.dumps({"openai_api_key": "sk-b"}), encoding="utf-8")
 
     monkeypatch.setattr(credential_store, "_plaintext_config_cache", {})
 
@@ -456,9 +446,7 @@ def test_read_plaintext_fallback_cache_is_per_path(monkeypatch, tmp_path) -> Non
     # Switch to dir_b — different path, cache miss even though mtime is same.
     current_dir["v"] = dir_b
     assert credential_store._read_plaintext_fallback("openai") == "sk-b"
-    assert call_count["n"] == 2, (
-        f"different config dir should be a cache miss, got {call_count['n']} reads"
-    )
+    assert call_count["n"] == 2, f"different config dir should be a cache miss, got {call_count['n']} reads"
 
     # Back to dir_a — same path + same mtime → cache hit.
     current_dir["v"] = dir_a

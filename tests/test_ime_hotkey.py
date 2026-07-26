@@ -22,6 +22,7 @@ import pytest
 def _import_ime_check():
     try:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
+
         return WindowsNativeHotkey
     except ImportError:
         return None

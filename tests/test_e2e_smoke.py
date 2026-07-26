@@ -117,22 +117,36 @@ class TestEndToEndSmoke:
         RecordingController.on_recorder_rms as part of the RecordingController
         extraction (commit 9e53ffe). The forwarded audio_chunk is what
         WaveformBubble.update_level uses to run Silero VAD on the live stream.
+
+        S2-CR-64: the previous test asserted
+        ``"rms_callback(chunk_rms, chunk_peak, filtered)" in inspect.getsource(recording)``
+        — but production code uses the 2-arg call ``rms_callback(chunk_rms, chunk_peak)``
+        (per G4-L-04 comment); the 3-arg form appears only in a comment near the
+        call site, giving false coverage. Replaced with a behavioral test that
+        constructs a RecordingController, invokes ``on_recorder_rms`` with a
+        sentinel chunk, and asserts the bubble's ``update_level`` received it
+        by identity.
         """
         import inspect
+        from unittest.mock import MagicMock
 
         from voice_typer.server.recording_controller import RecordingController
         from voice_typer.server.waveform import WaveformBubble
 
-        # Check signatures
+        # Check signatures — these are stable shape assertions, not source text.
         app_sig = inspect.signature(RecordingController.on_recorder_rms)
         assert "audio_chunk" in app_sig.parameters
         bubble_sig = inspect.signature(WaveformBubble.update_level)
         assert "audio_chunk" in bubble_sig.parameters
-        # Check the recorder forwards 3 args
-        from voice_typer.server import recording
 
-        rec_src = inspect.getsource(recording)
-        assert "rms_callback(chunk_rms, chunk_peak, filtered)" in rec_src
+        # Behavioral check: the controller must forward the exact chunk
+        # object it received (identity, not string match) to the bubble's
+        # update_level — proving the wiring is intact end-to-end.
+        sentinel_chunk = object()
+        mock_app = MagicMock()
+        controller = RecordingController(mock_app)
+        controller.on_recorder_rms(0.42, 0.7, audio_chunk=sentinel_chunk)
+        mock_app._waveform_bubble.update_level.assert_called_once_with(0.42, 0.7, audio_chunk=sentinel_chunk)
 
     def test_asr_registry_create_handler_exists(self):
         """ARCH-007: AsrBackendRegistry.create() method exists."""
@@ -221,15 +235,23 @@ class TestBrandingConstants:
 
         assert APP_NAME == "Voice Typer"
 
-    def test_app_module_uses_branding_app_name(self):
+    def test_app_module_uses_branding_app_name(self, monkeypatch):
         """``voice_typer.server.app`` must source its APP_NAME from branding.
 
         This is the BRAND-001 consistency guarantee: a single rename in
         branding.py should propagate to every consumer, including the app
         module's startup banner / tray notifications.
-        """
-        import inspect
 
+        S2-CR-64: the previous test asserted the import line appeared
+        verbatim in ``inspect.getsource(app)`` — brittle to cosmetic
+        refactor (e.g. switching to ``from voice_typer.server import
+        branding`` + ``branding.APP_NAME`` would break the test even
+        though the invariant holds). Replaced with a behavioral check
+        that mutates ``branding.APP_NAME`` to a sentinel value and
+        verifies the app module observes the mutation when it
+        re-resolves the attribute — proving app.APP_NAME is bound to
+        branding's namespace, not a local literal.
+        """
         from voice_typer.server import app, branding
 
         # The app module must expose an APP_NAME attribute that points to
@@ -240,11 +262,34 @@ class TestBrandingConstants:
             "appears to have redefined the constant instead of importing it."
         )
 
-        # Belt-and-suspenders: the import line should appear verbatim in
-        # the app module source so a future refactor can't accidentally
-        # shadow the branding constant with a local literal.
-        src = inspect.getsource(app)
-        assert "from voice_typer.server.branding import APP_NAME" in src, (
-            "app module no longer imports APP_NAME from branding — "
-            "BRAND-001 single-source-of-truth invariant is broken."
-        )
+        # Behavioral check: if app.APP_NAME is bound to branding.APP_NAME
+        # via the ``from voice_typer.server.branding import APP_NAME`` form,
+        # then ``app.APP_NAME`` is a *reference* taken at import time —
+        # mutating ``branding.APP_NAME`` afterwards would NOT propagate to
+        # ``app.APP_NAME``. To distinguish a fresh ``branding.APP_NAME``
+        # lookup (the desired pattern after migration) from a stale import
+        # binding, we reload the app module after mutating branding and
+        # verify the reload picks up the new value.
+        import importlib
+
+        sentinel = "VT-BRAND-SENTINEL-9f3a"
+        original = branding.APP_NAME
+        monkeypatch.setattr(branding, "APP_NAME", sentinel)
+        try:
+            # A module reload re-executes the ``from ... import APP_NAME``
+            # line, so app.APP_NAME should now point at the *new*
+            # branding.APP_NAME sentinel. If the app module instead
+            # redefined APP_NAME as a local literal, the reload would
+            # re-bind it to the same literal — not the sentinel.
+            importlib.reload(app)
+            assert app.APP_NAME is sentinel or sentinel == app.APP_NAME, (
+                "After reloading app with branding.APP_NAME mutated, "
+                "app.APP_NAME did not pick up the sentinel value — the app "
+                "module appears to redefine APP_NAME locally instead of "
+                "importing from branding (BRAND-001 invariant broken)."
+            )
+        finally:
+            # Restore branding.APP_NAME and reload app so other tests see
+            # the original constant.
+            monkeypatch.setattr(branding, "APP_NAME", original)
+            importlib.reload(app)

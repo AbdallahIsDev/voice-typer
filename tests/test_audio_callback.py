@@ -76,9 +76,7 @@ def _patch_ok_stream(monkeypatch, recording_mod):
         return device_dict
 
     monkeypatch.setattr(recording_mod.sd, "query_devices", _query_devices)
-    monkeypatch.setattr(
-        recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"}
-    )
+    monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
 
 
 def _patch_count_disconnect_handler_spawns(monkeypatch):
@@ -120,9 +118,7 @@ def _patch_count_disconnect_handler_spawns(monkeypatch):
 class TestRW7SilentInputThreadStorm:
     """RW-7: zero-filled indata must not spawn a thread-per-chunk storm."""
 
-    def test_zero_filled_indata_does_not_spawn_disconnect_handler_storm(
-        self, monkeypatch
-    ):
+    def test_zero_filled_indata_does_not_spawn_disconnect_handler_storm(self, monkeypatch):
         """100 zero-filled callbacks must spawn at most 1 disconnect handler.
 
         Pre-fix, after ``_chunk_count`` exceeded 10, every subsequent
@@ -161,9 +157,7 @@ class TestRW7SilentInputThreadStorm:
                     break
                 time.sleep(0.01)
 
-            assert len(r._ring_buffer) == 0, (
-                "audio worker should drain all 100 zero-filled chunks"
-            )
+            assert len(r._ring_buffer) == 0, "audio worker should drain all 100 zero-filled chunks"
             assert spawn_count["n"] <= 1, (
                 f"RW-7 regression: 100 zero-filled callbacks spawned "
                 f"{spawn_count['n']} device-disconnect-handler threads "
@@ -174,9 +168,7 @@ class TestRW7SilentInputThreadStorm:
         finally:
             r.stop()
 
-    def test_first_zero_chunk_after_warmup_does_spawn_one_handler(
-        self, monkeypatch
-    ):
+    def test_first_zero_chunk_after_warmup_does_spawn_one_handler(self, monkeypatch):
         """Sanity check: the guard must NOT suppress the FIRST legitimate
         disconnect detection. If it did, real device disconnects would
         be silently ignored."""
@@ -202,8 +194,7 @@ class TestRW7SilentInputThreadStorm:
                     break
                 time.sleep(0.01)
             assert spawn_count["n"] == 0, (
-                f"non-zero chunks should not spawn disconnect handlers, "
-                f"got {spawn_count['n']}"
+                f"non-zero chunks should not spawn disconnect handlers, got {spawn_count['n']}"
             )
 
             # First zero-filled chunk: _chunk_count > 10 → enters
@@ -223,9 +214,7 @@ class TestRW7SilentInputThreadStorm:
         finally:
             r.stop()
 
-    def test_guard_does_not_suppress_redisconnect_after_restart(
-        self, monkeypatch
-    ):
+    def test_guard_does_not_suppress_redisconnect_after_restart(self, monkeypatch):
         """After a successful restart clears ``_device_disconnected``, a
         subsequent zero-filled chunk must trigger a NEW disconnect
         detection. The guard must not permanently suppress detection."""
@@ -256,10 +245,7 @@ class TestRW7SilentInputThreadStorm:
                 if len(r._ring_buffer) == 0:
                     break
                 time.sleep(0.01)
-            assert spawn_count["n"] == 1, (
-                f"first zero-filled chunk should spawn 1 handler, "
-                f"got {spawn_count['n']}"
-            )
+            assert spawn_count["n"] == 1, f"first zero-filled chunk should spawn 1 handler, got {spawn_count['n']}"
 
             # Simulate successful restart: clear the disconnect flag
             # (this is what _handle_device_disconnect does on line ~804
@@ -297,12 +283,9 @@ class TestRW8EventWorkerLifecycle:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._event_worker_thread is None, (
-            "event worker thread must not exist before start()"
-        )
+        assert r._event_worker_thread is None, "event worker thread must not exist before start()"
         assert r._event_queue is not None, (
-            "event queue must exist after __init__ (so _process_audio_chunk "
-            "can unconditionally enqueue)"
+            "event queue must exist after __init__ (so _process_audio_chunk can unconditionally enqueue)"
         )
 
     def test_event_worker_thread_starts_on_start(self, monkeypatch):
@@ -315,19 +298,11 @@ class TestRW8EventWorkerLifecycle:
         r = Recorder(config)
         r.start()
         try:
-            assert r._event_worker_thread is not None, (
-                "start() must create the event worker thread"
-            )
-            assert r._event_worker_thread.is_alive(), (
-                "event worker thread must be alive after start()"
-            )
-            assert r._event_worker_thread.daemon, (
-                "event worker thread must be a daemon so it never blocks "
-                "process exit"
-            )
+            assert r._event_worker_thread is not None, "start() must create the event worker thread"
+            assert r._event_worker_thread.is_alive(), "event worker thread must be alive after start()"
+            assert r._event_worker_thread.daemon, "event worker thread must be a daemon so it never blocks process exit"
             assert r._event_worker_thread.name == "event-worker", (
-                "event worker thread must be named 'event-worker' for "
-                "diagnostics (matches _EVENT_WORKER_THREAD_NAME)"
+                "event worker thread must be named 'event-worker' for diagnostics (matches _EVENT_WORKER_THREAD_NAME)"
             )
         finally:
             r.stop()
@@ -345,9 +320,7 @@ class TestRW8EventWorkerLifecycle:
 
         r.stop()
 
-        assert r._event_worker_thread is None, (
-            "stop() must set _event_worker_thread to None after joining"
-        )
+        assert r._event_worker_thread is None, "stop() must set _event_worker_thread to None after joining"
 
     def test_event_worker_thread_stops_on_discard(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -362,9 +335,7 @@ class TestRW8EventWorkerLifecycle:
 
         r.discard()
 
-        assert r._event_worker_thread is None, (
-            "discard() must set _event_worker_thread to None after joining"
-        )
+        assert r._event_worker_thread is None, "discard() must set _event_worker_thread to None after joining"
 
     def test_event_worker_can_restart_after_stop(self, monkeypatch):
         """After stop(), a subsequent start() must start a NEW event
@@ -390,10 +361,7 @@ class TestRW8EventWorkerLifecycle:
         second = r._event_worker_thread
         assert second is not None
         assert second.is_alive()
-        assert second is not first, (
-            "start() after stop() must create a NEW event worker thread, "
-            "not reuse the dead one"
-        )
+        assert second is not first, "start() after stop() must create a NEW event worker thread, not reuse the dead one"
         r.stop()
         assert r._event_worker_thread is None
 
@@ -459,8 +427,7 @@ class TestRW8NonBlockingCallback:
             elapsed_ms = (time.perf_counter() - t0) * 1000
 
             assert len(r._ring_buffer) == 0, (
-                "audio worker should drain the ring buffer promptly even "
-                "when event_bus.publish is slow"
+                "audio worker should drain the ring buffer promptly even when event_bus.publish is slow"
             )
             assert elapsed_ms < 500, (
                 f"RW-8 regression: audio worker took {elapsed_ms:.1f}ms "
@@ -476,12 +443,9 @@ class TestRW8NonBlockingCallback:
 
         # The event was eventually published (after the 1s sleep) by
         # the event worker thread during stop()'s drain.
-        audio_clip_events = [
-            e for e in published_events if e.get("type") == "audio_clip"
-        ]
+        audio_clip_events = [e for e in published_events if e.get("type") == "audio_clip"]
         assert len(audio_clip_events) >= 1, (
-            "the queued audio_clip event should eventually be published "
-            "by the event worker thread during stop()"
+            "the queued audio_clip event should eventually be published by the event worker thread during stop()"
         )
 
 
@@ -491,9 +455,7 @@ class TestRW8NonBlockingCallback:
 class TestRW8AllEventsPublished:
     """RW-8: all events pushed to the queue are eventually published."""
 
-    def test_all_queued_events_are_eventually_published_on_stop(
-        self, monkeypatch
-    ):
+    def test_all_queued_events_are_eventually_published_on_stop(self, monkeypatch):
         """Multiple clipping chunks enqueue multiple events; stop()
         drains the queue and publishes all of them."""
         import voice_typer.server.recording as recording_mod
@@ -534,9 +496,7 @@ class TestRW8AllEventsPublished:
             # every queued event before returning.
             r.stop()
 
-        audio_clip_events = [
-            e for e in published_events if e.get("type") == "audio_clip"
-        ]
+        audio_clip_events = [e for e in published_events if e.get("type") == "audio_clip"]
         assert len(audio_clip_events) == 5, (
             f"expected 5 audio_clip events (one per clipping chunk), "
             f"got {len(audio_clip_events)}. Events: {published_events}"
@@ -572,12 +532,9 @@ class TestRW8AllEventsPublished:
         finally:
             r.stop()
 
-        test_events = [
-            e for e in published_events if e.get("type") == "test_event"
-        ]
+        test_events = [e for e in published_events if e.get("type") == "test_event"]
         assert len(test_events) == 10, (
-            f"stop() should drain all 10 queued events, got "
-            f"{len(test_events)}. Events: {published_events}"
+            f"stop() should drain all 10 queued events, got {len(test_events)}. Events: {published_events}"
         )
 
 
@@ -610,10 +567,7 @@ class TestRW8HoistedImports:
 
     def test_compute_vad_prob_imported_at_module_top(self):
         module_top_src = self._module_top_source()
-        assert (
-            "from voice_typer.server.vad import compute_vad_prob"
-            in module_top_src
-        ), (
+        assert "from voice_typer.server.vad import compute_vad_prob" in module_top_src, (
             "RW-8: compute_vad_prob must be imported at module top, not inline"
         )
 
@@ -622,19 +576,15 @@ class TestRW8HoistedImports:
 
         src = inspect.getsource(Recorder._process_audio_chunk)
         assert "from voice_typer.server import event_bus" not in src, (
-            "RW-8: event_bus must not be imported inline in "
-            "_process_audio_chunk (hoist to module top)"
+            "RW-8: event_bus must not be imported inline in _process_audio_chunk (hoist to module top)"
         )
 
     def test_no_inline_vad_import_in_process_audio_chunk(self):
         from voice_typer.server.recording import Recorder
 
         src = inspect.getsource(Recorder._process_audio_chunk)
-        assert (
-            "from voice_typer.server.vad import compute_vad_prob" not in src
-        ), (
-            "RW-8: compute_vad_prob must not be imported inline in "
-            "_process_audio_chunk (hoist to module top)"
+        assert "from voice_typer.server.vad import compute_vad_prob" not in src, (
+            "RW-8: compute_vad_prob must not be imported inline in _process_audio_chunk (hoist to module top)"
         )
 
     def test_event_bus_publish_not_called_in_process_audio_chunk(self):
@@ -665,8 +615,7 @@ class TestRW8HoistedImports:
             "directly — route through self._event_queue.put instead"
         )
         assert "self._event_queue.put" in clipping_src, (
-            "RW-8: _detect_and_emit_clipping must enqueue events via "
-            "self._event_queue.put"
+            "RW-8: _detect_and_emit_clipping must enqueue events via self._event_queue.put"
         )
 
     def test_event_worker_loop_calls_event_bus_publish(self):

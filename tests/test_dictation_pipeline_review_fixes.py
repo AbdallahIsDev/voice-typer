@@ -25,7 +25,6 @@ Covers:
 
 from __future__ import annotations
 
-import inspect
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -264,36 +263,96 @@ class TestNotifyOnceFlagsDefaultToFalseOnFreshApp:
 class TestNotifyOnceFlagsAreNotOnPipeline:
     """a-review Finding 2 (regression guard): the flags must NOT be
     read or written on the pipeline instance — that's the bug we
-    fixed. We inspect the source to catch any future regression that
-    re-introduces ``self._<flag>_notified`` reads/writes.
+    fixed. The original test inspected the pipeline source code for
+    ``self._<flag>`` patterns, which is brittle: cosmetic refactor
+    breaks the test on false positives while functional regressions
+    via different patterns (e.g. ``getattr(self._app, "_flag")``
+    swapped to ``getattr(self, "_flag")``) slip through.
+
+    S2-CR-64: replaced the source-text scan with a parametrized
+    behavioral test that triggers each of the 4 failures and asserts
+    (a) the flag is set on the *app* (``hasattr(app, flag) is True``)
+    and (b) the flag is absent on the *pipeline* (``hasattr(pipeline,
+    flag) is False``). This catches the actual runtime invariant
+    directly — no source-text introspection.
     """
 
     @pytest.mark.parametrize(
-        "flag",
+        "flag,trigger",
         [
-            "_vocab_fail_notified",
-            "_template_fail_notified",
-            "_history_fail_notified",
-            "_crash_recovery_fail_notified",
+            (
+                "_vocab_fail_notified",
+                lambda app, pipeline: pipeline._apply_vocabulary("hello world"),
+            ),
+            (
+                "_template_fail_notified",
+                lambda app, pipeline: pipeline._apply_templates("hello world"),
+            ),
+            (
+                "_history_fail_notified",
+                lambda app, pipeline: pipeline._store_result("hello world"),
+            ),
+            (
+                "_crash_recovery_fail_notified",
+                lambda app, pipeline: pipeline._store_result("hello world"),
+            ),
         ],
     )
-    def test_no_self_dot_flag_in_source(self, flag: str):
-        src = inspect.getsource(DictationPipeline)
-        # The bug pattern is ``self._<flag>`` (read or write). The
-        # fix uses ``self._app._<flag>`` (via getattr/setattr). We
-        # assert the buggy pattern is absent.
-        assert f"self.{flag}" not in src, (
-            f"Found `self.{flag}` in DictationPipeline source — "
-            f"a-review Finding 2 regression: the notify-once flag "
-            f"must live on `self._app` (session-scoped), not "
-            f"`self` (cycle-scoped, resets every transcription)."
+    def test_flag_lives_on_app_not_pipeline(self, flag: str, trigger):
+        """After the failure fires, the flag must be set on ``app``
+        and absent on ``pipeline`` — i.e. the cycle-scoped pipeline
+        does NOT carry the notify-once state. This catches a
+        regression that re-introduces ``self._<flag>`` on the
+        pipeline directly via the runtime invariant, regardless of
+        how the source code is structured.
+        """
+        app = _make_app()
+        # Configure the failure trigger for each flag.
+        if flag == "_vocab_fail_notified":
+            app._vocabulary_manager = MagicMock()
+            app._vocabulary_manager.apply_to_text.side_effect = RuntimeError("vocab boom")
+        elif flag == "_template_fail_notified":
+            app._template_manager = MagicMock()
+            app._template_manager.match.side_effect = RuntimeError("template boom")
+        elif flag == "_history_fail_notified":
+            app.history_db.add_transcription.side_effect = RuntimeError("DB locked")
+        elif flag == "_crash_recovery_fail_notified":
+            app.config.crash_recovery_enabled = True
+            app._crash_recovery = MagicMock()
+            app._crash_recovery.add.side_effect = RuntimeError("crash boom")
+
+        pipeline = _new_pipeline(app)
+
+        # Before the failure fires, neither app nor pipeline carries
+        # the flag (default-False via getattr-with-default in
+        # production code).
+        assert not hasattr(pipeline, flag), (
+            f"Pipeline should not carry {flag} before failure — the flag "
+            f"belongs on the session-scoped app, not the cycle-scoped "
+            f"pipeline (a-review Finding 2)."
         )
-        # And the correct pattern must be present.
-        assert f"self._app.{flag}" in src or f'getattr(self._app, "{flag}"' in src, (
-            f"Expected `self._app.{flag}` or `getattr(self._app, "
-            f'"{flag}"` in DictationPipeline source — the flag must '
-            f"be read from the session-scoped app, not the cycle-"
-            f"scoped pipeline."
+
+        # Fire the failure.
+        trigger(app, pipeline)
+
+        # (a) The flag must now be set on the *app* (the bug fix
+        # stores it there so it survives across pipeline cycles).
+        assert hasattr(app, flag) is True, (
+            f"After triggering the failure, app must carry {flag} — "
+            f"the notify-once flag must live on the session-scoped app "
+            f"so it survives across pipeline cycles (a-review Finding 2)."
+        )
+        assert getattr(app, flag) is True, (
+            f"app.{flag} must be True after the first failure — this is what suppresses subsequent notifications."
+        )
+        # (b) The flag must NOT be set on the *pipeline* — that was
+        # the original bug (cycle-scoped flag reset every cycle).
+        assert not hasattr(pipeline, flag), (
+            f"Pipeline must NOT carry {flag} — the notify-once flag "
+            f"lives on the session-scoped app, not the cycle-scoped "
+            f"pipeline. Storing it on the pipeline resets every cycle "
+            f"and the user gets a tray notification on every failure "
+            f"(a-review Finding 2 regression)."
         )
 
 
@@ -357,26 +416,20 @@ class TestTranscribeNoBroadTypeErrorCatch:
     body (e.g. ``None.lower()``, bad indexing) must propagate so the
     real bug surfaces in the log/traceback instead of being masked
     by a retry that fails the same way.
-    """
 
-    def test_no_broad_typeerror_catch_in_transcribe_source(self):
-        src = inspect.getsource(DictationPipeline._transcribe)
-        # The buggy pattern was a real ``except TypeError:`` clause
-        # (with the colon — that's a code statement, not prose). We
-        # deliberately search for the colon-terminated form so we
-        # don't false-match the docstring comment that explains WHY
-        # the catch was removed.
-        assert "except TypeError:" not in src, (
-            "DictationPipeline._transcribe must not catch TypeError "
-            "broadly (a-review Finding 8). All four backends now "
-            "accept the audio_stats kwarg, so the fallback is no "
-            "longer needed and would mask real TypeErrors raised "
-            "inside the engine body."
-        )
-        # And the call must still pass audio_stats (not just removed).
-        assert "audio_stats=self._audio_stats" in src, (
-            "DictationPipeline._transcribe must still pass audio_stats to transcribe_with_fallback."
-        )
+    S2-CR-64: the original source-text scan
+    (``"except TypeError:" not in inspect.getsource(...)``) was
+    brittle — a cosmetic refactor (e.g. catching ``TypeError`` as
+    ``Exception`` subclass, or extracting the call into a helper)
+    would break the test on false positives while functional
+    regressions via different patterns (e.g. ``except Exception:``
+    that still catches TypeError) would slip through. Removed in
+    favor of the two behavioral tests below
+    (``test_real_typeerror_propagates_from_engine`` and
+    ``test_audio_stats_passed_through_to_engine``) which directly
+    verify the runtime invariant: TypeError propagates and
+    audio_stats is forwarded.
+    """
 
     def test_real_typeerror_propagates_from_engine(self):
         """A TypeError raised inside the engine body must propagate

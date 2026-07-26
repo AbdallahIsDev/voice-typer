@@ -293,9 +293,7 @@ def test_short_text_path_uses_enigo_text_only(paste_src: str) -> None:
         body,
         re.DOTALL | re.MULTILINE,
     )
-    assert helper_match is not None, (
-        "paste.rs must define `paste_via_enigo_text` (CR-52 extraction)."
-    )
+    assert helper_match is not None, "paste.rs must define `paste_via_enigo_text` (CR-52 extraction)."
     helper_body = helper_match.group(1)
     assert "enigo.text" in helper_body, (
         "paste_via_enigo_text must call `enigo.text(text)` (IME-safe Unicode "
@@ -343,8 +341,7 @@ def test_long_text_path_uses_clipboard_plus_ctrl_v(paste_src: str) -> None:
     # block and the trailing `Ok(())`).
     else_match = re.search(r"\}\s*else\s*\{([^}]*)\}", body, re.DOTALL)
     assert else_match is not None, (
-        "Could not locate the long-text branch (`} else { ... }`). "
-        "Did the function structure change?"
+        "Could not locate the long-text branch (`} else { ... }`). Did the function structure change?"
     )
     long_branch = else_match.group(1)
 
@@ -374,7 +371,7 @@ def test_long_text_path_uses_clipboard_plus_ctrl_v(paste_src: str) -> None:
     # 2. mod_key Press — must come AFTER clipboard write.
     press_match = re.search(r"enigo\s*\.key\(\s*mod_key\s*,\s*enigo::Direction::Press\s*\)", body)
     assert press_match is not None, (
-        "paste_via_clipboard_and_ctrl_v must call `enigo.key(mod_key, enigo::Direction::Press)` (Ctrl down) per ADR-0020 §6.2."
+        "paste_via_clipboard_and_ctrl_v must call `enigo.key(mod_key, enigo::Direction::Press)` (Ctrl down) per ADR-0020 §6.2."  # noqa: E501
     )
     assert press_match.start() > cb_end, (
         "paste_via_clipboard_and_ctrl_v: `enigo.key(mod_key, Press)` must come AFTER "

@@ -139,9 +139,7 @@ class TestSecretsMigratedGating:
     available.
     """
 
-    def test_migrate_retried_after_keyring_becomes_available(
-        self, monkeypatch, tmp_path
-    ):
+    def test_migrate_retried_after_keyring_becomes_available(self, monkeypatch, tmp_path):
         """End-to-end regression for the XZ-SEC-04 bug.
 
         Scenario: a system where keyring is unavailable on first launch
@@ -178,9 +176,7 @@ class TestSecretsMigratedGating:
         # XZ-SEC-04: diagnostic flag cleared on clean completion.
         assert "secrets_migrated_keyring_was_unavailable" not in data_after_second
 
-    def test_migrate_sets_flag_when_no_plaintext_to_skip(
-        self, mock_keyring_unavailable, tmp_path
-    ):
+    def test_migrate_sets_flag_when_no_plaintext_to_skip(self, mock_keyring_unavailable, tmp_path):
         """If keyring is unavailable BUT there are no real plaintext
         secrets to migrate (all empty or already reference tokens),
         ``secrets_migrated`` IS set — there's nothing to retry, so
@@ -206,9 +202,7 @@ class TestSecretsMigratedGating:
         # Diagnostic flag NOT set (no skip happened).
         assert "secrets_migrated_keyring_was_unavailable" not in data
 
-    def test_migrate_diagnostic_flag_cleared_on_successful_completion(
-        self, mock_keyring_available, tmp_path
-    ):
+    def test_migrate_diagnostic_flag_cleared_on_successful_completion(self, mock_keyring_available, tmp_path):
         """A successful migration (keyring available, secrets moved)
         must clear any stale ``secrets_migrated_keyring_was_unavailable``
         flag set by a prior run that hit the unavailable-keyring path.
@@ -236,9 +230,7 @@ class TestSecretsMigratedGating:
         # Stale diagnostic flag cleared.
         assert "secrets_migrated_keyring_was_unavailable" not in data
 
-    def test_migrate_skips_when_secrets_migrated_already_set(
-        self, mock_keyring_available, tmp_path
-    ):
+    def test_migrate_skips_when_secrets_migrated_already_set(self, mock_keyring_available, tmp_path):
         """If ``secrets_migrated`` is already True (prior successful
         migration), the function must early-return 0 without re-running
         the per-provider loop. This is the idempotency gate used by
@@ -275,9 +267,7 @@ class TestLoadSecretAuditLog:
     length only — NEVER the value itself.
     """
 
-    def test_load_secret_emits_info_log_on_keyring_success(
-        self, mock_keyring_available, caplog
-    ):
+    def test_load_secret_emits_info_log_on_keyring_success(self, mock_keyring_available, caplog):
         """A successful ``load_secret`` from keyring must emit an INFO
         log record identifying the provider and the value length."""
         credential_store.store_secret("openai", "sk-audit-log-test-12345")
@@ -290,13 +280,10 @@ class TestLoadSecretAuditLog:
         assert result == "sk-audit-log-test-12345"
         # Exactly one INFO record from load_secret (the audit log).
         audit_records = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and "loaded secret for provider" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.INFO and "loaded secret for provider" in r.getMessage()
         ]
         assert len(audit_records) == 1, (
-            f"expected exactly one load_secret INFO audit log, got "
-            f"{[r.getMessage() for r in audit_records]}"
+            f"expected exactly one load_secret INFO audit log, got {[r.getMessage() for r in audit_records]}"
         )
         msg = audit_records[0].getMessage()
         assert "openai" in msg
@@ -304,9 +291,7 @@ class TestLoadSecretAuditLog:
         # Length is logged for diagnostics — verify it's present.
         assert str(len("sk-audit-log-test-12345")) in msg
 
-    def test_load_secret_audit_log_does_not_leak_value(
-        self, mock_keyring_available, caplog
-    ):
+    def test_load_secret_audit_log_does_not_leak_value(self, mock_keyring_available, caplog):
         """The INFO audit log must NOT contain the secret value — only
         provider name + length. Defense in depth alongside the existing
         store-side redaction."""
@@ -318,13 +303,9 @@ class TestLoadSecretAuditLog:
             credential_store.load_secret("openai")
 
         for record in caplog.records:
-            assert secret not in record.getMessage(), (
-                f"Secret value leaked in audit log: {record.getMessage()!r}"
-            )
+            assert secret not in record.getMessage(), f"Secret value leaked in audit log: {record.getMessage()!r}"
 
-    def test_load_secret_no_info_log_on_plaintext_fallback(
-        self, mock_keyring_unavailable, tmp_path, caplog
-    ):
+    def test_load_secret_no_info_log_on_plaintext_fallback(self, mock_keyring_unavailable, tmp_path, caplog):
         """When keyring is unavailable and load_secret falls back to
         reading from ``config.json``, no INFO audit log is emitted
         (keyring-success-only). The plaintext fallback path is already
@@ -340,15 +321,11 @@ class TestLoadSecretAuditLog:
         assert result == "sk-from-config"
         # No INFO audit log on the fallback path.
         audit_records = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and "loaded secret for provider" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.INFO and "loaded secret for provider" in r.getMessage()
         ]
         assert audit_records == []
 
-    def test_load_secret_no_info_log_when_keyring_returns_none(
-        self, mock_keyring_available, caplog
-    ):
+    def test_load_secret_no_info_log_when_keyring_returns_none(self, mock_keyring_available, caplog):
         """When keyring returns None (secret not in keychain) and the
         plaintext fallback is also empty, no INFO audit log is emitted
         (no successful keyring read happened)."""
@@ -357,9 +334,7 @@ class TestLoadSecretAuditLog:
 
         assert result is None
         audit_records = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.INFO and "loaded secret for provider" in r.getMessage()
+            r for r in caplog.records if r.levelno == logging.INFO and "loaded secret for provider" in r.getMessage()
         ]
         assert audit_records == []
 

@@ -175,9 +175,7 @@ class TestErrorCodesRegistryContents:
         """The registry MUST be a ``frozenset`` so it can't be mutated
         at runtime (a mutable set would let a buggy import-time hook
         silently drop entries)."""
-        assert isinstance(ERROR_CODES, frozenset), (
-            f"ERROR_CODES must be a frozenset, got {type(ERROR_CODES).__name__}"
-        )
+        assert isinstance(ERROR_CODES, frozenset), f"ERROR_CODES must be a frozenset, got {type(ERROR_CODES).__name__}"
 
     @pytest.mark.parametrize("code", sorted(REQUIRED_NAMESPACED_CODES))
     def test_required_namespaced_code_is_registered(self, code: str):
@@ -217,15 +215,10 @@ class TestEmittedCodesAreRegisteredOrLegacy:
                 continue
             if code in LEGACY_ALIASES:
                 continue
-            unknown.append(
-                (str(py_file.relative_to(REPO_ROOT)), lineno, code)
-            )
+            unknown.append((str(py_file.relative_to(REPO_ROOT)), lineno, code))
 
         if unknown:
-            formatted = "\n".join(
-                f"  {path}:{lineno} -> {code!r}"
-                for path, lineno, code in unknown
-            )
+            formatted = "\n".join(f"  {path}:{lineno} -> {code!r}" for path, lineno, code in unknown)
             pytest.fail(
                 "Unknown error codes emitted in the server tree. Either "
                 "add the namespaced form to ERROR_CODES in "
@@ -242,8 +235,7 @@ class TestEmittedCodesAreRegisteredOrLegacy:
         ``test_all_emitted_codes_known`` test is silently a no-op."""
         emissions = list(_iter_emitted_code_literals())
         assert emissions, (
-            f"No `\"code\": \"...\"` literals found under {SERVER_DIR}. "
-            f"The regex may be broken or the server tree moved."
+            f'No `"code": "..."` literals found under {SERVER_DIR}. The regex may be broken or the server tree moved.'
         )
 
 
@@ -261,9 +253,7 @@ class TestLegacyAliases:
         "legacy, namespaced",
         sorted((legacy, n) for legacy, n in LEGACY_ALIASES.items() if n),
     )
-    def test_legacy_alias_has_namespaced_counterpart(
-        self, legacy: str, namespaced: str
-    ):
+    def test_legacy_alias_has_namespaced_counterpart(self, legacy: str, namespaced: str):
         """If a legacy alias is documented, its namespaced counterpart
         MUST be in ``ERROR_CODES``. Otherwise the alias is orphaned
         (it's documented but the new form doesn't exist)."""
@@ -290,8 +280,7 @@ class TestLegacyAliases:
             re.DOTALL,
         )
         assert comment_block_match is not None, (
-            "Could not find the 'Legacy non-namespaced aliases' comment "
-            "block above ERROR_CODES in validation.py."
+            "Could not find the 'Legacy non-namespaced aliases' comment block above ERROR_CODES in validation.py."
         )
         comment_block = comment_block_match.group(0)
         # Extract every ``<code>`` from the comment block.
@@ -322,9 +311,7 @@ class TestRespondWithErrorEmitsNamespacedCode:
         # ``_log.py``).
         handler = HandlerBase()
         resp: dict = {"id": 42, "type": "ok", "data": {}}
-        result = handler._respond_with_error(
-            resp, RuntimeError("boom"), "test_cmd"
-        )
+        result = handler._respond_with_error(resp, RuntimeError("boom"), "test_cmd")
         assert result is resp, "_respond_with_error must return the same dict"
         assert result["type"] == "error"
         assert result["data"]["code"] == "server.internal_error", (
@@ -341,9 +328,7 @@ class TestRespondWithErrorEmitsNamespacedCode:
         re-introduces the legacy form is caught with a clear message."""
         handler = HandlerBase()
         resp: dict = {"id": 1, "type": "ok", "data": {}}
-        result = handler._respond_with_error(
-            resp, RuntimeError("boom"), "test_cmd"
-        )
+        result = handler._respond_with_error(resp, RuntimeError("boom"), "test_cmd")
         assert result["data"]["code"] != "internal_error", (
             "_respond_with_error is emitting the LEGACY bare "
             "'internal_error' code. EC-FIX-4 changed this to "

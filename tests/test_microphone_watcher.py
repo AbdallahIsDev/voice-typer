@@ -158,16 +158,36 @@ class TestMicrophoneDeviceWatcher:
     def test_watcher_logs_warning_on_callback_exception(self, caplog):
         """If the callback raises, a warning is logged and the thread continues."""
         state = {"entries": ["controlC0"]}
+        # S2-CR-63: instrument the listdir mock so we can wait
+        # adaptively for the watcher's *initial* state read before
+        # triggering a change. The original test used fixed
+        # ``time.sleep(0.15)`` + ``time.sleep(0.3)`` wall-clock
+        # waits — flaky on slow CI. We replace both with adaptive
+        # polls: (1) wait for the first listdir call (initial state
+        # captured), then (2) wait for the warning to appear in
+        # caplog.records after we trigger the change.
+        listdir_calls = {"count": 0}
 
         def raising_callback() -> None:
             # Raise on every call — the watcher should log and continue.
             raise RuntimeError("boom from callback")
 
+        real_make_listdir_mock = _make_listdir_mock
+
+        def _instrumented_listdir(state_dict):
+            underlying = real_make_listdir_mock(state_dict)
+
+            def _wrapper(path):
+                listdir_calls["count"] += 1
+                return underlying(path)
+
+            return _wrapper
+
         watcher = MicrophoneDeviceWatcher(on_change=raising_callback, poll_interval=0.05)
         watcher._platform = "linux"
 
         with (
-            patch("os.listdir", side_effect=_make_listdir_mock(state)),
+            patch("os.listdir", side_effect=_instrumented_listdir(state)),
             patch("os.path.isdir", side_effect=_isdir_mock),
             caplog.at_level(
                 logging.WARNING,
@@ -176,12 +196,35 @@ class TestMicrophoneDeviceWatcher:
         ):
             watcher.start()
             try:
-                # Let the initial state be read, then trigger a change.
-                time.sleep(0.15)
+                deadline = time.monotonic() + 2.0
+
+                def _warning_seen() -> bool:
+                    return any(
+                        "Invalidation callback raised" in r.message
+                        for r in caplog.records
+                        if r.levelno >= logging.WARNING
+                    )
+
+                # Step 1: wait for the watcher's initial listdir call
+                # (the baseline state capture) before triggering a
+                # change. If we change state before the initial read,
+                # the watcher would see the new state as the baseline
+                # and never detect a diff. The original test used a
+                # fixed ``time.sleep(0.15)``; we poll for the actual
+                # observable (listdir call count) instead.
+                while time.monotonic() < deadline and listdir_calls["count"] < 1:
+                    time.sleep(0.01)
+
+                # Step 2: trigger a state change so the next poll
+                # detects the diff and invokes the (raising) callback.
                 state["entries"] = ["controlC0", "pcmC0D0c"]
-                # Wait long enough for at least one callback invocation
-                # to fire and raise.
-                time.sleep(0.3)
+
+                # Step 3: adaptively poll for the warning to appear
+                # in caplog — returns as soon as the watcher fires
+                # the callback, logs the warning, and continues. No
+                # fixed wall-clock budget.
+                while time.monotonic() < deadline and not _warning_seen():
+                    time.sleep(0.01)
             finally:
                 watcher.stop()
 

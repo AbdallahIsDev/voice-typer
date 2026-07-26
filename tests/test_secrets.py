@@ -110,8 +110,7 @@ class TestRedactSecret:
         # matched by ``redact_api_keys`` regardless of length when the
         # guard is bypassed).
         assert bare_short_secret not in redacted, (
-            f"YJ-48: aggressive=True must redact short bare secrets; "
-            f"got {redacted!r}"
+            f"YJ-48: aggressive=True must redact short bare secrets; got {redacted!r}"
         )
         assert "***" in redacted
 

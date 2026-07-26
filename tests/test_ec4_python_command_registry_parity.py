@@ -44,9 +44,7 @@ from pathlib import Path
 from voice_typer.server.ipc_server import IPCServer
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_COMMANDS_TS = (
-    REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
-)
+ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 
 
@@ -100,7 +98,7 @@ def _rust_allowed_commands() -> set[str]:
         "`let cmds: &[&str] = &[` literal inside `allowed_commands()`. "
         "Update this parser to match."
     )
-    body = src[m_start.end():]
+    body = src[m_start.end() :]
     m_end = re.search(r"\];", body)
     assert m_end is not None, (
         "src-tauri/src/commands/sidecar_cmds.rs: could not find the "
@@ -238,8 +236,7 @@ def test_python_only_commands_is_frozen() -> None:
     runtime ``AttributeError``.
     """
     assert isinstance(IPCServer._PYTHON_ONLY_COMMANDS, frozenset), (
-        "EC-4: IPCServer._PYTHON_ONLY_COMMANDS must be a frozenset so it "
-        "cannot be accidentally mutated at runtime."
+        "EC-4: IPCServer._PYTHON_ONLY_COMMANDS must be a frozenset so it cannot be accidentally mutated at runtime."
     )
 
 

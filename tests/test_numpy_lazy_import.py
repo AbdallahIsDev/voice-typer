@@ -115,8 +115,7 @@ def test_module_does_not_eagerly_import_numpy(module_path: str, np_attr: str) ->
     """
     _purge_numpy_and_targets()
     assert "numpy" not in sys.modules, (
-        "test setup bug: numpy should be absent from sys.modules "
-        "before the target import"
+        "test setup bug: numpy should be absent from sys.modules before the target import"
     )
     # Some targets may pull in numpy transitively via a sibling module
     # we don't own (e.g. audio_filters.base). For those, we still
@@ -136,8 +135,7 @@ def test_module_does_not_eagerly_import_numpy(module_path: str, np_attr: str) ->
 
     np_proxy = getattr(module, np_attr, None)
     assert np_proxy is not None, (
-        f"{module_path}.{np_attr} should exist after import "
-        "(was it removed from the module body?)"
+        f"{module_path}.{np_attr} should exist after import (was it removed from the module body?)"
     )
     # The target module's ``np`` MUST be a lazy proxy, regardless of
     # whether a sibling module eagerly imported the real numpy.
@@ -377,5 +375,5 @@ def test_numpy_no_longer_in_app_module_top_imports(capsys: pytest.CaptureFixture
             f"TY-2 regression: {path.name} has a top-level "
             f"``import numpy as np`` statement. Replace it with "
             f"``from voice_typer.server._lazy_import import lazy_module`` "
-            f"+ ``np = lazy_module(\"numpy\")``."
+            f'+ ``np = lazy_module("numpy")``.'
         )

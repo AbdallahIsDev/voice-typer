@@ -83,10 +83,8 @@ def _cleanup_lock_fd(fd: int | None) -> None:
             return
         except OSError:
             pass
-    try:
+    with contextlib.suppress(OSError):
         os.close(int(fd))
-    except OSError:
-        pass
 
 
 @contextlib.contextmanager
@@ -107,14 +105,10 @@ def _hold_flock(lock_path):
         fcntl.flock(fd, fcntl.LOCK_EX)
         yield fd
     finally:
-        try:
+        with contextlib.suppress(OSError):
             fcntl.flock(fd, fcntl.LOCK_UN)
-        except OSError:
-            pass
-        try:
+        with contextlib.suppress(OSError):
             os.close(fd)
-        except OSError:
-            pass
 
 
 # ── (a) First-instance success ─────────────────────────────────────────
@@ -467,10 +461,8 @@ class TestDispatcherRouting:
         # The Windows path will try to import ctypes.windll.kernel32,
         # which fails on Linux. We don't care about the exact error —
         # we just want to verify the POSIX helper was NOT called.
-        try:
+        with contextlib.suppress(SystemExit, AttributeError, Exception):
             si_mod._ensure_single_instance(silent=True)
-        except (SystemExit, AttributeError, Exception):
-            pass
 
         assert posix_called == [], "POSIX helper must NOT be called when is_windows() is True"
 

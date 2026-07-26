@@ -19,9 +19,7 @@ from unittest.mock import MagicMock
 from voice_typer.server.asr_registry import AsrBackendRegistry
 
 
-def _make_registry_with_failing_backend(
-    *, backend_name: str = "parakeet"
-) -> tuple[AsrBackendRegistry, MagicMock]:
+def _make_registry_with_failing_backend(*, backend_name: str = "parakeet") -> tuple[AsrBackendRegistry, MagicMock]:
     """Construct a registry whose active backend's ``load`` raises."""
     failing_engine = MagicMock()
     failing_engine.is_loaded = False
@@ -129,12 +127,15 @@ class TestAC6LoadActiveUnloadOnFailure:
 
         registry.load_active(progress_callback=lambda msg: None)
 
-        engine.unload.assert_called_once(), (
-            "AC-6 / MEM-01: load_active must call backend.unload() on "
-            "exception to release partially-allocated resources (mirror "
-            "load_with_fallback). Pre-fix, partially-allocated torch "
-            "tensors from each failed from_pretrained were never released "
-            "across retries."
+        (
+            engine.unload.assert_called_once(),
+            (
+                "AC-6 / MEM-01: load_active must call backend.unload() on "
+                "exception to release partially-allocated resources (mirror "
+                "load_with_fallback). Pre-fix, partially-allocated torch "
+                "tensors from each failed from_pretrained were never released "
+                "across retries."
+            ),
         )
 
     def test_load_active_swallows_unload_failure(self):

@@ -31,12 +31,7 @@ import pytest
 
 # Resolve the handlers directory relative to this test file so the test
 # is robust against the repo being checked out at a different path.
-_HANDLERS_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "voice_typer"
-    / "server"
-    / "handlers"
-)
+_HANDLERS_DIR = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "handlers"
 
 # Match ``logging.getLogger(`` anywhere in source. We deliberately do
 # NOT anchor to the start of a line so that even an inline assignment
@@ -106,9 +101,7 @@ def test_no_handler_module_uses_import_logging_only_for_logger() -> None:
         # already banned by the test above, so this catches only the
         # "imported but only getLogger was used" case where the import
         # would now be unused).
-        non_getlogger_usages = re.findall(
-            r"\blogging\.(?!getLogger\b)\w+", source
-        )
+        non_getlogger_usages = re.findall(r"\blogging\.(?!getLogger\b)\w+", source)
         assert non_getlogger_usages, (
             f"{module_name} imports `logging` but does not use it for anything "
             f"other than getLogger (which is banned). Remove the unused import."

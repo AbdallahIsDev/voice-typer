@@ -12,6 +12,7 @@ This module adds a ThreadPoolExecutor stress test that calls
 ``Recorder.snapshot()`` from N threads while a producer appends chunks,
 and asserts no exceptions, no torn reads, and bounded cache size.
 """
+
 from __future__ import annotations
 
 import threading
@@ -101,9 +102,7 @@ class TestResampleCacheConcurrentLoadSafety:
                 "H15/M8: snapshot() must always return a numpy array, even "
                 f"under concurrent access. Got {type(arr).__name__}"
             )
-            assert arr.dtype == np.float32, (
-                f"H15/M8: snapshot() must return float32, got {arr.dtype}"
-            )
+            assert arr.dtype == np.float32, f"H15/M8: snapshot() must return float32, got {arr.dtype}"
 
     def test_concurrent_snapshot_cache_stays_bounded(self):
         """The cached resampled prefix must not grow unboundedly under
@@ -194,9 +193,7 @@ class TestResampleCacheConcurrentLoadSafety:
                 try:
                     arr = rec.snapshot()
                     # Must be 1-D (flattened)
-                    assert arr.ndim == 1, (
-                        f"H15/M8: torn read — snapshot returned {arr.ndim}-D array"
-                    )
+                    assert arr.ndim == 1, f"H15/M8: torn read — snapshot returned {arr.ndim}-D array"
                     # Must be non-negative length
                     assert arr.shape[0] >= 0
                     # Must be contiguous

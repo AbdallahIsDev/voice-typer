@@ -15,11 +15,13 @@ class TestWarmUpInference:
     def test_warm_up_method_exists(self):
         """TranscriptionEngine should have a _warm_up_model method."""
         from voice_typer.server.transcription import TranscriptionEngine
-        assert hasattr(TranscriptionEngine, '_warm_up_model')
+
+        assert hasattr(TranscriptionEngine, "_warm_up_model")
 
     def test_warm_up_no_model(self):
         """Warm-up should be a no-op when no model is loaded."""
         from voice_typer.server.transcription import TranscriptionEngine
+
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
         engine._model = None
         engine._device = "cuda"
@@ -29,6 +31,7 @@ class TestWarmUpInference:
     def test_warm_up_cpu_model(self):
         """Warm-up should be skipped for CPU models."""
         from voice_typer.server.transcription import TranscriptionEngine
+
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
         engine._model = MagicMock()
         engine._device = "cpu"
@@ -39,6 +42,7 @@ class TestWarmUpInference:
     def test_warm_up_cuda_model(self):
         """Warm-up should call transcribe for CUDA models."""
         from voice_typer.server.transcription import TranscriptionEngine
+
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
         engine._model = MagicMock()
         engine._device = "cuda"
@@ -51,6 +55,7 @@ class TestWarmUpInference:
     def test_warm_up_failure_non_critical(self):
         """Warm-up failure should not propagate exceptions."""
         from voice_typer.server.transcription import TranscriptionEngine
+
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
         engine._model = MagicMock()
         engine._device = "cuda"
@@ -66,11 +71,13 @@ class TestBatchTranscription:
     def test_batch_method_exists(self):
         """QwenEngine should have a transcribe_batch method."""
         from voice_typer.server.qwen_engine import QwenEngine
-        assert hasattr(QwenEngine, 'transcribe_batch')
+
+        assert hasattr(QwenEngine, "transcribe_batch")
 
     def test_batch_empty_input(self):
         """Batch transcription with empty input returns empty list."""
         from voice_typer.server.qwen_engine import QwenEngine
+
         engine = QwenEngine.__new__(QwenEngine)
         result = engine.transcribe_batch([])
         assert result == []
@@ -78,6 +85,7 @@ class TestBatchTranscription:
     def test_batch_calls_transcribe(self):
         """Batch transcription should call transcribe for each chunk."""
         from voice_typer.server.qwen_engine import QwenEngine
+
         engine = QwenEngine.__new__(QwenEngine)
         engine._lock = MagicMock()
         engine._inference_event = MagicMock()
@@ -85,7 +93,7 @@ class TestBatchTranscription:
         engine.language = "en"
 
         # Mock the transcribe method
-        with patch.object(engine, 'transcribe', return_value="hello") as mock_t:
+        with patch.object(engine, "transcribe", return_value="hello") as mock_t:
             chunks = [np.zeros(100, dtype=np.float32), np.zeros(100, dtype=np.float32)]
             results = engine.transcribe_batch(chunks)
             assert len(results) == 2
@@ -98,12 +106,14 @@ class TestLRUModelEviction:
     def test_evict_method_exists(self):
         """ModelManager should have _evict_lru_model and touch_model methods."""
         from voice_typer.server.model_manager import ModelManager
-        assert hasattr(ModelManager, '_evict_lru_model')
-        assert hasattr(ModelManager, 'touch_model')
+
+        assert hasattr(ModelManager, "_evict_lru_model")
+        assert hasattr(ModelManager, "touch_model")
 
     def test_no_eviction_below_limit(self):
         """Eviction should not happen when models <= _MAX_LOADED_MODELS."""
         from voice_typer.server.model_manager import ModelManager
+
         mm = ModelManager.__new__(ModelManager)
         mm._model_access_times = {"whisper": 1.0, "qwen": 2.0}
         mm._model_lru_lock = MagicMock()
@@ -120,6 +130,7 @@ class TestLRUModelEviction:
         import time
 
         from voice_typer.server.model_manager import ModelManager
+
         mm = ModelManager.__new__(ModelManager)
         now = time.monotonic()
         mm._model_access_times = {
@@ -147,6 +158,7 @@ class TestLRUModelEviction:
         import time
 
         from voice_typer.server.model_manager import ModelManager
+
         mm = ModelManager.__new__(ModelManager)
         mm._model_access_times = {}
         mm._model_lru_lock = MagicMock()
@@ -167,18 +179,21 @@ class TestDocsADirectory:
     def test_adr_directory_exists(self):
         """docs/adr/ directory should exist."""
         from pathlib import Path
+
         adr_dir = Path(__file__).resolve().parent.parent / "docs" / "adr"
         assert adr_dir.exists(), "docs/adr/ directory should exist"
 
     def test_template_exists(self):
         """docs/adr/0000-template.md should exist."""
         from pathlib import Path
+
         template = Path(__file__).resolve().parent.parent / "docs" / "adr" / "0000-template.md"
         assert template.exists(), "ADR template should exist"
 
     def test_first_adr_exists(self):
         """docs/adr/0001-record-architecture-decisions.md should exist."""
         from pathlib import Path
+
         adr = Path(__file__).resolve().parent.parent / "docs" / "adr" / "0001-record-architecture-decisions.md"
         assert adr.exists(), "First ADR should exist"
 
@@ -189,12 +204,14 @@ class TestAPIDocs:
     def test_api_docs_exist(self):
         """docs/API.md should exist."""
         from pathlib import Path
+
         api_doc = Path(__file__).resolve().parent.parent / "docs" / "API.md"
         assert api_doc.exists(), "API documentation should exist"
 
     def test_api_docs_mention_key_classes(self):
         """API docs should document VoiceTyperApp, Recorder, Config."""
         from pathlib import Path
+
         api_doc = Path(__file__).resolve().parent.parent / "docs" / "API.md"
         content = api_doc.read_text()
         for keyword in ["VoiceTyperApp", "Recorder", "Config", "ClipboardManager", "IPC"]:
@@ -207,12 +224,14 @@ class TestConsolidatedDiagnostics:
     def test_diagnostics_script_exists(self):
         """scripts/diagnostics.py should exist."""
         from pathlib import Path
+
         script = Path(__file__).resolve().parent.parent / "scripts" / "diagnostics.py"
         assert script.exists(), "Consolidated diagnostics script should exist"
 
     def test_diagnostics_has_subcommands(self):
         """Diagnostics script should have f2, cublas, runtime, test-runner subcommands."""
         from pathlib import Path
+
         script = Path(__file__).resolve().parent.parent / "scripts" / "diagnostics.py"
         content = script.read_text()
         for cmd in ["f2", "cublas", "runtime", "test-runner"]:
@@ -225,13 +244,15 @@ class TestPlatformUtils:
     def test_platform_utils_module_exists(self):
         """voice_typer.server.platform_utils should exist."""
         from voice_typer.server import platform_utils
-        assert hasattr(platform_utils, 'is_windows')
-        assert hasattr(platform_utils, 'is_macos')
-        assert hasattr(platform_utils, 'is_linux')
+
+        assert hasattr(platform_utils, "is_windows")
+        assert hasattr(platform_utils, "is_macos")
+        assert hasattr(platform_utils, "is_linux")
 
     def test_platform_utils_returns_bool(self):
         """Platform utility functions should return booleans."""
         from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
+
         assert isinstance(is_windows(), bool)
         assert isinstance(is_macos(), bool)
         assert isinstance(is_linux(), bool)

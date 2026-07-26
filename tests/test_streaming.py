@@ -896,9 +896,7 @@ def test_secure_clear_audio_helper_zeros_in_place():
 
     _secure_clear_audio(arr)
 
-    assert np.all(arr == 0), (
-        "_secure_clear_audio must zero the array in-place (XZ-PRIV-02 / SEC-audit-008)"
-    )
+    assert np.all(arr == 0), "_secure_clear_audio must zero the array in-place (XZ-PRIV-02 / SEC-audit-008)"
     assert arr.shape == (5,)
     assert arr.dtype == np.float32
 

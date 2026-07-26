@@ -1191,9 +1191,7 @@ class TestGT58DeprecatedFieldsScrubbedOnLoad:
         assert c.schema_version == _CURRENT_SCHEMA_VERSION
         # The removed fields are NOT attributes on the Config instance.
         for field in self.REMOVED_FIELDS:
-            assert not hasattr(c, field), (
-                f"Removed field {field!r} should NOT be on the Config instance"
-            )
+            assert not hasattr(c, field), f"Removed field {field!r} should NOT be on the Config instance"
 
     def test_config_with_deprecated_fields_at_schema_v3_loads(self, tmp_path, monkeypatch):
         """A ``config.json`` at schema_version=3 with the deprecated fields
@@ -1255,13 +1253,9 @@ class TestGTD1ValidatorAndMigrationTypes:
         allowlist_hint = hints.get("IPC_CONFIG_ALLOWLIST")
         assert allowlist_hint is not None, "IPC_CONFIG_ALLOWLIST must have a type hint"
         origin = typing.get_origin(allowlist_hint)
-        assert origin is dict, (
-            f"IPC_CONFIG_ALLOWLIST hint origin must be dict, got {origin!r}"
-        )
+        assert origin is dict, f"IPC_CONFIG_ALLOWLIST hint origin must be dict, got {origin!r}"
         args = typing.get_args(allowlist_hint)
-        assert len(args) == 2, (
-            f"IPC_CONFIG_ALLOWLIST must be parameterised [str, FieldSpec], got args={args!r}"
-        )
+        assert len(args) == 2, f"IPC_CONFIG_ALLOWLIST must be parameterised [str, FieldSpec], got args={args!r}"
 
     def test_migrate_to_v3_returns_dict(self):
         """``_migrate_to_v3`` returns a ``dict`` (migration contract)."""

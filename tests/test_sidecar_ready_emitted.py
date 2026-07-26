@@ -35,6 +35,8 @@ import pytest
 
 websockets = pytest.importorskip("websockets")
 
+import contextlib  # noqa: E402
+
 from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 
 from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service  # noqa: E402
@@ -205,13 +207,11 @@ async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
 
     dispatch = sidecar_ws._make_dispatch(server)
 
-    try:
+    # Connection-cleanup exceptions are fine for this test — we
+    # only care that ``ready`` was published BEFORE the dispatch
+    # loop started.
+    with contextlib.suppress(Exception):
         await sidecar_ws._handle_connection(ws, server, dispatch)
-    except Exception:
-        # Connection-cleanup exceptions are fine for this test — we
-        # only care that ``ready`` was published BEFORE the dispatch
-        # loop started.
-        pass
 
     # The ``ready`` event must have been published exactly once.
     ready_events = [e for e in published if e.get("type") == "ready"]
@@ -277,10 +277,8 @@ async def test_handle_connection_does_not_re_emit_ready_on_reconnect(
 
     dispatch = sidecar_ws._make_dispatch(server)
 
-    try:
+    with contextlib.suppress(Exception):
         await sidecar_ws._handle_connection(ws, server, dispatch)
-    except Exception:
-        pass
 
     ready_events = [e for e in published if e.get("type") == "ready"]
     assert len(ready_events) == 0, (
@@ -347,10 +345,8 @@ async def test_two_fresh_servers_each_emit_ready(monkeypatch) -> None:
         ws.send = _noop_send
 
         dispatch = sidecar_ws._make_dispatch(server)
-        try:
+        with contextlib.suppress(Exception):
             await sidecar_ws._handle_connection(ws, server, dispatch)
-        except Exception:
-            pass
 
         # Restore publish for the next iteration.
         monkeypatch.setattr(event_bus, "publish", original_publish)

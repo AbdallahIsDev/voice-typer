@@ -16,6 +16,7 @@ def template_dir(tmp_path, monkeypatch):
 def tm(template_dir):
     """Create a TemplateManager with a clean temp dir."""
     from voice_typer.server.templates import TemplateManager
+
     return TemplateManager(config_dir=template_dir)
 
 
@@ -105,6 +106,7 @@ class TestTemplateMatch:
 class TestTemplateVariables:
     def test_today_variable(self, tm):
         from datetime import datetime
+
         tm.add("date", "{today}")
         result = tm.match("date")
         assert result is not None
@@ -119,6 +121,7 @@ class TestTemplateVariables:
 
     def test_username_variable(self, tm):
         import getpass
+
         tm.add("user", "{username}")
         result = tm.match("user")
         assert result is not None
@@ -136,6 +139,7 @@ class TestTemplateVariables:
 class TestTemplatePersistence:
     def test_templates_persist_across_instances(self, template_dir):
         from voice_typer.server.templates import TemplateManager
+
         tm1 = TemplateManager(config_dir=template_dir)
         tm1.add("hello", "Hello!")
         del tm1
@@ -146,6 +150,7 @@ class TestTemplatePersistence:
 
     def test_empty_templates_file(self, template_dir):
         from voice_typer.server.templates import TemplateManager
+
         # Write empty templates file
         (template_dir / "voice-typer-templates.json").write_text('{"templates": []}')
         tm = TemplateManager(config_dir=template_dir)
@@ -161,9 +166,9 @@ class TestTemplateImportExport:
         assert len(data["templates"]) == 1
 
     def test_import_json(self, tm):
-        json_str = json.dumps({"templates": [
-            {"trigger": "imported", "output": "Imported text", "match_mode": "exact"}
-        ]})
+        json_str = json.dumps(
+            {"templates": [{"trigger": "imported", "output": "Imported text", "match_mode": "exact"}]}
+        )
         count = tm.import_json(json_str)
         assert count == 1
         assert len(tm.templates) == 1
@@ -222,10 +227,7 @@ class TestTemplatesBackupAndQuarantine:
         # The .bak must now exist and contain template A's content
         # (byte-for-byte), so the user can recover their previous
         # state if template B turns out to be wrong.
-        assert bak_file.exists(), (
-            "PI-8 regression: .bak file should exist after the second "
-            "save overwrites the first"
-        )
+        assert bak_file.exists(), "PI-8 regression: .bak file should exist after the second save overwrites the first"
         bak_content = bak_file.read_text(encoding="utf-8")
         assert bak_content == content_a, (
             "PI-8 regression: .bak file should contain the PREVIOUS "
@@ -260,14 +262,10 @@ class TestTemplatesBackupAndQuarantine:
 
         # The corrupt file must have been renamed to .corrupt-<ts>.
         assert not templates_file.exists(), (
-            "PI-8 regression: corrupt templates file should have been "
-            "renamed (quarantined), not left in place"
+            "PI-8 regression: corrupt templates file should have been renamed (quarantined), not left in place"
         )
         corrupt_files = list(template_dir.glob(f"{TEMPLATES_FILENAME}.corrupt-*"))
-        assert len(corrupt_files) == 1, (
-            f"PI-8 regression: expected exactly one .corrupt-<ts> file, "
-            f"got {corrupt_files}"
-        )
+        assert len(corrupt_files) == 1, f"PI-8 regression: expected exactly one .corrupt-<ts> file, got {corrupt_files}"
         # The quarantined file must contain the original corrupt payload
         # (byte-for-byte) so the user can inspect what went wrong.
         assert corrupt_files[0].read_text(encoding="utf-8") == corrupt_payload

@@ -87,9 +87,7 @@ class TestPyobjcCacheBasics:
             _is_pyobjc_available()  # cached — should NOT attempt import
             _is_pyobjc_available()  # cached — should NOT attempt import
             _is_pyobjc_available()  # cached — should NOT attempt import
-            assert call_count["n"] == 1, (
-                f"cached probes must not re-import; got {call_count['n']} attempts"
-            )
+            assert call_count["n"] == 1, f"cached probes must not re-import; got {call_count['n']} attempts"
 
 
 class TestPyobjcCacheMissingPath:
@@ -106,9 +104,7 @@ class TestPyobjcCacheMissingPath:
 
             def fail_avfoundation(name, *args, **kwargs):
                 if name == "AVFoundation":
-                    raise AssertionError(
-                        "AVFoundation import attempted despite pyobjc cached as missing"
-                    )
+                    raise AssertionError("AVFoundation import attempted despite pyobjc cached as missing")
                 return original_import(name, *args, **kwargs)
 
             with patch("builtins.__import__", side_effect=fail_avfoundation):
@@ -124,9 +120,7 @@ class TestPyobjcCacheMissingPath:
 
             def fail_appservices(name, *args, **kwargs):
                 if name in ("ApplicationServices", "CoreFoundation"):
-                    raise AssertionError(
-                        f"{name} import attempted despite pyobjc cached as missing"
-                    )
+                    raise AssertionError(f"{name} import attempted despite pyobjc cached as missing")
                 return original_import(name, *args, **kwargs)
 
             with patch("builtins.__import__", side_effect=fail_appservices):
@@ -149,6 +143,7 @@ class TestPyobjcCacheAvailablePath:
                 # Actually: we need to make the AVFoundation import fail.
                 # Use a direct module patch.
                 import sys
+
                 original = sys.modules.get("AVFoundation")
                 sys.modules["AVFoundation"] = None  # forces ImportError
                 try:
@@ -170,6 +165,7 @@ class TestPyobjcCacheAvailablePath:
         updated to ``False``."""
         with patch.object(permissions, "_PYOBJC_AVAILABLE", True):
             import sys
+
             # Force ImportError for both modules.
             for mod in ("ApplicationServices", "CoreFoundation"):
                 sys.modules[mod] = None
@@ -192,6 +188,7 @@ class TestPyobjcCacheAvailablePath:
             mock_corefoundation.CFDictionaryCreate.return_value = MagicMock()
 
             import sys
+
             original_appservices = sys.modules.get("ApplicationServices")
             original_corefoundation = sys.modules.get("CoreFoundation")
             sys.modules["ApplicationServices"] = mock_appservices
@@ -220,6 +217,7 @@ class TestPyobjcCacheAvailablePath:
             mock_avfoundation.AVMediaTypeAudio.return_value = "audio"
 
             import sys
+
             original = sys.modules.get("AVFoundation")
             sys.modules["AVFoundation"] = mock_avfoundation
             try:
@@ -254,9 +252,7 @@ class TestPyobjcCachePerformance:
         # 10ms is generous — typical cached probes are <0.1ms total
         # for 1000 calls. The point is to verify the cache is consulted
         # (not that we're at any particular speed).
-        assert elapsed_ms < 10.0, (
-            f"1000 cached probes took {elapsed_ms:.2f}ms — cache not consulted?"
-        )
+        assert elapsed_ms < 10.0, f"1000 cached probes took {elapsed_ms:.2f}ms — cache not consulted?"
 
 
 if __name__ == "__main__":

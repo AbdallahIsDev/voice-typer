@@ -774,7 +774,7 @@ class TestGT43ShutdownWatchdog:
             f"GT-43: quit() on non-main thread must arm the watchdog; got armed_calls={armed_calls}"
         )
 
-    def test_watchdog_NOT_armed_when_quit_runs_on_main_thread(self, controller, fake_app, monkeypatch):
+    def test_watchdog_NOT_armed_when_quit_runs_on_main_thread(self, controller, fake_app, monkeypatch):  # noqa: N802
         fake_app._do_cleanup = MagicMock()
         monkeypatch.setattr(sys, "exit", lambda code=0: None)
 

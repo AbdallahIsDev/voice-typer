@@ -53,9 +53,7 @@ def _list_indexes(conn: sqlite3.Connection, table: str = "transcriptions") -> se
     return {row[0] for row in cursor.fetchall()}
 
 
-def _index_columns(
-    conn: sqlite3.Connection, index_name: str
-) -> list[tuple[str, int, bool]]:
+def _index_columns(conn: sqlite3.Connection, index_name: str) -> list[tuple[str, int, bool]]:
     """Return ``[(column_name, collation_seq, is_desc), ...]`` for an index.
 
     Mirrors the ``PRAGMA index_info`` + ``PRAGMA index_xinfo`` shape —
@@ -86,9 +84,7 @@ class TestCompositeIndex:
         """TY-21: a freshly-created DB has ``idx_favorite_timestamp``."""
         conn = db._get_read_conn()
         indexes = _list_indexes(conn)
-        assert "idx_favorite_timestamp" in indexes, (
-            f"expected idx_favorite_timestamp in {sorted(indexes)}"
-        )
+        assert "idx_favorite_timestamp" in indexes, f"expected idx_favorite_timestamp in {sorted(indexes)}"
 
     def test_index_exists_on_existing_db_reopen(self, tmp_path):
         """TY-21: re-opening an existing DB file re-runs
@@ -172,8 +168,7 @@ class TestRetentionUsesIndex:
         # "COVERING INDEX idx_favorite_timestamp" or just
         # "SEARCH transcriptions USING INDEX idx_favorite_timestamp".
         assert "IDX_FAVORITE_TIMESTAMP" in plan_text, (
-            f"expected retention subquery to use idx_favorite_timestamp, "
-            f"got plan: {plan_text!r}"
+            f"expected retention subquery to use idx_favorite_timestamp, got plan: {plan_text!r}"
         )
         # A covering index walk eliminates the temp b-tree for ORDER BY.
         # Before TY-21 the plan included "USE TEMP B-TREE FOR ORDER BY".
@@ -209,18 +204,11 @@ class TestRetentionUsesIndex:
         # Either composite index or idx_favorite should be used —
         # NOT a full table scan. The composite is preferred because
         # it covers both predicates.
-        assert (
-            "IDX_FAVORITE_TIMESTAMP" in plan_text
-            or "IDX_FAVORITE" in plan_text
-        ), (
-            f"expected retention-by-age subquery to use an index on "
-            f"'favorite', got plan: {plan_text!r}"
+        assert "IDX_FAVORITE_TIMESTAMP" in plan_text or "IDX_FAVORITE" in plan_text, (
+            f"expected retention-by-age subquery to use an index on 'favorite', got plan: {plan_text!r}"
         )
-        assert "SCAN" not in plan_text or "SCAN" in plan_text.replace(
-            "USING INDEX", ""
-        ) is False, (
-            f"retention-by-age subquery should NOT be a full table scan, "
-            f"got plan: {plan_text!r}"
+        assert "SCAN" not in plan_text or "SCAN" in plan_text.replace("USING INDEX", "") is False, (
+            f"retention-by-age subquery should NOT be a full table scan, got plan: {plan_text!r}"
         )
 
 

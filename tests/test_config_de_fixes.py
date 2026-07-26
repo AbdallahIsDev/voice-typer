@@ -48,16 +48,12 @@ class TestDE3MigratorFailureDoesNotBumpSchemaVersion:
     retries from a clean state.
     """
 
-    def test_migrator_failure_leaves_schema_version_at_loaded_version(
-        self, tmp_path, monkeypatch
-    ):
+    def test_migrator_failure_leaves_schema_version_at_loaded_version(self, tmp_path, monkeypatch):
         """Simulate a migrator that raises and verify schema_version is
         NOT bumped to _CURRENT_SCHEMA_VERSION."""
         config_file = tmp_path / "config.json"
         # Write an old-schema config so a migration is required.
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<f5>", "model_size": "small.en"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>", "model_size": "small.en"}))
 
         # Patch _MIGRATIONS so the v2 migrator raises.  v3 must NOT
         # run (the fix breaks the loop on first failure).
@@ -98,9 +94,7 @@ class TestDE3MigratorFailureDoesNotBumpSchemaVersion:
         """Sanity: when all migrators succeed, schema_version IS bumped
         to _CURRENT_SCHEMA_VERSION (no regression for the happy path)."""
         config_file = tmp_path / "config.json"
-        config_file.write_text(
-            json.dumps({"schema_version": 0, "hotkey": "<f5>", "model_size": "small.en"})
-        )
+        config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>", "model_size": "small.en"}))
 
         loaded = Config.load()
         assert loaded.schema_version == _CURRENT_SCHEMA_VERSION, (
@@ -131,9 +125,7 @@ class TestDE3MigratorFailureDoesNotBumpSchemaVersion:
         # The migrator failure is logged at ERROR level (visible in
         # default logs) so the user can diagnose the half-migrated state.
         migrator_errors = [
-            r
-            for r in caplog.records
-            if "migrator v2 raised" in r.message and "RuntimeError" in r.message
+            r for r in caplog.records if "migrator v2 raised" in r.message and "RuntimeError" in r.message
         ]
         assert len(migrator_errors) >= 1, (
             f"DE-3: migrator failure not surfaced in logs: {[r.message for r in caplog.records]}"
@@ -193,10 +185,9 @@ class TestDE25LockCreationFailureIsFailClosed:
         # ERROR ("Failed to save config").  Either the lock-creation
         # WARNING or the save() ERROR is acceptable evidence that the
         # failure was surfaced.
-        assert any(
-            "lock" in r.message.lower() or "save" in r.message.lower()
-            for r in caplog.records
-        ), f"DE-25: lock creation failure not surfaced in logs: {[r.message for r in caplog.records]}"
+        assert any("lock" in r.message.lower() or "save" in r.message.lower() for r in caplog.records), (
+            f"DE-25: lock creation failure not surfaced in logs: {[r.message for r in caplog.records]}"
+        )
 
 
 # ── DE-26 ──────────────────────────────────────────────────────────────────
@@ -283,9 +274,7 @@ class TestDE27PreMigrationBackupFailureLoggedAtWarning:
 
         # DE-27: the backup failure must be visible at WARNING (not DEBUG).
         backup_warnings = [
-            r
-            for r in caplog.records
-            if "back up config.json" in r.message and "before migration" in r.message
+            r for r in caplog.records if "back up config.json" in r.message and "before migration" in r.message
         ]
         assert len(backup_warnings) >= 1, (
             "DE-27 regression: pre-migration backup failure was not logged at WARNING — "
@@ -307,9 +296,7 @@ class TestDE28CredentialStoreExceptionsAreSanitised:
     The fix logs only the exception TYPE (``type(e).__name__``).
     """
 
-    def test_save_path_does_not_log_secret_from_credential_store_exception(
-        self, tmp_path, monkeypatch, caplog
-    ):
+    def test_save_path_does_not_log_secret_from_credential_store_exception(self, tmp_path, monkeypatch, caplog):
         """Simulate credential_store raising an exception whose message
         contains a secret value.  Verify the secret does NOT appear in
         any log record produced by ``_save_locked``."""
@@ -359,9 +346,7 @@ class TestDE28CredentialStoreExceptionsAreSanitised:
             f"diagnose the failure.  Records: {[r.message for r in caplog.records]}"
         )
 
-    def test_load_path_does_not_log_secret_from_credential_store_exception(
-        self, tmp_path, monkeypatch, caplog
-    ):
+    def test_load_path_does_not_log_secret_from_credential_store_exception(self, tmp_path, monkeypatch, caplog):
         """Simulate credential_store raising during load() and verify
         the secret does NOT appear in any log record."""
         config_file = tmp_path / "config.json"
@@ -427,8 +412,7 @@ class TestDE29CustomThemeValidatedOnLoad:
 
         c = Config.load()
         assert c.custom_theme is None, (
-            "DE-29 regression: malformed custom_theme was NOT reset to None on load — "
-            f"got: {c.custom_theme!r}"
+            f"DE-29 regression: malformed custom_theme was NOT reset to None on load — got: {c.custom_theme!r}"
         )
 
     def test_non_dict_custom_theme_resets_to_none(self, tmp_path, monkeypatch):
@@ -481,9 +465,7 @@ class TestDE29CustomThemeValidatedOnLoad:
         warning to ``last_load_warnings`` so the user knows the field
         was reset."""
         config_file = tmp_path / "config.json"
-        config_file.write_text(
-            json.dumps({"custom_theme": {"light": "not-a-dict", "dark": {}}})
-        )
+        config_file.write_text(json.dumps({"custom_theme": {"light": "not-a-dict", "dark": {}}}))
 
         c = Config.load()
         warnings = getattr(c, "last_load_warnings", []) or []

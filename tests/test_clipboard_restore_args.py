@@ -186,9 +186,7 @@ def test_spawn_site_passes_four_args() -> None:
             found_args = m.group(1)
             break
 
-    assert found_args is not None, (
-        "Could not find _delayed_restore thread spawn site in any clipboard package file"
-    )
+    assert found_args is not None, "Could not find _delayed_restore thread spawn site in any clipboard package file"
     # Count identifiers / placeholders in the args tuple.
     args = [a.strip() for a in found_args.split(",") if a.strip()]
     assert len(args) == 4, (

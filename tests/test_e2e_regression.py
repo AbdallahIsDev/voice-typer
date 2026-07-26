@@ -6,6 +6,7 @@ Covers:
 - STARTUP-5: POSIX prewarm scheduler (macOS LaunchAgent + Linux systemd)
 - STARTUP-7: Windows autostart uses Task Scheduler logon trigger (with Run-key fallback)
 """
+
 import importlib
 import importlib.util
 import inspect
@@ -30,24 +31,28 @@ class TestCoreModulesExtractedFromApp:
     def test_model_manager_module_exists(self):
         """ModelManager module exists and is importable."""
         from voice_typer.server import model_manager
+
         assert hasattr(model_manager, "ModelManager")
         assert callable(model_manager.ModelManager)
 
     def test_recording_controller_module_exists(self):
         """RecordingController module exists and is importable."""
         from voice_typer.server import recording_controller
+
         assert hasattr(recording_controller, "RecordingController")
         assert callable(recording_controller.RecordingController)
 
     def test_hotkey_dispatcher_module_exists(self):
         """HotkeyDispatcher module exists and is importable."""
         from voice_typer.server import hotkey_dispatcher
+
         assert hasattr(hotkey_dispatcher, "HotkeyDispatcher")
         assert callable(hotkey_dispatcher.HotkeyDispatcher)
 
     def test_app_py_uses_model_manager(self):
         """app.py source references self.models (ModelManager instance)."""
         from voice_typer.server import app
+
         src = inspect.getsource(app)
         assert "self.models" in src, "app.py must use self.models (ModelManager)"
         assert "ModelManager" in src
@@ -55,6 +60,7 @@ class TestCoreModulesExtractedFromApp:
     def test_app_py_uses_recording_controller(self):
         """app.py source references self.recording (RecordingController instance)."""
         from voice_typer.server import app
+
         src = inspect.getsource(app)
         assert "self.recording" in src, "app.py must use self.recording (RecordingController)"
         assert "RecordingController" in src
@@ -62,6 +68,7 @@ class TestCoreModulesExtractedFromApp:
     def test_app_py_uses_hotkey_dispatcher(self):
         """app.py source references self.hotkeys (HotkeyDispatcher instance)."""
         from voice_typer.server import app
+
         src = inspect.getsource(app)
         assert "self.hotkeys" in src, "app.py must use self.hotkeys (HotkeyDispatcher)"
         assert "HotkeyDispatcher" in src
@@ -70,18 +77,22 @@ class TestCoreModulesExtractedFromApp:
         """app.py must stay at a manageable size. Security and platform fixes
         added essential code (DACL, restart token, signal handlers, RDP, etc.)."""
         from voice_typer.server import app as app_module
+
         src = inspect.getsource(app_module)
         line_count = src.count("\n")
-        assert line_count < 2600, (
-            f"app.py is {line_count} lines; expected < 2600 after security/platform fixes"
-        )
+        assert line_count < 2600, f"app.py is {line_count} lines; expected < 2600 after security/platform fixes"
 
     def test_model_manager_has_lifecycle_methods(self):
         """ModelManager exposes the expected lifecycle methods."""
         from voice_typer.server.model_manager import ModelManager
+
         for method in (
-            "load_background", "start_background_load", "fallback_to_whisper",
-            "try_load", "change_model", "active_transcriber",
+            "load_background",
+            "start_background_load",
+            "fallback_to_whisper",
+            "try_load",
+            "change_model",
+            "active_transcriber",
             "ensure_active_engine_loaded",
         ):
             assert hasattr(ModelManager, method), f"ModelManager must have {method}"
@@ -89,27 +100,36 @@ class TestCoreModulesExtractedFromApp:
     def test_recording_controller_has_lifecycle_methods(self):
         """RecordingController exposes the expected lifecycle methods."""
         from voice_typer.server.recording_controller import RecordingController
+
         for method in (
-            "toggle", "start", "stop", "cancel",
-            "on_recorder_rms", "on_silence_warning", "on_silence_auto_stop",
-            "on_max_duration_auto_stop", "on_xrun_threshold",
-            "_start_streaming_session_if_enabled", "_cancel_streaming_session",
+            "toggle",
+            "start",
+            "stop",
+            "cancel",
+            "on_recorder_rms",
+            "on_silence_warning",
+            "on_silence_auto_stop",
+            "on_max_duration_auto_stop",
+            "on_xrun_threshold",
+            "_start_streaming_session_if_enabled",
+            "_cancel_streaming_session",
             "_force_recover_from_stuck_transcription",
         ):
-            assert hasattr(RecordingController, method), (
-                f"RecordingController must have {method}"
-            )
+            assert hasattr(RecordingController, method), f"RecordingController must have {method}"
 
     def test_hotkey_dispatcher_has_lifecycle_methods(self):
         """HotkeyDispatcher exposes the expected lifecycle methods."""
         from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+
         for method in (
-            "register", "register_esc", "unregister_esc",
-            "register_repaste", "restart", "stop_all",
+            "register",
+            "register_esc",
+            "unregister_esc",
+            "register_repaste",
+            "restart",
+            "stop_all",
         ):
-            assert hasattr(HotkeyDispatcher, method), (
-                f"HotkeyDispatcher must have {method}"
-            )
+            assert hasattr(HotkeyDispatcher, method), f"HotkeyDispatcher must have {method}"
 
     def test_app_property_delegates_removed(self, temp_config, monkeypatch):
         """ARCH-REFAC-003: the @property delegates (transcriber,
@@ -119,6 +139,7 @@ class TestCoreModulesExtractedFromApp:
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
+
         app = VoiceTyperApp()
         # The legacy @property delegates must no longer exist on the app.
         for removed in (
@@ -164,6 +185,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
 
         monkeypatch.setattr("builtins.__import__", tracking_import)
         from voice_typer.server import prewarm
+
         # Mock _lower_io_priority to skip the platform check
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
         # Mock faster_whisper import (it might not be installed in test env)
@@ -174,9 +196,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
             "STARTUP-3 regression: torch was imported for whisper backend "
             "(should be skipped to save ~400s on cold boot)"
         )
-        assert "transformers" not in imported, (
-            "STARTUP-3 regression: transformers was imported for whisper backend"
-        )
+        assert "transformers" not in imported, "STARTUP-3 regression: transformers was imported for whisper backend"
 
     def test_warm_imports_imports_torch_for_parakeet(self, temp_config, monkeypatch):
         """When asr_backend=parakeet, _warm_imports MUST warm torch + transformers.
@@ -208,6 +228,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
         monkeypatch.setattr("builtins.__import__", tracking_import)
         from voice_typer.server import prewarm
         from voice_typer.server.prewarm import cache_probe
+
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
         # Intercept _warm_package_files to track which packages were warmed.
         real_warm = cache_probe._warm_package_files
@@ -232,9 +253,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
         }
         with patch.dict(sys.modules, fake_modules):
             prewarm._warm_imports()
-        assert "torch" in warmed_packages, (
-            "parakeet backend must warm torch files via _warm_package_files('torch')"
-        )
+        assert "torch" in warmed_packages, "parakeet backend must warm torch files via _warm_package_files('torch')"
         assert "transformers" in warmed_packages, (
             "parakeet backend must warm transformers files via _warm_package_files('transformers')"
         )
@@ -246,6 +265,7 @@ class TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd:
     def test_posix_scheduler_module_exists(self):
         """prewarm_scheduler_posix module exists and is importable."""
         from voice_typer.server import prewarm_scheduler_posix
+
         assert hasattr(prewarm_scheduler_posix, "is_supported")
         assert hasattr(prewarm_scheduler_posix, "is_prewarm_registered")
         assert hasattr(prewarm_scheduler_posix, "register_prewarm_task")
@@ -254,6 +274,7 @@ class TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd:
     def test_posix_scheduler_macos_plist_builder(self):
         """_build_macos_plist produces valid plist XML."""
         from voice_typer.server import prewarm_scheduler_posix
+
         plist = prewarm_scheduler_posix._build_macos_plist()
         assert "<?xml" in plist
         assert "<plist" in plist
@@ -266,6 +287,7 @@ class TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd:
     def test_posix_scheduler_linux_service_builder(self):
         """_build_linux_service produces a valid systemd unit."""
         from voice_typer.server import prewarm_scheduler_posix
+
         service = prewarm_scheduler_posix._build_linux_service()
         assert "[Unit]" in service
         assert "[Service]" in service
@@ -285,18 +307,19 @@ class TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd:
         I/O (and under memory pressure actively harmful).
         """
         from voice_typer.server import prewarm_scheduler_posix
+
         timer = prewarm_scheduler_posix._build_linux_timer()
         assert "[Timer]" in timer
         assert "OnBootSec=10s" in timer
         assert "OnUnitActiveSec" not in timer, (
-            "PREWARM-001 regression: OnUnitActiveSec is back, prewarm will "
-            "fire repeatedly instead of once at boot"
+            "PREWARM-001 regression: OnUnitActiveSec is back, prewarm will fire repeatedly instead of once at boot"
         )
         assert "voice-typer-prewarm.service" in timer
 
     def test_task_scheduler_is_supported_returns_true_on_posix(self, monkeypatch):
         """task_scheduler.is_supported() returns True on macOS/Linux (STARTUP-5)."""
         from voice_typer.server import task_scheduler
+
         # Test Linux
         monkeypatch.setattr(task_scheduler.sys, "platform", "linux")
         assert task_scheduler.is_supported() is True
@@ -307,10 +330,12 @@ class TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd:
     def test_posix_scheduler_macos_registration_round_trip(self, monkeypatch, tmp_path):
         """LaunchAgent plist is written and removed correctly."""
         from voice_typer.server import prewarm_scheduler_posix
+
         fake_home = tmp_path
         monkeypatch.setattr(Path, "home", lambda: fake_home)
         monkeypatch.setattr(
-            prewarm_scheduler_posix.subprocess, "run",
+            prewarm_scheduler_posix.subprocess,
+            "run",
             lambda *a, **kw: MagicMock(returncode=0),
         )
         assert prewarm_scheduler_posix._register_prewarm_macos() is True
@@ -323,12 +348,15 @@ class TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd:
     def test_posix_scheduler_linux_registration_round_trip(self, monkeypatch, tmp_path):
         """systemd user timer units are written and removed correctly."""
         from voice_typer.server import prewarm_scheduler_posix
+
         monkeypatch.setattr(
-            prewarm_scheduler_posix.os, "environ",
+            prewarm_scheduler_posix.os,
+            "environ",
             {"XDG_CONFIG_HOME": str(tmp_path)},
         )
         monkeypatch.setattr(
-            prewarm_scheduler_posix.subprocess, "run",
+            prewarm_scheduler_posix.subprocess,
+            "run",
             lambda *a, **kw: MagicMock(returncode=0),
         )
         assert prewarm_scheduler_posix._register_prewarm_linux() is True
@@ -350,6 +378,7 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
         # Force Windows mode for the XML builder
         with patch("sys.platform", "win32"):
             from voice_typer.server import server_platform as platform_mod
+
             # PLAT-VENV: _build_app_autostart_task_xml calls
             # _app_autostart_command_and_args which calls shutil.which.
             # On Linux, shutil.which with win32 platform check fails.
@@ -369,6 +398,7 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
     def test_enable_autostart_windows_prefers_runkey(self, monkeypatch):
         """_enable_autostart_windows tries HKCU Run key FIRST (no UAC needed)."""
         from voice_typer.server import server_platform as platform_mod
+
         monkeypatch.setattr(platform_mod.sys, "platform", "win32")
         runkey_calls = []
         task_calls = []
@@ -383,6 +413,7 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
     def test_enable_autostart_windows_falls_back_to_task_scheduler(self, monkeypatch):
         """_enable_autostart_windows falls back to Task Scheduler if HKCU Run key fails."""
         from voice_typer.server import server_platform as platform_mod
+
         monkeypatch.setattr(platform_mod.sys, "platform", "win32")
         monkeypatch.setattr(platform_mod, "_register_app_autostart_runkey", lambda: False)
         monkeypatch.setattr(platform_mod, "_unregister_app_autostart_task", lambda: True)
@@ -394,6 +425,7 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
     def test_disable_autostart_windows_removes_both(self, monkeypatch):
         """_disable_autostart_windows removes from both Task Scheduler and Run key."""
         from voice_typer.server import server_platform as platform_mod
+
         task_removed = []
         runkey_removed = []
         monkeypatch.setattr(platform_mod, "_unregister_app_autostart_task", lambda: task_removed.append(1) or True)
@@ -405,6 +437,7 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
     def test_is_autostart_windows_checks_both(self, monkeypatch):
         """_is_autostart_windows returns True if EITHER mechanism is registered."""
         from voice_typer.server import server_platform as platform_mod
+
         # Only Task Scheduler
         monkeypatch.setattr(platform_mod, "_is_app_autostart_task_registered", lambda: True)
         monkeypatch.setattr(platform_mod, "_is_app_autostart_runkey_registered", lambda: False)
