@@ -180,7 +180,15 @@ def _crash_excepthook(exc_type, exc_value, exc_tb) -> None:
                 _atomic_write = _secure_atomic_write
 
                 def _redact(s):
-                    return redact_secret(redact_pii(s))
+                    # aggressive=True so bare short secrets (e.g. a 12-char
+                    # API key with no keyword prefix) that slip past
+                    # redact_pii's pattern-matching are still redacted
+                    # before persisting to the crash archive. The crash
+                    # archive is high-risk because it sits on disk for
+                    # weeks (default retention) and is included in
+                    # export_gdpr_bundle — false-positive redaction here
+                    # is cheap, leaking a real secret is catastrophic.
+                    return redact_secret(redact_pii(s), aggressive=True)
 
             except Exception:
                 _atomic_write = None

@@ -38,8 +38,17 @@ from voice_typer.server.crash_handler._constants import (
     _HEX_CHARS,
     _NAME_ACCESS,
     _NAME_FATAL,
+    _NAME_GUARD_PAGE,
     _NAME_HEAP,
+    _NAME_ILLEGAL_INSTRUCTION,
+    _NAME_IN_PAGE_ERROR,
+    _NAME_INT_DIVIDE_BY_ZERO,
+    _NAME_INVALID_HANDLE,
+    _NAME_MISALIGNMENT,
+    _NAME_NONCONTINUABLE,
+    _NAME_PRIVILEGED_INSTRUCTION,
     _NAME_STACK,
+    _NAME_STACK_OVERFLOW,
     _NAME_UNKNOWN,
     _NL,
     _PID_LABEL,
@@ -52,9 +61,18 @@ from voice_typer.server.crash_handler._constants import (
     GENERIC_WRITE,
     OPEN_ALWAYS,
     STATUS_ACCESS_VIOLATION,
+    STATUS_DATATYPE_MISALIGNMENT,
     STATUS_FATAL_APP_EXIT,
+    STATUS_GUARD_PAGE_VIOLATION,
     STATUS_HEAP_CORRUPTION,
+    STATUS_ILLEGAL_INSTRUCTION,
+    STATUS_IN_PAGE_ERROR,
+    STATUS_INT_DIVIDE_BY_ZERO,
+    STATUS_INVALID_HANDLE,
+    STATUS_NONCONTINUABLE_EXCEPTION,
+    STATUS_PRIVILEGED_INSTRUCTION,
     STATUS_STACK_BUFFER_OVERRUN,
+    STATUS_STACK_OVERFLOW,
     _crash_msg_buf,
 )
 
@@ -276,6 +294,24 @@ def _vectored_handler_impl(exception_pointers) -> int:
         name = _NAME_STACK
     elif exc_code == STATUS_FATAL_APP_EXIT:
         name = _NAME_FATAL
+    elif exc_code == STATUS_ILLEGAL_INSTRUCTION:
+        name = _NAME_ILLEGAL_INSTRUCTION
+    elif exc_code == STATUS_INT_DIVIDE_BY_ZERO:
+        name = _NAME_INT_DIVIDE_BY_ZERO
+    elif exc_code == STATUS_PRIVILEGED_INSTRUCTION:
+        name = _NAME_PRIVILEGED_INSTRUCTION
+    elif exc_code == STATUS_IN_PAGE_ERROR:
+        name = _NAME_IN_PAGE_ERROR
+    elif exc_code == STATUS_STACK_OVERFLOW:
+        name = _NAME_STACK_OVERFLOW
+    elif exc_code == STATUS_NONCONTINUABLE_EXCEPTION:
+        name = _NAME_NONCONTINUABLE
+    elif exc_code == STATUS_INVALID_HANDLE:
+        name = _NAME_INVALID_HANDLE
+    elif exc_code == STATUS_DATATYPE_MISALIGNMENT:
+        name = _NAME_MISALIGNMENT
+    elif exc_code == STATUS_GUARD_PAGE_VIOLATION:
+        name = _NAME_GUARD_PAGE
     else:
         name = _NAME_UNKNOWN
 

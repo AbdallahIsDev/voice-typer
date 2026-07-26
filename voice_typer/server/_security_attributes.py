@@ -76,25 +76,32 @@ from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
-# XS-101 (IMPROVE-mode run XS): ``ctypes.wintypes.VOID`` is absent on
-# Linux/macOS (the ``wintypes`` module simply doesn't define it on
-# non-Windows Python builds, even though ``ctypes`` itself is importable).
-# The Windows-only body of ``_create_restrictive_security_attributes``
-# below references ``wintypes.VOID`` inside the ``SID_AND_ATTRIBUTES``
-# ``ctypes.Structure`` definition; on Linux this previously raised
-# ``AttributeError: module 'ctypes.wintypes' has no attribute 'VOID'``
-# whenever the function was invoked (which happens during the
-# ``test__security_attributes.py`` suite — the test mocks
-# ``ctypes.windll`` but does NOT patch ``wintypes.VOID``). On Windows,
-# ``wintypes.VOID`` exists and is a synonym for ``ctypes.c_void_p``.
-# We bind a module-level ``VOID`` symbol that prefers the genuine
-# ``wintypes.VOID`` when available and falls back to ``ctypes.c_void_p``
-# otherwise — then use ``VOID`` (not ``wintypes.VOID``) in the Structure
-# ``_fields_`` declaration below.
-try:
-    from ctypes.wintypes import VOID  # type: ignore[attr-defined]
-except (ImportError, AttributeError):  # pragma: no cover - non-Windows
-    VOID = ctypes.c_void_p
+# XZ-SEC-01 (this session): the pre-fix code used
+# ``ctypes.POINTER(wintypes.VOID)`` for the ``SID_AND_ATTRIBUTES.Sid``
+# field. Two problems:
+#   1. ``wintypes.VOID`` does NOT exist on non-Windows Python builds
+#      (only ``wintypes.LPVOID`` does), so referencing ``wintypes.VOID``
+#      raised ``AttributeError`` on Linux/macOS — caught by the broad
+#      ``except Exception``, silently forcing the NULL-DACL fallback.
+#   2. Even on Windows where ``wintypes.VOID`` is defined (as an alias
+#      for ``ctypes.c_void_p``), ``ctypes.POINTER(wintypes.VOID)`` is
+#      ``POINTER(c_void_p)`` — a *pointer-to-pointer-to-void*. The
+#      Win32 ``SID_AND_ATTRIBUTES.Sid`` field is ``PSID`` which is
+#      ``PVOID`` (a single pointer), NOT ``PVOID*``. So the previous
+#      type was one indirection too many — the layout was still
+#      correct on x64 (both are 8 bytes) so reads succeeded, but the
+#      type was semantically wrong and would have broken any
+#      downstream code that dereferenced ``tu.User.Sid``.
+#
+# The pre-fix ``XS-101`` shim (module-level ``VOID`` symbol bound to
+# ``wintypes.VOID`` on Windows or ``ctypes.c_void_p`` on Linux)
+# patched the ``AttributeError`` but kept the wrong indirection level.
+# The proper fix uses ``ctypes.c_void_p`` directly in the
+# ``SID_AND_ATTRIBUTES._fields_`` declaration below. This is the
+# correct Win32 type for ``PSID`` / ``PVOID``, it exists on every
+# Python build (Windows + Linux + macOS), and it matches the finding
+# recommendation. The module-level ``VOID`` fallback shim is no
+# longer needed.
 
 
 def _create_restrictive_security_attributes():
@@ -121,15 +128,16 @@ def _create_restrictive_security_attributes():
         # CR-001 / CR-002 (IMPROVE-mode run, 2026-07-21): proper ctypes
         # Structure definitions replace the manual byte-array + memmove
         # construction that had wrong offsets on x64.
-        # XS-101 (IMPROVE-mode run XS): ``VOID`` is the module-level
-        # fallback symbol (``wintypes.VOID`` on Windows,
-        # ``ctypes.c_void_p`` on Linux). Using ``VOID`` here instead of
-        # ``wintypes.VOID`` lets the Structure be defined on Linux when
-        # the test suite invokes this function with mocked
-        # ``ctypes.windll``.
+        # XZ-SEC-01 (this session): ``Sid`` is ``PSID`` (= ``PVOID``),
+        # so the correct ctypes type is ``c_void_p`` (NOT
+        # ``POINTER(c_void_p)`` — that would be one indirection too
+        # many). ``c_void_p`` is importable on every Python build
+        # (Windows + Linux + macOS), so the Structure can be defined
+        # inside the mocked test path without needing the
+        # ``wintypes.VOID`` fallback shim.
         class SID_AND_ATTRIBUTES(ctypes.Structure):  # noqa: N801
             _fields_ = [
-                ("Sid", ctypes.POINTER(VOID)),
+                ("Sid", ctypes.c_void_p),
                 ("Attributes", wintypes.DWORD),
             ]
 

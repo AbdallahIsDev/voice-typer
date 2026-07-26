@@ -40,23 +40,23 @@ def build_chain(config: Any, sample_rate: int = 16000) -> FilterChain:
     filters: list[AudioFilter] = []
 
     # 1. Notch filter (optional, before high-pass to remove hum early)
-    if getattr(config, "noise_filter_notch", False):
-        notch_freq = getattr(config, "noise_filter_notch_frequency_hz", 0.0)
+    if config.noise_filter_notch:
+        notch_freq = config.noise_filter_notch_frequency_hz
         filters.append(NotchFilter(
             frequency_hz=notch_freq,
             sample_rate=sample_rate,
         ))
 
     # 2. High-pass filter
-    if getattr(config, "noise_filter_highpass", True):
-        cutoff = getattr(config, "noise_filter_highpass_cutoff_hz", 80.0)
+    if config.noise_filter_highpass:
+        cutoff = config.noise_filter_highpass_cutoff_hz
         filters.append(HighPassFilter(
             cutoff_hz=cutoff,
             sample_rate=sample_rate,
         ))
 
     # 3. Noise suppressor (RNNoise / DeepFilterNet / Speex)
-    method = getattr(config, "noise_suppression_method", "rnnoise")
+    method = config.noise_suppression_method
     if method != "none":
         filters.append(NoiseSuppressor(
             method=method,
@@ -64,41 +64,41 @@ def build_chain(config: Any, sample_rate: int = 16000) -> FilterChain:
         ))
 
     # 4. Noise gate
-    if getattr(config, "noise_filter_gate", True):
+    if config.noise_filter_gate:
         filters.append(NoiseGate(
-            open_threshold_db=getattr(config, "noise_filter_gate_open_threshold_db", -26.0),
-            close_threshold_db=getattr(config, "noise_filter_gate_close_threshold_db", -32.0),
-            attack_ms=getattr(config, "noise_filter_gate_attack_ms", 25.0),
-            hold_ms=getattr(config, "noise_filter_gate_hold_ms", 200.0),
-            release_ms=getattr(config, "noise_filter_gate_release_ms", 150.0),
+            open_threshold_db=config.noise_filter_gate_open_threshold_db,
+            close_threshold_db=config.noise_filter_gate_close_threshold_db,
+            attack_ms=config.noise_filter_gate_attack_ms,
+            hold_ms=config.noise_filter_gate_hold_ms,
+            release_ms=config.noise_filter_gate_release_ms,
             sample_rate=sample_rate,
         ))
 
     # 5. Equalizer
-    if getattr(config, "noise_filter_eq", True):
+    if config.noise_filter_eq:
         filters.append(Equalizer(
-            low_db=getattr(config, "noise_filter_eq_low_db", -3.0),
-            mid_db=getattr(config, "noise_filter_eq_mid_db", 3.0),
-            high_db=getattr(config, "noise_filter_eq_high_db", 2.0),
+            low_db=config.noise_filter_eq_low_db,
+            mid_db=config.noise_filter_eq_mid_db,
+            high_db=config.noise_filter_eq_high_db,
             sample_rate=sample_rate,
         ))
 
     # 6. Compressor
-    if getattr(config, "noise_filter_compressor", True):
+    if config.noise_filter_compressor:
         filters.append(Compressor(
-            threshold_db=getattr(config, "noise_filter_compressor_threshold_db", -18.0),
-            ratio=getattr(config, "noise_filter_compressor_ratio", 3.0),
-            attack_ms=getattr(config, "noise_filter_compressor_attack_ms", 6.0),
-            release_ms=getattr(config, "noise_filter_compressor_release_ms", 60.0),
-            output_gain_db=getattr(config, "noise_filter_compressor_output_gain_db", 0.0),
+            threshold_db=config.noise_filter_compressor_threshold_db,
+            ratio=config.noise_filter_compressor_ratio,
+            attack_ms=config.noise_filter_compressor_attack_ms,
+            release_ms=config.noise_filter_compressor_release_ms,
+            output_gain_db=config.noise_filter_compressor_output_gain_db,
             sample_rate=sample_rate,
         ))
 
     # 7. Limiter (always last — brick-wall safety net)
-    if getattr(config, "noise_filter_limiter", True):
+    if config.noise_filter_limiter:
         filters.append(Limiter(
-            ceiling_db=getattr(config, "noise_filter_limiter_ceiling_db", -6.0),
-            release_ms=getattr(config, "noise_filter_limiter_release_ms", 60.0),
+            ceiling_db=config.noise_filter_limiter_ceiling_db,
+            release_ms=config.noise_filter_limiter_release_ms,
             sample_rate=sample_rate,
         ))
 

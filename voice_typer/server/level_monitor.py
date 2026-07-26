@@ -43,7 +43,67 @@ from typing import Any
 
 import numpy as np
 
+# XZ-PRIV-03: lazy import to avoid a circular dependency at module load
+# (recording.buffer imports nothing from level_monitor, but pulling it
+# eagerly here would tie the two subsystems together at import time).
+# ``_secure_clear_array_background`` zeroes np.ndarray chunks on a
+# background worker so the IPC thread returns immediately while the
+# potentially-biometric voice data in ``_test_raw_chunks`` /
+# ``_test_filtered_chunks`` is securely wiped before GC.
+
 log = logging.getLogger(__name__)
+
+
+def _secure_clear_test_chunks(*deques: collections.deque) -> None:
+    """XZ-PRIV-03: securely zero the np.ndarray chunks in the test
+    deques on the background worker thread.
+
+    Wraps :func:`voice_typer.server.recording._secure_clear_array_background`
+    in a lazy import + try/except so a failure to import the recording
+    package (e.g. optional-dep missing in a stripped-down test env)
+    doesn't break ``stop_test_recording``. The secure-clear is
+    best-effort: if the background worker is unavailable, the deques
+    fall through to GC, which still reclaims the memory (just without
+    the explicit ``chunk.fill(0)`` that prevents residual data lingering
+    in the process heap until the next allocation reuses the page).
+
+    Parameters
+    ----------
+    *deques
+        The deques whose ``np.ndarray`` elements should be zeroed.
+        The deques themselves are NOT mutated — the caller is
+        expected to ``.clear()`` or replace them after this call.
+        We pass a snapshot of the deque's contents to the worker
+        (via ``collections.deque(list(d))``) so a subsequent
+        ``.clear()`` on the original deque doesn't race the worker.
+    """
+    try:
+        from voice_typer.server.recording import _secure_clear_array_background
+    except Exception:
+        log.debug(
+            "[LEVEL-MON] _secure_clear_array_background unavailable; "
+            "skipping secure clear of test chunks (GC will reclaim)",
+            exc_info=True,
+        )
+        return
+    for d in deques:
+        if not d:
+            continue
+        try:
+            # Wrap a SNAPSHOT of the deque's current contents in a
+            # fresh deque so the worker iterates the snapshot even if
+            # the caller ``.clear()``s the original deque before the
+            # worker picks it up. This preserves the deque identity +
+            # maxlen the caller needs (MEM-02 invariant) while still
+            # letting the worker zero the chunks.
+            snapshot = collections.deque(list(d))
+            _secure_clear_array_background(snapshot)
+        except Exception:
+            log.debug(
+                "[LEVEL-MON] secure clear of test chunks failed for one "
+                "deque (best-effort; GC will reclaim)",
+                exc_info=True,
+            )
 
 # ── Monitor session state ────────────────────────────────────────────
 
@@ -319,10 +379,8 @@ def _stop_mic_level_worker() -> None:
     _mic_level_worker_wake_event.set()
     t = _mic_level_worker_thread
     if t is not None and t is not threading.current_thread():
-        try:
+        with contextlib.suppress(Exception):
             t.join(timeout=1.0)
-        except Exception:
-            pass
     _mic_level_worker_thread = None
 
 
@@ -856,6 +914,16 @@ def stop_test_recording() -> dict:
         # bounded deque + its maxlen are preserved across the test.
         # A plain ``_test_chunks = []`` would clobber the deque back
         # to an unbounded list and reintroduce the leak.
+        #
+        # XZ-PRIV-03: BEFORE ``.clear()``, hand the chunks off to
+        # ``_secure_clear_test_chunks`` so the np.ndarray buffers
+        # containing potentially-biometric voice data are zeroed on
+        # the background worker. This matches the recording.py
+        # ``_secure_clear_array_background`` pattern used for the
+        # dictation buffer. The helper takes a SNAPSHOT of each
+        # deque's contents so the subsequent ``.clear()`` doesn't
+        # race the worker.
+        _secure_clear_test_chunks(_test_raw_chunks, _test_filtered_chunks, _test_chunks)
         _test_mode = False
         _test_chunks.clear()
         _test_raw_chunks.clear()
@@ -1449,16 +1517,10 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             # No live processor: use the raw flat block for both RMS
             # and peak (no extra allocation needed).
             flat_filtered = flat
-            if flat.size > 0:
-                rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
-            else:
-                rms = 0.0
+            rms = float(np.sqrt(np.dot(flat, flat) / flat.size)) if flat.size > 0 else 0.0
         # Allocation-free peak: max(abs(x)) is computed as max(max(x), -min(x))
         # so no temporary ``np.abs`` array is allocated per chunk.
-        if flat_filtered.size > 0:
-            peak = max(float(flat_filtered.max()), -float(flat_filtered.min()))
-        else:
-            peak = 0.0
+        peak = max(float(flat_filtered.max()), -float(flat_filtered.min())) if flat_filtered.size > 0 else 0.0
 
         # XV-55: compute test-quality metrics from RAW audio outside
         # the lock too (np.sqrt/mean/square on a 512-sample block is

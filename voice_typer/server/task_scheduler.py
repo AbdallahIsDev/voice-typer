@@ -701,8 +701,28 @@ def register_prewarm_task() -> bool:
         # locked so that `schtasks /Create /F` fails with "Access is
         # denied".  An explicit /Delete /F first clears it cleanly;
         # if it doesn't exist, the error is harmless.
-        with contextlib.suppress(Exception):
+        #
+        # XZ-EH-020 (this session): the pre-fix code used
+        # ``with contextlib.suppress(Exception): _schtasks(...)`` —
+        # this swallowed *every* exception including ``TypeError``,
+        # ``AttributeError``, ``ImportError`` (e.g. if a future edit
+        # introduced a typo in ``TASK_NAME`` and ``_schtasks`` was
+        # called with a ``None`` arg, the resulting ``TypeError``
+        # would be silently swallowed and the subsequent ``/Create``
+        # would fail with a confusing "task already exists" instead
+        # of pointing at the real bug). Narrow to the documented
+        # failure modes (``subprocess.SubprocessError`` + ``OSError``)
+        # and log at DEBUG so the pre-create cleanup is visible in
+        # debug logs without polluting INFO. Unexpected exceptions
+        # propagate so genuine bugs surface.
+        try:
             _schtasks(["/Delete", "/TN", TASK_NAME, "/F"], capture=True)
+        except (subprocess.SubprocessError, OSError) as exc:
+            log.debug(
+                "[TASK] pre-create /Delete failed (task may not exist or "
+                "be locked): %s",
+                exc,
+            )
 
         # /F forces overwrite if the task already exists.
         rc, output = _schtasks(

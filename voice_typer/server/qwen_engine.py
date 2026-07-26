@@ -221,17 +221,39 @@ class QwenEngine:
             config_path = Path(self.model_path) / "config.json"
             try:
                 if not is_windows():
-                    # POSIX: open with O_NOFOLLOW to refuse symlinks
+                    # POSIX: open with O_NOFOLLOW to refuse symlinks.
+                    # XZ-EH-016 (this session): restructure to avoid a
+                    # fragile double-close. ``os.fdopen`` takes
+                    # ownership of ``fd`` — once it succeeds, the file
+                    # object's ``__exit__`` closes ``fd``. The pre-fix
+                    # code wrapped both ``os.fdopen`` AND ``json.load``
+                    # in the same ``try`` block; if ``json.load``
+                    # raised, the ``with``'s ``__exit__`` closed
+                    # ``fd`` and then the outer ``except Exception``
+                    # branch called ``os.close(fd)`` *again*. The
+                    # double-close was silently suppressed by
+                    # ``contextlib.suppress(OSError)`` — fragile
+                    # (EBADF on some platforms; hides real bugs). The
+                    # fix separates the two failure modes:
+                    #   - ``os.fdopen`` itself fails → close ``fd``
+                    #     (no file object was ever created), re-raise.
+                    #   - ``json.load`` fails → the ``with`` block
+                    #     closes ``f`` (and thus ``fd``); no second
+                    #     close attempt.
                     fd = os.open(str(config_path), os.O_RDONLY | os.O_NOFOLLOW)
                     try:
-                        with os.fdopen(fd, "r", encoding="utf-8") as f:
-                            import json
-
-                            json.load(f)  # Validate it's parseable JSON
+                        f = os.fdopen(fd, "r", encoding="utf-8")
                     except Exception:
+                        # ``os.fdopen`` failed — ``f`` was never
+                        # created, so ``fd`` is still owned by us.
+                        # Close it to avoid leaking the descriptor.
                         with contextlib.suppress(OSError):
                             os.close(fd)
                         raise
+                    with f:
+                        import json
+
+                        json.load(f)  # Validate it's parseable JSON
                 else:
                     # Windows: standard open (NTFS ACLs provide protection)
                     with open(config_path, encoding="utf-8") as f:

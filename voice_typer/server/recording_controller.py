@@ -197,12 +197,12 @@ class RecordingController:
             app.models._pending_dictation = True
             app.tray.set_state(
                 AppState.LOADING,
-                "Loading model -- your dictation will start automatically…",
+                i18n.t("state.recording_controller.loading_queued"),
             )
             return
 
         if active is None:
-            app.tray.set_state(AppState.LOADING, "Starting up -- please wait...")
+            app.tray.set_state(AppState.LOADING, i18n.t("state.recording_controller.starting_up"))
             return
 
         if app.recorder.recording:
@@ -252,7 +252,7 @@ class RecordingController:
                     "is False. User must enable it in Settings > Privacy."
                 )
                 try:
-                    app.tray.set_state(AppState.ERROR, "Voice biometric consent required")
+                    app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.consent_required"))
                     app.tray.notify_safety(
                         APP_NAME,
                         "Voice biometric consent is required to start recording.\n"
@@ -295,7 +295,7 @@ class RecordingController:
             if active is None or not getattr(active, "is_loaded", False):
                 log.error("[DICTATION] Whisper fallback also failed, cannot record")
                 app._schedule_timer(
-                    3.0, lambda: app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
+                    3.0, lambda: app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.model_failed_retry"))
                 )
                 return
 
@@ -318,7 +318,7 @@ class RecordingController:
 
             app.recorder.start()
             self._start_streaming_session_if_enabled()
-            app.tray.set_state(AppState.RECORDING, "Recording...")
+            app.tray.set_state(AppState.RECORDING, i18n.t("state.recording_controller.recording"))
             # Show the floating bubble once we know the stream is open
             app._waveform_bubble.show()
             # Duck system volume AFTER recording starts so the first
@@ -379,7 +379,7 @@ class RecordingController:
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             self._cancel_streaming_session()
-            app.tray.set_state(AppState.ERROR, "Recording failed")
+            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.recording_failed"))
             # Use the i18n key (no {error}
             # interpolation — exception text can leak absolute paths,
             # device names, hostnames). The full exception is logged
@@ -471,7 +471,7 @@ class RecordingController:
             log.exception("[DICTATION] Failed to stop recording")
             self._cancel_streaming_session()
             app._restore_volume()
-            app.tray.set_state(AppState.ERROR, "Stop failed")
+            app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.stop_failed"))
             # NEW-UX-018: critical — bypass the notification toggle
             # (dictation failed, the user must be told even if they
             # disabled normal notifications).
@@ -518,13 +518,13 @@ class RecordingController:
         if duration < 0.5:
             log.info("[DICTATION] Audio too short, skipping transcription")
             self._cancel_streaming_session()
-            app.tray.set_state(AppState.IDLE, "Too short -- ignored")
+            app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.too_short"))
             app._busy_event.set()  # busy = False
             app._schedule_timer(2.0, lambda: app.tray.set_state(AppState.IDLE))
             return
 
         log.info("[DICTATION] Starting transcription thread... (cycle=%s)", app._cycle_id)
-        app.tray.set_state(AppState.TRANSCRIBING, "Transcribing...")
+        app.tray.set_state(AppState.TRANSCRIBING, i18n.t("state.recording_controller.transcribing"))
 
         # ERR-002: reset watchdog counter for this transcription cycle.
         with self._watchdog_lock:
@@ -652,7 +652,7 @@ class RecordingController:
             )
         # ARCH-042: show CANCELLING state immediately.
         try:
-            app.tray.set_state(AppState.CANCELLING, "Cancelling...")
+            app.tray.set_state(AppState.CANCELLING, i18n.t("state.recording_controller.cancelling"))
         except Exception:
             log.debug("[CANCEL] could not set CANCELLING state", exc_info=True)
         app._cancel_pending_timers()
@@ -698,7 +698,7 @@ class RecordingController:
 
         # ERR-023: tray state + busy flag MUST be cleared so the user
         # can press F2 again after a cancel.
-        app.tray.set_state(AppState.IDLE, "Cancelled")
+        app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.cancelled"))
         app._busy_event.set()
 
     # ── Audio callbacks (wired to Recorder) ────────────────────────────
@@ -894,7 +894,7 @@ class RecordingController:
                 firings,
                 self._watchdog_max_firings,
             )
-            app.tray.set_state(AppState.TRANSCRIBING, "Still transcribing...")
+            app.tray.set_state(AppState.TRANSCRIBING, i18n.t("state.recording_controller.still_transcribing"))
             # TRANSCRIBE-NOTIFY-FIX: first firing is silent — only notify
             # on the second firing (second notification = 180s+ elapsed)
             # to avoid alarming the user when transcription is simply
@@ -934,7 +934,7 @@ class RecordingController:
         # RACE-013: stop the persistent watchdog thread on recovery
         self._stop_watchdog_thread()
         app._busy_event.set()  # busy = False
-        app.tray.set_state(AppState.IDLE, "Recovered -- transcription timed out")
+        app.tray.set_state(AppState.IDLE, i18n.t("state.recording_controller.recovered"))
         app.tray.notify(
             APP_NAME,
             "Transcription took too long and was cancelled.\nPress F2 to try again.",

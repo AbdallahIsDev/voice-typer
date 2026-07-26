@@ -165,8 +165,13 @@ from .resampling import _SCIPY_PRELOADER_JOIN_TIMEOUT_S  # noqa: F401, E402 — 
 # any subclass overrides keep working unchanged.
 from .resampling import resample_audio as _resample_audio_fn  # noqa: F401, E402
 
-_DEFAULT_VAD_SPEECH_THRESHOLD_DB = DEFAULT_VAD_SPEECH_THRESHOLD_DB  # backward-compat alias
-_DEFAULT_VAD_SILENCE_THRESHOLD_DB = DEFAULT_VAD_SILENCE_THRESHOLD_DB  # backward-compat alias
+# DT-11: the previous ``_DEFAULT_VAD_SPEECH_THRESHOLD_DB`` /
+# ``_DEFAULT_VAD_SILENCE_THRESHOLD_DB`` backward-compat aliases (which
+# just re-exported ``DEFAULT_VAD_SPEECH_THRESHOLD_DB`` /
+# ``DEFAULT_VAD_SILENCE_THRESHOLD_DB`` from ``vad_processor``) have
+# been removed. Internal call sites now use the canonical
+# ``DEFAULT_VAD_*`` names directly. The aliases were never referenced
+# by tests or other modules (verified via repo-wide grep).
 
 
 # ADR 0007 §3.5: AGC constants deleted. The _agc_update method (C1) was
@@ -511,7 +516,7 @@ class Recorder:
         # _effective_sr is known (after the device loop succeeds) using
         # the values cached in _preroll_seconds / _preroll_blocksize.
         preroll_seconds = float(getattr(config, "pre_roll_buffer_seconds", 0.0) or 0)
-        sample_rate = int(getattr(config, "sample_rate", 16000) or 16000)
+        sample_rate = int(config.sample_rate or 16000)
         # cache these so start() can recompute the deque maxlen
         # using _effective_sr without re-reading config (which the audio
         # callback does not touch).
@@ -557,7 +562,7 @@ class Recorder:
         # ``audio_clip`` callsite below), which means events are
         # silently dropped when the worker falls behind — the
         # audio-thread producer never blocks.
-        self._event_queue: queue.Queue[dict] = queue.Queue(maxsize=1000)
+        self._event_queue: queue.Queue[dict | _EventWorkerStopSentinel] = queue.Queue(maxsize=1000)
         self._event_worker_thread: threading.Thread | None = None
         self._event_stop_event: threading.Event = threading.Event()
 
@@ -1216,7 +1221,8 @@ class Recorder:
                 # changed, close the new stream and bail out.
                 if _captured_generation != self._stop_generation:
                     log.debug(
-                        "[RECORDING] Disconnect restart aborted — stop_generation changed (%d != %d) before stream assignment",
+                        "[RECORDING] Disconnect restart aborted — "
+                        "stop_generation changed (%d != %d) before stream assignment",
                         _captured_generation,
                         self._stop_generation,
                     )
@@ -1845,18 +1851,8 @@ class Recorder:
         prevents forensic recovery of audio data from process memory
         between sessions.
         """
-        # CR-16: serialize start() against concurrent discard() so the
-        # per-session state reset + stream-start sequence can't race
-        # with a discard() from another thread (toggle thread,
-        # ESC-cancel thread, auto-stop Timer thread, device-disconnect
-        # handler). The lock is released before this method returns;
-        # it is NOT held across ``thread.join()`` (would deadlock
-        # ``_process_audio_chunk`` acquiring ``self._lock``) or across
-        # the audio-worker spawn (which goes through
-        # ``_worker_lifecycle_lock``). Acquired unconditionally — even
-        # the early-return path (``_recording_event.is_set()``) takes
-        # the lock so a concurrent discard() can't observe a torn
-        # half-started state.
+        # CR-16: serialize start() against concurrent discard() — see
+        # ARCH-023 lock-order rationale in review.md / git log.
         with self._start_lock:
             if self._recording_event.is_set():
                 return
@@ -1957,8 +1953,8 @@ class Recorder:
         self._vad_state = VadState.UNKNOWN
         self._vad_consecutive_speech_frames = 0
         self._vad_consecutive_silence_frames = 0
-        self._vad_speech_threshold_db = _DEFAULT_VAD_SPEECH_THRESHOLD_DB
-        self._vad_silence_threshold_db = _DEFAULT_VAD_SILENCE_THRESHOLD_DB
+        self._vad_speech_threshold_db = DEFAULT_VAD_SPEECH_THRESHOLD_DB
+        self._vad_silence_threshold_db = DEFAULT_VAD_SILENCE_THRESHOLD_DB
         # AUDIO-014: reset auto-calibration
         self._vad_calibration_rms_values = []
         self._vad_calibrated = False
@@ -2001,14 +1997,14 @@ class Recorder:
         # audio callback doesn't do 5x getattr per iteration.
         # Coerce to float so a non-numeric MagicMock config (in tests)
         # doesn't cause TypeError in the silence_timer comparison.
-        _silence_warning = getattr(self.config, "silence_warning_seconds", 20.0)
+        _silence_warning = self.config.silence_warning_seconds
         _stop_on_silence = getattr(self.config, "stop_on_silence_seconds", 60.0)
         self._cached_silence_warning = float(_silence_warning) if isinstance(_silence_warning, (int, float)) else 20.0
         self._cached_stop_on_silence = float(_stop_on_silence) if isinstance(_stop_on_silence, (int, float)) else 60.0
         # SIMPLIFY-001: single explicit field replaces the old 3-field split
         # (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu,
         # and max_recording_time_seconds=0 auto-selection). Always defaults to 900.
-        self._cached_max_recording_time = int(getattr(self.config, "max_recording_time_seconds", 900))
+        self._cached_max_recording_time = int(self.config.max_recording_time_seconds)
 
         # dynamic buffer sizing is DEFERRED until after the
         # device loop below sets ``effective_sr``. The original
@@ -2981,6 +2977,13 @@ class Recorder:
             # published by the iterations above.
             if event is _EVENT_WORKER_STOP_SENTINEL:
                 return
+            # Type narrowing: ``event`` is now guaranteed to be a dict
+            # (the only other variant on the queue). ``isinstance`` here
+            # doubles as a defensive guard against a future variant
+            # pushed by mistake — it skips the publish instead of
+            # crashing ``event_bus.publish`` with a TypeError.
+            if not isinstance(event, dict):
+                continue
             try:
                 event_bus.publish(event)
             except Exception:
@@ -3684,6 +3687,24 @@ class Recorder:
         self._cached_no_resample_arr = None
         self._cached_native_chunk_count = 0
         self._cached_no_resample_len = -1
+        # XZ-PRIV-01: reset the audio processor's filter state too.
+        # IIR ``zi`` arrays + RNNoise ``_carry`` (up to 479 samples,
+        # ~2 KB at 16 kHz float32) retain audio-derived residuals
+        # after stop()/discard(). ``AudioProcessor.reset()`` was only
+        # called from ``Recorder.start()`` pre-fix, so the filter
+        # state from the prior recording lingered in process memory
+        # until the next start() — defeating SEC-audit-008's intent
+        # for the filter-state path. Best-effort: a missing or
+        # misbehaving ``reset`` is swallowed so secure-clear still
+        # completes for the numpy caches above.
+        try:
+            if self._audio_processor is not None:
+                self._audio_processor.reset()
+        except Exception:
+            log.debug(
+                "[RECORDER] _audio_processor.reset() in _secure_clear_caches failed",
+                exc_info=True,
+            )
         # Critical: reset the buffer-sample-rate tracker so a
         # subsequent ``start()`` doesn't reuse the stale rate. Matches
         # the explicit reset in ``_recorder_split.discard_recording``

@@ -104,20 +104,31 @@ log = logging.getLogger(__name__)
 # ``ClipboardManager`` reads via ``_cb._Controller`` / ``_cb._Key``.
 # ``_ensure_pynput_imported()`` (in .linux) writes these attributes on
 # first use.
-# YJ-FIX-B2: ``_Key`` / ``_Controller`` are lazily-populated pynput
-# symbols (set by ``_ensure_pynput_imported()`` in .linux on first
-# use). YJ-22 narrowed these from ``Any`` to ``type | None``, which
-# broke 6 downstream ``_cb._Key.cmd`` / ``_cb._Key.shift`` /
-# ``_cb._Key.insert`` / ``_cb._Key.ctrl`` accesses in
-# :mod:`voice_typer.server.clipboard.manager` (because ``type`` and
-# ``None`` don't expose pynput's ``Key`` enum members). Reverted to
-# ``Any`` — the original pre-YJ-22 annotation. The assignment-ignore
-# markers YJ-22 removed are NOT re-added (per the YJ-FIX-B2 mandate:
-# no new suppression markers). ``Any`` accepts ``None`` without a
-# marker, and downstream ``_Key.cmd`` accesses type-check cleanly
-# because ``Any`` has every attribute.
+#
+# YJ-22 (retry / partial fix): narrow ``_Controller`` from ``Any`` to
+# ``type | None``. Safe — the only downstream usage is instantiation
+# (``_cb._Controller()`` in :mod:`voice_typer.server.clipboard.manager`,
+# line 141), and ``type`` is callable. ``None`` accepts the initial
+# empty binding. No ``# type: ignore[assignment]`` marker is needed
+# because ``None`` is in ``type | None``.
+#
+# ``_Key`` is left as ``Any``. YJ-22's prescribed narrowing to
+# ``type | None`` broke 6 downstream ``_cb._Key.cmd`` /
+# ``_cb._Key.shift`` / ``_cb._Key.insert`` / ``_cb._Key.ctrl``
+# accesses in :mod:`voice_typer.server.clipboard.manager` (because
+# ``type`` and ``None`` don't expose pynput's ``Key`` enum members).
+# YJ-FIX-B2 reverted both annotations; this retry re-applies the
+# narrowing ONLY to ``_Controller`` (where it's safe) and leaves
+# ``_Key: Any`` with a documented rationale. The full narrowing for
+# ``_Key`` requires either a ``voice_typer/stubs/pynput/keyboard.pyi``
+# stub + ``TYPE_CHECKING`` import (so ``_Key: type[Key] | None``
+# resolves) or a ``Protocol`` exposing the enum members — both are
+# larger changes deferred to a future session. The
+# ``# type: ignore[assignment]`` markers YJ-22 removed stay dropped
+# (``Any`` accepts ``None`` without a marker, and ``type | None``
+# accepts ``None`` without a marker).
 _Key: Any = None
-_Controller: Any = None
+_Controller: type | None = None
 
 
 # ─── Re-exports from submodules ──────────────────────────────────────
@@ -296,8 +307,16 @@ def _signal_restore_handler(signum: int, frame: Any) -> None:  # noqa: ARG001
 
     Never raises — signal handlers must not propagate exceptions
     (the interpreter behavior is implementation-defined). If
-    re-raising the signal fails for any reason, raise ``SystemExit``
-    so the process still terminates.
+    re-raising the signal fails for any reason, force-exit via
+    ``os._exit(128 + signum)`` so the process still terminates.
+    ``os._exit`` is used (rather than ``raise SystemExit``) because
+    ``SystemExit`` can be caught by frameworks that override
+    ``sys.excepthook`` or run ``try: except SystemExit:`` blocks —
+    which would leave the process in an inconsistent half-shutdown
+    state (clipboard already restored, but the interpreter still
+    running). ``os._exit`` bypasses the interpreter's exception
+    machinery and the ``atexit`` table (which is fine here — the
+    clipboard restore has already run synchronously above).
     """
     with contextlib.suppress(Exception):
         _force_restore_pending_at_exit()
@@ -312,9 +331,17 @@ def _signal_restore_handler(signum: int, frame: Any) -> None:  # noqa: ARG001
         _os_module.kill(_os_module.getpid(), signum)
     except Exception:
         # If re-raise fails (e.g. signal already in flight, or
-        # os.kill unavailable), force exit via SystemExit so the
+        # os.kill unavailable), force exit via os._exit so the
         # process still terminates. 128+signum is the POSIX convention.
-        raise SystemExit(128 + signum) from None
+        # os._exit (rather than raise SystemExit) is used because
+        # SystemExit can be caught by try/except SystemExit handlers
+        # or frameworks overriding sys.excepthook, leaving the process
+        # in a half-shutdown state. The atexit table is intentionally
+        # bypassed — _force_restore_pending_at_exit() has already run
+        # synchronously above.
+        import os as _os_module_fallback
+
+        _os_module_fallback._exit(128 + signum)
 
 
 _SIGNAL_HANDLERS_REGISTERED = False

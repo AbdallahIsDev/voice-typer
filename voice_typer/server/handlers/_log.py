@@ -1,29 +1,28 @@
 """Shared logger for the IPC handler mixin package (CR-63).
 
-ARCH-REFAC-002 / CR-63: prior to this module, each of the 13 handler
-mixins under ``voice_typer/server/handlers/`` opened its own copy of::
+ARCH-REFAC-002 / CR-63: prior to this module, every handler mixin
+under ``voice_typer/server/handlers/`` opened its own copy of::
 
     log = logging.getLogger("voice_typer.server.ipc_server")
 
-That was 14 copies of the same one-liner (the package ``__init__.py``
-also documented the pattern). The duplication was harmless at runtime
-(``logging.getLogger`` returns the same logger object for a given name)
-but it made the mixins harder to audit: a reader had to verify that
-every copy used the *same* logger name, and a future rename (e.g.
-splitting ``ipc_server`` from ``ipc.server``) would have required
-touching 14 files.
+That duplication was harmless at runtime (``logging.getLogger`` returns
+the same logger object for a given name) but it made the mixins harder
+to audit: a reader had to verify that every copy used the *same*
+logger name, and a future rename (e.g. splitting ``ipc_server`` from
+``ipc.server``) would have required touching every handler file.
 
 This module is the single source of truth for the handler-package
 logger name. Mixins import ``log`` from here::
 
     from voice_typer.server.handlers._log import log
 
-The aspirational consolidation (when 10 of 13 handler files
-still declared ``log = logging.getLogger(...)`` inline) is now
-COMPLETE. Every handler mixin that uses logging imports ``log``
-from this module:
+The consolidation is COMPLETE: 0 handler mixins declare
+``log = logging.getLogger(...)`` inline. 9 handler modules plus the
+shared base class import ``log`` from this module:
 
-- ``_base.py`` (the HandlerBase base class)
+- ``_base.py`` (the HandlerBase base class — uses ``log`` in
+  ``_respond_with_error``, so all 6 handler mixins that inherit
+  ``HandlerBase`` indirectly emit through this logger)
 - ``config_handlers.py``
 - ``history_handlers.py``
 - ``model_handlers.py``

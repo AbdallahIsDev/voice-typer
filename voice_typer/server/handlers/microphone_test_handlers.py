@@ -5,7 +5,8 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.asr_errors import ConsentRequiredError
+from voice_typer.server.handlers._base import HandlerBase, log
 from voice_typer.server.ipc.validation import _validate_dict_payload
 
 
@@ -15,6 +16,19 @@ class MicrophoneTestHandlersMixin(HandlerBase):
     CR-20: this mixin's ``except Exception`` catch-alls call
     :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
     no ``str(e)`` leak).
+
+    XZ-PRIV-03: ``_handle_microphone_test_start`` enforces
+    ``voice_biometric_consent`` BEFORE capturing any test audio. The mic
+    test records up to 60s of audio and returns base64-encoded WAV over
+    IPC — the same privacy contract as dictation
+    (``recording_controller.py:248-263``). Without this gate, a
+    renderer-side bug or compromised renderer could trigger a test
+    recording and exfiltrate up to 60s of biometric voice data without
+    the user's explicit consent. The handler raises
+    :class:`ConsentRequiredError` which the existing
+    :meth:`HandlerBase._respond_with_error` maps to the structured
+    ``client.consent_required`` envelope so the renderer can surface a
+    consent dialog instead of a generic error toast.
     """
 
     def _handle_microphone_test_start(self, data, resp) -> dict | None:
@@ -44,6 +58,35 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         a clamped value.
         """
         try:
+            # XZ-PRIV-03: enforce voice_biometric_consent BEFORE
+            # capturing any test audio. The mic test returns up to 60s
+            # of base64-encoded WAV over IPC — same privacy contract
+            # as dictation (recording_controller.py:248-263). We raise
+            # ConsentRequiredError rather than building the envelope
+            # inline so the existing _respond_with_error path maps it
+            # to the structured ``client.consent_required`` envelope
+            # (carrying engine_name/consent_field/model_id fields the
+            # renderer uses to deep-link to the Settings toggle).
+            #
+            # Fail-open policy: if the config read itself raises
+            # (e.g. config file locked / corrupted), we log and
+            # continue rather than lock the user out of the mic
+            # test dialog. Matches recording_controller.py:264-268.
+            try:
+                if not getattr(self.app.config, "voice_biometric_consent", False):
+                    raise ConsentRequiredError(
+                        "voice biometric consent required to start microphone test",
+                        engine_name="microphone_test",
+                        consent_field="voice_biometric_consent",
+                    )
+            except ConsentRequiredError:
+                raise
+            except Exception:
+                log.exception(
+                    "[IPC] microphone_test_start: failed to read "
+                    "voice_biometric_consent — failing open"
+                )
+
             # IPC-3: validate ``mic_id`` and ``filters`` types via the
             # shared ``_validate_dict_payload`` helper. Non-dict
             # ``data`` is pre-coerced to ``{}`` so the

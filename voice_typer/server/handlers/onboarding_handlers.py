@@ -7,7 +7,11 @@ access ``self.app`` / ``self.service`` as before.
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
+from voice_typer.server.ipc.validation import (
+    ResponseEnvelope,
+    _error_response,
+    _validate_dict_payload,
+)
 
 
 class OnboardingHandlersMixin(HandlerBase):
@@ -68,7 +72,7 @@ class OnboardingHandlersMixin(HandlerBase):
     # re-declaration needed (the duplicate block removed here was one
     # of four that the R4-F3 centralization refactor missed).
 
-    def _handle_onboarding_is_first_run(self, data, resp) -> dict | None:
+    def _handle_onboarding_is_first_run(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_is_first_run`` IPC command."""
         try:
             result = self.service.onboarding_is_first_run()
@@ -79,7 +83,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_is_first_run")
         return resp
 
-    def _handle_onboarding_start(self, data, resp) -> dict | None:
+    def _handle_onboarding_start(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_start`` IPC command.
 
         Also writes the ``.onboarding_started`` marker so
@@ -141,7 +145,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_start")
         return resp
 
-    def _handle_onboarding_get_step(self, data, resp) -> dict | None:
+    def _handle_onboarding_get_step(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_get_step`` IPC command."""
         try:
             result = self.service.onboarding_get_step()
@@ -152,7 +156,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_get_step")
         return resp
 
-    def _handle_onboarding_next_step(self, data, resp) -> dict | None:
+    def _handle_onboarding_next_step(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_next_step`` IPC command."""
         try:
             result = self.service.onboarding_next_step()
@@ -163,7 +167,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_next_step")
         return resp
 
-    def _handle_onboarding_prev_step(self, data, resp) -> dict | None:
+    def _handle_onboarding_prev_step(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_prev_step`` IPC command."""
         try:
             result = self.service.onboarding_prev_step()
@@ -174,7 +178,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_prev_step")
         return resp
 
-    def _handle_onboarding_set_microphone(self, data, resp) -> dict | None:
+    def _handle_onboarding_set_microphone(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_microphone`` IPC command.
 
         CR-64: ``mic_id`` is allowed to be ``None`` (no microphone
@@ -219,7 +223,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_set_microphone")
         return resp
 
-    def _handle_onboarding_set_hotkey(self, data, resp) -> dict | None:
+    def _handle_onboarding_set_hotkey(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_hotkey`` IPC command.
 
         The default hotkey is ``<caps_lock>`` (matching
@@ -258,7 +262,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_set_hotkey")
         return resp
 
-    def _handle_onboarding_set_model(self, data, resp) -> dict | None:
+    def _handle_onboarding_set_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_set_model`` IPC command."""
         try:
             validated, error = _validate_dict_payload(
@@ -290,7 +294,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_set_model")
         return resp
 
-    def _handle_onboarding_skip(self, data, resp) -> dict | None:
+    def _handle_onboarding_skip(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_skip`` IPC command."""
         try:
             result = self.service.onboarding_skip()
@@ -313,7 +317,7 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_skip")
         return resp
 
-    def _handle_onboarding_apply(self, data, resp) -> dict | None:
+    def _handle_onboarding_apply(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_apply`` IPC command."""
         try:
             result = self.service.onboarding_apply()
@@ -340,7 +344,9 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_apply")
         return resp
 
-    def _handle_onboarding_get_microphones(self, data, resp) -> dict | None:
+    def _handle_onboarding_get_microphones(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``onboarding_get_microphones`` IPC command."""
         try:
             result = self.service.onboarding_get_microphones()
@@ -351,7 +357,9 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_get_microphones")
         return resp
 
-    def _handle_onboarding_get_model_options(self, data, resp) -> dict | None:
+    def _handle_onboarding_get_model_options(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``onboarding_get_model_options`` IPC command."""
         try:
             result = self.service.onboarding_get_model_options()
@@ -362,7 +370,9 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_get_model_options")
         return resp
 
-    def _handle_onboarding_get_model_catalog(self, data, resp) -> dict | None:
+    def _handle_onboarding_get_model_catalog(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``onboarding_get_model_catalog`` IPC command (UX-32).
 
         Returns the full rich-metadata model catalog (a superset of the
@@ -383,7 +393,9 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_get_model_catalog")
         return resp
 
-    def _handle_onboarding_get_hotkey_presets(self, data, resp) -> dict | None:
+    def _handle_onboarding_get_hotkey_presets(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``onboarding_get_hotkey_presets`` IPC command."""
         try:
             result = self.service.onboarding_get_hotkey_presets()
@@ -394,7 +406,9 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_get_hotkey_presets")
         return resp
 
-    def _handle_onboarding_check_permissions(self, data, resp) -> dict | None:
+    def _handle_onboarding_check_permissions(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``onboarding_check_permissions`` IPC command (UX-4 / UX-27).
 
         Returns the platform-conditional permission state so the
@@ -421,7 +435,9 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_check_permissions")
         return resp
 
-    def _handle_onboarding_request_keyboard_permission(self, data, resp) -> dict | None:
+    def _handle_onboarding_request_keyboard_permission(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``onboarding_request_keyboard_permission`` IPC command.
 
         Opens the OS permission UI so the user can
@@ -431,13 +447,12 @@ class OnboardingHandlersMixin(HandlerBase):
         which deep-links to System Settings → Accessibility on macOS
         and runs ``pkexec install_permissions.py`` on Linux.
 
-        NOTE: this handler must be registered in the
-        ``_COMMAND_REGISTRY`` in :mod:`voice_typer.server.ipc_server`
-        (owned by another agent's scope) before the renderer can invoke
-        it. Until then, calls to this IPC return ``unknown_command``.
-        The handler is in place so registration is a one-line change::
-
-            "onboarding_request_keyboard_permission": "_handle_onboarding_request_keyboard_permission",
+        NOTE: this handler is intentionally NOT registered in the
+        ``_COMMAND_REGISTRY`` — the renderer's permission flow now uses
+        ``onboarding_check_permissions`` + a Tauri-side invocation, and
+        the TS allowlist dropped this entry. The handler body is
+        retained for the future re-wiring if the renderer's flow
+        changes back.
         """
         try:
             from voice_typer.server.permissions import request_keyboard_permission
@@ -453,18 +468,15 @@ class OnboardingHandlersMixin(HandlerBase):
             )
         return resp
 
-    def _handle_onboarding_reset(self, data, resp) -> dict | None:
+    def _handle_onboarding_reset(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_reset`` IPC command.
 
         Clears both the ``.onboarding_complete`` and ``.onboarding_started``
         markers so the wizard reappears on next launch. Intended for a
         future "re-run onboarding" affordance in Settings and for tests.
 
-        NOTE: like ``onboarding_request_keyboard_permission``, this must
-        be registered in ``_COMMAND_REGISTRY`` before the renderer can
-        invoke it. Registration is a one-line change::
-
-            "onboarding_reset": "_handle_onboarding_reset",
+        Registered in ``_COMMAND_REGISTRY`` under the ``onboarding_reset``
+        key (see :mod:`voice_typer.server.ipc_server`).
         """
         try:
             from voice_typer.server.onboarding import OnboardingController

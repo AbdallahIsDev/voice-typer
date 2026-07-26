@@ -213,12 +213,23 @@ class PIIRedactionFilter(logging.Filter):
 
 
 def redact_pii(text: str) -> str:
-    """SEC-009: Redact potential PII from a text string.
+    """SEC-009: Redact potential PII and API secrets from a text string.
 
     Standalone helper that applies the same redaction patterns as
     ``PIIRedactionFilter`` but can be used directly on arbitrary
     strings (e.g. before logging transcription text, error messages,
     or other user-visible content).
+
+    XZ-PII-03: previously this function only applied the four PII
+    patterns (email / phone / SSN / CC) — API keys, bearer tokens,
+    and URL-embedded credentials passed through verbatim. The
+    ``llm_polish.py`` docstring claimed API keys were covered, which
+    was false. The function now also applies :func:`redact_secret`
+    (API keys / bearer tokens) and :func:`redact_url` (URL userinfo)
+    so it is a true single-call redaction helper. Existing callers
+    that already chain ``redact_secret(redact_pii(...))`` see no
+    behavioural change — both redactions are idempotent on already-
+    redacted text.
 
     Patterns redacted:
       - Email addresses → [EMAIL]
@@ -229,6 +240,12 @@ def redact_pii(text: str) -> str:
         (``GB82WEST12345698765432``)
       - SSN-like patterns → [SSN]
       - Credit-card-like patterns → [CC]
+      - API keys / bearer tokens (``Bearer …``, ``Token …``, ``sk-…``,
+        20+ char bare tokens) → ``<prefix>***`` or ``***``
+        (via :func:`voice_typer.server._secrets.redact_secret`)
+      - URL-embedded credentials (``user:pass@host``) → credentials
+        stripped, host preserved
+        (via :func:`voice_typer.server._secrets.redact_url`)
 
     Known limitations (NOT matched): US ABA routing numbers
     (9-digit form, too high a false-positive rate on ordinary numeric
@@ -246,6 +263,16 @@ def redact_pii(text: str) -> str:
     """
     for pattern, replacement in PIIRedactionFilter._PATTERNS:
         text = pattern.sub(replacement, text)
+    # XZ-PII-03: also redact API keys / bearer tokens (idempotent on
+    # already-redacted text — the ``<prefix>***`` mask doesn't match
+    # the secret patterns).
+    text = redact_secret(text)
+    # XZ-PII-03: also strip URL userinfo. Gated on ``"@" in text`` for
+    # the same perf reason as ``_redact_text`` — the vast majority of
+    # inputs carry no ``@`` so the comparatively expensive
+    # ``urllib.parse.urlparse`` call is skipped.
+    if "@" in text:
+        text = redact_url(text)
     return text
 
 

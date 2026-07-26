@@ -23,8 +23,10 @@ actually take effect on the code paths in this module.
 
 from __future__ import annotations
 
+import ctypes
 import logging
 from collections.abc import Callable
+from ctypes import wintypes
 
 from voice_typer.server import clipboard as _cb
 
@@ -59,8 +61,6 @@ class Win32Clipboard:
     def __enter__(self):
         """Open the clipboard. Returns self."""
         try:
-            import ctypes
-
             user32 = ctypes.windll.user32
             if user32.OpenClipboard(self._owner):
                 self._opened = True
@@ -77,8 +77,6 @@ class Win32Clipboard:
         """Close the clipboard if it was opened."""
         if self._opened:
             try:
-                import ctypes
-
                 ctypes.windll.user32.CloseClipboard()
             except (OSError, AttributeError):
                 # EC-15: narrowed from bare ``except Exception: pass``.
@@ -94,8 +92,6 @@ class Win32Clipboard:
         if not self._opened:
             return False
         try:
-            import ctypes
-
             return bool(ctypes.windll.user32.EmptyClipboard())
         except Exception:
             return False
@@ -109,8 +105,6 @@ class Win32Clipboard:
         if not _cb.is_windows():
             return 0
         try:
-            import ctypes
-
             user32 = ctypes.windll.user32
             if hasattr(user32, "GetClipboardSequenceNumber"):
                 return user32.GetClipboardSequenceNumber()
@@ -148,6 +142,78 @@ def _win32_empty_clipboard() -> None:
 
 # ─── PLAT-001: Win32 SendInput Ctrl+V helper ──────────────────────────
 
+# XZ-CLIP-12: Win32 INPUT / KEYBDINPUT structures defined inline via
+# ``ctypes.Structure`` (previously imported from ``pynput._util.win32``,
+# a private submodule that may break across pynput releases without
+# notice). Only the keyboard branch is needed — mouse/hardware input
+# structs from the Win32 INPUT union are omitted to keep the surface
+# small. The definitions mirror the Win32 SDK:
+#   https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-input
+#
+# Public names (``INPUT``, ``KEYBDINPUT``, ``InputUnion``) match the
+# previous pynput._util.win32 import surface so downstream code and
+# tests with their own ctypes Structure stubs can swap them in
+# unchanged.
+
+# ULONG_PTR is pointer-sized: 4 bytes on 32-bit Windows, 8 bytes on
+# 64-bit. ``wintypes`` does not export it directly; select the right
+# width by ``sizeof(c_void_p)``.
+_ULONG_PTR = ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32
+
+
+class KEYBDINPUT(ctypes.Structure):
+    """Win32 KEYBDINPUT — payload for a keyboard INPUT event."""
+
+    _fields_ = (
+        ("wVk", wintypes.WORD),
+        ("wScan", wintypes.WORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", _ULONG_PTR),
+    )
+    # KEYBDINPUT.KEYUP constant from pynput._util.win32
+    # (Win32 KEYEVENTF_KEYUP = 0x0002).
+    KEYUP = 0x0002
+
+
+class InputUnion(ctypes.Union):
+    """Win32 INPUT union — only the keyboard branch is populated."""
+
+    _fields_ = (("ki", KEYBDINPUT),)
+
+
+class INPUT(ctypes.Structure):
+    """Win32 INPUT structure (keyboard variant)."""
+
+    _fields_ = (
+        ("type", wintypes.DWORD),
+        # Named ``ki`` to match the production code's
+        # ``InputUnion(ki=KEYBDINPUT(...))`` construction. The C
+        # struct has an anonymous union here; ctypes requires a
+        # name to address the union member.
+        ("ki", InputUnion),
+    )
+    # INPUT.KEYBOARD constant from pynput._util.win32
+    # (Win32 INPUT_KEYBOARD = 1).
+    KEYBOARD = 1
+
+
+def _resolve_send_input():
+    """Look up ``user32.SendInput`` via ``ctypes.windll`` at call time.
+
+    XZ-CLIP-12: replaces the ``pynput._util.win32.SendInput`` import
+    (a private API). Looking the function up at call time means test
+    patches like ``patch("ctypes.windll", create=True)`` or
+    ``patch.object(ctypes.windll.user32, "SendInput", ...)`` take
+    effect. Configuring ``argtypes`` / ``restype`` here (rather than at
+    module import time) keeps the module importable on non-Windows
+    hosts where ``ctypes.windll`` doesn't exist.
+    """
+    send_input = ctypes.windll.user32.SendInput
+    send_input.argtypes = [wintypes.UINT, ctypes.c_void_p, ctypes.c_int]
+    send_input.restype = wintypes.UINT
+    return send_input
+
 
 def _send_ctrl_v_win32(
     fallback: Callable[[], None] | None = None,
@@ -160,6 +226,14 @@ def _send_ctrl_v_win32(
     non-elevated one.  Our direct SendInput call is subject to the
     same UIPI restriction, but we log the failure explicitly
     instead of silently dropping it.
+
+    XZ-CLIP-12: the Win32 ``INPUT`` / ``KEYBDINPUT`` structures
+    (and the ``SendInput`` function pointer) are now resolved inline
+    via ``ctypes`` + ``ctypes.windll.user32`` (previously imported
+    from ``pynput._util.win32``, a private submodule). The previous
+    implementation imported them from
+    ``pynput._util.win32`` (a private submodule) which made the
+    paste path fragile against pynput internal refactors.
 
     Returns ``True`` if the full Ctrl+V sequence was delivered
     (SendInput returned 4) OR the ``fallback`` was invoked
@@ -176,14 +250,12 @@ def _send_ctrl_v_win32(
         ``lambda: self._safe_key_press(_Key.ctrl, "v")`` for the
         pynput Controller fallback path.
     """
-    import ctypes
-
-    from pynput._util.win32 import (
-        INPUT,
-        KEYBDINPUT,
-        INPUT_union,
-        SendInput,
-    )
+    # XZ-CLIP-12: structs are defined inline at the top of this module
+    # (no longer imported from pynput._util.win32 — a private submodule).
+    # ``SendInput`` is resolved via ``ctypes.windll.user32`` at call time
+    # so test patches like ``patch("ctypes.windll", create=True)`` take
+    # effect.
+    send_input = _resolve_send_input()
 
     vk_control = 0x11
     vk_v = 0x56
@@ -191,23 +263,23 @@ def _send_ctrl_v_win32(
     events = (INPUT * 4)(
         INPUT(
             INPUT.KEYBOARD,
-            INPUT_union(ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
+            InputUnion(ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
         ),
         INPUT(
             INPUT.KEYBOARD,
-            INPUT_union(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
+            InputUnion(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=0, time=0, dwExtraInfo=0)),
         ),
         INPUT(
             INPUT.KEYBOARD,
-            INPUT_union(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+            InputUnion(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
         ),
         INPUT(
             INPUT.KEYBOARD,
-            INPUT_union(ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+            InputUnion(ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
         ),
     )
 
-    result = SendInput(4, ctypes.byref(events), ctypes.sizeof(INPUT))
+    result = send_input(4, ctypes.byref(events), ctypes.sizeof(INPUT))
     if result != 4:
         # PLAT-001 (revised): SendInput returns the number of events
         # successfully inserted. Values 1..3 mean SOME but not all of
@@ -250,16 +322,16 @@ def _send_ctrl_v_win32(
                 release_events = (INPUT * 2)(
                     INPUT(
                         INPUT.KEYBOARD,
-                        INPUT_union(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
+                        InputUnion(ki=KEYBDINPUT(wVk=vk_v, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)),
                     ),
                     INPUT(
                         INPUT.KEYBOARD,
-                        INPUT_union(
+                        InputUnion(
                             ki=KEYBDINPUT(wVk=vk_control, wScan=0, dwFlags=KEYBDINPUT.KEYUP, time=0, dwExtraInfo=0)
                         ),
                     ),
                 )
-                SendInput(2, ctypes.byref(release_events), ctypes.sizeof(INPUT))
+                send_input(2, ctypes.byref(release_events), ctypes.sizeof(INPUT))
             except Exception:
                 _cb.log.debug("[CLIPBOARD] failed to synthesize KEYUP cleanup", exc_info=True)
             return False  # paste did not complete cleanly; do not proceed
@@ -279,6 +351,9 @@ def _send_ctrl_v_win32(
 
 
 __all__ = [
+    "INPUT",
+    "InputUnion",
+    "KEYBDINPUT",
     "Win32Clipboard",
     "_send_ctrl_v_win32",
     "_win32_empty_clipboard",

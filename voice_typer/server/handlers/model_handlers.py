@@ -18,7 +18,11 @@ and import pre-downloaded models from a local directory.
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
+from voice_typer.server.ipc.validation import (
+    ResponseEnvelope,
+    _error_response,
+    _validate_dict_payload,
+)
 
 
 class ModelHandlersMixin(HandlerBase):
@@ -35,7 +39,7 @@ class ModelHandlersMixin(HandlerBase):
     # re-declaration needed (the duplicate block removed here was one
     # of four that the R4-F3 centralization refactor missed).
 
-    def _handle_download_model(self, data, resp) -> dict | None:
+    def _handle_download_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``download_model`` IPC command."""
         try:
             # IPC-3: validate the ``model`` field type via the shared
@@ -74,7 +78,7 @@ class ModelHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "download_model")
         return resp
 
-    def _handle_cancel_model_download(self, data, resp) -> dict | None:
+    def _handle_cancel_model_download(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``cancel_model_download`` IPC command."""
         # NEW-PRIV-011: cancel an in-progress HuggingFace download.
         try:
@@ -87,7 +91,7 @@ class ModelHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "cancel_model_download")
         return resp
 
-    def _handle_pause_model_download(self, data, resp) -> dict | None:
+    def _handle_pause_model_download(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``pause_model_download`` IPC command.
 
         NEW-PAUSE-001: pause the in-progress model download.  Sets a
@@ -104,7 +108,7 @@ class ModelHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "pause_model_download")
         return resp
 
-    def _handle_resume_model_download(self, data, resp) -> dict | None:
+    def _handle_resume_model_download(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``resume_model_download`` IPC command.
 
         NEW-PAUSE-001: resume a paused model download.  Clears the
@@ -120,7 +124,7 @@ class ModelHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "resume_model_download")
         return resp
 
-    def _handle_get_model_catalog(self, data, resp) -> dict | None:
+    def _handle_get_model_catalog(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_model_catalog`` IPC command.
 
         NEW-MODEL-001: return the full ``MODEL_REGISTRY`` as a list of
@@ -152,7 +156,7 @@ class ModelHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_model_catalog")
         return resp
 
-    def _handle_test_llm_connection(self, data, resp) -> dict | None:
+    def _handle_test_llm_connection(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``test_llm_connection`` IPC command."""
         # NEW-DEAD-015: wire up the previously-dead
         # ``LLMPolisher.test_connection`` method so the renderer can
@@ -166,7 +170,7 @@ class ModelHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "test_llm_connection")
         return resp
 
-    def _handle_import_model(self, data, resp) -> dict | None:
+    def _handle_import_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``import_model`` IPC command.
 
         MODEL-IMPORT: scan a directory for HuggingFace model cache
@@ -256,7 +260,7 @@ class ModelHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "import_model")
         return resp
 
-    def _handle_delete_model(self, data, resp) -> dict | None:
+    def _handle_delete_model(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``delete_model`` IPC command."""
         # NEW-UX-005: actually delete the model files from disk,
         # not just remove from the UI list.

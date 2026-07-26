@@ -113,8 +113,10 @@ from voice_typer.server.ipc.transport import (  # noqa: F401
     _pick_available_port,
     _TCPLineIO,
 )
-from voice_typer.server.ipc.validation import (  # noqa: F401
+from voice_typer.server.ipc.validation import (  # noqa: F401  # noqa: F401
+    CommandHandler,
     ErrorEnvelope,
+    ResponseEnvelope,
     _error_response,
     _validate_dict_payload,
 )
@@ -132,13 +134,9 @@ log = logging.getLogger("voice_typer.server.ipc_server")
 # checker verify handler signatures and the dispatch-table value type, so
 # a typo in a handler-method name surfaces at IPCServer construction
 # (where the bound-method cache is built) rather than at dispatch time.
-ResponseEnvelope = dict[str, object]
-
-# ``CommandHandler`` is the signature every ``_handle_*`` method follows:
-# ``(data, resp) -> resp | None``. Storing bound methods in a typed dict
-# (instead of method-name strings resolved via ``getattr``) means the
-# type checker can verify the call site in ``_dispatch``.
-CommandHandler = typing.Callable[[object | None, ResponseEnvelope], ResponseEnvelope | None]
+# YJ-1 / YJ-27: ResponseEnvelope + CommandHandler canonical definitions
+# moved to voice_typer.server.ipc.validation (breaks the circular import
+# and lets handler modules import them from a non-god-module location).
 
 # GT-25: read-only IPC commands whose handlers do NOT mutate shared
 # app/service state. These bypass the per-server ``_dispatch_lock`` so a
@@ -409,6 +407,26 @@ class IPCServer(
     # shared fallback safe (no cross-test contention).
     _tcp_write_lock = threading.Lock()
 
+    # EC-4: commands intentionally absent from the TS / Rust allowlists.
+    # These commands are registered in the Python ``_COMMAND_REGISTRY``
+    # (so the dispatcher recognizes them) but are NEVER invoked by the
+    # renderer — they are server-internal or host-internal:
+    #
+    # - ``shutdown``: invoked by the Tauri host's WS transport to
+    #   request cooperative server shutdown (the host then closes the
+    #   socket). A compromised renderer must NOT be able to invoke
+    #   this — that would let it DoS the backend.
+    # - ``tray_click``: invoked by the Rust host's tray-icon click
+    #   handler. The renderer has no business sending this — it would
+    #   let a compromised renderer spoof tray clicks.
+    #
+    # This frozenset is the single source of truth for the
+    # ``test_ec4_python_command_registry_parity`` regression test
+    # which asserts that the Python registry, the TS allowlist, and
+    # the Rust allowlist agree on membership (modulo this documented
+    # exception set).
+    _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
+
     def __init__(
         self,
         app: "AppProtocol",
@@ -583,19 +601,20 @@ class IPCServer(
         # event) does not self-deadlock.
         self._dispatch_lock = threading.RLock()
 
-        # GT-29: instance-level typed handler cache. Built once at
-        # ``__init__`` by resolving every class-level ``_COMMAND_REGISTRY``
-        # method-name string to its bound method via ``getattr``. The
-        # class-level ``_COMMAND_REGISTRY: dict[str, str]`` is kept as the
+        # DT-5: registry-typo validation at construction time. We resolve
+        # every ``_COMMAND_REGISTRY`` method-name string to its attribute on
+        # ``self`` via ``getattr`` and assert it's callable. A typo in the
+        # class-level registry now surfaces at IPCServer construction (every
+        # test that builds an IPCServer) instead of only when the buggy
+        # command is dispatched. The previous ``_command_handlers`` instance
+        # cache (built here and stored on ``self``) was dead code —
+        # ``_dispatch`` resolves the handler the same way at dispatch time
+        # via ``getattr(self, handler_name, None)`` so test-time
+        # monkey-patches are observed. The cache is no longer built; the
+        # class-level ``_COMMAND_REGISTRY: dict[str, str]`` remains the
         # introspection source-of-truth (pinned by
         # ``tests/tauri/mig19/test_phase4_validation.py`` and
-        # ``tests/test_ipc_shutdown_registry.py``); this cache is the
-        # dispatch-time lookup table that gives the type checker a
-        # ``Callable`` value type instead of ``str``. A typo in the
-        # class-level registry now surfaces at IPCServer construction
-        # (every test that builds an IPCServer) instead of only when the
-        # buggy command is dispatched.
-        self._command_handlers: dict[str, CommandHandler] = {}
+        # ``tests/test_ipc_shutdown_registry.py``).
         for _cmd, _method_name in self._COMMAND_REGISTRY.items():
             _bound = getattr(self, _method_name, None)
             if not callable(_bound):
@@ -604,7 +623,6 @@ class IPCServer(
                     f"attribute {_method_name!r} on IPCServer — registry "
                     "entry and handler method have drifted out of sync."
                 )
-            self._command_handlers[_cmd] = _bound
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
@@ -1080,9 +1098,9 @@ class IPCServer(
         event from any thread would block on the lock). Now the auth
         read has a 5-second timeout and the lock is only acquired
         after auth succeeds, to install the client and flush pending
-        events. The token comparison also uses ``hmac.compare_digest``
-        for constant-time comparison (consistent with
-        ``security.verify_restart_token``).
+        events. The token comparison uses ``hmac.compare_digest`` for
+        constant-time comparison so a timing side-channel cannot recover
+        the token byte-by-byte.
         """
         # PR-3-FIX-1: set a read timeout BEFORE the auth readline so a
         # malicious client that connects but sends nothing can't hold
@@ -1119,7 +1137,8 @@ class IPCServer(
                     return
                 auth_msg = json.loads(auth_line.strip())
                 # PR-3-FIX-1: use hmac.compare_digest for constant-time
-                # comparison (consistent with security.verify_restart_token).
+                # token comparison so a timing side-channel cannot
+                # recover the token byte-by-byte.
                 # Check isinstance FIRST so .get() doesn't raise on
                 # non-dict JSON values (e.g. 42, [1,2,3], "hi").
                 token_valid = (
@@ -1888,24 +1907,48 @@ class IPCServer(
         # receives the original value (including ``None``) for the error
         # message, preserving the previous wire behaviour.
         cmd_key = cmd if isinstance(cmd, str) else ""
-        # GT-29: resolve the handler via the class-level ``_COMMAND_REGISTRY``
+        # DT-5: resolve the handler via the class-level ``_COMMAND_REGISTRY``
         # (the introspection source-of-truth) plus ``getattr`` so test-time
         # monkey-patches (``monkeypatch.setattr(server, '_handle_<cmd>', ...)``)
-        # are observed at dispatch time. The instance-level
-        # ``_command_handlers`` cache (built in ``__init__``) is a typed
-        # validation artifact: it surfaces registry typos at IPCServer
-        # construction (every test that builds an IPCServer) rather than
-        # only when the buggy command is dispatched. The cache is NOT
-        # consulted at dispatch time — that would silently bypass
-        # monkey-patches. The ``CommandHandler`` annotation on the local
-        # ``handler`` variable gives the type checker a ``Callable`` value
-        # type instead of ``Any``.
+        # are observed at dispatch time. Registry-typo validation is
+        # performed once at IPCServer construction (see ``__init__``); there
+        # is NO instance-level cache — the previous ``_command_handlers``
+        # dict was dead code (built but never consulted at dispatch time)
+        # and has been removed. The ``CommandHandler`` annotation on the
+        # local ``handler`` variable gives the type checker a ``Callable``
+        # value type instead of ``Any``.
         handler_name = self._COMMAND_REGISTRY.get(cmd_key)
         handler: CommandHandler | None = None
         if handler_name is not None:
             _resolved = getattr(self, handler_name, None)
             if callable(_resolved):
-                handler = _resolved  # type: ignore[assignment]
+                # YJ-27: ``getattr(self, name, None)`` returns ``Any``;
+                # ``callable()`` narrows that to a callable type whose
+                # return is inferred as ``object`` (pyrefly infers the
+                # narrowest callable supertype). Direct assignment to
+                # ``handler`` would fail ``bad-assignment`` because
+                # ``(...) -> object`` is not assignable to ``CommandHandler``
+                # (whose return type is ``ResponseEnvelope | None`` — a
+                # narrower type than ``object``, and return types are
+                # covariant). ``typing.cast`` is the typed, intentional
+                # assertion that the resolved attribute matches the
+                # ``CommandHandler`` contract: every entry in
+                # ``_COMMAND_REGISTRY`` maps to a ``_handle_<cmd>``
+                # method on this class, and the ``__init__``
+                # registry-typo validation loop (DT-5) asserts each
+                # entry resolves to a callable attribute at construction
+                # time — so a non-CommandHandler resolution would have
+                # surfaced as an ``IPCServer.__init__`` test failure
+                # before reaching this line. ``cast`` is preferred over
+                # the previous ``# type: ignore[assignment]`` suppression
+                # because it (1) preserves the type checker's ability
+                # to flag genuine ``CommandHandler``-shape mismatches
+                # on the assignment LHS, (2) does not silently mask
+                # future type errors on this line, and (3) keeps the
+                # cast local — if YJ-1's full handler annotation
+                # migration ever lands, the cast can be removed without
+                # touching anything else.
+                handler = typing.cast(CommandHandler, _resolved)
         try:
             if handler is None:
                 result = self._handle_unknown_command(cmd, data, resp)
@@ -2366,7 +2409,7 @@ class IPCServer(
         self,
         msg: dict | None,
         _out: TextIO | None = None,
-        _client: object | None = None,
+        _client: _TCPLineIO | None = None,
     ) -> None:
         """Serialize *msg* and write it to the active transport.
 
@@ -2421,10 +2464,9 @@ class IPCServer(
             # observe an empty ``_pending_tcp`` mid-snapshot and append
             # a NEW event that the snapshot's re-merge would mis-order.
             pending: list[str] | None = None
-            if tcp_client is not None:
-                if self._pending_tcp:
-                    pending = list(self._pending_tcp)
-                    self._pending_tcp.clear()
+            if tcp_client is not None and self._pending_tcp:
+                pending = list(self._pending_tcp)
+                self._pending_tcp.clear()
 
         # Step 2: serialize + write OUTSIDE the lock.  A slow client can
         # stall here without blocking other dispatchers.

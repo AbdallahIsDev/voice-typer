@@ -263,6 +263,15 @@ def _is_elevated_target(hwnd: int | None = None) -> bool:
 # it only catches the standard Windows credential UI, not arbitrary
 # password fields in third-party apps. comtypes/UIA is required for
 # full coverage (see _is_password_field above).
+#
+# XZ-CLIP-15 (deferred): ``clipboard/manager.py`` maintains a
+# separate ``blocked_classes`` set (with ``#32770``,
+# ``Credential Dialog Xaml Host``, ``CredDialog``) that has ZERO
+# overlap with this set. Unifying them is the right move but
+# requires updating ``tests/test_clipboard_win32_coverage.py``
+# (which pins the current ``#32770``-blocking behaviour) — that
+# test file is owned by another agent. The unification is tracked
+# as a follow-up.
 _CRED_DIALOG_CLASSES: set[str] = {
     "CredentialDialog",  # Generic credential dialog
     "CredDialogCallerWnd",  # CredUI dialog

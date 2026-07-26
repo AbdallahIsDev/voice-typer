@@ -4,16 +4,36 @@
 - Win32 window focus (EnumWindows/AttachThreadInput/SetForegroundWindow)
 - Electron app launch (build-first, dev fallback)
 
-These operations are platform-specific and independent of the pystray
-icon lifecycle, so they belong in their own module.
+DT-FIX-9 / DT-27 (Phase 4.5 spaghetti split): extended with the
+remaining window-management + quit-confirmation concerns that were
+still inlined on ``TrayIcon``:
+
+  - :func:`open_page` — publish a ``navigate`` event so the renderer
+    opens the given route (Settings / History / Help / Models).
+  - :func:`open_models_page` — open the Electron window and navigate
+    to ``/models``.
+  - :func:`confirm_quit_while_recording` — quit immediately via the
+    controller (the old confirmation dialog was removed; crash
+    recovery + ``quit_app`` handle in-flight transcriptions).
+
+These operations are platform/IPC-specific and independent of the
+pystray icon lifecycle, so they belong in their own module. The
+``TrayIcon`` class keeps one-line delegate methods for each so tests
+that do ``monkeypatch.setattr("voice_typer.server.tray.TrayIcon.X", ...)``
+keep working and source-grep tests that scan ``tray.py`` for the
+method signatures still pass.
 """
 
 import logging
 import os
 import subprocess
+from typing import TYPE_CHECKING
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_windows
+
+if TYPE_CHECKING:
+    from voice_typer.server.tray import TrayIcon
 
 log = logging.getLogger("voice_typer.server.tray_window")
 
@@ -163,3 +183,73 @@ def open_electron_window() -> None:
         log.info("[TRAY] Electron app launched (dev mode fallback)")
     except Exception as e:
         log.error("[TRAY] Failed to launch Electron app: %s", e)
+
+
+def open_page(path: str) -> None:
+    """Publish a ``navigate`` event so the renderer opens ``path``.
+
+    UX-33 (FIX-10): generalization of :func:`open_models_page` so any
+    in-app route can be opened from the tray menu (Settings / History /
+    Help). Does NOT open the Electron window itself — callers that need
+    the window open (e.g. :func:`open_models_page`) call
+    :func:`open_electron_window` first, then :func:`open_page`.
+
+    DT-FIX-9 / DT-27: extracted from ``TrayIcon._open_page`` as a
+    pure module-level function (no instance state needed — just
+    publishes via the event bus).
+
+    Args:
+        path: The renderer route to navigate to (e.g. ``/settings``).
+    """
+    from voice_typer.server import event_bus
+
+    try:
+        event_bus.publish({"type": "navigate", "data": {"path": path}})
+        log.info("[TRAY] Navigate push sent: %s", path)
+    except Exception as e:
+        log.warning("[TRAY] Failed to push navigate event for %s: %s", path, e)
+
+
+def open_models_page(tray: "TrayIcon") -> None:
+    """Open the Electron window and navigate to the Models page.
+
+    Called from the tray menu's "More models..." item. Opens/focuses
+    the Electron window (same as :func:`open_electron_window`) and then
+    delegates to :func:`open_page` with ``'/models'`` so the renderer
+    navigates to the Models page instead of staying on whatever page
+    was last open.
+
+    DT-FIX-9 / DT-27: extracted from ``TrayIcon._open_models_page``.
+    The delegate on ``TrayIcon`` calls ``tray._open_page('/models')``
+    (NOT this module's :func:`open_page` directly) so tests that do
+    ``monkeypatch.setattr(tray, "_open_page", fake_open_page)`` keep
+    working — the patched instance attribute is consulted at call
+    time, not the module-level function.
+
+    Args:
+        tray: The ``TrayIcon`` instance (used to access the
+            ``_open_page`` delegate).
+    """
+    open_electron_window()
+    tray._open_page("/models")
+
+
+def confirm_quit_while_recording(tray: "TrayIcon") -> None:
+    """Quit immediately, regardless of recording state.
+
+    The old confirmation dialog was removed because crash recovery
+    already protects in-flight transcriptions, and ``quit_app()``
+    handles discarding active recordings and waiting for transcription
+    to finish (with timeout).
+
+    DT-FIX-9 / DT-27: extracted from
+    ``TrayIcon._confirm_quit_while_recording``. The method is a thin
+    delegate to ``tray._controller.quit_app()``; kept as a separate
+    function so the ``TrayIcon`` class is a one-line delegate and the
+    quit policy lives with the rest of the window-management code.
+
+    Args:
+        tray: The ``TrayIcon`` instance (used to access
+            ``tray._controller``).
+    """
+    tray._controller.quit_app()

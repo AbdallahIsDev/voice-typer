@@ -111,6 +111,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     from voice_typer.server.ipc_server import IPCServer
 
+# DT-11: import the canonical loopback host constant from _paths.py
+# (was a local `_LOOPBACK_HOST = "127.0.0.1"` literal duplicated across
+# _http_safety.py, _secrets.py, and this module). Aliased to the
+# underscore-prefixed name so existing call sites (e.g. `serve(...,
+# _LOOPBACK_HOST, ...)`) keep working unchanged.
+from voice_typer.server._paths import LOOPBACK_HOST as _LOOPBACK_HOST
+
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
 # ADR-0020 round-2 fix: the `ready` event is emitted only once per
@@ -136,7 +143,10 @@ log = logging.getLogger("voice_typer.server.sidecar_ws")
 # Application Firewall prompt, (c) expose the authed-but-localhost
 # IPC to the LAN. Fail the launch if the configured bind is not
 # loopback.
-_LOOPBACK_HOST = "127.0.0.1"
+#
+# DT-11: ``_LOOPBACK_HOST`` is now imported from ``_paths.py`` (see
+# the import statement near the top of this module) so the same
+# constant is shared with ``_http_safety.py`` and ``_secrets.py``.
 
 # ADR-0020 §10: 1 MiB WS frame cap. download_progress and
 # vocabulary_suggestion can carry large payloads; without a cap a
@@ -152,7 +162,15 @@ _AUTH_TIMEOUT_SECONDS = 5.0
 # sends {"type":"shutdown"} the sidecar must release the mic, ack,
 # and exit within this window; if it doesn't, the host force-kills
 # the process tree via kill_children.
-_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0
+#
+# DT-54: the previous ``_SHUTDOWN_ACK_TIMEOUT_SECONDS = 2.0`` constant
+# was dead code — referenced nowhere in this module and misleadingly
+# suggested Python enforces the timeout. The Rust host's
+# ``SHUTDOWN_ACK_TIMEOUT_MS = 2000`` (in ``src-tauri/src/util.rs``)
+# is the single source of truth for the cooperative-shutdown hard
+# timeout; Python does NOT mirror it. See
+# ``src-tauri/src/util.rs::SHUTDOWN_ACK_TIMEOUT_MS`` for the canonical
+# value.
 
 
 def _force_line_buffered_stdout() -> None:

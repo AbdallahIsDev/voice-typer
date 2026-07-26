@@ -21,6 +21,10 @@ from urllib.request import Request
 from voice_typer.server._http_safety import (
     build_secure_opener,
 )
+from voice_typer.server._paths import (
+    DEFAULT_LLM_API_URL,
+    DEFAULT_LLM_MODEL,
+)
 from voice_typer.server._secrets import (
     assert_url_allowed,
     redact_secret,
@@ -89,8 +93,14 @@ _PRESETS = {
     ),
 }
 
-_DEFAULT_URL = "https://api.openai.com/v1/chat/completions"
-_DEFAULT_MODEL = "gpt-4o-mini"
+# DT-11: canonical LLM endpoint + model defaults live in
+# ``_paths.py`` (single source of truth) so they can be shared with
+# ``config.py`` (dataclass field defaults) without a circular import.
+# The local underscore-prefixed aliases preserve the original
+# ``LLMPolisher.__init__`` call sites that reference ``_DEFAULT_URL``
+# / ``_DEFAULT_MODEL``.
+_DEFAULT_URL = DEFAULT_LLM_API_URL
+_DEFAULT_MODEL = DEFAULT_LLM_MODEL
 
 
 class LLMPolisher:

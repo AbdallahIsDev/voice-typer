@@ -68,11 +68,12 @@ class ConfigProtocol(Protocol):
     as required fields — all of which the registry reads when
     constructing the whisper fallback.
 
-    ``disabled_backends`` is declared on the Protocol but is NOT yet a
-    field on the real ``Config`` dataclass — the runtime code still
-    falls back to ``getattr`` for that single field (see the comment
-    in :meth:`AsrBackendRegistry.__init__`) so legacy configs without
-    the field continue to work.
+    ``disabled_backends`` is declared on the Protocol AND on the real
+    ``Config`` dataclass (XZ-CFG-01). The runtime code path in
+    :meth:`AsrBackendRegistry.__init__` still falls back to
+    ``getattr(config, "disabled_backends", None)`` so legacy configs
+    constructed without the field (e.g. test stubs that build a Config
+    via ``__new__``) continue to work.
     """
 
     asr_backend: str
@@ -133,10 +134,11 @@ class AsrBackendRegistry:
         self._lock = threading.RLock()
         self._failure_counts: dict[str, int] = {}
         self._disabled_backends: set[str] = set()
-        # ``Config`` declares ``asr_backend`` etc. but does
-        # NOT yet declare ``disabled_backends`` — the runtime fallback
-        # to an empty list keeps legacy configs working without
-        # requiring a config-schema migration.
+        # XZ-CFG-01: ``Config`` now declares ``disabled_backends`` as a
+        # real dataclass field (default empty list). The ``getattr``
+        # fallback is retained so test stubs / legacy Config objects
+        # constructed via ``__new__`` (which skip ``__init__``) keep
+        # working — the field is absent on those bare instances.
         persisted = getattr(config, "disabled_backends", None) or []
         try:
             self._disabled_backends = set(persisted)
@@ -324,14 +326,19 @@ class AsrBackendRegistry:
         # push channel and any diagnostics aggregator are notified
         # independently of the per-registry subscribers (mirrors the
         # asr_backend_disabled event published from _record_failure).
+        # DT-16: payload fields wrapped under the canonical ``data`` key
+        # (matching every other event_bus.publish caller) so the Rust WS
+        # reader + usePythonEvent forwarding actually surface them.
         try:
             from voice_typer.server import event_bus
 
             event_bus.publish(
                 {
                     "type": "asr_last_resort_unloaded",
-                    "backend": name,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "data": {
+                        "backend": name,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
                 }
             )
         except Exception:
@@ -538,15 +545,24 @@ class AsrBackendRegistry:
             # Publish process-wide event on event_bus so
             # the IPC push channel and diagnostics aggregator are
             # notified independently of the per-registry subscribers.
+            # DT-16: payload fields wrapped under the canonical ``data``
+            # key (matching every other event_bus.publish caller) so the
+            # Rust WS reader + usePythonEvent forwarding actually surface
+            # them. Previously the fields were emitted at the message
+            # ROOT, which the Rust reader discarded — the TS
+            # ``ASRBackendDisabledEvent`` interface declared them as
+            # required root fields but they were unreachable at runtime.
             try:
                 from voice_typer.server import event_bus
 
                 event_bus.publish(
                     {
                         "type": "asr_backend_disabled",
-                        "backend": name,
-                        "failure_count": count,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "data": {
+                            "backend": name,
+                            "failure_count": count,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
                     }
                 )
             except Exception:
@@ -556,10 +572,14 @@ class AsrBackendRegistry:
                 )
 
     def _persist_disabled(self) -> None:
-        """Persist ``_disabled_backends`` to ``config.disabled_backends`` if the field exists."""
-        # Config dataclass does NOT yet expose
-        # ``disabled_backends`` — silently skip; in-memory state still
-        # works for this run.
+        """Persist ``_disabled_backends`` to ``config.disabled_backends``.
+
+        XZ-CFG-01: ``Config`` now declares ``disabled_backends`` as a
+        real dataclass field, so this write lands on a real attribute
+        and is serialized by ``asdict(self)`` in ``Config.save()``.
+        The ``contextlib.suppress`` is retained defensively for legacy
+        Config stubs that skip ``__init__`` (and thus lack the field).
+        """
         with contextlib.suppress(AttributeError, TypeError):
             self._config.disabled_backends = sorted(self._disabled_backends)
 

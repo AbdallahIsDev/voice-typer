@@ -137,6 +137,7 @@ and continue) and is verified by
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import typing
 import weakref
@@ -144,6 +145,74 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol, runtime_checkable
 
 from voice_typer.server.log_rate_limit import log_rate_limited
+
+# ── DT-42: EVENT_TYPES registry ────────────────────────────────────
+# The docstring catalogue above lists every event the system knows about,
+# but until DT-42 the list lived ONLY in the docstring — there was no
+# Python constant. 30+ ``event_bus.publish({"type": "<name>"})`` call
+# sites used bare string literals, and the Rust WS reader
+# (``src-tauri/src/sidecar/ws.rs:62-98``) mirrored the list by hand
+# (``ALLOWED_EVENT_TYPES: &[&str]``). Drift happened twice (legacy
+# aliases documented as "REMOVED"); missed Rust-side updates silently
+# dropped events.
+#
+# This constant is the Python-side source of truth. It mirrors the
+# existing ``ERROR_CODES`` pattern in ``ipc/validation.py:98``.
+#
+# The set is a SUPERSET of the docstring catalogue: it also includes
+# events that are emitted but were never added to the docstring
+# (``llm_polish_failed``, ``asr_backend_disabled``,
+# ``asr_last_resort_unloaded``, ``error``, ``mic_level``,
+# ``device_lost``) plus the two ``IPCServer.push``-only events
+# (``state_changed``, ``status_change``) so the dev-time assertion in
+# ``publish()`` doesn't false-positive on a real call site.
+EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "ready",
+        "bubble_show",
+        "bubble_hide",
+        "bubble_level",
+        "bubble_set_state",
+        "bubble_config",
+        "transcription_final",
+        "vocabulary_suggestion",
+        "hotkey_capture_cancel",
+        "config_changed",
+        "history_changed",
+        "microphone_test_complete",
+        "microphones_changed",
+        "audio_clip",
+        "recording_started",
+        "recording_stopped",
+        "download_progress",
+        "notification",
+        "navigate",
+        "show_window",
+        "quit_app",
+        "relaunch_app",
+        "paste_failed",
+        "tray_menu",
+        "tray_state",
+        "consent_required",
+        "parakeet_cpu_fallback",
+        # IPCServer.push-only (included so assertion doesn't false-positive):
+        "state_changed",
+        "status_change",
+        # Emitted but missing from the docstring catalogue:
+        "asr_backend_disabled",
+        "asr_last_resort_unloaded",
+        "llm_polish_failed",
+        "error",
+        "mic_level",
+        "device_lost",
+    }
+)
+
+# DT-42: dev-time assertion gate. Default OFF so production is not
+# slowed and existing event_bus unit tests (which publish synthetic
+# types like ``"test"``) don't false-positive. Set
+# ``VOICE_TYPER_DEBUG_EVENTS=1`` at dev time to opt in.
+_DEBUG_EVENTS: bool = os.environ.get("VOICE_TYPER_DEBUG_EVENTS", "") == "1"
 
 
 def _subscriber_key(fn: typing.Callable[..., typing.Any]) -> str:
@@ -512,6 +581,16 @@ def publish(event: dict) -> bool:
       during iteration`` and the unsubscribed callback will not be
       re-invoked on subsequent publishes.
     """
+    # DT-42: dev-time membership check. Gated by ``_DEBUG_EVENTS`` (env
+    # var ``VOICE_TYPER_DEBUG_EVENTS=1``) so production is not slowed
+    # and the existing event_bus unit tests don't false-positive.
+    if _DEBUG_EVENTS:
+        _event_type = event.get("type")
+        assert _event_type in EVENT_TYPES, (
+            f"Unknown event type: {_event_type!r}. "
+            "Add it to EVENT_TYPES in event_bus.py AND to the Rust "
+            "ALLOWED_EVENT_TYPES allowlist in src-tauri/src/sidecar/ws.rs."
+        )
     with _lock:
         fns = list(_subscribers)
     if not fns:

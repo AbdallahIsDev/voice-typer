@@ -673,7 +673,13 @@ class CloudEngine:
                     # ``server.cloud_network_error``.
                     raise CloudNetworkError(f"{self.provider} API error") from exc
             except Exception as exc:
-                safe_msg = redact_secret(str(exc))
+                # XZ-PII-06: use the same ``redact_secret(redact_url(...))``
+                # chain as the HTTPError / URLError branches above so a
+                # generic Exception carrying a URL-embedded credential
+                # (e.g. ``https://user:pass@host/...`` echoed back in a
+                # 500 response body) is redacted the same way as the
+                # typed-network-error path.
+                safe_msg = redact_secret(redact_url(str(exc)))
                 # Include exc_info so the unexpected-exception
                 # traceback is captured for debugging.
                 log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg, exc_info=True)
@@ -811,7 +817,10 @@ class CloudEngine:
                     # ``RuntimeError``).
                     raise CloudNetworkError("Deepgram API error") from exc
             except Exception as exc:
-                safe_msg = redact_secret(str(exc))
+                # XZ-PII-06: same ``redact_secret(redact_url(...))``
+                # chain as the OpenAI-compatible path above — keeps
+                # redaction consistent across all four error branches.
+                safe_msg = redact_secret(redact_url(str(exc)))
                 # Include exc_info so the unexpected Deepgram
                 # exception traceback is captured for debugging.
                 log.error("[CLOUD] Deepgram request failed: %s", safe_msg, exc_info=True)

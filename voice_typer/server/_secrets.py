@@ -176,13 +176,23 @@ def _flag_sub(m: re.Match[str]) -> str:
 _MIN_REDACT_LEN = 20
 
 
-def redact_secret(value: object) -> str:
+def redact_secret(value: object, *, aggressive: bool = False) -> str:
     """Redact API keys and bearer tokens from a value.
 
     Parameters
     ----------
     value : object
         Any value; non-strings are stringified via ``str(value)``.
+    aggressive : bool, default False
+        YJ-48: when True, BYPASS the ``_MIN_REDACT_LEN`` short-string
+        guard so bare short secrets (e.g. a 12-char bare API key with
+        no ``Bearer``/``Token``/``--token=`` prefix) are still passed
+        through :func:`redact_api_keys`. Use this only in contexts
+        where short bare secrets are plausible (e.g. the crash
+        excepthook path that dumps arbitrary object repr() into the
+        crash marker, or an env-var audit). Default False so ordinary
+        log lines retain the short-string guard against false positives
+        on ordinary words.
 
     Returns
     -------
@@ -192,7 +202,8 @@ def redact_secret(value: object) -> str:
         ``"***"`` (for bare keys).  Short strings (under
         ``_MIN_REDACT_LEN`` characters and not matching any prefix
         pattern) are returned unchanged so ordinary error messages
-        aren't mangled.
+        aren't mangled — UNLESS ``aggressive=True`` is passed, in which
+        case the short-string guard is skipped.
 
     Notes
     -----
@@ -205,6 +216,17 @@ def redact_secret(value: object) -> str:
     ``--token abc``, ``token=abc``) are matched BEFORE the
     ``_MIN_REDACT_LEN`` short-string guard because the keyword
     constraint makes them specific enough to be safe on short inputs.
+
+    YJ-48 — known gap: a BARE short secret (e.g. a 12-char bare API
+    key with no keyword prefix) is NOT redacted when
+    ``aggressive=False``. The ``_MIN_REDACT_LEN`` guard (default 20)
+    skips generic-pattern application on short strings to avoid
+    false-positives on ordinary words (e.g. ``"helloworld"`` would
+    match the 20+ char alphanumeric run pattern but isn't a secret).
+    Callers in security-critical contexts where bare short secrets are
+    plausible SHOULD pass ``aggressive=True`` to bypass the length
+    guard. The crash-excepthook path and env-var audit are the two
+    known callers that benefit from this opt-in.
     """
     if value is None:
         return "None"
@@ -219,7 +241,13 @@ def redact_secret(value: object) -> str:
     # Early-exit for short strings: skip the more-generic patterns
     # that could false-positive on ordinary short text. The flag
     # patterns above are specific enough to have already run.
-    if len(value) < _MIN_REDACT_LEN:
+    #
+    # YJ-48: the ``aggressive`` opt-in bypasses this guard for
+    # contexts where bare short secrets are plausible (e.g. the crash
+    # excepthook path that dumps arbitrary object repr()). When
+    # ``aggressive=True``, fall through to ``redact_api_keys`` even
+    # for short inputs.
+    if not aggressive and len(value) < _MIN_REDACT_LEN:
         return redacted
     # XV-121: delegate the API-key-pattern application to the shared
     # ``redact_api_keys`` helper so the canonical "what an API-key-like
@@ -368,12 +396,42 @@ _DEFAULT_ALLOWED_HOSTS = frozenset(
 _user_extensions: set[str] = set()
 
 
+# DEAD-CODE (XZ-SEC-05 / YJ-62, 2026-07-26): ``extend_url_allowlist`` has
+# ZERO production call sites as of this run (verified by
+# ``rg --no-ignore -n 'extend_url_allowlist' voice_typer/``). The only
+# importers are tests (``tests/test_secrets.py`` and
+# ``tests/test_security_fixes.py``), which exercise the G4-M-55 audit
+# log + the host-normalization path in isolation.
+#
+# The intended production wiring is the XZ-SEC-05 fix proposal: a new
+# ``add_trusted_endpoint`` IPC command (with a paired
+# ``trusted_extra_hosts: list[str]`` config field) that would call
+# ``extend_url_allowlist`` from the IPC dispatch path. That wiring has
+# not landed. The function is RETAINED here (not deleted) because:
+#
+#   (1) The G4-M-55 audit-logging + caller-detection logic is non-
+#       trivial and would have to be re-implemented when XZ-SEC-05
+#       lands. Deleting it would lose that work and the test coverage
+#       that pins its behavior.
+#   (2) The tests still exercise the function and serve as a regression
+#       gate for the eventual production wiring.
+#
+# Future readers: do NOT assume this function is live. If you see it
+# called from production code, that means XZ-SEC-05 has landed —
+# remove this notice and the DEAD-CODE marker from the function
+# docstring.
 def extend_url_allowlist(
     hosts: Iterable[str],
     *,
     caller: str | None = None,
 ) -> None:
     """Add hostnames to the runtime URL allowlist.
+
+    DEAD-CODE (XZ-SEC-05 / YJ-62): no production callers as of
+    2026-07-26. Retained pending the XZ-SEC-05 wiring (new
+    ``add_trusted_endpoint`` IPC command + ``trusted_extra_hosts``
+    config field). See module-level DEAD-CODE notice above for
+    rationale.
 
     Hostnames are normalized to lowercase and stripped of port.
     Duplicate additions are idempotent.

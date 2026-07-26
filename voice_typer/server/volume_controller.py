@@ -37,6 +37,12 @@ from typing import TYPE_CHECKING, Any
 
 from voice_typer.server.branding import APP_NAME
 
+# DT-11: import the canonical smart-duck poll-interval default that
+# was previously duplicated as the literal `500` here and in
+# ``config.py``. ``volume_ducker._DEFAULT_SMART_DUCK_POLL_MS`` is the
+# single source of truth.
+from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS
+
 if TYPE_CHECKING:
     # TYPE_CHECKING-only import so the back-reference type-checks without
     # creating a circular import at runtime (``app.py`` imports this
@@ -103,7 +109,7 @@ class VolumeController:
             app._volume_ducker.set_smart_duck_enabled(True)
             # UX-2: poll interval is a fixed 500ms (not user-configurable).
             app._volume_ducker.set_smart_duck_poll_interval(
-                getattr(app.config, "volume_duck_smart_poll_interval_ms", 500)
+                getattr(app.config, "volume_duck_smart_poll_interval_ms", _DEFAULT_SMART_DUCK_POLL_MS)
             )
             if app._volume_ducker.initialize():
                 app._volume_ducker.duck(

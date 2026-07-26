@@ -6,7 +6,7 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 from voice_typer.server.handlers._base import HandlerBase
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.ipc.validation import ResponseEnvelope, _validate_dict_payload
 
 
 class DictationHandlersMixin(HandlerBase):
@@ -23,7 +23,7 @@ class DictationHandlersMixin(HandlerBase):
     # re-declaration needed (the duplicate block removed here was one
     # of four that the R4-F3 centralization refactor missed).
 
-    def _handle_toggle_dictation(self, data, resp) -> dict | None:
+    def _handle_toggle_dictation(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``toggle_dictation`` IPC command."""
         try:
             # IPC-3: even though ``toggle_dictation`` reads no fields
@@ -54,7 +54,7 @@ class DictationHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "toggle_dictation")
         return resp
 
-    def _handle_undo_last(self, data, resp) -> dict | None:
+    def _handle_undo_last(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``undo_last`` IPC command."""
         # UX-003: undo last transcription via backspace keystrokes
         try:
@@ -65,7 +65,9 @@ class DictationHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "undo_last")
         return resp
 
-    def _handle_force_cancel_transcription(self, data, resp) -> dict | None:
+    def _handle_force_cancel_transcription(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``force_cancel_transcription`` IPC command (PR-2 Finding #3).
 
         Calls ``service.force_cancel_transcription()`` which invokes

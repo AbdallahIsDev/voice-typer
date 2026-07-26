@@ -33,6 +33,7 @@ controlled redirect target).
 
 from __future__ import annotations
 
+import http.client
 import logging
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -135,19 +136,19 @@ class _HttpsOnlyHTTPHandler(HTTPHandler):
 
     _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
-    def http_open(self, req: Request) -> object:  # type: ignore[override]
-        # YJ-FIX-B2 (Issue 2f): the override suppression marker above
-        # is load-bearing. The parent ``HTTPHandler.http_open`` returns
-        # ``HTTPResponse``; ``object`` is a supertype, not a valid
-        # covariant override (return types are covariant, so a subtype
-        # can return a MORE specific type, not a less specific one).
-        # At runtime this is fine — the override delegates to
-        # ``super().http_open(req)`` for loopback hosts (returning an
-        # ``HTTPResponse``) and raises ``URLError`` for non-loopback
-        # (no return value escapes the function). The ``object`` return
-        # annotation is preserved so callers don't couple to the
-        # concrete ``HTTPResponse`` type; the suppression marker
-        # silences pyrefly's invalid-override diagnostic.
+    def http_open(self, req: Request) -> http.client.HTTPResponse:
+        # YJ-26: the return type now matches the parent
+        # ``HTTPHandler.http_open`` signature exactly (per typeshed:
+        # ``http.client.HTTPResponse``). Previously this override was
+        # annotated ``-> object`` with a ``# type: ignore[override]``
+        # suppression marker because ``object`` is a *supertype* of
+        # ``HTTPResponse`` and return-type covariance forbids widening
+        # the return type in a subclass override. The body either
+        # delegates to ``super().http_open(req)`` (returning an
+        # ``HTTPResponse`` for loopback hosts) or raises ``URLError``
+        # for non-loopback hosts (no value escapes the function), so
+        # ``http.client.HTTPResponse`` is the precise return type and
+        # no suppression is required.
         # Determine the host from the request URL. ``req.full_url`` is
         # the full URL the caller passed to ``opener.open(url, ...)``.
         try:

@@ -29,12 +29,6 @@ from typing import Any, Protocol, runtime_checkable
 # duration of the function.
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.asr_errors import ConsentRequiredError
-
-np = lazy_module("numpy")
-
-# EC-FIX-8: shared ASR helpers now live in ``asr_utils`` (canonical source).
-# The re-exports below preserve backward compatibility with tests and
-# service.py that import these names from ``transcription``.
 from voice_typer.server.asr_utils import (  # noqa: F401
     _check_disk_space_for_download,
     _download_with_retry,
@@ -43,6 +37,12 @@ from voice_typer.server.asr_utils import (  # noqa: F401
 )
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 from voice_typer.server.platform_utils import is_windows
+
+np = lazy_module("numpy")
+
+# EC-FIX-8: shared ASR helpers now live in ``asr_utils`` (canonical source).
+# The re-exports below preserve backward compatibility with tests and
+# service.py that import these names from ``transcription``.
 
 log = logging.getLogger(__name__)
 
@@ -874,12 +874,51 @@ class TranscriptionEngine:
                 no_speech_probs.append(float(no_speech_prob))
             if seg.text.strip():
                 text_parts.append(seg.text.strip())
-                log.debug(
-                    "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
-                    start,
-                    end,
-                    seg.text.strip(),
+                # SEC-009 / XS-20: gate the per-segment DEBUG log by
+                # ``log_transcriptions`` and apply ``redact_pii`` when
+                # enabled. Pre-fix, raw segment text was logged whenever
+                # DEBUG logging was active (e.g. in diagnostics zips,
+                # dev runs, or when a user files a bug report with
+                # verbose logs) — leaking any PII the user dictated
+                # (medical/financial/address/name content) even though
+                # the operator had not opted into transcription logging.
+                # When ``log_transcriptions`` is False (the default), we
+                # log only the segment char count + timestamps — no text
+                # content. When True, we apply ``redact_pii`` (the same
+                # canonical helper used by ``hallucination.py`` /
+                # ``llm_polish.py`` / ``crash_handler``) so the four
+                # documented PII patterns (email/phone/SSN/CC) are
+                # masked before the segment text hits the log file.
+                _seg_text = seg.text.strip()
+                _log_transcriptions_flag = (
+                    self.config is not None
+                    and getattr(self.config, "log_transcriptions", False)
                 )
+                if _log_transcriptions_flag:
+                    try:
+                        from voice_typer.server.security import redact_pii
+
+                        _safe_seg_text = redact_pii(_seg_text)
+                    except Exception:
+                        # PVT-G5-091: fall back to truncation only if the
+                        # redaction engine itself errors (defensive — the
+                        # redact_pii helper has its own try/except but a
+                        # import failure / regex bug should not crash the
+                        # transcription hot path).
+                        _safe_seg_text = _seg_text[:80]
+                    log.debug(
+                        "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
+                        start,
+                        end,
+                        _safe_seg_text,
+                    )
+                else:
+                    log.debug(
+                        "[TRANSCRIBE] Segment: [%d chars @ %.1fs - %.1fs]",
+                        len(_seg_text),
+                        start,
+                        end,
+                    )
 
         log.info(
             "[TRANSCRIBE] VAD result: language=%s (prob=%.2f), "

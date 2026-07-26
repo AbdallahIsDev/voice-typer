@@ -576,9 +576,14 @@ class ParakeetEngine:
                     except Exception as cuda_exc:
                         err_str = str(cuda_exc).lower()
                         if effective_device == "cuda" and ("1455" in err_str or "paging file" in err_str):
+                            # S5-CR-41: include exc_info=True so the CUDA
+                            # allocation traceback is captured for debugging
+                            # (previously the ``%s`` interpolation lost the
+                            # traceback, leaving only the exception's str()).
                             log.warning(
                                 "[PARAKEET] CUDA allocation failed (pagefile), retrying on CPU: %s",
                                 cuda_exc,
+                                exc_info=True,
                             )
                             if progress_callback:
                                 progress_callback("CUDA memory error, retrying on CPU...")
@@ -816,10 +821,14 @@ class ParakeetEngine:
             except Exception as exc:
                 err_str = str(exc).lower()
                 if "out of memory" in err_str or ("cuda" in err_str and "allocat" in err_str):
+                    # S5-CR-41: include exc_info=True so the OOM
+                    # traceback is captured for debugging (previously
+                    # the ``%s`` interpolation lost the traceback).
                     log.warning(
                         "[PARAKEET] Batched inference OOM on batch of %d chunks — falling back to sequential: %s",
                         len(batch),
                         exc,
+                        exc_info=True,
                     )
                     for chunk in batch:
                         text = self._transcribe_segment(chunk)

@@ -1,6 +1,7 @@
 """Core helpers for hidden streaming transcription."""
 
 import collections
+import contextlib
 import logging
 import math
 import threading
@@ -10,6 +11,32 @@ from dataclasses import dataclass, field
 import numpy as np
 
 log = logging.getLogger(__name__)
+
+
+def _secure_clear_audio(arr: np.ndarray | None) -> None:
+    """SEC-audit-008 / XZ-PRIV-02: zero a numpy audio array in-place.
+
+    Streaming transcription creates short-lived ``AudioWindow`` views into
+    the recorder snapshot array (see ``AudioWindowPlanner.next_window``).
+    After transcription, those buffers can contain sensitive voice data
+    (PII, biometric identifiers) and previously lingered in process memory
+    until the next GC pass freed the underlying numpy block.  This helper
+    mirrors ``voice_typer.server.recording._secure_clear_array`` (the batch
+    path used by ``dictation_pipeline.py:345``) so the streaming path
+    applies the same secure-clear guarantee.
+
+    Best-effort: array views whose base array is shared with another live
+    reference (e.g. the recorder's snapshot) cannot be safely zeroed
+    without invalidating the other consumer.  Callers therefore pass the
+    *window-local* snapshot only after the window has been consumed, and
+    the recorder hands out a fresh array per snapshot so no shared base
+    remains.
+    """
+    if arr is None:
+        return
+    with contextlib.suppress(Exception):
+        if isinstance(arr, np.ndarray) and arr.size > 0:
+            arr.fill(0)
 
 
 @dataclass(frozen=True)
@@ -349,19 +376,22 @@ class StreamingTextAssembler:
             # Peek the leftmost item; deque.append will evict it.
             evicted_word = self._words[0]
             evicted_absolute_idx = self._base_offset  # current offset → 0 in deque
-            # CR-74: do NOT log evicted_word.word here — that leaks user
-            # speech content into the warning log (which is shown by
-            # default). Log only the structural fact (max + index). The
-            # actual word is preserved at log.debug level for developers
-            # diagnosing eviction storms.
+            # CR-74 / DE-57: do NOT log evicted_word.word at any level —
+            # that leaks user speech content into persistent log files
+            # (the WARNING log is shown by default; the DEBUG log fires
+            # whenever a support workflow bumps the root logger to DEBUG,
+            # which is common for support tickets). Log only the
+            # structural fact (max + index) at WARNING, plus a PII-safe
+            # char-count metric at DEBUG so developers can still
+            # diagnose eviction storms without seeing the user's speech.
             log.warning(
                 "[STREAMING] Word list exceeded %d entries; evicted oldest (idx=%d)",
                 self._MAX_WORDS,
                 evicted_absolute_idx,
             )
             log.debug(
-                "[STREAMING] Evicted word content (debug only): %r",
-                evicted_word.word,
+                "[STREAMING] Evicted word (%d chars) (debug only)",
+                len(evicted_word.word),
             )
             # Bump base offset so all future absolute-index → deque-index
             # conversions account for the eviction.
@@ -592,6 +622,13 @@ class StreamingTranscriptionSession:
         if self._fallback_required:
             return False
 
+        # XZ-PRIV-02: hold a reference to the snapshot + window so we can
+        # zero them in the ``finally`` block below even when an exception
+        # fires mid-transcription.  Without this, the audio buffers would
+        # linger in process memory until the next GC pass (SEC-audit-008
+        # regression in the streaming path).
+        audio: np.ndarray | None = None
+        window: AudioWindow | None = None
         try:
             audio = self.recorder.snapshot()
             window = self.planner.next_window(audio, self.sample_rate)
@@ -623,6 +660,21 @@ class StreamingTranscriptionSession:
                 )
                 self._fallback_required = True
             return False
+        finally:
+            # XZ-PRIV-02 / SEC-audit-008: zero the per-window audio
+            # buffers now that transcription has consumed them.  The
+            # batch path (``dictation_pipeline.py:345``) has always done
+            # this; the streaming path was leaving the snapshot + window
+            # views in process memory until the next GC pass.  Both
+            # ``audio`` (the recorder snapshot) and ``window.audio``
+            # (a view into ``audio``) point at the same underlying numpy
+            # buffer, so zeroing ``audio`` covers both.  We zero in
+            # ``finally`` so the guarantee holds even when the chunk
+            # transcribe raises (the previous attempt's audio must not
+            # leak either).
+            _secure_clear_audio(audio)
+            if window is not None:
+                _secure_clear_audio(window.audio)
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:
         # H16: Snapshot assembler state under lock at the beginning
@@ -630,6 +682,28 @@ class StreamingTranscriptionSession:
             snapshot_committed_text = self.assembler.committed_text
             snapshot_last_committed_time = self.assembler.last_committed_time
 
+        # XZ-PRIV-02 / SEC-audit-008: zero ``full_audio`` once we no
+        # longer need it.  We capture the caller's array reference up
+        # front, drive all the existing tail-merge / batch-fallback
+        # paths, and zero the buffer in a ``finally`` so the guarantee
+        # holds regardless of which return branch fires.  Mirrors
+        # ``dictation_pipeline.py:337-346``'s ``self._audio.fill(0)``
+        # pattern.
+        try:
+            return self._finalize_impl_inner(
+                full_audio,
+                snapshot_committed_text,
+                snapshot_last_committed_time,
+            )
+        finally:
+            _secure_clear_audio(full_audio)
+
+    def _finalize_impl_inner(
+        self,
+        full_audio: np.ndarray,
+        snapshot_committed_text: str,
+        snapshot_last_committed_time: float,
+    ) -> str:
         if not snapshot_committed_text:
             # G4-H-18: forward the optional local_engine (cloud→local
             # fallback) wired at session construction time.

@@ -314,15 +314,36 @@ class DictationPipeline:
 
         except Exception as e:
             log.exception("[TRANSCRIBE] Transcription FAILED (cycle=%s)", self._cycle_id)
-            # NEW-BUBBLE-TRANSCRIBING: Hide the bubble on transcription failure
-            # so the overlay doesn't stay stuck showing "Transcribing…".
+            # XA-6-3 / XA-6-19: surface the failure in the bubble instead
+            # of immediately hiding it. The bubble has an `error` mode that
+            # renders a red "⚠ Error" pill plus a retry affordance
+            # (XA-6-13). Previously the failure path called `set_state("idle")`
+            # or `hide()`, which masked the symptom from the user -- the only
+            # signal was the tray icon flipping to ERROR, which the user
+            # often does not see (tray is collapsed / on another monitor).
+            #
+            # We keep the bubble visible in `error` mode for a bounded
+            # window (3s, matching the tray ERROR->IDLE timer below) so the
+            # user actually sees the failure, then fall back to the
+            # always_visible / hide() path so the bubble doesn't stay red
+            # forever. The error->idle transition is scheduled on the same
+            # `_schedule_timer` facility used by the tray ERROR->IDLE
+            # transition so they stay in sync.
             try:
-                if self._app.config.bubble_behavior == "always_visible":
-                    self._app._waveform_bubble.set_state("idle")
-                else:
-                    self._app._waveform_bubble.hide()
+                self._app._waveform_bubble.set_state("error")
+
+                def _bubble_error_to_idle() -> None:
+                    try:
+                        if self._app.config.bubble_behavior == "always_visible":
+                            self._app._waveform_bubble.set_state("idle")
+                        else:
+                            self._app._waveform_bubble.hide()
+                    except Exception:
+                        log.debug("[PIPELINE] bubble error->idle transition failed", exc_info=True)
+
+                self._app._schedule_timer(3.0, _bubble_error_to_idle)
             except Exception:
-                log.debug("[PIPELINE] bubble hide on error failed", exc_info=True)
+                log.debug("[PIPELINE] bubble set_state('error') on failure failed", exc_info=True)
             self._app.tray.set_state(AppState.ERROR, "Transcription failed")
             # ERR-005: do NOT leak raw exception text into tray
             # notifications — ctranslate2 / torch errors often contain
@@ -899,7 +920,15 @@ class DictationPipeline:
                     )
                 text = self._app._llm_polisher.polish(text)
             except Exception as exc:
-                log.warning("[LLM_POLISH] Polish failed: %s", exc)
+                # XZ-PII-05: redact the exception message before
+                # logging. LLM API errors can echo the request URL +
+                # Authorization header (which carries the API key) back
+                # in their body; ``redact_secret`` masks ``Bearer …`` /
+                # ``sk-…`` / 20+ char bare tokens so the log line is
+                # safe to surface in the tray / log file.
+                from voice_typer.server._secrets import redact_secret
+
+                log.warning("[LLM_POLISH] Polish failed: %s", redact_secret(str(exc)))
         elif (
             self._app.config.llm_polish
             and effective_llm_key

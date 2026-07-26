@@ -362,21 +362,6 @@ class _RateLimiter:
         """
         return self._rejected
 
-    def reject(self) -> None:
-        """No-op kept for backward compatibility.
-
-        SEC-6: the counter is now incremented atomically inside
-        :meth:`allow` when it returns ``False``. The separate
-        ``reject()`` call from the caller was dropped to eliminate the
-        benign race where two threads could both observe the same
-        deque state, both decide to reject, and double-count the
-        rejection. This method is retained (as a no-op) so existing
-        callers (and the WS path's source-level string check in
-        ``test_sidecar_ws_calls_rate_limiter_allow_per_frame``) don't
-        have to change in lockstep.
-        """
-        return None
-
 
 # ── CR-11: per-process rate limiter ──────────────────────────────────────
 #

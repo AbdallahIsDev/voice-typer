@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import os
 import traceback
+import typing
 from typing import Any
 
 from voice_typer.server._secrets import redact_secret
@@ -356,13 +357,50 @@ class HandlerBase(HandlerMixinBase):
             "code": code,
             "message": message,
         }
-        # No ``cast`` — ``resp`` is the same ``dict`` instance the
-        # caller passed in, mutated in place to match the
-        # :class:`ErrorEnvelope` shape (``type="error"`` + ``data``
-        # with ``code`` / ``message``). The TypedDict contract is
-        # documented at construction sites via the
-        # ``# ErrorEnvelope contract — see validation.py`` comments.
         return resp
+
+    # ── DT-45: template-method helper for handler consistency ────
+    # The 14 handler mixins are inconsistent in (a) try/except usage,
+    # (b) pre-coercion of ``data``, (c) error envelope shape. The
+    # mechanical fix would convert each of the 60+ ``_handle_<cmd>``
+    # methods to one-liners delegating to ``_wrap``. Deferred because:
+    #   - each handler has its own response ``type`` field
+    #   - many handlers have custom pre-coercion beyond ``None → {}``
+    #   - some handlers intentionally don't wrap in try/except
+    #   - tests assert on exact envelope shape per handler
+    # The SAFE incremental step: define ``_wrap`` so NEW handlers can
+    # opt in. Existing handlers continue to work as before. Migration
+    # pattern: ``return self._wrap(cmd_name=..., resp_type=..., data=data,
+    # resp=resp, body=lambda d: {"data": ...})``.
+    def _wrap(
+        self,
+        *,
+        cmd_name: str,
+        resp_type: str,
+        data: object,
+        resp: dict,
+        body: typing.Callable[[dict], dict],
+    ) -> dict:
+        """Template-method helper for consistent IPC handler structure.
+
+        Pre-coerces ``data`` (``None`` → ``{}``), calls ``body``, merges
+        the result into ``resp``, wraps in try/except →
+        :meth:`_respond_with_error`. Per-command VALIDATION errors are
+        NOT routed here — ``body`` should return them directly via
+        ``self._error_response(...)``.
+        """
+        resp["type"] = resp_type
+        try:
+            coerced = data if isinstance(data, dict) else {}
+            result = body(coerced)
+            if isinstance(result, dict):
+                if "type" in result:
+                    resp["type"] = result["type"]
+                if "data" in result:
+                    resp["data"] = result["data"]
+            return resp
+        except Exception as exc:
+            return self._respond_with_error(resp, exc, cmd_name)
 
 
 __all__ = ["HandlerBase", "HandlerMixinBase", "_scrub_traceback", "log"]

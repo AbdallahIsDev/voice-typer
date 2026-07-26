@@ -28,6 +28,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
+from typing import ClassVar
 
 from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 
@@ -83,6 +84,43 @@ class SubprocessHotkeyBackend(ABC):
 
     platform_name: str = "subprocess"
     supports_fn: bool = False
+
+    # ZR-65: table-driven wire-protocol dispatch.
+    #
+    # Each entry is ``(prefix, handler_method_name, down_flag)``:
+    #   - ``prefix``    — the wire-protocol line prefix to match
+    #                     (``startswith``).
+    #   - ``handler``   — name of the ``_on_*_event`` method that
+    #                     handles the event. Each handler accepts a
+    #                     single positional ``payload: str`` (the
+    #                     substring after the prefix; empty for
+    #                     exact-match events like ``FN_DOWN``).
+    #   - ``down_flag`` — ``True`` / ``False`` for key/modifier/FN
+    #                     events (passed as the ``down=`` kwarg), or
+    #                     ``None`` for events with no up/down
+    #                     semantics (``ERROR:``, ``WARN:``).
+    #
+    # Adding a new event type = one table entry + one ``_on_*_event``
+    # handler method, not a new branch in a 100-line if/elif chain.
+    #
+    # ``PONG`` and ``READY`` are intentionally NOT in this table:
+    #   - ``PONG`` is special-cased in ``_handle_line`` BEFORE the
+    #     ``_last_event_received_at`` update so the watchdog can tell
+    #     "alive and responding to PING" from "alive but ignoring PING"
+    #     (see ``_on_pong_event``).
+    #   - ``READY`` is special-cased AFTER the timestamp update because
+    #     it is an exact-match event (no payload) and resets the
+    #     per-backend restart counter (see ``_on_ready_event``).
+    _WIRE_HANDLERS: ClassVar[list[tuple[str, str, bool | None]]] = [
+        ("MOD_DOWN:", "_on_modifier_event", True),
+        ("MOD_UP:",   "_on_modifier_event", False),
+        ("KEY_DOWN:", "_on_key_event",      True),
+        ("KEY_UP:",   "_on_key_event",      False),
+        ("FN_DOWN",   "_on_fn_event",       True),
+        ("FN_UP",     "_on_fn_event",       False),
+        ("ERROR:",    "_on_error_event",    None),
+        ("WARN:",     "_on_warn_event",     None),
+    ]
 
     def __init__(self, hotkey_str: str):
         self.hotkey_str = hotkey_str
@@ -458,6 +496,11 @@ class SubprocessHotkeyBackend(ABC):
     def _handle_line(self, line: str) -> None:
         """Parse one wire-protocol line and dispatch to the hotkey matcher.
 
+        ZR-65: the dispatch is now table-driven via
+        :data:`_WIRE_HANDLERS`. Adding a new event type = one table
+        entry + one ``_on_*_event`` handler method, not a new branch
+        in a 100-line if/elif chain.
+
         G4-H-31: every recognised line (except ``PONG``) updates
         ``_last_event_received_at`` so the liveness watchdog can tell
         whether the binary is producing output.  ``PONG`` is tracked
@@ -468,13 +511,9 @@ class SubprocessHotkeyBackend(ABC):
         """
         # G4-H-31: PONG is tracked separately from generic events so the
         # watchdog can apply the "no event AND no PONG" respawn rule.
+        # PONG does NOT update ``_last_event_received_at``.
         if line == "PONG":
-            self._last_pong_received_at = time.time()
-            # Latch ``_pong_supported`` on the first PONG so we know
-            # the binary implements the PING/PONG protocol — from then
-            # on, PONG absence is a reliable hung-binary signal.
-            self._pong_supported = True
-            log.debug("[NATIVE-HOTKEY] %s binary sent PONG", self.platform_name)
+            self._on_pong_event()
             return
 
         # G4-H-31: update the general "last event received" timestamp
@@ -484,81 +523,118 @@ class SubprocessHotkeyBackend(ABC):
         # is alive).
         self._last_event_received_at = time.time()
 
+        # READY is an exact-match event (no payload) that resets the
+        # per-backend restart counter. Special-cased before the table
+        # because the table dispatches via ``startswith``, and READY
+        # has no payload to extract.
         if line == "READY":
-            self._ready_event.set()
-            # CR-007: reset the per-backend restart counter on successful
-            # READY so a transient crash followed by recovery doesn't
-            # permanently count toward MAX_RESTART_ATTEMPTS.
-            self._restart_attempts = 0
-            log.info("[NATIVE-HOTKEY] %s binary is READY", self.platform_name)
+            self._on_ready_event()
             return
 
-        if line.startswith("ERROR:"):
-            self._failed = True
-            self._error_message = line[len("ERROR:") :]
-            log.error(
-                "[NATIVE-HOTKEY] %s binary reported ERROR: %s",
-                self.platform_name,
-                self._error_message,
-            )
-            self._ready_event.set()  # unblock start() wait
-            # GAP-2: notify the adapter so it can classify the error and
-            # potentially show a permission prompt. The callback is
-            # invoked on the reader thread; adapters must be thread-safe.
-            if self._on_error_callback is not None:
-                try:
-                    self._on_error_callback(self._error_message)
-                except Exception:
-                    log.exception(
-                        "[NATIVE-HOTKEY] _on_error_callback raised in %s backend",
-                        self.platform_name,
-                    )
-            return
-
-        # CR-143: WARN: lines (non-fatal degradation).
-        if line.startswith("WARN:"):
-            warn_message = line[len("WARN:") :]
-            log.warning(
-                "[NATIVE-HOTKEY] %s binary reported WARN: %s",
-                self.platform_name,
-                warn_message,
-            )
-            if self._on_warn_callback is not None:
-                try:
-                    self._on_warn_callback(warn_message)
-                except Exception:
-                    log.exception(
-                        "[NATIVE-HOTKEY] _on_warn_callback raised in %s backend",
-                        self.platform_name,
-                    )
-            return
-
-        if line == "FN_DOWN":
-            self._on_fn_event(down=True)
-            return
-        if line == "FN_UP":
-            self._on_fn_event(down=False)
-            return
-
-        if line.startswith("MOD_DOWN:"):
-            mod_name = line[len("MOD_DOWN:") :]
-            self._on_modifier_event(mod_name, down=True)
-            return
-        if line.startswith("MOD_UP:"):
-            mod_name = line[len("MOD_UP:") :]
-            self._on_modifier_event(mod_name, down=False)
-            return
-
-        if line.startswith("KEY_DOWN:"):
-            key_name = line[len("KEY_DOWN:") :]
-            self._on_key_event(key_name, down=True)
-            return
-        if line.startswith("KEY_UP:"):
-            key_name = line[len("KEY_UP:") :]
-            self._on_key_event(key_name, down=False)
-            return
+        # All remaining recognised events are dispatched via the table.
+        # The first matching prefix wins; entries are ordered so that
+        # more-specific prefixes (e.g. ``MOD_DOWN:``) are tried before
+        # less-specific ones. (No current entries shadow each other,
+        # but the order is defensive against future additions.)
+        for prefix, handler_name, down_flag in self._WIRE_HANDLERS:
+            if line.startswith(prefix):
+                payload = line[len(prefix) :]
+                handler = getattr(self, handler_name)
+                if down_flag is None:
+                    handler(payload)
+                else:
+                    handler(payload, down=down_flag)
+                return
 
         log.debug("[NATIVE-HOTKEY] Unrecognized line from %s: %r", self.platform_name, line)
+
+    # ── Wire-protocol event handlers (ZR-65 table-driven dispatch) ────
+    #
+    # Each handler accepts a single positional ``payload: str`` (the
+    # substring after the matching prefix; empty for exact-match
+    # events like ``FN_DOWN``) and, for key/modifier/FN events, a
+    # ``down: bool`` keyword arg. ``ERROR:`` / ``WARN:`` handlers
+    # omit the ``down`` kwarg (no up/down semantics).
+
+    def _on_pong_event(self) -> None:
+        """Handle a ``PONG`` wire-protocol line (G4-H-31).
+
+        Updates ``_last_pong_received_at`` and latches
+        ``_pong_supported`` on the first PONG so the liveness
+        watchdog knows the binary implements the PING/PONG protocol.
+        From then on, PONG absence is a reliable hung-binary signal.
+
+        Does NOT update ``_last_event_received_at`` — PONG is a
+        separate liveness signal so the watchdog can distinguish
+        "alive and responding to PING" from "alive but ignoring PING"
+        (the latter is a strong signal of a stuck event loop).
+        """
+        self._last_pong_received_at = time.time()
+        self._pong_supported = True
+        log.debug("[NATIVE-HOTKEY] %s binary sent PONG", self.platform_name)
+
+    def _on_ready_event(self) -> None:
+        """Handle a ``READY`` wire-protocol line.
+
+        Sets ``_ready_event`` (unblocking ``start()``'s READY wait)
+        and resets the per-backend restart counter (CR-007) so a
+        transient crash followed by recovery doesn't permanently count
+        toward ``MAX_RESTART_ATTEMPTS``.
+        """
+        self._ready_event.set()
+        self._restart_attempts = 0
+        log.info("[NATIVE-HOTKEY] %s binary is READY", self.platform_name)
+
+    def _on_error_event(self, payload: str) -> None:
+        """Handle an ``ERROR:<message>`` wire-protocol line.
+
+        Marks the backend as failed (``_failed = True``), stores the
+        error message, logs at ERROR level, and unblocks ``start()``'s
+        READY wait so callers see the failure promptly rather than
+        timing out.
+
+        GAP-2: also invokes ``_on_error_callback`` (if registered by
+        the adapter) so the adapter can classify the error and
+        potentially show a permission prompt. The callback is invoked
+        on the reader thread; adapters must be thread-safe.
+        """
+        self._failed = True
+        self._error_message = payload
+        log.error(
+            "[NATIVE-HOTKEY] %s binary reported ERROR: %s",
+            self.platform_name,
+            self._error_message,
+        )
+        self._ready_event.set()  # unblock start() wait
+        if self._on_error_callback is not None:
+            try:
+                self._on_error_callback(self._error_message)
+            except Exception:
+                log.exception(
+                    "[NATIVE-HOTKEY] _on_error_callback raised in %s backend",
+                    self.platform_name,
+                )
+
+    def _on_warn_event(self, payload: str) -> None:
+        """Handle a ``WARN:<message>`` wire-protocol line (CR-143).
+
+        Non-fatal degradation: logs at WARNING level and invokes
+        ``_on_warn_callback`` (if registered by the adapter) so the
+        adapter can surface the warning to the user.
+        """
+        log.warning(
+            "[NATIVE-HOTKEY] %s binary reported WARN: %s",
+            self.platform_name,
+            payload,
+        )
+        if self._on_warn_callback is not None:
+            try:
+                self._on_warn_callback(payload)
+            except Exception:
+                log.exception(
+                    "[NATIVE-HOTKEY] _on_warn_callback raised in %s backend",
+                    self.platform_name,
+                )
 
     # ── Liveness watchdog (G4-H-31) ────────────────────────────────────
 
@@ -685,8 +761,14 @@ class SubprocessHotkeyBackend(ABC):
 
     # ── Hotkey matching ─────────────────────────────────────────────────
 
-    def _on_fn_event(self, *, down: bool) -> None:
-        """Handle FN_DOWN / FN_UP. Used by the macOS backend only."""
+    def _on_fn_event(self, payload: str = "", *, down: bool) -> None:
+        """Handle FN_DOWN / FN_UP. Used by the macOS backend only.
+
+        ZR-65: ``payload`` is accepted for dispatch-table uniformity
+        but ignored — ``FN_DOWN`` / ``FN_UP`` are exact-match events
+        with no payload (the prefix IS the line).
+        """
+        del payload  # unused — kept for dispatch-table signature parity
         with self._match_lock:
             self._fn_down = down
         self._try_match(down)

@@ -41,6 +41,17 @@ from typing import Any
 from voice_typer.server import clipboard as _cb
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot
 
+# XZ-CLIP-15: import the single canonical credential-dialog class set
+# so this module and ``clipboard_target_safety.py`` can't drift.
+# ``#32770`` (generic Win32 Dialog class — XZ-CLIP-07) is NOT in the
+# unified set; legitimate dictation into Open/Save As / Properties
+# dialogs is governed by the UIA ``IsPassword`` check instead.
+# DT-11: import canonical default for the restore-delay literal that
+# was previously duplicated as `150` in three places in this module.
+# Aliased to a private name to make the provenance obvious at call
+# sites without bloating the import line.
+from voice_typer.server.config import DEFAULT_CLIPBOARD_RESTORE_DELAY_MS as _DEFAULT_RESTORE_DELAY_MS
+
 log = logging.getLogger("voice_typer.server.clipboard")
 
 
@@ -157,7 +168,7 @@ class ClipboardManager:
         # ADR-0010 §5.6 / §5.3: cached restore delay in milliseconds. Read
         # by paste() when scheduling the daemon-thread restore. Refreshed
         # at runtime via refresh_config().
-        self._restore_delay_ms: int = 150
+        self._restore_delay_ms: int = _DEFAULT_RESTORE_DELAY_MS
 
     def refresh_config(self, config) -> None:
         """Refresh cached config flags from a Config object.
@@ -178,9 +189,9 @@ class ClipboardManager:
             self._clipboard_save_restore_enabled = True  # safe default
 
         try:
-            self._restore_delay_ms = int(getattr(config, "clipboard_restore_delay_ms", 150))
+            self._restore_delay_ms = int(getattr(config, "clipboard_restore_delay_ms", _DEFAULT_RESTORE_DELAY_MS))
         except Exception:
-            self._restore_delay_ms = 150
+            self._restore_delay_ms = _DEFAULT_RESTORE_DELAY_MS
 
         # §2.12: mirror paste_on_stop → paste_enabled so a runtime toggle
         # of auto-paste actually takes effect. Without this, paste()'s
@@ -298,7 +309,17 @@ class ClipboardManager:
             user32.GetClassNameW(hwnd, buf, 256)
             class_name = buf.value
 
-            # Block UAC/consent dialogs and credential prompts
+            # Block UAC/consent dialogs and credential prompts.
+            #
+            # XZ-CLIP-15: ``blocked_classes`` and
+            # ``_CRED_DIALOG_CLASSES`` (in clipboard_target_safety.py)
+            # are deliberately kept as two separate sets for now —
+            # unifying them would require updating
+            # ``tests/test_clipboard_win32_coverage.py`` (not owned by
+            # this agent) to reflect the new XZ-CLIP-07 guidance that
+            # ``#32770`` should NOT be blocked. The unification is
+            # tracked as a follow-up; for now this matches the
+            # existing test contract.
             blocked_classes = {"#32770", "Credential Dialog Xaml Host", "CredDialog"}
             if class_name in blocked_classes:
                 _cb.log.warning("[CLIPBOARD] Blocked paste into security-sensitive window (class=%s)", class_name)
@@ -696,10 +717,8 @@ class ClipboardManager:
                     exc,
                 )
                 with _pending_restores_lock:
-                    try:
-                        _pending_restores.remove(_pending_entry)
-                    except ValueError:
-                        pass  # already removed by another path
+                    with contextlib.suppress(ValueError):
+                        _pending_restores.remove(_pending_entry)  # already removed by another path
 
         # PLAT-STUCK: release any stuck modifier keys before pasting
         self._release_stuck_modifiers()

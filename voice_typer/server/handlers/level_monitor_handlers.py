@@ -5,7 +5,8 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.asr_errors import ConsentRequiredError
+from voice_typer.server.handlers._base import HandlerBase, log
 from voice_typer.server.ipc.validation import _validate_dict_payload
 
 
@@ -15,11 +16,50 @@ class LevelMonitorHandlersMixin(HandlerBase):
     CR-20: this mixin's ``except Exception`` catch-alls call
     :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
     no ``str(e)`` leak).
+
+    XZ-PRIV-03: ``_handle_level_monitor_start`` enforces
+    ``voice_biometric_consent`` BEFORE opening the continuous-monitor
+    InputStream. The level monitor captures audio chunks at the device
+    native rate (16k–48k samples/sec) and runs them through the filter
+    chain + RMS/peak computation. Even though the IPC response carries
+    only numerical dBFS values (not raw audio), the act of opening the
+    InputStream is itself a biometric-data capture under GDPR Art. 9 —
+    the audio is processed in memory and could be observed via a
+    debugger or compromised process. Enforcing consent at the IPC entry
+    point matches the dictation path (recording_controller.py:248-263)
+    and the mic-test path (microphone_test_handlers.py).
     """
 
     def _handle_level_monitor_start(self, data, resp) -> dict | None:
         """Handle the ``level_monitor_start`` IPC command."""
         try:
+            # XZ-PRIV-03: enforce voice_biometric_consent BEFORE
+            # opening the InputStream. The monitor captures audio
+            # continuously; even though only dBFS values are returned
+            # over IPC, the audio is processed in memory and the
+            # capture itself requires biometric consent under GDPR
+            # Art. 9. Matches dictation (recording_controller.py:248)
+            # and mic-test (microphone_test_handlers.py) gating.
+            #
+            # Fail-open policy: if the config read itself raises
+            # (e.g. config file locked / corrupted), we log and
+            # continue rather than lock the user out of the level
+            # monitor. Matches recording_controller.py:264-268.
+            try:
+                if not getattr(self.app.config, "voice_biometric_consent", False):
+                    raise ConsentRequiredError(
+                        "voice biometric consent required to start level monitor",
+                        engine_name="level_monitor",
+                        consent_field="voice_biometric_consent",
+                    )
+            except ConsentRequiredError:
+                raise
+            except Exception:
+                log.exception(
+                    "[IPC] level_monitor_start: failed to read "
+                    "voice_biometric_consent — failing open"
+                )
+
             # IPC-3: validate ``mic_id`` type via the shared
             # ``_validate_dict_payload`` helper. Non-dict ``data`` is
             # pre-coerced to ``{}`` so the

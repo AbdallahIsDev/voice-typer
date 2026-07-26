@@ -468,8 +468,23 @@ def reset_onboarding_complete(
             try:
                 cfg = getattr(app, "config", None)
                 if cfg is not None and getattr(cfg, "onboarding_completed", False):
-                    cfg.onboarding_completed = False
-                    cfg.save_strict()
+                    # Acquire the app's config-mutation lock around the
+                    # read-modify-save cycle to prevent racing a concurrent
+                    # ``set_config`` IPC handler. ``Config.save_strict()`` does
+                    # NOT acquire ``app._config_mutation_lock`` on its own
+                    # (``Config._mutation_lock`` is only wired up via an
+                    # explicit ``set_mutation_lock()`` call, which is never
+                    # invoked — see ADR-0008-§3.1 for the locking contract).
+                    # ``RLock`` reentrancy makes this safe even if an IPC
+                    # handler already holding the lock delegates here.
+                    lock = getattr(app, "_config_mutation_lock", None)
+                    if lock is not None:
+                        with lock:
+                            cfg.onboarding_completed = False
+                            cfg.save_strict()
+                    else:
+                        cfg.onboarding_completed = False
+                        cfg.save_strict()
                     log.info("[ONBOARDING] Cleared onboarding_completed flag in config.json (via app.config)")
             except Exception:
                 log.debug("[ONBOARDING] could not clear onboarding_completed via app.config", exc_info=True)

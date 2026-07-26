@@ -15,7 +15,7 @@ from voice_typer.server.ipc.history_bounds import (
     _bound_history_limit,
     _bound_history_offset,
 )
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.ipc.validation import ResponseEnvelope, _validate_dict_payload
 
 # Maximum serialized response size for ``get_history`` / ``get_favorites`` /
 # ``search_history`` before the handler proactively truncates row ``text``
@@ -42,7 +42,7 @@ class HistoryHandlersMixin(HandlerBase):
     # needed (the duplicate block removed here was one of four that
     # the R4-F3 centralization refactor missed).
 
-    def _handle_get_history(self, data, resp) -> dict | None:
+    def _handle_get_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_history`` IPC command."""
         try:
             # IPC-3: validate ``limit`` / ``offset`` types via the
@@ -179,7 +179,7 @@ class HistoryHandlersMixin(HandlerBase):
                 break
         return rows
 
-    def _handle_get_today_stats(self, data, resp) -> dict | None:
+    def _handle_get_today_stats(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_today_stats`` IPC command."""
         try:
             resp["type"] = "today_stats"
@@ -189,7 +189,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_today_stats")
         return resp
 
-    def _handle_delete_history(self, data, resp) -> dict | None:
+    def _handle_delete_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``delete_history`` IPC command."""
         try:
             validated, error = _validate_dict_payload(
@@ -215,7 +215,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "delete_history")
         return resp
 
-    def _handle_restore_history(self, data, resp) -> dict | None:
+    def _handle_restore_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``restore_history`` IPC command.
 
         NEW-UX-004: re-insert a previously-deleted record so the
@@ -280,7 +280,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "restore_history")
         return resp
 
-    def _handle_clear_history(self, data, resp) -> dict | None:
+    def _handle_clear_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``clear_history`` IPC command."""
         try:
             self.service.clear_history()
@@ -297,7 +297,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "clear_history")
         return resp
 
-    def _handle_toggle_favorite(self, data, resp) -> dict | None:
+    def _handle_toggle_favorite(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``toggle_favorite`` IPC command."""
         try:
             validated, error = _validate_dict_payload(
@@ -321,7 +321,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "toggle_favorite")
         return resp
 
-    def _handle_get_favorites(self, data, resp) -> dict | None:
+    def _handle_get_favorites(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_favorites`` IPC command."""
         try:
             # IPC-3: validate ``limit`` / ``offset`` types via the
@@ -354,7 +354,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_favorites")
         return resp
 
-    def _handle_search_history(self, data, resp) -> dict | None:
+    def _handle_search_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``search_history`` IPC command."""
         try:
             # IPC-3: validate ``query`` / ``limit`` / ``offset`` types
@@ -396,7 +396,7 @@ class HistoryHandlersMixin(HandlerBase):
     # On-demand full-text + total-count handlers
     # ──────────────────────────────────────────────────────────────
 
-    def _handle_get_history_count(self, data, resp) -> dict | None:
+    def _handle_get_history_count(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_history_count`` IPC command.
 
         Returns the total number of transcription rows in the DB.
@@ -423,7 +423,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_history_count")
         return resp
 
-    def _handle_get_transcription_text(self, data, resp) -> dict | None:
+    def _handle_get_transcription_text(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_transcription_text`` IPC command.
 
         Returns the FULL text of a single transcription row by id.

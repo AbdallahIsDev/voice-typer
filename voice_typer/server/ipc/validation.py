@@ -56,7 +56,9 @@ ad-hoc:
 # contracts declared below. Imported at module load (not under
 # ``TYPE_CHECKING``) so the TypedDicts are real runtime classes that
 # introspection tests can reference.
+from collections.abc import Callable as _Callable
 from typing import TypedDict
+
 
 # G4-M-22: canonical namespaced error-code registry.
 #
@@ -95,88 +97,117 @@ from typing import TypedDict
 # legacy_code values), so the contract test's LEGACY_ALIASES registry
 # remains accurate. Drop the legacy_code field once the renderer
 # migrates.
-ERROR_CODES: frozenset[str] = frozenset(
-    {
-        # Client-originated errors (4xx analog).
-        "client.invalid_field",
-        "client.missing_field",
-        "client.invalid_payload",
-        "client.payload_too_large",
-        "client.rate_limited",
-        "client.path_not_allowed",
-        "client.not_found",
-        "client.auth_failed",
-        # Structured consent error — the renderer surfaces a consent
-        # dialog (deep-linked to the exact toggle in Settings via the
-        # structured ``engine_name`` / ``consent_field`` fields)
-        # instead of a generic error toast. Emitted by
-        # ``handlers/_base.py`` when a cloud/LLM engine requires
-        # biometric-data consent that the user has not yet granted.
-        "client.consent_required",
-        # Server-originated errors (5xx analog).
-        "server.internal_error",
-        "server.handler_error",
-        "server.file_locked",
-        "server.model_switch_failed",
-        "server.shutting_down",
-        "server.unknown_command",
-        "server.unknown_tray_item",
-        "server.not_found",
-        # DE-31: structured consent-required envelope emitted by the
-        # IPC dispatcher when a ``ConsentRequiredError`` is raised by
-        # a cloud/LLM handler. Distinct from ``client.consent_required``
-        # above (which is emitted by ``handlers/_base.py``); this form
-        # is the dispatcher-level wrapper around the typed exception
-        # and carries ``provider`` + ``scope`` fields so the renderer
-        # can deep-link to the exact Settings toggle.
-        "server.consent_required",
-        # Typed cloud/LLM exception hierarchy — distinct codes for
-        # each cloud error category so the renderer can distinguish
-        # "API key invalid" (user must re-enter) from "rate limited"
-        # (backoff) from "transient network" (auto-retry) from "missing
-        # config" (open Settings). See ``voice_typer/server/asr_errors.py``
-        # for the typed exception classes and
-        # ``voice_typer/server/handlers/_base.py`` for the isinstance
-        # mapping.
-        "server.cloud_auth_failed",
-        "server.cloud_rate_limited",
-        "server.cloud_server_error",
-        "server.cloud_network_error",
-        "server.cloud_config_error",
-        "server.cloud_engine_error",
-    }
-)
+class ErrorCodes:
+    """Namespaced IPC error code constants (single source of truth).
+
+    Importing emitters should reference these attributes (e.g.
+    ``ErrorCodes.INVALID_PAYLOAD``) instead of bare string literals so
+    that typos surface at import time and renames touch one site. The
+    :data:`ERROR_CODES` frozenset is derived from this class via
+    :func:`vars`, keeping the two in sync automatically.
+    """
+
+    # Client-originated errors (4xx analog).
+    INVALID_FIELD = "client.invalid_field"
+    MISSING_FIELD = "client.missing_field"
+    INVALID_PAYLOAD = "client.invalid_payload"
+    PAYLOAD_TOO_LARGE = "client.payload_too_large"
+    RATE_LIMITED = "client.rate_limited"
+    PATH_NOT_ALLOWED = "client.path_not_allowed"
+    NOT_FOUND = "client.not_found"
+    AUTH_FAILED = "client.auth_failed"
+    # Structured consent error — the renderer surfaces a consent
+    # dialog (deep-linked to the exact toggle in Settings via the
+    # structured ``engine_name`` / ``consent_field`` fields)
+    # instead of a generic error toast. Emitted by
+    # ``handlers/_base.py`` when a cloud/LLM engine requires
+    # biometric-data consent that the user has not yet granted.
+    CONSENT_REQUIRED = "client.consent_required"
+    # Server-originated errors (5xx analog).
+    INTERNAL_ERROR = "server.internal_error"
+    HANDLER_ERROR = "server.handler_error"
+    FILE_LOCKED = "server.file_locked"
+    MODEL_SWITCH_FAILED = "server.model_switch_failed"
+    SHUTTING_DOWN = "server.shutting_down"
+    UNKNOWN_COMMAND = "server.unknown_command"
+    UNKNOWN_TRAY_ITEM = "server.unknown_tray_item"
+    SERVER_NOT_FOUND = "server.not_found"
+    # DE-31: structured consent-required envelope emitted by the
+    # IPC dispatcher when a ``ConsentRequiredError`` is raised by
+    # a cloud/LLM handler. Distinct from ``client.consent_required``
+    # above (which is emitted by ``handlers/_base.py``); this form
+    # is the dispatcher-level wrapper around the typed exception
+    # and carries ``provider`` + ``scope`` fields so the renderer
+    # can deep-link to the exact Settings toggle.
+    SERVER_CONSENT_REQUIRED = "server.consent_required"
+    # Typed cloud/LLM exception hierarchy — distinct codes for
+    # each cloud error category so the renderer can distinguish
+    # "API key invalid" (user must re-enter) from "rate limited"
+    # (backoff) from "transient network" (auto-retry) from "missing
+    # config" (open Settings). See ``voice_typer/server/asr_errors.py``
+    # for the typed exception classes and
+    # ``voice_typer/server/handlers/_base.py`` for the isinstance
+    # mapping.
+    CLOUD_AUTH_FAILED = "server.cloud_auth_failed"
+    CLOUD_RATE_LIMITED = "server.cloud_rate_limited"
+    CLOUD_SERVER_ERROR = "server.cloud_server_error"
+    CLOUD_NETWORK_ERROR = "server.cloud_network_error"
+    CLOUD_CONFIG_ERROR = "server.cloud_config_error"
+    CLOUD_ENGINE_ERROR = "server.cloud_engine_error"
+
+
+class LegacyErrorCodes:
+    """Legacy non-namespaced error code aliases (backward compat).
+
+    New emitters MUST use :class:`ErrorCodes` instead. The
+    :data:`LEGACY_ERROR_CODES` frozenset is derived from this class via
+    :func:`vars`. Keeping the legacy set explicit (instead of an
+    open-ended ``str``) lets us audit which aliases are still emitted
+    and remove them once the renderer migrates fully to the namespaced
+    form.
+    """
+
+    INTERNAL_ERROR = "internal_error"
+    SHUTTING_DOWN = "shutting_down"
+    UNKNOWN_COMMAND = "unknown_command"
+    UNKNOWN_TRAY_ITEM = "unknown_tray_item"
+    AUTH_FAILED = "auth_failed"
+    RATE_LIMITED = "rate_limited"
+    INVALID_PAYLOAD = "invalid_payload"
+    INVALID_FIELD = "invalid_field"
+    MISSING_FIELD = "missing_field"
+    MODEL_SWITCH_FAILED = "model_switch_failed"
+    PAYLOAD_TOO_LARGE = "payload_too_large"
+    HANDLER_ERROR = "handler_error"
+    NOT_INITIALIZED = "not_initialized"
+    DISALLOWED_COMMAND = "disallowed_command"
+    DISALLOWED_WINDOW = "disallowed_window"
+    SIDECAR_DISCONNECTED = "sidecar_disconnected"
+
+
+def _class_str_values(cls: type) -> frozenset[str]:
+    """Derive a frozenset of all ``str`` class-attribute values from *cls*.
+
+    Used to keep :data:`ERROR_CODES` / :data:`LEGACY_ERROR_CODES` in sync
+    with :class:`ErrorCodes` / :class:`LegacyErrorCodes` automatically —
+    no risk of the frozenset drifting from the class.
+    """
+    return frozenset(value for name, value in vars(cls).items() if not name.startswith("_") and isinstance(value, str))
+
+
+# EC-10: namespaced error codes — the canonical form for new emitters.
+# Derived from :class:`ErrorCodes` so the class is the single source of
+# truth. This registry is the single source of truth for the renderer's
+# ``ErrorCodes`` union (see
+# ``voice_typer/client/src/renderer/src/types/ipc.ts``) and for the
+# contract test in ``tests/test_error_codes_registry.py``.
+ERROR_CODES: frozenset[str] = _class_str_values(ErrorCodes)
 
 # EC-10: legacy non-namespaced aliases still emitted by some paths for
 # backward compat (TCP ``shutting_down``, dispatcher ``internal_error``,
 # handler ``handler_error``, etc.). New emitters MUST use the namespaced
-# form above. This registry is the single source of truth for the
-# renderer's ``ErrorCodes`` union (see
-# ``voice_typer/client/src/renderer/src/types/ipc.ts``) and for the
-# contract test in ``tests/test_error_codes_registry.py``. Keeping the
-# legacy set explicit (instead of an open-ended ``str``) lets us audit
-# which aliases are still emitted and remove them once the renderer
-# migrates fully to the namespaced form.
-LEGACY_ERROR_CODES: frozenset[str] = frozenset(
-    {
-        "internal_error",
-        "shutting_down",
-        "unknown_command",
-        "unknown_tray_item",
-        "auth_failed",
-        "rate_limited",
-        "invalid_payload",
-        "invalid_field",
-        "missing_field",
-        "model_switch_failed",
-        "payload_too_large",
-        "handler_error",
-        "not_initialized",
-        "disallowed_command",
-        "disallowed_window",
-        "sidecar_disconnected",
-    }
-)
+# form above. Derived from :class:`LegacyErrorCodes`.
+LEGACY_ERROR_CODES: frozenset[str] = _class_str_values(LegacyErrorCodes)
 
 # EC-10: convenience union for validation / contract tests. Every
 # ``code`` value emitted on the wire MUST be in this set (the contract
@@ -495,9 +526,35 @@ __all__ = [
     "ERROR_CODES",
     "LEGACY_ERROR_CODES",
     "ALL_ERROR_CODES",
+    # Single-source-of-truth code constants (ZR-68). Emitters should
+    # reference these (e.g. ``ErrorCodes.INVALID_PAYLOAD``) instead of
+    # bare string literals so typos surface at import time.
+    "ErrorCodes",
+    "LegacyErrorCodes",
     # Typed contract exports.
     "FieldRule",
     "Schema",
     "ErrorData",
     "ErrorEnvelope",
+]
+
+# YJ-1 / YJ-27: canonical home for the ResponseEnvelope type alias and
+# CommandHandler callable alias. Previously these lived in
+# ipc_server.py (lines ~135 and ~138); moved here so handler modules
+# and tests can import them from the validation module without
+# triggering a circular import (ipc_server.py imports from this module).
+# ipc_server.py now imports these from here (re-export).
+# ``ResponseEnvelope`` is the canonical shape of every IPC frame pushed
+# or dispatched: a dict with at least ``type`` (str) and optional
+# ``data``, ``id``.
+ResponseEnvelope = dict[str, object]
+
+# ``CommandHandler`` is the signature every ``_handle_*`` method follows:
+# ``(data, resp) -> resp | None``.
+CommandHandler = _Callable[[object | None, ResponseEnvelope], ResponseEnvelope | None]
+del _Callable
+
+__all__ = [
+    "CommandHandler",
+    "ResponseEnvelope",
 ]

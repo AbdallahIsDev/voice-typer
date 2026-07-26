@@ -18,6 +18,12 @@ The ``config.py`` module retains its own ``legacy = Path.home() /
 ".voice-typer"`` migration probe (it IS the canonical legacy-path
 check) and is the only other module allowed to reference that literal
 directly — see ``tests/test_paths.py`` for the regression guard.
+
+DT-11: this module also owns shared network + LLM default constants
+(``LOOPBACK_HOSTS``, ``LOOPBACK_HOST``, ``DEFAULT_LLM_API_URL``,
+``DEFAULT_LLM_MODEL``) that were previously duplicated across
+``_http_safety.py``, ``_secrets.py``, ``sidecar_ws.py``,
+``llm_polish.py``, and ``config.py``.
 """
 
 from __future__ import annotations
@@ -25,7 +31,29 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from voice_typer.server.config import _config_dir
+# ─── DT-11: shared network + LLM constants ─────────────────────────────
+# These constants are the single source of truth for values that were
+# previously duplicated across `_http_safety.py`, `_secrets.py`,
+# `sidecar_ws.py`, `llm_polish.py`, and `config.py`.
+#
+# IMPORTANT: these assignments MUST precede the
+# ``from voice_typer.server.config import _config_dir`` line below.
+# ``config.py`` imports ``DEFAULT_LLM_API_URL`` / ``DEFAULT_LLM_MODEL``
+# from this module at class-definition time, and ``llm_polish.py``
+# transitively pulls this module in via ``_http_safety.py`` — so when
+# ``config.py`` is being loaded (and reaches its
+# ``from voice_typer.server._paths import DEFAULT_LLM_API_URL, ...``
+# line), this module is only *partially* loaded (up to the
+# ``_config_dir`` import). Defining the constants BEFORE that import
+# guarantees they exist in the partial module dict and breaks what
+# would otherwise be a circular import:
+#   config → llm_polish → _http_safety → _paths → config.
+LOOPBACK_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
+LOOPBACK_HOST: str = "127.0.0.1"
+DEFAULT_LLM_API_URL: str = "https://api.openai.com/v1/chat/completions"
+DEFAULT_LLM_MODEL: str = "gpt-4o-mini"
+
+from voice_typer.server.config import _config_dir  # noqa: E402
 
 
 def config_dir() -> Path:

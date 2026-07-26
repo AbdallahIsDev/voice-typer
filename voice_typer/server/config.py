@@ -29,7 +29,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path, PureWindowsPath
 from typing import Any, ClassVar, Literal
 
@@ -39,6 +39,13 @@ from voice_typer.server.secure_file_io import (  # noqa: F401 — backward-compa
     _secure_atomic_write,
     _secure_read_text,
 )
+
+# DT-11: canonical default for the clipboard restore delay (ms).
+# Previously duplicated as the literal `150` in three places:
+# this dataclass field default, `ClipboardManager.__init__`, and
+# `ClipboardManager.refresh_config` (twice). Other modules now import
+# this constant instead of repeating the literal.
+DEFAULT_CLIPBOARD_RESTORE_DELAY_MS: int = 150
 
 log = logging.getLogger("voice_typer.server.config")
 
@@ -251,21 +258,33 @@ def _validate_systemroot() -> None:
     # them out of the app entirely.  Resetting to the canonical default
     # lets the app start with a valid SystemRoot.
     if not Path(systemroot).is_dir():
-        log.warning(
-            "[CONFIG] SystemRoot does not point to an existing directory: %s — "
-            "resetting to default C:\\Windows (usability fallback).",
-            systemroot,
-        )
         default = r"C:\Windows"
-        # Always set the default — the ``Path(default).is_dir()``
-        # guard was a no-op on the Linux CI runner (where ``C:\Windows``
-        # is never a directory) so the nonexistent-dir branch was never
-        # exercised and the env var was never reset. Dropping the guard
-        # ensures the safe default is always applied.
-        os.environ["SYSTEMROOT"] = default
-        # If even C:\Windows doesn't exist, there's nothing more we can
-        # do — leave SystemRoot as-is and let downstream Win32 APIs fail
-        # with their own diagnostics.
+        # The reset is conditional on the default ``C:\Windows`` actually
+        # existing as a directory. Previously the guard was dropped
+        # ("Always set the default") with the rationale that
+        # ``Path(default).is_dir()`` is a no-op on the Linux CI runner —
+        # but that broke the fail-soft contract: when the default is ALSO
+        # missing (e.g. a stripped-down Wine prefix, a broken OS install,
+        # or the Linux sandbox) the function should NOT overwrite the
+        # user-supplied value with a path that is just as broken. Leaving
+        # the original value in place lets downstream Win32 APIs emit
+        # their own diagnostics instead of pointing at a path the
+        # runtime already knows is invalid.
+        if Path(default).is_dir():
+            log.warning(
+                "[CONFIG] SystemRoot does not point to an existing directory: %s — "
+                "resetting to default C:\\Windows (usability fallback).",
+                systemroot,
+            )
+            os.environ["SYSTEMROOT"] = default
+        else:
+            log.warning(
+                "[CONFIG] SystemRoot does not point to an existing directory: %s "
+                "and the default C:\\Windows is also not present — leaving "
+                "SystemRoot as-is so downstream Win32 APIs emit their own "
+                "diagnostics (usability fallback).",
+                systemroot,
+            )
         return
 
     # SEC-audit-011: Verify SystemRoot contains System32\notepad.exe.
@@ -595,6 +614,20 @@ _MIGRATIONS[2] = _migrate_to_v2
 _MIGRATIONS[3] = _migrate_to_v3
 
 
+# DT-11: deferred imports for shared canonical constants.
+# These imports MUST come AFTER ``_config_dir`` is defined above (line ~299)
+# because ``_paths.py`` does ``from voice_typer.server.config import
+# _config_dir`` at module load — importing from ``_paths`` any earlier
+# would trigger a circular-import error (config → _paths → config) since
+# ``_config_dir`` wouldn't yet exist in the partially-loaded ``config``
+# module. Likewise, ``volume_ducker.py`` is imported here (rather than at
+# the top of the file) for symmetry — it has no dependency on ``config``
+# so could in principle go anywhere, but grouping the DT-11 imports
+# together makes the consolidation easier to audit.
+from voice_typer.server._paths import DEFAULT_LLM_API_URL, DEFAULT_LLM_MODEL  # noqa: E402
+from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS  # noqa: E402
+
+
 @dataclass
 class Config:
     """Application configuration."""
@@ -677,6 +710,17 @@ class Config:
     qwen_model_path: str | None = None  # local path to Qwen3-ASR weights
     parakeet_model_path: str | None = None  # local override for Parakeet weights (None = HF cache)
 
+    # XZ-CFG-01: list of ASR backend names the registry's circuit breaker
+    # has disabled after repeated load failures. The registry
+    # (``asr_registry.AsrBackendRegistry``) self-manages this list via
+    # ``_persist_disabled``. Persisted to ``config.json`` so disabled
+    # backends survive a restart (previously: the field was missing
+    # from the dataclass, so ``asdict(self)`` skipped it and the list
+    # reset to empty on every app launch — disabled backends silently
+    # re-enabled). NOT in ``IPC_CONFIG_ALLOWLIST`` because it is
+    # backend-managed state, not a renderer-writable setting.
+    disabled_backends: list[str] = field(default_factory=list)
+
     # Text cleanup
     text_cleanup_enabled: bool = True  # Set False for raw (uncorrected) output
 
@@ -693,7 +737,7 @@ class Config:
     # ``clipboard.py:paste()`` and refreshed at runtime via
     # ``refresh_config()`` when the user changes settings).
     clipboard_save_restore: bool = True  # save/restore previous clipboard content after paste
-    clipboard_restore_delay_ms: int = 150  # delay between paste keystroke and clipboard restore (ms)
+    clipboard_restore_delay_ms: int = DEFAULT_CLIPBOARD_RESTORE_DELAY_MS  # delay between paste keystroke and clipboard restore (ms)
 
     # ─── P1 Features ───────────────────────────────────────────────
 
@@ -737,8 +781,8 @@ class Config:
     # LLM text polishing
     llm_polish: bool = False
     llm_api_key: str = ""
-    llm_api_url: str = "https://api.openai.com/v1/chat/completions"
-    llm_model: str = "gpt-4o-mini"
+    llm_api_url: str = DEFAULT_LLM_API_URL
+    llm_model: str = DEFAULT_LLM_MODEL
     llm_preset: str = "professional"  # professional/casual/email/code
 
     # PRIVACY-001: explicit user consent that text may leave the
@@ -970,7 +1014,11 @@ class Config:
     # scrubbed by the v3 schema migration. Do NOT re-add.
     # UX-2: smart-duck poll interval is now a fixed 500ms default.
     # Not exposed in the UI. Power users can override in config.json.
-    volume_duck_smart_poll_interval_ms: int = 500
+    # DT-11: the canonical default lives in
+    # ``volume_ducker._DEFAULT_SMART_DUCK_POLL_MS``; imported here so
+    # the dataclass default and the ``VolumeDucker`` constructor stay
+    # in sync.
+    volume_duck_smart_poll_interval_ms: int = _DEFAULT_SMART_DUCK_POLL_MS
 
     # ─── Audio enhancement preset (ADR 0007) ─────────────────────────
     # Preset name that controls the entire filter chain:
@@ -1278,9 +1326,8 @@ class Config:
         # bytes are only updated after a successful write below, so a
         # previous failed save (or a fresh Config() that has never
         # saved) falls through to the full backup path.
-        if self._last_saved_bytes != content_bytes:
+        if self._last_saved_bytes != content_bytes and config_file.exists():
             # G4-H-09: best-effort backup before overwrite.
-            if config_file.exists():
                 try:
                     existing_bytes = config_file.read_bytes()
                     if existing_bytes != content_bytes:
@@ -1560,6 +1607,30 @@ class Config:
                 apply_preset(instance.audio_preset, instance)
             except Exception:
                 log.debug("[CONFIG] apply_preset on load failed", exc_info=True)
+
+            # XZ-CFG-04: invoke the full-config validator
+            # (``validate_config``) so a hand-edited or migrated
+            # config.json with out-of-range values (e.g. a stale
+            # ``noise_suppression_method="speex"`` from before the
+            # enum was tightened, or a future legacy ``audio_preset``
+            # alias surviving a botched migration) is surfaced via
+            # ``instance.last_load_warnings`` instead of being silently
+            # loaded. Pre-fix, ``validate_config`` existed but was
+            # never called from any production path (the IPC
+            # ``set_config`` validator only sees the delta pushed by
+            # the renderer, never the full on-disk config).
+            try:
+                from voice_typer.server.config_validators import validate_config
+
+                full_config_errors = validate_config(instance)
+                if full_config_errors:
+                    for _err in full_config_errors:
+                        log.warning("[CONFIG] validate_config: %s", _err)
+                    instance.last_load_warnings.extend(
+                        f"validate_config: {_err}" for _err in full_config_errors
+                    )
+            except Exception:
+                log.debug("[CONFIG] validate_config on load failed", exc_info=True)
 
             # G4-M-15: persist the bumped schema_version eagerly so
             # the next launch doesn't re-run the same migrations
@@ -2051,6 +2122,121 @@ class Config:
             registry[name] = ann
         return registry
 
+    # ── S2-CR-44: shared coercion helpers ───────────────────────────────
+    #
+    # The original ``_validate_non_numeric_fields`` had 4 near-identical
+    # branches (bool / str / int / float) that each duplicated the same
+    # 5-line "build msg → log.warning → warnings.append → reset
+    # data[field_name]" pattern, 6 times total. The two helpers below
+    # extract that pattern so each branch's tail is a single call.
+    #
+    # The helpers are static methods (not classmethods) because they
+    # don't need ``cls`` — they operate on the passed-in ``defaults``
+    # Config instance. Keeping them on the ``Config`` class (rather
+    # than module-level functions) lets ``Config`` subclasses override
+    # them if a future variant needs different warning formatting
+    # (e.g. structured logging).
+
+    @staticmethod
+    def _warn_and_reset(
+        field_name: str,
+        val: Any,
+        defaults: "Config",
+        warnings: list[str],
+        *,
+        reason: str,
+    ) -> Any:
+        """Reset ``field_name`` to its default value with a logged warning.
+
+        S2-CR-44: extracts the duplicated 5-line pattern
+        ``msg = ...; log.warning(...); warnings.append(...);
+        data[field_name] = getattr(defaults, field_name)`` that
+        appeared 4 times in the original
+        ``_validate_non_numeric_fields``. Returns the default value
+        so the caller can write
+        ``data[field_name] = cls._warn_and_reset(...)``.
+
+        Parameters
+        ----------
+        field_name
+            The config field being reset (e.g. ``"autostart"``).
+        val
+            The invalid value the user had on disk (used in the
+            warning message for diagnosis).
+        defaults
+            A default-constructed ``Config`` instance — the source
+            of the fallback value.
+        warnings
+            The running warnings list (appended in place).
+        reason
+            A short human-readable reason string that completes the
+            sentence ``"Config field '{field_name}' {reason} {val!r},
+            resetting to default {default_val!r}"``. Example:
+            ``"had non-bool value"`` → ``"... had non-bool value
+            'yes', resetting to default True"``.
+
+        Returns
+        -------
+        Any
+            The default value for ``field_name`` (the caller assigns
+            this back to ``data[field_name]``).
+        """
+        default_val = getattr(defaults, field_name)
+        msg = (
+            f"Config field '{field_name}' {reason} {val!r}, "
+            f"resetting to default {default_val!r}"
+        )
+        log.warning("[CONFIG] %s", msg)
+        warnings.append(msg)
+        return default_val
+
+    @staticmethod
+    def _warn_and_coerce(
+        field_name: str,
+        val: Any,
+        coerced: Any,
+        warnings: list[str],
+        *,
+        reason: str,
+    ) -> Any:
+        """Record a coercion warning and return the coerced value.
+
+        S2-CR-44: extracts the duplicated 4-line pattern
+        ``msg = ...; log.warning(...); warnings.append(...);
+        data[field_name] = coerced`` that appeared in the int and
+        float branches of ``_validate_non_numeric_fields``.
+
+        Parameters
+        ----------
+        field_name
+            The config field being coerced (e.g. ``"vad_threshold"``).
+        val
+            The original on-disk value (used in the warning message
+            for diagnosis — the user sees what they had vs. what it
+            was coerced to).
+        coerced
+            The successfully-coerced value.
+        warnings
+            The running warnings list (appended in place).
+        reason
+            Short reason string that completes the sentence
+            ``"Config field '{field_name}' {reason} {val!r}, coerced
+            to {coerced!r}"``. Example: ``"had non-int value"``.
+
+        Returns
+        -------
+        Any
+            The coerced value (the caller assigns this back to
+            ``data[field_name]``).
+        """
+        msg = (
+            f"Config field '{field_name}' {reason} {val!r}, "
+            f"coerced to {coerced!r}"
+        )
+        log.warning("[CONFIG] %s", msg)
+        warnings.append(msg)
+        return coerced
+
     @classmethod
     def _validate_non_numeric_fields(cls: type["Config"], data: dict[str, Any]) -> dict[str, Any]:
         """Validate and coerce bool / str / int / float fields in loaded config data.
@@ -2113,32 +2299,42 @@ class Config:
                     continue
                 # Coerce truthy/falsy values
                 if val in (1, "1", "true", "True", "yes"):
-                    msg = f"Config field '{field_name}' had non-bool value {val!r}, coerced to True"
-                    log.warning("[CONFIG] %s", msg)
-                    warnings.append(msg)
-                    data[field_name] = True
+                    data[field_name] = cls._warn_and_coerce(
+                        field_name,
+                        val,
+                        True,
+                        warnings,
+                        reason="had non-bool value",
+                    )
                 elif val in (0, "0", "false", "False", "no", ""):
-                    msg = f"Config field '{field_name}' had non-bool value {val!r}, coerced to False"
-                    log.warning("[CONFIG] %s", msg)
-                    warnings.append(msg)
-                    data[field_name] = False
+                    data[field_name] = cls._warn_and_coerce(
+                        field_name,
+                        val,
+                        False,
+                        warnings,
+                        reason="had non-bool value",
+                    )
                 else:
-                    default_val = getattr(defaults, field_name)
-                    msg = f"Config field '{field_name}' had invalid value {val!r}, resetting to default {default_val!r}"
-                    log.warning("[CONFIG] %s", msg)
-                    warnings.append(msg)
-                    data[field_name] = default_val
+                    data[field_name] = cls._warn_and_reset(
+                        field_name,
+                        val,
+                        defaults,
+                        warnings,
+                        reason="had invalid value",
+                    )
 
             elif expected_type is str:
                 if isinstance(val, str):
                     continue
                 if val is None and field_name in optional_str_fields:
                     continue
-                default_val = getattr(defaults, field_name)
-                msg = f"Config field '{field_name}' had non-string value {val!r}, resetting to default {default_val!r}"
-                log.warning("[CONFIG] %s", msg)
-                warnings.append(msg)
-                data[field_name] = default_val
+                data[field_name] = cls._warn_and_reset(
+                    field_name,
+                    val,
+                    defaults,
+                    warnings,
+                    reason="had non-string value",
+                )
 
             elif expected_type is int:
                 # VALID-3 (MED-L): int field coercion.  Accepts ints,
@@ -2153,11 +2349,13 @@ class Config:
                 # (the user probably toggled a checkbox they shouldn't
                 # have).
                 if isinstance(val, bool):
-                    default_val = getattr(defaults, field_name)
-                    msg = f"Config field '{field_name}' had bool value {val!r}, resetting to default {default_val!r}"
-                    log.warning("[CONFIG] %s", msg)
-                    warnings.append(msg)
-                    data[field_name] = default_val
+                    data[field_name] = cls._warn_and_reset(
+                        field_name,
+                        val,
+                        defaults,
+                        warnings,
+                        reason="had bool value",
+                    )
                     continue
                 if isinstance(val, int):
                     # Already an int (and not a bool — handled above).
@@ -2169,45 +2367,55 @@ class Config:
                 try:
                     coerced = int(val)
                 except (TypeError, ValueError):
-                    default_val = getattr(defaults, field_name)
-                    msg = f"Config field '{field_name}' had non-int value {val!r}, resetting to default {default_val!r}"
-                    log.warning("[CONFIG] %s", msg)
-                    warnings.append(msg)
-                    data[field_name] = default_val
+                    data[field_name] = cls._warn_and_reset(
+                        field_name,
+                        val,
+                        defaults,
+                        warnings,
+                        reason="had non-int value",
+                    )
                     continue
-                msg = f"Config field '{field_name}' had non-int value {val!r}, coerced to {coerced!r}"
-                log.warning("[CONFIG] %s", msg)
-                warnings.append(msg)
-                data[field_name] = coerced
+                data[field_name] = cls._warn_and_coerce(
+                    field_name,
+                    val,
+                    coerced,
+                    warnings,
+                    reason="had non-int value",
+                )
 
             elif expected_type is float:
                 # VALID-3 (MED-L): float field coercion.  Accepts
                 # floats, ints, and numeric strings.  Rejects bools
                 # and anything float() can't parse.
                 if isinstance(val, bool):
-                    default_val = getattr(defaults, field_name)
-                    msg = f"Config field '{field_name}' had bool value {val!r}, resetting to default {default_val!r}"
-                    log.warning("[CONFIG] %s", msg)
-                    warnings.append(msg)
-                    data[field_name] = default_val
+                    data[field_name] = cls._warn_and_reset(
+                        field_name,
+                        val,
+                        defaults,
+                        warnings,
+                        reason="had bool value",
+                    )
                     continue
                 if isinstance(val, float):
                     continue
                 try:
                     coerced = float(val)
                 except (TypeError, ValueError):
-                    default_val = getattr(defaults, field_name)
-                    msg = (
-                        f"Config field '{field_name}' had non-float value {val!r}, resetting to default {default_val!r}"
+                    data[field_name] = cls._warn_and_reset(
+                        field_name,
+                        val,
+                        defaults,
+                        warnings,
+                        reason="had non-float value",
                     )
-                    log.warning("[CONFIG] %s", msg)
-                    warnings.append(msg)
-                    data[field_name] = default_val
                     continue
-                msg = f"Config field '{field_name}' had non-float value {val!r}, coerced to {coerced!r}"
-                log.warning("[CONFIG] %s", msg)
-                warnings.append(msg)
-                data[field_name] = coerced
+                data[field_name] = cls._warn_and_coerce(
+                    field_name,
+                    val,
+                    coerced,
+                    warnings,
+                    reason="had non-float value",
+                )
 
         # NEW-CQ-016: stash warnings so load() can surface them
         data["_load_warnings"] = warnings
