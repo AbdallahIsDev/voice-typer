@@ -6,10 +6,6 @@ project version.  This script reads the version from ``pyproject.toml``
 and writes the same value into every other file that hardcodes a
 version string:
 
-  - ``voice_typer/__init__.py`` (fallback string for source checkouts
-    — the runtime reads from ``importlib.metadata`` first, but the
-    fallback is what users see when running from a git checkout
-    without ``pip install``).
   - ``voice_typer/client/package.json`` (Electron app version).
   - ``voice_typer/client/electron-builder.yml`` (installer version).
   - ``CHANGELOG.md`` (most-recent Unreleased → version bump).
@@ -45,8 +41,18 @@ else:  # pragma: no cover — Python 3.10 fallback
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 # Files that contain a version string we want to keep in sync.
+# NOTE: ``voice_typer/__init__.py`` is intentionally NOT synced here.
+# ``__init__.py`` resolves ``__version__`` lazily via PEP 562
+# ``__getattr__`` (see ``bench/COLDSTART_REPORT.md`` — 57% of the
+# post-optimization tray-import cumulative time is metadata I/O).
+# A regex like ``r'__version__\s*=\s*"([^"]+)"'`` would NOT match
+# the lazy resolver body (which assigns to a local ``v = "<version>"``),
+# so a fallback write would APPEND a new ``__version__ = "<version>"``
+# module-level line that shadows the lazy ``__getattr__`` and silently
+# breaks the coldstart optimization. ``importlib.metadata`` remains
+# the source of truth at runtime; ``pyproject.toml`` is the source of
+# truth at build time.
 PYPROJECT = REPO_ROOT / "pyproject.toml"
-INIT_PY = REPO_ROOT / "voice_typer" / "__init__.py"
 PACKAGE_JSON = REPO_ROOT / "voice_typer" / "client" / "package.json"
 ELECTRON_BUILDER = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 # WR-20: also sync the Tauri v2 host (src-tauri/) so the Rust shell +
@@ -71,28 +77,6 @@ def read_pyproject_version() -> str:
             if m:
                 return m.group(1)
     raise ValueError("Could not find [project] version in pyproject.toml")
-
-
-def read_init_py_fallback() -> str | None:
-    """Read the hardcoded fallback version from voice_typer/__init__.py."""
-    if not INIT_PY.exists():
-        return None
-    text = INIT_PY.read_text(encoding="utf-8")
-    m = re.search(r'__version__\s*=\s*"([^"]+)"', text)
-    return m.group(1) if m else None
-
-
-def write_init_py_fallback(version: str) -> None:
-    """Update the fallback version string in voice_typer/__init__.py."""
-    text = INIT_PY.read_text(encoding="utf-8")
-    new_text = re.sub(
-        r'(__version__\s*=\s*)"[^"]+"',
-        rf'\1"{version}"',
-        text,
-    )
-    if new_text == text:
-        new_text = text + f'\n__version__ = "{version}"\n'
-    INIT_PY.write_text(new_text, encoding="utf-8")
 
 
 def read_package_json_version() -> str | None:
@@ -222,7 +206,6 @@ def collect_versions() -> dict[str, str | None]:
     """Return a dict of {location: version_or_None}."""
     return {
         "pyproject.toml": read_pyproject_version(),
-        "voice_typer/__init__.py (fallback)": read_init_py_fallback(),
         "voice_typer/client/package.json": read_package_json_version(),
         "voice_typer/client/electron-builder.yml": read_electron_builder_version(),
         # WR-20: Tauri v2 host files
@@ -234,8 +217,6 @@ def collect_versions() -> dict[str, str | None]:
 def apply_version(version: str) -> list[str]:
     """Write ``version`` to every file.  Returns list of updated paths."""
     updated: list[str] = []
-    write_init_py_fallback(version)
-    updated.append(str(INIT_PY))
     if PACKAGE_JSON.exists():
         write_package_json_version(version)
         updated.append(str(PACKAGE_JSON))

@@ -48,9 +48,9 @@ transcription pipeline.
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `start(device_index)` | `device_index: int \| None` | `None` | Start recording from the specified device (or default). |
+| `start()` | — | `None` | Start recording. Device selection is handled by `DeviceManager` / `Config` (not a parameter). |
 | `stop()` | — | `np.ndarray` | Stop recording and return captured audio as float32 array. |
-| `cancel()` | — | `None` | Discard recorded audio without returning it. |
+| `discard()` | — | `None` | Discard recorded audio without returning it. |
 
 ### Key Properties
 

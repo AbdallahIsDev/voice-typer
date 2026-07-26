@@ -37,7 +37,7 @@ asserts that `ALLOWED_COMMANDS` (sliced as a literal substring from
 `ALLOWED_COMMANDS` are server-only (invoked internally by the backend or
 via the Rust tray host's `dispatch_inner`, which bypasses the allowlist).
 
-## Commands (78 total)
+## Commands (63 total)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -215,7 +215,7 @@ events not in the union fall through to the `string` overload of
 | Event type | Interface | Data shape |
 |------------|-----------|------------|
 | `status_change` | `StatusChangeEvent` | `{ status: string }` |
-| `error` | `ErrorEvent` | `{ 		code: ErrorCodes` |
+| `error` | `ErrorEvent` | `{           code: ErrorCodes` |
 | `transcription_final` | `TranscriptionFinalEvent` | `{ text: string` |
 | `history_changed` | `HistoryChangedEvent` | `{ reason: string }` |
 | `state_changed` | `StateChangedEvent` | `Record<string, unknown>` |

@@ -494,6 +494,12 @@ ignore = []
 # This is a targeted per-file override, not a global rule disable.
 [tool.ruff.lint.per-file-ignores]
 "voice_typer/server/model_hashes.json" = ["ALL"]
+# tests/server/*.py: pytest fixtures (server, mock_app, etc.) are used
+# as test-method parameters, which shadow the explicit imports kept
+# for IDE type hints. F811 (redefinition) is a false positive for this
+# pytest pattern. The DT-37 split test files intentionally use this
+# style — see tests/server/conftest.py for the fixture definitions.
+"tests/server/*.py" = ["F811"]
 
 [tool.mypy]
 python_version = "3.10"  # NEW-CQ-023: match requires-python minimum

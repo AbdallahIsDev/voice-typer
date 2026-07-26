@@ -76,7 +76,48 @@ jobs:
           # accepts a 7x schedule increase.
           queries: security-extended, security-and-quality
 
-      - name: Autobuild
+      # ── S5-CR-75 (b): explicit build step for Python ─────────────────
+      #
+      # The default ``github/codeql-action/autobuild@v3`` step runs a
+      # heuristic that pip-installs the project WITHOUT extras. That
+      # means CodeQL's Python extractor cannot resolve heavy optional
+      # imports (``sounddevice``, ``numpy``, ``pystray``, ``webrtcvad``,
+      # ``torch``, ``torchaudio``) — they appear as unresolved symbols
+      # in the CodeQL database, suppressing queries that depend on
+      # import-graph resolution (e.g. "unused import", "dangerous
+      # global", "unreachable code after return").
+      #
+      # Replacing autobuild with an explicit ``pip install .[test]``
+      # step (per the finding's proposed fix) ensures CodeQL sees the
+      # real import graph. The ``test`` extra pulls in pytest +
+      # hypothesis + pytest-asyncio + pytest-cov + pytest-timeout +
+      # pytest-benchmark (~30 MB), which is acceptable on the
+      # ubuntu-22.04 runner.
+      #
+      # Note: the HEAVY production deps (``torch``, ``torchaudio``,
+      # ``sounddevice``, ``webrtcvad``, ``pystray``) are NOT in any
+      # optional extra (they're declared in ``requirements-lock.txt``
+      # for the PyInstaller build only) — installing them on every
+      # CodeQL run would add ~2 GB + 5+ minutes to the job. CodeQL's
+      # Python extractor falls back to ``ast`` parsing for unresolved
+      # imports, so the queries that don't depend on import resolution
+      # still run; the queries that DO need resolution (a minority)
+      # remain suppressed. This is the documented trade-off in the
+      # finding: "this requires a Linux runner with the heavy optional
+      # deps installable" — we install the ``test`` extra but defer the
+      # heavy audio/torch deps to a future dedicated job.
+      #
+      # JS/TS and Actions languages: keep autobuild (it correctly
+      # resolves ``npm install`` + ``tsc`` for the renderer, and
+      # Actions YAML needs no build step at all).
+      - name: Build Python (explicit pip install .[test])
+        if: matrix.language == 'python'
+        run: |
+          python -m pip install --upgrade pip
+          pip install .[test]
+
+      - name: Autobuild (JS/TS + Actions)
+        if: matrix.language != 'python'
         uses: github/codeql-action/autobuild@v3
 
       - name: Perform CodeQL Analysis

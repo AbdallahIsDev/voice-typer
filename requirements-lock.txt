@@ -1774,3 +1774,22 @@ wrapt==2.2.2 \
     --hash=sha256:fb18fc51e813df0d9c98049e3bf2298a5495a648602040e21fa3c7329371159e
     # via smart-open
 
+
+# WR-20: platform-conditional direct dependencies missing from the
+# lockfile. These packages are imported by Windows/macOS-specific code
+# paths (comtypes/pycaw for Win32 audio endpoint control; pyobjc-* for
+# macOS AudioToolbox/CoreAudio/Cocoa). Without these entries,
+# `pip install -r requirements-lock.txt` on Windows or macOS would
+# silently skip them, breaking the audio pipeline at runtime.
+comtypes==1.4.8; sys_platform == 'win32' \
+    --hash=sha256:773109b12aa0bec630d5b2272dd983cbaa25605a12fc1319f99730c9d0b72f79
+pycaw==20230407; sys_platform == 'win32' \
+    --hash=sha256:97ccceda83d09d00c811b84a766d6b0bca211c284bd8d40475463e0f9aceeea0
+pyobjc-core==11.0; sys_platform == 'darwin' and python_version >= '3.12' \
+    --hash=sha256:10866b3a734d47caf48e456eea0d4815c2c9b21856157db5917b61dee06893a1
+pyobjc-framework-ApplicationServices==11.0; sys_platform == 'darwin' and python_version >= '3.12' \
+    --hash=sha256:bc8f34b5b59ffd3c210ae883d794345c1197558ff3da0f5800669cf16435271e
+pyobjc-framework-Cocoa==11.0; sys_platform == 'darwin' and python_version >= '3.12' \
+    --hash=sha256:fbc65f260d617d5463c7fb9dbaaffc23c9a4fabfe3b1a50b039b61870b8daefd
+pyobjc-framework-CoreAudio==11.0; sys_platform == 'darwin' and python_version >= '3.12' \
+    --hash=sha256:e0d8c2c6850f75718a7c8999d78ada52c57acfae5001437823761fc72f6fa1d5

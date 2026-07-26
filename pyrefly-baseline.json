@@ -1409,18 +1409,6 @@
       "severity": "error"
     },
     {
-      "line": 759,
-      "column": 28,
-      "stop_line": 759,
-      "stop_column": 39,
-      "path": "voice_typer/server/service/model.py",
-      "code": -2,
-      "name": "bad-return",
-      "description": "Returned type `dict[Unknown, Unknown]` is not assignable to declared return type `DownloadCancelled | DownloadConsentRequired | DownloadError | DownloadSuccess`",
-      "concise_description": "Returned type `dict[Unknown, Unknown]` is not assignable to declared return type `DownloadCancelled | DownloadConsentRequired | DownloadError | DownloadSuccess`",
-      "severity": "error"
-    },
-    {
       "line": 1069,
       "column": 37,
       "stop_line": 1069,
@@ -1430,30 +1418,6 @@
       "name": "missing-attribute",
       "description": "Object of class `ModelMixin` has no attribute `_app`",
       "concise_description": "Object of class `ModelMixin` has no attribute `_app`",
-      "severity": "error"
-    },
-    {
-      "line": 1072,
-      "column": 28,
-      "stop_line": 1072,
-      "stop_column": 106,
-      "path": "voice_typer/server/service/model.py",
-      "code": -2,
-      "name": "bad-return",
-      "description": "Returned type `dict[str, bool | str]` is not assignable to declared return type `DownloadCancelled | DownloadConsentRequired | DownloadError | DownloadSuccess`",
-      "concise_description": "Returned type `dict[str, bool | str]` is not assignable to declared return type `DownloadCancelled | DownloadConsentRequired | DownloadError | DownloadSuccess`",
-      "severity": "error"
-    },
-    {
-      "line": 1087,
-      "column": 28,
-      "stop_line": 1087,
-      "stop_column": 39,
-      "path": "voice_typer/server/service/model.py",
-      "code": -2,
-      "name": "bad-return",
-      "description": "Returned type `dict[Unknown, Unknown]` is not assignable to declared return type `DownloadCancelled | DownloadConsentRequired | DownloadError | DownloadSuccess`",
-      "concise_description": "Returned type `dict[Unknown, Unknown]` is not assignable to declared return type `DownloadCancelled | DownloadConsentRequired | DownloadError | DownloadSuccess`",
       "severity": "error"
     },
     {

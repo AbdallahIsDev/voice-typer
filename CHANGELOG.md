@@ -141,6 +141,30 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   complete).
 - `CHANGELOG.md` — this entry.
 
+### Privacy & UX hardening — sub-agent 11 fix batch
+
+- **XZ-PRIV-04 (Low)** — `voice_typer/server/transcription.py`: the
+  per-segment DEBUG log (`[TRANSCRIBE] Segment: [start - end] %s`)
+  previously logged raw segment text unconditionally. User speech
+  could leak into `voice-typer.log` even when
+  `config.log_transcriptions` was False. The log site now mirrors the
+  contract already used by `hallucination.py::log_hallucination_rejection`:
+  (a) only emit when the user has opted in via
+  `config.log_transcriptions`; (b) route the text through
+  `security.redact_pii` so any structured PII patterns
+  (email/phone/IBAN/SSN/CC) are stripped before the text reaches the
+  rotating log file. The transcription result is unchanged — only the
+  log output is sanitized. Regression tests in
+  `tests/test_transcription_pii_gating.py` pin both behaviors.
+- **XA-11-4 (Medium)** — `voice_typer/client/src/renderer/src/pages/About.tsx`:
+  added a "View Changelog" button to the Resources section linking to
+  `CHANGELOG.md` at the repo root, using the existing
+  `about.viewChangelog` i18n key (already translated to all supported
+  locales). Closes the previously-failing
+  `consent-privacy-behavior.test.tsx > renders help links to README and
+  CHANGELOG` assertion (it required an anchor with `href` containing
+  `CHANGELOG.md` to be rendered).
+
 ### Tests
 - `tests/test_security_doc_command_count.py` — all 3 tests now PASS
   (previously failed).

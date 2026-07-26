@@ -130,12 +130,17 @@ check_present "5" \
 # Many commands don't need a typed Request interface (the renderer's
 # `call<T>()` helper accepts an untyped call for commands whose payload
 # is trivial). Make this a warning rather than a hard fail.
+#
+# DT-31 / DT-FIX-7: the former monolithic ipc types file was split into
+# a ``types/ipc/`` directory. The typed Request interfaces (each
+# carrying a ``type: "<command>"`` literal) now live in
+# ``types/ipc/requests.ts``.
 {
-    if grep -qF "\"${CMD}\"" voice_typer/client/src/renderer/src/types/ipc.ts 2>/dev/null; then
-        echo "  [6] OK    TS discriminated union (types/ipc.ts)"
+    if grep -qF "\"${CMD}\"" voice_typer/client/src/renderer/src/types/ipc/requests.ts 2>/dev/null; then
+        echo "  [6] OK    TS discriminated union (types/ipc/requests.ts)"
     else
-        echo "  [6] WARN  TS discriminated union (types/ipc.ts)"
-        echo "         command name not found in types/ipc.ts"
+        echo "  [6] WARN  TS discriminated union (types/ipc/requests.ts)"
+        echo "         command name not found in types/ipc/requests.ts"
         echo "         (skip if the renderer uses untyped call<T> — see guide)"
         WARNINGS+=("6")
     fi

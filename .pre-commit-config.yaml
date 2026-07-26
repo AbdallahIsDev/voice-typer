@@ -7,7 +7,7 @@ repos:
     rev: v0.8.0
     hooks:
       - id: ruff
-        args: [--check, --fix]
+        args: [--fix]
       - id: ruff-format
         args: [--check]
 

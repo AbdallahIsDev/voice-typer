@@ -1,8 +1,10 @@
-# ADR 0002: Electron + Python Architecture
+# ADR 0002: Electron + Python Architecture (Initial)
 
 ## Status
 
-Accepted
+Superseded by [ADR 0003](0003-electron-python-architecture.md) — the
+"Refined" electron+Python architecture (ADR-0003) replaces this initial
+design. This document is preserved for historical context.
 
 ## Date
 

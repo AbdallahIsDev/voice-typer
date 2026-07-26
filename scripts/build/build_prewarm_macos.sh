@@ -33,7 +33,51 @@ if [[ "$ARCH" == "--check" ]]; then
     # WR-18: previously this was a stub that just echoed "OK if that
     # passes" and exited 0 without invoking the sibling — masking
     # real toolchain breakage.
-    exec bash "$SCRIPT_DIR/build_sidecar_macos.sh" --check
+    # Delegate to the sibling sidecar build script which performs the
+    # real toolchain probe (python-build-standalone interpreter,
+    # nuitka, faster_whisper, ctranslate2). The prewarm binary uses
+    # the exact same Nuitka toolchain as the sidecar, so a successful
+    # sidecar --check implies a successful prewarm build.
+    # XS-7: previously this was a stub that just echoed "OK" and
+    # exited 0 (WR-18 fix added the delegate but did not verify the
+    # prewarm binary itself). We now ALSO verify any existing prewarm
+    # binary is non-corrupt: exists, >= 4 KiB (a real Nuitka onefile
+    # is multi-MB; < 4 KiB is a stub or zero-byte placeholder), and
+    # executable. If no binary is present, emit a NOTICE (preserves
+    # the pre-build gating use case where --check is called before
+    # the first build).
+    bash "$SCRIPT_DIR/build_sidecar_macos.sh" --check
+    # Verify any existing prewarm binary in src-tauri/resources/.
+    PREWARM_DIR="$PROJECT_ROOT/src-tauri/resources"
+    FOUND_PREWARM=0
+    if [[ -d "$PREWARM_DIR" ]]; then
+        for bin in "$PREWARM_DIR"/prewarm-*; do
+            [[ -e "$bin" ]] || continue
+            FOUND_PREWARM=1
+            # Size check: < 4 KiB = stub/placeholder
+            SIZE=$(stat -c%s "$bin" 2>/dev/null || stat -f%z "$bin" 2>/dev/null || echo 0)
+            if [[ "$SIZE" -lt 4096 ]]; then
+                echo "ERROR: prewarm binary $bin is corrupt (size=$SIZE bytes, expected >= 4096)" >&2
+                exit 1
+            fi
+            # Executable-bit check (skip on Windows .exe)
+            case "$bin" in
+                *.exe) ;;
+                *)
+                    if [[ ! -x "$bin" ]]; then
+                        echo "ERROR: prewarm binary $bin is not executable" >&2
+                        exit 1
+                    fi
+                    ;;
+            esac
+        done
+    fi
+    if [[ "$FOUND_PREWARM" -eq 0 ]]; then
+        echo "NOTICE: no prewarm binary found in $PREWARM_DIR — run without --check to build." >&2
+    else
+        echo "[build_prewarm_macos.sh] OK: existing prewarm binary verified."
+    fi
+    exit 0
 fi
 
 if [[ -z "$ARCH" ]]; then
