@@ -40,16 +40,18 @@ log = logging.getLogger("voice_typer.server.config_validators")
 # name is not in the allowlist). large-v3 is intentionally NOT included
 # because the existing test_load_normalizes_legacy_or_unsupported_model_to_small_en
 # regression test pins it to normalize to "small.en" (legacy/unsupported).
-ALLOWED_USER_MODELS = {
-    "tiny.en",
-    "small.en",
-    "medium.en",  # English-only Whisper
-    "tiny",
-    "small",
-    "medium",  # Multilingual Whisper (CR-38)
-    "qwen",
-    "parakeet",  # Non-Whisper backends
-}
+ALLOWED_USER_MODELS: frozenset[str] = frozenset(
+    {
+        "tiny.en",
+        "small.en",
+        "medium.en",  # English-only Whisper
+        "tiny",
+        "small",
+        "medium",  # Multilingual Whisper (CR-38)
+        "qwen",
+        "parakeet",  # Non-Whisper backends
+    }
+)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -232,7 +234,7 @@ def _make_float_validator(*, lo: float, hi: float) -> ValidatorFn:
     return _validate
 
 
-def _make_enum_validator(allowed: set) -> ValidatorFn:
+def _make_enum_validator(allowed: frozenset[str]) -> ValidatorFn:
     def _validate(v: object) -> str | None:
         if not _is_str(v):
             return f"must be a string, got {type(v).__name__}"
@@ -772,10 +774,92 @@ def _check_cross_field_hotkey_conflicts(
             # (fields[0] vs fields[1], fields[0] vs fields[2]) so the
             # user sees every collision involving the first field.
             for other in fields[1:]:
-                errors.append(
-                    f"Hotkey conflict: {canonical} is assigned to both "
-                    f"'{fields[0]}' and '{other}'"
-                )
+                errors.append(f"Hotkey conflict: {canonical} is assigned to both '{fields[0]}' and '{other}'")
+    return errors
+
+
+# Cloud/LLM cross-field config field names that participate in the
+# PI-18 consistency check. Used by both :func:`validate_config_update`
+# (delta-only check) and :func:`validate_config` (full-config check).
+_CLOUD_CONSENT_FIELD_NAMES: tuple[str, ...] = (
+    "cloud_openai_consent",
+    "cloud_groq_consent",
+    "cloud_deepgram_consent",
+)
+
+
+def _check_cross_field_cloud_config(
+    field_values: dict[str, object],
+) -> list[str]:
+    """PI-18 / PI-24: cross-field cloud/LLM config consistency check.
+
+    Catches inconsistencies between paired cloud/LLM config fields at
+    IPC save time (and at config-load time via :func:`validate_config`)
+    so the user doesn't discover the inconsistency at transcribe time
+    (when ``cloud_engines.CloudEngine.transcribe`` raises
+    ``CloudConfigError``).
+
+    The check fires ONLY when BOTH related fields are present in
+    ``field_values`` — for the IPC ``set_config`` path, the renderer
+    may push only ONE of the two paired fields (e.g. just
+    ``cloud_api_url`` without ``cloud_api_key``), and the other field
+    may already be set in the saved config. False positives here would
+    break the common "update one field at a time" UX.
+
+    Parameters
+    ----------
+    field_values
+        A mapping from field name to its current value. Only fields
+        present in this dict participate in the cross-field check
+        (missing fields are treated as "not in this update" and
+        skipped — they may be set in the saved config).
+
+    Returns
+    -------
+    list[str]
+        A list of human-readable error strings, one per
+        inconsistency. Empty list means the config is consistent.
+    """
+    errors: list[str] = []
+
+    # Cloud URL + key must be both set or both empty.
+    has_url = "cloud_api_url" in field_values
+    has_key = "cloud_api_key" in field_values
+    if has_url and has_key:
+        url_val = field_values.get("cloud_api_url")
+        key_val = field_values.get("cloud_api_key")
+        url_set = isinstance(url_val, str) and url_val.strip() != ""
+        key_set = isinstance(key_val, str) and key_val.strip() != ""
+        if url_set and not key_set:
+            errors.append("cloud_api_key is required when cloud_api_url is set")
+        if key_set and not url_set:
+            errors.append("cloud_api_url is required when cloud_api_key is set")
+
+    # LLM polish requires an API key (when both fields are in the update).
+    if "llm_polish" in field_values and "llm_api_key" in field_values:
+        polish_val = field_values.get("llm_polish")
+        key_val = field_values.get("llm_api_key")
+        key_set = isinstance(key_val, str) and key_val.strip() != ""
+        if polish_val is True and not key_set:
+            errors.append("llm_api_key is required when llm_polish is True")
+
+    # LLM polish requires explicit consent (when both fields are in the update).
+    if "llm_polish" in field_values and "llm_polish_consent" in field_values:
+        polish_val = field_values.get("llm_polish")
+        consent_val = field_values.get("llm_polish_consent")
+        if polish_val is True and consent_val is not True:
+            errors.append("llm_polish_consent must be True when llm_polish is True")
+
+    # Any cloud_*_consent=True requires cloud_api_key (when both the
+    # consent flag and the key are in the update).
+    if has_key:
+        key_val = field_values.get("cloud_api_key")
+        key_set = isinstance(key_val, str) and key_val.strip() != ""
+        if not key_set:
+            for consent_field in _CLOUD_CONSENT_FIELD_NAMES:
+                if consent_field in field_values and field_values.get(consent_field) is True:
+                    errors.append(f"cloud_api_key is required when {consent_field} is True")
+
     return errors
 
 
@@ -807,10 +891,7 @@ def _cross_platform_hotkey_warning(value: str, field_name: str) -> str | None:
             continue
         err = _check_platform_reserved(normalized, platform)
         if err is not None:
-            return (
-                f"{field_name} ({value!r}) is {err} — "
-                "this config will not be portable to that platform"
-            )
+            return f"{field_name} ({value!r}) is {err} — this config will not be portable to that platform"
     return None
 
 
@@ -887,18 +968,110 @@ except ImportError:
     # Hardcoded fallback — the 99 codes from openai-whisper's tokenizer.py.
     # Kept in sync with the upstream list.  When whisper IS importable we
     # use the live dict (above) so new languages are picked up automatically.
-    _ALLOWED_LANGUAGES = frozenset({
-        "en", "zh", "de", "es", "ru", "ko", "fr", "ja", "pt", "tr",
-        "pl", "ca", "nl", "ar", "sv", "it", "id", "hi", "fi", "vi",
-        "he", "uk", "el", "ms", "cs", "ro", "da", "hu", "ta", "no",
-        "th", "ur", "hr", "bg", "lt", "la", "mi", "ml", "cy", "sk",
-        "te", "fa", "lv", "bn", "sr", "az", "sl", "kn", "et", "mk",
-        "br", "eu", "is", "hy", "ne", "mn", "bs", "kk", "sq", "sw",
-        "gl", "mr", "pa", "si", "km", "sn", "yo", "so", "af", "oc",
-        "ka", "be", "tg", "sd", "gu", "am", "yi", "lo", "uz", "fo",
-        "ht", "ps", "tk", "nn", "mt", "sa", "lb", "my", "bo", "tl",
-        "mg", "as", "tt", "haw", "ln", "ha", "ba", "jw", "su", "yue",
-    })
+    _ALLOWED_LANGUAGES = frozenset(
+        {
+            "en",
+            "zh",
+            "de",
+            "es",
+            "ru",
+            "ko",
+            "fr",
+            "ja",
+            "pt",
+            "tr",
+            "pl",
+            "ca",
+            "nl",
+            "ar",
+            "sv",
+            "it",
+            "id",
+            "hi",
+            "fi",
+            "vi",
+            "he",
+            "uk",
+            "el",
+            "ms",
+            "cs",
+            "ro",
+            "da",
+            "hu",
+            "ta",
+            "no",
+            "th",
+            "ur",
+            "hr",
+            "bg",
+            "lt",
+            "la",
+            "mi",
+            "ml",
+            "cy",
+            "sk",
+            "te",
+            "fa",
+            "lv",
+            "bn",
+            "sr",
+            "az",
+            "sl",
+            "kn",
+            "et",
+            "mk",
+            "br",
+            "eu",
+            "is",
+            "hy",
+            "ne",
+            "mn",
+            "bs",
+            "kk",
+            "sq",
+            "sw",
+            "gl",
+            "mr",
+            "pa",
+            "si",
+            "km",
+            "sn",
+            "yo",
+            "so",
+            "af",
+            "oc",
+            "ka",
+            "be",
+            "tg",
+            "sd",
+            "gu",
+            "am",
+            "yi",
+            "lo",
+            "uz",
+            "fo",
+            "ht",
+            "ps",
+            "tk",
+            "nn",
+            "mt",
+            "sa",
+            "lb",
+            "my",
+            "bo",
+            "tl",
+            "mg",
+            "as",
+            "tt",
+            "haw",
+            "ln",
+            "ha",
+            "ba",
+            "jw",
+            "su",
+            "yue",
+        }
+    )
     _ALLOWED_LANGUAGES_SOURCE = "hardcoded fallback (whisper not importable)"
 
 
@@ -940,10 +1113,7 @@ def _validate_language(value: object) -> str | None:
     if value == "":
         return None
     if value not in _ALLOWED_LANGUAGES:
-        return (
-            f"Invalid language code {value!r} — expected a 2-letter "
-            "ISO 639-1 code like 'en', 'zh', 'ja'"
-        )
+        return f"Invalid language code {value!r} — expected a 2-letter ISO 639-1 code like 'en', 'zh', 'ja'"
     return None
 
 
@@ -978,7 +1148,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # ── Transcription ─────────────────────────────────────────────────
     "model_size": (str, _make_enum_validator(ALLOWED_USER_MODELS)),
     "language": (str, _VALIDATOR_LANGUAGE),
-    "device": (str, _make_enum_validator({"cuda", "cpu"})),
+    "device": (str, _make_enum_validator(frozenset({"cuda", "cpu"}))),
     "beam_size": (int, _make_int_validator(lo=1, hi=10)),
     "best_of": (int, _make_int_validator(lo=1, hi=10)),
     "condition_on_previous_text": (bool, _bool_validator),
@@ -1007,14 +1177,14 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "clipboard_save_restore": (bool, _bool_validator),
     "clipboard_restore_delay_ms": (int, _make_int_validator(lo=0, hi=2000)),
     # ── ASR backend selection ─────────────────────────────────────────
-    "asr_backend": (str, _make_enum_validator({"whisper", "qwen", "parakeet"})),
+    "asr_backend": (str, _make_enum_validator(frozenset({"whisper", "qwen", "parakeet"}))),
     # ── Text cleanup ──────────────────────────────────────────────────
     "text_cleanup_enabled": (bool, _bool_validator),
     "auto_punctuation": (bool, _bool_validator),
     # ── Logging ───────────────────────────────────────────────────────
     "log_transcriptions": (bool, _bool_validator),
     # ── P1 Features ───────────────────────────────────────────────────
-    "recording_mode": (str, _make_enum_validator({"toggle", "push_to_talk"})),
+    "recording_mode": (str, _make_enum_validator(frozenset({"toggle", "push_to_talk"}))),
     "esc_cancel_enabled": (bool, _bool_validator),
     # ── P2 Features ───────────────────────────────────────────────────
     "templates_enabled": (bool, _bool_validator),
@@ -1032,7 +1202,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "llm_api_key": (str, _VALIDATOR_API_KEY),
     "llm_api_url": (str, _VALIDATOR_LLM_API_URL),
     "llm_model": (str, _VALIDATOR_LLM_MODEL),
-    "llm_preset": (str, _make_enum_validator({"professional", "casual", "email", "code"})),
+    "llm_preset": (str, _make_enum_validator(frozenset({"professional", "casual", "email", "code"}))),
     # PRIVACY-001: consent flag is user-tunable (the consent dialog
     # itself sets this), but it's still subject to type validation.
     "llm_polish_consent": (bool, _bool_validator),
@@ -1073,8 +1243,8 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "vocabulary_auto_apply_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     # ── Waveform bubble ───────────────────────────────────────────────
     "waveform_bubble": (bool, _bool_validator),
-    "bubble_position": (str, _make_enum_validator({"top", "bottom"})),
-    "bubble_behavior": (str, _make_enum_validator({"show_on_record", "always_visible"})),
+    "bubble_position": (str, _make_enum_validator(frozenset({"top", "bottom"}))),
+    "bubble_behavior": (str, _make_enum_validator(frozenset({"show_on_record", "always_visible"}))),
     "bubble_draggable": (bool, _bool_validator),
     "bubble_show_on_startup": (bool, _bool_validator),
     # UX-10: mic button + click-to-toggle for the always-visible bubble.
@@ -1085,25 +1255,27 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "history_retention_count": (int, _make_int_validator(lo=0, hi=1_000_000)),
     "history_max_entries": (int, _make_int_validator(lo=0, hi=1_000_000)),
     # ── P3 Features / UX ──────────────────────────────────────────────
-    "tray_left_click_action": (str, _make_enum_validator({"open_app", "toggle_dictation"})),
-    "theme_mode": (str, _make_enum_validator({"system", "light", "dark"})),
+    "tray_left_click_action": (str, _make_enum_validator(frozenset({"open_app", "toggle_dictation"}))),
+    "theme_mode": (str, _make_enum_validator(frozenset({"system", "light", "dark"}))),
     "theme_preset": (
         str,
         _make_enum_validator(
-            {
-                "default",
-                "amoled",
-                "nord",
-                "dracula",
-                "sepia",
-                "solarized",
-                "monokai",
-                "ayu",
-                "github",
-                "catppuccin",
-                "tokyo-night",
-                "custom",
-            }
+            frozenset(
+                {
+                    "default",
+                    "amoled",
+                    "nord",
+                    "dracula",
+                    "sepia",
+                    "solarized",
+                    "monokai",
+                    "ayu",
+                    "github",
+                    "catppuccin",
+                    "tokyo-night",
+                    "custom",
+                }
+            )
         ),
     ),
     "custom_theme": (dict, _make_custom_theme_validator()),
@@ -1156,13 +1328,15 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "audio_preset": (
         str,
         _make_enum_validator(
-            {
-                "auto",
-                "studio",
-                "noisy_room",
-                "off",
-                "custom",
-            }
+            frozenset(
+                {
+                    "auto",
+                    "studio",
+                    "noisy_room",
+                    "off",
+                    "custom",
+                }
+            )
         ),
     ),
     # ── Noise filtering (ADR 0007 — filter chain) ────────────────────
@@ -1291,11 +1465,40 @@ def validate_config_update(data: dict[str, object]) -> tuple[dict[str, object], 
     # between ``hotkey`` and ``repaste_hotkey``.  Conflicts involving
     # ``push_to_talk_hotkey`` are caught by :func:`validate_config`
     # at config-load time (it sees all 3 fields via getattr).
-    hotkey_values: dict[str, str | None] = {
-        name: (validated[name] if name in validated else None)
-        for name in _HOTKEY_FIELD_NAMES
-    }
+    #
+    # YJ-FIX-B2: apply the same isinstance narrowing as YJ-24 so the
+    # ``hotkey_values`` dict (typed ``dict[str, str | None]``) actually
+    # matches its annotation. ``validated[name]`` is ``object`` (the
+    # ``validated`` dict's value type), so without the narrow the dict
+    # comprehension would produce ``dict[str, object | None]`` and
+    # pyrefly would flag the assignment. The narrow is a no-op at
+    # runtime because ``_check_cross_field_hotkey_conflicts`` skips
+    # non-string values anyway.
+    hotkey_values: dict[str, str | None] = {}
+    for name in _HOTKEY_FIELD_NAMES:
+        if name in validated:
+            raw = validated[name]
+            hotkey_values[name] = raw if isinstance(raw, str) else None
+        else:
+            hotkey_values[name] = None
     errors.extend(_check_cross_field_hotkey_conflicts(hotkey_values))
+    # PI-18 / PI-24: cross-field cloud/LLM config consistency check.
+    # Only fields that passed their per-field validator are in
+    # ``validated`` — invalid cloud/LLM fields don't participate in
+    # the cross-field check (they already produced their own per-field
+    # error and would just add noise).
+    cloud_field_values: dict[str, object] = {}
+    for cloud_name in (
+        "cloud_api_url",
+        "cloud_api_key",
+        "llm_polish",
+        "llm_api_key",
+        "llm_polish_consent",
+        *_CLOUD_CONSENT_FIELD_NAMES,
+    ):
+        if cloud_name in validated:
+            cloud_field_values[cloud_name] = validated[cloud_name]
+    errors.extend(_check_cross_field_cloud_config(cloud_field_values))
     return validated, errors
 
 
@@ -1369,10 +1572,35 @@ def validate_config(cfg: object) -> list[str]:
     hotkey_values: dict[str, str | None] = {}
     for name in _HOTKEY_FIELD_NAMES:
         try:
-            hotkey_values[name] = getattr(cfg, name)  # type: ignore[assignment]
+            # YJ-24: narrow the ``getattr`` result explicitly so the
+            # type-checker sees ``str | None`` (matching ``hotkey_values``'s
+            # value type) instead of ``Any`` from the dynamic-name lookup.
+            raw = getattr(cfg, name)
+            hotkey_values[name] = raw if isinstance(raw, str) else None
         except AttributeError:
             hotkey_values[name] = None
     errors.extend(_check_cross_field_hotkey_conflicts(hotkey_values))
+    # PI-18 / PI-24: cross-field cloud/LLM config consistency check
+    # on the FULL config. Unlike :func:`validate_config_update` (which
+    # only sees fields the renderer pushed), this function sees ALL
+    # cloud/LLM fields via getattr — so it catches inconsistencies
+    # introduced by hand-edited config.json files.
+    cloud_field_values: dict[str, object] = {}
+    for cloud_name in (
+        "cloud_api_url",
+        "cloud_api_key",
+        "llm_polish",
+        "llm_api_key",
+        "llm_polish_consent",
+        *_CLOUD_CONSENT_FIELD_NAMES,
+    ):
+        try:
+            cloud_field_values[cloud_name] = getattr(cfg, cloud_name)
+        except AttributeError:
+            # Field isn't present on the object — treat as "not set"
+            # and skip (mirrors the IPC validator's None handling).
+            pass
+    errors.extend(_check_cross_field_cloud_config(cloud_field_values))
     return errors
 
 

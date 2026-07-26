@@ -39,6 +39,7 @@ import logging
 import threading
 from typing import Any
 
+from voice_typer.server import i18n
 from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.tray_types import AppState
@@ -355,7 +356,7 @@ class ModelManager:
             else:
                 if self._app._shutting_down:
                     return
-                # PVT-G5-042 (session-5): list which backends were attempted
+                # List which backends were attempted
                 # so the user (and support) can see exactly what failed,
                 # plus a remediation hint. ``available_backends`` returns
                 # the registered backend names; ``active_name`` is the one
@@ -371,13 +372,23 @@ class ModelManager:
                 _backends = self._registry.available_backends
                 if callable(_backends):
                     _backends = _backends()
-                _attempted = ", ".join(_backends) or "(none registered)"
+                # Narrow ``_backends`` to a list before joining.
+                # ``available_backends`` is a ``@property`` returning
+                # ``list[str]``, but the ``callable(_backends)`` fallback
+                # (for MagicMock test doubles that override the attribute
+                # with a callable) widens the inferred type to
+                # ``list[str] | object`` — ``str.join`` rejects ``object``
+                # (not iterable). At runtime the value is always a list.
+                if isinstance(_backends, list):
+                    _attempted = ", ".join(str(_b) for _b in _backends) or "(none registered)"
+                else:
+                    _attempted = "(none registered)"
                 _primary = getattr(self._app.config, "asr_backend", "unknown")
                 log.warning(
                     "[STARTUP] All backends failed to load "
                     "(primary=%s, attempted=[%s]). "
                     "Recovery: press F2 to retry, or change the backend "
-                    "in Settings → Models.",
+                    "in Settings -> Models.",
                     _primary,
                     _attempted,
                 )
@@ -457,7 +468,7 @@ class ModelManager:
         try:
             self._app.config.save()
         except Exception:
-            # PVT-G5-076 (session-5): previously missing the ``[MODEL]``
+            # Previously missing the ``[MODEL]``
             # topic prefix used by every other log call in this module.
             # Adding it keeps the log topic-consistent so log filters /
             # greps work.
@@ -516,9 +527,11 @@ class ModelManager:
             self._app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
             if notify_on_failure:
                 # NEW-UX-018: critical — bypass toggle (model load failed).
+                # Use the i18n key so the tray tooltip + OS notification
+                # render in the user's selected UI locale.
                 self._app.tray.notify_safety(
                     APP_NAME,
-                    "Could not load the speech model.\nThe app will keep running. Press F2 to retry loading.",
+                    i18n.t("notify.model_manager.load_failed"),
                 )
 
     def try_load(self, notify_on_failure: bool = False) -> None:
@@ -648,7 +661,7 @@ class ModelManager:
             else:
                 raise RuntimeError("All backends failed to load")
         except Exception as e:
-            # PVT-G5-042 (session-5): include the model name and backend
+            # Include the model name and backend
             # info so the failure is actionable — the user can see which
             # backend and model size failed and retry / switch via Settings.
             _failed_backend = getattr(self._app.config, "asr_backend", "unknown")
@@ -711,8 +724,8 @@ class ModelManager:
         # CR-77: outer = _config_mutation_lock (app-level, governs config
         # setattr + save); inner = _model_change_lock (ModelManager-level,
         # guards the unload/reload cycle).  See method docstring.
-        #
-        # G4-H-16: _config_mutation_lock is acquired ONLY for the brief
+
+        # ``_config_mutation_lock`` is acquired ONLY for the brief
         # setattr + save + unload/unregister/clear-field phase. The heavy
         # engine construction (_ensure_engine — may import torch) and
         # load (load_active — 5-30s on cold boot) run under
@@ -731,7 +744,7 @@ class ModelManager:
             # _config_mutation_lock released here. _model_change_lock
             # still held — concurrent IPC set_config calls can proceed.
             # Phase 2: construct + load the new engine OUTSIDE the
-            # config lock (per G4-H-16).
+            # config lock (see above).
             self._change_model_load_phase(new_backend)
 
     def _change_model_setattr_phase(self, model_size: str) -> tuple[str, str, bool]:
@@ -802,7 +815,7 @@ class ModelManager:
         ``old_backend == new_backend``. This is required for whisper,
         where ``model_size`` may have changed and a fresh
         ``TranscriptionEngine`` must be constructed with the new
-        ``model_size`` kwarg. Skipping the unload (the G4-H-16
+        ``model_size`` kwarg. Skipping the unload (the
         optimization) broke ``test_model_change_uses_config_device``.
         """
         # Unload old backend via registry
@@ -830,7 +843,7 @@ class ModelManager:
         """Phase 2: construct + load the new engine.
 
         Caller MUST hold ``_model_change_lock``. Must NOT hold
-        ``_config_mutation_lock`` (per G4-H-16).
+        ``_config_mutation_lock`` (see above).
         """
         # Create new engine object via registry.create()
         self._ensure_engine(new_backend)
@@ -870,7 +883,7 @@ class ModelManager:
             log.exception("[MODEL] Model load failed: %s", exc)
             self._app.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
 
-    # G4-CR-08: set_active_backend — switch ASR backend WITHOUT changing
+    # set_active_backend — switch ASR backend WITHOUT changing
     # model_size. Mirrors change_model's unload/reload cycle but only
     # swaps the backend. The model_size field is left untouched so
     # Whisper's model selection (which depends on model_size) is
@@ -879,7 +892,7 @@ class ModelManager:
     def set_active_backend(self, backend: str) -> None:
         """Switch the active ASR backend WITHOUT changing ``model_size``.
 
-        G4-CR-08: previously ``Service.set_active_backend`` delegated to
+        Previously ``Service.set_active_backend`` delegated to
         ``self._app.models.set_active_backend(backend)`` but
         :class:`ModelManager` never defined that method — the IPC
         ``set_config`` handler caught the ``AttributeError`` and logged
@@ -898,7 +911,7 @@ class ModelManager:
            ``config.save()``.
         5. Pre-construct the new backend via ``_ensure_engine`` (no
            load yet — just constructs the engine object).
-        6. Release ``_config_mutation_lock`` (per G4-H-16).
+        6. Release ``_config_mutation_lock`` (see above).
         7. Load the new backend via ``_registry.load_active`` under
            ``_model_change_lock`` alone.
 
@@ -912,7 +925,7 @@ class ModelManager:
             raise ValueError(
                 f"set_active_backend: unknown backend {backend!r}. Expected one of: 'whisper', 'qwen', 'parakeet'."
             )
-        # G4-H-16: outer = _model_change_lock (held throughout the
+        # Outer = _model_change_lock (held throughout the
         # unload+construct+load cycle). Inner = _config_mutation_lock
         # (acquired only for setattr + save + the quick unload phase).
         with self._model_change_lock:

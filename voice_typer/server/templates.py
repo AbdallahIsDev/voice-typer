@@ -120,6 +120,14 @@ class TemplateManager:
 
             config_dir = _config_dir()
         self._path = config_dir / TEMPLATES_FILENAME
+        # Route persistence through PersistedJSON so templates
+        # get single-slot .bak before overwrite + corrupt-file
+        # quarantine + 0o600 perms (parity with config.py). The
+        # previous implementation used _secure_atomic_write for saves
+        # but had NO .bak and NO quarantine on load failure.
+        from voice_typer.server.secure_file_io import PersistedJSON
+
+        self._store = PersistedJSON(self._path, default={"templates": []})
         self._templates: list[dict] = []
         self._load()
 
@@ -150,45 +158,42 @@ class TemplateManager:
     def _load(self) -> None:
         """Load templates from JSON file.
 
-        SEC-audit-006 (Round 0 forward-port): uses
-        :func:`voice_typer.server.config._secure_read_text`
+        Persistence is routed through :class:`PersistedJSON`
+        (``self._store``). On parse failure (corrupt JSON, OSError,
+        symlink-TOCTOU raise), the helper quarantines the corrupt file
+        to ``<path>.corrupt-<ts>`` for forensic recovery and returns
+        the configured default. The previous implementation silently
+        fell back to an empty list with a single WARNING log line — no
+        quarantine — so the next ``_save`` would atomically overwrite
+        the corrupt file with defaults, destroying any chance of
+        forensic recovery. Mirrors ``config.py:1744-1763`` and
+        ``crash_recovery.py:186-219``.
+
+        SEC-audit-006 (Round 0 forward-port): the underlying read
+        uses :func:`voice_typer.server.config._secure_read_text`
         (POSIX ``O_NOFOLLOW`` + inode re-verification) to prevent a
         symlink-TOCTOU attack where an attacker replaces the templates
         file with a symlink to a sensitive file (e.g.
-        ``~/.ssh/id_rsa``).  Previously this used
-        :meth:`pathlib.Path.read_text`, which silently followed
-        symlinks — inconsistent with :meth:`_save`, which already used
-        :func:`_secure_atomic_write` (the write-side counterpart).
-        If ``_secure_read_text`` raises (symlink detected, inode
-        changed, or any other OSError/ValueError), the load fails
-        closed: ``_templates`` is reset to an empty list and a warning
-        is logged so the user knows their templates were discarded
-        rather than silently loaded from a tampered file.
+        ``~/.ssh/id_rsa``).
         """
-        if not self._path.exists():
+        data = self._store.load()
+        if isinstance(data, list):
+            self._templates = data
+        elif isinstance(data, dict) and "templates" in data:
+            self._templates = data["templates"]
+        else:
             self._templates = []
-            return
-        try:
-            from voice_typer.server.config import _secure_read_text
-
-            raw = _secure_read_text(self._path)
-            data = json.loads(raw)
-            if isinstance(data, list):
-                self._templates = data
-            elif isinstance(data, dict) and "templates" in data:
-                self._templates = data["templates"]
-            else:
-                self._templates = []
-            log.info("[TEMPLATES] Loaded %d templates from %s", len(self._templates), self._path)
-        except Exception as exc:
-            log.warning("[TEMPLATES] Failed to load from %s: %s", self._path, exc)
-            self._templates = []
+        log.info("[TEMPLATES] Loaded %d templates from %s", len(self._templates), self._path)
 
     def _save(self) -> None:
         """Save templates to JSON file.
 
-        NEW-SEC-008: uses the shared _secure_atomic_write which applies
-        O_NOFOLLOW on POSIX to prevent symlink TOCTOU attacks.
+        Persistence is routed through :class:`PersistedJSON`
+        (``self._store``), which provides atomic write + single-slot
+        ``.bak`` before overwrite + 0o600 perms (parity with
+        ``config.py:1163-1182``). The shared ``_secure_atomic_write``
+        applies ``O_NOFOLLOW`` on POSIX to prevent symlink TOCTOU
+        attacks.
 
         M-62: previously this method caught *all* exceptions and
         silently logged them, returning ``None`` to callers. That
@@ -201,16 +206,10 @@ class TemplateManager:
         can roll back their in-memory mutation and the IPC layer can
         surface the failure to the renderer.
         """
-        from voice_typer.server.config import _secure_atomic_write
-
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        content = json.dumps(
-            {"templates": self._templates},
-            indent=2,
-            ensure_ascii=False,
-        )
         try:
-            _secure_atomic_write(self._path, content)
+            # PersistedJSON.save handles atomic write + .bak
+            # + 0o600 perms + parent-dir creation in one call.
+            self._store.save({"templates": self._templates})
         except Exception:
             # M-62: log then re-raise so callers can roll back.
             # G4-H-38: use log.exception so the traceback is captured

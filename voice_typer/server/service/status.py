@@ -8,6 +8,8 @@ Extracted verbatim from the original ``service.py`` god class
 import logging
 from typing import TYPE_CHECKING
 
+from voice_typer.server.service._base import ServiceMixinBase
+
 if TYPE_CHECKING:
     # WR-14: ``StatusResponse`` is a TypedDict defined in
     # ``voice_typer/server/service/__init__.py`` (which imports this
@@ -21,7 +23,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class StatusMixin:
+class StatusMixin(ServiceMixinBase):
     """Status / health-check service methods.
 
     These are read-only queries over ``self._app`` state; they don't

@@ -13,21 +13,36 @@ every copy used the *same* logger name, and a future rename (e.g.
 splitting ``ipc_server`` from ``ipc.server``) would have required
 touching 14 files.
 
-This module is the *aspirational* single source of truth for the
-handler-package logger name. Mixins SHOULD import ``log`` from here::
+This module is the single source of truth for the handler-package
+logger name. Mixins import ``log`` from here::
 
     from voice_typer.server.handlers._log import log
 
-Consolidation is aspirational, not complete: as of PVT-G5-058, 10 of
-13 handler files still declare ``log = logging.getLogger(...)``
-inline. Only ``history_handlers``, ``model_handlers``,
-``privacy_handlers``, and ``_base.py`` actually import from here.
-New handlers SHOULD import from this module rather than re-declaring
-the logger inline, so the consolidation grows over time. The
-``logging.getLogger`` call is idempotent (same name → same Logger
-object), so the mixed inline + import-from-here pattern is
-functionally correct — it is only a code-audit hazard, not a
-correctness bug.
+The aspirational consolidation (when 10 of 13 handler files
+still declared ``log = logging.getLogger(...)`` inline) is now
+COMPLETE. Every handler mixin that uses logging imports ``log``
+from this module:
+
+- ``_base.py`` (the HandlerBase base class)
+- ``config_handlers.py``
+- ``history_handlers.py``
+- ``model_handlers.py``
+- ``onboarding_handlers.py``
+- ``privacy_handlers.py``
+- ``status_handlers.py``
+- ``system_handlers.py``
+- ``templates_handlers.py``
+- ``vocabulary_handlers.py``
+
+The remaining handler mixins (``dictation_handlers.py``,
+``level_monitor_handlers.py``, ``microphone_handlers.py``,
+``microphone_test_handlers.py``, ``repaste_handlers.py``,
+``vocabulary_automation_handlers.py``) do NOT use logging directly and
+therefore do not need to import ``log`` — their error paths route
+through ``HandlerBase._respond_with_error`` (which uses the shared
+``log``).  New handlers that need to emit log records SHOULD import
+``log`` from this module rather than re-declaring the logger inline,
+so the consolidation is preserved.
 
 The logger name stays ``"voice_typer.server.ipc_server"`` for backward
 compatibility: existing log-scraping tests (``test_logging_format``,
@@ -46,8 +61,8 @@ from __future__ import annotations
 
 import logging
 
-# CR-63: aspirational single source of truth for the IPC handler logger
-# name. Keep this name in sync with the dispatcher's logger
+# CR-63: single source of truth for the IPC handler logger name.
+# Keep this name in sync with the dispatcher's logger
 # (``voice_typer/server/ipc_server.py``) so handler and dispatcher log
 # records are emitted under the same logger in ``voice-typer.log``.
 log = logging.getLogger("voice_typer.server.ipc_server")

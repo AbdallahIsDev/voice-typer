@@ -508,15 +508,20 @@ class _FileFormatter(logging.Formatter):
     codes.  If you need coloured log output, use the terminal stderr
     stream (which uses ``_ColorFormatter``).
 
-    Format::
+    Format (PI-29: docstring updated to match the real ISO 8601 format
+    with millis + tz offset introduced by GT-61)::
 
-        2026-06-28 18:36:22  [a3f1b2c4]  [MainThread]  INFO   [voice_typer.server.app]  RegisterHotKey OK
-        2026-06-28 18:36:22  [a3f1b2c4]  [MainThread]  WARN   [voice_typer.server.app]  [ENV] Invalid value ...
-        2026-06-28 18:36:22  [a3f1b2c4]  [TranscribeThread]  ERROR  [voice_typer.server.dictation_pipeline]  Stream end
+        2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [MainThread]  INFO   [voice_typer.server.app]  RegisterHotKey OK
+        2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [MainThread]  WARN   [voice_typer.server.app]  [ENV] Invalid value ...
+        2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [TranscribeThread]  ERROR  [voice_typer.server.dictation_pipeline]  Stream end
 
     Fields (left to right):
 
-    - ``ts``                 — ``YYYY-MM-DD  HH:MM:SS`` timestamp
+    - ``ts``                 — ISO 8601 timestamp
+      (``YYYY-MM-DDTHH:MM:SS.mmm±HHMM``) with ``T`` date/time
+      separator, millisecond precision, and a signed tz offset.  The
+      millis are required so sub-second audio events (VAD triggers,
+      chunk boundaries) are distinguishable in the file log (GT-61).
     - ``[session_id]``       — 8-char per-process hex ID rendered by
       ``_SessionFilter`` (``[--------]`` placeholder when the filter
       has not run, e.g. third-party loggers that bypass ``voice_typer``).
@@ -719,8 +724,7 @@ def _apply_per_module_log_levels() -> None:
             continue
         if "=" not in entry:
             setup_log.warning(
-                "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES "
-                "entry %r (reason: missing '=')",
+                "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES entry %r (reason: missing '=')",
                 entry,
             )
             continue

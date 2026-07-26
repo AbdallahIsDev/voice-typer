@@ -25,7 +25,7 @@ class ConsentRequiredError(RuntimeError):
     ``isinstance``-check for this type to surface a consent dialog
     instead of an error toast.
 
-    GT-B2-9: structured fields are captured on the exception instance
+    Structured fields are captured on the exception instance
     so the IPC layer, telemetry sinks, and the renderer's consent
     dialog can drive their behavior off typed fields instead of regex-
     matching the message string. The ``message`` positional argument
@@ -34,8 +34,21 @@ class ConsentRequiredError(RuntimeError):
     fields are keyword-only so existing callers continue to work
     unchanged.
 
+    DE-30: ``provider`` and ``scope`` are class attributes (defaulting
+    to empty string) so the IPC layer can read them off any instance
+    via ``getattr(exc, "provider", "")`` without ``isinstance``
+    branching. The typed subclasses (``HuggingFaceConsentRequiredError``
+    / ``CloudConsentRequiredError``) override them so the renderer can
+    distinguish "HuggingFace download consent missing" from "OpenAI
+    cloud-transcription consent missing".
+
     Structured fields:
 
+    - ``provider``: the consent provider (``"huggingface"`` /
+      ``"openai"`` / ``"groq"`` / ``"deepgram"``). Empty string on the
+      base class for backward compat with legacy raise sites.
+    - ``scope``: the consent scope (``"download"`` / ``"transcribe"``).
+      Empty string on the base class for backward compat.
     - ``engine_name``: the backend that needed consent
       (``"whisper"`` / ``"qwen"`` / ``"parakeet"`` / ``"openai"`` /
       ``"groq"`` / ``"deepgram"``).
@@ -51,6 +64,11 @@ class ConsentRequiredError(RuntimeError):
       (set in ``__init__``). Used by telemetry sinks to deduplicate
       repeat events within a session.
     """
+
+    # DE-30: class-level defaults so ``getattr(exc, "provider", "")``
+    # on ANY instance (base or subclass) always returns a string.
+    provider: str = ""
+    scope: str = ""
 
     def __init__(
         self,
@@ -74,4 +92,171 @@ class ConsentRequiredError(RuntimeError):
             "model_id": self.model_id,
             "timestamp": self.timestamp,
             "message": str(self.args[0]) if self.args else "",
+            "provider": self.provider,
+            "scope": self.scope,
         }
+
+
+class HuggingFaceConsentRequiredError(ConsentRequiredError):
+    """DE-30: typed subclass for HuggingFace *download* consent denial.
+
+    ``provider`` / ``scope`` are class attributes (not per-instance) —
+    every HuggingFace consent denial is a download-scope denial for
+    the ``"huggingface"`` provider, so the values are fixed at the
+    class level. The IPC layer reads them via ``getattr(exc,
+    "provider", "")`` without ``isinstance`` branching.
+    """
+
+    provider = "huggingface"
+    scope = "download"
+
+
+class CloudConsentRequiredError(ConsentRequiredError):
+    """DE-30: typed subclass for cloud-provider *transcribe* consent
+    denial.
+
+    ``scope`` is a class attribute (always ``"transcribe"`` — every
+    cloud consent denial is a transcribe-scope denial), but
+    ``provider`` is per-instance because the same class is shared
+    across openai / groq / deepgram (the provider value is forwarded
+    from the ``CloudEngine`` instance that raised the error).
+
+    The ``provider`` kwarg is accepted in ``__init__`` and stored on
+    the instance, shadowing the empty-string class attribute. This
+    lets each cloud provider get its own ``provider`` value without a
+    separate subclass per provider.
+    """
+
+    scope = "transcribe"
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        provider: str = "",
+        **kwargs: object,
+    ) -> None:
+        super().__init__(message, **kwargs)  # type: ignore[arg-type]
+        self.provider = provider
+
+
+# ── Typed cloud/LLM exception hierarchy ─────────────────────────────────
+
+# Pre-typed-hierarchy, every cloud/LLM failure (401 from the cloud
+# provider, 429 rate limit, 5xx server error, network timeout, missing
+# API key) collapsed to a generic ``RuntimeError``. The IPC handler
+# catch-all then mapped that generic ``RuntimeError`` to the generic
+# ``server.internal_error`` envelope — so the renderer could not
+# distinguish "API key invalid" (user must re-enter) from "transient
+# network" (auto-retry) from "rate limited" (backoff) from "missing
+# config" (open Settings).
+
+# The typed hierarchy lets the IPC layer ``isinstance``-check the
+# exception and emit a distinct IPC error code (registered in
+# ``ERROR_CODES`` at ``voice_typer/server/ipc/validation.py``). The
+# hierarchy subclasses ``RuntimeError`` so existing ``except
+# RuntimeError`` clauses still catch them — but the new typed
+# branches in ``HandlerBase._respond_with_error`` (see
+# ``voice_typer/server/handlers/_base.py``) take precedence for the
+# cloud/LLM codes.
+
+# Mapping (cloud_engines.py / llm_polish.py):
+#   401, 403                  → CloudAuthError
+#   429 (after retry budget)  → CloudRateLimitError
+#   5xx                       → CloudServerError
+#   URLError (timeout/DNS)    → CloudNetworkError
+#   missing api_key / url     → CloudConfigError
+
+
+# IPC code mapping (handlers/_base.py):
+#   CloudAuthError            → server.cloud_auth_failed
+#   CloudRateLimitError       → server.cloud_rate_limited
+#   CloudServerError          → server.cloud_server_error
+#   CloudNetworkError         → server.cloud_network_error
+#   CloudConfigError          → server.cloud_config_error
+class CloudEngineError(RuntimeError):
+    """Base for cloud/LLM engine errors.
+
+    All cloud/LLM-specific exceptions subclass this so the IPC layer
+    can ``isinstance``-narrow to "something went wrong with the cloud
+    provider" without matching the message string. Subclasses below
+    carry the semantic category (auth / rate-limit / server / network
+    / config).
+    """
+
+
+class CloudAuthError(CloudEngineError):
+    """401, 403 — API key invalid or revoked.
+
+    The renderer surfaces "Cloud API key invalid — open Settings to
+    re-enter" instead of a generic "internal error" toast.
+    """
+
+
+class CloudRateLimitError(CloudEngineError):
+    """429 — rate limited (after retry budget exhausted).
+
+    The renderer surfaces "Cloud provider rate limited — please retry
+    shortly" and may schedule an automatic backoff retry.
+    """
+
+
+class CloudServerError(CloudEngineError):
+    """5xx — cloud server error.
+
+    The renderer surfaces "Cloud provider server error" and may retry
+    with exponential backoff.
+    """
+
+
+class CloudNetworkError(CloudEngineError):
+    """URLError — timeout, DNS failure, connection reset.
+
+    The renderer surfaces "Network error contacting cloud provider"
+    and may retry (the cloud engine itself already retries 3× with
+    exponential backoff before raising, so by the time this reaches
+    the IPC layer the retry budget is exhausted).
+    """
+
+
+class CloudConfigError(CloudEngineError):
+    """Missing API key or URL — configuration incomplete.
+
+    The renderer surfaces "Cloud provider not configured — open
+    Settings to enter API key". The cross-field validator at
+    ``config_validators._check_cross_field_cloud_config`` catches the
+    common case at save time; this runtime check stays as
+    defense-in-depth for the case where the key was revoked between
+    save and transcribe.
+    """
+
+
+class MicrophonePermissionDeniedError(RuntimeError):
+    """Raised when the OS denies microphone access (or the user
+    declined the consent prompt).
+
+    Subclass of ``RuntimeError`` so existing ``except RuntimeError``
+    catch clauses still work — but the IPC layer can
+    ``isinstance``-check for this type to surface the permission
+    onboarding UI instead of a generic error toast.
+
+    The optional ``state`` kwarg captures the OS-reported permission
+    state (``"denied"``, ``"prompt"``, ``"restricted"``, etc.) so
+    telemetry sinks and the renderer can drive their behavior off the
+    typed field instead of regex-matching the message string.
+    """
+
+    def __init__(
+        self,
+        message: str = "Microphone permission denied",
+        *,
+        state: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.state = state
+
+    def __str__(self) -> str:  # type: ignore[override]
+        base = super().__str__()
+        if self.state:
+            return f"{base} (state={self.state})"
+        return base

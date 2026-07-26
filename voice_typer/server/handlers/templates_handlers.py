@@ -39,7 +39,7 @@ class TemplatesHandlersMixin(HandlerBase):
     def _handle_save_templates(self, data, resp) -> dict | None:
         """Handle the ``save_templates`` IPC command.
 
-        G4-M-07: the schema declares a 256 KB whole-payload cap via
+        The schema declares a 256 KB whole-payload cap via
         ``max_payload_bytes`` so a multi-MB template list can't pin
         the IPC thread or blow up the on-disk JSON store. After the
         schema check, an inline loop rejects any single ``trigger``
@@ -55,7 +55,7 @@ class TemplatesHandlersMixin(HandlerBase):
                 data,
                 {
                     "templates": {"type": list, "required": True},
-                    # G4-M-07: 256 KB payload cap. ``_payload`` is a
+                    # 256 KB payload cap. ``_payload`` is a
                     # sentinel field name — ``max_payload_bytes`` is a
                     # whole-payload rule, not a per-field rule, but the
                     # schema is keyed by field name so we use a ``_``
@@ -67,16 +67,25 @@ class TemplatesHandlersMixin(HandlerBase):
             if error:
                 resp["type"] = "error"
                 resp["data"] = error["data"]
-                if error["data"]["code"] == "invalid_payload":
+                # Narrow error["data"] to dict before indexing.
+                # ``_validate_dict_payload`` has no return-type annotation,
+                # so pyrefly infers its error return as
+                # ``dict[str, str | dict[str, str]]`` (unifying all the
+                # ``"type": "error", "data": {...}`` branches). At runtime
+                # ``error["data"]`` is always a dict, but the type system
+                # can't prove it — narrow with ``isinstance`` so the
+                # ``["code"]`` / ``["message"]`` indexing type-checks.
+                _err_data = error.get("data")
+                if isinstance(_err_data, dict) and _err_data.get("code") == "invalid_payload":
                     log.warning(
                         "[IPC] save_templates rejected: %s",
-                        error["data"]["message"],
+                        _err_data.get("message"),
                     )
                 return resp
             assert validated is not None  # narrowed by the error guard above
             templates = validated["templates"]
 
-            # G4-M-07: per-field length cap (1024 chars). The templates
+            # Per-field length cap (1024 chars). The templates
             # module enforces tighter per-field caps downstream (200 for
             # trigger, 2000 for output), but this IPC-level guard lets
             # the renderer distinguish "client sent an obviously bogus
@@ -96,7 +105,7 @@ class TemplatesHandlersMixin(HandlerBase):
                             (f"'{field_name}' value too long in templates[{idx}] ({len(value)} > {_max_field_len})"),
                             code="client.invalid_field",
                         )
-                        # G4-M-07: log at WARNING so operators can see
+                        # Log at WARNING so operators can see
                         # rejection rates (a spike suggests a renderer
                         # bug producing oversized templates).
                         log.warning(

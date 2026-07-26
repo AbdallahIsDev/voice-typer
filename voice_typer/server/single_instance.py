@@ -9,9 +9,11 @@ work.
 SEC-001: the Windows mutex name is ``"Local\\VoiceTyperSingleInstance"`` and is
 secured with a restrictive DACL built by
 :func:`voice_typer.server._security_attributes._create_restrictive_security_attributes`.
-The ``VOICE_TYPER_RESTART`` bypass is time-limited to 30 seconds — the
-restart token file must have been modified within the last 30 seconds for
-the bypass to be accepted.
+The ``VOICE_TYPER_RESTART`` env var allows a new instance to start while the
+old instance is shutting down. The old instance must release the mutex/flock
+before the new instance can acquire it — there is no time-limited token
+bypass (the orphan restart-token machinery in ``security.py`` was removed;
+the env var is honored as a restart hint only).
 
 PLAT-011: on ``error_already_exists`` we exit IMMEDIATELY — no retry loop.
 
@@ -29,6 +31,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from voice_typer.server._security_attributes import (
     _create_restrictive_security_attributes,
@@ -39,10 +42,19 @@ from voice_typer.server.platform_utils import is_windows
 # CR-11: POSIX-only flock import. ``fcntl`` is part of the stdlib on
 # Linux/macOS but does not exist on Windows. The try/except keeps the
 # module importable on Windows (where the POSIX path is never taken).
-try:
-    import fcntl  # type: ignore[import-not-found]  # POSIX-only stdlib
-except ImportError:  # pragma: no cover - Windows path
-    fcntl = None  # type: ignore[assignment]
+# Use a TYPE_CHECKING-only annotation block to give type checkers a
+# precise ``ModuleType | None`` shape without needing import-ignore
+# markers; runtime import still happens via the plain
+# ``try/except ImportError`` below.
+if TYPE_CHECKING:
+    from types import ModuleType
+
+    fcntl: ModuleType | None
+else:
+    try:
+        import fcntl  # POSIX-only stdlib
+    except ImportError:  # pragma: no cover - Windows path
+        fcntl = None
 
 # CR-11: module-level binding of ``_config_dir`` so tests can monkeypatch
 # ``voice_typer.server.single_instance._config_dir`` and have the POSIX
@@ -94,8 +106,19 @@ class _PosixSingleInstanceHandle(int):
     # which is what we use to store ``_lock_path`` / ``_released``.
     # The per-instance memory overhead is negligible (one handle per
     # process) and is dwarfed by the rest of the app.
+    #
+    # Class-level annotations so pyrefly sees the dynamic instance
+    # attributes set in ``__new__``. Without these,
+    # ``instance._lock_path = lock_path`` and ``self._lock_path``
+    # access raise missing-attribute diagnostics (the ``int`` parent
+    # doesn't declare them and pyrefly doesn't infer them from
+    # ``__new__``'s body). ``_lock_path`` is ``Path | None`` (callers
+    # pass a ``pathlib.Path`` from ``cdir / "backend.lock"``; ``None``
+    # is the default in ``__new__``); ``_released`` is ``bool``.
+    _lock_path: Path | None
+    _released: bool
 
-    def __new__(cls, fd: int, lock_path=None):
+    def __new__(cls, fd: int, lock_path: Path | None = None):
         instance = super().__new__(cls, fd)
         instance._lock_path = lock_path
         instance._released = False
@@ -273,9 +296,10 @@ def _ensure_single_instance(silent: bool = False):
     """Enforce single-instance via platform-specific locking.
 
     CR-11: dispatches to the Windows named-mutex path or the POSIX
-    flock path. Both paths honor the ``VOICE_TYPER_RESTART`` bypass
-    (time-limited to 30s, SEC-001) which is evaluated here so the
-    logic is shared.
+    flock path. The ``VOICE_TYPER_RESTART`` env var is a hint that a
+    restart is in progress (no time-limited token bypass — the
+    old instance must release the mutex/flock before the new instance
+    can acquire it).
 
     Returns
     -------
@@ -304,9 +328,9 @@ def _ensure_single_instance(silent: bool = False):
 
     SEC-001: Uses "Local\\VoiceTyperSingleInstance" with a restrictive
     DACL (only current user SID) to prevent cross-session mutex attacks.
-    The VOICE_TYPER_RESTART bypass is time-limited to 30 seconds — the
-    restart token file must have been modified within the last 30 seconds
-    for the bypass to be accepted.
+    The ``VOICE_TYPER_RESTART`` env var is honored as a restart hint
+    only — there is no time-limited token file; the old instance must
+    release the mutex/flock before the new instance can acquire it.
     """
     # CR-16: dispatch to the platform-specific enforcement path via
     # ``is_windows()`` only (NOT ``sys.platform``). The autostart

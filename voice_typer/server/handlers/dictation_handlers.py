@@ -5,8 +5,6 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-from typing import Any
-
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.ipc.validation import _validate_dict_payload
 
@@ -20,16 +18,10 @@ class DictationHandlersMixin(HandlerBase):
     ``voice_typer/server/handlers/_base.py`` for the migration plan.
     """
 
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
+    # The ``service`` / ``app`` / ``_send`` annotations are
+    # inherited from :class:`HandlerMixinBase` — no per-mixin
+    # re-declaration needed (the duplicate block removed here was one
+    # of four that the R4-F3 centralization refactor missed).
 
     def _handle_toggle_dictation(self, data, resp) -> dict | None:
         """Handle the ``toggle_dictation`` IPC command."""

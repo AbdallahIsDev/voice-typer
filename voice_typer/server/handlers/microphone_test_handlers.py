@@ -18,16 +18,35 @@ class MicrophoneTestHandlersMixin(HandlerBase):
     """
 
     def _handle_microphone_test_start(self, data, resp) -> dict | None:
-        """Handle the ``microphone_test_start`` IPC command."""
+        """Handle the ``microphone_test_start`` IPC command.
+
+        DE-45 (session-DE): ``duration`` is now in the schema with
+        ``clamp_range: (1.0, 60.0)``. Previously the inline
+        ``float(d.get("duration") or 10.0)`` coercion accepted any
+        numeric value (including ``1e300`` and ``-5.0``) without
+        bounds — a misbehaving caller could request a 1-hour
+        microphone test that would block the recorder, or a
+        negative-duration test that would crash the service layer.
+        The clamp enforces a sane [1.0, 60.0] window.
+
+        The ``clamp_range`` rule in the schema only applies to
+        int/float values (the helper skips strings). For string
+        values (e.g. ``"7.5"`` from a form input), the helper
+        passes the string through unchanged; we then do
+        ``float(validated["duration"])`` and re-clamp manually to
+        enforce the same [1.0, 60.0] window on the coerced value.
+
+        Note: the previous ``float(d.get("duration") or 10.0)``
+        treated ``0`` as falsy and used the default ``10.0``. The
+        new clamp treats ``0`` as a real value and clamps it to
+        the lower bound ``1.0``. This is the documented behavior
+        change in DE-45 — ``0`` is no longer "use default", it's
+        a clamped value.
+        """
         try:
             # IPC-3: validate ``mic_id`` and ``filters`` types via the
-            # shared ``_validate_dict_payload`` helper. ``duration`` is
-            # intentionally NOT in the schema — the existing inline
-            # ``float(d.get("duration") or 10.0)`` coercion accepts
-            # numeric strings ("7.5" → 7.5), and adding a strict
-            # numeric type check would break that documented coercion
-            # (see ``test_string_duration_is_coerced_to_float``).
-            # Non-dict ``data`` is pre-coerced to ``{}`` so the
+            # shared ``_validate_dict_payload`` helper. Non-dict
+            # ``data`` is pre-coerced to ``{}`` so the
             # ``test_non_dict_data_uses_defaults`` contract (None →
             # defaults) still holds; ``_validate_dict_payload`` would
             # otherwise reject non-dict with ``invalid_payload``.
@@ -46,14 +65,40 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                         "required": False,
                         "default": None,
                     },
+                    # DE-45: ``duration`` in schema with clamp_range.
+                    # ``type: (int, float, str)`` preserves the
+                    # documented string → float coercion for form-input
+                    # compatibility (``"7.5" → 7.5``). The
+                    # ``clamp_range`` rule clamps int/float values to
+                    # [1.0, 60.0]; strings are clamped after the
+                    # ``float()`` coercion below.
+                    "duration": {
+                        "type": (int, float, str),
+                        "required": False,
+                        "default": 10.0,
+                        "clamp_range": (1.0, 60.0),
+                    },
                 },
             )
             if error:
+                # DE-45: the helper emits namespaced
+                # ``client.invalid_field`` for the ``duration`` type
+                # check and namespaced ``client.invalid_payload`` for
+                # non-dict ``data``. Test assertions expect the
+                # namespaced form, so the error passes through
+                # unchanged.
                 return error
             assert validated is not None  # narrowed by the error guard above
             mic_id = validated.get("mic_id")
-            duration = float(data.get("duration") or 10.0)
             filters = validated.get("filters")
+            # DE-45: coerce to float (handles string values like
+            # ``"7.5"``) and re-clamp. The schema's ``clamp_range``
+            # already clamped int/float values, but strings bypass it
+            # (the helper only clamps int/float). A string like
+            # ``"1e300"`` would coerce to ``inf`` here; the re-clamp
+            # brings it back to 60.0.
+            duration = float(validated["duration"])
+            duration = max(1.0, min(duration, 60.0))
             result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
             resp["type"] = "microphone_test_result"
             resp["data"] = result

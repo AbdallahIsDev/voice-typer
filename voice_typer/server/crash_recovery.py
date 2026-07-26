@@ -15,6 +15,7 @@ return immediately; the worker thread serializes the writes.
 """
 
 import atexit
+import collections
 import contextlib
 import json
 import logging
@@ -25,7 +26,7 @@ import weakref
 from pathlib import Path
 from typing import Any
 
-# G4-M-36: import _secure_atomic_write at module load time so
+# Import _secure_atomic_write at module load time so
 # ``_save_sync`` doesn't need to lazily import it during interpreter
 # shutdown (where the import machinery can fail, dropping the final
 # recovery state).  ``config`` doesn't import ``crash_recovery``, so
@@ -56,6 +57,32 @@ _SAVE_QUEUE_MAXSIZE = 32
 _LIVE_INSTANCES: "weakref.WeakSet[CrashRecovery]" = weakref.WeakSet()
 
 
+def _atexit_flush_all() -> None:
+    """Module-level atexit — flush every still-live CrashRecovery instance.
+
+    Previously, ``CrashRecovery.__init__`` registered a PER-INSTANCE
+    ``atexit.register(_atexit_save)`` closure that held a ``weakref`` to
+    the instance. That worked but leaked one atexit entry per instance
+    for the lifetime of the process (atexit has no public unregister-by-
+    callable API, and the closures accumulated even after the
+    CrashRecovery was GC'd). With a single module-level handler iterating
+    ``_LIVE_INSTANCES`` (a WeakSet), atexit grows by exactly ONE entry
+    regardless of how many CrashRecovery instances are constructed and
+    GC'd over the process lifetime.
+
+    Best-effort: each ``_save_sync()`` is wrapped in
+    ``contextlib.suppress(Exception)`` so a failure on one instance
+    doesn't skip the others. Mirrors the original per-instance handler's
+    contract — atexit must never raise.
+    """
+    for inst in list(_LIVE_INSTANCES):
+        with contextlib.suppress(Exception):
+            inst._save_sync()
+
+
+atexit.register(_atexit_flush_all)
+
+
 class CrashRecovery:
     """Stores recent transcriptions for crash recovery.
 
@@ -74,7 +101,11 @@ class CrashRecovery:
 
             config_dir = _config_dir()
         self._path = config_dir / RECOVERY_FILENAME
-        self._entries: list[dict] = []
+        # Bounded deque: collections.deque(maxlen=...) auto-evicts the
+        # oldest entry when full, so the manual ``while len() > MAX:
+        # pop(0)`` trim in ``add()`` is now a defensive no-op (kept for
+        # readability — it never executes under the bounded deque).
+        self._entries: collections.deque = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
         self._lock = threading.Lock()
         # Serializes _save_sync() disk writes so that concurrent
         # callers (the background worker + any post-shutdown sync
@@ -104,25 +135,13 @@ class CrashRecovery:
         self._thread_registry = thread_registry
         self._load()
         self._start_save_thread()
-        # G4-M-36: register an atexit handler so the final recovery
-        # state is persisted even if the caller forgets to call
-        # ``shutdown()`` / ``flush()`` (e.g. interpreter killed by
-        # SIGTERM, normal process exit without explicit teardown).
-        # The handler holds a weak reference so a GC'd CrashRecovery
-        # doesn't keep itself alive via the atexit registry.
-        self_ref = weakref.ref(self)
-
-        def _atexit_save() -> None:
-            cr = self_ref()
-            if cr is None:
-                return
-            try:
-                cr._save_sync()
-            except Exception:
-                pass  # atexit must never raise
-
-        atexit.register(_atexit_save)
-        # FT-2: register in the module-level WeakSet so the test conftest
+        # Atexit flushing is now handled by the SINGLE module-level
+        # ``_atexit_flush_all`` handler (registered once at import time
+        # above) which iterates ``_LIVE_INSTANCES`` and calls
+        # ``_save_sync()`` on each. Previously this ctor registered a
+        # per-instance ``atexit.register(_atexit_save)`` closure that
+        # leaked one atexit entry per instance for the process lifetime.
+        # Register in the module-level WeakSet so the test conftest
         # can shutdown leaked instances after each test (prevents the
         # daemon saver thread from accumulating across the full pytest run
         # and crashing the process on Windows via native thread-limit
@@ -147,7 +166,7 @@ class CrashRecovery:
         is reset to ``[]`` and a warning is logged, matching the
         templates / vocabulary / config load paths.
 
-        GT-A1-5: when the file exists but can't be parsed (corrupt
+        When the file exists but can't be parsed (corrupt
         JSON, truncated by a mid-write crash, etc.), rename it to
         ``<path>.corrupt.<timestamp>`` before resetting ``_entries``.
         This preserves the corrupt file for forensic review and
@@ -157,7 +176,7 @@ class CrashRecovery:
         swallowed so ``_load`` still resets ``_entries`` cleanly.
         """
         if not self._path.exists():
-            self._entries = []
+            self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
             return
         try:
             from voice_typer.server.config import _secure_read_text
@@ -165,26 +184,26 @@ class CrashRecovery:
             raw = _secure_read_text(self._path)
             data = json.loads(raw)
             if isinstance(data, list):
-                self._entries = data
+                self._entries = collections.deque(data, maxlen=MAX_RECOVERY_ENTRIES)
             elif isinstance(data, dict) and "entries" in data:
-                self._entries = data["entries"]
+                self._entries = collections.deque(data["entries"], maxlen=MAX_RECOVERY_ENTRIES)
             else:
-                # GT-A1-5: shape is wrong but JSON parsed — treat as
+                # Shape is wrong but JSON parsed — treat as
                 # corrupt and quarantine so the next save isn't
                 # merged with stale data.
                 self._quarantine_corrupt()
-                self._entries = []
+                self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
             log.debug("[RECOVERY] Loaded %d entries", len(self._entries))
         except Exception as exc:
             log.warning("[RECOVERY] Failed to load: %s", exc)
-            # GT-A1-5: quarantine the corrupt file so the next save
-            # creates a fresh one.  Best-effort — failures are logged
-            # and swallowed so _load always resets _entries cleanly.
+            # Quarantine the corrupt file so the next save creates a
+            # fresh one.  Best-effort — failures are logged and
+            # swallowed so _load always resets _entries cleanly.
             self._quarantine_corrupt()
-            self._entries = []
+            self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
 
     def _quarantine_corrupt(self) -> None:
-        """GT-A1-5: rename the recovery file to ``<path>.corrupt.<ts>``.
+        """Rename the recovery file to ``<path>.corrupt.<ts>``.
 
         Preserves the corrupt file for forensic review (e.g. inspecting
         what truncation pattern led to the parse failure) and ensures
@@ -238,7 +257,7 @@ class CrashRecovery:
         acquired only for the in-memory snapshot so reads of
         ``_entries`` aren't blocked during I/O.
 
-        G4-M-36: ``_secure_atomic_write`` is now imported at module
+        ``_secure_atomic_write`` is imported at module
         load time (top of file) rather than lazily here.  This avoids
         the ``ImportError`` that occurred during interpreter shutdown
         when the import machinery was partially dismantled — the
@@ -254,8 +273,10 @@ class CrashRecovery:
                     except OSError as e:
                         log.warning("[RECOVERY] Failed to chmod dir: %s", e)
                 with self._lock:
+                    # Convert deque to list for JSON serialization
+                    # (collections.deque is not JSON-serializable).
                     snapshot = json.dumps(
-                        {"entries": self._entries},
+                        {"entries": list(self._entries)},
                         indent=2,
                         ensure_ascii=False,
                     )
@@ -345,6 +366,15 @@ class CrashRecovery:
                 continue
             if item is None:
                 # Sentinel: stop signal
+                # Balance the ``get()`` with ``task_done()`` before
+                # breaking — maintains the ``get()``/``task_done()``
+                # pairing invariant for any future ``Queue.join()`` caller
+                # (no current caller exists, but the pairing is the
+                # documented contract). ``flush()`` does NOT rely on this
+                # — it uses an explicit ``flush_event`` sentinel +
+                # ``threading.Event.wait(timeout)``, NOT the
+                # unfinished-tasks counter.
+                self._save_queue.task_done()
                 break
             if isinstance(item, dict) and "flush_event" in item:
                 # RW-4: flush barrier sentinel.  All saves queued
@@ -472,7 +502,7 @@ class CrashRecovery:
             self._entries.append(entry)
             # Trim to max
             while len(self._entries) > MAX_RECOVERY_ENTRIES:
-                self._entries.pop(0)
+                self._entries.popleft()
         self._enqueue_save()
 
     def mark_pasted(self, index: int) -> bool:
@@ -612,21 +642,20 @@ class CrashRecovery:
         bundle_name = f"voice-typer-diagnostics-{timestamp}.zip"
         bundle_path = config_dir / bundle_name
 
-        # PVT-G5-078 (session-5): write the zip to a sibling .tmp file
-        # first, then atomically ``os.replace`` it to the final name.
-        # Pre-fix, ``zipfile.ZipFile(str(bundle_path), "w", ...)``
-        # opened the final path directly — if the process crashed
-        # mid-write (or the disk filled, or the user Ctrl-C'd the
-        # export), a partial zip would be left in the config dir. A
-        # user attaching that partial zip to a bug report would confuse
-        # support (zip is corrupt, no error visible). The atomic rename
-        # ensures the final path only ever exists as a complete, valid
-        # zip.
+        # Write the zip to a sibling .tmp file first, then atomically
+        # ``os.replace`` it to the final name.  Pre-fix,
+        # ``zipfile.ZipFile(str(bundle_path), "w", ...)`` opened the
+        # final path directly — if the process crashed mid-write (or
+        # the disk filled, or the user Ctrl-C'd the export), a partial
+        # zip would be left in the config dir. A user attaching that
+        # partial zip to a bug report would confuse support (zip is
+        # corrupt, no error visible). The atomic rename ensures the
+        # final path only ever exists as a complete, valid zip.
         tmp_bundle_path = bundle_path.with_suffix(".zip.tmp")
 
         try:
             with zipfile.ZipFile(str(tmp_bundle_path), "w", zipfile.ZIP_DEFLATED) as zf:
-                # 1. Log file — GT-B2-13: redact PII + secrets line-by-line
+                # 1. Log file — redact PII + secrets line-by-line
                 # before adding to the zip.  Previously the log was added
                 # verbatim via ``zf.write(str(log_path), ...)`` which meant
                 # any PII / API key that slipped past the
@@ -660,7 +689,7 @@ class CrashRecovery:
                                 "".join(redacted_lines),
                             )
                         except Exception:
-                            # GT-B2-13: if redaction fails (e.g. security
+                            # If redaction fails (e.g. security
                             # module unavailable), fall back to skipping
                             # the log entirely rather than shipping raw
                             # content — defense in depth.
@@ -675,17 +704,23 @@ class CrashRecovery:
                     try:
                         import json
 
-                        # NF-R18-1: iterate over the canonical
-                        # ``_SECRET_CONFIG_FIELDS`` set (defined in
-                        # ``ipc_server.py``) instead of a hardcoded tuple
-                        # that missed ``cloud_api_key`` and ``groq_api_key``.
-                        # Pre-fix, the diagnostic bundle leaked 2 of the 5
-                        # API keys to the zip file (and thus to any bug
-                        # report the user attached it to). The shared
-                        # frozenset is the single source of truth — any
-                        # future secret field added there is automatically
-                        # redacted here too.
-                        from voice_typer.server.ipc_server import (
+                        # Iterate over the canonical ``_SECRET_CONFIG_FIELDS``
+                        # set instead of a hardcoded tuple that missed
+                        # ``cloud_api_key`` and ``groq_api_key``. Pre-fix,
+                        # the diagnostic bundle leaked 2 of the 5 API keys
+                        # to the zip file (and thus to any bug report the
+                        # user attached it to). The shared frozenset is the
+                        # single source of truth — any future secret field
+                        # added there is automatically redacted here too.
+                        # Import from the canonical ``config_sanitizer``
+                        # module instead of reaching into IPC-server
+                        # private state (``ipc_server`` re-exports the
+                        # same object for backwards compat — the two
+                        # paths produce identical results — but the
+                        # dependency direction should be crash_recovery →
+                        # config_sanitizer, not crash_recovery →
+                        # ipc_server → config_sanitizer).
+                        from voice_typer.server.config_sanitizer import (
                             _SECRET_CONFIG_FIELDS,
                         )
 
@@ -712,12 +747,12 @@ class CrashRecovery:
                     f"Architecture: {platform.machine()}",
                     f"Processor: {platform.processor()}",
                 ]
-                # G4-M-35: extend system_info with OS release, distro,
-                # display server, audio devices, app version, and a
-                # redacted env-var allowlist so support engineers can
-                # diagnose platform-specific issues (Wayland stalls,
-                # missing audio devices, sidecar mode, etc.) without
-                # asking the user to run ``--status`` manually.
+                # Extend system_info with OS release, distro, display
+                # server, audio devices, app version, and a redacted
+                # env-var allowlist so support engineers can diagnose
+                # platform-specific issues (Wayland stalls, missing audio
+                # devices, sidecar mode, etc.) without asking the user to
+                # run ``--status`` manually.
                 sys_info.append(f"OS release: {platform.release()}")
                 # distro.id() — Linux-only, lazy import (not available
                 # on macOS/Windows by default; the ``distro`` package
@@ -765,9 +800,9 @@ class CrashRecovery:
                     sys_info.append("Audio devices: <sounddevice not installed>")
                 except Exception as exc:
                     sys_info.append(f"Audio devices error: {exc}")
-                # G4-M-35: app version from the ``voice_typer`` package
-                # (exposed via PEP 562 in ``voice_typer/__init__.py``).
-                # We use ``voice_typer.__version__`` directly rather than
+                # App version from the ``voice_typer`` package (exposed
+                # via PEP 562 in ``voice_typer/__init__.py``). We use
+                # ``voice_typer.__version__`` directly rather than
                 # ``branding.__version__`` to avoid modifying
                 # ``branding.py`` (owned by another agent).  The version
                 # is resolved lazily on first access via
@@ -831,6 +866,14 @@ class CrashRecovery:
                 try:
                     from voice_typer.server.config import Config
 
+                    # Legitimate fresh-snapshot read — this runs inside
+                    # the diagnostic-bundle export path which is
+                    # post-crash (or user-triggered from Settings →
+                    # Troubleshooting). A stale live ``app.config`` could
+                    # reflect a half-applied mutation that caused the
+                    # crash, so reading the on-disk snapshot is the safer
+                    # choice for diagnostic accuracy. Read-only — no
+                    # mutation, no config-mutation lock required.
                     cfg = Config.load()
                     model_info = [
                         f"Model: {cfg.model_size}",
@@ -919,7 +962,7 @@ class CrashRecovery:
                         ),
                     )
 
-                # 7. Crash diagnostics archive (G4-M-33)
+                # 7. Crash diagnostics archive
                 # ``crash_handler.report_pending_crash`` archives each
                 # processed crash_diagnostics / python_crash file to
                 # ``<config_dir>/crash_diagnostics_archive/`` instead of
@@ -938,19 +981,18 @@ class CrashRecovery:
                                 f"crash_diagnostics_archive/{archived_file.name}",
                             )
 
-            # PVT-G5-078 (session-5): atomic rename — only do this if
-            # the tmp file was successfully written. If the
-            # ``with zipfile.ZipFile`` block above raised, we never get
-            # here and the tmp file (if any) is left for the next export
-            # to overwrite. Use ``os.replace`` for atomicity (POSIX
-            # rename(2) is atomic; Windows ReplaceFile is too on NTFS).
+            # Atomic rename — only do this if the tmp file was
+            # successfully written. If the ``with zipfile.ZipFile`` block
+            # above raised, we never get here and the tmp file (if any)
+            # is left for the next export to overwrite. Use ``os.replace``
+            # for atomicity (POSIX rename(2) is atomic; Windows
+            # ReplaceFile is too on NTFS).
             os.replace(str(tmp_bundle_path), str(bundle_path))
             log.info("[RECOVERY] Diagnostic bundle created: %s", bundle_path)
             return str(bundle_path)
         except Exception as exc:
-            # PVT-G5-078 (session-5): clean up the partial tmp file on
-            # failure so it doesn't accumulate across failed exports.
-            # Best-effort.
+            # Clean up the partial tmp file on failure so it doesn't
+            # accumulate across failed exports.  Best-effort.
             try:
                 if tmp_bundle_path.exists():
                     tmp_bundle_path.unlink()

@@ -31,7 +31,7 @@ message) and leaves the action to the caller, preserving the original
 behavioral split (``apply`` and ``dismiss`` are separate IPC commands
 on the wire).
 
-PVT-G5-071 (FA16, 2026-07-19): inline validation-error responses now
+Inline validation-error responses now
 route through :func:`_error_response` with explicit ``code`` values
 (``not_initialized`` / ``invalid_payload`` / ``invalid_field`` /
 ``not_found``) so clients can branch on ``code`` rather than
@@ -40,11 +40,28 @@ blocks call :meth:`HandlerBase._respond_with_error` (CR-20 generic
 WS-path envelope — no ``str(e)`` leak).
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.ipc.validation import _error_response
 
+if TYPE_CHECKING:
+    # Typed parameters for :func:`_find_pending_suggestion`.
+    # Imported under ``TYPE_CHECKING`` to avoid a runtime cycle (the
+    # ``vocabulary_automation`` module is constructed lazily by the
+    # dictation pipeline; importing it eagerly here would pull in a
+    # heavier dependency graph at IPC-server boot).
+    from voice_typer.server.vocabulary_automation import (
+        CorrectionSuggestion,
+        VocabularyAutomation,
+    )
 
-def _find_pending_suggestion(automation, data):
+
+def _find_pending_suggestion(
+    automation: VocabularyAutomation, data: object
+) -> tuple[CorrectionSuggestion | None, str | None]:
     """Look up a pending suggestion matching the client-supplied fields.
 
     R4-F4: extracted from the duplicated validation+lookup block that
@@ -107,7 +124,7 @@ def _find_pending_suggestion(automation, data):
     return None, "suggestion not found in pending list"
 
 
-# PVT-G5-071: map ``_find_pending_suggestion``'s error messages to
+# Map ``_find_pending_suggestion``'s error messages to
 # structured ``code`` values so the renderer can branch on ``code``
 # rather than pattern-matching the message text. Used by both the
 # ``apply`` and ``dismiss`` handlers.
@@ -162,7 +179,7 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
         try:
             automation = getattr(self.app, "_vocabulary_automation", None)
             if automation is None:
-                # PVT-G5-071: stamp the structured ``code`` so the
+                # Stamp the structured ``code`` so the
                 # renderer can branch on ``not_initialized`` rather
                 # than pattern-matching the message text.
                 return _error_response(
@@ -174,6 +191,16 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
             # R4-F4: delegate validation + lookup to the shared helper.
             target, error_message = _find_pending_suggestion(automation, data)
             if target is None:
+                # Narrow ``error_message`` from
+                # ``str | None`` to ``str`` before passing to
+                # ``_error_response(message: str)`` and
+                # ``dict.get(key: str, ...)``. ``_find_pending_suggestion``
+                # only returns ``(target, None)`` on success (target is
+                # non-None), so in this ``target is None`` branch
+                # ``error_message`` is always a non-None str — but
+                # pyrefly can't infer that, so we add the explicit
+                # guard with a defensive fallback.
+                msg = error_message if error_message is not None else "suggestion lookup failed"
                 # Pre-R4-F4 the non-dict path emitted a handler-specific
                 # message ("apply_vocabulary_suggestion requires data:
                 # object"). The helper returns the generic "requires
@@ -182,21 +209,21 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
                 # assert "data: object" in resp["data"]["message"] keep
                 # passing.
                 #
-                # PVT-G5-071: route through ``_error_response`` with
+                # Route through ``_error_response`` with
                 # a structured ``code`` (``invalid_payload`` for the
                 # non-dict path; ``invalid_field`` / ``not_found`` for
                 # the lookup-failure paths — see
                 # ``_SUGGESTION_ERROR_CODES``).
-                if error_message == "requires data: object":
+                if msg == "requires data: object":
                     return _error_response(
                         resp,
-                        f"apply_vocabulary_suggestion {error_message}",
+                        f"apply_vocabulary_suggestion {msg}",
                         code="invalid_payload",
                     )
                 return _error_response(
                     resp,
-                    error_message,
-                    code=_SUGGESTION_ERROR_CODES.get(error_message, "handler_error"),
+                    msg,
+                    code=_SUGGESTION_ERROR_CODES.get(msg, "handler_error"),
                 )
 
             automation.apply_suggestion(target)
@@ -221,7 +248,7 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
         try:
             automation = getattr(self.app, "_vocabulary_automation", None)
             if automation is None:
-                # PVT-G5-071: stamp the structured ``code`` (same as
+                # Stamp the structured ``code`` (same as
                 # the apply path above).
                 return _error_response(
                     resp,
@@ -232,19 +259,23 @@ class VocabularyAutomationHandlersMixin(HandlerBase):
             # R4-F4: delegate validation + lookup to the shared helper.
             target, error_message = _find_pending_suggestion(automation, data)
             if target is None:
-                # PVT-G5-071: same code-mapping logic as the apply
+                # Narrow ``error_message`` from
+                # ``str | None`` to ``str`` — see the apply handler
+                # above for the full rationale.
+                msg = error_message if error_message is not None else "suggestion lookup failed"
+                # Same code-mapping logic as the apply
                 # handler above — see the comment there for the
                 # handler-specific message-prefix preservation.
-                if error_message == "requires data: object":
+                if msg == "requires data: object":
                     return _error_response(
                         resp,
-                        f"dismiss_vocabulary_suggestion {error_message}",
+                        f"dismiss_vocabulary_suggestion {msg}",
                         code="invalid_payload",
                     )
                 return _error_response(
                     resp,
-                    error_message,
-                    code=_SUGGESTION_ERROR_CODES.get(error_message, "handler_error"),
+                    msg,
+                    code=_SUGGESTION_ERROR_CODES.get(msg, "handler_error"),
                 )
 
             automation.dismiss_suggestion(target)

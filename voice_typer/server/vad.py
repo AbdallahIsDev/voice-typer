@@ -24,7 +24,8 @@ Falls back to ``torch.hub.load()`` if the local model is missing
 import contextlib
 import io
 import logging
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Any
 
@@ -171,8 +172,7 @@ def _load_model():
         return None, None
     except Exception as exc:
         log.warning(
-            "[VAD] torch.hub.load failed: %s — negative-caching; Silero VAD "
-            "disabled until reset()",
+            "[VAD] torch.hub.load failed: %s — negative-caching; Silero VAD disabled until reset()",
             exc,
         )
         _hub_load_failure_cached = True
@@ -248,7 +248,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
         import torch
 
         # Silero expects a 1D float32 tensor
-        audio_tensor = torch.from_numpy(audio_chunk).float()
+        audio_tensor = torch.from_numpy(audio_chunk).to(torch.float32)
         if audio_tensor.dim() > 1:
             audio_tensor = audio_tensor.squeeze()
 
@@ -260,7 +260,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
         # is out-of-distribution for Silero and under-reports speech).
         if n < expected:
             padded = _reflect_pad_to(audio_chunk.astype(np.float32, copy=False), expected)
-            audio_tensor = torch.from_numpy(padded).float()
+            audio_tensor = torch.from_numpy(padded).to(torch.float32)
             if audio_tensor.dim() > 1:
                 audio_tensor = audio_tensor.squeeze()
             n = expected
@@ -279,7 +279,7 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = 16000) -> float
         probs: list[float] = []
         with torch.no_grad():
             for i in range(num_sub):
-                sub = audio_tensor[i * expected:(i + 1) * expected]
+                sub = audio_tensor[i * expected : (i + 1) * expected]
                 probs.append(model(sub, sample_rate).item())
         return max(probs) if probs else 0.0
     except Exception as exc:

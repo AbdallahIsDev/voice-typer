@@ -16,8 +16,6 @@ MODEL-IMPORT: added ``_handle_import_model`` so the renderer can scan
 and import pre-downloaded models from a local directory.
 """
 
-from typing import Any
-
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
@@ -32,16 +30,10 @@ class ModelHandlersMixin(HandlerBase):
     ``voice_typer/server/handlers/_base.py`` for the migration plan.
     """
 
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
+    # The ``service`` / ``app`` / ``_send`` annotations are
+    # inherited from :class:`HandlerMixinBase` — no per-mixin
+    # re-declaration needed (the duplicate block removed here was one
+    # of four that the R4-F3 centralization refactor missed).
 
     def _handle_download_model(self, data, resp) -> dict | None:
         """Handle the ``download_model`` IPC command."""
@@ -206,7 +198,15 @@ class ModelHandlersMixin(HandlerBase):
             if error:
                 return error
             assert validated is not None  # narrowed by the error guard above
-            dir_path = validated.get("dir_path", "") or ""
+            # Narrow ``dir_path`` from ``object`` to ``str`` for
+            # pyrefly. The schema above (``{"type": str, ...}``)
+            # guarantees the value is a ``str`` if present, and the
+            # default is ``""`` (also ``str``); the ``isinstance`` check
+            # is always True at runtime but narrows the static type so
+            # the downstream ``_validate_import_path(dir_path: str)``
+            # call type-checks cleanly.
+            dir_path_raw = validated.get("dir_path", "")
+            dir_path = dir_path_raw if isinstance(dir_path_raw, str) else ""
             if not dir_path:
                 log.warning("[IPC] import_model called without dir_path")
                 resp["type"] = "error"

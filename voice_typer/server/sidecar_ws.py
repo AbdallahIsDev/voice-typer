@@ -99,6 +99,14 @@ from typing import TYPE_CHECKING
 # inside run() so the module imports cleanly without the dep
 # installed (e.g. on the Electron-only build path); the runtime
 # check produces a clean ImportError with an actionable message.
+#
+# The typed close-exception classes
+# (``ConnectionClosedOK`` / ``ConnectionClosedError``) are imported
+# lazily at the top of ``_handle_connection`` (NOT at module top) so
+# this module still imports cleanly on the Electron-only build path.
+# ``_handle_connection`` is only called by ``serve()`` which is set
+# up by ``run()`` AFTER the lazy websockets import there has already
+# succeeded, so the inner import is guaranteed to succeed at runtime.
 
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     from voice_typer.server.ipc_server import IPCServer
@@ -248,7 +256,7 @@ def _make_dispatch(server: IPCServer):
     """Build a coroutine that dispatches a single WS frame.
 
     Reuses ``server._dispatch`` (the same path the TCP loop uses),
-    so the 73-command registry + _validate_dict_payload + every
+    so the 61-command registry + _validate_dict_payload + every
     handler mixin is exercised unchanged (ADR-0020 §2).
     """
     # ADR-0019 + CR-11: per-process rate limiter. Reuse the same private
@@ -295,7 +303,15 @@ def _make_dispatch(server: IPCServer):
         if not isinstance(msg_type, str):
             return {
                 "type": "error",
-                "data": {"code": "invalid_payload", "message": "missing 'type'"},
+                "data": {
+                    # Namespaced form (canonical) + legacy alias
+                    # (one-release compat) — see
+                    # ``voice_typer/server/ipc/validation.py`` for the
+                    # migration contract.
+                    "code": "client.invalid_payload",
+                    "legacy_code": "invalid_payload",
+                    "message": "missing 'type'",
+                },
             }
 
         # G4-H-30: cooperative shutdown gate. Once ``app._shutting_down``
@@ -351,7 +367,9 @@ def _make_dispatch(server: IPCServer):
             return {
                 "type": "error",
                 "data": {
-                    "code": "rate_limited",
+                    # Namespaced form (canonical) + legacy alias.
+                    "code": "client.rate_limited",
+                    "legacy_code": "rate_limited",
                     "message": "rate limit exceeded; backing off",
                 },
             }
@@ -457,6 +475,14 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     rather than reconnect, so a duplicate connection implies a
     protocol bug worth logging.
     """
+    # Lazy import so this module imports cleanly on the
+    # Electron-only build path (where websockets isn't installed).
+    # At runtime ``_handle_connection`` is only called by ``serve()``
+    # which is set up by ``run()`` AFTER the lazy websockets import
+    # there has already succeeded, so this inner import is guaranteed
+    # to succeed.
+    from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+
     peer = websocket.remote_address
     log.info("[SIDECAR-WS] client connected from %s", peer)
 
@@ -537,19 +563,21 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
     # ONCE here (EC-FIX-3 cleanup: previously re-captured three times
     # at L550/L560/L570 with a dead ``_ws_loop`` local — all redundant
     # since the loop is identical for the lifetime of this connection)
-    # and store it on the server so the sync subscriber can route all
-    # queue mutations through ``loop.call_soon_threadsafe`` (which is
-    # the documented way to bridge a sync caller to an asyncio
-    # primitive from a non-loop thread).
+    # and close over it in ``_push_to_ws`` so the sync subscriber can
+    # route all queue mutations through ``loop.call_soon_threadsafe``
+    # (which is the documented way to bridge a sync caller to an
+    # asyncio primitive from a non-loop thread).
     #
-    # ``server._ws_loop`` is intentionally NOT read back inside
-    # ``_push_to_ws`` to handle multi-connection servers — the WS path
-    # runs ONE accept loop on ONE asyncio event loop, so all connections
-    # share the same loop. If a future refactor permits multiple loops,
-    # the closure-captured ``loop`` below is the per-connection source
-    # of truth; ``server._ws_loop`` is the cross-connection source.
+    # The previous ``server._ws_loop = loop`` write was removed — it
+    # had zero production readers (the per-connection closure-captured
+    # ``loop`` below is the only source of truth used by
+    # ``_push_to_ws``), and writing it without ``server._lock``
+    # created a race-on-write hazard for any future diagnostic reader.
+    # The WS path runs ONE accept loop on ONE asyncio event loop, so
+    # all connections share the same loop; if a future refactor
+    # permits multiple loops, the closure-captured ``loop`` remains
+    # the per-connection source of truth.
     loop = asyncio.get_running_loop()
-    server._ws_loop = loop
 
     # Subscribe server.push (which forwards event_bus.publish) to
     # this WS so server-initiated events flow back to the host.
@@ -681,7 +709,13 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
                     json.dumps(
                         {
                             "type": "error",
-                            "data": {"code": "invalid_payload", "message": "invalid JSON"},
+                            "data": {
+                                # Namespaced form (canonical) +
+                                # legacy alias.
+                                "code": "client.invalid_payload",
+                                "legacy_code": "invalid_payload",
+                                "message": "invalid JSON",
+                            },
                         }
                     )
                 )
@@ -692,7 +726,13 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
                     json.dumps(
                         {
                             "type": "error",
-                            "data": {"code": "invalid_payload", "message": "frame must be an object"},
+                            "data": {
+                                # Namespaced form (canonical) +
+                                # legacy alias.
+                                "code": "client.invalid_payload",
+                                "legacy_code": "invalid_payload",
+                                "message": "frame must be an object",
+                            },
                         }
                     )
                 )
@@ -711,13 +751,38 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
                 except Exception:
                     log.warning("[SIDECAR-WS] response send failed", exc_info=True)
                     break
+    except ConnectionClosedOK:
+        # Clean WebSocket close (1000/1001 normal close) — log
+        # at DEBUG. Previously the broad ``except Exception:`` below
+        # caught this and logged at INFO with ``exc_info=True``,
+        # polluting the rotating log with tracebacks for the NORMAL
+        # disconnect path (every client that closes cleanly produced
+        # an INFO-level traceback entry).
+        log.debug("[SIDECAR-WS] client disconnected cleanly")
+    except ConnectionClosedError as exc:
+        # Abnormal WebSocket close (1006 protocol error, 1011
+        # server error, etc.) — log at DEBUG. This is still an
+        # expected close path (the host may close with a non-1000
+        # code during shutdown); the WARNING-level catch-all below is
+        # reserved for genuinely UNEXPECTED errors.
+        log.debug("[SIDECAR-WS] connection closed with error: %s", exc)
     except Exception:
-        log.info("[SIDECAR-WS] connection ended", exc_info=True)
+        # Genuinely unexpected error from the WS dispatch
+        # loop. Log at WARNING (not INFO) with ``exc_info=True`` so
+        # the traceback lands in the log for diagnosis, but reserve
+        # INFO for the ``finally:`` "connection closed" message below
+        # so the rotating log stays readable (clean disconnects no
+        # longer produce traceback-laden INFO records).
+        log.warning("[SIDECAR-WS] connection ended unexpectedly", exc_info=True)
     finally:
         event_bus.unsubscribe(_push_to_ws)
         writer_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await writer_task
+        # INFO reserved for this single "connection closed"
+        # message so the rotating log shows one line per WS
+        # connection lifecycle (clean OR abnormal), making it easy
+        # to grep for connection counts.
         log.info("[SIDECAR-WS] connection closed (peer=%s)", peer)
 
 

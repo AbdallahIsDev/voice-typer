@@ -17,7 +17,7 @@ class VocabularyHandlersMixin(HandlerBase):
     :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
     no ``str(e)`` leak). The per-value length-cap validation errors
     still route through :func:`_error_response` with an explicit
-    ``code="payload_too_large"`` field (PVT-G5-071) so clients can
+    ``code="payload_too_large"`` field so clients can
     branch on the code rather than pattern-matching the message text.
     """
 
@@ -69,10 +69,19 @@ class VocabularyHandlersMixin(HandlerBase):
             if error:
                 resp["type"] = "error"
                 resp["data"] = error["data"]
-                if error["data"]["code"] == "invalid_payload":
+                # Narrow error["data"] to dict before indexing.
+                # ``_validate_dict_payload`` has no return-type annotation,
+                # so pyrefly infers its error return as
+                # ``dict[str, str | dict[str, str]]`` (unifying all the
+                # ``"type": "error", "data": {...}`` branches). At runtime
+                # ``error["data"]`` is always a dict, but the type system
+                # can't prove it — narrow with ``isinstance`` so the
+                # ``["code"]`` / ``["message"]`` indexing type-checks.
+                _err_data = error.get("data")
+                if isinstance(_err_data, dict) and _err_data.get("code") == "invalid_payload":
                     log.warning(
                         "[IPC] save_vocabulary rejected: %s",
-                        error["data"]["message"],
+                        _err_data.get("message"),
                     )
                 return resp
 
@@ -86,7 +95,7 @@ class VocabularyHandlersMixin(HandlerBase):
             # <cat>.<key>") is preserved for the
             # ``test_value_over_1024_chars_returns_error`` contract.
             #
-            # PVT-G5-071: the inline envelope is routed through
+            # The inline envelope is routed through
             # ``_error_response`` with ``code="payload_too_large"`` so
             # the renderer can branch on the code (matches the
             # ``max_payload_bytes`` envelope the helper emits for the

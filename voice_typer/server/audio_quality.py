@@ -5,10 +5,25 @@ that would degrade transcription accuracy. Produces warnings that
 can be shown as notifications or in the microphone diagnostics screen.
 """
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 
-import numpy as np
+# TY-2 (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
+# and is only touched on the first audio chunk (>=1s after dictation
+# begins). Defer the real import to first attribute access via the same
+# ``lazy_module`` proxy already used for ``sounddevice`` and ``pystray``.
+# The proxy re-resolves ``sys.modules`` on every access, so production
+# ``np.array(...)`` calls and test ``monkeypatch.setattr(np, "array", ...)``
+# both work unchanged. ``from __future__ import annotations`` above is
+# REQUIRED so the ``np.ndarray`` annotations below stay as unevaluated
+# strings (PEP 563); otherwise the module-level def of ``analyze_chunk``
+# would resolve ``np.ndarray`` via the proxy and trigger the eager import
+# we are trying to avoid.
+from voice_typer.server._lazy_import import lazy_module
+
+np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
 

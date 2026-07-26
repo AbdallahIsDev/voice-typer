@@ -29,6 +29,7 @@ import {
 	type SetStateAction,
 	useCallback,
 	useEffect,
+	useMemo,
 	useRef,
 	useState,
 } from "react";
@@ -46,6 +47,8 @@ export type BubbleMode =
 
 export type AnimState = "enter" | "exit" | "";
 
+export type BubbleAction = 'mic' | 'dismiss';
+
 export const DOT_COUNT = 7;
 export const MIN_HEIGHT = 5;
 // BUBBLE-FIX-5.1: reduced from 32 → 22 to fit inside the h-6 (24px)
@@ -54,6 +57,17 @@ export const MAX_HEIGHT = 22;
 
 /** Per-bar response weights — gentle bell so the spectrum looks organic. */
 export const DOT_WEIGHTS = [0.5, 0.75, 1.0, 0.95, 1.0, 0.75, 0.5];
+
+/**
+ * Pre-computed `[0, 1, … DOT_COUNT-1]` index array. Previously
+ * `BubbleVisualizer` allocated a fresh `Array.from({ length: DOT_COUNT },
+ * (_, i) => i)` on every render — small but unnecessary garbage. Hoisted
+ * to module scope so the JSX `.map` uses a stable reference.
+ */
+export const DOT_INDICES: readonly number[] = Array.from(
+	{ length: DOT_COUNT },
+	(_, i) => i,
+);
 
 /** Transcribing dots animation count. */
 export const TRANSCRIBING_DOT_COUNT = 3;
@@ -188,6 +202,25 @@ function useThemeSync() {
 // kept computing bar heights and calling getComputedStyle 60 times a
 // second. We keep the loop alive (so it resumes instantly on show())
 // but skip the DOM work while `visibleRef.current === false`.
+//
+// rAF recording-gate + barColor cache: the loop now ALSO early-
+// returns when the bubble is not in `mode === "recording"` — the
+// visualizer bars aren't mounted in idle/transcribing/error mode, so
+// the per-frame `getComputedStyle` + style writes were pure waste
+// (1.8–3 % of one core continuously in `always_visible` idle). The
+// recording flag is mirrored locally from the same `window.bubble`
+// events that drive `useBubbleStateMachine` (Bubble.tsx owns the
+// authoritative state machine; this hook keeps a parallel boolean so
+// it can gate without a round-trip through props).
+//
+// barColor cache: the `--text-primary` / `--foreground` CSS
+// vars are now read ONCE on first frame + whenever the document's
+// `class` / `style` attribute changes (theme switch, dark/light
+// toggle, OS prefers-color-scheme flip). The cached color is applied
+// to every dot via a `useEffect`-driven helper, NOT per-frame. The
+// previous implementation re-read `getComputedStyle` and re-wrote
+// `el.style.backgroundColor` 60 times a second even though the value
+// only changes on theme switch.
 
 function useAudioLevels(
 	dotRefs: RefObject<(HTMLSpanElement | null)[]>,
@@ -197,6 +230,108 @@ function useAudioLevels(
 	const frameRef = useRef<number | null>(null);
 	const visibleRef = useRef(isVisible);
 	visibleRef.current = isVisible;
+
+	// mirror of `useBubbleStateMachine`'s `mode === "recording"`
+	// flag. Updated by the same `window.bubble` events so the rAF loop
+	// can pause per-frame DOM work in idle/transcribing/error mode
+	// without an extra prop drill. Default `true` matches the state
+	// machine's initial `mode = "recording"`.
+	const recordingRef = useRef(true);
+
+	// cached bar color. `null` until the first frame reads it;
+	// afterwards refreshed by the MutationObserver effect below.
+	const barColorRef = useRef<string | null>(null);
+
+	// apply the cached bar color to every currently-mounted dot.
+	// Called on first frame, on theme change (via MutationObserver), and
+	// whenever new dots mount (the rAF loop catches them on the next
+	// frame).
+	const applyBarColor = useCallback(() => {
+		const c = barColorRef.current;
+		if (c === null) return;
+		const dots = dotRefs.current;
+		if (!dots) return;
+		for (let i = 0; i < DOT_COUNT; i++) {
+			const el = dots[i];
+			if (el) el.style.backgroundColor = c;
+		}
+	}, [dotRefs]);
+
+	// read the bar color from CSS vars. Hoisted out of the rAF
+	// loop — only called on first frame (from inside the loop, when
+	// `barColorRef.current === null`) and from the MutationObserver
+	// below (when the document's class/style changes).
+	const refreshBarColor = useCallback(() => {
+		const rootStyle = getComputedStyle(document.documentElement);
+		const c =
+			rootStyle.getPropertyValue("--text-primary").trim() ||
+			rootStyle.getPropertyValue("--foreground").trim() ||
+			(document.documentElement.classList.contains("dark")
+				? "#fff"
+				: "#18181b");
+		barColorRef.current = c;
+		applyBarColor();
+	}, [applyBarColor]);
+
+	// invalidate the barColor cache when the document's class or
+	// style attribute changes. This covers every theme-switch path:
+	// `useThemeSync` toggles `.dark` + calls `applyThemeVars` (which
+	// writes CSS vars to `document.documentElement.style`), and the OS
+	// prefers-color-scheme listener (also in `useThemeSync`) toggles
+	// `.dark` on OS-level flips. `attributeFilter: ["class", "style"]`
+	// avoids firing on unrelated attribute changes (e.g. `dir`).
+	useEffect(() => {
+		refreshBarColor();
+		if (typeof MutationObserver === "undefined") return;
+		const observer = new MutationObserver(() => refreshBarColor());
+		observer.observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ["class", "style"],
+		});
+		return () => observer.disconnect();
+	}, [refreshBarColor]);
+
+	// mirror the bubble mode from the same events that drive
+	// `useBubbleStateMachine` (Bubble.tsx). We only need the boolean
+	// "is recording" flag — the rAF loop doesn't care about idle vs
+	// transcribing vs error (all pause the loop). The transition rules
+	// mirror the state machine's `onShow` / `onSetState` handlers.
+	useEffect(() => {
+		const api = window.bubble as
+			| import("@/types/ipc").BubbleWindowBubble
+			| undefined;
+		if (!api?.onShow || !api?.onSetState) return;
+
+		// Local mirror of the state machine's `mode`. Default matches
+		// `useBubbleStateMachine`'s `useState<BubbleMode>("recording")`.
+		let mode: BubbleMode = "recording";
+		const sync = () => {
+			recordingRef.current = mode === "recording";
+		};
+
+		const offShow = api.onShow(() => {
+			// State machine: `prev === "transcribing" ? prev : "recording"`.
+			mode = mode === "transcribing" ? "transcribing" : "recording";
+			sync();
+		});
+		const offSetState = api.onSetState((state) => {
+			// State machine: ignore while fading.
+			if (mode === "fading") return;
+			if (
+				state === "transcribing" ||
+				state === "idle" ||
+				state === "recording" ||
+				state === "error"
+			) {
+				mode = state;
+				sync();
+			}
+		});
+		return () => {
+			offShow();
+			offSetState();
+		};
+	}, []);
 
 	useEffect(() => {
 		const api = window.bubble;
@@ -216,27 +351,30 @@ function useAudioLevels(
 
 		const animate = () => {
 			// Always schedule the next frame so the loop resumes instantly
-			// when the bubble becomes visible again.
+			// when the bubble becomes visible / re-enters recording mode.
 			frameRef.current = requestAnimationFrame(animate);
 
 			// Pause DOM work while the bubble window is hidden.
 			if (!visibleRef.current) return;
+			// also pause while not in recording mode — the
+			// visualizer bars aren't mounted in idle/transcribing/error
+			// mode, so the per-frame getComputedStyle + style writes
+			// would be pure waste (1.8–3 % of one core in
+			// `always_visible` idle).
+			if (!recordingRef.current) return;
 
 			const dots = dotRefs.current;
 			if (!dots) return;
 
+			// ensure the barColor cache is initialised on the
+			// first frame. The MutationObserver effect runs after
+			// paint, so the very first frame may not have a cached
+			// color yet.
+			if (barColorRef.current === null) {
+				refreshBarColor();
+			}
+
 			const level = rawLevelRef.current;
-			// Read bar color from the --text-primary CSS var (falls back
-			// to --foreground, then to a hardcoded last-resort) instead
-			// of hardcoding #fff / #18181b. This makes the bars honor
-			// theme presets (PVT-017) automatically.
-			const rootStyle = getComputedStyle(document.documentElement);
-			const barColor =
-				rootStyle.getPropertyValue("--text-primary").trim() ||
-				rootStyle.getPropertyValue("--foreground").trim() ||
-				(document.documentElement.classList.contains("dark")
-					? "#fff"
-					: "#18181b");
 
 			for (let i = 0; i < DOT_COUNT; i++) {
 				const el = dots[i];
@@ -246,7 +384,11 @@ function useAudioLevels(
 				const cur = parseFloat(el.style.height) || MIN_HEIGHT;
 				const next = cur + (target - cur) * 0.36;
 				el.style.height = `${Math.max(MIN_HEIGHT, next)}px`;
-				el.style.backgroundColor = barColor;
+				// backgroundColor is no longer set per-frame —
+				// `applyBarColor` writes it on first frame + on theme
+				// change. Re-writing the same string 60 times a second
+				// was wasted work (the value only changes on theme
+				// switch).
 				el.style.opacity = `${0.35 + level * 0.65}`;
 			}
 		};
@@ -257,7 +399,7 @@ function useAudioLevels(
 			off();
 			if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
 		};
-	}, [dotRefs]);
+	}, [dotRefs, refreshBarColor]);
 }
 
 // ── useBubbleLifecycle — composes theme sync + audio levels + visibility ─
@@ -396,13 +538,30 @@ export function useBubbleStateMachine(): BubbleStateMachine {
  * The 7 bar <span>s live inside a `<div class="gap-[3px]">` wrapper
  * — this preserves the `Bubble.test.tsx` selector
  * `.gap-[3px] > span` which expects exactly 7 bars.
+ *
+ * The per-dot ref setters are memoised once per `dotRefs`
+ * instance via `useMemo` so React doesn't call ref-cleanup + re-attach
+ * on every render (the previous inline arrow was a fresh closure every
+ * render, which React treats as a ref change). The index list is the
+ * module-level `DOT_INDICES` constant (no per-render `Array.from`).
  */
 export function BubbleVisualizer({
 	dotRefs,
 }: {
 	dotRefs: RefObject<(HTMLSpanElement | null)[]>;
 }) {
-	const dots = Array.from({ length: DOT_COUNT }, (_, i) => i);
+	// build the 7 stable ref setters once per `dotRefs` instance.
+	// The array identity is stable across renders (only changes if
+	// `dotRefs` changes, which it doesn't in practice), so React's
+	// reconciler sees the same ref callback on every render and skips
+	// the detach/attach cycle.
+	const refSetters = useMemo(
+		() =>
+			Array.from({ length: DOT_COUNT }, (_, i) => (el: HTMLSpanElement | null) => {
+				dotRefs.current[i] = el;
+			}),
+		[dotRefs],
+	);
 	return (
 		<div className="flex h-6 items-center gap-1.5">
 			{/* REC indicator — destructive token, not hardcoded red. */}
@@ -414,15 +573,13 @@ export function BubbleVisualizer({
 				{tf("bubble.recordingLabel", "REC")}
 			</span>
 			{/* `ms-1` is the RTL-safe logical replacement for the old
-                            physical `ml-1`. In LTR it renders as margin-left; in RTL
-                            (ar locale) it flips to margin-right automatically. */}
+			    physical `ml-1`. In LTR it renders as margin-left; in RTL
+			    (ar locale) it flips to margin-right automatically. */}
 			<div className="flex h-6 items-center gap-0.75 ms-1" aria-hidden>
-				{dots.map((i) => (
+				{DOT_INDICES.map((i) => (
 					<span
 						key={i}
-						ref={(el) => {
-							dotRefs.current[i] = el;
-						}}
+						ref={refSetters[i]}
 						className="inline-block w-0.75 rounded-full bg-zinc-900 dark:bg-white"
 						style={{ height: MIN_HEIGHT, opacity: 0.3 }}
 					/>
@@ -470,7 +627,7 @@ export function BubbleMicButton({
 	onClick,
 }: {
 	mode: BubbleMode;
-	onClick: () => void;
+	onClick: (action: BubbleAction) => void;
 }) {
 	const isRecording = mode === "recording";
 	const label = isRecording
@@ -536,7 +693,7 @@ export function BubbleMicButton({
  * default ipcMain behavior is to silently drop messages with no
  * registered handler).
  */
-export function BubbleDismissButton({ onClick }: { onClick: () => void }) {
+export function BubbleDismissButton({ onClick }: { onClick: (action: BubbleAction) => void }) {
 	const label = t("bubble.dismissAria");
 	return (
 		<button

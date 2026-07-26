@@ -164,8 +164,22 @@ def build_models_submenu_data(
             with open(config_path) as f:
                 cfg = json.load(f)
             current_model = cfg.get("model_size", "tiny.en")
-        except Exception:
-            pass
+        except Exception as exc:
+            # Previously a bare ``except Exception: pass`` —
+            # if ``config.json`` is corrupt, missing, or unreadable,
+            # ``cfg`` stayed ``{}`` and the tray menu silently showed
+            # ``model_size="tiny.en"`` + ``asr_backend="whisper"``
+            # regardless of the user's actual configuration. Log at
+            # DEBUG (not WARNING) because the tray menu falling back
+            # to defaults is non-fatal — the user can still open
+            # Settings to reconfigure. The ``exc_info=True`` ensures
+            # the traceback lands in ``voice-typer.log`` for diagnosis.
+            log.debug(
+                "[TRAY] failed to read config.json for tray menu: %s",
+                exc,
+                exc_info=True,
+            )
+            cfg = {}
         current_backend = cfg.get("asr_backend", "whisper") if cfg else "whisper"
 
     # Models to check

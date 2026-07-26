@@ -160,10 +160,14 @@ _INITIAL_LABELS: dict[str, str] = {
         "Voice biometric consent is required to start recording.\n"
         "Enable it in Settings > Privacy > Voice Biometric Consent."
     ),
-    "notify.recording_controller.start_failed": (
-        "Could not start recording.\n{error}\n\nCheck voice-typer.log for traceback."
-    ),
-    "notify.recording_controller.stop_failed": "Could not stop recording.\n{error}",
+    # NH-5 / DE-51 (session NH): the start_failed notification no longer
+    # interpolates {error} into the user-facing message — exception text
+    # can leak absolute paths, device names, and hostnames. The full
+    # exception is still logged via log.exception() above; the tray
+    # notification now shows only a generic message + a pointer to the
+    # log file.
+    "notify.recording_controller.start_failed": ("Could not start recording.\nCheck voice-typer.log for traceback."),
+    "notify.recording_controller.stop_failed": "Could not stop recording.",
     "notify.recording_controller.silence_warning": (
         "No audio detected. Check your microphone is connected and working."
     ),

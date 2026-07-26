@@ -132,14 +132,33 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-import numpy as np
-
 from voice_typer.server import event_bus
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.config import Config
 from voice_typer.server.log_rate_limit import log_rate_limited
 from voice_typer.server.vad import compute_vad_prob
 from voice_typer.server.vad_processor import VadProcessor, VadState
+
+# Cold-start optimization (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
+# and is only touched on the first audio chunk (>=1s after dictation
+# begins). Defer the real import to first attribute access via the same
+# ``lazy_module`` proxy already used below for ``sounddevice``.
+# ``from __future__ import annotations`` above (line 117) is REQUIRED so
+# the ``np.ndarray`` annotations echoed in the comment block at the top
+# of this file and in any submodule re-exports stay as unevaluated
+# strings (PEP 563); otherwise resolving them via the proxy would
+# trigger the eager import we are trying to avoid.
+#
+# Test-patch compatibility: the proxy's ``__setattr__`` delegates to the
+# real ``numpy`` module in ``sys.modules`` (see ``_lazy_import.py``'s
+# ``__setattr__`` docstring), so ``monkeypatch.setattr(recording.np,
+# "interp", fake)`` and ``monkeypatch.setattr("voice_typer.server.
+# recording.np.interp", fake)`` both propagate to production code that
+# does ``import numpy as np`` in :mod:`.recorder` / :mod:`.buffer` /
+# :mod:`.resampling` (they all see the SAME real module object in
+# ``sys.modules``). The proxy's ``__getattr__`` re-resolves from
+# ``sys.modules`` on every access so per-test mocks are always honored.
+np = lazy_module("numpy")
 
 # PERF-COLDSTART-001: lazy import — sounddevice loads the PortAudio C
 # library at import time.  ``sd`` is bound on the package so tests that
@@ -177,11 +196,7 @@ from .recorder import (  # noqa: E402
     _AUDIO_WORKER_JOIN_TIMEOUT_S,
     _AUDIO_WORKER_THREAD_NAME,
     _BUFFER_TELEMETRY_ENABLED,
-    _DEFAULT_VAD_CALIBRATION_DURATION,
-    _DEFAULT_VAD_HANGOVER_FRAMES,
-    _DEFAULT_VAD_SILENCE_FRAMES,
     _DEFAULT_VAD_SILENCE_THRESHOLD_DB,
-    _DEFAULT_VAD_SPEECH_FRAMES,
     _DEFAULT_VAD_SPEECH_THRESHOLD_DB,
     _EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S,
     _EVENT_WORKER_JOIN_TIMEOUT_S,
@@ -224,11 +239,7 @@ __all__ = [
     "_AUDIO_WORKER_JOIN_TIMEOUT_S",
     "_AUDIO_WORKER_THREAD_NAME",
     "_BUFFER_TELEMETRY_ENABLED",
-    "_DEFAULT_VAD_CALIBRATION_DURATION",
-    "_DEFAULT_VAD_HANGOVER_FRAMES",
-    "_DEFAULT_VAD_SILENCE_FRAMES",
     "_DEFAULT_VAD_SILENCE_THRESHOLD_DB",
-    "_DEFAULT_VAD_SPEECH_FRAMES",
     "_DEFAULT_VAD_SPEECH_THRESHOLD_DB",
     "_EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S",
     "_EVENT_WORKER_JOIN_TIMEOUT_S",

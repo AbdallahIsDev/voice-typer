@@ -44,13 +44,13 @@ log = logging.getLogger(__name__)
 
 
 # ── NEW-PAUSE-001: pause/resume flag ────────────────────────────────
-#
+
 # A single module-level ``threading.Event`` controls the pause state
 # for ALL in-progress downloads.  We support only one concurrent
 # download at a time (the existing ``_download_cancel_event`` in
 # VoiceTyperService has the same constraint), so a single flag is
 # sufficient.
-#
+
 # Semantics:
 # - ``_download_pause_event`` is created lazily by
 #   ``reset_download_pause_state()`` at the start of a download.
@@ -204,7 +204,7 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
     ``security.verify_model_integrity()`` which also checks SHA-256
     hashes against the MODEL_HASHES manifest when available.
 
-    GT-B2-4: returns ``(ok, details)`` instead of a bare bool so the
+    Returns ``(ok, details)`` instead of a bare bool so the
     caller can surface a useful diagnostic when the integrity check
     fails. ``details`` is a dict with the following keys (any of which
     may be ``None`` when not applicable):
@@ -280,7 +280,7 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
 
 
 def _cleanup_failed_cache(repo_id: str) -> None:
-    """G4-CR-06 / cache cleanup: best-effort delete a tampered HF cache dir.
+    """Cache cleanup: best-effort delete a tampered HF cache dir.
 
     Called from ``download_parakeet_weights`` when
     ``verify_model_integrity()`` returns False (either on the cache-hit
@@ -324,6 +324,7 @@ def _cleanup_failed_cache(repo_id: str) -> None:
 def download_parakeet_weights(
     progress_callback: Callable[[str], None] | None = None,
     config: Any = None,
+    force: bool = False,
 ) -> tuple[bool, str, tuple[type, BaseException, Any] | None]:
     """Download Parakeet TDT v3 model weights via huggingface_hub.
 
@@ -336,11 +337,11 @@ def download_parakeet_weights(
 
     PROD-005: checks disk space before attempting download.
 
-    G4-H-04: defense-in-depth consent gate.
+    Defense-in-depth consent gate.
     When ``config`` is provided, ``config.huggingface_consent`` MUST be
     True before any HuggingFace network call.
 
-    G4-M-46: the return type is now a 3-tuple
+    The return type is now a 3-tuple
     ``(success, reason, exc_info)``.  ``reason`` is a short reason code:
       - ``"huggingface_consent_false"`` — consent gate blocked download.
       - ``"huggingface_hub_missing"`` — ``huggingface_hub`` import failed.
@@ -351,7 +352,7 @@ def download_parakeet_weights(
         returned False (tampered or corrupted download).
     Success returns ``(True, "", None)``.
 
-    GT-15: ``exc_info`` is the captured ``sys.exc_info()`` 3-tuple
+    ``exc_info`` is the captured ``sys.exc_info()`` 3-tuple
     ``(type, value, traceback)`` from the most recent exception in this
     function, or ``None`` when no exception was raised. The IPC layer /
     diagnostic bundle consumer can format the traceback via
@@ -361,32 +362,36 @@ def download_parakeet_weights(
 
     Args:
         progress_callback: Optional callable(message: str) for progress updates.
-        config: Optional Config object — when provided, the consent
-            gate is enforced.
+        config: Optional Config object — when provided and
+            ``huggingface_consent`` is True, the consent gate passes.
+            ``None`` is treated as consent NOT given (DE-58 safe default).
+        force: When True, bypass the consent gate entirely (explicit
+            escape hatch for legacy / test paths that verified consent
+            upstream and cannot forward a real Config object).
 
     Returns:
         ``(success, reason, exc_info)`` — see above.
     """
-    # G4-H-04: defense-in-depth consent gate.  Only enforce when
-    # ``config`` is provided — legacy callers that don't pass config
-    # are presumed to have already verified consent upstream (the IPC
-    # handler does this).  This preserves backward compatibility with
-    # existing tests and the bare ``download_parakeet_weights()`` call
-    # in ``service.py`` (to be updated in coordination with the
-    # service.py owner).
-    if config is not None:
-        consent = bool(getattr(config, "huggingface_consent", False))
-        if not consent:
-            log.warning("[ASR_SETUP] HuggingFace consent not given — refusing to download Parakeet weights.")
-            if progress_callback:
-                progress_callback("HuggingFace consent required before downloading Parakeet model.")
-            return (False, "huggingface_consent_false", None)
+    # DE-58: defense-in-depth consent gate with safe default.
+    # When ``force`` is False (the default), the gate refuses unless an
+    # explicit Config object with ``huggingface_consent=True`` is
+    # forwarded.  ``config=None`` is treated as "consent NOT given"
+    # (GDPR Art. 6/13 safe default) so a future refactor that drops
+    # the ``config`` argument from a call site cannot silently bypass
+    # the gate.  ``force=True`` is the explicit escape hatch for legacy
+    # / test paths that have already verified consent upstream and
+    # cannot forward a real Config object — the bypass is now EXPLICIT
+    # at the call site, not implicit.
+    if not force and (config is None or not bool(getattr(config, "huggingface_consent", False))):
+        if progress_callback:
+            progress_callback("huggingface_consent_false")
+        return (False, "huggingface_consent_false", None)
 
     ensure_hf_env()
     try:
         from huggingface_hub import snapshot_download
     except ImportError:
-        # PVT-G5-042 (session-5): append the install command so the user
+        # Append the install command so the user
         # can recover without filing a bug or grepping pyproject.toml.
         log.error(
             "[ASR_SETUP] huggingface_hub not available for Parakeet download "
@@ -427,7 +432,7 @@ def download_parakeet_weights(
                 progress_callback(msg)
             return (True, "", None)
         else:
-            # GT-B2-4: log the integrity-check details at WARNING before
+            # Log the integrity-check details at WARNING before
             # _cleanup_failed_cache removes the offending files.
             log.warning(
                 "[ASR_SETUP] Cached model failed integrity check, re-downloading "
@@ -438,7 +443,7 @@ def download_parakeet_weights(
                 (cached_details.get("actual_hash") or "")[:16],
                 cached_details.get("allow_pattern_matched"),
             )
-            # G4-CR-06 / cache cleanup on verify failure: remove the
+            # Cache cleanup on verify failure: remove the
             # offending cache dir so the re-download doesn't get the
             # same tampered files served from local cache.
             _cleanup_failed_cache(repo_id)
@@ -452,7 +457,7 @@ def download_parakeet_weights(
         # first run when no cache exists yet) and include the exception
         # so a non-trivial cache corruption is at least visible in the
         # log file when the user is debugging.
-        #
+
         # NOTE (Fix-I / Fix-D coordination): Fix-D also touches this
         # function (the ``download_parakeet_weights`` body) but only
         # the retry-loop / progress-callback portion below. This cache-
@@ -513,7 +518,7 @@ def download_parakeet_weights(
             resume_download=True,
         )
     except Exception as e:
-        # GT-15: capture the full ``sys.exc_info()`` triple into the
+        # Capture the full ``sys.exc_info()`` triple into the
         # return tuple so the IPC layer / diagnostic bundle consumer
         # can format the traceback (HF Hub URL, HTTP status, retry
         # chain, originating frame inside ``snapshot_download``) for
@@ -533,7 +538,7 @@ def download_parakeet_weights(
         return (False, "download_retry_exhausted", captured_exc_info)
 
     # PROD-006: Verify model integrity after download
-    # GT-B2-4: ``_verify_model_integrity`` now returns ``(ok, details)``.
+    # ``_verify_model_integrity`` now returns ``(ok, details)``.
     # Log the details at ERROR before ``_cleanup_failed_cache`` removes
     # the offending files — without these details, support cannot
     # distinguish a missing pinned file from a hash mismatch from a
@@ -552,7 +557,7 @@ def download_parakeet_weights(
         )
         if progress_callback:
             progress_callback("Download completed but integrity check failed")
-        # G4-CR-06 / cache cleanup on verify failure: remove the
+        # Cache cleanup on verify failure: remove the
         # offending cache dir so the next call doesn't re-discover the
         # tampered snapshot.
         _cleanup_failed_cache(repo_id)

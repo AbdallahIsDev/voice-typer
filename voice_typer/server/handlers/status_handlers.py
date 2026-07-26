@@ -21,22 +21,55 @@ class StatusHandlersMixin(HandlerBase):
     catch branches keep their descriptive messages (which are safe —
     no Python internals / PII) but now route through
     :func:`_error_response` with an explicit ``code`` field
-    (PVT-G5-071) so clients can branch on the code rather than
+    so clients can branch on the code rather than
     pattern-matching the message text.
     """
 
     def _handle_get_status(self, data, resp) -> dict | None:
-        """Handle the ``get_status`` IPC command."""
-        resp["type"] = "status"
-        # ERR-021: get_status() now returns a dict with status +
-        # xruns_since_start. Preserve backward-compat by passing
-        # the whole dict through.
-        status_data = self.service.get_status()
-        if isinstance(status_data, dict):
-            resp["data"] = status_data
-        else:
-            # Backward-compat: older service.get_status() returned a string.
-            resp["data"] = {"status": status_data}
+        """Handle the ``get_status`` IPC command.
+
+        DE-43 (session-DE): this was the only status handler with NO
+        ``try/except`` and NO ``_validate_dict_payload`` call. The fix
+        wraps the body in a ``try/except Exception`` routing through
+        :meth:`HandlerBase._respond_with_error` (so a service-layer
+        exception gets the generic ``server.internal_error`` envelope
+        with ``cmd_name='get_status'`` log attribution, instead of
+        propagating to the dispatcher's outer catch-all and losing the
+        command-name context). A non-dict ``data`` payload is now
+        rejected with ``invalid_payload`` to match the documented
+        ADR-0020 §2 contract that every sibling handler enforces.
+        ``None`` is pre-coerced to ``{}`` to preserve the
+        ``test_none_payload_is_coerced_to_empty_dict`` contract.
+        """
+        try:
+            if not isinstance(data, dict):
+                if data is None:
+                    data = {}
+                else:
+                    resp["type"] = "error"
+                    resp["data"] = {
+                        "code": "client.invalid_payload",
+                        "legacy_code": "invalid_payload",
+                        "message": "data must be an object",
+                    }
+                    return resp
+            resp["type"] = "status"
+            # ERR-021: get_status() now returns a dict with status +
+            # xruns_since_start. Preserve backward-compat by passing
+            # the whole dict through.
+            status_data = self.service.get_status()
+            if isinstance(status_data, dict):
+                resp["data"] = status_data
+            else:
+                # Backward-compat: older service.get_status() returned a string.
+                resp["data"] = {"status": status_data}
+        except Exception as exc:
+            # DE-43: route through ``_respond_with_error`` so the
+            # exception is attributed to ``get_status`` in the log
+            # (instead of propagating to the dispatcher's generic
+            # catch-all) and the renderer sees the standard
+            # ``server.internal_error`` envelope.
+            self._respond_with_error(resp, exc, "get_status")
         return resp
 
     def _handle_get_rms_level(self, data, resp) -> dict | None:
@@ -187,28 +220,42 @@ class StatusHandlersMixin(HandlerBase):
             resp["type"] = "prewarm_started"
             resp["data"] = {"started": True, "pid": proc.pid}
         except FileNotFoundError as e:
-            # PVT-G5-071: specific-exception branch — keep the
+            # Specific-exception branch — keep the
             # descriptive message (no Python internals / PII — the
             # exception text only echoes the interpreter path the
             # app itself resolved) but stamp a structured ``code`` so
             # the renderer can branch on ``not_found`` rather than
             # pattern-matching the message text.
+            #
+            # DE-46 (session-DE): the previous ``f"Python interpreter
+            # not found: {e}"`` echoed ``str(e)`` back to the
+            # renderer. On Windows / macOS the embedded absolute path
+            # (``/Users/<uname>/...`` or ``C:\\Users\\<uname>\\...``)
+            # leaks the username. The fix replaces the ``: {e}``
+            # suffix with a fixed string; the full ``str(e)`` is still
+            # logged server-side at ERROR (above).
             log.error("[IPC] run_prewarm: interpreter not found: %s", e)
             return _error_response(
                 resp,
-                f"Python interpreter not found: {e}",
-                code="not_found",
+                "Python interpreter not found",
+                code="server.not_found",
             )
         except OSError as e:
-            # PVT-G5-071: ``OSError`` from ``subprocess.Popen`` carries
+            # ``OSError`` from ``subprocess.Popen`` carries
             # no Python internals in ``str(e)`` (it's typically
             # "[Errno 13] Permission denied: …"), but route through
             # ``_error_response`` for envelope-shape consistency.
+            #
+            # DE-46 (session-DE): drop the ``: {e}`` suffix — the
+            # ``[Errno 13] Permission denied: '<path>'`` text embeds
+            # the absolute interpreter path which leaks the username
+            # on Windows / macOS. The full ``str(e)`` is still logged
+            # server-side at ERROR (below).
             log.error("[IPC] run_prewarm: spawn failed: %s", e, exc_info=True)
             return _error_response(
                 resp,
-                f"Failed to start prewarm: {e}",
-                code="handler_error",
+                "Failed to start prewarm",
+                code="server.handler_error",
             )
         except Exception as exc:
             # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
@@ -307,27 +354,36 @@ class StatusHandlersMixin(HandlerBase):
             resp["type"] = "prewarm_log"
             resp["data"] = {"opened": True, "path": str(log_file)}
         except FileNotFoundError as e:
-            # PVT-G5-071: specific-exception branch — keep the
+            # Specific-exception branch — keep the
             # descriptive message (no Python internals / PII — the
             # exception text only echoes the editor binary path the
             # app itself chose) but stamp a structured ``code`` so
             # the renderer can branch on ``not_found``.
+            #
+            # DE-46 (session-DE): drop the ``: {e}`` suffix — the
+            # ``[Errno 2] No such file: '<path>'`` text embeds the
+            # absolute editor path which leaks the username on
+            # Windows / macOS. The full ``str(e)`` is still logged
+            # server-side at ERROR (above).
             log.error("[IPC] open_prewarm_log: editor not found: %s", e)
             return _error_response(
                 resp,
-                f"No editor available to open the log: {e}",
-                code="not_found",
+                "No editor available to open the log",
+                code="server.not_found",
             )
         except OSError as e:
-            # PVT-G5-071: ``OSError`` from the editor ``Popen`` —
+            # ``OSError`` from the editor ``Popen`` —
             # route through ``_error_response`` for envelope-shape
             # consistency (the ``str(e)`` is typically
             # "[Errno 13] Permission denied: …" — no Python internals).
+            #
+            # DE-46 (session-DE): drop the ``: {e}`` suffix — the
+            # embedded absolute path leaks the username.
             log.error("[IPC] open_prewarm_log: open failed: %s", e, exc_info=True)
             return _error_response(
                 resp,
-                f"Failed to open log: {e}",
-                code="handler_error",
+                "Failed to open log",
+                code="server.handler_error",
             )
         except Exception as exc:
             # CR-20: generic WS-path envelope (no ``str(exc)`` leak).

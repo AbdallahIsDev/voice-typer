@@ -625,6 +625,29 @@ def spawn_background_prewarm(force: bool = True, trigger: str = "manual") -> int
 
     Returns the subprocess PID on success, or None if the spawn failed.
     """
+    # If a prewarm subprocess is already running (e.g. the
+    # previous boot's prewarm is still alive after ``wait_for_prewarm``
+    # timed out at 60s), do NOT spawn a second one — that would race
+    # with the existing prewarm for disk I/O and double-write the PID
+    # file. Return the existing PID so the caller's accounting stays
+    # correct. The TOCTOU window between this check and the subsequent
+    # ``Popen`` is acceptable: if prewarm exits in that window, the
+    # spawn we fall through to is the correct behavior (prewarm needs
+    # to restart for the next boot).
+    if _pkg.is_prewarm_running():
+        existing_pid = _pkg._read_prewarm_pid()
+        if existing_pid is not None:
+            log.info(
+                "[PREWARM] spawn skipped — prewarm already running with PID %d",
+                existing_pid,
+            )
+            return existing_pid
+        # Defensive: ``is_prewarm_running`` returned True but the PID
+        # file is gone (TOCTOU). Fall through to spawn so the next
+        # boot still gets a prewarm — but log the anomaly so it's
+        # visible in support traces.
+        log.warning("[PREWARM] is_prewarm_running=True but PID file unreadable — spawning a new prewarm anyway")
+
     import subprocess
     import sys as _sys
     from pathlib import Path as _Path

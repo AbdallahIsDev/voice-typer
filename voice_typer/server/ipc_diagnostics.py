@@ -177,15 +177,32 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
             # the redacted-but-still-sensitive traceback (paths,
             # library versions, possibly partial secrets that
             # ``_redact_text`` missed) to any local user.
-            # ``os.open(O_WRONLY|O_CREAT|O_EXCL|O_NOFOLLOW, 0o600)``
-            # + ``os.fdopen`` creates the file atomically with
-            # owner-only permissions; ``O_EXCL`` prevents silently
-            # clobbering an existing file (a symlink attack vector).
+            # PI-12: previously this used ``O_EXCL`` (atomic create,
+            # refuses to clobber an existing file). With ``O_EXCL``,
+            # if ``/tmp/voice-typer-startup-error.log`` exists from a
+            # previous crash, the next startup crash cannot write its
+            # diagnostic — ``os.open`` raises ``FileExistsError``,
+            # the outer ``except Exception`` runs, and the traceback
+            # is lost. The docstring at line 146-147 says "OVERWRITE
+            # (not append) the diagnostic file so repeated relaunch
+            # crashes don't grow it without bound" — the /tmp fallback
+            # must honor that same contract. ``O_TRUNC`` opens the
+            # existing file (or creates it) and truncates it to zero
+            # length before writing. ``O_NOFOLLOW`` still prevents
+            # the symlink attack (an attacker who plants a symlink at
+            # ``/tmp/voice-typer-startup-error.log`` -> ~/.ssh/id_rsa
+            # would cause ``os.open`` to raise ``ELOOP`` rather than
+            # following the symlink and clobbering the target).
+            # ``O_EXCL`` is correct for the config_dir primary path
+            # (atomic create; the file is owned by us and overwritten
+            # by ``_secure_atomic_write`` via ``os.replace``); the
+            # /tmp fallback uses overwrite semantics because the file
+            # may legitimately exist from a previous crash.
             redacted_payload = _redact_text(buf.getvalue())
             tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
             fd = os.open(
                 str(tmp),
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
                 0o600,
             )
             with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as f:

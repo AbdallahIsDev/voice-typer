@@ -99,6 +99,21 @@ def _create_completion_event(pid: int) -> int | None:
             handle = kernel32.CreateEventW(None, True, False, _completion_event_name(pid))
             return handle if handle else None
         except Exception:
+            # Previously a bare ``except Exception: pass`` (well,
+            # ``return None``). Promoted to WARNING because if the
+            # event-set helper fails to even CREATE the event, the
+            # prewarm sentinel is never signaled — prewarm appears to
+            # hang from the app's perspective (the app's
+            # ``_wait_for_completion_event`` times out after the
+            # configured timeout, then falls back to the 1s poll loop,
+            # which on a cold cache can take 30+ seconds). Log at
+            # WARNING so operators can diagnose "why is prewarm so
+            # slow?" without grepping for DEBUG records.
+            log.warning(
+                "[PREWARM] CreateEventW for completion event failed (pid=%s)",
+                pid,
+                exc_info=True,
+            )
             return None
     return None
 
@@ -110,7 +125,16 @@ def _signal_completion_event(handle: int | None) -> None:
 
             ctypes.windll.kernel32.SetEvent(handle)
         except Exception:
-            pass
+            # Previously a bare ``except Exception: pass``.
+            # Promoted to WARNING — if SetEvent fails, the prewarm
+            # sentinel is never signaled and the app's wait times out
+            # (see the matching WARNING in ``_open_completion_event``
+            # above).
+            log.warning(
+                "[PREWARM] SetEvent on completion handle failed (handle=%s)",
+                handle,
+                exc_info=True,
+            )
 
 
 def _close_completion_event(handle: int | None) -> None:
@@ -120,7 +144,19 @@ def _close_completion_event(handle: int | None) -> None:
 
             ctypes.windll.kernel32.CloseHandle(handle)
         except Exception:
-            pass
+            # Previously a bare ``except Exception: pass``.
+            # Promoted to WARNING per the spec — even though
+            # CloseHandle failure is "only" a kernel-handle leak (the
+            # event has already been signaled by this point), the leak
+            # is bounded but the WARNING surfaces it so operators can
+            # spot a systematic handle-leak pattern across prewarm
+            # runs (which would eventually exhaust the per-process
+            # handle table on long-lived app sessions).
+            log.warning(
+                "[PREWARM] CloseHandle on completion handle failed (handle=%s)",
+                handle,
+                exc_info=True,
+            )
 
 
 def _wait_for_completion_event(timeout_s: float) -> bool:

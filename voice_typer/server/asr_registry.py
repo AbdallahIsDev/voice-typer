@@ -21,13 +21,13 @@ from typing import Protocol, runtime_checkable
 log = logging.getLogger(__name__)
 
 
-# GT-28: typed contracts for the registry.
+# Typed contracts for the registry.
 ProgressCallback = Callable[[str], None]
 
 
 @runtime_checkable
 class AsrBackend(Protocol):
-    """GT-28: structural contract for an ASR backend registered with
+    """Structural contract for an ASR backend registered with
     :class:`AsrBackendRegistry`.
 
     A ``Protocol`` (not an ABC) so the three real backends do NOT need
@@ -60,7 +60,7 @@ class AsrBackend(Protocol):
 
 @runtime_checkable
 class ConfigProtocol(Protocol):
-    """GT-D1-9: structural contract for the Config object passed to
+    """Structural contract for the Config object passed to
     :class:`AsrBackendRegistry`.
 
     The real ``Config`` dataclass declares ``asr_backend``, ``device``,
@@ -86,7 +86,7 @@ class ConfigProtocol(Protocol):
     disabled_backends: list[str]
 
 
-# GT-B2-10: subscriber set for backend-disabled events.
+# Subscriber set for backend-disabled events.
 # Pre-fix, ``on_backend_disabled`` was a single callback attribute.
 # Only ONE subscriber could be notified when the circuit breaker
 # tripped. The set-based subscriber list lets ModelManager (tray), the
@@ -122,7 +122,7 @@ class AsrBackendRegistry:
     readers (e.g. ``get_active`` from the dictation pipeline).
     """
 
-    # G4-M-45: after this many consecutive load failures, a backend is
+    # After this many consecutive load failures, a backend is
     # marked "disabled" — subsequent ``load_with_fallback`` calls skip it
     # and fall straight through to the whisper fallback.
     _MAX_CONSECUTIVE_FAILURES = 3
@@ -133,7 +133,7 @@ class AsrBackendRegistry:
         self._lock = threading.RLock()
         self._failure_counts: dict[str, int] = {}
         self._disabled_backends: set[str] = set()
-        # GT-D1-9: ``Config`` declares ``asr_backend`` etc. but does
+        # ``Config`` declares ``asr_backend`` etc. but does
         # NOT yet declare ``disabled_backends`` — the runtime fallback
         # to an empty list keeps legacy configs working without
         # requiring a config-schema migration.
@@ -142,7 +142,7 @@ class AsrBackendRegistry:
             self._disabled_backends = set(persisted)
         except TypeError:
             self._disabled_backends = set()
-        # GT-B2-10: backend-disabled subscribers. Pre-fix this was a
+        # Backend-disabled subscribers. Pre-fix this was a
         # single ``on_backend_disabled: Any | None = None`` attribute.
         # The ``on_backend_disabled`` property below preserves the
         # legacy ``registry.on_backend_disabled = fn`` assignment pattern
@@ -161,7 +161,7 @@ class AsrBackendRegistry:
         # and in _record_success (primary-backend load success).
         self._last_resort_notified: bool = False
 
-    # GT-B2-10: backward-compatible property so existing
+    # Backward-compatible property so existing
     # ``registry.on_backend_disabled = fn`` assignments continue to
     # work (the lambda is added to the subscriber set rather than
     # replacing it).
@@ -177,12 +177,12 @@ class AsrBackendRegistry:
             self._on_backend_disabled_subscribers.add(fn)
 
     def add_backend_disabled_subscriber(self, fn: BackendDisabledCallback) -> None:
-        """GT-B2-10: register a subscriber for backend-disabled events."""
+        """Register a subscriber for backend-disabled events."""
         if callable(fn):
             self._on_backend_disabled_subscribers.add(fn)
 
     def remove_backend_disabled_subscriber(self, fn: BackendDisabledCallback) -> None:
-        """GT-B2-10: unregister a backend-disabled subscriber (no-op if absent)."""
+        """Unregister a backend-disabled subscriber (no-op if absent)."""
         self._on_backend_disabled_subscribers.discard(fn)
 
     # XZ-14-06: last-resort subscriber management. Mirrors the
@@ -432,12 +432,16 @@ class AsrBackendRegistry:
         try:
             backend.load(progress_callback=_cb)
             log.info("[ASR_REGISTRY] loaded active backend: %s", self.active_name)
+            self._record_success(self.active_name)
             return backend
         except Exception as exc:
             log.exception("[ASR_REGISTRY] failed to load active backend %s: %s", self.active_name, exc)
+            self._record_failure(self.active_name)
+            with contextlib.suppress(Exception):
+                backend.unload()
             return None
 
-    # ── G4-M-45 circuit-breaker helpers ────────────────────────────────
+    # ── Circuit-breaker helpers ───────────────────────────────────
 
     def _is_disabled(self, name: str) -> bool:
         """Return True if ``name`` is in the disabled-backends set."""
@@ -476,7 +480,7 @@ class AsrBackendRegistry:
     def _record_failure(self, name: str) -> None:
         """Increment the failure counter for ``name``; disable if threshold reached.
 
-        GT-B2-10: when the circuit breaker trips, two notification
+        When the circuit breaker trips, two notification
         paths fire:
 
         1. Every registered ``on_backend_disabled`` subscriber is
@@ -492,6 +496,15 @@ class AsrBackendRegistry:
            is notified. This is in addition to (not instead of) the
            per-registry subscriber set.
         """
+        # Declare ``subscribers`` BEFORE the lock so
+        # pyrefly's null-safety analysis sees a defined binding on the
+        # post-lock read at the ``for fn in subscribers:`` loop (the
+        # previous code only assigned it inside ``if tripped:``, so the
+        # post-lock branch could read an undefined local if the lock
+        # block raised before the assignment — even though ``tripped``
+        # is also False in that case, pyrefly can't prove the
+        # correlation).
+        subscribers: list[BackendDisabledCallback] = []
         with self._lock:
             count = self._failure_counts.get(name, 0) + 1
             self._failure_counts[name] = count
@@ -511,7 +524,7 @@ class AsrBackendRegistry:
                 subscribers = list(self._on_backend_disabled_subscribers)
 
         if tripped:
-            # GT-B2-10 (1): fire per-registry subscribers. Defensive —
+            # Fire per-registry subscribers. Defensive —
             # a subscriber that raises is logged and skipped so one
             # buggy subscriber doesn't block the others.
             for fn in subscribers:
@@ -522,7 +535,7 @@ class AsrBackendRegistry:
                         "[ASR_REGISTRY] on_backend_disabled subscriber raised",
                         exc_info=True,
                     )
-            # GT-B2-10 (2): publish process-wide event on event_bus so
+            # Publish process-wide event on event_bus so
             # the IPC push channel and diagnostics aggregator are
             # notified independently of the per-registry subscribers.
             try:
@@ -544,13 +557,13 @@ class AsrBackendRegistry:
 
     def _persist_disabled(self) -> None:
         """Persist ``_disabled_backends`` to ``config.disabled_backends`` if the field exists."""
-        # GT-D1-9: Config dataclass does NOT yet expose
+        # Config dataclass does NOT yet expose
         # ``disabled_backends`` — silently skip; in-memory state still
         # works for this run.
         with contextlib.suppress(AttributeError, TypeError):
             self._config.disabled_backends = sorted(self._disabled_backends)
 
-    # ── End G4-M-45 circuit-breaker helpers ────────────────────────────
+    # ── End circuit-breaker helpers ─────────────────────────────────
 
     def load_with_fallback(self, progress_callback: ProgressCallback | None = None) -> AsrBackend | None:
         """Load the configured backend; on failure, fall back to whisper.
@@ -569,11 +582,11 @@ class AsrBackendRegistry:
         call is OUTSIDE the lock so a slow GPU/disk load doesn't block
         other readers.
 
-        G4-H-19: when the primary backend fails AND the primary is not
+        When the primary backend fails AND the primary is not
         whisper, we construct the whisper engine (via :meth:`create`)
         before attempting the whisper load.
 
-        G4-M-45: circuit breaker. Each PRIMARY-backend load failure
+        Circuit breaker. Each PRIMARY-backend load failure
         increments a per-backend counter; on success the counter is
         reset. After ``_MAX_CONSECUTIVE_FAILURES`` (3) consecutive
         failures, the primary backend is added to ``_disabled_backends``
@@ -596,7 +609,7 @@ class AsrBackendRegistry:
 
         # Try the configured (primary) backend first.
         name = self.active_name
-        # G4-M-45: skip disabled backends — go straight to whisper fallback.
+        # Skip disabled backends — go straight to whisper fallback.
         if self._is_disabled(name):
             log.info(
                 "[ASR_REGISTRY] backend %s is disabled (circuit breaker) — skipping to whisper fallback",
@@ -614,7 +627,7 @@ class AsrBackendRegistry:
                     self._record_success(name)
                     return backend
                 except Exception as exc:
-                    # GT-16: use ``exc_info=True`` (matching the sibling
+                    # Use ``exc_info=True`` (matching the sibling
                     # failure paths on lines 260 and 496 which use
                     # ``log.exception``). Pre-fix this was the ONLY
                     # primary-load failure path that discarded the
@@ -627,7 +640,7 @@ class AsrBackendRegistry:
                         exc,
                         exc_info=True,
                     )
-                    # G4-M-45: increment failure counter; possibly disable.
+                    # Increment failure counter; possibly disable.
                     self._record_failure(name)
                     # MEM-01 (c-review): release any partially-allocated
                     # resources. Wrap in try/except so an unload failure
@@ -655,13 +668,13 @@ class AsrBackendRegistry:
         # failed or was disabled).
         with self._lock:
             whisper = self._backends.get("whisper")
-        # G4-H-19: if the whisper backend was never constructed (cold
+        # If the whisper backend was never constructed (cold
         # boot with a non-whisper primary), construct it now using a
         # safe default model_size ("tiny.en") so the fallback actually
         # has something to load.
         if whisper is None:
             log.info("[ASR_REGISTRY] whisper backend not registered — constructing with tiny.en for fallback")
-            # GT-D1-9: ``Config`` declares ``device``, ``language``,
+            # ``Config`` declares ``device``, ``language``,
             # ``beam_size``, ``best_of``, ``condition_on_previous_text``
             # as required fields (see ``ConfigProtocol`` above), so the
             # getattr-with-default pattern is no longer needed —
@@ -686,7 +699,7 @@ class AsrBackendRegistry:
                 # OUTSIDE lock — see comment above.
                 whisper.load(progress_callback=_cb)
                 log.info("[ASR_REGISTRY] loaded fallback backend: whisper")
-                # G4-M-45 / XS-17: do NOT call ``_record_success("whisper")``
+                # XS-17: do NOT call ``_record_success("whisper")``
                 # here — whisper is a FALLBACK, not the user's configured
                 # backend.
                 # XZ-14-06: but DO clear the last-resort notification
@@ -698,7 +711,7 @@ class AsrBackendRegistry:
                 return whisper
             except Exception:
                 log.exception("[ASR_REGISTRY] whisper fallback also failed")
-                # G4-M-45 / XS-17: do NOT call ``_record_failure("whisper")``
+                # XS-17: do NOT call ``_record_failure("whisper")``
                 # — the circuit breaker tracks the user's configured
                 # backend, not the whisper fallback.
                 # MEM-01 (c-review): unload before giving up so we don't

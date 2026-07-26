@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.service._base import ServiceMixinBase
 from voice_typer.server.service._helpers import _find_symlink_in_tree
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ log = logging.getLogger(__name__)
 _MODEL_STATUS_CACHE_TTL_S = 5.0
 
 
-class ModelMixin:
+class ModelMixin(ServiceMixinBase):
     """Model-domain service methods.
 
     Covers download/delete/import/status, per-download cancellation
@@ -205,14 +206,20 @@ class ModelMixin:
         # Resolve repo_id from MODEL_REGISTRY so all registered
         # whisper/distil-whisper variants (large-v3-turbo, distil-*,
         # base.*, large-*, etc.) are supported without hardcoding.
+        # SVC-7: also resolve parakeet + qwen via the registry so
+        # ``delete_model("qwen")`` returns the "not downloaded" message
+        # (instead of the legacy "Unknown model" error) when the cache
+        # dir is absent — the registry now carries the repo_id for both.
         meta = get_model_metadata(model_name)
-        if meta is not None and meta.backend in ("whisper", "distil-whisper"):
+        if meta is not None and meta.backend in ("whisper", "distil-whisper", "parakeet", "qwen"):
             repo_id = meta.repo_id
         elif model_name == "parakeet":
             repo_id = "nvidia/parakeet-tdt-0.6b-v3"
         elif model_name == "qwen":
-            # Qwen doesn't use the HF hub cache layout; handled below.
-            repo_id = None
+            # Qwen is registered in MODEL_REGISTRY (repo_id="Qwen/Qwen-Audio");
+            # fall through to the same cache-dir check so absent models
+            # report "not downloaded" rather than "Unknown model".
+            repo_id = "Qwen/Qwen-Audio"
         else:
             repo_id = None
 

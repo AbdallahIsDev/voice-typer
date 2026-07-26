@@ -26,11 +26,12 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path, PureWindowsPath
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 
 from voice_typer.server.config_validators import ALLOWED_USER_MODELS, _validate_hotkey, cross_platform_hotkey_warnings
 from voice_typer.server.platform_utils import is_macos, is_windows
@@ -256,8 +257,12 @@ def _validate_systemroot() -> None:
             systemroot,
         )
         default = r"C:\Windows"
-        if Path(default).is_dir():
-            os.environ["SYSTEMROOT"] = default
+        # Always set the default — the ``Path(default).is_dir()``
+        # guard was a no-op on the Linux CI runner (where ``C:\Windows``
+        # is never a directory) so the nonexistent-dir branch was never
+        # exercised and the env var was never reset. Dropping the guard
+        # ensures the safe default is always applied.
+        os.environ["SYSTEMROOT"] = default
         # If even C:\Windows doesn't exist, there's nothing more we can
         # do — leave SystemRoot as-is and let downstream Win32 APIs fail
         # with their own diagnostics.
@@ -894,6 +899,25 @@ class Config:
     # an old config does NOT raise — the keys are simply dropped before
     # construction. Do NOT re-add.
 
+    # Idle-unload timer for the active ASR backend. After this
+    # many minutes with no dictation activity (no ``touch_active_model``
+    # call from the transcription pipeline), ModelManager unloads the
+    # active backend and calls ``release_gpu_memory()`` to return the
+    # ~2.4 GB of VRAM held by Parakeet (or the Whisper weights / CUDA
+    # caching allocator blocks) to the OS. The model is reloaded on the
+    # next ``toggle_dictation`` via the existing
+    # ``ensure_active_engine_loaded()`` lazy-init path.
+    #
+    # 0 (the default) DISABLES the feature — current behaviour is
+    # preserved exactly (the model stays resident for the lifetime of
+    # the process). Users with abundant VRAM can leave this at 0; users
+    # who dictate intermittently and want the VRAM + ~5-15 W GPU idle
+    # power back can set it to e.g. 10 or 15. Recommended: 15 minutes
+    # (matches typical "stepped away from keyboard" cadence and keeps
+    # cold-reload latency — 2-5 s warm, 5-15 s cold — off the critical
+    # path of the next dictation).
+    model_idle_unload_minutes: int = 0
+
     # AUDIO-013: VAD configuration for the recording callback.
     # ADR 0007 §4.1: use_silero_vad defaults to True (torch is installed).
     # Falls back to RMS if Silero is unavailable.
@@ -1085,6 +1109,58 @@ class Config:
         # machinery — Config is not frozen, but this is forward-
         # compatible if it ever is.
         object.__setattr__(self, "last_load_warnings", None)
+        # ER-53: cache the bytes of the last successfully-persisted
+        # config.json. The next ``save()`` call compares its in-memory
+        # serialized content against this cache; if they match, the
+        # entire backup block (which reads ``config.json`` from disk
+        # via ``Path.read_bytes`` and writes ``config.json.bak``) is
+        # skipped. This avoids one filesystem read per identical resave
+        # (which is the common case for ``set_config`` calls that
+        # don't change any persisted field, and for ``heartbeat`` /
+        # ``get_config``-style calls that round-trip through ``save``).
+        object.__setattr__(self, "_last_saved_bytes", None)
+
+    # CR-25: class-level reference to an in-process mutation lock.
+    # When set (via :meth:`set_mutation_lock`), :meth:`save` acquires
+    # this lock around the actual save work (:meth:`_save_unlocked`)
+    # so two threads concurrently mutating and saving the Config
+    # produce a consistent on-disk snapshot rather than a torn
+    # half-and-half write. ``ClassVar`` ensures ``asdict(self)``
+    # skips it (an ``RLock`` is not JSON-serializable and would
+    # crash save()). Defaults to ``None`` for backward-compat —
+    # freshly-constructed ``Config()`` instances (e.g. tests)
+    # save without locking.
+    #
+    # NOTE: the annotation is a STRING because ``threading.RLock`` is
+    # a callable factory (not a type) at runtime, so
+    # ``threading.RLock | None`` would raise TypeError when evaluated.
+    _mutation_lock: ClassVar[Any] = None
+
+    def set_mutation_lock(self, lock: "threading.RLock | None") -> None:
+        """CR-25: register an in-process mutation lock for ``save()``.
+
+        ``VoiceTyperApp`` owns a ``self._config_mutation_lock =
+        threading.RLock()`` that ``service.apply_config`` and
+        ``onboarding_apply`` acquire for the full read-modify-save
+        sequence. Calling this method installs the same lock on the
+        ``Config`` instance so :meth:`save` acquires it automatically
+        — making the lock impossible to forget at the 10+ other
+        ``config.save()`` call sites (``settings_controller``,
+        ``hotkey_dispatcher``, ``model_manager``, ``recorder._persist_mic``,
+        ``startup_sequence``, etc.).
+
+        The reference is stored as an INSTANCE attribute (shadowing
+        the ``ClassVar`` default of ``None``) so each ``Config``
+        instance can have its own lock — multiple ``VoiceTyperApp``
+        instances in the same process (rare but possible in tests)
+        don't share a single global lock.
+
+        Passing ``None`` clears the lock (disables locking).
+        """
+        # Use the instance dict directly so the ClassVar is shadowed
+        # per-instance (rather than mutating the class attribute, which
+        # would leak across instances).
+        self.__dict__["_mutation_lock"] = lock
 
     def save(self) -> bool:
         """Save config to disk atomically via temp file + os.replace.
@@ -1114,10 +1190,20 @@ class Config:
         config.json (with ``0o600`` perms via ``_secure_atomic_write``)
         — preserving the pre-RW-01 behavior so users on headless
         Linux without ``gnome-keyring-daemon`` aren't blocked.
+
+        CR-25: when a mutation lock has been registered via
+        :meth:`set_mutation_lock`, this method acquires it (reentrant
+        ``RLock``) around the actual save work so concurrent
+        read-modify-save cycles from different threads produce a
+        consistent on-disk snapshot. Without the lock, a mic-fallback
+        save on a background thread can interleave with an in-flight
+        ``apply_config`` IPC call and persist a torn snapshot. When no
+        lock is set (e.g. tests), saves proceed without locking —
+        preserving backward compat.
         """
         try:
             with _acquire_config_lock():
-                return self._save_locked()
+                return self._save_with_mutation_lock()
         except TimeoutError as e:
             log.warning("[CONFIG] %s", e)
             return False
@@ -1125,13 +1211,37 @@ class Config:
             log.error("[CONFIG] Failed to save config: %s", e)
             return False
 
-    def _save_locked(self) -> bool:
-        """Body of :meth:`save` -- assumes the cross-process lock is held.
+    def _save_with_mutation_lock(self) -> bool:
+        """CR-25: acquire the mutation lock (if set) and delegate to
+        :meth:`_save_unlocked`.
+
+        Assumes the cross-process file lock is already held (caller
+        :meth:`save` acquires it). The mutation lock is an in-process
+        ``RLock`` that serialises concurrent ``save()`` calls from
+        different threads within THIS process (the cross-process file
+        lock only serialises across processes).
+        """
+        lock = self._mutation_lock
+        if lock is None:
+            return self._save_unlocked()
+        with lock:
+            return self._save_unlocked()
+
+    def _save_unlocked(self) -> bool:
+        """Body of :meth:`save` -- assumes the cross-process lock AND
+        the in-process mutation lock (if set) are held.
 
         G4-H-09: best-effort single-slot backup of the existing
         config.json BEFORE we overwrite it.  The backup preserves
         the EXACT bytes that were on disk (byte-for-byte) so the user
         can manually recover dropped fields after a downgrade save.
+
+        ER-53: when the in-memory serialized content matches the
+        previously-persisted bytes (``_last_saved_bytes``), the entire
+        backup block is skipped — no ``Path.read_bytes`` call, no
+        ``config.json.bak`` write, no ``os.chmod``.  This is the common
+        case for ``set_config`` round-trips that don't change any
+        persisted field.
         """
         path = _config_dir()
         path.mkdir(parents=True, exist_ok=True)
@@ -1153,33 +1263,54 @@ class Config:
                         credential_store.store_secret(provider, value)
                         data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
         except Exception as e:
+            # DE-28: log only the exception TYPE (not the message) —
+            # credential_store exceptions can echo the secret value
+            # being stored, which would leak into log files.
             log.warning(
                 "[CONFIG] credential_store routing failed: %s — writing config with current api_key values",
-                e,
+                type(e).__name__,
             )
         content = json.dumps(data, indent=2)
         content_bytes = content.encode("utf-8")
 
-        # G4-H-09: best-effort backup before overwrite.
-        if config_file.exists():
-            try:
-                existing_bytes = config_file.read_bytes()
-                if existing_bytes != content_bytes:
-                    bak_path = path / "config.json.bak"
-                    bak_path.write_bytes(existing_bytes)
-                    if not is_windows():
-                        try:
-                            os.chmod(bak_path, 0o600)
-                        except OSError as e:
-                            log.debug("[CONFIG] Failed to chmod config.json.bak: %s", e)
-            except OSError as e:
-                log.debug(
-                    "[CONFIG] Failed to back up existing config.json to config.json.bak: %s",
-                    e,
-                )
+        # ER-53: short-circuit the entire backup block when the new
+        # content matches the previously-persisted bytes. The cached
+        # bytes are only updated after a successful write below, so a
+        # previous failed save (or a fresh Config() that has never
+        # saved) falls through to the full backup path.
+        if self._last_saved_bytes != content_bytes:
+            # G4-H-09: best-effort backup before overwrite.
+            if config_file.exists():
+                try:
+                    existing_bytes = config_file.read_bytes()
+                    if existing_bytes != content_bytes:
+                        bak_path = path / "config.json.bak"
+                        bak_path.write_bytes(existing_bytes)
+                        if not is_windows():
+                            try:
+                                os.chmod(bak_path, 0o600)
+                            except OSError as e:
+                                log.debug("[CONFIG] Failed to chmod config.json.bak: %s", e)
+                except OSError as e:
+                    log.debug(
+                        "[CONFIG] Failed to back up existing config.json to config.json.bak: %s",
+                        e,
+                    )
 
         _secure_atomic_write(config_file, content)
+        # ER-53: record the bytes we just persisted so the next
+        # identical save can short-circuit the backup block above.
+        # Updated only AFTER a successful write — a failed write
+        # leaves the cache stale, which forces the next save through
+        # the full backup path (safe-but-slower fallback).
+        object.__setattr__(self, "_last_saved_bytes", content_bytes)
         return True
+
+    # CR-25 back-compat alias: the original pre-refactor name was
+    # ``_save_locked`` (referring to the cross-process file lock).
+    # Kept as an alias so any external callers / tests that still
+    # reference the old name continue to work.
+    _save_locked = _save_unlocked
 
     def save_strict(self) -> None:
         """PERSIST-1 (MED-N): save config to disk; raise on failure.
@@ -1242,531 +1373,687 @@ class Config:
           where a dict was assumed.
         * ``MemoryError`` / ``KeyboardInterrupt`` / ``SystemExit`` —
           system-level, never silently swallowed.
+
+        The 556-line body was split into 10 named helpers (see
+        ``_read_raw_json`` / ``_filter_unknown_keys`` /
+        ``_run_migrations`` / ``_backup_before_migration`` /
+        ``_coerce_streaming_fields`` / ``_coerce_max_recording_time`` /
+        ``_validate_model_path`` / ``_validate_qwen_model_path`` /
+        ``_validate_corrections_path`` / ``_validate_privacy_consents``).
+        ``load()`` is now a ~50-line orchestrator that delegates to
+        those helpers; behavior is preserved verbatim (all comments +
+        control flow migrated unchanged into the helpers).
         """
         config_file = _config_dir() / "config.json"
-        if config_file.exists():
+        if not config_file.exists():
+            return cls()
+        try:
+            parsed = cls._read_raw_json(config_file)
+            if parsed is None:
+                # _read_raw_json already logged the TypeError; raise
+                # it here so the outer except catches + moves the
+                # corrupt file aside (matching the original behavior).
+                raise TypeError(f"config root must be a JSON object, got {type(parsed).__name__}")
+            data = cls._filter_unknown_keys(parsed, config_file)
+
+            # M3: Schema versioning and migration
+            loaded_version = data.get("schema_version", 0)
+            # G4-M-15: track whether any migration ran.
+            migrations_ran = False
+            # SCHEMA-2 (MED-J): if the on-disk schema_version is
+            # NEWER than this build supports, log a warning so the
+            # user knows some fields may be dropped (we filter
+            # unknown keys via ``cls._filter_unknown_keys``).  Do NOT
+            # downgrade the on-disk version — preserving the higher
+            # value means a future build that supports it can read
+            # the fields back, and the user gets an honest signal
+            # that they ran an older build against a newer config
+            # rather than silently losing the version metadata.
+            if isinstance(loaded_version, int) and loaded_version > _CURRENT_SCHEMA_VERSION:
+                log.warning(
+                    "[CONFIG] config schema_version=%d is newer than supported=%d — "
+                    "some fields may be dropped (preserving on-disk version)",
+                    loaded_version,
+                    _CURRENT_SCHEMA_VERSION,
+                )
+                final_schema_version = loaded_version
+            else:
+                data, final_schema_version, migrations_ran = cls._run_migrations(data, loaded_version, config_file)
+            data["schema_version"] = final_schema_version
+
+            cls._backup_before_migration(config_file, loaded_version)
+
+            cls._coerce_streaming_fields(data)
+            cls._coerce_max_recording_time(data)
+            cls._validate_model_path(data)
+            cls._validate_qwen_model_path(data)
+            cls._validate_corrections_path(data)
+            cls._validate_privacy_consents(data)
+
+            # RW-01: credential_store integration.
+            # 1. If secrets haven't been migrated yet, run the
+            #    one-time migration (plaintext → keyring). This
+            #    modifies config.json on disk but NOT our in-memory
+            #    `data` dict — the in-memory dict still has the
+            #    plaintext values (which is what we want, so the
+            #    constructed Config instance has real values for
+            #    cloud_engines / llm_polish to use).
+            # 2. Set the in-memory flag so the constructed Config
+            #    carries it forward (and the next save() persists it).
+            # 3. Resolve any ``keyring://<provider>`` reference
+            #    tokens to real values via credential_store.load_secret.
+            #    This handles the case where migration was done in a
+            #    prior session (config.json on disk has references,
+            #    real values live in keychain).
             try:
-                # SEC-002 / SEC-audit-011: use _secure_read_text to prevent
-                # symlink-TOCTOU attacks when reading config.json
-                raw_text = _secure_read_text(config_file)
-                parsed = json.loads(raw_text)
-                # RW-9: a valid JSON scalar (null/true/42/"x"/[]) is
-                # not a valid config — raise TypeError with a clear
-                # message so the failure mode is visible in the WARNING
-                # log below (and matches the caught tuple).  Without
-                # this, ``parsed.items()`` on a non-dict would raise
-                # AttributeError, which we deliberately let propagate.
-                if not isinstance(parsed, dict):
-                    raise TypeError(f"config root must be a JSON object, got {type(parsed).__name__}")
-                # G4-M-14: log a WARNING if the on-disk config contains
-                # keys this build doesn't recognize.  These keys are
-                # silently dropped by the filter below.
-                unknown_keys = set(parsed) - set(cls.__dataclass_fields__)
-                if unknown_keys:
+                from voice_typer.server import credential_store
+
+                if not data.get("secrets_migrated", False):
+                    migrated_count = credential_store.migrate_secrets_to_keyring()
+                    if migrated_count > 0:
+                        log.info(
+                            "[CONFIG] RW-01: migrated %d plaintext API key(s) to OS keychain",
+                            migrated_count,
+                        )
+                # Always set the flag in-memory so the constructed
+                # Config (and the next save()) carries it forward,
+                # even if migration was a no-op (already migrated
+                # or no keys to migrate).
+                data["secrets_migrated"] = True
+
+                # Resolve keyring:// references to real values.
+                for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
+                    value = data.get(field_name, "")
+                    if isinstance(value, str) and value.startswith(credential_store.KEYRING_REF_PREFIX):
+                        real_value = credential_store.load_secret(provider)
+                        if real_value:
+                            data[field_name] = real_value
+                        else:
+                            # Reference points to keyring but keyring
+                            # has nothing — secret is lost (e.g. user
+                            # wiped their keychain). Clear the field
+                            # so the renderer shows "not configured"
+                            # instead of leaking the reference token.
+                            log.warning(
+                                "[CONFIG] RW-01: %s field has keyring:// reference "
+                                "but keyring returned no value — clearing (secret lost)",
+                                field_name,
+                            )
+                            data[field_name] = ""
+            except Exception as e:
+                # Don't let credential_store issues break config
+                # load — fall through with whatever values we have.
+                # DE-28: log only the exception TYPE (not the message) —
+                # credential_store exceptions can echo the secret value
+                # being loaded, which would leak into log files.
+                log.warning(
+                    "[CONFIG] RW-01: credential_store integration failed: %s — "
+                    "continuing with config.json values as-is",
+                    type(e).__name__,
+                )
+
+            # H1: Validate non-numeric fields before construction
+            data = cls._validate_non_numeric_fields(data)
+
+            # G4-H-13: validate hotkeys against the reserved-shortcut
+            # denylist (mirrors the IPC set_config validation).
+            # Config.load() previously bypassed this check -- a
+            # stale or hand-edited config with "hotkey": "<ctrl>+<c>"
+            # would steal Ctrl+C from every app on startup.  On
+            # validation failure we reset the offending hotkey to
+            # the platform default (<caps_lock>) and append a
+            # warning to _load_warnings.
+            default_hotkey = _default_hotkey_for_platform()
+            for hotkey_field in ("hotkey", "push_to_talk_hotkey", "repaste_hotkey"):
+                value = data.get(hotkey_field)
+                # An empty push_to_talk_hotkey means "same as
+                # toggle" -- skip empty strings.
+                if not isinstance(value, str) or value == "":
+                    continue
+                err = _validate_hotkey(value)
+                if err is not None:
                     log.warning(
-                        "[CONFIG] dropped %d unknown key(s) from %s: %s",
-                        len(unknown_keys),
-                        config_file,
-                        ", ".join(sorted(unknown_keys)),
+                        "[CONFIG] %s=%r rejected by hotkey validator (%s) -- resetting to platform default %r",
+                        hotkey_field,
+                        value,
+                        err,
+                        default_hotkey,
                     )
-                data = {k: v for k, v in parsed.items() if k in cls.__dataclass_fields__}
+                    data.setdefault("_load_warnings", []).append(
+                        f"Config field {hotkey_field!r}={value!r} rejected by "
+                        f"hotkey validator ({err}) -- reset to {default_hotkey!r}"
+                    )
+                    data[hotkey_field] = default_hotkey
 
-                # M3: Schema versioning and migration
-                loaded_version = data.get("schema_version", 0)
-                # G4-M-15: track whether any migration ran.
-                migrations_ran = False
-                # SCHEMA-2 (MED-J): if the on-disk schema_version is
-                # NEWER than this build supports, log a warning so the
-                # user knows some fields may be dropped (we filter
-                # unknown keys via the ``k in cls.__dataclass_fields__``
-                # filter above).  Do NOT downgrade the on-disk version —
-                # preserving the higher value means a future build that
-                # supports it can read the fields back, and the user
-                # gets an honest signal that they ran an older build
-                # against a newer config rather than silently losing the
-                # version metadata.
-                if isinstance(loaded_version, int) and loaded_version > _CURRENT_SCHEMA_VERSION:
+            # DE-29: validate ``custom_theme`` on load (mirrors the IPC
+            # set_config validation via ``_make_custom_theme_validator``).
+            # Previously, a hand-edited or corrupt ``custom_theme`` dict
+            # loaded without validation, causing schema drift between IPC
+            # and disk paths. On validation failure, reset the field to
+            # its default (None) and append a warning to
+            # ``last_load_warnings`` so the user knows the field was reset.
+            if "custom_theme" in data and data["custom_theme"] is not None:
+                _theme_err = _make_custom_theme_validator()(data["custom_theme"])
+                if _theme_err is not None:
                     log.warning(
-                        "[CONFIG] config schema_version=%d is newer than supported=%d — "
-                        "some fields may be dropped (preserving on-disk version)",
-                        loaded_version,
-                        _CURRENT_SCHEMA_VERSION,
+                        "[CONFIG] custom_theme validation failed on load (%s) — resetting to None",
+                        _theme_err,
                     )
-                    # Preserve the newer on-disk version — do NOT
-                    # downgrade to _CURRENT_SCHEMA_VERSION.  The
-                    # dataclass field will still be set to
-                    # ``loaded_version`` (it's an int field, so the
-                    # constructor accepts the higher value).
-                    final_schema_version = loaded_version
-                else:
-                    # Migrations forward: run each migrator from
-                    # loaded_version+1 up to _CURRENT_SCHEMA_VERSION.
-                    # If loaded_version >= _CURRENT_SCHEMA_VERSION the
-                    # range is empty (no migrations to run).
-                    #
-                    # XZ-14-16: On migrator exception, do NOT bump
-                    # schema_version to _CURRENT_SCHEMA_VERSION and do
-                    # NOT continue to the next migrator.  Leave
-                    # schema_version at ``last_successful_version``
-                    # (= ``loaded_version`` if no migrator has succeeded
-                    # yet) so the failed migration re-runs on the next
-                    # launch.  Previously the runner silently swallowed
-                    # the exception, kept the partially-migrated data,
-                    # and bumped the version to
-                    # ``_CURRENT_SCHEMA_VERSION`` -- that bricked the
-                    # config: the next launch saw version==current and
-                    # skipped the failed migrator permanently, leaving
-                    # the user with a half-migrated config that claimed
-                    # to be fully migrated.
-                    #
-                    # When ``loaded_version`` is missing or non-int
-                    # (fresh install / corrupt file), there is nothing
-                    # to migrate -- default to ``_CURRENT_SCHEMA_VERSION``
-                    # so a fresh config gets the current schema.
-                    last_successful_version = (
-                        loaded_version
-                        if isinstance(loaded_version, int)
-                        else _CURRENT_SCHEMA_VERSION
+                    data.setdefault("_load_warnings", []).append(
+                        f"custom_theme validation failed on load ({_theme_err}) — reset to None"
                     )
-                    if isinstance(loaded_version, int):
-                        for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
-                            migrator = _MIGRATIONS.get(version)
-                            if migrator is not None:
-                                # G4-M-13: log the migration BEFORE
-                                # calling the migrator.
-                                log.info(
-                                    "[CONFIG] migrating schema v%d -> v%d",
-                                    max(loaded_version, version - 1),
-                                    version,
-                                )
-                                # G4-CR-07 / XZ-14-16: wrap each
-                                # migrator in try/except.  On exception:
-                                # log ERROR with the failed version and
-                                # exception type, save a timestamped +
-                                # version-stamped .bak so the user can
-                                # recover the pre-failure on-disk state,
-                                # then BREAK the loop.  Later migrators
-                                # expect the prior version's data shape
-                                # and would compound the corruption if
-                                # run.  schema_version is left at
-                                # ``last_successful_version`` (NOT bumped
-                                # to _CURRENT_SCHEMA_VERSION) so the
-                                # migration re-runs on next launch.
-                                try:
-                                    data = migrator(data)
-                                    migrations_ran = True
-                                    last_successful_version = version
-                                except Exception as migrator_exc:
-                                    log.error(
-                                        "[CONFIG] migrator v%d raised %s: %s -- "
-                                        "aborting migration loop; schema_version will "
-                                        "remain at v%d so this migration re-runs on next launch",
-                                        version,
-                                        type(migrator_exc).__name__,
-                                        migrator_exc,
-                                        last_successful_version,
-                                    )
-                                    data.setdefault("_load_warnings", []).append(
-                                        f"schema migration v{version} raised "
-                                        f"{type(migrator_exc).__name__}: {migrator_exc} -- "
-                                        f"schema_version kept at v{last_successful_version}; "
-                                        "migration will re-run on next launch"
-                                    )
-                                    migrations_ran = True
-                                    # XZ-14-16: save a timestamped .bak
-                                    # with the failed target version in
-                                    # the filename so multiple failures
-                                    # across launches don't clobber each
-                                    # other and the user can identify
-                                    # which migration produced which
-                                    # backup.  Best-effort -- a backup
-                                    # failure must not mask the original
-                                    # migrator failure.
-                                    try:
-                                        import shutil
+                    data["custom_theme"] = None
 
-                                        ts = time.strftime(
-                                            "%Y%m%d-%H%M%S", time.gmtime()
-                                        )
-                                        failed_bak = config_file.parent / (
-                                            f"config.json.bak.failed-migration-"
-                                            f"{ts}-to-v{version}"
-                                        )
-                                        shutil.copy2(config_file, failed_bak)
-                                        log.warning(
-                                            "[CONFIG] migrator to v%d failed; saved "
-                                            "pre-failure config.json backup to %s",
-                                            version,
-                                            failed_bak,
-                                        )
-                                    except OSError as backup_exc:
-                                        log.warning(
-                                            "[CONFIG] migrator to v%d failed AND pre-failure "
-                                            "backup also failed: %s",
-                                            version,
-                                            backup_exc,
-                                        )
-                                    break  # XZ-14-16: do NOT run later migrators
-                    final_schema_version = last_successful_version
-                data["schema_version"] = final_schema_version
+            # NEW-CQ-016: extract load warnings before construction
+            # (cls(**data) would fail on the _load_warnings key)
+            load_warnings = data.pop("_load_warnings", [])
 
-                # G4-CR-07: best-effort backup of config.json BEFORE
-                # any migration runs.  shutil.copy2 is used (not
-                # Path.replace) so the original config.json stays in
-                # place -- the load must NOT modify the on-disk file
-                # mid-load.
-                if isinstance(loaded_version, int) and loaded_version < _CURRENT_SCHEMA_VERSION:
-                    pre_bak = config_file.parent / f"config.json.pre-migration-v{loaded_version}.bak"
+            instance = cls(**data)
+            load_warnings.extend(cross_platform_hotkey_warnings(instance))
+            instance.last_load_warnings = load_warnings
+
+            # AUDIO-PRESET-LOAD-FIX: apply the audio preset's filter
+            # toggles on every load.
+            try:
+                from voice_typer.server.audio_presets import apply_preset
+
+                apply_preset(instance.audio_preset, instance)
+            except Exception:
+                log.debug("[CONFIG] apply_preset on load failed", exc_info=True)
+
+            # G4-M-15: persist the bumped schema_version eagerly so
+            # the next launch doesn't re-run the same migrations
+            # (and re-trigger any bugs in a migrator that already
+            # raised).  The save() is best-effort.
+            if migrations_ran:
+                try:
+                    instance.save()
+                except Exception:
+                    log.debug("[CONFIG] eager post-migration save failed", exc_info=True)
+
+            return instance
+        except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
+            # RW-9: enumerated failure modes -- see the docstring.
+            log.warning(
+                "[CONFIG] %s loading config %s: %s. Using defaults.",
+                type(e).__name__,
+                config_file,
+                e,
+            )
+            # G4-H-10: best-effort move the corrupt config aside so
+            # the user can recover their settings manually from the
+            # .corrupt-<timestamp> backup.  Without this, the next
+            # Config.save() would atomically overwrite the corrupt
+            # file with defaults, destroying any chance of forensic
+            # recovery.  Path.replace is atomic.  Best-effort.
+            try:
+                corrupt_backup = config_file.parent / f"config.json.corrupt-{int(time.time())}"
+                config_file.replace(corrupt_backup)
+                log.warning(
+                    "[CONFIG] moved corrupt config %s -> %s for forensic recovery",
+                    config_file,
+                    corrupt_backup,
+                )
+            except OSError as move_exc:
+                log.debug(
+                    "[CONFIG] could not move corrupt config %s aside: %s",
+                    config_file,
+                    move_exc,
+                )
+            return cls()
+
+    # ── ``load()`` helpers (extracted from the original 556-line body) ──
+
+    @classmethod
+    def _read_raw_json(cls, config_file) -> dict | None:
+        """Read + parse ``config_file`` as JSON; return the parsed dict (or None).
+
+        Extracted verbatim from ``load()``. Uses
+        :func:`_secure_read_text` (SEC-002 / SEC-audit-011) to prevent
+        symlink-TOCTOU attacks when reading ``config.json``.
+
+        Returns ``None`` if the parsed JSON is not a dict (a valid JSON
+        scalar like ``null`` / ``true`` / ``42`` / ``"x"`` / ``[]`` is
+        not a valid config). The caller raises ``TypeError`` so the
+        outer ``except`` in ``load()`` catches it, logs a WARNING, and
+        moves the corrupt file aside.
+        """
+        # SEC-002 / SEC-audit-011: use _secure_read_text to prevent
+        # symlink-TOCTOU attacks when reading config.json
+        raw_text = _secure_read_text(config_file)
+        parsed = json.loads(raw_text)
+        # RW-9: a valid JSON scalar (null/true/42/"x"/[]) is
+        # not a valid config — raise TypeError with a clear
+        # message so the failure mode is visible in the WARNING
+        # log below (and matches the caught tuple).  Without
+        # this, ``parsed.items()`` on a non-dict would raise
+        # AttributeError, which we deliberately let propagate.
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
+
+    @classmethod
+    def _filter_unknown_keys(cls, parsed: dict, config_file) -> dict:
+        """Filter unknown keys from ``parsed``; log a WARNING for each dropped key.
+
+        Extracted verbatim from ``load()``. G4-M-14: log a WARNING
+        if the on-disk config contains keys this build doesn't recognize.
+        These keys are silently dropped by the filter.
+        """
+        # G4-M-14: log a WARNING if the on-disk config contains
+        # keys this build doesn't recognize.  These keys are
+        # silently dropped by the filter below.
+        unknown_keys = set(parsed) - set(cls.__dataclass_fields__)
+        if unknown_keys:
+            log.warning(
+                "[CONFIG] dropped %d unknown key(s) from %s: %s",
+                len(unknown_keys),
+                config_file,
+                ", ".join(sorted(unknown_keys)),
+            )
+        return {k: v for k, v in parsed.items() if k in cls.__dataclass_fields__}
+
+    @classmethod
+    def _run_migrations(
+        cls,
+        data: dict[str, Any],
+        loaded_version: Any,
+        config_file,
+    ) -> tuple[dict[str, Any], int, bool]:
+        """M3: run forward schema migrations from ``loaded_version`` to ``_CURRENT_SCHEMA_VERSION``.
+
+        Extracted verbatim from ``load()``. Returns
+        ``(data, final_schema_version, migrations_ran)`` where
+        ``migrations_ran`` is ``True`` iff at least one migrator was
+        attempted (whether successful or not).
+
+        XZ-14-16: On migrator exception, do NOT bump schema_version to
+        ``_CURRENT_SCHEMA_VERSION`` and do NOT continue to the next
+        migrator.  Leave schema_version at ``last_successful_version``
+        (= ``loaded_version`` if no migrator has succeeded yet) so the
+        failed migration re-runs on the next launch.  Previously the
+        runner silently swallowed the exception, kept the
+        partially-migrated data, and bumped the version to
+        ``_CURRENT_SCHEMA_VERSION`` — that bricked the config: the next
+        launch saw version==current and skipped the failed migrator
+        permanently, leaving the user with a half-migrated config that
+        claimed to be fully migrated.
+
+        When ``loaded_version`` is missing or non-int (fresh install /
+        corrupt file), there is nothing to migrate — default to
+        ``_CURRENT_SCHEMA_VERSION`` so a fresh config gets the current
+        schema.
+        """
+        migrations_ran = False
+        last_successful_version = loaded_version if isinstance(loaded_version, int) else _CURRENT_SCHEMA_VERSION
+        if isinstance(loaded_version, int):
+            for version in range(loaded_version + 1, _CURRENT_SCHEMA_VERSION + 1):
+                migrator = _MIGRATIONS.get(version)
+                if migrator is not None:
+                    # G4-M-13: log the migration BEFORE
+                    # calling the migrator.
+                    log.info(
+                        "[CONFIG] migrating schema v%d -> v%d",
+                        max(loaded_version, version - 1),
+                        version,
+                    )
+                    # G4-CR-07 / XZ-14-16: wrap each
+                    # migrator in try/except.  On exception:
+                    # log ERROR with the failed version and
+                    # exception type, save a timestamped +
+                    # version-stamped .bak so the user can
+                    # recover the pre-failure on-disk state,
+                    # then BREAK the loop.  Later migrators
+                    # expect the prior version's data shape
+                    # and would compound the corruption if
+                    # run.  schema_version is left at
+                    # ``last_successful_version`` (NOT bumped
+                    # to _CURRENT_SCHEMA_VERSION) so the
+                    # migration re-runs on next launch.
                     try:
-                        import shutil
-
-                        shutil.copy2(config_file, pre_bak)
-                    except OSError as e:
-                        log.debug(
-                            "[CONFIG] failed to back up config.json to %s before migration: %s",
-                            pre_bak,
-                            e,
-                        )
-
-                # Config fields were renamed (no migration needed):
-                # VALID-1 (MED-K): each inline float()/int() coercion is
-                # wrapped in its own try/except so a SINGLE bad value
-                # resets ONLY that field to its default rather than
-                # aborting the entire load (which would discard every
-                # other valid field too).
-                try:
-                    data["streaming_left_overlap_seconds"] = max(
-                        float(data.get("streaming_left_overlap_seconds", 3.0)),
-                        3.0,
-                    )
-                except (TypeError, ValueError):
-                    log.warning(
-                        "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
-                        data.get("streaming_left_overlap_seconds"),
-                    )
-                    data["streaming_left_overlap_seconds"] = 3.0
-                try:
-                    data["streaming_right_guard_seconds"] = max(
-                        float(data.get("streaming_right_guard_seconds", 1.5)),
-                        1.5,
-                    )
-                except (TypeError, ValueError):
-                    log.warning(
-                        "[CONFIG] invalid streaming_right_guard_seconds value %r; resetting to default 1.5",
-                        data.get("streaming_right_guard_seconds"),
-                    )
-                    data["streaming_right_guard_seconds"] = 1.5
-                # NEW-CQ-017: enforce streaming config invariants so the
-                # AudioWindowPlanner doesn't run forever or produce
-                # overlapping windows that never advance.
-                # - step < chunk: otherwise the planner skips untranscribed
-                #   audio between windows.
-                # - left_overlap < chunk: otherwise every window is a
-                #   duplicate of the previous one.
-                try:
-                    chunk = float(data.get("streaming_chunk_seconds", 12.0))
-                except (TypeError, ValueError):
-                    log.warning(
-                        "[CONFIG] invalid streaming_chunk_seconds value %r; resetting to default 12.0",
-                        data.get("streaming_chunk_seconds"),
-                    )
-                    chunk = 12.0
-                    data["streaming_chunk_seconds"] = 12.0
-                try:
-                    step = float(data.get("streaming_step_seconds", 5.0))
-                except (TypeError, ValueError):
-                    log.warning(
-                        "[CONFIG] invalid streaming_step_seconds value %r; resetting to default 5.0",
-                        data.get("streaming_step_seconds"),
-                    )
-                    step = 5.0
-                    data["streaming_step_seconds"] = 5.0
-                try:
-                    left_overlap = float(data.get("streaming_left_overlap_seconds", 3.0))
-                except (TypeError, ValueError):
-                    log.warning(
-                        "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
-                        data.get("streaming_left_overlap_seconds"),
-                    )
-                    left_overlap = 3.0
-                    data["streaming_left_overlap_seconds"] = 3.0
-                if step >= chunk:
-                    log.warning(
-                        "[CONFIG] streaming_step_seconds (%.1f) >= streaming_chunk_seconds "
-                        "(%.1f); clamping step to chunk/2",
-                        step,
-                        chunk,
-                    )
-                    data["streaming_step_seconds"] = chunk / 2.0
-                if left_overlap >= chunk:
-                    log.warning(
-                        "[CONFIG] streaming_left_overlap_seconds (%.1f) >= streaming_chunk_seconds "
-                        "(%.1f); clamping overlap to chunk/3",
-                        left_overlap,
-                        chunk,
-                    )
-                    data["streaming_left_overlap_seconds"] = chunk / 3.0
-                # SIMPLIFY-001: clamp max_recording_time_seconds to valid range [300, 3600]
-                # to handle old config files that had 0 = auto-select (which is now invalid).
-                # VALID-1 (MED-K): also wrap the int() coercion so a
-                # non-numeric value resets only this field, not the
-                # whole config.
-                try:
-                    max_rec = int(data.get("max_recording_time_seconds", 900))
-                except (TypeError, ValueError):
-                    log.warning(
-                        "[CONFIG] invalid max_recording_time_seconds value %r; resetting to default 900",
-                        data.get("max_recording_time_seconds"),
-                    )
-                    max_rec = 900
-                    data["max_recording_time_seconds"] = 900
-                if max_rec < 300 or max_rec > 3600:
-                    log.warning(
-                        "[CONFIG] max_recording_time_seconds=%d outside valid range [300, 3600], resetting to 900",
-                        max_rec,
-                    )
-                    data["max_recording_time_seconds"] = 900
-
-                if data.get("model_size") not in ALLOWED_USER_MODELS:
-                    data["model_size"] = "small.en"
-
-                # Validate qwen_model_path: must be an existing directory if set
-                qwen_path = data.get("qwen_model_path")
-                if qwen_path is not None:
-                    p = Path(qwen_path)
-                    if not p.exists() or not p.is_dir():
-                        log.warning(
-                            "[CONFIG] Config qwen_model_path=%s does not exist or is not a "
-                            "directory, resetting to None",
-                            qwen_path,
-                        )
-                        data["qwen_model_path"] = None
-                    else:
-                        # SEC-audit-007: Validate qwen_model_path is in a safe location
-                        qwen_resolved = p.resolve()
-                        safe_dirs = [_config_dir().resolve()]
-                        hf_home = os.environ.get("HF_HOME")
-                        if hf_home:
-                            safe_dirs.append(Path(hf_home).resolve())
-                        if not any(_is_path_within(qwen_resolved, d) for d in safe_dirs):
-                            log.warning(
-                                "[CONFIG] qwen_model_path outside safe directories: %s, resetting to None",
-                                qwen_path,
-                            )
-                            data["qwen_model_path"] = None
-
-                # Validate corrections_path: must be an existing file if set
-                corrections = data.get("corrections_path")
-                if corrections is not None:
-                    cp = Path(corrections)
-                    if not cp.exists() or not cp.is_file():
-                        log.warning(
-                            "[CONFIG] Config corrections_path=%s does not exist or is not a file, resetting to None",
-                            corrections,
-                        )
-                        data["corrections_path"] = None
-                    else:
-                        # SEC-audit-006 (Round 0 forward-port — M6):
-                        # defense-in-depth path-traversal check.
-                        # ``corrections_path`` is NOT in the IPC
-                        # allowlist (can only be set via direct
-                        # ``config.json`` edit), but a user who
-                        # manually edits the config could point it at
-                        # an arbitrary file.  The :mod:`text_cleanup`
-                        # module reads + applies corrections from this
-                        # file, so a malicious or accidentally-
-                        # chosen path could expose sensitive data
-                        # (e.g. log transcription text being matched
-                        # against /etc/passwd contents).  Restrict the
-                        # path to the user's home directory or the
-                        # config directory — both are user-writable
-                        # locations where the user has explicitly
-                        # chosen to store data.
-                        try:
-                            cp_resolved = cp.resolve()
-                            allowed_roots = [
-                                Path.home().resolve(),
-                                _config_dir().resolve(),
-                            ]
-                            if not any(_is_path_within(cp_resolved, root) for root in allowed_roots):
-                                raise ValueError("corrections_path must be within the user home or config directory")
-                        except ValueError as exc:
-                            log.warning(
-                                "[CONFIG] Config corrections_path=%s rejected: %s, resetting to None",
-                                corrections,
-                                exc,
-                            )
-                            data["corrections_path"] = None
-
-                # SEC-009: Warn the user about privacy implications when
-                # log_transcriptions is enabled.  Transcription text may
-                # contain sensitive personal information (names, addresses,
-                # medical details, etc.) that gets written to log files
-                # on disk.  The warning is emitted once per config load
-                # so it appears in the log on every startup if the flag
-                # is active.
-                if data.get("log_transcriptions"):
-                    log.warning(
-                        "[CONFIG] log_transcriptions is enabled — transcription text "
-                        "(potentially containing PII) will be written to log files. "
-                        "Disable this setting if you do not want speech content persisted "
-                        "to disk."
-                    )
-
-                # RW-01: credential_store integration.
-                # 1. If secrets haven't been migrated yet, run the
-                #    one-time migration (plaintext → keyring). This
-                #    modifies config.json on disk but NOT our in-memory
-                #    `data` dict — the in-memory dict still has the
-                #    plaintext values (which is what we want, so the
-                #    constructed Config instance has real values for
-                #    cloud_engines / llm_polish to use).
-                # 2. Set the in-memory flag so the constructed Config
-                #    carries it forward (and the next save() persists it).
-                # 3. Resolve any ``keyring://<provider>`` reference
-                #    tokens to real values via credential_store.load_secret.
-                #    This handles the case where migration was done in a
-                #    prior session (config.json on disk has references,
-                #    real values live in keychain).
-                try:
-                    from voice_typer.server import credential_store
-
-                    if not data.get("secrets_migrated", False):
-                        migrated_count = credential_store.migrate_secrets_to_keyring()
-                        if migrated_count > 0:
-                            log.info(
-                                "[CONFIG] RW-01: migrated %d plaintext API key(s) to OS keychain",
-                                migrated_count,
-                            )
-                    # Always set the flag in-memory so the constructed
-                    # Config (and the next save()) carries it forward,
-                    # even if migration was a no-op (already migrated
-                    # or no keys to migrate).
-                    data["secrets_migrated"] = True
-
-                    # Resolve keyring:// references to real values.
-                    for provider, field_name in credential_store.PROVIDER_TO_CONFIG_FIELD.items():
-                        value = data.get(field_name, "")
-                        if isinstance(value, str) and value.startswith(credential_store.KEYRING_REF_PREFIX):
-                            real_value = credential_store.load_secret(provider)
-                            if real_value:
-                                data[field_name] = real_value
-                            else:
-                                # Reference points to keyring but keyring
-                                # has nothing — secret is lost (e.g. user
-                                # wiped their keychain). Clear the field
-                                # so the renderer shows "not configured"
-                                # instead of leaking the reference token.
-                                log.warning(
-                                    "[CONFIG] RW-01: %s field has keyring:// reference "
-                                    "but keyring returned no value — clearing (secret lost)",
-                                    field_name,
-                                )
-                                data[field_name] = ""
-                except Exception as e:
-                    # Don't let credential_store issues break config
-                    # load — fall through with whatever values we have.
-                    log.warning(
-                        "[CONFIG] RW-01: credential_store integration failed: %s — "
-                        "continuing with config.json values as-is",
-                        e,
-                    )
-
-                # H1: Validate non-numeric fields before construction
-                data = cls._validate_non_numeric_fields(data)
-
-                # G4-H-13: validate hotkeys against the reserved-shortcut
-                # denylist (mirrors the IPC set_config validation).
-                # Config.load() previously bypassed this check -- a
-                # stale or hand-edited config with "hotkey": "<ctrl>+<c>"
-                # would steal Ctrl+C from every app on startup.  On
-                # validation failure we reset the offending hotkey to
-                # the platform default (<caps_lock>) and append a
-                # warning to _load_warnings.
-                default_hotkey = _default_hotkey_for_platform()
-                for hotkey_field in ("hotkey", "push_to_talk_hotkey", "repaste_hotkey"):
-                    value = data.get(hotkey_field)
-                    # An empty push_to_talk_hotkey means "same as
-                    # toggle" -- skip empty strings.
-                    if not isinstance(value, str) or value == "":
-                        continue
-                    err = _validate_hotkey(value)
-                    if err is not None:
-                        log.warning(
-                            "[CONFIG] %s=%r rejected by hotkey validator (%s) -- resetting to platform default %r",
-                            hotkey_field,
-                            value,
-                            err,
-                            default_hotkey,
+                        data = migrator(data)
+                        migrations_ran = True
+                        last_successful_version = version
+                    except Exception as migrator_exc:
+                        log.error(
+                            "[CONFIG] migrator v%d raised %s: %s -- "
+                            "aborting migration loop; schema_version will "
+                            "remain at v%d so this migration re-runs on next launch",
+                            version,
+                            type(migrator_exc).__name__,
+                            migrator_exc,
+                            last_successful_version,
                         )
                         data.setdefault("_load_warnings", []).append(
-                            f"Config field {hotkey_field!r}={value!r} rejected by "
-                            f"hotkey validator ({err}) -- reset to {default_hotkey!r}"
+                            f"schema migration v{version} raised "
+                            f"{type(migrator_exc).__name__}: {migrator_exc} -- "
+                            f"schema_version kept at v{last_successful_version}; "
+                            "migration will re-run on next launch"
                         )
-                        data[hotkey_field] = default_hotkey
+                        migrations_ran = True
+                        # XZ-14-16: save a timestamped .bak
+                        # with the failed target version in
+                        # the filename so multiple failures
+                        # across launches don't clobber each
+                        # other and the user can identify
+                        # which migration produced which
+                        # backup.  Best-effort -- a backup
+                        # failure must not mask the original
+                        # migrator failure.
+                        try:
+                            import shutil
 
-                # NEW-CQ-016: extract load warnings before construction
-                # (cls(**data) would fail on the _load_warnings key)
-                load_warnings = data.pop("_load_warnings", [])
+                            ts = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+                            failed_bak = config_file.parent / (f"config.json.bak.failed-migration-{ts}-to-v{version}")
+                            shutil.copy2(config_file, failed_bak)
+                            log.warning(
+                                "[CONFIG] migrator to v%d failed; saved pre-failure config.json backup to %s",
+                                version,
+                                failed_bak,
+                            )
+                        except OSError as backup_exc:
+                            log.warning(
+                                "[CONFIG] migrator to v%d failed AND pre-failure backup also failed: %s",
+                                version,
+                                backup_exc,
+                            )
+                        break  # XZ-14-16: do NOT run later migrators
+        return data, last_successful_version, migrations_ran
 
-                instance = cls(**data)
-                load_warnings.extend(cross_platform_hotkey_warnings(instance))
-                instance.last_load_warnings = load_warnings
+    @classmethod
+    def _backup_before_migration(cls, config_file, loaded_version: Any) -> None:
+        """G4-CR-07: best-effort backup of ``config.json`` BEFORE any migration runs.
 
-                # AUDIO-PRESET-LOAD-FIX: apply the audio preset's filter
-                # toggles on every load.
-                try:
-                    from voice_typer.server.audio_presets import apply_preset
+        Extracted verbatim from ``load()``. Uses ``shutil.copy2``
+        (not ``Path.replace``) so the original ``config.json`` stays in
+        place — the load must NOT modify the on-disk file mid-load.
+        """
+        if isinstance(loaded_version, int) and loaded_version < _CURRENT_SCHEMA_VERSION:
+            pre_bak = config_file.parent / f"config.json.pre-migration-v{loaded_version}.bak"
+            try:
+                import shutil
 
-                    apply_preset(instance.audio_preset, instance)
-                except Exception:
-                    log.debug("[CONFIG] apply_preset on load failed", exc_info=True)
-
-                # G4-M-15: persist the bumped schema_version eagerly so
-                # the next launch doesn't re-run the same migrations
-                # (and re-trigger any bugs in a migrator that already
-                # raised).  The save() is best-effort.
-                if migrations_ran:
-                    try:
-                        instance.save()
-                    except Exception:
-                        log.debug("[CONFIG] eager post-migration save failed", exc_info=True)
-
-                return instance
-            except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:
-                # RW-9: enumerated failure modes -- see the docstring.
+                shutil.copy2(config_file, pre_bak)
+            except OSError as e:
+                # DE-27: backup failure must be visible at WARNING so
+                # operators notice (the backup is the ONLY recovery
+                # mechanism if a migrator corrupts the config). DEBUG is
+                # usually off in production.
                 log.warning(
-                    "[CONFIG] %s loading config %s: %s. Using defaults.",
-                    type(e).__name__,
-                    config_file,
+                    "[CONFIG] failed to back up config.json to %s before migration: %s",
+                    pre_bak,
                     e,
                 )
-                # G4-H-10: best-effort move the corrupt config aside so
-                # the user can recover their settings manually from the
-                # .corrupt-<timestamp> backup.  Without this, the next
-                # Config.save() would atomically overwrite the corrupt
-                # file with defaults, destroying any chance of forensic
-                # recovery.  Path.replace is atomic.  Best-effort.
-                try:
-                    corrupt_backup = config_file.parent / f"config.json.corrupt-{int(time.time())}"
-                    config_file.replace(corrupt_backup)
+
+    @classmethod
+    def _coerce_streaming_fields(cls, data: dict[str, Any]) -> None:
+        """Coerce streaming_* fields with min/max clamping + invariant checks.
+
+        Extracted verbatim from ``load()``. Config fields were
+        renamed (no migration needed): VALID-1 (MED-K) — each inline
+        ``float()``/``int()`` coercion is wrapped in its own
+        ``try/except`` so a SINGLE bad value resets ONLY that field to
+        its default rather than aborting the entire load (which would
+        discard every other valid field too).
+
+        NEW-CQ-017: enforce streaming config invariants so the
+        AudioWindowPlanner doesn't run forever or produce overlapping
+        windows that never advance:
+
+        * ``step < chunk``: otherwise the planner skips untranscribed
+          audio between windows.
+        * ``left_overlap < chunk``: otherwise every window is a
+          duplicate of the previous one.
+        """
+        # Config fields were renamed (no migration needed):
+        # VALID-1 (MED-K): each inline float()/int() coercion is
+        # wrapped in its own try/except so a SINGLE bad value
+        # resets ONLY that field to its default rather than
+        # aborting the entire load (which would discard every
+        # other valid field too).
+        try:
+            data["streaming_left_overlap_seconds"] = max(
+                float(data.get("streaming_left_overlap_seconds", 3.0)),
+                3.0,
+            )
+        except (TypeError, ValueError):
+            log.warning(
+                "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
+                data.get("streaming_left_overlap_seconds"),
+            )
+            data["streaming_left_overlap_seconds"] = 3.0
+        try:
+            data["streaming_right_guard_seconds"] = max(
+                float(data.get("streaming_right_guard_seconds", 1.5)),
+                1.5,
+            )
+        except (TypeError, ValueError):
+            log.warning(
+                "[CONFIG] invalid streaming_right_guard_seconds value %r; resetting to default 1.5",
+                data.get("streaming_right_guard_seconds"),
+            )
+            data["streaming_right_guard_seconds"] = 1.5
+        # NEW-CQ-017: enforce streaming config invariants so the
+        # AudioWindowPlanner doesn't run forever or produce
+        # overlapping windows that never advance.
+        # - step < chunk: otherwise the planner skips untranscribed
+        #   audio between windows.
+        # - left_overlap < chunk: otherwise every window is a
+        #   duplicate of the previous one.
+        try:
+            chunk = float(data.get("streaming_chunk_seconds", 12.0))
+        except (TypeError, ValueError):
+            log.warning(
+                "[CONFIG] invalid streaming_chunk_seconds value %r; resetting to default 12.0",
+                data.get("streaming_chunk_seconds"),
+            )
+            chunk = 12.0
+            data["streaming_chunk_seconds"] = 12.0
+        try:
+            step = float(data.get("streaming_step_seconds", 5.0))
+        except (TypeError, ValueError):
+            log.warning(
+                "[CONFIG] invalid streaming_step_seconds value %r; resetting to default 5.0",
+                data.get("streaming_step_seconds"),
+            )
+            step = 5.0
+            data["streaming_step_seconds"] = 5.0
+        try:
+            left_overlap = float(data.get("streaming_left_overlap_seconds", 3.0))
+        except (TypeError, ValueError):
+            log.warning(
+                "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
+                data.get("streaming_left_overlap_seconds"),
+            )
+            left_overlap = 3.0
+            data["streaming_left_overlap_seconds"] = 3.0
+        if step >= chunk:
+            log.warning(
+                "[CONFIG] streaming_step_seconds (%.1f) >= streaming_chunk_seconds (%.1f); clamping step to chunk/2",
+                step,
+                chunk,
+            )
+            data["streaming_step_seconds"] = chunk / 2.0
+        if left_overlap >= chunk:
+            log.warning(
+                "[CONFIG] streaming_left_overlap_seconds (%.1f) >= streaming_chunk_seconds "
+                "(%.1f); clamping overlap to chunk/3",
+                left_overlap,
+                chunk,
+            )
+            data["streaming_left_overlap_seconds"] = chunk / 3.0
+
+    @classmethod
+    def _coerce_max_recording_time(cls, data: dict[str, Any]) -> None:
+        """SIMPLIFY-001: clamp ``max_recording_time_seconds`` to valid range [300, 3600].
+
+        Extracted verbatim from ``load()``. Handles old config
+        files that had ``0 = auto-select`` (which is now invalid).
+        VALID-1 (MED-K): also wraps the ``int()`` coercion so a
+        non-numeric value resets only this field, not the whole config.
+        """
+        try:
+            max_rec = int(data.get("max_recording_time_seconds", 900))
+        except (TypeError, ValueError):
+            log.warning(
+                "[CONFIG] invalid max_recording_time_seconds value %r; resetting to default 900",
+                data.get("max_recording_time_seconds"),
+            )
+            max_rec = 900
+            data["max_recording_time_seconds"] = 900
+        if max_rec < 300 or max_rec > 3600:
+            log.warning(
+                "[CONFIG] max_recording_time_seconds=%d outside valid range [300, 3600], resetting to 900",
+                max_rec,
+            )
+            data["max_recording_time_seconds"] = 900
+
+    @classmethod
+    def _validate_model_path(cls, data: dict[str, Any]) -> None:
+        """Validate ``model_size`` against :data:`ALLOWED_USER_MODELS`.
+
+        Extracted verbatim from ``load()``. If the on-disk
+        ``model_size`` is not in the allowlist (e.g. a stale entry from
+        a previous build), reset to ``"small.en"`` (the default).
+        """
+        if data.get("model_size") not in ALLOWED_USER_MODELS:
+            data["model_size"] = "small.en"
+
+    @classmethod
+    def _validate_qwen_model_path(cls, data: dict[str, Any]) -> None:
+        """Validate ``qwen_model_path``: must be an existing directory if set.
+
+        Extracted verbatim from ``load()``. SEC-audit-007:
+        validate ``qwen_model_path`` is in a safe location (the config
+        dir or ``$HF_HOME``). Resets to ``None`` if the path doesn't
+        exist, isn't a directory, or escapes the safe dirs.
+        """
+        # Validate qwen_model_path: must be an existing directory if set
+        qwen_path = data.get("qwen_model_path")
+        if qwen_path is not None:
+            p = Path(qwen_path)
+            if not p.exists() or not p.is_dir():
+                log.warning(
+                    "[CONFIG] Config qwen_model_path=%s does not exist or is not a directory, resetting to None",
+                    qwen_path,
+                )
+                data["qwen_model_path"] = None
+            else:
+                # SEC-audit-007: Validate qwen_model_path is in a safe location
+                qwen_resolved = p.resolve()
+                safe_dirs = [_config_dir().resolve()]
+                hf_home = os.environ.get("HF_HOME")
+                if hf_home:
+                    safe_dirs.append(Path(hf_home).resolve())
+                if not any(_is_path_within(qwen_resolved, d) for d in safe_dirs):
                     log.warning(
-                        "[CONFIG] moved corrupt config %s -> %s for forensic recovery",
-                        config_file,
-                        corrupt_backup,
+                        "[CONFIG] qwen_model_path outside safe directories: %s, resetting to None",
+                        qwen_path,
                     )
-                except OSError as move_exc:
-                    log.debug(
-                        "[CONFIG] could not move corrupt config %s aside: %s",
-                        config_file,
-                        move_exc,
+                    data["qwen_model_path"] = None
+
+    @classmethod
+    def _validate_corrections_path(cls, data: dict[str, Any]) -> None:
+        """Validate ``corrections_path``: must be an existing file if set.
+
+        Extracted verbatim from ``load()``. SEC-audit-006 (Round
+        0 forward-port — M6): defense-in-depth path-traversal check.
+        ``corrections_path`` is NOT in the IPC allowlist (can only be
+        set via direct ``config.json`` edit), but a user who manually
+        edits the config could point it at an arbitrary file.  The
+        :mod:`text_cleanup` module reads + applies corrections from
+        this file, so a malicious or accidentally-chosen path could
+        expose sensitive data (e.g. log transcription text being
+        matched against ``/etc/passwd`` contents).  Restrict the path
+        to the user's home directory or the config directory — both are
+        user-writable locations where the user has explicitly chosen to
+        store data.
+        """
+        # Validate corrections_path: must be an existing file if set
+        corrections = data.get("corrections_path")
+        if corrections is not None:
+            cp = Path(corrections)
+            if not cp.exists() or not cp.is_file():
+                log.warning(
+                    "[CONFIG] Config corrections_path=%s does not exist or is not a file, resetting to None",
+                    corrections,
+                )
+                data["corrections_path"] = None
+            else:
+                try:
+                    cp_resolved = cp.resolve()
+                    allowed_roots = [
+                        Path.home().resolve(),
+                        _config_dir().resolve(),
+                    ]
+                    if not any(_is_path_within(cp_resolved, root) for root in allowed_roots):
+                        raise ValueError("corrections_path must be within the user home or config directory")
+                except ValueError as exc:
+                    log.warning(
+                        "[CONFIG] Config corrections_path=%s rejected: %s, resetting to None",
+                        corrections,
+                        exc,
                     )
-                return cls()
-        return cls()
+                    data["corrections_path"] = None
+
+    @classmethod
+    def _validate_privacy_consents(cls, data: dict[str, Any]) -> None:
+        """SEC-009: warn the user about privacy implications when ``log_transcriptions`` is enabled.
+
+        Extracted verbatim from ``load()``. Transcription text
+        may contain sensitive personal information (names, addresses,
+        medical details, etc.) that gets written to log files on disk.
+        The warning is emitted once per config load so it appears in
+        the log on every startup if the flag is active.
+        """
+        if data.get("log_transcriptions"):
+            log.warning(
+                "[CONFIG] log_transcriptions is enabled — transcription text "
+                "(potentially containing PII) will be written to log files. "
+                "Disable this setting if you do not want speech content persisted "
+                "to disk."
+            )
+
+    @classmethod
+    def _derive_field_type_registry(cls: type["Config"]) -> dict[str, type]:
+        """Build a ``{field_name: expected_type}`` registry from the
+        Config dataclass.
+
+        Optional[T] / T | None annotations are unwrapped to T so the
+        validator can apply per-type coercion without special-casing each
+        Optional field. ``Literal[...]`` annotations (subtype of ``str``)
+        are normalized to ``str`` so the validator's str branch handles
+        them.
+
+        Replaces the 4 hand-maintained sets (``bool_fields`` /
+        ``str_fields`` / ``int_fields`` / ``float_fields``) so the field
+        list is sourced from the dataclass declaration itself — adding a
+        new field to ``Config`` automatically opts it into validation
+        without a parallel edit to ``_validate_non_numeric_fields``.
+        """
+        import typing
+
+        hints = typing.get_type_hints(cls)
+        registry: dict[str, type] = {}
+        for name in cls.__dataclass_fields__:
+            if name not in hints:
+                continue
+            ann = hints[name]
+            # Unwrap Optional[T] / T | None → T
+            if typing.get_origin(ann) is typing.Union:
+                args = [a for a in typing.get_args(ann) if a is not type(None)]
+                if len(args) == 1:
+                    ann = args[0]
+            # Literal[...] is a subtype of str — normalize to str so the
+            # str validation branch handles it (e.g. asr_backend).
+            if typing.get_origin(ann) is typing.Literal:
+                ann = str
+            registry[name] = ann
+        return registry
 
     @classmethod
     def _validate_non_numeric_fields(cls: type["Config"], data: dict[str, Any]) -> dict[str, Any]:
-        """Validate and coerce bool and str fields in loaded config data.
+        """Validate and coerce bool / str / int / float fields in loaded config data.
 
         NEW-CQ-016: collects warnings in ``data['_load_warnings']`` so
         the caller (load()) can surface them via the
@@ -1786,116 +2073,26 @@ class Config:
         constructor sees them.  Without it, a config.json with
         ``"autostart": 1`` would silently store ``1`` instead of
         ``True``, breaking every ``if cfg.autostart:`` check.
+
+        The 4 hand-maintained field-name sets (``bool_fields`` /
+        ``str_fields`` / ``int_fields`` / ``float_fields``) were
+        replaced by :meth:`_derive_field_type_registry`, which derives
+        the field list from the ``Config`` dataclass declaration. The
+        per-type coercion logic is unchanged; only the field-name
+        source changed. The ``optional_str_fields`` allowlist (fields
+        that accept ``None`` in addition to ``str``) is preserved
+        verbatim — it captures the ``str | None`` fields whose ``None``
+        sentinel is meaningful (no microphone / no Qwen path / no
+        Parakeet override).
         """
         warnings: list[str] = []
-        bool_fields = {
-            "autostart",
-            "paste_on_stop",
-            "unsafe_paste_on_unknown_focus",
-            "show_notifications",
-            # PW-3: prewarm toggle is a bool so legacy configs that stored
-            # it as "true"/"false" strings or 0/1 ints get coerced.
-            "fast_startup",
-            "text_cleanup_enabled",
-            "streaming_transcription",
-            "log_transcriptions",
-            "condition_on_previous_text",
-            "esc_cancel_enabled",
-            "auto_punctuation",
-            "llm_polish",
-            "llm_polish_consent",
-            # NEW-PRIV-005/006/009: privacy consent flags are bools.
-            "huggingface_consent",
-            "cloud_openai_consent",
-            "cloud_groq_consent",
-            "cloud_deepgram_consent",
-            "voice_biometric_consent",
-            # NEW-UX-029: sound feedback toggle.
-            "sound_feedback_enabled",
-            "crash_recovery_enabled",
-            "audio_quality_warnings",
-            "templates_enabled",
-            "vocabulary_enabled",
-            "waveform_bubble",
-            "onboarding_completed",
-            "onboarding_failed",
-            "wayland_warned",
-            "bubble_draggable",
-            "bubble_show_on_startup",
-            # UX-10: mic-button + click-to-toggle for the always-visible bubble.
-            "bubble_click_to_toggle",
-            "bubble_mic_button",
-            "volume_duck_enabled",
-            # GT-58: volume_duck_per_session and volume_duck_smart were REMOVED
-            # from the Config dataclass — no longer coerced here. Old
-            # config.json values are silently scrubbed by the v3 migration.
-            # STARTUP-6: volume_duck_smart_poll_interval_ms is an int (50-5000),
-            # NOT a bool — it was misclassified here, causing the bool validator
-            # to flag the default value 500 as invalid and log a spurious
-            # "resetting to default 500" warning on every startup. It already
-            # has its own int validator in IPC_CONFIG_ALLOWLIST.
-            "noise_filter_enabled",
-            "noise_filter_highpass",
-            "noise_filter_gate",
-            "noise_filter_rnnoise",
-            "noise_filter_post_capture",
-            # ADR 0007: new filter chain bool fields
-            "noise_filter_eq",
-            "noise_filter_compressor",
-            "noise_filter_limiter",
-            "noise_filter_notch",
-            # P4: AI enhancement toggles.  All four are bools — the
-            # master toggle defaults OFF, the three sub-toggles
-            # default ON.  Include them here so legacy config files
-            # that stored them as "true"/"false" strings or 0/1 ints
-            # are coerced to real bools on load.
-            "ai_enhancement_enabled",
-            "auto_capitalize",
-            "auto_punctuate",
-            "fix_grammar_basics",
-            # P5: vocabulary automation master toggle.
-            "vocabulary_automation_enabled",
-            # RW-01: secrets_migrated is a bool flag gate for the
-            # one-time plaintext → keyring migration in
-            # credential_store.migrate_secrets_to_keyring().
-            "secrets_migrated",
-            # G4-M-11: missing bool fields that legacy config.json files
-            # may have stored as "true"/"false" strings or 0/1 ints.
-            "use_silero_vad",
-            # GT-58: normalize_audio was REMOVED from the Config dataclass —
-            # no longer coerced here. Old config.json values are silently
-            # scrubbed by the v3 migration.
-            "warn_elevated_paste",
-            "warn_password_paste",
-            "clipboard_save_restore",
-        }
-        str_fields = {
-            "hotkey",
-            "language",
-            "device",
-            "asr_backend",
-            "recording_mode",
-            "push_to_talk_hotkey",
-            "cloud_api_key",
-            "cloud_api_url",
-            "cloud_model",
-            "openai_api_key",
-            "groq_api_key",
-            "deepgram_api_key",
-            "llm_api_key",
-            "llm_api_url",
-            "llm_model",
-            "llm_preset",
-            "repaste_hotkey",
-            "tray_left_click_action",
-            "parakeet_model_path",
-            "bubble_position",
-            "bubble_behavior",
-            "audio_preset",
-            "noise_suppression_method",
-            "theme_mode",
-            "theme_preset",
-        }
+        # str | None fields where None is a meaningful sentinel
+        # (no microphone / no Qwen path / no Parakeet override). The
+        # str-validation branch allows None for these fields.
+        optional_str_fields = {"parakeet_model_path", "qwen_model_path", "microphone"}
+        registry = cls._derive_field_type_registry()
+        defaults = cls()
+
         # VALID-3 (MED-L): int / float field coercion.  Mirrors the
         # bool/str pattern — if the on-disk value is not already the
         # correct type, attempt coercion; if coercion fails, reset to
@@ -1905,170 +2102,112 @@ class Config:
         # (a bool value for an int field is almost certainly a
         # misconfiguration, not a legacy int-as-bool — fall through to
         # the default-reset branch).
-        int_fields = {
-            "sample_rate",
-            "beam_size",
-            "best_of",
-            "clipboard_restore_delay_ms",
-            "history_retention_days",
-            "history_retention_count",
-            "history_max_entries",
-            "text_size",
-            "max_recording_time_seconds",
-            "volume_duck_fade_ms",
-            "volume_duck_smart_poll_interval_ms",
-            "recording_channels",
-        }
-        float_fields = {
-            "streaming_chunk_seconds",
-            "streaming_step_seconds",
-            "streaming_left_overlap_seconds",
-            "streaming_right_guard_seconds",
-            "streaming_min_first_chunk_seconds",
-            "streaming_silence_threshold",
-            "silence_warning_seconds",
-            "stop_on_silence_seconds",
-            "pre_roll_buffer_seconds",
-            "vad_speech_threshold",
-            "vad_silence_threshold",
-            "noise_filter_highpass_cutoff_hz",
-            # GT-58: noise_filter_gate_threshold was REMOVED from the Config
-            # dataclass — no longer coerced here. Old config.json values are
-            # silently scrubbed by the v3 migration.
-            "noise_filter_gate_hold_ms",
-            "noise_filter_gate_open_threshold_db",
-            "noise_filter_gate_close_threshold_db",
-            "noise_filter_gate_attack_ms",
-            "noise_filter_gate_release_ms",
-            "noise_filter_eq_low_db",
-            "noise_filter_eq_mid_db",
-            "noise_filter_eq_high_db",
-            "noise_filter_compressor_threshold_db",
-            "noise_filter_compressor_ratio",
-            "noise_filter_compressor_attack_ms",
-            "noise_filter_compressor_release_ms",
-            "noise_filter_compressor_output_gain_db",
-            "noise_filter_limiter_ceiling_db",
-            "noise_filter_limiter_release_ms",
-            "noise_filter_notch_frequency_hz",
-            "volume_duck_level",
-            # GT-58: silence_rms_threshold, silence_peak_threshold, and
-            # normalize_target_peak were REMOVED from the Config dataclass
-            # — no longer coerced here. Old config.json values are silently
-            # scrubbed by the v3 migration.
-            "vocabulary_auto_confidence_threshold",
-            "vocabulary_auto_apply_threshold",
-        }
-        defaults = cls()
 
-        for field_name in bool_fields:
+        for field_name, expected_type in registry.items():
             if field_name not in data:
                 continue
             val = data[field_name]
-            if isinstance(val, bool):
-                continue
-            # Coerce truthy/falsy values
-            if val in (1, "1", "true", "True", "yes"):
-                msg = f"Config field '{field_name}' had non-bool value {val!r}, coerced to True"
-                log.warning("[CONFIG] %s", msg)
-                warnings.append(msg)
-                data[field_name] = True
-            elif val in (0, "0", "false", "False", "no", ""):
-                msg = f"Config field '{field_name}' had non-bool value {val!r}, coerced to False"
-                log.warning("[CONFIG] %s", msg)
-                warnings.append(msg)
-                data[field_name] = False
-            else:
+
+            if expected_type is bool:
+                if isinstance(val, bool):
+                    continue
+                # Coerce truthy/falsy values
+                if val in (1, "1", "true", "True", "yes"):
+                    msg = f"Config field '{field_name}' had non-bool value {val!r}, coerced to True"
+                    log.warning("[CONFIG] %s", msg)
+                    warnings.append(msg)
+                    data[field_name] = True
+                elif val in (0, "0", "false", "False", "no", ""):
+                    msg = f"Config field '{field_name}' had non-bool value {val!r}, coerced to False"
+                    log.warning("[CONFIG] %s", msg)
+                    warnings.append(msg)
+                    data[field_name] = False
+                else:
+                    default_val = getattr(defaults, field_name)
+                    msg = f"Config field '{field_name}' had invalid value {val!r}, resetting to default {default_val!r}"
+                    log.warning("[CONFIG] %s", msg)
+                    warnings.append(msg)
+                    data[field_name] = default_val
+
+            elif expected_type is str:
+                if isinstance(val, str):
+                    continue
+                if val is None and field_name in optional_str_fields:
+                    continue
                 default_val = getattr(defaults, field_name)
-                msg = f"Config field '{field_name}' had invalid value {val!r}, resetting to default {default_val!r}"
+                msg = f"Config field '{field_name}' had non-string value {val!r}, resetting to default {default_val!r}"
                 log.warning("[CONFIG] %s", msg)
                 warnings.append(msg)
                 data[field_name] = default_val
 
-        optional_str_fields = {"parakeet_model_path", "qwen_model_path", "microphone"}
+            elif expected_type is int:
+                # VALID-3 (MED-L): int field coercion.  Accepts ints,
+                # floats (truncated via int()), and numeric strings.
+                # Rejects bools (bool is a subclass of int but almost
+                # certainly indicates a misconfigured field — reset to
+                # default).  Rejects anything int() can't parse (lists,
+                # dicts, None, non-numeric strings).
+                #
+                # ``bool`` is a subclass of ``int`` — exclude explicitly
+                # so ``True``/``False`` values are treated as invalid
+                # (the user probably toggled a checkbox they shouldn't
+                # have).
+                if isinstance(val, bool):
+                    default_val = getattr(defaults, field_name)
+                    msg = f"Config field '{field_name}' had bool value {val!r}, resetting to default {default_val!r}"
+                    log.warning("[CONFIG] %s", msg)
+                    warnings.append(msg)
+                    data[field_name] = default_val
+                    continue
+                if isinstance(val, int):
+                    # Already an int (and not a bool — handled above).
+                    continue
+                # Attempt coercion: int("42") → 42, int(3.7) → 3,
+                # int("3.7") raises ValueError (int() doesn't accept
+                # float-formatted strings — fall through to the
+                # catch-all).
+                try:
+                    coerced = int(val)
+                except (TypeError, ValueError):
+                    default_val = getattr(defaults, field_name)
+                    msg = f"Config field '{field_name}' had non-int value {val!r}, resetting to default {default_val!r}"
+                    log.warning("[CONFIG] %s", msg)
+                    warnings.append(msg)
+                    data[field_name] = default_val
+                    continue
+                msg = f"Config field '{field_name}' had non-int value {val!r}, coerced to {coerced!r}"
+                log.warning("[CONFIG] %s", msg)
+                warnings.append(msg)
+                data[field_name] = coerced
 
-        for field_name in str_fields:
-            if field_name not in data:
-                continue
-            val = data[field_name]
-            if isinstance(val, str):
-                continue
-            if val is None and field_name in optional_str_fields:
-                continue
-            default_val = getattr(defaults, field_name)
-            msg = f"Config field '{field_name}' had non-string value {val!r}, resetting to default {default_val!r}"
-            log.warning("[CONFIG] %s", msg)
-            warnings.append(msg)
-            data[field_name] = default_val
-
-        # VALID-3 (MED-L): int field coercion.  Accepts ints, floats
-        # (truncated via int()), and numeric strings.  Rejects bools
-        # (bool is a subclass of int but almost certainly indicates a
-        # misconfigured field — reset to default).  Rejects anything
-        # int() can't parse (lists, dicts, None, non-numeric strings).
-        for field_name in int_fields:
-            if field_name not in data:
-                continue
-            val = data[field_name]
-            # ``bool`` is a subclass of ``int`` — exclude explicitly so
-            # ``True``/``False`` values are treated as invalid (the
-            # user probably toggled a checkbox they shouldn't have).
-            if isinstance(val, bool):
-                default_val = getattr(defaults, field_name)
-                msg = f"Config field '{field_name}' had bool value {val!r}, resetting to default {default_val!r}"
+            elif expected_type is float:
+                # VALID-3 (MED-L): float field coercion.  Accepts
+                # floats, ints, and numeric strings.  Rejects bools
+                # and anything float() can't parse.
+                if isinstance(val, bool):
+                    default_val = getattr(defaults, field_name)
+                    msg = f"Config field '{field_name}' had bool value {val!r}, resetting to default {default_val!r}"
+                    log.warning("[CONFIG] %s", msg)
+                    warnings.append(msg)
+                    data[field_name] = default_val
+                    continue
+                if isinstance(val, float):
+                    continue
+                try:
+                    coerced = float(val)
+                except (TypeError, ValueError):
+                    default_val = getattr(defaults, field_name)
+                    msg = (
+                        f"Config field '{field_name}' had non-float value {val!r}, resetting to default {default_val!r}"
+                    )
+                    log.warning("[CONFIG] %s", msg)
+                    warnings.append(msg)
+                    data[field_name] = default_val
+                    continue
+                msg = f"Config field '{field_name}' had non-float value {val!r}, coerced to {coerced!r}"
                 log.warning("[CONFIG] %s", msg)
                 warnings.append(msg)
-                data[field_name] = default_val
-                continue
-            if isinstance(val, int):
-                # Already an int (and not a bool — handled above).
-                continue
-            # Attempt coercion: int("42") → 42, int(3.7) → 3,
-            # int("3.7") raises ValueError (int() doesn't accept
-            # float-formatted strings — fall through to the catch-all).
-            try:
-                coerced = int(val)
-            except (TypeError, ValueError):
-                default_val = getattr(defaults, field_name)
-                msg = f"Config field '{field_name}' had non-int value {val!r}, resetting to default {default_val!r}"
-                log.warning("[CONFIG] %s", msg)
-                warnings.append(msg)
-                data[field_name] = default_val
-                continue
-            msg = f"Config field '{field_name}' had non-int value {val!r}, coerced to {coerced!r}"
-            log.warning("[CONFIG] %s", msg)
-            warnings.append(msg)
-            data[field_name] = coerced
-
-        # VALID-3 (MED-L): float field coercion.  Accepts floats,
-        # ints, and numeric strings.  Rejects bools and anything
-        # float() can't parse.
-        for field_name in float_fields:
-            if field_name not in data:
-                continue
-            val = data[field_name]
-            if isinstance(val, bool):
-                default_val = getattr(defaults, field_name)
-                msg = f"Config field '{field_name}' had bool value {val!r}, resetting to default {default_val!r}"
-                log.warning("[CONFIG] %s", msg)
-                warnings.append(msg)
-                data[field_name] = default_val
-                continue
-            if isinstance(val, float):
-                continue
-            try:
-                coerced = float(val)
-            except (TypeError, ValueError):
-                default_val = getattr(defaults, field_name)
-                msg = f"Config field '{field_name}' had non-float value {val!r}, resetting to default {default_val!r}"
-                log.warning("[CONFIG] %s", msg)
-                warnings.append(msg)
-                data[field_name] = default_val
-                continue
-            msg = f"Config field '{field_name}' had non-float value {val!r}, coerced to {coerced!r}"
-            log.warning("[CONFIG] %s", msg)
-            warnings.append(msg)
-            data[field_name] = coerced
+                data[field_name] = coerced
 
         # NEW-CQ-016: stash warnings so load() can surface them
         data["_load_warnings"] = warnings

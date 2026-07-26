@@ -40,11 +40,12 @@ describe("XV-150: mdn-data removed from runtime dependencies", () => {
 			dependencies: Record<string, string>;
 			devDependencies: Record<string, string>;
 		};
-		// XV-150 was intended to remove mdn-data from runtime deps, but
-		// the actual package.json still lists it (jsdom needs it at
-		// install time via css-tree). Assert it IS present so the test
-		// matches the real source state.
-		expect(pkg.dependencies).toHaveProperty("mdn-data");
+		// XV-150 fix: mdn-data was previously listed as a runtime
+		// dependency but is never imported at runtime. jsdom pulls it
+		// transitively via css-tree at install time, so a direct
+		// runtime entry is unnecessary. Assert it is NOT present so
+		// the test guards against re-adding the bug.
+		expect(pkg.dependencies).not.toHaveProperty("mdn-data");
 	});
 
 	it("package.json devDependencies also does NOT contain mdn-data (jsdom pulls it transitively)", () => {
@@ -72,11 +73,10 @@ describe("XV-151: index.ts will-quit else-branch for null pythonProcess", () => 
 		expect(willQuitIdx).toBeGreaterThan(-1);
 		const block = src.slice(willQuitIdx, willQuitIdx + 1500);
 		// The actual will-quit handler calls stopPython() unconditionally,
-		// then sets up a forceExitTimer (setTimeout → app.exit(0)) and a
-		// pythonProcess.once("exit") → app.exit(0) path. XV-151 intended
-		// an if/else on pythonProcess, but the production code uses a
-		// 3s grace timer instead. Assert on the actual contract: the
-		// handler references state.pythonProcess AND app.exit(0).
+		// The handler calls stopPython(), then sets up a forceExitTimer
+		// (setTimeout → app.exit(0)) and a pythonProcess.once("exit")
+		// → app.exit(0) path. Assert the handler references
+		// state.pythonProcess AND app.exit(0).
 		expect(block).toContain("state.pythonProcess");
 		expect(block).toContain("app.exit(0)");
 		expect(block).toMatch(/else\s*\{/);

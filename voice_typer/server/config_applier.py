@@ -26,7 +26,73 @@ import json
 import logging
 from typing import Any
 
+from voice_typer.server.branding import APP_NAME
+
 log = logging.getLogger(__name__)
+
+
+def _notify_side_effect_failure(app: Any, field: str, exc: BaseException) -> None:
+    """PI-21: surface a config side-effect failure to the user via
+    ``app.tray.notify`` so the user sees a toast instead of the failure
+    being silently logged + swallowed. Mirrors the
+    ``SettingsController.set_autostart`` pattern at
+    ``settings_controller.py:107-108``.
+
+    The config has ALREADY been mutated (via ``setattr`` in
+    ``apply_config``) and WILL be persisted (via ``save_strict``) — so
+    on-disk config says X while runtime state says Y. Without this
+    notification the user has no signal that the runtime state didn't
+    take effect (e.g. they enabled a filter, but the live audio
+    processor wasn't rebuilt — the next dictation will use the OLD
+    filter chain, and the user will wonder why their setting "didn't
+    do anything").
+
+    Parameters
+    ----------
+    app
+        The VoiceTyperApp instance — must expose ``tray.notify(title,
+        message)`` (the same API used by ``SettingsController`` and
+        the dictation-pipeline ERROR path).
+    field
+        The config field name whose side-effect failed (e.g.
+        ``"bubble_behavior"``, ``"audio_preset"``). Used in the toast
+        message so the user can correlate the toast with the setting
+        they just changed.
+    exc
+        The exception that triggered the failure. Logged at WARNING
+        with ``exc_info=True`` by the caller; here we only need its
+        ``str()`` for the toast message (truncated to keep the toast
+        readable).
+    """
+    notify = getattr(getattr(app, "tray", None), "notify", None)
+    if callable(notify):
+        try:
+            # Truncate the exception text so the toast stays readable
+            # (some exception strings — e.g. ctranslate2 CUDA errors —
+            # can run for hundreds of chars and wrap badly in a
+            # 250px-wide toast).
+            msg = str(exc)
+            if len(msg) > 200:
+                msg = msg[:197] + "..."
+            notify(APP_NAME, f"Could not apply {field} change: {msg}")
+        except Exception:
+            # The notification itself failed — log at DEBUG (not
+            # WARNING, to avoid a notification-failure loop) and
+            # continue. The original side-effect failure was already
+            # logged at WARNING by the caller.
+            log.debug(
+                "[CONFIG] tray.notify for side-effect failure also failed (field=%s)",
+                field,
+                exc_info=True,
+            )
+    else:
+        # No tray.notify available (e.g. minimal test stub without a
+        # real tray). Log at DEBUG so the missing-tray case is at
+        # least visible in -vv mode.
+        log.debug(
+            "[CONFIG] app.tray.notify not available; cannot surface side-effect failure to user (field=%s)",
+            field,
+        )
 
 
 def _json_dumps_sorted(obj: Any) -> str:
@@ -51,40 +117,42 @@ def _json_dumps_sorted(obj: Any) -> str:
 # ``frozenset`` is built once at import and the ``&`` operator accepts
 # a ``dict_keys`` view directly, so we can drop the ``set(...)`` wrapper
 # on ``updates.keys()`` too.
-_FILTER_CHAIN_KEYS = frozenset({
-    # Preset
-    "audio_preset",
-    # Individual filter toggles
-    "noise_filter_enabled",
-    "noise_filter_highpass",
-    "noise_filter_gate",
-    "noise_filter_rnnoise",
-    "noise_filter_post_capture",
-    "noise_filter_eq",
-    "noise_filter_compressor",
-    "noise_filter_limiter",
-    "noise_filter_notch",
-    # Noise suppressor backend
-    "noise_suppression_method",
-    # Filter parameters
-    "noise_filter_highpass_cutoff_hz",
-    "noise_filter_gate_hold_ms",
-    "noise_filter_gate_open_threshold_db",
-    "noise_filter_gate_close_threshold_db",
-    "noise_filter_gate_attack_ms",
-    "noise_filter_gate_release_ms",
-    "noise_filter_eq_low_db",
-    "noise_filter_eq_mid_db",
-    "noise_filter_eq_high_db",
-    "noise_filter_compressor_threshold_db",
-    "noise_filter_compressor_ratio",
-    "noise_filter_compressor_attack_ms",
-    "noise_filter_compressor_release_ms",
-    "noise_filter_compressor_output_gain_db",
-    "noise_filter_limiter_ceiling_db",
-    "noise_filter_limiter_release_ms",
-    "noise_filter_notch_frequency_hz",
-})
+_FILTER_CHAIN_KEYS = frozenset(
+    {
+        # Preset
+        "audio_preset",
+        # Individual filter toggles
+        "noise_filter_enabled",
+        "noise_filter_highpass",
+        "noise_filter_gate",
+        "noise_filter_rnnoise",
+        "noise_filter_post_capture",
+        "noise_filter_eq",
+        "noise_filter_compressor",
+        "noise_filter_limiter",
+        "noise_filter_notch",
+        # Noise suppressor backend
+        "noise_suppression_method",
+        # Filter parameters
+        "noise_filter_highpass_cutoff_hz",
+        "noise_filter_gate_hold_ms",
+        "noise_filter_gate_open_threshold_db",
+        "noise_filter_gate_close_threshold_db",
+        "noise_filter_gate_attack_ms",
+        "noise_filter_gate_release_ms",
+        "noise_filter_eq_low_db",
+        "noise_filter_eq_mid_db",
+        "noise_filter_eq_high_db",
+        "noise_filter_compressor_threshold_db",
+        "noise_filter_compressor_ratio",
+        "noise_filter_compressor_attack_ms",
+        "noise_filter_compressor_release_ms",
+        "noise_filter_compressor_output_gain_db",
+        "noise_filter_limiter_ceiling_db",
+        "noise_filter_limiter_release_ms",
+        "noise_filter_notch_frequency_hz",
+    }
+)
 
 
 # CR-61: canonical audio-filter dict keys.  ADR 0007 §5 lists 8 filter
@@ -288,6 +356,11 @@ class ConfigApplier:
             except Exception as e:
                 log.warning("Failed to sync autostart: %s", e)
                 side_effect_status["autostart_status"] = {"registered": False, "error": str(e)}
+                # PI-21: surface the side-effect failure to the user via
+                # a tray notification (the config has already been
+                # mutated + persisted; the runtime state didn't take
+                # effect, so the user needs a signal).
+                _notify_side_effect_failure(app, "autostart", e)
 
         # PW-3: Sync the prewarm scheduled task when fast_startup changes.
         # When the user toggles fast_startup in Settings → General, the
@@ -307,6 +380,9 @@ class ConfigApplier:
             except Exception as e:
                 log.warning("Failed to sync prewarm task: %s", e)
                 side_effect_status["prewarm_status"] = {"registered": False, "error": str(e)}
+                # PI-21: surface the prewarm task sync failure to the
+                # user via a tray notification.
+                _notify_side_effect_failure(app, "fast_startup", e)
 
         # Register/unregister ESC hotkey
         if "esc_cancel_enabled" in updates:
@@ -317,6 +393,9 @@ class ConfigApplier:
                     app.hotkeys.unregister_esc()
             except Exception as e:
                 log.warning("Failed to sync ESC hotkey: %s", e)
+                # PI-21: surface the ESC hotkey sync failure to the
+                # user via a tray notification.
+                _notify_side_effect_failure(app, "esc_cancel_enabled", e)
 
         # Register/unregister repaste hotkey
         if "repaste_hotkey" in updates or "repaste_enabled" in updates:
@@ -324,6 +403,9 @@ class ConfigApplier:
                 app.hotkeys.register_repaste()
             except Exception as e:
                 log.warning("Failed to sync repaste hotkey: %s", e)
+                # PI-21: surface the repaste hotkey sync failure to
+                # the user via a tray notification.
+                _notify_side_effect_failure(app, "repaste_hotkey", e)
 
         # NEW-UX-027: re-register the dictation hotkey when recording_mode
         # or hotkey changes.
@@ -380,6 +462,9 @@ class ConfigApplier:
                 )
             except Exception as e:
                 log.warning("Failed to update tray left-click action: %s", e)
+                # PI-21: surface the tray left-click action update
+                # failure to the user via a tray notification.
+                _notify_side_effect_failure(app, "tray_left_click_action", e)
 
         # BUGFIX: show_notifications changes were not applied until restart.
         if "show_notifications" in updates:
@@ -391,6 +476,9 @@ class ConfigApplier:
                 )
             except Exception as e:
                 log.warning("Failed to update notifications: %s", e)
+                # PI-21: surface the notifications update failure to
+                # the user via a tray notification.
+                _notify_side_effect_failure(app, "show_notifications", e)
 
         # BUGFIX: bubble_behavior changes were not applied until restart.
         if "bubble_behavior" in updates:
@@ -423,6 +511,9 @@ class ConfigApplier:
                 log.info("[SERVICE] Bubble behavior updated to: %s", behavior)
             except Exception as e:
                 log.warning("Failed to update bubble behavior: %s", e)
+                # PI-21: surface the bubble behavior update failure to
+                # the user via a tray notification.
+                _notify_side_effect_failure(app, "bubble_behavior", e)
 
         # BUGFIX: volume_duck_smart changes were not applied until restart.
         if "volume_duck_smart" in updates:
@@ -449,6 +540,9 @@ class ConfigApplier:
                     ).start()
             except Exception as e:
                 log.warning("Failed to update smart duck: %s", e)
+                # PI-21: surface the smart duck update failure to the
+                # user via a tray notification.
+                _notify_side_effect_failure(app, "volume_duck_smart", e)
 
         # BUGFIX: volume_duck_smart_poll_interval_ms changes not applied until restart.
         if "volume_duck_smart_poll_interval_ms" in updates:
@@ -457,6 +551,9 @@ class ConfigApplier:
                     app._volume_ducker.set_smart_duck_poll_interval(int(updates["volume_duck_smart_poll_interval_ms"]))
             except Exception as e:
                 log.warning("Failed to update smart duck poll interval: %s", e)
+                # PI-21: surface the smart duck poll interval update
+                # failure to the user via a tray notification.
+                _notify_side_effect_failure(app, "volume_duck_smart_poll_interval_ms", e)
 
         # Apply the audio enhancement preset: map preset name to filter toggles.
         if "audio_preset" in updates:
@@ -477,6 +574,9 @@ class ConfigApplier:
                 log.info("[SERVICE] Applied audio preset '%s': %s", preset, preset_filters)
             except Exception as e:
                 log.warning("Failed to apply audio preset: %s", e)
+                # PI-21: surface the audio preset apply failure to the
+                # user via a tray notification.
+                _notify_side_effect_failure(app, "audio_preset", e)
 
         # ADR 0007 §6.1: Rebuild the dictation AudioProcessor's filter
         # chain when any noise_filter_* / audio_preset / noise_suppression_method
@@ -493,6 +593,13 @@ class ConfigApplier:
                     app._rebuild_audio_processor()
             except Exception as e:
                 log.warning("Failed to rebuild dictation audio processor: %s", e)
+                # PI-21: surface the audio-processor rebuild failure
+                # to the user via a tray notification. This is the
+                # most user-visible failure mode: the user changed a
+                # noise_filter_* toggle but the live dictation pipeline
+                # is still using the OLD filter chain — the next
+                # dictation will sound wrong.
+                _notify_side_effect_failure(app, "noise_filter_chain", e)
 
             # Also sync the live level bar + mic test processors so
             # they reflect the new filters immediately.
@@ -510,6 +617,9 @@ class ConfigApplier:
                 update_test_filters(filters_dict)
             except Exception as e:
                 log.warning("Failed to sync level bar processor: %s", e)
+                # PI-21: surface the level bar processor sync failure
+                # to the user via a tray notification.
+                _notify_side_effect_failure(app, "level_bar_filters", e)
 
         # PVT-060 (session-3): return the accumulated side-effect
         # statuses so :meth:`apply_config` can propagate them to the
@@ -702,10 +812,7 @@ class ConfigApplier:
             # any more.
             post_values = {k: getattr(app.config, k, _MISSING) for k in updates}
             pre_values = dict(set_keys)
-            state_unchanged = (
-                pre_state_dict is not None
-                and pre_values == post_values
-            )
+            state_unchanged = pre_state_dict is not None and pre_values == post_values
             if state_unchanged:
                 log.debug("[SERVICE] G4-L-20: apply_config detected no state change — skipping save_strict()")
             else:

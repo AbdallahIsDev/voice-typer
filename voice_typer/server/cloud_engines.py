@@ -31,10 +31,39 @@ from voice_typer.server._secrets import (
     redact_url,
 )
 from voice_typer.server.asr_errors import (
-    ConsentRequiredError,  # noqa: F401  # EC-FIX-8: re-exported for backward compat with `from cloud_engines import ConsentRequiredError`
+    CloudAuthError,
+    CloudConfigError,
+    CloudConsentRequiredError,
+    CloudEngineError,
+    CloudNetworkError,
+    CloudRateLimitError,
+    CloudServerError,
+    ConsentRequiredError,  # noqa: F401  # re-exported for backward compat with `from cloud_engines import ConsentRequiredError`
 )
 
 log = logging.getLogger(__name__)
+
+
+# Map an HTTP status code from a cloud provider's HTTPError to
+# the appropriate typed ``CloudEngineError`` subclass. Used by both the
+# OpenAI-compatible path (``_send_openai_compatible``) and the Deepgram
+# path (``_send_deepgram``). Mapping:
+#   401, 403                  → CloudAuthError      (API key invalid/revoked)
+#   429                       → CloudRateLimitError (after retry budget)
+#   5xx (500-599)             → CloudServerError
+#   any other HTTP status     → CloudEngineError    (generic cloud failure)
+# Callers that want to surface a more specific message can still wrap
+# the chosen exception via ``raise CloudAuthError("...") from exc``;
+# the type is what the IPC layer switches on, not the message.
+def _cloud_http_error_class(code: int) -> type[CloudEngineError]:
+    """Return the typed ``CloudEngineError`` subclass for an HTTP status."""
+    if code in (401, 403):
+        return CloudAuthError
+    if code == 429:
+        return CloudRateLimitError
+    if 500 <= code < 600:
+        return CloudServerError
+    return CloudEngineError
 
 
 # PERF-NEW-010: module-level OpenerDirector for connection pooling.
@@ -48,7 +77,7 @@ log = logging.getLogger(__name__)
 _opener = build_secure_opener()
 
 
-# G4-H-18 / G4-INVALIDATION: module-level cache of live CloudEngine
+# Module-level cache of live CloudEngine
 # instances, keyed by provider.  Populated by callers that construct
 # long-lived CloudEngine objects (e.g. the model manager / cloud-engine
 # factory) via :func:`register_cached_cloud_engine`.  Consumers that
@@ -64,7 +93,7 @@ _CACHED_ENGINES_LOCK = threading.Lock()
 def register_cached_cloud_engine(provider: str, engine: "CloudEngine") -> None:
     """Register a CloudEngine instance in the module-level cache.
 
-    G4-INVALIDATION: callers that construct a long-lived CloudEngine
+    Callers that construct a long-lived CloudEngine
     SHOULD register the instance here so that :func:`clear_cached_engine`
     / :func:`clear_all_cached_engines` can release it when the user's
     credentials or consent are revoked.  Pass ``None`` to clear a single
@@ -87,7 +116,7 @@ def get_cached_cloud_engine(provider: str) -> "CloudEngine | None":
 def clear_cached_engine(provider: str) -> bool:
     """Release the cached CloudEngine instance for ``provider``.
 
-    G4-INVALIDATION: called from ``delete_all_personal_data`` (and
+    Called from ``delete_all_personal_data`` (and
     similar credential-revocation paths) to ensure that a stale
     CloudEngine — still holding the user's previous API key, consent
     flag, or session state — is not reused after the user has revoked
@@ -116,7 +145,7 @@ def clear_cached_engine(provider: str) -> bool:
 def clear_all_cached_engines() -> int:
     """Release ALL cached CloudEngine instances.
 
-    G4-INVALIDATION: convenience helper for ``delete_all_personal_data``
+    Convenience helper for ``delete_all_personal_data``
     — iterates every cached provider and releases each via
     :func:`clear_cached_engine`.  Returns the number of engines released.
     """
@@ -343,7 +372,7 @@ class CloudEngine:
 
         self._loaded = True  # Cloud engines don't need local model loading
 
-        # G4-H-18: optional factory that constructs the local whisper
+        # Optional factory that constructs the local whisper
         # engine lazily on fallback.  Decouples the cloud engine from
         # the model registry / app object so that ``transcribe_with_fallback``
         # can fire the local fallback path even when the caller did not
@@ -374,14 +403,26 @@ class CloudEngine:
         """Transcribe audio via cloud API.
 
         NEW-PRIV-006: refuses to send audio if consent hasn't been
-        given.  Raises ConsentRequiredError (a subclass of RuntimeError
-        so existing catch clauses still work) so the IPC layer can
-        detect this case and show the consent dialog.
+        given.  Raises CloudConsentRequiredError (a subclass of
+        ConsentRequiredError / RuntimeError so existing catch clauses
+        still work) so the IPC layer can detect this case and show the
+        consent dialog.
         """
         if not self.consent_given:
-            raise ConsentRequiredError(f"Cloud {self.provider} consent not given — refusing to send audio.")
+            raise CloudConsentRequiredError(
+                f"Cloud {self.provider} consent not given — refusing to send audio.",
+                provider=self.provider,
+            )
         if not self.is_loaded:
-            raise RuntimeError("Cloud engine not configured (missing API key)")
+            # Typed ``CloudConfigError`` (was generic
+            # ``RuntimeError``) so the IPC layer can map it to the
+            # distinct ``server.cloud_config_error`` code. The
+            # cross-field validator at
+            # ``config_validators._check_cross_field_cloud_config``
+            # catches the common case at save time; this runtime check
+            # stays as defense-in-depth for the case where the key was
+            # revoked between save and transcribe.
+            raise CloudConfigError("Cloud engine not configured (missing API key)")
         if len(audio) == 0:
             return ""
         return self._send_request(audio)
@@ -399,7 +440,7 @@ class CloudEngine:
         instead of raising.  This gives a best-effort result even
         when the cloud is temporarily unreachable.
 
-        G4-H-18: when ``local_engine`` is NOT explicitly passed but the
+        When ``local_engine`` is NOT explicitly passed but the
         engine was constructed with a ``local_engine_factory`` callable,
         the factory is invoked lazily to construct the local whisper
         engine on demand.  This decouples the cloud engine from the
@@ -423,8 +464,13 @@ class CloudEngine:
         """
         try:
             return self.transcribe(audio)
-        except Exception as cloud_err:
-            # G4-H-18: prefer the explicitly-passed local_engine; fall
+        except ConsentRequiredError:
+            # DE-31: consent errors must propagate — do NOT fall back to
+            # the local engine (the user explicitly declined cloud consent;
+            # silently falling back would violate that choice).
+            raise
+        except (RuntimeError, OSError) as cloud_err:
+            # Prefer the explicitly-passed local_engine; fall
             # back to the factory if one was wired at construction time.
             resolved_local_engine = local_engine
             if resolved_local_engine is None and self._local_engine_factory is not None:
@@ -438,7 +484,7 @@ class CloudEngine:
                     )
                     resolved_local_engine = None
             if resolved_local_engine is not None:
-                # PVT-G5-041: include exc_info so the cloud failure
+                # Include exc_info so the cloud failure
                 # traceback is captured for debugging.
                 log.warning(
                     "[CLOUD] %s failed, falling back to local engine: %s",
@@ -449,7 +495,7 @@ class CloudEngine:
                 try:
                     return resolved_local_engine.transcribe(audio, audio_stats=audio_stats)
                 except Exception as local_err:
-                    # PVT-G5-041: include exc_info so the local fallback
+                    # Include exc_info so the local fallback
                     # failure traceback is captured for debugging.
                     log.error("[CLOUD] Local fallback also failed: %s", local_err, exc_info=True)
                     # S1-CR-24: re-raise the ORIGINAL cloud error (not a
@@ -504,7 +550,7 @@ class CloudEngine:
         # Defense-in-depth: SEC-002 already validates URL scheme at
         # set_config time, but assert again here in case the value
         # was loaded from disk (Config.load) or set programmatically.
-        # G4-M-56: opt in to allow_loopback_http=True because this
+        # Opt in to allow_loopback_http=True because this
         # caller sends user audio to a user-configured endpoint, and
         # the user may legitimately point it at a local HTTP server
         # (Ollama, vLLM, LM Studio, etc.).
@@ -524,7 +570,7 @@ class CloudEngine:
         # config change — and burns API quota. 429 (Too Many Requests) is
         # the one 4xx that is retryable: the server explicitly tells us
         # when to retry via the Retry-After header.
-        # PVT-020: rebuild `body` and `req` INSIDE the retry loop.
+        # Rebuild `body` and `req` INSIDE the retry loop.
         # `_StreamingMultipartBody.read()` advances internal state with
         # no `reset()` method — reusing the same body across retries
         # sent a truncated/empty multipart with stale Content-Length,
@@ -579,7 +625,7 @@ class CloudEngine:
                 # provider typically indicates a sustained outage that
                 # won't clear in 2s of backoff).
                 safe_msg = redact_secret(redact_url(str(exc)))
-                # PVT-G5-041: include exc_info so the HTTPError traceback
+                # Include exc_info so the HTTPError traceback
                 # is captured for debugging.
                 log.error(
                     "[CLOUD] %s HTTP %d error (not retried): %s",
@@ -588,7 +634,12 @@ class CloudEngine:
                     safe_msg,
                     exc_info=True,
                 )
-                raise RuntimeError(f"{self.provider} API error (HTTP {exc.code})") from exc
+                # Raise the typed ``CloudEngineError`` subclass
+                # matching the HTTP status (401/403 → auth, 429 → rate
+                # limit, 5xx → server error, else → generic cloud).
+                # Was: ``raise RuntimeError(...) from exc``.
+                err_cls = _cloud_http_error_class(exc.code)
+                raise err_cls(f"{self.provider} API error (HTTP {exc.code})") from exc
             except URLError as exc:
                 # CR-48: URLError that is NOT an HTTPError = transient
                 # network error (timeout, connection reset, DNS failure).
@@ -608,7 +659,7 @@ class CloudEngine:
                     _time.sleep(backoff)
                 else:
                     safe_msg = redact_secret(redact_url(str(exc)))
-                    # PVT-G5-041: include exc_info so the final URLError
+                    # Include exc_info so the final URLError
                     # traceback is captured for debugging.
                     log.error(
                         "[CLOUD] %s API error after %d attempts: %s",
@@ -617,19 +668,26 @@ class CloudEngine:
                         safe_msg,
                         exc_info=True,
                     )
-                    raise RuntimeError(f"{self.provider} API error") from exc
+                    # Typed ``CloudNetworkError`` (was generic
+                    # ``RuntimeError``) so the IPC layer can map to
+                    # ``server.cloud_network_error``.
+                    raise CloudNetworkError(f"{self.provider} API error") from exc
             except Exception as exc:
                 safe_msg = redact_secret(str(exc))
-                # PVT-G5-041: include exc_info so the unexpected-exception
+                # Include exc_info so the unexpected-exception
                 # traceback is captured for debugging.
                 log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg, exc_info=True)
                 # NEW-UX-029: include the underlying error in the user-facing
                 # message so the user can tell if it's a network issue vs an
                 # API error. Pre-fix this was a generic "request failed" with
                 # no hint about the cause.
-                raise RuntimeError(f"{self.provider} request failed: {safe_msg}") from exc
+                # Raise the typed base ``CloudEngineError`` (was
+                # generic ``RuntimeError``) so the IPC layer still maps
+                # to a cloud-specific code rather than the generic
+                # ``server.internal_error``.
+                raise CloudEngineError(f"{self.provider} request failed: {safe_msg}") from exc
         # Should not reach here, but just in case
-        raise RuntimeError(f"{self.provider} request failed after {max_retries} attempts")
+        raise CloudEngineError(f"{self.provider} request failed after {max_retries} attempts")
 
     def _send_deepgram(self, wav_bytes: bytes) -> str:
         """Send request to Deepgram API.
@@ -647,7 +705,7 @@ class CloudEngine:
         PERF-NEW-010: exponential backoff retry (3 attempts) for
         transient network errors, matching the OpenAI-compatible path.
         """
-        # G4-M-56: opt in to allow_loopback_http=True — see the
+        # Opt in to allow_loopback_http=True — see the
         # OpenAI-compatible transcribe path above for the rationale.
         assert_url_allowed(
             self.api_url,
@@ -718,7 +776,7 @@ class CloudEngine:
                     _time.sleep(wait)
                     continue
                 safe_msg = redact_secret(redact_url(str(exc)))
-                # PVT-G5-041: include exc_info so the Deepgram HTTPError
+                # Include exc_info so the Deepgram HTTPError
                 # traceback is captured for debugging.
                 log.error(
                     "[CLOUD] Deepgram HTTP %d error (not retried): %s",
@@ -726,7 +784,10 @@ class CloudEngine:
                     safe_msg,
                     exc_info=True,
                 )
-                raise RuntimeError(f"Deepgram API error (HTTP {exc.code})") from exc
+                # Typed ``CloudEngineError`` subclass based on
+                # HTTP status (was generic ``RuntimeError``).
+                err_cls = _cloud_http_error_class(exc.code)
+                raise err_cls(f"Deepgram API error (HTTP {exc.code})") from exc
             except URLError as exc:
                 # CR-48: URLError (non-HTTPError) = transient network error.
                 if attempt < max_retries - 1:
@@ -743,18 +804,22 @@ class CloudEngine:
                     _time.sleep(backoff)
                 else:
                     safe_msg = redact_secret(redact_url(str(exc)))
-                    # PVT-G5-041: include exc_info so the final Deepgram
+                    # Include exc_info so the final Deepgram
                     # URLError traceback is captured for debugging.
                     log.error("[CLOUD] Deepgram API error after %d attempts: %s", max_retries, safe_msg, exc_info=True)
-                    raise RuntimeError("Deepgram API error") from exc
+                    # Typed ``CloudNetworkError`` (was generic
+                    # ``RuntimeError``).
+                    raise CloudNetworkError("Deepgram API error") from exc
             except Exception as exc:
                 safe_msg = redact_secret(str(exc))
-                # PVT-G5-041: include exc_info so the unexpected Deepgram
+                # Include exc_info so the unexpected Deepgram
                 # exception traceback is captured for debugging.
                 log.error("[CLOUD] Deepgram request failed: %s", safe_msg, exc_info=True)
-                raise RuntimeError("Deepgram request failed") from exc
+                # Typed base ``CloudEngineError`` (was generic
+                # ``RuntimeError``).
+                raise CloudEngineError("Deepgram request failed") from exc
         # Should not reach here, but just in case
-        raise RuntimeError(f"Deepgram request failed after {max_retries} attempts")
+        raise CloudEngineError(f"Deepgram request failed after {max_retries} attempts")
 
     def _build_multipart_body(self, wav_bytes: bytes, filename: str, boundary: str):
         """Build multipart/form-data body for OpenAI-compatible APIs.
@@ -834,7 +899,7 @@ class CloudEngine:
             return False, "API key not configured"
 
         try:
-            # G4-M-56: opt in to allow_loopback_http=True — see the
+            # Opt in to allow_loopback_http=True — see the
             # OpenAI-compatible transcribe path for the rationale.
             assert_url_allowed(
                 self.api_url,

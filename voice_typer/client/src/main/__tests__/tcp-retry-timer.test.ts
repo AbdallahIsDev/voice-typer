@@ -54,6 +54,7 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 		_hadConnectedBefore: false,
 		_relaunching: false,
 		_restartTriggered: false,
+		_stopPythonCalled: false,
 		...overrides,
 	} as MainState;
 }

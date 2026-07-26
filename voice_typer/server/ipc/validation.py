@@ -52,6 +52,12 @@ ad-hoc:
   values (used by ``duration_ms`` in ``show_electron_notification``).
 """
 
+# ``TypedDict`` is needed for the schema + error-envelope type
+# contracts declared below. Imported at module load (not under
+# ``TYPE_CHECKING``) so the TypedDicts are real runtime classes that
+# introspection tests can reference.
+from typing import TypedDict
+
 # G4-M-22: canonical namespaced error-code registry.
 #
 # Every ``code`` field stamped on an IPC error envelope SHOULD come
@@ -95,10 +101,18 @@ ERROR_CODES: frozenset[str] = frozenset(
         "client.invalid_field",
         "client.missing_field",
         "client.invalid_payload",
+        "client.payload_too_large",
         "client.rate_limited",
         "client.path_not_allowed",
         "client.not_found",
         "client.auth_failed",
+        # Structured consent error — the renderer surfaces a consent
+        # dialog (deep-linked to the exact toggle in Settings via the
+        # structured ``engine_name`` / ``consent_field`` fields)
+        # instead of a generic error toast. Emitted by
+        # ``handlers/_base.py`` when a cloud/LLM engine requires
+        # biometric-data consent that the user has not yet granted.
+        "client.consent_required",
         # Server-originated errors (5xx analog).
         "server.internal_error",
         "server.handler_error",
@@ -107,6 +121,29 @@ ERROR_CODES: frozenset[str] = frozenset(
         "server.shutting_down",
         "server.unknown_command",
         "server.unknown_tray_item",
+        "server.not_found",
+        # DE-31: structured consent-required envelope emitted by the
+        # IPC dispatcher when a ``ConsentRequiredError`` is raised by
+        # a cloud/LLM handler. Distinct from ``client.consent_required``
+        # above (which is emitted by ``handlers/_base.py``); this form
+        # is the dispatcher-level wrapper around the typed exception
+        # and carries ``provider`` + ``scope`` fields so the renderer
+        # can deep-link to the exact Settings toggle.
+        "server.consent_required",
+        # Typed cloud/LLM exception hierarchy — distinct codes for
+        # each cloud error category so the renderer can distinguish
+        # "API key invalid" (user must re-enter) from "rate limited"
+        # (backoff) from "transient network" (auto-retry) from "missing
+        # config" (open Settings). See ``voice_typer/server/asr_errors.py``
+        # for the typed exception classes and
+        # ``voice_typer/server/handlers/_base.py`` for the isinstance
+        # mapping.
+        "server.cloud_auth_failed",
+        "server.cloud_rate_limited",
+        "server.cloud_server_error",
+        "server.cloud_network_error",
+        "server.cloud_config_error",
+        "server.cloud_engine_error",
     }
 )
 
@@ -148,14 +185,101 @@ LEGACY_ERROR_CODES: frozenset[str] = frozenset(
 ALL_ERROR_CODES: frozenset[str] = ERROR_CODES | LEGACY_ERROR_CODES
 
 
-def _validate_dict_payload(data, schema):
+# Typed schema for the declarative validation rule dict consumed
+# by :func:`_validate_dict_payload`. ``total=False`` because every rule
+# key is optional except ``type`` (and even ``type`` may be omitted in
+# the rare case where a field is being declared only for ``default`` /
+# ``clamp_range`` / ``max_value_len`` purposes). The loose ``object``
+# value types preserve the prior ``Any``-style flexibility — call
+# sites build these dicts inline at every handler, and tightening the
+# value types further would require touching all 12+ schemas.
+
+
+class FieldRule(TypedDict, total=False):
+    """Declarative per-field validation rule for :func:`_validate_dict_payload`.
+
+    See the module docstring of :func:`_validate_dict_payload` for the
+    full semantics of each key. All keys are optional — the helper
+    reads each via ``rules.get(<key>)`` and treats absence as "rule
+    not applied".
+    """
+
+    type: type | tuple[type, ...]
+    required: bool
+    default: object
+    max_value_len: int
+    clamp_range: tuple[int | float, int | float]
+    max_payload_bytes: int
+
+
+# A schema is a mapping from field name to its rule dict. Used as
+# the second parameter to :func:`_validate_dict_payload`.
+Schema = dict[str, FieldRule]
+
+
+# Typed contract for the IPC error envelope. The TS side has a
+# matching ``ErrorEvent`` interface (``ipc.ts:119-152``); these
+# TypedDicts are the Python-side mirror so the ad-hoc dict literals
+# constructed at the 6+ emitter sites have a documented shape.
+#
+# ``ErrorData`` is ``total=False`` because emitters selectively
+# include only the keys relevant to the specific error code (e.g.
+# ``legacy_code`` is only present during the one-release-cycle
+# migration window; ``field`` is only present for ``invalid_field`` /
+# ``missing_field``; ``command`` is only present for
+# ``unknown_command``).
+class ErrorData(TypedDict, total=False):
+    code: str
+    legacy_code: str
+    message: str
+    field: str
+    command: str
+    id: str | int
+
+
+class _ErrorEnvelopeRequired(TypedDict):
+    """Required keys on every error envelope.
+
+    Split out so :class:`ErrorEnvelope` can extend it with ``id`` as
+    an optional key (ad-hoc emitters only set ``id`` when a request id
+    is available to echo back).
+    """
+
+    type: str  # always ``"error"`` for an error envelope
+    data: ErrorData
+
+
+class ErrorEnvelope(_ErrorEnvelopeRequired, total=False):
+    """Canonical IPC error envelope.
+
+    Required keys: ``type`` (``"error"``), ``data`` (an
+    :class:`ErrorData` mapping). Optional key: ``id`` (echoed request
+    id when available). This is the documented *contract* for every
+    error envelope constructed in the IPC layer; ad-hoc dict literals
+    at the construction sites are not type-checked against this
+    TypedDict (the contract is documentation, not runtime
+    enforcement — the return-type annotation on
+    :func:`_validate_dict_payload` is plain ``dict[str, object]`` rather
+    than :class:`ErrorEnvelope` because TypedDicts are invariant and
+    not subtypes of ``dict``, so annotating the return as
+    :class:`ErrorEnvelope` would flag every caller that returns the
+    error directly from a ``-> dict | None`` handler. The contract is
+    documented at construction sites via the
+    ``# ErrorEnvelope contract — see validation.py`` comments and
+    verified by ``tests/test_error_codes_registry.py``).
+    """
+
+    id: object | None
+
+
+def _validate_dict_payload(data: object, schema: Schema) -> tuple[dict[str, object] | None, "dict[str, object] | None"]:
     """Validate IPC ``data`` against a declarative *schema*.
 
     Parameters
     ----------
-    data : Any
+    data :
         The ``data`` field from the IPC message.
-    schema : dict[str, dict]
+    schema :
         Mapping of field name → validation rules.  Each rule dict
         supports:
 
@@ -185,12 +309,23 @@ def _validate_dict_payload(data, schema):
 
     Returns
     -------
-    tuple[dict | None, dict | None]
+    tuple[dict[str, object] | None, dict[str, object] | None]
         ``(validated_dict, None)`` on success.
         ``(None, error_response)`` on failure — the error_response
         is a dict ready to be returned as ``resp`` from the handler.
+        The error_response dict conforms to the :class:`ErrorEnvelope`
+        contract (``{"type": "error", "data": {"code": ..., ...}}``);
+        the return type is plain ``dict[str, object]`` (not
+        :class:`ErrorEnvelope`) because TypedDicts are invariant and
+        not subtypes of ``dict``, so annotating the return as
+        :class:`ErrorEnvelope` would flag every caller that returns
+        the error directly from a ``-> dict | None`` handler. The
+        contract is documented at construction sites via the
+        ``# ErrorEnvelope contract — see validation.py`` comments and
+        verified by ``tests/test_error_codes_registry.py``.
     """
     if not isinstance(data, dict):
+        # ErrorEnvelope contract — see validation.py
         return None, {
             "type": "error",
             "data": {
@@ -220,6 +355,7 @@ def _validate_dict_payload(data, schema):
         if max_bytes is not None:
             payload_size = len(_json_mod.dumps(data))
             if payload_size > max_bytes:
+                # ErrorEnvelope contract — see validation.py
                 return None, {
                     "type": "error",
                     "data": {
@@ -252,6 +388,7 @@ def _validate_dict_payload(data, schema):
                 else:
                     expected_name = expected_type.__name__
                 return None, {
+                    # ErrorEnvelope contract — see validation.py
                     "type": "error",
                     "data": {
                         # DE-36: namespaced form (primary) + legacy
@@ -268,6 +405,7 @@ def _validate_dict_payload(data, schema):
             max_value_len = rules.get("max_value_len")
             if max_value_len is not None and isinstance(value, str) and len(value) > max_value_len:
                 return None, {
+                    # ErrorEnvelope contract — see validation.py
                     "type": "error",
                     "data": {
                         # DE-36: namespaced form (primary) + legacy
@@ -288,6 +426,7 @@ def _validate_dict_payload(data, schema):
             validated[field_name] = value
         elif rules.get("required", False):
             return None, {
+                # ErrorEnvelope contract — see validation.py
                 "type": "error",
                 "data": {
                     # DE-36: namespaced form (primary) + legacy alias
@@ -350,4 +489,15 @@ def _error_response(resp: dict, message: str, *, code: str = "server.handler_err
     return resp
 
 
-__all__ = ["_validate_dict_payload", "_error_response", "ERROR_CODES", "LEGACY_ERROR_CODES", "ALL_ERROR_CODES"]
+__all__ = [
+    "_validate_dict_payload",
+    "_error_response",
+    "ERROR_CODES",
+    "LEGACY_ERROR_CODES",
+    "ALL_ERROR_CODES",
+    # Typed contract exports.
+    "FieldRule",
+    "Schema",
+    "ErrorData",
+    "ErrorEnvelope",
+]

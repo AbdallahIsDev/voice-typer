@@ -181,7 +181,6 @@ def ensure_desktop_shortcut(app: Any) -> None:
     if not is_windows():
         return
     desktop = Path.home() / "Desktop"
-    desktop / "Voice Typer.lnk"
     legacy_bat = desktop / "Voice Typer.bat"
 
     # 1. Migrate: remove the legacy backend-only .bat so the broken
@@ -397,7 +396,11 @@ def start_accessibility_pulse(app: Any, initial_state: bool) -> None:
 # ─── Onboarding reset (PVT-012 / re-run setup wizard) ─────────────────────
 
 
-def reset_onboarding_complete(config_dir: Path | None = None) -> dict:
+def reset_onboarding_complete(
+    config_dir: Path | None = None,
+    *,
+    app: object | None = None,
+) -> dict:
     """PVT-012 — delete the ``.onboarding_complete`` marker so the wizard
     re-runs on next launch.
 
@@ -421,6 +424,16 @@ def reset_onboarding_complete(config_dir: Path | None = None) -> dict:
         Optional override for the config directory (defaults to the
         canonical :func:`voice_typer.server.config._config_dir`).
         Used by tests to point at a tmp_path.
+    app:
+        Optional :class:`voice_typer.server.app.VoiceTyperApp` instance.
+        When provided, the ``onboarding_completed`` flag is mutated on
+        the live ``app.config`` object and persisted via
+        ``app.config.save_strict()`` — which acquires the config-mutation
+        lock so the write cannot race a concurrent
+        ``set_config`` IPC handler. When ``None`` (e.g. tests), falls
+        back to a fresh ``Config.load()`` snapshot + ``cfg.save()``;
+        this bypasses the lock and is acceptable for the test-only path
+        but callers should pass ``app`` whenever one is in scope.
 
     Returns
     -------
@@ -444,16 +457,38 @@ def reset_onboarding_complete(config_dir: Path | None = None) -> dict:
         # Also clear the ``onboarding_completed`` flag in config.json so
         # ``OnboardingController.is_first_run`` returns True even if the
         # marker file is recreated by a stale save.
-        try:
-            from voice_typer.server.config import Config
+        # Prefer the live ``app.config`` over a fresh ``Config.load()``
+        # snapshot so the mutation goes through the config-mutation lock
+        # (acquired inside ``Config.save`` / ``Config.save_strict``). A
+        # ``Config.load()`` + ``cfg.save()`` sequence reads WITHOUT the
+        # lock and could overwrite a concurrent ``set_config`` IPC
+        # handler's write. When the caller has the app instance in
+        # scope, they should pass it.
+        if app is not None:
+            try:
+                cfg = getattr(app, "config", None)
+                if cfg is not None and getattr(cfg, "onboarding_completed", False):
+                    cfg.onboarding_completed = False
+                    cfg.save_strict()
+                    log.info("[ONBOARDING] Cleared onboarding_completed flag in config.json (via app.config)")
+            except Exception:
+                log.debug("[ONBOARDING] could not clear onboarding_completed via app.config", exc_info=True)
+        else:
+            # Fall back to ``Config.load()`` + ``cfg.save()`` for the
+            # test-only path (no app instance available). The save
+            # still acquires the config-mutation lock, but the load
+            # bypasses it — a known race window that callers can close
+            # by passing ``app``.
+            try:
+                from voice_typer.server.config import Config
 
-            cfg = Config.load()
-            if getattr(cfg, "onboarding_completed", False):
-                cfg.onboarding_completed = False
-                cfg.save()
-                log.info("[ONBOARDING] Cleared onboarding_completed flag in config.json")
-        except Exception:
-            log.debug("[ONBOARDING] could not clear onboarding_completed in config.json", exc_info=True)
+                cfg = Config.load()
+                if getattr(cfg, "onboarding_completed", False):
+                    cfg.onboarding_completed = False
+                    cfg.save()
+                    log.info("[ONBOARDING] Cleared onboarding_completed flag in config.json")
+            except Exception:
+                log.debug("[ONBOARDING] could not clear onboarding_completed in config.json", exc_info=True)
         return {"reset": True, "error": None}
     except Exception as exc:
         log.exception("[ONBOARDING] Failed to reset onboarding marker")

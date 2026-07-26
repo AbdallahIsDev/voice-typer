@@ -228,9 +228,7 @@ class _SubscriberSet:
         if kind == "py_bound":
             key = (id(callback.__self__), id(callback.__func__))
             if key not in self._weak_py or self._weak_py[key]() is None:
-                self._weak_py[key] = weakref.WeakMethod(
-                    callback, lambda _ref, k=key: self._weak_py.pop(k, None)
-                )
+                self._weak_py[key] = weakref.WeakMethod(callback, lambda _ref, k=key: self._weak_py.pop(k, None))
         elif kind == "c_bound":
             key = (id(callback.__self__), callback.__name__)
             existing_weak = self._weak_c.get(key)
@@ -539,8 +537,7 @@ def publish(event: dict) -> bool:
             log_rate_limited(
                 log,
                 logging.WARNING,
-                "[event_bus] deferred queue at capacity (%d); dropping event "
-                "(cumulative drops: %d)",
+                "[event_bus] deferred queue at capacity (%d); dropping event (cumulative drops: %d)",
                 _DEFERRED_QUEUE_MAX,
                 _deferred_drop_count,
                 key="event_bus:deferred_drop",
@@ -570,39 +567,44 @@ def _subscriber_count() -> int:
 
 
 def shutdown() -> None:
-    """M-22 / GT-C1-7: shut down the deferred-publish ThreadPoolExecutor.
+    """M-22 / GT-C1-7 / TY-15: shut down the deferred-publish ThreadPoolExecutor.
 
     This is the SINGLE canonical lifecycle hook for the lazily-created
     ``ThreadPoolExecutor``.  Previously a duplicate ``shutdown_executor()``
     function existed alongside this one — it was deleted in GT-C1-7
     (DRY, Rule 24) because nothing in the codebase called it (only
     ``shutdown()`` is invoked from
-    ``shutdown_controller._do_cleanup``).  The ``shutdown_executor``
-    variant differed only in passing ``cancel_futures=True`` to
-    ``executor.shutdown``; we preserve the original ``shutdown()``
-    semantics (``wait=False``, no ``cancel_futures``) so already-queued
-    ``_deliver`` tasks finish on the worker thread and in-flight events
-    are not lost.
+    ``shutdown_controller._teardown_event_bus``).
+
+    TY-15: the call now uses ``executor.shutdown(wait=True,
+    cancel_futures=True)`` instead of ``wait=False``. ``wait=False``
+    returned immediately and did NOT block on already-running or queued
+    tasks — but the worker thread is a NON-DAEMON (CPython
+    ``ThreadPoolExecutor`` default), so it kept the interpreter alive
+    past the ``shutdown()`` call until all queued/in-flight tasks
+    finished. The 5s ``_run_with_timeout`` wrapper in
+    ``_teardown_event_bus`` was therefore bounding NOTHING (the
+    non-blocking call returned in microseconds). With
+    ``wait=True, cancel_futures=True``:
+      (a) queued-but-not-started tasks are cancelled immediately (they
+          are stale by definition on shutdown);
+      (b) the call blocks until the in-flight task completes.
+    The 5s ``_run_with_timeout`` wrapper then ACTUALLY bounds the wait.
+    If the in-flight task exceeds 5s, the wrapper returns ``TIMEOUT``
+    and the worker thread is leaked as a daemon (the
+    ``_run_with_timeout`` worker is daemon-marked).
 
     The single-worker ``ThreadPoolExecutor`` lazily created by
-    ``_get_deferred_executor()`` is a process-global resource that was
-    previously never explicitly shut down. On ``quit()`` / process
-    exit, the executor's worker thread (a non-daemon by default in
-    CPython's ``ThreadPoolExecutor``) keeps the interpreter alive
-    until ``concurrent.futures`` interpreter-finalization runs — and
-    if a deferred ``_deliver`` call is stuck on a slow subscriber
-    (e.g. a stalled socket.sendall to the Electron renderer), the
-    shutdown can hang for several seconds. Calling this from
-    ``ShutdownController._do_cleanup`` releases the worker promptly
-    so it doesn't contribute to shutdown latency.
+    ``_get_deferred_executor()`` is a process-global resource. On
+    ``quit()`` / process exit, calling this from
+    ``ShutdownController._teardown_event_bus`` releases the worker
+    promptly so it doesn't contribute to shutdown latency.
 
     Idempotent — safe to call multiple times. After this call,
     ``_deferred_executor`` is set to ``None`` so the next RT-thread
     ``publish`` lazily creates a fresh executor (or, if the process
     is exiting, the ``RuntimeError`` branch in ``publish`` falls
-    back to synchronous delivery). Already-queued ``_deliver`` tasks
-    are NOT cancelled — ``shutdown(wait=False)`` lets them finish on
-    the worker thread, so in-flight events are not lost.
+    back to synchronous delivery).
     """
     global _deferred_executor
     with _deferred_executor_lock:
@@ -610,7 +612,7 @@ def shutdown() -> None:
         _deferred_executor = None
     if executor is not None:
         try:
-            executor.shutdown(wait=False)
+            executor.shutdown(wait=True, cancel_futures=True)
         except Exception:
             log.debug(
                 "[event_bus] deferred executor shutdown failed",

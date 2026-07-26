@@ -1,5 +1,7 @@
 """Main application orchestrator."""
 
+from __future__ import annotations
+
 import atexit
 import contextlib
 import logging
@@ -15,7 +17,22 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-import numpy as np
+# numpy was eagerly imported at module top but never used directly in
+# this module. The eager import added ~250-335ms cumulative to every
+# cold start because numpy performs heavy C-extension initialization at
+# import time. The lazy ``lazy_module`` proxy defers the real import to
+# first attribute access; if no caller ever touches ``np`` from this
+# module (the current state), numpy is never imported on this code path
+# at all. The proxy is transparent — see ``_lazy_import.py``'s
+# ``__getattr__`` / ``__setattr__`` docstrings for the test-patch
+# compatibility rationale (``monkeypatch.setattr(app.np, "array", ...)``
+# still propagates to the real ``numpy`` module in ``sys.modules``).
+# ``from __future__ import annotations`` above is REQUIRED so any future
+# ``np.ndarray`` annotation in this file stays as an unevaluated string
+# (PEP 563) and does NOT trigger the eager import we just eliminated.
+from voice_typer.server._lazy_import import lazy_module
+
+np = lazy_module("numpy")
 
 # CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
 from voice_typer.server import crash_handler as _crash_handler
@@ -60,12 +77,6 @@ from voice_typer.server.log import (
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 from voice_typer.server.recording import Recorder
 from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
-from voice_typer.server.security import (
-    generate_restart_token as _generate_restart_token,
-)
-from voice_typer.server.security import (
-    verify_restart_token as _verify_restart_token,
-)
 
 # create_launcher_shortcut + list_microphones are re-exported here (and consumed
 # from voice_typer.server.startup_tasks) so tests that monkeypatch
@@ -657,7 +668,8 @@ class VoiceTyperApp:
             text = self._last_transcription
 
         if not text:
-            self.tray.notify(APP_NAME, "No previous transcription to re-paste.")
+            # i18n key for localized notification.
+            self.tray.notify(APP_NAME, i18n.t("notify.app.repaste_no_previous"))
             return
 
         # ② COPY (snapshot + empty + pyperclip.copy + verify).
@@ -669,9 +681,10 @@ class VoiceTyperApp:
             pasted_seq = self.clipboard._clipboard_seq
         except ClipboardCopyError as e:
             log.warning("[REPASTE] Clipboard copy failed: %s", e)
+            # i18n key for localized notification.
             self.tray.notify(
                 APP_NAME,
-                "Could not copy the transcription to the clipboard. Another app may be holding the clipboard lock.",
+                i18n.t("notify.app.repaste_copy_failed"),
             )
             return
 
@@ -690,14 +703,14 @@ class VoiceTyperApp:
         pasted = self.clipboard.paste(snapshot, pasted_text=text, force=True, pasted_seq=pasted_seq)
         if pasted:
             log.info("[REPASTE] Repasted transcription (%d chars)", len(text))
-            self.tray.notify(APP_NAME, "Last transcription re-pasted")
+            # Use the i18n key so the tray notification renders in the
+            # user's selected UI locale.
+            self.tray.notify(APP_NAME, i18n.t("notify.app.repaste_done"))
         else:
             log.warning("[REPASTE] Paste keystroke was skipped/blocked")
             self.tray.notify(
                 APP_NAME,
-                "Re-paste was blocked (unsafe target or rate-limited). "
-                "Your previous clipboard was preserved. Use the repaste "
-                "hotkey again to try pasting.",
+                i18n.t("notify.app.repaste_blocked"),
             )
 
     def undo_last(self) -> None:
@@ -1055,21 +1068,21 @@ class VoiceTyperApp:
         # ``_relaunch_ack_event`` access in ``_wait_for_relaunch_ack``
         # so the backwards coupling (VoiceTyperApp reaching INTO the
         # IPCServer's private state) is at least named and easy to
-        # migrate.  The helper still uses ``getattr`` defensively
-        # because the IPCServer may not be wired yet (early restart)
-        # or may be a non-IPC test double.
-        # TODO Fix-A (2026-07-25): replace ``_wait_for_relaunch_ack``
-        # with a call to ``IPCServer.wait_for_relaunch_ack(timeout)``
-        # — a public method on the IPCServer itself (Fix-A owns
-        # IPCServer).  Once that public method exists,
-        # ``_wait_for_relaunch_ack`` and the
-        # ``getattr(self._ipc_server, "_relaunch_ack_event")`` lookup
-        # below can be deleted.
-        # TRACKING: tech-debt/Fix-A — owner: TBD, ETA: TBD. Requires
-        # adding a public method to ``IPCServer`` in
-        # ``voice_typer/server/ipc_server.py`` (not owned by this
-        # sub-agent's file set: app.py + hotkey_dispatcher.py only).
-        self._wait_for_relaunch_ack(timeout=2.0)
+        # migrate.  The helper now delegates to the public
+        # ``IPCServer.wait_for_relaunch_ack`` wrapper so app.py no
+        # longer reaches into ``_relaunch_ack_event`` private state.
+        # Lowered from 2.0s to 0.5s: the host acks in <100ms when it
+        # works (Tauri ``main.rs``'s ``tokio::time::sleep(10ms)`` before
+        # ``app.restart()``); 2.0s was the wrong ceiling — the worst
+        # case is the host-is-dead case where waiting accomplishes
+        # nothing and blocks the tray callback thread. 500ms is
+        # generous for the happy path and bounds the dead-host stall
+        # at 4× shorter. ``_wait_for_relaunch_ack`` itself
+        # short-circuits to a 0ms wait when no IPC server is attached
+        # OR no live WS dispatch pool is bound (see the helper below)
+        # so the 500ms ceiling only applies when there's actually
+        # someone to ack.
+        self._wait_for_relaunch_ack(timeout=0.5)
 
         # 3. RW-3: run the SAME audited cleanup as quit() — flushes
         #    history_db and _crash_recovery (so no pending writes are
@@ -1159,76 +1172,88 @@ class VoiceTyperApp:
         # the GT-43 watchdog will call os._exit(0) as a last resort.
 
     def _wait_for_relaunch_ack(self, timeout: float) -> bool:
-        """Wait for Electron to ack the ``relaunch_electron`` event.
+        """Wait for the host to ack the ``relaunch_app`` event.
 
-        CR-64: encapsulates the IPCServer's private
-        ``_relaunch_ack_event`` access so :meth:`restart_app` no longer
-        reaches directly into ``self._ipc_server._relaunch_ack_event``.
-        The previous inline code did::
+        Delegates to the IPCServer's public
+        ``wait_for_relaunch_ack(timeout)`` wrapper so this module no
+        longer reaches into ``_relaunch_ack_event`` private state.
+        The wrapper clears the event before waiting (preserving the
+        stale-ack guard) and returns ``True``/``False`` on ack /
+        timeout — same contract as the previous inline ``wait``.
 
-            _relaunch_ack_event = (
-                getattr(self._ipc_server, "_relaunch_ack_event", None)
-                if self._ipc_server is not None
-                else None
-            )
-            if _relaunch_ack_event is not None:
-                _relaunch_ack_event.clear()
-                _relaunch_ack_event.wait(timeout=2.0)
-            else:
-                time.sleep(0.3)
+        The previous implementation always blocked for 300ms
+        (``time.sleep(0.3)``) when no IPC server / no ack event was
+        attached, and ``restart_app`` waited up to 2.0s for the ack.
+        Both timeouts penalised the dead-host case (host already gone,
+        WS torn down, IPC server absent) where waiting accomplishes
+        nothing — the tray callback thread just sits in a sleep while
+        the IPC dispatch gate rejects all new requests for the same
+        window. This helper now:
 
-        — which couples :class:`VoiceTyperApp` backwards into the
-        IPCServer's private state.  This helper preserves the exact
-        behaviour (defensive ``getattr`` for early-restart / test
-        double scenarios, 300ms fallback sleep when no IPCServer is
-        attached, bounded ``timeout`` wait on the cleared event) while
-        making the dependency explicit and easy to migrate.
-
-        TODO Fix-A (2026-07-25): once ``IPCServer`` exposes a public
-        ``wait_for_relaunch_ack(timeout)`` method (Fix-A owns
-        IPCServer), this helper should delegate to it and the
-        ``getattr(self._ipc_server, "_relaunch_ack_event")`` lookup
-        can be removed entirely. TRACKING: tech-debt/Fix-A — owner:
-        TBD, ETA: TBD. Requires modifying ``ipc_server.py`` (not owned
-        by this sub-agent's file set: app.py + hotkey_dispatcher.py
-        only).
+        1. Skips the wait entirely (0ms) when ``self._ipc_server`` is
+           ``None`` (early restart, no IPC wired yet) — no IPC server
+           means no one is listening for the ``relaunch_app`` event.
+        2. Otherwise delegates to ``ipc_server.wait_for_relaunch_ack``
+           which itself short-circuits to 0ms when the IPC server has
+           no live WS dispatch pool, no ``_relaunch_ack_event``
+           attribute, or the wait times out within ``timeout``
+           seconds (``restart_app`` now passes ``0.5`` — was ``2.0``).
 
         Parameters
         ----------
         timeout :
-            Maximum seconds to wait for Electron's ack.  Mirrors the
-            original hardcoded ``2.0`` in :meth:`restart_app`.
+            Maximum seconds to wait for the host's ack. Callers now
+            pass ``0.5`` (was ``2.0``).
 
         Returns
         -------
         bool
             ``True`` if the ack event was signalled within ``timeout``;
-            ``False`` if no IPCServer is attached, the IPCServer has no
-            ``_relaunch_ack_event`` attribute (e.g. a test double), or
-            the wait timed out.  Callers today ignore the return value
-            (the original inline code didn't return one either) — the
-            contract is preserved for future use.
+            ``False`` if no IPCServer is attached, no live WS dispatch
+            pool is bound, the IPCServer has no ``_relaunch_ack_event``
+            attribute (e.g. a test double), or the wait timed out.
+            Callers today ignore the return value (the original inline
+            code didn't return one either) — the contract is preserved
+            for future use.
         """
-        # TODO Fix-A (2026-07-25): replace this defensive ``getattr``
-        # with a call to
-        # ``self._ipc_server.wait_for_relaunch_ack(timeout)`` once
-        # that public method exists on the IPCServer (Fix-A owns it).
-        # TRACKING: tech-debt/Fix-A — owner: TBD, ETA: TBD. Requires
-        # modifying ``ipc_server.py`` (not owned by this sub-agent's
-        # file set: app.py + hotkey_dispatcher.py only).
         ipc_server = self._ipc_server
+        # Short-circuit when no IPC server is attached. No IPC server
+        # means no one is listening for the ``relaunch_app`` event —
+        # waiting (the old ``time.sleep(0.3)`` fallback) just blocks
+        # the tray callback thread for nothing. The previous 300ms
+        # pause was a belt-and-suspenders fallback for the case where
+        # the host might still observe the relaunch intent via the
+        # ``pythonProcess.on("exit")`` handler — but that handler
+        # triggers on PROCESS EXIT, not on a 300ms sleep, so the sleep
+        # was pure waste.
         if ipc_server is None:
-            log.info("[RESTART] No IPC server available; pausing 300ms for Electron")
-            time.sleep(0.3)
+            log.debug("[RESTART] No IPC server attached; skipping relaunch_ack wait")
             return False
-        _relaunch_ack_event = getattr(ipc_server, "_relaunch_ack_event", None)
-        if _relaunch_ack_event is None:
-            log.info("[RESTART] No IPC server available; pausing 300ms for Electron")
-            time.sleep(0.3)
-            return False
-        _relaunch_ack_event.clear()
-        log.info("[RESTART] Waiting for relaunch_ack from Electron (timeout %.1fs)", timeout)
-        acked = _relaunch_ack_event.wait(timeout=timeout)
+        log.info(
+            "[RESTART] Waiting for relaunch_ack from host (timeout %.3fs)",
+            timeout,
+        )
+        acked = False
+        # Delegate to the IPC server's ack-wait primitive, but tolerate
+        # test doubles / standalone modes that don't expose the public
+        # ``wait_for_relaunch_ack`` method or the ``_relaunch_ack_event``
+        # attribute. The defensive ``getattr`` lookups preserve the
+        # CR-64 encapsulation while not breaking tests that swap in a
+        # minimal fake server.
+        if not hasattr(ipc_server, "wait_for_relaunch_ack"):
+            ack_event = getattr(ipc_server, "_relaunch_ack_event", None)
+            if ack_event is None:
+                log.debug("[RESTART] IPC server has no relaunch_ack event; skipping wait")
+                return False
+            ack_event.clear()
+            acked = ack_event.wait(timeout=timeout)
+        else:
+            acked = ipc_server.wait_for_relaunch_ack(timeout=timeout)
+        if not acked:
+            log.debug(
+                "[RESTART] relaunch_ack timed out after %.3fs — host may be dead or slow; proceeding with cleanup",
+                timeout,
+            )
         return acked
 
     # DEAD-008: the following 6 TrayController protocol methods were

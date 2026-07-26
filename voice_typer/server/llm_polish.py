@@ -15,7 +15,7 @@ Pipeline order: transcribe → text cleanup → vocabulary → templates → LLM
 
 import json
 import logging
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
 from voice_typer.server._http_safety import (
@@ -25,6 +25,11 @@ from voice_typer.server._secrets import (
     assert_url_allowed,
     redact_secret,
     redact_url,
+)
+from voice_typer.server.asr_errors import (
+    CloudEngineError,
+    CloudNetworkError,
+    CloudServerError,
 )
 
 log = logging.getLogger(__name__)
@@ -43,12 +48,12 @@ log = logging.getLogger(__name__)
 # This mirrors the pattern already used by
 # ``voice_typer.server.cloud_engines._opener`` for the main transcription
 # path; ``llm_polish._call_api`` was the last redirect-following path.
-#
+
 # SEC-2 (fix): the comment above was the INTENT but ``build_opener``
 # installs the default ``HTTPRedirectHandler`` regardless of whether
 # the caller passed ``HTTPSHandler``. Passing ``_NoRedirectHandler()``
 # (a subclass that raises on redirect) actually achieves the intent.
-#
+
 # EC-FIX-8: the handler + builder now live in ``_http_safety`` so
 # they're shared with ``cloud_engines._opener`` (single source of
 # truth — previously the class was duplicated verbatim across both
@@ -157,7 +162,7 @@ class LLMPolisher:
         if not self.api_key:
             return False, "API key not configured"
         try:
-            # G4-M-56: opt in to allow_loopback_http=True because this
+            # Opt in to allow_loopback_http=True because this
             # caller sends user-supplied text to a user-configured
             # endpoint, and the user may legitimately point it at a
             # local HTTP server (Ollama, vLLM, LM Studio, etc.).
@@ -195,7 +200,7 @@ class LLMPolisher:
         the original (un-redacted) text is what's returned to the
         user for pasting.
         """
-        # G4-M-56: opt in to allow_loopback_http=True — see the
+        # Opt in to allow_loopback_http=True — see the
         # test_connection path above for the rationale.
         assert_url_allowed(
             self.api_url,
@@ -259,9 +264,30 @@ class LLMPolisher:
                 if choices:
                     return choices[0].get("message", {}).get("content", "")
                 return ""
-        except URLError as exc:
+        except HTTPError as exc:
+            # HTTPError is a subclass of URLError, so it MUST be
+            # caught BEFORE URLError. Map 5xx → ``CloudServerError``;
+            # other HTTP errors (4xx, including 401/403/429) → generic
+            # ``CloudEngineError``. The LLM polish path is best-effort
+            # (``polish()`` swallows exceptions and returns the original
+            # text), so the typed exception here is for the
+            # ``test_connection`` path that surfaces errors to the user.
             # RELIABILITY-004: redact URL and any secret-looking
             # substring from the exception before propagating.
-            raise RuntimeError(f"LLM API error: {redact_secret(redact_url(str(exc)))}") from exc
+            safe_msg = redact_secret(redact_url(str(exc)))
+            if 500 <= exc.code < 600:
+                raise CloudServerError(f"LLM API server error (HTTP {exc.code}): {safe_msg}") from exc
+            raise CloudEngineError(f"LLM API error (HTTP {exc.code}): {safe_msg}") from exc
+        except URLError as exc:
+            # Typed ``CloudNetworkError`` (was generic
+            # ``RuntimeError``) so the IPC layer can map to
+            # ``server.cloud_network_error``.
+            # RELIABILITY-004: redact URL and any secret-looking
+            # substring from the exception before propagating.
+            raise CloudNetworkError(f"LLM API error: {redact_secret(redact_url(str(exc)))}") from exc
         except Exception as exc:
-            raise RuntimeError(f"LLM API error: {redact_secret(str(exc))}") from exc
+            # Typed base ``CloudEngineError`` (was generic
+            # ``RuntimeError``) so the IPC layer still maps to a
+            # cloud-specific code rather than the generic
+            # ``server.internal_error``.
+            raise CloudEngineError(f"LLM API error: {redact_secret(str(exc))}") from exc

@@ -7,10 +7,12 @@ the apply-settings flow that mirrors ``set_config``.
 
 import logging
 
+from voice_typer.server.service._base import ServiceMixinBase
+
 log = logging.getLogger(__name__)
 
 
-class OnboardingMixin:
+class OnboardingMixin(ServiceMixinBase):
     """Onboarding-wizard service methods.
 
     Wraps :class:`voice_typer.server.onboarding.OnboardingController`
@@ -196,17 +198,23 @@ class OnboardingMixin:
                 log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
 
             # 17-H-FIX-1: reload the model if the user picked a
-            # different one. ModelManager.change_model internally
-            # handles the case where the background loader hasn't
-            # finished yet — it queues the change via
-            # _pending_model_change (model_manager.py:456) and
-            # applies it on the next _start_dictation. If the loader
-            # HAS finished, the full unload/load cycle runs
+            # different one. SVC-10 / ADR-0008 §3.1: route the model
+            # switch through ``self.change_model`` (the service-layer
+            # wrapper that delegates to ``app.change_model``) instead
+            # of reaching into ``app.models.change_model`` directly —
+            # this keeps the model-switch call site consistent with
+            # the IPC ``set_config`` handler's pattern and lets the
+            # service layer intercept / observe the change.
+            # ``app.change_model`` internally handles the case where
+            # the background loader hasn't finished yet — it queues
+            # the change via _pending_model_change (model_manager.py:456)
+            # and applies it on the next _start_dictation. If the
+            # loader HAS finished, the full unload/load cycle runs
             # immediately.
             new_model = ctrl.selected_model
             if new_model != prev_model_size:
                 try:
-                    app.models.change_model(new_model)
+                    self.change_model(new_model)
                 except Exception as e:
                     log.warning("[SERVICE] onboarding model change failed: %s", e)
 

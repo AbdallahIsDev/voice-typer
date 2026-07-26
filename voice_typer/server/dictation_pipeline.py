@@ -64,7 +64,7 @@ def _friendly_transcription_error(exc: BaseException) -> str:
 
 
 def _lookup_local_whisper(app: Any) -> Any:
-    """G4-H-18: look up the local Whisper engine from the app's model registry.
+    """Look up the local Whisper engine from the app's model registry.
 
     Returns ``None`` when the app has no ``models`` attribute, the models
     object exposes no ``registry``, or the registry has no ``whisper``
@@ -107,7 +107,7 @@ class DictationPipeline:
         self._recorded_rms = 0.0
         self._device_info = ""
         self._watchdog = None
-        # PVT-016: throttle _check_resources to once per 60s. The values
+        # Throttle _check_resources to once per 60s. The values
         # change slowly and are only needed for post-crash triage.
         self._last_resources_check_ts: float = 0.0
         self._resources_check_interval: float = 60.0
@@ -159,7 +159,7 @@ class DictationPipeline:
 
             # PRE-FLIGHT: resource health check — provides diagnostic
             # context (RAM, disk, GPU) if a heap corruption crash occurs.
-            # PVT-016: throttle to once every 60s. The values change slowly
+            # Throttle to once every 60s. The values change slowly
             # and are only needed for post-crash triage, not per-utterance
             # decisions. Previously ran every utterance (~2-5ms of system/
             # driver calls each).
@@ -241,8 +241,23 @@ class DictationPipeline:
             # now would corrupt whatever window currently has focus. Skip the
             # paste, write the text to crash-recovery (so the user can review
             # it manually), and exit gracefully.
-            _cancelled_cycle_ids = getattr(self._app.recording, "_cancelled_cycle_ids", None)
-            if _cancelled_cycle_ids is not None and self._cycle_id in _cancelled_cycle_ids:
+
+            # The membership check MUST be performed under
+            # ``_cancelled_cycle_ids_lock`` — the set is mutated under that
+            # lock elsewhere (see ``recording_controller._force_recover``).
+            # CPython's GIL makes ``set.__contains__`` atomic in isolation,
+            # but the consistent locking discipline avoids the torn-read
+            # hazard and keeps the audit story clean. Fall back to
+            # "not cancelled" if the lock or set is missing (defensive —
+            # the attrs always exist on a real RecordingController).
+            _cancelled_set = getattr(self._app.recording, "_cancelled_cycle_ids", None)
+            _cancelled_lock = getattr(self._app.recording, "_cancelled_cycle_ids_lock", None)
+            if _cancelled_set is not None and _cancelled_lock is not None:
+                with _cancelled_lock:
+                    _is_cancelled = self._cycle_id in _cancelled_set
+            else:
+                _is_cancelled = False
+            if _is_cancelled:
                 log.warning(
                     "[DICTATION] skipping paste of late transcription (cycle %s was force-cancelled by watchdog)",
                     self._cycle_id,
@@ -377,7 +392,7 @@ class DictationPipeline:
                 )
                 with contextlib.suppress(Exception):
                     self._app.recording._transcription_thread = None
-            # PVT-015: Downgrade from full gc.collect() to gc.collect(0).
+            # Downgrade from full gc.collect() to gc.collect(0).
             # Full GC scans the entire Python heap (gen 0+1+2) — with a
             # loaded Whisper model (500MB-3GB of tensors → millions of
             # wrapper objects), a full pass takes 50-500ms, paid on every
@@ -403,7 +418,7 @@ class DictationPipeline:
     # ── Pipeline steps ────────────────────────────────────────────
 
     def _check_resources_throttled(self) -> None:
-        """PVT-016: Throttled wrapper around _check_resources.
+        """Throttled wrapper around _check_resources.
 
         Runs the actual check at most once per `_resources_check_interval`
         seconds (default 60s). The values change slowly and are only
@@ -598,7 +613,7 @@ class DictationPipeline:
             # transcription engine doesn't recompute RMS/peak/silence_pct
             # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
             # memory per dictation).
-            #
+
             # a-review Finding 8: previously this call was wrapped in a
             # broad ``try/except TypeError`` to handle backends that
             # didn't yet accept ``audio_stats``. That catch was too
@@ -609,8 +624,8 @@ class DictationPipeline:
             # (Whisper/Parakeet/Qwen/Cloud) now accept ``audio_stats``
             # as a keyword argument, so the fallback is no longer
             # needed.
-            #
-            # G4-H-18: when the active backend is a CloudEngine, look
+
+            # When the active backend is a CloudEngine, look
             # up the local whisper engine from the model registry and
             # pass it as ``local_engine=``.  This makes the cloud→local
             # fallback path actually fire when the cloud provider is
@@ -1109,14 +1124,14 @@ class DictationPipeline:
             )
 
         if self._app.config.log_transcriptions:
-            # G4-H-08: previously the first 200 characters of the
+            # Previously the first 200 characters of the
             # transcription text were logged after running through
             # ``redact_pii()``.  ``redact_pii()`` only masks four
             # patterns (email / US-phone / SSN / credit-card-like) —
             # medical dictation, financial narratives, addresses, and
             # names passed through verbatim.  For a voice-typing tool
             # this is the primary PII surface.
-            #
+
             # We now log a non-reversible 12-char SHA-256 prefix of
             # the transcription text.  This preserves log-line
             # correlation (the same transcription produces the same

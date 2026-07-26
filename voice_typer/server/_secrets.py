@@ -422,15 +422,22 @@ def extend_url_allowlist(
         if host:
             normalized.append(host)
 
-    # G4-M-55: emit the audit log at WARNING so it's visible at the
-    # default log level. Even when the caller passes an empty iterable
-    # (no-op extension), we still log the call — operators want to see
-    # every attempt to extend the allowlist, including no-ops.
-    log.warning(
-        "[URL-Allowlist] extended by %s with hosts: %s",
-        caller,
-        normalized,
-    )
+    # YJ-44: calibrate the audit log level. WARNING is reserved for the
+    # security-relevant case (actual hosts being added). When the call is
+    # a no-op (empty iterable, or every host filtered out), demote to INFO
+    # — operators still get an audit trail but no longer see WARNING spam
+    # for every empty extend call.
+    if normalized:
+        log.warning(
+            "[URL-Allowlist] extended by %s with hosts: %s",
+            caller,
+            normalized,
+        )
+    else:
+        log.info(
+            "[URL-Allowlist] no-op extend call by %s (no new hosts)",
+            caller,
+        )
 
     for host in normalized:
         _user_extensions.add(host)

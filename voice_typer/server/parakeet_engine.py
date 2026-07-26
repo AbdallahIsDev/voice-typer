@@ -101,7 +101,7 @@ _CHUNK_SECONDS = 25
 _CHUNK_OVERLAP_SECONDS = 3
 
 # NEW-CQ-030 / RW-T1: Maximum words to skip at a chunk boundary.
-#
+
 # Previously the merge step used ``skip = int(len(words) * 0.12)`` which
 # silently dropped words at every boundary — for a 25-word chunk that's
 # 3 dropped words, regardless of whether the model actually re-transcribed
@@ -109,7 +109,7 @@ _CHUNK_OVERLAP_SECONDS = 3
 # ratio-based skip is unsafe.  Cap the skip to at most this many words
 # AND only after we've checked for an actual word-level overlap with the
 # previous chunk's tail (see ``_merge_chunks``).
-#
+
 # RW-T1 (2025): the previous "allowance" of 1 word per boundary even when
 # no overlap was detected silently dropped up to 14 legitimate words per
 # 5-minute recording (one per chunk boundary).  The allowance is now 0 —
@@ -124,7 +124,7 @@ _OVERLAP_DEDUP_WINDOW = 3
 
 
 def _cleanup_hf_cache_dir(model_dir: "Any") -> None:
-    """G4-CR-06 / cache cleanup: best-effort delete a tampered HF cache dir.
+    """Cache cleanup: best-effort delete a tampered HF cache dir.
 
     EC-FIX-8: this local helper now delegates to the canonical
     ``voice_typer.server.asr_utils.cleanup_hf_cache_dir`` so the
@@ -180,7 +180,7 @@ class ParakeetEngine:
     ):
         self.device = device
         self.language = language
-        # G4-H-04 (Session 7 — Group 4): optional Config reference
+        # Optional Config reference
         # consulted by ``load()`` to gate HuggingFace downloads on
         # explicit user consent (``config.huggingface_consent``).
         # ``None`` is treated as "consent not given" (safe default per
@@ -196,7 +196,7 @@ class ParakeetEngine:
         # that transcribe() already performs at entry.
         self._model: Any = None
         self._processor: Any = None
-        # G4-M-44: one-time tray notification flag for CUDA→CPU
+        # One-time tray notification flag for CUDA→CPU
         # transcription fallback.  Reset to ``False`` on every
         # successful ``load()`` so a fallback after the next reload
         # re-notifies the user (the user may have restarted their GPU
@@ -222,7 +222,7 @@ class ParakeetEngine:
             ensure_hf_env()
             cls._hf_home_set = True
         except Exception:
-            # PVT-G5-040: previously a silent ``except: pass``. Log at
+            # Previously a silent ``except: pass``. Log at
             # DEBUG (non-fatal — the engine still works without HF env
             # tweaks) and include exc_info so a non-trivial failure is
             # visible in the log file when debugging.
@@ -241,7 +241,7 @@ class ParakeetEngine:
         # elapsed time so the gap is fully visible.
         _t0 = time.perf_counter()
         try:
-            log.info("[PARAKEET] importing torch (this can take a few seconds on first import)…")
+            log.info("[PARAKEET] importing torch (this can take a few seconds on first import)...")
             import torch
 
             _torch_s = time.perf_counter() - _t0
@@ -255,7 +255,7 @@ class ParakeetEngine:
             # Resolve via ``getattr`` so the static checker does not
             # see the (possibly absent) attribute access.
             _t1 = time.perf_counter()
-            log.info("[PARAKEET] importing transformers…")
+            log.info("[PARAKEET] importing transformers...")
             import transformers
 
             _tf_s = time.perf_counter() - _t1
@@ -301,7 +301,7 @@ class ParakeetEngine:
                 )
                 return True
         except Exception:
-            # PVT-G5-040: previously a silent ``except: pass``. Disk
+            # Previously a silent ``except: pass``. Disk
             # space check is best-effort — failure here just means we
             # won't pre-emptively force CPU, which is non-fatal.
             log.debug("[PARAKEET] _should_force_cpu disk space check failed (non-fatal)", exc_info=True)
@@ -324,7 +324,7 @@ class ParakeetEngine:
                 if entry.is_dir() and (entry / "model.safetensors").exists():
                     return True
         except OSError:
-            # PVT-G5-040: previously a silent ``except OSError: pass``.
+            # Previously a silent ``except OSError: pass``.
             # A transient FS error (e.g. snapshot dir deleted between
             # is_dir() and iterdir()) shouldn't crash the cache probe.
             log.debug("[PARAKEET] _is_cached snapshot iterdir failed (non-fatal)", exc_info=True)
@@ -356,7 +356,7 @@ class ParakeetEngine:
             if self._model is not None:
                 return True
 
-            # G4-M-44: reset the one-time CPU-fallback notification flag
+            # Reset the one-time CPU-fallback notification flag
             # on every fresh ``load()``.  A fallback that fired during a
             # previous transcription session must not silently suppress
             # the next session's notification — the user may have
@@ -374,7 +374,7 @@ class ParakeetEngine:
                 time.perf_counter() - _cache_t0,
             )
             if not _cached:
-                # G4-H-04 (Session 7 — Group 4): HuggingFace downloads
+                # HuggingFace downloads
                 # reveal the user's IP to a US-headquartered third party
                 # and pull ~2.5 GB over the network.  Require explicit
                 # ``huggingface_consent`` before any network call,
@@ -444,7 +444,7 @@ class ParakeetEngine:
                     return False
 
                 if not self._is_cached():
-                    # PVT-G5-042: include the expected cache path so the
+                    # Include the expected cache path so the
                     # operator can investigate (e.g. check permissions,
                     # disk space, or HF cache state) without filing a bug.
                     from voice_typer.server.config import _config_dir
@@ -459,7 +459,7 @@ class ParakeetEngine:
                         progress_callback("Model not found in cache after download")
                     return False
 
-            # G4-CR-06 (Session 7 — Group 4): verify model integrity
+            # Verify model integrity
             # UNCONDITIONALLY on every load.  The previous code only
             # verified when the cache-miss / download branch ran, so a
             # cache hit (model already on disk) skipped verification
@@ -468,14 +468,14 @@ class ParakeetEngine:
             # would feed tampered weights to the ASR engine with no
             # SHA-256 check.  The ~1-3s SHA-256 cost is acceptable vs
             # the 5-50s ``from_pretrained`` load time.
-            #
+
             # The verify path is the same regardless of cache-hit or
             # post-download: enumerate snapshot dirs and call
             # ``verify_model_integrity`` against the manifest.  On
             # failure we hard-fail (return False) and remove the
             # offending ``models--<repo>`` directory so the next
             # ``load()`` doesn't re-discover the tampered snapshot.
-            #
+
             # EC-FIX-8 (EC-B4): call ``security.verify_model_integrity``
             # directly with the canonical (local_dir, repo_id) argument
             # order.  Previously this went through the
@@ -502,7 +502,7 @@ class ParakeetEngine:
                 except OSError as exc:
                     verify_exc = exc
                 if not verified:
-                    # CRIT-4 / SEC-1 / G4-CR-06: hard-fail when
+                    # CRIT-4 / SEC-1: hard-fail when
                     # integrity check fails — do NOT fall through to
                     # load the model anyway.  The previous code only
                     # logged a ``warning`` and continued, which combined
@@ -522,7 +522,7 @@ class ParakeetEngine:
                     )
                     if progress_callback:
                         progress_callback("Model integrity check failed; refusing to load tampered or corrupted model.")
-                    # G4-CR-06 / cache cleanup on verify failure:
+                    # Cache cleanup on verify failure:
                     # remove the offending ``models--<repo>`` directory
                     # so the next ``load()`` doesn't re-discover the
                     # tampered snapshot.  Best-effort: log but don't
@@ -817,8 +817,7 @@ class ParakeetEngine:
                 err_str = str(exc).lower()
                 if "out of memory" in err_str or ("cuda" in err_str and "allocat" in err_str):
                     log.warning(
-                        "[PARAKEET] Batched inference OOM on batch of %d chunks — "
-                        "falling back to sequential: %s",
+                        "[PARAKEET] Batched inference OOM on batch of %d chunks — falling back to sequential: %s",
                         len(batch),
                         exc,
                     )
@@ -1015,7 +1014,7 @@ class ParakeetEngine:
         except Exception as exc:
             err_str = str(exc).lower()
             if self.device == "cuda" and ("cuda" in err_str or "cublas" in err_str or "cudnn" in err_str):
-                # PVT-G5-041: include exc_info so the CUDA failure
+                # Include exc_info so the CUDA failure
                 # traceback is captured for debugging.
                 log.warning("[PARAKEET] CUDA error, retrying on CPU: %s", exc, exc_info=True)
                 try:
@@ -1025,7 +1024,7 @@ class ParakeetEngine:
                     # float16 (set during GPU load) — float16 kernels
                     # are unsupported or pathologically slow on CPU,
                     # so the "fallback" was effectively unusable.
-                    #
+
                     # XV-66: acquire the lock only long enough to move
                     # the model to CPU and claim an inference slot so
                     # ``unload()`` waits for the CPU-fallback transcription
@@ -1042,7 +1041,7 @@ class ParakeetEngine:
                             self._active_inference -= 1
                             if self._active_inference == 0:
                                 self._inference_cond.notify_all()
-                    # G4-M-44 (Session 7 — Group 4): the CUDA→CPU
+                    # The CUDA→CPU
                     # fallback succeeded.  Emit a ONE-TIME tray
                     # notification so the user knows why their
                     # dictation got slower, and publish a status
@@ -1090,7 +1089,7 @@ class ParakeetEngine:
                             )
                     return text
                 except Exception as cpu_exc:
-                    # PVT-G5-041: use ``log.exception`` instead of
+                    # Use ``log.exception`` instead of
                     # ``log.error(..., exc_info=True)`` to satisfy the
                     # ``test_log_exception_no_exc_arg`` regression
                     # test that flags ``log.error(..., exc_info=True)``

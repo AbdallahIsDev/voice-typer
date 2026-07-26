@@ -62,9 +62,7 @@ _READ_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MB
 # disk I/O.  ``.py`` is excluded on purpose: when a ``.pyc`` is present
 # CPython never reads the ``.py`` at import time, so warming the source
 # file wastes disk bandwidth and standby-cache space.
-_WARM_PACKAGE_SUFFIXES: frozenset[str] = frozenset(
-    {".pyc", ".so", ".pyd", ".dll", ".json", ".txt"}
-)
+_WARM_PACKAGE_SUFFIXES: frozenset[str] = frozenset({".pyc", ".so", ".pyd", ".dll", ".json", ".txt"})
 
 # ADR-0009 Issue 3: parameters for the _cache_ratio() probe. Reads this
 # many random 4K pages from the model file and counts how many return in
@@ -154,6 +152,12 @@ def _cached_active_config():
     cold-start I/O. The config does not change during a prewarm
     process's lifetime, so caching is safe. Returns ``None`` on load
     failure so callers fall back to defaults without raising.
+
+    Note: this is a legitimate fresh-snapshot read — the prewarm probe
+    runs in a DETACHED subprocess (spawned by ``prewarm_scheduler``
+    before the main app bootstraps), so there is no ``app.config`` to
+    reference. A fresh disk read is the only option. Read-only — no
+    mutation, no config-mutation lock required.
     """
     try:
         from voice_typer.server.config import Config
@@ -440,7 +444,19 @@ def _active_model_cache_dirs() -> list[Path]:
 
                 target_repo_ids.add(_PARAKERT_MODEL_ID)
             except Exception:
-                pass
+                # Previously a bare ``except Exception: pass``. Log at
+                # DEBUG — the import failure is non-fatal (the prewarm
+                # cache probe just won't include the Parakeet repo ID
+                # in its target set, so the probe may report "no models
+                # cached" even when Parakeet is cached). DEBUG is
+                # appropriate because the parakeet_engine module is
+                # always installed in production; this branch only
+                # fires in minimal test environments that haven't
+                # imported the engine yet.
+                log.debug(
+                    "[PREWARM] Parakeet model ID lookup failed; skipping Parakeet in cache probe",
+                    exc_info=True,
+                )
         elif active_backend == "qwen":
             # Qwen auto-downloads on first use via qwen_engine.py; no fixed
             # repo ID. The configured qwen_model_path is a local directory,

@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import math
 import threading
 from abc import ABC, abstractmethod
 
 import numpy as np
+
+# R4-F10: module-level logger used by ``FilterChain.process``'s
+# except branch. Without it the first filter exception raises
+# ``NameError`` (masking the real DSP error). Submodules inherit
+# this logger name (``voice_typer.server.audio_filters.base``).
+log = logging.getLogger(__name__)
 
 # Anti-denormal epsilon. Added to IIR filter state to prevent CPU-killing
 # denormal floats (copied from OBS Studio's eq-filter.c).
@@ -108,12 +115,27 @@ class FilterChain:
         self._lock = threading.Lock()
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
-        """Run audio through all filters in order."""
+        """Run audio through all filters in order.
+
+        R4-F10: any exception raised by a filter is logged and the
+        chain returns ``None`` (drop the chunk) so a buggy filter
+        doesn't crash the recording thread. Pre-fix the bare
+        ``raise`` masked the underlying DSP error with a ``NameError``
+        on the missing ``log`` symbol.
+        """
         with self._lock:
             for f in self._filters:
                 if audio is None or audio.size == 0:
                     return audio
-                result = f.process(audio, sample_rate)
+                try:
+                    result = f.process(audio, sample_rate)
+                except Exception as exc:
+                    log.warning(
+                        "audio filter %s raised %s; dropping chunk",
+                        getattr(f, "name", f.__class__.__name__),
+                        exc,
+                    )
+                    return None
                 if result is None:
                     return None
                 audio = result

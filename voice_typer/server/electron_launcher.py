@@ -37,7 +37,6 @@ import os
 import secrets
 import signal
 import subprocess
-import sys
 import time
 
 from voice_typer.server._electron_build import (
@@ -134,25 +133,6 @@ def _strip_sensitive_env(env: dict) -> None:
         upper = key.upper()
         if any(marker in upper for marker in _SENSITIVE_ENV_MARKERS):
             env.pop(key, None)
-
-
-def is_spawned_by_electron() -> bool:
-    """Return True if this Python process was spawned by Electron.
-
-    Detection rules (any one is sufficient):
-
-    1. ``--port`` is in ``sys.argv`` — Electron passes ``--port <N>``
-       when spawning the backend so it listens on TCP instead of
-       stdin/stdout.
-    2. ``VOICE_TYPER_IPC_TOKEN`` env var is set — Electron sets this
-       before spawning so the backend can authenticate the TCP client.
-
-    Both signals are reliable: a user running ``VoiceTyper`` from the
-    terminal won't accidentally set either of them.
-    """
-    if "--port" in sys.argv:
-        return True
-    return bool(os.environ.get("VOICE_TYPER_IPC_TOKEN"))
 
 
 def launch_electron_frontend(port: int, token: str) -> int | None:

@@ -94,6 +94,13 @@ _dropped_level_chunks: int = 0
 # timestamp. Initial value of 0.0 guarantees the first drop event
 # (whenever it happens) triggers a log immediately.
 _last_drop_log_time: float = 0.0
+# R3-F6: one-shot latch so the RT callback emits a WARNING on the
+# FIRST drop of a burst (before the worker thread's 5s throttle window
+# would). Reset to False by the worker thread when it drains the
+# counter (see ``_level_worker_loop``). Without this, the test that
+# acquires ``_monitor_lock`` to block the worker thread would never
+# see the warning, because the worker is the only emitter.
+_first_drop_warning_emitted: bool = False
 
 # ── Test recording state (uses the SAME stream) ─────────────────────
 # MEM-02: ``_test_chunks`` / ``_test_raw_chunks`` are bounded
@@ -196,10 +203,127 @@ def _reset_test_chunks(locked: bool) -> None:
 
 
 # Quality metrics accumulated during test
-_test_peak_history: list[float] = []
-_test_rms_history: list[float] = []
+_test_peak_history: collections.deque = collections.deque(maxlen=_TEST_MAX_CHUNKS_CAP)
+_test_rms_history: collections.deque = collections.deque(maxlen=_TEST_MAX_CHUNKS_CAP)
 _test_clip_count: int = 0
 _test_silence_blocks: int = 0
+
+# Disconnect-detection state: when the mic produces N consecutive
+# zero-RMS + zero-peak chunks (or the InputStream finishes), emit a
+# ``device_lost`` IPC event so the frontend can surface the disconnect
+# instead of freezing the level bar with no signal.
+_consecutive_zero_chunks: int = 0
+_device_lost_emitted: bool = False
+_LEVEL_ZERO_CHUNK_DISCONNECT_THRESHOLD: int = 10
+
+# mic_level push-event publishing state: coalesces level updates to
+# ~30 Hz and pushes them on a dedicated worker thread so the RT
+# callback never blocks on event_bus publish latency.
+# Use collections.deque(maxlen=N) for the bounded queue (queue.Queue
+# doesn't support maxlen). A threading.Lock serializes producer/worker
+# access; the deque's own thread-safety is not relied on here because
+# we need atomic get-then-put for the PERF-3 latest-only drop pattern.
+_mic_level_queue: collections.deque = collections.deque(maxlen=16)
+_mic_level_queue_lock = threading.Lock()
+_mic_level_last_push_ts: float = 0.0
+_mic_level_worker_thread: threading.Thread | None = None
+_mic_level_worker_wake_event: threading.Event = threading.Event()
+_mic_level_worker_stop: bool = False
+_MIC_LEVEL_COALESCE_SEC: float = 1.0 / 30.0
+
+
+def _emit_device_lost(source: str) -> None:
+    """Publish a ``device_lost`` IPC event (idempotent via ``_device_lost_emitted``).
+
+    Safe to call from inside ``_monitor_lock`` — uses a lock-free
+    check-and-set on ``_device_lost_emitted`` (GIL-safe for bools in
+    CPython) to avoid re-entrant lock acquisition.
+    """
+    global _device_lost_emitted
+    if _device_lost_emitted:
+        return
+    _device_lost_emitted = True
+    try:
+        from voice_typer.server import event_bus
+
+        event_bus.publish({"type": "device_lost", "data": {"source": source}})
+        log.info("[LEVEL-MON] device_lost event emitted (source=%s)", source)
+    except Exception:
+        log.debug("[LEVEL-MON] Failed to publish device_lost event", exc_info=True)
+
+
+def _level_stream_finished() -> None:
+    global _monitor_active
+    with _monitor_lock:
+        _monitor_active = False
+    log.warning("[LEVEL-MON] InputStream finished - device disconnected")
+    _emit_device_lost("stream_finished")
+
+
+def _push_mic_level(rms: float, peak: float, active: bool) -> None:
+    global _mic_level_last_push_ts
+    now = time.monotonic()
+    if now - _mic_level_last_push_ts < _MIC_LEVEL_COALESCE_SEC:
+        return
+    _mic_level_last_push_ts = now
+    payload = {"level": float(rms), "peak": float(peak), "active": bool(active)}
+    with _mic_level_queue_lock:
+        # deque(maxlen=16) auto-evicts oldest on overflow, so we don't
+        # need explicit get-then-put. The lock serializes against the
+        # worker thread's drain loop below.
+        _mic_level_queue.append(payload)
+    _mic_level_worker_wake_event.set()
+
+
+def _mic_level_worker_loop() -> None:
+    while True:
+        _mic_level_worker_wake_event.wait(timeout=1.0)
+        _mic_level_worker_wake_event.clear()
+        if _mic_level_worker_stop:
+            return
+        # PERF-3 latest-only: drain all pending payloads, keep the last.
+        latest = None
+        with _mic_level_queue_lock:
+            while _mic_level_queue:
+                latest = _mic_level_queue.popleft()
+        if latest is not None:
+            try:
+                from voice_typer.server import event_bus
+
+                event_bus.publish(
+                    {
+                        "type": "mic_level",
+                        "data": {"level": latest["level"], "peak": latest["peak"], "active": latest["active"]},
+                    },
+                )
+            except Exception:
+                log.debug("[LEVEL-MON] Failed to publish mic_level event", exc_info=True)
+
+
+def _ensure_mic_level_worker_running() -> None:
+    global _mic_level_worker_thread, _mic_level_worker_stop
+    if _mic_level_worker_thread is not None and _mic_level_worker_thread.is_alive():
+        return
+    _mic_level_worker_stop = False
+    _mic_level_worker_thread = threading.Thread(
+        target=_mic_level_worker_loop,
+        name="level-monitor-mic-level-worker",
+        daemon=True,
+    )
+    _mic_level_worker_thread.start()
+
+
+def _stop_mic_level_worker() -> None:
+    global _mic_level_worker_stop, _mic_level_worker_thread
+    _mic_level_worker_stop = True
+    _mic_level_worker_wake_event.set()
+    t = _mic_level_worker_thread
+    if t is not None and t is not threading.current_thread():
+        try:
+            t.join(timeout=1.0)
+        except Exception:
+            pass
+    _mic_level_worker_thread = None
 
 
 # ── Public API: monitoring ──────────────────────────────────────────
@@ -409,7 +533,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             # The ``status`` flag (PortAudio xrun / underflow) is
             # forwarded to the worker so log throttling / xrun tracking
             # can happen off the RT thread.
-            global _dropped_level_chunks
+            global _dropped_level_chunks, _first_drop_warning_emitted
             try:
                 _level_ring_buffer.append((indata.copy(), status))
             except Exception:
@@ -426,6 +550,20 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 # on overflow, so the append above already succeeded
                 # and the buffer is at capacity. We just count.
                 _dropped_level_chunks += 1
+                # R3-F6: emit a one-shot WARNING on the first drop of a
+                # burst so operators see the overflow immediately (the
+                # worker thread's 5s throttled log only fires later).
+                # The latch is reset by the worker once it drains the
+                # counter; this bounds the RT-thread log to ≤1 per
+                # burst while still surfacing the first drop.
+                if not _first_drop_warning_emitted:
+                    _first_drop_warning_emitted = True
+                    log.warning(
+                        "[LEVEL-MON] ring buffer full — dropped audio chunk "
+                        "(worker thread can't keep up with the PortAudio "
+                        "callback rate; consider disabling RNNoise or "
+                        "reducing the filter chain cost)",
+                    )
             _level_worker_wake_event.set()
 
         try:
@@ -435,12 +573,17 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 dtype=np.float32,
                 device=device,
                 callback=callback,
+                finished_callback=_level_stream_finished,
                 blocksize=512,
             )
             stream.start()
             _monitor_stream = stream
             _monitor_active = True
             _monitor_mic_id = mic_id
+            global _device_lost_emitted, _consecutive_zero_chunks
+            _device_lost_emitted = False
+            _consecutive_zero_chunks = 0
+            _ensure_mic_level_worker_running()
 
             # RT-SAFE-001 (c-review PERF-03): start the dedicated worker
             # thread that drains ``_level_ring_buffer`` and runs the
@@ -481,6 +624,7 @@ def stop_monitoring() -> dict:
 
     # Cancel any active test first
     _cancel_test_locked()
+    _stop_mic_level_worker()
 
     already_stopped = False
     stream = None
@@ -590,8 +734,8 @@ def start_test_recording(
             # holding _monitor_lock here, so pass locked=True.
             _reset_test_chunks(locked=True)
             _test_filters = dict(filters) if filters else {}
-            _test_peak_history = []
-            _test_rms_history = []
+            _test_peak_history.clear()
+            _test_rms_history.clear()
             _test_clip_count = 0
             _test_silence_blocks = 0
             sr = _monitor_sample_rate
@@ -639,8 +783,8 @@ def start_test_recording(
         # _monitor_lock here, so pass locked=True.
         _reset_test_chunks(locked=True)
         _test_filters = dict(filters) if filters else {}
-        _test_peak_history = []
-        _test_rms_history = []
+        _test_peak_history.clear()
+        _test_rms_history.clear()
         _test_clip_count = 0
         _test_silence_blocks = 0
         sr = _monitor_sample_rate
@@ -672,11 +816,18 @@ def stop_test_recording() -> dict:
     global _test_start_time, _test_filters
     global _test_peak_history, _test_rms_history, _test_clip_count, _test_silence_blocks
 
-    # Cancel the auto-stop timer if it hasn't fired yet
-    timer = _test_auto_stop_timer
-    if timer is not None:
-        timer.cancel()
-        _test_auto_stop_timer = None
+    # Cancel the auto-stop timer under ``_monitor_lock``: the
+    # auto-stop timer thread (``_do_auto_stop_test``) also acquires
+    # the lock, as do ``cancel_test_recording`` and
+    # ``_cancel_test_locked``. Holding the lock here avoids the race
+    # where the timer thread fires ``_do_auto_stop_test`` between
+    # the ``is not None`` check and the ``cancel()`` call (which
+    # would leave a stray reference and a duplicate stop callback).
+    with _monitor_lock:
+        timer = _test_auto_stop_timer
+        if timer is not None:
+            timer.cancel()
+            _test_auto_stop_timer = None
 
     with _monitor_lock:
         was_active = _test_mode
@@ -693,7 +844,9 @@ def stop_test_recording() -> dict:
         raw_chunks = list(_test_raw_chunks)
         filtered_chunks = list(_test_filtered_chunks)
         filters = dict(_test_filters)
-        list(_test_peak_history)
+        # R3-F14: dead ``list(_test_peak_history)`` expression removed
+        # (the value was discarded immediately — peak history is
+        # consumed via the dedicated level-monitor callback, not here).
         rms_hist = list(_test_rms_history)
         clip_count = _test_clip_count
         silence_blocks = _test_silence_blocks
@@ -709,8 +862,8 @@ def stop_test_recording() -> dict:
         _test_filtered_chunks.clear()
         _test_start_time = 0.0
         _test_filters.clear()
-        _test_peak_history = []
-        _test_rms_history = []
+        _test_peak_history.clear()
+        _test_rms_history.clear()
         _test_clip_count = 0
         _test_silence_blocks = 0
 
@@ -952,10 +1105,18 @@ def cancel_test_recording() -> dict:
     """Cancel an in-progress test recording without returning audio."""
     global _test_mode, _test_auto_stop_timer
 
-    timer = _test_auto_stop_timer
-    if timer is not None:
-        timer.cancel()
-        _test_auto_stop_timer = None
+    # Cancel the auto-stop timer under ``_monitor_lock`` (mirrors
+    # ``stop_test_recording``): the auto-stop timer thread
+    # (``_do_auto_stop_test``) also acquires the lock. Holding the
+    # lock here avoids the race where the timer thread fires
+    # ``_do_auto_stop_test`` between the ``is not None`` check and
+    # the ``cancel()`` call (which would leave a stray timer
+    # reference and a duplicate stop callback).
+    with _monitor_lock:
+        timer = _test_auto_stop_timer
+        if timer is not None:
+            timer.cancel()
+            _test_auto_stop_timer = None
 
     was_active = _cancel_test_locked()
 
@@ -1010,16 +1171,38 @@ def _cancel_test_locked() -> bool:
     """Cancel test state under the lock.
 
     Returns True if a test was actually active, False otherwise.
+
+    Note: despite the name, this function acquires ``_monitor_lock``
+    itself (it does NOT require the caller to hold it). The auto-stop
+    timer cancel is performed INSIDE the ``with _monitor_lock:`` block
+    so that all mutation sites of ``_test_auto_stop_timer`` are
+    protected against the race where the timer thread fires
+    ``_do_auto_stop_test`` between an ``is not None`` check and the
+    matching ``cancel()`` call. The redundant double-cancel from
+    ``cancel_test_recording`` (which also cancels under the lock
+    before calling this function) is a harmless no-op: by the time
+    we reach here, ``_test_auto_stop_timer`` is already ``None`` (or
+    the timer thread fired and cleared it), so the ``is not None``
+    guard short-circuits.
     """
-    global _test_mode, _test_chunks, _test_raw_chunks, _test_filtered_chunks, _test_filters, _test_start_time, _test_auto_stop_timer
+    global \
+        _test_mode, \
+        _test_chunks, \
+        _test_raw_chunks, \
+        _test_filtered_chunks, \
+        _test_filters, \
+        _test_start_time, \
+        _test_auto_stop_timer
     global _test_peak_history, _test_rms_history, _test_clip_count, _test_silence_blocks
 
-    # Stop auto-stop timer if running
-    timer = _test_auto_stop_timer
-    if timer is not None:
-        timer.cancel()
-
     with _monitor_lock:
+        # Stop auto-stop timer if running (under the lock to close
+        # the third mutation-site race).
+        timer = _test_auto_stop_timer
+        if timer is not None:
+            timer.cancel()
+            _test_auto_stop_timer = None
+
         if not _test_mode and not _test_chunks and not _test_filtered_chunks:
             return False
         was_active = _test_mode
@@ -1031,8 +1214,8 @@ def _cancel_test_locked() -> bool:
         _test_filtered_chunks.clear()
         _test_start_time = 0.0
         _test_filters.clear()
-        _test_peak_history = []
-        _test_rms_history = []
+        _test_peak_history.clear()
+        _test_rms_history.clear()
         _test_clip_count = 0
         _test_silence_blocks = 0
         return was_active
@@ -1113,7 +1296,7 @@ def _level_worker_loop() -> None:
     any remaining chunks before exiting so a stop right after a
     callback doesn't lose the last level update.
     """
-    global _dropped_level_chunks, _last_drop_log_time
+    global _dropped_level_chunks, _last_drop_log_time, _first_drop_warning_emitted
     while True:
         # Wait for work or stop signal. 50 ms timeout ensures we notice
         # the stop flag even if the wake event is missed (same pattern
@@ -1154,6 +1337,9 @@ def _level_worker_loop() -> None:
                 dropped = _dropped_level_chunks
                 _dropped_level_chunks = 0
                 _last_drop_log_time = now
+                # R3-F6: re-arm the RT-callback one-shot latch so the
+                # next burst of drops surfaces its first-drop warning.
+                _first_drop_warning_emitted = False
                 log.warning(
                     "[LEVEL-MON] %d audio chunks dropped in the last ~5s "
                     "(worker thread couldn't keep up with the PortAudio "
@@ -1245,8 +1431,10 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             # ``process_chunk`` may return ``None`` to pass-through
             # (e.g. when the filter chain is disabled at runtime).
             flat_filtered = filtered.ravel() if filtered is not None else flat
-            abs_flat = np.abs(flat_filtered)
-            rms = float(np.sqrt(np.mean(flat_filtered**2)))
+            if flat_filtered.size > 0:
+                rms = float(np.sqrt(np.dot(flat_filtered, flat_filtered) / flat_filtered.size))
+            else:
+                rms = 0.0
             # PVT-013: capture the filtered audio for the test's
             # "after" WAV so stop_test_recording doesn't need to
             # re-run the filter chain synchronously (7-70s block).
@@ -1258,16 +1446,30 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             if test_mode and filtered is not None:
                 filtered_chunk_for_test = flat_filtered.copy()
         else:
-            abs_flat = np.abs(flat)
-            rms = float(np.sqrt(np.mean(flat**2)))
-        peak = float(abs_flat.max())
+            # No live processor: use the raw flat block for both RMS
+            # and peak (no extra allocation needed).
+            flat_filtered = flat
+            if flat.size > 0:
+                rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
+            else:
+                rms = 0.0
+        # Allocation-free peak: max(abs(x)) is computed as max(max(x), -min(x))
+        # so no temporary ``np.abs`` array is allocated per chunk.
+        if flat_filtered.size > 0:
+            peak = max(float(flat_filtered.max()), -float(flat_filtered.min()))
+        else:
+            peak = 0.0
 
         # XV-55: compute test-quality metrics from RAW audio outside
         # the lock too (np.sqrt/mean/square on a 512-sample block is
         # cheap but still RT-relevant under load).
         if test_mode:
-            raw_rms_for_quality = float(np.sqrt(np.mean(np.square(flat.astype(np.float32)))))
-            raw_peak_for_quality = float(np.abs(flat).max())
+            if flat.size > 0:
+                raw_rms_for_quality = float(np.sqrt(np.dot(flat, flat) / flat.size))
+                raw_peak_for_quality = max(float(flat.max()), -float(flat.min()))
+            else:
+                raw_rms_for_quality = 0.0
+                raw_peak_for_quality = 0.0
 
     # -- Shared-state writes UNDER the lock (quick) --
     # XV-55: only the writes to ``_monitor_level``, ``_monitor_peak``,
@@ -1311,3 +1513,12 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
                     _test_silence_blocks += 1
                 if raw_peak_for_quality > 0.95:
                     _test_clip_count += 1
+        global _consecutive_zero_chunks
+        if rms is not None and peak is not None and rms == 0.0 and peak == 0.0:
+            _consecutive_zero_chunks += 1
+            if _consecutive_zero_chunks >= _LEVEL_ZERO_CHUNK_DISCONNECT_THRESHOLD:
+                _emit_device_lost("zero_chunks")
+        else:
+            _consecutive_zero_chunks = 0
+        if _monitor_active and rms is not None and peak is not None:
+            _push_mic_level(rms, peak, _monitor_active)

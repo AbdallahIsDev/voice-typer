@@ -46,6 +46,14 @@ class OnboardingController:
         # flow and auto-healing would clobber their in-progress selections.
         # See the docstring on :meth:`mark_started` for the full rationale.
         self._started_marker_path = config_dir / ".onboarding_started"
+        # Progress marker — persists the in-progress
+        # wizard state (current step + selected mic/hotkey/model) so that
+        # closing the app mid-wizard doesn't lose all selections. The
+        # file is JSON: {"version": 1, "current_step": int,
+        # "selected_microphone": str|null, "selected_hotkey": str,
+        # "selected_model": str}. Cleared on mark_complete / skip / reset /
+        # apply_settings.
+        self._progress_path = config_dir / ".onboarding_progress"
         self._current_step = 0
         # UX-4 / UX-27: bumped from 5 → 6 to add a platform-conditional
         # Permissions step between Microphone (index 1) and Hotkey
@@ -68,7 +76,94 @@ class OnboardingController:
         # ``onboarding_completed`` in the config.  The callbacks were
         # dead infrastructure.
 
+        # Restore in-progress wizard state from the
+        # progress marker file. If the file exists and is well-formed,
+        # the user closed the app mid-wizard and we resume from the
+        # saved step + selections. If the file is absent or corrupt,
+        # we start fresh (defaults already set above).
+        self._load_progress()
+
     # ── First-run detection ──────────────────────────────────────────
+
+    # In-progress wizard state persistence. The
+    # wizard state (current step + selected mic/hotkey/model) lives in
+    # instance memory and is lost when the Python process restarts
+    # (app close/reopen). Without persistence, a user who closes the
+    # app mid-wizard loses all selections and restarts at the Welcome
+    # step on next launch — friction that may cause them to skip
+    # onboarding entirely. The progress marker file is written on every
+    # state mutation (next/prev/set_*) and cleared on terminal transitions
+    # (mark_complete/skip/reset/apply_settings).
+    def _load_progress(self) -> None:
+        """Restore in-progress wizard state from the progress marker file.
+
+        Best-effort: if the file is absent or corrupt, leave the defaults
+        set in __init__ unchanged. Type-validate every field; partial
+        restore is allowed (e.g. a corrupt `selected_model` field is
+        ignored but a valid `current_step` is still restored).
+        """
+        try:
+            if not self._progress_path.exists():
+                return
+            raw = self._progress_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            if not isinstance(data, dict):
+                return
+            # current_step — int in [0, total_steps)
+            cs = data.get("current_step")
+            if isinstance(cs, int) and 0 <= cs < self._total_steps:
+                self._current_step = cs
+            # selected_microphone — str | None
+            sm = data.get("selected_microphone")
+            if sm is None or isinstance(sm, str):
+                self.selected_microphone = sm
+            # selected_hotkey — str
+            sh = data.get("selected_hotkey")
+            if isinstance(sh, str) and sh:
+                self.selected_hotkey = sh
+            # selected_model — str
+            smd = data.get("selected_model")
+            if isinstance(smd, str) and smd:
+                self.selected_model = smd
+            log.info(
+                "[ONBOARDING] Resumed in-progress wizard state from %s (step=%d)",
+                self._progress_path.name,
+                self._current_step,
+            )
+        except Exception:
+            # Corrupt progress file — leave defaults in place and let the
+            # next state mutation overwrite it.
+            log.debug("[ONBOARDING] progress marker unreadable; starting fresh")
+
+    def _persist_progress(self) -> None:
+        """Write the current wizard state to the progress marker file.
+
+        Uses _secure_atomic_write for symlink-safe, 0o600-permission POSIX
+        writes (matches the security posture of mark_complete).
+        """
+        try:
+            self._config_dir.mkdir(parents=True, exist_ok=True)
+            from voice_typer.server.config import _secure_atomic_write
+
+            payload = json.dumps(
+                {
+                    "version": 1,
+                    "current_step": self._current_step,
+                    "selected_microphone": self.selected_microphone,
+                    "selected_hotkey": self.selected_hotkey,
+                    "selected_model": self.selected_model,
+                }
+            )
+            _secure_atomic_write(self._progress_path, payload)
+        except Exception:
+            log.debug("[ONBOARDING] failed to persist progress marker", exc_info=True)
+
+    def _clear_progress(self) -> None:
+        """Delete the progress marker file (called on terminal transitions)."""
+        try:
+            self._progress_path.unlink(missing_ok=True)
+        except Exception:
+            log.debug("[ONBOARDING] failed to clear progress marker", exc_info=True)
 
     def is_first_run(self) -> bool:
         """Return True if the onboarding wizard should be shown.
@@ -90,6 +185,17 @@ class OnboardingController:
             return False
         # Otherwise, check config.onboarding_completed. Default to
         # "first run" if the config can't be read.
+        #
+        # Legitimate fresh-snapshot read — OnboardingController does
+        # NOT hold a reference to the live ``app.config`` object, and
+        # the renderer's ``onboarding_is_first_run`` IPC probe runs
+        # before the app is fully wired in some early-startup paths.
+        # ``Config.load()`` here is a read-only fresh snapshot from
+        # disk; no mutation follows, so the config-mutation lock is not
+        # required (the lock serializes read-modify-write cycles, not
+        # pure reads). The disk read may observe a stale value if a
+        # concurrent ``set_config`` is mid-write, but that's acceptable
+        # for a first-run probe — the next launch re-reads.
         try:
             from voice_typer.server.config import Config
 
@@ -116,6 +222,9 @@ class OnboardingController:
             # wizard completes — remove it so a future first-run (after a
             # :meth:`reset` call) starts with a clean slate.
             self._started_marker_path.unlink(missing_ok=True)
+            # The progress marker is also no longer
+            # needed — the wizard is done.
+            self._clear_progress()
             log.info("[ONBOARDING] Marked as complete")
         except Exception:
             log.exception("[ONBOARDING] Failed to mark complete")
@@ -190,6 +299,13 @@ class OnboardingController:
                 path.unlink(missing_ok=True)
             except Exception:
                 log.debug("[ONBOARDING] Failed to remove marker %s", path, exc_info=True)
+        # Clear the in-progress wizard state so the
+        # next launch starts at the Welcome step with default selections.
+        self._clear_progress()
+        self._current_step = 0
+        self.selected_microphone = None
+        self.selected_hotkey = "<caps_lock>"
+        self.selected_model = "small.en"
         log.info("[ONBOARDING] Reset (markers removed)")
 
     # ─── Step navigation ─────────────────────────────────────────────
@@ -237,12 +353,18 @@ class OnboardingController:
         """
         if self._current_step < self._total_steps - 1:
             self._current_step += 1
+        # Persist progress so a mid-wizard app
+        # restart resumes here.
+        self._persist_progress()
         return self._current_step
 
     def prev_step(self) -> int:
         """Go back to the previous step. Returns the new step number."""
         if self._current_step > 0:
             self._current_step -= 1
+        # Persist progress so a mid-wizard app
+        # restart resumes here.
+        self._persist_progress()
         return self._current_step
 
     def skip(self) -> None:
@@ -269,6 +391,9 @@ class OnboardingController:
     def set_microphone(self, mic_id: str | None) -> None:
         """Store the selected microphone."""
         self.selected_microphone = mic_id
+        # Persist progress so a mid-wizard app
+        # restart restores this selection.
+        self._persist_progress()
 
     # ─── Hotkey selection ────────────────────────────────────────────
 
@@ -295,6 +420,9 @@ class OnboardingController:
     def set_hotkey(self, hotkey: str) -> None:
         """Store the selected hotkey."""
         self.selected_hotkey = hotkey
+        # Persist progress so a mid-wizard app
+        # restart restores this selection.
+        self._persist_progress()
 
     # ─── Permission detection (UX-4 / UX-27) ─────────────────────────
 
@@ -491,6 +619,9 @@ class OnboardingController:
     def set_model(self, model_name: str) -> None:
         """Store the selected model."""
         self.selected_model = model_name
+        # Persist progress so a mid-wizard app
+        # restart restores this selection.
+        self._persist_progress()
 
     @classmethod
     def get_model_catalog(cls) -> list[dict]:

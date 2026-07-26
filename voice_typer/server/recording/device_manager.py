@@ -310,13 +310,20 @@ class DeviceManager:
                         )
                         self._device_disconnected = True
                         _captured_gen = self.recorder._stop_generation
+                        # Route through ``_spawn_device_thread`` so
+                        # the handler is registered with ``thread_registry``
+                        # (when available) and single-flight guarded so a
+                        # flapping device can't spawn multiple concurrent
+                        # handlers. The helper lives on ``Recorder`` (not
+                        # ``DeviceManager``) because the registry + guard
+                        # state are owned by ``Recorder``.
                         with contextlib.suppress(Exception):
-                            threading.Thread(
+                            self.recorder._spawn_device_thread(
+                                name="device-disconnect-check",
                                 target=self.recorder._handle_device_disconnect,
                                 kwargs={"_captured_generation": _captured_gen},
-                                name="device-disconnect-check",
-                                daemon=True,
-                            ).start()
+                                single_flight=True,
+                            )
             except Exception:
                 log.debug("[RECORDING] Device health checker error", exc_info=True)
 

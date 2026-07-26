@@ -92,7 +92,16 @@ def _boot_time() -> int | None:
 
         return int(psutil.boot_time())
     except Exception:
-        pass
+        # Previously a bare ``except Exception: pass``. Log at
+        # DEBUG (not WARNING) because the psutil import failure is
+        # expected on minimal environments (e.g. CI containers without
+        # psutil installed) — the WMI fallback below handles it. The
+        # ``exc_info=True`` ensures the traceback lands in the log so
+        # devs can diagnose "why is boot_time returning None?".
+        log.debug(
+            "[PREWARM] psutil boot_time lookup failed; falling back to Win32 GetTickCount64",
+            exc_info=True,
+        )
     if is_windows():
         try:
             import ctypes
@@ -102,7 +111,16 @@ def _boot_time() -> int | None:
             ms = kernel32.GetTickCount64()
             return int(time.time() - ms / 1000)
         except Exception:
-            pass
+            # Previously a bare ``except Exception: pass``.
+            # Log at DEBUG — the Win32 fallback is best-effort; if it
+            # fails, ``_boot_time`` returns None and the caller
+            # (``_already_warmed``) treats that as "not warmed yet",
+            # which is safe (the prewarm sentinel won't match, so
+            # the next prewarm trigger re-warms).
+            log.debug(
+                "[PREWARM] Win32 GetTickCount64 boot_time lookup failed",
+                exc_info=True,
+            )
     return None
 
 

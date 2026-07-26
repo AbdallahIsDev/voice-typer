@@ -2,7 +2,7 @@
 
 This module is the result of merging two independent improvements:
 
-* **CR-20 (session-1)**: ``HandlerBase`` with the
+* **CR-20**: ``HandlerBase`` with the
   :meth:`_respond_with_error` helper. Prior to CR-20, every IPC
   handler mixin caught its own ``Exception`` and returned the Python
   exception text verbatim to the renderer::
@@ -27,7 +27,7 @@ This module is the result of merging two independent improvements:
   envelope so the renderer cannot distinguish "handler caught its own
   exception" from "exception propagated to the dispatcher".
 
-* **R4-F3 (session-3)**: ``HandlerMixinBase`` with the three
+* **R4-F3**: ``HandlerMixinBase`` with the three
   runtime-provided attribute annotations (``service``, ``app``,
   ``_send``). Previously every one of the 14 handler mixins
   re-declared the same 3-line ``Any`` annotation block to keep
@@ -56,7 +56,26 @@ import traceback
 from typing import Any
 
 from voice_typer.server._secrets import redact_secret
+from voice_typer.server.asr_errors import (
+    CloudAuthError,
+    CloudConfigError,
+    CloudEngineError,
+    CloudNetworkError,
+    CloudRateLimitError,
+    CloudServerError,
+    ConsentRequiredError,
+)
 from voice_typer.server.handlers._log import log
+
+# The ``ErrorEnvelope`` TypedDict contract is kept in
+# :mod:`voice_typer.server.ipc.validation` (useful as documentation),
+# but the cast + return-type annotations were REMOVED here because
+# pyrefly correctly flags that a ``TypedDict`` is not assignable to
+# ``dict[str, object]`` (TypedDicts are invariant). The construction
+# sites keep their ``# ErrorEnvelope contract — see validation.py``
+# comments so the contract remains documented without being enforced
+# at the type level. The runtime contract is verified by
+# ``tests/test_error_codes_registry.py``.
 
 
 def _scrub_traceback(exc: BaseException) -> tuple[str, str]:
@@ -95,16 +114,33 @@ class HandlerMixinBase:
 
     Declares the three runtime-provided attributes (``service``,
     ``app``, ``_send``) that every handler mixin accesses via
-    ``self.X``.  The annotations are ``Any`` (not a Protocol) so:
+    ``self.X``. These are typed as ``Any`` (the deliberate R4-F3
+    design choice) rather than the :class:`ServiceProtocol` /
+    :class:`AppProtocol` structural types declared in
+    :mod:`voice_typer.server.providers` because:
 
-    * pyrefly's null-safety check sees a declared attribute (no
-      "attribute access before assignment" error);
-    * handler mixins stay decoupled from the concrete
-      :class:`VoiceTyperService` / :class:`VoiceTyperApp` types
-      (MagicMock fixtures in ``tests/handlers/`` satisfy the loose
-      ``Any`` typing without needing the real service classes);
-    * ``IPCServer`` can compose any number of mixins via multiple
-      inheritance without the mixins needing to know about each other.
+    * the actual :meth:`IPCServer._send` method signature carries
+      additional keyword arguments (``_out``, ``_client``) beyond the
+      single ``dict | None`` parameter the narrower
+      ``Callable[[dict | None], None]`` would allow — tightening here
+      causes pyrefly to flag every mixin as an invalid override;
+    * :class:`VoiceTyperService.get_status` returns a ``StatusResponse``
+      ``TypedDict``, which is not assignable to the ``dict[str, object]``
+      declared on :class:`ServiceProtocol.get_status` (TypedDicts are
+      invariant), so ``VoiceTyperService`` does not structurally satisfy
+      :class:`ServiceProtocol`;
+    * ``MagicMock`` fixtures in ``tests/handlers/`` continue to satisfy
+      the ``Any`` annotation trivially (no test changes needed), and
+      pyrefly's null-safety check still sees a declared attribute (no
+      "attribute access before assignment" error).
+
+    The real win of the duplicate-block removal is the 12 redundant
+    lines removed from the 4 mixin files: history, dictation, model,
+    onboarding, plus the ``_log`` migration. The type tightening is
+    reverted here as a deferred follow-up — it requires coordinated
+    caller-side changes (loosening ``IPCServer._send`` signature and
+    widening ``ServiceProtocol.get_status`` return type) that exceed
+    the session budget.
 
     Subclasses MUST NOT override these annotations — the runtime
     binding happens in :meth:`IPCServer.__init__` (or the
@@ -117,8 +153,14 @@ class HandlerMixinBase:
     # ARCH-REFAC-002 / TASK-10 / R4-F3: pyrefly null-safety fix.
     # Provided at runtime by the IPCServer host class via multiple
     # inheritance. Declared here once so each handler mixin doesn't
-    # repeat the 3-line block. See the module docstring for the
-    # rationale (loose ``Any`` typing instead of a coupled Protocol).
+    # repeat the 3-line block (the duplicate-block removal refactor
+    # also removed the 4 duplicates that had been left behind in
+    # history / dictation / model / onboarding handlers).
+    #
+    # ``Any`` is the deliberate R4-F3 design choice — see the class
+    # docstring for the rationale on why the narrower
+    # :class:`ServiceProtocol` / :class:`AppProtocol` /
+    # ``Callable[[dict | None], None]`` annotations were reverted.
     service: Any
     app: Any
     _send: Any
@@ -142,7 +184,7 @@ class HandlerBase(HandlerMixinBase):
     Migration status (CR-20, complete):
 
     The original review (CR-20) found ~50 copies of the leaky pattern
-    across all 14 handler mixins. As of PVT-G5-021 (FA16, 2026-07-19),
+    across all 14 handler mixins. As of the migration completion,
     ALL 14 handler mixins (``config``, ``dictation``, ``history``,
     ``level_monitor``, ``microphone``, ``microphone_test``, ``model``,
     ``onboarding``, ``privacy``, ``repaste``, ``status``, ``system``,
@@ -150,17 +192,17 @@ class HandlerBase(HandlerMixinBase):
     from :class:`HandlerBase` and route their catch-all
     ``except Exception`` blocks through ``_respond_with_error`` — no
     ``str(e)`` is ever sent to the renderer. The three-way
-    error-envelope drift documented in PVT-G5-070 is eliminated:
-    every handler catch-all now emits the same
-    ``{"code": "server.internal_error", "message": "internal error"}``
-    envelope as the dispatcher's outer ``except Exception`` (G4-M-22
-    namespaced form — the dispatcher itself may still emit the legacy
-    ``internal_error`` alias on some paths; the renderer must accept
-    both forms, see ``voice_typer/server/ipc/validation.py``).
+    error-envelope drift is eliminated: every handler catch-all now
+    emits the same ``{"code": "server.internal_error", "message":
+    "internal error"}`` envelope as the dispatcher's outer
+    ``except Exception`` (namespaced form — the dispatcher itself may
+    still emit the legacy ``internal_error`` alias on some paths; the
+    renderer must accept both forms, see
+    ``voice_typer/server/ipc/validation.py``).
     Per-command VALIDATION errors (``missing_field``,
     ``invalid_payload``, ``payload_too_large``, etc.) remain the
     handler's responsibility and continue to route through
-    :func:`_error_response` with explicit ``code`` values (PVT-G5-071).
+    :func:`_error_response` with explicit ``code`` values.
     """
 
     def _respond_with_error(self, resp: dict, exc: BaseException, cmd_name: str) -> dict:
@@ -172,7 +214,7 @@ class HandlerBase(HandlerMixinBase):
             The response dict the handler was building. Mutated in
             place: ``type`` is set to ``"error"`` and ``data`` is set
             to the generic envelope ``{"code": "server.internal_error",
-            "message": "internal error"}`` (G4-M-22 namespaced form).
+            "message": "internal error"}`` (namespaced form).
         exc :
             The exception that triggered the error path. Logged at
             ERROR with ``exc_info=True`` so the full traceback lands
@@ -208,19 +250,118 @@ class HandlerBase(HandlerMixinBase):
         error codes the renderer switches on, and they carry
         field-level context (``"field": "id"``) the generic envelope
         cannot represent.
+
+        The return type is ``dict`` (not :class:`ErrorEnvelope`)
+        because TypedDicts are invariant and not subtypes of ``dict``.
+        The :class:`ErrorEnvelope` TypedDict in
+        :mod:`voice_typer.server.ipc.validation` is kept as
+        documentation/contract; the runtime contract is verified by
+        ``tests/test_error_codes_registry.py``.
+
+        DE-38: the log message is scrubbed via
+        :func:`_scrub_traceback` before it lands in
+        ``voice-typer.log``. ``export_diagnostics`` ships the log
+        file back to the renderer, so any secret (API key, bearer
+        token) or home-directory path (which contains the username)
+        embedded in ``str(exc)`` is exfiltrated when the user
+        attaches the diagnostics bundle to a bug report. The
+        scrubbed form replaces known secret patterns with ``***``
+        and home-directory path components with ``~``.
+        ``exc_info=True`` is preserved (via a scrubbed exception
+        instance with ``tb=None``) so structured-logging consumers
+        and existing ``r.exc_info is not None`` test assertions
+        continue to hold.
         """
-        log.error("[IPC] %s failed: %s", cmd_name, exc, exc_info=True)
+        # Scrub the exception message before logging so secrets
+        # (sk-..., gsk_..., Bearer ...) and home-directory paths
+        # (which contain the username) don't land in voice-typer.log
+        # (which export_diagnostics ships to the renderer). We also
+        # construct a scrubbed exception instance and pass it via
+        # ``exc_info`` (with ``tb=None`` so no traceback frames are
+        # printed — the frames could carry the secret in local
+        # variables or absolute file paths). This preserves
+        # ``record.exc_info is not None`` (structured-logging
+        # consumers and existing
+        # ``test_catch_all_logs_at_error_level_with_exc_info``
+        # assertions rely on it) while ensuring the formatted
+        # ``record.exc_text`` doesn't leak the secret either.
+        scrubbed_str, _ = _scrub_traceback(exc)
+        try:
+            scrubbed_exc = type(exc)(scrubbed_str)
+        except Exception:
+            # Some exception types (e.g. OSError) have a different
+            # ``__init__`` signature that doesn't accept a single
+            # string. Fall back to RuntimeError so the log still
+            # captures the scrubbed message.
+            scrubbed_exc = RuntimeError(scrubbed_str)
+        log.error(
+            "[IPC] %s failed: %s",
+            cmd_name,
+            scrubbed_str,
+            exc_info=(type(scrubbed_exc), scrubbed_exc, None),
+        )
+        # ErrorEnvelope contract — see validation.py
         resp["type"] = "error"
-        # G4-M-22 / EC-FIX-4: use the namespaced form
-        # ``server.internal_error`` rather than the legacy bare
-        # ``internal_error``. The renderer's ``usePython.ts`` switch
-        # accepts both forms (the legacy alias is documented in
-        # ``voice_typer/server/ipc/validation.py``); new emitters MUST
-        # use the namespaced form.
+        # Typed cloud/LLM exception hierarchy — map each typed
+        # exception to a distinct IPC error code (registered in
+        # ``ERROR_CODES`` at ``voice_typer/server/ipc/validation.py``)
+        # so the renderer can distinguish "API key invalid" from "rate
+        # limited" from "transient network" from "missing config" and
+        # react accordingly (re-enter key, backoff, auto-retry, open
+        # Settings). The catch-all ``RuntimeError`` fallback stays as
+        # ``server.internal_error`` for non-cloud RuntimeErrors.
+        if isinstance(exc, ConsentRequiredError):
+            # NEW-PRIV-006: structured consent error — pass through the
+            # typed fields so the renderer can surface a consent dialog
+            # instead of a generic error toast. The structured fields
+            # (engine_name, consent_field, model_id) let the renderer
+            # deep-link to the exact toggle in Settings.
+            resp["data"] = {
+                "code": "client.consent_required",
+                "message": str(exc) or "consent required",
+                **exc.to_dict(),
+            }
+            return resp
+        if isinstance(exc, CloudAuthError):
+            code = "server.cloud_auth_failed"
+            message = "cloud API key invalid or revoked"
+        elif isinstance(exc, CloudRateLimitError):
+            code = "server.cloud_rate_limited"
+            message = "cloud provider rate limited — please retry shortly"
+        elif isinstance(exc, CloudServerError):
+            code = "server.cloud_server_error"
+            message = "cloud provider server error"
+        elif isinstance(exc, CloudNetworkError):
+            code = "server.cloud_network_error"
+            message = "cloud provider network error"
+        elif isinstance(exc, CloudConfigError):
+            code = "server.cloud_config_error"
+            message = "cloud provider not configured"
+        elif isinstance(exc, CloudEngineError):
+            # Catch-all for the typed base (e.g. unknown HTTP
+            # status from the cloud provider). Maps to a cloud-specific
+            # code rather than the generic ``server.internal_error``.
+            code = "server.cloud_engine_error"
+            message = "cloud provider error"
+        else:
+            # EC-FIX-4: use the namespaced form
+            # ``server.internal_error`` rather than the legacy bare
+            # ``internal_error``. The renderer's ``usePython.ts`` switch
+            # accepts both forms (the legacy alias is documented in
+            # ``voice_typer/server/ipc/validation.py``); new emitters
+            # MUST use the namespaced form.
+            code = "server.internal_error"
+            message = "internal error"
         resp["data"] = {
-            "code": "server.internal_error",
-            "message": "internal error",
+            "code": code,
+            "message": message,
         }
+        # No ``cast`` — ``resp`` is the same ``dict`` instance the
+        # caller passed in, mutated in place to match the
+        # :class:`ErrorEnvelope` shape (``type="error"`` + ``data``
+        # with ``code`` / ``message``). The TypedDict contract is
+        # documented at construction sites via the
+        # ``# ErrorEnvelope contract — see validation.py`` comments.
         return resp
 
 

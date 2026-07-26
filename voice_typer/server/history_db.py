@@ -140,6 +140,12 @@ _BATCH_INSERT_CAP = 100
 # justify the multi-row SQL construction for 1-2 rows).
 _BATCH_INSERT_MIN = 3
 
+# TY-20: TTL (seconds) for the get_history_count cache.
+_HISTORY_COUNT_CACHE_TTL_S = 60.0
+
+# TY-8: maximum characters of ``text`` returned in list responses.
+_HISTORY_TEXT_PREVIEW_LENGTH = 500
+
 
 class _BatchableInsert:
     """ER-78: structured payload for batchable transcription INSERTs.
@@ -333,6 +339,21 @@ def _sanitize_fts_query(query: str) -> str:
     return " ".join(quoted)
 
 
+def _project_text_row(row: sqlite3.Row | tuple) -> dict:
+    """TY-8: post-process a SQLite row from get_recent/search/get_favorites."""
+    d = dict(row)
+    full_length = d.get("text_full_length")
+    if full_length is None:
+        full_length_int = 0
+        truncated = False
+    else:
+        full_length_int = int(full_length)
+        truncated = full_length_int > _HISTORY_TEXT_PREVIEW_LENGTH
+    d["text_truncated"] = truncated
+    d["text_full_length"] = full_length_int
+    return d
+
+
 # FT-2: module-level WeakSet tracking all live HistoryDB instances. Tests
 # that construct HistoryDB via ``_MockApp`` helpers frequently leak the
 # instance (and its ``HistoryDBWriter`` daemon thread) because the test
@@ -418,6 +439,10 @@ class HistoryDB:
         # ER-36: handle to the periodic retention daemon thread (for
         # join-on-close).
         self._retention_thread: threading.Thread | None = None
+        # TY-20: TTL cache for ``get_history_count``.
+        self._history_count_cache: int | None = None
+        self._history_count_cache_ts: float = 0.0
+        self._history_count_cache_lock = threading.Lock()
         # Start the writer thread last — it signals _writer_ready once
         # the schema is set up.
         self._writer_thread = threading.Thread(
@@ -674,12 +699,8 @@ class HistoryDB:
                 last_row_id = cursor.lastrowid
                 for it in batch:
                     if it.future is not None:
-                        with contextlib.suppress(
-                            concurrent.futures.InvalidStateError
-                        ):
-                            it.future.set_result(
-                                last_row_id if last_row_id is not None else -1
-                            )
+                        with contextlib.suppress(concurrent.futures.InvalidStateError):
+                            it.future.set_result(last_row_id if last_row_id is not None else -1)
                 log.debug(
                     "[HISTORY_DB] batched %d transcription INSERTs into one transaction",
                     len(batch),
@@ -707,25 +728,17 @@ class HistoryDB:
                     conn.commit()
                     row_id = cursor.lastrowid
                     if it.future is not None:
-                        with contextlib.suppress(
-                            concurrent.futures.InvalidStateError
-                        ):
-                            it.future.set_result(
-                                row_id if row_id is not None else -1
-                            )
+                        with contextlib.suppress(concurrent.futures.InvalidStateError):
+                            it.future.set_result(row_id if row_id is not None else -1)
                     if row_id is not None:
-                        log.debug(
-                            "Added transcription %d: %d chars", row_id, it.char_count
-                        )
+                        log.debug("Added transcription %d: %d chars", row_id, it.char_count)
         except BaseException as e:  # noqa: BLE001 — propagate to futures
             # Resolve all futures with the exception so wait=True
             # callers (if any — add_transcription is fire-and-forget)
             # don't hang.
             for it in batch:
                 if it.future is not None:
-                    with contextlib.suppress(
-                        concurrent.futures.InvalidStateError
-                    ):
+                    with contextlib.suppress(concurrent.futures.InvalidStateError):
                         it.future.set_exception(e)
             # Re-raise so the caller (_writer_loop / _drain_remaining)
             # sees the failure and runs its standard rollback +
@@ -1048,6 +1061,20 @@ class HistoryDB:
         # version. The per-statement try/except that previously
         # swallowed errors (CR-32) is removed because it allowed
         # partial migrations to silently corrupt the schema.
+        # Best-effort pre-migration backup. If a future migration
+        # (v4+) has a logic bug that silently corrupts rows rather than
+        # failing loudly, the corrupt-file rename (G4-M-03) would NOT
+        # trigger (PRAGMA quick_check passes on a structurally-valid but
+        # semantically-wrong DB). The pre-migration backup gives the user
+        # a recovery path: ``history.db.pre-migration-v<from>.bak`` is a
+        # byte-for-byte copy of the DB at the OLD schema version, taken
+        # BEFORE any migration statement runs. Single-slot naming means
+        # re-running migrations on an already-migrated DB (where
+        # ``current_version == _CURRENT_SCHEMA_VERSION``) is a no-op —
+        # the backup step is skipped (no migration to back up).
+        if current_version < _CURRENT_SCHEMA_VERSION:
+            self._backup_before_migration(current_version)
+
         for version in range(current_version + 1, _CURRENT_SCHEMA_VERSION + 1):
             migration_sql = _MIGRATIONS.get(version)
             if not migration_sql:
@@ -1129,6 +1156,18 @@ class HistoryDB:
                 CREATE INDEX IF NOT EXISTS idx_favorite
                 ON transcriptions(favorite)
             """)
+            # TY-21: composite index on (favorite, timestamp ASC) —
+            # serves the retention DELETE subquery at apply_retention.
+            # ``CREATE INDEX IF NOT EXISTS`` is idempotent, so this
+            # serves as BOTH new-DB creation AND migration for existing
+            # databases (existing DBs re-run _init_db_schema on every
+            # launch). Guarded by the same ``existing_columns`` check
+            # as ``idx_favorite`` because the index references the
+            # ``favorite`` column.
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_favorite_timestamp
+                ON transcriptions(favorite, timestamp ASC)
+            """)
         else:
             log.warning(
                 "[HISTORY_DB] Skipping idx_favorite creation: 'favorite' "
@@ -1153,6 +1192,68 @@ class HistoryDB:
             _CURRENT_SCHEMA_VERSION,
         )
         return conn
+
+    def _backup_before_migration(self, current_version: int) -> None:
+        """Best-effort copy of the DB (and ``-wal``/``-shm``
+        sidecars) to ``history.db.pre-migration-v<from>.bak`` before a
+        migration runs.
+
+        Best-effort: if the copy fails (disk full, permissions,
+        cross-device), log + continue — DO NOT block the migration on
+        backup failure. The user's history is valuable, but blocking
+        the schema migration on a backup failure would leave the app
+        in a worse state (stuck on the old schema) than simply
+        proceeding without a backup.
+
+        Single-slot naming: ``history.db.pre-migration-v<from>.bak``
+        (NOT timestamped). A second migration run would skip the
+        backup entirely because ``current_version ==
+        _CURRENT_SCHEMA_VERSION`` (the backup is only taken when
+        ``current_version < _CURRENT_SCHEMA_VERSION``, checked in the
+        caller). Even if the same version were migrated twice (e.g.
+        a v3 -> v4 migration followed by a v3 -> v4 retry after a
+        failure), the second backup would overwrite the first —
+        acceptable because the first backup was of the same DB state.
+
+        The copy uses ``shutil.copy2`` (preserves mtime/mode) which
+        is the closest Python equivalent to the Rust
+        ``atomic_copy`` helper (``src-tauri/src/migrate.rs:476``).
+        ``copy2`` is NOT atomic (it reads + writes), but for a
+        best-effort pre-migration backup the simplicity outweighs
+        atomicity — a crash mid-copy leaves a partial .bak file,
+        which the user can detect by size and discard.
+        """
+        import shutil
+
+        try:
+            bak_main = self.db_path.with_name(f"{self.db_path.name}.pre-migration-v{current_version}.bak")
+            # Copy the main DB file. ``copy2`` preserves mtime/mode.
+            if self.db_path.exists():
+                shutil.copy2(str(self.db_path), str(bak_main))
+            # Copy the -wal and -shm sidecars if they exist (WAL mode).
+            # These hold uncheckpointed pages that would otherwise be
+            # lost — including them makes the backup a complete
+            # restorable snapshot.
+            for sidecar in ("-wal", "-shm"):
+                src = self.db_path.with_name(self.db_path.name + sidecar)
+                if src.exists():
+                    dst = bak_main.with_name(bak_main.name + sidecar)
+                    shutil.copy2(str(src), str(dst))
+            log.info(
+                "[HISTORY_DB] Pre-migration backup created: %s (from schema v%d)",
+                bak_main.name,
+                current_version,
+            )
+        except OSError as e:
+            # Best-effort: do NOT block the migration on backup
+            # failure. The user's history is more valuable than the
+            # backup — a stuck migration would leave the app on the
+            # old schema, which is worse than proceeding without a
+            # backup.
+            log.warning(
+                "[HISTORY_DB] Pre-migration backup FAILED (continuing with migration anyway): %s",
+                e,
+            )
 
     def _maybe_recover_from_corruption(
         self,
@@ -1522,6 +1623,19 @@ class HistoryDB:
         ER-36: also signals + joins the periodic retention thread
         (if :meth:`schedule_periodic_retention` was called) so close()
         fully quiesces the HistoryDB's daemon threads.
+
+        Before sending the shutdown sentinel, submit a final
+        write closure to the writer thread that runs
+        ``PRAGMA wal_checkpoint(TRUNCATE)`` and waits for it. This
+        flushes all WAL pages back to the main DB file and truncates
+        ``history.db-wal`` to zero size, so a clean shutdown leaves no
+        uncheckpointed WAL residue (which can be ~21 MB after 24h of
+        dictation at 30 entries/min × ~500 bytes/entry). Idempotent
+        with the GDPR-export checkpoint at ``service.py:846`` (which
+        is the same PRAGMA, called explicitly before the zip is
+        built). Wrapped in ``contextlib.suppress(sqlite3.Error)`` so
+        a checkpoint failure doesn't block shutdown — the WAL will be
+        checkpointed on the next launch anyway.
         """
         # ER-36: stop the periodic retention thread BEFORE setting
         # _shutdown so its inner loop sees a clean stop_event signal
@@ -1537,6 +1651,19 @@ class HistoryDB:
                 self._all_read_connections.clear()
             return
         self._shutdown.set()
+        # Best-effort wal_checkpoint(TRUNCATE) before shutdown.
+        # Submit a final closure to the writer thread so the checkpoint
+        # runs on the only write-capable connection (the writer's). The
+        # closure is wrapped in ``contextlib.suppress(sqlite3.Error)``
+        # so a checkpoint failure (e.g. DB busy, disk full) doesn't
+        # block shutdown. The ``checkpoint()`` method itself swallows
+        # sqlite3.Error internally (see ``_do_checkpoint`` at the
+        # call site below), so the suppress here is belt-and-braces.
+        # Skip if the writer is already dead (e.g. init failed) —
+        # ``checkpoint()`` returns False in that case.
+        if self._writer_thread.is_alive() and self._init_error is None:
+            with contextlib.suppress(sqlite3.Error, HistoryDBError):
+                self.checkpoint(truncate=True)
         # Enqueue the sentinel — the writer drains remaining items
         # before exiting. PERF-5: the queue is now bounded
         # (maxsize=_WRITE_QUEUE_MAXSIZE). Use a drop-oldest loop so the
@@ -1636,9 +1763,7 @@ class HistoryDB:
             word_count = len(text.split())
             char_count = len(text)
             if self._shutdown.is_set():
-                log.debug(
-                    "[HISTORY_DB] add_transcription submitted after shutdown — dropped."
-                )
+                log.debug("[HISTORY_DB] add_transcription submitted after shutdown — dropped.")
                 return -1
             item = _BatchableInsert(
                 text=text,
@@ -1662,9 +1787,7 @@ class HistoryDB:
                 try:
                     self._queue.put_nowait(item)
                 except queue.Full:
-                    log.warning(
-                        "[HISTORY_DB] Queue still full after drop-oldest — add_transcription dropped."
-                    )
+                    log.warning("[HISTORY_DB] Queue still full after drop-oldest — add_transcription dropped.")
                     return -1
             # Placeholder row_id — callers that check ``> 0`` see success.
             return 1
@@ -1691,6 +1814,9 @@ class HistoryDB:
             if result is None:
                 # Writer shut down — treat as failure.
                 return False
+            if result:
+                # TY-20: invalidate the count cache.
+                self._invalidate_history_count_cache()
             return bool(result)
         except HistoryDBError:
             if raise_on_error:
@@ -1751,6 +1877,9 @@ class HistoryDB:
             result = self._submit_write(_do_restore, wait=True)
             if result is None:
                 return -1
+            if result and result > 0:
+                # TY-20: invalidate the count cache.
+                self._invalidate_history_count_cache()
             return int(result)
         except HistoryDBError:
             if raise_on_error:
@@ -1818,6 +1947,9 @@ class HistoryDB:
             result = self._submit_write(_do_clear_all, wait=True)
             if result is None:
                 return False
+            if result:
+                # TY-20: invalidate the count cache.
+                self._invalidate_history_count_cache()
             return bool(result)
         except HistoryDBError:
             if raise_on_error:
@@ -1983,6 +2115,9 @@ class HistoryDB:
             result = self._submit_write(_do_retention, wait=True)
             if result is None:
                 return 0
+            if result and result > 0:
+                # TY-20: invalidate the count cache.
+                self._invalidate_history_count_cache()
             return int(result)
         except HistoryDBError:
             log.error("[HISTORY] Writer unavailable for apply_retention")
@@ -2089,8 +2224,7 @@ class HistoryDB:
                 # returns False immediately if the lock is held.
                 if not self._retention_lock.acquire(blocking=False):
                     log.debug(
-                        "[HISTORY_DB] periodic retention tick skipped — "
-                        "previous run still active (interval_s=%.1f)",
+                        "[HISTORY_DB] periodic retention tick skipped — previous run still active (interval_s=%.1f)",
                         interval_s,
                     )
                     continue
@@ -2104,12 +2238,8 @@ class HistoryDB:
                     if app is not None:
                         cfg = getattr(app, "config", None)
                         if cfg is not None:
-                            days = int(
-                                getattr(cfg, "history_retention_days", days)
-                            )
-                            max_ent = int(
-                                getattr(cfg, "history_max_entries", max_ent)
-                            )
+                            days = int(getattr(cfg, "history_retention_days", days))
+                            max_ent = int(getattr(cfg, "history_max_entries", max_ent))
                             ret_count = int(
                                 getattr(
                                     cfg,
@@ -2156,8 +2286,7 @@ class HistoryDB:
                 )
             except Exception:
                 log.debug(
-                    "[HISTORY_DB] could not register periodic retention "
-                    "thread with ThreadRegistry",
+                    "[HISTORY_DB] could not register periodic retention thread with ThreadRegistry",
                     exc_info=True,
                 )
 
@@ -2203,20 +2332,37 @@ class HistoryDB:
         ``HistoryDBError`` instead of returning ``[]``. This lets the
         IPC layer distinguish "empty result" from "operation failed"
         and surface a proper error to the renderer.
+
+        TY-8: the ``text`` column is projected to a 500-char preview
+        via ``SUBSTR(text, 1, 500)`` to keep list responses under the
+        1 MiB WS frame cap. Two new fields are added per row:
+        ``text_truncated`` (bool) and ``text_full_length`` (int).
         """
         try:
             conn = self._get_read_conn()
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT * FROM transcriptions
+                SELECT
+                    id,
+                    SUBSTR(text, 1, ?) AS text,
+                    LENGTH(text) AS text_full_length,
+                    timestamp,
+                    duration,
+                    model,
+                    device,
+                    word_count,
+                    char_count,
+                    favorite,
+                    language
+                FROM transcriptions
                 ORDER BY timestamp DESC
                 LIMIT ? OFFSET ?
             """,
-                (limit, offset),
+                (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
             )
             rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+            return [_project_text_row(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to get recent transcriptions: %s", e)
             if raise_on_error:
@@ -2284,31 +2430,52 @@ class HistoryDB:
                 fts_query = _sanitize_fts_query(capped)
                 cursor.execute(
                     """
-                    SELECT t.* FROM transcriptions t
+                    SELECT
+                        t.id,
+                        SUBSTR(t.text, 1, ?) AS text,
+                        LENGTH(t.text) AS text_full_length,
+                        t.timestamp,
+                        t.duration,
+                        t.model,
+                        t.device,
+                        t.word_count,
+                        t.char_count,
+                        t.favorite,
+                        t.language
+                    FROM transcriptions t
                     JOIN transcriptions_fts AS f ON f.rowid = t.id
                     WHERE transcriptions_fts MATCH ?
                     ORDER BY t.timestamp DESC
                     LIMIT ? OFFSET ?
                 """,
-                    (fts_query, limit, offset),
+                    (_HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
                 )
             else:
-                # LIKE fallback: empty queries (pattern "%%" matches
-                # everything) and separator-only queries (literal ``%``
-                # / ``_`` lookups) cannot be served by the FTS5
-                # tokenizer and need the linear-scan path.
+                # LIKE fallback.
                 pattern = _prepare_like_search_pattern(query)
                 cursor.execute(
                     """
-                    SELECT * FROM transcriptions
+                    SELECT
+                        id,
+                        SUBSTR(text, 1, ?) AS text,
+                        LENGTH(text) AS text_full_length,
+                        timestamp,
+                        duration,
+                        model,
+                        device,
+                        word_count,
+                        char_count,
+                        favorite,
+                        language
+                    FROM transcriptions
                     WHERE text LIKE ? ESCAPE '\\'
                     ORDER BY timestamp DESC
                     LIMIT ? OFFSET ?
                 """,
-                    (pattern, limit, offset),
+                    (_HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
                 )
             rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+            return [_project_text_row(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to search transcriptions: %s", e)
             if raise_on_error:
@@ -2331,15 +2498,27 @@ class HistoryDB:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT * FROM transcriptions
+                SELECT
+                    id,
+                    SUBSTR(text, 1, ?) AS text,
+                    LENGTH(text) AS text_full_length,
+                    timestamp,
+                    duration,
+                    model,
+                    device,
+                    word_count,
+                    char_count,
+                    favorite,
+                    language
+                FROM transcriptions
                 WHERE favorite = 1
                 ORDER BY timestamp DESC
                 LIMIT ? OFFSET ?
             """,
-                (limit, offset),
+                (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
             )
             rows = cursor.fetchall()
-            return [dict(row) for row in rows]
+            return [_project_text_row(row) for row in rows]
         except Exception as e:
             log.error("[HISTORY] Failed to get favorites: %s", e)
             if raise_on_error:
@@ -2386,6 +2565,84 @@ class HistoryDB:
             if raise_on_error:
                 raise HistoryDBError(str(e)) from e
             return {"count": 0, "chars": 0, "word_count": 0, "duration": 0}
+
+    # ──────────────────────────────────────────────────────────────
+    # TY-8 / TY-20: on-demand full-text + total-count accessors
+    # ──────────────────────────────────────────────────────────────
+
+    def get_transcription_text(
+        self,
+        transcription_id: int,
+        *,
+        raise_on_error: bool = False,
+    ) -> dict:
+        """TY-8: return the FULL ``text`` of a single transcription row.
+
+        Companion to the 500-char ``text`` preview returned by
+        ``get_recent`` / ``search`` / ``get_favorites``.
+        Returns ``{"id": int, "text": str}`` (empty string if not found).
+        """
+        try:
+            conn = self._get_read_conn()
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT text FROM transcriptions WHERE id = ?",
+                (transcription_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return {"id": transcription_id, "text": ""}
+            return {"id": transcription_id, "text": row[0] or ""}
+        except Exception as e:
+            log.error(
+                "[HISTORY] Failed to get transcription text for id=%s: %s",
+                transcription_id,
+                e,
+            )
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
+            return {"id": transcription_id, "text": ""}
+
+    def get_history_count(self, *, raise_on_error: bool = False) -> int:
+        """TY-20: return the total number of transcription rows.
+
+        ``SELECT COUNT(*) FROM transcriptions`` is O(N) in SQLite.
+        Caching pattern mirrors ``service/model.py:get_model_status``:
+        a 60s TTL with immediate invalidation on
+        delete/clear_all/restore/apply_retention via
+        ``_invalidate_history_count_cache``. Fire-and-forget
+        ``add_transcription`` does NOT invalidate — the count grows
+        by 1 per dictation, and a 60s-stale-by-N count is fine for a
+        "Total Dictations" stat card.
+        """
+        now = time.monotonic()
+        with self._history_count_cache_lock:
+            if (
+                self._history_count_cache is not None
+                and (now - self._history_count_cache_ts) < _HISTORY_COUNT_CACHE_TTL_S
+            ):
+                return self._history_count_cache
+        try:
+            conn = self._get_read_conn()
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM transcriptions")
+            row = cursor.fetchone()
+            count = int(row[0]) if row is not None else 0
+            with self._history_count_cache_lock:
+                self._history_count_cache = count
+                self._history_count_cache_ts = time.monotonic()
+            return count
+        except Exception as e:
+            log.error("[HISTORY] Failed to get history count: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
+            return 0
+
+    def _invalidate_history_count_cache(self) -> None:
+        """TY-20: drop the cached total-count int."""
+        with self._history_count_cache_lock:
+            self._history_count_cache = None
+            self._history_count_cache_ts = 0.0
 
     # ──────────────────────────────────────────────────────────────
     # Maintenance & diagnostics

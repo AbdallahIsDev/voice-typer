@@ -85,7 +85,8 @@ import json
 import logging
 import re
 import threading
-from typing import Any, Callable, TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from voice_typer.server._secrets import redact_api_keys
 
@@ -154,12 +155,12 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         # finish (D-Bus timeout / Keychain unlock) and its result will
         # be discarded.
         raise TimeoutError(
-            f"keyring call {getattr(func, '__name__', repr(func))} did not complete "
-            f"within {_KEYRING_TIMEOUT_SECONDS}s"
+            f"keyring call {getattr(func, '__name__', repr(func))} did not complete within {_KEYRING_TIMEOUT_SECONDS}s"
         )
     if container["exc"] is not None:
         raise container["exc"]
     return container["result"]
+
 
 # ── Constants ────────────────────────────────────────────────────────────
 
@@ -451,9 +452,7 @@ def _probe_keyring() -> tuple[bool, str | None, str | None]:
         # PVT-039: run the probe under a finite timeout so a hung
         # D-Bus / Keychain doesn't stall is_keyring_available() (which
         # runs once at startup and would otherwise block for ~30s).
-        _run_keyring_call(
-            backend.get_password, KEYRING_SERVICE_NAME, "__keyring_probe__"
-        )
+        _run_keyring_call(backend.get_password, KEYRING_SERVICE_NAME, "__keyring_probe__")
     except Exception as e:
         return (
             False,
@@ -601,9 +600,7 @@ def store_secret(provider: str, value: str) -> bool:
         # D-Bus / Keychain on the IPC set_config thread doesn't stall
         # the server. On timeout we fall through to the plaintext
         # fallback (the except branch below).
-        _run_keyring_call(
-            keyring.set_password, KEYRING_SERVICE_NAME, provider, value
-        )
+        _run_keyring_call(keyring.set_password, KEYRING_SERVICE_NAME, provider, value)
         log.info(
             "[CREDENTIAL_STORE] stored secret for provider=%s (len=%d) in keyring backend=%s",
             provider,
@@ -664,10 +661,16 @@ def load_secret(provider: str) -> str | None:
             # startup (load_secret runs once per provider × 5
             # providers). On timeout we fall through to the plaintext
             # fallback below.
-            value = _run_keyring_call(
-                keyring.get_password, KEYRING_SERVICE_NAME, provider
-            )
+            value = _run_keyring_call(keyring.get_password, KEYRING_SERVICE_NAME, provider)
             if value:
+                # DE-XZ-05: emit an INFO audit log so operators can
+                # confirm secrets are being loaded from keyring (not
+                # the plaintext fallback) at startup.
+                log.info(
+                    "[CREDENTIAL_STORE] loaded secret for provider=%s (len=%d) from keyring",
+                    provider,
+                    len(value),
+                )
                 return value
             # keyring returned None — secret not in keychain. Fall
             # through to plaintext fallback in case the user is
@@ -716,9 +719,7 @@ def delete_secret(provider: str, config: Any = None) -> None:
                 # non-fatal — the keyring is presumably already
                 # inaccessible), so a timeout just logs at debug and
                 # moves on.
-                _run_keyring_call(
-                    keyring.delete_password, KEYRING_SERVICE_NAME, provider
-                )
+                _run_keyring_call(keyring.delete_password, KEYRING_SERVICE_NAME, provider)
                 log.info(
                     "[CREDENTIAL_STORE] deleted secret for provider=%s from keyring",
                     provider,
@@ -1145,6 +1146,14 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
 
     migrated = 0
     keyring_ok = is_keyring_available()
+    # XZ-SEC-04: track whether we skipped any REAL plaintext secret
+    # because keyring was unavailable. If so, do NOT set the
+    # ``secrets_migrated`` gate — otherwise the next launch (when
+    # keyring may be available) would skip migration and the plaintext
+    # would persist forever. Instead, record a diagnostic flag
+    # (``secrets_migrated_keyring_was_unavailable``) so operators can
+    # see why migration was deferred.
+    skipped_plaintext = False
 
     for provider, field_name in PROVIDER_TO_CONFIG_FIELD.items():
         value = data.get(field_name, "")
@@ -1162,6 +1171,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
                 provider,
                 len(value),
             )
+            skipped_plaintext = True
             continue
 
         try:
@@ -1174,9 +1184,7 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
             # in `data` (the reference-token assignment is gated on
             # set_password succeeding) and continue with the next
             # provider.
-            _run_keyring_call(
-                keyring.set_password, KEYRING_SERVICE_NAME, provider, value
-            )
+            _run_keyring_call(keyring.set_password, KEYRING_SERVICE_NAME, provider, value)
             log.info(
                 "[CREDENTIAL_STORE] migration: moved provider=%s (len=%d) from config.json to keyring",
                 provider,
@@ -1197,16 +1205,26 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
                 _redact_sensitive(str(e)),
             )
 
-    # Mark as migrated regardless of how many moved — we don't want to
-    # retry on every launch. The only way to re-trigger migration is
-    # for the user to manually add a plaintext key to config.json
-    # (which would re-set the field), but that's an edge case we accept.
+    # XZ-SEC-04: gate ``secrets_migrated`` on whether we actually had
+    # to skip any real plaintext. If keyring was unavailable AND there
+    # was real plaintext to skip, do NOT set the gate — the next launch
+    # must re-attempt migration. If keyring was unavailable but there
+    # was no plaintext to skip (all empty / already reference tokens),
+    # set the gate (nothing to retry).
     #
-    # RACE-001 (HIGH-13): the cross-process lock acquired by the caller
-    # guarantees no concurrent process is mutating config.json while we
-    # write this.  The previous "known limitation" note about the race
-    # window between two app instances is now closed.
-    data["secrets_migrated"] = True
+    # On a successful migration (keyring available, secrets moved),
+    # clear the diagnostic flag if it was set by a prior run.
+    if skipped_plaintext:
+        # Defer migration — record diagnostic so the operator knows.
+        data["secrets_migrated_keyring_was_unavailable"] = True
+        # Do NOT set ``secrets_migrated`` — next launch re-runs.
+    else:
+        # Either keyring was available and migration succeeded, or
+        # keyring was unavailable but there was no plaintext to skip.
+        # Either way, mark as migrated.
+        data["secrets_migrated"] = True
+        # Clear any stale diagnostic flag from a prior unavailable-keyring run.
+        data.pop("secrets_migrated_keyring_was_unavailable", None)
     try:
         _secure_atomic_write(config_file, json.dumps(data, indent=2))
     except Exception as e:

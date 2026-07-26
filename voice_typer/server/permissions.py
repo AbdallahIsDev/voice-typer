@@ -291,6 +291,10 @@ PERMISSION_RETRY_MAX_ATTEMPTS = 5
 # at the stub level — older Python's threading.Timer is not annotated).
 _retry_timer: Any | None = None  # threading.Timer
 _retry_count = 0
+# DE-32: cancellation flag set by ``cancel_permission_retry`` so an
+# in-flight ``_poll`` callback can short-circuit instead of firing the
+# success callback after the user cancelled.
+_cancelled: bool = False
 # RETRY-LOCK-FIX: previously a dead ``_retry_lock_used = False`` flag
 # that was never read or set anywhere. ``schedule_permission_retry`` and
 # ``cancel_permission_retry`` were not lock-guarded — two concurrent
@@ -319,7 +323,7 @@ def schedule_permission_retry(
     After ``max_attempts`` checks, the timer gives up. This prevents
     infinite polling if the user never grants permission.
     """
-    global _retry_timer, _retry_count
+    global _retry_timer, _retry_count, _cancelled
 
     # RETRY-LOCK-FIX: guard the cancel-and-reschedule sequence so two
     # concurrent callers cannot both create orphaned Timer threads.
@@ -328,10 +332,14 @@ def schedule_permission_retry(
         cancel_permission_retry()
 
         _retry_count = 0
+        _cancelled = False
 
         def _poll() -> None:
-            global _retry_count
+            global _retry_count, _cancelled
             _retry_count += 1
+            if _cancelled:
+                # DE-32: cancelled between scheduling and this poll firing — skip
+                return
             state = check_keyboard_permission()
             log.info(
                 "[PERMISSION] Retry %d/%d: state=%s",
@@ -340,6 +348,9 @@ def schedule_permission_retry(
                 state.value,
             )
             if state == PermissionState.GRANTED:
+                if _cancelled:
+                    # DE-32: cancelled between the state check and the callback fire
+                    return
                 log.info("[PERMISSION] Permission granted — invoking callback")
                 try:
                     callback()
@@ -355,6 +366,8 @@ def schedule_permission_retry(
             # Schedule next poll
             global _retry_timer
             with _retry_lock:
+                if _cancelled:
+                    return
                 _retry_timer = threading.Timer(interval, _poll)
                 _retry_timer.daemon = True
                 _retry_timer.start()
@@ -366,8 +379,9 @@ def schedule_permission_retry(
 
 def cancel_permission_retry() -> None:
     """Cancel any pending permission retry timer. Safe to call multiple times."""
-    global _retry_timer, _retry_count
+    global _retry_timer, _retry_count, _cancelled
     with _retry_lock:
+        _cancelled = True
         if _retry_timer is not None:
             with contextlib.suppress(Exception):
                 _retry_timer.cancel()
@@ -651,6 +665,57 @@ def probe_native_listener(
     }
 
 
+# ─── pyobjc availability cache (XV-123) ───────────────────────────────────
+
+
+# XV-123: module-level cache for "is pyobjc importable on this host?".
+# ``None`` means "not yet probed"; a bool is the cached answer. Probing
+# ``from ApplicationServices import AXIsProcessTrustedWithOptions`` on
+# every call to ``_check_macos_microphone`` / ``_check_macos_accessibility``
+# was an O(import-lookup) cost paid on every permission check, which on
+# Linux/CI (where pyobjc isn't installed) added up across hundreds of
+# probe calls. Caching drops the steady-state cost to a single attribute
+# read. Reset via ``reset_pyobjc_cache()`` (tests / hot-reload).
+_PYOBJC_AVAILABLE: bool | None = None
+
+
+def _is_pyobjc_available() -> bool:
+    """XV-123 — probe whether pyobjc (``ApplicationServices``) is importable.
+
+    Cached at module level in :data:`_PYOBJC_AVAILABLE` so repeated calls
+    (e.g. one per permission check) don't re-pay the import-lookup cost.
+    On non-macOS hosts (Linux sandbox, CI, Windows) where pyobjc isn't
+    installed, the first call returns ``False`` and subsequent calls are
+    O(1). On macOS with pyobjc installed, the first call returns ``True``
+    and subsequent calls are O(1).
+
+    Use :func:`reset_pyobjc_cache` to clear the cache (e.g. in tests).
+    """
+    global _PYOBJC_AVAILABLE
+    if _PYOBJC_AVAILABLE is not None:
+        return _PYOBJC_AVAILABLE
+    try:
+        from ApplicationServices import (  # type: ignore[import-not-found]  # noqa: F401
+            AXIsProcessTrustedWithOptions,
+        )
+    except ImportError:
+        _PYOBJC_AVAILABLE = False
+    else:
+        _PYOBJC_AVAILABLE = True
+    return _PYOBJC_AVAILABLE
+
+
+def reset_pyobjc_cache() -> None:
+    """XV-123 — clear the cached pyobjc availability flag.
+
+    The next call to :func:`_is_pyobjc_available` will re-probe. Intended
+    for tests (which monkeypatch the cache to exercise specific branches)
+    and for hot-reload scenarios.
+    """
+    global _PYOBJC_AVAILABLE
+    _PYOBJC_AVAILABLE = None
+
+
 # ─── Microphone permission probe (PVT-061) ────────────────────────────────
 
 
@@ -686,6 +751,36 @@ def check_microphone_permission() -> MicrophonePermissionState:
         return MicrophonePermissionState.UNKNOWN
 
 
+def verify_microphone_accessible() -> None:
+    """DE-4 — pre-flight check that the OS reports microphone permission
+    as granted (or prompt — the OS will show the consent dialog on first
+    PortAudio open in that case).
+
+    Raises :class:`MicrophonePermissionDeniedError` (from
+    :mod:`voice_typer.server.asr_errors`) when the OS reports the
+    permission state as ``DENIED``. The IPC layer ``isinstance``-checks
+    this exception type to surface the permission onboarding UI
+    instead of a generic error toast.
+
+    Does NOT raise on ``GRANTED`` / ``PROMPT`` / ``UNKNOWN``:
+    - ``GRANTED``: nothing to do.
+    - ``PROMPT``: the OS will show the consent dialog on first
+      PortAudio open — pre-empting would double-prompt.
+    - ``UNKNOWN`` (pyobjc missing on macOS, or unsupported platform):
+      defer to the PortAudio-open re-classification path in
+      :mod:`voice_typer.server.recording.recorder` which inspects the
+      actual OSError message at runtime.
+    """
+    state = check_microphone_permission()
+    if state == MicrophonePermissionState.DENIED:
+        from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
+
+        raise MicrophonePermissionDeniedError(
+            "Microphone permission denied by OS",
+            state="denied",
+        )
+
+
 def _check_macos_microphone() -> MicrophonePermissionState:
     """Probe macOS microphone permission via AVFoundation (pyobjc).
 
@@ -698,9 +793,20 @@ def _check_macos_microphone() -> MicrophonePermissionState:
     - ``AVAuthorizationStatusNotDetermined`` (0) → ``PROMPT`` (the OS
       will show the consent dialog on first access)
     """
+    global _PYOBJC_AVAILABLE
+
+    # XV-123: short-circuit when pyobjc isn't installed. Avoids paying
+    # the ``from AVFoundation import ...`` lookup cost on every probe.
+    if not _is_pyobjc_available():
+        return MicrophonePermissionState.UNKNOWN
+
     try:
         from AVFoundation import AVCaptureDevice, AVMediaTypeAudio  # type: ignore[import-not-found]
     except ImportError:
+        # XV-123: pyobjc was cached as available but AVFoundation isn't
+        # importable (partial pyobjc install). Flip the cache so future
+        # probes short-circuit to UNKNOWN without re-attempting the import.
+        _PYOBJC_AVAILABLE = False
         return MicrophonePermissionState.UNKNOWN
 
     try:
@@ -730,6 +836,13 @@ def _check_macos_accessibility() -> PermissionState:
     Falls back to ``UNKNOWN`` if pyobjc isn't installed (we can't probe
     without it).
     """
+    global _PYOBJC_AVAILABLE
+
+    # XV-123: short-circuit when pyobjc isn't installed. Avoids paying
+    # the ``from ApplicationServices import ...`` lookup cost on every probe.
+    if not _is_pyobjc_available():
+        return PermissionState.UNKNOWN
+
     try:
         from ApplicationServices import AXIsProcessTrustedWithOptions
         from CoreFoundation import CFDictionaryCreate
@@ -741,8 +854,12 @@ def _check_macos_accessibility() -> PermissionState:
         trusted = AXIsProcessTrustedWithOptions(options)
         return PermissionState.GRANTED if trusted else PermissionState.DENIED
     except ImportError:
-        # pyobjc not installed — can't probe. The native binary will
-        # emit ERROR on first use and the adapter will prompt the user.
+        # XV-123: pyobjc was cached as available but ApplicationServices /
+        # CoreFoundation aren't importable (partial pyobjc install). Flip
+        # the cache so future probes short-circuit to UNKNOWN, then return
+        # UNKNOWN. The native binary will emit ERROR on first use and the
+        # adapter will prompt the user.
+        _PYOBJC_AVAILABLE = False
         return PermissionState.UNKNOWN
     except Exception:
         log.exception("[PERMISSION] macOS Accessibility check failed")
@@ -794,6 +911,183 @@ def _open_macos_accessibility_settings() -> None:
                 continue
 
     log.error("[PERMISSION] Could not open macOS Accessibility settings")
+
+
+def _open_macos_microphone_settings() -> None:
+    """Open System Settings -> Privacy & Security -> Microphone.
+
+    Mirrors :func:`_open_macos_accessibility_settings` but targets the
+    Microphone pane via the ``Privacy_Microphone`` deep-link marker.
+    Falls back to opening the Security & Privacy prefpane directly
+    (macOS 12 and earlier).
+    """
+    deep_link = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Microphone"
+    try:
+        subprocess.Popen(
+            ["open", deep_link],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        log.info("[PERMISSION] Opened macOS Microphone settings via URL scheme")
+        return
+    except OSError as exc:
+        log.warning(
+            "[PERMISSION] Failed to open via 'open %s': %s - falling back to prefpane path",
+            deep_link,
+            exc,
+        )
+
+    prefpane_paths = [
+        "/System/Library/PreferencePanes/Security.prefPane/",
+        "/System/Library/PreferencePanes/SecurityAndPrivacy.prefPane/",
+    ]
+    for path in prefpane_paths:
+        if os.path.exists(path):
+            try:
+                subprocess.Popen(
+                    ["open", path],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                log.info("[PERMISSION] Opened prefpane: %s", path)
+                return
+            except OSError:
+                continue
+
+    log.error("[PERMISSION] Could not open macOS Microphone settings")
+
+
+def _trigger_macos_microphone_consent_prompt() -> None:
+    """Actively trigger the macOS OS consent dialog for microphone access.
+
+    Uses AVFoundation's
+    ``AVCaptureDevice.requestAccessForMediaType:completionHandler:``
+    to programmatically request microphone access. On a machine without
+    pyobjc / AVFoundation (e.g. dev sandbox, Linux container), this is
+    a silent no-op - the OS will instead prompt on the first
+    PortAudio device open.
+    """
+    import sys as _sys
+
+    av = _sys.modules.get("AVFoundation")
+    if av is None:
+        try:
+            import AVFoundation as av  # type: ignore[import-not-found]
+        except ImportError:
+            log.debug("[PERMISSION] AVFoundation not available - skipping macOS mic consent prompt")
+            return
+
+    try:
+        media_type_sentinel = av.AVMediaTypeAudio()
+        av.AVCaptureDevice.requestAccessForMediaType_completionHandler_(
+            media_type_sentinel,
+            lambda granted: None,
+        )
+        log.info("[PERMISSION] Triggered macOS microphone consent prompt via AVFoundation")
+    except Exception:
+        log.exception("[PERMISSION] Failed to trigger macOS microphone consent prompt")
+
+
+def request_microphone_permission(
+    on_granted: Callable[[], None] | None = None,
+) -> None:
+    """DE-5 - request microphone permission from the OS.
+
+    Mirrors :func:`request_keyboard_permission` but for the microphone.
+    On macOS, opens System Settings -> Privacy -> Microphone AND actively
+    triggers the OS consent dialog via AVFoundation. On Windows / Linux,
+    this is a no-op (Windows doesn't need permission; Linux uses
+    PipeWire/PulseAudio permissions managed outside the app).
+
+    Parameters
+    ----------
+    on_granted:
+        Optional callback invoked when the OS reports the permission
+        was granted (observed via the periodic
+        :func:`schedule_permission_retry` poller). The callback is
+        responsible for restarting the native backend / recorder.
+    """
+    if is_macos():
+        _open_macos_microphone_settings()
+        _trigger_macos_microphone_consent_prompt()
+        if on_granted is not None:
+            schedule_permission_retry(on_granted)
+    elif is_linux():
+        log.debug("[PERMISSION] request_microphone_permission is a no-op on Linux")
+    elif is_windows():
+        log.debug("[PERMISSION] request_microphone_permission is a no-op on Windows")
+    else:
+        log.warning("[PERMISSION] request_microphone_permission: unknown platform")
+
+
+def request_microphone_permission_result(
+    on_granted: Callable[[], None] | None = None,
+) -> dict:
+    """DE-5 - IPC-friendly wrapper around :func:`request_microphone_permission`.
+
+    Mirrors :func:`request_keyboard_permission_result` but for the
+    microphone. Returns a result dict so the renderer can surface
+    success/failure without a follow-up ``onboarding_check_permissions``
+    round-trip.
+
+    Returns
+    -------
+    dict
+        ``{"requested": bool, "platform": str, "error": str | None,
+        "instructions": str | None}`` - see
+        :func:`request_keyboard_permission_result` for field semantics.
+    """
+    try:
+        if is_macos():
+            _open_macos_microphone_settings()
+            _trigger_macos_microphone_consent_prompt()
+            platform_name = "macos"
+            requested = True
+            error = None
+            instructions = (
+                "Open System Settings -> Privacy & Security -> Microphone and "
+                "enable Voice Typer. The consent dialog should appear automatically."
+            )
+        elif is_linux():
+            platform_name = "linux"
+            requested = False
+            error = None
+            instructions = (
+                "Linux uses PipeWire/PulseAudio permissions managed outside "
+                "the app. Ensure your user is in the ``audio`` group "
+                "(``sudo usermod -aG audio $USER && sudo systemctl restart pipewire``)."
+            )
+        elif is_windows():
+            platform_name = "windows"
+            requested = False
+            error = None
+            instructions = (
+                "Windows will prompt for microphone access on first use. "
+                "Open Windows Settings -> Privacy -> Microphone if you need to reset."
+            )
+        else:
+            platform_name = "unknown"
+            requested = False
+            error = "Unsupported platform"
+            instructions = None
+
+        if on_granted is not None and requested:
+            schedule_permission_retry(on_granted)
+    except Exception as exc:
+        log.exception("[PERMISSION] request_microphone_permission_result failed")
+        platform_name = "macos" if is_macos() else "linux" if is_linux() else "windows" if is_windows() else "unknown"
+        requested = False
+        error = str(exc)
+        instructions = None
+
+    return {
+        "requested": requested,
+        "platform": platform_name,
+        "error": error,
+        "instructions": instructions,
+    }
 
 
 # ─── Linux implementation ──────────────────────────────────────────────────

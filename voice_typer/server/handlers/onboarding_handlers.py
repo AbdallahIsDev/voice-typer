@@ -5,8 +5,6 @@ The methods are mixed into :class:`IPCServer` via multiple inheritance and
 access ``self.app`` / ``self.service`` as before.
 """
 
-from typing import Any
-
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
@@ -20,7 +18,7 @@ class OnboardingHandlersMixin(HandlerBase):
     catch-all ``except Exception`` path. See
         ``voice_typer/server/handlers/_base.py`` for the migration plan.
 
-    PVT-G5-095 (FA16, 2026-07-19): five of the onboarding handlers
+    Five of the onboarding handlers
     (``onboarding_set_microphone``, ``onboarding_set_hotkey``,
     ``onboarding_set_model``, ``onboarding_skip``, ``onboarding_apply``)
     delegate the ack-vs-error decision to whether the service's return
@@ -37,7 +35,7 @@ class OnboardingHandlersMixin(HandlerBase):
     ``"error"`` on failure, the handler will silently report ``ack``
     for failures. The contract is documented inline at each call site
     below; a future refactor should switch the service to raising
-    exceptions on failure (preferred per PVT-G5-095) so the catch-all
+    exceptions on failure (preferred) so the catch-all
     ``except Exception`` envelope covers the failure path uniformly.
 
     DE-40: when the service returns an ``{"error": ...}`` dict, the
@@ -58,23 +56,17 @@ class OnboardingHandlersMixin(HandlerBase):
 
     DE-41: ``_handle_onboarding_start``'s ``mark_started()`` failure
     is logged at WARNING with ``exc_info=True`` instead of being
-    swallowed by ``except Exception: pass``. PVT-006 rationale: a
+    swallowed by ``except Exception: pass``. Rationale: a
     missing ``.onboarding_started`` marker lets ``startup_sequence``'s
     auto-heal clobber an in-progress wizard on next restart — that's
     a real correctness risk, not "non-critical" as the prior comment
     claimed.
     """
 
-    # ARCH-REFAC-002 / TASK-10: pyrefly null-safety fix.
-    # These attributes are provided at runtime by the IPCServer host
-    # class via multiple inheritance. Declaring them as ``Any`` here
-    # lets pyrefly type-check the mixin methods in isolation without
-    # requiring a Protocol that would couple the mixin to a specific
-    # service/app implementation (MagicMock fixtures in tests rely on
-    # the loose typing).
-    service: "Any"
-    app: "Any"
-    _send: "Any"
+    # The ``service`` / ``app`` / ``_send`` annotations are
+    # inherited from :class:`HandlerMixinBase` — no per-mixin
+    # re-declaration needed (the duplicate block removed here was one
+    # of four that the R4-F3 centralization refactor missed).
 
     def _handle_onboarding_is_first_run(self, data, resp) -> dict | None:
         """Handle the ``onboarding_is_first_run`` IPC command."""
@@ -90,7 +82,7 @@ class OnboardingHandlersMixin(HandlerBase):
     def _handle_onboarding_start(self, data, resp) -> dict | None:
         """Handle the ``onboarding_start`` IPC command.
 
-        PVT-006: also writes the ``.onboarding_started`` marker so
+        Also writes the ``.onboarding_started`` marker so
         ``startup_sequence.py``'s auto-heal logic can distinguish a
         genuine in-progress first-run wizard from a stale state. See
         :meth:`OnboardingController.mark_started` for the full rationale.
@@ -105,7 +97,7 @@ class OnboardingHandlersMixin(HandlerBase):
 
         DE-41: the ``mark_started()`` marker write is logged at WARNING
         with ``exc_info=True`` on failure (was silently swallowed).
-        PVT-006 rationale: a missing marker lets ``startup_sequence``'s
+        Rationale: a missing marker lets ``startup_sequence``'s
         auto-heal clobber an in-progress wizard on next restart —
         "non-critical" was wrong; this is a real correctness risk.
         """
@@ -127,7 +119,7 @@ class OnboardingHandlersMixin(HandlerBase):
                     code="onboarding_already_complete",
                 )
             result = self.service.onboarding_start()
-            # PVT-006: mark the wizard as started so auto-heal doesn't
+            # Mark the wizard as started so auto-heal doesn't
             # clobber an in-progress first-run flow on restart.
             try:
                 from voice_typer.server.onboarding import OnboardingController
@@ -137,7 +129,7 @@ class OnboardingHandlersMixin(HandlerBase):
                 # DE-41: was ``pass``. Promoted to WARNING + exc_info so
                 # operators see when the auto-heal gate is left
                 # unprotected — a missing marker is the precondition for
-                # the auto-heal-clobbers-in-progress-wizard bug (PVT-006).
+                # the auto-heal-clobbers-in-progress-wizard bug.
                 log.warning(
                     "[IPC] onboarding_start: mark_started failed — auto-heal may clobber in-progress onboarding",
                     exc_info=True,
@@ -206,7 +198,7 @@ class OnboardingHandlersMixin(HandlerBase):
                 return error
             assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_microphone(validated["mic_id"])
-            # PVT-G5-095 / Contract: ``service.onboarding_set_microphone``
+            # Contract: ``service.onboarding_set_microphone``
             # returns ``{"error": "<message>"}`` on failure (e.g. mic
             # not found) and ``{...}`` (no ``"error"`` key) on success.
             # The handler delegates the ack-vs-error decision to that
@@ -230,7 +222,7 @@ class OnboardingHandlersMixin(HandlerBase):
     def _handle_onboarding_set_hotkey(self, data, resp) -> dict | None:
         """Handle the ``onboarding_set_hotkey`` IPC command.
 
-        PVT-017: the default hotkey is ``<caps_lock>`` (matching
+        The default hotkey is ``<caps_lock>`` (matching
         :attr:`OnboardingController.selected_hotkey` and the first entry
         of :attr:`OnboardingController.HOTKEY_PRESETS`). Previously the
         default was ``<f2>``, which silently overrode the backend's
@@ -247,7 +239,7 @@ class OnboardingHandlersMixin(HandlerBase):
                 return error
             assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_hotkey(validated["hotkey"])
-            # PVT-G5-095 / Contract: ``service.onboarding_set_hotkey``
+            # Contract: ``service.onboarding_set_hotkey``
             # returns ``{"error": "<message>"}`` on failure (e.g. hotkey
             # reserved by the OS) and ``{...}`` (no ``"error"`` key) on
             # success. See the class docstring for the full contract.
@@ -279,7 +271,7 @@ class OnboardingHandlersMixin(HandlerBase):
                 return error
             assert validated is not None  # narrowed by the error guard above
             result = self.service.onboarding_set_model(validated["model"])
-            # PVT-G5-095 / Contract: ``service.onboarding_set_model``
+            # Contract: ``service.onboarding_set_model``
             # returns ``{"error": "<message>"}`` on failure (e.g. model
             # not available) and ``{...}`` (no ``"error"`` key) on
             # success. See the class docstring for the full contract.
@@ -302,7 +294,7 @@ class OnboardingHandlersMixin(HandlerBase):
         """Handle the ``onboarding_skip`` IPC command."""
         try:
             result = self.service.onboarding_skip()
-            # PVT-G5-095 / Contract: ``service.onboarding_skip`` returns
+            # Contract: ``service.onboarding_skip`` returns
             # ``{"error": "<message>"}`` on failure and ``{...}`` (no
             # ``"error"`` key) on success. See the class docstring for
             # the full contract.
@@ -325,7 +317,7 @@ class OnboardingHandlersMixin(HandlerBase):
         """Handle the ``onboarding_apply`` IPC command."""
         try:
             result = self.service.onboarding_apply()
-            # PVT-G5-095 / Contract: ``service.onboarding_apply`` returns
+            # Contract: ``service.onboarding_apply`` returns
             # ``{"error": "<message>"}`` on failure (e.g. config write
             # error) and ``{...}`` (no ``"error"`` key) on success. See
             # the class docstring for the full contract.
@@ -409,7 +401,7 @@ class OnboardingHandlersMixin(HandlerBase):
         Permissions step can render the right setup walkthrough
         (macOS Accessibility / Linux ``input`` group + udev rule).
 
-        PVT-052: the ``instructions`` dict now carries i18n *keys*
+        The ``instructions`` dict now carries i18n *keys*
         (``title_key`` / ``steps_keys``) instead of literal English
         strings. The renderer resolves them via ``t(key)``.
 
@@ -432,7 +424,7 @@ class OnboardingHandlersMixin(HandlerBase):
     def _handle_onboarding_request_keyboard_permission(self, data, resp) -> dict | None:
         """Handle the ``onboarding_request_keyboard_permission`` IPC command.
 
-        PVT-057 / Fix 18: opens the OS permission UI so the user can
+        Opens the OS permission UI so the user can
         grant the keyboard-monitoring permission without leaving the
         wizard. Delegates to
         :func:`voice_typer.server.permissions.request_keyboard_permission`,
@@ -462,7 +454,7 @@ class OnboardingHandlersMixin(HandlerBase):
         return resp
 
     def _handle_onboarding_reset(self, data, resp) -> dict | None:
-        """Handle the ``onboarding_reset`` IPC command (PVT-006).
+        """Handle the ``onboarding_reset`` IPC command.
 
         Clears both the ``.onboarding_complete`` and ``.onboarding_started``
         markers so the wizard reappears on next launch. Intended for a

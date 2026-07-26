@@ -64,6 +64,14 @@ class VocabularyManager:
             bundled_path = BUNDLED_CORRECTIONS_PATH
         self._bundled_path = bundled_path
 
+        # Route user-vocabulary persistence through PersistedJSON
+        # so it gets single-slot .bak before overwrite + corrupt-file
+        # quarantine + 0o600 perms (parity with config.py). The bundled
+        # file is read-only and not routed through this helper.
+        from voice_typer.server.secure_file_io import PersistedJSON
+
+        self._user_store = PersistedJSON(self._user_path, default={})
+
         # Active merged data: {category: data}
         self._data: dict[str, Any] = {}
         # SEC-012: guards read-modify-write mutations of self._data (add/remove/
@@ -88,6 +96,7 @@ class VocabularyManager:
             self._compiled_patterns = {}
         if category not in self._compiled_patterns:
             import re as _re
+
             with self._lock:
                 entries = self._data.get(category, [])
                 if not isinstance(entries, list):
@@ -152,19 +161,22 @@ class VocabularyManager:
             return {}
 
     def _load_user(self) -> dict:
-        """Load the user vocabulary file."""
-        if not self._user_path.exists():
-            return {}
-        try:
-            # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
-            from voice_typer.server.config import _secure_read_text
+        """Load the user vocabulary file.
 
-            raw = _secure_read_text(self._user_path, encoding="utf-8")
-            data = json.loads(raw)
-            return self._normalize_data(data)
-        except Exception as exc:
-            log.warning("[VOCAB] Failed to load user vocab: %s", exc)
+        Persistence is routed through :class:`PersistedJSON`
+        (``self._user_store``). On parse failure (corrupt JSON, OSError,
+        symlink-TOCTOU raise), the helper quarantines the corrupt file
+        to ``<path>.corrupt-<ts>`` for forensic recovery and returns
+        the configured default (``{}``). The previous implementation
+        silently fell back to defaults with a single WARNING log line
+        — no quarantine — so the next ``_save_user`` would atomically
+        overwrite the corrupt file with defaults, destroying any chance
+        of forensic recovery. Mirrors ``config.py:1744-1763``.
+        """
+        data = self._user_store.load()
+        if not isinstance(data, dict):
             return {}
+        return self._normalize_data(data)
 
     @staticmethod
     def _normalize_data(data: dict) -> dict:
@@ -198,6 +210,18 @@ class VocabularyManager:
     def _save_user(self) -> None:
         """Save only user vocabulary data (not bundled) to the user file.
 
+        Persistence is routed through :class:`PersistedJSON`
+        (``self._user_store``), which provides atomic write + single-slot
+        ``.bak`` before overwrite + 0o600 perms (parity with
+        ``config.py:1163-1182``). The Windows ``PermissionError`` retry
+        loop is preserved (ARCH-044): ``Path.replace`` is not atomic on
+        Windows when the destination is open by another process (e.g.
+        an editor or a cloud-sync client watching the file). The shared
+        ``_secure_atomic_write`` itself is already atomic — the retries
+        here are purely for the ``PermissionError`` race on Windows
+        where the destination is locked by an editor / cloud-sync
+        client.
+
         ARCH-044: ``Path.replace`` is not atomic on Windows when the
         destination is open by another process (e.g. an editor or a
         cloud-sync client watching the file). We now:
@@ -216,24 +240,19 @@ class VocabularyManager:
         state. We now RAISE ``OSError`` after the retry loop is
         exhausted so callers can roll back their in-memory mutation
         and the IPC layer can surface the failure as an error
-        envelope. The shared ``_secure_atomic_write`` itself is
-        already atomic — the retries here are purely for the
-        ``PermissionError`` race on Windows where the destination is
-        locked by an editor / cloud-sync client.
+        envelope.
         """
         import time as _time
-
-        from voice_typer.server.config import _secure_atomic_write
 
         max_retries = 3
         # M-63: track the final failure so we can raise after the
         # retry loop instead of silently returning.
         final_exc: Exception | None = None
-        self._user_path.parent.mkdir(parents=True, exist_ok=True)
-        content = json.dumps(self._data, indent=2, ensure_ascii=False)
         for attempt in range(max_retries):
             try:
-                _secure_atomic_write(self._user_path, content)
+                # PersistedJSON.save handles atomic write + .bak
+                # + 0o600 perms + parent-dir creation in one call.
+                self._user_store.save(self._data)
                 log.debug("[VOCAB] Saved user vocabulary")
                 return
             except PermissionError as exc:

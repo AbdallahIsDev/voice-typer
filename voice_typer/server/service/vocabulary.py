@@ -6,10 +6,12 @@ Extracted verbatim from the original ``service.py`` god class
 
 import logging
 
+from voice_typer.server.service._base import ServiceMixinBase
+
 log = logging.getLogger(__name__)
 
 
-class VocabularyMixin:
+class VocabularyMixin(ServiceMixinBase):
     """Vocabulary-domain service methods.
 
     Delegates to :class:`voice_typer.server.vocabulary.VocabularyManager`

@@ -104,8 +104,20 @@ log = logging.getLogger(__name__)
 # ``ClipboardManager`` reads via ``_cb._Controller`` / ``_cb._Key``.
 # ``_ensure_pynput_imported()`` (in .linux) writes these attributes on
 # first use.
-_Key: Any = None  # type: ignore[assignment]
-_Controller: Any = None  # type: ignore[assignment]
+# YJ-FIX-B2: ``_Key`` / ``_Controller`` are lazily-populated pynput
+# symbols (set by ``_ensure_pynput_imported()`` in .linux on first
+# use). YJ-22 narrowed these from ``Any`` to ``type | None``, which
+# broke 6 downstream ``_cb._Key.cmd`` / ``_cb._Key.shift`` /
+# ``_cb._Key.insert`` / ``_cb._Key.ctrl`` accesses in
+# :mod:`voice_typer.server.clipboard.manager` (because ``type`` and
+# ``None`` don't expose pynput's ``Key`` enum members). Reverted to
+# ``Any`` — the original pre-YJ-22 annotation. The assignment-ignore
+# markers YJ-22 removed are NOT re-added (per the YJ-FIX-B2 mandate:
+# no new suppression markers). ``Any`` accepts ``None`` without a
+# marker, and downstream ``_Key.cmd`` accesses type-check cleanly
+# because ``Any`` has every attribute.
+_Key: Any = None
+_Controller: Any = None
 
 
 # ─── Re-exports from submodules ──────────────────────────────────────

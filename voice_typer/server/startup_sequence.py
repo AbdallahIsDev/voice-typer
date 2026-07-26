@@ -72,7 +72,7 @@ class StartupSequence:
         begun shutdown.
         """
         app = self._app
-        log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model…")
+        log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model...")
 
         # ── CRASH DIAGNOSTICS: check for leftover crash reports ──────
         # The VEH handler (crash_handler.py) writes crash_diagnostics.<PID>.txt

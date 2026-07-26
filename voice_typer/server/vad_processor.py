@@ -72,6 +72,15 @@ class VadState(enum.Enum):
 # AUDIO-014: default VAD thresholds (overridden by auto-calibration)
 DEFAULT_VAD_SPEECH_THRESHOLD_DB = -40.0  # dBFS — above this → speech candidate
 DEFAULT_VAD_SILENCE_THRESHOLD_DB = -50.0  # dBFS — below this → silence candidate
+# R18-F14: hard floors on the user-configurable thresholds. The
+# setters below clamp ``speech_threshold_db`` / ``silence_threshold_db``
+# to these values so a malformed config (or an auto-calibration
+# artifact on a noisy mic) can't push speech detection into the
+# noise floor (which would cause false starts on every ambient sound)
+# or invert the speech/silence hysteresis. Exposed at module scope so
+# tests can pin them and downstream callers can import them.
+MIN_VAD_SPEECH_THRESHOLD_DB = -55.0  # dBFS — speech floor
+MIN_VAD_SILENCE_THRESHOLD_DB = -65.0  # dBFS — silence floor (must be below speech floor)
 DEFAULT_VAD_CALIBRATION_DURATION = 1.5  # seconds of ambient noise to sample
 DEFAULT_VAD_SPEECH_FRAMES = 3  # consecutive loud frames to declare SPEECH
 DEFAULT_VAD_SILENCE_FRAMES = 15  # consecutive quiet frames to declare SILENCE (hangover)
@@ -442,9 +451,16 @@ class VadProcessor:
             # perf_counter call + one comparison.
             now = time.perf_counter()
             if now - self._vad_enabled_cache_ts >= self.VAD_ENABLED_CACHE_TTL_S:
-                self._vad_enabled_cached = self.compute_vad_enabled(self._config)
+                # ZR-37 (item 2): reassign the narrowed local ``cached``
+                # rather than re-reading ``self._vad_enabled_cached`` so
+                # pyrefly's null-safety check tracks the narrowed
+                # ``bool`` type through the return (an attribute access
+                # on ``self`` is treated as ``bool | None`` since the
+                # checker can't rule out a concurrent mutation).
+                cached = self.compute_vad_enabled(self._config)
+                self._vad_enabled_cached = cached
                 self._vad_enabled_cache_ts = now
-            return self._vad_enabled_cached
+            return cached
         # First access (cache cold): compute + cache.
         self._vad_enabled_cached = self.compute_vad_enabled(self._config)
         self._vad_enabled_cache_ts = time.perf_counter()
@@ -555,7 +571,10 @@ class VadProcessor:
 
     @speech_threshold_db.setter
     def speech_threshold_db(self, value: float) -> None:
-        self._speech_threshold_db = value
+        # R18-F14: clamp to the speech threshold floor so a noisy
+        # auto-calibration (or a malformed config) can't push speech
+        # detection into the noise floor.
+        self._speech_threshold_db = max(float(value), MIN_VAD_SPEECH_THRESHOLD_DB)
 
     @property
     def silence_threshold_db(self) -> float:
@@ -563,7 +582,8 @@ class VadProcessor:
 
     @silence_threshold_db.setter
     def silence_threshold_db(self, value: float) -> None:
-        self._silence_threshold_db = value
+        # R18-F14: clamp to the silence threshold floor.
+        self._silence_threshold_db = max(float(value), MIN_VAD_SILENCE_THRESHOLD_DB)
 
     @property
     def speech_frames(self) -> int:

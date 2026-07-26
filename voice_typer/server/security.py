@@ -1,18 +1,26 @@
 """Security utilities for Voice Typer.
 
-SEC-001: Restart token verification (prevents mutex bypass).
 SEC-002: Secure file reading with symlink protection.
 SEC-009: PII redaction filter for log messages.
 SEC-audit-005: Model integrity verification (SHA-256 hash checking).
+
+Historical note: the SEC-001 restart-token machinery
+(``generate_restart_token`` / ``verify_restart_token`` /
+``consume_restart_token``) that previously lived here was dead code —
+imported into ``app.py`` but never called in production. The
+``single_instance.py`` enforcement path relies on the old process
+releasing the mutex/flock before the new process acquires it, not on a
+time-limited token file. The orphan functions (and their dedicated test
+file ``tests/test_restart_token.py``) have been removed; the
+``VOICE_TYPER_RESTART`` env var is still honored as a hint that a
+restart is in progress, but no token file is created or verified.
 """
 
 import hashlib
 import hmac
 import json
 import logging
-import os
 import re
-import secrets
 import traceback as _traceback
 from pathlib import Path
 from typing import Any
@@ -20,76 +28,6 @@ from typing import Any
 from voice_typer.server._secrets import redact_secret, redact_url
 
 log = logging.getLogger(__name__)
-
-
-# ─── SEC-001: Restart Token Verification ─────────────────────────────────
-
-
-def generate_restart_token() -> str:
-    """Generate a random restart token and persist it for verification.
-
-    The token is written to a file in the config directory so that
-    ``_verify_restart_token()`` can validate it on the next process
-    start.  Uses ``secrets.token_hex`` for cryptographic randomness.
-    """
-    token = secrets.token_hex(16)
-    try:
-        from voice_typer.server.config import _config_dir, _secure_atomic_write
-
-        token_path = _config_dir() / ".restart_token"
-        _secure_atomic_write(token_path, token)
-    except Exception as exc:
-        # SEC-001: fail-closed by design (do not surface the error to a
-        # potential attacker). DEBUG is invisible at default log levels but
-        # available to operators running with --debug / LOG_LEVEL=DEBUG so
-        # a permissions issue or misconfigured config dir is diagnosable.
-        log.debug("generate_restart_token failed: %s", exc)
-    return token
-
-
-def verify_restart_token() -> bool:
-    """Verify that ``VOICE_TYPER_RESTART`` contains a valid token.
-
-    Reads the stored token from the config directory and performs a
-    constant-time comparison with the environment variable value.
-    Returns ``False`` if:
-      - the env var is not set
-      - the token file doesn't exist
-      - the tokens don't match (including timing-safe comparison)
-      - any I/O error occurs
-    """
-    env_val = os.environ.get("VOICE_TYPER_RESTART", "")
-    if not env_val:
-        return False
-    try:
-        from voice_typer.server.config import _config_dir, _secure_read_text
-
-        token_path = _config_dir() / ".restart_token"
-        if not token_path.exists():
-            return False
-        # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
-        stored = _secure_read_text(token_path, encoding="utf-8").strip()
-        # Constant-time comparison to prevent timing attacks
-        return hmac.compare_digest(stored, env_val)
-    except Exception as exc:
-        # SEC-001: fail-closed by design (do not reveal *why* to a
-        # potential attacker). DEBUG is invisible at default log levels but
-        # available to operators running with --debug / LOG_LEVEL=DEBUG so
-        # a misconfigured config dir, permissions issue on .restart_token,
-        # or corrupted token file is distinguishable from a wrong token.
-        log.debug("verify_restart_token failed: %s", exc)
-        return False
-
-
-def consume_restart_token() -> None:
-    """Delete the restart token file after successful verification."""
-    try:
-        from voice_typer.server.config import _config_dir
-
-        (_config_dir() / ".restart_token").unlink(missing_ok=True)
-    except Exception as exc:
-        # SEC-001: fail-closed by design. DEBUG only — see verify_restart_token.
-        log.debug("consume_restart_token failed: %s", exc)
 
 
 # ─── SEC-009: PII Redaction Filter ──────────────────────────────────────
@@ -177,10 +115,10 @@ class PIIRedactionFilter(logging.Filter):
       - Email addresses → ``[EMAIL]``
       - Phone numbers (US-style 7-digit) → ``[PHONE]``
       - Phone numbers (international, E.164-ish) → ``[PHONE]``
-        (G4-M-26: covers ``+1 (415) 555-2671``, ``+44 20 7946 0958``,
+        (covers ``+1 (415) 555-2671``, ``+44 20 7946 0958``,
         ``+86 10 1234 5678``; requires at least 7 trailing digits)
       - IBAN (international bank account number) → ``[IBAN]``
-        (G4-M-26: ``GB82WEST12345698765432``,
+        (``GB82WEST12345698765432``,
         ``DE89370400440532013000``; 2-letter country + 2 check digits
         + 10-30 BBAN chars)
       - SSN-like patterns → ``[SSN]``
@@ -192,7 +130,7 @@ class PIIRedactionFilter(logging.Filter):
         stripped, host preserved
         (via :func:`voice_typer.server._secrets.redact_url`)
 
-    G4-M-26 limitations (NOT redacted — too high a false-positive rate
+    Known limitations (NOT redacted — too high a false-positive rate
     on ordinary numeric text):
 
       - **US ABA routing numbers** (9-digit ``021000021`` form): the
@@ -224,7 +162,7 @@ class PIIRedactionFilter(logging.Filter):
         # IBAN (international bank account number): 2-letter country
         # code, 2 check digits, then 10-30 BBAN chars (alnum).
         # Examples: ``GB82WEST12345698765432``, ``DE89370400440532013000``.
-        # G4-M-26: covers all 80+ IBAN-using jurisdictions; the
+        # covers all 80+ IBAN-using jurisdictions; the
         # country-code + check-digit prefix keeps false positives
         # negligible. MUST run before phone patterns so the digit
         # portion of an IBAN isn't mis-matched as a phone number.
@@ -234,7 +172,7 @@ class PIIRedactionFilter(logging.Filter):
         # International phone numbers (E.164-ish and common domestic
         # formats with country code): ``+1 (415) 555-2671``,
         # ``+44 20 7946 0958``, ``+86 10 1234 5678``.
-        # G4-M-26: added because the US-only pattern above missed the
+        # added because the US-only pattern above missed the
         # common ``+<country-code> <subscriber>`` form used by every
         # non-US locale. The regex requires a ``+`` prefix to
         # distinguish from bare digit sequences (e.g. US ABA routing
@@ -286,13 +224,13 @@ def redact_pii(text: str) -> str:
       - Email addresses → [EMAIL]
       - Phone numbers (US-style 7-digit) → [PHONE]
       - Phone numbers (international, E.164-ish) → [PHONE]
-        (G4-M-26: ``+1 (415) 555-2671``, ``+44 20 7946 0958``)
+        (``+1 (415) 555-2671``, ``+44 20 7946 0958``)
       - IBAN (international bank account number) → [IBAN]
-        (G4-M-26: ``GB82WEST12345698765432``)
+        (``GB82WEST12345698765432``)
       - SSN-like patterns → [SSN]
       - Credit-card-like patterns → [CC]
 
-    G4-M-26 limitations (NOT matched): US ABA routing numbers
+    Known limitations (NOT matched): US ABA routing numbers
     (9-digit form, too high a false-positive rate on ordinary numeric
     text — see ``PIIRedactionFilter`` docstring for details).
 
@@ -611,7 +549,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
 # compiled patterns. Use one of those two APIs for any new call site.
 
 
-# ─── G4-H-03: PIIRedactionFilter on logging.lastResort ────────────────────
+# ─── PIIRedactionFilter on logging.lastResort ───────────────────────
 #
 # By default Python's logging module uses a "last resort" handler — a
 # StreamHandler writing to ``sys.stderr`` at WARNING level — when a
@@ -621,7 +559,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
 # own handlers, so their WARNING/ERROR output flows through
 # ``logging.lastResort`` directly to stderr.
 #
-# Pre-G4-H-03, ``logging.lastResort`` had NO PII-redaction filter
+# Pre-fix, ``logging.lastResort`` had NO PII-redaction filter
 # attached. A buggy keyring backend that logged a credential value, or
 # a urllib3 exception whose message echoed a request URL with an API
 # key in the query string, would land in stderr (and any captured
@@ -643,14 +581,14 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
 
 
 def install_lastresort_pii_filter() -> logging.Handler:
-    """G4-H-03: install PIIRedactionFilter on ``logging.lastResort``.
+    """Install PIIRedactionFilter on ``logging.lastResort``.
 
     Replaces Python's default last-resort handler (a bare
     :class:`logging.StreamHandler` writing to ``sys.stderr`` at
     WARNING level) with an equivalent handler that carries a
     :class:`PIIRedactionFilter`. This ensures third-party logger
     output (``keyring``, ``urllib3``, ``websockets``) is PII-redacted
-    before reaching stderr, closing the gap documented in G4-H-03.
+    before reaching stderr, closing the gap documented above.
 
     Returns
     -------

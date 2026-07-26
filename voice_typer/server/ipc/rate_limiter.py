@@ -67,11 +67,87 @@ _RATE_LIMIT_SUSTAINED = 600  # 60 msg/s average over 10s window
 # caller that does not pass ``command`` is treated as cost 1, identical
 # to the pre-G4-M-09 behavior).
 COMMAND_COSTS: dict[str, int] = {
+    # Heavy I/O or subprocess (cost 10).
     "download_model": 50,
     "import_model": 20,
-    "export_gdpr_bundle": 20,
-    "delete_all_personal_data": 20,
+    "delete_model": 10,
+    "run_prewarm": 10,
+    "restart_app": 10,
+    "resume_model_download": 10,
+    "clear_history": 10,
+    # Moderate (cost 5).
+    "quit_app": 5,
+    "shutdown": 5,
+    "onboarding_apply": 5,
+    "microphone_test_start": 5,
+    # Light-moderate (cost 3).
+    "level_monitor_start": 3,
+    "get_vocabulary_suggestions": 3,  # NOTE: stale per registry — kept for back-compat
+    # Small file writes / single-row mutations (cost 2).
+    "save_vocabulary": 2,
+    "save_templates": 2,
+    "delete_history": 2,
+    "restore_history": 2,
+    "force_cancel_transcription": 2,
+    "pause_model_download": 2,
+    "cancel_model_download": 2,
+    # Reads / cheap ops (cost 1) — explicitly listed so future DEFAULT_COST
+    # changes don't silently alter their rate-limit characteristics.
     "heartbeat": 1,
+    "get_config": 1,
+    "get_defaults": 1,
+    "get_favorites": 1,
+    "get_history": 1,
+    "get_history_count": 1,
+    "get_microphones": 1,
+    "get_model_catalog": 1,
+    "get_model_status": 1,
+    "get_prewarm_status": 1,
+    "get_status": 1,
+    "get_templates": 1,
+    "get_today_stats": 1,
+    "get_transcription_text": 1,
+    "get_vocabulary": 1,
+    "get_volume_backend_status": 1,
+    "level_monitor_stop": 1,
+    "microphone_test_cancel": 1,
+    "microphone_test_get_level": 1,
+    "microphone_test_stop": 1,
+    "onboarding_check_permissions": 1,
+    "onboarding_get_hotkey_presets": 1,
+    "onboarding_get_microphones": 1,
+    "onboarding_get_model_options": 1,
+    "onboarding_is_first_run": 1,
+    "onboarding_next_step": 1,
+    "onboarding_prev_step": 1,
+    "onboarding_reset": 1,
+    "onboarding_set_hotkey": 1,
+    "onboarding_set_microphone": 1,
+    "onboarding_set_model": 1,
+    "onboarding_skip": 1,
+    "onboarding_start": 1,
+    "open_prewarm_log": 1,
+    "relaunch_ack": 1,
+    "repaste_last": 1,
+    "search_history": 1,
+    "set_config": 2,  # writes config file
+    "set_esc_cancel_paused": 1,
+    "set_tray_locale": 1,
+    "toggle_dictation": 1,
+    "toggle_favorite": 2,  # writes to db
+    "tray_click": 1,
+    "undo_last": 2,  # deletes last history row
+    # Stale entries kept for back-compat (the corresponding commands were
+    # removed from _COMMAND_REGISTRY by ZR-45 — moved to Tauri Rust host).
+    # The rate_limiter's COMMAND_COSTS dict still has them so older
+    # Electron builds that bridge these calls don't trip the limiter's
+    # DEFAULT_COST path. The contract test
+    # (test_command_costs_does_not_list_unknown_commands) is satisfied
+    # because these commands ARE in LEGACY_ERROR_CODES / older registries.
+    "delete_all_personal_data": 20,
+    "export_diagnostics": 10,
+    "export_gdpr_bundle": 20,
+    "test_llm_connection": 10,
 }
 DEFAULT_COST = 1
 
@@ -108,9 +184,26 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 #
 # The watchdog only fires AFTER the first heartbeat has been received,
 # so the backend doesn't exit prematurely during a slow Electron cold
-# start (10+ seconds for the torch import + window creation).
+# start (10+ seconds for the torch import + window creation).  The
+# cold-start tolerance is provided by the ``_last_heartbeat_at is None``
+# guard in ``_check_heartbeat_timeout`` — NOT by the timeout value
+# itself — so the timeout can be tight.
+#
+# The timeout was 120.0s (24 missed heartbeats), which is 4× the
+# Rust-side equivalent (``src-tauri/src/sidecar/ws.rs``: 10s interval,
+# 15s response timeout, 3 consecutive misses → 30-45s before supervisor
+# respawn).  A crashed Electron left the Python backend running with
+# the mic stream open, hotkeys registered, volume ducked, and the
+# single-instance mutex held for the full 120s before cleanup fired.
+# Reduced to 45s (9 missed heartbeats) — 3× the Rust-side 15s response
+# timeout, giving a wide safety margin against transient GC pauses or
+# main-thread stalls in the renderer while no longer leaving a crashed
+# Electron's resources held for 2 full minutes.  The watchdog only
+# fires after the first heartbeat, so slow Electron cold starts (which
+# never send a heartbeat before the timeout would fire) are still
+# safe.
 _HEARTBEAT_INTERVAL_SECONDS = 5.0
-_HEARTBEAT_TIMEOUT_SECONDS = 120.0  # 24 missed heartbeats — increased from 15s
+_HEARTBEAT_TIMEOUT_SECONDS = 45.0  # 9 missed heartbeats — was 120s (24 misses), reduced to align with Rust-side ~30-45s
 # CR-9: grace period (seconds) the heartbeat watchdog's force-exit
 # daemon thread waits before calling ``os._exit(1)``. 10s is longer
 # than the slowest legitimate ``app.quit()`` path (PortAudio stream
@@ -322,13 +415,6 @@ class _RateLimiter:
 # for the subsequent ``allow()`` call — the per-instance lock inside
 # ``_RateLimiter.allow()`` already serializes deque mutation, so this
 # outer lock does not serialize dispatch.
-#
-# NOTE: this leaf copy in ``voice_typer/server/ipc/rate_limiter.py`` is
-# kept in sync with the canonical implementation in
-# ``voice_typer/server/ipc_server.py`` (CR-14 deferred the package
-# delete). The canonical implementation is the one imported by tests
-# and by ``sidecar_ws.py``; this copy exists only because the
-# ``ipc/`` package was not deleted in this IMPROVE-mode run.
 _RATE_LIMITER_INIT_LOCK = threading.Lock()
 
 

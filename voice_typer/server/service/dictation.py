@@ -9,6 +9,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from voice_typer.server._secrets import redact_secret, redact_url
+from voice_typer.server.service._base import ServiceMixinBase
 
 if TYPE_CHECKING:
     # WR-14: ``ForceCancelResult`` is a TypedDict defined in
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class DictationMixin:
+class DictationMixin(ServiceMixinBase):
     """Dictation-domain service methods.
 
     Thin wrappers over ``self._app`` that start/stop/undo dictation

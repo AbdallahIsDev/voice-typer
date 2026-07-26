@@ -8,10 +8,12 @@ mic-test recording lifecycle, and continuous level monitoring.
 import contextlib
 import logging
 
+from voice_typer.server.service._base import ServiceMixinBase
+
 log = logging.getLogger(__name__)
 
 
-class MicrophoneTestMixin:
+class MicrophoneTestMixin(ServiceMixinBase):
     """Microphone / level-monitor service methods.
 
     Wraps :mod:`voice_typer.server.level_monitor` and
@@ -54,11 +56,7 @@ class MicrophoneTestMixin:
         now = time.monotonic()
         # PERF-FIX-1: serve from cache if fresher than 5s.
         # SVC-8: skip the cache check when force=True.
-        if (
-            not force
-            and self._microphones_cache is not None
-            and (now - self._microphones_cache_ts) < 5.0
-        ):
+        if not force and self._microphones_cache is not None and (now - self._microphones_cache_ts) < 5.0:
             return self._microphones_cache
 
         try:

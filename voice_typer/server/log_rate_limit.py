@@ -83,7 +83,7 @@ bug gets noticed.
 _SUMMARY_INTERVAL_SECONDS = 60.0
 """GT-66: wall-clock seconds between INFO-level suppression summaries."""
 
-_RATE_LIMIT_COUNTS: "OrderedDict[tuple[str, str], int]" = OrderedDict()
+_RATE_LIMIT_COUNTS: OrderedDict[tuple[str, str], int] = OrderedDict()
 """Map of ``(logger.name, key)`` -> number of times the path has fired.
 
 Implemented as :class:`collections.OrderedDict` so :meth:`move_to_end`
@@ -92,14 +92,22 @@ gives O(1) LRU semantics without a separate access-ordered structure
 :data:`_RATE_LIMIT_LOCK`.
 """
 
-_RATE_LIMIT_LAST_SUMMARY: dict[tuple[str, str], float] = {}
-"""GT-66: per-key ``time.monotonic()`` of the most recent INFO summary.
+_RATE_LIMIT_NEXT_SUMMARY_DEADLINE: dict[tuple[str, str], float] = {}
+"""Per-key ``time.monotonic()`` deadline for the next INFO summary.
 
 A key is inserted into this dict on the *first* suppressed occurrence
 (so the first 60-second window starts ticking from the second call,
 not from process boot -- otherwise a single suppressed occurrence at
 process start + 61s of silence would emit an empty summary).  Never
 read or written without holding :data:`_RATE_LIMIT_LOCK`.
+
+The cadence is *deadline-based*, not "first call after threshold".
+The deadline is computed as ``seed_time + 60s`` and on each fire it is
+advanced by ``60s`` (NOT reset to ``now + 60s``).  This means the
+deadline is anchored to the original seed time and advances on a fixed
+60s grid regardless of when fires actually happen, so a fire at
+``t=61`` produces a next deadline of ``t=120`` (not ``t=121``).  This
+keeps the cadence stable across slow callers and avoids drift.
 """
 
 _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY: dict[tuple[str, str], int] = {}
@@ -126,7 +134,7 @@ def reset() -> None:
     """Clear all rate-limit counters -- called by tests for isolation."""
     with _RATE_LIMIT_LOCK:
         _RATE_LIMIT_COUNTS.clear()
-        _RATE_LIMIT_LAST_SUMMARY.clear()
+        _RATE_LIMIT_NEXT_SUMMARY_DEADLINE.clear()
         _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY.clear()
 
 
@@ -265,34 +273,48 @@ def log_rate_limited(
     # conditions surface at INFO level (the file-handler default) — not
     # just at DEBUG (which is only visible when VOICE_TYPER_DEBUG=1).
     # Tracked per ``counter_key`` so each error class gets its own
-    # summary cadence.  The first suppressed occurrence seeds the timer
-    # (``_RATE_LIMIT_LAST_SUMMARY`` is set to ``now``); once
-    # ``_SUMMARY_INTERVAL_SECONDS`` of wall-clock has elapsed AND at
+    # summary cadence.  The first suppressed occurrence seeds the
+    # deadline (``_RATE_LIMIT_NEXT_SUMMARY_DEADLINE`` is set to
+    # ``now + 60s``); once ``now >= next_summary_deadline`` AND at
     # least one occurrence has fired since the last summary, emit an
     # INFO line through the module logger and reset the per-key delta.
+    #
+    # PI-25: the deadline advances by ``_SUMMARY_INTERVAL_SECONDS`` from
+    # the PREVIOUS deadline on each fire (NOT reset to ``now + 60s``).
+    # This anchors the cadence to a fixed 60s grid rooted at the seed
+    # time, so a fire at ``t=61`` (deadline was 60) advances the next
+    # deadline to ``t=120`` (not ``t=121``).  Without this, a slow
+    # caller that only checks in once per minute would have its deadline
+    # drift forward by up to a minute per fire, eventually skipping
+    # windows entirely.
     now = time.monotonic()
     summary_delta = 0
     summary_key: str | None = None
     with _RATE_LIMIT_LOCK:
         delta = _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY.get(counter_key, 0) + 1
         _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY[counter_key] = delta
-        last_summary = _RATE_LIMIT_LAST_SUMMARY.get(counter_key)
-        if last_summary is None:
+        next_deadline = _RATE_LIMIT_NEXT_SUMMARY_DEADLINE.get(counter_key)
+        if next_deadline is None:
             # Seed the timer on the first suppressed occurrence so the
             # first 60-second window starts ticking from now.
-            _RATE_LIMIT_LAST_SUMMARY[counter_key] = now
-        elif (now - last_summary) >= _SUMMARY_INTERVAL_SECONDS and delta > 0:
+            _RATE_LIMIT_NEXT_SUMMARY_DEADLINE[counter_key] = now + _SUMMARY_INTERVAL_SECONDS
+        elif now >= next_deadline and delta > 0:
             summary_delta = delta
             summary_key = counter_key[1]
-            _RATE_LIMIT_LAST_SUMMARY[counter_key] = now
+            # Advance the deadline by 60s from the PREVIOUS deadline
+            # (NOT ``now + 60s``) so the cadence stays anchored to the
+            # original seed-time grid and doesn't drift.
+            _RATE_LIMIT_NEXT_SUMMARY_DEADLINE[counter_key] = next_deadline + _SUMMARY_INTERVAL_SECONDS
             _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY[counter_key] = 0
 
     if summary_key is not None:
         # Log outside the lock to avoid holding it during I/O.  Route
         # through the module logger so the summary is always visible
-        # regardless of the caller's logger level.
+        # regardless of the caller's logger level.  Use %s (not %r) so
+        # the summary_key is not repr()'d into inner quotes -- makes the
+        # line grep-friendly.
         _log.info(
-            "[rate-limit] %d suppressed occurrences of %r in last 60s",
+            "[rate-limit] %d suppressed occurrences of %s in last 60s",
             summary_delta,
             summary_key,
         )

@@ -40,6 +40,7 @@ from urllib.request import (
     HTTPHandler,
     HTTPRedirectHandler,
     HTTPSHandler,
+    Request,
     build_opener,
 )
 
@@ -73,7 +74,15 @@ class _NoRedirectHandler(HTTPRedirectHandler):
     for the contract.
     """
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+    def redirect_request(
+        self,
+        req: Request,
+        fp,
+        code: int,
+        msg: str,
+        headers,
+        newurl: str,
+    ) -> Request | None:
         # Raise HTTPError so the caller's ``except HTTPError`` branch
         # catches it. The error message includes the redirect target
         # (newurl) so the user / operator can diagnose a misconfigured
@@ -126,7 +135,19 @@ class _HttpsOnlyHTTPHandler(HTTPHandler):
 
     _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
-    def http_open(self, req):  # type: ignore[override]
+    def http_open(self, req: Request) -> object:  # type: ignore[override]
+        # YJ-FIX-B2 (Issue 2f): the override suppression marker above
+        # is load-bearing. The parent ``HTTPHandler.http_open`` returns
+        # ``HTTPResponse``; ``object`` is a supertype, not a valid
+        # covariant override (return types are covariant, so a subtype
+        # can return a MORE specific type, not a less specific one).
+        # At runtime this is fine — the override delegates to
+        # ``super().http_open(req)`` for loopback hosts (returning an
+        # ``HTTPResponse``) and raises ``URLError`` for non-loopback
+        # (no return value escapes the function). The ``object`` return
+        # annotation is preserved so callers don't couple to the
+        # concrete ``HTTPResponse`` type; the suppression marker
+        # silences pyrefly's invalid-override diagnostic.
         # Determine the host from the request URL. ``req.full_url`` is
         # the full URL the caller passed to ``opener.open(url, ...)``.
         try:

@@ -7,10 +7,12 @@ and expose the history-export / clear / search / favorites surface.
 
 import logging
 
+from voice_typer.server.service._base import ServiceMixinBase
+
 log = logging.getLogger(__name__)
 
 
-class HistoryMixin:
+class HistoryMixin(ServiceMixinBase):
     """History-domain service methods.
 
     All methods delegate to ``self._app.history_db`` and pass
@@ -85,3 +87,26 @@ class HistoryMixin:
         ERR-013: raise_on_error=True — see ``get_history``.
         """
         return self._app.history_db.get_favorites(limit, offset, raise_on_error=True)
+
+    # ── on-demand full-text + total-count accessors ──
+
+    def get_history_count(self) -> int:
+        """Return the total number of transcription rows.
+
+        Wraps :meth:`HistoryDB.get_history_count` (TTL-cached for 60s
+        to avoid a full ``COUNT(*)`` scan on every Dashboard refresh).
+        ERR-013: raise_on_error=True so the IPC layer can distinguish
+        "zero rows" from "DB error".
+        """
+        return self._app.history_db.get_history_count(raise_on_error=True)
+
+    def get_transcription_text(self, transcription_id: int) -> dict:
+        """Return the FULL text of a single transcription row.
+
+        Wraps :meth:`HistoryDB.get_transcription_text`. Companion to
+        the 500-char ``text`` preview returned by ``get_history`` /
+        ``get_favorites`` / ``search_history`` — the renderer fetches
+        the full text on demand when the user expands a History row.
+        ERR-013: raise_on_error=True — see ``get_history``.
+        """
+        return self._app.history_db.get_transcription_text(transcription_id, raise_on_error=True)

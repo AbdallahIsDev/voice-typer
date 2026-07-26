@@ -8,6 +8,8 @@ Extracted verbatim from the original ``service.py`` god class
 import logging
 from typing import TYPE_CHECKING
 
+from voice_typer.server.service._base import ServiceMixinBase
+
 if TYPE_CHECKING:
     # T1-F9: imported only under ``TYPE_CHECKING`` so the annotation
     # ``-> "TemplateManager"`` on :meth:`_template_manager` resolves at
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-class TemplateMixin:
+class TemplateMixin(ServiceMixinBase):
     """Template-domain service methods.
 
     Wraps the persistent :class:`TemplateManager` so the renderer's

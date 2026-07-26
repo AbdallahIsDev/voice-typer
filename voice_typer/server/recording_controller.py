@@ -26,6 +26,7 @@ import os
 import threading
 from typing import Any
 
+from voice_typer.server import i18n
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.streaming import StreamingConfig, StreamingTranscriptionSession
 from voice_typer.server.tray_types import AppState
@@ -379,15 +380,19 @@ class RecordingController:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             self._cancel_streaming_session()
             app.tray.set_state(AppState.ERROR, "Recording failed")
+            # Use the i18n key (no {error}
+            # interpolation — exception text can leak absolute paths,
+            # device names, hostnames). The full exception is logged
+            # above via log.exception().
             app.tray.notify(
                 APP_NAME,
-                f"Could not start recording.\n{e}\n\nCheck voice-typer.log for traceback.",
+                i18n.t("notify.recording_controller.start_failed"),
             )
             try:
                 from voice_typer.server import event_bus
 
                 event_bus.publish(
-                    {"type": "error", "data": {"message": f"Could not start recording: {e}", "kind": "recording_start"}}
+                    {"type": "error", "data": {"message": "Could not start recording", "kind": "recording_start"}}
                 )
             except Exception:
                 pass
@@ -462,7 +467,7 @@ class RecordingController:
 
         try:
             audio = app.recorder.stop()
-        except Exception as e:
+        except Exception:
             log.exception("[DICTATION] Failed to stop recording")
             self._cancel_streaming_session()
             app._restore_volume()
@@ -470,7 +475,15 @@ class RecordingController:
             # NEW-UX-018: critical — bypass the notification toggle
             # (dictation failed, the user must be told even if they
             # disabled normal notifications).
-            app.tray.notify_safety(APP_NAME, f"Could not stop recording.\n{e}")
+            # Use the i18n key (resolved via the
+            # server-side i18n module) so the tray tooltip + OS
+            # notification render in the user's selected UI locale.
+            # DE-51: no {error} interpolation — exception text can leak
+            # sensitive paths. The full exception is logged above.
+            app.tray.notify_safety(
+                APP_NAME,
+                i18n.t("notify.recording_controller.stop_failed"),
+            )
             app._busy_event.set()  # busy = False
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
             return

@@ -1,5 +1,7 @@
 """Whisper transcription engine using faster-whisper."""
 
+from __future__ import annotations
+
 import contextlib
 import logging
 import os
@@ -9,15 +11,31 @@ import threading
 import time
 from typing import Any, Protocol, runtime_checkable
 
-import numpy as np
-
+# PERF-COLDSTART-001: numpy is ~250-335ms cumulative on cold start
+# and is only touched on the first transcription call (seconds after
+# dictation begins). Defer the real import to first attribute access via
+# the same ``lazy_module`` proxy already used for ``sounddevice`` and
+# ``pystray``. The proxy re-resolves ``sys.modules`` on every access, so
+# production ``np.array(...)`` calls and test
+# ``monkeypatch.setattr(np, "array", ...)`` both work unchanged.
+# ``from __future__ import annotations`` above is REQUIRED so the
+# ``np.ndarray`` annotations below stay as unevaluated strings (PEP 563);
+# otherwise the module-level def of ``transcribe`` would resolve
+# ``np.ndarray`` via the proxy and trigger the eager import we are
+# trying to avoid. NOTE: the local ``import numpy as np`` inside
+# ``_generate_probe_audio`` / ``_warmup_engine`` (lines ~478, ~570) is
+# intentional — those are hot paths that want to avoid the per-call
+# proxy ``_resolve()`` overhead. They shadow the lazy proxy for the
+# duration of the function.
+from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.asr_errors import ConsentRequiredError
+
+np = lazy_module("numpy")
 
 # EC-FIX-8: shared ASR helpers now live in ``asr_utils`` (canonical source).
 # The re-exports below preserve backward compatibility with tests and
 # service.py that import these names from ``transcription``.
 from voice_typer.server.asr_utils import (  # noqa: F401
-    _MODEL_SIZE_MB,
     _check_disk_space_for_download,
     _download_with_retry,
     cleanup_hf_cache_dir,
@@ -38,10 +56,10 @@ class TranscriberProtocol(Protocol):
 
     def load(self, progress_callback=None) -> None: ...
 
-    def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str: ...
+    def transcribe(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str: ...
 
     def transcribe_with_fallback(
-        self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None
+        self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None
     ) -> str: ...
 
     def unload(self) -> None: ...
@@ -229,7 +247,7 @@ class TranscriptionEngine:
         # consent check at line ~528 did ``getattr(self.config, ...)``
         # — which raised ``AttributeError`` on every uncached model
         # download attempt (the most common production path).
-        #
+
         # ``config`` may be None when constructed by callers that
         # don't have access to the app's Config (e.g. service.py
         # benchmark path, or test stubs).  In that case, the consent
@@ -625,7 +643,7 @@ class TranscriptionEngine:
 
             whisper_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
-            # G4-M-39 (Session 7 — Group 4): use the shared
+            # Use the shared
             # ``ALLOW_PATTERNS_WHISPER`` list from ``_model_integrity``
             # instead of an inline duplicate.  Whisper-family repos ship
             # ``model.bin`` (CTranslate2 native format) which is kept
@@ -642,7 +660,7 @@ class TranscriptionEngine:
 
             if progress_callback:
                 progress_callback(f"Checking model cache for '{model_size}'...")
-            # G4-CR-06 (Session 7 — Group 4): verify integrity on cache
+            # Verify integrity on cache
             # HIT too.  The previous code only verified after a fresh
             # download; a cache hit (model already on disk) skipped
             # verification entirely — an attacker with write access to
@@ -671,7 +689,7 @@ class TranscriptionEngine:
                     )
                     if progress_callback:
                         progress_callback("Cached model failed integrity check; re-downloading.")
-                    # G4-CR-06 / cache cleanup on verify failure: remove
+                    # Cache cleanup on verify failure: remove
                     # the offending cache dir so the re-download doesn't
                     # get the same tampered files served from local cache.
                     # EC-FIX-8: delegate to the canonical ``cleanup_hf_cache_dir``
@@ -688,7 +706,7 @@ class TranscriptionEngine:
             # NEW-PRIV-005: require explicit consent before downloading
             # from HuggingFace.  The cache check above is local-only
             # and doesn't need consent; the actual download does.
-            #
+
             # Defensive: ``self.config`` may be None when the engine
             # is constructed without a Config reference (e.g. test
             # stubs, benchmark path).  In that case, treat consent as
@@ -750,7 +768,7 @@ class TranscriptionEngine:
                 )
                 if progress_callback:
                     progress_callback("Download completed but integrity check failed")
-                # G4-CR-06 / cache cleanup on verify failure: remove
+                # Cache cleanup on verify failure: remove
                 # the offending cache dir so the next load doesn't
                 # re-discover the tampered snapshot.
                 # EC-FIX-8: delegate to the canonical ``cleanup_hf_cache_dir``
@@ -777,7 +795,7 @@ class TranscriptionEngine:
         except Exception as exc:
             log.warning("[MODEL] Pre-download failed (WhisperModel will retry): %s", exc)
 
-    def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
+    def transcribe(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
         NEW-PERF-010: ``audio_stats`` is an optional pre-computed
@@ -788,7 +806,7 @@ class TranscriptionEngine:
         with self._lock:
             return self._transcribe_unlocked(audio, audio_stats=audio_stats)
 
-    def _transcribe_unlocked(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
+    def _transcribe_unlocked(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str:
         if self._model is None:
             raise RuntimeError("Model not loaded. Call load() first.")
 
@@ -913,7 +931,7 @@ class TranscriptionEngine:
     def transcribe_with_fallback(
         self,
         audio: np.ndarray,
-        audio_stats: "tuple[float, float, float] | None" = None,
+        audio_stats: tuple[float, float, float] | None = None,
     ) -> str:
         """Transcribe with automatic CPU fallback on GPU runtime errors.
 
@@ -941,7 +959,7 @@ class TranscriptionEngine:
     def _transcribe_with_fallback_unlocked(
         self,
         audio: np.ndarray,
-        audio_stats: "tuple[float, float, float] | None" = None,
+        audio_stats: tuple[float, float, float] | None = None,
     ) -> str:
         try:
             return self._transcribe_unlocked(audio, audio_stats=audio_stats)

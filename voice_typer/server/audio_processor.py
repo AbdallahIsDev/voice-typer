@@ -19,10 +19,23 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-import numpy as np
-
+# TY-2 (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
+# and is NOT touched during ``VoiceTyperApp.__init__`` or ``start()`` — it
+# is only needed on the first ``process_chunk`` call (>=1s after dictation
+# begins). Defer the real import to first attribute access via the same
+# ``lazy_module`` proxy already used for ``sounddevice`` and ``pystray``.
+# The proxy re-resolves ``sys.modules`` on every access, so production
+# ``np.array(...)`` calls and test ``monkeypatch.setattr(np, "array", ...)``
+# both work unchanged. ``from __future__ import annotations`` above is
+# REQUIRED so the ``np.ndarray`` annotations below stay as unevaluated
+# strings (PEP 563); otherwise the module-level def of ``process_chunk``
+# would resolve ``np.ndarray`` via the proxy and trigger the eager import
+# we are trying to avoid.
+from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.audio_chain_builder import build_chain
 from voice_typer.server.audio_filters import FilterChain
+
+np = lazy_module("numpy")
 
 # CRIT-6 / AUDIO-CHAIN-1: lazy-imported resampler to avoid pulling scipy
 # into every test that constructs an AudioProcessor.  The first
@@ -104,9 +117,7 @@ def _config_signature(config: object, sample_rate: int) -> tuple:
     apply its own default -- the signature just needs to be stable,
     not exhaustive).
     """
-    return (sample_rate,) + tuple(
-        getattr(config, name, None) for name in _CONFIG_SIGNATURE_FIELDS
-    )
+    return (sample_rate,) + tuple(getattr(config, name, None) for name in _CONFIG_SIGNATURE_FIELDS)
 
 
 class AudioProcessor:
@@ -256,8 +267,7 @@ class AudioProcessor:
             return self._process_chunk_impl(chunk, input_sample_rate)
         except Exception:
             log.exception(
-                "[AUDIO-PROC] process_chunk raised on RT thread -- "
-                "returning original chunk unfiltered (input_sr=%s)",
+                "[AUDIO-PROC] process_chunk raised on RT thread -- returning original chunk unfiltered (input_sr=%s)",
                 input_sample_rate,
             )
             try:
@@ -318,9 +328,7 @@ class AudioProcessor:
                     self._sample_rate,
                     exc_info=True,
                 )
-                self._resample_warned_pairs.add(
-                    (int(input_sample_rate), int(self._sample_rate))
-                )
+                self._resample_warned_pairs.add((int(input_sample_rate), int(self._sample_rate)))
 
         # PVT-056: run the quality check on the PRE-filter chunk (the
         # resampled input). The default Limiter (ceiling_db=-6.0 ~ 0.50

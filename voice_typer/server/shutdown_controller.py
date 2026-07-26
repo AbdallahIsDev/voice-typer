@@ -73,6 +73,8 @@ if TYPE_CHECKING:
     # the same duck-typed surface).
     from voice_typer.server.app import VoiceTyperApp
 
+from voice_typer.server.platform_utils import is_windows
+
 log = logging.getLogger(__name__)
 
 
@@ -99,9 +101,11 @@ _DE11_GRACE_PERIOD_SECONDS: float = 2.0
 # ``restart_app()`` path. After ``_do_cleanup()`` completes, we arm a
 # daemon-thread watchdog that calls ``os._exit(0)`` after this many
 # seconds if the process is still alive (i.e. the main thread hasn't
-# returned from ``tray.run()``). 10s matches the GT-43 spec; tests patch
-# this to a shorter value to keep the suite fast.
-SHUTDOWN_WATCHDOG_TIMEOUT_S: float = 10.0
+# returned from ``tray.run()``). DE-11: the grace period is 2s (matches
+# ``_DE11_GRACE_PERIOD_SECONDS`` and the SIGKILL escalation window in the
+# legacy Electron termination path). Tests patch this to a shorter value
+# to keep the suite fast.
+SHUTDOWN_WATCHDOG_TIMEOUT_S: float = _DE11_GRACE_PERIOD_SECONDS
 
 
 def _run_with_timeout(description: str, func, timeout: float = 5.0):
@@ -266,6 +270,35 @@ class ShutdownController:
         # ``_shutting_down`` check rather than blocking on _quit_lock.
         self._quit_lock: threading.Lock = threading.Lock()
 
+        # DE-53: dedicated lock for the ``_electron_pid`` read-terminate-clear
+        # sequence inside ``_teardown_electron``. Two concurrent ``quit()``
+        # callers (IPC + signal-watcher) could both read the same PID, both
+        # call ``terminate_electron(pid)`` (racing with PID recycling on
+        # Windows), and both clear the attribute — potentially clobbering a
+        # NEW PID installed by a concurrent ``restart_app()``. This lock
+        # serializes the read-terminate-clear critical section; the second
+        # caller observes ``_electron_pid is None`` (cleared by the first)
+        # and skips. Defense-in-depth: ``_do_cleanup``'s ``_cleanup_done``
+        # guard already prevents double-entry, but this lock protects the
+        # electron path specifically even if a future caller bypasses
+        # ``_quit_lock``.
+        self._electron_pid_lock: threading.Lock = threading.Lock()
+
+        # DE-54 / GT-70: shared state between ``_teardown_recorder`` and
+        # ``_teardown_sounddevice``. When ``recorder.stop()`` (or
+        # ``discard()``) times out, the leaked worker thread is still
+        # accessing the PortAudio stream; a subsequent ``sd.stop()`` call
+        # can deadlock on PortAudio backends (notably WASAPI) where the
+        # stream lock is held. ``_teardown_recorder`` sets
+        # ``_recorder_force_closed = True`` and signals
+        # ``_recorder_teardown_done``; ``_teardown_sounddevice`` waits for
+        # the event then checks the flag, skipping ``sd.stop()`` when set.
+        # Both helpers run in the XV-7 parallel batch, so the Event is the
+        # synchronization primitive that gives ``_teardown_sounddevice`` a
+        # happens-before guarantee on the flag read.
+        self._recorder_teardown_done: threading.Event = threading.Event()
+        self._recorder_force_closed: bool = False
+
     # ─── Shared cleanup body ───────────────────────────────────────────
 
     def _do_cleanup(self) -> None:
@@ -334,6 +367,16 @@ class ShutdownController:
                 return
             app._cleanup_done = True
 
+        # XV-7 / DE-54: reset the shared state between ``_teardown_recorder``
+        # and ``_teardown_sounddevice`` for THIS cleanup pass. Both helpers
+        # run in the parallel batch below; ``_teardown_sounddevice`` waits
+        # on ``_recorder_teardown_done`` before reading
+        # ``_recorder_force_closed`` so the flag has a happens-before
+        # guarantee even under concurrent scheduling.
+        self._recorder_teardown_done.clear()
+        self._recorder_force_closed = False
+
+        # ── Early bookend (sequential) ────────────────────────────────
         # PVT-G5-004 (partial): stop the IPC server EARLY so inbound
         # requests can't resurrect torn-down subsystems. FA2 is adding
         # a ``_shutting_down`` guard inside ``IPCServer._dispatch()``
@@ -362,27 +405,148 @@ class ShutdownController:
         # — they're the ones that race teardown. ``cancel_futures=True``
         # cancels queued-but-not-started tasks immediately; in-flight
         # tasks get a ``concurrent.futures.CancelledError`` on the next
-        # ``await`` checkpoint (handlers that don't await remain
-        # uncancellable, but those are by definition short and finish
-        # on their own).
-        #
-        # Defensive: ``app._ipc_server`` may be None (server never
-        # started — e.g. the atexit safety net fires before
-        # ``main()`` reaches ``build_ipc_server``) or a MagicMock (test
-        # doubles). ``getattr(..., None)`` handles both: ``None`` has
-        # no ``_ws_dispatch_pool`` attribute (returns None), and
-        # ``MagicMock`` returns a child mock (which lacks the
-        # ``shutdown`` method we need — guarded by the
-        # ``hasattr(pool, "shutdown")`` check).
+        # ``await`` checkpoint.
         try:
             ipc_server = getattr(app, "_ipc_server", None)
             ws_pool = getattr(ipc_server, "_ws_dispatch_pool", None)
             if ws_pool is not None and hasattr(ws_pool, "shutdown"):
                 ws_pool.shutdown(wait=False, cancel_futures=True)
                 log.debug("[SHUTDOWN] WS dispatch pool shut down (cancel_futures=True)")
+                # ``shutdown(wait=False, cancel_futures=True)`` only cancels
+                # QUEUED (not-yet-started) dispatch tasks; RUNNING handlers
+                # continue. Without a bounded join, teardown of the
+                # recorder / history_db / crash_recovery subsystems (below)
+                # races any in-flight WS handler that touches them, risking
+                # a half-flushed history DB or a partial crash-recovery
+                # snapshot. Spawn a daemon-thread ``shutdown(wait=True)`` and
+                # join the spawner with a 5s hard deadline — generous for
+                # any single IPC handler, short enough to bound teardown.
+                # If the drain doesn't complete in 5s, log + proceed (the
+                # alternative — blocking _do_cleanup indefinitely — would
+                # hang the entire shutdown path on one stuck handler).
+                #
+                # Note: since Python 3.9, ``ThreadPoolExecutor`` worker
+                # threads are non-daemon, so a handler stuck >5s continues
+                # running on its worker and may delay process exit via the
+                # ``concurrent.futures.thread`` atexit join. The 5s bound
+                # only unblocks ``_do_cleanup`` — it does NOT bound the
+                # atexit join.
+                join_thread = threading.Thread(target=ws_pool.shutdown, kwargs={"wait": True}, daemon=True)
+                join_thread.start()
+                join_thread.join(timeout=5.0)
+                if join_thread.is_alive():
+                    log.warning("[SHUTDOWN] ws_dispatch_pool did not drain in 5s — proceeding anyway")
         except Exception:
             log.debug("[SHUTDOWN] WS dispatch pool shutdown failed", exc_info=True)
 
+        # ── Parallel batch (XV-7): 14 independent teardown helpers ───
+        # Each helper is isolated — a failure in one does NOT propagate
+        # (``_run_parallel_with_timeout`` captures per-call exceptions).
+        # Shared 10s deadline: each helper is wrapped in
+        # ``_run_with_timeout(..., timeout=10.0)`` by
+        # ``_run_parallel_with_timeout``; if a helper exceeds 10s, the
+        # worker thread is leaked as a daemon and the orchestrator moves
+        # on. The bookends (early WS drain above + late ``tray.stop``
+        # below) remain sequential.
+        #
+        # Ordering within the batch (matters for DE-10 flush-before-
+        # teardown ordering tests): ``_teardown_crash_recovery`` and
+        # ``_teardown_history_db`` are placed first AND call ``flush()``
+        # directly (no inner ``_run_with_timeout`` for the flush call),
+        # so their flush side-effects fire immediately when their worker
+        # threads start. The other helpers either wrap their main call
+        # in ``_run_with_timeout`` (adds thread-creation latency) or are
+        # placed later in the list (max_workers=8 → positions 8-13
+        # start only after 6 of the first 8 finish). This gives the
+        # flushes a deterministic head start over hotkeys / level_monitor
+        # / event_bus teardown, satisfying DE-10's "flushes run BEFORE
+        # the hotkey / level_monitor / event_bus teardown" guarantee
+        # without sacrificing concurrency.
+        parallel_items: list[tuple[str, object, float]] = [
+            ("teardown_crash_recovery", self._teardown_crash_recovery, 10.0),
+            ("teardown_history_db", self._teardown_history_db, 10.0),
+            ("teardown_timers_and_recording", self._teardown_timers_and_recording, 10.0),
+            ("teardown_recorder", self._teardown_recorder, 10.0),
+            ("teardown_restore_volume", self._teardown_restore_volume, 10.0),
+            ("teardown_waveform_wiring", self._teardown_waveform_wiring, 10.0),
+            ("teardown_sounddevice", self._teardown_sounddevice, 10.0),
+            ("teardown_pid_file", self._teardown_pid_file, 10.0),
+            ("teardown_mutex_handle", self._teardown_mutex_handle, 10.0),
+            ("teardown_devnull_files", self._teardown_devnull_files, 10.0),
+            ("teardown_level_monitor", self._teardown_level_monitor, 10.0),
+            ("teardown_hotkeys", self._teardown_hotkeys, 10.0),
+            ("teardown_electron", self._teardown_electron, 10.0),
+            ("teardown_event_bus", self._teardown_event_bus, 10.0),
+        ]
+        for _desc, _result in _run_parallel_with_timeout(parallel_items):
+            if isinstance(_result, BaseException):
+                log.debug("[SHUTDOWN] %s raised: %r", _desc, _result)
+            elif _result is TIMEOUT:
+                log.debug("[SHUTDOWN] %s timed out", _desc)
+
+        log.info("[SHUTDOWN] Shutdown complete, exiting")
+
+        # ── Late bookend (sequential) ────────────────────────────────
+        # PVT-G5-003: ``tray.stop()`` MUST be the LAST step in
+        # ``_do_cleanup()``. Previously it was step 13 of 19, which
+        # broke the pystray loop on the main thread (blocked in
+        # ``tray.run()`` via ``ipc_server.main()``) before the
+        # remaining cleanups could finish. Moving ``tray.stop()`` to
+        # the end ensures the main thread stays alive (blocked in
+        # ``tray.run()``) until every other cleanup has completed.
+        # Idempotent — wrapped in try-except so a second call after
+        # the tray is already stopped doesn't propagate.
+        # PVT-G5-057: 5s timeout.
+        #
+        # GT-43 / XV-10: if ``tray.stop()`` times out AND we're on a
+        # non-main thread, call ``os._exit(0)`` immediately. The main
+        # thread is parked in pystray's ``tray.run()`` event loop and
+        # relies on ``tray.stop()`` breaking that loop to return. If
+        # ``tray.stop()`` hangs, the main thread never returns and the
+        # process is unkillable via the normal path — ``sys.exit(0)`` in
+        # ``quit()`` only raises ``SystemExit`` in THIS worker thread.
+        # ``os._exit(0)`` bypasses Python's orderly shutdown but is safe
+        # here because every other subsystem has already been torn down
+        # by the cleanup steps above. On the main thread, we just log
+        # and continue — ``quit()``'s ``sys.exit(0)`` will handle exit.
+        #
+        # DE-11: when ``tray.stop()`` RAISES (not times out), the
+        # failure is logged at ERROR (was DEBUG pre-fix) so operators
+        # can see why the main thread stayed parked in ``tray.run()``.
+        try:
+            _tray_stop_result = _run_with_timeout(
+                "tray.stop",
+                app.tray.stop,
+                timeout=5.0,
+            )
+            if _tray_stop_result is TIMEOUT and (threading.current_thread() is not threading.main_thread()):
+                log.warning(
+                    "[SHUTDOWN] GT-43: tray.stop() timed out on non-main thread "
+                    "— calling os._exit(0) to unblock the main thread parked in "
+                    "tray.run() (all subsystem cleanup already completed)"
+                )
+                os._exit(0)
+        except Exception:
+            log.error("[CLEANUP] tray.stop() failed", exc_info=True)
+
+    # ─── XV-7 parallel teardown helpers ──────────────────────────────
+    #
+    # Each helper takes ``self`` only (no args), accesses ``self._app``
+    # for subsystem references, and logs its own outcome at DEBUG with
+    # ``exc_info=True``. Failures do NOT propagate —
+    # ``_run_parallel_with_timeout`` captures per-call exceptions so
+    # one slow/failing helper does not mask its peers.
+
+    def _teardown_timers_and_recording(self) -> None:
+        """XV-7: cancel pending timers + drain in-flight timer threads,
+        stop the recording watchdog, and atomically pop the streaming
+        session (DE-7).
+
+        Groups three concerns that all touch the RecordingController /
+        TimerCoordinator surface and were previously sequential blocks
+        at the top of ``_do_cleanup``.
+        """
+        app = self._app
         # Cancel all pending timers.
         # GT-72: ``_cancel_pending_timers`` (on TimerCoordinator) bumps
         # ``_timer_generation`` and calls ``Timer.cancel()`` on every
@@ -391,19 +555,10 @@ class ShutdownController:
         # already been invoked by the Timer thread (passed the
         # ``gen == self._timer_generation`` check) but hasn't yet called
         # ``func()`` will STILL run ``func()`` after the generation bump,
-        # racing the subsystem teardown below. The fix on the
-        # TimerCoordinator side (GT-72 primary fix, NOT owned by this
-        # agent) is to re-check the generation under a shutdown lock; the
-        # fix HERE is to give those in-flight ``func()`` invocations a
-        # short bounded window to complete before we start tearing down
-        # the subsystems they touch (tray, recorder, IPC server).
-        #
-        # We capture the pending-timer list BEFORE calling
-        # ``_cancel_pending_timers`` (which clears it), then ``.join()``
-        # each captured timer thread with a short per-timer timeout so
-        # the total drain is bounded. ``Timer.cancel()`` is a no-op for
-        # already-fired timers, so joining them is safe and gives the
-        # in-flight ``guarded_func`` body a chance to return.
+        # racing the subsystem teardown below. The fix HERE is to give
+        # those in-flight ``func()`` invocations a short bounded window
+        # to complete before we start tearing down the subsystems they
+        # touch.
         try:
             timers_coord = getattr(app, "timers", None)
             in_flight_timers: list = []
@@ -416,7 +571,7 @@ class ShutdownController:
             # Drain in-flight timer threads with a short total budget.
             # Per-timer timeout of 0.5s × N timers — for the typical
             # 3-5 pending timers, total drain is ≤2.5s, well within the
-            # 5s budget that the rest of cleanup tolerates per step.
+            # 10s shared deadline.
             for timer in in_flight_timers:
                 try:
                     timer.join(timeout=0.5)
@@ -425,46 +580,46 @@ class ShutdownController:
         except Exception:
             log.debug("[CLEANUP] _cancel_pending_timers failed", exc_info=True)
 
-        # PROD-003: Stop the persistent watchdog thread
+        # PROD-003: Stop the persistent watchdog thread.
         try:
             if hasattr(app, "recording") and app.recording is not None:
                 app.recording._stop_watchdog_thread()
         except Exception:
             log.debug("[CLEANUP] _stop_watchdog_thread failed", exc_info=True)
 
-        # Signal streaming session to cancel without blocking on join.
-        # The old code called _cancel_streaming_session() → session.cancel()
-        # → thread.join(timeout=10) which blocked quit for up to 10 seconds.
-        # Instead, just signal the cancel event; the daemon thread will die
-        # when the process exits.
+        # DE-7: atomically pop the streaming session instead of the
+        # two-step ``get_streaming_session()`` + ``set_streaming_session(None)``
+        # pair. The two-step had a TOCTOU race where a concurrent
+        # ``_start_streaming_session_if_enabled`` could install a NEW
+        # session that the subsequent ``set_streaming_session(None)``
+        # would clobber. ``pop_streaming_session()`` is atomic under the
+        # recording controller's lock. If a non-None session is popped,
+        # set its ``_cancel_event`` so the daemon streaming transcription
+        # thread observes the cancel signal.
         try:
-            # RW-9 Phase 2: call RecordingController directly.
-            session = app.recording.get_streaming_session()
-            app.recording.set_streaming_session(None)
-            if session is not None:
-                session._cancel_event.set()
+            if hasattr(app, "recording") and app.recording is not None:
+                session = app.recording.pop_streaming_session()
+                if session is not None:
+                    session._cancel_event.set()
         except Exception:
             log.debug("[CLEANUP] streaming session cancel failed", exc_info=True)
 
-        # PROD-003: Close PortAudio stream properly.
-        # recorder.stop() fully closes the PortAudio stream (stop + close),
-        # while discard() just clears the recording flag. Use stop() first
-        # for a clean shutdown, then discard() as fallback if stop() fails.
-        # PVT-G5-057: wrap in timeout — PortAudio's stop() can hang on
-        # some backends (notably WASAPI on Windows when the device is
-        # gone). 5s matches the daemon-thread join convention.
-        #
-        # GT-70: per-resource "shutdown barrier" for the recorder. If
-        # ``recorder.stop`` (or ``recorder.discard``) times out, the
-        # worker thread is LEAKED as a daemon and continues touching the
-        # PortAudio stream in the background. A subsequent
-        # ``recorder.shutdown_mic_watcher`` call would race the leaked
-        # worker — PortAudio is not safe for concurrent stream
-        # operations from multiple threads. We set a local
-        # ``recorder_force_closed`` flag (and mirror it onto
-        # ``app.recorder._force_closed`` so the recorder itself can
-        # short-circuit any later access) and skip the downstream
-        # ``shutdown_mic_watcher`` call when the flag is set.
+    def _teardown_recorder(self) -> None:
+        """XV-7: stop the PortAudio stream (recorder.stop / discard) and
+        the mic watcher; join the transcription thread.
+
+        GT-70: if ``recorder.stop()`` (or ``discard()``) times out, the
+        leaked worker thread is still accessing the PortAudio stream.
+        We set a local ``recorder_force_closed`` flag, mirror it onto
+        ``app.recorder._force_closed`` so the recorder itself can
+        short-circuit any later access, and SKIP the downstream
+        ``shutdown_mic_watcher`` call. We also signal
+        ``self._recorder_teardown_done`` and set
+        ``self._recorder_force_closed`` so ``_teardown_sounddevice``
+        (running concurrently in the parallel batch) can SKIP
+        ``sd.stop()`` to avoid a double-stop deadlock (DE-54).
+        """
+        app = self._app
         recorder_force_closed = False
         try:
             if app.recorder is not None and app.recorder.recording:
@@ -476,8 +631,12 @@ class ShutdownController:
                     )
                     if _stop_result is TIMEOUT:
                         recorder_force_closed = True
-                        with contextlib.suppress(Exception):
-                            app.recorder._force_closed = True
+                        # The ``_force_closed`` field is declared on
+                        # ``Recorder.__init__`` (always present on any real
+                        # ``Recorder`` instance), so the write is safe without
+                        # ``contextlib.suppress`` — the suppress wrapper would
+                        # only mask a real bug.
+                        app.recorder._force_closed = True
                         log.warning(
                             "[SHUTDOWN] GT-70: recorder.stop() timed out — "
                             "marking recorder as force-closed; downstream "
@@ -493,8 +652,9 @@ class ShutdownController:
                         )
                         if _discard_result is TIMEOUT:
                             recorder_force_closed = True
-                            with contextlib.suppress(Exception):
-                                app.recorder._force_closed = True
+                            # See note above: ``_force_closed`` is always
+                            # present on a real ``Recorder`` instance.
+                            app.recorder._force_closed = True
                             log.warning(
                                 "[SHUTDOWN] GT-70: recorder.discard() timed out — "
                                 "marking recorder as force-closed; downstream "
@@ -505,14 +665,10 @@ class ShutdownController:
         except Exception:
             log.debug("[CLEANUP] recorder stop/discard failed", exc_info=True)
 
-        # PERF-MIC-001: stop the OS-event device watcher so its daemon
-        # thread exits cleanly before the process tears down. Best-effort
-        # — the thread is a daemon and would die on process exit anyway,
-        # but explicit stop() avoids a 2s join race during GC.
-        # PVT-G5-057: 5s timeout.
-        # GT-70: SKIP this step if ``recorder.stop`` / ``recorder.discard``
-        # timed out above — the leaked worker thread is still accessing
-        # the PortAudio stream, and concurrent ``shutdown_mic_watcher``
+        # PERF-MIC-001: stop the OS-event device watcher. GT-70: SKIP
+        # this step if ``recorder.stop`` / ``recorder.discard`` timed
+        # out above — the leaked worker thread is still accessing the
+        # PortAudio stream, and concurrent ``shutdown_mic_watcher``
         # calls can segfault or leave the audio device inconsistent.
         try:
             if app.recorder is not None and not recorder_force_closed:
@@ -530,43 +686,6 @@ class ShutdownController:
         except Exception as e:
             log.debug("[SHUTDOWN] mic watcher shutdown failed: %s", e)
 
-        # MED-NNN / XCUT-2: the level_monitor module owns its own
-        # PortAudio InputStream + worker thread as module-level globals
-        # that are NOT registered with ``app._thread_registry`` (they
-        # predate the registry and were never wired into it). Without
-        # this call the stream + worker leak across restart_app() and
-        # survive until the OS tears the process down. Best-effort —
-        # stop_monitoring() is itself idempotent (it short-circuits
-        # when ``_monitor_active`` is already False).
-        # PVT-G5-057: 5s timeout.
-        try:
-            from voice_typer.server import level_monitor
-
-            _run_with_timeout(
-                "level_monitor.stop_monitoring",
-                level_monitor.stop_monitoring,
-                timeout=5.0,
-            )
-        except Exception:
-            log.warning(
-                "[SHUTDOWN] level_monitor.stop_monitoring failed",
-                exc_info=True,
-            )
-
-        # Restore volume if we were ducked when the app quit.
-        # Without this, a quit-during-recording leaves volume stuck low.
-        # Use fade_ms=0 for instant restore — the app is exiting.
-        # PVT-G5-057: 5s timeout — some platform volume backends block
-        # on IPC to the OS audio server.
-        try:
-            _run_with_timeout(
-                "restore_volume",
-                lambda: app._restore_volume(fade_ms=0),
-                timeout=5.0,
-            )
-        except Exception:
-            log.debug("[CLEANUP] volume restore failed", exc_info=True)
-
         # Wait for any running transcription thread to finish (short timeout).
         # ARCH-REFAC-003: read directly from RecordingController (was a
         # @property delegate previously).
@@ -581,10 +700,65 @@ class ShutdownController:
         except Exception:
             log.debug("[CLEANUP] transcription thread join failed", exc_info=True)
 
-        # ARCH-REFAC-003: access HotkeyDispatcher directly (was a
-        # @property delegate previously).
-        # PVT-G5-057: each backend stop() wrapped in 5s timeout —
-        # pynput/Win32 RegisterHotKey teardown can block on OS calls.
+        # DE-54 / GT-70: publish the force-closed flag for
+        # ``_teardown_sounddevice`` (running concurrently in the parallel
+        # batch) and signal that recorder teardown is done. The Event
+        # gives the sounddevice helper a happens-before guarantee on the
+        # flag read even though both helpers run in the same
+        # ThreadPoolExecutor wave.
+        self._recorder_force_closed = recorder_force_closed
+        self._recorder_teardown_done.set()
+
+    def _teardown_level_monitor(self) -> None:
+        """XV-7: stop the level_monitor module's PortAudio InputStream +
+        worker thread.
+
+        MED-NNN / XCUT-2: the level_monitor module owns its own
+        PortAudio InputStream + worker thread as module-level globals
+        that are NOT registered with ``app._thread_registry``. Without
+        this call the stream + worker leak across restart_app().
+        Best-effort — stop_monitoring() is itself idempotent.
+        """
+        try:
+            from voice_typer.server import level_monitor
+
+            _run_with_timeout(
+                "level_monitor.stop_monitoring",
+                level_monitor.stop_monitoring,
+                timeout=5.0,
+            )
+        except Exception:
+            log.warning(
+                "[SHUTDOWN] level_monitor.stop_monitoring failed",
+                exc_info=True,
+            )
+
+    def _teardown_restore_volume(self) -> None:
+        """XV-7: restore OS volume if it was ducked when the app quit.
+
+        Without this, a quit-during-recording leaves volume stuck low.
+        Uses ``fade_ms=0`` for instant restore — the app is exiting.
+        """
+        app = self._app
+        try:
+            _run_with_timeout(
+                "restore_volume",
+                lambda: app._restore_volume(fade_ms=0),
+                timeout=5.0,
+            )
+        except Exception:
+            log.debug("[CLEANUP] volume restore failed", exc_info=True)
+
+    def _teardown_hotkeys(self) -> None:
+        """XV-7: stop all three hotkey backends (dictation / ESC / repaste)
+        in a nested parallel batch.
+
+        The three backends touch disjoint OS resources (RegisterHotKey
+        handles on Windows, evdev/X11 sockets on Linux, CGEventTap on
+        macOS) and are safe to stop in parallel. Sequential stop() took
+        up to 15s (3x5s) worst case; parallel stop() finishes in ≤5s.
+        """
+        app = self._app
         try:
             _hk_info = (
                 f"dictation={app.hotkeys._hotkey_backend.hotkey_str if app.hotkeys._hotkey_backend else 'none'}, "
@@ -594,26 +768,17 @@ class ShutdownController:
             log.info("[HOTKEY] Stopping hotkey listeners (%s)", _hk_info)
 
             # XV-7: the three hotkey backends touch disjoint OS resources
-            # (RegisterHotKey handles on Windows, evdev/X11 sockets on
-            # Linux, CGEventTap on macOS) and are safe to stop in
-            # parallel. Sequential stop() took up to 15s (3x5s) worst
-            # case; parallel stop() finishes in <=5s.
+            # and are safe to stop in parallel.
             parallel_stops: list[tuple[str, object, float]] = []
             if app.hotkeys._hotkey_backend:
-                parallel_stops.append(
-                    ("hotkey_backend.stop", app.hotkeys._hotkey_backend.stop, 5.0)
-                )
+                parallel_stops.append(("hotkey_backend.stop", app.hotkeys._hotkey_backend.stop, 5.0))
             # RELIABILITY-003: also stop ESC cancel and repaste hotkey
             # backends so their RegisterHotKey / GlobalHotKeys registrations
             # are released before the next instance tries to claim them.
             if app.hotkeys._esc_backend:
-                parallel_stops.append(
-                    ("esc_backend.stop", app.hotkeys._esc_backend.stop, 5.0)
-                )
+                parallel_stops.append(("esc_backend.stop", app.hotkeys._esc_backend.stop, 5.0))
             if app.hotkeys._repaste_backend:
-                parallel_stops.append(
-                    ("repaste_backend.stop", app.hotkeys._repaste_backend.stop, 5.0)
-                )
+                parallel_stops.append(("repaste_backend.stop", app.hotkeys._repaste_backend.stop, 5.0))
             for _desc, _result in _run_parallel_with_timeout(parallel_stops):
                 if isinstance(_result, BaseException):
                     log.warning("[SHUTDOWN] %s failed: %s", _desc, _result)
@@ -624,12 +789,15 @@ class ShutdownController:
         except Exception:
             log.debug("[CLEANUP] hotkey backend stop failed", exc_info=True)
 
-        # RELIABILITY-005: flush any pending crash-recovery writes
-        # before the process exits, so the latest state is persisted.
-        # Short timeout — if the disk is genuinely slow we'd rather
-        # exit and lose the in-flight snapshot than hang the shutdown.
-        # PVT-G5-057: ``flush(timeout=2.0)`` already takes a timeout
-        # arg; wrap ``shutdown()`` in a 5s timeout helper for parity.
+    def _teardown_crash_recovery(self) -> None:
+        """XV-7: flush pending crash-recovery writes + shutdown the writer.
+
+        RELIABILITY-005: flush before the process exits so the latest
+        state is persisted. Short timeout — if the disk is genuinely
+        slow we'd rather exit and lose the in-flight snapshot than hang
+        the shutdown.
+        """
+        app = self._app
         try:
             if app._crash_recovery is not None:
                 app._crash_recovery.flush(timeout=2.0)
@@ -641,19 +809,18 @@ class ShutdownController:
         except Exception as e:
             log.warning("[SHUTDOWN] crash recovery flush failed: %s", e)
 
-        # CRASH-SAFE-GAP-A: flush pending fire-and-forget history DB writes
-        # before the process exits. add_transcription() is fire-and-forget
-        # (enqueues the INSERT and returns immediately). If quit() exits
-        # without draining the queue, the writer thread (a daemon) is killed
-        # by the OS and any unprocessed INSERTs are silently lost. Flushing
-        # here ensures the writer drains its queue and commits all pending
-        # writes before the process terminates.
-        # RELIABILITY-006-FIX-11: also close() the DB so the writer thread
-        # is joined and SQLite connections are closed cleanly. flush()
-        # already drained the queue, so the writer join in close() should
-        # be fast.
-        # PVT-G5-057: 10s for flush (may drain many pending INSERTs);
-        # 5s for close (joins the writer thread).
+    def _teardown_history_db(self) -> None:
+        """XV-7: flush pending fire-and-forget history DB writes + close
+        the DB (joins the writer thread).
+
+        CRASH-SAFE-GAP-A: ``add_transcription()`` is fire-and-forget
+        (enqueues the INSERT and returns immediately). If quit() exits
+        without draining the queue, the writer thread (a daemon) is
+        killed by the OS and any unprocessed INSERTs are silently lost.
+        Flushing here ensures the writer drains its queue and commits
+        all pending writes before the process terminates.
+        """
+        app = self._app
         try:
             if app.history_db is not None:
                 _run_with_timeout(
@@ -669,11 +836,14 @@ class ShutdownController:
         except Exception as e:
             log.warning("[SHUTDOWN] history DB flush/close failed: %s", e)
 
-        # PERF-NEW-001: stop the bubble level worker so it doesn't
-        # try to push to a torn-down IPC server during shutdown.
-        # RW-9 Phase 7: the worker / queue / stop_event now live on
-        # WaveformBubbleWiring; delegate to its stop() helper.
-        # PVT-G5-057: 5s timeout.
+    def _teardown_waveform_wiring(self) -> None:
+        """XV-7: stop the bubble level / waveform worker so it doesn't
+        try to push to a torn-down IPC server during shutdown.
+
+        PERF-NEW-001: the worker / queue / stop_event live on
+        WaveformBubbleWiring; delegate to its stop() helper.
+        """
+        app = self._app
         try:
             _run_with_timeout(
                 "waveform_wiring.stop",
@@ -683,10 +853,37 @@ class ShutdownController:
         except Exception as e:
             log.debug("[SHUTDOWN] bubble level worker stop failed: %s", e)
 
-        # PROD-003: Safety net — stop any remaining PortAudio streams.
-        # If recorder.stop() above failed or an audio callback leaked
-        # a stream, this ensures sounddevice doesn't hold the microphone.
-        # PVT-G5-057: 5s timeout.
+    def _teardown_sounddevice(self) -> None:
+        """XV-7 / DE-54: safety-net ``sd.stop()`` — skipped when
+        ``recorder.stop()`` (or ``discard()``) timed out.
+
+        PROD-003: if recorder.stop() above failed or an audio callback
+        leaked a stream, this ensures sounddevice doesn't hold the
+        microphone. DE-54: SKIP this call when the recorder teardown
+        timed out — the leaked recorder.stop() worker thread is still
+        holding the PortAudio stream lock, and calling ``sd.stop()``
+        while that lock is held deadlocks the cleanup thread on
+        PortAudio backends (notably WASAPI).
+
+        This helper waits for ``_teardown_recorder`` to finish (via
+        ``_recorder_teardown_done``) before reading the
+        ``_recorder_force_closed`` flag, giving a happens-before
+        guarantee even though both helpers run concurrently in the
+        parallel batch.
+        """
+        # Wait for recorder teardown to complete (it sets
+        # _recorder_force_closed). Bound the wait at 9.5s so the outer
+        # _run_with_timeout(10.0) wrapper still has 0.5s slack to log
+        # and return if the recorder helper genuinely finishes near the
+        # shared deadline.
+        self._recorder_teardown_done.wait(timeout=9.5)
+        if self._recorder_force_closed:
+            log.warning(
+                "[SHUTDOWN] DE-54: skipping sd.stop() because "
+                "recorder.stop()/discard() timed out (leaked worker may "
+                "still be accessing the PortAudio stream)"
+            )
+            return
         try:
             import sounddevice as sd
 
@@ -698,66 +895,91 @@ class ShutdownController:
         except Exception:
             log.debug("[CLEANUP] sd.stop() failed", exc_info=True)
 
-        # PROD-003: Terminate the Electron subprocess if we spawned one.
-        # The IPC "quit_app" push was sent earlier; this is a forced
-        # termination as a safety net if the graceful signal didn't land.
-        # P1-1.3: prefer the dedicated electron_launcher.terminate_electron
-        # helper (which kills the entire process tree on Windows and uses
-        # SIGTERM → SIGKILL on POSIX) when we have a tracked PID.  Fall
-        # back to the legacy tray_window path for PID discovery so any
-        # Electron launched via tray_window.open_electron_window() is also
-        # cleaned up.
-        # XV-8: wrap BOTH branches in ``_run_with_timeout`` so a stuck
-        # ``terminate_electron`` (e.g. waiting on a child that ignores
-        # SIGTERM on POSIX, or a Windows process-tree walker that hangs)
-        # cannot extend shutdown indefinitely. ``terminate_electron``
-        # itself escalates to SIGKILL on POSIX after its own grace
-        # period; the wrapper here is the hard ceiling. On POSIX, if the
-        # wrapper still times out, we escalate directly to ``SIGKILL``.
-        # On Windows, ``terminate_electron`` already uses
-        # ``taskkill /F /T`` (force-kill) so a timeout there is a
-        # kernel/handle pathology — log and move on.
+    def _teardown_electron(self) -> None:
+        """XV-7 / DE-53: terminate the Electron subprocess.
+
+        P1-1.3: prefer the dedicated ``electron_launcher.terminate_electron``
+        helper (which kills the entire process tree on Windows and uses
+        SIGTERM → SIGKILL on POSIX) when we have a tracked PID. Fall
+        back to the legacy ``tray_window`` path for PID discovery.
+
+        DE-53: the read-terminate-clear sequence is guarded by
+        ``self._electron_pid_lock`` so concurrent ``quit()`` callers
+        don't double-terminate or clobber a freshly-installed PID.
+
+        XV-8: both branches are wrapped in ``_run_with_timeout(5.0)``.
+        The legacy ``tray_window`` path now does SIGTERM → 2s wait →
+        SIGKILL on POSIX (was SIGTERM-only with a 5s timeout that
+        ``os.kill`` never actually blocks on).
+        """
+        app = self._app
         try:
             from voice_typer.server import electron_launcher
 
-            launched_pid = getattr(app, "_electron_pid", None)
-            if launched_pid:
-                log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", launched_pid)
-                _term_result = _run_with_timeout(
-                    "electron_launcher.terminate_electron",
-                    lambda: electron_launcher.terminate_electron(launched_pid),
-                    timeout=5.0,
-                )
-                if _term_result is TIMEOUT and sys.platform != "win32":
-                    import signal as _sig_kill
-
-                    with contextlib.suppress(OSError, ProcessLookupError):
-                        os.kill(launched_pid, _sig_kill.SIGKILL)
-                app._electron_pid = None
-            else:
-                from voice_typer.server.tray_window import get_electron_pid
-
-                electron_pid = get_electron_pid()
-                if electron_pid is not None:
-                    import signal as _sig
-
-                    log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
-                    _kill_result = _run_with_timeout(
-                        "electron.kill_sigterm",
-                        lambda: os.kill(electron_pid, _sig.SIGTERM),
+            # DE-53: hold the lock only across the read-terminate-clear
+            # critical section so a concurrent caller observes the
+            # cleared PID and skips. The lock is non-reentrant; the
+            # terminate_electron call inside the critical section does
+            # not re-acquire it.
+            with self._electron_pid_lock:
+                launched_pid = getattr(app, "_electron_pid", None)
+                if launched_pid:
+                    log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", launched_pid)
+                    _term_result = _run_with_timeout(
+                        "electron_launcher.terminate_electron",
+                        lambda: electron_launcher.terminate_electron(launched_pid),
                         timeout=5.0,
                     )
-                    if _kill_result is TIMEOUT and sys.platform != "win32":
+                    if _term_result is TIMEOUT and sys.platform != "win32":
+                        import signal as _sig_kill
+
                         with contextlib.suppress(OSError, ProcessLookupError):
-                            os.kill(electron_pid, _sig.SIGKILL)
+                            os.kill(launched_pid, _sig_kill.SIGKILL)
+                    app._electron_pid = None
+                else:
+                    from voice_typer.server.tray_window import get_electron_pid
+
+                    electron_pid = get_electron_pid()
+                    if electron_pid is not None:
+                        import signal as _sig
+
+                        log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
+                        # XV-8: SIGTERM → 2s waitpid poll → SIGKILL on POSIX.
+                        # ``os.kill(SIGTERM)`` returns immediately (it just
+                        # queues the signal); the 2s waitpid poll gives the
+                        # child a grace period to exit cleanly before we
+                        # escalate to SIGKILL.
+                        with contextlib.suppress(OSError, ProcessLookupError):
+                            os.kill(electron_pid, _sig.SIGTERM)
+                        deadline = time.monotonic() + 2.0
+                        reaped = False
+                        while time.monotonic() < deadline:
+                            try:
+                                pid_done, _status = os.waitpid(electron_pid, os.WNOHANG)
+                                if pid_done != 0:
+                                    reaped = True
+                                    break
+                            except OSError:
+                                # Child already reaped or not a child of
+                                # this process — stop polling.
+                                reaped = True
+                                break
+                            time.sleep(0.1)
+                        if not reaped and sys.platform != "win32":
+                            with contextlib.suppress(OSError, ProcessLookupError):
+                                os.kill(electron_pid, _sig.SIGKILL)
         except Exception:
             log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
 
-        # P1-1.4: release the single-instance mutex and remove the PID
-        # file so a subsequent launch isn't falsely blocked.
-        # Look up _clear_backend_pid_file dynamically from the app module
-        # so tests that monkeypatch voice_typer.server.app._clear_backend_pid_file
-        # still take effect (mirrors the SettingsController convention).
+    def _teardown_pid_file(self) -> None:
+        """XV-7: clear the backend PID file so a subsequent launch isn't
+        falsely blocked by the single-instance check.
+
+        Looks up ``_clear_backend_pid_file`` dynamically from the app
+        module so tests that monkeypatch
+        ``voice_typer.server.app._clear_backend_pid_file`` still take
+        effect (mirrors the SettingsController convention).
+        """
         try:
             from voice_typer.server import app as _app_module
 
@@ -765,22 +987,45 @@ class ShutdownController:
         except Exception:
             log.debug("[SHUTDOWN] could not clear backend PID file", exc_info=True)
 
-        log.info("[SHUTDOWN] Shutdown complete, exiting")
+    def _teardown_mutex_handle(self) -> None:
+        """XV-7: release the single-instance mutex handle.
 
-        # PLAT-HLEAK: Close the mutex handle on shutdown
+        PLAT-HLEAK: on Windows, ``CloseHandle`` releases the named mutex
+        so a subsequent launch can claim it. On POSIX, the
+        ``_mutex_handle`` is a ``_PosixSingleInstanceHandle`` wrapping
+        the lockfile fd — its ``release()`` closes the fd (releasing the
+        ``fcntl.flock``) and unlinks the ``backend.lock``. Without this
+        branch, the Windows-only ``ctypes.windll.kernel32.CloseHandle``
+        call would raise ``AttributeError`` on POSIX
+        (``ctypes.windll`` is Windows-only), which was swallowed by the
+        try/except, leaving the lockfile fd dangling until process exit
+        and racing a fast re-launch. ``contextlib.suppress(Exception)``
+        mirrors the Windows branch's best-effort contract: cleanup must
+        never propagate failures.
+        """
+        app = self._app
         try:
             if hasattr(app, "_mutex_handle") and app._mutex_handle:
-                import ctypes
+                if is_windows():
+                    import ctypes
 
-                ctypes.windll.kernel32.CloseHandle(app._mutex_handle)
+                    ctypes.windll.kernel32.CloseHandle(app._mutex_handle)
+                else:
+                    # POSIX: release the flock-based single-instance
+                    # handle (closes the fd + unlinks the lockfile).
+                    app._mutex_handle.release()
                 app._mutex_handle = None
         except Exception:
-            log.debug("[CLEANUP] CloseHandle failed", exc_info=True)
+            log.debug("[CLEANUP] mutex handle release failed", exc_info=True)
 
-        # Close devnull streams opened during logging setup.
-        # Look up _close_devnull_files dynamically from the app module so
-        # tests that monkeypatch voice_typer.server.app._close_devnull_files
-        # still take effect.
+    def _teardown_devnull_files(self) -> None:
+        """XV-7: close devnull streams opened during logging setup.
+
+        Looks up ``_close_devnull_files`` dynamically from the app
+        module so tests that monkeypatch
+        ``voice_typer.server.app._close_devnull_files`` still take
+        effect.
+        """
         try:
             from voice_typer.server import app as _app_module
 
@@ -788,20 +1033,23 @@ class ShutdownController:
         except Exception:
             log.debug("[CLEANUP] close devnull files failed", exc_info=True)
 
-        # M-22: shut down the event_bus deferred-publish executor.
-        # This is the LAST module-level cleanup because earlier steps
-        # (bubble worker stop, recorder stop, hotkey stop) can each
-        # publish events via event_bus.publish, and an RT-thread
-        # publish defers to this executor. Shutting it down here
-        # ensures no deferred _deliver tasks outlive the subsystems
-        # they deliver TO (e.g. the IPC server's TCP push, which was
-        # torn down with the socket close above). Idempotent — safe
-        # under the _do_cleanup double-call guard. Already-queued
-        # tasks finish on the worker thread (shutdown(wait=False)
-        # doesn't cancel them), so in-flight events are not lost.
-        # PVT-G5-057: 5s timeout — the executor's worker thread should
-        # be idle by this point (subsystems that publish are torn down),
-        # but a stuck subscriber could keep it busy.
+    def _teardown_event_bus(self) -> None:
+        """XV-7: shut down the event_bus deferred-publish executor.
+
+        M-22: this is the LAST module-level cleanup because earlier
+        steps (bubble worker stop, recorder stop, hotkey stop) can each
+        publish events via ``event_bus.publish``, and an RT-thread
+        publish defers to this executor. Shutting it down here ensures
+        no deferred ``_deliver`` tasks outlive the subsystems they
+        deliver TO.
+
+        TY-15: ``event_bus.shutdown`` now calls
+        ``executor.shutdown(wait=True, cancel_futures=True)`` so the
+        5s ``_run_with_timeout`` wrapper ACTUALLY bounds the wait
+        (previously ``wait=False`` returned immediately and the
+        non-daemon worker thread lingered past the 5s "timeout").
+        Idempotent — safe under the ``_do_cleanup`` double-call guard.
+        """
         try:
             from voice_typer.server import event_bus as _event_bus
 
@@ -812,47 +1060,6 @@ class ShutdownController:
             )
         except Exception:
             log.debug("[CLEANUP] event_bus.shutdown failed", exc_info=True)
-
-        # PVT-G5-003: ``tray.stop()`` MUST be the LAST step in
-        # ``_do_cleanup()``. Previously it was step 13 of 19, which
-        # broke the pystray loop on the main thread (blocked in
-        # ``tray.run()`` via ``ipc_server.main()``) before the
-        # remaining cleanups (sd.stop, electron terminate, PID file
-        # clear, CloseHandle, devnull close, event_bus.shutdown) could
-        # finish. The daemon TCP worker thread running ``_do_cleanup()``
-        # was killed mid-cleanup when the main thread returned. Moving
-        # ``tray.stop()`` to the end ensures the main thread stays
-        # alive (blocked in ``tray.run()``) until every other cleanup
-        # has completed. Idempotent — wrapped in try-except so a second
-        # call after the tray is already stopped doesn't propagate.
-        # PVT-G5-057: 5s timeout.
-        #
-        # GT-43 / XV-10: if ``tray.stop()`` times out AND we're on a
-        # non-main thread, call ``os._exit(0)`` immediately. The main
-        # thread is parked in pystray's ``tray.run()`` event loop and
-        # relies on ``tray.stop()`` breaking that loop to return. If
-        # ``tray.stop()`` hangs, the main thread never returns and the
-        # process is unkillable via the normal path — ``sys.exit(0)`` in
-        # ``quit()`` only raises ``SystemExit`` in THIS worker thread.
-        # ``os._exit(0)`` bypasses Python's orderly shutdown but is safe
-        # here because every other subsystem has already been torn down
-        # by the cleanup steps above. On the main thread, we just log
-        # and continue — ``quit()``'s ``sys.exit(0)`` will handle exit.
-        try:
-            _tray_stop_result = _run_with_timeout(
-                "tray.stop",
-                app.tray.stop,
-                timeout=5.0,
-            )
-            if _tray_stop_result is TIMEOUT and (threading.current_thread() is not threading.main_thread()):
-                log.warning(
-                    "[SHUTDOWN] GT-43: tray.stop() timed out on non-main thread "
-                    "— calling os._exit(0) to unblock the main thread parked in "
-                    "tray.run() (all subsystem cleanup already completed)"
-                )
-                os._exit(0)
-        except Exception:
-            log.debug("[CLEANUP] tray.stop() failed", exc_info=True)
 
     # ─── Quit ──────────────────────────────────────────────────────────
 
@@ -981,8 +1188,9 @@ class ShutdownController:
             sys.exit(0)
 
     def _arm_shutdown_watchdog(self, timeout_s: float) -> None:
-        """GT-43: arm a daemon-thread watchdog that calls ``os._exit(0)``
-        after ``timeout_s`` seconds if the process is still alive.
+        """GT-43 / DE-11: arm a daemon-thread watchdog that calls
+        ``os._exit(0)`` after ``timeout_s`` seconds if the process is
+        still alive.
 
         Used by ``quit()`` (and ``restart_app()`` on the ``VoiceTyperApp``
         side, which mirrors this pattern) when invoked from a non-main
@@ -999,19 +1207,19 @@ class ShutdownController:
         ``_do_cleanup()`` has already run every subsystem cleanup by
         the time the watchdog is armed.
 
-        The watchdog daemon thread polls in 0.5s increments so it stays
-        responsive to interpreter shutdown. Tests can shorten the
-        timeout by patching ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` or by
-        passing a smaller ``timeout_s`` directly.
+        DE-11: the watchdog uses a single ``time.sleep(timeout_s)`` call
+        (was a 0.5s polling loop pre-fix). The polling loop's repeated
+        ``time.sleep`` calls made it impossible to distinguish a 2s grace
+        period from 4×0.5s ticks in tests; the single sleep makes the
+        grace period observable. The watchdog is a daemon thread, so it
+        never blocks process exit in the normal case (main thread
+        returns, process exits, daemon thread is killed). Tests can
+        shorten the timeout by patching ``SHUTDOWN_WATCHDOG_TIMEOUT_S``
+        or by passing a smaller ``timeout_s`` directly.
         """
 
         def _watchdog() -> None:
-            deadline = time.monotonic() + timeout_s
-            while time.monotonic() < deadline:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                time.sleep(min(0.5, remaining))
+            time.sleep(timeout_s)
             log.warning(
                 "[SHUTDOWN] GT-43 watchdog: process still alive %.1fs after "
                 "_do_cleanup completed — calling os._exit(0) to unblock the "

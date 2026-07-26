@@ -7,6 +7,7 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import contextlib
+import unicodedata
 
 from voice_typer.server import event_bus
 from voice_typer.server.branding import APP_NAME
@@ -16,10 +17,34 @@ from voice_typer.server.ipc.validation import _validate_dict_payload
 from voice_typer.server.platform_utils import is_macos
 
 
+def _has_control_chars(value) -> bool:
+    """Return True if *value* contains a Unicode Cc/Cf control char.
+
+    DE-42 (session-DE): used by ``_handle_show_electron_notification``
+    to reject control characters in ``title`` / ``message``. The Cc
+    category covers ANSI escapes (``\\x1b``), terminal bell
+    (``\\x07``), newline (``\\n``), carriage return (``\\r``), and
+    other C0/C1 control codes. The Cf category covers RTL/LTR
+    overrides (``\\u202e`` / ``\\u202d``), zero-width joiner
+    (``\\u200d``), zero-width space (``\\u200b``), BOM
+    (``\\ufeff``), and other format chars. A horizontal tab
+    (``\\t``) is explicitly allowed (tabular layout in the message
+    body is common and the OS notification APIs render it
+    consistently as whitespace).
+
+    Non-string values return ``False`` (the caller's per-field type
+    check has already rejected non-strings; this helper only runs on
+    validated string fields).
+    """
+    if not isinstance(value, str):
+        return False
+    return any(unicodedata.category(ch) in ("Cc", "Cf") and ch != "\t" for ch in value)
+
+
 class SystemHandlersMixin(HandlerBase):
     """Mixin: system-level IPC handlers (restart / quit / diagnostics / accessibility / ...).
 
-    CR-20 / G4-CR-09: this mixin's ``except Exception`` catch-alls call
+    CR-20: this mixin's ``except Exception`` catch-alls call
     :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
     no ``str(e)`` leak). Per-command validation errors (``invalid_field``,
     ``invalid_payload``) remain explicit envelopes the renderer switches on.
@@ -27,14 +52,14 @@ class SystemHandlersMixin(HandlerBase):
     silently because the ack has already been sent to the client by the
     time the service raises — the error cannot be recovered from the IPC thread.
 
-    G4-M-21 (``_handle_check_accessibility``): distinguishes
+    ``_handle_check_accessibility`` distinguishes
     ``subprocess.TimeoutExpired`` / ``FileNotFoundError`` from the
     generic ``granted=False`` path so the renderer can show a "click
     here to retry" CTA when the check fails for environmental reasons
     (vs. "open System Settings" CTA when the user has not granted
     permission).
 
-    G4-M-08 (``_handle_show_electron_notification``): ``max_value_len``
+    ``_handle_show_electron_notification`` enforces ``max_value_len``
     rules on ``title`` (256) and ``message`` (4096) so a misbehaving
     caller can't push a multi-MB notification body that the OS
     notification API would silently truncate or refuse to display.
@@ -76,7 +101,7 @@ class SystemHandlersMixin(HandlerBase):
             resp["type"] = "diagnostics_result"
             resp["data"] = result
         except Exception as exc:
-            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "export_diagnostics")
         return resp
 
@@ -91,7 +116,7 @@ class SystemHandlersMixin(HandlerBase):
         the permission is missing, and to gate the onboarding
         wizard's "Grant Accessibility" step.
 
-        G4-M-21 (session-7): the previous implementation collapsed every
+        The previous implementation collapsed every
         failure mode (subprocess timeout, missing ``osascript`` binary,
         ctypes ``LoadLibrary`` failure) into a generic ``granted: False``
         response — indistinguishable from "user has not granted the
@@ -137,7 +162,7 @@ class SystemHandlersMixin(HandlerBase):
                         )
                         granted = result.returncode == 0 and "true" in result.stdout.lower()
                     except _sp.TimeoutExpired:
-                        # G4-M-21: osascript hung — environmental issue
+                        # osascript hung — environmental issue
                         # (system unresponsive), not a server bug. Log
                         # at WARNING and surface a ``check_failed`` reason
                         # so the renderer can show a retry CTA.
@@ -152,7 +177,7 @@ class SystemHandlersMixin(HandlerBase):
                         }
                         return resp
                     except FileNotFoundError:
-                        # G4-M-21: ``osascript`` binary missing — rare
+                        # ``osascript`` binary missing — rare
                         # but possible on a stripped-down macOS install
                         # or a broken OS upgrade. Log at WARNING and
                         # surface ``check_failed``.
@@ -172,7 +197,7 @@ class SystemHandlersMixin(HandlerBase):
                 "platform": _sys.platform,
             }
         except Exception as exc:
-            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "check_accessibility")
         return resp
 
@@ -214,7 +239,7 @@ class SystemHandlersMixin(HandlerBase):
             resp["type"] = "ack"
             resp["data"] = {"locale": get_tray_locale()}
         except Exception as exc:
-            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "set_tray_locale")
         return resp
 
@@ -278,7 +303,7 @@ class SystemHandlersMixin(HandlerBase):
             resp["type"] = "ack"
             resp["data"] = {"paused": paused}
         except Exception as exc:
-            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "set_esc_cancel_paused")
         return resp
 
@@ -337,7 +362,7 @@ class SystemHandlersMixin(HandlerBase):
             default keeps the existing "missing or null → default"
             contract without adding a ``none_to_default`` rule.
 
-        G4-M-08 (session-7): added ``max_value_len`` rules on
+        Added ``max_value_len`` rules on
         ``title`` (256 chars) and ``message`` (4096 chars) so a
         misbehaving caller (or a renderer bug) can't push a 1 MB
         notification body that the OS notification API would
@@ -358,7 +383,8 @@ class SystemHandlersMixin(HandlerBase):
             if isinstance(data, dict) and isinstance(data.get("duration_ms"), bool):
                 resp["type"] = "error"
                 resp["data"] = {
-                    "code": "invalid_field",
+                    "code": "client.invalid_field",
+                    "legacy_code": "invalid_field",
                     "field": "duration_ms",
                     "message": "'duration_ms' must be a number (milliseconds)",
                 }
@@ -383,7 +409,7 @@ class SystemHandlersMixin(HandlerBase):
             # The helper's ``clamp_range`` rule replaces the inline
             # ``max(0, min(int(duration_ms), 24*60*60*1000))`` coercion.
             #
-            # G4-M-08 (session-7): added ``max_value_len`` rules on
+            # Added ``max_value_len`` rules on
             # ``title`` (256 chars) and ``message`` (4096 chars) so a
             # misbehaving caller (or a renderer bug) can't push a 1 MB
             # notification body that the OS notification API would
@@ -431,6 +457,27 @@ class SystemHandlersMixin(HandlerBase):
             duration_ms = int(validated["duration_ms"])
             critical = validated["critical"]
 
+            # DE-42 (session-DE): reject Unicode Cc/Cf control chars in
+            # ``title`` / ``message``. The OS notification APIs render
+            # ANSI escapes (``\x1b[31m``), terminal bell (``\x07``),
+            # newline/CR, RTL overrides (``\u202e``), zero-width marks
+            # (``\u200d``), and BOM (``\ufeff``) inconsistently — a
+            # misbehaving caller could spoof a critical notification
+            # via RTL override, or inject terminal escape sequences
+            # into a terminal-based notification viewer. ``\t`` (tab)
+            # is explicitly allowed (tabular layout in the message
+            # body is common and harmless).
+            for fname in ("title", "message"):
+                if _has_control_chars(validated.get(fname, "")):
+                    resp["type"] = "error"
+                    resp["data"] = {
+                        "code": "client.invalid_field",
+                        "legacy_code": "invalid_field",
+                        "field": fname,
+                        "message": f"'{fname}' contains a control character",
+                    }
+                    return resp
+
             event_bus.publish(
                 {
                     # CR-8: renamed from "electron_notification" to the
@@ -453,6 +500,6 @@ class SystemHandlersMixin(HandlerBase):
             )
             resp["type"] = "ack"
         except Exception as exc:
-            # CR-20 / G4-CR-09: generic WS-path envelope (no ``str(exc)`` leak).
+            # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "show_electron_notification")
         return resp

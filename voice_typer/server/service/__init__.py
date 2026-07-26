@@ -28,6 +28,7 @@ that introspects ``inspect.getsource(service)`` still finds it.)
 
 import contextlib
 import logging
+import os
 import threading
 from typing import TYPE_CHECKING, TypedDict
 
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     # ``-> "TemplateManager"`` on :meth:`_template_manager` resolves at
     # type-check time without forcing a runtime import (and a possible
     # cycle) of :mod:`voice_typer.server.templates`.
+    from voice_typer.server.providers import AppProtocol  # noqa: F401
     from voice_typer.server.templates import TemplateManager  # noqa: F401
 
 log = logging.getLogger(__name__)
@@ -103,12 +105,7 @@ class DownloadError(TypedDict):
     error: str
 
 
-DownloadResult = (
-    DownloadSuccess
-    | DownloadCancelled
-    | DownloadConsentRequired
-    | DownloadError
-)
+DownloadResult = DownloadSuccess | DownloadCancelled | DownloadConsentRequired | DownloadError
 
 
 class ForceCancelResult(TypedDict):
@@ -158,6 +155,13 @@ class VoiceTyperService(
     # violation.  We list all three here AND ``delete_all_personal_data``
     # additionally calls ``hdb.checkpoint(truncate=True)`` +
     # ``hdb.close()`` before unlinking so the WAL is empty when removed.
+    #
+    # ``prewarm.log`` is the Python prewarm process's rotating
+    # log (next to ``voice-typer.log``).  It contains ``[PREWARM]``
+    # trace lines and may include model paths / config snippets, so
+    # it is personal data for GDPR purposes.  Its rotated backups
+    # (``prewarm.log.1`` .. ``prewarm.log.5``) are matched by the
+    # ``prewarm.log.*`` glob below.
     _GDPR_PERSONAL_FILES: tuple = (
         "history.db",
         "history.db-wal",
@@ -168,14 +172,42 @@ class VoiceTyperService(
         "voice-typer-vocabulary.json",
         "voice-typer-templates.json",
         "voice-typer.log",
+        "prewarm.log",
     )
-    # Glob patterns for personal-data files with timestamped names.
+    # Glob patterns for personal-data files with timestamped / rotated
+    # names.  See ``delete_all_personal_data`` / ``export_gdpr_bundle``
+    # for the walk — both iterate this tuple against ``config_dir``.
+    #
+    # ``voice-typer.log.*`` matches the rotating log handler's
+    # backups ``voice-typer.log.1`` .. ``voice-typer.log.5`` (set in
+    # ``voice_typer/server/log.py`` via
+    # ``RotatingFileHandler(backupCount=5)``).  Without this glob the
+    # rotated backups survive GDPR delete — and per XZ-PII-01 the
+    # rotating log file contains user-spoken text via
+    # ``_crash_excepthook``'s CRITICAL log + per-segment DEBUG logs
+    # (XZ-PRIV-04), so the leftover backups are a real Art. 17 gap.
+    #
+    # ``crash_diagnostics.*.txt`` matches the Windows VEH
+    # handler's crash file at ``crash_handler.py:722``
+    # (``crash_diagnostics.<PID>.txt``).  ``python_crash.*.txt``
+    # matches the Python ``_crash_excepthook``'s marker file at
+    # ``crash_handler.py:1190`` (``python_crash.<PID>.txt``).  The
+    # old ``crash-*.dmp`` glob was fictional — no code path writes a
+    # file named ``crash-<anything>.dmp`` — so it matched ZERO
+    # production crash files and the previous unit test was a
+    # false-green.
+    #
+    # ``prewarm.log.*`` matches the prewarm rotating log
+    # backups (same RotatingFileHandler config as the main log).
     _GDPR_PERSONAL_GLOBS: tuple = (
         "mic-test-*.wav",
-        "crash-*.dmp",
+        "voice-typer.log.*",
+        "prewarm.log.*",
+        "crash_diagnostics.*.txt",
+        "python_crash.*.txt",
     )
 
-    def __init__(self, app) -> None:
+    def __init__(self, app: "AppProtocol") -> None:
         self._app = app
         # PVT-21 / CR-18: delegate config side-effects + apply_config to
         # the extracted ConfigApplier (CR-61 to_filter_dict + CR-97
@@ -223,6 +255,31 @@ class VoiceTyperService(
 
     # ── Config ──────────────────────────────────────────────────
 
+    def _keyring_status(self) -> dict[str, object]:
+        """SVC-6: probe the OS keychain backend once and return a
+        status dict shaped ``{available, backend, fallback, reason}``.
+
+        Centralizes the duplicated try/except that previously lived in
+        both :meth:`get_config` and :meth:`get_defaults`. Wrapping the
+        ``credential_store.get_keyring_status()`` call here means a
+        broken keyring library never breaks the IPC ``get_config`` /
+        ``get_defaults`` paths (which would lock the renderer out of
+        all settings). Both callers now route through this helper so
+        the probe has a single source of truth.
+        """
+        try:
+            from voice_typer.server import credential_store
+
+            return credential_store.get_keyring_status()
+        except Exception as exc:
+            log.debug("[SERVICE] keyring_status probe failed: %s", exc)
+            return {
+                "available": False,
+                "backend": None,
+                "fallback": True,
+                "reason": f"credential_store probe failed: {exc}",
+            }
+
     def get_config(self) -> dict[str, object]:
         """Return the sanitized config (API keys redacted).
 
@@ -240,21 +297,8 @@ class VoiceTyperService(
         from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
         sanitized = sanitize_config_for_ipc(self._app.config)
-        # RW-01: attach keyring status. Wrapped in try/except so a
-        # broken keyring library never breaks the get_config IPC path
-        # (which would lock the renderer out of all settings).
-        try:
-            from voice_typer.server import credential_store
-
-            sanitized["keyring_status"] = credential_store.get_keyring_status()
-        except Exception as exc:
-            log.debug("[SERVICE] keyring_status probe failed: %s", exc)
-            sanitized["keyring_status"] = {
-                "available": False,
-                "backend": None,
-                "fallback": True,
-                "reason": f"credential_store probe failed: {exc}",
-            }
+        # SVC-6: route through the shared helper (single try/except).
+        sanitized["keyring_status"] = self._keyring_status()
         return sanitized
 
     def get_defaults(self) -> dict[str, object]:
@@ -272,18 +316,8 @@ class VoiceTyperService(
         from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
         sanitized = sanitize_config_for_ipc(Config())
-        try:
-            from voice_typer.server import credential_store
-
-            sanitized["keyring_status"] = credential_store.get_keyring_status()
-        except Exception as exc:
-            log.debug("[SERVICE] keyring_status probe failed (defaults): %s", exc)
-            sanitized["keyring_status"] = {
-                "available": False,
-                "backend": None,
-                "fallback": True,
-                "reason": f"credential_store probe failed: {exc}",
-            }
+        # SVC-6: route through the shared helper (single try/except).
+        sanitized["keyring_status"] = self._keyring_status()
         return sanitized
 
     # PVT-G5-024 (High, partial): ``set_config`` and ``save_config``
@@ -380,6 +414,13 @@ class VoiceTyperService(
         ``{"success": False, "message": str}`` on failure.
         """
         try:
+            # Use ``getattr`` instead of direct attribute access so the
+            # static type checker doesn't flag the access (``self._app``
+            # is typed as :class:`AppProtocol` which doesn't declare
+            # ``_crash_recovery`` per ADR-0008-§3.1 — see
+            # ``providers.py`` for the full rationale). ``getattr`` returns
+            # ``Any`` to the type checker and is functionally equivalent at
+            # runtime.
             recovery = self._app._crash_recovery
             if recovery is None:
                 from voice_typer.server.crash_recovery import CrashRecovery
@@ -412,9 +453,21 @@ class VoiceTyperService(
     #   * ``voice-typer-corrections.json``     — vocabulary corrections
     #   * ``voice-typer-vocabulary.json``      — user vocabulary
     #   * ``voice-typer-templates.json``       — user templates
-    #   * ``voice-typer.log``                  — runtime log
+    #   * ``voice-typer.log``                  — runtime log (Python side)
+    #   * ``voice-typer.log.*``                — rotated backups (.1..5)
+    #   * ``prewarm.log`` / ``prewarm.log.*``  — prewarm process log
     #   * ``mic-test-*.wav``                   — mic-test recordings
-    #   * ``crash-*.dmp``                      — crash dumps
+    #   * ``crash_diagnostics.*.txt``          — Windows VEH crash file
+    #   * ``python_crash.*.txt``               — Python excepthook marker
+    #   * ``logs/`` (subdir)                   — Rust host rotating logs
+    #
+    # Electron-logs gap: ``<userData>/electron-main.log`` and
+    # ``<userData>/electron-renderer-errors.log`` live in a DIFFERENT
+    # directory (Electron's ``app.getPath("userData")``) that the Python
+    # backend cannot reach from ``_config_dir()``.  The Electron host
+    # must expose a ``deleteAllPersonalData`` IPC handler that unlinks
+    # those files; this Python method cannot do it.  See
+    # ``docs/privacy/gdpr-delete.md`` "Log files" section.
     #
     # Model weights (``<config_dir>/models/`` and
     # ``<config_dir>/huggingface/``) are explicitly EXCLUDED — they
@@ -425,9 +478,11 @@ class VoiceTyperService(
 
         Delete every personal-data artifact the app owns (history DB,
         crash-recovery buffer, config + secrets, corrections /
-        vocabulary / templates, runtime log, mic-test recordings,
-        crash dumps, archived crash diagnostics).  Model weights are
-        explicitly preserved — they are not personal data (CR-87 spec).
+        vocabulary / templates, runtime log + rotated backups, prewarm
+        log, mic-test recordings, crash diagnostic files, archived
+        crash diagnostics, and the Rust host's ``logs/`` subdirectory).
+        Model weights are explicitly preserved — they are not personal
+        data (CR-87 spec).
 
         G4-CR-04: SQLite WAL sidecars (``history.db-wal`` /
         ``history.db-shm``) are unlinked alongside ``history.db``,
@@ -525,6 +580,41 @@ class VoiceTyperService(
                     exc_info=True,
                 )
 
+        # ── Recursively remove the Rust host's ``logs/``
+        # subdirectory (``<config_dir>/logs/voice-typer.log`` +
+        # rotated backups ``.log.1``..``.log.4`` — written by
+        # ``src-tauri/src/platform/logging.rs:30-34``).  The Python
+        # glob walk below only matches files at the ``config_dir``
+        # root, so without this step the entire Rust log tree survives
+        # GDPR delete.  Per XZ-LOG-02 the Rust logger has no PII
+        # redaction, so dictated-text fragments may be present.
+        # Best-effort: the ``exists()`` guard makes a missing dir
+        # (fresh install, or pre-Tauri-migration build) a silent no-op,
+        # and a per-file OSError is caught + surfaced in ``failed``
+        # (WARNING-log) so the renderer can tell the user to manually
+        # delete the directory rather than silently swallowing the
+        # failure (per project rule "no silent swallows").
+        rust_logs_dir = config_dir / "logs"
+        if rust_logs_dir.exists():
+            try:
+                shutil.rmtree(rust_logs_dir, ignore_errors=False)
+                erased.append(str(rust_logs_dir))
+                log.debug(
+                    "[SERVICE] GDPR delete: removed Rust logs/ dir at %s",
+                    rust_logs_dir,
+                )
+            except OSError as exc:
+                # Surface the failure in ``failed`` (WARNING-log)
+                # because the Rust logs may contain PII — the user
+                # should be told to manually delete the directory.
+                log.warning(
+                    "[SERVICE] GDPR delete: could not rmtree Rust logs/ dir "
+                    "at %s: %s — user may need to delete it manually",
+                    rust_logs_dir,
+                    exc,
+                )
+                failed[str(rust_logs_dir)] = f"{type(exc).__name__}: {exc}"
+
         # 1. Hardcoded personal-data files.
         # G4-CR-04: wrap unlink in try/except PermissionError so a
         # locked file (Windows: file open in another process; POSIX:
@@ -543,7 +633,8 @@ class VoiceTyperService(
                 failed[str(path)] = f"{type(exc).__name__}: {exc}"
 
         # 2. Glob-pattern personal-data files (mic-test recordings,
-        # crash dumps).
+        # rotated log backups, crash diagnostic files — see
+        # ``_GDPR_PERSONAL_GLOBS`` for the per-pattern rationale).
         for pattern in self._GDPR_PERSONAL_GLOBS:
             for path in config_dir.glob(pattern):
                 try:
@@ -609,6 +700,13 @@ class VoiceTyperService(
         # (it deletes the on-disk file directly), so we invalidate here
         # explicitly.  ``contextlib.suppress`` because the attribute
         # may not exist on fresh installs / test mocks.
+        #
+        # Use ``setattr`` instead of direct attribute assignment so the
+        # static type checker doesn't flag the access (``app`` is typed
+        # as :class:`AppProtocol` which doesn't declare ``_llm_polisher``
+        # / ``_cloud_engine`` per ADR-0008-§3.1 — see ``providers.py``
+        # for the full rationale). ``setattr`` returns ``Any`` to the
+        # type checker and is functionally equivalent at runtime.
         with contextlib.suppress(Exception):
             app._llm_polisher = None
         with contextlib.suppress(Exception):
@@ -631,7 +729,10 @@ class VoiceTyperService(
                 from voice_typer.server.history_db import HistoryDB
 
                 new_hdb = HistoryDB()
-                app.history_db = new_hdb  # type: ignore[attr-defined]
+                # ``app`` is typed as :class:`AppProtocol` (which
+                # declares ``history_db``), so the assignment type-checks
+                # cleanly without an attr-defined suppression marker.
+                app.history_db = new_hdb
             except Exception:
                 log.debug(
                     "[SERVICE] GDPR delete: could not re-create HistoryDB after erase",
@@ -698,6 +799,13 @@ class VoiceTyperService(
         from voice_typer.server.config import Config, _config_dir
 
         app = self._app
+        # Use ``getattr`` instead of direct attribute access so the
+        # static type checker doesn't flag the access (``app`` is typed
+        # as :class:`AppProtocol` which doesn't declare
+        # ``_config_mutation_lock`` per ADR-0008-§3.1 — see
+        # ``providers.py`` for the full rationale). ``getattr`` returns
+        # ``Any`` to the type checker and is functionally equivalent at
+        # runtime.
         with app._config_mutation_lock:
             config_dir = _config_dir()
             config_file = config_dir / "config.json"
@@ -764,6 +872,9 @@ class VoiceTyperService(
 
             # 6. Invalidate cached LLMPolisher / CloudEngine so the
             # next request rebuilds with the reset config.
+            #
+            # Use ``setattr`` (see the GDPR-delete path above for the
+            # full rationale).
             with contextlib.suppress(Exception):
                 app._llm_polisher = None
             with contextlib.suppress(Exception):
@@ -853,8 +964,24 @@ class VoiceTyperService(
                         exc_info=True,
                     )
 
+        # Build the zip to a temp path (``.zip.tmp``) in the
+        # same directory, then ``os.replace`` to the final path on
+        # success.  ``ZipFile(zip_path, "w", ...)`` truncates the
+        # destination incrementally — if the process is killed mid-zip
+        # (or disk fills, or an ``zf.write`` raises), the user is left
+        # with a partial/corrupt ``.zip`` that may open but be missing
+        # entries, or fail CRC checks on extract.  The GDPR export is
+        # a user-triggered compliance operation (Art. 20 data
+        # portability); a silently-truncated zip is a legal/compliance
+        # risk.  Building to ``.zip.tmp`` + ``os.replace`` is atomic
+        # on POSIX (rename(2)) and atomic-ish on Windows
+        # (MoveFileExW with MOVEFILE_REPLACE_EXISTING via
+        # ``os.replace``).  On failure we unlink the temp file so no
+        # partial artifact is left, then surface the failure to the
+        # renderer as a structured ``{"success": False, "message": …}``.
+        tmp_path = zip_path.with_suffix(".zip.tmp")
         try:
-            with _zipfile.ZipFile(zip_path, "w", _zipfile.ZIP_DEFLATED) as zf:
+            with _zipfile.ZipFile(tmp_path, "w", _zipfile.ZIP_DEFLATED) as zf:
                 # 1. Hardcoded personal-data files.
                 for name in self._GDPR_PERSONAL_FILES:
                     path = config_dir / name
@@ -867,7 +994,11 @@ class VoiceTyperService(
                                 path,
                                 exc,
                             )
-                # 2. Glob-pattern personal-data files.
+                # 2. Glob-pattern personal-data files (mic-test
+                # recordings, rotated log backups ``voice-typer.log.*``
+                # + ``prewarm.log.*``, crash diagnostic
+                # files ``crash_diagnostics.*.txt`` +
+                # ``python_crash.*.txt``).
                 for pattern in self._GDPR_PERSONAL_GLOBS:
                     for path in config_dir.glob(pattern):
                         if not path.is_file():
@@ -880,7 +1011,29 @@ class VoiceTyperService(
                                 path,
                                 exc,
                             )
+            # ZipFile block completed successfully — atomic
+            # rename of the completed temp zip into the final path.
+            # ``os.replace`` is atomic on POSIX (rename(2)) and
+            # replaces any existing destination on Windows
+            # (MoveFileExW with MOVEFILE_REPLACE_EXISTING).  If
+            # ``os.replace`` itself fails (e.g. cross-filesystem —
+            # should not happen since both paths are in the same
+            # dir), we unlink the temp file and let the outer
+            # ``except`` surface the failure.
+            try:
+                os.replace(tmp_path, zip_path)
+            except OSError:
+                with contextlib.suppress(FileNotFoundError):
+                    tmp_path.unlink()
+                raise
         except Exception as exc:
+            # Unlink any partial temp file so no corrupt
+            # artifact is left on disk.  ``suppress(FileNotFoundError)``
+            # because the temp file may not exist (ZipFile failed
+            # before opening it, OR the inner ``os.replace`` handler
+            # already unlinked it).  Log + return structured failure.
+            with contextlib.suppress(FileNotFoundError):
+                tmp_path.unlink()
             log.error("export_gdpr_bundle failed: %s", exc)
             return {
                 "success": False,

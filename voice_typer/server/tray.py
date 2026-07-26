@@ -9,12 +9,18 @@ Phase 2: Minimal right-click menu:
 Left-click + "Open App" launches the Electron app (or focuses it if already running).
 All settings, history, templates, etc. live in the Electron window only.
 
-CQ-004: This module is ~670 lines. It was considered for splitting but
-kept as a single module because:
-  - The TrayIcon class is a single cohesive unit (lifecycle + state + menu)
-  - Splitting would create tight cross-file coupling (menu ↔ state ↔ notify)
-  - The internal sections are clearly delineated with comment headers
-  - Related logic (e.g. notification handling) stays together
+CQ-004 / module-split: this module was previously a 1270-LOC monolith mixing 5
+concerns (pystray lifecycle, state queuing, Wayland SNI detection,
+elapsed-recording timer, Tauri menu publish). It has been progressively
+split: menu building → ``tray_menu.py`` (#13), types → ``tray_types.py``
+(ARCH-003), icon rendering → ``tray_icon.py`` (ARCH-003), i18n →
+``tray_i18n.py`` (TRAY-008), Wayland SNI detection →
+``tray_wayland_detect.py``, elapsed-recording timer →
+``tray_elapsed_timer.py``. The remaining ``TrayIcon`` class is
+a single cohesive unit (lifecycle + state + menu composition); further
+splitting would create tight cross-file coupling (menu ↔ state ↔
+notify). The internal sections are clearly delineated with comment
+headers, and related logic (e.g. notification handling) stays together.
 
 Threading model:
 - ``start()`` creates the icon and launches background work (model loading,
@@ -46,7 +52,10 @@ from collections.abc import Callable
 # TrayIcon.__init__ so it no longer forces an eager import.
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.branding import APP_NAME
-from voice_typer.server.platform_utils import is_linux
+
+# elapsed-recording timer extracted to tray_elapsed_timer.py.
+# Re-exported here via # noqa: F401 for backward compat.
+from voice_typer.server.tray_elapsed_timer import ElapsedTimer  # noqa: F401
 from voice_typer.server.tray_icon import _make_icon
 
 # #13: menu building extracted to tray_menu.py (display_hotkey, wrap_callback,
@@ -63,6 +72,15 @@ from voice_typer.server.tray_menu import (  # noqa: F401
 
 # ARCH-003: types extracted to tray_types.py; icon rendering to tray_icon.py
 from voice_typer.server.tray_types import AppState, TrayController
+
+# Wayland SNI detection extracted to tray_wayland_detect.py.
+# Re-exported here via # noqa: F401 for backward compat with tests that
+# call ``TrayIcon._is_linux_wayland_without_sni()`` (static-method
+# delegator below) and code that imports ``is_linux_wayland_without_sni``
+# directly from ``voice_typer.server.tray``.
+from voice_typer.server.tray_wayland_detect import (  # noqa: F401
+    is_linux_wayland_without_sni,
+)
 
 pystray = lazy_module("pystray")
 
@@ -146,6 +164,17 @@ class TrayIcon:
         # time. Both are ``None`` when not recording.
         self._recording_started_at: float | None = None
         self._elapsed_timer: threading.Timer | None = None
+        # The elapsed-timer logic is extracted into an
+        # ``ElapsedTimer`` helper (``tray_elapsed_timer.py``). The
+        # helper keeps ``self._elapsed_timer`` in sync via the
+        # ``set_timer_ref`` callback so tests that assert on
+        # ``tray._elapsed_timer is None`` / ``is not None`` continue
+        # to work without knowing about the helper.
+        self._elapsed_timer_helper = ElapsedTimer(
+            tick_callback=self._on_elapsed_tick,
+            is_active=lambda: self._state == AppState.RECORDING,
+            set_timer_ref=self._set_elapsed_timer_ref,
+        )
         self._autostart_enabled = False
         # SK-b: parakeet_engine emits ``{"type": "parakeet_cpu_fallback"}``
         # when GPU transcription fails and it falls back to CPU. We
@@ -224,8 +253,12 @@ class TrayIcon:
         if transcribing_changed:
             self._menu_cache_valid = False
         # UX-11: manage the elapsed-recording timer on RECORDING ⇄ IDLE.
+        # ER-54: use ``time.monotonic()`` (NOT ``time.time()``) so wall-clock
+        # jumps (NTP slew, DST transitions) cannot corrupt the displayed
+        # ``mm:ss``. ``monotonic`` is guaranteed never to go backwards and
+        # is unaffected by ``settimeofday`` / ``adjtime``.
         if state == AppState.RECORDING and prev_state != AppState.RECORDING:
-            self._recording_started_at = time.time()
+            self._recording_started_at = time.monotonic()
             self._start_elapsed_timer()
         elif state != AppState.RECORDING and prev_state == AppState.RECORDING:
             self._cancel_elapsed_timer()
@@ -307,71 +340,21 @@ class TrayIcon:
     def _is_linux_wayland_without_sni() -> bool:
         """NEW-XPLAT-002: detect Linux Wayland without StatusNotifierItem.
 
+        The implementation now lives in
+        ``voice_typer.server.tray_wayland_detect.is_linux_wayland_without_sni``
+        so it can be tested without instantiating a ``TrayIcon``. This
+        static-method delegator is kept for backward compatibility with
+        tests that call ``TrayIcon._is_linux_wayland_without_sni()``
+        directly (``tests/test_platform_and_config.py``,
+        ``tests/regressions/tray_test.py``).
+
         Returns True if ALL of the following are true:
           1. We're on Linux (sys.platform starts with "linux").
           2. The session is Wayland (XDG_SESSION_TYPE=wayland).
           3. No StatusNotifierItem watcher is registered on the D-Bus
              session bus.
-
-        Detection of (3) is best-effort: we try to call the
-        ``org.kde.StatusNotifierWatcher`` service via D-Bus.  If the
-        call fails (service unknown, bus unavailable, dbus module
-        missing), we assume SNI is not available — which matches the
-        user's complaint that "the tray silently fails" on Sway/Hyprland.
-
-        We DON'T try to detect specific compositors by name (Sway,
-        Hyprland, etc.) because new compositors appear regularly and
-        the SNI-availability check is the actual contract that
-        matters.
         """
-        import os
-
-        if not is_linux():
-            return False
-        if os.environ.get("XDG_SESSION_TYPE") != "wayland":
-            return False
-        # Try to detect the StatusNotifierItem watcher service on D-Bus.
-        try:
-            import dbus  # type: ignore[import-untyped]
-        except ImportError:
-            # No dbus module — we can't detect SNI programmatically.
-            # Conservative: assume SNI is NOT available (matches the
-            # user's complaint of "silent failure" on minimal Wayland
-            # setups that typically don't have python-dbus installed).
-            log.debug(
-                "[TRAY] Wayland session detected but python-dbus not installed; "
-                "assuming StatusNotifierItem is unavailable."
-            )
-            return True
-        try:
-            bus = dbus.SessionBus()
-            # The SNI watcher is the well-known name registered by
-            # the compositor's tray (e.g. waybar, swaync, KDE's
-            # plasma-workspace).  If it's not registered, the
-            # NameHasOwner call returns False.
-            proxy = bus.get_object(
-                "org.freedesktop.DBus",
-                "/org/freedesktop/DBus",
-            )
-            has_owner = bool(
-                proxy.NameHasOwner(
-                    "org.kde.StatusNotifierWatcher",
-                    dbus_interface="org.freedesktop.DBus",
-                )
-            )
-            if not has_owner:
-                log.info(
-                    "[TRAY] Wayland session detected and org.kde.StatusNotifierWatcher "
-                    "is NOT registered on the D-Bus session bus. Tray will be skipped."
-                )
-                return True
-            return False
-        except Exception as exc:
-            log.debug(
-                "[TRAY] D-Bus check for StatusNotifierItem failed: %s — assuming SNI is unavailable.",
-                exc,
-            )
-            return True
+        return is_linux_wayland_without_sni()
 
     def refresh_config(self, config) -> None:
         """Replace the cached Config reference and rebuild the menu.
@@ -598,19 +581,25 @@ class TrayIcon:
         # relies on to keep the main thread alive while the IPC server
         # + hotkey backends run on daemon threads.
         if self._tray_unavailable and self._icon is None:
-            # Flush queued state/notifications so callers that set
-            # state before run() (e.g. app.start sets AppState.LOADING)
-            # don't lose them. Best-effort — no icon means most
-            # state/notify calls are no-ops, but the queue flush keeps
-            # the queue from growing unbounded.
-            with self._queue_lock:
-                self._pending_states.clear()
-                self._pending_notifications.clear()
+            # Drain pending state/notifications periodically so
+            # the lists don't grow unbounded on tray-unavailable
+            # systems (Wayland-without-SNI, VOICE_TYPER_NO_TRAY=1,
+            # headless). Previously the one-shot clear here only
+            # flushed the initial queue; subsequent set_state() /
+            # notify() / notify_safety() calls (which append because
+            # ``_icon`` is None) accumulated indefinitely until
+            # ``stop()`` set the event. Growth rate: ~4-6 state
+            # changes per dictation cycle × ~150 bytes/entry. We now
+            # drain every 60s — the state is already published to
+            # Tauri via ``_publish_tray_state``, so the pystray queue
+            # is redundant on the unavailable path.
             log.info(
                 "[TRAY] Tray unavailable — main thread blocking on Event "
-                "(stop() will release). Hotkey + IPC server still active."
+                "(stop() will release, pending queues drained every 60s). "
+                "Hotkey + IPC server still active."
             )
-            self._run_event.wait()
+            while not self._run_event.wait(timeout=60):
+                self._drain_pending()
             return
 
         if self._icon is None:
@@ -721,7 +710,9 @@ class TrayIcon:
         # ``_recording_started_at`` is None (e.g. before the first
         # RECORDING transition).
         if state == AppState.RECORDING and self._recording_started_at is not None:
-            elapsed = time.time() - self._recording_started_at
+            # ER-54: monotonic clock so wall-clock jumps (NTP slew, DST
+            # transitions) cannot corrupt the displayed ``mm:ss``.
+            elapsed = time.monotonic() - self._recording_started_at
             title += f" ({self._format_elapsed(elapsed)})"
         # TRAY-022: Include model name and hotkey in tooltip
         if self._config:
@@ -796,13 +787,46 @@ class TrayIcon:
 
         Negative inputs are clamped to 0. Used by ``_apply_state`` to
         append the elapsed recording time to the tray tooltip.
+
+        The implementation now lives in
+        ``ElapsedTimer.format_elapsed`` (``tray_elapsed_timer.py``).
+        This static-method delegator is kept for backward compatibility
+        with tests that call ``TrayIcon._format_elapsed(...)`` directly
+        (``tests/test_tray.py::TestElapsedRecordingTooltip``).
         """
-        total = max(0, int(seconds))
-        hours, rem = divmod(total, 3600)
-        minutes, secs = divmod(rem, 60)
-        if hours > 0:
-            return f"{hours}:{minutes:02d}:{secs:02d}"
-        return f"{minutes:02d}:{secs:02d}"
+        return ElapsedTimer.format_elapsed(seconds)
+
+    def _on_elapsed_tick(self) -> None:
+        """UX-11: refresh the tray tooltip with the latest elapsed time.
+
+        Called by the ``ElapsedTimer`` helper on each 1s tick while the
+        state is RECORDING. Re-applies the current state to the pystray
+        Icon (if present) and publishes a ``tray_state`` event to the
+        Tauri host so the native tooltip updates. Extracted from the
+        inline ``_tick`` closure in the original implementation so the ``ElapsedTimer`` helper
+        can call back into ``TrayIcon`` without re-creating the closure
+        on every start.
+        """
+        if self._icon is not None:
+            self._apply_state(self._state, self._message)
+        # ADR-0020 §6.5: under Tauri there is no pystray Icon to
+        # refresh; emit a tray_state event instead so the Rust host
+        # updates the native tooltip with the latest elapsed time.
+        # No-op on the Electron/pystray runtime.
+        self._publish_tray_state()
+
+    def _set_elapsed_timer_ref(self, timer: threading.Timer | None) -> None:
+        """Sync ``self._elapsed_timer`` with the helper's Timer.
+
+        Callback passed to ``ElapsedTimer`` so the helper can keep the
+        ``_elapsed_timer`` attribute (the raw ``threading.Timer`` or
+        ``None``) in sync with its internal reference. Tests assert on
+        ``tray._elapsed_timer is None`` / ``is not None``; without this
+        callback those assertions would break because the helper would
+        own the canonical Timer reference and ``_elapsed_timer`` would
+        stay ``None``.
+        """
+        self._elapsed_timer = timer
 
     def _start_elapsed_timer(self) -> None:
         """Start (or restart) the 1-second elapsed-recording tooltip timer.
@@ -813,40 +837,22 @@ class TrayIcon:
         on each tick as long as the state is still RECORDING. Cancels
         any prior timer first so rapid RECORDING → RECORDING transitions
         (e.g. from a stop/restart race) don't leak overlapping timers.
+
+        Delegates to the composed ``ElapsedTimer`` helper
+        (``self._elapsed_timer_helper``). The helper keeps
+        ``self._elapsed_timer`` in sync via the ``set_timer_ref``
+        callback so tests that assert on
+        ``tray._elapsed_timer is None`` / ``is not None`` continue to
+        work.
+
+        Defensive: if ``_elapsed_timer_helper`` is missing (e.g. a
+        test mock that subclasses ``TrayIcon`` and bypasses
+        ``__init__``), this is a no-op — preserves backward compat
+        with ``tests/tauri/test_tray_menu.py::_FakeTray``.
         """
-        self._cancel_elapsed_timer()
-
-        def _tick() -> None:
-            # Re-check state inside the tick: a stop() may have fired
-            # between the timer being scheduled and now. If we're no
-            # longer recording, just exit without rescheduling.
-            if self._state != AppState.RECORDING:
-                return
-            try:
-                if self._icon is not None:
-                    self._apply_state(self._state, self._message)
-                # ADR-0020 §6.5: under Tauri there is no pystray Icon
-                # to refresh; emit a tray_state event instead so the
-                # Rust host updates the native tooltip with the latest
-                # elapsed time. No-op on the Electron/pystray runtime.
-                self._publish_tray_state()
-            except Exception:
-                log.debug(
-                    "[TRAY] elapsed-timer tick failed to refresh tooltip",
-                    exc_info=True,
-                )
-            # Reschedule only if still recording. The check happens AFTER
-            # _apply_state so a state change during the apply is caught.
-            if self._state == AppState.RECORDING:
-                t = threading.Timer(1.0, _tick)
-                t.daemon = True
-                self._elapsed_timer = t
-                t.start()
-
-        t = threading.Timer(1.0, _tick)
-        t.daemon = True
-        self._elapsed_timer = t
-        t.start()
+        helper = getattr(self, "_elapsed_timer_helper", None)
+        if helper is not None:
+            helper.start()
 
     def _cancel_elapsed_timer(self) -> None:
         """Cancel the elapsed-recording timer if running.
@@ -854,14 +860,15 @@ class TrayIcon:
         Idempotent — safe to call when no timer exists (e.g. before the
         first RECORDING transition). Clears ``_elapsed_timer`` to ``None``
         so ``set_state`` assertions on ``_elapsed_timer is None`` work.
+
+        Delegates to the composed ``ElapsedTimer`` helper.
+        Defensive: if ``_elapsed_timer_helper`` is missing (e.g. a
+        test mock that subclasses ``TrayIcon`` and bypasses
+        ``__init__``), this is a no-op.
         """
-        t = self._elapsed_timer
-        self._elapsed_timer = None
-        if t is not None:
-            try:
-                t.cancel()
-            except Exception:
-                log.debug("[TRAY] elapsed-timer cancel failed", exc_info=True)
+        helper = getattr(self, "_elapsed_timer_helper", None)
+        if helper is not None:
+            helper.cancel()
 
     def _on_parakeet_cpu_fallback(self, event: dict) -> None:
         """SK-b: handle ``parakeet_cpu_fallback`` events from parakeet_engine.
@@ -915,6 +922,26 @@ class TrayIcon:
             self._icon.notify(message, title)
         except Exception as e:
             log.warning("[TRAY] Notification failed: %s", e)
+
+    def _drain_pending(self) -> None:
+        """Drain the pending state / notification queues.
+
+        On tray-unavailable systems (Wayland-without-SNI,
+        ``VOICE_TYPER_NO_TRAY=1``, headless), ``set_state()`` /
+        ``notify()`` / ``notify_safety()`` append to
+        ``_pending_states`` / ``_pending_notifications`` because
+        ``_icon`` is None. Without periodic draining, these lists
+        grow unbounded (~750-900 bytes per dictation cycle ×
+        ~50 dictations/hour × 24h = ~600KB/day).
+
+        The state is already published to Tauri via
+        ``_publish_tray_state``, so the pystray queue is redundant on
+        the unavailable path — we just clear the lists. Called from
+        the tray-unavailable branch of ``run()`` every 60s.
+        """
+        with self._queue_lock:
+            self._pending_states.clear()
+            self._pending_notifications.clear()
 
     @staticmethod
     def _bring_electron_to_front() -> bool:
@@ -1029,10 +1056,14 @@ class TrayIcon:
         # The lambda is created (closure over self._controller.recording)
         # but NOT invoked during menu building, so a mock controller
         # without a ``recording`` attribute is safe.
+        # Uses the canonical ``force_cancel_transcription`` key (single
+        # canonical label across tray + renderer); the legacy
+        # ``force_cancel_stuck_transcription`` key was removed from
+        # ``tray_i18n.py``.
         if self._state == AppState.TRANSCRIBING:
             items.append(
                 pystray.MenuItem(
-                    _("force_cancel_stuck_transcription"),
+                    _("force_cancel_transcription"),
                     wrap_callback(
                         lambda: self._controller.recording._force_recover_from_stuck_transcription(force=True)
                     ),

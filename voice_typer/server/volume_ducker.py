@@ -193,7 +193,15 @@ class VolumeDucker:
         # use ``max(user_value, min_poll)`` so the monitor never polls
         # *faster* than the backend can handle.  Users who explicitly
         # configure a slower value are still honoured.
-        min_poll = getattr(self._backend, "min_poll_interval_ms", 0)
+        # Defensive int coercion: ``getattr(backend, "...", 0)`` on a
+        # ``MagicMock`` backend returns a ``MagicMock`` (not the default
+        # ``0``) because ``__getattr__`` auto-vivifies. Coerce via
+        # ``int(...)`` so a mock-or-MagicMock backend's missing attribute
+        # doesn't leak a non-numeric value into the comparison below.
+        try:
+            min_poll = int(getattr(self._backend, "min_poll_interval_ms", 0) or 0)
+        except (TypeError, ValueError):
+            min_poll = 0
         if min_poll > self._smart_duck_poll_ms:
             log.info(
                 "[VOLUME] Backend %s requires %dms minimum poll interval "
