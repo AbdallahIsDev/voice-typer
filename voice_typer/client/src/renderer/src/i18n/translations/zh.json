@@ -78,14 +78,14 @@
 		"repaste": "重新粘贴",
 		"repasteAria": "重新粘贴上一次转写",
 		"forceCancel": "强制取消",
-		"forceCancelHint": "如果听写卡住，可强制取消以恢复",
+		"forceCancelHint": "太久了？强制取消转录",
 		"forceCancelFailed": "无法强制取消转写",
 		"undoFailed": "无法撤销上次转写",
 		"repasteFailed": "无法重新粘贴上次转写",
 		"errorTitle": "录制错误",
 		"retry": "重试",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
-		"toggleFailed": "Failed to toggle dictation. Please check your connection."
+		"toggleFailed": "无法切换听写。请重试。"
 	},
 	"common": {
 		"cancel": "取消",
@@ -1309,7 +1309,7 @@
 		"modelDescription": "选择一个转写模型。较小的模型更快；较大的模型更准确。模型会在设置完成后在后台下载。",
 		"modelSelectAria": "选择模型：{name}",
 		"completeTitle": "一切就绪！",
-		"completeDescription": "您的 Voice Typer 已配置完成，可以使用了。按下快捷键（{hotkey}）开始听写。模型将在后台下载并加载 — 首次运行可能需要一分钟。",
+		"completeDescription": "您的 Voice Typer 已配置就绪。按下快捷键 ({hotkey}) 开始听写。模型将在后台下载并加载 — 首次运行可能需要一分钟（小模型约 466 MB，中模型 1.5 GB）。",
 		"summaryMic": "麦克风：",
 		"defaultMic": "默认",
 		"summaryHotkey": "快捷键：",
@@ -1338,7 +1338,7 @@
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
 		"skipConfirmTitle": "Skip setup?",
-		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmMessage": "现在跳过意味着您的麦克风和快捷键可能无法工作。您可以稍后从设置 → 故障排除重新运行此设置向导，或在设置中配置各个选项。",
 		"skipConfirmLabel": "Skip anyway",
 		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
 		"permissionsRefresh": "Refresh permission",
@@ -1352,7 +1352,11 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"modelOption": "{description} — {size} ({speed})",
-		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again."
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step4Item": "选择转录模型",
+		"step5Item": "完成设置",
+		"refreshMics": "刷新麦克风",
+		"noMicsHint": "连接麦克风或检查操作系统的麦克风权限，然后点击刷新。"
 	},
 	"titleBar": {
 		"minimize": "最小化",

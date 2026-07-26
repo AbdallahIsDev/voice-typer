@@ -78,14 +78,14 @@
 		"repaste": "Erneut einfügen",
 		"repasteAria": "Letzte Transkription erneut einfügen",
 		"forceCancel": "Abbruch erzwingen",
-		"forceCancelHint": "Wenn die Diktatfunktion hängt, Abbruch erzwingen, um fortzufahren",
+		"forceCancelHint": "Dauert zu lange? Transkription abbrechen erzwingen",
 		"forceCancelFailed": "Transkription konnte nicht zwangsweise abgebrochen werden",
 		"undoFailed": "Letzte Transkription konnte nicht rückgängig gemacht werden",
 		"repasteFailed": "Letzte Transkription konnte nicht erneut eingefügt werden",
 		"errorTitle": "Aufnahmefehler",
 		"retry": "Wiederholen",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
-		"toggleFailed": "Failed to toggle dictation. Please check your connection."
+		"toggleFailed": "Diktat konnte nicht umgeschaltet werden. Bitte erneut versuchen."
 	},
 	"common": {
 		"cancel": "Abbrechen",
@@ -1309,7 +1309,7 @@
 		"modelDescription": "Wählen Sie ein Transkriptionsmodell. Kleinere Modelle sind schneller; größere Modelle sind genauer. Das Modell wird nach der Einrichtung im Hintergrund heruntergeladen.",
 		"modelSelectAria": "Modell auswählen: {name}",
 		"completeTitle": "Alles bereit!",
-		"completeDescription": "Ihr Voice Typer ist konfiguriert und bereit. Drücken Sie Ihre Tastenkombination ({hotkey}), um mit dem Diktieren zu beginnen. Das Modell wird im Hintergrund heruntergeladen und geladen — beim ersten Start kann das eine Minute dauern.",
+		"completeDescription": "Ihr Voice Typer ist konfiguriert und bereit. Drücken Sie Ihren Hotkey ({hotkey}), um mit dem Diktieren zu beginnen. Das Modell wird im Hintergrund heruntergeladen und geladen — beim ersten Start kann dies eine Minute dauern (ca. 466 MB für das kleine Modell, 1,5 GB für mittel).",
 		"summaryMic": "Mikrofon:",
 		"defaultMic": "Standard",
 		"summaryHotkey": "Tastenkombination:",
@@ -1338,7 +1338,7 @@
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
 		"skipConfirmTitle": "Skip setup?",
-		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmMessage": "Überspringen bedeutet, dass Ihr Mikrofon und Ihr Hotkey möglicherweise nicht funktionieren. Sie können diesen Einrichtungsassistenten später unter Einstellungen → Fehlerbehebung erneut ausführen oder einzelne Einstellungen in den Einstellungen konfigurieren.",
 		"skipConfirmLabel": "Skip anyway",
 		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
 		"permissionsRefresh": "Refresh permission",
@@ -1352,7 +1352,11 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"modelOption": "{description} — {size} ({speed})",
-		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again."
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step4Item": "Transkriptionsmodell auswählen",
+		"step5Item": "Einrichtung abschließen",
+		"refreshMics": "Mikrofone aktualisieren",
+		"noMicsHint": "Verbinden Sie ein Mikrofon oder überprüfen Sie die Mikrofonberechtigung Ihres Betriebssystems und klicken Sie dann auf Aktualisieren."
 	},
 	"titleBar": {
 		"minimize": "Minimieren",

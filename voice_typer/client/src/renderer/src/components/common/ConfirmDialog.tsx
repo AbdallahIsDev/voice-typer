@@ -65,13 +65,21 @@ export default function ConfirmDialog({
 				</AlertDialogHeader>
 				<AlertDialogFooter>
 					{/* DX-014: Cancel button has NO onClick — handleOpenChange
-					    calls onCancel when the dialog closes. Letting Radix
-					    trigger onOpenChange(false) is the single close signal. */}
+                                            calls onCancel when the dialog closes. Letting Radix
+                                            trigger onOpenChange(false) is the single close signal. */}
 					<AlertDialogCancel aria-label={cancelLabel}>
 						{cancelLabel}
 					</AlertDialogCancel>
 					<AlertDialogAction
-						variant={variant === "destructive" ? "destructive" : "default"}
+						// map variant through to the button's
+						// cva variant. destructive → destructive, warning →
+						// warning (the warning variant in button.tsx uses the
+						// --warning design token so the amber tint tracks the
+						// active theme), and any other value → default.
+						// Previously `warning` fell through to `default`,
+						// making the confirm button visually identical to a
+						// safe primary action.
+						variant={variant}
 						onClick={handleConfirm}
 						aria-label={confirmLabel}
 					>

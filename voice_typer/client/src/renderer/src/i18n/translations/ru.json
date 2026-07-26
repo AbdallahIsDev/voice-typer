@@ -78,14 +78,14 @@
 		"repaste": "Вставить заново",
 		"repasteAria": "Вставить последнюю транскрипцию заново",
 		"forceCancel": "Принудительно отменить",
-		"forceCancelHint": "Если диктовка зависла, принудительно отмените для восстановления",
+		"forceCancelHint": "Слишком долго? Принудительно отменить транскрипцию",
 		"forceCancelFailed": "Не удалось принудительно отменить транскрипцию",
 		"undoFailed": "Не удалось отменить последнюю транскрипцию",
 		"repasteFailed": "Не удалось вставить заново последнюю транскрипцию",
 		"errorTitle": "Ошибка записи",
 		"retry": "Повторить",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
-		"toggleFailed": "Failed to toggle dictation. Please check your connection."
+		"toggleFailed": "Не удалось переключить диктовку. Пожалуйста, попробуйте ещё раз."
 	},
 	"common": {
 		"cancel": "Отмена",
@@ -1309,7 +1309,7 @@
 		"modelDescription": "Выберите модель транскрипции. Меньшие модели быстрее; большие модели точнее. Модель загружается в фоновом режиме после настройки.",
 		"modelSelectAria": "Выберите модель: {name}",
 		"completeTitle": "Всё готово!",
-		"completeDescription": "Voice Typer настроен и готов. Нажмите горячую клавишу ({hotkey}), чтобы начать диктовать. Модель будет загружена в фоновом режиме — при первом запуске это может занять минуту.",
+		"completeDescription": "Ваш Voice Typer настроен и готов. Нажмите горячую клавишу ({hotkey}), чтобы начать диктовку. Модель будет загружена и загружена в фоновом режиме — при первом запуске это может занять минуту (около 466 МБ для маленькой модели, 1.5 ГБ для средней).",
 		"summaryMic": "Микрофон:",
 		"defaultMic": "По умолчанию",
 		"summaryHotkey": "Горячая клавиша:",
@@ -1338,7 +1338,7 @@
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
 		"skipConfirmTitle": "Skip setup?",
-		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmMessage": "Пропуск сейчас означает, что ваш микрофон и горячая клавиша могут не работать. Вы можете запустить этого мастера настройки позже из Настройки → Устранение неполадок, либо настроить отдельные параметры в Настройках.",
 		"skipConfirmLabel": "Skip anyway",
 		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
 		"permissionsRefresh": "Refresh permission",
@@ -1352,7 +1352,11 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"modelOption": "{description} — {size} ({speed})",
-		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again."
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step4Item": "Выберите модель транскрипции",
+		"step5Item": "Завершить настройку",
+		"refreshMics": "Обновить микрофоны",
+		"noMicsHint": "Подключите микрофон или проверьте разрешение на микрофон в ОС, затем нажмите Обновить."
 	},
 	"titleBar": {
 		"minimize": "Свернуть",

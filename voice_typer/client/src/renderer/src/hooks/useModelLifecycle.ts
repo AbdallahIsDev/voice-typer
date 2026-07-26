@@ -48,6 +48,11 @@ import {
 	type ModelMetadata,
 } from "@/lib/utils/models";
 import type { VoiceTyperConfig } from "@/types/config";
+// Import the canonical `ModelStatusMap` alias (declared in `@/types/ipc`)
+// instead of redeclaring the inline `Record<string, { downloaded: boolean;
+// deps_ok: boolean }>` annotation at every `get_model_status` call site.
+// The alias is the single source of truth for the wire shape.
+import type { ModelStatusMap } from "@/types/ipc";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -185,10 +190,11 @@ export function useModelLifecycle() {
 	// single helper so future call sites (and bug fixes) apply uniformly.
 	const refreshModelStatus = useCallback(async (): Promise<void> => {
 		try {
-			const status =
-				await call<Record<string, { downloaded: boolean; deps_ok: boolean }>>(
-					"get_model_status",
-				);
+			// Use the canonical `ModelStatusMap` alias (declared in
+			// `@/types/ipc`) instead of the inline `Record<string, {
+			// downloaded: boolean; deps_ok: boolean }>` annotation so the
+			// wire shape has a single source of truth.
+			const status = await call<ModelStatusMap>("get_model_status");
 			if (status && typeof status === "object") {
 				setModels((prev) =>
 					prev.map((m) => {
@@ -231,9 +237,9 @@ export function useModelLifecycle() {
 		try {
 			const results = await Promise.allSettled([
 				call<VoiceTyperConfig>("get_config"),
-				call<Record<string, { downloaded: boolean; deps_ok: boolean }>>(
-					"get_model_status",
-				),
+				// Use the canonical `ModelStatusMap` alias (declared in
+				// `@/types/ipc`) for the wire shape.
+				call<ModelStatusMap>("get_model_status"),
 				call<{ models: ModelMetadata[] }>("get_model_catalog"),
 			]);
 
@@ -834,13 +840,31 @@ export function useModelLifecycle() {
 		try {
 			await call("cancel_model_download");
 			showSnack(t("models.snack.cancelled"), "warning");
+			// reset local download state immediately on
+			// success so the model card stops showing the
+			// progress bar / pause button / cancel button
+			// without waiting for the backend's terminal
+			// download_progress event (which can race with
+			// the cancel ack or be missed entirely if the WS
+			// frame is dropped).
+			setDownloadingModel(null);
+			resetProgress();
 		} catch (err) {
 			showSnack(
 				t("models.snack.cancelFailed", { error: formatErrorMessage(err) }),
 				"error",
 			);
+			// even if IPC failed, the user has
+			// signalled intent to cancel — clear the local
+			// download state so the card UI doesn't stay
+			// stuck mid-download. The backend may still be
+			// downloading, but the renderer's view reflects
+			// the user's intent and the next download_progress
+			// event (if any) will re-establish state.
+			setDownloadingModel(null);
+			resetProgress();
 		}
-	}, [call, showSnack]);
+	}, [call, showSnack, resetProgress]);
 
 	// ── Action: handleImportModel ───────────────────────────────────
 	const handleImportModel = useCallback(async () => {

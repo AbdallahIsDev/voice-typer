@@ -44,6 +44,17 @@ export interface HistoryRecord {
 	char_count: number;
 	favorite: number;
 	language: string;
+	// ``text`` is now a 500-char preview in list responses
+	// (``get_history`` / ``get_favorites`` / ``search_history``).
+	// ``text_truncated`` is ``true`` when the full text exceeded
+	// the 500-char preview; ``text_full_length`` is the total
+	// char count of the untruncated text. Both are OPTIONAL for
+	// backward compatibility — older callers that don't read
+	// these fields continue to work, and the renderer fetches the
+	// full text via ``get_transcription_text`` when the user
+	// expands a row.
+	text_truncated?: boolean;
+	text_full_length?: number;
 }
 
 export interface TodayStats {
@@ -419,6 +430,86 @@ export interface ParakeetCpuFallbackEvent {
 	data: { device: string; reason: string };
 }
 
+// ── 3 server-emitted push events previously missing from the union ─
+//
+// The Python backend emits these via `event_bus.publish(...)` but the TS
+// `PythonPushEvent` union never modelled them, so renderer code
+// subscribing via `usePythonEvent("asr_backend_disabled", ...)` etc. got
+// no compile-time type narrowing (the events flowed through
+// `handleMessage`'s catch-all `broadcastToMainWindow("python-event", msg)`
+// path but were typed as `never` in the union, forcing
+// `as unknown as PythonPushEvent` casts — a Rule 26 violation).
+//
+// WIRE-SHAPE NOTE: unlike most other events in this union, the Python
+// emitters for `asr_backend_disabled` and `asr_last_resort_unloaded`
+// put the payload fields at the message ROOT (not under a `data` key).
+// Verified by reading the emitters at:
+//   - `voice_typer/server/asr_registry.py:531-538` (`asr_backend_disabled`)
+//   - `voice_typer/server/asr_registry.py:330-336` (`asr_last_resort_unloaded`)
+//   - `voice_typer/server/dictation_pipeline.py:919` (`llm_polish_failed`)
+// The TS interfaces below mirror the actual wire shape. If a future
+// Python refactor wraps these in a `data: { ... }` envelope, the TS
+// types must be updated to match (and the parity test in
+// `types/__tests__/ipc-types.test.ts` should be extended to assert the
+// field set).
+
+/** Pushed by `voice_typer/server/asr_registry.py:531-538` when an ASR
+ *  backend (e.g. whisper CUDA) auto-disables after repeated OOM / load
+ *  failures and the registry falls back to a different backend. The
+ *  renderer surfaces a one-time "ASR backend X disabled, falling back
+ *  to Y" banner so the user knows transcription may be slower or use
+ *  a different model.
+ *
+ *  Wire shape (fields at ROOT, NOT under `data` — see the note
+ *  above):
+ *    `{ "type": "asr_backend_disabled", "backend": "<name>",
+ *       "failure_count": <int>, "timestamp": "<iso-8601>" }` */
+export interface ASRBackendDisabledEvent {
+	type: "asr_backend_disabled";
+	/** The disabled backend's name (e.g. `"whisper"`, `"parakeet"`). */
+	backend: string;
+	/** Number of consecutive failures that triggered the disable. */
+	failure_count: number;
+	/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
+	timestamp: string;
+}
+
+/** Pushed by `voice_typer/server/asr_registry.py:330-336` when the
+ *  LAST-RESORT ASR backend is unloaded — i.e. no ASR backend is
+ *  available until the user manually restarts the app or reconfigures.
+ *  The renderer surfaces a critical "No ASR backend available — please
+ *  restart" banner so the user knows dictation is unavailable.
+ *
+ *  Wire shape (fields at ROOT, NOT under `data` — see the note
+ *  above):
+ *    `{ "type": "asr_last_resort_unloaded", "backend": "<name>",
+ *       "timestamp": "<iso-8601>" }` */
+export interface ASRLastResortUnloadedEvent {
+	type: "asr_last_resort_unloaded";
+	/** The last-resort backend's name that was just unloaded. */
+	backend: string;
+	/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
+	timestamp: string;
+}
+
+/** Pushed by `voice_typer/server/dictation_pipeline.py:919` when the
+ *  LLM polish step (the optional `ai_enhancement_enabled` path that
+ *  post-processes the raw transcription with grammar / style fixes)
+ *  raises an exception. The transcription itself is still delivered
+ *  to the user UN-polished (the `dictation_pipeline` swallows the
+ *  error and returns the original text), so this event is purely
+ *  informational — the renderer may surface a one-time toast like
+ *  "Polish unavailable — transcription shown raw".
+ *
+ *  Wire shape: the Python emitter publishes a bare
+ *  `{ "type": "llm_polish_failed" }` frame with NO payload fields.
+ *  Mirrors the shape of {@link RecordingStartedEvent} /
+ *  {@link HotkeyCaptureCancelEvent} (bare `{type}` frames with no
+ *  data). */
+export interface LLMPolishFailedEvent {
+	type: "llm_polish_failed";
+}
+
 // ── (resilient sidecar) lifecycle events ──────────────────────
 //
 // EC-FIX-7 (addresses [EC-14]): these events are NOT emitted by the Python
@@ -492,6 +583,18 @@ export type PythonPushEvent =
 	| TrayStateEvent
 	| ConsentRequiredEvent
 	| ParakeetCpuFallbackEvent
+	// three more server-emitted events previously missing from
+	// the union. Each is published by `event_bus.publish(...)` in the
+	// Python tree:
+	//   - `asr_backend_disabled`     — `asr_registry.py:531-538`
+	//   - `asr_last_resort_unloaded` — `asr_registry.py:330-336`
+	//   - `llm_polish_failed`        — `dictation_pipeline.py:919`
+	// See the per-interface docstrings for the wire shape (note: the
+	// first two put payload fields at the message ROOT, not under
+	// `data`).
+	| ASRBackendDisabledEvent
+	| ASRLastResortUnloadedEvent
+	| LLMPolishFailedEvent
 	| ReconnectingEvent
 	| ReconnectedEvent;
 
@@ -597,6 +700,36 @@ export interface GetTodayStatsRequest {
 	type: "get_today_stats";
 }
 
+// dedicated ``get_history_count`` request — returns the TRUE
+// total transcription row count (uncapped, unlike ``get_history``'s
+// 200-row sample). Used by the Dashboard's "Total Dictations" stat
+// card so the count keeps growing past 200.
+export interface GetHistoryCountRequest {
+	type: "get_history_count";
+}
+
+// on-demand full-text fetch. The renderer calls this when the
+// user expands a History row past the 500-char ``text`` preview
+// returned by ``get_history``. Response shape:
+// ``{type: "transcription_text", data: {id: number, text: string}}``.
+export interface GetTranscriptionTextRequest {
+	type: "get_transcription_text";
+	data: { id: number };
+}
+
+// response data shapes for the two new endpoints.
+// ``HistoryCountData`` is the ``data`` field of the
+// ``history_count`` response; ``TranscriptionTextData`` is the
+// ``data`` field of the ``transcription_text`` response.
+export interface HistoryCountData {
+	count: number;
+}
+
+export interface TranscriptionTextData {
+	id: number;
+	text: string;
+}
+
 export interface GetVocabularyRequest {
 	type: "get_vocabulary";
 }
@@ -618,7 +751,11 @@ export type PythonRequest =
 	| SearchHistoryRequest
 	| GetTodayStatsRequest
 	| GetVocabularyRequest
-	| SaveVocabularyRequest;
+	| SaveVocabularyRequest
+	// new endpoints — see GetHistoryCountRequest /
+	// GetTranscriptionTextRequest above for the rationale.
+	| GetHistoryCountRequest
+	| GetTranscriptionTextRequest;
 
 // ── Response data shapes ────────────────────────────────────────────────────────────────
 //
@@ -749,21 +886,59 @@ export interface WindowBridge {
 
 // ── Bubble bridge API (exposed by Electron preload for the bubble overlay) ─
 //
-// DX-012: The ``WindowBubble`` interface was split into two types:
-//   - ``MainRendererBubble`` — subset exposed by ``preload/index.ts``
-//     (the main settings window).  Bubble-only methods (onSetState,
-//     resizeTo) are not available here; callers must use ``?.``.
-//   - ``BubbleWindowBubble`` — full interface exposed by
-//     ``preload/bubble.ts`` (the bubble overlay window).  All methods
-//     are guaranteed present.
+// DX-012: The ``WindowBubble`` interface was split into three
+// composable types so the main renderer's `window.bubble` (typed as
+// ``MainRendererBubbleMutators`` only) gets a compile-time error if it
+// tries to call bubble-only methods OR subscribe to bubble-only events:
+//   - ``MainRendererBubbleMutators`` — the mutator subset exposed by
+//     ``preload/index.ts`` (the main settings window).  Bubble-only
+//     mutators (onSetState, resizeTo, toggleDictation, onConfig,
+//     hideComplete) and ALL event subscriptions are NOT available
+//     here; callers must use ``?.``.
+//   - ``BubbleEventSubscriptions`` — the event-subscription subset
+//     (``onLevel`` / ``onShow`` / ``onHide`` / ``onDraggable``).
+//     Separated from mutators so the Tauri bridge installer can skip
+//     wiring these on the main renderer (the main renderer has no
+//     reason to subscribe to bubble-window lifecycle events — that
+//     was a leaky abstraction that installed dead listeners on main
+//     and silently no-op'd when the events never arrived).
+//   - ``BubbleWindowExtras`` — bubble-window-only mutators
+//     (onSetState, resizeTo, toggleDictation, onConfig, hideComplete).
+//   - ``BubbleWindowBubble`` — the full interface exposed by
+//     ``preload/bubble.ts`` (the bubble overlay window).
+//     ``MainRendererBubbleMutators & BubbleEventSubscriptions & BubbleWindowExtras``.
+//     All methods are guaranteed present.
+//
+// ``hideComplete`` was moved from the main-renderer subset to
+// ``BubbleWindowExtras`` — only the bubble renderer's exit-animation
+// handler should invoke it, and exposing it on the main renderer was
+// a leaky abstraction (no main-renderer caller exists). The Electron
+// preload's exposure of `hideComplete` on main was removed in the same
+// fix.
 //
 // The ``Window.bubble`` type in the main renderer is typed as
-// ``MainRendererBubble`` so callers that accidentally use a bubble-
-// only method (e.g. ``window.bubble.resizeTo(...)``) get a compile-
-// time type error instead of a silent runtime no-op.
+// ``MainRendererBubbleMutators`` so callers that accidentally use a
+// bubble-only method (e.g. ``window.bubble.resizeTo(...)``) get a
+// compile-time type error instead of a silent runtime no-op.
 
-/** Methods exposed by the main renderer's preload (preload/index.ts). */
-export interface MainRendererBubble {
+/**
+ * Mutator methods exposed by BOTH the main renderer's preload
+ * (`preload/index.ts`) AND the bubble window's preload
+ * (`preload/bubble.ts`). These are the only bubble methods the main
+ * renderer legitimately calls — `show`, `setPosition`, `setDraggable`,
+ * `moveBy`, `signalReady`.
+ *
+ * `hideComplete` is NOT here — it's a bubble-window-only mutator
+ * (see `BubbleWindowExtras`). The main renderer has no reason to call
+ * "hide-complete" because the main renderer doesn't own the bubble's
+ * exit-animation lifecycle.
+ *
+ * All fields are optional because the Electron preload exposes them
+ * conditionally (some are Tauri-only and don't exist under Electron).
+ * The Tauri bridge in `tauri-bridge/bubble-namespace.ts` always
+ * installs them on both windows.
+ */
+export interface MainRendererBubbleMutators {
 	signalReady?: () => void;
 	setPosition?: (pos: string) => void;
 	setDraggable?: (v: boolean) => void;
@@ -773,40 +948,105 @@ export interface MainRendererBubble {
 	// them — ``preload/index.ts`` exposes no ``hide``/``setLevel``, and
 	// ``preload/bubble.ts`` does the same.  Keeping them here would make the
 	// type over-promise a silent runtime no-op.  Bubble-window-only methods
-	// remain in ``BubbleWindowBubble`` (onSetState, resizeTo).
+	// remain in ``BubbleWindowExtras`` (onSetState, resizeTo, hideComplete).
 	moveBy?: (deltaX: number, deltaY: number) => void;
-	// UX-10: mic-button toggle. Present on the bubble-window preload;
-	// optional here so the main-window preload (which doesn't expose it)
-	// still satisfies the type. The sandboxed bubble routes through a
-	// dedicated IPC channel rather than python.call.
-	toggleDictation?: () => void;
-	// UX-10: receive bubble-relevant config pushed from the backend.
-	onConfig?: (cb: (cfg: Record<string, unknown>) => void) => () => void;
+}
+
+/**
+ * Event-subscription methods for bubble lifecycle events.
+ * Separated from `MainRendererBubbleMutators` so the Tauri bridge
+ * installer can skip wiring these on the main renderer (where they'd
+ * install dead listeners — the main renderer has no reason to listen
+ * to bubble-window events).
+ *
+ * The bubble window's preload (`preload/bubble.ts`) always installs
+ * these — they're required (non-optional) on the bubble window.
+ *
+ * The fields are required (not optional) because the bubble renderer's
+ * components (Bubble.tsx) call them without `?.` — the type system
+ * enforces that the bubble preload always provides them.
+ */
+export interface BubbleEventSubscriptions {
 	// Event subscriptions (bubble window → main process) — always present
 	// when the bubble window is loaded (exposed by the preload script)
 	onLevel: (cb: (data: { rms: number; peak: number }) => void) => () => void;
 	onShow: (cb: () => void) => () => void;
 	onHide: (cb: () => void) => () => void;
 	onDraggable: (cb: (draggable: boolean) => void) => () => void;
-	hideComplete: () => void;
 }
 
-/** Full bubble API exposed by the bubble window's preload (preload/bubble.ts). */
-export interface BubbleWindowBubble extends MainRendererBubble {
+/**
+ * Mutator methods exposed ONLY by the bubble window's
+ * preload (`preload/bubble.ts`). The main renderer's preload does NOT
+ * expose these — they're the bubble-window-only extensions that mirror
+ * the Electron preload's split.
+ *
+ * - `onSetState` / `resizeTo` / `toggleDictation` / `onConfig` were
+ *   already bubble-only in the prior `BubbleWindowBubble` type
+ *   (they `extends MainRendererBubble`); the split just makes it
+ *   explicit.
+ * - `hideComplete` was moved here from `MainRendererBubble`
+ *   because only the bubble renderer's exit-animation handler should
+ *   invoke it.
+ */
+export interface BubbleWindowExtras {
+	// UX-10: mic-button toggle. Present on the bubble-window preload;
+	// the sandboxed bubble routes through a dedicated IPC channel
+	// rather than python.call.
+	toggleDictation: () => void;
+	// UX-10: receive bubble-relevant config pushed from the backend.
+	onConfig: (cb: (cfg: Record<string, unknown>) => void) => () => void;
+	// CR-33: bubble renderer listens for `bubble:set-state` events
+	// pushed by the Rust WS reader task (see sidecar/ws.rs
+	// `translate_event_name`).
 	onSetState: (cb: (state: string) => void) => () => void;
 	// Auto-resize the BrowserWindow to exactly fit the pill content,
 	// eliminating the transparent dead zone around the bubble.
 	resizeTo: (width: number, height: number) => void;
+	// notify the host that the bubble's exit animation has
+	// finished and the window can be hidden. Only the bubble
+	// renderer's exit-animation handler should invoke this — the
+	// main renderer has no equivalent lifecycle.
+	hideComplete: () => void;
 }
 
+/**
+ * Full bubble API exposed by the bubble window's preload
+ * (preload/bubble.ts). Composed from `MainRendererBubbleMutators`
+ * (shared mutators) + `BubbleEventSubscriptions` (bubble-only event
+ * subscriptions) + `BubbleWindowExtras` (bubble-only mutators).
+ *
+ * All fields from `MainRendererBubbleMutators` remain optional (the
+ * Electron preload may not install all of them under all configs).
+ * Fields from `BubbleEventSubscriptions` and `BubbleWindowExtras` are
+ * required (the bubble renderer's components rely on them).
+ */
+export type BubbleWindowBubble = MainRendererBubbleMutators &
+	BubbleEventSubscriptions &
+	BubbleWindowExtras;
+
+/**
+ * Backwards-compat alias. The prior `MainRendererBubble` type
+ * included both mutators AND event subscriptions. The main renderer
+ * now uses `MainRendererBubbleMutators` only (the event subscriptions
+ * are a leaky abstraction on main). Callers that still
+ * reference `MainRendererBubble` get the new narrower type via this
+ * alias so the migration is opt-in.
+ *
+ * TODO: remove this alias once all call sites have migrated to
+ * `MainRendererBubbleMutators`.
+ */
+export type MainRendererBubble = MainRendererBubbleMutators;
+
 // DX-012: Each window declares its own Window.bubble type:
-//   - Main renderer (``vite-env.d.ts``): ``bubble?: MainRendererBubble``
+//   - Main renderer (``vite-env.d.ts``): ``bubble?: MainRendererBubbleMutators``
+//     (mutators only — no event subscriptions, no bubble-only extras)
 //   - Bubble window (``Bubble.tsx``): ``bubble?: BubbleWindowBubble`` (cast)
 declare global {
 	interface Window {
 		python?: PythonBridge;
 		window_?: WindowBridge;
-		bubble?: MainRendererBubble;
+		bubble?: MainRendererBubbleMutators;
 	}
 }
 
@@ -861,11 +1101,12 @@ export interface ModelStatusEntry {
  * Convenience alias: the full `get_model_status` response is a map
  * keyed by the model's registry name.
  *
- * NOTE: the renderer's `hooks/useModelLifecycle.ts` currently uses an
- * inline `Record<string, { downloaded: boolean; deps_ok: boolean }>`
- * annotation. Migrating it to `ModelStatusMap` is a follow-up for the
- * Models-page owner (sub-agent 6); this type is declared here so the
- * contract is centrally available without forcing a cross-file edit.
+ * The renderer's `hooks/useModelLifecycle.ts` now uses this
+ * alias instead of the prior inline `Record<string, { downloaded:
+ * boolean; deps_ok: boolean }>` annotation — the inline form was
+ * replaced by `call<ModelStatusMap>("get_model_status")` at both
+ * call sites (the `refreshModelStatus` helper and the parallelized
+ * `loadConfig` Promise.allSettled block).
  */
 export type ModelStatusMap = Record<string, ModelStatusEntry>;
 

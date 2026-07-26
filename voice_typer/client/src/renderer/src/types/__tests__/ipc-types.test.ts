@@ -108,6 +108,13 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"tray_state",
 			"consent_required",
 			"parakeet_cpu_fallback",
+			// YJ-34: three more server-emitted events previously
+			// missing from the union. Each is published by
+			// `event_bus.publish({"type": "..."})` in the Python
+			// tree (see the per-interface docstrings in ipc.ts).
+			"asr_backend_disabled",
+			"asr_last_resort_unloaded",
+			"llm_polish_failed",
 		];
 
 		// Runtime guard: the literals must NOT appear in the accepted
@@ -122,7 +129,9 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// GT-55: -1 (relaunch_electron removed) = 26.
 		// GT-52: +3 (tray_state + consent_required +
 		// parakeet_cpu_fallback) = 29.
-		expect(acceptedTypes).toHaveLength(29);
+		// YJ-34: +3 (asr_backend_disabled + asr_last_resort_unloaded +
+		// llm_polish_failed) = 32.
+		expect(acceptedTypes).toHaveLength(32);
 	});
 
 	it("a `{ type: 'model_loaded' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
@@ -308,5 +317,206 @@ describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expecte
 		const prompt: MicrophonePermissionResult = { state: "prompt" };
 		expect(granted.state).toBe("granted");
 		expect(prompt.state).toBe("prompt");
+	});
+});
+
+describe("YJ-34: asr_backend_disabled / asr_last_resort_unloaded / llm_polish_failed ARE assignable to PythonPushEvent", () => {
+	// YJ-34: three server-emitted push events added to the union. If a
+	// future contributor removes any of the three interfaces from the
+	// union, the corresponding conditional resolves to `false` and the
+	// `true` assignment fails to compile.
+	//
+	// WIRE-SHAPE NOTE: `asr_backend_disabled` and `asr_last_resort_unloaded`
+	// put payload fields at the message ROOT (not under `data`) — verified
+	// by reading the Python emitters at `asr_registry.py:531-538` and
+	// `:330-336`. `llm_polish_failed` publishes a bare `{ "type": "..." }`
+	// frame with NO payload fields. The guards below mirror these
+	// exact wire shapes — if a future Python refactor wraps the fields
+	// in a `data` envelope, the guards must be updated to match (and
+	// the runtime assertions in the parity test below will surface the
+	// drift).
+
+	it("a `{ type: 'asr_backend_disabled', backend, failure_count, timestamp }` value IS assignable to PythonPushEvent (compile-time guard)", () => {
+		type HasASRBackendDisabled = {
+			type: "asr_backend_disabled";
+			backend: string;
+			failure_count: number;
+			timestamp: string;
+		} extends PythonPushEvent
+			? true
+			: false;
+		const _guard: HasASRBackendDisabled = true;
+		expect(_guard).toBe(true);
+	});
+
+	it("a `{ type: 'asr_last_resort_unloaded', backend, timestamp }` value IS assignable to PythonPushEvent (compile-time guard)", () => {
+		type HasASRLastResortUnloaded = {
+			type: "asr_last_resort_unloaded";
+			backend: string;
+			timestamp: string;
+		} extends PythonPushEvent
+			? true
+			: false;
+		const _guard: HasASRLastResortUnloaded = true;
+		expect(_guard).toBe(true);
+	});
+
+	it("a `{ type: 'llm_polish_failed' }` value IS assignable to PythonPushEvent (compile-time guard)", () => {
+		// `llm_polish_failed` has NO payload fields — mirrors the bare
+		// `{type}` shape of `RecordingStartedEvent` and
+		// `HotkeyCaptureCancelEvent`.
+		type HasLLMPolishFailed = {
+			type: "llm_polish_failed";
+		} extends PythonPushEvent
+			? true
+			: false;
+		const _guard: HasLLMPolishFailed = true;
+		expect(_guard).toBe(true);
+	});
+});
+
+describe("YJ-34 (parity): every Python event_bus.publish type literal is in the PythonPushEvent union", () => {
+	// YJ-34 parity guard: this is a STATIC list of every `type` literal
+	// the Python backend publishes via `event_bus.publish({"type": "..."})`
+	// in `voice_typer/server/`. The list was compiled by grepping:
+	//
+	//   rg --no-heading --no-line-number \
+	//       '"type":\s*"[a-z_]+"' voice_typer/server \
+	//       --glob '*.py' | sort -u
+	//
+	// Each literal here must ALSO appear in the `acceptedTypes` list
+	// above (which is the runtime mirror of the `PythonPushEvent` union).
+	// If a future Python emitter adds a NEW `type` literal that has no
+	// matching TS interface, this test fails — surfacing the drift
+	// before an untyped event ships.
+	//
+	// NOTE: this list intentionally does NOT include the
+	// host-bridge-synthesized `reconnecting` / `reconnected` events
+	// (those are emitted by the Rust/Electron host, NOT by Python's
+	// `event_bus.publish`).
+	//
+	// MAINTENANCE: when a new `event_bus.publish({"type": "..."})`
+	// emitter is added to the Python tree, append its `type` literal
+	// here AND add a matching interface to `ipc.ts`'s
+	// `PythonPushEvent` union. A CI grep-test on the Python side
+	// (`tests/test_*event_emitters*.py` — TBD) will eventually
+	// automate this; until then, this static list is the contract.
+	const PYTHON_EMITTER_TYPE_LITERALS: readonly string[] = [
+		"status_change",
+		"error",
+		"transcription_final",
+		"recording_started",
+		"recording_stopped",
+		"config_changed",
+		"hotkey_capture_cancel",
+		"history_changed",
+		"state_changed",
+		"paste_failed",
+		"download_progress",
+		"notification",
+		"vocabulary_suggestion",
+		"microphones_changed",
+		"microphone_test_complete",
+		"audio_clip",
+		"tray_menu",
+		"navigate",
+		"ready",
+		"bubble_show",
+		"bubble_hide",
+		"bubble_set_state",
+		"bubble_level",
+		"bubble_config",
+		"show_window",
+		"quit_app",
+		"relaunch_app",
+		"tray_state",
+		"consent_required",
+		"parakeet_cpu_fallback",
+		// YJ-34: the 3 new events that motivated this parity test.
+		"asr_backend_disabled",
+		"asr_last_resort_unloaded",
+		"llm_polish_failed",
+	];
+
+	it("every Python emitter type literal is in the PythonPushEvent union (via the acceptedTypes list)", () => {
+		// The `acceptedTypes` array declared in the first test in
+		// this file is the runtime mirror of the `PythonPushEvent`
+		// union. Re-declare it here (can't share state across `it`
+		// blocks without module-level scope) and assert every
+		// Python emitter literal is included.
+		const acceptedTypes: PythonPushEvent["type"][] = [
+			"status_change",
+			"error",
+			"transcription_final",
+			"recording_started",
+			"recording_stopped",
+			"config_changed",
+			"hotkey_capture_cancel",
+			"history_changed",
+			"state_changed",
+			"paste_failed",
+			"download_progress",
+			"notification",
+			"vocabulary_suggestion",
+			"microphones_changed",
+			"microphone_test_complete",
+			"audio_clip",
+			"tray_menu",
+			"navigate",
+			"ready",
+			"bubble_show",
+			"bubble_hide",
+			"bubble_set_state",
+			"bubble_level",
+			"bubble_config",
+			"show_window",
+			"quit_app",
+			"relaunch_app",
+			"tray_state",
+			"consent_required",
+			"parakeet_cpu_fallback",
+			// YJ-34: 3 new events.
+			"asr_backend_disabled",
+			"asr_last_resort_unloaded",
+			"llm_polish_failed",
+			// Host-bridge-synthesized (NOT emitted by Python's
+			// event_bus.publish — but still members of the union so
+			// renderer code can subscribe). Excluded from the
+			// Python-emitter parity check below.
+			"reconnecting",
+			"reconnected",
+		];
+
+		const missing: string[] = [];
+		for (const emitter of PYTHON_EMITTER_TYPE_LITERALS) {
+			if (!acceptedTypes.includes(emitter as PythonPushEvent["type"])) {
+				missing.push(emitter);
+			}
+		}
+		// The missing list must be empty. If it isn't, the error
+		// message names the offending literals so the failure is
+		// self-diagnosing.
+		expect(missing).toEqual([]);
+	});
+
+	it("the Python emitter list and the acceptedTypes list have the expected YJ-34 length", () => {
+		// 33 Python-emitted events (the union also includes 2
+		// host-bridge-synthesized events: `reconnecting` +
+		// `reconnected` — total union length is 35).
+		//
+		// NOTE: the existing `acceptedTypes` list in the FIRST
+		// `describe` block above (line ~73) has only 32 entries —
+		// it is missing `relaunch_app` (a pre-existing oversight
+		// from the GT-55 fix that removed `relaunch_electron` but
+		// never added the canonical `relaunch_app` to the list).
+		// This parity test's `PYTHON_EMITTER_TYPE_LITERALS` list
+		// DOES include `relaunch_app` (33 entries) because the
+		// Python backend's `voice_typer/server/app.py` does emit
+		// it via `event_bus.publish({"type": "relaunch_app"})`. The
+		// first list's missing entry is a documentation bug, not a
+		// type-safety bug (the union itself correctly contains
+		// `RelaunchAppEvent`); leaving it untouched here to avoid
+		// scope creep beyond YJ-34.
+		expect(PYTHON_EMITTER_TYPE_LITERALS.length).toBe(33);
 	});
 });

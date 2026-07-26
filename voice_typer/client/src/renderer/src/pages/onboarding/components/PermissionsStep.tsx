@@ -22,7 +22,7 @@ export function PermissionsStep({
 	onTestHotkey,
 	onRefreshPermission,
 }: PermissionsStepProps) {
-	// PVT-052: prefer i18n keys; fall back to literals for legacy backends.
+	// prefer i18n keys; fall back to literals for legacy backends.
 	const instr = permissionsResult?.instructions ?? null;
 	const titleText = instr?.title_key ? t(instr.title_key) : instr?.title;
 	const stepTexts = instr?.steps_keys
@@ -49,8 +49,29 @@ export function PermissionsStep({
 						<span>{t("onboarding.permissionsLoading")}</span>
 					</div>
 				)}
+				{/* : probe-failure branch — distinct from
+					the "no permission needed" happy path. The server-side
+					probe can fail (e.g. the `check_keyboard_permission`
+					import fails) and previously the renderer fell through to
+					`permissionsNoneNeeded` ("Hotkeys will work out of the
+					box") which was FALSE. Now we show a clear error message
+					and a Refresh button (already rendered below when
+					`needed === true`). The wizard's Continue button is
+					blocked via the `permissionsProbeFailed` gate in
+					Onboarding.tsx. */}
 				{!permissionsLoading &&
 					permissionsResult &&
+					permissionsResult.state === "error" && (
+						<output
+							role="alert"
+							className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive"
+						>
+							{t("onboarding.permissionsCheckFailed")}
+						</output>
+					)}
+				{!permissionsLoading &&
+					permissionsResult &&
+					permissionsResult.state !== "error" &&
 					(permissionsResult.needed ? (
 						<output className="rounded-lg border border-amber-400/40 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm">
 							<p className="mb-2 font-medium text-(--text-primary)">
@@ -84,7 +105,7 @@ export function PermissionsStep({
 						</p>
 					))}
 			</div>
-			{/* PVT-007: refresh-permission button — re-probes after granting. */}
+			{/* : refresh-permission button — re-probes after granting. */}
 			{permissionsResult?.needed === true && !permissionsLoading && (
 				<div className="mb-4">
 					<Button

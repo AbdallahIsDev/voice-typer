@@ -12,16 +12,16 @@ export interface UsePermissionsProbeResult {
 }
 
 /**
- * PVT-053 / EC-FIX-18: extracted from Onboarding.tsx. Owns the permissions
+ * EC-FIX-18: extracted from Onboarding.tsx. Owns the permissions
  * probe lifecycle — state, the auto-probe effect that fires on entry to the
  * "Permissions" step, the manual `reprobePermissions` callback, and the
  * "test hotkey" listener + timeout (Fix 9: ref-tracked so cleanup is
  * deterministic).
  *
  * @param stepName       The current step name from the wizard. The probe
- *                       fires whenever this becomes `"Permissions"`.
+ *                      fires whenever this becomes `"Permissions"`.
  * @param selectedHotkey The hotkey the user has chosen; the test listener
- *                       compares incoming keydown events against this.
+ *                      compares incoming keydown events against this.
  */
 export function usePermissionsProbe(
 	stepName: string | undefined,
@@ -53,10 +53,15 @@ export function usePermissionsProbe(
 			.then((result) => setPermissionsResult(result))
 			.catch((err) => {
 				console.error("Failed to check permissions:", err);
+				// use state="error" (distinct from
+				// "unknown") so the renderer can distinguish "probe
+				// failed" from "Windows/unknown-platform happy path".
+				// Needed: true blocks the wizard from proceeding until
+				// the user Refreshes or skips explicitly.
 				setPermissionsResult({
 					platform: "unknown",
-					state: "unknown",
-					needed: false,
+					state: "error",
+					needed: true,
 					instructions: null,
 				});
 			})
@@ -81,10 +86,13 @@ export function usePermissionsProbe(
 			.catch((err) => {
 				if (cancelled) return;
 				console.error("Failed to check permissions:", err);
+				// use state="error" + needed=true so a
+				// probe failure is distinguishable from "no permission
+				// needed" and blocks the wizard from proceeding.
 				setPermissionsResult({
 					platform: "unknown",
-					state: "unknown",
-					needed: false,
+					state: "error",
+					needed: true,
 					instructions: null,
 				});
 			})

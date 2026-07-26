@@ -19,8 +19,8 @@
  * `restart`, `save_config`, `save_vocabulary_with_diff`,
  * `complete_onboarding`) — none exist as server IPC commands.
  *
- * GT-32 (session-6 fix): removed 17 stale entries that were never
- * invoked from any renderer code (`apply_vocabulary_suggestion`,
+ * Stale-entry cleanup: removed 17 entries that were never invoked
+ * from any renderer code (`apply_vocabulary_suggestion`,
  * `check_accessibility`, `delete_all_personal_data`,
  * `dismiss_vocabulary_suggestion`, `export_diagnostics`,
  * `export_gdpr_bundle`, `get_audio_status`, `get_rms_level`,
@@ -30,29 +30,29 @@
  * `refresh_microphones`, `show_electron_notification`,
  * `test_llm_connection`). They appeared only in this Set and (for
  * some) in a doc comment. Reducing the renderer-reachable surface.
- * The matching Python-side `_COMMAND_REGISTRY` entries should be
- * deleted by GT-FIX-05 (owns `ipc_server.py`); the cross-file
- * parity test `tests/test_electron_ipc_and_build.py::
+ * The matching Python-side `_COMMAND_REGISTRY` entries and the
+ * Rust-side `allowed_commands()` literal were deleted in the
+ * architecture-cleanup pass so the 4-way parity test
+ * `tests/test_electron_ipc_and_build.py::
  * TestAllowlistCorrectness::test_allowlist_matches_server_commands`
- * will fail until GT-FIX-05 completes the server-side cleanup.
- * TODO(GT-FIX-05): delete the 17 matching `"cmd": "_handle_*"`
- * entries from `_COMMAND_REGISTRY` in `voice_typer/server/
- * ipc_server.py` so the parity test passes.
+ * and the Rust↔TS parity test in
+ * `tests/test_security_doc_command_count.py` both pass.
  *
  * UX-23 (renderer bits): `repaste_last` was previously in the
  * ERR-IPC-003 "removed" list, but it IS a real app method
  * (`service.repaste_last` / `app.repaste_last`) — it was previously
  * invoked only via the tray hotkey callback, not as an IPC command.
  * Re-added here so the renderer's "Re-paste" button can call it.
- * NOTE: a server-side `_handle_repaste_last` handler still needs to
- * be registered in `_COMMAND_REGISTRY` (ipc_server.py) for the call
- * to succeed; until then the renderer call will surface an "unknown
- * command" error toast (handled gracefully by Home.tsx).
+ * The server-side `_handle_repaste_last` handler IS registered in
+ * `_COMMAND_REGISTRY` (`voice_typer/server/ipc_server.py:1824-1825`),
+ * so renderer calls resolve to the handler (any error surfaced as
+ * a toast by Home.tsx comes from the handler's own failure paths,
+ * not from a missing registration).
  *
- * PVT-G5-075 (session-5 security hardening): `tray_click` was
- * previously in this Set "to match the server's `_COMMAND_REGISTRY`
- * exactly", but the renderer NEVER invokes it — only the Rust tray
- * menu handler (`tray.rs::on_menu_event`) does, via `dispatch_inner`
+ * Renderer-allowlist security hardening: `tray_click` was previously
+ * in this Set "to match the server's `_COMMAND_REGISTRY` exactly",
+ * but the renderer NEVER invokes it — only the Rust tray menu
+ * handler (`tray.rs::on_menu_event`) does, via `dispatch_inner`
  * which bypasses the allowlist gate. Including it here contradicted
  * the Rust doc comment (which said it was NOT in the renderer
  * allowlist) and created an attack surface that only a compromised
@@ -114,16 +114,16 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// Added here so the canonical allowlist matches the server's
 	// `_COMMAND_REGISTRY`.
 	//
-	// PVT-G5-075: `tray_click` was previously in this Set "to match
-	// the server's `_COMMAND_REGISTRY` exactly", but the renderer
-	// NEVER invokes it — only the Rust tray menu handler
-	// (`tray.rs::on_menu_event`) does, via `dispatch_inner` which
-	// bypasses the allowlist gate. Including it here contradicted
+	// Renderer-allowlist security hardening: `tray_click` was previously
+	// in this Set "to match the server's `_COMMAND_REGISTRY` exactly",
+	// but the renderer NEVER invokes it — only the Rust tray menu
+	// handler (`tray.rs::on_menu_event`) does, via `dispatch_inner`
+	// which bypasses the allowlist gate. Including it here contradicted
 	// the Rust doc comment (which said it was NOT in the renderer
-	// allowlist) and created an attack surface that only a
-	// compromised renderer could reach. Removed; the server-side
-	// handler in `_COMMAND_REGISTRY` is unchanged (the Rust host
-	// still routes `tray_click` via `dispatch_inner`).
+	// allowlist) and created an attack surface that only a compromised
+	// renderer could reach. Removed; the server-side handler in
+	// `_COMMAND_REGISTRY` is unchanged (the Rust host still routes
+	// `tray_click` via `dispatch_inner`).
 	"onboarding_check_permissions",
 	"onboarding_get_microphones",
 	"onboarding_get_model_options",
@@ -173,22 +173,34 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// (service.repaste_last / app.repaste_last) currently wired to a
 	// tray hotkey. Adding it to the IPC allowlist so the renderer's
 	// "Re-paste" button (Home.tsx) can invoke it via call(). The
-	// backend handler is added separately (tracked in the IPC
-	// _COMMAND_REGISTRY); until then the renderer call will return
-	// an "unknown command" error which the UI surfaces as a toast.
+	// backend handler IS registered in `_COMMAND_REGISTRY`
+	// (`voice_typer/server/ipc_server.py:1824-1825`), so renderer
+	// calls resolve to the handler (any error surfaced as a toast
+	// by Home.tsx comes from the handler's own failure paths, not
+	// from a missing registration).
 	"repaste_last",
 	// d-review Finding 2: server commands previously missing from
-	// the allowlist. GT-32 (session-6) removed 9 of the 10 original
-	// entries from this Set because they were never invoked from any
-	// renderer code — see the GT-32 note in the file header. Only
-	// `force_cancel_transcription` remains (it IS invoked by the
-	// renderer).
+	// the allowlist. The stale-entry cleanup pass removed 9 of the
+	// 10 original entries from this Set because they were never
+	// invoked from any renderer code — see the stale-entry note in
+	// the file header. Only `force_cancel_transcription` remains
+	// (it IS invoked by the renderer).
 	"force_cancel_transcription",
-	// G4-M-10 + PVT-G5-025 (session-3 + 5): onboarding reset —
-	// invoked by the Onboarding page. Registered in the Python-side
+	// Lightweight history counters (added by the perf-reliability
+	// pass): `get_history_count` is called by the Dashboard to fetch
+	// just the total row count (avoids pulling the full history
+	// array), and `get_transcription_text` is used by the history
+	// detail view to fetch a single transcription's full text on
+	// demand. Both have server-side handlers in `_COMMAND_REGISTRY`
+	// (`voice_typer/server/ipc_server.py`); listed here so the
+	// renderer's `call()` is not silently rejected by the gate.
+	"get_history_count",
+	"get_transcription_text",
+	// Onboarding reset (i18n + type-safety passes): invoked by the
+	// Onboarding page. Registered in the Python-side
 	// `_COMMAND_REGISTRY` (ipc_server.py) and implemented in
 	// `handlers/onboarding_handlers.py` (`_handle_onboarding_reset`).
-	// (GT-32 session-6 removed the sibling `onboarding_request_
-	// keyboard_permission` entry — no renderer caller.)
+	// (The sibling `onboarding_request_keyboard_permission` entry
+	// was removed — no renderer caller.)
 	"onboarding_reset",
 ]);

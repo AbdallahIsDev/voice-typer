@@ -16,7 +16,7 @@ import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
-import { useT } from "@/i18n/i18n";
+import { getLocale, setLocale, useT } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import AboutPage from "@/pages/About";
 import DashboardPage from "@/pages/Dashboard";
@@ -77,6 +77,22 @@ export default function App() {
 		document.title = `${t(`nav.${currentPage}`)} — ${APP_NAME}`;
 	}, [currentPage, t]);
 
+	// One-time startup hook to propagate the restored locale (read
+	// from localStorage at i18n module-init time) to BOTH the
+	// Electron main process (so native dialogs render in the user's
+	// language) AND the Python backend (so tray menu, tray tooltip,
+	// and OS notifications render in the user's language).
+	// Previously this propagation only happened on an explicit Settings
+	// change — so after every app restart with a saved non-English
+	// locale, the renderer showed the right language but native surfaces
+	// stayed English. `setLocale()` is now the single entry point that
+	// pushes to both processes (see i18n.ts). Calling it with the
+	// already-restored locale is idempotent on the renderer side and
+	// fires the IPC pushes on the backend side. Runs ONCE on mount.
+	useEffect(() => {
+		setLocale(getLocale());
+	}, []);
+
 	// BG-26 (a11y / focus management on route change): move keyboard focus
 	// to `<main id="main-content">` whenever `currentPage` changes so screen
 	// reader + keyboard users aren't stranded on the previously-focused
@@ -87,7 +103,6 @@ export default function App() {
 	// doing would be rude — e.g. if they opened the app and immediately
 	// focused the URL bar or a bookmark).
 	const skipFirstRun = useRef(true);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: currentPage is the effect's trigger — the body doesn't read it, but the effect MUST fire on every route change to move focus to <main>.
 	useEffect(() => {
 		if (skipFirstRun.current) {
 			skipFirstRun.current = false;
@@ -443,7 +458,15 @@ export default function App() {
 					repasteLabel={repasteLabel}
 				/>
 
-				{/* Screen reader live region */}
+				{/* Split the screen-reader live region
+				    into TWO regions — one for recording state, one for
+				    connection status. Previously a single aria-atomic region
+				    concatenated both streams, so any change in either
+				    re-announced the ENTIRE combined text — meaning a brief
+				    `connectionStatus` flicker caused "Recording started." to
+				    be re-announced even though recording state hadn't
+				    changed. Two regions isolate the two streams so each only
+				    re-announces when ITS OWN content changes. */}
 				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
 					{recordingState === "transcribing" ? t("a11y.transcribingAudio") : ""}
@@ -451,16 +474,14 @@ export default function App() {
 					{recordingState === "error" ? t("a11y.errorOccurred") : ""}
 					{recordingState === "loading" ? t("a11y.loadingModel") : ""}
 					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
-					{/* PVT-fix-9: announce connection-state transitions so
-					    screen-reader users get the same feedback that
-					    sighted users get from the connecting/disconnected/
-					    restarting UI swap. Reuses existing i18n keys
-					    (`app.lostConnection`, `app.restartingBackend`,
-					    `about.connected`) so no new translation keys are
-					    required. The empty-string fallback for non-matching
-					    states keeps the region silent between transitions
-					    (aria-atomic=true means each change re-announces the
-					    whole region, so a stable empty string is silent). */}
+				</div>
+				{/* PVT-fix-9: announce connection-state transitions so
+				    screen-reader users get the same feedback that sighted
+				    users get from the connecting/disconnected/restarting UI
+				    swap. Reuses existing i18n keys (`app.lostConnection`,
+				    `app.restartingBackend`, `about.connected`) so no new
+				    translation keys are required. */}
+				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
 					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
 					{connectionStatus === "connected" &&

@@ -41,7 +41,18 @@ const COMMAND_TIMEOUTS: Record<string, number> = {
 	get_config: 5_000,
 	get_history: 10_000,
 	download_model: 600_000, // 10 minutes
-	transcribe: 120_000, // 2 minutes
+	// `transcribe` was previously listed here at 120s but `transcribe`
+	// is NOT a real IPC command (the actual control RPC is
+	// `toggle_dictation`, which is a short control call that returns
+	// immediately; the recording/transcription itself runs async on
+	// the backend and pushes results via `transcription_final`
+	// events). The dead `transcribe` entry was leftover from a
+	// pre-rename era. Replaced with `toggle_dictation` at 30s so a
+	// hung toggle call surfaces an error in 30s instead of falling
+	// through to DEFAULT_COMMAND_TIMEOUT_MS (also 30s — explicit is
+	// better than implicit so future contributors don't accidentally
+	// remove the entry thinking it's the default).
+	toggle_dictation: 30_000,
 };
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
@@ -259,9 +270,31 @@ export function usePython() {
  * The handler identity is mirrored into a ref so callers can pass an inline
  * closure without re-subscribing on every render (only ``type`` and
  * ``bridgeReady`` are effect deps).
+ *
+ * The first overload is now generic (``<K extends
+ * PythonPushEvent["type"]>``) so the handler's ``data`` parameter is
+ * narrowed to the per-event payload shape declared in ``types/ipc.ts``
+ * (e.g. ``TranscriptionFinalEvent.data: { text: string; duration_ms?:
+ * number }``). Existing callers that pass an inline ``(data?:
+ * Record<string, unknown>) => ...`` closure still compile because every
+ * per-event ``data`` shape in ``types/ipc.ts`` is assignable to
+ * ``Record<string, unknown>`` (they're all object literals). New callers
+ * can opt into the narrowed shape by writing the handler param as
+ * ``(data) => ...`` with no explicit type annotation — TS infers
+ * ``K["data"]`` from the ``type`` argument.
  */
-export function usePythonEvent(
-	type: PythonPushEvent["type"],
+export function usePythonEvent<K extends PythonPushEvent["type"]>(
+	type: K,
+	// The handler's `data` is typed as `Record<string, unknown> |
+	// undefined` (not narrowed to the per-event shape) because some
+	// PythonPushEvent members have no `data` field at all (e.g.
+	// RecordingStartedEvent), which makes
+	// `Extract<PythonPushEvent, {type: K}>["data"]` unsafe. The first
+	// overload's value is the compile-time typo check on `type` (a
+	// typo like `"past_failed"` no longer compiles). Narrowing the
+	// handler's `data` to the per-event shape would require every
+	// event in the union to declare a `data` field; that's a separate
+	// refactor.
 	handler: (data?: Record<string, unknown>) => (() => void) | undefined,
 ): void;
 /**

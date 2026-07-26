@@ -78,14 +78,14 @@
 		"repaste": "पुनः पेस्ट करें",
 		"repasteAria": "अंतिम ट्रांसक्रिप्शन पुनः पेस्ट करें",
 		"forceCancel": "बलपूर्वक रद्द करें",
-		"forceCancelHint": "यदि डिक्टेशन रुक गया है, तो ठीक करने के लिए बलपूर्वक रद्द करें",
+		"forceCancelHint": "ज्यादा समय लग रहा है? ट्रान्सक्रिपशन रद्द करें",
 		"forceCancelFailed": "ट्रांसक्रिप्शन को बलपूर्वक रद्द नहीं किया जा सका",
 		"undoFailed": "अंतिम ट्रांसक्रिप्शन को पूर्ववत नहीं किया जा सका",
 		"repasteFailed": "अंतिम ट्रांसक्रिप्शन को फिर से पेस्ट नहीं किया जा सका",
 		"errorTitle": "रिकॉर्डिंग त्रुटि",
 		"retry": "पुनः प्रयास करें",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
-		"toggleFailed": "Failed to toggle dictation. Please check your connection."
+		"toggleFailed": "डिक्टेशन टॉगल नहीं कर सका। कृपया पुनः प्रयास करें।"
 	},
 	"common": {
 		"cancel": "रद्द करें",
@@ -1309,7 +1309,7 @@
 		"modelDescription": "एक ट्रांसक्रिप्शन मॉडल चुनें। छोटे मॉडल तेज़ होते हैं; बड़े मॉडल अधिक सटीक होते हैं। सेटअप के बाद मॉडल बैकग्राउंड में डाउनलोड होता है।",
 		"modelSelectAria": "मॉडल चुनें: {name}",
 		"completeTitle": "सब तैयार है!",
-		"completeDescription": "आपका Voice Typer कॉन्फ़िगर हो गया है और तैयार है। डिक्टेशन शुरू करने के लिए अपना हॉटकी ({hotkey}) दबाएं। मॉडल बैकग्राउंड में डाउनलोड और लोड होगा — पहली बार चलाने पर इसमें एक मिनट लग सकता है।",
+		"completeDescription": "आपका Voice Typer कॉन्फ़िगर हो गया है और तैयार है। डिक्टेशन शुरू करने के लिए अपना हॉटकी ({hotkey}) दबाएँ। मॉडल बैकग्राउंड में डाउनलोड होगा — पहली बार इसमें एक मिनट लग सकता है (छोटे मॉडल के लिए लगभग 466 MB, मध्यम के लिए 1.5 GB)।",
 		"summaryMic": "माइक्रोफ़ोन:",
 		"defaultMic": "डिफ़ॉल्ट",
 		"summaryHotkey": "हॉटकी:",
@@ -1338,7 +1338,7 @@
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
 		"skipConfirmTitle": "Skip setup?",
-		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmMessage": "अभी छोड़ने का अर्थ है कि आपका माइक्रोफ़ोन और हॉटकी काम नहीं कर सकते। आप इस सेटअप विज़ार्ड को बाद में सेटिंग्स → ट्रबलशूटिंग से पुनः चला सकते हैं, या अलग-अलग सेटिंग्स को सेटिंग्स में कॉन्फ़िगर कर सकते हैं।",
 		"skipConfirmLabel": "Skip anyway",
 		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
 		"permissionsRefresh": "Refresh permission",
@@ -1352,7 +1352,11 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"modelOption": "{description} — {size} ({speed})",
-		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again."
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step4Item": "ट्रान्सक्रिप्शन मॉडल चुनें",
+		"step5Item": "सेटअप पूरा करें",
+		"refreshMics": "माइक्रोफ़ोन रिफ्रेश करें",
+		"noMicsHint": "एक माइक्रोफ़ोन कनेक्ट करें या अपने ओपरेटिंग सिस्टम की माइक्रोफ़ोन अनुमति जाँचें, फिर रिफ्रेश पर क्लिक करें।"
 	},
 	"titleBar": {
 		"minimize": "न्यूनतम करें",

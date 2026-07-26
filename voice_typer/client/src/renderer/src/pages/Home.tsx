@@ -6,6 +6,7 @@ import {
 	Undo02Icon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import type { MutableRefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
@@ -17,8 +18,6 @@ import { Button } from "@/components/ui/button";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
-// SOUND-FIX-004 / RW-10: sound feedback moved to App-level useSoundFeedback
-// hook so cues play on every page (delegates to @/lib/sound-manager).
 import {
 	canShareStats,
 	computeShareStats,
@@ -30,16 +29,18 @@ import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, RecordingState, TodayStats } from "@/types/ipc";
 
-// Module-level cache — persists across page navigations AND app restarts
-// (localStorage) so the homepage renders instantly on re-visit instead of
-// flashing empty.
-let _cachedRecent: HistoryRecord[] = [];
-let _cachedStats: TodayStats | null = null;
-
+// Previously these were module-level `let _cachedRecent` /
+// `let _cachedStats` mutable bindings — global mutable state that
+// leaked across HMR / test re-mounts and was not React-aware. The
+// cache now lives in component-scoped `useRef`s (see `Home`), and the
+// helpers below take the ref as an argument so they remain pure
+// (no module-level mutable state). localStorage is still the
+// persistence layer; the ref is purely an in-memory hit-avoidance
+// cache for the current component instance.
 const RECENT_CACHE_KEY = "vt_home_recent_cache";
 const STATS_CACHE_KEY = "vt_home_stats_cache";
 const FIRST_RECORD_CELEBRATED_KEY = "vt_first_recording_celebrated";
-// PVT-fix-6: lowered from 60s → 5s. A genuinely stuck transcription is
+// Lowered from 60s → 5s. A genuinely stuck transcription is
 // obvious within seconds; 60s of silence is far too patient.
 const FORCE_CANCEL_DELAY_MS = 5_000;
 const LAST_TEXT_AUTO_CLEAR_MS = 5_000;
@@ -48,23 +49,27 @@ function normalizeHotkey(raw: string): string {
 	return raw.replace(/[<>]/g, "").toUpperCase();
 }
 
-function loadCachedRecent(): HistoryRecord[] {
-	if (_cachedRecent.length > 0) return _cachedRecent;
+function loadCachedRecent(
+	ref: MutableRefObject<HistoryRecord[]>,
+): HistoryRecord[] {
+	if (ref.current.length > 0) return ref.current;
 	try {
 		const raw = localStorage.getItem(RECENT_CACHE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw);
-			if (Array.isArray(parsed)) _cachedRecent = parsed as HistoryRecord[];
+			if (Array.isArray(parsed)) ref.current = parsed as HistoryRecord[];
 		}
 	} catch (e) {
 		// localStorage unavailable or payload malformed — non-fatal.
 		console.warn("[Home] loadCachedRecent failed:", e);
 	}
-	return _cachedRecent;
+	return ref.current;
 }
 
-function loadCachedStats(): TodayStats | null {
-	if (_cachedStats !== null) return _cachedStats;
+function loadCachedStats(
+	ref: MutableRefObject<TodayStats | null>,
+): TodayStats | null {
+	if (ref.current !== null) return ref.current;
 	try {
 		const raw = localStorage.getItem(STATS_CACHE_KEY);
 		if (raw) {
@@ -74,18 +79,21 @@ function loadCachedStats(): TodayStats | null {
 				typeof parsed === "object" &&
 				typeof (parsed as { count?: unknown }).count === "number"
 			) {
-				_cachedStats = parsed as TodayStats;
+				ref.current = parsed as TodayStats;
 			}
 		}
 	} catch (e) {
 		// localStorage unavailable or payload malformed — non-fatal.
 		console.warn("[Home] loadCachedStats failed:", e);
 	}
-	return _cachedStats;
+	return ref.current;
 }
 
-function persistRecent(recent: HistoryRecord[]): void {
-	_cachedRecent = recent;
+function persistRecent(
+	ref: MutableRefObject<HistoryRecord[]>,
+	recent: HistoryRecord[],
+): void {
+	ref.current = recent;
 	try {
 		localStorage.setItem(RECENT_CACHE_KEY, JSON.stringify(recent));
 	} catch (e) {
@@ -94,8 +102,11 @@ function persistRecent(recent: HistoryRecord[]): void {
 	}
 }
 
-function persistStats(stats: TodayStats): void {
-	_cachedStats = stats;
+function persistStats(
+	ref: MutableRefObject<TodayStats | null>,
+	stats: TodayStats,
+): void {
+	ref.current = stats;
 	try {
 		localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats));
 	} catch (e) {
@@ -144,9 +155,9 @@ function statusKeyFor(state: RecordingState, hasError: boolean): string {
 // lastError via the appStore and obtains `navigate` via the
 // useNavigation hook directly, eliminating prop drilling from App.
 //
-// ── Extracted subcomponents (PVT-062) ─────────────────────────────────
+// ── Extracted subcomponents ─────────────────────────────────────────
 //
-// PVT-fix-10: removed `aria-live="polite"` from this `<output>` — the
+// Removed `aria-live="polite"` from this `<output>` — the
 // App-level sr-only live region in App.tsx already announces state
 // changes; a duplicate live region on the pill causes double-announcement.
 function RecordingStatusPill({
@@ -178,8 +189,8 @@ function RecordingStatusPill({
 	);
 }
 
-// PVT-fix-9: spinner overlay shown on the mic button while `toggling` is
-// true. PVT-fix-4 (PVT-065): the button is disabled during `transcribing`
+// Spinner overlay shown on the mic button while `toggling` is
+// true. The button is disabled during `transcribing`
 // so clicks aren't silently swallowed by the backend.
 function MicToggleButton({
 	isRecording,
@@ -288,7 +299,7 @@ function LastTranscriptionPreview({
 	);
 }
 
-// PVT-fix-3 (PVT-064): surface recording errors. Previously `lastError`
+// Surface recording errors. Previously `lastError`
 // was tracked in the store but never rendered on Home — errors were
 // invisible to the user (only the status pill colour changed to red).
 // This card renders below the status pill whenever recordingState is
@@ -340,7 +351,7 @@ function RecordingErrorCard({
 	);
 }
 
-// PVT-fix-8: previously used `get_today_stats` and checked `count === 1`
+// Previously used `get_today_stats` and checked `count === 1`
 // — this triggered on the first dictation of ANY day, not the user's
 // lifetime first. We now check `get_history({limit: 1})` and celebrate
 // only when the user has exactly one historical record (this just-added
@@ -352,12 +363,25 @@ function useFirstRecordingCelebration(
 	) => Promise<T>,
 ) {
 	return useCallback(async () => {
+		// The previous catch block exited the ENTIRE callback via
+		// `return`, which suppressed the first-recording celebration in
+		// environments where localStorage throws (Safari private mode,
+		// strict CSP, sandboxed iframe). The comment said "treat as
+		// not-celebrated" (i.e. proceed as if the flag is unset) but the
+		// code did the OPPOSITE. Now we proceed — if the read fails, we
+		// just skip the "already celebrated" short-circuit and let the
+		// celebration run (the write path below is already wrapped in
+		// its own try/catch).
+		let alreadyCelebrated = false;
 		try {
-			if (localStorage.getItem(FIRST_RECORD_CELEBRATED_KEY) === "1") return;
+			alreadyCelebrated =
+				localStorage.getItem(FIRST_RECORD_CELEBRATED_KEY) === "1";
 		} catch {
-			// localStorage unavailable — treat as not-celebrated.
-			return;
+			// localStorage unavailable — treat as not-celebrated
+			// (proceed with the celebration check below).
+			alreadyCelebrated = false;
 		}
+		if (alreadyCelebrated) return;
 		try {
 			const history = await call<HistoryRecord[]>("get_history", { limit: 1 });
 			if (Array.isArray(history) && history.length === 1) {
@@ -397,11 +421,21 @@ export default function Home() {
 		null,
 	);
 	const [showForceCancel, setShowForceCancel] = useState(false);
-	const [stats, setStats] = useState<TodayStats | null>(loadCachedStats);
-	const [recent, setRecent] = useState<HistoryRecord[]>(loadCachedRecent);
+	// Per-instance cache refs (replaced the prior module-level
+	// `let _cachedRecent` / `let _cachedStats` mutable bindings).
+	const cachedRecentRef = useRef<HistoryRecord[]>([]);
+	const cachedStatsRef = useRef<TodayStats | null>(null);
+	const [stats, setStats] = useState<TodayStats | null>(() =>
+		loadCachedStats(cachedStatsRef),
+	);
+	const [recent, setRecent] = useState<HistoryRecord[]>(() =>
+		loadCachedRecent(cachedRecentRef),
+	);
 	// Only show a loading spinner when we have NO cached data to render.
 	const [initialLoading, setInitialLoading] = useState(
-		() => loadCachedStats() === null && loadCachedRecent().length === 0,
+		() =>
+			loadCachedStats(cachedStatsRef) === null &&
+			loadCachedRecent(cachedRecentRef).length === 0,
 	);
 	const [toggling, setToggling] = useState(false);
 	const [cfg, setCfg] = useState<VoiceTyperConfig | null>(null);
@@ -409,7 +443,7 @@ export default function Home() {
 	const [refreshing, setRefreshing] = useState(false);
 	const { imageRef, shareAsImage } = useStatsShare();
 
-	// PVT-G5-054 (session 5): track mount state so async callbacks that
+	// Track mount state so async callbacks that
 	// outlive the component (notably `handleManualRefresh` below, which is
 	// a useCallback and therefore cannot use the local-`cancelled`-plus-
 	// cleanup-return pattern that the mount-time load effect above uses)
@@ -442,11 +476,11 @@ export default function Home() {
 					call<TodayStats>("get_today_stats"),
 				]);
 				if (newRecent) {
-					persistRecent(newRecent);
+					persistRecent(cachedRecentRef, newRecent);
 					setRecent(newRecent);
 				}
 				if (newStats) {
-					persistStats(newStats);
+					persistStats(cachedStatsRef, newStats);
 					setStats(newStats);
 				}
 			} catch (e) {
@@ -476,7 +510,7 @@ export default function Home() {
 				const s = await call<TodayStats>("get_today_stats");
 				if (cancelled) return;
 				if (s) {
-					persistStats(s);
+					persistStats(cachedStatsRef, s);
 					setStats(s);
 				}
 			} catch (e) {
@@ -486,7 +520,7 @@ export default function Home() {
 				const h = await call<HistoryRecord[]>("get_history", { limit: 4 });
 				if (cancelled) return;
 				const recs = h ?? [];
-				persistRecent(recs);
+				persistRecent(cachedRecentRef, recs);
 				setRecent(recs);
 			} catch (e) {
 				console.warn("[Home] initial get_history failed:", e);
@@ -511,7 +545,7 @@ export default function Home() {
 				call<TodayStats>("get_today_stats"),
 				call<HistoryRecord[]>("get_history", { limit: 5 }),
 			]);
-			// PVT-G5-054 (session 5): guard against setState-after-unmount.
+			// Guard against setState-after-unmount.
 			// Promise.allSettled awaits three concurrent IPC calls; if the
 			// user navigated away mid-refresh, all subsequent setX calls
 			// would land on an unmounted component. `mountedRef` is flipped
@@ -522,12 +556,12 @@ export default function Home() {
 				setHotkey(normalizeHotkey(cfgTry.value?.hotkey ?? "<f2>"));
 			}
 			if (sTry.status === "fulfilled" && sTry.value) {
-				persistStats(sTry.value);
+				persistStats(cachedStatsRef, sTry.value);
 				setStats(sTry.value);
 			}
 			if (hTry.status === "fulfilled") {
 				const recs = hTry.value ?? [];
-				persistRecent(recs);
+				persistRecent(cachedRecentRef, recs);
 				setRecent(recs);
 			}
 			markUpdated();
@@ -636,7 +670,7 @@ export default function Home() {
 	useEffect(() => {
 		return () => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			// PVT-045 (session 2): also clear lastTextTimer to prevent
+			// Also clear lastTextTimer to prevent
 			// setLastText("") firing on an unmounted component if a
 			// transcription arrived within 5s of navigation.
 			if (lastTextTimer.current) {
@@ -657,6 +691,13 @@ export default function Home() {
 			await call("toggle_dictation");
 		} catch (err) {
 			console.error("Toggle dictation failed:", err);
+			// Surface the failure to the user with a localized toast —
+			// every sibling handler (handleUndo, handleRepaste,
+			// handleForceCancel) already does this; handleToggle was the
+			// lone outlier that silently swallowed IPC errors, leaving
+			// the user with a spinner that disappeared with no
+			// explanation.
+			toast.error(t("home.toggleFailed"));
 		} finally {
 			setToggling(false);
 		}
@@ -668,7 +709,7 @@ export default function Home() {
 			await call("undo_last");
 		} catch (err) {
 			console.error("Undo failed:", err);
-			// PVT-fix-5 (PVT-069): dedicated error key, not the button label.
+			// Dedicated error key (not the button label).
 			toast.error(t("home.undoFailed"));
 		}
 		setLastText("");
@@ -713,7 +754,7 @@ export default function Home() {
 				isRecording={isRecording}
 			/>
 
-			{/* PVT-064: surface recording errors below the status pill. */}
+			{/* Surface recording errors below the status pill. */}
 			{recordingState === "error" && lastError && (
 				<RecordingErrorCard
 					message={lastError}
@@ -756,7 +797,7 @@ export default function Home() {
 			<MicToggleButton
 				isRecording={isRecording}
 				toggling={toggling}
-				// PVT-065: disable during `transcribing` so clicks aren't silently swallowed.
+				// Disable during `transcribing` so clicks aren't silently swallowed.
 				disabled={
 					toggling ||
 					recordingState === "loading" ||
@@ -774,7 +815,7 @@ export default function Home() {
 				<span>{t("home.pressOrClick")}</span>
 			</p>
 
-			{/* BG-6 (PVT-047): wrap LastTranscriptionPreview in an
+			{/* Wrap LastTranscriptionPreview in an
 			    aria-live="polite" region so screen readers announce
 			    the just-transcribed text. Previously the App-level
 			    live region only announced recording-state transitions

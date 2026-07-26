@@ -73,10 +73,11 @@
 //     (main.rs:954-965) rejects the `invoke` promise on `type:"error"`
 //     BEFORE the resolved value reaches JS, so this branch is dead
 //     code on Tauri (errors surface via promise rejection instead).
-//   - Both paths return `data` directly on success (Tauri unwraps
-//     `response.data` in Rust; Electron resolves with the full envelope
-//     but `usePython` returns `result as T` after the error checks pass),
-//     so the success shape is consistent across runtimes.
+//   - Both paths return `data` directly on success — Tauri unwraps
+//     `response.data` in Rust; Electron unwraps `msg.data` at
+//     `handle-message.ts:68` before resolving. `usePython` returns
+//     `result as T` after the (Electron-only) error-envelope checks
+//     pass, so the success shape is consistent across runtimes.
 //
 // The previous "works on both paths" framing was false: on Tauri BOTH
 // in-code checks are unreachable (the `await api.call(...)` throws

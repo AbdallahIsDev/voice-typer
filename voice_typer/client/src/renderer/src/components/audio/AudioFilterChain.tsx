@@ -28,6 +28,7 @@
 // the prop and fall back to a permissive `() => true`, preserving
 // their existing behaviour.
 
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
 import {
@@ -38,7 +39,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { t } from "@/i18n/i18n";
+import { getLocaleSnapshot, subscribeLocale, t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 
 export interface AudioFilterChainProps {
@@ -199,7 +200,7 @@ export const audioFilterRowDescriptors: readonly AudioFilterRowDescriptor[] = [
  * Each row uses `SettingRow` for layout consistency with the rest of
  * the Settings page. Sliders use `RangeSlider` for the same reason.
  *
- * PVT-037 / Fix 11: every RangeSlider uses `deferApply` so a drag does
+ * Every RangeSlider uses `deferApply` so a drag does
  * not flood the backend with one `set_config` IPC call per pixel — the
  * commit happens on pointer-up / blur / key-up instead.
  *
@@ -224,116 +225,192 @@ export function AudioFilterChain({
 	// Microphone test page's AudioPresetSelector) keep rendering
 	// every row unconditionally.
 	const filterIsVisible = isVisible ?? (() => true);
-	const audioSectionTitle = t("settings.audioEnhancement.title");
+
+	// subscribe to locale changes so the memoised labels below
+	// re-resolve when the user switches language. Without this
+	// `useSyncExternalStore` call, `AudioFilterChain` would never
+	// re-render on locale change (the imported `t` is a plain function
+	// with no React subscription), so the labels would stay in the old
+	// language until a parent re-rendered for some other reason.
+	const locale = useSyncExternalStore(
+		subscribeLocale,
+		getLocaleSnapshot,
+		getLocaleSnapshot,
+	);
 
 	// a single generic helper replaces 25 per-field inline
 	// handlers. The generic `K` ensures the key/value pair stays
-	// type-checked against `VoiceTyperConfig`.
-	const set = <K extends keyof VoiceTyperConfig>(
-		k: K,
-		v: VoiceTyperConfig[K],
-	) => onConfigChange({ [k]: v } as Partial<VoiceTyperConfig>);
+	// type-checked against `VoiceTyperConfig`. Wrapped in `useCallback`
+	// keyed on `onConfigChange` so the identity is stable across
+	// re-renders (the inline closures passed to `Switch.onCheckedChange`
+	// / `RangeSlider.onChange` capture `set` — if `set` changed identity
+	// every render, those closures would too, defeating memoisation
+	// downstream).
+	const set = useCallback(
+		<K extends keyof VoiceTyperConfig>(k: K, v: VoiceTyperConfig[K]): void => {
+			onConfigChange({ [k]: v } as Partial<VoiceTyperConfig>);
+		},
+		[onConfigChange],
+	);
 
-	// resolve the translated search-visible labels once per
-	// render so the per-row `filterIsVisible` check and the SettingRow
-	// `label` prop share the same strings (mirrors the pattern in
-	// AudioSettingsSection).
-	const highPassFilterLabel = t("settings.audioEnhancement.highPassFilter");
-	const highPassFilterInfoSearch = t(
-		"settings.audioEnhancement.highPassFilterInfoSearch",
-	);
-	const highPassCutoffLabel = t("settings.audioEnhancement.highPassCutoff");
-	const highPassCutoffInfoSearch = t(
-		"settings.audioEnhancement.highPassCutoffInfoSearch",
-	);
-	const noiseSuppressionLabel = t("settings.audioEnhancement.noiseSuppression");
-	const noiseSuppressionInfoSearch = t(
-		"settings.audioEnhancement.noiseSuppressionInfoSearch",
-	);
-	const noiseGateLabel = t("settings.audioEnhancement.noiseGate");
-	const noiseGateInfoSearch = t(
-		"settings.audioEnhancement.noiseGateInfoSearch",
-	);
-	const gateOpenThresholdLabel = t(
-		"settings.audioEnhancement.gateOpenThreshold",
-	);
-	const gateOpenThresholdInfoSearch = t(
-		"settings.audioEnhancement.gateOpenThresholdInfoSearch",
-	);
-	const gateCloseThresholdLabel = t(
-		"settings.audioEnhancement.gateCloseThreshold",
-	);
-	const gateCloseThresholdInfoSearch = t(
-		"settings.audioEnhancement.gateCloseThresholdInfoSearch",
-	);
-	const gateAttackLabel = t("settings.audioEnhancement.gateAttack");
-	const gateAttackInfoSearch = t(
-		"settings.audioEnhancement.gateAttackInfoSearch",
-	);
-	const gateHoldLabel = t("settings.audioEnhancement.gateHold");
-	const gateHoldInfoSearch = t("settings.audioEnhancement.gateHoldInfoSearch");
-	const gateReleaseLabel = t("settings.audioEnhancement.gateRelease");
-	const gateReleaseInfoSearch = t(
-		"settings.audioEnhancement.gateReleaseInfoSearch",
-	);
-	const equalizerLabel = t("settings.audioEnhancement.equalizer");
-	const equalizerInfoSearch = t(
-		"settings.audioEnhancement.equalizerInfoSearch",
-	);
-	const eqLowLabel = t("settings.audioEnhancement.eqLow");
-	const eqLowInfoSearch = t("settings.audioEnhancement.eqLowInfoSearch");
-	const eqMidLabel = t("settings.audioEnhancement.eqMid");
-	const eqMidInfoSearch = t("settings.audioEnhancement.eqMidInfoSearch");
-	const eqHighLabel = t("settings.audioEnhancement.eqHigh");
-	const eqHighInfoSearch = t("settings.audioEnhancement.eqHighInfoSearch");
-	const compressorLabel = t("settings.audioEnhancement.compressor");
-	const compressorInfoSearch = t(
-		"settings.audioEnhancement.compressorInfoSearch",
-	);
-	const compressorThresholdLabel = t(
-		"settings.audioEnhancement.compressorThreshold",
-	);
-	const compressorThresholdInfoSearch = t(
-		"settings.audioEnhancement.compressorThresholdInfoSearch",
-	);
-	const compressorRatioLabel = t("settings.audioEnhancement.compressorRatio");
-	const compressorRatioInfoSearch = t(
-		"settings.audioEnhancement.compressorRatioInfoSearch",
-	);
-	const compressorAttackLabel = t("settings.audioEnhancement.compressorAttack");
-	const compressorAttackInfoSearch = t(
-		"settings.audioEnhancement.compressorAttackInfoSearch",
-	);
-	const compressorReleaseLabel = t(
-		"settings.audioEnhancement.compressorRelease",
-	);
-	const compressorReleaseInfoSearch = t(
-		"settings.audioEnhancement.compressorReleaseInfoSearch",
-	);
-	const compressorOutputGainLabel = t(
-		"settings.audioEnhancement.compressorOutputGain",
-	);
-	const compressorOutputGainInfoSearch = t(
-		"settings.audioEnhancement.compressorOutputGainInfoSearch",
-	);
-	const limiterLabel = t("settings.audioEnhancement.limiter");
-	const limiterInfoSearch = t("settings.audioEnhancement.limiterInfoSearch");
-	const limiterCeilingLabel = t("settings.audioEnhancement.limiterCeiling");
-	const limiterCeilingInfoSearch = t(
-		"settings.audioEnhancement.limiterCeilingInfoSearch",
-	);
-	const limiterReleaseLabel = t("settings.audioEnhancement.limiterRelease");
-	const limiterReleaseInfoSearch = t(
-		"settings.audioEnhancement.limiterReleaseInfoSearch",
-	);
-	const notchFilterLabel = t("settings.audioEnhancement.notchFilter");
-	const notchFilterInfoSearch = t(
-		"settings.audioEnhancement.notchFilterInfoSearch",
-	);
-	const notchFrequencyLabel = t("settings.audioEnhancement.notchFrequency");
-	const notchFrequencyInfoSearch = t(
-		"settings.audioEnhancement.notchFrequencyInfoSearch",
-	);
+	// resolve the translated search-visible labels ONCE per
+	// locale change (previously re-resolved on every render — ~80 `t()`
+	// calls per render = 0.5–1 ms wasted per Settings interaction).
+	// The memo key is `locale` (a stable string from
+	// `useSyncExternalStore`); the `t` function reads the current
+	// locale's translation map at call time, so all calls inside the
+	// factory resolve against the same locale.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: locale is
+	// needed in the dep array so the factory re-runs on language switch,
+	// even though `t()` reads the locale internally.
+	const labels = useMemo(() => {
+		const audioSectionTitle = t("settings.audioEnhancement.title");
+		return {
+			audioSectionTitle,
+			highPassFilterLabel: t("settings.audioEnhancement.highPassFilter"),
+			highPassFilterInfoSearch: t(
+				"settings.audioEnhancement.highPassFilterInfoSearch",
+			),
+			highPassCutoffLabel: t("settings.audioEnhancement.highPassCutoff"),
+			highPassCutoffInfoSearch: t(
+				"settings.audioEnhancement.highPassCutoffInfoSearch",
+			),
+			noiseSuppressionLabel: t("settings.audioEnhancement.noiseSuppression"),
+			noiseSuppressionInfoSearch: t(
+				"settings.audioEnhancement.noiseSuppressionInfoSearch",
+			),
+			noiseGateLabel: t("settings.audioEnhancement.noiseGate"),
+			noiseGateInfoSearch: t("settings.audioEnhancement.noiseGateInfoSearch"),
+			gateOpenThresholdLabel: t("settings.audioEnhancement.gateOpenThreshold"),
+			gateOpenThresholdInfoSearch: t(
+				"settings.audioEnhancement.gateOpenThresholdInfoSearch",
+			),
+			gateCloseThresholdLabel: t(
+				"settings.audioEnhancement.gateCloseThreshold",
+			),
+			gateCloseThresholdInfoSearch: t(
+				"settings.audioEnhancement.gateCloseThresholdInfoSearch",
+			),
+			gateAttackLabel: t("settings.audioEnhancement.gateAttack"),
+			gateAttackInfoSearch: t("settings.audioEnhancement.gateAttackInfoSearch"),
+			gateHoldLabel: t("settings.audioEnhancement.gateHold"),
+			gateHoldInfoSearch: t("settings.audioEnhancement.gateHoldInfoSearch"),
+			gateReleaseLabel: t("settings.audioEnhancement.gateRelease"),
+			gateReleaseInfoSearch: t(
+				"settings.audioEnhancement.gateReleaseInfoSearch",
+			),
+			equalizerLabel: t("settings.audioEnhancement.equalizer"),
+			equalizerInfoSearch: t("settings.audioEnhancement.equalizerInfoSearch"),
+			eqLowLabel: t("settings.audioEnhancement.eqLow"),
+			eqLowInfoSearch: t("settings.audioEnhancement.eqLowInfoSearch"),
+			eqMidLabel: t("settings.audioEnhancement.eqMid"),
+			eqMidInfoSearch: t("settings.audioEnhancement.eqMidInfoSearch"),
+			eqHighLabel: t("settings.audioEnhancement.eqHigh"),
+			eqHighInfoSearch: t("settings.audioEnhancement.eqHighInfoSearch"),
+			compressorLabel: t("settings.audioEnhancement.compressor"),
+			compressorInfoSearch: t("settings.audioEnhancement.compressorInfoSearch"),
+			compressorThresholdLabel: t(
+				"settings.audioEnhancement.compressorThreshold",
+			),
+			compressorThresholdInfoSearch: t(
+				"settings.audioEnhancement.compressorThresholdInfoSearch",
+			),
+			compressorRatioLabel: t("settings.audioEnhancement.compressorRatio"),
+			compressorRatioInfoSearch: t(
+				"settings.audioEnhancement.compressorRatioInfoSearch",
+			),
+			compressorAttackLabel: t("settings.audioEnhancement.compressorAttack"),
+			compressorAttackInfoSearch: t(
+				"settings.audioEnhancement.compressorAttackInfoSearch",
+			),
+			compressorReleaseLabel: t("settings.audioEnhancement.compressorRelease"),
+			compressorReleaseInfoSearch: t(
+				"settings.audioEnhancement.compressorReleaseInfoSearch",
+			),
+			compressorOutputGainLabel: t(
+				"settings.audioEnhancement.compressorOutputGain",
+			),
+			compressorOutputGainInfoSearch: t(
+				"settings.audioEnhancement.compressorOutputGainInfoSearch",
+			),
+			limiterLabel: t("settings.audioEnhancement.limiter"),
+			limiterInfoSearch: t("settings.audioEnhancement.limiterInfoSearch"),
+			limiterCeilingLabel: t("settings.audioEnhancement.limiterCeiling"),
+			limiterCeilingInfoSearch: t(
+				"settings.audioEnhancement.limiterCeilingInfoSearch",
+			),
+			limiterReleaseLabel: t("settings.audioEnhancement.limiterRelease"),
+			limiterReleaseInfoSearch: t(
+				"settings.audioEnhancement.limiterReleaseInfoSearch",
+			),
+			notchFilterLabel: t("settings.audioEnhancement.notchFilter"),
+			notchFilterInfoSearch: t(
+				"settings.audioEnhancement.notchFilterInfoSearch",
+			),
+			notchFrequencyLabel: t("settings.audioEnhancement.notchFrequency"),
+			notchFrequencyInfoSearch: t(
+				"settings.audioEnhancement.notchFrequencyInfoSearch",
+			),
+		};
+	}, [locale]);
+
+	const audioSectionTitle = labels.audioSectionTitle;
+
+	// destructure the memoised labels into the same local names
+	// the JSX below already references, so the render path is unchanged
+	// (only the resolution frequency changed: once per locale change
+	// instead of once per render). The bindings are zero-cost — they're
+	// just references to the same interned strings.
+	const {
+		highPassFilterLabel,
+		highPassFilterInfoSearch,
+		highPassCutoffLabel,
+		highPassCutoffInfoSearch,
+		noiseSuppressionLabel,
+		noiseSuppressionInfoSearch,
+		noiseGateLabel,
+		noiseGateInfoSearch,
+		gateOpenThresholdLabel,
+		gateOpenThresholdInfoSearch,
+		gateCloseThresholdLabel,
+		gateCloseThresholdInfoSearch,
+		gateAttackLabel,
+		gateAttackInfoSearch,
+		gateHoldLabel,
+		gateHoldInfoSearch,
+		gateReleaseLabel,
+		gateReleaseInfoSearch,
+		equalizerLabel,
+		equalizerInfoSearch,
+		eqLowLabel,
+		eqLowInfoSearch,
+		eqMidLabel,
+		eqMidInfoSearch,
+		eqHighLabel,
+		eqHighInfoSearch,
+		compressorLabel,
+		compressorInfoSearch,
+		compressorThresholdLabel,
+		compressorThresholdInfoSearch,
+		compressorRatioLabel,
+		compressorRatioInfoSearch,
+		compressorAttackLabel,
+		compressorAttackInfoSearch,
+		compressorReleaseLabel,
+		compressorReleaseInfoSearch,
+		compressorOutputGainLabel,
+		compressorOutputGainInfoSearch,
+		limiterLabel,
+		limiterInfoSearch,
+		limiterCeilingLabel,
+		limiterCeilingInfoSearch,
+		limiterReleaseLabel,
+		limiterReleaseInfoSearch,
+		notchFilterLabel,
+		notchFilterInfoSearch,
+		notchFrequencyLabel,
+		notchFrequencyInfoSearch,
+	} = labels;
 
 	return (
 		<>
@@ -406,8 +483,8 @@ export function AudioFilterChain({
 							<SelectItem value="rnnoise">RNNoise</SelectItem>
 							<SelectItem value="deepfilternet">DeepFilterNet</SelectItem>
 							{/* Fix 7: Speex was documented in the info tooltip but was
-							    missing from the dropdown — selecting it required hand-
-							    editing config.json. Now it's a first-class option. */}
+                                                            missing from the dropdown — selecting it required hand-
+                                                            editing config.json. Now it's a first-class option. */}
 							<SelectItem value="speex">Speex</SelectItem>
 							<SelectItem value="none">
 								{t("settings.audioEnhancement.noneOption")}

@@ -19,6 +19,16 @@ import {
 	validateHotkey,
 } from "./hotkey-utils";
 
+// hoist the per-platform modifier-code lookup table to module
+// scope. `getModifierCodeMap` returns a fresh 8-key object literal on
+// every call — previously allocated inside `handleKeyDown` /
+// `handleKeyUp` on every keystroke (60–120 calls/sec during typing
+// bursts). `IS_MAC` is a module-load constant (it never changes at
+// runtime — the platform is fixed for the lifetime of the renderer
+// process), so the map can be computed once at import time and shared
+// by both handlers.
+const MODIFIER_CODE_MAP: Record<string, string> = getModifierCodeMap(IS_MAC);
+
 // HOTKEY-MULTIKEY-001: canonical modifier order. Modifiers are stored in
 // the session set in INSERTION order (the order the user pressed them),
 // but the captured hotkey must be IDENTICAL regardless of press order —
@@ -39,7 +49,7 @@ const CANONICAL_MOD_ORDER = [
 	"fn",
 ] as const;
 
-// PVT-FIX-005: how long the picker stays in capture mode before
+// how long the picker stays in capture mode before
 // auto-exiting. 30 seconds is long enough for the user to read the
 // "press a key" hint and decide what to press, but short enough that
 // an abandoned capture (user clicked the button, walked away) doesn't
@@ -84,7 +94,7 @@ interface HotkeyPickerProps {
 	 */
 	occupiedHotkeys?: string[];
 	/**
-	 * PVT-FIX-003: when true (and ``value`` is non-empty), renders a
+	 * when true (and ``value`` is non-empty), renders a
 	 * small "Clear" (X) button next to the picker that calls
 	 * ``onChange("")``. Lets the user unset a hotkey without having
 	 * to capture a new one. Defaults to ``false`` so existing
@@ -160,22 +170,22 @@ export function HotkeyPicker({
 }: HotkeyPickerProps) {
 	const [recording, setRecording] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	// PVT-FIX-005: countdown state shown in the capture hint so the
+	// countdown state shown in the capture hint so the
 	// user can see how long they have left to press a key. Ticks down
 	// from CAPTURE_TIMEOUT_SECONDS to 0; reaching 0 auto-exits capture.
 	const [secondsRemaining, setSecondsRemaining] = useState<number>(0);
-	// PVT-FIX-008: human-readable label of the modifiers the user is
+	// human-readable label of the modifiers the user is
 	// currently holding during capture. Mirrored into aria-keyshortcuts
 	// + the <output> hint so screen-reader users and visual users both
 	// get live feedback on the in-progress combo.
 	const [heldModifiersLabel, setHeldModifiersLabel] = useState<string>("");
 	const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// PVT-FIX-005: ref holding the setInterval id for the 30s countdown.
+	// ref holding the setInterval id for the 30s countdown.
 	// Cleared on commit, cancel, or unmount.
 	const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
 		null,
 	);
-	// PVT-FIX-004: ref to the outer container div, used by the
+	// ref to the outer container div, used by the
 	// outside-click handler to detect clicks that leave the picker.
 	const containerRef = useRef<HTMLDivElement | null>(null);
 	// HOTKEY-MULTIKEY-001: refs tracking the full set of pressed keys.
@@ -265,7 +275,7 @@ export function HotkeyPicker({
 	// the reliable primary path across all Windows configurations.
 	// The guard in cancelRecording prevents duplicate onCaptureEnd calls
 	// when both paths fire.
-	// PVT-26: subscribe via the `usePythonEvent` hook instead of raw
+	// subscribe via the `usePythonEvent` hook instead of raw
 	// `window.python?.onEvent?.(...)`. The hook re-attempts the
 	// subscription when the bridge becomes available after mount
 	// (CR-6 fix in `usePython.ts`), so a slow HMR / preload install no
@@ -278,7 +288,7 @@ export function HotkeyPicker({
 	useEffect(() => {
 		return () => {
 			if (timeoutRef.current) clearTimeout(timeoutRef.current);
-			// PVT-FIX-005: clear the countdown interval on unmount
+			// clear the countdown interval on unmount
 			// too so it doesn't keep firing setState on a dead
 			// component (which React warns about).
 			if (countdownIntervalRef.current) {
@@ -293,7 +303,7 @@ export function HotkeyPicker({
 		};
 	}, []);
 
-	// PVT-FIX-004: outside-click handler. When the picker is in capture
+	// outside-click handler. When the picker is in capture
 	// mode and the user clicks anywhere OUTSIDE the picker's container
 	// (e.g. on another setting, on the sidebar, or on empty space), we
 	// cancel capture — same as pressing Escape. This matches user
@@ -356,7 +366,7 @@ export function HotkeyPicker({
 		);
 	}, []);
 
-	// PVT-FIX-008: build a display label for the modifiers the user is
+	// build a display label for the modifiers the user is
 	// CURRENTLY holding (not the sticky session set). Used to drive the
 	// live ``aria-keyshortcuts`` attribute on the capture button and
 	// the "Holding: …" line in the <output> hint. Returns the empty
@@ -369,7 +379,7 @@ export function HotkeyPicker({
 		return formatHotkeyLabel(mods.map((m) => `<${m}>`).join("+"));
 	}, []);
 
-	// PVT-FIX-005: stop the 30s countdown interval and reset the
+	// stop the 30s countdown interval and reset the
 	// ``secondsRemaining`` state. Called whenever capture mode exits
 	// (commit, cancel, auto-timeout, unmount) so the interval never
 	// leaks across sessions. Reads + nulls the ref atomically.
@@ -381,7 +391,7 @@ export function HotkeyPicker({
 		setSecondsRemaining(0);
 	}, []);
 
-	// PVT-FIX-005: (re)start the 30s countdown. Called from
+	// (re)start the 30s countdown. Called from
 	// ``startRecording``. Each tick decrements ``secondsRemaining``;
 	// when it hits 0 the interval cancels itself and calls
 	// ``cancelRecording`` (which calls ``onCaptureEnd`` so the
@@ -607,7 +617,7 @@ export function HotkeyPicker({
 		// ESC-FIX-001/002: read from ref so we always call the latest
 		// onCaptureStart without depending on it in deps.
 		onCaptureStartRef.current?.();
-		// PVT-FIX-005: start the 30s auto-exit countdown. If the user
+		// start the 30s auto-exit countdown. If the user
 		// doesn't press (and release) a key within 30 seconds, the
 		// interval calls ``cancelRecording`` so the global ESC-cancel
 		// hotkey is resumed and the picker doesn't sit in capture
@@ -643,22 +653,19 @@ export function HotkeyPicker({
 			e.preventDefault();
 			e.stopPropagation();
 
-			// Detect modifier keys by e.code (layout-independent).
-			// EC-FIX-10 / EC-24: cache the per-platform modifier
-			// map once per handler instead of importing the
-			// deprecated module-level ``MODIFIER_CODE_TO_PYNPUT``
-			// constant. The map is tiny (8 entries) and IS_MAC
-			// is a module-load constant, so this is allocation-
-			// cheap and always reflects the current platform.
-			const modifierCodeMap = getModifierCodeMap(IS_MAC);
-			const modifierCode = modifierCodeMap[e.code];
+			// use the module-level `MODIFIER_CODE_MAP` instead of
+			// calling `getModifierCodeMap(IS_MAC)` on every keystroke (the
+			// previous per-call allocation produced 60–120 fresh 8-key
+			// object literals per second during typing bursts). The map
+			// depends only on `IS_MAC`, which is fixed at module load.
+			const modifierCode = MODIFIER_CODE_MAP[e.code];
 			if (modifierCode) {
 				// HOTKEY-MULTIKEY-001: accumulate the modifier into both
 				// the held set (for release detection) and the session
 				// set (for the final committed combo).
 				heldModifiersRef.current.add(modifierCode);
 				sessionModifiersRef.current.add(modifierCode);
-				// PVT-FIX-008: update the live "Holding: …" label
+				// update the live "Holding: …" label
 				// and aria-keyshortcuts so screen readers announce
 				// the in-progress combo.
 				setHeldModifiersLabel(buildHeldModifiersLabel());
@@ -680,7 +687,7 @@ export function HotkeyPicker({
 				heldModifiersRef.current.add(m);
 				sessionModifiersRef.current.add(m);
 			}
-			// PVT-FIX-008: a non-modifier keypress may have also
+			// a non-modifier keypress may have also
 			// introduced modifiers via the snapshot above (e.g. the
 			// user held Ctrl BEFORE entering capture mode). Refresh
 			// the live label.
@@ -753,11 +760,14 @@ export function HotkeyPicker({
 				return;
 			}
 
-			const modifierCode = getModifierCodeMap(IS_MAC)[e.code];
+			// module-level `MODIFIER_CODE_MAP` (see comment above
+			// in `handleKeyDown`) — avoids a fresh 8-key object literal
+			// allocation per keyup event.
+			const modifierCode = MODIFIER_CODE_MAP[e.code];
 			if (modifierCode) {
 				// Modifier key release — remove from held set.
 				heldModifiersRef.current.delete(modifierCode);
-				// PVT-FIX-008: refresh the live "Holding: …" label
+				// refresh the live "Holding: …" label
 				// after the modifier is removed so the user sees
 				// the held-modifier set update in real time.
 				setHeldModifiersLabel(buildHeldModifiersLabel());
@@ -853,7 +863,7 @@ export function HotkeyPicker({
 							? t("hotkeyPicker.cancelRecordingAria", { label: ariaLabel })
 							: t("hotkeyPicker.recordNewAria", { label: ariaLabel })
 					}
-					// PVT-FIX-008: expose the in-progress modifier combo
+					// expose the in-progress modifier combo
 					// via aria-keyshortcuts so assistive tech can announce
 					// what the user is currently holding. Cleared (omitted)
 					// when no modifiers are held so screen readers don't
@@ -959,7 +969,7 @@ export function HotkeyPicker({
 						</DropdownMenuContent>
 					</DropdownMenu>
 				)}
-				{/* PVT-FIX-003: Clear button — lets the user unset a
+				{/* Clear button — lets the user unset a
                                     hotkey without having to capture a new one. Only
                                     shown when ``allowClear`` is true, a hotkey is
                                     currently assigned, and we're not in the middle of
@@ -993,13 +1003,13 @@ export function HotkeyPicker({
 			{recording && (
 				<output
 					className="text-xs text-(--text-muted)"
-					// PVT-FIX-005 / PVT-FIX-008: live-region role so
+					// live-region role so
 					// screen readers announce countdown ticks and the
 					// "Holding: …" line as they update.
 					aria-live="polite"
 				>
 					{t("hotkeyPicker.assignHint")}
-					{/* PVT-FIX-005: countdown timer. Shown the whole
+					{/* countdown timer. Shown the whole
                                             time so the user knows how long they have;
                                             turns red in the last 10 seconds for emphasis. */}
 					<span
@@ -1010,7 +1020,7 @@ export function HotkeyPicker({
 					>
 						({secondsRemaining}s)
 					</span>
-					{/* PVT-FIX-008: live modifier indicator. Mirrors
+					{/* live modifier indicator. Mirrors
                                             the ``aria-keyshortcuts`` attribute on the
                                             capture button so visual users get the same
                                             in-progress feedback screen readers do.

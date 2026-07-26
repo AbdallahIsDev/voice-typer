@@ -9,18 +9,20 @@
 // subscriptions pointed at the latest handler
 // (``stopTestRef`` / ``selectMicrophoneRef`` / ``testRunningRef`` /
 // ``micMonitoringRef`` / ``playingRef`` / ``testTimerRef`` /
-// ``elapsedTimerRef`` / ``levelIntervalRef`` / ``audioRef`` /
-// ``stoppingRef``).
+// ``elapsedTimerRef`` / ``audioRef`` / ``stoppingRef``).
 //
 // Wires:
-//   - the 100ms level-polling loop (``level_monitor_start`` on mount +
-//     mic change, ``microphone_test_get_level`` every 100ms while
-//     visible + active, ``level_monitor_stop`` on unmount),
-//   - the ``microphone_test_complete`` event subscription that drives
-//     ``stopTest`` when the backend finishes recording,
-//   - the unmount-cleanup effect that pauses any playing test audio,
-//     clears the countdown / elapsed intervals, and cancels an
-//     in-flight test recording.
+// - The level-monitor lifecycle (``level_monitor_start`` on
+// mount + mic change, ``level_monitor_stop`` on unmount) plus a
+// ``mic_level`` push-event subscription that replaces the prior
+// 10 Hz ``microphone_test_get_level`` poll. A one-shot
+// ``microphone_test_get_level`` call seeds the first read so the
+// UI doesn't wait up to ~33 ms for the first push frame.
+// - the ``microphone_test_complete`` event subscription that drives
+// ``stopTest`` when the backend finishes recording,
+// - the unmount-cleanup effect that pauses any playing test audio,
+// clears the countdown / elapsed intervals, and cancels an
+// in-flight test recording.
 //
 // Exposes ``startTest`` / ``stopTest`` / ``selectMicrophone`` /
 // ``playAudio`` / ``stopPlayback`` / ``handlePresetChange`` /
@@ -113,7 +115,7 @@ export function useMicrophoneTest({
 	);
 	const [level, setLevel] = useState(0);
 	const [peak, setPeak] = useState(0);
-	// PVT-037 (Fix 4): initialize micMonitoring to ``true`` so the level
+	// initialize micMonitoring to ``true`` so the level
 	// polling loop in the mount effect actually fires its first
 	// ``microphone_test_get_level`` call. Previously this started at
 	// ``false``, and since the only thing that flips it to ``true`` is
@@ -140,7 +142,10 @@ export function useMicrophoneTest({
 	const [playingEnhanced, setPlayingEnhanced] = useState(false);
 	const [playingOriginal, setPlayingOriginal] = useState(false);
 
-	const levelIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+	// ``levelIntervalRef`` removed — the 10 Hz polling loop is
+	// replaced by the ``mic_level`` push event subscription. The other
+	// refs (``testTimerRef`` / ``elapsedTimerRef``) remain because the
+	// test countdown + elapsed-display still use ``setInterval``.
 	const testTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -158,12 +163,17 @@ export function useMicrophoneTest({
 		micMonitoringRef.current = micMonitoring;
 	}, [micMonitoring]);
 
-	// Level-monitor polling loop. Started on mount + whenever the
+	// level-monitor lifecycle. Started on mount + whenever the
 	// selected microphone changes; torn down (and ``level_monitor_stop``
-	// sent) on cleanup. The interval self-gates on document visibility
-	// + ``testRunning || micMonitoring`` + ``!playingRef`` so we don't
-	// spam the backend while the tab is hidden, while monitoring is
-	// paused, or while the user is listening to a test playback.
+	// sent) on cleanup. Previously this hook polled
+	// ``microphone_test_get_level`` via ``setInterval(100)`` at 10 Hz,
+	// costing 10–40 ms/sec of CPU across renderer+host+sidecar for a
+	// 3-key dict. The backend now publishes a coalesced ``mic_level``
+	// push event (≤30 Hz) via the same bounded-queue pattern as
+	// ``bubble_level``; we subscribe to it via ``usePythonEvent`` and
+	// keep only a ONE-SHOT poll as a first-read fallback (so the UI
+	// doesn't freeze for ~33 ms waiting for the first push after
+	// ``level_monitor_start``).
 	useEffect(() => {
 		const micId = config?.microphone ?? null;
 		call<{ success: boolean }>("level_monitor_start", { mic_id: micId }).catch(
@@ -174,13 +184,19 @@ export function useMicrophoneTest({
 				),
 		);
 
-		levelIntervalRef.current = setInterval(async () => {
+		// one-shot fallback poll. The backend's ``mic_level`` push
+		// is coalesced at ≤30 Hz, so the first frame may take up to ~33 ms
+		// to arrive after ``level_monitor_start``. We issue a single
+		// ``microphone_test_get_level`` call to seed the UI immediately;
+		// subsequent updates come from the push event subscription below.
+		// The fallback is a no-op if the push event arrives first (the
+		// setState calls are idempotent — last write wins).
+		void (async () => {
 			if (
 				typeof document !== "undefined" &&
 				document.visibilityState !== "visible"
 			)
 				return;
-			if (!testRunningRef.current && !micMonitoringRef.current) return;
 			if (playingRef.current) return;
 			try {
 				const levelData = await call<{
@@ -198,25 +214,23 @@ export function useMicrophoneTest({
 					setMicMonitoring(levelData.active);
 				}
 			} catch (e) {
-				// Ignore polling errors — the next 100ms tick will
-				// retry. Sustained failures are surfaced by the
-				// connection-status banner elsewhere in the UI.
-				console.warn("[useMicrophoneTest] level poll failed:", e);
+				// Non-fatal — the push event subscription will still
+				// deliver updates once the backend starts publishing.
+				console.warn("[useMicrophoneTest] one-shot level poll failed:", e);
 			}
-		}, 100);
+		})();
 
 		const handleVisibility = () => {
-			// no-op — next interval tick reads visibilityState.
+			// no-op — kept for parity with the previous implementation.
+			// The push event subscription below self-gates on
+			// ``testRunning || micMonitoring`` + ``!playingRef`` via the
+			// handler closure (which reads the refs at event time).
 		};
 		if (typeof document !== "undefined") {
 			document.addEventListener("visibilitychange", handleVisibility);
 		}
 
 		return () => {
-			if (levelIntervalRef.current) {
-				clearInterval(levelIntervalRef.current);
-				levelIntervalRef.current = null;
-			}
 			if (typeof document !== "undefined") {
 				document.removeEventListener("visibilitychange", handleVisibility);
 			}
@@ -228,6 +242,42 @@ export function useMicrophoneTest({
 			);
 		};
 	}, [call, config?.microphone]);
+
+	// subscribe to the backend's ``mic_level`` push event
+	// (published by ``level_monitor._process_level_chunk`` via the same
+	// bounded-queue + worker pattern as ``bubble_level``). Replaces the
+	// 10 Hz ``setInterval(100)`` poll. The handler self-gates on the
+	// same conditions as the previous poll (visibility + active state +
+	// not playing) so we don't surface stale levels while the tab is
+	// hidden, monitoring is paused, or the user is listening to a test
+	// playback.
+	usePythonEvent(
+		"mic_level",
+		useCallback((data?: Record<string, unknown>): (() => void) | undefined => {
+			if (
+				typeof document !== "undefined" &&
+				document.visibilityState !== "visible"
+			)
+				return undefined;
+			if (!testRunningRef.current && !micMonitoringRef.current)
+				return undefined;
+			if (playingRef.current) return undefined;
+			const levelData = data as
+				| { level?: unknown; peak?: unknown; active?: unknown }
+				| undefined;
+			if (!levelData) return undefined;
+			if (typeof levelData.level === "number") {
+				setLevel(levelData.level);
+			}
+			if (typeof levelData.peak === "number") {
+				setPeak(levelData.peak);
+			}
+			if (typeof levelData.active === "boolean") {
+				setMicMonitoring(levelData.active);
+			}
+			return undefined;
+		}, []),
+	);
 
 	// When the backend finishes recording, drive ``stopTest`` to fetch
 	// the result + reset the test-running UI. ``stopTestRef`` is kept
@@ -260,7 +310,7 @@ export function useMicrophoneTest({
 				clearInterval(elapsedTimerRef.current);
 				elapsedTimerRef.current = null;
 			}
-			// PVT-045 (session 2): pause any playing test audio to prevent
+			// pause any playing test audio to prevent
 			// background playback after navigation. Also clears the audioRef
 			// so onended/onerror don't fire setState on an unmounted component.
 			if (audioRef.current) {
@@ -478,7 +528,7 @@ export function useMicrophoneTest({
 	// latest closures so the ``microphone_test_complete`` subscription
 	// (above) and the ``microphones_changed`` subscription (in
 	// ``useMicrophoneData``) can invoke them without re-subscribing on
-	// every render. Mirrors the PVT-035 (Fix 2) ref-to-latest pattern.
+	// every render. Mirrors the  ref-to-latest pattern.
 	stopTestRef.current = stopTest;
 	selectMicrophoneRef.current = selectMicrophone;
 

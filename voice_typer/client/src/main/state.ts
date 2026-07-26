@@ -10,10 +10,10 @@
  * original module-level `let` declarations (every reader sees the latest
  * value written by any writer).
  *
- * PVT-G5-FA15 (session-5 dead-code cleanup): the `preMaximizeBounds`
+ * Dead-code cleanup: the `preMaximizeBounds`
  * field was removed. It used to live on `state` but is now a local
- * module-level variable inside `ipc/window-handlers.ts` (de-shadowed in
- * session-1). No reader/writer of
+ * module-level variable inside `ipc/window-handlers.ts` (de-shadowed
+ * in a prior refactor). No reader/writer of
  * `state.preMaximizeBounds` remained — only the local `preMaximizeBounds`
  * in window-handlers.ts is used. 4 test fixtures still include
  * `preMaximizeBounds: null` for backward-compat; they compile due to
@@ -30,8 +30,8 @@ import type { BrowserWindow } from "electron";
  * `data` handler resolves/rejects it when the matching reply arrives.
  */
 export interface PendingRequest {
-        resolve: (value: unknown) => void;
-        reject: (reason: unknown) => void;
+	resolve: (value: unknown) => void;
+	reject: (reason: unknown) => void;
 }
 
 /**
@@ -67,84 +67,84 @@ export const RATE_LIMIT_WINDOW_MS = 1000;
  * Electron namespace rather than `declare module "electron"`.
  */
 declare global {
-        namespace Electron {
-                interface App {
-                        isQuitting?: boolean;
-                }
-        }
+	namespace Electron {
+		interface App {
+			isQuitting?: boolean;
+		}
+	}
 }
 
 export interface MainState {
-        /** Spawned Python backend process (null if VT_PYTHON_PORT adopted an existing one). */
-        pythonProcess: ChildProcess | null;
-        /** Authenticated TCP socket to the Python backend. Null until the auth line is written. */
-        tcpSocket: Socket | null;
-        /** Dashboard BrowserWindow (lazy-created on first TCP connect). */
-        mainWindow: BrowserWindow | null;
-        /** Bubble overlay BrowserWindow (lazy-created on first bubble_show). */
-        bubbleWindow: BrowserWindow | null;
-        /** Outbound IPC requests awaiting a Python reply, keyed by message id. */
-        pendingRequests: Map<number, PendingRequest>;
-        /** Monotonic message-id counter for sendToPython(). */
-        nextId: number;
-        /** Incomplete TCP line accumulator (Python sends newline-delimited JSON). */
-        tcpBuffer: string;
-        /** True once the first TCP connect succeeded (gates `pythonExitedEarly` handling). */
-        pythonReady: boolean;
-        /** True if Python exited before the first connect — surfaces a clear error to the user. */
-        pythonExitedEarly: boolean;
-        /** RW-10 heartbeat interval handle (5s tick). Cleared on TCP close / stopPython / relaunch. */
-        heartbeatInterval: ReturnType<typeof setInterval> | null;
-        /** SEC-029 per-session nonce tagged onto every python-event so the renderer can reject replays. */
-        sessionNonce: string;
-        /** Bubble screen position preference ("top" | "bottom"), synced from renderer via set_bubble_position. */
-        bubblePosition: "top" | "bottom";
-        /** Config-driven toggle for whether the bubble pill is draggable. Synced to the bubble renderer. */
-        bubbleDraggable: boolean;
-        /** Pending hide-animation timeout for the bubble (cancelled on rapid re-show). */
-        _hideTimeout: ReturnType<typeof setTimeout> | null;
-        /** tryConnect() retry counter (for log messaging + exponential backoff). */
-        _tcpRetryCount: number;
-        /** Monotonic generation counter — bumped by startPython() to invalidate stale retry loops. */
-        _tcpRetryGeneration: number;
-        /** R6-F6: pending TCP retry timer handle (cleared by stopPython/relaunchApp/startPython before bumping generation). */
-        _tcpRetryTimer: ReturnType<typeof setTimeout> | null;
-        /** True once the auth line has been written on the current socket. */
-        _tcpAuthed: boolean;
-        /** True once the renderer has ever seen a successful TCP connect (drives synthetic "reconnected"). */
-        _hadConnectedBefore: boolean;
-        /** True while a full app relaunch is in flight (suppresses noisy TCP errors + duplicate relaunch). */
-        _relaunching: boolean;
-        /** Persists after a restart trigger until the new backend connects (for "restart cycle complete" log). */
-        _restartTriggered: boolean;
-        /** True once the bubble renderer signals it has mounted and is ready for events. */
-        _bubblePageReady: boolean;
-        /** Idempotency guard for stopPython: true while a stop is in flight. */
-        _stopPythonCalled: boolean;
+	/** Spawned Python backend process (null if VT_PYTHON_PORT adopted an existing one). */
+	pythonProcess: ChildProcess | null;
+	/** Authenticated TCP socket to the Python backend. Null until the auth line is written. */
+	tcpSocket: Socket | null;
+	/** Dashboard BrowserWindow (lazy-created on first TCP connect). */
+	mainWindow: BrowserWindow | null;
+	/** Bubble overlay BrowserWindow (lazy-created on first bubble_show). */
+	bubbleWindow: BrowserWindow | null;
+	/** Outbound IPC requests awaiting a Python reply, keyed by message id. */
+	pendingRequests: Map<number, PendingRequest>;
+	/** Monotonic message-id counter for sendToPython(). */
+	nextId: number;
+	/** Incomplete TCP line accumulator (Python sends newline-delimited JSON). */
+	tcpBuffer: string;
+	/** True once the first TCP connect succeeded (gates `pythonExitedEarly` handling). */
+	pythonReady: boolean;
+	/** True if Python exited before the first connect — surfaces a clear error to the user. */
+	pythonExitedEarly: boolean;
+	/** RW-10 heartbeat interval handle (5s tick). Cleared on TCP close / stopPython / relaunch. */
+	heartbeatInterval: ReturnType<typeof setInterval> | null;
+	/** SEC-029 per-session nonce tagged onto every python-event so the renderer can reject replays. */
+	sessionNonce: string;
+	/** Bubble screen position preference ("top" | "bottom"), synced from renderer via set_bubble_position. */
+	bubblePosition: "top" | "bottom";
+	/** Config-driven toggle for whether the bubble pill is draggable. Synced to the bubble renderer. */
+	bubbleDraggable: boolean;
+	/** Pending hide-animation timeout for the bubble (cancelled on rapid re-show). */
+	_hideTimeout: ReturnType<typeof setTimeout> | null;
+	/** tryConnect() retry counter (for log messaging + exponential backoff). */
+	_tcpRetryCount: number;
+	/** Monotonic generation counter — bumped by startPython() to invalidate stale retry loops. */
+	_tcpRetryGeneration: number;
+	/** R6-F6: pending TCP retry timer handle (cleared by stopPython/relaunchApp/startPython before bumping generation). */
+	_tcpRetryTimer: ReturnType<typeof setTimeout> | null;
+	/** True once the auth line has been written on the current socket. */
+	_tcpAuthed: boolean;
+	/** True once the renderer has ever seen a successful TCP connect (drives synthetic "reconnected"). */
+	_hadConnectedBefore: boolean;
+	/** True while a full app relaunch is in flight (suppresses noisy TCP errors + duplicate relaunch). */
+	_relaunching: boolean;
+	/** Persists after a restart trigger until the new backend connects (for "restart cycle complete" log). */
+	_restartTriggered: boolean;
+	/** True once the bubble renderer signals it has mounted and is ready for events. */
+	_bubblePageReady: boolean;
+	/** Idempotency guard for stopPython: true while a stop is in flight. */
+	_stopPythonCalled: boolean;
 }
 
 export const state: MainState = {
-        pythonProcess: null,
-        tcpSocket: null,
-        mainWindow: null,
-        bubbleWindow: null,
-        pendingRequests: new Map<number, PendingRequest>(),
-        nextId: 1,
-        tcpBuffer: "",
-        pythonReady: false,
-        pythonExitedEarly: false,
-        heartbeatInterval: null,
-        sessionNonce: "",
-        bubblePosition: "top",
-        bubbleDraggable: true,
-        _hideTimeout: null,
-        _tcpRetryCount: 0,
-        _tcpRetryGeneration: 0,
-        _tcpRetryTimer: null,
-        _tcpAuthed: false,
-        _hadConnectedBefore: false,
-        _relaunching: false,
-        _restartTriggered: false,
-        _bubblePageReady: false,
-        _stopPythonCalled: false,
+	pythonProcess: null,
+	tcpSocket: null,
+	mainWindow: null,
+	bubbleWindow: null,
+	pendingRequests: new Map<number, PendingRequest>(),
+	nextId: 1,
+	tcpBuffer: "",
+	pythonReady: false,
+	pythonExitedEarly: false,
+	heartbeatInterval: null,
+	sessionNonce: "",
+	bubblePosition: "top",
+	bubbleDraggable: true,
+	_hideTimeout: null,
+	_tcpRetryCount: 0,
+	_tcpRetryGeneration: 0,
+	_tcpRetryTimer: null,
+	_tcpAuthed: false,
+	_hadConnectedBefore: false,
+	_relaunching: false,
+	_restartTriggered: false,
+	_bubblePageReady: false,
+	_stopPythonCalled: false,
 };

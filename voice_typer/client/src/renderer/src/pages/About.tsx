@@ -1,6 +1,6 @@
 // About page — diagnostics, privacy disclosure, and resources/feedback links.
 //
-// UX-20 / SET-5: the previous 726-line catch-all version had Help, Cache
+// UX-20 SET-5: the previous 726-line catch-all version had Help, Cache
 // Status, Updates, Diagnostics, Privacy, and Resources sections all crammed
 // together. The Help section duplicated the `?` overlay (already reachable
 // from TitleBar + the `?` keydown shortcut), and Cache Status + Updates
@@ -40,7 +40,7 @@ const SECURITY_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/SECURITY.md";
 const CONTRIBUTING_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/CONTRIBUTING.md";
-// PVT-054 (sub-agent 21): in-app documentation link. README.md is the
+// in-app documentation link. README.md is the
 // canonical entry point for user-facing docs in the repo; the /docs
 // folder holds deeper references (FEATURES.md, ADRs, debugging guide).
 const DOCUMENTATION_URL =
@@ -74,7 +74,7 @@ function StatusDot({ connected }: { connected: boolean }) {
 				(connected ? "text-(--text-primary)" : "text-destructive")
 			}
 		>
-			{/* PVT-089 (sub-agent 21): the colored dot is purely decorative —
+			{/* : the colored dot is purely decorative —
 			 * the adjacent "Connected" / "Disconnected" text conveys the
 			 * state to assistive tech. Mark aria-hidden so screen readers
 			 * don't announce a meaningless "graphic". */}
@@ -94,15 +94,15 @@ function StatusDot({ connected }: { connected: boolean }) {
 // R7-F19: marked `@internal`. Exported only for unit-test coverage.
 // Coordinate with I9/I12 about moving it to `lib/format.ts`.
 //
-// PVT-089 (sub-agent 21): switch from hardcoded "MB"/"GB" suffixes +
+// switch from hardcoded "MB"/"GB" suffixes +
 // `.toFixed()` to `Intl.NumberFormat` with `style: "unit"` so the
 // output respects the user-selected UI locale (e.g. "1,6 GB" in de,
 // "1.6 Go" in fr where CLDR uses octets). Visible behaviour in `en`
 // is preserved bit-for-bit:
-//   - sub-GB values are rendered as "<int> MB" (Math.round, no decimals)
-//   - GB-range values are rendered as "<x.x> GB" (1 decimal, including
-//     trailing ".0" for whole numbers via minimumFractionDigits: 1)
-//   - bytes <= 0 return the literal "0 MB" (same as before)
+// - sub-GB values are rendered as "<int> MB" (Math.round, no decimals)
+// - GB-range values are rendered as "<x.x> GB" (1 decimal, including
+// trailing ".0" for whole numbers via minimumFractionDigits: 1)
+// - bytes <= 0 return the literal "0 MB" (same as before)
 //
 // The existing `pages/__tests__/About.test.tsx::formatBytes` suite
 // (owned by sub-agent 17) covers the `en` outputs and continues to
@@ -132,7 +132,7 @@ export function formatBytes(bytes: number): string {
 // ADR-0009 Issue 3: format an ISO timestamp as a relative "N hours ago" string.
 // R7-F19: JSDoc clarifies the ISO fallback is English-only.
 //
-// PVT-089 (sub-agent 21): the >7-day fallback previously returned the
+// the >7-day fallback previously returned the
 // raw ISO 8601 string (e.g. "2025-07-12T10:30:00.000Z") — an
 // English-only, locale-independent, screen-reader-unfriendly format.
 // It now uses `Intl.DateTimeFormat` with `dateStyle: "medium"` so the
@@ -169,7 +169,7 @@ export function formatRelativeTime(iso: string | null): string {
 			return t("about.relativeTime.hoursAgo", { count: String(diffHr) });
 		if (diffDay < 7)
 			return t("about.relativeTime.daysAgo", { count: String(diffDay) });
-		// PVT-089: >7-day fallback — localized medium-format date instead
+		// >7-day fallback — localized medium-format date instead
 		// of the raw ISO 8601 string. `dateStyle: "medium"` produces e.g.
 		// "Jul 12, 2025" in en, "12 juil. 2025" in fr, "12. Juli 2025" in de.
 		return new Intl.DateTimeFormat(getLocale(), {
@@ -253,7 +253,12 @@ export default function AboutPage() {
 
 	return (
 		<div className="min-h-full">
-			<div className="mx-auto max-w-2xl space-y-8 px-6 pt-28 pb-6">
+			{/* : use the standard page shell (flex
+				min-h-full w-full flex-col) so the page content stretches to
+				fill the viewport — matches History, Vocabulary, Templates,
+				Microphone, Dashboard. Previously About dropped the flex
+				wrapper, leaving an empty gap below short content. */}
+			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col space-y-8 px-6 pt-28 pb-6">
 				<PageHeading
 					title={t("about.title")}
 					description={t("about.description")}
@@ -386,7 +391,7 @@ export default function AboutPage() {
 				</SettingsSection>
 
 				{/* ── Credits & Licenses ───────────────────────────────── */}
-				{/* PVT-054 (sub-agent 21): surface authors, third-party
+				{/* : surface authors, third-party
 				 * libraries, fonts, and icons so users can see what
 				 * Voice Typer is built on without leaving the app. */}
 				<SettingsSection

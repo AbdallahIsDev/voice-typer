@@ -78,14 +78,14 @@
 		"repaste": "Re-pegar",
 		"repasteAria": "Re-pegar la última transcripción (Ctrl+Alt+V)",
 		"forceCancel": "Cancelación forzada solicitada",
-		"forceCancelHint": "¿Tardando demasiado? Forzar cancelación",
+		"forceCancelHint": "¿Tarda demasiado? Forzar cancelación de transcripción",
 		"forceCancelFailed": "No se pudo forzar la cancelación de la transcripción",
 		"undoFailed": "No se pudo deshacer la última transcripción",
 		"repasteFailed": "No se pudo repegar la última transcripción",
 		"errorTitle": "Error de grabación",
 		"retry": "Reintentar",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
-		"toggleFailed": "Failed to toggle dictation. Please check your connection."
+		"toggleFailed": "No se pudo alternar el dictado. Inténtalo de nuevo."
 	},
 	"common": {
 		"cancel": "Cancelar",
@@ -1309,7 +1309,7 @@
 		"modelDescription": "Elige un modelo de transcripción. Los modelos más pequeños son más rápidos; los modelos más grandes son más precisos. El modelo se descarga en segundo plano después de la configuración.",
 		"modelSelectAria": "Seleccionar modelo: {name}",
 		"completeTitle": "¡Todo listo!",
-		"completeDescription": "Tu Voice Typer está configurado y listo. Presiona tu atajo ({hotkey}) para empezar a dictar. El modelo se descargará y cargará en segundo plano — esto puede tardar un minuto en el primer uso.",
+		"completeDescription": "Tu Voice Typer está configurado y listo. Presiona tu atajo ({hotkey}) para empezar a dictar. El modelo se descargará y cargará en segundo plano — puede tardar un minuto en el primer uso (aprox. 466 MB para el modelo pequeño, 1.5 GB para el mediano).",
 		"summaryMic": "Micrófono:",
 		"defaultMic": "Predeterminado",
 		"summaryHotkey": "Atajo:",
@@ -1338,7 +1338,7 @@
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
 		"skipConfirmTitle": "Skip setup?",
-		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmMessage": "Omitir ahora significa que tu micrófono y tu atajo de teclado podrían no funcionar. Puedes volver a ejecutar este asistente de configuración más tarde desde Configuración → Solución de problemas, o configurar opciones individuales en Configuración.",
 		"skipConfirmLabel": "Skip anyway",
 		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
 		"permissionsRefresh": "Refresh permission",
@@ -1352,7 +1352,11 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"modelOption": "{description} — {size} ({speed})",
-		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again."
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step4Item": "Elegir un modelo de transcripción",
+		"step5Item": "Completar configuración",
+		"refreshMics": "Actualizar micrófonos",
+		"noMicsHint": "Conecta un micrófono o verifica el permiso de micrófono de tu sistema operativo, luego haz clic en Actualizar."
 	},
 	"titleBar": {
 		"minimize": "Minimizar",

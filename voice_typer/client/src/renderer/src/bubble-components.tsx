@@ -47,7 +47,7 @@ export type BubbleMode =
 
 export type AnimState = "enter" | "exit" | "";
 
-export type BubbleAction = 'mic' | 'dismiss';
+export type BubbleAction = "mic" | "dismiss";
 
 export const DOT_COUNT = 7;
 export const MIN_HEIGHT = 5;
@@ -557,9 +557,12 @@ export function BubbleVisualizer({
 	// the detach/attach cycle.
 	const refSetters = useMemo(
 		() =>
-			Array.from({ length: DOT_COUNT }, (_, i) => (el: HTMLSpanElement | null) => {
-				dotRefs.current[i] = el;
-			}),
+			Array.from(
+				{ length: DOT_COUNT },
+				(_, i) => (el: HTMLSpanElement | null) => {
+					dotRefs.current[i] = el;
+				},
+			),
 		[dotRefs],
 	);
 	return (
@@ -693,7 +696,11 @@ export function BubbleMicButton({
  * default ipcMain behavior is to silently drop messages with no
  * registered handler).
  */
-export function BubbleDismissButton({ onClick }: { onClick: (action: BubbleAction) => void }) {
+export function BubbleDismissButton({
+	onClick,
+}: {
+	onClick: (action: BubbleAction) => void;
+}) {
 	const label = t("bubble.dismissAria");
 	return (
 		<button

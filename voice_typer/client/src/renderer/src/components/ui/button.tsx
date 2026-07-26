@@ -18,14 +18,24 @@ const buttonVariants = cva(
 					"hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:hover:bg-muted/50",
 				destructive:
 					"bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
+				// warning variant for mid-tier destructive actions
+				// (e.g. ConfirmDialog variant="warning" — skip onboarding,
+				// discard draft). Less alarming than destructive (amber, not
+				// red) but visually distinct from default. Uses the --warning
+				// design token from the status-token palette so the tint
+				// tracks the active theme (light/dark/custom).
+				warning:
+					"bg-warning/15 text-warning hover:bg-warning/25 focus-visible:border-warning/40 focus-visible:ring-warning/20",
 				link: "text-primary underline-offset-4 hover:underline",
 			},
 			size: {
 				default:
-					"h-9 gap-2 px-3 has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5",
-				xs: "h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3",
-				sm: "h-8 gap-1 px-3 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
-				lg: "h-10 gap-2 px-4 has-data-[icon=inline-end]:pr-3 has-data-[icon=inline-start]:pl-3",
+					// physical pr/pl → logical pe/ps so icon padding
+					// mirrors correctly in RTL Arabic.
+					"h-9 gap-2 px-3 has-data-[icon=inline-end]:pe-2.5 has-data-[icon=inline-start]:ps-2.5",
+				xs: "h-6 gap-1 px-2.5 text-xs has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2 [&_svg:not([class*='size-'])]:size-3",
+				sm: "h-8 gap-1 px-3 has-data-[icon=inline-end]:pe-2 has-data-[icon=inline-start]:ps-2",
+				lg: "h-10 gap-2 px-4 has-data-[icon=inline-end]:pe-3 has-data-[icon=inline-start]:ps-3",
 				icon: "size-9",
 				"icon-xs": "size-6 [&_svg:not([class*='size-'])]:size-3",
 				"icon-sm": "size-8",

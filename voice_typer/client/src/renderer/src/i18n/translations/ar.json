@@ -78,14 +78,14 @@
 		"repaste": "إعادة اللصق",
 		"repasteAria": "إعادة لصق آخر تدوين",
 		"forceCancel": "إلغاء إجباري",
-		"forceCancelHint": "إذا تعلّق التدوين، استخدم الإلغاء الإجباري للاستعادة",
+		"forceCancelHint": "يستغرق الوقت طويلاً؟ فرض إلغاء التسجيل",
 		"forceCancelFailed": "تعذر إلغاء الإملاء قسريًا",
 		"undoFailed": "تعذر التراجع عن آخر إملاء",
 		"repasteFailed": "تعذرت إعادة لصق آخر إملاء",
 		"errorTitle": "خطأ في التسجيل",
 		"retry": "إعادة المحاولة",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
-		"toggleFailed": "Failed to toggle dictation. Please check your connection."
+		"toggleFailed": "تعذر تبديل الإملاء. حاول مرة أخرى."
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -1309,7 +1309,7 @@
 		"modelDescription": "اختر نموذج التفريغ. النماذج الأصغر أسرع؛ النماذج الأكبر أكثر دقة. يتم تنزيل النموذج في الخلفية بعد الإعداد.",
 		"modelSelectAria": "اختيار النموذج: {name}",
 		"completeTitle": "كل شيء جاهز!",
-		"completeDescription": "تم إعداد Voice Typer وجاهز للاستخدام. اضغط على مفتاح الاختصار ({hotkey}) لبدء الإملاء. سيتم تنزيل النموذج وتحميله في الخلفية — قد يستغرق هذا دقيقة عند أول تشغيل.",
+		"completeDescription": "تم تكوين Voice Typer وهو جاهز. اضغط على مفتاح الاختصار ({hotkey}) لبدء الإملاء. سيتم تنزيل النموذج وتحميله في الخلفية — قد يستغرق هذا دقيقة على التشغيل الأول (حوالي 466 ميغابايت للنموذج الصغير، 1.5 جيجابايت للوسط).",
 		"summaryMic": "الميكروفون:",
 		"defaultMic": "افتراضي",
 		"summaryHotkey": "الاختصار:",
@@ -1338,7 +1338,7 @@
 		"permissionsTestFailure": "No hotkey detected. Check the permission steps above and try again.",
 		"permissionsTestButton": "Test hotkey",
 		"skipConfirmTitle": "Skip setup?",
-		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmMessage": "التخطي الآن يعني أن ميكروفونك ومفتاح الاختصار قد لا تعمل. يمكنك إعادة تشغيل هذا معجم الإعداد لاحقًا من الإعدادات → استكشاف الأخطاء وإصلاحها، أو تكوين الإعدادات الفردية في الإعدادات.",
 		"skipConfirmLabel": "Skip anyway",
 		"permissionsTestFailureBlocked": "Permission still required — grant it, then try again.",
 		"permissionsRefresh": "Refresh permission",
@@ -1352,7 +1352,11 @@
 		"permissionsInstructionsLinuxStep2": "Install the udev rule granting group-read on /dev/input/event*",
 		"permissionsInstructionsLinuxStep3": "Log out and back in (or reboot) for the group change to take effect",
 		"modelOption": "{description} — {size} ({speed})",
-		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again."
+		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
+		"step4Item": "اختر نموذج التسجيل",
+		"step5Item": "إكمال الإعداد",
+		"refreshMics": "تحديث الميكروفونات",
+		"noMicsHint": "قم بتوصيل ميكروفون أو تحقق من إذن الميكروفون لنظام التشغيل، ثم انقر فوق تحديث."
 	},
 	"titleBar": {
 		"minimize": "تصغير",

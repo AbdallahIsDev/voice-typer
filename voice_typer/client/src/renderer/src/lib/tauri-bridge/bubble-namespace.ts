@@ -4,24 +4,40 @@
 // Tauri runtime.
 //
 // MIG-1.2: `onLevel` listens to the `bubble_level` Tauri event (coalesced
-// to ≤30 Hz by main.rs:427-442). The 6 mutator methods (`show`,
-// `signalReady`, `setPosition`, `setDraggable`, `moveBy`, `hideComplete`)
-// invoke Rust window-management commands added in MIG-1.2. Each
-// fires-and-forgets — the return type is `void` per the
-// MainRendererBubble contract, matching the Electron preload (which uses
-// `ipcRenderer.send`, also void). The Rust commands update the bubble
-// BrowserWindow state asynchronously.
+// to ≤30 Hz by main.rs:427-442). The 5 shared mutator methods (`show`,
+// `signalReady`, `setPosition`, `setDraggable`, `moveBy`) invoke Rust
+// window-management commands added in MIG-1.2. Each fires-and-forgets —
+// the return type is `void` per the `MainRendererBubbleMutators`
+// contract, matching the Electron preload (which uses `ipcRenderer.send`,
+// also void). The Rust commands update the bubble BrowserWindow state
+// asynchronously.
 //
 // CR-33: bubble-window-only methods (onConfig, onSetState, resizeTo,
-// toggleDictation) — port of preload/bubble.ts:64-71 / 100-102 / 120-122.
-// These are ONLY installed on the bubble window (see `windowLabel`
-// parameter on `createBubbleNamespace` below — EC-FIX-6 / EC-13).
-// The main renderer's `window.bubble` exposes only the 10 shared
-// methods (the `MainRendererBubble` subset); the bubble renderer's
-// `window.bubble` exposes the full `BubbleWindowBubble`. This mirrors
-// the Electron preload's split (`preload/index.ts` vs `preload/bubble.ts`)
+// toggleDictation, hideComplete) — port of preload/bubble.ts:64-71 /
+// 100-102 / 120-122. These are ONLY installed on the bubble window
+// (see `windowLabel` parameter on `createBubbleNamespace` below —
+// EC-FIX-6 / EC-13). The main renderer's `window.bubble` exposes only
+// the 5 shared mutators (the `MainRendererBubbleMutators` subset);
+// the bubble renderer's `window.bubble` exposes the full
+// `BubbleWindowBubble` (`MainRendererBubbleMutators &
+// BubbleEventSubscriptions & BubbleWindowExtras`). This mirrors the
+// Electron preload's split (`preload/index.ts` vs `preload/bubble.ts`)
 // and prevents a compromised main renderer from invoking
 // `bubble_resize` / `bubble_toggle_dictation` directly (SEC-026).
+//
+// The event-subscription methods (`onLevel` / `onShow` /
+// `onHide` / `onDraggable`) are now ONLY installed on the bubble
+// window. The main renderer has no reason to subscribe to bubble-
+// window lifecycle events — the prior version installed dead
+// listeners on main that silently no-op'd when the events never
+// arrived. The type system enforces this: the main renderer's
+// `window.bubble` is typed `MainRendererBubbleMutators` (no
+// `onLevel` / `onShow` / `onHide` / `onDraggable` fields).
+//
+// `hideComplete` moved from the shared mutators to
+// `BubbleWindowExtras` (bubble-only). Only the bubble renderer's
+// exit-animation handler should invoke it. The Electron preload's
+// exposure of `hideComplete` on main was removed in the same fix.
 //
 // The previous version inlined a 12-line race-safe subscribe block 6×
 // (onLevel / onShow / onHide / onDraggable / onConfig / onSetState).
@@ -42,7 +58,12 @@
 // rejections rather than letting them surface as unhandled promise
 // rejections).
 
-import type { BubbleWindowBubble, MainRendererBubble } from "@/types/ipc";
+import type {
+	BubbleEventSubscriptions,
+	BubbleWindowBubble,
+	BubbleWindowExtras,
+	MainRendererBubbleMutators,
+} from "@/types/ipc";
 
 import { makeListener, type TauriGlobal } from "./detect";
 
@@ -73,26 +94,33 @@ function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
  * compromised main renderer could invoke `bubble_resize` /
  * `bubble_toggle_dictation` directly, bypassing the bubble-window
  * sandbox. The installer now takes an optional `windowLabel` parameter
- * (`"main" | "bubble"`) and returns ONLY the `MainRendererBubble` subset
- * on the main window (omitting `onSetState` / `onConfig` / `resizeTo` /
- * `toggleDictation`), mirroring the Electron preload's split
- * (`preload/index.ts` exposes only the 10 shared methods; `preload/bubble.ts`
- * adds the 4 bubble-only methods). The label is detected via
+ * (`"main" | "bubble"`) and returns ONLY the `MainRendererBubbleMutators`
+ * subset on the main window (omitting `onSetState` / `onConfig` /
+ * `resizeTo` / `toggleDictation` / `hideComplete` AND the event
+ * subscriptions `onLevel` / `onShow` / `onHide` / `onDraggable`),
+ * mirroring the Electron preload's split (`preload/index.ts` exposes
+ * only the 5 shared mutators; `preload/bubble.ts` adds the bubble-only
+ * methods + event subscriptions). The label is detected via
  * `tauri.window.getCurrentWindow().label` when no parameter is passed.
  *
- * `setPosition` accepts a single string `position` (XPLAT-6 fix). Both
- * production call sites — `useConnection.ts:117` (syncing the saved
- * `bubble_position` config) and `GeneralSettingsSection.tsx:151` (the
- * bubble-position dropdown) — pass one of `"top"` / `"bottom"`. The
- * Rust `bubble_set_position` command takes TWO args (`x: Value, y:
- * Value`) and parses `"top"`/`"bottom"` strings server-side, resolving
- * them to absolute physical coordinates based on the primary monitor's
- * bounds (see `src-tauri/src/commands/bubble.rs`). The bridge therefore
- * forwards the string as BOTH `x` and `y` — sending a single
- * `{ position }` arg made Tauri v2 reject the invoke (missing required
- * args), so the bubble never positioned. The call shape still matches
- * the `MainRendererBubble.setPosition?: (pos: string) => void` contract
- * exactly.
+ * Event subscriptions (`onLevel` / `onShow` / `onHide` /
+ * `onDraggable`) are now bubble-only. The main renderer has no reason
+ * to subscribe to bubble-window lifecycle events — the prior version
+ * installed dead listeners on main that silently no-op'd.
+ *
+ * `hideComplete` is now bubble-only (was in the shared mutators).
+ * Only the bubble renderer's exit-animation handler should invoke it.
+ *
+ * `setPosition` accepts a single string `position` (XPLAT-6
+ * fix). Both production call sites — `useConnection.ts:117` (syncing
+ * the saved `bubble_position` config) and `GeneralSettingsSection.tsx:151`
+ * (the bubble-position dropdown) — pass one of `"top"` / `"bottom"`.
+ * The Rust `bubble_set_position(position: String)` command parses the
+ * keyword server-side and resolves it to absolute physical coordinates
+ * based on the primary monitor's bounds (see
+ * `src-tauri/src/commands/bubble.rs`). The call shape matches the
+ * `MainRendererBubbleMutators.setPosition?: (pos: string) => void`
+ * contract exactly.
  *
  * @param tauri        Tauri global API.
  * @param windowLabel  Optional label override. If omitted, detected
@@ -103,24 +131,15 @@ function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
 export function createBubbleNamespace(
 	tauri: TauriGlobal,
 	windowLabel?: "main" | "bubble",
-): MainRendererBubble | BubbleWindowBubble {
+): MainRendererBubbleMutators | BubbleWindowBubble {
 	const label = windowLabel ?? detectWindowLabel(tauri);
 
-	// ─── Shared subset (both windows) ──────────────────────────────
-	// SEC-026: the main renderer gets ONLY these 10 methods, matching
-	// preload/index.ts. The bubble-only methods (onSetState / onConfig /
-	// resizeTo / toggleDictation) are added below for the bubble window.
-	const shared: MainRendererBubble = {
-		onLevel: (callback) =>
-			makeListener<{ rms: number; peak: number }>(
-				(handler) =>
-					tauri.event.listen<{ rms: number; peak: number }>(
-						"bubble_level",
-						(e) => handler(e.payload),
-					),
-				callback,
-			),
-
+	// ─── Shared mutators (both windows) ─────────────────────────────
+	// SEC-026: the main renderer gets ONLY these 5 mutators,
+	// matching preload/index.ts. The bubble-only mutators (onSetState /
+	// onConfig / resizeTo / toggleDictation / hideComplete) AND the
+	// event subscriptions are added below for the bubble window.
+	const mutators: MainRendererBubbleMutators = {
 		// MIG-1.2: show the bubble BrowserWindow. Fire-and-forget —
 		// matches Electron's `ipcRenderer.send("bubble:show-from-renderer")`.
 		// G4-M-70: log failures instead of silent drop.
@@ -141,17 +160,24 @@ export function createBubbleNamespace(
 				);
 		},
 
-		// MIG-1.2 + XPLAT-6: forward the `"top" | "bottom"` string as
-		// BOTH `x` and `y` — the Rust `bubble_set_position(x: Value,
-		// y: Value)` command requires both args (a single `{ position }`
-		// payload is rejected by Tauri v2 arg deserialization) and
-		// resolves the strings to absolute physical coordinates based on
-		// the primary monitor's bounds (see src-tauri/src/commands/bubble.rs).
+		// MIG-1.2 + XPLAT-6: forward the
+		// `"top" | "bottom"` keyword as a single `position`
+		// arg. The Rust `bubble_set_position(position: String)`
+		// command parses the keyword server-side and resolves
+		// it to absolute physical coordinates based on the
+		// primary monitor's bounds (see
+		// src-tauri/src/commands/bubble.rs). The previous
+		// `(x: Value, y: Value)` signature was a leaky
+		// abstraction — the bridge had to forward the keyword
+		// as BOTH `x` and `y` because Tauri v2 arg
+		// deserialization rejected a single `{ position }`
+		// payload for a 2-arg command. The single-string `position` collapses the
+		// command to a single-arg shape so the bridge is
+		// straight-through.
 		setPosition: (position: string) => {
 			tauri.core
 				.invoke("bubble_set_position", {
-					x: position,
-					y: position,
+					position,
 				})
 				.catch((err) =>
 					console.warn("[bubble IPC] bubble_set_position failed:", err),
@@ -182,6 +208,37 @@ export function createBubbleNamespace(
 					console.warn("[bubble IPC] bubble_move_by failed:", err),
 				);
 		},
+	};
+
+	if (label === "main") {
+		// SEC-026: main renderer — return only the shared
+		// mutators. Omit onSetState / onConfig / resizeTo /
+		// toggleDictation / hideComplete (bubble-window-only — matches
+		// preload/index.ts). ALSO omit the event subscriptions
+		// (onLevel / onShow / onHide / onDraggable) — the main
+		// renderer has no reason to subscribe to bubble-window
+		// lifecycle events, and installing dead listeners was a
+		// leaky abstraction.
+		return mutators;
+	}
+
+	// ─── Bubble-window-only event subscriptions ─────────────
+	// These subscribe to Tauri events emitted by the Rust host /
+	// sidecar. The main renderer has no reason to listen to these
+	// (it learns about bubble state via its own Python-side
+	// `status_change` subscription, not via bubble-window events).
+	const subscriptions: BubbleEventSubscriptions = {
+		// MIG-1.2: `onLevel` listens to the `bubble_level` Tauri event
+		// (coalesced to ≤30 Hz by main.rs:427-442).
+		onLevel: (callback) =>
+			makeListener<{ rms: number; peak: number }>(
+				(handler) =>
+					tauri.event.listen<{ rms: number; peak: number }>(
+						"bubble_level",
+						(e) => handler(e.payload),
+					),
+				callback,
+			),
 
 		onShow: (callback: () => void) =>
 			makeListener<void>(
@@ -209,28 +266,10 @@ export function createBubbleNamespace(
 					),
 				callback,
 			),
-
-		// MIG-1.2: notify the host that the bubble's exit animation has
-		// finished and the window can be hidden. Matches Electron's
-		// `ipcRenderer.send("bubble:hidden")`.
-		hideComplete: () => {
-			tauri.core
-				.invoke("bubble_hide_complete")
-				.catch((err) =>
-					console.warn("[bubble IPC] bubble_hide_complete failed:", err),
-				);
-		},
 	};
 
-	if (label === "main") {
-		// SEC-026: main renderer — return only the shared subset.
-		// Omit onSetState / onConfig / resizeTo / toggleDictation
-		// (bubble-window-only — matches preload/index.ts).
-		return shared;
-	}
-
-	// ─── Bubble-window-only methods ────────────────────────────────
-	const bubbleOnly = {
+	// ─── Bubble-window-only mutators ─────────────────────────
+	const bubbleOnly: BubbleWindowExtras = {
 		// UX-10: bubble-relevant config pushed from the Python backend.
 		// The sandboxed bubble renderer has no get_config, so this is how
 		// it learns whether to show the mic button. Listens on the
@@ -244,11 +283,12 @@ export function createBubbleNamespace(
 				callback,
 			),
 
-		// CR-33: bubble renderer listens for `bubble:set-state` events
-		// pushed by the Rust `bubble_emit_state` command (invoked from
-		// the main renderer when the sidecar emits `status_change`).
-		// Matches Electron's `ipcRenderer.on("bubble:set-state", handler)`
-		// in preload/bubble.ts:64-71.
+		// CR-33: bubble renderer listens for `bubble:set-state`
+		// events pushed by the Rust WS reader task (sidecar/ws.rs
+		// `translate_event_name` translates the Python sidecar's
+		// `bubble_set_state` event to the renderer's `bubble:set-state`
+		// name). Matches Electron's `ipcRenderer.on("bubble:set-state",
+		// handler)` in preload/bubble.ts:64-71.
 		onSetState: (callback: (payload: string) => void) =>
 			makeListener<string>(
 				(handler) =>
@@ -290,8 +330,22 @@ export function createBubbleNamespace(
 					console.warn("[bubble IPC] bubble_toggle_dictation failed:", err),
 				);
 		},
+
+		// notify the host that the bubble's exit animation has
+		// finished and the window can be hidden. Only the bubble
+		// renderer's exit-animation handler should invoke this — the
+		// main renderer has no equivalent lifecycle. Matches Electron's
+		// `ipcRenderer.send("bubble:hidden")` in preload/bubble.ts.
+		hideComplete: () => {
+			tauri.core
+				.invoke("bubble_hide_complete")
+				.catch((err) =>
+					console.warn("[bubble IPC] bubble_hide_complete failed:", err),
+				);
+		},
 	};
 
-	// Bubble window — return the full BubbleWindowBubble shape.
-	return { ...shared, ...bubbleOnly };
+	// Bubble window — return the full BubbleWindowBubble shape:
+	// MainRendererBubbleMutators & BubbleEventSubscriptions & BubbleWindowExtras.
+	return { ...mutators, ...subscriptions, ...bubbleOnly };
 }

@@ -1,4 +1,4 @@
-// PVT-053 / EC-FIX-18: shared types extracted from Onboarding.tsx so the
+// EC-FIX-18: shared types extracted from Onboarding.tsx so the
 // step components, the wizard hook, and the permissions-probe hook can all
 // reference the same contracts without duplicating definitions.
 
@@ -26,7 +26,7 @@ export interface ModelOption {
 	languages?: string[] | null;
 }
 
-// PVT-052: backend returns i18n keys (`title_key` / `steps_keys`); the
+// backend returns i18n keys (`title_key` / `steps_keys`); the
 // optional literal fields remain for backward compat with older backends.
 export interface PermissionsInstructions {
 	title?: string;
@@ -38,7 +38,11 @@ export interface PermissionsInstructions {
 
 export interface PermissionsResult {
 	platform: "windows" | "macos" | "linux" | "unknown";
-	state: "granted" | "denied" | "unknown";
+	// added "error" as a distinct state so the renderer
+	// can distinguish "probe failed" from "Windows/unknown-platform happy
+	// path" (state="unknown", needed=false). A probe failure sets
+	// state="error" + needed=true so the wizard blocks advancement.
+	state: "granted" | "denied" | "unknown" | "error";
 	needed: boolean;
 	instructions: PermissionsInstructions | null;
 }

@@ -10,9 +10,19 @@
 // Pure presentational component — all state and handlers are passed in
 // from the page (which wires them from ``useMicrophoneData`` /
 // ``useMicrophoneTest``). The card owns no business logic.
+//
+// Memoised children: the heaviest subtrees —
+// `AudioPresetSelector` (renders the full `AudioFilterChain` when
+// `preset === "custom"`) and `TestReviewPanel` (post-test quality
+// metrics + playback controls) — are wrapped in `React.memo` with a
+// custom comparator so a 10 Hz `mic_level` push (which updates
+// `level`/`peak` and re-renders this card) doesn't re-render them.
+// Only `LevelBarContainer` (the `LevelBar` + `LiveQualityFeedback`
+// pair that actually consumes `level`/`peak`) re-renders on each push.
 
 import { Mic02Icon, PlayIcon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { LevelBar } from "@/components/feedback/LevelBar";
 import { LiveQualityFeedback } from "@/components/feedback/LiveQualityFeedback";
@@ -128,18 +138,21 @@ export function ActiveMicrophoneCard({
 				</span>
 			</div>
 
-			{/* Level bar */}
-			<div className="mt-3">
-				<LevelBar level={level} playing={playing} />
-			</div>
-
-			{/* Live quality feedback during test */}
-			<LiveQualityFeedback
+			{/* : LevelBarContainer bundles the level-driven children
+			    (LevelBar + LiveQualityFeedback) so the rest of the card
+			    (TestReviewPanel, AudioPresetSelector, test controls) can be
+			    memoised against level/peak changes. The container itself
+			    re-renders on every mic_level push (it consumes `level` and
+			    `peak` directly) — that's the intended behavior, since
+			    LevelBar's visual height + LiveQualityFeedback's peak marker
+			    both depend on the latest values. */}
+			<LevelBarContainer
 				level={level}
 				peak={peak}
-				isRecording={testRunning}
-				elapsedSeconds={testElapsed}
-				totalSeconds={testDurationSec}
+				playing={playing}
+				testRunning={testRunning}
+				testElapsed={testElapsed}
+				testDurationSec={testDurationSec}
 			/>
 
 			{/* Test controls */}
@@ -243,8 +256,15 @@ export function ActiveMicrophoneCard({
 				</div>
 			)}
 
-			{/* Test Review Panel */}
-			<TestReviewPanel
+			{/* : Test Review Panel — memoised. Re-renders only when
+			    the post-test data (duration, quality, audio, playback
+			    state) actually changes, NOT on every mic_level push.
+			    The comparator ignores callback identity (the parent
+			    Microphone.tsx creates fresh inline closures for
+			    onPlayEnhanced / onPlayOriginal / onStop / onRetest on
+			    every render — those don't affect TestReviewPanel's
+			    rendered output, so skipping the re-render is safe). */}
+			<MemoizedTestReviewPanel
 				durationMs={testDurationMs}
 				quality={testQuality}
 				testAudioBase64={testAudioBase64}
@@ -258,10 +278,17 @@ export function ActiveMicrophoneCard({
 				hasFiltersEnabled={hasFiltersEnabled}
 			/>
 
-			{/* Audio Enhancement / Preset selector */}
+			{/* : Audio Enhancement / Preset selector — memoised.
+			    Re-renders only when the preset / config / showAdvanced
+			    flag changes, NOT on every mic_level push. The
+			    comparator includes `onConfigChange` and `onPresetChange`
+			    (both useCallback-stable in `useMicrophoneTest`) but
+			    excludes `onToggleAdvanced` (inline closure in
+			    Microphone.tsx — identity changes per render but the
+			    behavior is identical, so skipping is safe). */}
 			<div className="mt-3">
 				{config && (
-					<AudioPresetSelector
+					<MemoizedAudioPresetSelector
 						preset={(config.audio_preset as AudioPreset) ?? "auto"}
 						config={config}
 						showAdvanced={showAdvanced}
@@ -274,3 +301,89 @@ export function ActiveMicrophoneCard({
 		</div>
 	);
 }
+
+// ── : LevelBarContainer ─────────────────────────────────────────
+//
+// Bundles the two children that consume `level` / `peak`:
+// - `<LevelBar>` — the live horizontal bar.
+// - `<LiveQualityFeedback>` — peak marker + test progress readout.
+//
+// `level` updates at 10 Hz (or ≤30 Hz once 's `mic_level` push
+// lands) — this container re-renders on every push, which is the
+// intended behavior. The point of the split is that the SIBLING
+// subtrees (`MemoizedTestReviewPanel`, `MemoizedAudioPresetSelector`)
+// are wrapped in `React.memo` and skip re-render on level-only
+// changes — so a 30 Hz level push only re-renders this container +
+// the two feedback children, not the entire card.
+
+interface LevelBarContainerProps {
+	level: number;
+	peak: number;
+	playing: boolean;
+	testRunning: boolean;
+	testElapsed: number;
+	testDurationSec: number;
+}
+
+function LevelBarContainer({
+	level,
+	peak,
+	playing,
+	testRunning,
+	testElapsed,
+	testDurationSec,
+}: LevelBarContainerProps) {
+	return (
+		<>
+			{/* Level bar */}
+			<div className="mt-3">
+				<LevelBar level={level} playing={playing} />
+			</div>
+
+			{/* Live quality feedback during test */}
+			<LiveQualityFeedback
+				level={level}
+				peak={peak}
+				isRecording={testRunning}
+				elapsedSeconds={testElapsed}
+				totalSeconds={testDurationSec}
+			/>
+		</>
+	);
+}
+
+// ── : Memoised children ─────────────────────────────────────────
+//
+// `React.memo` with a custom comparator. The comparator focuses on the
+// props that actually affect the rendered output — callback identity
+// changes (which happen on every Microphone.tsx render due to inline
+// closures) are ignored so a 10–30 Hz `mic_level` push doesn't
+// re-render these heavy subtrees.
+//
+// `onConfigChange` IS included in the AudioPresetSelector comparator
+// because it's `useCallback`-stable in `useMicrophoneTest` (its
+// identity changes only when `updateConfig` changes, which happens
+// rarely). Including it lets us skip re-renders even when an upstream
+// component forgets to memoise a wrapper. Same for `onPresetChange`.
+
+const MemoizedAudioPresetSelector = memo(
+	AudioPresetSelector,
+	(prev, next) =>
+		prev.preset === next.preset &&
+		prev.config === next.config &&
+		prev.showAdvanced === next.showAdvanced &&
+		prev.onConfigChange === next.onConfigChange &&
+		prev.onPresetChange === next.onPresetChange,
+);
+
+const MemoizedTestReviewPanel = memo(
+	TestReviewPanel,
+	(prev, next) =>
+		prev.durationMs === next.durationMs &&
+		prev.quality === next.quality &&
+		prev.testAudioBase64 === next.testAudioBase64 &&
+		prev.rawAudioBase64 === next.rawAudioBase64 &&
+		prev.playing === next.playing &&
+		prev.playingOriginal === next.playingOriginal &&
+		prev.hasFiltersEnabled === next.hasFiltersEnabled,
+);

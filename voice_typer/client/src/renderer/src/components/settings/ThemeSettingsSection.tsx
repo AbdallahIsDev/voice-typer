@@ -61,7 +61,7 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-// ── WCAG contrast-ratio helpers (PVT-043) ───────────────────────────
+// ── WCAG contrast-ratio helpers ───────────────────────────
 // Defined locally because ``@/lib/color-utils`` (owned by another
 // sub-agent) doesn't currently export a contrast helper.  If a future
 // refactor adds ``contrastRatio`` to ``color-utils.ts``, the local
@@ -109,7 +109,7 @@ function contrastRatio(fg: string, bg: string): number | null {
 /**
  * Defensive accessor for ``ThemePreset.nameKey``.
  *
- * PVT-043 / I18N-NAMEKEY: the ``ThemePreset`` interface in
+ * I18N-NAMEKEY: the ``ThemePreset`` interface in
  * ``themes.ts`` may or may not declare a ``nameKey`` field (depends on
  * whether another sub-agent has added it).  This helper reads the
  * field via bracket notation so this file compiles regardless, and
@@ -129,7 +129,7 @@ function _getThemeNameKey(theme: unknown): string | null {
 	return typeof k === "string" && k.length > 0 ? k : null;
 }
 
-// ── Hex input validation regex (PVT-043 / FIX-#4) ───────────────────
+// ── Hex input validation regex ───────────────────
 // Loose regex (allows partial typing):  #  followed by 0–6 hex digits.
 const HEX_PARTIAL_RE = /^#[0-9a-fA-F]{0,6}$/;
 // Strict regex (used for commit-on-blur): # followed by exactly 6 hex digits.
@@ -139,7 +139,7 @@ const HEX_STRICT_RE = /^#[0-9a-fA-F]{6}$/;
 const CONTRAST_AA_THRESHOLD = 4.5;
 
 /**
- * PVT-043 / FIX-#3: return the {fg, bg} colour pair used to evaluate
+ * Return the {fg, bg} colour pair used to evaluate
  * WCAG contrast for a given custom-colour row.  Returns ``null`` for
  * rows where contrast validation doesn't apply (e.g. ``--border``,
  * which is a divider colour, not a text/background pair).
@@ -260,7 +260,7 @@ import { _themeColorCache } from "./themeColorCache";
  * Read the 6 core theme colors for BOTH light and dark modes of the
  * currently-selected built-in preset.
  *
- * PVT-043 / FIX-#7 (layout thrashing): for ``'default'`` we return
+ * For ``'default'`` we return
  * the hardcoded ``DEFAULT_CUSTOM_LIGHT`` / ``DEFAULT_CUSTOM_DARK``
  * maps directly — these are byte-identical to what the stylesheet
  * defines, so reading them via ``getComputedStyle`` was a waste of
@@ -441,8 +441,8 @@ interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
 	onThemeChange?: (mode: VoiceTyperConfig["theme_mode"]) => void;
 	/**
 	 * Theme preset provided by the App-level useTheme hook (overrides
-	 * ``config.theme_preset`` while a save is in-flight).  PVT-043 /
-	 * FIX-#8: without this prop, the preset dropdown showed a stale
+	 * ``config.theme_preset`` while a save is in-flight).  Without
+	 * this prop, the preset dropdown showed a stale
 	 * value during the 300 ms debounced save window — the user
 	 * clicked a preset, the dropdown reverted to the old value, then
 	 * snapped to the new value when the backend confirmed.  Passing
@@ -465,8 +465,17 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	// Track the last saved theme preset so hover previews can revert
 	// to the user's saved choice (not the initial default) if they
 	// hover without clicking.
+	// previously this was an inline `if (config) ref.current = ...`
+	// block executed during render, which is a ref mutation during
+	// render (React forbids writing to refs in the render phase — it
+	// can break concurrent-mode reconciliation). The useEffect form
+	// below runs the write after commit, preserving the same
+	// "track the latest saved preset" semantic without the
+	// render-phase side effect.
 	const savedPresetRef = useRef(config?.theme_preset ?? "default");
-	if (config) savedPresetRef.current = config.theme_preset ?? "default";
+	useEffect(() => {
+		if (config) savedPresetRef.current = config.theme_preset ?? "default";
+	}, [config]);
 	// Task ID 7 / Part C3: track whether the user has actually moved the
 	// mouse inside the dropdown content.  Radix Select mounts the content
 	// portal directly under the cursor when the dropdown opens, which can
@@ -492,14 +501,22 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	});
 	// Track the last non-custom preset so we can revert when the
 	// custom-theme toggle is turned off.
+	// previously this was an inline `if (config?.theme_preset
+	// && ...) ref.current = ...` block executed during render — a
+	// render-phase ref mutation. Moved into a useEffect so the
+	// write happens after commit. The initial `useRef` value still
+	// seeds from the first-seen config so the first render has a
+	// sensible default before the effect runs.
 	const lastNonCustomRef = useRef(
 		config?.theme_preset && config.theme_preset !== "custom"
 			? config.theme_preset
 			: "default",
 	);
-	if (config?.theme_preset && config.theme_preset !== "custom") {
-		lastNonCustomRef.current = config.theme_preset;
-	}
+	useEffect(() => {
+		if (config?.theme_preset && config.theme_preset !== "custom") {
+			lastNonCustomRef.current = config.theme_preset;
+		}
+	}, [config]);
 
 	// ── Custom theme editor state ───────────────────────────────────
 	// Task ID 7 / Part C4: initial tab matches the user's current dark/light
@@ -515,7 +532,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	const [customDraft, setCustomDraft] = useState<CustomThemeData | null>(null);
 	const customThemeInitRef = useRef(false);
 
-	// PVT-043 / FIX-#4: per-row hex input draft state.  The text
+	// per-row hex input draft state.  The text
 	// input is a controlled component whose value can be a partial
 	// hex (e.g. ``#1a2`` while the user is typing).  We track each
 	// row's draft locally so:
@@ -534,7 +551,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	// directly, bypassing the text input).
 	const [hexDrafts, setHexDrafts] = useState<Record<string, string>>({});
 
-	// PVT-043 / FIX-#8: the effective preset prefers the optimistic
+	// the effective preset prefers the optimistic
 	// value from ``useTheme.themePreset`` (passed in as
 	// ``themePresetProp``) over the persisted ``config.theme_preset``
 	// so the dropdown / switch / picker update immediately on click
@@ -565,7 +582,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 		return true;
 	}, [customDraft]);
 
-	// PVT-25: One-time init moved into a useEffect. Previously this
+	// One-time init moved into a useEffect. Previously this
 	// block called setCustomDraft during render — a React anti-pattern
 	// that forces a synchronous re-render before commit and breaks
 	// concurrent-rendering invariants. Running it in an effect costs
@@ -880,7 +897,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 									isDark,
 									customDraft,
 								);
-								// PVT-043 / I18N-NAMEKEY: prefer the localised
+								// I18N-NAMEKEY: prefer the localised
 								// theme name (via ``t(theme.nameKey)``) when the
 								// preset declares a ``nameKey`` field.  Falls back
 								// to the preset's hardcoded English ``name`` when
@@ -908,18 +925,18 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							onMouseMove={handleSelectMouseMove}
 							onMouseLeave={revertToSavedPreset}
 						>
-							{/* PVT-043 / FIX-#9: render a DISABLED "Custom
-								(use toggle below)" SelectItem when the saved
-								preset is 'custom'.  Without this, the dropdown's
-								trigger showed a blank value when the preset was
-								'custom' (the SelectItem list filtered 'custom'
-								out), making it look like the dropdown was broken.
-								The disabled item is non-selectable — users
-								toggle the custom theme via the switch below
-								the dropdown.  Always rendered so the trigger's
-								selected value always has a matching SelectItem
-								(Radix Select otherwise warns about a missing
-								value). */}
+							{/* render a DISABLED "Custom
+                                                                (use toggle below)" SelectItem when the saved
+                                                                preset is 'custom'.  Without this, the dropdown's
+                                                                trigger showed a blank value when the preset was
+                                                                'custom' (the SelectItem list filtered 'custom'
+                                                                out), making it look like the dropdown was broken.
+                                                                The disabled item is non-selectable — users
+                                                                toggle the custom theme via the switch below
+                                                                the dropdown.  Always rendered so the trigger's
+                                                                selected value always has a matching SelectItem
+                                                                (Radix Select otherwise warns about a missing
+                                                                value). */}
 							{(() => {
 								const customThemeDef = THEMES.find((t) => t.id === "custom");
 								if (!customThemeDef) return null;
@@ -956,7 +973,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 								);
 							})()}
 							{/* Built-in presets (excluding 'custom' — handled
-								by the disabled item above). */}
+                                                                by the disabled item above). */}
 							{THEMES.filter((t) => t.id !== "custom").map((theme) => {
 								const isDark =
 									document.documentElement.classList.contains("dark");
@@ -992,9 +1009,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 			{/* ── Custom Theme toggle ────────────────────────────── */}
 			{/* A switch that enables/disables the custom color editor.
-				When ON, theme_preset is forced to 'custom' and the color
-				picker appears.  When OFF, the preset reverts to the
-				previously-selected preset. */}
+                                When ON, theme_preset is forced to 'custom' and the color
+                                picker appears.  When OFF, the preset reverts to the
+                                previously-selected preset. */}
 			{isVisible(customThemeLabel, customThemeInfoSearch, sectionTitle) && (
 				<SettingRow
 					label={customThemeLabel}
@@ -1054,7 +1071,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							const isHexInvalid =
 								hexDraftValue !== "" && !HEX_STRICT_RE.test(hexDraftValue);
 
-							// PVT-043 / FIX-#3: compute the WCAG contrast ratio
+							// compute the WCAG contrast ratio
 							// for the colour pair most relevant to this row.
 							// Returns ``null`` when no pair applies (e.g. the
 							// border row), in which case no warning is shown.
@@ -1098,10 +1115,10 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 											{description}
 										</p>
 									</div>
-									{/* PVT-043 / FIX-#3: contrast warning icon — shown
-										when the row's relevant colour pair falls below
-										the WCAG AA 4.5:1 threshold.  Tooltip shows the
-										actual ratio and the AA requirement. */}
+									{/* contrast warning icon — shown
+                                                                                when the row's relevant colour pair falls below
+                                                                                the WCAG AA 4.5:1 threshold.  Tooltip shows the
+                                                                                actual ratio and the AA requirement. */}
 									{showContrastWarning && ratioRounded !== null && (
 										<TooltipProvider delayDuration={200}>
 											<Tooltip>
@@ -1193,12 +1210,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					</div>
 
 					{/* Reset to defaults.
-						Part C5: the previously-broken "#888" 3-digit hex in
-						DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
-						so the validator accepts the payload — no more "Failed to
-						save settings" toast.
-						Part C6: button is disabled while the draft already matches
-						the defaults (re-enables the moment the user edits a color). */}
+                                                Part C5: the previously-broken "#888" 3-digit hex in
+                                                DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+                                                so the validator accepts the payload — no more "Failed to
+                                                save settings" toast.
+                                                Part C6: button is disabled while the draft already matches
+                                                the defaults (re-enables the moment the user edits a color). */}
 					<button
 						type="button"
 						disabled={customDraftIsDefault}

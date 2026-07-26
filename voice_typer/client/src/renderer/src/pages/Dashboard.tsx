@@ -33,7 +33,13 @@ import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
 
 // ── Module-level cache ────────────────────────────────────────────
-let _cachedData: DashboardData | null = null;
+// Previously this was a module-level `let _cachedData` mutable binding —
+// global mutable state that leaked across HMR / test re-mounts and was
+// not React-aware. The cache now lives in a component-scoped `useRef`
+// (see `DashboardPage`); localStorage is NOT used here (the dashboard
+// data is derived, not user-edited), so the ref is the only cache.
+// The `DashboardData` interface is kept at module scope so the helper
+// functions above can reference the type.
 
 interface DashboardData {
 	todayCount: number;
@@ -58,7 +64,7 @@ interface DashboardData {
 	activeDays: number;
 }
 
-// PVT-090 / Task #17: ``compactNumber`` and ``formatDuration`` are now
+// ``compactNumber`` and ``formatDuration`` are now
 // imported from the shared ``lib/format.ts`` module so Dashboard and
 // StatCards use the same locale-aware implementation.  The previous
 // local copies hardcoded English suffixes (``"h"`` / ``"m"`` for
@@ -239,13 +245,22 @@ export default function DashboardPage() {
 	// instead of receiving it as an `onNavigate` prop from App.tsx.
 	const { navigate } = useNavigation();
 	const { call } = usePython();
-	const [data, setData] = useState<DashboardData | null>(_cachedData);
+	// Per-instance cache ref (replaced the prior module-level
+	// `let _cachedData` mutable binding). The initial `useState` value
+	// seeds from this ref so the first render after a navigation back
+	// to the dashboard shows the previously-fetched data instead of
+	// flashing empty (the ref is per-instance, so the cache only
+	// survives while the component is mounted — but React Router
+	// keeps the component mounted across sibling-page navigations
+	// in the current route tree, which is the common case).
+	const cachedDataRef = useRef<DashboardData | null>(null);
+	const [data, setData] = useState<DashboardData | null>(cachedDataRef.current);
 	// R7-F18: removed dead `const [, setLoading] = useState(true)`.
 	const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);
 	// F4 (b-review Finding 11): "Last updated" indicator state. The
-	// module-level `_cachedData` survives page navigations, so we mark
-	// the timestamp after each successful refreshData() to surface
-	// staleness to the user.
+	// per-instance `cachedDataRef` survives re-renders within the same
+	// mount, so we mark the timestamp after each successful refreshData()
+	// to surface staleness to the user.
 	const { agoLabel, markUpdated } = useLastUpdated();
 	const [refreshing, setRefreshing] = useState(false);
 	const { imageRef, shareAsImage } = useStatsShare();
@@ -253,7 +268,7 @@ export default function DashboardPage() {
 	/** Fetch all dashboard data from the Python backend. */
 	const refreshData = useCallback(async () => {
 		try {
-			const [cfg, todayStats, history] = await Promise.all([
+			const [cfg, todayStats, history, totalCount] = await Promise.all([
 				call<VoiceTyperConfig>("get_config"),
 				call<TodayStats>("get_today_stats").catch(() => ({
 					count: 0,
@@ -264,6 +279,15 @@ export default function DashboardPage() {
 				call<HistoryRecord[]>("get_history", { limit: 200 }).catch(
 					() => [] as HistoryRecord[],
 				), // NEW-IPC-004: capped at 200
+				// Fetch the TRUE total dictation count via the dedicated
+				// `get_history_count` IPC. The `get_history({limit: 200})`
+				// sample above is still used for daily-activity / streak
+				// computation (where 200 rows is a sufficient sample), but
+				// the "Total Dictations" stat card now reflects the actual
+				// row count instead of capping at 200 forever.
+				call<{ count: number }>("get_history_count").catch(() => ({
+					count: 0,
+				})),
 			]);
 
 			const recs = history ?? [];
@@ -284,7 +308,14 @@ export default function DashboardPage() {
 				todayChars: todayStats?.chars ?? 0,
 				todayWordCount: todayStats?.word_count ?? 0,
 				todayDuration: todayStats?.duration ?? 0,
-				totalCount: recs.length,
+				// Prefer the dedicated count endpoint; fall back to the
+				// sampled-history length only when the endpoint is
+				// unavailable (e.g. older backend that doesn't expose
+				// `get_history_count` yet). `totalCount?.count` is 0 on
+				// both empty-DB and IPC-failure — the empty-DB case is
+				// correct, and the IPC-failure case surfaces a 0 stat
+				// (better than a stale 200).
+				totalCount: totalCount?.count ?? recs.length,
 				totalChars,
 				totalDuration,
 				favoritesCount,
@@ -296,7 +327,7 @@ export default function DashboardPage() {
 				maxStreak: streaks.max,
 				activeDays: streaks.activeDays,
 			};
-			_cachedData = newData;
+			cachedDataRef.current = newData;
 			setData(newData);
 			setConfigRaw(cfg ?? null);
 		} catch (err) {
@@ -502,8 +533,9 @@ export default function DashboardPage() {
 			</PageHeading>
 
 			{/* F4 (b-review Finding 11): "Last updated" indicator + manual
-			    refresh button. The module-level `_cachedData` survives page
-			    navigations, so we surface staleness here. */}
+			    refresh button. The per-instance `cachedDataRef` survives
+			    re-renders within the same mount, so we surface staleness
+			    here. */}
 			<div className="flex justify-end pb-2">
 				<LastUpdatedIndicator
 					agoLabel={agoLabel}

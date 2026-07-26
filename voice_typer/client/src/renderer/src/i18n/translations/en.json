@@ -78,14 +78,14 @@
 		"repaste": "Re-paste",
 		"repasteAria": "Re-paste last transcription (Ctrl+Alt+V)",
 		"forceCancel": "Force cancel requested",
-		"forceCancelHint": "Taking too long? Force cancel",
+		"forceCancelHint": "Taking too long? Force cancel transcription",
 		"forceCancelFailed": "Couldn't force-cancel the transcription",
 		"undoFailed": "Couldn't undo the last transcription",
 		"repasteFailed": "Couldn't re-paste the last transcription",
 		"errorTitle": "Recording error",
 		"retry": "Retry",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
-		"toggleFailed": "Failed to toggle dictation. Please check your connection."
+		"toggleFailed": "Couldn't toggle dictation. Please try again."
 	},
 	"dashboard": {
 		"cards": {
@@ -1337,7 +1337,7 @@
 		"modelDescription": "Pick a transcription model. Smaller models are faster; larger models are more accurate. The model downloads in the background after setup.",
 		"modelSelectAria": "Select model: {name}",
 		"completeTitle": "You're All Set!",
-		"completeDescription": "Your Voice Typer is configured and ready. Press your hotkey ({hotkey}) to start dictating. The model will download and load in the background — this may take a minute on first run.",
+		"completeDescription": "Your Voice Typer is configured and ready. Press your hotkey ({hotkey}) to start dictating. The model will download and load in the background — this may take a minute on first run (roughly 466 MB for the small model, 1.5 GB for medium).",
 		"summaryMic": "Microphone:",
 		"defaultMic": "Default",
 		"summaryHotkey": "Hotkey:",
@@ -1354,12 +1354,16 @@
 		"saveFailedSnack": "Failed to save selection",
 		"skippedSnack": "Setup skipped — using defaults",
 		"skipConfirmTitle": "Skip setup?",
-		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can complete the setup later from the Settings page.",
+		"skipConfirmMessage": "Skipping now means your microphone and hotkey may not work. You can re-run this setup wizard later from Settings → Troubleshooting, or configure individual settings in Settings.",
 		"skipConfirmLabel": "Skip anyway",
 		"stepProgress": "Step {current} of {total}",
 		"progressAria": "Onboarding step {current} of {total}",
 		"permissionsCheckFailed": "Couldn't check permission — click Refresh to try again.",
-		"modelOption": "{description} — {size} ({speed})"
+		"modelOption": "{description} — {size} ({speed})",
+		"step4Item": "Pick a transcription model",
+		"step5Item": "Complete setup",
+		"refreshMics": "Refresh microphones",
+		"noMicsHint": "Connect a microphone or check your OS microphone permission, then click Refresh."
 	},
 	"titleBar": {
 		"minimize": "Minimize",

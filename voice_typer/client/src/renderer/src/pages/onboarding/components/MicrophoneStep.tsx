@@ -1,4 +1,7 @@
+import { RefreshIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import type { Ref } from "react";
+import { Button } from "@/components/ui/button";
 import {
 	Select,
 	SelectContent,
@@ -15,6 +18,11 @@ export interface MicrophoneStepProps {
 	microphones: MicrophoneOption[];
 	selectedMic: string;
 	setSelectedMic: (v: string) => void;
+	/** Optional refresh callback. When provided, the no-mics
+	 * branch shows a Refresh button + hint instead of a dead-end
+	 * message. The parent (Onboarding.tsx via useOnboardingWizard)
+	 * can wire this to re-fetch the microphone list. */
+	onRefreshMics?: () => void;
 }
 
 export function MicrophoneStep({
@@ -22,6 +30,7 @@ export function MicrophoneStep({
 	microphones,
 	selectedMic,
 	setSelectedMic,
+	onRefreshMics,
 }: MicrophoneStepProps) {
 	return (
 		<>
@@ -48,7 +57,35 @@ export function MicrophoneStep({
 					</SelectContent>
 				</Select>
 			) : (
-				<p className="text-sm text-(--text-muted)">{t("onboarding.noMics")}</p>
+				// the no-mics branch was previously a
+				// dead end — just a passive message with no recovery
+				// affordance. Now it shows the message PLUS a hint about
+				// OS mic permission and (when the parent provides
+				// onRefreshMics) a Refresh button so the user can re-scan
+				// after plugging in a mic or granting permission.
+				<div className="flex flex-col gap-3">
+					<p className="text-sm text-(--text-muted)">
+						{t("onboarding.noMics")}
+					</p>
+					<p className="text-xs text-(--text-muted)">
+						{t("onboarding.noMicsHint")}
+					</p>
+					{onRefreshMics && (
+						<Button
+							type="button"
+							variant="outline"
+							className="self-start gap-2"
+							onClick={onRefreshMics}
+						>
+							<HugeiconsIcon
+								icon={RefreshIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{t("onboarding.refreshMics")}
+						</Button>
+					)}
+				</div>
 			)}
 		</>
 	);

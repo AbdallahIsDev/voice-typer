@@ -1,18 +1,18 @@
 // Vocabulary state + lifecycle hook.
 //
 // Owns:
-//   - ``entries`` / ``loading`` / ``loadError`` / ``saving`` React state
-//   - ``entriesRef`` (ref mirror so delete-undo callbacks can read the
-//     latest list at undo time — see D2-FIX comment for the bug history)
-//   - ``loadVocabulary`` (backend → React state)
-//   - ``persistVocabulary`` (strips client-side ``_id``, rebuilds the
-//     category-bucketed VocabularyData, calls ``save_vocabulary``)
-//   - mount-time effect that calls ``loadVocabulary`` once
-//   - ``searchQuery`` / ``sortOrder`` / ``categoryFilter`` state +
-//     ``filteredSorted`` memo (client-side search+filter+sort — mirrors
-//     the History/Templates pattern)
-//   - ``instantDeleteEntry`` (NEW-UX-004 instant delete + 6-second
-//     Undo toast — see D2-FIX comment for the ref-based pattern)
+// - ``entries`` / ``loading`` / ``loadError`` / ``saving`` React state
+// - ``entriesRef`` (ref mirror so delete-undo callbacks can read the
+// latest list at undo time — see D2-FIX comment for the bug history)
+// - ``loadVocabulary`` (backend → React state)
+// - ``persistVocabulary`` (strips client-side ``_id``, rebuilds the
+// category-bucketed VocabularyData, calls ``save_vocabulary``)
+// - mount-time effect that calls ``loadVocabulary`` once
+// - ``searchQuery`` / ``sortOrder`` / ``categoryFilter`` state +
+// ``filteredSorted`` memo (client-side search+filter+sort — mirrors
+// the History/Templates pattern)
+// - ``instantDeleteEntry`` (NEW-UX-004 instant delete + 6-second
+// Undo toast — see D2-FIX comment for the ref-based pattern)
 //
 // Extracted from the former monolithic ``pages/Vocabulary.tsx`` render
 // function. The dialog + import/export state has been split into
@@ -175,15 +175,15 @@ export function useVocabulary({
 	// `entries` via `entriesRef.current` (kept in sync by the effect
 	// declared near the state) instead of closing over the render-time
 	// `entries` snapshot.  This fixes two bugs:
-	//   1. The stale-closure bug: `[...entries]` previously still
-	//      contained the deleted entry, so `indexOf(entry)` returned the
-	//      original index and `splice(idx, 0, entry)` (deleteCount=0)
-	//      INSERTED a second copy at that index — the entry reappeared
-	//      TWICE after Undo.
-	//   2. The lost-edits bug: any add/edit of OTHER entries between the
-	//      delete and the Undo click were silently reverted because the
-	//      restore replaced the current list with the stale pre-delete
-	//      snapshot.
+	// 1. The stale-closure bug: `[...entries]` previously still
+	// contained the deleted entry, so `indexOf(entry)` returned the
+	// original index and `splice(idx, 0, entry)` (deleteCount=0)
+	// INSERTED a second copy at that index — the entry reappeared
+	// TWICE after Undo.
+	// 2. The lost-edits bug: any add/edit of OTHER entries between the
+	// delete and the Undo click were silently reverted because the
+	// restore replaced the current list with the stale pre-delete
+	// snapshot.
 	//
 	// We capture `originalIndex` BEFORE the delete (when entriesRef still
 	// holds the pre-delete array).  At undo time we filter the latest
@@ -205,8 +205,15 @@ export function useVocabulary({
 				const currentEntries = entriesRef.current;
 				const originalIndex = currentEntries.indexOf(entry);
 				const updated = currentEntries.filter((e) => e !== entry);
-				await persistVocabulary(updated);
+				// make the delete ACTUALLY instant.
+				// Previously the entry stayed visible during the entire
+				// persistVocabulary IPC round-trip (100-500ms+) because
+				// setEntries(updated) ran AFTER the await. Felt sluggish
+				// and could trigger duplicate-delete clicks. Now we update
+				// the UI first, then persist; on failure we restore from
+				// the ref (which still holds the pre-delete list).
 				setEntries(updated);
+				await persistVocabulary(updated);
 				showUndoableToast(
 					t("vocabulary.deletedEntry", { name: entry.original }),
 					async () => {
@@ -228,6 +235,10 @@ export function useVocabulary({
 					{ undoLabel: t("common.undo"), type: "warning", timeoutMs: 6000 },
 				);
 			} catch {
+				// Restore the pre-delete list on failure — entriesRef still
+				// holds the original list because persistVocabulary threw
+				// before any successful save.
+				setEntries(entriesRef.current);
 				showSnack(t("vocabulary.deleteFailed"), "error");
 			}
 		},

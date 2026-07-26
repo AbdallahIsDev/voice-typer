@@ -5,7 +5,7 @@
 	"private": true,
 	"main": "./out/main/index.js",
 	"//engines_note": "Node 24 is the CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19). If a newer LTS is available, bump this comment AND the engines.node AND .nvmrc AND all .github/workflows/*.yml files together. Node 20 deprecation also causes [DEP0040] punycode DeprecationWarning noise in CI logs.",
-	"//overrides_note": "PINNED DEPENDENCY OVERRIDES — DO NOT REMOVE (verified 2026-07-24). (1) @electron/asar ^4.2.1 replaces v3.x (glob@7 → glob@13, drops inflight). (2) @electron/get ^5.0.0 replaces v3.x (drops global-agent → boolean). (3) @hono/node-server ^2.0.11 replaces <2.0.5 (path traversal vuln GHSA-frvp-7c67-39w9, pulled transitively by shadcn → @modelcontextprotocol/sdk). REMAINING WARNINGS (cannot fix): rimraf@2.6.3 + glob@7.2.3 + inflight@1.0.6 from electron-winstaller@5.4.0 → temp@0.9.4. electron-winstaller last published 2023, pins CJS-only temp@0.9.4 which requires rimraf@2. rimraf 4+ is ESM-only and breaks require(). Upstream must fix. Runtime verified: npm ci (0 warnings, 0 vulns), npm run build, npm run typecheck all pass.",
+	"//overrides_note": "rimraf@2+temp@0.9.4 pulled by electron-winstaller (CJS-only) cannot be force-bumped. As of 2026-07-25, npm audit reports 15 high severity vulnerabilities (build-time only via electron-builder transitive chain; runtime bundle is clean). Track: https://github.com/electron-userland/electron-builder/issues for brace-expansion fix.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -55,6 +55,7 @@
 		"build-storybook": "storybook build"
 	},
 	"//devDependencies_note": "DO NOT DOWNGRADE typescript below 7.x. typescript@7.0.2 is the LATEST STABLE RELEASE (verify: `npm view typescript version`). A prior agent wrongly assumed 7.x was unstable and pinned the lockfile to 5.6.3, which broke `npm ci`. Keep typescript at ^7.0.2 and keep package-lock.json in sync (run `npm install --package-lock-only` after any change).",
+	"//electron_vite_note": "electron-vite is pinned to 6.0.0-beta.1 because the stable latest (5.0.0) peer-requires vite ^5.0.0 || ^6.0.0 || ^7.0.0, which is incompatible with this project's vite ^8.1.4 (npm install --package-lock-only fails with ERESOLVE). electron-vite@6.0.0-beta.1 peer-requires vite ^6.0.0 || ^7.0.0 || ^8.0.0 and is the only version that supports vite 8. Attempted downgrade to ^5.0.0 reverted. Re-evaluate when electron-vite 6.x stable is released (track https://github.com/alex8088/electron-vite/releases).",
 	"//overrides": "See //overrides_note above for full rationale. These overrides force-upgrade transitive deps to eliminate deprecated packages (glob@7, inflight, boolean) and security vulnerabilities (@hono/node-server path traversal).",
 	"overrides": {
 		"@electron/asar": "^4.2.1",
@@ -96,7 +97,6 @@
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"html-to-image": "^1.11.13",
-		"mdn-data": "^2.29.0",
 		"radix-ui": "^1.6.2",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",

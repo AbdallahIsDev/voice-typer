@@ -1,10 +1,10 @@
-// PVT-053 / EC-FIX-18: this file was an 884-line monolith with 6 inline
+// EC-FIX-18: this file was an 884-line monolith with 6 inline
 // step components, wizard state, and a permissions-probe lifecycle all
 // living in one component. It is now a thin composition root (~180 lines):
-//   - hooks/useOnboardingWizard  → wizard state, init effect, navigation
-//   - hooks/usePermissionsProbe  → permissions probe + test-hotkey listener
-//   - components/<Step>          → 6 extracted step renderers
-//   - lib/types.ts + constants.ts → shared contracts
+// - hooks/useOnboardingWizard  → wizard state, init effect, navigation
+// - hooks/usePermissionsProbe  → permissions probe + test-hotkey listener
+// - components/<Step>          → 6 extracted step renderers
+// - lib/types.ts + constants.ts → shared contracts
 // The `export default function OnboardingPage` signature is unchanged so
 // App.tsx routing and existing tests continue to work. Pure structural
 // refactor — no behavior changes.
@@ -12,13 +12,14 @@
 // R7-F8 contract (cancelled-flag guard): the init() effect moved to
 // `./onboarding/hooks/useOnboardingWizard.ts` and still follows the
 // canonical pattern there:
-//   let cancelled = false;
-//   ... if (cancelled) return;
-//   return () => { cancelled = true; };
+// let cancelled = false;
+// ... if (cancelled) return;
+// return () => { cancelled = true; };
 // The behavioral R7-F8 test (no setState-after-unmount warning) still
 // passes against the live component; the source-content substring
 // assertions resolve to this pointer comment.
 
+import { useEffect, useRef } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,16 @@ export default function OnboardingPage({
 		handleTestHotkey,
 	} = usePermissionsProbe(step?.step_name, selectedHotkey);
 
+	// ── Focus ref for init-error branch ──────────────────────────
+	// Must be declared before any early return so the hooks are
+	// called unconditionally (React Rules of Hooks).
+	const initErrorRef = useRef<HTMLDivElement | null>(null);
+	useEffect(() => {
+		if (initError && initErrorRef.current) {
+			initErrorRef.current.focus();
+		}
+	}, [initError]);
+
 	// ── Render: loading ────────────────────────────────────────────
 	if (loading) {
 		return (
@@ -80,11 +91,19 @@ export default function OnboardingPage({
 		);
 	}
 
-	// ── Render: init error ─────────────────────────────────────────
+	// ── Render: init error ────────────────────────────────────────
 	if (initError) {
 		return (
 			<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6">
-				<div className="w-full rounded-xl border border-red-400/40 bg-red-50 dark:bg-red-950/20 p-8 text-center">
+				{/* : use the --destructive design token
+					instead of raw red-400/red-50/red-950 so the error card
+					follows theme overrides (Dracula, Catppuccin, etc.).
+					Matches EmptyState variant="error" styling. */}
+				<div
+					ref={initErrorRef}
+					tabIndex={-1}
+					className="w-full rounded-xl border border-destructive/40 bg-destructive/5 p-8 text-center outline-none"
+				>
 					<h2 className="mb-2 text-lg font-semibold text-(--text-primary)">
 						{t("errorBoundary.title")}
 					</h2>
@@ -112,9 +131,18 @@ export default function OnboardingPage({
 
 	const progress = ((step.step + 1) / step.total_steps) * 100;
 	const isDoneStep = step.step_name === DONE_STEP_NAME;
-	// PVT-007: gate advancement when OS keyboard permission is required.
+	// block advancement when the permissions probe
+	// has FAILED, in addition to the existing gate for `needed === true`.
+	// Previously, a probe failure fell through to `needed: false` (the
+	// Windows/unknown-platform happy path) and the user could proceed
+	// without knowing their hotkey wouldn't work. Now a probe failure
+	// also blocks the Continue button so the user is forced to Refresh
+	// or skip explicitly.
+	const permissionsProbeFailed =
+		step?.step_name === "Permissions" && permissionsResult?.state === "error";
 	const isPermissionsBlocked =
-		step.step_name === "Permissions" && permissionsResult?.needed === true;
+		(step.step_name === "Permissions" && permissionsResult?.needed === true) ||
+		permissionsProbeFailed;
 	// Fix 14: localized sr-only h1.
 	const srTitleKey =
 		STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle";
@@ -166,6 +194,18 @@ export default function OnboardingPage({
 				})}
 				: {t(srTitleKey)}
 			</h1>
+			{/* : aria-live polite region announces step
+				transitions to screen-reader users. Without this, the focused
+				visible heading only contains the step title ("Choose Your
+				Microphone") — the user never hears "Step 2 of 6". WCAG 4.1.3
+				Status Changes (Level AA). */}
+			<div aria-live="polite" className="sr-only">
+				{t("onboarding.stepProgress", {
+					current: String(step.step + 1),
+					total: String(step.total_steps),
+				})}
+				: {t(srTitleKey)}
+			</div>
 
 			<div className="w-full rounded-xl border border-border bg-(--bg) p-8">
 				{step.step_name === "Welcome" && (
@@ -177,6 +217,7 @@ export default function OnboardingPage({
 						microphones={microphones}
 						selectedMic={selectedMic}
 						setSelectedMic={setSelectedMic}
+						onRefreshMics={reprobePermissions}
 					/>
 				)}
 				{step.step_name === "Permissions" && (
@@ -195,6 +236,8 @@ export default function OnboardingPage({
 						hotkeyPresets={hotkeyPresets}
 						selectedHotkey={selectedHotkey}
 						setSelectedHotkey={setSelectedHotkey}
+						onTestHotkey={handleTestHotkey}
+						permissionsTest={permissionsTest}
 					/>
 				)}
 				{step.step_name === "Model" && (

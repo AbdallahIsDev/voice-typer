@@ -27,7 +27,7 @@ import { useMicrophoneTest } from "./microphone/hooks/useMicrophoneTest";
 import { computeAudioKey } from "./microphone/lib/computeAudioKey";
 
 export default function MicrophonePage() {
-	// PVT-035 (Fix 2): ref-to-latest-selectMicrophone so the
+	// ref-to-latest-selectMicrophone so the
 	// ``microphones_changed`` event handler (subscribed inside
 	// ``useMicrophoneData``) can invoke the latest closure (assigned
 	// inside ``useMicrophoneTest``) without re-subscribing on every
@@ -127,7 +127,12 @@ export default function MicrophonePage() {
 					title={t("microphone.microphone")}
 					description={t("microphone.description")}
 				/>
+				{/* : variant="error" so the destructive
+					tint + Alert02Icon swap make the failure visually distinct
+					from a genuine empty list (matches the Vocabulary/Templates
+					load-failure pattern from BG-60). */}
 				<EmptyState
+					variant="error"
 					icon={AlertCircleIcon}
 					title={t("microphone.loadFailedTitle")}
 					description={loadError}

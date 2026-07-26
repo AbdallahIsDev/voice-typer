@@ -109,7 +109,7 @@ export default function HistoryPage() {
 	useEffect(() => {
 		return () => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
-			// PVT-045 (session 2): clear searchTimer to prevent load()
+			// clear searchTimer to prevent load()
 			// firing on an unmounted component.
 			if (searchTimer.current) {
 				clearTimeout(searchTimer.current);
@@ -188,10 +188,10 @@ export default function HistoryPage() {
 
 	// BG-53: Clear All is ambiguous under an active filter (the visible
 	// list is a subset of ALL history).  When a filter is active:
-	//   - Skip the `records.length === 0` short-circuit using the cached
-	//     stats count instead (visible list may be empty while total is not).
-	//   - Show a different confirmation message that makes it clear ALL
-	//     history (including hidden entries) will be deleted.
+	// - Skip the `records.length === 0` short-circuit using the cached
+	// stats count instead (visible list may be empty while total is not).
+	// - Show a different confirmation message that makes it clear ALL
+	// history (including hidden entries) will be deleted.
 	const filterActive = searchQuery.trim() !== "" || favoritesOnly;
 
 	const handleClearAll = useCallback(() => {
@@ -248,7 +248,7 @@ export default function HistoryPage() {
 						stats
 							? t("history.transcriptionsToday", {
 									count: String(stats.count),
-									// PVT-087: resolve the "chars" suffix via t() so
+									// resolve the "chars" suffix via t() so
 									// other locales can translate it and the digit
 									// grouping respects getLocale().
 									chars:
@@ -355,7 +355,12 @@ export default function HistoryPage() {
 				) : loadError && records.length === 0 ? (
 					// NF-R10-1: distinguish "backend failed to load" from
 					// "history is genuinely empty".
+					// variant="error" so the destructive
+					// tint + Alert02Icon swap make the failure visually
+					// distinct from a genuine empty list (matches the
+					// Vocabulary/Templates load-failure pattern from BG-60).
 					<EmptyState
+						variant="error"
 						icon={AlertCircleIcon}
 						title={t("history.loadFailedTitle")}
 						description={loadError}

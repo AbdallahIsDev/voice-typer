@@ -1,25 +1,25 @@
 /**
  * ModelsPage — thin composition root for the ASR Models page.
  *
- * PVT-003 fix #1: previously a 1448-line monolith. After the split:
- *   • `useModelLifecycle` owns all state + IPC actions.
- *   • `LocalModelsPanel` renders the local-models tab (family cards,
- *     consent banner, disk-space warning, open-folder button).
- *   • `CloudProvidersPanel` renders the cloud-providers tab (per-
- *     provider cards with API key + test + consent).
- *   • `ModelCardActions` is the pure presentational 4-branch button
- *     row used by each model card.
+ *  fix #1: previously a 1448-line monolith. After the split:
+ *  • `useModelLifecycle` owns all state + IPC actions.
+ *  • `LocalModelsPanel` renders the local-models tab (family cards,
+ *    consent banner, disk-space warning, open-folder button).
+ *  • `CloudProvidersPanel` renders the cloud-providers tab (per-
+ *    provider cards with API key + test + consent).
+ *  • `ModelCardActions` is the pure presentational 4-branch button
+ *    row used by each model card.
  *
  * This file is now ~150 lines: it consumes the hook, renders the
  * sticky tab bar + page heading + LastUpdatedIndicator, mounts the
  * active panel, and renders the ConfirmDialog for model deletion.
  *
- * PVT-003 fix #3: dead `_initialLoading` state + the dead unmount-
+ *  fix #3: dead `_initialLoading` state + the dead unmount-
  * cleanup `useEffect` were removed (React already discards state on
  * unmount; the cleanup was a no-op that caused spurious state updates
  * during HMR / strict-mode double-mounts).
  *
- * PVT-003 fix #10: replaced the hardcoded `pt-[156px]` (which was
+ *  fix #10: replaced the hardcoded `pt-[156px]` (which was
  * tuned to clear the sticky SegmentedControl bar at a specific zoom
  * level) with `scroll-mt-32` on the panels + the standard page
  * padding. The scroll-mt utility makes deep-links to in-page anchors
@@ -42,6 +42,10 @@ import {
 import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
 import { getActiveFamilyId, groupModelsByFamily } from "@/lib/utils/models";
+import {
+	tabPageHeaderClassName,
+	tabPageIndicatorClassName,
+} from "./_tabBarStyles";
 
 export default function ModelsPage() {
 	const lifecycle = useModelLifecycle();
@@ -80,8 +84,13 @@ export default function ModelsPage() {
 
 	return (
 		<>
-			{/* Full-width sticky tab bar */}
-			<div className="sticky left-0 right-0 top-0 z-50">
+			{/* Full-width sticky tab bar.
+				: use the shared tabPageHeaderClassName /
+				tabPageIndicatorClassName from pages/_tabBarStyles so
+				Settings and Models render visually identical sticky tab
+				bars. Previously Models had no wrapper bg/border and used
+				a different z-index from Settings. */}
+			<div className={tabPageHeaderClassName}>
 				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
 					<SegmentedControl
 						variant="tabs"
@@ -89,9 +98,9 @@ export default function ModelsPage() {
 						value={activeTab}
 						onChange={(v) => setActiveTab(v as "local" | "cloud")}
 						ariaLabel={t("models.title")}
-						indicatorClassName="bg-(--bg) border border-border/75"
+						indicatorClassName={tabPageIndicatorClassName}
 						labelClassName="flex-1 text-center"
-						className="bg-(--bg-subtle) rounded-lg w-full"
+						className="w-full"
 						getTabId={(v) => `models-tab-${v}`}
 						getPanelId={(v) => `models-panel-${v}`}
 					/>
@@ -99,7 +108,7 @@ export default function ModelsPage() {
 			</div>
 
 			{/*
-				PVT-003 fix #10: replaced `pt-[156px]` with `pt-32`.
+				 fix #10: replaced `pt-[156px]` with `pt-32`.
 				The original magic padding was tuned to clear the sticky
 				bar (SegmentedControl + page heading + LastUpdatedIndicator
 				row) at a specific zoom level. `pt-32` (128px) clears the

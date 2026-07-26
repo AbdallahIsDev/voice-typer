@@ -40,7 +40,6 @@ describe("ER-20: t() caches interpolation RegExp by key", () => {
 		// key no matter how many ``t()`` calls interpolate it.
 		const realRegExp = RegExp;
 		const ctorSpy = vi.fn(((pattern: string, flags?: string) => {
-			// biome-ignore lint/suspicious/noAssignInExpressions: proxying the ctor
 			return new (
 				realRegExp as unknown as {
 					new (p: string, f?: string): RegExp;

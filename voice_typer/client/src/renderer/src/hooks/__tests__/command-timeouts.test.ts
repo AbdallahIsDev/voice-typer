@@ -44,10 +44,17 @@ describe("CR-18: per-command timeout table (getTimeout)", () => {
 		expect(getTimeout("download_model")).toBe(600_000);
 	});
 
-	it("returns 120_000ms (2 minutes) for `transcribe`", () => {
-		// Transcription of long audio segments can take 30-90s on
-		// CPU-only systems; 2 minutes preserves the prior tolerance.
-		expect(getTimeout("transcribe")).toBe(120_000);
+	it("returns 30_000ms for `toggle_dictation` (short control RPC)", () => {
+		// NH-31: `transcribe` was a stale entry — there is no such
+		// IPC command (the actual control RPC is `toggle_dictation`,
+		// which returns immediately; the transcription itself runs
+		// async on the backend and pushes results via
+		// `transcription_final` events). `toggle_dictation` is now
+		// pinned at 30s so a hung control call surfaces an error
+		// before the user gives up — matching the default but
+		// explicit so future contributors don't accidentally
+		// remove the entry thinking it's redundant.
+		expect(getTimeout("toggle_dictation")).toBe(30_000);
 	});
 
 	it("returns 30_000ms (default) for unknown commands", () => {

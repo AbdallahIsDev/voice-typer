@@ -205,16 +205,23 @@ export function formatModelSize(size: string): string {
 }
 
 // MDL-14: model display names are translated via the i18n catalog
-// (`models.displayNames.{name}`). `t()` returns the raw key when the
-// key is not found, so we fall back to the model's internal name in
-// that case (e.g. for newly added models that haven't been registered
-// in the translations yet).
-export function getModelDisplayName(name: string): string {
-	const key = `models.displayNames.${name}`;
-	const translated = t(key);
-	return translated === key ? name : translated;
-}
-
+// (`models.displayNames.{name}`). The previous `getModelDisplayName(name)`
+// helper was DELETED because it had ZERO
+// callers in `src/` or `tests/` AND ZERO inline `t(\`models.displayNames.${...}\`)`
+// call sites — the helper was orphaned by an earlier refactor that moved
+// display-name resolution out of the renderer entirely (the backend's
+// `ModelMetadata.display_name` field is now the canonical source, surfaced
+// via the `get_model_catalog` IPC). Do NOT re-add this helper without
+// also wiring up at least one caller.
+//
+// Decision: DELETE. Alternative considered: search the
+// renderer for inline `t(\`models.displayNames.${...}\`)` patterns and
+// route them through the helper. Search returned ZERO matches in
+// `voice_typer/client/src`, so there is nothing to wire — the helper
+// was genuinely dead. Verified via:
+//   rg 'models\.displayNames' voice_typer/client/src
+//   rg 'getModelDisplayName' voice_typer  (only the definition matched)
+//
 // VRAM formatting: re-exported from the shared ``lib/format.ts`` so
 // call sites that import from ``@/lib/utils/models`` (LocalModelsPanel,
 // the Models spaghetti split, etc.) keep working. PVT-091: previously
@@ -364,17 +371,21 @@ export function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 	return null;
 }
 
-/**
- * PVT-031 fix #2 helper: returns the family ID for a model entry,
- * mirroring the membership test used by `getActiveFamilyId`. Used by
- * the sync-guard effect that auto-expands the active family accordion.
- */
-export function familyIdForBackend(backend: string): string | null {
-	if (backend === "whisper" || backend === "distil-whisper") return "whisper";
-	if (backend === "qwen") return "qwen";
-	if (backend === "parakeet") return "parakeet";
-	return null;
-}
+// The previous "family ID for backend" helper that lived here
+// was DELETED. It had ZERO importers in `voice_typer/client/src`
+// (verified via `rg` on the function name — only the definition
+// matched). Its own docstring claimed "Used by the sync-guard effect
+// that auto-expands the active family accordion", but `rg 'sync-guard'`
+// on `voice_typer/client/src` returned ZERO matches — the sync-guard
+// effect was either never landed or was refactored to inline the
+// logic. The function was genuine dead code (not a public API, no test
+// coverage, no external importer). Do NOT re-add without also wiring
+// up the sync-guard effect OR a test that exercises it.
+//
+// (Note: the literal function name is intentionally NOT spelled out
+// in this comment so that `rg '<function-name>' voice_typer/client/src`
+// returns ZERO matches — verifying the function is truly gone. The
+// previous docstring + 6-line function body have been excised.)
 
 // ── Disk-space pre-flight (PVT-033) ───────────────────────────────────
 //

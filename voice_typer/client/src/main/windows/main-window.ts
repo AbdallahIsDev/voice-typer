@@ -18,7 +18,7 @@ import { START_HIDDEN } from "../constants";
 import { cleanConsoleMsg, RENDERER_CLR, RESET } from "../logging";
 import { state } from "../state";
 
-// PVT-G5-080: structured logger. Resolved defensively via `require()`
+// Structured logger: resolved defensively via `require()`
 // so unit-test environments that mock `../logging` minimally (without
 // the new `log` export, e.g. main-window-native-theme.test.ts) still
 // pass — `require()` returns the mocked module, `.log` is undefined,
@@ -52,10 +52,10 @@ const log: _LogShape = (() => {
 	};
 })();
 
-// G4-M-67: defensive resolution of the renderer-error persistence
-// helpers from session 4's logging.ts additions. Resolved via
+// Defensive resolution of the renderer-error persistence
+// helpers from logging.ts additions. Resolved via
 // `require()` so this file compiles whether or not the merged
-// logging.ts keeps session 4's `appendLogLine` / `rendererErrorsLogPath`
+// logging.ts keeps the `appendLogLine` / `rendererErrorsLogPath`
 // exports. When unavailable, `appendRendererError` is a no-op.
 type _AppendLogLine = (filePath: string, line: string) => void;
 type _RendererErrorsLogPath = () => string;
@@ -83,8 +83,8 @@ const _rendererErrorsLogPath: _RendererErrorsLogPath | null = (() => {
 })();
 
 /**
- * G4-M-67: persist a renderer-error line to
- * `electron-renderer-errors.log` (when session 4's logging helpers are
+ * Renderer-error persistence: persist a renderer-error line to
+ * `electron-renderer-errors.log` (when the logging helpers are
  * available). Best-effort: silently no-ops if the helpers aren't
  * merged into the final logging.ts.
  */
@@ -132,7 +132,8 @@ export function broadcastMaximized(maximized: boolean): void {
 }
 
 /**
- * GT-A3-8: explicit broadcast helper for the main window. Replaces the
+ * Broadcast helper refactor: explicit broadcast helper for the main
+ * window. Replaces the
  * previous `webContents.send` monkey-patch that intercepted outbound
  * `python-event` messages. Centralizes the CR-28 `pythonReady` flip on
  * the first `{ type: "ready" }` push and the destroyed-window guard.
@@ -221,7 +222,7 @@ export function _nativeThemeListenerRegistered(): boolean {
 	return _nativeThemeHandler !== null;
 }
 
-// GT-10: render-process-gone crash-storm tracking. Sliding 60s window;
+// Render-process-gone crash-storm tracking. Sliding 60s window;
 // if >5 crashes land in that window, stop reloading and show a dialog.
 const RENDER_CRASH_WINDOW_MS = 60_000;
 const RENDER_CRASH_THRESHOLD = 5;
@@ -231,11 +232,13 @@ const _bubbleWindowCrashTimestamps: number[] = [];
 function recordRenderCrash(timestamps: number[], label: string): boolean {
 	const now = Date.now();
 	timestamps.push(now);
-	while (
-		timestamps.length > 0 &&
-		now - timestamps[0]! > RENDER_CRASH_WINDOW_MS
-	) {
-		timestamps.shift();
+	while (timestamps.length > 0) {
+		const first = timestamps[0];
+		if (first !== undefined && now - first > RENDER_CRASH_WINDOW_MS) {
+			timestamps.shift();
+		} else {
+			break;
+		}
 	}
 	if (timestamps.length > RENDER_CRASH_THRESHOLD) {
 		log.error(
@@ -251,7 +254,7 @@ export function _resetRenderCrashTrackingForTest(): void {
 	_bubbleWindowCrashTimestamps.length = 0;
 }
 
-/** GT-10: bubble-window-side wrapper (imported by bubble-window.ts). */
+/** Render-process-gone: bubble-window-side wrapper (imported by bubble-window.ts). */
 export function recordBubbleRenderCrash(): boolean {
 	return recordRenderCrash(_bubbleWindowCrashTimestamps, "Bubble");
 }
@@ -347,7 +350,7 @@ export function createMainWindow(forceShow = false): void {
 		},
 	});
 
-	// GT-A3-8: the previous `webContents.send` monkey-patch has been
+	// Broadcast helper refactor: the previous `webContents.send` monkey-patch has been
 	// replaced with the explicit `broadcastToMainWindow(channel, msg)`
 	// helper (see the export above). Callers in handle-message.ts and
 	// tcp-connect.ts now route their `python-event` broadcasts through
@@ -393,7 +396,7 @@ export function createMainWindow(forceShow = false): void {
 	state.mainWindow.on("maximize", () => broadcastMaximized(true));
 	state.mainWindow.on("unmaximize", () => broadcastMaximized(false));
 
-	// PVT-12: null out `state.mainWindow` once the window is actually
+	// Window-state cleanup: null out `state.mainWindow` once the window is actually
 	// destroyed. The `close` handler above intercepts the X button to
 	// hide-to-tray (preventDefault), so it never reaches `closed`. But
 	// the real destroy paths (tray "Quit" → `app.isQuitting = true` →
@@ -415,7 +418,7 @@ export function createMainWindow(forceShow = false): void {
 	//   e.level, e.message, e.lineNumber, e.sourceId
 	// The old signature emitted a deprecation warning on every app start.
 	//
-	// G4-M-67: when level >= 3 (ERROR), also persist the renderer
+	// Renderer-error persistence: when level >= 3 (ERROR), also persist the renderer
 	// console error to `electron-renderer-errors.log` under the
 	// Electron userData dir. Previously the handler only re-emitted
 	// the message to the main-process terminal (lost when the
@@ -424,12 +427,12 @@ export function createMainWindow(forceShow = false): void {
 	// error is swallowed by `appendRendererError` so logging can
 	// never break the renderer console forwarding path.
 	//
-	// PVT-G5-081 sub-finding: lower the forwarder gate from
+	// Forwarder-gate widening: lower the forwarder gate from
 	// `level >= 2` (WARN and above only) to `level >= 1` so INFO-
 	// level renderer telemetry (e.g. lifecycle logs from the
 	// renderer) reaches the main process log too. VERBOSE (level
 	// 0) is still dropped — it's too noisy for the main log.
-	// PVT-G5-080: route through the structured logger so WARN/ERROR
+	// Structured logger routing: route through the structured logger so WARN/ERROR
 	// lines also land in electron-runtime.log.
 	state.mainWindow.webContents.on("console-message", (e) => {
 		const level = Number(e.level);
@@ -441,7 +444,7 @@ export function createMainWindow(forceShow = false): void {
 			else log.info(msg);
 		}
 		if (level >= 3) {
-			// G4-M-67: ERROR-level renderer console output is
+			// Renderer-error persistence: ERROR-level renderer console output is
 			// almost always a real bug (uncaught exception,
 			// failed prop type, broken invariant). Persist it
 			// to its own log file so support staff can grep
@@ -454,7 +457,7 @@ export function createMainWindow(forceShow = false): void {
 		}
 	});
 
-	// G4-H-23: main window lacked render-process-gone recovery (the
+	// Render-process-gone recovery: main window lacked render-process-gone recovery (the
 	// bubble window already had all three handlers — see
 	// bubble-window.ts:127-159). Without these, a main-renderer
 	// crash left the user with a blank/frozen dashboard while the
@@ -478,7 +481,7 @@ export function createMainWindow(forceShow = false): void {
 	// running, so session state is preserved on the backend side).
 	state.mainWindow.webContents.on("render-process-gone", (_e, details) => {
 		log.error("[MAIN] render-process-gone", details);
-		// GT-10: sliding-window crash storm detection.
+		// Crash-storm detection: sliding-window crash storm detection.
 		const inStorm = recordRenderCrash(_mainWindowCrashTimestamps, "Main");
 		if (inStorm) {
 			try {
@@ -491,7 +494,7 @@ export function createMainWindow(forceShow = false): void {
 			}
 			return;
 		}
-		// GT-10: 2s backoff before reload to avoid CPU-bound crash loops.
+		// Crash-storm backoff: 2s backoff before reload to avoid CPU-bound crash loops.
 		setTimeout(() => {
 			try {
 				if (state.mainWindow && !state.mainWindow.isDestroyed()) {

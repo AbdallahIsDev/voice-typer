@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { makeBubbleApi } from "./_bubble-channels";
 
 contextBridge.exposeInMainWorld("python", {
 	call: (msg: Record<string, unknown>) =>
@@ -13,59 +14,27 @@ contextBridge.exposeInMainWorld("python", {
 	},
 });
 
-contextBridge.exposeInMainWorld("bubble", {
-	onLevel: (callback: (data: { rms: number; peak: number }) => void) => {
-		const handler = (_event: Electron.IpcRendererEvent, data: unknown) =>
-			callback(data as { rms: number; peak: number });
-		ipcRenderer.on("bubble:level", handler);
-		return () => {
-			ipcRenderer.removeListener("bubble:level", handler);
-		};
-	},
-	show: () => {
-		ipcRenderer.send("bubble:show-from-renderer");
-	},
-	signalReady: () => {
-		ipcRenderer.send("bubble:ready");
-	},
-	setPosition: (position: "top" | "bottom") => {
-		ipcRenderer.send("set_bubble_position", position);
-	},
-	setDraggable: (draggable: boolean) => {
-		ipcRenderer.send("bubble:draggable", draggable);
-	},
-	// NEW-A11Y-006: keyboard-based move (accessibility alternative to drag).
-	// Main process clamps to screen bounds.
-	moveBy: (deltaX: number, deltaY: number) => {
-		ipcRenderer.send("bubble:move-by", { deltaX, deltaY });
-	},
-	// ── Enter/exit animations ────────────────────────────────
-	onShow: (callback: () => void) => {
-		const handler = () => callback();
-		ipcRenderer.on("bubble:show", handler);
-		return () => {
-			ipcRenderer.removeListener("bubble:show", handler);
-		};
-	},
-	onHide: (callback: () => void) => {
-		const handler = () => callback();
-		ipcRenderer.on("bubble:hide", handler);
-		return () => {
-			ipcRenderer.removeListener("bubble:hide", handler);
-		};
-	},
-	onDraggable: (callback: (draggable: boolean) => void) => {
-		const handler = (_event: Electron.IpcRendererEvent, draggable: unknown) =>
-			callback(Boolean(draggable));
-		ipcRenderer.on("bubble:draggable", handler);
-		return () => {
-			ipcRenderer.removeListener("bubble:draggable", handler);
-		};
-	},
-	hideComplete: () => {
-		ipcRenderer.send("bubble:hidden");
-	},
-});
+// The `bubble` namespace is now built by the shared
+// `makeBubbleApi` factory in `./_bubble-channels.ts`. The factory is
+// called with `includeRestricted: false` here so the main renderer
+// gets only the shared bubble channels (`onLevel` / `show` /
+// `signalReady` / `setPosition` / `setDraggable` / `onShow` / `onHide`
+// / `onDraggable` / `moveBy`). The restricted bubble-window-only
+// channels (`onSetState` / `onConfig` / `hideComplete` / `resizeTo` /
+// `toggleDictation` / `dismiss`) are NOT exposed on the main renderer
+// — a compromised main renderer cannot invoke them. The bubble-window
+// preload (`preload/bubble.ts`) calls the same factory with
+// `includeRestricted: true` to get the full surface.
+//
+// `hideComplete` was previously removed from this main
+// renderer's preload (only the bubble renderer's exit-animation
+// handler should invoke `bubble:hidden`). The factory's
+// `includeRestricted: false` path now codifies that removal — the
+// channel is simply not in the returned object.
+contextBridge.exposeInMainWorld(
+	"bubble",
+	makeBubbleApi(ipcRenderer, { includeRestricted: false }),
+);
 
 contextBridge.exposeInMainWorld("window_", {
 	minimize: () => ipcRenderer.invoke("window:minimize"),
@@ -108,7 +77,7 @@ contextBridge.exposeInMainWorld("window_", {
 			error?: string;
 		}>,
 	// MODEL-IMPORT: open a native folder picker for importing models.
-	// G4-H-22: return type extended with `error?: string` so the
+	// The return type is extended with `error?: string` so the
 	// handler can surface a failure reason (Linux no-display, internal
 	// Electron error) to the renderer instead of an unhandled rejection
 	// that the SEC-021 breaker would count toward the 5-error crash-
@@ -130,17 +99,16 @@ contextBridge.exposeInMainWorld("window_", {
 			path?: string;
 			error?: string;
 		}>,
-	// GT-54 (session-6): `openElectronLogs` was removed — no renderer
-	// call site existed (verified by grep across
-	// `voice_typer/client/src/renderer`). Cross-file cleanup:
-	//   - types/ipc.ts: `openElectronLogs?` field — GT-FIX-16
-	//   - tauri-bridge/window-namespace.ts: `openElectronLogs:` impl —
-	//     GT-FIX-17
+	// `openElectronLogs` was removed — no renderer call site existed
+	// (verified by grep across `voice_typer/client/src/renderer`).
+	// Cross-file cleanup:
+	//   - types/ipc.ts: `openElectronLogs?` field removed
+	//   - tauri-bridge/window-namespace.ts: `openElectronLogs:` impl removed
 	//   - main/ipc/window-handlers.ts: `window:open-electron-logs`
 	//     ipcMain.handle — owned by main-process agent (coordinate
 	//     separately; leaving the handler installed is harmless since
 	//     the preload bridge no longer exposes a way to invoke it).
-	// G4-M-69: forward a renderer-caught error to the main process
+	// Forward a renderer-caught error to the main process
 	// for persistence in `electron-renderer-errors.log`. The main
 	// process is the only side with filesystem access (sandboxed
 	// renderer can't write to userData), so the ErrorBoundary's

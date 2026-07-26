@@ -256,6 +256,100 @@ export function useConnection({
 		};
 	}, [connectionStatus, call, setConnectionStatus]);
 
+	// ── Background reconnect poll ─────────────────────────
+	//
+	// While `connectionStatus === "disconnected"`, the user sees the
+	// "Lost connection" screen (ConnectionStatusScreen) and the only
+	// recovery path is the manual Retry button — there's no
+	// auto-recovery from a transient backend outage (e.g. backend
+	// restarted while the renderer was idle). This slow background
+	// poll attempts a single `get_config` every 10s while
+	// disconnected. If the probe succeeds, we flip to "connected"
+	// (which re-runs the connection lifecycle effect above for the
+	// normal config + onboarding probe path) and stop polling. If
+	// the probe fails, we keep polling up to MAX_BACKGROUND_RECONNECTS
+	// attempts (12 × 10s = 2 minutes) so a truly-dead backend
+	// doesn't spin an interval forever. The cap is generous enough
+	// to recover from a 60–90s backend restart cycle but bounded
+	// enough to release the timer closure before it leaks.
+	//
+	// Re-arm: any transition OUT of "disconnected" (manual Retry
+	// click → "connecting" → success → "connected") re-mounts this
+	// effect (dep on `connectionStatus`) and resets `attempts`.
+	// Likewise, a transition back INTO "disconnected" starts a fresh
+	// 12-attempt budget. The cap exists to prevent infinite polling
+	// against a backend that's never coming back; the user can still
+	// hit Retry manually at any time.
+	useEffect(() => {
+		if (connectionStatus !== "disconnected") return;
+
+		let cancelled = false;
+		let attempts = 0;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const MAX_BACKGROUND_RECONNECTS = 12; // 12 × 10s = 2 minutes
+		const BACKGROUND_RECONNECT_INTERVAL_MS = 10_000;
+
+		const tryReconnect = async () => {
+			if (cancelled) return;
+			if (attempts >= MAX_BACKGROUND_RECONNECTS) return;
+			attempts++;
+			try {
+				await call<VoiceTyperConfig>("get_config");
+				if (!cancelled) {
+					// Success — flip to "connected". The
+					// connection-lifecycle effect above
+					// doesn't re-run on this transition
+					// (its deps don't include
+					// connectionStatus), so we also pull
+					// config + recording state here so the
+					// app doesn't show stale data while
+					// waiting for the next status_change
+					// push.
+					setConnectionStatus("connected");
+					setLastError(null);
+					call<{ status: string }>("get_status")
+						.then((s) => {
+							if (!cancelled && s?.status) {
+								const validated = asRecordingState(s.status);
+								if (validated) setRecordingState(validated);
+							}
+						})
+						.catch((err) =>
+							console.warn(
+								"[useConnection] background-reconnect get_status failed:",
+								err,
+							),
+						);
+				}
+			} catch {
+				if (!cancelled && attempts < MAX_BACKGROUND_RECONNECTS) {
+					timer = setTimeout(tryReconnect, BACKGROUND_RECONNECT_INTERVAL_MS);
+				}
+				// On the final attempt we just stop — the
+				// user can click Retry to start another
+				// 12-attempt cycle.
+			}
+		};
+
+		// Delay the first probe by the full interval so a brief
+		// disconnect (e.g. backend restarting) doesn't immediately
+		// hammer it with a redundant `get_config` call (the
+		// connection-lifecycle effect's 5 quick retries already
+		// cover the first ~10s of outages).
+		timer = setTimeout(tryReconnect, BACKGROUND_RECONNECT_INTERVAL_MS);
+
+		return () => {
+			cancelled = true;
+			if (timer) clearTimeout(timer);
+		};
+	}, [
+		connectionStatus,
+		call,
+		setConnectionStatus,
+		setLastError,
+		setRecordingState,
+	]);
+
 	// ── App-level event subscriptions ─────────────────────────────
 
 	usePythonEvent(

@@ -135,7 +135,7 @@ import {
 } from "@/lib/color-utils";
 
 describe("theme preset i18n nameKey (BG-5)", () => {
-	it("every preset carries a nameKey matching `theme.preset.${id}`", () => {
+	it(`every preset carries a nameKey matching \`theme.preset.\${id}\``, () => {
 		for (const preset of THEMES) {
 			expect(preset.nameKey, `preset ${preset.id} nameKey`).toBe(
 				`theme.preset.${preset.id}`,

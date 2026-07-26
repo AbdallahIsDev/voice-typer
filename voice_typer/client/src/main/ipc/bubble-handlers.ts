@@ -6,7 +6,10 @@
  *   - bubble:draggable — toggle draggability (synced to bubble renderer)
  *   - bubble:resize — fit pill content exactly (clamped to min/max)
  *   - bubble:show-from-renderer — show from the bubble's own UI
- *   - set_bubble_position — top/bottom config (synced to bubble renderer)
+ *   - bubble:set-position — top/bottom config (synced to bubble renderer)
+ *     (Channel-rename: `set_bubble_position` was renamed to
+ *     `bubble:set-position`; legacy listener kept as a backward-compat
+ *     shim until preload files are migrated.)
  *   - bubble:ready — renderer readiness signal
  *
  * SEC-016: `assertFromBubble()` rejects IPC messages not coming from the
@@ -51,7 +54,7 @@ if (!log) {
 	};
 }
 
-// PVT fix (#11): min/max resize constraints for the bubble pill. The
+// Bubble resize bounds: min/max resize constraints for the bubble pill. The
 // renderer's auto-resize useLayoutEffect measures the pill content and
 // sends a `bubble:resize` IPC with the measured width/height. Without
 // clamps, a runaway measurement (e.g. a long transcription preview, a
@@ -93,7 +96,7 @@ function assertFromBubble(event: Electron.IpcMainEvent): boolean {
 }
 
 /**
- * PVT fix (#11): clamp a requested resize to the min/max bounds.
+ * Bubble resize bounds: clamp a requested resize to the min/max bounds.
  * Centralised here so the same logic applies to every resize path
  * (currently only `bubble:resize`, but a future programmatic resize
  * would reuse it).
@@ -114,8 +117,9 @@ function clampBubbleSize(
 export function registerBubbleHandlers(): void {
 	// NEW-A11Y-006: keyboard-based bubble repositioning for accessibility.
 	// Arrow keys move the bubble by 10px; Shift+Arrow moves by 1px (fine).
-	// PVT-048: the renderer-side keydown handler that USED to feed this
-	// channel was dead code (the bubble window is `focusable: false`).
+	// Renderer-keyboard-move note: the renderer-side keydown handler that
+	// USED to feed this channel was dead code (the bubble window is
+	// `focusable: false`).
 	// To re-enable keyboard-move, register a main-process global hotkey
 	// (Electron globalShortcut) that sends `bubble:move-by` — see the
 	// comment in `Bubble.tsx` for details. The handler is preserved so
@@ -176,7 +180,7 @@ export function registerBubbleHandlers(): void {
 	// Without resizing, the transparent window area around the pill
 	// intercepts OS mouse events and blocks clicks to windows underneath.
 	//
-	// PVT fix (#11): clamp the requested width/height to MIN/MAX bounds
+	// Bubble resize bounds: clamp the requested width/height to MIN/MAX bounds
 	// before applying. This prevents a runaway measurement (or a
 	// compromised renderer) from shrinking the bubble to invisible or
 	// growing it to cover the screen.
@@ -219,20 +223,31 @@ export function registerBubbleHandlers(): void {
 		});
 	});
 
-	ipcMain.on("set_bubble_position", (_event, position: "top" | "bottom") => {
-		// Position is a config value that BOTH the main window (Settings
-		// page, via window.bubble.setPosition) and the bubble renderer need
-		// to sync, so it is NOT restricted to the bubble frame.  It is a
-		// benign enum ('top' | 'bottom'), not a hijack vector.
-		//
-		// NOTE (merge): session 5's PVT-068 intended to clear a saved
-		// bubble position and re-center on the active display here. The
-		// supporting helpers (`resetSavedBubblePosition` /
-		// `centerOnActiveDisplay`) were never added to
-		// `windows/bubble-window.ts` (or to `state`), so the change
-		// would not compile. We keep the base behavior (center on the
-		// primary display via `centerOnPrimaryDisplay`) until those
-		// helpers are introduced.
+	// Channel rename: bubble position channel renamed from `set_bubble_position`
+	// (snake_case) to `bubble:set-position` (matching the `bubble:*`
+	// kebab-case convention used by every other bubble IPC channel:
+	// `bubble:draggable`, `bubble:show-from-renderer`,
+	// `bubble:toggle-dictation`, `bubble:ready`). The new channel is
+	// the canonical name; a backward-compat listener on the legacy
+	// `set_bubble_position` name keeps preload files that haven't
+	// been migrated yet working (Fix-A owns `src/preload/*`; once
+	// both preload files are updated to send on
+	// `bubble:set-position`, the legacy listener can be removed).
+	//
+	// Position is a config value that BOTH the main window (Settings
+	// page, via window.bubble.setPosition) and the bubble renderer need
+	// to sync, so it is NOT restricted to the bubble frame.  It is a
+	// benign enum ('top' | 'bottom'), not a hijack vector.
+	//
+	// NOTE (merge): a prior refactor intended to clear a saved
+	// bubble position and re-center on the active display here. The
+	// supporting helpers (`resetSavedBubblePosition` /
+	// `centerOnActiveDisplay`) were never added to
+	// `windows/bubble-window.ts` (or to `state`), so the change
+	// would not compile. We keep the base behavior (center on the
+	// primary display via `centerOnPrimaryDisplay`) until those
+	// helpers are introduced.
+	const applyBubblePosition = (position: "top" | "bottom") => {
 		if (position === "top" || position === "bottom") {
 			state.bubblePosition = position;
 			// If the bubble window is visible, reposition it immediately.
@@ -250,6 +265,31 @@ export function registerBubbleHandlers(): void {
 				});
 			}
 		}
+	};
+
+	// Canonical channel (kebab-case `bubble:*` convention).
+	ipcMain.on("bubble:set-position", (_event, position: "top" | "bottom") => {
+		applyBubblePosition(position);
+	});
+
+	// Legacy snake_case channel — DEPRECATED. Retained as a
+	// backward-compat shim so preload files (`src/preload/index.ts`,
+	// `src/preload/bubble.ts`) that still send on `set_bubble_position`
+	// keep working until Fix-A's preload migration. Emits a one-shot
+	// deprecation warning so the migration is observable in dev logs
+	// (the warning is throttled via a module-level flag to avoid log
+	// spam on every position toggle).
+	let _legacySetBubblePositionWarned = false;
+	ipcMain.on("set_bubble_position", (_event, position: "top" | "bottom") => {
+		if (!_legacySetBubblePositionWarned) {
+			_legacySetBubblePositionWarned = true;
+			log.warn(
+				"[BUBBLE] received IPC on deprecated 'set_bubble_position' channel — " +
+					"preload files should migrate to 'bubble:set-position' (channel-rename). " +
+					"This warning fires once per session.",
+			);
+		}
+		applyBubblePosition(position);
 	});
 
 	ipcMain.on("bubble:ready", (event) => {

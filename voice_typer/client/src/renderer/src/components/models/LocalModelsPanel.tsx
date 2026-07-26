@@ -1,11 +1,11 @@
 /**
  * LocalModelsPanel — local-models tab content for the Models page.
  *
- * PVT-003 fix #1: extracted from `pages/Models.tsx`. Renders:
+ * extracted from `pages/Models.tsx`. Renders:
  *   • HuggingFace consent banner (when consent hasn't been granted).
- *   • Disk-space warning banner (PVT-033: when `diskInfo` is available
+ *   • Disk-space warning banner (when `diskInfo` is available
  *     and free space is below 1GB).
- *   • "Open models folder" button (PVT-033: when the backend exposes
+ *   • "Open models folder" button (when the backend exposes
  *     the `open_models_folder` IPC).
  *   • The model-family accordion + per-variant cards (each card mounts
  *     `ModelCardActions` for the action button row, and a
@@ -66,7 +66,7 @@ export interface LocalModelsPanelProps {
 	onGrantConsent: () => void;
 	onTogglePause: () => void;
 	onCancelDownload: () => void;
-	// PVT-033
+	// diskInfo + low-disk-threshold props
 	diskInfo: DiskInfo | null;
 	modelsFolderSupported: boolean;
 	onOpenModelsFolder: () => void;
@@ -110,7 +110,7 @@ export function LocalModelsPanel({
 
 	return (
 		<div className="space-y-6">
-			{/* PVT-033: low-disk warning banner. Only shown when the backend
+			{/* low-disk warning banner. Only shown when the backend
                             exposes `get_disk_info` AND free space is below the threshold. */}
 			{showLowDiskWarning && diskInfo && (
 				<div className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-4">
@@ -144,9 +144,13 @@ export function LocalModelsPanel({
 							className="mt-0.5 h-5 w-5 shrink-0 text-amber-500"
 						/>
 						<div className="flex-1">
-							<h3 className="text-sm font-semibold text-(--text-primary)">
+							{/* promoted from <h3> to <h2> so the
+                                                                heading hierarchy stays h1 (PageHeading) → h2 (consent
+                                                                banner) — fixes the axe-core heading-order violation
+                                                                documented in a11y/axe-core.test.tsx. */}
+							<h2 className="text-sm font-semibold text-(--text-primary)">
 								{t("models.hfConsent.title")}
-							</h3>
+							</h2>
 							<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
 								{t("models.hfConsent.description")}
 							</p>
@@ -168,7 +172,7 @@ export function LocalModelsPanel({
 				</div>
 			)}
 
-			{/* PVT-033: "Open models folder" button. Only rendered when the
+			{/* "Open models folder" button. Only rendered when the
                             backend exposes the `open_models_folder` IPC (probed on mount
                             by the hook). The button mirrors the Import button's visual
                             treatment for consistency. */}
@@ -216,7 +220,7 @@ export function LocalModelsPanel({
 									const isDownloadingThis = downloadingModel === model.name;
 									const anyDownloading = downloadingModel !== null;
 
-									// PVT-033: per-model disk-space pre-flight indicator.
+									// per-model disk-space pre-flight indicator.
 									// We don't block the download here (the user might
 									// know better — e.g. they're about to free up space).
 									// We just visually flag the model when its catalog

@@ -262,6 +262,7 @@ describe("BG-R19 #11: Sidebar keyboard navigation (roving tabindex) + aria-keysh
 		// active page).
 		const activeButton = buttons.find((b) => b.tabIndex === 0);
 		expect(activeButton).toBeTruthy();
+		// biome-ignore lint/style/noNonNullAssertion: guarded by truthy expect above
 		expect(buttonLabel(activeButton!)).toContain("History");
 
 		await user.tab();

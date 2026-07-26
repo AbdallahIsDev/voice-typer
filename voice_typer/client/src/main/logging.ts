@@ -7,21 +7,25 @@
  *
  * Two structured loggers are exported from this module:
  *
- *   1. `logger` (G4-H-37, session-4) — message-first API
+ *   1. `logger` — message-first API
  *      `logger.info("TCP connected", { port: 7001 })`. Writes to
  *      `<userData>/electron-main.log` with 5 MiB rotation. DEBUG is
- *      dev-only (gated by `!app.isPackaged`). INFO is also dev-only
- *      in file output (production writes only WARN/ERROR to file).
- *      Also exposes `mainLogPath()`, `rendererErrorsLogPath()`, and
- *      the reusable `appendLogLine()` helper (used by the main-window
- *      `console-message` handler for G4-M-67 renderer-error persistence).
+ *      dev-only (gated by `!app.isPackaged`). INFO is dev-only in file
+ *      output by default (production writes only WARN/ERROR to file).
+ *      Set `VOICE_TYPER_ELECTRON_INFO_LOG=1` to opt in to production INFO
+ *      persistence (routes to `electron-lifecycle.log`). Also
+ *      exposes `rendererErrorsLogPath()` and the reusable `appendLogLine()`
+ *      helper (used by the main-window `console-message` handler for
+ *      renderer-error persistence).
  *
- *   2. `log` (PVT-G5-080 / PVT-G5-082, session-5) — printf-style API
+ *   2. `log` — printf-style API
  *      `log.info("[BUBBLE] creating window at", x, y)`. Routes through
  *      colored stdout (ANSI `[INFO]`/`[WARN]`/`[ERROR]` prefixes) and
  *      tees WARN/ERROR to `<userData>/electron-runtime.log` with 5 MiB
- *      rotation. Lazy-`require`s `electron` so the module is importable
- *      from non-Electron test contexts without mocking.
+ *      rotation. Uses the top-level `import { app } from "electron"`
+ *      (AC-117 — the previous lazy-`require` was dead code; the ESM
+ *      import already forces the module to resolve at load time, so
+ *      tests must mock `electron` via `vi.mock`).
  *
  * DUPLICATION NOTE: the two loggers overlap in functionality (both
  * write WARN/ERROR lines to a 5 MiB-rotated file under userData). They
@@ -37,22 +41,111 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 
+// Opt-in INFO persistence for support/enterprise deployments.
+// Set VOICE_TYPER_ELECTRON_INFO_LOG=1 to route INFO logs to
+// `electron-lifecycle.log` (1 MiB × 1 backup). When unset, INFO
+// persistence is unchanged (dev-only file write, production no-op).
+//
+// Production Electron builds have no terminal attached, so `console.info`
+// is a no-op. Without this opt-in, lifecycle events (TCP connect, Python
+// sidecar spawned, bubble shown, window created) leave ZERO durable trace
+// in packaged builds — making support triage impossible. The opt-in
+// default-off preserves the original disk-space-conservative behavior
+// for the 99% case while letting enterprise/support deployments flip a
+// single env var to get the lifecycle trail.
+const PERSIST_INFO = process.env.VOICE_TYPER_ELECTRON_INFO_LOG === "1";
+
+/**
+ * Resolve the path to `electron-lifecycle.log` under the Electron
+ * userData dir. Kept separate from {@link mainLogPath} so the opt-in
+ * INFO stream never competes with the WARN/ERROR stream for the 5 MiB
+ * `electron-main.log` rotation window.
+ */
+function lifecycleLogPath(): string {
+	return path.join(app.getPath("userData"), "electron-lifecycle.log");
+}
+
+/**
+ * Append a single INFO line to `electron-lifecycle.log` with a
+ * 1 MiB rotation (single `.1` backup). Best-effort — any I/O error is
+ * swallowed so logging can never crash the caller's code path.
+ *
+ * Mirrors the rotate-then-append pattern of {@link appendLogLine} but
+ * uses a tighter 1 MiB cap (vs the 5 MiB cap on `electron-main.log`)
+ * because the INFO stream is higher-volume and would otherwise push
+ * WARN/ERROR context out of the smaller log too quickly. Total disk
+ * usage is bounded at ~2 MiB worst case (active file + .1 backup).
+ */
+function appendLifecycleLine(
+	level: string,
+	msg: string,
+	args: unknown[],
+): void {
+	try {
+		const tsStr = new Date().toISOString();
+		const formatted =
+			args.length > 0
+				? `${msg} ${args
+						.map((a) => {
+							try {
+								return JSON.stringify(a);
+							} catch {
+								return String(a);
+							}
+						})
+						.join(" ")}`
+				: msg;
+		const line = `${tsStr} [${level.toUpperCase()}] ${formatted}\n`;
+		const p = lifecycleLogPath();
+		// 1 MiB rotation × 1 backup (same strategy as rotateIfNeeded
+		// but inlined to keep this helper self-contained and avoid the
+		// XV-154 file-size cache — the INFO stream is lower priority
+		// than WARN/ERROR and the extra stat on each write is
+		// acceptable for an opt-in diagnostic path).
+		try {
+			const stat = fs.statSync(p);
+			if (stat.size > 1024 * 1024) {
+				try {
+					fs.renameSync(p, `${p}.1`);
+				} catch {
+					/* ignore — best-effort rotation */
+				}
+			}
+		} catch {
+			/* file doesn't exist yet — fine, append will create it */
+		}
+		fs.appendFileSync(p, line, { flag: "a", mode: 0o600 });
+	} catch {
+		// Never let logging crash the app.
+	}
+}
+
 // ANSI color constants — match the Python backend's _ColorFormatter so
 // Electron and Python log lines look identical in the terminal.
-export const DIM = "\x1b[38;5;242m"; // dim grey for timestamps
+//
+// Internal-constants cleanup: `DIM`, `INFO_CLR`, `WARN_CLR`, `ERROR_CLR` are used ONLY
+// inside this module (verified by `rg '\b(DIM|ERROR_CLR|INFO_CLR|WARN_CLR)\b'`);
+// the `export` keyword was leftover from earlier refactors and has been
+// dropped. `RESET`, `BUBBLE_CLR`, `RENDERER_CLR` remain exported because
+// they are imported by `index.ts`, `handle-message.ts`, `bubble-window.ts`,
+// and `main-window.ts`.
+const DIM = "\x1b[38;5;242m"; // dim grey for timestamps
 export const RESET = "\x1b[0m";
 export const BUBBLE_CLR = "\x1b[38;5;39m"; // bright cyan for [BUBBLE] tags
 export const RENDERER_CLR = "\x1b[38;5;227m"; // bright yellow for [MAIN renderer] tags
 
-// PVT-G5-080: ANSI color constants for the structured `log` logger's
+// ANSI color constants for the structured `log` logger's
 // level prefix. Bright cyan matches the BUBBLE_CLR (intentional — INFO
 // is the "happy" level and visually parallels the [BUBBLE] tag color).
 // Orange for WARN, bright red for ERROR — same palette as the Python
 // backend's _ColorFormatter so multi-process log output is visually
 // consistent.
-export const INFO_CLR = "\x1b[38;5;39m"; // bright cyan
-export const WARN_CLR = "\x1b[38;5;214m"; // orange
-export const ERROR_CLR = "\x1b[38;5;196m"; // bright red
+//
+// Internal-constants cleanup: dropped `export` — these constants are referenced only
+// internally (by `writeStdout` and `ts()` below).
+const INFO_CLR = "\x1b[38;5;39m"; // bright cyan
+const WARN_CLR = "\x1b[38;5;214m"; // orange
+const ERROR_CLR = "\x1b[38;5;196m"; // bright red
 
 /**
  * Default maximum size for a crash/rejection log file before it is rotated.
@@ -67,7 +160,7 @@ export const ERROR_CLR = "\x1b[38;5;196m"; // bright red
 export const DEFAULT_CRASH_LOG_MAX_BYTES = 1_048_576;
 
 /**
- * G4-H-37: rotation cap for the structured `electron-main.log`.
+ * Rotation cap for the structured `electron-main.log`.
  *
  * 5 MiB matches the Python backend's `RotatingFileHandler` cap and the
  * Rust host's `tracing-appender` cap so all three processes retain
@@ -77,7 +170,7 @@ export const DEFAULT_CRASH_LOG_MAX_BYTES = 1_048_576;
 export const DEFAULT_MAIN_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 /**
- * PVT-G5-082: maximum size for the persistent runtime log file
+ * Maximum size for the persistent runtime log file
  * (`electron-runtime.log`) before rotation. 5 MiB matches the Python
  * backend's `RotatingFileHandler` threshold and the Rust host's
  * `tracing-appender` rotation. The existing {@link rotateIfNeeded}
@@ -239,7 +332,7 @@ function _clearCachedFileSize(filePath: string): void {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// G4-H-37 (session-4): structured `logger` + `appendLogLine` helper
+// Structured `logger` + `appendLogLine` helper
 // ────────────────────────────────────────────────────────────────────
 //
 // A minimal rotating-file logger that mirrors Python's `RotatingFileHandler`
@@ -290,15 +383,19 @@ function formatLine(level: Level, msg: string, args: unknown[]): string {
 
 /**
  * Resolve the path to `electron-main.log` under the Electron userData dir.
- * Exposed for tests + the G4-M-67 renderer-error persistence path.
+ *
+ * Internal-constants cleanup: dropped `export` — verified zero external importers (only used
+ * internally by `logger.warn` / `logger.error` / `logger.debug` /
+ * `logger.info` below). The docstring's previous "Exposed for tests"
+ * note was stale: no test imports `mainLogPath` directly.
  */
-export function mainLogPath(): string {
+function mainLogPath(): string {
 	return path.join(app.getPath("userData"), "electron-main.log");
 }
 
 /**
  * Resolve the path to `electron-renderer-errors.log` under the Electron
- * userData dir. G4-M-67: the main-window `console-message` handler
+ * userData dir. The main-window `console-message` handler
  * appends level>=3 (ERROR) renderer messages to this file so support
  * staff can see renderer crashes without fishing through DevTools.
  */
@@ -312,7 +409,7 @@ export function rendererErrorsLogPath(): string {
  * logging must never break the caller's code path.
  *
  * Exported so the bootstrap crash handlers + the main-window
- * `console-message` handler (G4-M-67) can share the same
+ * `console-message` handler can share the same
  * rotate-then-append semantics without re-implementing them.
  */
 export function appendLogLine(
@@ -339,7 +436,7 @@ export function appendLogLine(
 }
 
 /**
- * The structured main-process logger (G4-H-37). Mirrors its calls to the
+ * The structured main-process logger. Mirrors its calls to the
  * matching `console.*` method (so dev-mode terminal output is unchanged)
  * AND appends a structured line to `electron-main.log`.
  *
@@ -376,6 +473,18 @@ export const logger: {
 		// it would push WARN/ERROR out of the 5 MB window too
 		// fast. Skip the file write; the console call above is a
 		// no-op in packaged builds (no terminal attached).
+		//
+		// Opt-in INFO persistence. When
+		// `VOICE_TYPER_ELECTRON_INFO_LOG=1` is set (support /
+		// enterprise deployments), route INFO through a dedicated
+		// `electron-lifecycle.log` so support staff can correlate
+		// startup milestones (TCP connect, Python spawned, window
+		// created, bubble shown) with crash logs. Default-off
+		// preserves the disk-space-conservative behavior for the
+		// 99% case.
+		if (PERSIST_INFO) {
+			appendLifecycleLine("info", msg, args);
+		}
 	},
 	warn(msg: string, ...args: unknown[]): void {
 		console.warn(msg, ...args);
@@ -388,7 +497,7 @@ export const logger: {
 };
 
 // ────────────────────────────────────────────────────────────────────
-// PVT-G5-080 / PVT-G5-082 (session-5): structured `log` + persistent runtime log
+// Structured `log` + persistent runtime log
 // ────────────────────────────────────────────────────────────────────
 
 /**
@@ -544,10 +653,10 @@ function writeStdout(
 }
 
 /**
- * PVT-G5-082: persistent runtime log file writer. Appends WARN/ERROR
+ * Persistent runtime log file writer. Appends WARN/ERROR
  * lines to `<userData>/electron-runtime.log` with 5 MiB rotation via
  * the existing {@link rotateIfNeeded} helper. INFO lines are NOT
- * written to file (avoid bloat per PVT-G5-082 sub-finding — routine
+ * written to file (avoid bloat — routine
  * lifecycle events would drown the signal in a long-running session).
  *
  * Best-effort: if the file path cannot be resolved (e.g. Electron is
@@ -560,8 +669,12 @@ function writeStdout(
  * `log.error`) so unit tests can exercise the file-tee path directly
  * via `_setRuntimeLogPathForTest` without going through the stdout
  * path.
+ *
+ * Internal-constants cleanup: dropped `export` — verified zero external importers (only
+ * `log.warn` / `log.error` below use it; tests exercise the file-tee
+ * path via `_getRuntimeLogPathForTest` / `_resetRuntimeLogPathForTest`).
  */
-export const mainRuntimeLogger = {
+const mainRuntimeLogger = {
 	write(level: "WARN" | "ERROR", args: unknown[]): void {
 		const logPath = getRuntimeLogPath();
 		if (!logPath) return;
@@ -581,7 +694,7 @@ export const mainRuntimeLogger = {
 };
 
 /**
- * PVT-G5-080: tiny structured logger for the Electron main process.
+ * Tiny structured logger for the Electron main process.
  *
  * Routes lifecycle events through three semantic levels instead of the
  * previous "everything is `console.warn`" pattern, which made real
@@ -589,7 +702,7 @@ export const mainRuntimeLogger = {
  *
  *   - `log.info(...)`  — routine lifecycle (connected, spawned, exited
  *                         normally). Stdout only — NOT written to file
- *                         to avoid bloat per PVT-G5-082.
+ *                         to avoid bloat.
  *   - `log.warn(...)`  — unexpected but non-fatal. Stdout + file.
  *   - `log.error(...)` — failures. Stdout + file.
  *
@@ -612,7 +725,19 @@ export const mainRuntimeLogger = {
 export const log: LogShape = {
 	info(...args: unknown[]): void {
 		writeStdout("INFO", INFO_CLR, args);
-		// PVT-G5-082: INFO not written to file (avoid bloat).
+		// INFO not written to file (avoid bloat).
+		//
+		// Opt-in INFO persistence — mirror `logger.info`'s
+		// `PERSIST_INFO` branch. The printf-style `log.info` is the
+		// primary logger used by `bubble-window.ts`, `relaunch-app.ts`,
+		// and the bootstrap crash path, so supporting the opt-in here
+		// is just as important as on `logger.info`. Coerces args to
+		// strings via `String(...)` (matching `formatArgsForFile`'s
+		// non-Error fallback) — rich object formatting would change
+		// the existing stdout behavior, so we keep it lossy here.
+		if (PERSIST_INFO) {
+			appendLifecycleLine("info", args.map((a) => String(a)).join(" "), []);
+		}
 	},
 	warn(...args: unknown[]): void {
 		writeStdout("WARN", WARN_CLR, args);

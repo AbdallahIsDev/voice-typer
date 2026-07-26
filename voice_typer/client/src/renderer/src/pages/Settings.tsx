@@ -30,6 +30,10 @@ import { useSnackbar } from "@/hooks/useSnackbar";
 import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
+import {
+	tabPageHeaderClassName,
+	tabPageIndicatorClassName,
+} from "./_tabBarStyles";
 
 const LS_KEY = "voice-typer-settings-tab";
 
@@ -94,7 +98,7 @@ export default function SettingsPage() {
 	});
 	const prevTabRef = useRef(activeTab);
 
-	// PVT-029: label-based search auto-switch. Score each tab by counting
+	// label-based search auto-switch. Score each tab by counting
 	// label matches and switch to the highest-scoring one. Requires
 	// q.length >= 2 to avoid jarring switches as the user types.
 	//
@@ -298,7 +302,12 @@ export default function SettingsPage() {
 			{/* Sticky header: tabs + search (Fix #3 — SearchField
 				moved inside the sticky header below the tab bar
 				so it stays visible while scrolling settings). */}
-			<div className="sticky top-0 left-0 right-0 z-40 bg-(--bg-subtle) border-b border-border">
+			{/* : use the shared tabPageHeaderClassName /
+				tabPageIndicatorClassName from pages/_tabBarStyles so
+				Settings and Models render visually identical sticky
+				tab bars (same z-index, same wrapper bg + border, same
+				indicator style). */}
+			<div className={tabPageHeaderClassName}>
 				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
 					<SegmentedControl<SettingsTab>
 						variant="tabs"
@@ -311,7 +320,7 @@ export default function SettingsPage() {
 						value={activeTab}
 						onChange={handleTabChange}
 						ariaLabel={t("settings.tabsAria")}
-						indicatorClassName="bg-input/50"
+						indicatorClassName={tabPageIndicatorClassName}
 						labelClassName="flex-1 text-center"
 						className="w-full"
 						getTabId={(v: SettingsTab) => `tab-${v}`}

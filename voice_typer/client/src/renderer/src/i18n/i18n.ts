@@ -66,6 +66,34 @@ export function getLocaleLabel(locale: Locale): string {
 	return LOCALE_LABELS[locale] ?? locale;
 }
 
+/**
+ * NH-4: build a dictionary of tray-menu label keys → localized strings
+ * for the current locale. Keys whose translation resolves to the raw key
+ * itself (meaning the key is missing from both the current locale and
+ * English) are excluded so the backend keeps its English defaults.
+ *
+ * The returned object is sent to the Python sidecar via
+ * ``window.python.call({type: "set_tray_locale", data: {locale, labels}})``
+ * so tray-menu items localise without a backend restart.
+ */
+export function trayLabelsForLocale(): Record<string, string> {
+	const labels: Record<string, string> = {};
+	const entries: [string, string][] = [
+		["models", "models.title"],
+		["microphones", "microphone.microphone"],
+	];
+	for (const [key, labelKey] of entries) {
+		const value = t(labelKey);
+		// Skip entries where the translation equals the raw key —
+		// the key is missing from both the current locale and
+		// English, so the backend should keep its default.
+		if (value !== labelKey) {
+			labels[key] = value;
+		}
+	}
+	return labels;
+}
+
 // PVT-083: detect the user's preferred browser/OS language and match it
 // against SUPPORTED_LOCALES. Returns the matched locale or "en" as the
 // fallback. Used only on first run (when no locale is saved in

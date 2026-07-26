@@ -443,16 +443,13 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 		await expectNoAxeViolations(container);
 	});
 
-	it.fails("Models page (stub lifecycle): no axe violations", async () => {
-		// PVT-046: known violation — the consent banner renders an
-		// `<h3>` "HuggingFace download consent required" without a
-		// preceding `<h1>` or `<h2>`, triggering axe's heading-order
-		// rule.  The fix (promote the consent heading to `<h2>` or
-		// insert a section `<h2>` before it) is owned by agent 6
-		// (Models.tsx is in agent 6's file scope).  Marked `it.fails`
-		// so the test exists as a regression spec without breaking
-		// validation; flip back to `it` once the heading-order fix
-		// lands.
+	it("Models page (stub lifecycle): no axe violations", async () => {
+		// NH-27 (session NH): the consent banner heading was promoted
+		// from <h3> to <h2> in components/models/LocalModelsPanel.tsx,
+		// so the heading hierarchy is now h1 (PageHeading) → h2
+		// (consent banner) — no more axe heading-order violation.
+		// Flipped back from `it.fails` to `it` so this acts as a
+		// regression spec.
 		const ModelsPage = (await import("@/pages/Models")).default;
 		const { container } = render(<ModelsPage />);
 		await expectNoAxeViolations(container);
