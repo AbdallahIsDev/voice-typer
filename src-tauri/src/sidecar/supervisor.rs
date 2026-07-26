@@ -2,6 +2,8 @@
 //! Previously named `supervisor.rs` — the old name was an opaque internal task ID.
 
 use crate::state::SidecarState;
+#[cfg(all(test, target_os = "linux"))]
+use crate::state::SidecarHandle;
 // G4-H-27 (session 4): poison-safe Mutex helper. Replacing
 // `state.X.lock().unwrap()` with `mutex_lock(&state.X)` so a poisoned
 // mutex (a prior panic while holding the lock) doesn't re-panic and
@@ -482,7 +484,7 @@ pub(crate) fn bubble_coalesce_should_emit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{SidecarHandle, SidecarState};
+    use crate::state::SidecarState;
     use crate::util::BUBBLE_LEVEL_COALESCE_HZ;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -791,6 +793,7 @@ mod tests {
 
     /// Spawn a long-running dummy process (sleep 30) as a dev-mode
     /// `SidecarHandle`. Returns the handle + its PID.
+    #[cfg(all(test, target_os = "linux"))]
     fn spawn_dummy_sidecar() -> (SidecarHandle, u32) {
         let mut cmd = tokio::process::Command::new("sleep");
         cmd.arg("30");
