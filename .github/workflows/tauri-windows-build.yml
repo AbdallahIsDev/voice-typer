@@ -113,7 +113,14 @@ jobs:
     # before the Tauri build step. See scripts/gen_tauri_icons_stub.py.
     if: true
     runs-on: windows-2022
-    timeout-minutes: 90
+    # Nuitka + Scons + cl.exe compilation of the Python backend,
+    # prewarm, and Tauri build takes 90-110 min on a windows-2022
+    # runner. Increased from 90 to 120 in 2026-07-27 to accommodate
+    # the full compile + code-sign + upload sequence. If the Nuitka
+    # C compilation stage (Scons with cl.exe) consistently exceeds
+    # 110 min, consider adding --nofollow-import-to exclusions for
+    # scipy/pytest/PIL or enabling Nuitka's ccache (see cache step).
+    timeout-minutes: 120
     permissions:
       contents: read
       id-token: write   # required for actions/attest-build-provenance
@@ -163,6 +170,20 @@ jobs:
           key: tauri-windows-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             tauri-windows-${{ runner.os }}-
+
+      # Nuitka ccache: persist compiled C objects between builds.
+      # Nuitka's C compilation (Scons + cl.exe) is the slowest step
+      # (60-90 min). Caching the nuitka-cache directory means only
+      # changed Python modules get recompiled on subsequent runs.
+      # The key includes a hash of pyproject.toml + requirements-lock.txt
+      # so dependency bumps invalidate the cache.
+      - name: Cache Nuitka build artifacts (ccache)
+        uses: actions/cache@v5
+        with:
+          path: C:\Users\runner\AppData\Local\nuitka\cache
+          key: tauri-windows-nuitka-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'requirements-lock.txt') }}
+          restore-keys: |
+            tauri-windows-nuitka-${{ runner.os }}-
 
       - name: Set up Node.js 20
         uses: actions/setup-node@v7
@@ -258,6 +279,10 @@ jobs:
               --nofollow-import-to=scipy._lib.array_api_extra.testing `
               --nofollow-import-to=sympy `
               --nofollow-import-to=mpmath `
+              --nofollow-import-to=pytest `
+              --nofollow-import-to=PIL.ImageQt `
+              --nofollow-import-to=numpy.distutils `
+              --nofollow-import-to=numpy.f2py `
               --include-package=faster_whisper `
               --include-package=ctranslate2 `
               --include-package=voice_typer `
@@ -301,6 +326,10 @@ jobs:
               --nofollow-import-to=scipy._lib.array_api_extra.testing `
               --nofollow-import-to=sympy `
               --nofollow-import-to=mpmath `
+              --nofollow-import-to=pytest `
+              --nofollow-import-to=PIL.ImageQt `
+              --nofollow-import-to=numpy.distutils `
+              --nofollow-import-to=numpy.f2py `
               --include-package=faster_whisper `
               --include-package=ctranslate2 `
               --include-package=voice_typer `
