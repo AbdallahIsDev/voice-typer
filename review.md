@@ -58,25 +58,7 @@ plus the base repo's pre-existing comprehensive review.
 
 ---
 
-#### ARCH-5 — `service.py` (2,116 lines): 66-method facade
-- **Severity**: Medium
-- **Status**: ❌ Not Fixed — too large (~1-day refactor) — service.py 2116-line 66-method facade; prior Won't Fix decision per review.md
-- **Description**: `VoiceTyperService` exposes 66 total methods (1 `__init__` + 65 public). 21 pure delegation, 44 with real logic. 16 section comment headers span 8 domains (history, model, onboarding, microphone_test, vocabulary, template, status, dictation).
-- **Investigation**: VERIFIED. `inspect.getsource(VoiceTyperService.apply_config)` follows `__func__` to defining module — works through mixin inheritance. `hasattr(VoiceTyperService, "test_llm_connection")` works via MRO. Only 6 source-file-read assertions need updating.
-- **Mixin approach is safe**: No monkeypatch-by-path blockers unlike ARCH-2/4. Re-exports in `__init__.py` will preserve all 65 public names.
-- **Recommended fix**: Split into `voice_typer/server/service/{history,model,onboarding,microphone_test,vocabulary,template,status,dictation}.py` mixins or sub-services. Preserve public method names via re-export or delegation shim.
-- **Effort**: 🟡 **MEDIUM** — Lower risk than other splits. ~4-5 hours.
-- **Confidence for one-shot fix**: 75% — mixin approach is safe; only 6 assertions need updating.
-
-#### ARCH-8 — `_open_config_file` extraction blocker (source-string tests)
-- **Severity**: Medium
-- **Status**: ❌ Not Fixed — blocked on test porting — 30+ test patches use _recording_pkg.X indirection; migrating to direct submodule patches exceeds 10-min ceiling
-- **Description**: `VoiceTyperApp._open_config_file` (104 LOC) is the only remaining "fat" method on `VoiceTyperApp`. Extraction blocked by 6 `inspect.getsource` tests in `tests/test_b4_config_editor_lock.py` and `tests/regressions/concurrency_test.py` that pin literal source text.
-- **Recommended fix**: Port these 6 source-string tests to behavioral tests (RW-8 pattern), then extract `ConfigEditorLauncher`. ~1-day effort.
-- **Effort**: 🟡 **MEDIUM** — The source-string porting is the tricky part. Must carefully preserve test behavior. The `_open_config_file` method is only 104 LOC and relatively self-contained. ~1 day.
-- **Confidence for one-shot fix**: 80% — self-contained but source-string tests add friction.
-
-#### ARCH-9 — `app.py` test-seam re-exports (173 monkeypatch sites)
+### ARCH-9 — `app.py` test-seam re-exports (173 monkeypatch sites)
 - **Severity**: Low
 - **Status**: ❌ Not Fixed — too large for 10-min sub-agent ceiling (multi-hour/day refactor) — app.py re-exports ~27 symbols from sibling modules; 199 monkeypatch.setattr sites span all test files. Migrating each call site touches 65+ files at high risk of breaking tests (~1 day refactor)
 - **Description**: `app.py` re-exports 20 symbols from sibling modules so tests can monkeypatch `voice_typer.server.app.X`. 173 monkeypatch sites depend on these re-exports.
@@ -84,7 +66,7 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **HIGH** — 72+ import sites across 65+ files, ~20 re-exported symbols. Every monkeypatch site must be migrated one-by-one. High risk of breaking tests. Cannot do in one shot confidently. ~1 day.
 - **Confidence for one-shot fix**: 50% — wide surface area, many tests.
 
-#### ARCH-12 — 164 `inspect.getsource` source-string tests across the codebase
+### ARCH-12 — 164 `inspect.getsource` source-string tests across the codebase
 - **Severity**: Low
 - **Status**: ❌ Not Fixed — out of scope (codebase-wide architectural concern about source-string tests; no single file locus)
 - **Description**: 164+ source-string tests pin implementation structure (variable names, call-site spellings, call counts) rather than behavior. Make refactoring expensive.
@@ -92,9 +74,7 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **EXTRA HIGH** — 164+ calls across 30+ test files. Not a discrete task — it's a project-wide migration. Chip away individually when touching pinned code. Cannot be done in one shot.
 - **Confidence for one-shot fix**: 20% — cannot complete in one shot.
 
-## Cross-Platform (all Pending)
-
-#### XPLAT-12 — Windows-on-ARM scaffolded but unvalidated
+### XPLAT-12 — Windows-on-ARM scaffolded but unvalidated
 - **Severity**: Low
 - **Status**: ❌ Not Fixed — VALIDATE-ON-WINDOWS-HOST: Windows-on-ARM host validation required — Nuitka cross-compile + aarch64 freeze must be tested on real Windows ARM hardware
 - **Description**: Code path is complete but `windows-11-arm` runner not yet GHA-available.
@@ -102,7 +82,7 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **HIGH** — Requires Windows-on-ARM runner access not available in this sandbox. Cannot complete.
 - **Confidence for one-shot fix**: 10% — blocked by runner availability.
 
-#### XPLAT-19 — [Partial] ADR §6.3 Win32 focus-restore now compiles
+### XPLAT-19 — [Partial] ADR §6.3 Win32 focus-restore now compiles
 - **Severity**: High
 - **Status**: ❌ Not Fixed — VALIDATE-ON-WINDOWS-HOST: launch elevated Notepad on real Windows host, dictate via Voice Typer, confirm focus returns to Notepad (Win32 focus-restore runtime validation). Code path compiles per cargo check baseline.
 - **Description**: The Win32 focus-restore path (`src-tauri/src/commands/sidecar_cmds.rs`) now compiles (verified via `cargo check` EXIT:0 on win32 GNU target). Remaining work: real Windows host smoke test.
@@ -112,9 +92,7 @@ plus the base repo's pre-existing comprehensive review.
 
 ---
 
-## Test Infrastructure (all Pending)
-
-#### TEST-2 — 99 `time.sleep` calls across 28 test files (flakiness-prone)
+### TEST-2 — 99 `time.sleep` calls across 28 test files (flakiness-prone)
 - **Severity**: Medium
 - **Status**: ❌ Not Fixed — out of scope (codebase-wide test-flakiness refactor across 28 test files owned by multiple agents)
 - **Description**: 127+ `time.sleep(...)` calls across 28+ test files act as fixed-delay synchronization, which is flaky on loaded CI runners.
@@ -123,7 +101,7 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **HIGH** — 127+ sleep calls across 28+ files. Each one needs individual analysis to determine the correct replacement (event.wait, polling predicate, etc.). ~2 days.
 - **Confidence for one-shot fix**: 30% — cannot do all in one shot; chip away file-by-file.
 
-#### TEST-5 — 12 modules >650 LOC with no dedicated test file
+### TEST-5 — 12 modules >650 LOC with no dedicated test file
 - **Severity**: Low
 - **Status**: ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
 - **Description**: 12 source modules over 650 LOC have no matching `tests/*` file.
@@ -136,8 +114,6 @@ plus the base repo's pre-existing comprehensive review.
 **Bottom line for the next agent:** Do NOT trust "all green on Linux" as proof of cross-platform cutover.
 
 ---
-
-## Backend / IPC
 
 ### S1-CR-33 — ~154 failing vitest tests across 35 client files — real UI regressions (WORSENED)
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -817,30 +793,6 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 - **Confidence**: High
 - **Source**: R7
 
-### S2-CR-42 — API.md has 8+ stale method signatures
-- **Severity**: High
-- **Status**: ✅ Fixed (verified on Linux sandbox; Windows/macOS host validation pending)
-- **Category**: Documentation
-- **Location**: `docs/API.md:23, 26, 33-35, 41, 51, 53, 59-61, 75, 93, 184, 195`
-- **Evidence**: Multiple wrong signatures: `run()` method on VoiceTyperApp (doesn't exist), `restart()` (actual: `restart_app()`), `start(device_index)` (actual: `start(self)`), `cancel()` on Recorder (doesn't exist), `transcribe(audio, sample_rate)` (actual: `transcribe(self, audio, audio_stats=None)`), `get(key, default)`/`set(key, value)` on Config (don't exist; access is via attribute), `unload_all()` on ModelManager (doesn't exist).
-- **Root cause**: API.md written against older version, not maintained through refactors.
-- **Impact**: Contributors writing external integrations get ImportError/AttributeError. CI test only checks config defaults, not signatures.
-- **Proposed fix**: Audit every method signature against current source. Either update each signature, or add `tests/test_api_doc_signatures.py` that uses `inspect.signature()` to assert every documented method matches. Given 8+ stale entries, full rewrite warranted.
-- **Confidence**: High
-- **Source**: R7
-
-### S2-CR-43 — ARCHITECTURE.md line counts are wildly stale (claims 2,205 / 1,866 LOC, actual 310 / 234)
-- **Severity**: High
-- **Status**: ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Documentation
-- **Location**: `docs/ARCHITECTURE.md:57, 65`
-- **Evidence**: Line 57: "Electron main process | `voice_typer/client/src/main/index.ts` (2,205 lines)". Line 65: "Rust host | `src-tauri/src/main.rs` (1,866 lines)". Actual: index.ts is 310 lines, main.rs is 234 lines.
-- **Root cause**: Numbers not updated after extraction to submodules.
-- **Impact**: Architecture discussions referencing "the 2,205-line main process" are based on fiction. Refactoring decisions justified by file size look misguided.
-- **Proposed fix**: Update line 57 to "310 lines" and line 65 to "234 lines" (or remove line counts entirely).
-- **Confidence**: High
-- **Source**: R7
-
 ### S2-CR-46 — `_send_ctrl_v_win32` returns None, caller treats as bool — every Windows paste logs spurious "failed" warning
 - **Severity**: High
 - **Status**: ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -910,18 +862,6 @@ These are documented for completeness but may be deferred with a `Won't Fix` rat
 - **Root cause**: String literals hardcoded in source; no `t()` calls.
 - **Impact**: Non-English users (Arabic primary audience + de/es/fr/hi/ru/zh) see English error messages when picking invalid hotkey.
 - **Proposed fix**: Add `hotkeyValidation.*` keys to all 8 locale files. Replace each hardcoded `reason: "..."` with `reason: t("hotkeyValidation.empty")`. Update HotkeyPicker-a11y.test.tsx assertions.
-- **Confidence**: High
-- **Source**: R5
-
-### S2-CR-55 — App.tsx has 7 hardcoded English strings (visible during 30-60s startup)
-- **Severity**: High
-- **Status**: ✅ Fixed (verified via Task Verification Gate this run)
-- **Category**: Localization / i18n
-- **Location**: `voice_typer/client/src/renderer/src/App.tsx:530-531, 538, 543, 452, 455, 338, 323`
-- **Evidence**: Hardcoded English strings: `"✓ Starting Python"`, `"Loading model"`, `"③ Ready"`, `"Page not found"`, `"Unknown page: {String(currentPage)}"`, `label: "Copy path"` (toast action), default fallback message `"Transcription complete, but the clipboard was unavailable..."`.
-- **Root cause**: Literal English strings; not wrapped in `t()`.
-- **Impact**: 3-step connecting indicator is FIRST thing every user sees on cold start — non-English users see English for entire 30-60s startup window.
-- **Proposed fix**: Add `app.connecting.startingPython/loadingModel/ready`, `app.pageNotFound`, `app.unknownPage`, `pasteFailed.copyPath`, `pasteFailed.defaultMessage` keys to all 8 locale files. Replace literals with `t(...)`.
 - **Confidence**: High
 - **Source**: R5
 
