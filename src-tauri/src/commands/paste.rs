@@ -567,8 +567,6 @@ mod tests {
     // branches (which would silently leave the transcribed text on
     // the clipboard forever when the original was non-text).
 
-    use super::*;
-
     /// Mirror of the private decision logic inside `restore_clipboard`.
     /// Kept in sync by hand — if `restore_clipboard`'s match arms
     /// change, update this enum + test together. The test asserts the

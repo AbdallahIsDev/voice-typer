@@ -1130,7 +1130,8 @@ mod tests {
         assert!(state.heartbeat_handle.lock().await.is_some());
 
         // Cleanup.
-        if let Some(h) = state.heartbeat_handle.lock().await.take() {
+        let mut guard = state.heartbeat_handle.lock().await;
+        if let Some(h) = guard.take() {
             h.abort();
         }
     }

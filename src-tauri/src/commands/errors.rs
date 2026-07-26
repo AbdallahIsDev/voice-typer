@@ -35,6 +35,7 @@ use thiserror::Error;
 /// The structured error type for Voice Typer Tauri commands.
 ///
 /// See the module-level docstring for the migration plan + rationale.
+#[allow(dead_code)]
 #[derive(Debug, Error, serde::Serialize)]
 #[serde(tag = "kind", content = "message")]
 pub enum VoiceTyperError {

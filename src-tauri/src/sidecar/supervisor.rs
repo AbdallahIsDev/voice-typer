@@ -482,7 +482,7 @@ pub(crate) fn bubble_coalesce_should_emit(
 #[cfg(test)]
 mod tests {
     use super::*;
-use crate::state::SidecarState;
+    use crate::state::{SidecarHandle, SidecarState};
     use crate::util::BUBBLE_LEVEL_COALESCE_HZ;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
