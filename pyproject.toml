@@ -144,21 +144,12 @@ dependencies = [
     # macOS gets a working tray out of the box.
     "pyobjc-framework-Cocoa>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
     "pyobjc-framework-Cocoa>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
-    # microphone_watcher_coreaudio.py imports CFRunLoopRun / CFRunLoopStop
-    # / CFRunLoopGetCurrent from CoreFoundation for the event-driven
-    # CoreAudio device-list listener. pyobjc-framework-CoreAudio declares
-    # the CoreAudio symbols but NOT the CoreFoundation symbols — they
-    # ship in a separate framework binding. Without this dep, the watcher
-    # raises ImportError at start() on a fresh `pip install voice-typer`
-    # on macOS and the recorder silently falls back to 1 Hz polling
-    # (recording.py's 30 s TTL cache remains the ultimate backstop, but
-    # device hot-plug events are delayed by up to 1 s instead of being
-    # instant). The ImportError message at microphone_watcher_coreaudio
-    # .py:103-106 literally tells users to `pip install pyobjc-framework
-    # -CoreFoundation` — but it was missing from both the main deps and
-    # the [macos] extra.
-    "pyobjc-framework-CoreFoundation>=9.0; sys_platform == 'darwin' and python_version < '3.12'",
-    "pyobjc-framework-CoreFoundation>=11.0; sys_platform == 'darwin' and python_version >= '3.12'",
+    # CoreFoundation symbols (CFRunLoopRun / CFRunLoopStop / CFRunLoopGetCurrent)
+    # are used by microphone_watcher_coreaudio.py for the event-driven
+    # CoreAudio device-list listener. These symbols ship inside
+    # pyobjc-core, not as a separate pyobjc-framework-CoreFoundation
+    # package. pyobjc-core is already declared above.
+
     # permissions.py:734 imports AXIsProcessTrustedWithOptions from
     # ApplicationServices for the pre-flight accessibility-trust probe.
     # Without this dep, the try/except ImportError at permissions.py
@@ -239,9 +230,11 @@ windows = [
 # macOS volume ducking — kept as alias for explicit pip install .[macos]
 # Mirrors the macOS pyobjc deps declared in [project].dependencies above
 # (pyobjc-core, pyobjc-framework-CoreAudio, pyobjc-framework-Cocoa,
-# pyobjc-framework-CoreFoundation, pyobjc-framework-ApplicationServices).
-# CoreFoundation is needed by microphone_watcher_coreaudio.py's CFRunLoop;
-# ApplicationServices is needed by permissions.py's AXIsProcessTrustedWithOptions.
+# pyobjc-framework-CoreFoundation, pyobjc-framework-ApplicationServices).    # CoreFoundation is needed by microphone_watcher_coreaudio.py's CFRunLoop.
+    # The CoreFoundation symbols ship inside pyobjc-core, NOT as a separate
+    # pyobjc-framework-CoreFoundation package (that package does not exist).
+    # pyobjc-core is already declared in the macos extra above.
+    # ApplicationServices is needed by permissions.py's AXIsProcessTrustedWithOptions.
 macos = [
     "pyobjc-core>=9.0; python_version < '3.12'",
     "pyobjc-core>=11.0; python_version >= '3.12'",
@@ -249,8 +242,6 @@ macos = [
     "pyobjc-framework-CoreAudio>=11.0; python_version >= '3.12'",
     "pyobjc-framework-Cocoa>=9.0; python_version < '3.12'",
     "pyobjc-framework-Cocoa>=11.0; python_version >= '3.12'",
-    "pyobjc-framework-CoreFoundation>=9.0; python_version < '3.12'",
-    "pyobjc-framework-CoreFoundation>=11.0; python_version >= '3.12'",
     "pyobjc-framework-ApplicationServices>=9.0; python_version < '3.12'",
     "pyobjc-framework-ApplicationServices>=11.0; python_version >= '3.12'",
 ]
