@@ -554,7 +554,7 @@ describe("XV-157: stopPython idempotency guard", () => {
 		expect(mockState._stopPythonCalled).toBe(true);
 	});
 
-	// XZ-14: after the killTimer fires (3s grace period elapses
+	// XZ-14: after the killTimer fires (the guard-specified delay
 	// without a graceful Python exit), the guard transitions
 	// isStopping → isStopped. A subsequent stopPython() call must
 	// still be a no-op (the `isStopped` branch of the guard).
