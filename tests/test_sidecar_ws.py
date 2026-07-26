@@ -563,10 +563,10 @@ async def test_auth_handshake_still_works_with_graceful_shutdown_installed(
 
     dispatch = MagicMock()
 
-        # Cleanup exceptions from the writer task teardown are
-        # acceptable — we only care that no auth_failed frame was sent.
-        with contextlib.suppress(Exception):
-            await sidecar_ws._handle_connection(ws, server, dispatch)
+    # Cleanup exceptions from the writer task teardown are
+    # acceptable — we only care that no auth_failed frame was sent.
+    with contextlib.suppress(Exception):
+        await sidecar_ws._handle_connection(ws, server, dispatch)
 
     # No auth_failed frame should have been sent on a successful auth.
     auth_failed_frames = [f for f in sent_frames if "auth_failed" in f]

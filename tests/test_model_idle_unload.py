@@ -30,6 +30,7 @@ report.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
@@ -230,12 +231,10 @@ class TestCancelIdleUnloadTimer:
         # actually load anything.
         mm._change_model_load_phase = MagicMock()
         mm._change_model_unload_phase = MagicMock()
-        try:
+        # change_model may do more than we've mocked; the
+        # important assertion is that the timer was cancelled.
+        with contextlib.suppress(Exception):
             mm.change_model("parakeet")
-        except Exception:
-            # change_model may do more than we've mocked; the
-            # important assertion is that the timer was cancelled.
-            pass
         assert mm._idle_unload_timer is None, (
             "TY-11: change_model must cancel the idle-unload timer "
             "before starting the unload/reload cycle."
@@ -265,10 +264,8 @@ class TestCancelIdleUnloadTimer:
         mm._sync_registry_from_fields = MagicMock()
         # load_active returns truthy → success path.
         mm._registry.load_active.return_value = engine
-        try:
+        with contextlib.suppress(Exception):
             mm.set_active_backend("parakeet")
-        except Exception:
-            pass
         # The OLD timer must NO LONGER be the current one — either
         # cancelled (None) or replaced by a new Timer. Both prove the
         # cancel ran.
