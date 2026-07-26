@@ -35,6 +35,14 @@ from collections.abc import Callable
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.tray_hotkey import format_hotkey_label
 
+# DT-FIX-9 / DT-27: tray-scoped menu builders (build_menu_for_tray,
+# build_microphones_submenu, build_models_submenu, invalidate_menu_cache,
+# maybe_publish_tray_menu) need the i18n ``_`` function to localize
+# labels. Imported here (not inlined) so the same locale state is
+# shared with tray.py's re-export — ``set_tray_locale`` mutates the
+# module-level locale in tray_i18n and both modules see the update.
+from voice_typer.server.tray_i18n import _
+
 pystray = lazy_module("pystray")
 
 log = logging.getLogger("voice_typer.server.tray_menu")
@@ -415,3 +423,309 @@ def publish_tray_state(
         return False
     event_bus.publish({"type": "tray_state", "data": payload})
     return True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DT-FIX-9 / DT-27 (Phase 4.5 spaghetti split): tray-scoped menu builders.
+#
+# These functions were previously inlined on the ``TrayIcon`` class
+# (``_build_menu``, ``_build_microphones_submenu``, ``_build_models_submenu``,
+# ``invalidate_menu_cache``, ``_maybe_publish_tray_menu``). They are
+# extracted here as module-level functions that take a ``tray`` parameter
+# (the ``TrayIcon`` instance) so the menu-building concern is colocated
+# with the existing :func:`build_menu` / :func:`build_tray_menu_model`
+# / :func:`publish_tray_menu` helpers.
+#
+# The ``TrayIcon`` class keeps one-line delegate methods for each so:
+#   - tests that do ``monkeypatch.setattr("voice_typer.server.tray.TrayIcon.X", ...)``
+#     still work (the symbol remains on the class).
+#   - source-grep tests that scan ``tray.py`` for the method signatures
+#     (e.g. ``tests/tauri/mig19/test_tray_menu.py::test_tray_py_build_models_submenu_method_present``)
+#     still pass — the delegate keeps the exact signature.
+#
+# The lambdas captured by :func:`build_menu_for_tray` consult
+# ``tray._open_page`` / ``tray.open_electron_window`` / etc. via
+# attribute lookup at CALL TIME (not at capture time), so tests that
+# do ``monkeypatch.setattr(tray, "_open_page", fake)`` before invoking
+# the menu callback keep working.
+# -----------------------------------------------------------------------------
+
+
+def build_menu_for_tray(tray) -> tuple:
+    """Build the tray menu with Models + Microphones submenus and quick shortcuts.
+
+    DT-FIX-9 / DT-27: extracted from ``TrayIcon._build_menu`` (which
+    was a 117-line method). The body is unchanged — only the receiver
+    changed from ``self`` to the ``tray`` parameter.
+
+    Menu structure (UX-1/UX-2/UX-3/UX-33):
+      - Open App (default/bold when ``tray_left_click_action == "open_app"``)
+      - Toggle Dictation (default/bold when action == "toggle_dictation")
+      - Undo Last                                  (UX-1)
+      - Force Cancel Stuck Transcription           (UX-3, only when state == TRANSCRIBING)
+      - --- separator ---
+      - Models ▸
+      - Microphones ▸                              (UX-2)
+      - --- separator ---
+      - Settings...                                (UX-33)
+      - History...                                 (UX-33)
+      - Help...                                    (UX-33)
+      - --- separator ---
+      - Restart
+      - Quit
+
+    The menu is cached on the TrayIcon instance (``tray._cached_menu``)
+    and only rebuilt when ``tray._menu_cache_valid`` is False (set by
+    ``set_microphones`` / ``set_hotkey`` / ``refresh_config`` /
+    ``invalidate_menu_cache`` and on TRANSCRIBING state transitions
+    via ``set_state``).
+
+    About, Diagnostics, and Show Last Notification have been removed
+    from the tray menu (they remain available in the Electron app).
+    """
+    if tray._menu_cache_valid and tray._cached_menu is not None:
+        return tray._cached_menu
+
+    hotkey_str = tray._hotkey or getattr(tray._config, "hotkey", "<f2>") or "<f2>"
+    hotkey_label = display_hotkey(hotkey_str)
+    left_click = getattr(tray._config, "tray_left_click_action", "open_app") or "open_app"
+    dictation_default = left_click == "toggle_dictation"
+    open_app_default = left_click == "open_app"
+
+    items: list = []
+
+    # Open App (first; default/bold depends on left_click_action).
+    items.append(
+        pystray.MenuItem(
+            _("open_app"),
+            wrap_callback(tray.open_electron_window),
+            default=open_app_default,
+        )
+    )
+    # Toggle Dictation (with hotkey hint in the label).
+    items.append(
+        pystray.MenuItem(
+            f"{_('toggle_dictation')} ({hotkey_label})",
+            wrap_callback(tray._controller.toggle_dictation),
+            default=dictation_default,
+        )
+    )
+    # UX-1: Undo Last — surfaces the previously-unreachable undo_last IPC.
+    items.append(
+        pystray.MenuItem(
+            _("undo_last"),
+            wrap_callback(tray._controller.undo_last),
+        )
+    )
+    # UX-3: Force Cancel Stuck Transcription — only rendered while
+    # transcribing so the menu isn't cluttered when nothing is stuck.
+    # The lambda is created (closure over tray._controller.recording)
+    # but NOT invoked during menu building, so a mock controller
+    # without a ``recording`` attribute is safe.
+    # Uses the canonical ``force_cancel_transcription`` key (single
+    # canonical label across tray + renderer); the legacy
+    # ``force_cancel_stuck_transcription`` key was removed from
+    # ``tray_i18n.py``.
+    # STATE-IMPORT: tray._state is the canonical AppState enum from
+    # tray_types; compared by identity to AppState.TRANSCRIBING.
+    from voice_typer.server.tray_types import AppState
+
+    if tray._state == AppState.TRANSCRIBING:
+        items.append(
+            pystray.MenuItem(
+                _("force_cancel_transcription"),
+                wrap_callback(
+                    lambda: tray._controller.recording._force_recover_from_stuck_transcription(force=True)
+                ),
+            )
+        )
+
+    items.append(pystray.Menu.SEPARATOR)
+
+    # Models submenu — built by tray_models.build_models_menu_items
+    # (invoked via tray._build_models_submenu delegate).
+    models_sub = tray._build_models_submenu()
+    items.append(pystray.MenuItem(_("models"), pystray.Menu(*models_sub)))
+    # UX-2: Microphones submenu — mirrors the Models submenu.
+    mic_sub = tray._build_microphones_submenu()
+    items.append(pystray.MenuItem(_("microphones"), pystray.Menu(*mic_sub)))
+
+    items.append(pystray.Menu.SEPARATOR)
+
+    # UX-33: Settings / History / Help quick shortcuts. Each opens
+    # the Electron window on the corresponding route via tray._open_page
+    # (delegate to tray_window.open_page).
+    for label_key, path in (
+        ("settings", "/settings"),
+        ("history", "/history"),
+        ("help", "/about"),
+    ):
+        items.append(
+            pystray.MenuItem(
+                _(label_key),
+                wrap_callback(lambda p=path: tray._open_page(p)),
+            )
+        )
+
+    items.append(pystray.Menu.SEPARATOR)
+
+    # Restart + Quit.
+    items.append(pystray.MenuItem(_("restart"), wrap_callback(tray._controller.restart_app)))
+    items.append(pystray.MenuItem(_("quit"), wrap_callback(tray._confirm_quit_while_recording)))
+
+    result = tuple(items)
+    tray._cached_menu = result
+    tray._menu_cache_valid = True
+    return result
+
+
+def build_microphones_submenu(tray) -> list:
+    """Build the Microphones ▸ submenu (UX-2).
+
+    DT-FIX-9 / DT-27: extracted from ``TrayIcon._build_microphones_submenu``.
+
+    Renders one MenuItem per cached microphone (``tray._microphones``),
+    marking the active device (matching ``tray._config.microphone``)
+    with a ``• `` prefix. A trailing ``More microphones...`` item
+    opens the Settings page (where the user can pick a device or
+    refresh the list).
+
+    Returns an empty list only if ``tray._microphones`` is empty AND
+    the ``More microphones...`` shortcut is somehow suppressed — in
+    practice the shortcut is always appended so the submenu is never
+    empty (the user can always reach the Settings page).
+    """
+    active_mic_id = str(getattr(tray._config, "microphone", None) or "")
+    items: list = []
+    for mic in tray._microphones:
+        mic_id = str(mic.get("id", ""))
+        mic_name = str(mic.get("name", mic_id)) or mic_id
+        prefix = "• " if mic_id == active_mic_id else ""
+        # Default-arg capture so each iteration's mic_id is bound
+        # at lambda creation time (not lazily at call time).
+        items.append(
+            pystray.MenuItem(
+                f"{prefix}{mic_name}",
+                wrap_callback(lambda _id=mic_id: tray._controller.change_microphone(_id)),
+            )
+        )
+    if tray._microphones:
+        items.append(pystray.Menu.SEPARATOR)
+    items.append(
+        pystray.MenuItem(
+            _("more_microphones"),
+            wrap_callback(lambda: tray._open_page("/settings")),
+        )
+    )
+    return items
+
+
+def build_models_submenu(tray) -> list:
+    """Build a list of model MenuItems — only cached models + More models link.
+
+    DT-FIX-9 / DT-27: extracted from ``TrayIcon._build_models_submenu``.
+    Delegates to :func:`tray_models.build_models_menu_items` for the
+    actual item construction.
+
+    ARCH-037: previously the menu builder re-parsed config.json from
+    disk, which is stale under rapid config updates. We now pass the
+    in-memory Config object via a config_provider callable so the menu
+    always reflects the live state.
+    """
+    from voice_typer.server.config import _config_dir
+    from voice_typer.server.tray_models import build_models_menu_items
+
+    # ARCH-037: pass a config provider that returns the live Config
+    # instance, so the menu doesn't read stale config.json from disk.
+    config_provider = getattr(tray, "_config", None)
+    return build_models_menu_items(
+        _config_dir,
+        tray._controller.change_model,
+        wrap_callback,  # use the shared wrapper from tray_menu
+        tray._open_models_page,  # use models-page callback (opens + navigates)
+        config_provider=config_provider,
+    )
+
+
+def invalidate_menu_cache(tray) -> None:
+    """Mark the menu cache as stale so it rebuilds on next right-click.
+
+    DT-FIX-9 / DT-27: extracted from ``TrayIcon.invalidate_menu_cache``.
+
+    ARCH-049: on Windows, pystray's ``_on_notify`` displays the menu via
+    ``TrackPopupMenuEx`` with the STORED ``HMENU`` handle — it does NOT
+    re-call the ``_build_menu`` callback on subsequent right-clicks because
+    ``_update_menu()`` is only called during icon creation.  We must force
+    pystray to rebuild its Win32 menu handle by calling
+    ``_icon._update_menu()`` here, which triggers the ``_build_menu``
+    callback and reads the latest config values.
+
+    Thread safety: ``_update_menu()`` calls ``DestroyMenu`` /
+    ``CreatePopupMenu`` / ``InsertMenuItem`` — all Win32 API calls that
+    are thread-safe.  The old handle is destroyed and replaced atomically
+    (CPython GIL protects the tuple assignment).  A concurrent right-click
+    during the brief rebuild window simply shows the previous menu or
+    nothing — the user can right-click again.
+    """
+    tray._menu_cache_valid = False
+    # ARCH-049: force pystray to rebuild its Win32 menu handle so the
+    # next right-click reflects the current config state.
+    if tray._icon is not None:
+        try:
+            tray._icon._update_menu()
+        except Exception:
+            log.debug("[TRAY] _icon._update_menu() failed", exc_info=True)
+    # ADR-0020 §6.5: push serialized menu to Tauri sidecar host.
+    maybe_publish_tray_menu(tray)
+
+
+def maybe_publish_tray_menu(tray) -> bool:
+    """ADR-0020 §6.5 / §16: push the serialized tray menu to the Tauri
+    sidecar host (no-op on the Electron/pystray runtime).
+
+    DT-FIX-9 / DT-27: extracted from ``TrayIcon._maybe_publish_tray_menu``.
+
+    Builds the model via :func:`build_tray_menu_model` (using the same
+    controller callbacks as :func:`build_menu_for_tray`) and emits it
+    through :func:`publish_tray_menu`, which guards on ``TAURI_SIDECAR``.
+    Returns ``True`` if published.  Safe to call headless — never
+    touches pystray.
+
+    Note: under the Tauri runtime the pystray ``Icon`` is never created
+    (the native tray is owned by the Rust host), so ``tray._icon`` is
+    ``None``. The earlier ``if tray._icon is None: return False`` guard
+    therefore short-circuited EVERY publish under Tauri — the
+    ``tray_menu`` event never reached the Rust host and the tray menu
+    stayed frozen at the empty placeholder. The guard is now removed;
+    ``publish_tray_menu`` itself guards on ``TAURI_SIDECAR=1`` so the
+    Electron runtime (where ``_icon`` IS set) is unaffected — the
+    publish is a no-op there anyway.
+    """
+    controller = tray._controller
+    if controller is None:
+        return False
+
+    hotkey = tray._hotkey or getattr(tray._config, "hotkey", "<f2>") or "<f2>"
+    left_click = getattr(tray._config, "tray_left_click_action", "open_app") or "open_app"
+
+    model, _id_map = build_tray_menu_model(
+        hotkey=hotkey,
+        toggle_dictation=controller.toggle_dictation,
+        open_app=tray.open_electron_window,
+        repaste_last=getattr(controller, "repaste_last", lambda: None),
+        force_cancel_transcription=lambda: controller.recording._force_recover_from_stuck_transcription(force=True),
+        is_transcribing=lambda: (
+            getattr(tray._state, "name", "") == "TRANSCRIBING"
+            or getattr(tray._state, "value", "") == "TRANSCRIBING"
+        ),
+        restart_app=controller.restart_app,
+        quit_app=tray._confirm_quit_while_recording,
+        build_models_submenu=tray._build_models_submenu,
+        left_click_action=left_click,
+        microphones=getattr(controller, "_microphones", None),
+        active_mic_id=getattr(controller, "active_microphone_id", None),
+        on_select_mic=getattr(controller, "change_microphone", None),
+        on_refresh_mics=getattr(controller, "refresh_microphones", None),
+    )
+    tray._tray_id_map = _id_map
+    return publish_tray_menu(model)
