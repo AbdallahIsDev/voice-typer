@@ -334,7 +334,7 @@ function useAudioLevels(
 	}, []);
 
 	useEffect(() => {
-		const api = window.bubble;
+		const api = window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined;
 		if (!api) return;
 
 		// Asymmetric smoothing: fast attack, slower release.
@@ -423,7 +423,7 @@ export function useBubbleLifecycle(
 	useAudioLevels(dotRefs, isVisible);
 
 	useEffect(() => {
-		const api = window.bubble;
+		const api = window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined;
 		if (!api) return;
 		const offShow = api.onShow(() => setIsVisible(true));
 		const offHide = api.onHide(() => setIsVisible(false));
@@ -469,7 +469,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 	const [exitTick, setExitTick] = useState(0);
 
 	useEffect(() => {
-		const api = window.bubble;
+		const api = window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined;
 		if (!api) return;
 
 		const offShow = api.onShow(() => {
@@ -630,7 +630,7 @@ export function BubbleMicButton({
 	onClick,
 }: {
 	mode: BubbleMode;
-	onClick: (action: BubbleAction) => void;
+	onClick: () => void;
 }) {
 	const isRecording = mode === "recording";
 	const label = isRecording
@@ -699,7 +699,7 @@ export function BubbleMicButton({
 export function BubbleDismissButton({
 	onClick,
 }: {
-	onClick: (action: BubbleAction) => void;
+	onClick: () => void;
 }) {
 	const label = t("bubble.dismissAria");
 	return (

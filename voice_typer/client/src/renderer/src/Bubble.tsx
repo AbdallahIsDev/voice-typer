@@ -100,9 +100,9 @@ export function Bubble({ className: _className }: { className?: string }) {
 
 	// Sync `draggable` from the main process (Settings page toggle).
 	useEffect(() => {
-		const api = window.bubble;
+		const api = window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined;
 		if (!api) return;
-		const off = api.onDraggable((d) => setDraggable(d));
+		const off = api.onDraggable((d: boolean) => setDraggable(d));
 		return off;
 	}, []);
 
@@ -215,7 +215,7 @@ export function Bubble({ className: _className }: { className?: string }) {
 	const handleAnimEnd = useCallback(() => {
 		if (animState === "exit") {
 			setAnimState("");
-			window.bubble?.hideComplete?.();
+			(window.bubble as import("@/types/ipc").BubbleWindowBubble | undefined)?.hideComplete?.();
 		} else if (animState === "enter") {
 			setAnimState("");
 			const el = pillRef.current;
